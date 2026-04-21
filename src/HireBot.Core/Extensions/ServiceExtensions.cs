@@ -1,4 +1,5 @@
 using HireBot.Abstraction;
+using HireBot.Abstraction.Services.User;
 using HireBot.Core.Services;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +22,7 @@ public static class ServiceExtensions
         services.AddScoped<IHireBotRepository, HireBotRepository>();
 
         // 注册业务服务
-        services.AddScoped<UserService>();
+        services.AddScoped<IUserService, UserService>();
 
         return services;
     }

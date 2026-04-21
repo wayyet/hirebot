@@ -1,6 +1,6 @@
 using System;
 
-namespace HireBot.Abstraction.Models;
+namespace HireBot.Abstraction.Models.User;
 
 public class User
 {

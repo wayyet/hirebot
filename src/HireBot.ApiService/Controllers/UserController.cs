@@ -1,12 +1,13 @@
-using HireBot.Abstraction.Models;
-using HireBot.Core.Services;
+using HireBot.Abstraction;
+using HireBot.Abstraction.Models.User;
+using HireBot.Abstraction.Services.User;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HireBot.ApiService.Controllers;
 
 [Route("api/[controller]")]
 [ApiController]
-public sealed class UserController(UserService userService) : ControllerBase
+public sealed class UserController(IUserService userService) : ControllerBase
 {
     [HttpGet("{id}")]
     public async Task<IActionResult> GetUser(int id)

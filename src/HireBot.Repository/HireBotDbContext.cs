@@ -1,4 +1,4 @@
-using HireBot.Abstraction.Models;
+using HireBot.Abstraction.Models.User;
 using Microsoft.EntityFrameworkCore;
 
 namespace HireBot.Repository;

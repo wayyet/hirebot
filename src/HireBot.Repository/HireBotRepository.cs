@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace HireBot.Repository;
 
-public sealed class HireBotRepository(HireBotDbContext context) : IHireBotRepository
+public sealed partial class HireBotRepository(HireBotDbContext context) : IHireBotRepository
 {
     public async Task<T?> GetByIdAsync<T>(int id) where T : class
     {

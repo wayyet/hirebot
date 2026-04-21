@@ -1,9 +1,10 @@
 using HireBot.Abstraction;
-using HireBot.Abstraction.Models;
+using HireBot.Abstraction.Models.User;
+using HireBot.Abstraction.Services.User;
 
 namespace HireBot.Core.Services;
 
-public sealed class UserService(IHireBotRepository repository)
+public sealed class UserService(IHireBotRepository repository) : IUserService
 {
     public async Task<ApiResponse<UserDto>> GetUserByIdAsync(int id)
     {
