@@ -5,4 +5,6 @@ public sealed record HiringStatusDto(
     string SandboxId,
     string Status,
     string? ErrorCode,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    string? CollectionPhase,
+    string? CurrentStage);
