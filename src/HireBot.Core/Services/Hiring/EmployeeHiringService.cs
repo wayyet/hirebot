@@ -1,5 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -7,12 +9,15 @@ using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Hiring;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Hiring;
 
 public sealed class EmployeeHiringService(
     ITemplateDataProvider templateDataProvider,
+    IHttpClientFactory httpClientFactory,
+    IConfiguration configuration,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -33,6 +38,8 @@ public sealed class EmployeeHiringService(
         HiringAuditDecision.RollbackToStage,
         HiringAuditDecision.ForceOverride
     };
+
+    private const string KingCrabClientName = "KingCrabConsole";
 
     private readonly ConcurrentDictionary<string, State> states = new(StringComparer.OrdinalIgnoreCase);
 
@@ -60,16 +67,36 @@ public sealed class EmployeeHiringService(
 
         var hireId = $"hire_{Guid.NewGuid():N}";
         var sandboxId = $"sandbox_{Guid.NewGuid():N}";
+        Guid? kingCrabRecordId = null;
+        var useKingCrab = IsKingCrabEnabled();
+
+        if (useKingCrab)
+        {
+            var createResult = await TryCreateKingCrabSandboxAsync(cancellationToken);
+            if (!createResult.Success || string.IsNullOrWhiteSpace(createResult.SandboxId) || createResult.RecordId is null)
+            {
+                var message = string.IsNullOrWhiteSpace(createResult.ErrorMessage)
+                    ? "创建 KingCrab 沙箱失败"
+                    : createResult.ErrorMessage;
+                return ApiResponse<HireTemplateResultDto>.ErrorResponse(502, message);
+            }
+
+            sandboxId = createResult.SandboxId;
+            kingCrabRecordId = createResult.RecordId;
+        }
+
         states[hireId] = new State
         {
             HireId = hireId,
             SandboxId = sandboxId,
             Status = HiringStatus.CreatingSandbox,
             CollectionPhase = HiringCollectionPhase.NotStarted,
-            CurrentStage = HiringCollectionStage.Goal
+            CurrentStage = HiringCollectionStage.Goal,
+            UseKingCrab = useKingCrab,
+            KingCrabRecordId = kingCrabRecordId
         };
 
-        var shouldFail = request.UseCase?.Contains("simulate-skill-failure", StringComparison.OrdinalIgnoreCase) == true;
+        var shouldFail = !useKingCrab && request.UseCase?.Contains("simulate-skill-failure", StringComparison.OrdinalIgnoreCase) == true;
         _ = RunHiringWorkflowAsync(hireId, shouldFail, CancellationToken.None);
 
         logger.LogInformation("创建雇佣流程成功: HireId={HireId}, TemplateId={TemplateId}, TenantId={TenantId}",
@@ -575,6 +602,12 @@ public sealed class EmployeeHiringService(
     {
         try
         {
+            if (states.TryGetValue(hireId, out var state) && state.UseKingCrab && state.KingCrabRecordId is not null)
+            {
+                await RunKingCrabWorkflowAsync(hireId, state.KingCrabRecordId.Value, cancellationToken);
+                return;
+            }
+
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
             UpdateStatus(hireId, HiringStatus.SkillLoading, null, null);
 
@@ -598,6 +631,167 @@ public sealed class EmployeeHiringService(
             UpdateStatus(hireId, HiringStatus.Failed, "UNEXPECTED_ERROR", ex.Message);
             logger.LogError(ex, "雇佣流程执行异常: HireId={HireId}", hireId);
         }
+    }
+
+    private bool IsKingCrabEnabled()
+    {
+        return configuration.GetValue<bool>("KingCrabConsole:Enabled");
+    }
+
+    private async Task<KingCrabCreateResult> TryCreateKingCrabSandboxAsync(CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient(KingCrabClientName);
+        ApplyKingCrabAuthHeader(client);
+
+        if (client.BaseAddress is null)
+        {
+            return new KingCrabCreateResult(false, null, null, "KingCrabConsole:BaseUrl 未配置");
+        }
+
+        try
+        {
+            using var response = await client.PostAsync("api/sandboxes/", content: null, cancellationToken);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogError("调用 KingCrab 创建沙箱失败: StatusCode={StatusCode}, Response={Response}",
+                    (int)response.StatusCode,
+                    content);
+                return new KingCrabCreateResult(false, null, null, $"调用 KingCrab 创建沙箱失败: {(int)response.StatusCode}");
+            }
+
+            using var doc = JsonDocument.Parse(content);
+            var root = doc.RootElement;
+            if (!TryReadGuid(root, "id", out var recordId) || !TryReadString(root, "sandboxId", out var sandboxId))
+            {
+                return new KingCrabCreateResult(false, null, null, "KingCrab 创建沙箱响应格式异常");
+            }
+
+            return new KingCrabCreateResult(true, recordId, sandboxId, null);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "调用 KingCrab 创建沙箱异常");
+            return new KingCrabCreateResult(false, null, null, "调用 KingCrab 创建沙箱异常");
+        }
+    }
+
+    private async Task RunKingCrabWorkflowAsync(string hireId, Guid recordId, CancellationToken cancellationToken)
+    {
+        UpdateStatus(hireId, HiringStatus.SkillLoading, null, null);
+
+        var maxAttempts = configuration.GetValue("KingCrabConsole:PollMaxAttempts", 30);
+        var intervalSeconds = configuration.GetValue("KingCrabConsole:PollIntervalSeconds", 2);
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var status = await TryGetKingCrabSandboxAsync(recordId, cancellationToken);
+            if (status is not null)
+            {
+                if (!string.IsNullOrWhiteSpace(status.SandboxId) && states.TryGetValue(hireId, out var state))
+                {
+                    lock (state.SyncRoot)
+                    {
+                        state.SandboxId = status.SandboxId;
+                    }
+                }
+
+                if (string.Equals(status.State, "Running", StringComparison.OrdinalIgnoreCase))
+                {
+                    UpdateStatus(hireId, HiringStatus.Ready, null, null);
+                    logger.LogInformation("KingCrab 雇佣流程就绪: HireId={HireId}, SandboxId={SandboxId}", hireId, status.SandboxId);
+                    return;
+                }
+
+                if (string.Equals(status.State, "Error", StringComparison.OrdinalIgnoreCase))
+                {
+                    UpdateStatus(hireId, HiringStatus.Failed, "KINGCRAB_SANDBOX_ERROR", "KingCrab 沙箱状态异常");
+                    logger.LogWarning("KingCrab 沙箱失败: HireId={HireId}, SandboxId={SandboxId}", hireId, status.SandboxId);
+                    return;
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cancellationToken);
+        }
+
+        UpdateStatus(hireId, HiringStatus.Failed, "KINGCRAB_SANDBOX_TIMEOUT", "等待 KingCrab 沙箱就绪超时");
+    }
+
+    private async Task<KingCrabSandboxStatus?> TryGetKingCrabSandboxAsync(Guid recordId, CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient(KingCrabClientName);
+        ApplyKingCrabAuthHeader(client);
+
+        using var response = await client.GetAsync($"api/sandboxes/{recordId:D}", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"调用 KingCrab 查询沙箱失败: {(int)response.StatusCode}, {content}");
+        }
+
+        using var doc = JsonDocument.Parse(content);
+        var root = doc.RootElement;
+        if (!TryReadString(root, "state", out var state) || !TryReadString(root, "sandboxId", out var sandboxId))
+        {
+            throw new InvalidOperationException("KingCrab 查询沙箱响应格式异常");
+        }
+
+        return new KingCrabSandboxStatus(state, sandboxId);
+    }
+
+    private void ApplyKingCrabAuthHeader(HttpClient client)
+    {
+        var token = configuration["KingCrabConsole:BearerToken"];
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+    }
+
+    private static bool TryReadString(JsonElement root, string propertyName, out string value)
+    {
+        if (root.TryGetProperty(propertyName, out var element) && element.ValueKind == JsonValueKind.String)
+        {
+            var raw = element.GetString();
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                value = raw;
+                return true;
+            }
+        }
+
+        var pascalName = char.ToUpperInvariant(propertyName[0]) + propertyName[1..];
+        if (root.TryGetProperty(pascalName, out var pascalElement) && pascalElement.ValueKind == JsonValueKind.String)
+        {
+            var raw = pascalElement.GetString();
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                value = raw;
+                return true;
+            }
+        }
+
+        value = string.Empty;
+        return false;
+    }
+
+    private static bool TryReadGuid(JsonElement root, string propertyName, out Guid value)
+    {
+        if (TryReadString(root, propertyName, out var raw) && Guid.TryParse(raw, out value))
+        {
+            return true;
+        }
+
+        value = Guid.Empty;
+        return false;
     }
 
     private void UpdateStatus(string hireId, string status, string? errorCode, string? errorMessage)
@@ -760,7 +954,9 @@ public sealed class EmployeeHiringService(
     private sealed class State
     {
         public string HireId { get; init; } = string.Empty;
-        public string SandboxId { get; init; } = string.Empty;
+        public string SandboxId { get; set; } = string.Empty;
+        public bool UseKingCrab { get; init; }
+        public Guid? KingCrabRecordId { get; init; }
         public string Status { get; set; } = HiringStatus.CreatingSandbox;
         public string? ErrorCode { get; set; }
         public string? ErrorMessage { get; set; }
@@ -776,4 +972,8 @@ public sealed class EmployeeHiringService(
     }
 
     private sealed record StageDef(string Stage, string SkillName, IReadOnlyList<string> RequiredFields, string Description);
+    private sealed record KingCrabCreateResult(bool Success, Guid? RecordId, string? SandboxId, string? ErrorMessage);
+    private sealed record KingCrabSandboxStatus(string State, string SandboxId);
 }
+
+

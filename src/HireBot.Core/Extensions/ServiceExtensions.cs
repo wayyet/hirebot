@@ -16,6 +16,8 @@ namespace HireBot.Core.Extensions;
 
 public static class ServiceExtensions
 {
+    private const string KingCrabClientName = "KingCrabConsole";
+
     public static IServiceCollection AddHireBotServices(this IServiceCollection services, IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection") ?? "Server=(localdb)\\mssqllocaldb;Database=HireBot;Trusted_Connection=True;";
@@ -26,6 +28,19 @@ public static class ServiceExtensions
 
         // 注册仓储
         services.AddScoped<IHireBotRepository, HireBotRepository>();
+
+        // KingCrab 控制台接口（用于实例生命周期管理）
+        services.AddHttpClient(KingCrabClientName, (serviceProvider, client) =>
+        {
+            var baseUrl = configuration["KingCrabConsole:BaseUrl"];
+            if (!string.IsNullOrWhiteSpace(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
+            {
+                client.BaseAddress = uri;
+            }
+
+            var timeoutSeconds = configuration.GetValue("KingCrabConsole:HttpTimeoutSeconds", 15);
+            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+        });
 
         // 注册业务服务
         services.AddScoped<IUserService, UserService>();
