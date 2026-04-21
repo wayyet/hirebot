@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace HireBot.Repository;
 
-public class HireBotDbContext(DbContextOptions<HireBotDbContext> options) : DbContext(options)
+public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options) : DbContext(options)
 {
     // 用户实体
     public DbSet<User> Users { get; set; }
