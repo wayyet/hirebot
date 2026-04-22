@@ -1,14 +1,13 @@
-﻿using System.Collections.Concurrent;
-using System.IO.Compression;
-using System.Net.Http;
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
-using System.Security.Cryptography;
-using System.Text;
+using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Hiring;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -18,30 +17,18 @@ public sealed class EmployeeHiringService(
     ITemplateDataProvider templateDataProvider,
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
+    IHttpContextAccessor httpContextAccessor,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private const string KingCrewClientName = "KingCrew";
+    private const string DefaultHireBotApiPrefix = "/api/integration/hirebot";
 
-    private static readonly StageDef[] Stages =
-    [
-        new(HiringCollectionStage.Goal, "skill.hiring.goal-collector", ["business_goal", "owner", "success_metric"], "收集业务目标"),
-        new(HiringCollectionStage.Scenario, "skill.hiring.scenario-designer", ["user_profile", "trigger_event", "expected_outcome"], "沉淀关键场景"),
-        new(HiringCollectionStage.Systems, "skill.hiring.system-integrator", ["system_list", "permission_scope", "data_sources"], "确认系统与权限"),
-        new(HiringCollectionStage.Gaps, "skill.hiring.gap-analyzer", ["blockers", "risk_level", "fallback_plan"], "识别能力缺口"),
-        new(HiringCollectionStage.Package, "skill.hiring.package-builder", ["runbook", "acceptance_criteria", "delivery_window"], "输出交付包"),
-    ];
-
-    private static readonly HashSet<string> Decisions = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
-        HiringAuditDecision.Approve,
-        HiringAuditDecision.RequestChanges,
-        HiringAuditDecision.RollbackToStage,
-        HiringAuditDecision.ForceOverride
+        PropertyNameCaseInsensitive = true
     };
 
-    private const string KingCrabClientName = "KingCrabConsole";
-
-    private readonly ConcurrentDictionary<string, State> states = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, HireOwnerContext> hireOwners = new(StringComparer.OrdinalIgnoreCase);
 
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
         string templateId,
@@ -53,7 +40,7 @@ public sealed class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(400, "templateId 不能为空");
         }
 
-        if (string.IsNullOrWhiteSpace(request.TenantId) || string.IsNullOrWhiteSpace(request.OperatorId))
+        if (request is null || string.IsNullOrWhiteSpace(request.TenantId) || string.IsNullOrWhiteSpace(request.OperatorId))
         {
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(400, "tenantId 和 operatorId 为必填项");
         }
@@ -65,915 +52,512 @@ public sealed class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(404, "模板不存在或已下架");
         }
 
-        var hireId = $"hire_{Guid.NewGuid():N}";
-        var sandboxId = $"sandbox_{Guid.NewGuid():N}";
-        Guid? kingCrabRecordId = null;
-        var useKingCrab = IsKingCrabEnabled();
+        var ownerSubject = ResolveOwnerSubject(request.TenantId, request.OperatorId);
+        var remoteRequest = new KingCrewHireRequest(
+            TemplateId: normalizedTemplateId,
+            TenantId: request.TenantId.Trim(),
+            OperatorId: request.OperatorId.Trim(),
+            UseCase: request.UseCase);
 
-        if (useKingCrab)
+        var call = await SendForJsonAsync<HireTemplateResultDto>(
+            HttpMethod.Post,
+            "/hirings",
+            remoteRequest,
+            ownerSubject,
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
         {
-            var createResult = await TryCreateKingCrabSandboxAsync(cancellationToken);
-            if (!createResult.Success || string.IsNullOrWhiteSpace(createResult.SandboxId) || createResult.RecordId is null)
-            {
-                var message = string.IsNullOrWhiteSpace(createResult.ErrorMessage)
-                    ? "创建 KingCrab 沙箱失败"
-                    : createResult.ErrorMessage;
-                return ApiResponse<HireTemplateResultDto>.ErrorResponse(502, message);
-            }
-
-            sandboxId = createResult.SandboxId;
-            kingCrabRecordId = createResult.RecordId;
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(call.StatusCode, call.Message);
         }
 
-        states[hireId] = new State
-        {
-            HireId = hireId,
-            SandboxId = sandboxId,
-            Status = HiringStatus.CreatingSandbox,
-            CollectionPhase = HiringCollectionPhase.NotStarted,
-            CurrentStage = HiringCollectionStage.Goal,
-            UseKingCrab = useKingCrab,
-            KingCrabRecordId = kingCrabRecordId
-        };
+        hireOwners[call.Data.HireId] = new HireOwnerContext(
+            OwnerSubject: ownerSubject,
+            TenantId: request.TenantId.Trim(),
+            OperatorId: request.OperatorId.Trim());
 
-        var shouldFail = !useKingCrab && request.UseCase?.Contains("simulate-skill-failure", StringComparison.OrdinalIgnoreCase) == true;
-        _ = RunHiringWorkflowAsync(hireId, shouldFail, CancellationToken.None);
+        logger.LogInformation(
+            "模板雇佣已提交到 KingCrew: HireId={HireId}, TemplateId={TemplateId}, Owner={Owner}",
+            call.Data.HireId,
+            normalizedTemplateId,
+            ownerSubject);
 
-        logger.LogInformation("创建雇佣流程成功: HireId={HireId}, TemplateId={TemplateId}, TenantId={TenantId}",
-            hireId, normalizedTemplateId, request.TenantId);
-
-        var result = new HireTemplateResultDto(hireId, sandboxId, HiringStatus.CreatingSandbox, $"/api/v1/hirings/{hireId}");
-        return ApiResponse<HireTemplateResultDto>.SuccessResponse(result, "雇佣任务已创建");
+        return ApiResponse<HireTemplateResultDto>.SuccessResponse(call.Data, "雇佣任务已创建");
     }
 
-    public Task<ApiResponse<HiringStatusDto>> GetHiringStatusAsync(string hireId, CancellationToken cancellationToken = default)
+    public async Task<ApiResponse<HiringStatusDto>> GetHiringStatusAsync(string hireId, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(hireId) || !states.TryGetValue(hireId.Trim(), out var state))
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
         {
-            return Task.FromResult(ApiResponse<HiringStatusDto>.ErrorResponse(404, "雇佣流程不存在"));
+            return ApiResponse<HiringStatusDto>.ErrorResponse(400, error);
         }
 
-        lock (state.SyncRoot)
+        var call = await SendForJsonAsync<HiringStatusDto>(
+            HttpMethod.Get,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}",
+            body: null,
+            ResolveOwnerByHireId(normalizedHireId),
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
         {
-            var dto = new HiringStatusDto(state.HireId, state.SandboxId, state.Status, state.ErrorCode, state.ErrorMessage, state.CollectionPhase, state.CurrentStage);
-            return Task.FromResult(ApiResponse<HiringStatusDto>.SuccessResponse(dto));
+            return ApiResponse<HiringStatusDto>.ErrorResponse(call.StatusCode, call.Message);
         }
+
+        return ApiResponse<HiringStatusDto>.SuccessResponse(call.Data);
     }
 
-    public Task<ApiResponse<StartHiringConversationResultDto>> StartConversationAsync(string hireId, CancellationToken cancellationToken = default)
+    public async Task<ApiResponse<StartHiringConversationResultDto>> StartConversationAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(hireId) || !states.TryGetValue(hireId.Trim(), out var state))
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
         {
-            return Task.FromResult(ApiResponse<StartHiringConversationResultDto>.ErrorResponse(404, "雇佣流程不存在"));
+            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(400, error);
         }
 
-        lock (state.SyncRoot)
+        var call = await SendForJsonAsync<StartHiringConversationResultDto>(
+            HttpMethod.Post,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/conversation/start",
+            body: null,
+            ResolveOwnerByHireId(normalizedHireId),
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
         {
-            var gate = EnsureReady<StartHiringConversationResultDto>(state);
-            if (gate is not null)
-            {
-                return Task.FromResult(gate);
-            }
-
-            if (string.IsNullOrWhiteSpace(state.SessionId))
-            {
-                state.SessionId = $"session_{Guid.NewGuid():N}";
-                AddMessage(state, "assistant", "会话已启动，请从 GOAL 阶段开始提供信息。");
-            }
-
-            state.CollectionPhase = HiringCollectionPhase.InProgress;
-            state.CurrentStage = string.IsNullOrWhiteSpace(state.CurrentStage) ? HiringCollectionStage.Goal : state.CurrentStage;
-            state.RequiresAudit = false;
-
-            var result = new StartHiringConversationResultDto(state.HireId, state.SessionId!, state.CurrentStage, state.RequiresAudit, BuildMappings());
-            return Task.FromResult(ApiResponse<StartHiringConversationResultDto>.SuccessResponse(result, "会话初始化成功"));
+            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(call.StatusCode, call.Message);
         }
+
+        return ApiResponse<StartHiringConversationResultDto>.SuccessResponse(call.Data);
     }
-    public Task<ApiResponse<HiringConversationResultDto>> SendConversationMessageAsync(
+
+    public async Task<ApiResponse<HiringConversationResultDto>> SendConversationMessageAsync(
         string hireId,
         HiringConversationMessageRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(hireId) || !states.TryGetValue(hireId.Trim(), out var state))
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var idError))
         {
-            return Task.FromResult(ApiResponse<HiringConversationResultDto>.ErrorResponse(404, "雇佣流程不存在"));
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, idError);
         }
 
         if (request is null || (string.IsNullOrWhiteSpace(request.Content) && (request.StructuredAnswers is null || request.StructuredAnswers.Count == 0)))
         {
-            return Task.FromResult(ApiResponse<HiringConversationResultDto>.ErrorResponse(400, "content 与 structuredAnswers 不能同时为空"));
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, "content 与 structuredAnswers 不能同时为空");
         }
 
-        lock (state.SyncRoot)
+        var call = await SendForJsonAsync<HiringConversationResultDto>(
+            HttpMethod.Post,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/conversation/messages",
+            request,
+            ResolveOwnerByHireId(normalizedHireId),
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
         {
-            var gate = EnsureReady<HiringConversationResultDto>(state);
-            if (gate is not null)
-            {
-                return Task.FromResult(gate);
-            }
-
-            if (string.IsNullOrWhiteSpace(state.SessionId))
-            {
-                return Task.FromResult(ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "会话尚未启动"));
-            }
-
-            if (state.RequiresAudit)
-            {
-                return Task.FromResult(ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "当前阶段待审计，请先提交审计决策"));
-            }
-
-            if (string.Equals(state.CurrentStage, HiringCollectionStage.Done, StringComparison.OrdinalIgnoreCase))
-            {
-                return Task.FromResult(ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "所有阶段已完成，请执行 finalize"));
-            }
-
-            var stage = FindStage(state.CurrentStage);
-            if (stage is null)
-            {
-                return Task.FromResult(ApiResponse<HiringConversationResultDto>.ErrorResponse(500, "阶段配置异常"));
-            }
-
-            ResetArtifacts(state);
-            AddMessage(state, "user", request.Content ?? string.Empty);
-
-            var data = InitData(state, stage);
-            FillData(data, stage, request.StructuredAnswers, request.Content ?? string.Empty);
-            var missing = stage.RequiredFields.Where(x => string.IsNullOrWhiteSpace(data[x])).ToArray();
-            if (missing.Length == stage.RequiredFields.Count && !string.IsNullOrWhiteSpace(request.Content))
-            {
-                data[stage.RequiredFields[0]] = request.Content.Trim();
-                missing = stage.RequiredFields.Skip(1).ToArray();
-            }
-
-            var risk = new List<string>();
-            if (missing.Length > 0)
-            {
-                risk.Add($"缺少关键字段：{string.Join("、", missing)}");
-            }
-            if ((request.Content ?? string.Empty).Contains("不确定", StringComparison.OrdinalIgnoreCase))
-            {
-                risk.Add("存在不确定描述，建议二次确认。");
-            }
-            if (risk.Count == 0)
-            {
-                risk.Add("未发现明显风险。");
-            }
-
-            var summaryItems = stage.RequiredFields
-                .Where(x => !string.IsNullOrWhiteSpace(data[x]))
-                .Take(3)
-                .Select(x => $"{x}={data[x]}")
-                .ToArray();
-            var summary = summaryItems.Length == 0
-                ? $"阶段 {stage.Stage} 暂无结构化信息，请继续补充。"
-                : $"阶段 {stage.Stage} 预览：" + string.Join("；", summaryItems);
-
-            var preview = new HiringStagePreviewDto(
-                state.HireId,
-                stage.Stage,
-                stage.SkillName,
-                summary,
-                new Dictionary<string, string?>(data, StringComparer.OrdinalIgnoreCase),
-                missing,
-                risk,
-                missing.Length == 0,
-                DateTimeOffset.UtcNow);
-
-            state.StagePreviews[stage.Stage] = preview;
-            state.RequiresAudit = preview.ReadyForAudit;
-            state.CollectionPhase = HiringCollectionPhase.InProgress;
-
-            var assistant = AddMessage(
-                state,
-                "assistant",
-                preview.ReadyForAudit
-                    ? $"阶段 {stage.Stage} 已生成预览，可进入审计。Skill={stage.SkillName}"
-                    : $"阶段 {stage.Stage} 仍需补充：{string.Join("、", preview.MissingFields)}");
-
-            var result = new HiringConversationResultDto(state.HireId, state.SessionId!, state.CurrentStage, state.RequiresAudit, assistant, preview);
-            return Task.FromResult(ApiResponse<HiringConversationResultDto>.SuccessResponse(result, "阶段消息已处理"));
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(call.StatusCode, call.Message);
         }
+
+        return ApiResponse<HiringConversationResultDto>.SuccessResponse(call.Data);
     }
 
-    public Task<ApiResponse<HiringConversationTimelineDto>> GetConversationTimelineAsync(string hireId, CancellationToken cancellationToken = default)
+    public async Task<ApiResponse<HiringConversationTimelineDto>> GetConversationTimelineAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(hireId) || !states.TryGetValue(hireId.Trim(), out var state))
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
         {
-            return Task.FromResult(ApiResponse<HiringConversationTimelineDto>.ErrorResponse(404, "雇佣流程不存在"));
+            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(400, error);
         }
 
-        lock (state.SyncRoot)
+        var call = await SendForJsonAsync<HiringConversationTimelineDto>(
+            HttpMethod.Get,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/conversation/messages",
+            body: null,
+            ResolveOwnerByHireId(normalizedHireId),
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
         {
-            var gate = EnsureReady<HiringConversationTimelineDto>(state);
-            if (gate is not null)
-            {
-                return Task.FromResult(gate);
-            }
-
-            if (string.IsNullOrWhiteSpace(state.SessionId))
-            {
-                return Task.FromResult(ApiResponse<HiringConversationTimelineDto>.ErrorResponse(409, "会话尚未启动"));
-            }
-
-            var result = new HiringConversationTimelineDto(
-                state.HireId,
-                state.SessionId!,
-                state.CurrentStage,
-                state.RequiresAudit,
-                state.CollectionPhase,
-                state.Messages.ToArray(),
-                BuildMappings());
-            return Task.FromResult(ApiResponse<HiringConversationTimelineDto>.SuccessResponse(result));
+            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(call.StatusCode, call.Message);
         }
+
+        return ApiResponse<HiringConversationTimelineDto>.SuccessResponse(call.Data);
     }
 
-    public Task<ApiResponse<HiringStagePreviewDto>> GetStagePreviewAsync(string hireId, string? stage, CancellationToken cancellationToken = default)
+    public async Task<ApiResponse<HiringStagePreviewDto>> GetStagePreviewAsync(
+        string hireId,
+        string? stage,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(hireId) || !states.TryGetValue(hireId.Trim(), out var state))
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
         {
-            return Task.FromResult(ApiResponse<HiringStagePreviewDto>.ErrorResponse(404, "雇佣流程不存在"));
+            return ApiResponse<HiringStagePreviewDto>.ErrorResponse(400, error);
         }
 
-        lock (state.SyncRoot)
+        var suffix = string.IsNullOrWhiteSpace(stage)
+            ? string.Empty
+            : $"?stage={Uri.EscapeDataString(stage.Trim())}";
+        var call = await SendForJsonAsync<HiringStagePreviewDto>(
+            HttpMethod.Get,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/stage-preview{suffix}",
+            body: null,
+            ResolveOwnerByHireId(normalizedHireId),
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
         {
-            var gate = EnsureReady<HiringStagePreviewDto>(state);
-            if (gate is not null)
-            {
-                return Task.FromResult(gate);
-            }
-
-            var key = string.IsNullOrWhiteSpace(stage) ? state.CurrentStage : Norm(stage);
-            if (!state.StagePreviews.TryGetValue(key, out var preview))
-            {
-                return Task.FromResult(ApiResponse<HiringStagePreviewDto>.ErrorResponse(404, "当前阶段尚未生成预览"));
-            }
-
-            return Task.FromResult(ApiResponse<HiringStagePreviewDto>.SuccessResponse(preview));
+            return ApiResponse<HiringStagePreviewDto>.ErrorResponse(call.StatusCode, call.Message);
         }
+
+        return ApiResponse<HiringStagePreviewDto>.SuccessResponse(call.Data);
     }
-    public Task<ApiResponse<HiringAuditDecisionResultDto>> SubmitAuditDecisionAsync(
+
+    public async Task<ApiResponse<HiringAuditDecisionResultDto>> SubmitAuditDecisionAsync(
         string hireId,
         HiringAuditDecisionRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(hireId) || !states.TryGetValue(hireId.Trim(), out var state))
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var idError))
         {
-            return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(404, "雇佣流程不存在"));
+            return ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(400, idError);
         }
 
-        if (request is null)
+        if (request is null || string.IsNullOrWhiteSpace(request.Stage) || string.IsNullOrWhiteSpace(request.Decision))
         {
-            return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(400, "请求体不能为空"));
+            return ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(400, "stage 与 decision 为必填项");
         }
 
-        lock (state.SyncRoot)
+        var call = await SendForJsonAsync<HiringAuditDecisionResultDto>(
+            HttpMethod.Post,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/audit-decisions",
+            request,
+            ResolveOwnerByHireId(normalizedHireId),
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
         {
-            var gate = EnsureReady<HiringAuditDecisionResultDto>(state);
-            if (gate is not null)
-            {
-                return Task.FromResult(gate);
-            }
-
-            if (string.IsNullOrWhiteSpace(state.SessionId))
-            {
-                return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(409, "会话尚未启动"));
-            }
-
-            var stage = Norm(request.Stage);
-            var decision = Norm(request.Decision);
-            if (!Decisions.Contains(decision))
-            {
-                return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(400, "不支持的审计决策"));
-            }
-
-            if (!string.Equals(stage, state.CurrentStage, StringComparison.OrdinalIgnoreCase))
-            {
-                return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(409, "审计阶段必须与当前阶段一致"));
-            }
-
-            if (!state.StagePreviews.TryGetValue(stage, out var preview))
-            {
-                return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(409, "当前阶段尚未生成可审计预览"));
-            }
-
-            if (!state.RequiresAudit)
-            {
-                return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(409, "当前阶段未进入审计态"));
-            }
-
-            if (decision == HiringAuditDecision.Approve && !preview.ReadyForAudit)
-            {
-                return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(409, "阶段信息未补齐，请补齐或使用 FORCE_OVERRIDE"));
-            }
-
-            if (decision == HiringAuditDecision.RollbackToStage)
-            {
-                var target = Norm(request.RollbackTargetStage);
-                if (string.IsNullOrWhiteSpace(target))
-                {
-                    return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(400, "rollbackTargetStage 不能为空"));
-                }
-
-                if (StageIndex(target) < 0 || target == HiringCollectionStage.Done || StageIndex(target) > StageIndex(state.CurrentStage))
-                {
-                    return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(400, "rollbackTargetStage 非法"));
-                }
-            }
-
-            ResetArtifacts(state);
-            if (decision == HiringAuditDecision.RequestChanges)
-            {
-                state.RequiresAudit = false;
-                AddMessage(state, "assistant", $"审计驳回，请在阶段 {state.CurrentStage} 补充信息后重新提交。");
-            }
-            else if (decision == HiringAuditDecision.RollbackToStage)
-            {
-                var target = Norm(request.RollbackTargetStage)!;
-                state.CurrentStage = target;
-                state.CollectionPhase = HiringCollectionPhase.InProgress;
-                state.RequiresAudit = false;
-                var targetIndex = StageIndex(target);
-                var removeStages = Stages.Select(x => x.Stage).Where(x => StageIndex(x) > targetIndex).ToArray();
-                foreach (var item in removeStages)
-                {
-                    state.StagePreviews.Remove(item);
-                }
-                state.AuditLogs.RemoveAll(x => StageIndex(x.Stage) > targetIndex);
-                AddMessage(state, "assistant", $"流程已回退到阶段：{state.CurrentStage}。");
-            }
-            else
-            {
-                var idx = StageIndex(state.CurrentStage);
-                if (idx < 0 || idx >= Stages.Length - 1)
-                {
-                    state.CurrentStage = HiringCollectionStage.Done;
-                    state.CollectionPhase = HiringCollectionPhase.ReadyForFinalize;
-                }
-                else
-                {
-                    state.CurrentStage = Stages[idx + 1].Stage;
-                    state.CollectionPhase = HiringCollectionPhase.InProgress;
-                }
-                state.RequiresAudit = false;
-                AddMessage(
-                    state,
-                    "assistant",
-                    state.CurrentStage == HiringCollectionStage.Done
-                        ? "所有阶段已通过审计，可执行 finalize 生成交付物。"
-                        : $"审计通过，已进入下一阶段：{state.CurrentStage}");
-            }
-
-            var inputDigest = Hash(JsonSerializer.Serialize(preview.StructuredData, JsonOptions));
-            var outputDigest = Hash($"{decision}|{request.Comment}|{state.CurrentStage}|{state.CollectionPhase}");
-            state.AuditLogs.Add(new HiringAuditLogDto(
-                $"audit_{Guid.NewGuid():N}",
-                preview.Stage,
-                preview.SkillName,
-                decision,
-                "operator",
-                string.IsNullOrWhiteSpace(request.Comment) ? null : request.Comment.Trim(),
-                inputDigest,
-                outputDigest,
-                DateTimeOffset.UtcNow));
-
-            var result = new HiringAuditDecisionResultDto(state.HireId, stage, decision, state.CurrentStage, state.RequiresAudit, state.CollectionPhase);
-            return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.SuccessResponse(result, "审计决策已记录"));
+            return ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(call.StatusCode, call.Message);
         }
+
+        return ApiResponse<HiringAuditDecisionResultDto>.SuccessResponse(call.Data);
     }
 
-    public Task<ApiResponse<IReadOnlyList<HiringAuditLogDto>>> GetAuditLogsAsync(string hireId, CancellationToken cancellationToken = default)
+    public async Task<ApiResponse<IReadOnlyList<HiringAuditLogDto>>> GetAuditLogsAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(hireId) || !states.TryGetValue(hireId.Trim(), out var state))
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
         {
-            return Task.FromResult(ApiResponse<IReadOnlyList<HiringAuditLogDto>>.ErrorResponse(404, "雇佣流程不存在"));
+            return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.ErrorResponse(400, error);
         }
 
-        lock (state.SyncRoot)
+        var call = await SendForJsonAsync<List<HiringAuditLogDto>>(
+            HttpMethod.Get,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/audit-logs",
+            body: null,
+            ResolveOwnerByHireId(normalizedHireId),
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
         {
-            var result = state.AuditLogs.OrderByDescending(x => x.TimestampUtc).ToArray();
-            return Task.FromResult(ApiResponse<IReadOnlyList<HiringAuditLogDto>>.SuccessResponse(result));
-        }
-    }
-    public Task<ApiResponse<HiringFinalizeResultDto>> FinalizeAsync(string hireId, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(hireId) || !states.TryGetValue(hireId.Trim(), out var state))
-        {
-            return Task.FromResult(ApiResponse<HiringFinalizeResultDto>.ErrorResponse(404, "雇佣流程不存在"));
+            return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.ErrorResponse(call.StatusCode, call.Message);
         }
 
-        lock (state.SyncRoot)
-        {
-            var gate = EnsureReady<HiringFinalizeResultDto>(state);
-            if (gate is not null)
-            {
-                return Task.FromResult(gate);
-            }
-
-            if (string.IsNullOrWhiteSpace(state.SessionId))
-            {
-                return Task.FromResult(ApiResponse<HiringFinalizeResultDto>.ErrorResponse(409, "会话尚未启动"));
-            }
-
-            if (state.CollectionPhase != HiringCollectionPhase.ReadyForFinalize || state.CurrentStage != HiringCollectionStage.Done)
-            {
-                return Task.FromResult(ApiResponse<HiringFinalizeResultDto>.ErrorResponse(409, "阶段尚未全部完成，无法 finalize"));
-            }
-
-            var orderedPreviews = state.StagePreviews.Values.OrderBy(x => StageIndex(x.Stage)).ToArray();
-            var timeline = new
-            {
-                state.HireId,
-                state.SandboxId,
-                state.SessionId,
-                state.CollectionPhase,
-                state.CurrentStage,
-                Messages = state.Messages,
-                StagePreviews = orderedPreviews
-            };
-
-            state.ArtifactFiles.Clear();
-            state.ArtifactFiles["stage-skill-mapping.json"] = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(BuildMappings(), JsonOptions));
-            state.ArtifactFiles["conversation-timeline.json"] = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(timeline, JsonOptions));
-            state.ArtifactFiles["audit-log.json"] = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(state.AuditLogs, JsonOptions));
-            var md = new StringBuilder();
-            md.AppendLine("# HireBot 阶段交付摘要");
-            md.AppendLine($"- HireId: {state.HireId}");
-            md.AppendLine($"- SandboxId: {state.SandboxId}");
-            md.AppendLine($"- SessionId: {state.SessionId}");
-            md.AppendLine($"- CollectionPhase: {state.CollectionPhase}");
-            md.AppendLine($"- CurrentStage: {state.CurrentStage}");
-            md.AppendLine();
-            md.AppendLine("## 阶段预览");
-            foreach (var p in orderedPreviews)
-            {
-                md.AppendLine($"### {p.Stage} ({p.SkillName})");
-                md.AppendLine(p.Summary);
-                md.AppendLine($"- MissingFields: {(p.MissingFields.Count == 0 ? "无" : string.Join("、", p.MissingFields))}");
-                md.AppendLine($"- RiskNotes: {string.Join("；", p.RiskNotes)}");
-                md.AppendLine();
-            }
-            state.ArtifactFiles["handover.md"] = Encoding.UTF8.GetBytes(md.ToString());
-
-            state.CollectionPhase = HiringCollectionPhase.Finalized;
-            state.RequiresAudit = false;
-
-            var result = new HiringFinalizeResultDto(
-                state.HireId,
-                state.CurrentStage,
-                state.CollectionPhase,
-                state.ArtifactFiles.Keys.ToArray(),
-                $"/api/v1/hirings/{state.HireId}/artifacts/download");
-            return Task.FromResult(ApiResponse<HiringFinalizeResultDto>.SuccessResponse(result, "交付物已生成"));
-        }
+        return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.SuccessResponse(call.Data);
     }
 
-    public Task<ApiResponse<HiringWorkflowStateDto>> GetWorkflowStateAsync(string hireId, CancellationToken cancellationToken = default)
+    public async Task<ApiResponse<HiringFinalizeResultDto>> FinalizeAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(hireId) || !states.TryGetValue(hireId.Trim(), out var state))
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
         {
-            return Task.FromResult(ApiResponse<HiringWorkflowStateDto>.ErrorResponse(404, "雇佣流程不存在"));
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(400, error);
         }
 
-        lock (state.SyncRoot)
+        var call = await SendForJsonAsync<HiringFinalizeResultDto>(
+            HttpMethod.Post,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/finalize",
+            body: null,
+            ResolveOwnerByHireId(normalizedHireId),
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
         {
-            var gate = EnsureReady<HiringWorkflowStateDto>(state);
-            if (gate is not null)
-            {
-                return Task.FromResult(gate);
-            }
-
-            if (string.IsNullOrWhiteSpace(state.SessionId))
-            {
-                return Task.FromResult(ApiResponse<HiringWorkflowStateDto>.ErrorResponse(409, "会话尚未启动"));
-            }
-
-            var dto = new HiringWorkflowStateDto(
-                state.HireId,
-                state.SessionId!,
-                state.CurrentStage,
-                state.RequiresAudit,
-                state.CollectionPhase,
-                BuildMappings(),
-                state.AuditLogs.OrderByDescending(x => x.TimestampUtc).ToArray());
-            return Task.FromResult(ApiResponse<HiringWorkflowStateDto>.SuccessResponse(dto));
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(call.StatusCode, call.Message);
         }
+
+        return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(call.Data, "交付物已生成");
     }
 
-    public Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(string hireId, CancellationToken cancellationToken = default)
+    public async Task<ApiResponse<HiringWorkflowStateDto>> GetWorkflowStateAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(hireId) || !states.TryGetValue(hireId.Trim(), out var state))
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
         {
-            return Task.FromResult(HiringArtifactDownloadResult.NotFound("雇佣流程不存在"));
+            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(400, error);
         }
 
-        lock (state.SyncRoot)
+        var call = await SendForJsonAsync<HiringWorkflowStateDto>(
+            HttpMethod.Get,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/workflow",
+            body: null,
+            ResolveOwnerByHireId(normalizedHireId),
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
         {
-            var gate = EnsureReady<HiringArtifactDownloadResult>(state);
-            if (gate is not null)
-            {
-                return Task.FromResult(HiringArtifactDownloadResult.Error(gate.Code, gate.Message));
-            }
-
-            if (state.CollectionPhase != HiringCollectionPhase.Finalized)
-            {
-                return Task.FromResult(HiringArtifactDownloadResult.Error(409, "流程未 finalize，暂无可下载交付物"));
-            }
-
-            if (state.ArtifactFiles.Count == 0)
-            {
-                return Task.FromResult(HiringArtifactDownloadResult.Error(409, "交付物为空，请重新执行 finalize"));
-            }
-
-            using var ms = new MemoryStream();
-            using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, true))
-            {
-                foreach (var file in state.ArtifactFiles)
-                {
-                    var entry = zip.CreateEntry(file.Key, CompressionLevel.Fastest);
-                    using var stream = entry.Open();
-                    stream.Write(file.Value, 0, file.Value.Length);
-                }
-            }
-
-            return Task.FromResult(HiringArtifactDownloadResult.Success($"{state.HireId}_artifacts.zip", "application/zip", ms.ToArray()));
+            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(call.StatusCode, call.Message);
         }
-    }
-    private async Task RunHiringWorkflowAsync(string hireId, bool shouldFail, CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (states.TryGetValue(hireId, out var state) && state.UseKingCrab && state.KingCrabRecordId is not null)
-            {
-                await RunKingCrabWorkflowAsync(hireId, state.KingCrabRecordId.Value, cancellationToken);
-                return;
-            }
 
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-            UpdateStatus(hireId, HiringStatus.SkillLoading, null, null);
-
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
-            if (shouldFail)
-            {
-                UpdateStatus(hireId, HiringStatus.Failed, "SKILL_BOOTSTRAP_FAILED", "Skill 流程加载失败，请稍后重试");
-                logger.LogWarning("雇佣流程失败: HireId={HireId}", hireId);
-                return;
-            }
-
-            UpdateStatus(hireId, HiringStatus.Ready, null, null);
-            logger.LogInformation("雇佣流程就绪: HireId={HireId}", hireId);
-        }
-        catch (OperationCanceledException)
-        {
-            logger.LogWarning("雇佣流程被取消: HireId={HireId}", hireId);
-        }
-        catch (Exception ex)
-        {
-            UpdateStatus(hireId, HiringStatus.Failed, "UNEXPECTED_ERROR", ex.Message);
-            logger.LogError(ex, "雇佣流程执行异常: HireId={HireId}", hireId);
-        }
+        return ApiResponse<HiringWorkflowStateDto>.SuccessResponse(call.Data);
     }
 
-    private bool IsKingCrabEnabled()
+    public async Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
     {
-        return configuration.GetValue<bool>("KingCrabConsole:Enabled");
-    }
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return HiringArtifactDownloadResult.Error(400, error);
+        }
 
-    private async Task<KingCrabCreateResult> TryCreateKingCrabSandboxAsync(CancellationToken cancellationToken)
-    {
-        var client = httpClientFactory.CreateClient(KingCrabClientName);
-        ApplyKingCrabAuthHeader(client);
-
+        var client = httpClientFactory.CreateClient(KingCrewClientName);
         if (client.BaseAddress is null)
         {
-            return new KingCrabCreateResult(false, null, null, "KingCrabConsole:BaseUrl 未配置");
+            return HiringArtifactDownloadResult.Error(500, "KingCrew:BaseUrl 未配置");
+        }
+
+        using var request = CreateRequest(
+            HttpMethod.Get,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/artifacts/download",
+            ResolveOwnerByHireId(normalizedHireId));
+
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            return HiringArtifactDownloadResult.Error(
+                (int)response.StatusCode,
+                ExtractRemoteMessage(errorContent) ?? $"下载交付包失败（HTTP {(int)response.StatusCode}）");
+        }
+
+        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (bytes.Length == 0)
+        {
+            return HiringArtifactDownloadResult.Error(502, "下载交付包失败：返回内容为空");
+        }
+
+        var contentType = response.Content.Headers.ContentType?.MediaType;
+        var fileName = response.Content.Headers.ContentDisposition?.FileNameStar
+                       ?? response.Content.Headers.ContentDisposition?.FileName;
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            fileName = fileName.Trim('"');
+        }
+
+        return HiringArtifactDownloadResult.Success(
+            fileName ?? $"{normalizedHireId}_artifacts.zip",
+            string.IsNullOrWhiteSpace(contentType) ? "application/zip" : contentType,
+            bytes);
+    }
+
+    private async Task<RemoteCallResult<T>> SendForJsonAsync<T>(
+        HttpMethod method,
+        string path,
+        object? body,
+        string ownerSubject,
+        CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient(KingCrewClientName);
+        if (client.BaseAddress is null)
+        {
+            return RemoteCallResult<T>.Failure(500, "KingCrew:BaseUrl 未配置");
+        }
+
+        using var request = CreateRequest(method, path, ownerSubject);
+        if (body is not null)
+        {
+            request.Content = JsonContent.Create(body, options: JsonOptions);
         }
 
         try
         {
-            using var response = await client.PostAsync("api/sandboxes/", content: null, cancellationToken);
+            using var response = await client.SendAsync(request, cancellationToken);
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
             if (!response.IsSuccessStatusCode)
             {
-                logger.LogError("调用 KingCrab 创建沙箱失败: StatusCode={StatusCode}, Response={Response}",
+                return RemoteCallResult<T>.Failure(
                     (int)response.StatusCode,
-                    content);
-                return new KingCrabCreateResult(false, null, null, $"调用 KingCrab 创建沙箱失败: {(int)response.StatusCode}");
+                    ExtractRemoteMessage(content) ?? $"调用 KingCrew 接口失败（HTTP {(int)response.StatusCode}）");
             }
 
-            using var doc = JsonDocument.Parse(content);
-            var root = doc.RootElement;
-            if (!TryReadGuid(root, "id", out var recordId) || !TryReadString(root, "sandboxId", out var sandboxId))
+            if (string.IsNullOrWhiteSpace(content))
             {
-                return new KingCrabCreateResult(false, null, null, "KingCrab 创建沙箱响应格式异常");
+                return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口失败：响应为空");
             }
 
-            return new KingCrabCreateResult(true, recordId, sandboxId, null);
+            var model = JsonSerializer.Deserialize<T>(content, JsonOptions);
+            if (model is null)
+            {
+                return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口失败：响应解析为空");
+            }
+
+            return RemoteCallResult<T>.Ok(model);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "调用 KingCrab 创建沙箱异常");
-            return new KingCrabCreateResult(false, null, null, "调用 KingCrab 创建沙箱异常");
+            logger.LogError(ex, "调用 KingCrew 接口异常: Method={Method}, Path={Path}", method, path);
+            return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口异常");
         }
     }
 
-    private async Task RunKingCrabWorkflowAsync(string hireId, Guid recordId, CancellationToken cancellationToken)
+    private HttpRequestMessage CreateRequest(HttpMethod method, string path, string ownerSubject)
     {
-        UpdateStatus(hireId, HiringStatus.SkillLoading, null, null);
+        var prefix = configuration["KingCrew:HireBotApiPrefix"];
+        var normalizedPrefix = string.IsNullOrWhiteSpace(prefix)
+            ? DefaultHireBotApiPrefix
+            : "/" + prefix.Trim().Trim('/');
+        var normalizedPath = path.StartsWith('/') ? path : "/" + path;
+        var request = new HttpRequestMessage(method, $"{normalizedPrefix}{normalizedPath}");
 
-        var maxAttempts = configuration.GetValue("KingCrabConsole:PollMaxAttempts", 30);
-        var intervalSeconds = configuration.GetValue("KingCrabConsole:PollIntervalSeconds", 2);
-
-        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        // 优先透传前端携带的 Authorization，便于 OIDC 身份在下游延续。
+        var incomingAuthorization = httpContextAccessor.HttpContext?.Request.Headers.Authorization.ToString();
+        if (!string.IsNullOrWhiteSpace(incomingAuthorization))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var status = await TryGetKingCrabSandboxAsync(recordId, cancellationToken);
-            if (status is not null)
+            request.Headers.TryAddWithoutValidation("Authorization", incomingAuthorization);
+        }
+        else
+        {
+            var staticToken = configuration["KingCrew:BearerToken"];
+            if (!string.IsNullOrWhiteSpace(staticToken))
             {
-                if (!string.IsNullOrWhiteSpace(status.SandboxId) && states.TryGetValue(hireId, out var state))
-                {
-                    lock (state.SyncRoot)
-                    {
-                        state.SandboxId = status.SandboxId;
-                    }
-                }
-
-                if (string.Equals(status.State, "Running", StringComparison.OrdinalIgnoreCase))
-                {
-                    UpdateStatus(hireId, HiringStatus.Ready, null, null);
-                    logger.LogInformation("KingCrab 雇佣流程就绪: HireId={HireId}, SandboxId={SandboxId}", hireId, status.SandboxId);
-                    return;
-                }
-
-                if (string.Equals(status.State, "Error", StringComparison.OrdinalIgnoreCase))
-                {
-                    UpdateStatus(hireId, HiringStatus.Failed, "KINGCRAB_SANDBOX_ERROR", "KingCrab 沙箱状态异常");
-                    logger.LogWarning("KingCrab 沙箱失败: HireId={HireId}, SandboxId={SandboxId}", hireId, status.SandboxId);
-                    return;
-                }
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", staticToken.Trim());
             }
-
-            await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cancellationToken);
         }
 
-        UpdateStatus(hireId, HiringStatus.Failed, "KINGCRAB_SANDBOX_TIMEOUT", "等待 KingCrab 沙箱就绪超时");
+        if (!string.IsNullOrWhiteSpace(ownerSubject))
+        {
+            request.Headers.TryAddWithoutValidation("X-HireBot-Owner", ownerSubject);
+        }
+
+        return request;
     }
 
-    private async Task<KingCrabSandboxStatus?> TryGetKingCrabSandboxAsync(Guid recordId, CancellationToken cancellationToken)
+    private static string? ExtractRemoteMessage(string? payload)
     {
-        var client = httpClientFactory.CreateClient(KingCrabClientName);
-        ApplyKingCrabAuthHeader(client);
-
-        using var response = await client.GetAsync($"api/sandboxes/{recordId:D}", cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        if (string.IsNullOrWhiteSpace(payload))
         {
             return null;
         }
 
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            throw new InvalidOperationException($"调用 KingCrab 查询沙箱失败: {(int)response.StatusCode}, {content}");
-        }
-
-        using var doc = JsonDocument.Parse(content);
-        var root = doc.RootElement;
-        if (!TryReadString(root, "state", out var state) || !TryReadString(root, "sandboxId", out var sandboxId))
-        {
-            throw new InvalidOperationException("KingCrab 查询沙箱响应格式异常");
-        }
-
-        return new KingCrabSandboxStatus(state, sandboxId);
-    }
-
-    private void ApplyKingCrabAuthHeader(HttpClient client)
-    {
-        var token = configuration["KingCrabConsole:BearerToken"];
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            return;
-        }
-
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-    }
-
-    private static bool TryReadString(JsonElement root, string propertyName, out string value)
-    {
-        if (root.TryGetProperty(propertyName, out var element) && element.ValueKind == JsonValueKind.String)
-        {
-            var raw = element.GetString();
-            if (!string.IsNullOrWhiteSpace(raw))
+            using var doc = JsonDocument.Parse(payload);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
             {
-                value = raw;
-                return true;
-            }
-        }
-
-        var pascalName = char.ToUpperInvariant(propertyName[0]) + propertyName[1..];
-        if (root.TryGetProperty(pascalName, out var pascalElement) && pascalElement.ValueKind == JsonValueKind.String)
-        {
-            var raw = pascalElement.GetString();
-            if (!string.IsNullOrWhiteSpace(raw))
-            {
-                value = raw;
-                return true;
-            }
-        }
-
-        value = string.Empty;
-        return false;
-    }
-
-    private static bool TryReadGuid(JsonElement root, string propertyName, out Guid value)
-    {
-        if (TryReadString(root, propertyName, out var raw) && Guid.TryParse(raw, out value))
-        {
-            return true;
-        }
-
-        value = Guid.Empty;
-        return false;
-    }
-
-    private void UpdateStatus(string hireId, string status, string? errorCode, string? errorMessage)
-    {
-        if (!states.TryGetValue(hireId, out var state))
-        {
-            return;
-        }
-
-        lock (state.SyncRoot)
-        {
-            state.Status = status;
-            state.ErrorCode = errorCode;
-            state.ErrorMessage = errorMessage;
-        }
-    }
-
-    private static ApiResponse<T>? EnsureReady<T>(State state)
-    {
-        if (state.Status == HiringStatus.Failed)
-        {
-            return ApiResponse<T>.ErrorResponse(409, "雇佣流程已失败，请重新发起雇佣");
-        }
-
-        if (state.Status != HiringStatus.Ready)
-        {
-            return ApiResponse<T>.ErrorResponse(409, "雇佣流程尚未就绪，请稍后重试");
-        }
-
-        return null;
-    }
-
-    private static HiringConversationMessageDto AddMessage(State state, string role, string content)
-    {
-        var message = new HiringConversationMessageDto($"msg_{Guid.NewGuid():N}", role, string.IsNullOrWhiteSpace(content) ? "（空）" : content.Trim(), DateTimeOffset.UtcNow);
-        state.Messages.Add(message);
-        return message;
-    }
-
-    private static StageDef? FindStage(string stage)
-    {
-        return Stages.FirstOrDefault(x => string.Equals(x.Stage, stage, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static StageSkillMappingDto[] BuildMappings()
-    {
-        return Stages.Select(x => new StageSkillMappingDto(x.Stage, x.SkillName, x.RequiredFields.ToArray(), x.Description)).ToArray();
-    }
-
-    private static string Norm(string? value)
-    {
-        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant();
-    }
-
-    private static int StageIndex(string stage)
-    {
-        for (var i = 0; i < Stages.Length; i++)
-        {
-            if (string.Equals(Stages[i].Stage, stage, StringComparison.OrdinalIgnoreCase))
-            {
-                return i;
-            }
-        }
-
-        return stage == HiringCollectionStage.Done ? Stages.Length : -1;
-    }
-
-    private static string Hash(string text)
-    {
-        var bytes = Encoding.UTF8.GetBytes(text);
-        return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-    }
-
-    private static Dictionary<string, string?> InitData(State state, StageDef stage)
-    {
-        var data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var key in stage.RequiredFields)
-        {
-            data[key] = null;
-        }
-
-        if (state.StagePreviews.TryGetValue(stage.Stage, out var existed))
-        {
-            foreach (var item in existed.StructuredData)
-            {
-                if (data.ContainsKey(item.Key))
-                {
-                    data[item.Key] = item.Value;
-                }
-            }
-        }
-
-        return data;
-    }
-
-    private static void FillData(
-        IDictionary<string, string?> data,
-        StageDef stage,
-        IReadOnlyDictionary<string, string>? answers,
-        string content)
-    {
-        if (answers is not null)
-        {
-            foreach (var answer in answers)
-            {
-                var key = stage.RequiredFields.FirstOrDefault(x => string.Equals(x, answer.Key, StringComparison.OrdinalIgnoreCase));
-                if (key is not null)
-                {
-                    data[key] = string.IsNullOrWhiteSpace(answer.Value) ? null : answer.Value.Trim();
-                }
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return;
-        }
-
-        foreach (var line in content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            var idx = line.IndexOf(':');
-            if (idx < 0)
-            {
-                idx = line.IndexOf('：');
+                return null;
             }
 
-            if (idx <= 0 || idx >= line.Length - 1)
+            if (doc.RootElement.TryGetProperty("message", out var messageElement) &&
+                messageElement.ValueKind == JsonValueKind.String)
             {
-                continue;
+                var message = messageElement.GetString();
+                return string.IsNullOrWhiteSpace(message) ? null : message;
             }
 
-            var key = line[..idx].Trim();
-            var value = line[(idx + 1)..].Trim();
-            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+            if (doc.RootElement.TryGetProperty("error", out var errorElement) &&
+                errorElement.ValueKind == JsonValueKind.String)
             {
-                continue;
+                var message = errorElement.GetString();
+                return string.IsNullOrWhiteSpace(message) ? null : message;
             }
 
-            var target = stage.RequiredFields.FirstOrDefault(x => string.Equals(x, key, StringComparison.OrdinalIgnoreCase));
-            if (target is not null)
-            {
-                data[target] = value;
-            }
+            return null;
         }
-    }
-
-    private static void ResetArtifacts(State state)
-    {
-        if (state.ArtifactFiles.Count > 0)
+        catch
         {
-            state.ArtifactFiles.Clear();
-        }
-
-        if (state.CollectionPhase == HiringCollectionPhase.Finalized)
-        {
-            state.CollectionPhase = HiringCollectionPhase.InProgress;
+            return null;
         }
     }
 
-    private sealed class State
+    private string ResolveOwnerSubject(string tenantId, string operatorId)
     {
-        public string HireId { get; init; } = string.Empty;
-        public string SandboxId { get; set; } = string.Empty;
-        public bool UseKingCrab { get; init; }
-        public Guid? KingCrabRecordId { get; init; }
-        public string Status { get; set; } = HiringStatus.CreatingSandbox;
-        public string? ErrorCode { get; set; }
-        public string? ErrorMessage { get; set; }
-        public string CollectionPhase { get; set; } = HiringCollectionPhase.NotStarted;
-        public string CurrentStage { get; set; } = HiringCollectionStage.Goal;
-        public string? SessionId { get; set; }
-        public bool RequiresAudit { get; set; }
-        public List<HiringConversationMessageDto> Messages { get; } = [];
-        public Dictionary<string, HiringStagePreviewDto> StagePreviews { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public List<HiringAuditLogDto> AuditLogs { get; } = [];
-        public Dictionary<string, byte[]> ArtifactFiles { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public object SyncRoot { get; } = new();
+        var user = httpContextAccessor.HttpContext?.User;
+        var sub =
+            user?.FindFirst("sub")?.Value ??
+            user?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrWhiteSpace(sub))
+        {
+            return sub.Trim();
+        }
+
+        var ownerHeader = httpContextAccessor.HttpContext?.Request.Headers["X-HireBot-Owner"].ToString();
+        if (!string.IsNullOrWhiteSpace(ownerHeader))
+        {
+            return ownerHeader.Trim();
+        }
+
+        return $"{tenantId.Trim()}:{operatorId.Trim()}";
     }
 
-    private sealed record StageDef(string Stage, string SkillName, IReadOnlyList<string> RequiredFields, string Description);
-    private sealed record KingCrabCreateResult(bool Success, Guid? RecordId, string? SandboxId, string? ErrorMessage);
-    private sealed record KingCrabSandboxStatus(string State, string SandboxId);
+    private string ResolveOwnerByHireId(string hireId)
+    {
+        if (hireOwners.TryGetValue(hireId, out var context))
+        {
+            return context.OwnerSubject;
+        }
+
+        var user = httpContextAccessor.HttpContext?.User;
+        var sub =
+            user?.FindFirst("sub")?.Value ??
+            user?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrWhiteSpace(sub))
+        {
+            return sub.Trim();
+        }
+
+        var ownerHeader = httpContextAccessor.HttpContext?.Request.Headers["X-HireBot-Owner"].ToString();
+        if (!string.IsNullOrWhiteSpace(ownerHeader))
+        {
+            return ownerHeader.Trim();
+        }
+
+        return "anonymous";
+    }
+
+    private static bool TryNormalizeHireId(string hireId, out string normalizedHireId, out string error)
+    {
+        if (string.IsNullOrWhiteSpace(hireId))
+        {
+            normalizedHireId = string.Empty;
+            error = "hireId 不能为空";
+            return false;
+        }
+
+        normalizedHireId = hireId.Trim();
+        error = string.Empty;
+        return true;
+    }
+
+    private sealed record KingCrewHireRequest(string TemplateId, string TenantId, string OperatorId, string? UseCase);
+    private sealed record HireOwnerContext(string OwnerSubject, string TenantId, string OperatorId);
+
+    private sealed record RemoteCallResult<T>(bool Success, int StatusCode, string Message, T? Data)
+    {
+        public static RemoteCallResult<T> Ok(T data)
+        {
+            return new RemoteCallResult<T>(true, 200, string.Empty, data);
+        }
+
+        public static RemoteCallResult<T> Failure(int statusCode, string message)
+        {
+            var normalizedStatusCode = statusCode <= 0 ? 502 : statusCode;
+            var normalizedMessage = string.IsNullOrWhiteSpace(message) ? "调用下游服务失败" : message;
+            return new RemoteCallResult<T>(false, normalizedStatusCode, normalizedMessage, default);
+        }
+    }
 }
-
-

@@ -1,4 +1,5 @@
 using HireBot.Core.Extensions;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,6 +8,20 @@ builder.AddServiceDefaults();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddAuthorization();
+
+var oidcAuthority = builder.Configuration["Security:OidcAuthority"];
+if (!string.IsNullOrWhiteSpace(oidcAuthority))
+{
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.Authority = oidcAuthority;
+            options.Audience = builder.Configuration["Security:OidcAudience"];
+            options.RequireHttpsMetadata = builder.Configuration.GetValue("Security:OidcRequireHttpsMetadata", true);
+        });
+}
 
 // 配置 CORS
 builder.Services.AddCors(options =>
@@ -34,6 +49,10 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+if (!string.IsNullOrWhiteSpace(oidcAuthority))
+{
+    app.UseAuthentication();
+}
 app.UseAuthorization();
 app.MapControllers();
 

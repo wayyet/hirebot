@@ -16,7 +16,7 @@ namespace HireBot.Core.Extensions;
 
 public static class ServiceExtensions
 {
-    private const string KingCrabClientName = "KingCrabConsole";
+    private const string KingCrewClientName = "KingCrew";
 
     public static IServiceCollection AddHireBotServices(this IServiceCollection services, IConfiguration configuration)
     {
@@ -29,16 +29,16 @@ public static class ServiceExtensions
         // 注册仓储
         services.AddScoped<IHireBotRepository, HireBotRepository>();
 
-        // KingCrab 控制台接口（用于实例生命周期管理）
-        services.AddHttpClient(KingCrabClientName, (serviceProvider, client) =>
+        // KingCrew 网关接口（用于模板雇佣与对话运行时）
+        services.AddHttpClient(KingCrewClientName, (_, client) =>
         {
-            var baseUrl = configuration["KingCrabConsole:BaseUrl"];
+            var baseUrl = configuration["KingCrew:BaseUrl"];
             if (!string.IsNullOrWhiteSpace(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
             {
                 client.BaseAddress = uri;
             }
 
-            var timeoutSeconds = configuration.GetValue("KingCrabConsole:HttpTimeoutSeconds", 15);
+            var timeoutSeconds = configuration.GetValue("KingCrew:HttpTimeoutSeconds", 30);
             client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
         });
 
