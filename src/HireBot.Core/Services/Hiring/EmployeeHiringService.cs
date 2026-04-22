@@ -335,33 +335,51 @@ public sealed class EmployeeHiringService(
             $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/artifacts/download",
             ResolveOwnerByHireId(normalizedHireId));
 
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            return HiringArtifactDownloadResult.Error(
-                (int)response.StatusCode,
-                ExtractRemoteMessage(errorContent) ?? $"下载交付包失败（HTTP {(int)response.StatusCode}）");
-        }
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                return HiringArtifactDownloadResult.Error(
+                    (int)response.StatusCode,
+                    ExtractRemoteMessage(errorContent) ?? $"下载交付包失败（HTTP {(int)response.StatusCode}）");
+            }
 
-        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-        if (bytes.Length == 0)
+            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            if (bytes.Length == 0)
+            {
+                return HiringArtifactDownloadResult.Error(502, "下载交付包失败：返回内容为空");
+            }
+
+            var contentType = response.Content.Headers.ContentType?.MediaType;
+            var fileName = response.Content.Headers.ContentDisposition?.FileNameStar
+                           ?? response.Content.Headers.ContentDisposition?.FileName;
+            if (!string.IsNullOrWhiteSpace(fileName))
+            {
+                fileName = fileName.Trim('"');
+            }
+
+            return HiringArtifactDownloadResult.Success(
+                fileName ?? $"{normalizedHireId}_artifacts.zip",
+                string.IsNullOrWhiteSpace(contentType) ? "application/zip" : contentType,
+                bytes);
+        }
+        catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
         {
-            return HiringArtifactDownloadResult.Error(502, "下载交付包失败：返回内容为空");
+            logger.LogWarning(oce, "下载 KingCrew 交付包时请求被取消: HireId={HireId}", normalizedHireId);
+            return HiringArtifactDownloadResult.Error(499, "下载请求已取消");
         }
-
-        var contentType = response.Content.Headers.ContentType?.MediaType;
-        var fileName = response.Content.Headers.ContentDisposition?.FileNameStar
-                       ?? response.Content.Headers.ContentDisposition?.FileName;
-        if (!string.IsNullOrWhiteSpace(fileName))
+        catch (OperationCanceledException oce)
         {
-            fileName = fileName.Trim('"');
+            logger.LogWarning(oce, "下载 KingCrew 交付包超时: HireId={HireId}", normalizedHireId);
+            return HiringArtifactDownloadResult.Error(504, "下载交付包超时，请稍后重试");
         }
-
-        return HiringArtifactDownloadResult.Success(
-            fileName ?? $"{normalizedHireId}_artifacts.zip",
-            string.IsNullOrWhiteSpace(contentType) ? "application/zip" : contentType,
-            bytes);
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "下载 KingCrew 交付包异常: HireId={HireId}", normalizedHireId);
+            return HiringArtifactDownloadResult.Error(502, "下载交付包失败");
+        }
     }
 
     private async Task<RemoteCallResult<T>> SendForJsonAsync<T>(
@@ -408,6 +426,16 @@ public sealed class EmployeeHiringService(
 
             return RemoteCallResult<T>.Ok(model);
         }
+        catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(oce, "调用 KingCrew 接口被取消: Method={Method}, Path={Path}", method, path);
+            return RemoteCallResult<T>.Failure(499, "请求已取消");
+        }
+        catch (OperationCanceledException oce)
+        {
+            logger.LogWarning(oce, "调用 KingCrew 接口超时: Method={Method}, Path={Path}", method, path);
+            return RemoteCallResult<T>.Failure(504, "调用 KingCrew 接口超时");
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "调用 KingCrew 接口异常: Method={Method}, Path={Path}", method, path);
@@ -424,7 +452,7 @@ public sealed class EmployeeHiringService(
         var normalizedPath = path.StartsWith('/') ? path : "/" + path;
         var request = new HttpRequestMessage(method, $"{normalizedPrefix}{normalizedPath}");
 
-        // 优先透传前端携带的 Authorization，便于 OIDC 身份在下游延续。
+        // 优先透传前端携带的 Authorization，保证 OIDC 身份在下游链路延续。
         var incomingAuthorization = httpContextAccessor.HttpContext?.Request.Headers.Authorization.ToString();
         if (!string.IsNullOrWhiteSpace(incomingAuthorization))
         {

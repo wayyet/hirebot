@@ -38,7 +38,12 @@ public static class ServiceExtensions
                 client.BaseAddress = uri;
             }
 
-            var timeoutSeconds = configuration.GetValue("KingCrew:HttpTimeoutSeconds", 30);
+            var timeoutSeconds = configuration.GetValue("KingCrew:HttpTimeoutSeconds", 120);
+            if (timeoutSeconds <= 0)
+            {
+                timeoutSeconds = 120;
+            }
+
             client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
         });
 
