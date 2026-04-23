@@ -1,0 +1,25 @@
+﻿namespace HireBot.Abstraction.Models.EmployeeRuntime;
+
+public sealed record EmployeeDetailDto(
+    string EmployeeId,
+    string Nickname,
+    string RoleName,
+    string SourceTemplate,
+    string SourceTemplateId,
+    string LifecycleStatus,
+    string StageSummary,
+    string PrimarySignal,
+    string SignalLevel,
+    string OwningTeam,
+    string CreatedAt,
+    string? InternshipStartAt,
+    string? GraduatedAt,
+    int TasksDone,
+    int TasksTotal,
+    decimal? SatisfactionScore,
+    IReadOnlyList<string> PendingActions,
+    IReadOnlyList<EmployeeCapabilityDto> Capabilities,
+    string? EvalPhase,
+    int? EvalIteration,
+    int? EvalMaxIterations,
+    bool IsConfigured);
