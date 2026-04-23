@@ -2,10 +2,13 @@
 using HireBot.Abstraction.Models.EmployeeTemplate;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeTemplate;
+using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.EmployeeTemplate;
 
-public sealed class EmployeeTemplateService(ITemplateDataProvider templateDataProvider) : IEmployeeTemplateService
+public sealed class EmployeeTemplateService(
+    ITemplateDataProvider templateDataProvider,
+    ILogger<EmployeeTemplateService> logger) : IEmployeeTemplateService
 {
     public async Task<ApiResponse<EmployeeTemplateListDto>> GetTemplatesAsync(
         string? query,
@@ -16,7 +19,16 @@ public sealed class EmployeeTemplateService(ITemplateDataProvider templateDataPr
         var normalizedPage = page <= 0 ? 1 : page;
         var normalizedPageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 50);
 
-        var templates = await templateDataProvider.GetAllAsync(cancellationToken);
+        IReadOnlyList<EmployeeTemplateDefinition> templates;
+        try
+        {
+            templates = await templateDataProvider.GetAllAsync(cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Template list unavailable from upstream data source.");
+            return ApiResponse<EmployeeTemplateListDto>.ErrorResponse(502, ex.Message);
+        }
 
         var filteredTemplates = templates
             .Where(template => template.IsAvailable)
@@ -50,7 +62,17 @@ public sealed class EmployeeTemplateService(ITemplateDataProvider templateDataPr
             return ApiResponse<EmployeeTemplateDetailDto>.ErrorResponse(400, "templateId 不能为空");
         }
 
-        var template = await templateDataProvider.GetByIdAsync(templateId.Trim(), cancellationToken);
+        EmployeeTemplateDefinition? template;
+        try
+        {
+            template = await templateDataProvider.GetByIdAsync(templateId.Trim(), cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Template detail unavailable from upstream data source. TemplateId={TemplateId}", templateId);
+            return ApiResponse<EmployeeTemplateDetailDto>.ErrorResponse(502, ex.Message);
+        }
+
         if (template is null || !template.IsAvailable)
         {
             return ApiResponse<EmployeeTemplateDetailDto>.ErrorResponse(404, "模板不存在或已下架");
