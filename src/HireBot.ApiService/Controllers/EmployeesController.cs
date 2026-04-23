@@ -1,0 +1,138 @@
+using HireBot.Abstraction;
+using HireBot.Abstraction.Models.EmployeeRuntime;
+using HireBot.Abstraction.Models.Evaluation;
+using HireBot.Abstraction.Models.Training;
+using HireBot.Abstraction.Services.EmployeeRuntime;
+using HireBot.Abstraction.Services.Evaluation;
+using HireBot.Abstraction.Services.Training;
+using Microsoft.AspNetCore.Mvc;
+
+namespace HireBot.ApiService.Controllers;
+
+[Route("api/v1/employees")]
+[ApiController]
+public sealed class EmployeesController(
+    IEmployeeRuntimeService employeeRuntimeService,
+    ITrainingService trainingService,
+    IEvaluationService evaluationService) : ControllerBase
+{
+    [HttpGet]
+    public async Task<IActionResult> GetEmployees(CancellationToken cancellationToken = default)
+    {
+        var response = await employeeRuntimeService.GetEmployeesAsync(cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpGet("{employeeId}")]
+    public async Task<IActionResult> GetEmployee(string employeeId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeRuntimeService.GetEmployeeAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/lifecycle")]
+    public async Task<IActionResult> UpdateLifecycle(
+        string employeeId,
+        [FromBody] UpdateEmployeeLifecycleRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EmployeeDetailDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeRuntimeService.UpdateLifecycleAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPut("{employeeId}/capabilities")]
+    public async Task<IActionResult> UpdateCapabilities(
+        string employeeId,
+        [FromBody] UpdateEmployeeCapabilitiesRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EmployeeDetailDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeRuntimeService.UpdateCapabilitiesAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/pending-actions/{actionId}/complete")]
+    public async Task<IActionResult> CompletePendingAction(
+        string employeeId,
+        string actionId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await employeeRuntimeService.CompletePendingActionAsync(employeeId, actionId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpGet("{employeeId}/training/state")]
+    public async Task<IActionResult> GetTrainingState(string employeeId, CancellationToken cancellationToken = default)
+    {
+        var response = await trainingService.GetTrainingStateAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/training/decision")]
+    public async Task<IActionResult> SubmitTrainingDecision(
+        string employeeId,
+        [FromBody] TrainingDecisionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EmployeeDetailDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await trainingService.SubmitTrainingDecisionAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpGet("{employeeId}/evaluation/state")]
+    public async Task<IActionResult> GetEvaluationState(string employeeId, CancellationToken cancellationToken = default)
+    {
+        var response = await evaluationService.GetEvaluationStateAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/evaluation/onboarding-decision")]
+    public async Task<IActionResult> SubmitOnboardingDecision(
+        string employeeId,
+        [FromBody] EvaluationOnboardingDecisionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EmployeeDetailDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await evaluationService.SubmitOnboardingDecisionAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    private IActionResult? BuildModelValidationError<T>()
+    {
+        if (ModelState.IsValid)
+        {
+            return null;
+        }
+
+        var message = string.Join(
+            "; ",
+            ModelState.Values
+                .SelectMany(value => value.Errors)
+                .Select(error => error.ErrorMessage)
+                .Where(errorMessage => !string.IsNullOrWhiteSpace(errorMessage)));
+
+        var errorResponse = ApiResponse<T>.ErrorResponse(400, string.IsNullOrWhiteSpace(message) ? "请求参数校验失败" : message);
+        return BadRequest(errorResponse);
+    }
+}

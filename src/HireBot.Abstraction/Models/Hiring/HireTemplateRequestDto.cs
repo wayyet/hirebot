@@ -1,14 +1,10 @@
-﻿using System.ComponentModel.DataAnnotations;
-
-namespace HireBot.Abstraction.Models.Hiring;
+﻿namespace HireBot.Abstraction.Models.Hiring;
 
 public sealed record HireTemplateRequestDto
 {
-    [Required]
-    public string TenantId { get; init; } = string.Empty;
+    public string? TenantId { get; init; }
 
-    [Required]
-    public string OperatorId { get; init; } = string.Empty;
+    public string? OperatorId { get; init; }
 
     public string? UseCase { get; init; }
 }

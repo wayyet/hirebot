@@ -4,11 +4,14 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
 using HireBot.Abstraction;
+using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Providers;
+using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Hiring;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Hiring;
@@ -18,6 +21,7 @@ public sealed class EmployeeHiringService(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
     IHttpContextAccessor httpContextAccessor,
+    IServiceScopeFactory serviceScopeFactory,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private const string KingCrewClientName = "KingCrew";
@@ -40,10 +44,8 @@ public sealed class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(400, "templateId 不能为空");
         }
 
-        if (request is null || string.IsNullOrWhiteSpace(request.TenantId) || string.IsNullOrWhiteSpace(request.OperatorId))
-        {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(400, "tenantId 和 operatorId 为必填项");
-        }
+        request ??= new HireTemplateRequestDto();
+        var (tenantId, operatorId) = ResolveTenantAndOperator(request.TenantId, request.OperatorId);
 
         var normalizedTemplateId = templateId.Trim();
         var template = await templateDataProvider.GetByIdAsync(normalizedTemplateId, cancellationToken);
@@ -52,11 +54,11 @@ public sealed class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(404, "模板不存在或已下架");
         }
 
-        var ownerSubject = ResolveOwnerSubject(request.TenantId, request.OperatorId);
+        var ownerSubject = ResolveOwnerSubject(tenantId, operatorId);
         var remoteRequest = new KingCrewHireRequest(
             TemplateId: normalizedTemplateId,
-            TenantId: request.TenantId.Trim(),
-            OperatorId: request.OperatorId.Trim(),
+            TenantId: tenantId,
+            OperatorId: operatorId,
             UseCase: request.UseCase);
 
         var call = await SendForJsonAsync<HireTemplateResultDto>(
@@ -73,8 +75,11 @@ public sealed class EmployeeHiringService(
 
         hireOwners[call.Data.HireId] = new HireOwnerContext(
             OwnerSubject: ownerSubject,
-            TenantId: request.TenantId.Trim(),
-            OperatorId: request.OperatorId.Trim());
+            TenantId: tenantId,
+            OperatorId: operatorId,
+            TemplateId: normalizedTemplateId,
+            TemplateName: template.Name,
+            EmployeeId: null);
 
         logger.LogInformation(
             "模板雇佣已提交到 KingCrew: HireId={HireId}, TemplateId={TemplateId}, Owner={Owner}",
@@ -288,7 +293,39 @@ public sealed class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(call.StatusCode, call.Message);
         }
 
-        return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(call.Data, "交付物已生成");
+        var finalizeResult = call.Data;
+        if (hireOwners.TryGetValue(normalizedHireId, out var context))
+        {
+            if (string.IsNullOrWhiteSpace(context.EmployeeId))
+            {
+                var capabilities = (await templateDataProvider.GetByIdAsync(context.TemplateId, cancellationToken))?.CoreAbilities ?? [];
+                using var scope = serviceScopeFactory.CreateScope();
+                var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
+                var createResponse = await employeeRuntimeService.CreateFromHireAsync(
+                    new CreateEmployeeFromHireRequestDto(
+                        HireId: normalizedHireId,
+                        TemplateId: context.TemplateId,
+                        TemplateName: context.TemplateName,
+                        OwnerSubject: context.OwnerSubject,
+                        TenantId: context.TenantId,
+                        OperatorId: context.OperatorId,
+                        Capabilities: capabilities),
+                    cancellationToken);
+
+                if (createResponse.Success && createResponse.Data is not null)
+                {
+                    context = context with { EmployeeId = createResponse.Data.EmployeeId };
+                    hireOwners[normalizedHireId] = context;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(context.EmployeeId))
+            {
+                finalizeResult = finalizeResult with { EmployeeId = context.EmployeeId };
+            }
+        }
+
+        return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(finalizeResult, "交付物已生成");
     }
 
     public async Task<ApiResponse<HiringWorkflowStateDto>> GetWorkflowStateAsync(
@@ -512,26 +549,6 @@ public sealed class EmployeeHiringService(
         }
     }
 
-    private string ResolveOwnerSubject(string tenantId, string operatorId)
-    {
-        var user = httpContextAccessor.HttpContext?.User;
-        var sub =
-            user?.FindFirst("sub")?.Value ??
-            user?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!string.IsNullOrWhiteSpace(sub))
-        {
-            return sub.Trim();
-        }
-
-        var ownerHeader = httpContextAccessor.HttpContext?.Request.Headers["X-HireBot-Owner"].ToString();
-        if (!string.IsNullOrWhiteSpace(ownerHeader))
-        {
-            return ownerHeader.Trim();
-        }
-
-        return $"{tenantId.Trim()}:{operatorId.Trim()}";
-    }
-
     private string ResolveOwnerByHireId(string hireId)
     {
         if (hireOwners.TryGetValue(hireId, out var context))
@@ -539,6 +556,11 @@ public sealed class EmployeeHiringService(
             return context.OwnerSubject;
         }
 
+        return ResolveOwnerSubject();
+    }
+
+    private string ResolveOwnerSubject(string? tenantId = null, string? operatorId = null)
+    {
         var user = httpContextAccessor.HttpContext?.User;
         var sub =
             user?.FindFirst("sub")?.Value ??
@@ -554,7 +576,43 @@ public sealed class EmployeeHiringService(
             return ownerHeader.Trim();
         }
 
-        return "anonymous";
+        var (resolvedTenantId, resolvedOperatorId) = ResolveTenantAndOperator(tenantId, operatorId);
+        return $"{resolvedTenantId}:{resolvedOperatorId}";
+    }
+
+    private (string TenantId, string OperatorId) ResolveTenantAndOperator(string? tenantId, string? operatorId)
+    {
+        var user = httpContextAccessor.HttpContext?.User;
+
+        var resolvedTenantId = FirstNonEmpty(
+            tenantId,
+            user?.FindFirst("tenant_id")?.Value,
+            user?.FindFirst("tenant")?.Value,
+            user?.FindFirst("tid")?.Value,
+            "tenant-default");
+
+        var resolvedOperatorId = FirstNonEmpty(
+            operatorId,
+            user?.FindFirst("operator_id")?.Value,
+            user?.FindFirst("preferred_username")?.Value,
+            user?.FindFirst(ClaimTypes.Name)?.Value,
+            user?.FindFirst(ClaimTypes.NameIdentifier)?.Value,
+            "operator-default");
+
+        return (resolvedTenantId, resolvedOperatorId);
+    }
+
+    private static string FirstNonEmpty(params string?[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (!string.IsNullOrWhiteSpace(candidate))
+            {
+                return candidate.Trim();
+            }
+        }
+
+        return string.Empty;
     }
 
     private static bool TryNormalizeHireId(string hireId, out string normalizedHireId, out string error)
@@ -572,7 +630,13 @@ public sealed class EmployeeHiringService(
     }
 
     private sealed record KingCrewHireRequest(string TemplateId, string TenantId, string OperatorId, string? UseCase);
-    private sealed record HireOwnerContext(string OwnerSubject, string TenantId, string OperatorId);
+    private sealed record HireOwnerContext(
+        string OwnerSubject,
+        string TenantId,
+        string OperatorId,
+        string TemplateId,
+        string TemplateName,
+        string? EmployeeId);
 
     private sealed record RemoteCallResult<T>(bool Success, int StatusCode, string Message, T? Data)
     {
