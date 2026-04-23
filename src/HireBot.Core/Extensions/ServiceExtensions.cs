@@ -9,12 +9,15 @@ using HireBot.Abstraction.Services.SkillCatalog;
 using HireBot.Abstraction.Services.Training;
 using HireBot.Abstraction.Services.User;
 using HireBot.Core.Providers;
+using HireBot.Core.Services;
 using HireBot.Core.Services.Collaboration;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.EmployeeTemplate;
 using HireBot.Core.Services.Evaluation;
 using HireBot.Core.Services.Hiring;
-using HireBot.Core.Services;
+using HireBot.Core.Services.Hiring.Artifacts;
+using HireBot.Core.Services.Hiring.Discovery;
+using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.SkillCatalog;
 using HireBot.Core.Services.Training;
@@ -28,19 +31,17 @@ namespace HireBot.Core.Extensions;
 public static class ServiceExtensions
 {
     private const string KingCrewClientName = "KingCrew";
+    private const string BuildServiceClientName = "BuildService";
 
     public static IServiceCollection AddHireBotServices(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("DefaultConnection") ?? "Server=(localdb)\\mssqllocaldb;Database=HireBot;Trusted_Connection=True;";
+        var connectionString = configuration.GetConnectionString("DefaultConnection") ??
+                               "Server=(localdb)\\mssqllocaldb;Database=HireBot;Trusted_Connection=True;";
 
-        // 注册数据库上下文
-        services.AddDbContext<HireBotDbContext>(options =>
-                options.UseNpgsql(connectionString));
+        services.AddDbContext<HireBotDbContext>(options => options.UseNpgsql(connectionString));
 
-        // 注册仓储
         services.AddScoped<IHireBotRepository, HireBotRepository>();
 
-        // KingCrew 网关接口（用于模板雇佣与对话运行时）
         services.AddHttpClient(KingCrewClientName, (_, client) =>
         {
             var baseUrl = configuration["KingCrew:BaseUrl"];
@@ -58,18 +59,40 @@ public static class ServiceExtensions
             client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
         });
 
-        // 注册请求上下文解析
+        services.AddHttpClient(BuildServiceClientName, (_, client) =>
+        {
+            var baseUrl = configuration["BuildService:BaseUrl"];
+            if (!string.IsNullOrWhiteSpace(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
+            {
+                client.BaseAddress = uri;
+            }
+
+            var timeoutSeconds = configuration.GetValue("BuildService:HttpTimeoutSeconds", 60);
+            if (timeoutSeconds <= 0)
+            {
+                timeoutSeconds = 60;
+            }
+
+            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+        });
+
         services.AddScoped<IRequestContextService, RequestContextService>();
 
-        // 注册数据端口（默认 mock）
         services.AddSingleton<IEmployeeRuntimeStore, InMemoryEmployeeRuntimeStore>();
+        services.AddSingleton<IHiringRuntimeStore, InMemoryHiringRuntimeStore>();
         services.AddSingleton<IEvaluationScenarioProvider, MockEvaluationScenarioProvider>();
         services.AddSingleton<ICollaborationProvider, MockCollaborationProvider>();
         services.AddSingleton<ISkillCatalogProvider, MockSkillCatalogProvider>();
+        services.AddSingleton<BuildServiceTemplatePackageProvider>();
+        services.AddSingleton<FileSystemTemplatePackageProvider>();
+        services.AddSingleton<ITemplatePackageProvider, FallbackTemplatePackageProvider>();
+        services.AddSingleton<IDiscoveryRuleProvider, FileSystemDiscoveryRuleProvider>();
+        services.AddSingleton<HiringStageCompletionEvaluator>();
+        services.AddSingleton<IArtifactSerializer, PlaceholderArtifactSerializer>();
 
-        // 注册业务服务
         services.AddScoped<IUserService, UserService>();
-        services.AddSingleton<ITemplateDataProvider, MockTemplateDataProvider>();
+        services.AddSingleton<ITemplateDataProvider, BuildServiceTemplateDataProvider>();
+
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
         services.AddSingleton<IEmployeeHiringService, EmployeeHiringService>();
         services.AddScoped<IEmployeeRuntimeService, MockEmployeeRuntimeService>();
@@ -78,11 +101,10 @@ public static class ServiceExtensions
         services.AddScoped<ICollaborationService, MockCollaborationService>();
         services.AddScoped<ISkillCatalogService, MockSkillCatalogService>();
 
-        // 预留 DataMode=Real 的替换入口
         var dataMode = configuration["HireBot:DataMode"] ?? "Mock";
-        if (dataMode.Equals("Real", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(dataMode, "Real", StringComparison.OrdinalIgnoreCase))
         {
-            // TODO: 切换为真实实现时仅替换上面的端口/服务注入，不改 Controller 与前端契约。
+            // Keep service contracts unchanged. Real implementations can replace mock services later.
         }
 
         return services;

@@ -7,4 +7,9 @@ public sealed record HiringWorkflowStateDto(
     bool RequiresAudit,
     string CollectionPhase,
     IReadOnlyList<StageSkillMappingDto> StageSkills,
-    IReadOnlyList<HiringAuditLogDto> AuditLogs);
+    IReadOnlyList<HiringAuditLogDto> AuditLogs,
+    string? TemplatePackageId = null,
+    string? TemplatePackageVersion = null,
+    string? DiscoverySkillId = null,
+    string? DiscoverySkillVersion = null,
+    IReadOnlyList<HiringStageCompletionDto>? StageCompletion = null);

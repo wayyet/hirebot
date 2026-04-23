@@ -97,6 +97,21 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
     public async Task<IActionResult> DownloadArtifacts(string hireId, CancellationToken cancellationToken = default)
     {
         var result = await employeeHiringService.BuildArtifactDownloadAsync(hireId, cancellationToken);
+        return BuildDownloadResponse(result);
+    }
+
+    [HttpGet("{hireId}/artifacts/{artifactName}")]
+    public async Task<IActionResult> DownloadArtifactFile(
+        string hireId,
+        string artifactName,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await employeeHiringService.BuildArtifactFileDownloadAsync(hireId, artifactName, cancellationToken);
+        return BuildDownloadResponse(result);
+    }
+
+    private IActionResult BuildDownloadResponse(HiringArtifactDownloadResult result)
+    {
         if (!result.Found)
         {
             var error = ApiResponse<object>.ErrorResponse(result.Code, result.Message);
