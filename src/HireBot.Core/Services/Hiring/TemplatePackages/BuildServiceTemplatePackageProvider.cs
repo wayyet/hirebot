@@ -1,8 +1,10 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HireBot.Core.Providers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -27,46 +29,55 @@ internal sealed class BuildServiceTemplatePackageProvider(
     {
         if (string.IsNullOrWhiteSpace(templateId))
         {
-            throw new InvalidOperationException("templateId 不能为空");
+            throw new InvalidOperationException("templateId cannot be empty.");
         }
 
         var client = httpClientFactory.CreateClient(BuildServiceClientName);
         if (client.BaseAddress is null)
         {
-            throw new InvalidOperationException("BuildService:BaseUrl 未配置");
+            throw new InvalidOperationException("BuildService:BaseUrl is not configured.");
         }
 
         var normalizedTemplateId = templateId.Trim();
-        var detail = await SendForJsonAsync<BuildTemplateDetailResponse>(
+        var detailResult = await SendForJsonAsync<JsonElement>(
             client,
             BuildApiPath($"/templates/{Uri.EscapeDataString(normalizedTemplateId)}"),
             cancellationToken);
 
-        if (!detail.Success || detail.Data is null)
+        if (!detailResult.Success || detailResult.Data.ValueKind == JsonValueKind.Undefined)
         {
             throw new InvalidOperationException(
-                $"模板资产详情读取失败. TemplateId={normalizedTemplateId}, Message={detail.Message}");
+                $"Template package detail request failed. TemplateId={normalizedTemplateId}, Message={detailResult.Message}");
         }
 
-        var packageUrl = detail.Data.LatestVersion?.PackageUrl;
-        if (string.IsNullOrWhiteSpace(packageUrl))
+        var detail = BuildServiceTemplatePayloadParser.ParseDetail(detailResult.Data);
+        if (detail is null)
         {
-            throw new InvalidOperationException($"模板 {normalizedTemplateId} 当前版本未生成可下载包");
+            throw new InvalidOperationException($"Template package detail payload is invalid. TemplateId={normalizedTemplateId}");
         }
 
-        var packageBytes = await SendForBytesAsync(client, packageUrl.Trim(), cancellationToken);
+        var latestVersionId = detail.LatestVersion?.Id;
+        if (string.IsNullOrWhiteSpace(latestVersionId))
+        {
+            throw new InvalidOperationException(
+                $"Template {normalizedTemplateId} does not expose a downloadable version id.");
+        }
+
+        var packageDownloadPath = BuildApiPath(
+            $"/templates/{Uri.EscapeDataString(normalizedTemplateId)}/versions/{Uri.EscapeDataString(latestVersionId.Trim())}/download");
+        var packageBytes = await SendForBytesAsync(client, packageDownloadPath, cancellationToken);
         if (!packageBytes.Success || packageBytes.Data is null || packageBytes.Data.Length == 0)
         {
             throw new InvalidOperationException(
-                $"模板包下载失败. TemplateId={normalizedTemplateId}, Message={packageBytes.Message}");
+                $"Template package download failed. TemplateId={normalizedTemplateId}, VersionId={latestVersionId}, Message={packageBytes.Message}");
         }
 
-        return BuildPackageDefinition(normalizedTemplateId, detail.Data, packageBytes.Data);
+        return BuildPackageDefinition(normalizedTemplateId, detail, packageBytes.Data);
     }
 
     private TemplatePackageDefinition BuildPackageDefinition(
         string templateId,
-        BuildTemplateDetailResponse detail,
+        BuildTemplateDocument detail,
         byte[] packageBytes)
     {
         using var archiveStream = new MemoryStream(packageBytes, writable: false);
@@ -78,17 +89,34 @@ internal sealed class BuildServiceTemplatePackageProvider(
             string.Equals(Path.GetFileName(entry.FullName), "manifest.json", StringComparison.OrdinalIgnoreCase));
         if (manifestEntry is null)
         {
-            throw new InvalidOperationException("模板包中缺少 manifest.json");
+            throw new InvalidOperationException("Template package is missing manifest.json.");
         }
 
         var manifestJson = ReadEntryText(manifestEntry);
         var manifest = JsonSerializer.Deserialize<TemplateManifestDocument>(manifestJson, JsonOptions)
-                       ?? throw new InvalidOperationException("模板 manifest 解析失败");
+                       ?? throw new InvalidOperationException("Template manifest could not be parsed.");
         var entryIndex = archive.Entries
             .Where(entry => !entry.FullName.EndsWith("/", StringComparison.Ordinal) && !IsIgnoredEntry(entry.FullName))
             .ToDictionary(entry => NormalizeZipPath(entry.FullName), entry => entry, StringComparer.OrdinalIgnoreCase);
 
         var manifestDirectory = Path.GetDirectoryName(NormalizeZipPath(manifestEntry.FullName))?.Replace('\\', '/');
+        var packageFiles = new Dictionary<string, TemplatePackageFileAsset>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in entryIndex.Values)
+        {
+            var normalizedEntryPath = NormalizeZipPath(entry.FullName);
+            var manifestRelativePath = NormalizeManifestRelativePath(normalizedEntryPath, manifestDirectory);
+            if (!TryNormalizeArchiveRelativePath(manifestRelativePath, out var normalizedRelativePath))
+            {
+                continue;
+            }
+
+            var bytes = ReadEntryBytes(entry);
+            packageFiles[normalizedRelativePath] = new TemplatePackageFileAsset(
+                RelativePath: normalizedRelativePath,
+                Content: bytes,
+                ContentHash: ComputeContentHash(bytes));
+        }
+
         var ontologySlices = new List<TemplateOntologySliceAsset>();
         foreach (var slice in manifest.OntologySlices ?? [])
         {
@@ -147,6 +175,9 @@ internal sealed class BuildServiceTemplatePackageProvider(
             ManifestJson: manifestJson,
             DisplayName: FirstNonEmpty(manifest.DisplayName, detail.Name, templateId),
             Description: FirstNonEmpty(manifest.Description, detail.Description, detail.Positioning, "NCrew template package"),
+            PackageFiles: packageFiles.Values
+                .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
             OntologySlices: ontologySlices,
             RequiredSkills: requiredSkills);
     }
@@ -156,10 +187,9 @@ internal sealed class BuildServiceTemplatePackageProvider(
         string path,
         CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(path);
-
         try
         {
+            using var request = CreateRequest(path);
             using var response = await client.SendAsync(request, cancellationToken);
             var payload = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -180,6 +210,11 @@ internal sealed class BuildServiceTemplatePackageProvider(
                 ? RemoteCallResult<T>.Failure(502, "Build service response deserialized to null.")
                 : RemoteCallResult<T>.Ok(model);
         }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Build service JSON request rejected before dispatch. Path={Path}", path);
+            return RemoteCallResult<T>.Failure(401, ex.Message);
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Build service JSON request failed. Path={Path}", path);
@@ -192,10 +227,9 @@ internal sealed class BuildServiceTemplatePackageProvider(
         string path,
         CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(path);
-
         try
         {
+            using var request = CreateRequest(path);
             using var response = await client.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
@@ -209,6 +243,11 @@ internal sealed class BuildServiceTemplatePackageProvider(
             return bytes.Length == 0
                 ? RemoteCallResult<byte[]>.Failure(502, "Build service package download returned empty content.")
                 : RemoteCallResult<byte[]>.Ok(bytes);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Build service package request rejected before dispatch. Path={Path}", path);
+            return RemoteCallResult<byte[]>.Failure(401, ex.Message);
         }
         catch (Exception ex)
         {
@@ -302,11 +341,66 @@ internal sealed class BuildServiceTemplatePackageProvider(
         return path.Replace('\\', '/').TrimStart('/');
     }
 
+    private static string NormalizeManifestRelativePath(string zipPath, string? manifestDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(zipPath))
+        {
+            return string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(manifestDirectory))
+        {
+            return zipPath.TrimStart('/');
+        }
+
+        var normalizedManifestDirectory = manifestDirectory.Replace('\\', '/').Trim('/');
+        if (normalizedManifestDirectory.Length == 0)
+        {
+            return zipPath.TrimStart('/');
+        }
+
+        var prefix = normalizedManifestDirectory + "/";
+        return zipPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? zipPath[prefix.Length..]
+            : zipPath.TrimStart('/');
+    }
+
+    private static bool TryNormalizeArchiveRelativePath(string path, out string normalizedPath)
+    {
+        var segments = path
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length == 0 ||
+            segments.Any(static segment =>
+                string.Equals(segment, ".", StringComparison.Ordinal) ||
+                string.Equals(segment, "..", StringComparison.Ordinal)))
+        {
+            normalizedPath = string.Empty;
+            return false;
+        }
+
+        normalizedPath = string.Join('/', segments);
+        return true;
+    }
+
     private static string ReadEntryText(ZipArchiveEntry entry)
     {
         using var stream = entry.Open();
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
         return reader.ReadToEnd();
+    }
+
+    private static byte[] ReadEntryBytes(ZipArchiveEntry entry)
+    {
+        using var stream = entry.Open();
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
+    private static string ComputeContentHash(byte[] content)
+    {
+        return Convert.ToHexStringLower(SHA256.HashData(content));
     }
 
     private static string FirstNonEmpty(params string?[] candidates)
@@ -356,27 +450,6 @@ internal sealed class BuildServiceTemplatePackageProvider(
             return null;
         }
     }
-
-    private sealed record BuildTemplateDetailResponse(
-        long Id,
-        string? Name,
-        string? Positioning,
-        string? Description,
-        string? CurrentVersion,
-        DateTimeOffset? UpdatedAt,
-        string? Status,
-        JsonElement UseCases,
-        BuildTemplateVersionSnapshot? LatestVersion,
-        JsonElement Skills,
-        JsonElement Clis,
-        JsonElement Ontologies);
-
-    private sealed record BuildTemplateVersionSnapshot(
-        long Id,
-        string? Version,
-        string? ChangeLog,
-        DateTimeOffset? PublishedAt,
-        string? PackageUrl);
 
     private sealed record TemplateManifestDocument(
         [property: JsonPropertyName("name")] string? Name,

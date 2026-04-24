@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -25,11 +26,19 @@ public static class Extensions
         builder.AddDefaultHealthChecks();
 
         builder.Services.AddServiceDiscovery();
+        var resilienceTimeoutSeconds = ResolveResilienceTimeoutSeconds(builder.Configuration);
+        var resilienceTimeout = TimeSpan.FromSeconds(resilienceTimeoutSeconds);
+        var resilienceSamplingDuration = TimeSpan.FromSeconds(Math.Max(resilienceTimeoutSeconds * 2, 30));
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
             // Turn on resilience by default
-            http.AddStandardResilienceHandler();
+            http.AddStandardResilienceHandler(options =>
+            {
+                options.TotalRequestTimeout.Timeout = resilienceTimeout;
+                options.AttemptTimeout.Timeout = resilienceTimeout;
+                options.CircuitBreaker.SamplingDuration = resilienceSamplingDuration;
+            });
 
             // Turn on service discovery by default
             http.AddServiceDiscovery();
@@ -123,5 +132,14 @@ public static class Extensions
         }
 
         return app;
+    }
+
+    private static int ResolveResilienceTimeoutSeconds(IConfiguration configuration)
+    {
+        var timeoutSeconds = configuration.GetValue(
+            "HttpClientDefaults:ResilienceTimeoutSeconds",
+            configuration.GetValue("KingCrew:HttpTimeoutSeconds", 120));
+
+        return timeoutSeconds > 0 ? timeoutSeconds : 120;
     }
 }

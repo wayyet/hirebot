@@ -9,8 +9,14 @@ internal sealed record TemplatePackageDefinition(
     string ManifestJson,
     string DisplayName,
     string Description,
+    IReadOnlyList<TemplatePackageFileAsset> PackageFiles,
     IReadOnlyList<TemplateOntologySliceAsset> OntologySlices,
     IReadOnlyList<TemplateSkillAsset> RequiredSkills);
+
+internal sealed record TemplatePackageFileAsset(
+    string RelativePath,
+    byte[] Content,
+    string ContentHash);
 
 internal sealed record TemplateOntologySliceAsset(
     string Name,

@@ -6,4 +6,6 @@ public sealed record HiringConversationResultDto(
     string CurrentStage,
     bool RequiresAudit,
     HiringConversationMessageDto AssistantMessage,
-    HiringStagePreviewDto LatestPreview);
+    HiringStagePreviewDto LatestPreview,
+    bool IsConversationPaused = false,
+    bool IsConversationResponding = false);

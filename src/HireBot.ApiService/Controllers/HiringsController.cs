@@ -23,6 +23,20 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
         return StatusCode(response.Code, response);
     }
 
+    [HttpPost("{hireId}/conversation/pause")]
+    public async Task<IActionResult> PauseConversation(string hireId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.PauseConversationAsync(hireId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{hireId}/conversation/resume")]
+    public async Task<IActionResult> ResumeConversation(string hireId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.ResumeConversationAsync(hireId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpPost("{hireId}/conversation/messages")]
     public async Task<IActionResult> SendConversationMessage(
         string hireId,
@@ -100,7 +114,7 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
         return BuildDownloadResponse(result);
     }
 
-    [HttpGet("{hireId}/artifacts/{artifactName}")]
+    [HttpGet("{hireId}/artifacts/{*artifactName}")]
     public async Task<IActionResult> DownloadArtifactFile(
         string hireId,
         string artifactName,

@@ -16,6 +16,8 @@ internal sealed record HiringRuntimeContext
     public string SessionId { get; init; } = string.Empty;
     public string CurrentStage { get; init; } = string.Empty;
     public string CollectionPhase { get; init; } = string.Empty;
+    public bool IsConversationPaused { get; init; }
+    public bool IsConversationResponding { get; init; }
     public string? EmployeeId { get; init; }
     public required TemplatePackageDefinition TemplatePackage { get; init; }
     public required DiscoverySkillDefinition DiscoverySkill { get; init; }

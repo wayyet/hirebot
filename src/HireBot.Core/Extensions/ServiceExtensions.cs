@@ -83,6 +83,9 @@ public static class ServiceExtensions
         services.AddSingleton<IEvaluationScenarioProvider, MockEvaluationScenarioProvider>();
         services.AddSingleton<ICollaborationProvider, MockCollaborationProvider>();
         services.AddSingleton<ISkillCatalogProvider, MockSkillCatalogProvider>();
+        services.AddSingleton<BuildServiceTemplateDataProvider>();
+        services.AddSingleton<FileSystemTemplateDataProvider>();
+        services.AddSingleton<FallbackTemplateDataProvider>();
         services.AddSingleton<BuildServiceTemplatePackageProvider>();
         services.AddSingleton<FileSystemTemplatePackageProvider>();
         services.AddSingleton<ITemplatePackageProvider, FallbackTemplatePackageProvider>();
@@ -91,7 +94,7 @@ public static class ServiceExtensions
         services.AddSingleton<IArtifactSerializer, PlaceholderArtifactSerializer>();
 
         services.AddScoped<IUserService, UserService>();
-        services.AddSingleton<ITemplateDataProvider, BuildServiceTemplateDataProvider>();
+        services.AddSingleton<ITemplateDataProvider, FallbackTemplateDataProvider>();
 
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
         services.AddSingleton<IEmployeeHiringService, EmployeeHiringService>();
