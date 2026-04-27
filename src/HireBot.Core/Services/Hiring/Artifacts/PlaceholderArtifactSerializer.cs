@@ -1,6 +1,8 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace HireBot.Core.Services.Hiring.Artifacts;
 
@@ -8,6 +10,7 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
 {
     private const string OntologyArtifactFileName = "ontology-slice.contract.json";
     private const string SkillArtifactFileName = "business-skill-package.contract.json";
+    private const string StructuredPackageRoot = "template-package";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -25,7 +28,7 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
             [SkillArtifactFileName] = JsonSerializer.SerializeToUtf8Bytes(skillArtifact, JsonOptions)
         };
 
-        var archiveBytes = BuildArchive(files);
+        var archiveBytes = BuildArchive(files, request);
         return new ArtifactSerializationResult(
             Files: files,
             Archive: archiveBytes,
@@ -36,8 +39,8 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
     {
         return new
         {
-            contractVersion = "v1-placeholder",
-            artifactType = "ontology-slice",
+            contractVersion = "v1-structure-aligned",
+            artifactType = "ontology-slice-package",
             generatedAt = request.GeneratedAtUtc,
             hire = new
             {
@@ -58,24 +61,23 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
                 request.TemplatePackage.PackageId,
                 request.TemplatePackage.PackageVersion,
                 request.TemplatePackage.PackageHash,
-                request.TemplatePackage.ManifestJson,
-                ontologySlices = request.TemplatePackage.OntologySlices.Select(slice => new
+                manifest = ParseJsonOrText(request.TemplatePackage.ManifestJson),
+                sourceFilePaths = request.TemplatePackage.OntologySlices
+                    .Select(slice => slice.RelativePath)
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase),
+                files = request.TemplatePackage.OntologySlices.Select(slice =>
                 {
-                    slice.Name,
-                    slice.RelativePath,
-                    slice.Type,
-                    slice.Required,
-                    slice.ContentHash,
-                    slice.Content
-                }),
-                optimizedOntologySlices = request.TemplatePackage.OntologySlices.Select(slice => new
-                {
-                    slice.Name,
-                    slice.RelativePath,
-                    slice.Type,
-                    sourceContentHash = slice.ContentHash,
-                    optimizationBasis = BuildMaterialBasis(request),
-                    optimizedContent = BuildOptimizedContent(slice.Content, request)
+                    var enrichedContent = BuildOptimizedContent(slice.Content, request);
+                    return new
+                    {
+                        slice.Name,
+                        path = slice.RelativePath,
+                        slice.Type,
+                        slice.Required,
+                        sourceContentHash = slice.ContentHash,
+                        enrichedContentHash = ComputeContentHash(enrichedContent),
+                        enrichedContent
+                    };
                 })
             },
             discoverySkill = new
@@ -119,7 +121,7 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
     {
         return new
         {
-            contractVersion = "v1-placeholder",
+            contractVersion = "v1-structure-aligned",
             artifactType = "business-skill-package",
             generatedAt = request.GeneratedAtUtc,
             hire = new
@@ -134,21 +136,22 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
                 request.TemplatePackage.PackageId,
                 request.TemplatePackage.PackageVersion,
                 request.TemplatePackage.PackageHash,
-                requiredSkills = request.TemplatePackage.RequiredSkills.Select(skill => new
+                manifest = ParseJsonOrText(request.TemplatePackage.ManifestJson),
+                sourceFilePaths = request.TemplatePackage.RequiredSkills
+                    .Select(skill => skill.RelativePath)
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase),
+                files = request.TemplatePackage.RequiredSkills.Select(skill =>
                 {
-                    skill.Name,
-                    skill.RelativePath,
-                    skill.Required,
-                    skill.ContentHash,
-                    skill.Content
-                }),
-                optimizedRequiredSkills = request.TemplatePackage.RequiredSkills.Select(skill => new
-                {
-                    skill.Name,
-                    skill.RelativePath,
-                    sourceContentHash = skill.ContentHash,
-                    optimizationBasis = BuildMaterialBasis(request),
-                    optimizedContent = BuildOptimizedContent(skill.Content, request)
+                    var enrichedContent = BuildOptimizedContent(skill.Content, request);
+                    return new
+                    {
+                        skill.Name,
+                        path = skill.RelativePath,
+                        skill.Required,
+                        sourceContentHash = skill.ContentHash,
+                        enrichedContentHash = ComputeContentHash(enrichedContent),
+                        enrichedContent
+                    };
                 })
             },
             discoverySkill = new
@@ -173,6 +176,7 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
             x_ncrew_enrichment = new
             {
                 sourceMaterials = BuildMaterialSummaries(request),
+                optimizationBasis = BuildMaterialBasis(request),
                 package = new
                 {
                     runbook = GetValue(request.StructuredData, "runbook"),
@@ -226,7 +230,7 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
             request.DiscoverySkill.SkillHash,
             materialCount = request.Materials.Count,
             structuredFieldCount = request.StructuredData.Count,
-            note = "V1 placeholder: optimized content is a replaceable contract built from template assets, conversation text, uploaded files, and uploaded skills as reference material."
+            note = "Structure-aligned V1: keep template package paths unchanged and enrich content with conversation/files/skill materials."
         };
     }
 
@@ -261,6 +265,47 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
         return builder.ToString();
     }
 
+    private static object ParseJsonOrText(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return JsonNode.Parse(value) ?? value;
+        }
+        catch
+        {
+            return value;
+        }
+    }
+
+    private static string ComputeContentHash(string content)
+    {
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content ?? string.Empty)));
+    }
+
+    private static string NormalizeArchiveRelativePath(string relativePath)
+    {
+        var segments = relativePath
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Where(segment => !string.Equals(segment, ".", StringComparison.Ordinal) &&
+                              !string.Equals(segment, "..", StringComparison.Ordinal))
+            .ToArray();
+
+        return segments.Length == 0 ? "unknown.txt" : string.Join('/', segments);
+    }
+
+    private static void WriteUtf8Entry(ZipArchive archive, string entryName, string content)
+    {
+        var entry = archive.CreateEntry(entryName, CompressionLevel.Fastest);
+        using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+        writer.Write(content);
+    }
+
     private static string? Preview(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -272,7 +317,9 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
         return normalized.Length <= 240 ? normalized : normalized[..240] + "...";
     }
 
-    private static byte[] BuildArchive(IReadOnlyDictionary<string, byte[]> files)
+    private static byte[] BuildArchive(
+        IReadOnlyDictionary<string, byte[]> files,
+        ArtifactSerializationRequest request)
     {
         using var stream = new MemoryStream();
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
@@ -284,9 +331,31 @@ internal sealed class PlaceholderArtifactSerializer : IArtifactSerializer
                 entryStream.Write(pair.Value);
             }
 
+            WriteUtf8Entry(
+                archive,
+                $"{StructuredPackageRoot}/manifest.json",
+                request.TemplatePackage.ManifestJson);
+
+            foreach (var slice in request.TemplatePackage.OntologySlices)
+            {
+                WriteUtf8Entry(
+                    archive,
+                    $"{StructuredPackageRoot}/{NormalizeArchiveRelativePath(slice.RelativePath)}",
+                    BuildOptimizedContent(slice.Content, request));
+            }
+
+            foreach (var skill in request.TemplatePackage.RequiredSkills)
+            {
+                WriteUtf8Entry(
+                    archive,
+                    $"{StructuredPackageRoot}/{NormalizeArchiveRelativePath(skill.RelativePath)}",
+                    BuildOptimizedContent(skill.Content, request));
+            }
+
             var readmeEntry = archive.CreateEntry("README.txt", CompressionLevel.Fastest);
             using var readmeStream = new StreamWriter(readmeEntry.Open(), Encoding.UTF8);
-            readmeStream.WriteLine("This archive contains placeholder V1 deliverables.");
+            readmeStream.WriteLine("This archive contains structure-aligned V1 deliverables.");
+            readmeStream.WriteLine($"Template package root: {StructuredPackageRoot}/");
             readmeStream.WriteLine($"Files: {string.Join(", ", files.Keys)}");
         }
 

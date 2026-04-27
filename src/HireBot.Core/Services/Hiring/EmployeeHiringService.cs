@@ -42,6 +42,7 @@ internal sealed class EmployeeHiringService(
     };
 
     private readonly ConcurrentDictionary<string, HireOwnerContext> hireOwners = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> conversationInFlight = new(StringComparer.OrdinalIgnoreCase);
 
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
         string templateId,
@@ -149,6 +150,8 @@ internal sealed class EmployeeHiringService(
             SandboxId = call.Data.SandboxId,
             CurrentStage = HiringCollectionStage.Goal,
             CollectionPhase = HiringCollectionPhase.NotStarted,
+            IsConversationPaused = false,
+            IsConversationResponding = false,
             TemplatePackage = templatePackage,
             DiscoverySkill = discoverySkill,
             StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
@@ -230,11 +233,27 @@ internal sealed class EmployeeHiringService(
             call = RemoteCallResult<StartHiringConversationResultDto>.Ok(call.Data with
             {
                 CurrentStage = currentStage,
-                StageSkills = BuildStageSkills(runtimeContext.DiscoverySkill)
+                StageSkills = BuildStageSkills(runtimeContext.DiscoverySkill),
+                IsConversationPaused = runtimeContext.IsConversationPaused,
+                IsConversationResponding = IsConversationResponding(normalizedHireId, runtimeContext)
             });
         }
 
         return ApiResponse<StartHiringConversationResultDto>.SuccessResponse(call.Data);
+    }
+
+    public Task<ApiResponse<HiringConversationControlResultDto>> PauseConversationAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        return SetConversationPausedAsync(hireId, isPaused: true);
+    }
+
+    public Task<ApiResponse<HiringConversationControlResultDto>> ResumeConversationAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        return SetConversationPausedAsync(hireId, isPaused: false);
     }
 
     public async Task<ApiResponse<HiringConversationResultDto>> SendConversationMessageAsync(
@@ -255,53 +274,91 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, "content 与 structuredAnswers 不能同时为空");
         }
 
-        var call = await SendForJsonAsync<HiringConversationResultDto>(
-            HttpMethod.Post,
-            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/conversation/messages",
-            request,
-            ResolveOwnerByHireId(normalizedHireId),
-            cancellationToken);
-
-        if (!call.Success || call.Data is null)
-        {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(call.StatusCode, call.Message);
-        }
-
         var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        if (runtimeContext is not null)
+        if (runtimeContext?.IsConversationPaused == true)
         {
-            var structuredData = NormalizeStructuredData(call.Data.LatestPreview.StructuredData);
-            var materials = MergeMaterials(runtimeContext.Materials, BuildMaterialsFromRequest(request));
-            var stageCompletion = stageCompletionEvaluator.Evaluate(runtimeContext.DiscoverySkill.StageRules, structuredData);
-            var currentStage = ResolveCurrentStage(stageCompletion, call.Data.CurrentStage);
-            var collectionPhase = ResolveCollectionPhase(stageCompletion, structuredData, HiringCollectionPhase.InProgress);
-            var preview = EnrichStagePreview(
-                call.Data.LatestPreview,
-                runtimeContext.DiscoverySkill,
-                stageCompletion,
-                currentStage,
-                collectionPhase,
-                structuredData);
-
-            runtimeContext = runtimeContext with
-            {
-                SessionId = call.Data.SessionId,
-                CurrentStage = currentStage,
-                CollectionPhase = collectionPhase,
-                StructuredData = structuredData,
-                Materials = materials,
-                StageCompletion = stageCompletion
-            };
-            hiringRuntimeStore.Upsert(runtimeContext);
-
-            call = RemoteCallResult<HiringConversationResultDto>.Ok(call.Data with
-            {
-                CurrentStage = currentStage,
-                LatestPreview = preview
-            });
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "对话已暂停，请先恢复后再继续发送消息");
         }
 
-        return ApiResponse<HiringConversationResultDto>.SuccessResponse(call.Data);
+        if (!conversationInFlight.TryAdd(normalizedHireId, 0))
+        {
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "上一轮回复仍在生成中，请稍候");
+        }
+
+        try
+        {
+            runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
+            if (runtimeContext?.IsConversationPaused == true)
+            {
+                return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "对话已暂停，请先恢复后再继续发送消息");
+            }
+
+            if (runtimeContext is not null)
+            {
+                hiringRuntimeStore.Upsert(runtimeContext with { IsConversationResponding = true });
+            }
+
+            var call = await SendForJsonAsync<HiringConversationResultDto>(
+                HttpMethod.Post,
+                $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/conversation/messages",
+                request,
+                ResolveOwnerByHireId(normalizedHireId),
+                cancellationToken);
+
+            if (!call.Success || call.Data is null)
+            {
+                return ApiResponse<HiringConversationResultDto>.ErrorResponse(call.StatusCode, call.Message);
+            }
+
+            runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
+            if (runtimeContext is not null)
+            {
+                var structuredData = NormalizeStructuredData(call.Data.LatestPreview.StructuredData);
+                var materials = MergeMaterials(runtimeContext.Materials, BuildMaterialsFromRequest(request));
+                var stageCompletion = stageCompletionEvaluator.Evaluate(runtimeContext.DiscoverySkill.StageRules, structuredData);
+                var currentStage = ResolveCurrentStage(stageCompletion, call.Data.CurrentStage);
+                var collectionPhase = ResolveCollectionPhase(stageCompletion, structuredData, HiringCollectionPhase.InProgress);
+                var preview = EnrichStagePreview(
+                    call.Data.LatestPreview,
+                    runtimeContext.DiscoverySkill,
+                    stageCompletion,
+                    currentStage,
+                    collectionPhase,
+                    structuredData);
+
+                runtimeContext = runtimeContext with
+                {
+                    SessionId = call.Data.SessionId,
+                    CurrentStage = currentStage,
+                    CollectionPhase = collectionPhase,
+                    StructuredData = structuredData,
+                    Materials = materials,
+                    StageCompletion = stageCompletion,
+                    IsConversationResponding = true
+                };
+                hiringRuntimeStore.Upsert(runtimeContext);
+
+                call = RemoteCallResult<HiringConversationResultDto>.Ok(call.Data with
+                {
+                    CurrentStage = currentStage,
+                    LatestPreview = preview,
+                    IsConversationPaused = runtimeContext.IsConversationPaused,
+                    IsConversationResponding = true
+                });
+            }
+
+            return ApiResponse<HiringConversationResultDto>.SuccessResponse(call.Data);
+        }
+        finally
+        {
+            conversationInFlight.TryRemove(normalizedHireId, out _);
+
+            var latestContext = hiringRuntimeStore.Get(normalizedHireId);
+            if (latestContext?.IsConversationResponding == true)
+            {
+                hiringRuntimeStore.Upsert(latestContext with { IsConversationResponding = false });
+            }
+        }
     }
 
     public async Task<ApiResponse<HiringConversationTimelineDto>> GetConversationTimelineAsync(
@@ -548,20 +605,28 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(502, "后端交付包为空或无法解析");
         }
 
+        var mergedArtifacts = MergeTemplatePackageArtifacts(extractedArtifacts, runtimeContext.TemplatePackage);
+        if (mergedArtifacts.Count == 0)
+        {
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(502, "artifact archive merge produced no files");
+        }
+
+        var mergedArtifactArchive = BuildArtifactArchive(mergedArtifacts);
+
         runtimeContext = runtimeContext with
         {
             CurrentStage = finalizeResult.CurrentStage,
             CollectionPhase = finalizeResult.CollectionPhase,
             EmployeeId = finalizeResult.EmployeeId,
-            ArtifactFiles = extractedArtifacts,
-            ArtifactArchive = artifactArchiveCall.Data,
+            ArtifactFiles = mergedArtifacts,
+            ArtifactArchive = mergedArtifactArchive,
             ArtifactArchiveFileName = artifactArchiveCall.FileName
         };
         hiringRuntimeStore.Upsert(runtimeContext);
 
         finalizeResult = finalizeResult with
         {
-            GeneratedFiles = extractedArtifacts.Keys.ToArray(),
+            GeneratedFiles = mergedArtifacts.Keys.ToArray(),
             DownloadUrl = $"/api/v1/hirings/{normalizedHireId}/artifacts/download"
         };
 
@@ -601,7 +666,9 @@ internal sealed class EmployeeHiringService(
                 TemplatePackageVersion = runtimeContext.TemplatePackage.PackageVersion,
                 DiscoverySkillId = runtimeContext.DiscoverySkill.SkillId,
                 DiscoverySkillVersion = runtimeContext.DiscoverySkill.SkillVersion,
-                StageCompletion = runtimeContext.StageCompletion
+                StageCompletion = runtimeContext.StageCompletion,
+                IsConversationPaused = runtimeContext.IsConversationPaused,
+                IsConversationResponding = IsConversationResponding(normalizedHireId, runtimeContext)
             });
         }
 
@@ -641,15 +708,9 @@ internal sealed class EmployeeHiringService(
             return Task.FromResult(HiringArtifactDownloadResult.Error(400, error));
         }
 
-        if (string.IsNullOrWhiteSpace(artifactName))
+        if (!TryNormalizeArtifactPath(artifactName, out var normalizedArtifactPath, out var artifactError))
         {
-            return Task.FromResult(HiringArtifactDownloadResult.Error(400, "artifactName cannot be empty"));
-        }
-
-        var normalizedArtifactName = Path.GetFileName(artifactName.Trim());
-        if (!string.Equals(normalizedArtifactName, artifactName.Trim(), StringComparison.Ordinal))
-        {
-            return Task.FromResult(HiringArtifactDownloadResult.Error(400, "artifactName is invalid"));
+            return Task.FromResult(HiringArtifactDownloadResult.Error(400, artifactError));
         }
 
         var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
@@ -658,15 +719,52 @@ internal sealed class EmployeeHiringService(
             return Task.FromResult(HiringArtifactDownloadResult.Error(409, "交付物尚未生成，请先执行 finalize"));
         }
 
-        if (!runtimeContext.ArtifactFiles.TryGetValue(normalizedArtifactName, out var content) || content.Length == 0)
+        if (!runtimeContext.ArtifactFiles.TryGetValue(normalizedArtifactPath, out var content) || content.Length == 0)
         {
             return Task.FromResult(HiringArtifactDownloadResult.NotFound("交付物不存在"));
         }
 
         return Task.FromResult(HiringArtifactDownloadResult.Success(
-            normalizedArtifactName,
-            "application/json",
+            Path.GetFileName(normalizedArtifactPath),
+            ResolveArtifactContentType(normalizedArtifactPath),
             content));
+    }
+
+    private Task<ApiResponse<HiringConversationControlResultDto>> SetConversationPausedAsync(
+        string hireId,
+        bool isPaused)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return Task.FromResult(ApiResponse<HiringConversationControlResultDto>.ErrorResponse(400, error));
+        }
+
+        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
+        if (runtimeContext is null)
+        {
+            return Task.FromResult(ApiResponse<HiringConversationControlResultDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程"));
+        }
+
+        runtimeContext = runtimeContext with
+        {
+            IsConversationPaused = isPaused
+        };
+        hiringRuntimeStore.Upsert(runtimeContext);
+
+        var result = new HiringConversationControlResultDto(
+            HireId: runtimeContext.HireId,
+            CurrentStage: runtimeContext.CurrentStage,
+            CollectionPhase: runtimeContext.CollectionPhase,
+            IsConversationPaused: runtimeContext.IsConversationPaused,
+            IsConversationResponding: IsConversationResponding(normalizedHireId, runtimeContext));
+
+        var message = isPaused ? "对话已暂停" : "对话已恢复";
+        return Task.FromResult(ApiResponse<HiringConversationControlResultDto>.SuccessResponse(result, message));
+    }
+
+    private bool IsConversationResponding(string hireId, HiringRuntimeContext? runtimeContext = null)
+    {
+        return conversationInFlight.ContainsKey(hireId) || runtimeContext?.IsConversationResponding == true;
     }
 
     private async Task<HiringRuntimeContext?> RefreshRuntimeProgressAsync(string hireId, CancellationToken cancellationToken)
@@ -1039,6 +1137,11 @@ internal sealed class EmployeeHiringService(
             logger.LogWarning(oce, "调用 KingCrew 接口超时. Method={Method}, Path={Path}", method, path);
             return RemoteCallResult<T>.Failure(504, "调用 KingCrew 接口超时");
         }
+        catch (Exception ex) when (IsHttpTimeoutException(ex))
+        {
+            logger.LogWarning(ex, "调用 KingCrew 接口超时. Method={Method}, Path={Path}", method, path);
+            return RemoteCallResult<T>.Failure(504, "调用 KingCrew 接口超时");
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "调用 KingCrew 接口异常. Method={Method}, Path={Path}", method, path);
@@ -1104,11 +1207,34 @@ internal sealed class EmployeeHiringService(
             logger.LogWarning(oce, "调用 KingCrew 二进制接口超时. Method={Method}, Path={Path}", method, path);
             return RemoteBinaryCallResult.Failure(504, "调用 KingCrew 接口超时");
         }
+        catch (Exception ex) when (IsHttpTimeoutException(ex))
+        {
+            logger.LogWarning(ex, "调用 KingCrew 二进制接口超时. Method={Method}, Path={Path}", method, path);
+            return RemoteBinaryCallResult.Failure(504, "调用 KingCrew 接口超时");
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "调用 KingCrew 二进制接口异常. Method={Method}, Path={Path}", method, path);
             return RemoteBinaryCallResult.Failure(502, "调用 KingCrew 接口异常");
         }
+    }
+
+    private static bool IsHttpTimeoutException(Exception exception)
+    {
+        if (exception is TimeoutException)
+        {
+            return true;
+        }
+
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (string.Equals(current.GetType().FullName, "Polly.Timeout.TimeoutRejectedException", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static IReadOnlyDictionary<string, byte[]> ExtractZipEntries(byte[] archiveBytes)
@@ -1124,13 +1250,74 @@ internal sealed class EmployeeHiringService(
                 continue;
             }
 
+            if (!TryNormalizeArchiveEntryPath(entry.FullName, out var normalizedPath))
+            {
+                continue;
+            }
+
             using var entryStream = entry.Open();
             using var buffer = new MemoryStream();
             entryStream.CopyTo(buffer);
-            result[entry.FullName.Replace('\\', '/')] = buffer.ToArray();
+            result[normalizedPath] = buffer.ToArray();
         }
 
         return result;
+    }
+
+    private static IReadOnlyDictionary<string, byte[]> MergeTemplatePackageArtifacts(
+        IReadOnlyDictionary<string, byte[]> generatedArtifacts,
+        TemplatePackageDefinition templatePackage)
+    {
+        var mergedArtifacts = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var pair in generatedArtifacts)
+        {
+            if (!TryNormalizeArchiveEntryPath(pair.Key, out var normalizedPath) || pair.Value.Length == 0)
+            {
+                continue;
+            }
+
+            mergedArtifacts[normalizedPath] = pair.Value;
+        }
+
+        foreach (var packageFile in templatePackage.PackageFiles)
+        {
+            if (!TryNormalizeArchiveEntryPath(packageFile.RelativePath, out var normalizedPath) ||
+                packageFile.Content.Length == 0)
+            {
+                continue;
+            }
+
+            mergedArtifacts.TryAdd(normalizedPath, packageFile.Content);
+        }
+
+        return mergedArtifacts;
+    }
+
+    private static byte[] BuildArtifactArchive(IReadOnlyDictionary<string, byte[]> files)
+    {
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var pair in files.OrderBy(static item => item.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!TryNormalizeArchiveEntryPath(pair.Key, out var normalizedPath) || pair.Value.Length == 0)
+                {
+                    continue;
+                }
+
+                var entry = archive.CreateEntry(normalizedPath, CompressionLevel.Fastest);
+                using var entryStream = entry.Open();
+                entryStream.Write(pair.Value, 0, pair.Value.Length);
+            }
+        }
+
+        return memoryStream.ToArray();
+    }
+
+    private static bool TryNormalizeArchiveEntryPath(string path, out string normalizedPath)
+    {
+        return TryNormalizeArtifactPath(path, out normalizedPath, out _);
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path, string ownerSubject)
@@ -1271,6 +1458,59 @@ internal sealed class EmployeeHiringService(
         }
 
         return string.Empty;
+    }
+
+    private static bool TryNormalizeArtifactPath(string artifactPath, out string normalizedArtifactPath, out string error)
+    {
+        if (string.IsNullOrWhiteSpace(artifactPath))
+        {
+            normalizedArtifactPath = string.Empty;
+            error = "artifactName cannot be empty";
+            return false;
+        }
+
+        var segments = artifactPath
+            .Trim()
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length == 0)
+        {
+            normalizedArtifactPath = string.Empty;
+            error = "artifactName is invalid";
+            return false;
+        }
+
+        if (segments.Any(static segment =>
+                string.Equals(segment, ".", StringComparison.Ordinal) ||
+                string.Equals(segment, "..", StringComparison.Ordinal)))
+        {
+            normalizedArtifactPath = string.Empty;
+            error = "artifactName is invalid";
+            return false;
+        }
+
+        normalizedArtifactPath = string.Join('/', segments);
+        error = string.Empty;
+        return true;
+    }
+
+    private static string ResolveArtifactContentType(string artifactPath)
+    {
+        var extension = Path.GetExtension(artifactPath);
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            return "application/octet-stream";
+        }
+
+        return extension.ToLowerInvariant() switch
+        {
+            ".json" => "application/json",
+            ".md" => "text/markdown; charset=utf-8",
+            ".txt" => "text/plain; charset=utf-8",
+            ".yaml" or ".yml" => "application/yaml",
+            ".xml" => "application/xml",
+            _ => "application/octet-stream"
+        };
     }
 
     private static bool TryNormalizeHireId(string hireId, out string normalizedHireId, out string error)

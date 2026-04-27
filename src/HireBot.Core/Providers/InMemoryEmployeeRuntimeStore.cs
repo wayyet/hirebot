@@ -57,4 +57,16 @@ public sealed class InMemoryEmployeeRuntimeStore : IEmployeeRuntimeStore
 
         return Task.FromResult(imported);
     }
+
+    public Task<int> ReplaceOwnerAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> employees, CancellationToken cancellationToken = default)
+    {
+        var bucket = new ConcurrentDictionary<string, EmployeeDetailDto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var employee in employees)
+        {
+            bucket[employee.EmployeeId] = employee;
+        }
+
+        byOwner[ownerSubject] = bucket;
+        return Task.FromResult(bucket.Count);
+    }
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
@@ -99,6 +100,27 @@ internal sealed class FileSystemTemplatePackageProvider(
                 ContentHash: HiringAssetFileSystem.ComputeContentHash(content)));
         }
 
+        var packageFiles = new List<TemplatePackageFileAsset>();
+        foreach (var filePath in Directory.EnumerateFiles(packageRoot, "*", SearchOption.AllDirectories))
+        {
+            if (HiringAssetFileSystem.IsIgnoredPath(filePath))
+            {
+                continue;
+            }
+
+            var rawRelativePath = Path.GetRelativePath(packageRoot, filePath).Replace('\\', '/');
+            if (!TryNormalizeArchiveRelativePath(rawRelativePath, out var normalizedRelativePath))
+            {
+                continue;
+            }
+
+            var content = await File.ReadAllBytesAsync(filePath, cancellationToken);
+            packageFiles.Add(new TemplatePackageFileAsset(
+                RelativePath: normalizedRelativePath,
+                Content: content,
+                ContentHash: ComputeContentHash(content)));
+        }
+
         var packageHash = await HiringAssetFileSystem.ComputeDirectoryHashAsync(packageRoot, cancellationToken);
         return new TemplatePackageDefinition(
             RequestedTemplateId: normalizedTemplateId,
@@ -109,6 +131,9 @@ internal sealed class FileSystemTemplatePackageProvider(
             ManifestJson: manifestJson,
             DisplayName: FirstNonEmpty(manifest.DisplayName, manifest.Name, normalizedTemplateId),
             Description: FirstNonEmpty(manifest.Description, manifest.Positioning, "NCrew template package"),
+            PackageFiles: packageFiles
+                .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
             OntologySlices: ontologySlices,
             RequiredSkills: requiredSkills);
     }
@@ -152,6 +177,29 @@ internal sealed class FileSystemTemplatePackageProvider(
         }
 
         return string.Empty;
+    }
+
+    private static bool TryNormalizeArchiveRelativePath(string path, out string normalizedPath)
+    {
+        var segments = path
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length == 0 ||
+            segments.Any(static segment =>
+                string.Equals(segment, ".", StringComparison.Ordinal) ||
+                string.Equals(segment, "..", StringComparison.Ordinal)))
+        {
+            normalizedPath = string.Empty;
+            return false;
+        }
+
+        normalizedPath = string.Join('/', segments);
+        return true;
+    }
+
+    private static string ComputeContentHash(byte[] content)
+    {
+        return Convert.ToHexStringLower(SHA256.HashData(content));
     }
 
     private sealed record TemplateManifestDocument(

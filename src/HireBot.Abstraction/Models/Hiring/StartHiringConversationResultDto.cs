@@ -5,4 +5,6 @@ public sealed record StartHiringConversationResultDto(
     string SessionId,
     string CurrentStage,
     bool RequiresAudit,
-    IReadOnlyList<StageSkillMappingDto> StageSkills);
+    IReadOnlyList<StageSkillMappingDto> StageSkills,
+    bool IsConversationPaused = false,
+    bool IsConversationResponding = false);

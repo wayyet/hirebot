@@ -12,4 +12,6 @@ public sealed record HiringWorkflowStateDto(
     string? TemplatePackageVersion = null,
     string? DiscoverySkillId = null,
     string? DiscoverySkillVersion = null,
-    IReadOnlyList<HiringStageCompletionDto>? StageCompletion = null);
+    IReadOnlyList<HiringStageCompletionDto>? StageCompletion = null,
+    bool IsConversationPaused = false,
+    bool IsConversationResponding = false);

@@ -38,7 +38,7 @@ public sealed class BuildServiceTemplateDataProvider(
 
         while (page <= 20)
         {
-            var result = await SendForJsonAsync<BuildTemplateListResponse>(
+            var result = await SendForJsonAsync<JsonElement>(
                 client,
                 $"/templates?page={page}&pageSize={pageSize}",
                 cancellationToken);
@@ -50,16 +50,22 @@ public sealed class BuildServiceTemplateDataProvider(
                 throw new InvalidOperationException(message);
             }
 
-            if (result.Data?.Items is null || result.Data.Items.Count == 0)
+            if (result.Data.ValueKind == JsonValueKind.Undefined)
             {
                 break;
             }
 
-            templates.AddRange(result.Data.Items.Select(MapListItemToDefinition));
+            var listPage = BuildServiceTemplatePayloadParser.ParseListPage(result.Data);
+            if (listPage.Items.Count == 0)
+            {
+                break;
+            }
+
+            templates.AddRange(listPage.Items.Select(MapListItemToDefinition));
 
             var fetchedCount = page * pageSize;
-            if ((result.Data.Total > 0 && fetchedCount >= result.Data.Total) ||
-                result.Data.Items.Count < pageSize)
+            if ((listPage.Total > 0 && fetchedCount >= listPage.Total) ||
+                listPage.Items.Count < pageSize)
             {
                 break;
             }
@@ -84,7 +90,7 @@ public sealed class BuildServiceTemplateDataProvider(
             return null;
         }
 
-        var result = await SendForJsonAsync<BuildTemplateDetailResponse>(
+        var result = await SendForJsonAsync<JsonElement>(
             client,
             $"/templates/{Uri.EscapeDataString(templateId.Trim())}",
             cancellationToken);
@@ -102,7 +108,13 @@ public sealed class BuildServiceTemplateDataProvider(
             throw new InvalidOperationException(message);
         }
 
-        return result.Data is null ? null : MapDetailToDefinition(result.Data);
+        if (result.Data.ValueKind == JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        var detail = BuildServiceTemplatePayloadParser.ParseDetail(result.Data);
+        return detail is null ? null : MapDetailToDefinition(detail);
     }
 
     private async Task<RemoteCallResult<T>> SendForJsonAsync<T>(
@@ -110,10 +122,9 @@ public sealed class BuildServiceTemplateDataProvider(
         string path,
         CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(path);
-
         try
         {
+            using var request = CreateRequest(path);
             using var response = await client.SendAsync(request, cancellationToken);
             var payload = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -146,6 +157,11 @@ public sealed class BuildServiceTemplateDataProvider(
         {
             logger.LogWarning(oce, "Build service request timed out. Path={Path}", path);
             return RemoteCallResult<T>.Failure(504, "Build service request timed out.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Build service request rejected before dispatch. Path={Path}", path);
+            return RemoteCallResult<T>.Failure(401, ex.Message);
         }
         catch (Exception ex)
         {
@@ -185,9 +201,9 @@ public sealed class BuildServiceTemplateDataProvider(
         return request;
     }
 
-    private static EmployeeTemplateDefinition MapListItemToDefinition(BuildTemplateListItem item)
+    private static EmployeeTemplateDefinition MapListItemToDefinition(BuildTemplateDocument item)
     {
-        var templateId = item.Id.ToString(CultureInfo.InvariantCulture);
+        var templateId = FirstNonEmpty(item.TemplateId, "default");
         var name = FirstNonEmpty(item.Name, $"Template-{templateId}");
         var positioning = FirstNonEmpty(item.Positioning, item.Description, "Digital employee template");
         var description = FirstNonEmpty(item.Description, item.Positioning, $"{name} template");
@@ -202,10 +218,10 @@ public sealed class BuildServiceTemplateDataProvider(
             Tagline: positioning,
             Description: description,
             CoreAbilityTags: coreAbilityTags,
-            HiredCount: Math.Max(0, item.SkillCount),
+            HiredCount: Math.Max(0, item.HiredCount),
             SuccessRate: 0m,
             AvgRating: 0m,
-            IsAvailable: string.Equals(item.Status, "published", StringComparison.OrdinalIgnoreCase),
+            IsAvailable: IsTemplateAvailable(item.Status),
             CoreAbilities: coreAbilities,
             InScope: useCases,
             OutOfScope: [],
@@ -213,9 +229,9 @@ public sealed class BuildServiceTemplateDataProvider(
             SuccessCases: []);
     }
 
-    private static EmployeeTemplateDefinition MapDetailToDefinition(BuildTemplateDetailResponse detail)
+    private static EmployeeTemplateDefinition MapDetailToDefinition(BuildTemplateDocument detail)
     {
-        var templateId = detail.Id.ToString(CultureInfo.InvariantCulture);
+        var templateId = FirstNonEmpty(detail.TemplateId, "default");
         var name = FirstNonEmpty(detail.Name, $"Template-{templateId}");
         var positioning = FirstNonEmpty(detail.Positioning, detail.Description, "Digital employee template");
         var description = FirstNonEmpty(detail.Description, detail.Positioning, $"{name} template");
@@ -235,10 +251,10 @@ public sealed class BuildServiceTemplateDataProvider(
             Tagline: positioning,
             Description: description,
             CoreAbilityTags: coreAbilityTags.Count > 0 ? coreAbilityTags : ["General"],
-            HiredCount: ExtractCount(detail.Skills),
+            HiredCount: Math.Max(0, detail.HiredCount),
             SuccessRate: 0m,
             AvgRating: 0m,
-            IsAvailable: string.Equals(detail.Status, "published", StringComparison.OrdinalIgnoreCase),
+            IsAvailable: IsTemplateAvailable(detail.Status),
             CoreAbilities: coreAbilities.Count > 0 ? coreAbilities : ["To be configured"],
             InScope: inScope,
             OutOfScope: [],
@@ -253,8 +269,10 @@ public sealed class BuildServiceTemplateDataProvider(
         var result = new List<string>(useCases);
         foreach (var skill in EnumerateArray(skills))
         {
-            var skillObject = GetProperty(skill, "skill");
-            var category = GetString(skillObject, "category");
+            var skillObject = ResolveNestedObjectOrSelf(skill, "skill", "skillInfo");
+            var category = FirstNonEmpty(
+                GetString(skillObject, "category"),
+                GetString(skill, "category"));
             if (!string.IsNullOrWhiteSpace(category))
             {
                 result.Add(category.Trim());
@@ -271,8 +289,12 @@ public sealed class BuildServiceTemplateDataProvider(
         var result = new List<string>();
         foreach (var binding in EnumerateArray(skills))
         {
-            var skillObject = GetProperty(binding, "skill");
-            var name = FirstNonEmpty(GetString(skillObject, "displayName"), GetString(skillObject, "name"));
+            var skillObject = ResolveNestedObjectOrSelf(binding, "skill", "skillInfo");
+            var name = FirstNonEmpty(
+                GetString(skillObject, "displayName"),
+                GetString(skillObject, "name"),
+                GetString(binding, "displayName"),
+                GetString(binding, "name"));
             if (!string.IsNullOrWhiteSpace(name))
             {
                 result.Add(name);
@@ -308,13 +330,15 @@ public sealed class BuildServiceTemplateDataProvider(
 
         foreach (var binding in EnumerateArray(skills))
         {
-            var isRequired = GetBool(binding, "isRequired");
+            var isRequired = GetBool(binding, "isRequired") || GetBool(binding, "required");
             var level = isRequired ? "required" : "optional";
-            var skillObject = GetProperty(binding, "skill");
-            var effectiveVersion = GetProperty(binding, "effectiveVersion");
+            var skillObject = ResolveNestedObjectOrSelf(binding, "skill", "skillInfo");
+            var effectiveVersion = ResolveNestedObjectOrSelf(binding, "effectiveVersion", "versionInfo", "currentVersion");
             var systemName = FirstNonEmpty(
                 GetString(skillObject, "displayName"),
                 GetString(skillObject, "name"),
+                GetString(binding, "displayName"),
+                GetString(binding, "name"),
                 "Skill");
 
             var permissions = DistinctNonEmpty(EnumerateStringArray(GetProperty(effectiveVersion, "permissions")));
@@ -334,6 +358,8 @@ public sealed class BuildServiceTemplateDataProvider(
                 var entryPoint = FirstNonEmpty(
                     GetString(effectiveVersion, "entryPoint"),
                     GetString(effectiveVersion, "version"),
+                    GetString(binding, "entryPoint"),
+                    GetString(binding, "version"),
                     "default");
                 result.Add(new TemplatePrerequisiteDto(
                     systemName,
@@ -388,11 +414,42 @@ public sealed class BuildServiceTemplateDataProvider(
         return value.ValueKind == JsonValueKind.Array ? value.GetArrayLength() : 0;
     }
 
+    private static bool IsTemplateAvailable(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return true;
+        }
+
+        return string.Equals(status, "published", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(status, "active", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(status, "live", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static JsonElement GetProperty(JsonElement element, string propertyName)
     {
         return element.ValueKind == JsonValueKind.Object && element.TryGetProperty(propertyName, out var value)
             ? value
             : default;
+    }
+
+    private static JsonElement ResolveNestedObjectOrSelf(JsonElement element, params string[] propertyNames)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return default;
+        }
+
+        foreach (var propertyName in propertyNames)
+        {
+            var nested = GetProperty(element, propertyName);
+            if (nested.ValueKind == JsonValueKind.Object)
+            {
+                return nested;
+            }
+        }
+
+        return element;
     }
 
     private static string? GetString(JsonElement element, string propertyName)
@@ -405,7 +462,14 @@ public sealed class BuildServiceTemplateDataProvider(
     private static bool GetBool(JsonElement element, string propertyName)
     {
         return GetProperty(element, propertyName) is var value &&
-               value.ValueKind == JsonValueKind.True;
+               value.ValueKind switch
+               {
+                   JsonValueKind.True => true,
+                   JsonValueKind.False => false,
+                   JsonValueKind.String when bool.TryParse(value.GetString(), out var result) => result,
+                   JsonValueKind.Number when value.TryGetInt32(out var number) => number != 0,
+                   _ => false
+               };
     }
 
     private static IReadOnlyList<JsonElement> EnumerateArray(JsonElement element)
@@ -633,45 +697,6 @@ public sealed class BuildServiceTemplateDataProvider(
             return null;
         }
     }
-
-    private sealed record BuildTemplateListResponse(
-        int Total,
-        int Page,
-        int PageSize,
-        IReadOnlyList<BuildTemplateListItem> Items);
-
-    private sealed record BuildTemplateListItem(
-        long Id,
-        string? Name,
-        string? Positioning,
-        string? Description,
-        string? CurrentVersion,
-        DateTimeOffset? UpdatedAt,
-        string? Status,
-        JsonElement UseCases,
-        int SkillCount,
-        int RequiredSkillCount);
-
-    private sealed record BuildTemplateDetailResponse(
-        long Id,
-        string? Name,
-        string? Positioning,
-        string? Description,
-        string? CurrentVersion,
-        DateTimeOffset? UpdatedAt,
-        string? Status,
-        JsonElement UseCases,
-        BuildTemplateVersionSnapshot? LatestVersion,
-        JsonElement Skills,
-        JsonElement Clis,
-        JsonElement Ontologies);
-
-    private sealed record BuildTemplateVersionSnapshot(
-        long Id,
-        string? Version,
-        string? ChangeLog,
-        DateTimeOffset? PublishedAt,
-        string? PackageUrl);
 
     private sealed record RemoteCallResult<T>(bool Success, int StatusCode, string Message, T? Data)
     {
