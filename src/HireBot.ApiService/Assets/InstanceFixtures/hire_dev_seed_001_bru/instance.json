@@ -1,0 +1,18 @@
+{
+  "hireId": "hire_dev_seed_001_bru",
+  "employeeId": "e_dev_seed_001_bru",
+  "templateId": "bru",
+  "templateVersion": "v1.0.2",
+  "currentStage": "DONE",
+  "collectionPhase": "FINALIZED",
+  "scenario": "supply-chain-collaboration",
+  "ownerSubject": "tenant-default:operator-default",
+  "generatedAtUtc": "2026-04-24T06:30:00Z",
+  "tags": [
+    "fixture",
+    "team",
+    "collaboration",
+    "supply-chain"
+  ]
+}
+

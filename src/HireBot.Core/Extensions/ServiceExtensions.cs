@@ -6,6 +6,7 @@ using HireBot.Abstraction.Services.EmployeeTemplate;
 using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.SkillCatalog;
+using HireBot.Abstraction.Services.Team;
 using HireBot.Abstraction.Services.Training;
 using HireBot.Abstraction.Services.User;
 using HireBot.Core.Providers;
@@ -20,6 +21,7 @@ using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.SkillCatalog;
+using HireBot.Core.Services.Team;
 using HireBot.Core.Services.Training;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
@@ -82,6 +84,7 @@ public static class ServiceExtensions
         services.AddSingleton<IHiringRuntimeStore, InMemoryHiringRuntimeStore>();
         services.AddSingleton<IEvaluationScenarioProvider, MockEvaluationScenarioProvider>();
         services.AddSingleton<ICollaborationProvider, MockCollaborationProvider>();
+        services.AddSingleton<ITeamImProvider, InMemoryTeamImProvider>();
         services.AddSingleton<ISkillCatalogProvider, MockSkillCatalogProvider>();
         services.AddSingleton<BuildServiceTemplateDataProvider>();
         services.AddSingleton<FileSystemTemplateDataProvider>();
@@ -102,6 +105,7 @@ public static class ServiceExtensions
         services.AddScoped<ITrainingService, MockTrainingService>();
         services.AddScoped<IEvaluationService, MockEvaluationService>();
         services.AddScoped<ICollaborationService, MockCollaborationService>();
+        services.AddScoped<ITeamImService, TeamImService>();
         services.AddScoped<ISkillCatalogService, MockSkillCatalogService>();
 
         var dataMode = configuration["HireBot:DataMode"] ?? "Mock";

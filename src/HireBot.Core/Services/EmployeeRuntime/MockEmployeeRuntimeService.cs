@@ -1,19 +1,54 @@
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Migration;
+using HireBot.Abstraction.Models.Team;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
+using System.Text.Json;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
 public sealed class MockEmployeeRuntimeService(
     IEmployeeRuntimeStore store,
-    ITemplateDataProvider templateDataProvider,
+    ITeamImProvider teamImProvider,
     ICollaborationService collaborationService,
     IRequestContextService requestContextService) : IEmployeeRuntimeService
 {
+    private static readonly HashSet<string> SupportedLifecycleStatuses =
+    [
+        "待启动",
+        "待AI评估",
+        "待人工评估",
+        "实习中",
+        "已转正",
+        "离职中",
+        "已归档"
+    ];
+
+    private static readonly Dictionary<string, HashSet<string>> AllowedLifecycleTransitions =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["待启动"] = ["待AI评估"],
+            // 兼容旧客户端直接发起“执行 AI 评估”后进入实习中的行为。
+            ["待AI评估"] = ["待人工评估", "实习中"],
+            ["待人工评估"] = ["实习中"],
+            ["实习中"] = ["已转正"],
+            ["已转正"] = ["离职中"],
+            ["离职中"] = ["已归档"],
+            ["已归档"] = []
+        };
+
+    private static readonly string[] FixtureLifecycleSeedOrder =
+    [
+        "待启动",
+        "待AI评估",
+        "待人工评估",
+        "实习中",
+        "已转正"
+    ];
+
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default)
     {
         var owner = requestContextService.ResolveOwnerSubject();
@@ -44,6 +79,28 @@ public sealed class MockEmployeeRuntimeService(
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(employee);
     }
 
+    public async Task<ApiResponse<ImportFixtureInstancesResultDto>> ImportFixtureInstancesAsync(CancellationToken cancellationToken = default)
+    {
+        var owner = requestContextService.ResolveOwnerSubject();
+        var fixtureBundle = await LoadFixtureBundleAsync(owner, cancellationToken);
+        if (fixtureBundle.Employees.Count == 0)
+        {
+            return ApiResponse<ImportFixtureInstancesResultDto>.ErrorResponse(404, "未找到可导入的示例实例产物");
+        }
+
+        var importedEmployees = await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
+        var importedImItems = await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
+
+        var result = new ImportFixtureInstancesResultDto(
+            OwnerSubject: owner,
+            FixtureDirectories: fixtureBundle.FixtureDirectories,
+            ImportedEmployees: importedEmployees,
+            ImportedImItems: importedImItems,
+            EmployeeIds: fixtureBundle.Employees.Select(item => item.EmployeeId).ToArray());
+
+        return ApiResponse<ImportFixtureInstancesResultDto>.SuccessResponse(result, "示例实例产物导入完成");
+    }
+
     public async Task<ApiResponse<EmployeeDetailDto>> UpdateLifecycleAsync(
         string employeeId,
         UpdateEmployeeLifecycleRequestDto request,
@@ -62,6 +119,20 @@ public sealed class MockEmployeeRuntimeService(
         }
 
         var normalizedStatus = request.LifecycleStatus.Trim();
+        if (!SupportedLifecycleStatuses.Contains(normalizedStatus))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, $"不支持的 lifecycleStatus：{normalizedStatus}");
+        }
+
+        var currentStatus = employee.LifecycleStatus.Trim();
+        if (!currentStatus.Equals(normalizedStatus, StringComparison.OrdinalIgnoreCase) &&
+            !IsAllowedTransition(currentStatus, normalizedStatus))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(
+                409,
+                $"非法生命周期流转：{currentStatus} -> {normalizedStatus}");
+        }
+
         var updated = employee with
         {
             LifecycleStatus = normalizedStatus,
@@ -254,6 +325,11 @@ public sealed class MockEmployeeRuntimeService(
         return ApiResponse<LocalStateMigrationResultDto>.SuccessResponse(result, "本地状态迁移完成");
     }
 
+    private sealed record FixtureBundle(
+        IReadOnlyList<EmployeeDetailDto> Employees,
+        IReadOnlyList<TeamImItemDto> TeamImItems,
+        int FixtureDirectories);
+
     private async Task EnsureSeedDataAsync(string owner, CancellationToken cancellationToken)
     {
         var existing = await store.ListAsync(owner, cancellationToken);
@@ -262,65 +338,281 @@ public sealed class MockEmployeeRuntimeService(
             return;
         }
 
-        var templates = await templateDataProvider.GetAllAsync(cancellationToken);
-        var sample = templates.Take(4).ToArray();
-        if (sample.Length == 0)
+        var fixtureBundle = await LoadFixtureBundleAsync(owner, cancellationToken);
+        if (fixtureBundle.Employees.Count == 0)
         {
             return;
         }
 
-        var statuses = new[] { "待AI评估", "待人工评估", "实习中", "已转正" };
-        var employees = new List<EmployeeDetailDto>();
-        for (var i = 0; i < sample.Length; i++)
-        {
-            var template = sample[i];
-            var status = statuses[Math.Min(i, statuses.Length - 1)];
-            var capabilities = template.CoreAbilities.Select(item => new EmployeeCapabilityDto(item, status is "实习中" or "已转正")).ToArray();
-            var isConfigured = capabilities.Length > 0 && capabilities.All(item => item.Ready);
+        await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
+        await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
+    }
 
-            employees.Add(new EmployeeDetailDto(
-                EmployeeId: BuildEmployeeId(),
-                Nickname: template.Name,
-                RoleName: template.Name,
-                SourceTemplate: template.Name,
-                SourceTemplateId: template.TemplateId,
-                LifecycleStatus: status,
-                StageSummary: status switch
-                {
-                    "待AI评估" => "等待 AI 评估",
-                    "待人工评估" => "等待人工评估",
-                    "实习中" => "实习中，积累评估数据",
-                    _ => "已转正，正式运行"
-                },
-                PrimarySignal: status switch
-                {
-                    "待AI评估" => "待执行 AI 评估",
-                    "待人工评估" => "待人工审核",
-                    "实习中" => "运行正常",
-                    _ => "运行稳定"
-                },
-                SignalLevel: status is "待AI评估" or "待人工评估" ? "warn" : "ok",
-                OwningTeam: "默认团队",
-                CreatedAt: DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-3 - i)).ToString("yyyy-MM-dd"),
-                InternshipStartAt: status is "实习中" or "已转正" ? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2)).ToString("yyyy-MM-dd") : null,
-                GraduatedAt: status is "已转正" ? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1)).ToString("yyyy-MM-dd") : null,
-                TasksDone: status is "实习中" or "已转正" ? 12 + i : 0,
-                TasksTotal: status is "实习中" or "已转正" ? 20 : 0,
-                SatisfactionScore: status is "已转正" ? 4.6m : null,
-                PendingActions: status switch
-                {
-                    "待AI评估" => ["准备评估材料"],
-                    "待人工评估" => ["确认上岗判定"],
-                    _ => []
-                },
-                Capabilities: capabilities,
-                EvalPhase: status is "待人工评估" ? "pending_review" : null,
-                EvalIteration: status is "待人工评估" ? 2 : null,
-                EvalMaxIterations: status is "待人工评估" ? 30 : null,
-                IsConfigured: isConfigured));
+    private static async Task<FixtureBundle> LoadFixtureBundleAsync(string owner, CancellationToken cancellationToken)
+    {
+        var fixtureRoot = ResolveFixtureRoot();
+        if (string.IsNullOrWhiteSpace(fixtureRoot) || !Directory.Exists(fixtureRoot))
+        {
+            return new FixtureBundle([], [], 0);
         }
 
-        await store.UpsertManyAsync(owner, employees, cancellationToken);
+        var directories = Directory.GetDirectories(fixtureRoot)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var employees = new List<EmployeeDetailDto>();
+        var seedIndex = 0;
+        foreach (var directory in directories)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var instancePath = Path.Combine(directory, "instance.json");
+            if (!File.Exists(instancePath))
+            {
+                continue;
+            }
+
+            var manifestPath = Path.Combine(directory, "manifest.json");
+
+            try
+            {
+                var instanceContent = await File.ReadAllTextAsync(instancePath, cancellationToken);
+                using var instanceDoc = JsonDocument.Parse(instanceContent);
+                var root = instanceDoc.RootElement;
+
+                var ownerSubject = TryGetString(root, "ownerSubject");
+                if (!string.Equals(ownerSubject, owner, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var employeeId = TryGetString(root, "employeeId");
+                if (string.IsNullOrWhiteSpace(employeeId))
+                {
+                    continue;
+                }
+
+                var templateId = TryGetString(root, "templateId", "fixture");
+                var hireId = TryGetString(root, "hireId", employeeId);
+                var scenario = TryGetString(root, "scenario", "fixture-collaboration");
+                var generatedAtUtc = TryGetString(root, "generatedAtUtc");
+
+                var displayName = templateId;
+                var capabilityNames = new List<string>();
+                if (File.Exists(manifestPath))
+                {
+                    var manifestContent = await File.ReadAllTextAsync(manifestPath, cancellationToken);
+                    using var manifestDoc = JsonDocument.Parse(manifestContent);
+                    var manifestRoot = manifestDoc.RootElement;
+                    displayName = TryGetString(manifestRoot, "display_name", templateId);
+
+                    if (manifestRoot.TryGetProperty("skills", out var skillsElement) &&
+                        skillsElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var skill in skillsElement.EnumerateArray())
+                        {
+                            var skillName = TryGetString(skill, "name");
+                            if (!string.IsNullOrWhiteSpace(skillName))
+                            {
+                                capabilityNames.Add(skillName);
+                            }
+                        }
+                    }
+                }
+
+                if (capabilityNames.Count == 0)
+                {
+                    capabilityNames.Add("scenario_parser");
+                    capabilityNames.Add("report_generator");
+                }
+
+                var status = ResolveFixtureSeedStatus(seedIndex++);
+                var createdAt = ResolveCreatedAt(generatedAtUtc, seedIndex);
+                var isReady = status is "实习中" or "已转正";
+                var capabilities = capabilityNames
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Select(name => new EmployeeCapabilityDto(name, isReady))
+                    .ToArray();
+
+                var employee = new EmployeeDetailDto(
+                    EmployeeId: employeeId.Trim(),
+                    Nickname: BuildFixtureNickname(displayName, employeeId),
+                    RoleName: displayName,
+                    SourceTemplate: displayName,
+                    SourceTemplateId: templateId,
+                    LifecycleStatus: status,
+                    StageSummary: BuildStageSummary(status, hireId),
+                    PrimarySignal: BuildPrimarySignal(status),
+                    SignalLevel: status is "待启动" or "待AI评估" ? "warn" : "ok",
+                    OwningTeam: scenario,
+                    CreatedAt: createdAt,
+                    InternshipStartAt: status is "实习中" or "已转正" ? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1)).ToString("yyyy-MM-dd") : null,
+                    GraduatedAt: status is "已转正" ? DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd") : null,
+                    TasksDone: status is "实习中" or "已转正" ? 8 + seedIndex : 0,
+                    TasksTotal: status is "实习中" or "已转正" ? 20 : 0,
+                    SatisfactionScore: status is "已转正" ? 4.6m : null,
+                    PendingActions: BuildPendingActions(status),
+                    Capabilities: capabilities,
+                    EvalPhase: status switch
+                    {
+                        "待启动" => "pending_materials",
+                        "待AI评估" => "pending_materials",
+                        "待人工评估" => "pending_review",
+                        _ => null
+                    },
+                    EvalIteration: status is "待人工评估" ? 1 : null,
+                    EvalMaxIterations: status is "待人工评估" ? 30 : null,
+                    IsConfigured: capabilities.All(item => item.Ready));
+
+                employees.Add(employee);
+            }
+            catch
+            {
+                // Fixture 仅用于本地团队测试；单个损坏目录不应影响整体服务启动。
+            }
+        }
+
+        return new FixtureBundle(
+            Employees: employees,
+            TeamImItems: BuildFixtureImItems(employees),
+            FixtureDirectories: directories.Length);
+    }
+
+    private static string? ResolveFixtureRoot()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "Assets", "InstanceFixtures"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "InstanceFixtures")),
+            Path.Combine(Directory.GetCurrentDirectory(), "Assets", "InstanceFixtures"),
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "HireBot.ApiService", "Assets", "InstanceFixtures")
+        };
+
+        return candidates.FirstOrDefault(Directory.Exists);
+    }
+
+    private static string ResolveFixtureSeedStatus(int index)
+    {
+        if (FixtureLifecycleSeedOrder.Length == 0)
+        {
+            return "待启动";
+        }
+
+        return FixtureLifecycleSeedOrder[index % FixtureLifecycleSeedOrder.Length];
+    }
+
+    private static string BuildFixtureNickname(string displayName, string employeeId)
+    {
+        var suffix = employeeId.Split('_').LastOrDefault() ?? "seed";
+        return $"{displayName}-{suffix}";
+    }
+
+    private static string ResolveCreatedAt(string generatedAtUtc, int seedOffset)
+    {
+        if (DateTime.TryParse(generatedAtUtc, out var parsed))
+        {
+            return DateOnly.FromDateTime(parsed.ToLocalTime()).ToString("yyyy-MM-dd");
+        }
+
+        return DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-seedOffset)).ToString("yyyy-MM-dd");
+    }
+
+    private static string BuildStageSummary(string status, string hireId)
+    {
+        return status switch
+        {
+            "待启动" => $"实例包 {hireId} 已生成，等待发起评估",
+            "待AI评估" => "实例已准备完成，等待 AI 评估执行",
+            "待人工评估" => "AI 评估已通过，等待人工复核",
+            "实习中" => "实习中，持续采集协作质量数据",
+            "已转正" => "已转正，稳定参与团队协作",
+            _ => "状态更新中"
+        };
+    }
+
+    private static string BuildPrimarySignal(string status)
+    {
+        return status switch
+        {
+            "待启动" => "待操作：发起评估",
+            "待AI评估" => "待执行 AI 评估",
+            "待人工评估" => "待人工审核",
+            "实习中" => "实习中，关注转正阈值",
+            "已转正" => "运行稳定",
+            _ => "状态同步中"
+        };
+    }
+
+    private static string[] BuildPendingActions(string status)
+    {
+        return status switch
+        {
+            "待启动" => ["确认团队归属", "检查技能配置"],
+            "待AI评估" => ["准备评估材料", "确认评估场景"],
+            "待人工评估" => ["执行人工复核"],
+            "实习中" => ["跟踪实习指标"],
+            _ => []
+        };
+    }
+
+    private static IReadOnlyList<TeamImItemDto> BuildFixtureImItems(IReadOnlyList<EmployeeDetailDto> employees)
+    {
+        var now = DateTime.UtcNow;
+        return employees
+            .Select((employee, index) => new TeamImItemDto(
+                ItemId: $"im_fixture_{employee.EmployeeId}",
+                EmployeeId: employee.EmployeeId,
+                EmployeeName: employee.Nickname,
+                Category: ResolveImCategory(employee.LifecycleStatus),
+                Content: BuildImContent(employee),
+                Source: $"系统导入 · {employee.OwningTeam}",
+                ReceivedAt: now.AddMinutes(-3 * (index + 1)).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                Status: "pending",
+                ConfirmedAt: null))
+            .ToArray();
+    }
+
+    private static string ResolveImCategory(string lifecycleStatus)
+    {
+        return lifecycleStatus switch
+        {
+            "待启动" => "待办处理",
+            "待AI评估" => "评估准备",
+            "待人工评估" => "人工复核",
+            "实习中" => "实习跟进",
+            "已转正" => "协作反馈",
+            _ => "状态同步"
+        };
+    }
+
+    private static string BuildImContent(EmployeeDetailDto employee)
+    {
+        return employee.LifecycleStatus switch
+        {
+            "待启动" => $"实例 {employee.EmployeeId} 已导入，等待发起评估。",
+            "待AI评估" => $"{employee.Nickname} 已具备评估材料，请执行 AI 评估。",
+            "待人工评估" => $"{employee.Nickname} AI 评估完成，请安排人工复核。",
+            "实习中" => $"{employee.Nickname} 正在实习中，建议跟踪阶段指标。",
+            "已转正" => $"{employee.Nickname} 已转正，关注协作反馈与稳定性。",
+            _ => $"{employee.Nickname} 状态已更新，请确认团队协作安排。"
+        };
+    }
+
+    private static string TryGetString(JsonElement element, string propertyName, string fallback = "")
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return fallback;
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.String => property.GetString() ?? fallback,
+            JsonValueKind.Number => property.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => fallback
+        };
     }
 
     private static EmployeeSummaryDto ToSummary(EmployeeDetailDto detail)
@@ -359,5 +651,15 @@ public sealed class MockEmployeeRuntimeService(
         }
 
         return string.Empty;
+    }
+
+    private static bool IsAllowedTransition(string from, string to)
+    {
+        if (!AllowedLifecycleTransitions.TryGetValue(from.Trim(), out var allowed))
+        {
+            return false;
+        }
+
+        return allowed.Contains(to.Trim());
     }
 }

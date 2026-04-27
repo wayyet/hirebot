@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "name": "bru",
+  "display_name": "bru",
+  "positioning": "Senior BA shadow assistant for structured requirement delivery",
+  "description": "Development fixture for supply-chain collaboration scenario",
+  "version": "v1.0.2",
+  "use_cases": [
+    "cross-team requirement intake",
+    "supply-chain process alignment",
+    "structured specification output"
+  ],
+  "config": {
+    "soul": "config/SOUL.md",
+    "agents": "config/AGENTS.md",
+    "identity": "config/IDENTITY.md",
+    "memory": "config/MEMORY.md"
+  },
+  "ontology_slices": [
+    {
+      "name": "supply-chain-slice",
+      "path": "ontology/supply-chain-slice.md",
+      "type": "digital_employee_slice",
+      "required": true
+    },
+    {
+      "name": "auto-service-domain",
+      "path": "ontology/auto-service-domain.md",
+      "type": "industry",
+      "required": true
+    }
+  ],
+  "skills": [
+    {
+      "name": "nlp-classifier",
+      "path": "skills/nlp-classifier/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "vector-search",
+      "path": "skills/vector-search/SKILL.md",
+      "required": true
+    }
+  ],
+  "cli_tools": []
+}
