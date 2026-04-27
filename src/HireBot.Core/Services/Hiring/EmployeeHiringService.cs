@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.IO;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -35,6 +36,9 @@ internal sealed class EmployeeHiringService(
 {
     private const string KingCrewClientName = "KingCrew";
     private const string DefaultHireBotApiPrefix = "/api/integration/hirebot";
+    private const string DefaultConversationKickoffPrompt = "你是雇佣流程助手。请先根据当前阶段提出第一个关键问题，引导用户完善模板包内容。";
+    private const int TemplateUploadRetryMaxAttempts = 5;
+    private static readonly TimeSpan TemplateUploadRetryDelay = TimeSpan.FromSeconds(20);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -43,6 +47,7 @@ internal sealed class EmployeeHiringService(
 
     private readonly ConcurrentDictionary<string, HireOwnerContext> hireOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> conversationInFlight = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> templateUploadRetryInFlight = new(StringComparer.OrdinalIgnoreCase);
 
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
         string templateId,
@@ -115,8 +120,10 @@ internal sealed class EmployeeHiringService(
         var templatePackageCall = await UploadTemplatePackageAsync(
             call.Data.HireId,
             templatePackage,
+            discoverySkill,
             ownerSubject,
             cancellationToken);
+        var templateUploadDeferred = false;
         if (!templatePackageCall.Success || templatePackageCall.Data is null)
         {
             logger.LogWarning(
@@ -125,7 +132,17 @@ internal sealed class EmployeeHiringService(
                 normalizedTemplateId,
                 templatePackageCall.StatusCode,
                 templatePackageCall.Message);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(templatePackageCall.StatusCode, templatePackageCall.Message);
+
+            // Keep hire flow available even when downstream upload is temporarily unauthorized/unavailable.
+            // The runtime context still tracks template content and can continue the conversation flow.
+            templateUploadDeferred = true;
+            templatePackageCall = RemoteCallResult<TemplatePackageUploadResult>.Ok(new TemplatePackageUploadResult(
+                HireId: call.Data.HireId,
+                SandboxId: call.Data.SandboxId,
+                PackageId: templatePackage.PackageId,
+                PackageVersion: templatePackage.PackageVersion,
+                PackageHash: templatePackage.PackageHash,
+                InstalledPath: "deferred"));
         }
 
         var initialStageCompletion = stageCompletionEvaluator.Evaluate(
@@ -156,20 +173,38 @@ internal sealed class EmployeeHiringService(
             DiscoverySkill = discoverySkill,
             StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
             Materials = [],
-            StageCompletion = initialStageCompletion
+            StageCompletion = initialStageCompletion,
+            IsTemplateUploadPending = templateUploadDeferred,
+            TemplateUploadRetryCount = templateUploadDeferred ? 1 : 0,
+            TemplateUploadLastError = templateUploadDeferred ? templatePackageCall.Message : null,
+            TemplateUploadLastAttemptAt = templateUploadDeferred ? DateTimeOffset.UtcNow : null
         });
 
+        if (templateUploadDeferred)
+        {
+            TriggerTemplateUploadRetry(
+                call.Data.HireId,
+                templatePackage,
+                discoverySkill,
+                ownerSubject);
+        }
+
+        var uploadedPackageId = templatePackageCall.Data?.PackageId ?? templatePackage.PackageId;
+        var uploadedPackageVersion = templatePackageCall.Data?.PackageVersion ?? templatePackage.PackageVersion;
         logger.LogInformation(
             "Template hire submitted to KingCrew with discovery system skill and template package uploaded. HireId={HireId}, TemplateId={TemplateId}, SkillId={SkillId}, SkillVersion={SkillVersion}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
             call.Data.HireId,
             normalizedTemplateId,
             systemSkillCall.Data.SkillId,
             systemSkillCall.Data.SkillVersion,
-            templatePackageCall.Data.PackageId,
-            templatePackageCall.Data.PackageVersion,
+            uploadedPackageId,
+            uploadedPackageVersion,
             ownerSubject);
 
-        return ApiResponse<HireTemplateResultDto>.SuccessResponse(call.Data, "雇佣任务已创建");
+        var hireMessage = templateUploadDeferred
+            ? "雇佣任务已创建，模板包上传待重试"
+            : "雇佣任务已创建";
+        return ApiResponse<HireTemplateResultDto>.SuccessResponse(call.Data, hireMessage);
     }
 
     public async Task<ApiResponse<HiringStatusDto>> GetHiringStatusAsync(string hireId, CancellationToken cancellationToken = default)
@@ -238,6 +273,8 @@ internal sealed class EmployeeHiringService(
                 IsConversationResponding = IsConversationResponding(normalizedHireId, runtimeContext)
             });
         }
+
+        await EnsureAssistantKickoffAsync(normalizedHireId, cancellationToken);
 
         return ApiResponse<StartHiringConversationResultDto>.SuccessResponse(call.Data);
     }
@@ -336,6 +373,7 @@ internal sealed class EmployeeHiringService(
                     StageCompletion = stageCompletion,
                     IsConversationResponding = true
                 };
+                runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
                 hiringRuntimeStore.Upsert(runtimeContext);
 
                 call = RemoteCallResult<HiringConversationResultDto>.Ok(call.Data with
@@ -870,15 +908,54 @@ internal sealed class EmployeeHiringService(
     private Task<RemoteCallResult<TemplatePackageUploadResult>> UploadTemplatePackageAsync(
         string hireId,
         TemplatePackageDefinition templatePackage,
+        DiscoverySkillDefinition discoverySkill,
         string ownerSubject,
         CancellationToken cancellationToken)
     {
-        return SendForJsonAsync<TemplatePackageUploadResult>(
-            HttpMethod.Post,
-            $"/hirings/{Uri.EscapeDataString(hireId)}/template-package/upload",
-            BuildTemplatePackageUploadPayload(templatePackage),
+        return UploadTemplatePackageViaDigitalEmployeeAsync(
+            hireId,
+            templatePackage,
+            discoverySkill,
             ownerSubject,
             cancellationToken);
+    }
+
+    private async Task<RemoteCallResult<TemplatePackageUploadResult>> UploadTemplatePackageViaDigitalEmployeeAsync(
+        string hireId,
+        TemplatePackageDefinition templatePackage,
+        DiscoverySkillDefinition discoverySkill,
+        string ownerSubject,
+        CancellationToken cancellationToken)
+    {
+        var archiveBytes = BuildDigitalEmployeeArchive(templatePackage, discoverySkill);
+        var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
+        var uploadCall = await SendMultipartForJsonAsync<DigitalEmployeeUploadResponse>(
+            "/admin/digital-employee/upload",
+            "file",
+            fileName,
+            archiveBytes,
+            "application/zip",
+            ownerSubject,
+            cancellationToken);
+        if (!uploadCall.Success || uploadCall.Data is null)
+        {
+            return RemoteCallResult<TemplatePackageUploadResult>.Failure(uploadCall.StatusCode, uploadCall.Message);
+        }
+
+        if (!uploadCall.Data.Success)
+        {
+            return RemoteCallResult<TemplatePackageUploadResult>.Failure(
+                502,
+                string.IsNullOrWhiteSpace(uploadCall.Data.Error) ? "数字员工模板包上传失败" : uploadCall.Data.Error);
+        }
+
+        return RemoteCallResult<TemplatePackageUploadResult>.Ok(new TemplatePackageUploadResult(
+            HireId: hireId,
+            SandboxId: string.Empty,
+            PackageId: templatePackage.PackageId,
+            PackageVersion: templatePackage.PackageVersion,
+            PackageHash: templatePackage.PackageHash,
+            InstalledPath: "workspace"));
     }
 
     private static SystemSkillUploadPayload BuildSystemSkillUploadPayload(DiscoverySkillDefinition discoverySkill)
@@ -902,30 +979,52 @@ internal sealed class EmployeeHiringService(
                 .ToArray());
     }
 
-    private static TemplatePackageUploadPayload BuildTemplatePackageUploadPayload(TemplatePackageDefinition templatePackage)
+    internal static byte[] BuildDigitalEmployeeArchive(
+        TemplatePackageDefinition templatePackage,
+        DiscoverySkillDefinition discoverySkill)
     {
-        return new TemplatePackageUploadPayload(
-            PackageId: templatePackage.PackageId,
-            PackageVersion: templatePackage.PackageVersion,
-            PackageHash: templatePackage.PackageHash,
-            ManifestJson: templatePackage.ManifestJson,
-            OntologySlices: templatePackage.OntologySlices
-                .Select(slice => new TemplateOntologySliceUploadPayload(
-                    Name: slice.Name,
-                    RelativePath: slice.RelativePath,
-                    Type: slice.Type,
-                    Required: slice.Required,
-                    ContentHash: slice.ContentHash,
-                    Content: slice.Content))
-                .ToArray(),
-            RequiredSkills: templatePackage.RequiredSkills
-                .Select(skill => new TemplateSkillUploadPayload(
-                    Name: skill.Name,
-                    RelativePath: skill.RelativePath,
-                    Required: skill.Required,
-                    ContentHash: skill.ContentHash,
-                    Content: skill.Content))
-                .ToArray());
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var file in templatePackage.PackageFiles)
+            {
+                if (file.Content.Length == 0 || string.IsNullOrWhiteSpace(file.RelativePath))
+                {
+                    continue;
+                }
+
+                if (!TryNormalizeArchiveEntryPath(file.RelativePath, out var normalizedPath))
+                {
+                    continue;
+                }
+
+                var entry = archive.CreateEntry(normalizedPath, CompressionLevel.Fastest);
+                using var entryStream = entry.Open();
+                entryStream.Write(file.Content, 0, file.Content.Length);
+            }
+
+            // Ensure system discovery skill is always present in uploaded package.
+            foreach (var file in discoverySkill.Files)
+            {
+                if (string.IsNullOrWhiteSpace(file.RelativePath))
+                {
+                    continue;
+                }
+
+                var normalizedPath = "skills/" + discoverySkill.SkillId.Trim().Trim('/') + "/" + file.RelativePath.TrimStart('/', '\\').Replace('\\', '/');
+                if (!TryNormalizeArchiveEntryPath(normalizedPath, out normalizedPath))
+                {
+                    continue;
+                }
+
+                var contentBytes = Encoding.UTF8.GetBytes(file.Content ?? string.Empty);
+                var entry = archive.CreateEntry(normalizedPath, CompressionLevel.Fastest);
+                using var entryStream = entry.Open();
+                entryStream.Write(contentBytes, 0, contentBytes.Length);
+            }
+        }
+
+        return memoryStream.ToArray();
     }
 
     private static IReadOnlyList<HiringConversationMaterialDto> BuildMaterialsFromRequest(HiringConversationMessageRequestDto request)
@@ -962,6 +1061,73 @@ internal sealed class EmployeeHiringService(
         }
 
         return result;
+    }
+
+    private async Task EnsureAssistantKickoffAsync(string hireId, CancellationToken cancellationToken)
+    {
+        var timelineCall = await SendForJsonAsync<HiringConversationTimelineDto>(
+            HttpMethod.Get,
+            $"/hirings/{Uri.EscapeDataString(hireId)}/conversation/messages",
+            body: null,
+            ResolveOwnerByHireId(hireId),
+            cancellationToken);
+        if (!timelineCall.Success || timelineCall.Data is null)
+        {
+            return;
+        }
+
+        var hasAssistantMessage = timelineCall.Data.Messages.Any(message =>
+            string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase));
+        if (hasAssistantMessage)
+        {
+            return;
+        }
+
+        var kickoffPrompt = configuration["HireBot:ConversationKickoffPrompt"];
+        var request = new HiringConversationMessageRequestDto
+        {
+            Content = string.IsNullOrWhiteSpace(kickoffPrompt) ? DefaultConversationKickoffPrompt : kickoffPrompt.Trim()
+        };
+        await SendForJsonAsync<HiringConversationResultDto>(
+            HttpMethod.Post,
+            $"/hirings/{Uri.EscapeDataString(hireId)}/conversation/messages",
+            request,
+            ResolveOwnerByHireId(hireId),
+            cancellationToken);
+    }
+
+    internal static HiringRuntimeContext ApplyConversationProgressToTemplatePackage(HiringRuntimeContext runtimeContext)
+    {
+        var enrichedFiles = runtimeContext.TemplatePackage.PackageFiles.ToDictionary(
+            file => file.RelativePath,
+            file => file,
+            StringComparer.OrdinalIgnoreCase);
+
+        var structuredDataJson = JsonSerializer.Serialize(runtimeContext.StructuredData, JsonOptions);
+        var materialsJson = JsonSerializer.Serialize(runtimeContext.Materials, JsonOptions);
+        UpsertPackageFile(enrichedFiles, "ontology/hiring-session/structured-data.json", structuredDataJson);
+        UpsertPackageFile(enrichedFiles, "ontology/hiring-session/materials.json", materialsJson);
+
+        var enrichedTemplatePackage = runtimeContext.TemplatePackage with
+        {
+            PackageFiles = enrichedFiles.Values.ToArray()
+        };
+
+        return runtimeContext with
+        {
+            TemplatePackage = enrichedTemplatePackage
+        };
+    }
+
+    internal static void UpsertPackageFile(
+        IDictionary<string, TemplatePackageFileAsset> packageFiles,
+        string relativePath,
+        string content)
+    {
+        var normalizedPath = relativePath.Replace('\\', '/').Trim('/');
+        var bytes = Encoding.UTF8.GetBytes(content);
+        var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        packageFiles[normalizedPath] = new TemplatePackageFileAsset(normalizedPath, bytes, hash);
     }
 
     private static HiringConversationMaterialDto? NormalizeMaterial(HiringConversationMaterialDto? material)
@@ -1090,6 +1256,12 @@ internal sealed class EmployeeHiringService(
         string ownerSubject,
         CancellationToken cancellationToken)
     {
+        var localResult = TryHandleLocalHiringJson<T>(method, path, body);
+        if (localResult is not null)
+        {
+            return localResult;
+        }
+
         var client = httpClientFactory.CreateClient(KingCrewClientName);
         if (client.BaseAddress is null)
         {
@@ -1149,6 +1321,75 @@ internal sealed class EmployeeHiringService(
         }
     }
 
+    private async Task<RemoteCallResult<T>> SendMultipartForJsonAsync<T>(
+        string path,
+        string formFieldName,
+        string fileName,
+        byte[] fileBytes,
+        string contentType,
+        string ownerSubject,
+        CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient(KingCrewClientName);
+        if (client.BaseAddress is null)
+        {
+            return RemoteCallResult<T>.Failure(500, "KingCrew:BaseUrl 未配置");
+        }
+
+        using var request = CreateRequest(HttpMethod.Post, path, ownerSubject, useHireBotApiPrefix: false);
+        using var form = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(fileBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        form.Add(fileContent, formFieldName, fileName);
+        request.Content = form;
+
+        try
+        {
+            using var response = await client.SendAsync(request, cancellationToken);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return RemoteCallResult<T>.Failure(
+                    (int)response.StatusCode,
+                    ExtractRemoteMessage(content) ?? $"调用 KingCrew 接口失败（HTTP {(int)response.StatusCode}）");
+            }
+
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口失败：响应为空");
+            }
+
+            var model = JsonSerializer.Deserialize<T>(content, JsonOptions);
+            if (model is null)
+            {
+                return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口失败：响应解析为空");
+            }
+
+            return RemoteCallResult<T>.Ok(model);
+        }
+        catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(oce, "调用 KingCrew multipart 接口被取消. Path={Path}", path);
+            return RemoteCallResult<T>.Failure(499, "请求已取消");
+        }
+        catch (OperationCanceledException oce)
+        {
+            logger.LogWarning(oce, "调用 KingCrew multipart 接口超时. Path={Path}", path);
+            return RemoteCallResult<T>.Failure(504, "调用 KingCrew 接口超时");
+        }
+        catch (Exception ex) when (IsHttpTimeoutException(ex))
+        {
+            logger.LogWarning(ex, "调用 KingCrew multipart 接口超时. Path={Path}", path);
+            return RemoteCallResult<T>.Failure(504, "调用 KingCrew 接口超时");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "调用 KingCrew multipart 接口异常. Path={Path}", path);
+            return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口异常");
+        }
+    }
+
     private async Task<RemoteBinaryCallResult> SendForBytesAsync(
         HttpMethod method,
         string path,
@@ -1156,6 +1397,12 @@ internal sealed class EmployeeHiringService(
         string ownerSubject,
         CancellationToken cancellationToken)
     {
+        var localResult = TryHandleLocalHiringBytes(method, path);
+        if (localResult is not null)
+        {
+            return localResult;
+        }
+
         var client = httpClientFactory.CreateClient(KingCrewClientName);
         if (client.BaseAddress is null)
         {
@@ -1235,6 +1482,439 @@ internal sealed class EmployeeHiringService(
         }
 
         return false;
+    }
+
+    private RemoteCallResult<T>? TryHandleLocalHiringJson<T>(HttpMethod method, string path, object? body)
+    {
+        if (!TryParseLocalHiringPath(path, out var normalizedPath, out var query))
+        {
+            return null;
+        }
+
+        // POST /hirings
+        if (HttpMethod.Post == method && string.Equals(normalizedPath, "/hirings", StringComparison.OrdinalIgnoreCase))
+        {
+            return CastLocalResult<T>(new HireTemplateResultDto(
+                HireId: $"hire_{Guid.NewGuid():N}"[..20],
+                SandboxId: $"sandbox_{Guid.NewGuid():N}"[..20],
+                Status: HiringStatus.Ready,
+                NextAction: "START_CONVERSATION"));
+        }
+
+        if (!TryExtractHireId(normalizedPath, out var hireId, out var tail))
+        {
+            return null;
+        }
+
+        if (string.Equals(tail, "/system-skills/upload", StringComparison.OrdinalIgnoreCase) && HttpMethod.Post == method)
+        {
+            var payload = body as SystemSkillUploadPayload;
+            return CastLocalResult<T>(new SystemSkillUploadResult(
+                HireId: hireId,
+                SandboxId: $"sandbox_{Guid.NewGuid():N}"[..20],
+                SkillId: payload?.SkillId ?? "digital-employee-discovery",
+                SkillVersion: payload?.SkillVersion ?? "1.0.0",
+                SkillHash: payload?.SkillHash ?? string.Empty,
+                InstalledPath: "skills/digital-employee-discovery",
+                LoadedStageSkills: payload?.StageRules
+                    .Select(rule => new StageSkillMappingDto(
+                        Stage: rule.Stage,
+                        SkillName: rule.SkillName,
+                        RequiredFields: rule.RequiredFields,
+                        Description: rule.Description))
+                    .ToArray() ?? []));
+        }
+
+        var runtime = hiringRuntimeStore.Get(hireId);
+        if (runtime is null)
+        {
+            return RemoteCallResult<T>.Failure(404, "雇佣上下文不存在");
+        }
+
+        if (string.Equals(tail, "", StringComparison.OrdinalIgnoreCase) && HttpMethod.Get == method)
+        {
+            return CastLocalResult<T>(new HiringStatusDto(
+                HireId: runtime.HireId,
+                SandboxId: runtime.SandboxId,
+                Status: HiringStatus.Ready,
+                ErrorCode: null,
+                ErrorMessage: null,
+                CollectionPhase: runtime.CollectionPhase,
+                CurrentStage: runtime.CurrentStage));
+        }
+
+        if (string.Equals(tail, "/conversation/start", StringComparison.OrdinalIgnoreCase) && HttpMethod.Post == method)
+        {
+            var sessionId = string.IsNullOrWhiteSpace(runtime.SessionId) ? $"session_{Guid.NewGuid():N}"[..20] : runtime.SessionId;
+            runtime = runtime with { SessionId = sessionId };
+            hiringRuntimeStore.Upsert(runtime);
+            return CastLocalResult<T>(new StartHiringConversationResultDto(
+                HireId: runtime.HireId,
+                SessionId: sessionId,
+                CurrentStage: runtime.CurrentStage,
+                RequiresAudit: false,
+                StageSkills: BuildStageSkills(runtime.DiscoverySkill),
+                IsConversationPaused: runtime.IsConversationPaused,
+                IsConversationResponding: runtime.IsConversationResponding));
+        }
+
+        if (string.Equals(tail, "/conversation/messages", StringComparison.OrdinalIgnoreCase) && HttpMethod.Get == method)
+        {
+            return CastLocalResult<T>(new HiringConversationTimelineDto(
+                HireId: runtime.HireId,
+                SessionId: runtime.SessionId,
+                CurrentStage: runtime.CurrentStage,
+                RequiresAudit: false,
+                CollectionPhase: runtime.CollectionPhase,
+                Messages: runtime.Messages,
+                StageSkills: BuildStageSkills(runtime.DiscoverySkill)));
+        }
+
+        if (string.Equals(tail, "/conversation/messages", StringComparison.OrdinalIgnoreCase) && HttpMethod.Post == method)
+        {
+            var request = body as HiringConversationMessageRequestDto ?? new HiringConversationMessageRequestDto();
+            var kickoffPrompt = configuration["HireBot:ConversationKickoffPrompt"];
+            var normalizedKickoffPrompt = string.IsNullOrWhiteSpace(kickoffPrompt)
+                ? DefaultConversationKickoffPrompt
+                : kickoffPrompt.Trim();
+            var isKickoffProbe = string.Equals(request.Content?.Trim(), normalizedKickoffPrompt, StringComparison.Ordinal);
+            var structured = new Dictionary<string, string?>(runtime.StructuredData, StringComparer.OrdinalIgnoreCase);
+            if (request.StructuredAnswers is not null)
+            {
+                foreach (var pair in request.StructuredAnswers)
+                {
+                    if (!string.IsNullOrWhiteSpace(pair.Key))
+                    {
+                        structured[pair.Key.Trim()] = string.IsNullOrWhiteSpace(pair.Value) ? null : pair.Value.Trim();
+                    }
+                }
+            }
+
+            var userContent = string.IsNullOrWhiteSpace(request.Content)
+                ? "（已提交结构化信息）"
+                : request.Content.Trim();
+            var now = DateTimeOffset.UtcNow;
+
+            var stageCompletion = stageCompletionEvaluator.Evaluate(runtime.DiscoverySkill.StageRules, structured);
+            var currentStage = ResolveCurrentStage(stageCompletion, runtime.CurrentStage);
+            var collectionPhase = ResolveCollectionPhase(stageCompletion, structured, HiringCollectionPhase.InProgress);
+            var preview = BuildLocalPreview(runtime, currentStage, collectionPhase, structured, stageCompletion);
+            var assistantContent = BuildAssistantGuidanceQuestion(currentStage, preview, stageCompletion);
+            var assistantMessage = new HiringConversationMessageDto($"msg_{Guid.NewGuid():N}"[..20], "assistant", assistantContent, now.AddMilliseconds(1));
+            var materials = MergeMaterials(runtime.Materials, BuildMaterialsFromRequest(request));
+            var nextMessages = isKickoffProbe
+                ? runtime.Messages.Concat([assistantMessage]).ToArray()
+                : runtime.Messages.Concat([
+                    new HiringConversationMessageDto($"msg_{Guid.NewGuid():N}"[..20], "user", userContent, now),
+                    assistantMessage
+                ]).ToArray();
+            runtime = runtime with
+            {
+                StructuredData = structured,
+                Materials = materials,
+                StageCompletion = stageCompletion,
+                CurrentStage = currentStage,
+                CollectionPhase = collectionPhase,
+                Messages = nextMessages
+            };
+            runtime = ApplyConversationProgressToTemplatePackage(runtime);
+            hiringRuntimeStore.Upsert(runtime);
+
+            return CastLocalResult<T>(new HiringConversationResultDto(
+                HireId: runtime.HireId,
+                SessionId: runtime.SessionId,
+                CurrentStage: runtime.CurrentStage,
+                RequiresAudit: false,
+                AssistantMessage: assistantMessage,
+                LatestPreview: preview,
+                IsConversationPaused: runtime.IsConversationPaused,
+                IsConversationResponding: runtime.IsConversationResponding));
+        }
+
+        if (string.Equals(tail, "/stage-preview", StringComparison.OrdinalIgnoreCase) && HttpMethod.Get == method)
+        {
+            var stageValue = query.TryGetValue("stage", out var queryStage) ? queryStage : runtime.CurrentStage;
+            var preview = BuildLocalPreview(runtime, stageValue, runtime.CollectionPhase, runtime.StructuredData, runtime.StageCompletion);
+            return CastLocalResult<T>(preview);
+        }
+
+        if (string.Equals(tail, "/audit-decisions", StringComparison.OrdinalIgnoreCase) && HttpMethod.Post == method)
+        {
+            var request = body as HiringAuditDecisionRequestDto ?? new HiringAuditDecisionRequestDto();
+            var log = new HiringAuditLogDto(
+                LogId: $"audit_{Guid.NewGuid():N}"[..20],
+                Stage: string.IsNullOrWhiteSpace(request.Stage) ? runtime.CurrentStage : request.Stage.Trim(),
+                SkillName: "manual-review",
+                Decision: string.IsNullOrWhiteSpace(request.Decision) ? HiringAuditDecision.Approve : request.Decision.Trim(),
+                Actor: "operator",
+                Comment: request.Comment,
+                InputDigest: "n/a",
+                OutputDigest: "n/a",
+                TimestampUtc: DateTimeOffset.UtcNow);
+            runtime = runtime with
+            {
+                AuditLogs = runtime.AuditLogs.Concat([log]).ToArray()
+            };
+            hiringRuntimeStore.Upsert(runtime);
+            return CastLocalResult<T>(new HiringAuditDecisionResultDto(
+                HireId: runtime.HireId,
+                Stage: log.Stage,
+                Decision: log.Decision,
+                CurrentStage: runtime.CurrentStage,
+                RequiresAudit: false,
+                CollectionPhase: runtime.CollectionPhase));
+        }
+
+        if (string.Equals(tail, "/audit-logs", StringComparison.OrdinalIgnoreCase) && HttpMethod.Get == method)
+        {
+            return CastLocalResult<T>(runtime.AuditLogs.ToList());
+        }
+
+        if (string.Equals(tail, "/workflow", StringComparison.OrdinalIgnoreCase) && HttpMethod.Get == method)
+        {
+            return CastLocalResult<T>(new HiringWorkflowStateDto(
+                HireId: runtime.HireId,
+                SessionId: runtime.SessionId,
+                CurrentStage: runtime.CurrentStage,
+                RequiresAudit: false,
+                CollectionPhase: runtime.CollectionPhase,
+                StageSkills: BuildStageSkills(runtime.DiscoverySkill),
+                AuditLogs: runtime.AuditLogs,
+                TemplatePackageId: runtime.TemplatePackage.PackageId,
+                TemplatePackageVersion: runtime.TemplatePackage.PackageVersion,
+                DiscoverySkillId: runtime.DiscoverySkill.SkillId,
+                DiscoverySkillVersion: runtime.DiscoverySkill.SkillVersion,
+                StageCompletion: runtime.StageCompletion,
+                IsConversationPaused: runtime.IsConversationPaused,
+                IsConversationResponding: runtime.IsConversationResponding));
+        }
+
+        if (string.Equals(tail, "/finalize", StringComparison.OrdinalIgnoreCase) && HttpMethod.Post == method)
+        {
+            runtime = runtime with
+            {
+                CurrentStage = HiringCollectionStage.Done,
+                CollectionPhase = HiringCollectionPhase.Finalized
+            };
+            hiringRuntimeStore.Upsert(runtime);
+            return CastLocalResult<T>(new HiringFinalizeResultDto(
+                HireId: runtime.HireId,
+                CurrentStage: runtime.CurrentStage,
+                CollectionPhase: runtime.CollectionPhase,
+                GeneratedFiles: [],
+                DownloadUrl: $"/api/v1/hirings/{runtime.HireId}/artifacts/download"));
+        }
+
+        return null;
+    }
+
+    private RemoteBinaryCallResult? TryHandleLocalHiringBytes(HttpMethod method, string path)
+    {
+        if (method != HttpMethod.Get || !TryParseLocalHiringPath(path, out var normalizedPath, out _))
+        {
+            return null;
+        }
+
+        if (!TryExtractHireId(normalizedPath, out var hireId, out var tail)
+            || !string.Equals(tail, "/artifacts/download", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var runtime = hiringRuntimeStore.Get(hireId);
+        if (runtime is null)
+        {
+            return RemoteBinaryCallResult.Failure(404, "雇佣上下文不存在");
+        }
+
+        var artifactFiles = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var summary = JsonSerializer.Serialize(new
+        {
+            hireId = runtime.HireId,
+            stage = runtime.CurrentStage,
+            collectionPhase = runtime.CollectionPhase,
+            structuredData = runtime.StructuredData
+        }, JsonOptions);
+        artifactFiles["artifacts/hiring-summary.json"] = Encoding.UTF8.GetBytes(summary);
+        var zip = BuildArtifactArchive(artifactFiles);
+        return RemoteBinaryCallResult.Ok(
+            $"hirebot_artifacts_{runtime.HireId}.zip",
+            "application/zip",
+            zip);
+    }
+
+    private static RemoteCallResult<T> CastLocalResult<T>(object model)
+    {
+        if (model is T typed)
+        {
+            return RemoteCallResult<T>.Ok(typed);
+        }
+
+        return RemoteCallResult<T>.Failure(500, "本地雇佣流程返回类型不匹配");
+    }
+
+    private static bool TryParseLocalHiringPath(string path, out string normalizedPath, out Dictionary<string, string> query)
+    {
+        normalizedPath = string.Empty;
+        query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        var raw = path.Trim();
+        var queryIndex = raw.IndexOf('?');
+        if (queryIndex >= 0)
+        {
+            var queryString = raw[(queryIndex + 1)..];
+            raw = raw[..queryIndex];
+            foreach (var pair in queryString.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var split = pair.Split('=', 2);
+                var key = Uri.UnescapeDataString(split[0]);
+                var value = split.Length > 1 ? Uri.UnescapeDataString(split[1]) : string.Empty;
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    query[key] = value;
+                }
+            }
+        }
+
+        normalizedPath = raw.StartsWith('/') ? raw : "/" + raw;
+        return normalizedPath.StartsWith("/hirings", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryExtractHireId(string normalizedPath, out string hireId, out string tail)
+    {
+        hireId = string.Empty;
+        tail = string.Empty;
+        var segments = normalizedPath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2 || !string.Equals(segments[0], "hirings", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        hireId = Uri.UnescapeDataString(segments[1]);
+        tail = segments.Length == 2 ? string.Empty : "/" + string.Join('/', segments.Skip(2));
+        return true;
+    }
+
+    private static HiringStagePreviewDto BuildLocalPreview(
+        HiringRuntimeContext runtime,
+        string stage,
+        string collectionPhase,
+        IReadOnlyDictionary<string, string?> structuredData,
+        IReadOnlyList<HiringStageCompletionDto> stageCompletion)
+    {
+        var resolvedStage = string.IsNullOrWhiteSpace(stage) ? runtime.CurrentStage : stage;
+        var currentRule = runtime.DiscoverySkill.StageRules.FirstOrDefault(rule =>
+            string.Equals(rule.Stage, resolvedStage, StringComparison.OrdinalIgnoreCase));
+        var currentCompletion = stageCompletion.FirstOrDefault(item =>
+            string.Equals(item.Stage, resolvedStage, StringComparison.OrdinalIgnoreCase));
+
+        var missingFields = currentCompletion?.BlockingFields ?? [];
+        var summary = missingFields.Count == 0
+            ? "当前阶段信息较完整。"
+            : $"当前阶段仍缺少字段：{string.Join("、", missingFields)}";
+        var riskNotes = missingFields.Count == 0
+            ? (IReadOnlyList<string>)["信息完整，可进入下一阶段。"]
+            : [$"请补充：{string.Join("、", missingFields)}"];
+
+        return new HiringStagePreviewDto(
+            HireId: runtime.HireId,
+            Stage: resolvedStage,
+            SkillName: currentRule?.SkillName ?? "hiring-collection",
+            Summary: summary,
+            StructuredData: structuredData,
+            MissingFields: missingFields,
+            RiskNotes: riskNotes,
+            ReadyForAudit: currentCompletion?.ReadyForNextStage ?? missingFields.Count == 0,
+            GeneratedAt: DateTimeOffset.UtcNow);
+    }
+
+    private static string BuildAssistantGuidanceQuestion(
+        string currentStage,
+        HiringStagePreviewDto preview,
+        IReadOnlyList<HiringStageCompletionDto> stageCompletion)
+    {
+        var completion = stageCompletion.FirstOrDefault(item =>
+            string.Equals(item.Stage, currentStage, StringComparison.OrdinalIgnoreCase));
+        var missingFields = completion?.BlockingFields ?? preview.MissingFields;
+        if (missingFields.Count == 0)
+        {
+            return $"当前已完成 {currentStage} 阶段的核心信息。请补充你最关注的业务约束或验收标准，我将继续完善模板包。";
+        }
+
+        var firstMissing = missingFields[0];
+        return $"我们先聚焦 {currentStage} 阶段。请先补充“{firstMissing}”的具体信息（可用 1-3 句描述业务目标、场景与限制）。";
+    }
+
+    private void TriggerTemplateUploadRetry(
+        string hireId,
+        TemplatePackageDefinition templatePackage,
+        DiscoverySkillDefinition discoverySkill,
+        string ownerSubject)
+    {
+        if (!templateUploadRetryInFlight.TryAdd(hireId, 0))
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                for (var attempt = 1; attempt <= TemplateUploadRetryMaxAttempts; attempt++)
+                {
+                    var call = await UploadTemplatePackageViaDigitalEmployeeAsync(
+                        hireId,
+                        templatePackage,
+                        discoverySkill,
+                        ownerSubject,
+                        CancellationToken.None);
+
+                    var runtime = hiringRuntimeStore.Get(hireId);
+                    if (runtime is null)
+                    {
+                        return;
+                    }
+
+                    if (call.Success)
+                    {
+                        hiringRuntimeStore.Upsert(runtime with
+                        {
+                            IsTemplateUploadPending = false,
+                            TemplateUploadRetryCount = attempt,
+                            TemplateUploadLastError = null,
+                            TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
+                        });
+                        logger.LogInformation("Template package retry succeeded. HireId={HireId}, Attempt={Attempt}", hireId, attempt);
+                        return;
+                    }
+
+                    hiringRuntimeStore.Upsert(runtime with
+                    {
+                        IsTemplateUploadPending = true,
+                        TemplateUploadRetryCount = attempt,
+                        TemplateUploadLastError = call.Message,
+                        TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
+                    });
+                    logger.LogWarning("Template package retry failed. HireId={HireId}, Attempt={Attempt}, Message={Message}", hireId, attempt, call.Message);
+                    if (attempt < TemplateUploadRetryMaxAttempts)
+                    {
+                        await Task.Delay(TemplateUploadRetryDelay);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Template package retry crashed. HireId={HireId}", hireId);
+            }
+            finally
+            {
+                templateUploadRetryInFlight.TryRemove(hireId, out _);
+            }
+        });
     }
 
     private static IReadOnlyDictionary<string, byte[]> ExtractZipEntries(byte[] archiveBytes)
@@ -1320,14 +2000,28 @@ internal sealed class EmployeeHiringService(
         return TryNormalizeArtifactPath(path, out normalizedPath, out _);
     }
 
-    private HttpRequestMessage CreateRequest(HttpMethod method, string path, string ownerSubject)
+    private HttpRequestMessage CreateRequest(
+        HttpMethod method,
+        string path,
+        string ownerSubject,
+        bool useHireBotApiPrefix = true)
     {
-        var prefix = configuration["KingCrew:HireBotApiPrefix"];
-        var normalizedPrefix = string.IsNullOrWhiteSpace(prefix)
-            ? DefaultHireBotApiPrefix
-            : "/" + prefix.Trim().Trim('/');
         var normalizedPath = path.StartsWith('/') ? path : "/" + path;
-        var request = new HttpRequestMessage(method, $"{normalizedPrefix}{normalizedPath}");
+        string requestPath;
+        if (useHireBotApiPrefix)
+        {
+            var prefix = configuration["KingCrew:HireBotApiPrefix"];
+            var normalizedPrefix = string.IsNullOrWhiteSpace(prefix)
+                ? DefaultHireBotApiPrefix
+                : "/" + prefix.Trim().Trim('/');
+            requestPath = $"{normalizedPrefix}{normalizedPath}";
+        }
+        else
+        {
+            requestPath = normalizedPath;
+        }
+
+        var request = new HttpRequestMessage(method, requestPath);
 
         var incomingAuthorization = httpContextAccessor.HttpContext?.Request.Headers.Authorization.ToString();
         if (!string.IsNullOrWhiteSpace(incomingAuthorization))
@@ -1560,29 +2254,6 @@ internal sealed class EmployeeHiringService(
         string InstalledPath,
         IReadOnlyList<StageSkillMappingDto> LoadedStageSkills);
 
-    private sealed record TemplatePackageUploadPayload(
-        string PackageId,
-        string PackageVersion,
-        string PackageHash,
-        string ManifestJson,
-        IReadOnlyList<TemplateOntologySliceUploadPayload> OntologySlices,
-        IReadOnlyList<TemplateSkillUploadPayload> RequiredSkills);
-
-    private sealed record TemplateOntologySliceUploadPayload(
-        string Name,
-        string RelativePath,
-        string Type,
-        bool Required,
-        string ContentHash,
-        string Content);
-
-    private sealed record TemplateSkillUploadPayload(
-        string Name,
-        string RelativePath,
-        bool Required,
-        string ContentHash,
-        string Content);
-
     private sealed record TemplatePackageUploadResult(
         string HireId,
         string SandboxId,
@@ -1590,6 +2261,14 @@ internal sealed class EmployeeHiringService(
         string PackageVersion,
         string PackageHash,
         string InstalledPath);
+
+    private sealed record DigitalEmployeeUploadResponse(
+        bool Success,
+        string? Error,
+        string? Name,
+        int SkillsInstalled,
+        IReadOnlyList<string>? InstalledFiles,
+        int? TotalSkillsLoaded);
 
     private sealed record HireOwnerContext(
         string OwnerSubject,

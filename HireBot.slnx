@@ -6,6 +6,9 @@
     <Project Path="src/HireBot.EfCoreMigration/HireBot.EfCoreMigration.csproj" />
     <Project Path="src/HireBot.Repository/HireBot.Repository.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HireBot.Core.Tests/HireBot.Core.Tests.csproj" />
+  </Folder>
   <Project Path="HireBot.AppHost/HireBot.AppHost.csproj" />
   <Project Path="HireBot.ServiceDefaults/HireBot.ServiceDefaults.csproj" />
 </Solution>

@@ -23,7 +23,13 @@ internal sealed record HiringRuntimeContext
     public required DiscoverySkillDefinition DiscoverySkill { get; init; }
     public IReadOnlyDictionary<string, string?> StructuredData { get; init; } = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
     public IReadOnlyList<HiringConversationMaterialDto> Materials { get; init; } = [];
+    public IReadOnlyList<HiringConversationMessageDto> Messages { get; init; } = [];
+    public IReadOnlyList<HiringAuditLogDto> AuditLogs { get; init; } = [];
     public IReadOnlyList<HiringStageCompletionDto> StageCompletion { get; init; } = [];
+    public bool IsTemplateUploadPending { get; init; }
+    public int TemplateUploadRetryCount { get; init; }
+    public string? TemplateUploadLastError { get; init; }
+    public DateTimeOffset? TemplateUploadLastAttemptAt { get; init; }
     public IReadOnlyDictionary<string, byte[]> ArtifactFiles { get; init; } = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
     public byte[]? ArtifactArchive { get; init; }
     public string? ArtifactArchiveFileName { get; init; }
