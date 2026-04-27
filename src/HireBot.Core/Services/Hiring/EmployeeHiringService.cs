@@ -39,6 +39,20 @@ internal sealed class EmployeeHiringService(
     private const string DefaultConversationKickoffPrompt = "你是雇佣流程助手。请先根据当前阶段提出第一个关键问题，引导用户完善模板包内容。";
     private const int TemplateUploadRetryMaxAttempts = 5;
     private static readonly TimeSpan TemplateUploadRetryDelay = TimeSpan.FromSeconds(20);
+    private const string EvaluationSkillId = "evaluation-expert";
+    private const string EvaluationSkillVersion = "v1";
+    private const string EvaluationWorkspaceTemplateId = "evaluation-expert";
+    private const string EvaluationWorkspaceTemplateName = "Evaluation Expert";
+    private static readonly string[] EvaluationSkillDirectories =
+    [
+        "evaluation_orchestrator",
+        "scenario_parser",
+        "test_executor",
+        "evaluator",
+        "training_advisor",
+        "report_generator",
+        "live_evaluation_coordinator"
+    ];
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -205,6 +219,81 @@ internal sealed class EmployeeHiringService(
             ? "雇佣任务已创建，模板包上传待重试"
             : "雇佣任务已创建";
         return ApiResponse<HireTemplateResultDto>.SuccessResponse(call.Data, hireMessage);
+    }
+
+    public async Task<ApiResponse<HireTemplateResultDto>> CreateEvaluationWorkspaceAsync(
+        string targetHireId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(targetHireId, out var normalizedTargetHireId, out var error))
+        {
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(400, error);
+        }
+
+        var ownerContext = ResolveOwnerContextForEvaluation(normalizedTargetHireId);
+        var request = new KingCrewHireRequest(
+            TemplateId: EvaluationWorkspaceTemplateId,
+            TenantId: ownerContext.TenantId,
+            OperatorId: ownerContext.OperatorId,
+            UseCase: $"evaluation-workspace-for:{normalizedTargetHireId}");
+
+        var call = await SendForJsonAsync<HireTemplateResultDto>(
+            HttpMethod.Post,
+            "/hirings",
+            request,
+            ownerContext.OwnerSubject,
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
+        {
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(call.StatusCode, call.Message);
+        }
+
+        hireOwners[call.Data.HireId] = ownerContext with
+        {
+            TemplateId = EvaluationWorkspaceTemplateId,
+            TemplateName = EvaluationWorkspaceTemplateName,
+            EmployeeId = null
+        };
+
+        if (hiringRuntimeStore.Get(call.Data.HireId) is null)
+        {
+            var discoverySkill = BuildEvaluationWorkspaceDiscoverySkill();
+            var stageCompletion = stageCompletionEvaluator.Evaluate(
+                discoverySkill.StageRules,
+                new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
+            var templatePackage = BuildEvaluationWorkspaceTemplatePackage();
+
+            hiringRuntimeStore.Upsert(new HiringRuntimeContext
+            {
+                HireId = call.Data.HireId,
+                TemplateId = EvaluationWorkspaceTemplateId,
+                TemplateName = EvaluationWorkspaceTemplateName,
+                OwnerSubject = ownerContext.OwnerSubject,
+                TenantId = ownerContext.TenantId,
+                OperatorId = ownerContext.OperatorId,
+                SandboxId = string.IsNullOrWhiteSpace(call.Data.SandboxId)
+                    ? $"sandbox_eval_{call.Data.HireId}"
+                    : call.Data.SandboxId,
+                CurrentStage = "evaluation",
+                CollectionPhase = HiringCollectionPhase.NotStarted,
+                IsConversationPaused = false,
+                IsConversationResponding = false,
+                TemplatePackage = templatePackage,
+                DiscoverySkill = discoverySkill,
+                StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
+                Materials = [],
+                StageCompletion = stageCompletion
+            });
+        }
+
+        logger.LogInformation(
+            "Created evaluation workspace. TargetHireId={TargetHireId}, EvalHireId={EvalHireId}, EvalSandboxId={EvalSandboxId}",
+            normalizedTargetHireId,
+            call.Data.HireId,
+            call.Data.SandboxId);
+
+        return ApiResponse<HireTemplateResultDto>.SuccessResponse(call.Data, "evaluation workspace created");
     }
 
     public async Task<ApiResponse<HiringStatusDto>> GetHiringStatusAsync(string hireId, CancellationToken cancellationToken = default)
@@ -713,6 +802,61 @@ internal sealed class EmployeeHiringService(
         return ApiResponse<HiringWorkflowStateDto>.SuccessResponse(call.Data);
     }
 
+    public async Task<ApiResponse<bool>> UploadEvaluationSkillAsync(
+        string hireId,
+        string? skillRootPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return ApiResponse<bool>.ErrorResponse(400, error);
+        }
+
+        var payloadResult = await BuildEvaluationSkillUploadPayloadAsync(skillRootPath, cancellationToken);
+        if (!payloadResult.Success || payloadResult.Data is null)
+        {
+            return ApiResponse<bool>.ErrorResponse(payloadResult.Code, payloadResult.Message);
+        }
+
+        var call = await SendForJsonAsync<SystemSkillUploadResult>(
+            HttpMethod.Post,
+            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/system-skills/upload",
+            payloadResult.Data,
+            ResolveOwnerByHireId(normalizedHireId),
+            cancellationToken);
+
+        if (!call.Success || call.Data is null)
+        {
+            return ApiResponse<bool>.ErrorResponse(call.StatusCode, call.Message);
+        }
+
+        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
+        if (runtimeContext is not null)
+        {
+            var evaluationSkill = BuildDiscoverySkillFromUploadPayload(payloadResult.Data);
+            var stageCompletion = stageCompletionEvaluator.Evaluate(evaluationSkill.StageRules, runtimeContext.StructuredData);
+            var currentStage = ResolveCurrentStage(stageCompletion, runtimeContext.CurrentStage);
+            var collectionPhase = ResolveCollectionPhase(stageCompletion, runtimeContext.StructuredData, runtimeContext.CollectionPhase);
+
+            runtimeContext = runtimeContext with
+            {
+                DiscoverySkill = evaluationSkill,
+                StageCompletion = stageCompletion,
+                CurrentStage = currentStage,
+                CollectionPhase = collectionPhase
+            };
+            hiringRuntimeStore.Upsert(runtimeContext);
+        }
+
+        logger.LogInformation(
+            "Uploaded evaluation skill package. EvalHireId={EvalHireId}, SkillId={SkillId}, SkillVersion={SkillVersion}",
+            normalizedHireId,
+            call.Data.SkillId,
+            call.Data.SkillVersion);
+
+        return ApiResponse<bool>.SuccessResponse(true, "evaluation skill uploaded");
+    }
+
     public Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
         string hireId,
         CancellationToken cancellationToken = default)
@@ -977,6 +1121,216 @@ internal sealed class EmployeeHiringService(
                     Description: rule.Description,
                     RequiredFields: rule.RequiredFields))
                 .ToArray());
+    }
+
+    private async Task<ApiResponse<SystemSkillUploadPayload>> BuildEvaluationSkillUploadPayloadAsync(
+        string? skillRootPath,
+        CancellationToken cancellationToken)
+    {
+        var rootPath = ResolveEvaluationSkillRoot(skillRootPath);
+        if (string.IsNullOrWhiteSpace(rootPath))
+        {
+            return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(422, "evaluation skill root not found");
+        }
+
+        var missingDirectories = EvaluationSkillDirectories
+            .Where(directory => !Directory.Exists(Path.Combine(rootPath, directory)))
+            .ToArray();
+        if (missingDirectories.Length > 0)
+        {
+            return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(
+                422,
+                $"evaluation skill directories are missing: {string.Join(", ", missingDirectories)}");
+        }
+
+        var files = new List<SystemSkillFileUploadPayload>();
+        foreach (var directory in EvaluationSkillDirectories)
+        {
+            var fullDirectory = Path.Combine(rootPath, directory);
+            foreach (var filePath in Directory.EnumerateFiles(fullDirectory, "*", SearchOption.AllDirectories))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (ShouldSkipEvaluationSkillFile(filePath))
+                {
+                    continue;
+                }
+
+                var relativePath = Path.GetRelativePath(rootPath, filePath).Replace('\\', '/');
+                var content = await File.ReadAllTextAsync(filePath, cancellationToken);
+                files.Add(new SystemSkillFileUploadPayload(
+                    RelativePath: relativePath,
+                    ContentHash: ComputeContentHash(content),
+                    Content: content));
+            }
+        }
+
+        if (files.All(file => !file.RelativePath.Equals("SKILL.md", StringComparison.OrdinalIgnoreCase)))
+        {
+            var rootSkillContent = string.Join(
+                '\n',
+                [
+                    "# evaluation-expert",
+                    "",
+                    "Root entry skill for evaluation package upload.",
+                    "Sub-skills are loaded from sibling directories."
+                ]);
+            files.Add(new SystemSkillFileUploadPayload(
+                RelativePath: "SKILL.md",
+                ContentHash: ComputeContentHash(rootSkillContent),
+                Content: rootSkillContent));
+        }
+
+        if (files.Count == 0)
+        {
+            return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(422, "evaluation skill payload is empty");
+        }
+
+        var orderedFiles = files
+            .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var hashSeed = string.Join('\n', orderedFiles.Select(file => $"{file.RelativePath}:{file.ContentHash}"));
+        var payload = new SystemSkillUploadPayload(
+            SkillId: EvaluationSkillId,
+            SkillVersion: EvaluationSkillVersion,
+            SkillHash: ComputeContentHash(hashSeed),
+            Files: orderedFiles,
+            StageRules:
+            [
+                new SystemSkillStageRuleUploadPayload(
+                    Stage: "evaluation",
+                    SkillName: "evaluation_orchestrator",
+                    Description: "Evaluation expert orchestration skill set",
+                    RequiredFields: ["evaluation_goal"])
+            ]);
+
+        return ApiResponse<SystemSkillUploadPayload>.SuccessResponse(payload);
+    }
+
+    private static string? ResolveEvaluationSkillRoot(string? skillRootPath)
+    {
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(skillRootPath))
+        {
+            candidates.Add(skillRootPath.Trim());
+        }
+
+        var currentDirectory = Directory.GetCurrentDirectory();
+        candidates.Add(Path.Combine(currentDirectory, "hirebot_bot_prototype", "evaluation-expert", "evaluation-expert"));
+        candidates.Add(Path.Combine(currentDirectory, "..", "hirebot_bot_prototype", "evaluation-expert", "evaluation-expert"));
+        candidates.Add(Path.Combine(currentDirectory, "..", "..", "hirebot_bot_prototype", "evaluation-expert", "evaluation-expert"));
+
+        var baseDirectory = AppContext.BaseDirectory;
+        candidates.Add(Path.Combine(baseDirectory, "..", "..", "..", "..", "..", "hirebot_bot_prototype", "evaluation-expert", "evaluation-expert"));
+        candidates.Add(Path.Combine(baseDirectory, "..", "..", "..", "..", "..", "..", "hirebot_bot_prototype", "evaluation-expert", "evaluation-expert"));
+
+        foreach (var candidate in candidates.Where(path => !string.IsNullOrWhiteSpace(path)))
+        {
+            var fullPath = Path.GetFullPath(candidate);
+            if (Directory.Exists(fullPath))
+            {
+                return fullPath;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ShouldSkipEvaluationSkillFile(string filePath)
+    {
+        var normalizedPath = filePath.Replace('\\', '/');
+        return normalizedPath.Contains("/.venv/", StringComparison.OrdinalIgnoreCase)
+               || normalizedPath.Contains("/__pycache__/", StringComparison.OrdinalIgnoreCase)
+               || normalizedPath.EndsWith(".pyc", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static DiscoverySkillDefinition BuildDiscoverySkillFromUploadPayload(SystemSkillUploadPayload payload)
+    {
+        var files = payload.Files
+            .Select(file => new DiscoverySkillFileAsset(
+                RelativePath: file.RelativePath,
+                Content: file.Content,
+                ContentHash: file.ContentHash))
+            .ToArray();
+        var stageRules = payload.StageRules
+            .Select(rule => new DiscoveryStageRule(
+                Stage: rule.Stage,
+                SkillName: rule.SkillName,
+                Description: rule.Description,
+                RequiredFields: rule.RequiredFields))
+            .ToArray();
+        var rootContent = files
+            .FirstOrDefault(file => file.RelativePath.Equals("SKILL.md", StringComparison.OrdinalIgnoreCase))
+            ?.Content
+            ?? $"# {payload.SkillId}";
+
+        return new DiscoverySkillDefinition(
+            SkillId: payload.SkillId,
+            SkillVersion: payload.SkillVersion,
+            SkillHash: payload.SkillHash,
+            SkillRootPath: payload.SkillId,
+            SkillContent: rootContent,
+            Files: files,
+            StageRules: stageRules);
+    }
+
+    private static TemplatePackageDefinition BuildEvaluationWorkspaceTemplatePackage()
+    {
+        const string manifestJson = """
+{
+  "template_id": "evaluation-expert",
+  "display_name": "Evaluation Expert Workspace",
+  "description": "Workspace package for evaluator sandbox"
+}
+""";
+        var manifestBytes = Encoding.UTF8.GetBytes(manifestJson);
+
+        return new TemplatePackageDefinition(
+            RequestedTemplateId: EvaluationWorkspaceTemplateId,
+            PackageId: EvaluationWorkspaceTemplateId,
+            PackageVersion: EvaluationSkillVersion,
+            PackageHash: ComputeContentHash(manifestJson),
+            PackageRootPath: "evaluation-workspace",
+            ManifestJson: manifestJson,
+            DisplayName: EvaluationWorkspaceTemplateName,
+            Description: "Evaluator sandbox template package",
+            PackageFiles:
+            [
+                new TemplatePackageFileAsset(
+                    RelativePath: "manifest.json",
+                    Content: manifestBytes,
+                    ContentHash: ComputeContentHash(manifestJson))
+            ],
+            OntologySlices: [],
+            RequiredSkills: []);
+    }
+
+    private static DiscoverySkillDefinition BuildEvaluationWorkspaceDiscoverySkill()
+    {
+        const string rootSkillContent = """
+# evaluation-expert
+
+This is the bootstrap skill for evaluation sandbox orchestration.
+""";
+        var stageRule = new DiscoveryStageRule(
+            Stage: "evaluation",
+            SkillName: "evaluation_orchestrator",
+            Description: "Evaluate target sandbox and output PASS or FAIL.",
+            RequiredFields: ["evaluation_goal"]);
+
+        return new DiscoverySkillDefinition(
+            SkillId: EvaluationSkillId,
+            SkillVersion: EvaluationSkillVersion,
+            SkillHash: ComputeContentHash(rootSkillContent),
+            SkillRootPath: "evaluation-expert",
+            SkillContent: rootSkillContent,
+            Files:
+            [
+                new DiscoverySkillFileAsset(
+                    RelativePath: "SKILL.md",
+                    Content: rootSkillContent,
+                    ContentHash: ComputeContentHash(rootSkillContent))
+            ],
+            StageRules: [stageRule]);
     }
 
     internal static byte[] BuildDigitalEmployeeArchive(
@@ -2082,17 +2436,92 @@ internal sealed class EmployeeHiringService(
         }
     }
 
-    private string ResolveOwnerByHireId(string hireId)
+    private HireOwnerContext ResolveOwnerContextForEvaluation(string targetHireId)
     {
-        if (hireOwners.TryGetValue(hireId, out var ownerContext))
+        if (TryResolveOwnerContext(targetHireId, out var ownerContext))
         {
-            return ownerContext.OwnerSubject;
+            return ownerContext;
+        }
+
+        var ownerSubject = ResolveOwnerSubject();
+        if (TryParseOwnerSubject(ownerSubject, out var parsedTenantId, out var parsedOperatorId))
+        {
+            return new HireOwnerContext(
+                OwnerSubject: ownerSubject,
+                TenantId: parsedTenantId,
+                OperatorId: parsedOperatorId,
+                TemplateId: EvaluationWorkspaceTemplateId,
+                TemplateName: EvaluationWorkspaceTemplateName,
+                EmployeeId: null);
+        }
+
+        var (tenantId, operatorId) = ResolveTenantAndOperator(null, null);
+        return new HireOwnerContext(
+            OwnerSubject: ownerSubject,
+            TenantId: tenantId,
+            OperatorId: operatorId,
+            TemplateId: EvaluationWorkspaceTemplateId,
+            TemplateName: EvaluationWorkspaceTemplateName,
+            EmployeeId: null);
+    }
+
+    private bool TryResolveOwnerContext(string hireId, out HireOwnerContext ownerContext)
+    {
+        if (hireOwners.TryGetValue(hireId, out var cachedOwnerContext))
+        {
+            ownerContext = cachedOwnerContext;
+            return true;
         }
 
         var runtimeContext = hiringRuntimeStore.Get(hireId);
-        if (runtimeContext is not null)
+        if (runtimeContext is null)
         {
-            return runtimeContext.OwnerSubject;
+            ownerContext = default!;
+            return false;
+        }
+
+        ownerContext = new HireOwnerContext(
+            OwnerSubject: runtimeContext.OwnerSubject,
+            TenantId: runtimeContext.TenantId,
+            OperatorId: runtimeContext.OperatorId,
+            TemplateId: runtimeContext.TemplateId,
+            TemplateName: runtimeContext.TemplateName,
+            EmployeeId: runtimeContext.EmployeeId);
+        return true;
+    }
+
+    private static bool TryParseOwnerSubject(string ownerSubject, out string tenantId, out string operatorId)
+    {
+        tenantId = string.Empty;
+        operatorId = string.Empty;
+        if (string.IsNullOrWhiteSpace(ownerSubject))
+        {
+            return false;
+        }
+
+        var delimiterIndex = ownerSubject.IndexOf(':');
+        if (delimiterIndex <= 0 || delimiterIndex >= ownerSubject.Length - 1)
+        {
+            return false;
+        }
+
+        var tenant = ownerSubject[..delimiterIndex].Trim();
+        var oper = ownerSubject[(delimiterIndex + 1)..].Trim();
+        if (string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(oper))
+        {
+            return false;
+        }
+
+        tenantId = tenant;
+        operatorId = oper;
+        return true;
+    }
+
+    private string ResolveOwnerByHireId(string hireId)
+    {
+        if (TryResolveOwnerContext(hireId, out var ownerContext))
+        {
+            return ownerContext.OwnerSubject;
         }
 
         return ResolveOwnerSubject();

@@ -1,4 +1,4 @@
-using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Training;
 using HireBot.Abstraction.Providers;
@@ -52,16 +52,18 @@ public sealed class MockTrainingService(
         {
             "APPROVE" => employee with
             {
+                Status = "interning_human",
                 LifecycleStatus = "实习中",
-                StageSummary = "已完成培训考核，进入实习阶段",
+                StageSummary = "已完成训练考核，进入实习阶段",
                 PrimarySignal = "实习中，积累评估数据",
                 SignalLevel = "ok",
                 InternshipStartAt = employee.InternshipStartAt ?? DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd")
             },
             "REJECT" => employee with
             {
+                Status = "interning_ai",
                 LifecycleStatus = "待AI评估",
-                StageSummary = "培训未通过，等待补充材料",
+                StageSummary = "训练未通过，等待补充材料",
                 PrimarySignal = "待重新训练",
                 SignalLevel = "warn"
             },
@@ -74,6 +76,6 @@ public sealed class MockTrainingService(
         }
 
         await store.UpsertAsync(owner, updated, cancellationToken);
-        return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "培训决策已提交");
+        return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "训练决策已提交");
     }
 }

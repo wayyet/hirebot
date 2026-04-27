@@ -1,11 +1,10 @@
-﻿using System.ComponentModel.DataAnnotations;
-
-namespace HireBot.Abstraction.Models.EmployeeRuntime;
+﻿namespace HireBot.Abstraction.Models.EmployeeRuntime;
 
 public sealed record UpdateEmployeeLifecycleRequestDto
 {
-    [Required]
-    public string LifecycleStatus { get; init; } = string.Empty;
+    public string? Status { get; init; }
+
+    public string? LifecycleStatus { get; init; }
 
     public string? StageSummary { get; init; }
 

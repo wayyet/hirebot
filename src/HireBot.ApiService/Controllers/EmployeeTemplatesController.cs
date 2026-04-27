@@ -1,6 +1,8 @@
 ﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeTemplate;
+using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
+using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeTemplate;
 using HireBot.Abstraction.Services.Hiring;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +13,8 @@ namespace HireBot.ApiService.Controllers;
 [ApiController]
 public sealed class EmployeeTemplatesController(
     IEmployeeTemplateService employeeTemplateService,
-    IEmployeeHiringService employeeHiringService) : ControllerBase
+    IEmployeeHiringService employeeHiringService,
+    IEmployeeRuntimeService employeeRuntimeService) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> GetTemplates(
@@ -55,6 +58,13 @@ public sealed class EmployeeTemplatesController(
         }
 
         var response = await employeeHiringService.HireAsync(templateId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{templateId}/fixture-hire")]
+    public async Task<IActionResult> HireTemplateByFixture(string templateId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeRuntimeService.HireFromFixtureTemplateAsync(templateId, cancellationToken);
         return StatusCode(response.Code, response);
     }
 }

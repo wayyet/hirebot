@@ -1,4 +1,4 @@
-using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Migration;
 using HireBot.Abstraction.Models.Team;
@@ -16,37 +16,33 @@ public sealed class MockEmployeeRuntimeService(
     ICollaborationService collaborationService,
     IRequestContextService requestContextService) : IEmployeeRuntimeService
 {
-    private static readonly HashSet<string> SupportedLifecycleStatuses =
+    private static readonly HashSet<string> SupportedStatuses =
     [
-        "待启动",
-        "待AI评估",
-        "待人工评估",
-        "实习中",
-        "已转正",
-        "离职中",
-        "已归档"
+        "hired",
+        "interning_ai",
+        "interning_human",
+        "live",
+        "failed",
+        "retired"
     ];
 
-    private static readonly Dictionary<string, HashSet<string>> AllowedLifecycleTransitions =
+    private static readonly Dictionary<string, HashSet<string>> AllowedStatusTransitions =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["待启动"] = ["待AI评估"],
-            // 兼容旧客户端直接发起“执行 AI 评估”后进入实习中的行为。
-            ["待AI评估"] = ["待人工评估", "实习中"],
-            ["待人工评估"] = ["实习中"],
-            ["实习中"] = ["已转正"],
-            ["已转正"] = ["离职中"],
-            ["离职中"] = ["已归档"],
-            ["已归档"] = []
+            ["hired"] = ["interning_ai", "failed", "retired"],
+            ["interning_ai"] = ["interning_human", "failed", "retired"],
+            ["interning_human"] = ["live", "failed", "retired"],
+            ["live"] = ["retired"],
+            ["failed"] = ["hired", "interning_ai", "interning_human", "retired"],
+            ["retired"] = []
         };
 
-    private static readonly string[] FixtureLifecycleSeedOrder =
+    private static readonly string[] FixtureStatusSeedOrder =
     [
-        "待启动",
-        "待AI评估",
-        "待人工评估",
-        "实习中",
-        "已转正"
+        "hired",
+        "interning_ai",
+        "interning_human",
+        "live"
     ];
 
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default)
@@ -101,14 +97,173 @@ public sealed class MockEmployeeRuntimeService(
         return ApiResponse<ImportFixtureInstancesResultDto>.SuccessResponse(result, "示例实例产物导入完成");
     }
 
+    public async Task<ApiResponse<FixtureTemplateHireResultDto>> HireFromFixtureTemplateAsync(
+        string templateId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(templateId))
+        {
+            return ApiResponse<FixtureTemplateHireResultDto>.ErrorResponse(400, "templateId 不能为空");
+        }
+
+        var normalizedTemplateId = templateId.Trim();
+        var owner = requestContextService.ResolveOwnerSubject();
+        await EnsureSeedDataAsync(owner, cancellationToken);
+        var now = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+
+        var existingEmployees = await store.ListAsync(owner, cancellationToken);
+        var selected = existingEmployees
+            .Where(item => string.Equals(item.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
+            .Where(item =>
+                string.Equals(item.BasedOnTemplateId, normalizedTemplateId, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.SourceTemplateId, normalizedTemplateId, StringComparison.OrdinalIgnoreCase))
+            .Where(IsUploadSkillReadyInstance)
+            .OrderBy(item => item.CreatedAt, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.EmployeeId, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+
+        if (selected is not null)
+        {
+            return ApiResponse<FixtureTemplateHireResultDto>.SuccessResponse(
+                new FixtureTemplateHireResultDto(
+                    EmployeeId: selected.EmployeeId,
+                    TemplateId: normalizedTemplateId,
+                    InstanceType: selected.InstanceType,
+                    Status: selected.Status,
+                    CreatedByFixtureFallback: false),
+                "已承接到可评估的 fixture 实例");
+        }
+
+        // If template-matched instances exist but are already beyond AI-upload stage,
+        // create a new interning_ai instance to keep "Fixture hire -> upload skill" deterministic.
+        selected = existingEmployees
+            .Where(item => string.Equals(item.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
+            .Where(item =>
+                string.Equals(item.BasedOnTemplateId, normalizedTemplateId, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.SourceTemplateId, normalizedTemplateId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(item => item.CreatedAt, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.EmployeeId, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+
+        if (selected is not null)
+        {
+            var stageStatus = "interning_ai";
+            var createdFromMatched = selected with
+            {
+                EmployeeId = BuildEmployeeId(),
+                Nickname = $"{normalizedTemplateId}-fixture",
+                RoleName = normalizedTemplateId,
+                SourceTemplate = normalizedTemplateId,
+                SourceTemplateId = normalizedTemplateId,
+                InstanceType = "department",
+                Status = stageStatus,
+                BasedOnTemplateId = normalizedTemplateId,
+                FromInstanceId = selected.EmployeeId,
+                OwnerUserId = owner,
+                DepartmentId = string.IsNullOrWhiteSpace(selected.DepartmentId) ? "department-default" : selected.DepartmentId,
+                LifecycleStatus = MapStatusToLifecycleLabel(stageStatus),
+                StageSummary = BuildStageSummary(stageStatus, normalizedTemplateId),
+                PrimarySignal = BuildPrimarySignal(stageStatus),
+                SignalLevel = "warn",
+                CreatedAt = now,
+                InternshipStartAt = null,
+                GraduatedAt = null,
+                TasksDone = 0,
+                TasksTotal = 0,
+                SatisfactionScore = null,
+                PendingActions = BuildPendingActions(stageStatus),
+                EvalPhase = "pending_materials",
+                EvalIteration = 0,
+                EvalMaxIterations = 30,
+                IsConfigured = selected.Capabilities.Count > 0 && selected.Capabilities.All(item => item.Ready)
+            };
+
+            await store.UpsertAsync(owner, createdFromMatched, cancellationToken);
+            return ApiResponse<FixtureTemplateHireResultDto>.SuccessResponse(
+                new FixtureTemplateHireResultDto(
+                    EmployeeId: createdFromMatched.EmployeeId,
+                    TemplateId: normalizedTemplateId,
+                    InstanceType: createdFromMatched.InstanceType,
+                    Status: createdFromMatched.Status,
+                    CreatedByFixtureFallback: true),
+                "模板雇佣承接完成");
+        }
+
+        var seed = existingEmployees
+            .Where(item => string.Equals(item.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(item => item.Status switch
+            {
+                "interning_ai" => 0,
+                "hired" => 1,
+                "interning_human" => 2,
+                "live" => 3,
+                "failed" => 4,
+                _ => 5
+            })
+            .ThenBy(item => item.CreatedAt, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+
+        var createdByFixtureFallback = false;
+        EmployeeDetailDto created;
+
+        if (seed is not null)
+        {
+            var stageStatus = "interning_ai";
+            created = seed with
+            {
+                EmployeeId = BuildEmployeeId(),
+                Nickname = $"{normalizedTemplateId}-fixture",
+                RoleName = normalizedTemplateId,
+                SourceTemplate = normalizedTemplateId,
+                SourceTemplateId = normalizedTemplateId,
+                InstanceType = "department",
+                Status = stageStatus,
+                BasedOnTemplateId = normalizedTemplateId,
+                FromInstanceId = seed.EmployeeId,
+                OwnerUserId = owner,
+                DepartmentId = string.IsNullOrWhiteSpace(seed.DepartmentId) ? "department-default" : seed.DepartmentId,
+                LifecycleStatus = MapStatusToLifecycleLabel(stageStatus),
+                StageSummary = BuildStageSummary(stageStatus, normalizedTemplateId),
+                PrimarySignal = BuildPrimarySignal(stageStatus),
+                SignalLevel = "warn",
+                CreatedAt = now,
+                InternshipStartAt = null,
+                GraduatedAt = null,
+                TasksDone = 0,
+                TasksTotal = 0,
+                SatisfactionScore = null,
+                PendingActions = BuildPendingActions(stageStatus),
+                EvalPhase = "pending_materials",
+                EvalIteration = 0,
+                EvalMaxIterations = 30,
+                IsConfigured = seed.Capabilities.Count > 0 && seed.Capabilities.All(item => item.Ready)
+            };
+        }
+        else
+        {
+            created = BuildFallbackFixtureEmployee(owner, normalizedTemplateId);
+            createdByFixtureFallback = true;
+        }
+
+        await store.UpsertAsync(owner, created, cancellationToken);
+        return ApiResponse<FixtureTemplateHireResultDto>.SuccessResponse(
+            new FixtureTemplateHireResultDto(
+                EmployeeId: created.EmployeeId,
+                TemplateId: normalizedTemplateId,
+                InstanceType: created.InstanceType,
+                Status: created.Status,
+                CreatedByFixtureFallback: createdByFixtureFallback),
+            "模板雇佣承接完成");
+    }
+
     public async Task<ApiResponse<EmployeeDetailDto>> UpdateLifecycleAsync(
         string employeeId,
         UpdateEmployeeLifecycleRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(employeeId) || request is null || string.IsNullOrWhiteSpace(request.LifecycleStatus))
+        if (string.IsNullOrWhiteSpace(employeeId) || request is null)
         {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId 与 lifecycleStatus 为必填项");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId 与状态信息为必填项");
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
@@ -118,37 +273,41 @@ public sealed class MockEmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
         }
 
-        var normalizedStatus = request.LifecycleStatus.Trim();
-        if (!SupportedLifecycleStatuses.Contains(normalizedStatus))
+        var targetStatus = NormalizeStatus(request.Status, request.LifecycleStatus);
+        if (targetStatus is null)
         {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, $"不支持的 lifecycleStatus：{normalizedStatus}");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "status 或 lifecycleStatus 至少传入一个有效值");
         }
 
-        var currentStatus = employee.LifecycleStatus.Trim();
-        if (!currentStatus.Equals(normalizedStatus, StringComparison.OrdinalIgnoreCase) &&
-            !IsAllowedTransition(currentStatus, normalizedStatus))
+        if (!SupportedStatuses.Contains(targetStatus))
         {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(
-                409,
-                $"非法生命周期流转：{currentStatus} -> {normalizedStatus}");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, $"不支持的 status：{targetStatus}");
+        }
+
+        var currentStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
+        if (!currentStatus.Equals(targetStatus, StringComparison.OrdinalIgnoreCase) &&
+            !IsAllowedTransition(currentStatus, targetStatus))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, $"非法状态流转：{currentStatus} -> {targetStatus}");
         }
 
         var updated = employee with
         {
-            LifecycleStatus = normalizedStatus,
+            Status = targetStatus,
+            LifecycleStatus = MapStatusToLifecycleLabel(targetStatus),
             StageSummary = Coalesce(request.StageSummary, employee.StageSummary),
             PrimarySignal = Coalesce(request.PrimarySignal, employee.PrimarySignal),
             SignalLevel = Coalesce(request.SignalLevel, employee.SignalLevel),
-            InternshipStartAt = normalizedStatus == "实习中"
+            InternshipStartAt = targetStatus == "live"
                 ? Coalesce(request.InternshipStartAt, employee.InternshipStartAt, DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd"))
                 : employee.InternshipStartAt,
-            GraduatedAt = normalizedStatus == "已转正"
+            GraduatedAt = targetStatus == "live"
                 ? Coalesce(request.GraduatedAt, employee.GraduatedAt, DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd"))
                 : employee.GraduatedAt
         };
 
         await store.UpsertAsync(owner, updated, cancellationToken);
-        return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "生命周期状态已更新");
+        return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "状态已更新");
     }
 
     public async Task<ApiResponse<EmployeeDetailDto>> UpdateCapabilitiesAsync(
@@ -252,9 +411,15 @@ public sealed class MockEmployeeRuntimeService(
             RoleName: request.TemplateName,
             SourceTemplate: request.TemplateName,
             SourceTemplateId: request.TemplateId,
-            LifecycleStatus: "待启动",
-            StageSummary: "实例已生成，等待进入实习",
-            PrimarySignal: "待操作：启动实习",
+            InstanceType: "department",
+            Status: "hired",
+            BasedOnTemplateId: request.TemplateId,
+            FromInstanceId: null,
+            OwnerUserId: request.OwnerSubject,
+            DepartmentId: string.IsNullOrWhiteSpace(request.TenantId) ? "department-default" : request.TenantId,
+            LifecycleStatus: MapStatusToLifecycleLabel("hired"),
+            StageSummary: "实例已生成，等待发起评估",
+            PrimarySignal: "待操作：进入 AI 评估",
             SignalLevel: "ok",
             OwningTeam: request.TenantId,
             CreatedAt: DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd"),
@@ -293,6 +458,12 @@ public sealed class MockEmployeeRuntimeService(
                 item.RoleName,
                 item.SourceTemplate,
                 item.SourceTemplateId,
+                "department",
+                NormalizeStatus(null, item.LifecycleStatus) ?? "hired",
+                item.SourceTemplateId,
+                null,
+                owner,
+                string.IsNullOrWhiteSpace(item.OwningTeam) ? "department-default" : item.OwningTeam,
                 item.LifecycleStatus,
                 item.StageSummary,
                 item.PrimarySignal,
@@ -380,12 +551,6 @@ public sealed class MockEmployeeRuntimeService(
                 using var instanceDoc = JsonDocument.Parse(instanceContent);
                 var root = instanceDoc.RootElement;
 
-                var ownerSubject = TryGetString(root, "ownerSubject");
-                if (!string.Equals(ownerSubject, owner, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
                 var employeeId = TryGetString(root, "employeeId");
                 if (string.IsNullOrWhiteSpace(employeeId))
                 {
@@ -428,7 +593,7 @@ public sealed class MockEmployeeRuntimeService(
 
                 var status = ResolveFixtureSeedStatus(seedIndex++);
                 var createdAt = ResolveCreatedAt(generatedAtUtc, seedIndex);
-                var isReady = status is "实习中" or "已转正";
+                var isReady = status is "live";
                 var capabilities = capabilityNames
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Select(name => new EmployeeCapabilityDto(name, isReady))
@@ -440,28 +605,34 @@ public sealed class MockEmployeeRuntimeService(
                     RoleName: displayName,
                     SourceTemplate: displayName,
                     SourceTemplateId: templateId,
-                    LifecycleStatus: status,
+                    InstanceType: "department",
+                    Status: status,
+                    BasedOnTemplateId: templateId,
+                    FromInstanceId: null,
+                    OwnerUserId: owner,
+                    DepartmentId: string.IsNullOrWhiteSpace(scenario) ? "department-default" : scenario,
+                    LifecycleStatus: MapStatusToLifecycleLabel(status),
                     StageSummary: BuildStageSummary(status, hireId),
                     PrimarySignal: BuildPrimarySignal(status),
-                    SignalLevel: status is "待启动" or "待AI评估" ? "warn" : "ok",
+                    SignalLevel: status is "hired" or "interning_ai" ? "warn" : "ok",
                     OwningTeam: scenario,
                     CreatedAt: createdAt,
-                    InternshipStartAt: status is "实习中" or "已转正" ? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1)).ToString("yyyy-MM-dd") : null,
-                    GraduatedAt: status is "已转正" ? DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd") : null,
-                    TasksDone: status is "实习中" or "已转正" ? 8 + seedIndex : 0,
-                    TasksTotal: status is "实习中" or "已转正" ? 20 : 0,
-                    SatisfactionScore: status is "已转正" ? 4.6m : null,
+                    InternshipStartAt: status is "live" ? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1)).ToString("yyyy-MM-dd") : null,
+                    GraduatedAt: status is "live" ? DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd") : null,
+                    TasksDone: status is "live" ? 8 + seedIndex : 0,
+                    TasksTotal: status is "live" ? 20 : 0,
+                    SatisfactionScore: status is "live" ? 4.6m : null,
                     PendingActions: BuildPendingActions(status),
                     Capabilities: capabilities,
                     EvalPhase: status switch
                     {
-                        "待启动" => "pending_materials",
-                        "待AI评估" => "pending_materials",
-                        "待人工评估" => "pending_review",
+                        "hired" => "pending_materials",
+                        "interning_ai" => "pending_materials",
+                        "interning_human" => "pending_review",
                         _ => null
                     },
-                    EvalIteration: status is "待人工评估" ? 1 : null,
-                    EvalMaxIterations: status is "待人工评估" ? 30 : null,
+                    EvalIteration: status is "interning_human" ? 1 : null,
+                    EvalMaxIterations: status is "interning_human" ? 30 : null,
                     IsConfigured: capabilities.All(item => item.Ready));
 
                 employees.Add(employee);
@@ -493,12 +664,12 @@ public sealed class MockEmployeeRuntimeService(
 
     private static string ResolveFixtureSeedStatus(int index)
     {
-        if (FixtureLifecycleSeedOrder.Length == 0)
+        if (FixtureStatusSeedOrder.Length == 0)
         {
-            return "待启动";
+            return "hired";
         }
 
-        return FixtureLifecycleSeedOrder[index % FixtureLifecycleSeedOrder.Length];
+        return FixtureStatusSeedOrder[index % FixtureStatusSeedOrder.Length];
     }
 
     private static string BuildFixtureNickname(string displayName, string employeeId)
@@ -521,11 +692,12 @@ public sealed class MockEmployeeRuntimeService(
     {
         return status switch
         {
-            "待启动" => $"实例包 {hireId} 已生成，等待发起评估",
-            "待AI评估" => "实例已准备完成，等待 AI 评估执行",
-            "待人工评估" => "AI 评估已通过，等待人工复核",
-            "实习中" => "实习中，持续采集协作质量数据",
-            "已转正" => "已转正，稳定参与团队协作",
+            "hired" => $"实例包 {hireId} 已生成，等待发起评估",
+            "interning_ai" => "实例已准备完成，等待 AI 评估执行",
+            "interning_human" => "AI 评估已通过，等待人工复核",
+            "live" => "已上岗，稳定参与团队协作",
+            "failed" => "评估未通过，等待回退处理",
+            "retired" => "已退役，等待归档",
             _ => "状态更新中"
         };
     }
@@ -534,11 +706,12 @@ public sealed class MockEmployeeRuntimeService(
     {
         return status switch
         {
-            "待启动" => "待操作：发起评估",
-            "待AI评估" => "待执行 AI 评估",
-            "待人工评估" => "待人工审核",
-            "实习中" => "实习中，关注转正阈值",
-            "已转正" => "运行稳定",
+            "hired" => "待操作：发起评估",
+            "interning_ai" => "待执行 AI 评估",
+            "interning_human" => "待人工审核",
+            "live" => "运行稳定",
+            "failed" => "评估未通过",
+            "retired" => "实例已退役",
             _ => "状态同步中"
         };
     }
@@ -547,10 +720,10 @@ public sealed class MockEmployeeRuntimeService(
     {
         return status switch
         {
-            "待启动" => ["确认团队归属", "检查技能配置"],
-            "待AI评估" => ["准备评估材料", "确认评估场景"],
-            "待人工评估" => ["执行人工复核"],
-            "实习中" => ["跟踪实习指标"],
+            "hired" => ["确认团队归属", "检查技能配置"],
+            "interning_ai" => ["准备评估材料", "确认评估场景"],
+            "interning_human" => ["执行人工复核"],
+            "live" => ["跟踪运行指标"],
             _ => []
         };
     }
@@ -563,7 +736,7 @@ public sealed class MockEmployeeRuntimeService(
                 ItemId: $"im_fixture_{employee.EmployeeId}",
                 EmployeeId: employee.EmployeeId,
                 EmployeeName: employee.Nickname,
-                Category: ResolveImCategory(employee.LifecycleStatus),
+                Category: ResolveImCategory(employee.Status),
                 Content: BuildImContent(employee),
                 Source: $"系统导入 · {employee.OwningTeam}",
                 ReceivedAt: now.AddMinutes(-3 * (index + 1)).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
@@ -572,28 +745,30 @@ public sealed class MockEmployeeRuntimeService(
             .ToArray();
     }
 
-    private static string ResolveImCategory(string lifecycleStatus)
+    private static string ResolveImCategory(string status)
     {
-        return lifecycleStatus switch
+        return status switch
         {
-            "待启动" => "待办处理",
-            "待AI评估" => "评估准备",
-            "待人工评估" => "人工复核",
-            "实习中" => "实习跟进",
-            "已转正" => "协作反馈",
+            "hired" => "待办处理",
+            "interning_ai" => "评估准备",
+            "interning_human" => "人工复核",
+            "live" => "运行协作",
+            "failed" => "异常处理",
+            "retired" => "归档状态",
             _ => "状态同步"
         };
     }
 
     private static string BuildImContent(EmployeeDetailDto employee)
     {
-        return employee.LifecycleStatus switch
+        return employee.Status switch
         {
-            "待启动" => $"实例 {employee.EmployeeId} 已导入，等待发起评估。",
-            "待AI评估" => $"{employee.Nickname} 已具备评估材料，请执行 AI 评估。",
-            "待人工评估" => $"{employee.Nickname} AI 评估完成，请安排人工复核。",
-            "实习中" => $"{employee.Nickname} 正在实习中，建议跟踪阶段指标。",
-            "已转正" => $"{employee.Nickname} 已转正，关注协作反馈与稳定性。",
+            "hired" => $"实例 {employee.EmployeeId} 已导入，等待发起评估。",
+            "interning_ai" => $"{employee.Nickname} 已具备评估材料，请执行 AI 评估。",
+            "interning_human" => $"{employee.Nickname} AI 评估完成，请安排人工复核。",
+            "live" => $"{employee.Nickname} 已上岗，关注协作反馈与稳定性。",
+            "failed" => $"{employee.Nickname} 评估未通过，建议进入 Review 回退处理。",
+            "retired" => $"{employee.Nickname} 已退役，相关路由将逐步清理。",
             _ => $"{employee.Nickname} 状态已更新，请确认团队协作安排。"
         };
     }
@@ -617,13 +792,23 @@ public sealed class MockEmployeeRuntimeService(
 
     private static EmployeeSummaryDto ToSummary(EmployeeDetailDto detail)
     {
+        var status = NormalizeStatus(detail.Status, detail.LifecycleStatus) ?? "hired";
+        var lifecycleStatus = string.IsNullOrWhiteSpace(detail.LifecycleStatus)
+            ? MapStatusToLifecycleLabel(status)
+            : detail.LifecycleStatus;
         return new EmployeeSummaryDto(
             detail.EmployeeId,
             detail.Nickname,
             detail.RoleName,
             detail.SourceTemplate,
             detail.SourceTemplateId,
-            detail.LifecycleStatus,
+            string.IsNullOrWhiteSpace(detail.InstanceType) ? "department" : detail.InstanceType,
+            status,
+            detail.BasedOnTemplateId,
+            detail.FromInstanceId,
+            string.IsNullOrWhiteSpace(detail.OwnerUserId) ? "unknown" : detail.OwnerUserId,
+            string.IsNullOrWhiteSpace(detail.DepartmentId) ? "department-default" : detail.DepartmentId,
+            lifecycleStatus,
             detail.StageSummary,
             detail.PrimarySignal,
             detail.SignalLevel,
@@ -655,11 +840,123 @@ public sealed class MockEmployeeRuntimeService(
 
     private static bool IsAllowedTransition(string from, string to)
     {
-        if (!AllowedLifecycleTransitions.TryGetValue(from.Trim(), out var allowed))
+        if (!AllowedStatusTransitions.TryGetValue(from.Trim(), out var allowed))
         {
             return false;
         }
 
         return allowed.Contains(to.Trim());
+    }
+
+    private static EmployeeDetailDto BuildFallbackFixtureEmployee(string owner, string templateId)
+    {
+        const string status = "interning_ai";
+        var createdAt = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        var capabilities = new[]
+        {
+            new EmployeeCapabilityDto("scenario_parser", false),
+            new EmployeeCapabilityDto("report_generator", false)
+        };
+
+        return new EmployeeDetailDto(
+            EmployeeId: BuildEmployeeId(),
+            Nickname: $"{templateId}-fixture",
+            RoleName: templateId,
+            SourceTemplate: templateId,
+            SourceTemplateId: templateId,
+            InstanceType: "department",
+            Status: status,
+            BasedOnTemplateId: templateId,
+            FromInstanceId: null,
+            OwnerUserId: owner,
+            DepartmentId: "department-default",
+            LifecycleStatus: MapStatusToLifecycleLabel(status),
+            StageSummary: BuildStageSummary(status, templateId),
+            PrimarySignal: BuildPrimarySignal(status),
+            SignalLevel: "warn",
+            OwningTeam: "fixture-collaboration",
+            CreatedAt: createdAt,
+            InternshipStartAt: null,
+            GraduatedAt: null,
+            TasksDone: 0,
+            TasksTotal: 0,
+            SatisfactionScore: null,
+            PendingActions: BuildPendingActions(status),
+            Capabilities: capabilities,
+            EvalPhase: "pending_materials",
+            EvalIteration: 0,
+            EvalMaxIterations: 30,
+            IsConfigured: false);
+    }
+
+    private static bool IsUploadSkillReadyInstance(EmployeeDetailDto employee)
+    {
+        var status = NormalizeStatus(employee.Status, employee.LifecycleStatus);
+        if (!string.Equals(status, "interning_ai", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(employee.EvalPhase))
+        {
+            return true;
+        }
+
+        var phase = employee.EvalPhase.Trim().ToLowerInvariant();
+        return phase is "pending_materials" or "pending_skill_upload";
+    }
+
+    private static string? NormalizeStatus(string? status, string? lifecycleStatus)
+    {
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            var normalized = status.Trim().ToLowerInvariant();
+            return normalized switch
+            {
+                "hired" => "hired",
+                "interning_ai" => "interning_ai",
+                "interning_human" => "interning_human",
+                "live" => "live",
+                "failed" => "failed",
+                "retired" => "retired",
+                _ => null
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(lifecycleStatus))
+        {
+            return null;
+        }
+
+        var value = lifecycleStatus.Trim();
+        return value switch
+        {
+            "待启动" => "hired",
+            "待AI评估" => "interning_ai",
+            "待人工评估" => "interning_human",
+            "待上岗" => "interning_human",
+            "待上岗（强制）" => "interning_human",
+            "实习中" => "interning_human",
+            "已转正" => "live",
+            "离职中" => "retired",
+            "已归档" => "retired",
+            _ when value.Contains("失败", StringComparison.OrdinalIgnoreCase) => "failed",
+            _ when value.Contains("异常", StringComparison.OrdinalIgnoreCase) => "failed",
+            _ => null
+        };
+    }
+
+    private static string MapStatusToLifecycleLabel(string status)
+    {
+        return status switch
+        {
+            "hired" => "待启动",
+            "interning_ai" => "待AI评估",
+            "interning_human" => "待人工评估",
+            "live" => "已转正",
+            "failed" => "评估失败",
+            "retired" => "已归档",
+            _ => "待启动"
+        };
     }
 }

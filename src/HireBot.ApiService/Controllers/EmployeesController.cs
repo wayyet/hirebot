@@ -109,6 +109,45 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    [HttpGet("{employeeId}/evaluation/sandbox/conversation")]
+    public async Task<IActionResult> GetEvaluationSandboxConversation(string employeeId, CancellationToken cancellationToken = default)
+    {
+        var response = await evaluationService.GetEvaluationSandboxConversationAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/evaluation/sandbox/messages")]
+    public async Task<IActionResult> SendEvaluationSandboxMessage(
+        string employeeId,
+        [FromBody] EvaluationSandboxMessageRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EvaluationSandboxConversationStateDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await evaluationService.SendEvaluationSandboxMessageAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/evaluation/ai-decision")]
+    public async Task<IActionResult> SubmitAiEvaluationDecision(
+        string employeeId,
+        [FromBody] AiEvaluationDecisionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EmployeeDetailDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await evaluationService.SubmitAiEvaluationDecisionAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpPost("{employeeId}/evaluation/onboarding-decision")]
     public async Task<IActionResult> SubmitOnboardingDecision(
         string employeeId,

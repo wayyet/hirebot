@@ -16,6 +16,9 @@ Current fixtures:
 - `hire_dev_seed_001_bru`
 - `hire_dev_seed_002_bru`
 - `hire_dev_seed_003_bru`
+- `hire_dev_seed_001_default`
+- `hire_dev_seed_201_incident-escalation`
+- `hire_dev_seed_301_cost-optimization`
 
 Usage suggestion:
 
