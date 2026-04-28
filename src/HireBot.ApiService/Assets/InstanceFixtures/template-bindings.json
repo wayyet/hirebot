@@ -1,0 +1,9 @@
+﻿{
+  "bindings": [
+    {
+      "templateId": "019dcfca-08a3-7a2a-bd14-09e790eab6f7",
+      "fixtureTemplateId": "019dcfca-08a3-7a2a-bd14-09e790eab6f7",
+      "fixtureEmployeeId": "e_dev_seed_401_asset-guardian"
+    }
+  ]
+}

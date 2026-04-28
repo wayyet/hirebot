@@ -1,28 +1,11 @@
-# Instance Fixtures
+﻿# Instance Fixtures
 
-This directory contains ready-to-use example employee instances for team/collaboration development.
+This directory intentionally keeps a single fixture package for local evaluation:
 
-Each fixture folder mirrors the artifact structure produced by hiring finalize:
+- Template: Asset Guardian — 办公资产全生命周期管理 NCrew
+- TemplateId: 019dcfca-08a3-7a2a-bd14-09e790eab6f7
+- Hire fixture folder: hire_dev_seed_401_asset-guardian
 
-- `manifest.json`
-- `README.md`
-- `config/`
-- `ontology/`
-- `skills/`
-- `instance.json` (fixture-only metadata for local development)
-
-Current fixtures:
-
-- `hire_dev_seed_001_bru`
-- `hire_dev_seed_002_bru`
-- `hire_dev_seed_003_bru`
-- `hire_dev_seed_001_default`
-- `hire_dev_seed_201_incident-escalation`
-- `hire_dev_seed_301_cost-optimization`
-
-Usage suggestion:
-
-1. Pick one fixture directory.
-2. Load files as if they were downloaded hiring artifacts.
-3. Drive team/collaboration pages and APIs with `instance.json` + manifest/skills/ontology data.
-
+Purpose:
+- deterministic local fixture-hire binding
+- deterministic dual-sandbox evaluation testcase source

@@ -1,6 +1,7 @@
-using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Evaluation;
+using HireBot.Abstraction.Models.Evaluation.Tools;
 using HireBot.Abstraction.Models.Training;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Evaluation;
@@ -161,6 +162,88 @@ public sealed class EmployeesController(
         }
 
         var response = await evaluationService.SubmitOnboardingDecisionAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpGet("{employeeId}/evaluation/tools/testcases")]
+    public async Task<IActionResult> FetchEvaluationTestcases(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await evaluationService.FetchTestcasesAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpGet("{employeeId}/evaluation/tools/ontology")]
+    public async Task<IActionResult> QueryEvaluationOntology(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await evaluationService.QueryOntologyAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/evaluation/target/bootstrap")]
+    public async Task<IActionResult> BootstrapTargetSandbox(
+        string employeeId,
+        [FromBody] EvaluationTargetBootstrapRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EvaluationTargetBootstrapResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await evaluationService.BootstrapTargetSandboxAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/evaluation/tools/target-execute")]
+    public async Task<IActionResult> ExecuteTargetSandbox(
+        string employeeId,
+        [FromBody] EvaluationTargetExecuteRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EvaluationTargetExecuteResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await evaluationService.ExecuteTargetAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/evaluation/tools/trace-read")]
+    public async Task<IActionResult> ReadTargetTrace(
+        string employeeId,
+        [FromBody] EvaluationTraceReadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EvaluationTraceReadResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await evaluationService.ReadTraceAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/evaluation/tools/report")]
+    public async Task<IActionResult> UpsertEvaluationReport(
+        string employeeId,
+        [FromBody] EvaluationReportUpsertRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EvaluationReportUpsertResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await evaluationService.UpsertReportAsync(employeeId, request, cancellationToken);
         return StatusCode(response.Code, response);
     }
 

@@ -1,4 +1,4 @@
-using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
@@ -15,6 +15,7 @@ using HireBot.Core.Services.Collaboration;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.EmployeeTemplate;
 using HireBot.Core.Services.Evaluation;
+using HireBot.Core.Services.Evaluation.Persistence;
 using HireBot.Core.Services.Hiring;
 using HireBot.Core.Services.Hiring.Artifacts;
 using HireBot.Core.Services.Hiring.Discovery;
@@ -101,9 +102,10 @@ public static class ServiceExtensions
 
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
         services.AddSingleton<IEmployeeHiringService, EmployeeHiringService>();
-        services.AddScoped<IEmployeeRuntimeService, MockEmployeeRuntimeService>();
-        services.AddScoped<ITrainingService, MockTrainingService>();
-        services.AddScoped<IEvaluationService, MockEvaluationService>();
+        services.AddScoped<IEmployeeRuntimeService, EmployeeRuntimeService>();
+        services.AddScoped<ITrainingService, TrainingService>();
+        services.AddScoped<IEvaluationService, EvaluationService>();
+        services.AddSingleton<IEvaluationAssetStore, EvaluationAssetStore>();
         services.AddScoped<ICollaborationService, MockCollaborationService>();
         services.AddScoped<ITeamImService, TeamImService>();
         services.AddScoped<ISkillCatalogService, MockSkillCatalogService>();
@@ -117,3 +119,4 @@ public static class ServiceExtensions
         return services;
     }
 }
+

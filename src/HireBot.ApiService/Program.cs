@@ -1,9 +1,11 @@
-using HireBot.Core.Extensions;
+﻿using HireBot.Core.Extensions;
+using HireBot.Repository;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 添加服务
 builder.AddServiceDefaults();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -23,23 +25,31 @@ if (!string.IsNullOrWhiteSpace(oidcAuthority))
         });
 }
 
-// 配置 CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", builder =>
+    options.AddPolicy("AllowAll", cors =>
     {
-        builder.AllowAnyOrigin()
-               .AllowAnyMethod()
-               .AllowAnyHeader();
+        cors.AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader();
     });
 });
 
-// 注册 HireBot 服务
 builder.Services.AddHireBotServices(builder.Configuration);
 
 var app = builder.Build();
 
-// 配置中间件
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<HireBotDbContext>();
+    await dbContext.Database.MigrateAsync();
+}
+
+var evaluationResourceRoot = ResolveEvaluationResourceRoot(
+    app.Environment.ContentRootPath,
+    builder.Configuration["HireBot:EvaluationResourceRoot"]);
+Directory.CreateDirectory(evaluationResourceRoot);
+
 app.UseCors("AllowAll");
 
 if (app.Environment.IsDevelopment())
@@ -49,11 +59,31 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(evaluationResourceRoot),
+    RequestPath = "/resources"
+});
+
 if (!string.IsNullOrWhiteSpace(oidcAuthority))
 {
     app.UseAuthentication();
 }
+
 app.UseAuthorization();
 app.MapControllers();
 
 await app.RunAsync();
+
+static string ResolveEvaluationResourceRoot(string contentRootPath, string? configuredResourceRoot)
+{
+    if (string.IsNullOrWhiteSpace(configuredResourceRoot))
+    {
+        return Path.GetFullPath(Path.Combine(contentRootPath, "wwwroot", "resources"));
+    }
+
+    return Path.IsPathRooted(configuredResourceRoot)
+        ? Path.GetFullPath(configuredResourceRoot.Trim())
+        : Path.GetFullPath(Path.Combine(contentRootPath, configuredResourceRoot.Trim()));
+}
