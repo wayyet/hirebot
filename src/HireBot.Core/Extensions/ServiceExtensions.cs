@@ -19,6 +19,7 @@ using HireBot.Core.Services.Evaluation.Persistence;
 using HireBot.Core.Services.Hiring;
 using HireBot.Core.Services.Hiring.Artifacts;
 using HireBot.Core.Services.Hiring.Discovery;
+using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.SkillCatalog;
@@ -41,7 +42,9 @@ public static class ServiceExtensions
         var connectionString = configuration.GetConnectionString("DefaultConnection") ??
                                "Server=(localdb)\\mssqllocaldb;Database=HireBot;Trusted_Connection=True;";
 
-        services.AddDbContext<HireBotDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<HireBotDbContext>(options => options.UseNpgsql(
+            connectionString,
+            npgsql => npgsql.MigrationsAssembly("HireBot.EfCoreMigration")));
 
         services.AddScoped<IHireBotRepository, HireBotRepository>();
 
@@ -96,12 +99,13 @@ public static class ServiceExtensions
         services.AddSingleton<IDiscoveryRuleProvider, FileSystemDiscoveryRuleProvider>();
         services.AddSingleton<HiringStageCompletionEvaluator>();
         services.AddSingleton<IArtifactSerializer, PlaceholderArtifactSerializer>();
+        services.AddSingleton<IHiringFileStore, FileSystemHiringFileStore>();
 
         services.AddScoped<IUserService, UserService>();
         services.AddSingleton<ITemplateDataProvider, FallbackTemplateDataProvider>();
 
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
-        services.AddSingleton<IEmployeeHiringService, EmployeeHiringService>();
+        services.AddScoped<IEmployeeHiringService, EmployeeHiringService>();
         services.AddScoped<IEmployeeRuntimeService, EmployeeRuntimeService>();
         services.AddScoped<ITrainingService, TrainingService>();
         services.AddScoped<IEvaluationService, EvaluationService>();

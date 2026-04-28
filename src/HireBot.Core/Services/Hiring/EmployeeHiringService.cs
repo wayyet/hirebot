@@ -14,8 +14,12 @@ using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Core.Services.Hiring.Discovery;
+using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Hiring.TemplatePackages;
+using HireBot.Repository;
+using HireBot.Repository.Entities;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -32,6 +36,8 @@ internal sealed class EmployeeHiringService(
     IConfiguration configuration,
     IHttpContextAccessor httpContextAccessor,
     IServiceScopeFactory serviceScopeFactory,
+    HireBotDbContext dbContext,
+    IHiringFileStore hiringFileStore,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private const string KingCrewClientName = "KingCrew";
@@ -115,6 +121,95 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(call.StatusCode, call.Message);
         }
 
+        var initialStageCompletion = stageCompletionEvaluator.Evaluate(
+            discoverySkill.StageRules,
+            new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
+
+        hireOwners[call.Data.HireId] = new HireOwnerContext(
+            OwnerSubject: ownerSubject,
+            TenantId: tenantId,
+            OperatorId: operatorId,
+            TemplateId: normalizedTemplateId,
+            TemplateName: template.Name,
+            EmployeeId: null);
+
+        hiringRuntimeStore.Upsert(new HiringRuntimeContext
+        {
+            HireId = call.Data.HireId,
+            TemplateId = normalizedTemplateId,
+            TemplateName = template.Name,
+            OwnerSubject = ownerSubject,
+            TenantId = tenantId,
+            OperatorId = operatorId,
+            SandboxId = call.Data.SandboxId,
+            SessionId = string.Empty,
+            CurrentStage = HiringCollectionStage.Goal,
+            CollectionPhase = HiringCollectionPhase.NotStarted,
+            IsConversationPaused = false,
+            IsConversationResponding = false,
+            TemplatePackage = templatePackage,
+            DiscoverySkill = discoverySkill,
+            StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
+            Materials = [],
+            StageCompletion = initialStageCompletion,
+            IsTemplateUploadPending = false,
+            TemplateUploadRetryCount = 0,
+            TemplateUploadLastError = null,
+            TemplateUploadLastAttemptAt = null
+        });
+
+        var conversationStartCall = await SendForJsonAsync<StartHiringConversationResultDto>(
+            HttpMethod.Post,
+            $"/hirings/{Uri.EscapeDataString(call.Data.HireId)}/conversation/start",
+            body: null,
+            ownerSubject,
+            cancellationToken);
+        if (!conversationStartCall.Success || conversationStartCall.Data is null || string.IsNullOrWhiteSpace(conversationStartCall.Data.SessionId))
+        {
+            logger.LogWarning(
+                "Failed to create hiring session. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
+                call.Data.HireId,
+                normalizedTemplateId,
+                conversationStartCall.StatusCode,
+                conversationStartCall.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                conversationStartCall.StatusCode <= 0 ? 502 : conversationStartCall.StatusCode,
+                string.IsNullOrWhiteSpace(conversationStartCall.Message) ? "雇佣会话创建失败" : conversationStartCall.Message);
+        }
+
+        hiringRuntimeStore.Upsert(hiringRuntimeStore.Get(call.Data.HireId) is { } existingRuntime
+            ? existingRuntime with { SessionId = conversationStartCall.Data.SessionId }
+            : new HiringRuntimeContext
+            {
+                HireId = call.Data.HireId,
+                TemplateId = normalizedTemplateId,
+                TemplateName = template.Name,
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                SandboxId = call.Data.SandboxId,
+                SessionId = conversationStartCall.Data.SessionId,
+                CurrentStage = HiringCollectionStage.Goal,
+                CollectionPhase = HiringCollectionPhase.NotStarted,
+                IsConversationPaused = false,
+                IsConversationResponding = false,
+                TemplatePackage = templatePackage,
+                DiscoverySkill = discoverySkill,
+                StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
+                Materials = [],
+                StageCompletion = initialStageCompletion
+            });
+
+        await PersistSessionAndSourceZipAsync(
+            call.Data.HireId,
+            conversationStartCall.Data.SessionId,
+            normalizedTemplateId,
+            templatePackage,
+            ownerSubject,
+            tenantId,
+            operatorId,
+            cancellationToken);
+
         var systemSkillCall = await UploadDiscoverySystemSkillAsync(
             call.Data.HireId,
             discoverySkill,
@@ -159,40 +254,16 @@ internal sealed class EmployeeHiringService(
                 InstalledPath: "deferred"));
         }
 
-        var initialStageCompletion = stageCompletionEvaluator.Evaluate(
-            discoverySkill.StageRules,
-            new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
-
-        hireOwners[call.Data.HireId] = new HireOwnerContext(
-            OwnerSubject: ownerSubject,
-            TenantId: tenantId,
-            OperatorId: operatorId,
-            TemplateId: normalizedTemplateId,
-            TemplateName: template.Name,
-            EmployeeId: null);
-        hiringRuntimeStore.Upsert(new HiringRuntimeContext
+        if (hiringRuntimeStore.Get(call.Data.HireId) is { } runtimeWithSession)
         {
-            HireId = call.Data.HireId,
-            TemplateId = normalizedTemplateId,
-            TemplateName = template.Name,
-            OwnerSubject = ownerSubject,
-            TenantId = tenantId,
-            OperatorId = operatorId,
-            SandboxId = call.Data.SandboxId,
-            CurrentStage = HiringCollectionStage.Goal,
-            CollectionPhase = HiringCollectionPhase.NotStarted,
-            IsConversationPaused = false,
-            IsConversationResponding = false,
-            TemplatePackage = templatePackage,
-            DiscoverySkill = discoverySkill,
-            StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
-            Materials = [],
-            StageCompletion = initialStageCompletion,
-            IsTemplateUploadPending = templateUploadDeferred,
-            TemplateUploadRetryCount = templateUploadDeferred ? 1 : 0,
-            TemplateUploadLastError = templateUploadDeferred ? templatePackageCall.Message : null,
-            TemplateUploadLastAttemptAt = templateUploadDeferred ? DateTimeOffset.UtcNow : null
-        });
+            hiringRuntimeStore.Upsert(runtimeWithSession with
+            {
+                IsTemplateUploadPending = templateUploadDeferred,
+                TemplateUploadRetryCount = templateUploadDeferred ? 1 : 0,
+                TemplateUploadLastError = templateUploadDeferred ? templatePackageCall.Message : null,
+                TemplateUploadLastAttemptAt = templateUploadDeferred ? DateTimeOffset.UtcNow : null
+            });
+        }
 
         if (templateUploadDeferred)
         {
@@ -218,7 +289,118 @@ internal sealed class EmployeeHiringService(
         var hireMessage = templateUploadDeferred
             ? "雇佣任务已创建，模板包上传待重试"
             : "雇佣任务已创建";
-        return ApiResponse<HireTemplateResultDto>.SuccessResponse(call.Data, hireMessage);
+        return ApiResponse<HireTemplateResultDto>.SuccessResponse(
+            call.Data with { SessionId = conversationStartCall.Data.SessionId },
+            hireMessage);
+    }
+
+    private async Task PersistSessionAndSourceZipAsync(
+        string hireId,
+        string sessionId,
+        string templateId,
+        TemplatePackageDefinition templatePackage,
+        string ownerSubject,
+        string tenantId,
+        string operatorId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            logger.LogInformation(
+                "PersistSessionAndSourceZip: HireId={HireId}, SessionId={SessionId}, PackageId={PackageId}, PackageVersion={PackageVersion}, SourceArchiveBytes={SourceBytes}",
+                hireId,
+                sessionId,
+                templatePackage.PackageId,
+                templatePackage.PackageVersion,
+                templatePackage.SourceArchive?.LongLength ?? 0);
+
+            var normalizedHireId = hireId.Trim();
+            var normalizedSessionId = sessionId.Trim();
+
+            var existing = await dbContext.HiringSessions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(item => item.HireId == normalizedHireId, cancellationToken);
+            if (existing is not null)
+            {
+                return;
+            }
+
+            string? sourceStoragePath = null;
+            string? sourceSha = null;
+            long? sourceSize = null;
+
+            if (templatePackage.SourceArchive is not null && templatePackage.SourceArchive.Length > 0)
+            {
+                sourceSha = Convert.ToHexStringLower(SHA256.HashData(templatePackage.SourceArchive));
+                sourceSize = templatePackage.SourceArchive.LongLength;
+                await using var stream = new MemoryStream(templatePackage.SourceArchive, writable: false);
+                var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
+                sourceStoragePath = await hiringFileStore.SaveAsync(
+                    normalizedSessionId,
+                    "source",
+                    fileName,
+                    stream,
+                    cancellationToken);
+
+                dbContext.HiringArtifacts.Add(new HiringArtifactEntity
+                {
+                    SessionId = normalizedSessionId,
+                    Kind = "source_zip",
+                    LogicalPath = $"source/{fileName}",
+                    FileName = fileName,
+                    SizeBytes = sourceSize.Value,
+                    Sha256 = sourceSha,
+                    StoragePath = sourceStoragePath,
+                    IsFinal = false,
+                    IsArchived = false,
+                    UploadedAtUtc = DateTimeOffset.UtcNow
+                });
+            }
+
+            dbContext.HiringSessions.Add(new HiringSessionEntity
+            {
+                SessionId = normalizedSessionId,
+                HireId = normalizedHireId,
+                TemplateId = templateId.Trim(),
+                PackageId = string.IsNullOrWhiteSpace(templatePackage.PackageId) ? null : templatePackage.PackageId.Trim(),
+                PackageVersion = string.IsNullOrWhiteSpace(templatePackage.PackageVersion) ? null : templatePackage.PackageVersion.Trim(),
+                PackageHash = string.IsNullOrWhiteSpace(templatePackage.PackageHash) ? null : templatePackage.PackageHash.Trim(),
+                SourceZipSha256 = sourceSha,
+                SourceZipStoragePath = sourceStoragePath,
+                SourceZipSizeBytes = sourceSize,
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                CreatedAtUtc = DateTimeOffset.UtcNow
+            });
+
+            dbContext.HiringAuditLogs.Add(new HiringAuditLogEntity
+            {
+                SessionId = normalizedSessionId,
+                HireId = normalizedHireId,
+                Action = "create_session",
+                Actor = ownerSubject,
+                Ip = httpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString(),
+                BeforeSha256 = null,
+                AfterSha256 = sourceSha,
+                DetailJson = $"{{\"templateId\":\"{templateId}\"}}",
+                TimestampUtc = DateTimeOffset.UtcNow
+            });
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            logger.LogInformation(
+                "PersistSessionAndSourceZip completed. HireId={HireId}, SessionId={SessionId}, SourceZipSha256={Sha}, SourceZipPath={Path}",
+                hireId,
+                sessionId,
+                sourceSha ?? string.Empty,
+                sourceStoragePath ?? string.Empty);
+        }
+        catch (Exception ex)
+        {
+            // In dev environments pgsql might not be running; don't block hire flow.
+            logger.LogError(ex, "Persist session/source zip failed. HireId={HireId}, SessionId={SessionId}", hireId, sessionId);
+        }
     }
 
     public async Task<ApiResponse<HireTemplateResultDto>> CreateEvaluationWorkspaceAsync(
@@ -1289,6 +1471,7 @@ internal sealed class EmployeeHiringService(
             PackageId: EvaluationWorkspaceTemplateId,
             PackageVersion: EvaluationSkillVersion,
             PackageHash: ComputeContentHash(manifestJson),
+            SourceArchive: null,
             PackageRootPath: "evaluation-workspace",
             ManifestJson: manifestJson,
             DisplayName: EvaluationWorkspaceTemplateName,
@@ -1461,6 +1644,10 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         var materialsJson = JsonSerializer.Serialize(runtimeContext.Materials, JsonOptions);
         UpsertPackageFile(enrichedFiles, "ontology/hiring-session/structured-data.json", structuredDataJson);
         UpsertPackageFile(enrichedFiles, "ontology/hiring-session/materials.json", materialsJson);
+        if (TryBuildEvaluationTestCases(runtimeContext, out var evaluationTestCasesJson))
+        {
+            UpsertPackageFile(enrichedFiles, "ontology/hiring-session/evaluation-test-cases.json", evaluationTestCasesJson);
+        }
 
         var enrichedTemplatePackage = runtimeContext.TemplatePackage with
         {
@@ -1482,6 +1669,250 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         var bytes = Encoding.UTF8.GetBytes(content);
         var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         packageFiles[normalizedPath] = new TemplatePackageFileAsset(normalizedPath, bytes, hash);
+    }
+
+    private static bool TryBuildEvaluationTestCases(HiringRuntimeContext runtimeContext, out string testCasesJson)
+    {
+        testCasesJson = string.Empty;
+        var evaluationSkillMaterials = runtimeContext.Materials
+            .Where(material => string.Equals(material.Type, "skill", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (evaluationSkillMaterials.Length == 0)
+        {
+            return false;
+        }
+
+        var guidanceLines = new List<string>();
+        foreach (var material in evaluationSkillMaterials)
+        {
+            if (material.Metadata?.TryGetValue("skillName", out var skillName) == true && !string.IsNullOrWhiteSpace(skillName))
+            {
+                guidanceLines.Add($"skillName: {skillName.Trim()}");
+            }
+
+            if (material.Metadata?.TryGetValue("description", out var description) == true && !string.IsNullOrWhiteSpace(description))
+            {
+                guidanceLines.Add($"description: {description.Trim()}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(material.Content))
+            {
+                var skillArchiveGuidance = ExtractEvaluationGuidanceFromArchive(material);
+                if (!string.IsNullOrWhiteSpace(skillArchiveGuidance))
+                {
+                    guidanceLines.Add(skillArchiveGuidance);
+                }
+                else
+                {
+                    guidanceLines.Add(material.Content.Trim());
+                }
+            }
+        }
+
+        var skillGuidance = string.Join('\n', guidanceLines).Trim();
+
+        var businessGoal = ResolveStructuredValue(runtimeContext.StructuredData, "business_goal", "expected_outcome", "goal")
+                           ?? runtimeContext.TemplateName;
+        var userProfile = ResolveStructuredValue(runtimeContext.StructuredData, "user_profile", "owner")
+                          ?? "业务团队";
+        var scenario = ResolveStructuredValue(runtimeContext.StructuredData, "expected_outcome", "trigger_event")
+                       ?? "关键业务流程";
+
+        var testCases = new
+        {
+            generatedAt = DateTimeOffset.UtcNow,
+            source = "conversation-skill-guided",
+            skillSummary = Truncate(skillGuidance, 1200),
+            cases = new object[]
+            {
+                new
+                {
+                    caseId = "eval-case-001",
+                    title = $"{businessGoal} - 正常流程闭环",
+                    objective = "验证数字员工在标准输入下能够完整执行流程并形成闭环回复",
+                    profile = userProfile,
+                    scenario,
+                    expectedChecks = new[]
+                    {
+                        "覆盖预期行为序列的关键步骤",
+                        "输出包含明确结论和下一步动作",
+                        "关键字段采集完整且无空值"
+                    }
+                },
+                new
+                {
+                    caseId = "eval-case-002",
+                    title = $"{businessGoal} - 异常路径处置",
+                    objective = "验证数字员工在信息缺失或异常输入下能够回退并给出风险提示",
+                    profile = userProfile,
+                    scenario = "输入缺失关键字段或存在冲突信息",
+                    expectedChecks = new[]
+                    {
+                        "识别阻塞字段并明确追问",
+                        "不跳过关键校验步骤",
+                        "给出可执行的fallback方案"
+                    }
+                },
+                new
+                {
+                    caseId = "eval-case-003",
+                    title = $"{businessGoal} - 工具调用与合规",
+                    objective = "验证数字员工工具调用时机、参数和流程合规性",
+                    profile = userProfile,
+                    scenario,
+                    expectedChecks = new[]
+                    {
+                        "必须工具调用不缺失",
+                        "工具参数与上下文一致",
+                        "流程顺序和合规约束满足要求"
+                    }
+                }
+            }
+        };
+
+        testCasesJson = JsonSerializer.Serialize(testCases, JsonOptions);
+        return true;
+    }
+
+    private static string? ExtractEvaluationGuidanceFromArchive(HiringConversationMaterialDto material)
+    {
+        var storagePath = material.Metadata is not null && material.Metadata.TryGetValue("storagePath", out var storagePathValue)
+            ? storagePathValue
+            : null;
+
+        var archiveFormat = material.Metadata is not null && material.Metadata.TryGetValue("archiveFormat", out var archiveFormatValue)
+            ? archiveFormatValue
+            : null;
+        var isZip = material.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(archiveFormat, "zip", StringComparison.OrdinalIgnoreCase);
+        if (!isZip)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(material.Content))
+        {
+            return ExtractEvaluationGuidanceFromStoredArchive(storagePath);
+        }
+
+        var base64Content = material.Content.Trim();
+        var base64Index = base64Content.IndexOf("base64,", StringComparison.OrdinalIgnoreCase);
+        if (base64Index >= 0)
+        {
+            base64Content = base64Content[(base64Index + "base64,".Length)..];
+        }
+
+        byte[] archiveBytes;
+        try
+        {
+            archiveBytes = Convert.FromBase64String(base64Content);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        var snippets = new List<string>();
+        using var memoryStream = new MemoryStream(archiveBytes);
+        using var archive = new ZipArchive(memoryStream, ZipArchiveMode.Read, leaveOpen: false);
+        foreach (var entry in archive.Entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Name))
+            {
+                continue;
+            }
+
+            if (!entry.FullName.EndsWith("SKILL.md", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            using var stream = entry.Open();
+            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            var content = reader.ReadToEnd();
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                continue;
+            }
+
+            snippets.Add($"[{entry.FullName}]");
+            snippets.Add(Truncate(content, 2000));
+        }
+
+        if (snippets.Count == 0)
+        {
+            return null;
+        }
+
+        return string.Join('\n', snippets);
+    }
+
+    private static string? ExtractEvaluationGuidanceFromStoredArchive(string? storagePath)
+    {
+        if (string.IsNullOrWhiteSpace(storagePath) || !File.Exists(storagePath))
+        {
+            return null;
+        }
+
+        var snippets = new List<string>();
+        using var stream = File.OpenRead(storagePath);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+        foreach (var entry in archive.Entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Name))
+            {
+                continue;
+            }
+
+            if (!entry.FullName.EndsWith("SKILL.md", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            using var entryStream = entry.Open();
+            using var reader = new StreamReader(entryStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            var content = reader.ReadToEnd();
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                continue;
+            }
+
+            snippets.Add($"[{entry.FullName}]");
+            snippets.Add(Truncate(content, 2000));
+        }
+
+        return snippets.Count == 0 ? null : string.Join('\n', snippets);
+    }
+
+    private static string? ResolveStructuredValue(
+        IReadOnlyDictionary<string, string?> structuredData,
+        params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (structuredData.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = value.Trim();
+        if (trimmed.Length <= maxLength)
+        {
+            return trimmed;
+        }
+
+        return $"{trimmed[..maxLength]}...";
     }
 
     private static HiringConversationMaterialDto? NormalizeMaterial(HiringConversationMaterialDto? material)

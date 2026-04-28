@@ -127,6 +127,7 @@ internal sealed class FileSystemTemplatePackageProvider(
             PackageId: FirstNonEmpty(manifest.Name, normalizedTemplateId),
             PackageVersion: FirstNonEmpty(manifest.Version, "v1-placeholder"),
             PackageHash: packageHash,
+            SourceArchive: null,
             PackageRootPath: packageRoot,
             ManifestJson: manifestJson,
             DisplayName: FirstNonEmpty(manifest.DisplayName, manifest.Name, normalizedTemplateId),
