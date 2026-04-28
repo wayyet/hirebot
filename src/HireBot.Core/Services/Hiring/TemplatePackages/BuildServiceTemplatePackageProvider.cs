@@ -171,6 +171,7 @@ internal sealed class BuildServiceTemplatePackageProvider(
             PackageId: FirstNonEmpty(manifest.Name, detail.Name, templateId),
             PackageVersion: FirstNonEmpty(detail.LatestVersion?.Version, manifest.Version, detail.CurrentVersion, "v1-placeholder"),
             PackageHash: Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(packageBytes)),
+            SourceArchive: packageBytes,
             PackageRootPath: $"build-service:{templateId}",
             ManifestJson: manifestJson,
             DisplayName: FirstNonEmpty(manifest.DisplayName, detail.Name, templateId),

@@ -1,5 +1,8 @@
 using HireBot.Core.Extensions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using HireBot.ApiService.Swagger;
+using Microsoft.AspNetCore.Http;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,7 +10,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.MapType<IFormFile>(() => new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" });
+    options.OperationFilter<FormFileOperationFilter>();
+});
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthorization();
 

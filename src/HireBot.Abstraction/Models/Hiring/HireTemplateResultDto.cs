@@ -4,4 +4,5 @@ public sealed record HireTemplateResultDto(
     string HireId,
     string SandboxId,
     string Status,
-    string NextAction);
+    string NextAction,
+    string? SessionId = null);

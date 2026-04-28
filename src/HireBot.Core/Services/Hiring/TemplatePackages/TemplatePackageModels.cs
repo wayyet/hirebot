@@ -5,6 +5,7 @@ internal sealed record TemplatePackageDefinition(
     string PackageId,
     string PackageVersion,
     string PackageHash,
+    byte[]? SourceArchive,
     string PackageRootPath,
     string ManifestJson,
     string DisplayName,
