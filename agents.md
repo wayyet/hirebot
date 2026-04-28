@@ -83,7 +83,7 @@
 - **配置管理**：所有外部回调地址、密钥和客户端配置必须走配置项与密钥管理
 
 ### 数据访问规范
-- **ORM 包版本**：固定为 `10.0.6`，包括：
+- **ORM 包版本**：固定为 `10.0.7`，包括：
   - `Microsoft.EntityFrameworkCore`
   - `Microsoft.EntityFrameworkCore.Relational`
   - `Microsoft.EntityFrameworkCore.Design`
@@ -107,10 +107,10 @@
 
 ### 前后端约定
 - **API 设计**：遵循 RESTful 风格，URL 使用资源导向命名
-- **响应格式**：`{ code, success, message, data }`，字段使用帕斯卡命名法
+- **响应格式**：`{ code, success, message, data }`，字段使用蛇形命名法（Snake Case）
 
 ### 命名规范
-- **数据库**：PostgreSQL 表和字段使用帕斯卡命名法
+- **数据库**：PostgreSQL 表和字段使用蛇形命名法（Snake Case），也称为下划线命名法（Underscore Case）
 - **实体映射**：C# Entity 字段使用大驼峰命名，配合 JsonPropertyName 特性
 
 ## 质量保障
