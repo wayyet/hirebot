@@ -6,6 +6,9 @@ using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
+using HireBot.Repository;
+using HireBot.Repository.Entities;
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
@@ -14,7 +17,9 @@ public sealed class EmployeeRuntimeService(
     IEmployeeRuntimeStore store,
     ITeamImProvider teamImProvider,
     ICollaborationService collaborationService,
-    IRequestContextService requestContextService) : IEmployeeRuntimeService
+    IRequestContextService requestContextService,
+    HireBotDbContext dbContext,
+    IInstanceArtifactCloneService artifactCloneService) : IEmployeeRuntimeService
 {
     private static readonly HashSet<string> SupportedStatuses =
     [
@@ -94,6 +99,7 @@ public sealed class EmployeeRuntimeService(
 
         var importedEmployees = await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
         var importedImItems = await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
+        await UpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
 
         var result = new ImportFixtureInstancesResultDto(
             OwnerSubject: owner,
@@ -210,6 +216,7 @@ public sealed class EmployeeRuntimeService(
         };
 
         await store.UpsertAsync(owner, updated, cancellationToken);
+        await UpsertInstanceRecordAsync(updated, cancellationToken: cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "状态已更新");
     }
 
@@ -339,7 +346,101 @@ public sealed class EmployeeRuntimeService(
             IsConfigured: false);
 
         await store.UpsertAsync(request.OwnerSubject, employee, cancellationToken);
+        await UpsertInstanceRecordAsync(employee, currentVersion: "v_initial", cancellationToken: cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(employee, "员工实例已创建");
+    }
+
+    public async Task<ApiResponse<EmployeeDetailDto>> CreatePersonalCloneAsync(
+        string sourceEmployeeId,
+        CreatePersonalCloneRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sourceEmployeeId) || request is null || string.IsNullOrWhiteSpace(request.DisplayName))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "sourceEmployeeId 与 displayName 为必填项");
+        }
+
+        var normalizedSourceId = sourceEmployeeId.Trim();
+        var displayName = request.DisplayName.Trim();
+        var owner = requestContextService.ResolveOwnerSubject();
+        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        await EnsureSeedDataAsync(owner, cancellationToken);
+
+        var source = await store.FindAsync(normalizedSourceId, cancellationToken);
+        if (source is null)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "源部门员工不存在");
+        }
+
+        if (!string.Equals(source.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "只能从部门员工创建个人分身");
+        }
+
+        if (!string.Equals(source.Status, "live", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "只能从已上岗部门员工创建个人分身");
+        }
+
+        if (!string.Equals(tenantId, "tenant-default", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(source.DepartmentId, tenantId, StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(403, "只能复制本部门的部门员工");
+        }
+
+        if (await store.ExistsNameAsync(owner, displayName, cancellationToken))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "你已经有同名的分身或私人定制");
+        }
+
+        var cloneId = BuildInstanceId("pc");
+        InstanceArtifactCloneResult artifactResult;
+        try
+        {
+            artifactResult = await artifactCloneService.CloneArtifactsAsync(source, cloneId, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, ex.Message);
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        var clone = new EmployeeDetailDto(
+            EmployeeId: cloneId,
+            Nickname: displayName,
+            RoleName: source.RoleName,
+            SourceTemplate: source.SourceTemplate,
+            SourceTemplateId: source.SourceTemplateId,
+            InstanceType: "personal_clone",
+            Status: "live",
+            BasedOnTemplateId: source.BasedOnTemplateId,
+            FromInstanceId: source.EmployeeId,
+            OwnerUserId: owner,
+            DepartmentId: source.DepartmentId,
+            LifecycleStatus: MapStatusToLifecycleLabel("live"),
+            StageSummary: string.IsNullOrWhiteSpace(request.DisplayDescription)
+                ? "个人分身已上岗，站内对话可用"
+                : request.DisplayDescription.Trim(),
+            PrimarySignal: "运行正常",
+            SignalLevel: "ok",
+            OwningTeam: source.OwningTeam,
+            CreatedAt: today,
+            InternshipStartAt: today,
+            GraduatedAt: today,
+            TasksDone: 0,
+            TasksTotal: 0,
+            SatisfactionScore: null,
+            PendingActions: [],
+            Capabilities: source.Capabilities.Select(item => item with { Ready = true }).ToArray(),
+            EvalPhase: null,
+            EvalIteration: null,
+            EvalMaxIterations: null,
+            IsConfigured: true);
+
+        await store.UpsertAsync(owner, clone, cancellationToken);
+        await UpsertInstanceRecordAsync(clone, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
+
+        return ApiResponse<EmployeeDetailDto>.SuccessResponse(clone, "个人分身已创建并上岗");
     }
 
     public async Task<ApiResponse<LocalStateMigrationResultDto>> MigrateLocalStateAsync(
@@ -388,6 +489,7 @@ public sealed class EmployeeRuntimeService(
             ?? [];
 
         var imported = await store.UpsertManyAsync(owner, employees, cancellationToken);
+        await UpsertInstanceRecordsAsync(employees, cancellationToken);
         var archivedGroups = request.ArchivedGroupIds?.Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
         var archived = await collaborationService.MarkArchivedAsync(archivedGroups, cancellationToken);
 
@@ -420,6 +522,7 @@ public sealed class EmployeeRuntimeService(
 
         await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
         await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
+        await UpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
     }
 
     private static async Task<FixtureBundle> LoadFixtureBundleAsync(string owner, CancellationToken cancellationToken)
@@ -821,9 +924,96 @@ public sealed class EmployeeRuntimeService(
             detail.IsConfigured);
     }
 
+    private async Task UpsertInstanceRecordsAsync(
+        IReadOnlyList<EmployeeDetailDto> employees,
+        CancellationToken cancellationToken)
+    {
+        foreach (var employee in employees)
+        {
+            await UpsertInstanceRecordAsync(employee, cancellationToken: cancellationToken);
+        }
+    }
+
+    private async Task UpsertInstanceRecordAsync(
+        EmployeeDetailDto employee,
+        bool viaQuickClone = false,
+        string? currentVersion = null,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var existing = await dbContext.Instances
+            .FirstOrDefaultAsync(item => item.InstanceId == employee.EmployeeId, cancellationToken);
+
+        var version = string.IsNullOrWhiteSpace(currentVersion)
+            ? existing?.CurrentVersion ?? "v_initial"
+            : currentVersion.Trim();
+
+        if (existing is null)
+        {
+            dbContext.Instances.Add(new InstanceEntity
+            {
+                InstanceId = employee.EmployeeId,
+                TenantId = ResolveTenantId(employee),
+                InstanceType = string.IsNullOrWhiteSpace(employee.InstanceType) ? "department" : employee.InstanceType,
+                Status = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired",
+                ViaQuickClone = viaQuickClone,
+                BasedOnTemplateId = employee.BasedOnTemplateId,
+                FromInstanceId = employee.FromInstanceId,
+                EvalReportId = null,
+                OwnerUserId = string.IsNullOrWhiteSpace(employee.OwnerUserId) ? "unknown" : employee.OwnerUserId,
+                DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? "department-default" : employee.DepartmentId,
+                CurrentVersion = version,
+                CreatedAt = ParseDate(employee.CreatedAt) ?? now,
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            existing.TenantId = ResolveTenantId(employee);
+            existing.InstanceType = string.IsNullOrWhiteSpace(employee.InstanceType) ? existing.InstanceType : employee.InstanceType;
+            existing.Status = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? existing.Status;
+            existing.ViaQuickClone = viaQuickClone || existing.ViaQuickClone;
+            existing.BasedOnTemplateId = employee.BasedOnTemplateId;
+            existing.FromInstanceId = employee.FromInstanceId;
+            existing.OwnerUserId = string.IsNullOrWhiteSpace(employee.OwnerUserId) ? existing.OwnerUserId : employee.OwnerUserId;
+            existing.DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? existing.DepartmentId : employee.DepartmentId;
+            existing.CurrentVersion = version;
+            existing.UpdatedAt = now;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static DateTimeOffset? ParseDate(string value)
+    {
+        if (DateOnly.TryParse(value, out var date))
+        {
+            return date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        }
+
+        return DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
+    }
+
+    private static string ResolveTenantId(EmployeeDetailDto employee)
+    {
+        if (!string.IsNullOrWhiteSpace(employee.DepartmentId) &&
+            !string.Equals(employee.DepartmentId, "department-default", StringComparison.OrdinalIgnoreCase))
+        {
+            return employee.DepartmentId;
+        }
+
+        return string.IsNullOrWhiteSpace(employee.OwningTeam) ? "tenant-default" : employee.OwningTeam;
+    }
+
     private static string BuildEmployeeId()
     {
         return $"e_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid():N}"[..24];
+    }
+
+    private static string BuildInstanceId(string prefix)
+    {
+        var normalizedPrefix = string.IsNullOrWhiteSpace(prefix) ? "i" : prefix.Trim().Trim('_');
+        return $"{normalizedPrefix}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid():N}"[..Math.Min(32, normalizedPrefix.Length + 1 + 13 + 1 + 32)];
     }
 
     private static string Coalesce(params string?[] values)

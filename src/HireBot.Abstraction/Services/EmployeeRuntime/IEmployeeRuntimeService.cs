@@ -13,5 +13,6 @@ public interface IEmployeeRuntimeService
     Task<ApiResponse<EmployeeDetailDto>> UpdateCapabilitiesAsync(string employeeId, UpdateEmployeeCapabilitiesRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<EmployeeDetailDto>> CompletePendingActionAsync(string employeeId, string actionId, CancellationToken cancellationToken = default);
     Task<ApiResponse<EmployeeDetailDto>> CreateFromHireAsync(CreateEmployeeFromHireRequestDto request, CancellationToken cancellationToken = default);
+    Task<ApiResponse<EmployeeDetailDto>> CreatePersonalCloneAsync(string sourceEmployeeId, CreatePersonalCloneRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<LocalStateMigrationResultDto>> MigrateLocalStateAsync(LocalStateMigrationRequestDto request, CancellationToken cancellationToken = default);
 }

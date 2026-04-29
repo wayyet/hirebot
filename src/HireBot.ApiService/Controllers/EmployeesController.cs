@@ -80,6 +80,22 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    [HttpPost("{employeeId}/personal-clones")]
+    public async Task<IActionResult> CreatePersonalClone(
+        string employeeId,
+        [FromBody] CreatePersonalCloneRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EmployeeDetailDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeRuntimeService.CreatePersonalCloneAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpGet("{employeeId}/training/state")]
     public async Task<IActionResult> GetTrainingState(string employeeId, CancellationToken cancellationToken = default)
     {

@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HireBot.Core\HireBot.Core.csproj" />
+    <ProjectReference Include="..\HireBot.EfCoreMigration\HireBot.EfCoreMigration.csproj" />
     <ProjectReference Include="..\..\HireBot.ServiceDefaults\HireBot.ServiceDefaults.csproj" />
   </ItemGroup>
 

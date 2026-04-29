@@ -1,0 +1,244 @@
+using HireBot.Abstraction;
+using HireBot.Abstraction.Models.Collaboration;
+using HireBot.Abstraction.Models.EmployeeRuntime;
+using HireBot.Abstraction.Models.Team;
+using HireBot.Abstraction.Providers;
+using HireBot.Abstraction.Services.Collaboration;
+using HireBot.Core.Services.EmployeeRuntime;
+using HireBot.Core.Services.Internal;
+using HireBot.Repository;
+using Microsoft.EntityFrameworkCore;
+
+namespace HireBot.Core.Tests;
+
+public sealed class EmployeeRuntimePersonalCloneTests
+{
+    [Fact]
+    public async Task CreatePersonalCloneAsync_CreatesLivePersonalCloneAndInstanceRecord()
+    {
+        await using var dbContext = CreateDbContext();
+        var store = new MemoryEmployeeRuntimeStore();
+        var source = BuildEmployee("dept_1", "department", "live", "manager", null);
+        await store.UpsertAsync(source.OwnerUserId, source);
+        await store.UpsertAsync("owner-1", BuildEmployee("existing_1", "personal_clone", "live", "owner-1", "dept_x"));
+        var artifacts = new FakeArtifactCloneService();
+        var service = CreateService(store, dbContext, artifacts);
+
+        var response = await service.CreatePersonalCloneAsync(
+            "dept_1",
+            new CreatePersonalCloneRequestDto("我的销售分身", null, "desc"));
+
+        Assert.True(response.Success, response.Message);
+        var clone = response.Data!;
+        Assert.StartsWith("pc_", clone.EmployeeId, StringComparison.Ordinal);
+        Assert.Equal("我的销售分身", clone.Nickname);
+        Assert.Equal("personal_clone", clone.InstanceType);
+        Assert.Equal("live", clone.Status);
+        Assert.Equal("dept_1", clone.FromInstanceId);
+        Assert.Equal("owner-1", clone.OwnerUserId);
+        Assert.Equal(source.DepartmentId, clone.DepartmentId);
+        Assert.Single(artifacts.CloneCalls);
+        Assert.Equal("dept_1", artifacts.CloneCalls[0].Source.EmployeeId);
+
+        var storedClone = await store.GetAsync("owner-1", clone.EmployeeId);
+        Assert.NotNull(storedClone);
+        var instance = await dbContext.Instances.SingleAsync(item => item.InstanceId == clone.EmployeeId);
+        Assert.Equal("personal_clone", instance.InstanceType);
+        Assert.Equal("live", instance.Status);
+        Assert.Equal("dept_1", instance.FromInstanceId);
+        Assert.Equal("v_clone", instance.CurrentVersion);
+    }
+
+    [Fact]
+    public async Task CreatePersonalCloneAsync_WhenDuplicateName_ReturnsConflictAndDoesNotCloneArtifacts()
+    {
+        await using var dbContext = CreateDbContext();
+        var store = new MemoryEmployeeRuntimeStore();
+        await store.UpsertAsync("manager", BuildEmployee("dept_1", "department", "live", "manager", null));
+        await store.UpsertAsync("owner-1", BuildEmployee("existing_1", "personal_clone", "live", "owner-1", "dept_1") with
+        {
+            Nickname = "我的销售分身"
+        });
+        var artifacts = new FakeArtifactCloneService();
+        var service = CreateService(store, dbContext, artifacts);
+
+        var response = await service.CreatePersonalCloneAsync(
+            "dept_1",
+            new CreatePersonalCloneRequestDto("我的销售分身", null, null));
+
+        Assert.False(response.Success);
+        Assert.Equal(409, response.Code);
+        Assert.Empty(artifacts.CloneCalls);
+    }
+
+    private static EmployeeRuntimeService CreateService(
+        IEmployeeRuntimeStore store,
+        HireBotDbContext dbContext,
+        IInstanceArtifactCloneService artifacts)
+    {
+        return new EmployeeRuntimeService(
+            store,
+            new FakeTeamImProvider(),
+            new FakeCollaborationService(),
+            new FakeRequestContextService("owner-1"),
+            dbContext,
+            artifacts);
+    }
+
+    private static HireBotDbContext CreateDbContext()
+    {
+        var options = new DbContextOptionsBuilder<HireBotDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        return new HireBotDbContext(options);
+    }
+
+    private static EmployeeDetailDto BuildEmployee(
+        string id,
+        string type,
+        string status,
+        string owner,
+        string? fromInstanceId)
+    {
+        return new EmployeeDetailDto(
+            id,
+            id,
+            "销售助手",
+            "销售模板",
+            "tpl-sales",
+            type,
+            status,
+            "tpl-sales",
+            fromInstanceId,
+            owner,
+            "tenant-default",
+            status,
+            "summary",
+            "ok",
+            "ok",
+            "tenant-default",
+            "2026-04-29",
+            null,
+            null,
+            0,
+            0,
+            null,
+            [],
+            [new EmployeeCapabilityDto("站内对话", true)],
+            null,
+            null,
+            null,
+            true);
+    }
+
+    private sealed class MemoryEmployeeRuntimeStore : IEmployeeRuntimeStore
+    {
+        private readonly Dictionary<string, Dictionary<string, EmployeeDetailDto>> employees = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task<IReadOnlyList<EmployeeDetailDto>> ListAsync(string ownerSubject, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<EmployeeDetailDto>>(
+                employees.TryGetValue(ownerSubject, out var ownerEmployees) ? ownerEmployees.Values.ToArray() : []);
+        }
+
+        public Task<EmployeeDetailDto?> GetAsync(string ownerSubject, string employeeId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                employees.TryGetValue(ownerSubject, out var ownerEmployees) &&
+                ownerEmployees.TryGetValue(employeeId, out var employee)
+                    ? employee
+                    : null);
+        }
+
+        public Task<EmployeeDetailDto?> FindAsync(string employeeId, CancellationToken cancellationToken = default)
+        {
+            foreach (var ownerEmployees in employees.Values)
+            {
+                if (ownerEmployees.TryGetValue(employeeId, out var employee))
+                {
+                    return Task.FromResult<EmployeeDetailDto?>(employee);
+                }
+            }
+
+            return Task.FromResult<EmployeeDetailDto?>(null);
+        }
+
+        public async Task<bool> ExistsNameAsync(string ownerSubject, string displayName, CancellationToken cancellationToken = default)
+        {
+            var list = await ListAsync(ownerSubject, cancellationToken);
+            return list.Any(item =>
+                (item.InstanceType == "personal_clone" || item.InstanceType == "private_branch") &&
+                string.Equals(item.Nickname, displayName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public Task<EmployeeDetailDto> UpsertAsync(string ownerSubject, EmployeeDetailDto employee, CancellationToken cancellationToken = default)
+        {
+            if (!employees.TryGetValue(ownerSubject, out var ownerEmployees))
+            {
+                ownerEmployees = new Dictionary<string, EmployeeDetailDto>(StringComparer.OrdinalIgnoreCase);
+                employees[ownerSubject] = ownerEmployees;
+            }
+
+            ownerEmployees[employee.EmployeeId] = employee;
+            return Task.FromResult(employee);
+        }
+
+        public async Task<int> UpsertManyAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> items, CancellationToken cancellationToken = default)
+        {
+            foreach (var item in items)
+            {
+                await UpsertAsync(ownerSubject, item, cancellationToken);
+            }
+
+            return items.Count;
+        }
+
+        public Task<int> ReplaceOwnerAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> items, CancellationToken cancellationToken = default)
+        {
+            employees[ownerSubject] = items.ToDictionary(item => item.EmployeeId, StringComparer.OrdinalIgnoreCase);
+            return Task.FromResult(items.Count);
+        }
+    }
+
+    private sealed class FakeArtifactCloneService : IInstanceArtifactCloneService
+    {
+        public List<(EmployeeDetailDto Source, string TargetInstanceId)> CloneCalls { get; } = [];
+
+        public Task<InstanceArtifactCloneResult> CloneArtifactsAsync(EmployeeDetailDto source, string targetInstanceId, CancellationToken cancellationToken = default)
+        {
+            CloneCalls.Add((source, targetInstanceId));
+            return Task.FromResult(new InstanceArtifactCloneResult("v_clone", "root", ["manifest.json"]));
+        }
+
+        public Task<InstanceArtifactCloneResult> StoreDepartmentArtifactsAsync(string departmentInstanceId, IReadOnlyDictionary<string, byte[]> files, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
+    private sealed class FakeRequestContextService(string ownerSubject) : IRequestContextService
+    {
+        public string ResolveOwnerSubject(string? tenantId = null, string? operatorId = null) => ownerSubject;
+
+        public (string TenantId, string OperatorId) ResolveTenantAndOperator(string? tenantId, string? operatorId)
+        {
+            return ("tenant-default", operatorId ?? "operator-1");
+        }
+    }
+
+    private sealed class FakeTeamImProvider : ITeamImProvider
+    {
+        public Task<IReadOnlyList<TeamImItemDto>> GetItemsAsync(string ownerSubject, TeamImQueryDto query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TeamImItemDto>>([]);
+        public Task<TeamImItemDto?> ConfirmItemAsync(string ownerSubject, string itemId, string? requestId, string actor, CancellationToken cancellationToken = default) => Task.FromResult<TeamImItemDto?>(null);
+        public Task<int> ReplaceItemsAsync(string ownerSubject, IReadOnlyList<TeamImItemDto> items, CancellationToken cancellationToken = default) => Task.FromResult(items.Count);
+    }
+
+    private sealed class FakeCollaborationService : ICollaborationService
+    {
+        public Task<ApiResponse<IReadOnlyList<CollaborationGroupSummaryDto>>> GetGroupsAsync(bool includeArchived, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<CollaborationGroupDetailDto>> GetGroupAsync(string groupId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<CollaborationGroupDetailDto>> SetArchivedAsync(string groupId, bool archived, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<int> MarkArchivedAsync(IReadOnlyList<string> groupIds, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+}
+

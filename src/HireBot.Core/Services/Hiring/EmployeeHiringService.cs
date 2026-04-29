@@ -16,6 +16,7 @@ using HireBot.Abstraction.Services.Hiring;
 using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Hiring.TemplatePackages;
+using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.AspNetCore.Http;
@@ -38,6 +39,7 @@ internal sealed class EmployeeHiringService(
     IServiceScopeFactory serviceScopeFactory,
     HireBotDbContext dbContext,
     IHiringFileStore hiringFileStore,
+    IInstanceArtifactCloneService instanceArtifactCloneService,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private const string KingCrewClientName = "KingCrew";
@@ -921,6 +923,29 @@ internal sealed class EmployeeHiringService(
         }
 
         var mergedArtifactArchive = BuildArtifactArchive(mergedArtifacts);
+        if (!string.IsNullOrWhiteSpace(finalizeResult.EmployeeId))
+        {
+            try
+            {
+                var storedArtifacts = await instanceArtifactCloneService.StoreDepartmentArtifactsAsync(
+                    finalizeResult.EmployeeId,
+                    mergedArtifacts,
+                    cancellationToken);
+                var instance = await dbContext.Instances.FirstOrDefaultAsync(
+                    item => item.InstanceId == finalizeResult.EmployeeId,
+                    cancellationToken);
+                if (instance is not null)
+                {
+                    instance.CurrentVersion = storedArtifacts.CurrentVersion;
+                    instance.UpdatedAt = DateTimeOffset.UtcNow;
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to persist finalized instance artifacts. EmployeeId={EmployeeId}", finalizeResult.EmployeeId);
+            }
+        }
 
         runtimeContext = runtimeContext with
         {

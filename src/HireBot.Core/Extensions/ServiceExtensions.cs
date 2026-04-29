@@ -22,9 +22,11 @@ using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Internal;
+using HireBot.Core.Services.Security;
 using HireBot.Core.Services.SkillCatalog;
 using HireBot.Core.Services.Team;
 using HireBot.Core.Services.Training;
+using HireBot.Abstraction.Services.Security;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -83,6 +85,7 @@ public static class ServiceExtensions
         });
 
         services.AddScoped<IRequestContextService, RequestContextService>();
+        services.AddDataProtection();
 
         services.AddSingleton<IEmployeeRuntimeStore, InMemoryEmployeeRuntimeStore>();
         services.AddSingleton<IHiringRuntimeStore, InMemoryHiringRuntimeStore>();
@@ -106,7 +109,15 @@ public static class ServiceExtensions
 
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
         services.AddScoped<IEmployeeHiringService, EmployeeHiringService>();
+        services.AddScoped<IInstanceArtifactCloneService, InstanceArtifactCloneService>();
+        services.AddScoped<IInstanceArtifactResolver, InstanceArtifactResolver>();
+        services.AddScoped<IKingCrewRuntimeChatClient, KingCrewRuntimeChatClient>();
+        services.AddScoped<IInstanceRuntimeConversationService, InstanceRuntimeConversationService>();
         services.AddScoped<IEmployeeRuntimeService, EmployeeRuntimeService>();
+        services.AddScoped<IInstanceChatService, InstanceChatService>();
+        services.AddScoped<ISecretProtector, DataProtectionSecretProtector>();
+        services.AddScoped<IInstanceImConfigService, InstanceImConfigService>();
+        services.AddScoped<IImWebhookService, ImWebhookService>();
         services.AddScoped<ITrainingService, TrainingService>();
         services.AddScoped<IEvaluationService, EvaluationService>();
         services.AddSingleton<IEvaluationAssetStore, EvaluationAssetStore>();

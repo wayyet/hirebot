@@ -33,6 +33,33 @@ public sealed class InMemoryEmployeeRuntimeStore : IEmployeeRuntimeStore
             : null);
     }
 
+    public Task<EmployeeDetailDto?> FindAsync(string employeeId, CancellationToken cancellationToken = default)
+    {
+        foreach (var employees in byOwner.Values)
+        {
+            if (employees.TryGetValue(employeeId, out var employee))
+            {
+                return Task.FromResult<EmployeeDetailDto?>(employee);
+            }
+        }
+
+        return Task.FromResult<EmployeeDetailDto?>(null);
+    }
+
+    public Task<bool> ExistsNameAsync(string ownerSubject, string displayName, CancellationToken cancellationToken = default)
+    {
+        if (!byOwner.TryGetValue(ownerSubject, out var employees))
+        {
+            return Task.FromResult(false);
+        }
+
+        var exists = employees.Values.Any(item =>
+            (string.Equals(item.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(item.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase)) &&
+            string.Equals(item.Nickname, displayName, StringComparison.OrdinalIgnoreCase));
+        return Task.FromResult(exists);
+    }
+
     public Task<EmployeeDetailDto> UpsertAsync(string ownerSubject, EmployeeDetailDto employee, CancellationToken cancellationToken = default)
     {
         var employees = byOwner.GetOrAdd(ownerSubject, _ => new ConcurrentDictionary<string, EmployeeDetailDto>(StringComparer.OrdinalIgnoreCase));
