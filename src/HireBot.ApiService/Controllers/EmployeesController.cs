@@ -31,13 +31,6 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
-    [HttpPost("fixtures/import")]
-    public async Task<IActionResult> ImportFixtureInstances(CancellationToken cancellationToken = default)
-    {
-        var response = await employeeRuntimeService.ImportFixtureInstancesAsync(cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
     [HttpPost("{employeeId}/lifecycle")]
     public async Task<IActionResult> UpdateLifecycle(
         string employeeId,

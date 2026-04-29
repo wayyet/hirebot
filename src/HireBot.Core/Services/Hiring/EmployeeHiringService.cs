@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.IO;
 using System.Net.Http.Headers;
@@ -8,14 +8,20 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction;
+using HireBot.Abstraction.Models.EmployeeTemplate;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
+using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Hiring;
+using HireBot.Abstraction.Services.Sandbox;
+using HireBot.Core.Services.Hiring.Artifacts;
 using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Hiring.TemplatePackages;
+using HireBot.Core.Services.Sandbox;
+using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.AspNetCore.Http;
@@ -30,35 +36,24 @@ internal sealed class EmployeeHiringService(
     ITemplateDataProvider templateDataProvider,
     ITemplatePackageProvider templatePackageProvider,
     IDiscoveryRuleProvider discoveryRuleProvider,
+    ISystemSkillRegistry systemSkillRegistry,
     HiringStageCompletionEvaluator stageCompletionEvaluator,
     IHiringRuntimeStore hiringRuntimeStore,
-    IHttpClientFactory httpClientFactory,
+    IKingCrabHttpClient kingCrabHttpClient,
+    ISandboxService sandboxService,
     IConfiguration configuration,
     IHttpContextAccessor httpContextAccessor,
     IServiceScopeFactory serviceScopeFactory,
     HireBotDbContext dbContext,
     IHiringFileStore hiringFileStore,
+    IHiringArtifactPackageService artifactPackageService,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
-    private const string KingCrewClientName = "KingCrew";
-    private const string DefaultHireBotApiPrefix = "/api/integration/hirebot";
     private const string DefaultConversationKickoffPrompt = "你是雇佣流程助手。请先根据当前阶段提出第一个关键问题，引导用户完善模板包内容。";
-    private const int TemplateUploadRetryMaxAttempts = 5;
-    private static readonly TimeSpan TemplateUploadRetryDelay = TimeSpan.FromSeconds(20);
     private const string EvaluationSkillId = "evaluation-expert";
-    private const string EvaluationSkillVersion = "v1";
+    private const string EvaluationSkillVersion = "2.1.0";
     private const string EvaluationWorkspaceTemplateId = "evaluation-expert";
     private const string EvaluationWorkspaceTemplateName = "Evaluation Expert";
-    private static readonly string[] EvaluationSkillDirectories =
-    [
-        "evaluation_orchestrator",
-        "scenario_parser",
-        "test_executor",
-        "evaluator",
-        "training_advisor",
-        "report_generator",
-        "live_evaluation_coordinator"
-    ];
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -67,8 +62,6 @@ internal sealed class EmployeeHiringService(
 
     private readonly ConcurrentDictionary<string, HireOwnerContext> hireOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> conversationInFlight = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, byte> templateUploadRetryInFlight = new(StringComparer.OrdinalIgnoreCase);
-
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
         string templateId,
         HireTemplateRequestDto request,
@@ -83,7 +76,17 @@ internal sealed class EmployeeHiringService(
         var (tenantId, operatorId) = ResolveTenantAndOperator(request.TenantId, request.OperatorId);
 
         var normalizedTemplateId = templateId.Trim();
-        var template = await templateDataProvider.GetByIdAsync(normalizedTemplateId, cancellationToken);
+        EmployeeTemplateDefinition? template;
+        try
+        {
+            template = await templateDataProvider.GetByIdAsync(normalizedTemplateId, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Template metadata unavailable from upstream source. TemplateId={TemplateId}", normalizedTemplateId);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(502, ex.Message);
+        }
+
         if (template is null || !template.IsAvailable)
         {
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(404, "模板不存在或已下架");
@@ -103,29 +106,33 @@ internal sealed class EmployeeHiringService(
         }
 
         var ownerSubject = ResolveOwnerSubject(tenantId, operatorId);
-        var remoteRequest = new KingCrewHireRequest(
-            TemplateId: normalizedTemplateId,
-            TenantId: tenantId,
-            OperatorId: operatorId,
-            UseCase: request.UseCase);
-
-        var call = await SendForJsonAsync<HireTemplateResultDto>(
-            HttpMethod.Post,
-            "/hirings",
-            remoteRequest,
+        var provisionResult = await ProvisionManagedHireSandboxAsync(
+            sandboxRole: "hiring",
             ownerSubject,
+            tenantId,
+            operatorId,
+            request.UseCase,
             cancellationToken);
-
-        if (!call.Success || call.Data is null)
+        if (!provisionResult.Success || provisionResult.Data is null)
         {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(call.StatusCode, call.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(provisionResult.Code, provisionResult.Message);
         }
+
+        var call = RemoteCallResult<HireTemplateResultDto>.Ok(new HireTemplateResultDto(
+            provisionResult.Data.HireId,
+            provisionResult.Data.SandboxId,
+            // ProvisionManagedHireSandboxAsync 已同步等待沙箱就绪，此时 State 为 "Running"。
+            // 对前端统一映射为 "READY"，使前端轮询可以立即跳过等待。
+            string.Equals(provisionResult.Data.State, "Running", StringComparison.OrdinalIgnoreCase)
+                ? "READY"
+                : provisionResult.Data.State,
+            "start_conversation"));
 
         var initialStageCompletion = stageCompletionEvaluator.Evaluate(
             discoverySkill.StageRules,
             new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
 
-        hireOwners[call.Data.HireId] = new HireOwnerContext(
+        hireOwners[provisionResult.Data.HireId] = new HireOwnerContext(
             OwnerSubject: ownerSubject,
             TenantId: tenantId,
             OperatorId: operatorId,
@@ -135,13 +142,13 @@ internal sealed class EmployeeHiringService(
 
         hiringRuntimeStore.Upsert(new HiringRuntimeContext
         {
-            HireId = call.Data.HireId,
+            HireId = provisionResult.Data.HireId,
             TemplateId = normalizedTemplateId,
             TemplateName = template.Name,
             OwnerSubject = ownerSubject,
             TenantId = tenantId,
             OperatorId = operatorId,
-            SandboxId = call.Data.SandboxId,
+            SandboxId = provisionResult.Data.SandboxId,
             SessionId = string.Empty,
             CurrentStage = HiringCollectionStage.Goal,
             CollectionPhase = HiringCollectionPhase.NotStarted,
@@ -158,27 +165,34 @@ internal sealed class EmployeeHiringService(
             TemplateUploadLastAttemptAt = null
         });
 
-        var conversationStartCall = await SendForJsonAsync<StartHiringConversationResultDto>(
-            HttpMethod.Post,
-            $"/hirings/{Uri.EscapeDataString(call.Data.HireId)}/conversation/start",
-            body: null,
-            ownerSubject,
+        var conversationStartResponse = await sandboxService.EnsureSessionAsync(
+            new SandboxEnsureSessionRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = call.Data.HireId,
+                SandboxRole = "hiring",
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                SandboxId = call.Data.SandboxId,
+                SessionKey = "default"
+            },
             cancellationToken);
-        if (!conversationStartCall.Success || conversationStartCall.Data is null || string.IsNullOrWhiteSpace(conversationStartCall.Data.SessionId))
+        if (!conversationStartResponse.Success || conversationStartResponse.Data is null || string.IsNullOrWhiteSpace(conversationStartResponse.Data.SessionId))
         {
             logger.LogWarning(
                 "Failed to create hiring session. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
                 call.Data.HireId,
                 normalizedTemplateId,
-                conversationStartCall.StatusCode,
-                conversationStartCall.Message);
+                conversationStartResponse.Code,
+                conversationStartResponse.Message);
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(
-                conversationStartCall.StatusCode <= 0 ? 502 : conversationStartCall.StatusCode,
-                string.IsNullOrWhiteSpace(conversationStartCall.Message) ? "雇佣会话创建失败" : conversationStartCall.Message);
+                conversationStartResponse.Code <= 0 ? 502 : conversationStartResponse.Code,
+                string.IsNullOrWhiteSpace(conversationStartResponse.Message) ? "雇佣会话创建失败" : conversationStartResponse.Message);
         }
 
         hiringRuntimeStore.Upsert(hiringRuntimeStore.Get(call.Data.HireId) is { } existingRuntime
-            ? existingRuntime with { SessionId = conversationStartCall.Data.SessionId }
+            ? existingRuntime with { SessionId = conversationStartResponse.Data.SessionId }
             : new HiringRuntimeContext
             {
                 HireId = call.Data.HireId,
@@ -188,7 +202,7 @@ internal sealed class EmployeeHiringService(
                 TenantId = tenantId,
                 OperatorId = operatorId,
                 SandboxId = call.Data.SandboxId,
-                SessionId = conversationStartCall.Data.SessionId,
+                SessionId = conversationStartResponse.Data.SessionId,
                 CurrentStage = HiringCollectionStage.Goal,
                 CollectionPhase = HiringCollectionPhase.NotStarted,
                 IsConversationPaused = false,
@@ -200,15 +214,27 @@ internal sealed class EmployeeHiringService(
                 StageCompletion = initialStageCompletion
             });
 
-        await PersistSessionAndSourceZipAsync(
-            call.Data.HireId,
-            conversationStartCall.Data.SessionId,
-            normalizedTemplateId,
-            templatePackage,
-            ownerSubject,
-            tenantId,
-            operatorId,
-            cancellationToken);
+        try
+        {
+            await PersistSessionAndSourceZipAsync(
+                call.Data.HireId,
+                conversationStartResponse.Data.SessionId,
+                normalizedTemplateId,
+                templatePackage,
+                ownerSubject,
+                tenantId,
+                operatorId,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Persist session/source zip failed. HireId={HireId}, SessionId={SessionId}",
+                call.Data.HireId,
+                conversationStartResponse.Data.SessionId);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, "雇佣会话初始化持久化失败");
+        }
 
         var systemSkillCall = await UploadDiscoverySystemSkillAsync(
             call.Data.HireId,
@@ -232,7 +258,6 @@ internal sealed class EmployeeHiringService(
             discoverySkill,
             ownerSubject,
             cancellationToken);
-        var templateUploadDeferred = false;
         if (!templatePackageCall.Success || templatePackageCall.Data is null)
         {
             logger.LogWarning(
@@ -241,37 +266,31 @@ internal sealed class EmployeeHiringService(
                 normalizedTemplateId,
                 templatePackageCall.StatusCode,
                 templatePackageCall.Message);
-
-            // Keep hire flow available even when downstream upload is temporarily unauthorized/unavailable.
-            // The runtime context still tracks template content and can continue the conversation flow.
-            templateUploadDeferred = true;
-            templatePackageCall = RemoteCallResult<TemplatePackageUploadResult>.Ok(new TemplatePackageUploadResult(
-                HireId: call.Data.HireId,
-                SandboxId: call.Data.SandboxId,
-                PackageId: templatePackage.PackageId,
-                PackageVersion: templatePackage.PackageVersion,
-                PackageHash: templatePackage.PackageHash,
-                InstalledPath: "deferred"));
-        }
-
-        if (hiringRuntimeStore.Get(call.Data.HireId) is { } runtimeWithSession)
-        {
-            hiringRuntimeStore.Upsert(runtimeWithSession with
+            if (hiringRuntimeStore.Get(call.Data.HireId) is { } runtimeWithSession)
             {
-                IsTemplateUploadPending = templateUploadDeferred,
-                TemplateUploadRetryCount = templateUploadDeferred ? 1 : 0,
-                TemplateUploadLastError = templateUploadDeferred ? templatePackageCall.Message : null,
-                TemplateUploadLastAttemptAt = templateUploadDeferred ? DateTimeOffset.UtcNow : null
-            });
+                hiringRuntimeStore.Upsert(runtimeWithSession with
+                {
+                    IsTemplateUploadPending = false,
+                    TemplateUploadRetryCount = 0,
+                    TemplateUploadLastError = templatePackageCall.Message,
+                    TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                templatePackageCall.StatusCode <= 0 ? 502 : templatePackageCall.StatusCode,
+                templatePackageCall.Message);
         }
 
-        if (templateUploadDeferred)
+        if (hiringRuntimeStore.Get(call.Data.HireId) is { } uploadedRuntime)
         {
-            TriggerTemplateUploadRetry(
-                call.Data.HireId,
-                templatePackage,
-                discoverySkill,
-                ownerSubject);
+            hiringRuntimeStore.Upsert(uploadedRuntime with
+            {
+                IsTemplateUploadPending = false,
+                TemplateUploadRetryCount = 0,
+                TemplateUploadLastError = null,
+                TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
+            });
         }
 
         var uploadedPackageId = templatePackageCall.Data?.PackageId ?? templatePackage.PackageId;
@@ -286,12 +305,9 @@ internal sealed class EmployeeHiringService(
             uploadedPackageVersion,
             ownerSubject);
 
-        var hireMessage = templateUploadDeferred
-            ? "雇佣任务已创建，模板包上传待重试"
-            : "雇佣任务已创建";
         return ApiResponse<HireTemplateResultDto>.SuccessResponse(
-            call.Data with { SessionId = conversationStartCall.Data.SessionId },
-            hireMessage);
+            call.Data with { SessionId = conversationStartResponse.Data.SessionId },
+            "雇佣任务已创建");
     }
 
     private async Task PersistSessionAndSourceZipAsync(
@@ -304,103 +320,95 @@ internal sealed class EmployeeHiringService(
         string operatorId,
         CancellationToken cancellationToken)
     {
-        try
+        logger.LogInformation(
+            "PersistSessionAndSourceZip: HireId={HireId}, SessionId={SessionId}, PackageId={PackageId}, PackageVersion={PackageVersion}, SourceArchiveBytes={SourceBytes}",
+            hireId,
+            sessionId,
+            templatePackage.PackageId,
+            templatePackage.PackageVersion,
+            templatePackage.SourceArchive?.LongLength ?? 0);
+
+        var normalizedHireId = hireId.Trim();
+        var normalizedSessionId = sessionId.Trim();
+
+        var existing = await dbContext.HiringSessions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.HireId == normalizedHireId, cancellationToken);
+        if (existing is not null)
         {
-            logger.LogInformation(
-                "PersistSessionAndSourceZip: HireId={HireId}, SessionId={SessionId}, PackageId={PackageId}, PackageVersion={PackageVersion}, SourceArchiveBytes={SourceBytes}",
-                hireId,
-                sessionId,
-                templatePackage.PackageId,
-                templatePackage.PackageVersion,
-                templatePackage.SourceArchive?.LongLength ?? 0);
+            return;
+        }
 
-            var normalizedHireId = hireId.Trim();
-            var normalizedSessionId = sessionId.Trim();
+        string? sourceStoragePath = null;
+        string? sourceSha = null;
+        long? sourceSize = null;
 
-            var existing = await dbContext.HiringSessions
-                .AsNoTracking()
-                .FirstOrDefaultAsync(item => item.HireId == normalizedHireId, cancellationToken);
-            if (existing is not null)
-            {
-                return;
-            }
+        if (templatePackage.SourceArchive is not null && templatePackage.SourceArchive.Length > 0)
+        {
+            sourceSha = Convert.ToHexStringLower(SHA256.HashData(templatePackage.SourceArchive));
+            sourceSize = templatePackage.SourceArchive.LongLength;
+            await using var stream = new MemoryStream(templatePackage.SourceArchive, writable: false);
+            var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
+            sourceStoragePath = await hiringFileStore.SaveAsync(
+                normalizedSessionId,
+                "source",
+                fileName,
+                stream,
+                cancellationToken);
 
-            string? sourceStoragePath = null;
-            string? sourceSha = null;
-            long? sourceSize = null;
-
-            if (templatePackage.SourceArchive is not null && templatePackage.SourceArchive.Length > 0)
-            {
-                sourceSha = Convert.ToHexStringLower(SHA256.HashData(templatePackage.SourceArchive));
-                sourceSize = templatePackage.SourceArchive.LongLength;
-                await using var stream = new MemoryStream(templatePackage.SourceArchive, writable: false);
-                var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
-                sourceStoragePath = await hiringFileStore.SaveAsync(
-                    normalizedSessionId,
-                    "source",
-                    fileName,
-                    stream,
-                    cancellationToken);
-
-                dbContext.HiringArtifacts.Add(new HiringArtifactEntity
-                {
-                    SessionId = normalizedSessionId,
-                    Kind = "source_zip",
-                    LogicalPath = $"source/{fileName}",
-                    FileName = fileName,
-                    SizeBytes = sourceSize.Value,
-                    Sha256 = sourceSha,
-                    StoragePath = sourceStoragePath,
-                    IsFinal = false,
-                    IsArchived = false,
-                    UploadedAtUtc = DateTimeOffset.UtcNow
-                });
-            }
-
-            dbContext.HiringSessions.Add(new HiringSessionEntity
+            dbContext.HiringArtifacts.Add(new HiringArtifactEntity
             {
                 SessionId = normalizedSessionId,
-                HireId = normalizedHireId,
-                TemplateId = templateId.Trim(),
-                PackageId = string.IsNullOrWhiteSpace(templatePackage.PackageId) ? null : templatePackage.PackageId.Trim(),
-                PackageVersion = string.IsNullOrWhiteSpace(templatePackage.PackageVersion) ? null : templatePackage.PackageVersion.Trim(),
-                PackageHash = string.IsNullOrWhiteSpace(templatePackage.PackageHash) ? null : templatePackage.PackageHash.Trim(),
-                SourceZipSha256 = sourceSha,
-                SourceZipStoragePath = sourceStoragePath,
-                SourceZipSizeBytes = sourceSize,
-                OwnerSubject = ownerSubject,
-                TenantId = tenantId,
-                OperatorId = operatorId,
-                CreatedAtUtc = DateTimeOffset.UtcNow
+                Kind = HiringArtifactPackageKinds.SourceZip,
+                LogicalPath = $"source/{fileName}",
+                FileName = fileName,
+                SizeBytes = sourceSize.Value,
+                Sha256 = sourceSha,
+                StoragePath = sourceStoragePath,
+                IsFinal = false,
+                IsArchived = false,
+                UploadedAtUtc = DateTimeOffset.UtcNow
             });
-
-            dbContext.HiringAuditLogs.Add(new HiringAuditLogEntity
-            {
-                SessionId = normalizedSessionId,
-                HireId = normalizedHireId,
-                Action = "create_session",
-                Actor = ownerSubject,
-                Ip = httpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString(),
-                BeforeSha256 = null,
-                AfterSha256 = sourceSha,
-                DetailJson = $"{{\"templateId\":\"{templateId}\"}}",
-                TimestampUtc = DateTimeOffset.UtcNow
-            });
-
-            await dbContext.SaveChangesAsync(cancellationToken);
-
-            logger.LogInformation(
-                "PersistSessionAndSourceZip completed. HireId={HireId}, SessionId={SessionId}, SourceZipSha256={Sha}, SourceZipPath={Path}",
-                hireId,
-                sessionId,
-                sourceSha ?? string.Empty,
-                sourceStoragePath ?? string.Empty);
         }
-        catch (Exception ex)
+
+        dbContext.HiringSessions.Add(new HiringSessionEntity
         {
-            // In dev environments pgsql might not be running; don't block hire flow.
-            logger.LogError(ex, "Persist session/source zip failed. HireId={HireId}, SessionId={SessionId}", hireId, sessionId);
-        }
+            SessionId = normalizedSessionId,
+            HireId = normalizedHireId,
+            TemplateId = templateId.Trim(),
+            PackageId = string.IsNullOrWhiteSpace(templatePackage.PackageId) ? null : templatePackage.PackageId.Trim(),
+            PackageVersion = string.IsNullOrWhiteSpace(templatePackage.PackageVersion) ? null : templatePackage.PackageVersion.Trim(),
+            PackageHash = string.IsNullOrWhiteSpace(templatePackage.PackageHash) ? null : templatePackage.PackageHash.Trim(),
+            SourceZipSha256 = sourceSha,
+            SourceZipStoragePath = sourceStoragePath,
+            SourceZipSizeBytes = sourceSize,
+            OwnerSubject = ownerSubject,
+            TenantId = tenantId,
+            OperatorId = operatorId,
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        dbContext.HiringAuditLogs.Add(new HiringAuditLogEntity
+        {
+            SessionId = normalizedSessionId,
+            HireId = normalizedHireId,
+            Action = "create_session",
+            Actor = ownerSubject,
+            Ip = httpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString(),
+            BeforeSha256 = null,
+            AfterSha256 = sourceSha,
+            DetailJson = $"{{\"templateId\":\"{templateId}\"}}",
+            TimestampUtc = DateTimeOffset.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "PersistSessionAndSourceZip completed. HireId={HireId}, SessionId={SessionId}, SourceZipSha256={Sha}, SourceZipPath={Path}",
+            hireId,
+            sessionId,
+            sourceSha ?? string.Empty,
+            sourceStoragePath ?? string.Empty);
     }
 
     public async Task<ApiResponse<HireTemplateResultDto>> CreateEvaluationWorkspaceAsync(
@@ -413,32 +421,33 @@ internal sealed class EmployeeHiringService(
         }
 
         var ownerContext = ResolveOwnerContextForEvaluation(normalizedTargetHireId);
-        var request = new KingCrewHireRequest(
-            TemplateId: EvaluationWorkspaceTemplateId,
-            TenantId: ownerContext.TenantId,
-            OperatorId: ownerContext.OperatorId,
-            UseCase: $"evaluation-workspace-for:{normalizedTargetHireId}");
-
-        var call = await SendForJsonAsync<HireTemplateResultDto>(
-            HttpMethod.Post,
-            "/hirings",
-            request,
+        var useCase = $"evaluation-workspace-for:{normalizedTargetHireId}";
+        var provisionResult = await ProvisionManagedHireSandboxAsync(
+            sandboxRole: "evaluation-evaluator",
             ownerContext.OwnerSubject,
+            ownerContext.TenantId,
+            ownerContext.OperatorId,
+            useCase,
             cancellationToken);
-
-        if (!call.Success || call.Data is null)
+        if (!provisionResult.Success || provisionResult.Data is null)
         {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(call.StatusCode, call.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(provisionResult.Code, provisionResult.Message);
         }
 
-        hireOwners[call.Data.HireId] = ownerContext with
+        var call = RemoteCallResult<HireTemplateResultDto>.Ok(new HireTemplateResultDto(
+            provisionResult.Data.HireId,
+            provisionResult.Data.SandboxId,
+            provisionResult.Data.State,
+            "start_conversation"));
+
+        hireOwners[provisionResult.Data.HireId] = ownerContext with
         {
             TemplateId = EvaluationWorkspaceTemplateId,
             TemplateName = EvaluationWorkspaceTemplateName,
             EmployeeId = null
         };
 
-        if (hiringRuntimeStore.Get(call.Data.HireId) is null)
+        if (hiringRuntimeStore.Get(provisionResult.Data.HireId) is null)
         {
             var discoverySkill = BuildEvaluationWorkspaceDiscoverySkill();
             var stageCompletion = stageCompletionEvaluator.Evaluate(
@@ -448,15 +457,13 @@ internal sealed class EmployeeHiringService(
 
             hiringRuntimeStore.Upsert(new HiringRuntimeContext
             {
-                HireId = call.Data.HireId,
+                HireId = provisionResult.Data.HireId,
                 TemplateId = EvaluationWorkspaceTemplateId,
                 TemplateName = EvaluationWorkspaceTemplateName,
                 OwnerSubject = ownerContext.OwnerSubject,
                 TenantId = ownerContext.TenantId,
                 OperatorId = ownerContext.OperatorId,
-                SandboxId = string.IsNullOrWhiteSpace(call.Data.SandboxId)
-                    ? $"sandbox_eval_{call.Data.HireId}"
-                    : call.Data.SandboxId,
+                SandboxId = provisionResult.Data.SandboxId,
                 CurrentStage = "evaluation",
                 CollectionPhase = HiringCollectionPhase.NotStarted,
                 IsConversationPaused = false,
@@ -472,12 +479,17 @@ internal sealed class EmployeeHiringService(
         logger.LogInformation(
             "Created evaluation workspace. TargetHireId={TargetHireId}, EvalHireId={EvalHireId}, EvalSandboxId={EvalSandboxId}",
             normalizedTargetHireId,
-            call.Data.HireId,
-            call.Data.SandboxId);
+            provisionResult.Data.HireId,
+            provisionResult.Data.SandboxId);
 
         return ApiResponse<HireTemplateResultDto>.SuccessResponse(call.Data, "evaluation workspace created");
     }
 
+    /// <summary>
+    /// 获取雇佣流程的沙箱状态。
+    /// 前端通过轮询此接口等待沙箱就绪（status == "READY"）后再调用 StartConversation。
+    /// 注意：OpenSandbox 的就绪状态为 "Running"，此方法会将其映射为前端期望的 "READY"。
+    /// </summary>
     public async Task<ApiResponse<HiringStatusDto>> GetHiringStatusAsync(string hireId, CancellationToken cancellationToken = default)
     {
         if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
@@ -485,19 +497,42 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringStatusDto>.ErrorResponse(400, error);
         }
 
-        var call = await SendForJsonAsync<HiringStatusDto>(
-            HttpMethod.Get,
-            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}",
-            body: null,
-            ResolveOwnerByHireId(normalizedHireId),
+        var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
+        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
+        var refreshResult = await sandboxService.RefreshAsync(
+            new SandboxInstanceLookupRequestDto
+            {
+                SandboxId = runtimeContext?.SandboxId,
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = normalizedHireId,
+                SandboxRole = ResolveSandboxRole(normalizedHireId),
+                OwnerSubject = ownerContext.OwnerSubject
+            },
             cancellationToken);
-
-        if (!call.Success || call.Data is null)
+        if (!refreshResult.Success || refreshResult.Data is null)
         {
-            return ApiResponse<HiringStatusDto>.ErrorResponse(call.StatusCode, call.Message);
+            return ApiResponse<HiringStatusDto>.ErrorResponse(refreshResult.Code, refreshResult.Message);
         }
 
-        return ApiResponse<HiringStatusDto>.SuccessResponse(call.Data);
+        runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken) ?? runtimeContext;
+
+        // 前端轮询等待 "READY" 信号。
+        // OpenSandbox 就绪状态为 "Running" + GatewayEndpoint 非空，此时对前端统一映射为 "READY"。
+        var sandboxState = refreshResult.Data.State;
+        var frontendStatus = string.Equals(sandboxState, "Running", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint)
+            ? "READY"
+            : sandboxState;
+
+        return ApiResponse<HiringStatusDto>.SuccessResponse(
+            new HiringStatusDto(
+                normalizedHireId,
+                refreshResult.Data.SandboxId,
+                frontendStatus,
+                ErrorCode: null,
+                ErrorMessage: refreshResult.Data.LastError,
+                CollectionPhase: runtimeContext?.CollectionPhase,
+                CurrentStage: runtimeContext?.CurrentStage));
     }
 
     public async Task<ApiResponse<StartHiringConversationResultDto>> StartConversationAsync(
@@ -509,17 +544,27 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(400, error);
         }
 
-        var call = await SendForJsonAsync<StartHiringConversationResultDto>(
-            HttpMethod.Post,
-            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/conversation/start",
-            body: null,
-            ResolveOwnerByHireId(normalizedHireId),
+        var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
+        var sessionResult = await sandboxService.EnsureSessionAsync(
+            new SandboxEnsureSessionRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = normalizedHireId,
+                SandboxRole = ResolveSandboxRole(normalizedHireId),
+                OwnerSubject = ownerContext.OwnerSubject,
+                TenantId = ownerContext.TenantId,
+                OperatorId = ownerContext.OperatorId,
+                SandboxId = hiringRuntimeStore.Get(normalizedHireId)?.SandboxId,
+                SessionKey = "default"
+            },
             cancellationToken);
 
-        if (!call.Success || call.Data is null)
+        if (!sessionResult.Success || sessionResult.Data is null)
         {
-            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(call.StatusCode, call.Message);
+            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(sessionResult.Code, sessionResult.Message);
         }
+
+        var call = RemoteCallResult<StartHiringConversationResultDto>.Ok(sessionResult.Data);
 
         var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
         if (runtimeContext is not null)
@@ -606,33 +651,47 @@ internal sealed class EmployeeHiringService(
                 hiringRuntimeStore.Upsert(runtimeContext with { IsConversationResponding = true });
             }
 
-            var call = await SendForJsonAsync<HiringConversationResultDto>(
-                HttpMethod.Post,
-                $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/conversation/messages",
-                request,
-                ResolveOwnerByHireId(normalizedHireId),
+            var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
+            var sendResponse = await sandboxService.SendMessageAsync(
+                new SandboxSendMessageRequestDto
+                {
+                    ScopeType = SandboxScopeTypes.Hire,
+                    ScopeKey = normalizedHireId,
+                    SandboxRole = ResolveSandboxRole(normalizedHireId),
+                    OwnerSubject = ownerContext.OwnerSubject,
+                    TenantId = ownerContext.TenantId,
+                    OperatorId = ownerContext.OperatorId,
+                    SessionKey = "default",
+                    SandboxId = runtimeContext?.SandboxId,
+                    Content = request.Content,
+                    StructuredAnswers = request.StructuredAnswers,
+                    Materials = request.Materials
+                },
                 cancellationToken);
 
-            if (!call.Success || call.Data is null)
+            if (!sendResponse.Success || sendResponse.Data is null)
             {
-                return ApiResponse<HiringConversationResultDto>.ErrorResponse(call.StatusCode, call.Message);
+                return ApiResponse<HiringConversationResultDto>.ErrorResponse(sendResponse.Code, sendResponse.Message);
             }
+
+            var call = RemoteCallResult<HiringConversationResultDto>.Ok(sendResponse.Data);
 
             runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
             if (runtimeContext is not null)
             {
-                var structuredData = NormalizeStructuredData(call.Data.LatestPreview.StructuredData);
+                var structuredData = MergeStructuredData(runtimeContext.StructuredData, request.StructuredAnswers);
                 var materials = MergeMaterials(runtimeContext.Materials, BuildMaterialsFromRequest(request));
                 var stageCompletion = stageCompletionEvaluator.Evaluate(runtimeContext.DiscoverySkill.StageRules, structuredData);
-                var currentStage = ResolveCurrentStage(stageCompletion, call.Data.CurrentStage);
+                var currentStage = ResolveCurrentStage(stageCompletion, runtimeContext.CurrentStage);
                 var collectionPhase = ResolveCollectionPhase(stageCompletion, structuredData, HiringCollectionPhase.InProgress);
-                var preview = EnrichStagePreview(
-                    call.Data.LatestPreview,
+                var preview = BuildLocalStagePreview(
+                    normalizedHireId,
                     runtimeContext.DiscoverySkill,
                     stageCompletion,
                     currentStage,
                     collectionPhase,
-                    structuredData);
+                    structuredData,
+                    call.Data.AssistantMessage.Content);
 
                 runtimeContext = runtimeContext with
                 {
@@ -645,6 +704,10 @@ internal sealed class EmployeeHiringService(
                     IsConversationResponding = true
                 };
                 runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
+                if (ShouldPersistArtifactPackages(runtimeContext))
+                {
+                    await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+                }
                 hiringRuntimeStore.Upsert(runtimeContext);
 
                 call = RemoteCallResult<HiringConversationResultDto>.Ok(call.Data with
@@ -679,17 +742,27 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(400, error);
         }
 
-        var call = await SendForJsonAsync<HiringConversationTimelineDto>(
-            HttpMethod.Get,
-            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/conversation/messages",
-            body: null,
-            ResolveOwnerByHireId(normalizedHireId),
+        var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
+        var timelineResponse = await sandboxService.GetTimelineAsync(
+            new SandboxTimelineRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = normalizedHireId,
+                SandboxRole = ResolveSandboxRole(normalizedHireId),
+                OwnerSubject = ownerContext.OwnerSubject,
+                TenantId = ownerContext.TenantId,
+                OperatorId = ownerContext.OperatorId,
+                SessionKey = "default",
+                SandboxId = hiringRuntimeStore.Get(normalizedHireId)?.SandboxId
+            },
             cancellationToken);
 
-        if (!call.Success || call.Data is null)
+        if (!timelineResponse.Success || timelineResponse.Data is null)
         {
-            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(call.StatusCode, call.Message);
+            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(timelineResponse.Code, timelineResponse.Message);
         }
+
+        var call = RemoteCallResult<HiringConversationTimelineDto>.Ok(timelineResponse.Data);
 
         var runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken);
         if (runtimeContext is not null)
@@ -715,49 +788,25 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringStagePreviewDto>.ErrorResponse(400, error);
         }
 
-        var suffix = string.IsNullOrWhiteSpace(stage)
-            ? string.Empty
-            : $"?stage={Uri.EscapeDataString(stage.Trim())}";
-        var call = await SendForJsonAsync<HiringStagePreviewDto>(
-            HttpMethod.Get,
-            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/stage-preview{suffix}",
-            body: null,
-            ResolveOwnerByHireId(normalizedHireId),
-            cancellationToken);
-
-        if (!call.Success || call.Data is null)
+        var runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken);
+        if (runtimeContext is null)
         {
-            return ApiResponse<HiringStagePreviewDto>.ErrorResponse(call.StatusCode, call.Message);
+            return ApiResponse<HiringStagePreviewDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
         }
 
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        if (runtimeContext is not null)
-        {
-            var structuredData = NormalizeStructuredData(call.Data.StructuredData);
-            var stageCompletion = stageCompletionEvaluator.Evaluate(runtimeContext.DiscoverySkill.StageRules, structuredData);
-            var currentStage = ResolveCurrentStage(stageCompletion, call.Data.Stage);
-            var collectionPhase = ResolveCollectionPhase(stageCompletion, structuredData, runtimeContext.CollectionPhase);
-            var preview = EnrichStagePreview(
-                call.Data,
-                runtimeContext.DiscoverySkill,
-                stageCompletion,
-                currentStage,
-                collectionPhase,
-                structuredData);
+        var targetStage = string.IsNullOrWhiteSpace(stage)
+            ? runtimeContext.CurrentStage
+            : stage.Trim().ToUpperInvariant();
+        var preview = BuildLocalStagePreview(
+            normalizedHireId,
+            runtimeContext.DiscoverySkill,
+            runtimeContext.StageCompletion,
+            targetStage,
+            runtimeContext.CollectionPhase,
+            runtimeContext.StructuredData,
+            summaryOverride: null);
 
-            runtimeContext = runtimeContext with
-            {
-                CurrentStage = currentStage,
-                CollectionPhase = collectionPhase,
-                StructuredData = structuredData,
-                StageCompletion = stageCompletion
-            };
-            hiringRuntimeStore.Upsert(runtimeContext);
-
-            call = RemoteCallResult<HiringStagePreviewDto>.Ok(preview);
-        }
-
-        return ApiResponse<HiringStagePreviewDto>.SuccessResponse(call.Data);
+        return ApiResponse<HiringStagePreviewDto>.SuccessResponse(preview);
     }
 
     public async Task<ApiResponse<HiringAuditDecisionResultDto>> SubmitAuditDecisionAsync(
@@ -810,19 +859,9 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.ErrorResponse(400, error);
         }
 
-        var call = await SendForJsonAsync<List<HiringAuditLogDto>>(
-            HttpMethod.Get,
-            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/audit-logs",
-            body: null,
-            ResolveOwnerByHireId(normalizedHireId),
-            cancellationToken);
-
-        if (!call.Success || call.Data is null)
-        {
-            return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.ErrorResponse(call.StatusCode, call.Message);
-        }
-
-        return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.SuccessResponse(call.Data);
+        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
+        var logs = runtimeContext?.AuditLogs ?? [];
+        return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.SuccessResponse(logs);
     }
 
     public async Task<ApiResponse<HiringFinalizeResultDto>> FinalizeAsync(
@@ -921,6 +960,16 @@ internal sealed class EmployeeHiringService(
         }
 
         var mergedArtifactArchive = BuildArtifactArchive(mergedArtifacts);
+        if (ShouldPersistArtifactPackages(runtimeContext))
+        {
+            await artifactPackageService.PersistFinalPackageAsync(
+                new HiringArtifactPackagePersistRequestDto(
+                    runtimeContext.HireId,
+                    runtimeContext.SessionId,
+                    BuildFinalPackageFileName(normalizedHireId, artifactArchiveCall.FileName),
+                    mergedArtifacts),
+                cancellationToken);
+        }
 
         runtimeContext = runtimeContext with
         {
@@ -951,37 +1000,29 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(400, error);
         }
 
-        var call = await SendForJsonAsync<HiringWorkflowStateDto>(
-            HttpMethod.Get,
-            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/workflow",
-            body: null,
-            ResolveOwnerByHireId(normalizedHireId),
-            cancellationToken);
-
-        if (!call.Success || call.Data is null)
-        {
-            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(call.StatusCode, call.Message);
-        }
-
         var runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken);
-        if (runtimeContext is not null)
+        if (runtimeContext is null)
         {
-            call = RemoteCallResult<HiringWorkflowStateDto>.Ok(call.Data with
-            {
-                CurrentStage = runtimeContext.CurrentStage,
-                CollectionPhase = runtimeContext.CollectionPhase,
-                StageSkills = BuildStageSkills(runtimeContext.DiscoverySkill),
-                TemplatePackageId = runtimeContext.TemplatePackage.PackageId,
-                TemplatePackageVersion = runtimeContext.TemplatePackage.PackageVersion,
-                DiscoverySkillId = runtimeContext.DiscoverySkill.SkillId,
-                DiscoverySkillVersion = runtimeContext.DiscoverySkill.SkillVersion,
-                StageCompletion = runtimeContext.StageCompletion,
-                IsConversationPaused = runtimeContext.IsConversationPaused,
-                IsConversationResponding = IsConversationResponding(normalizedHireId, runtimeContext)
-            });
+            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
         }
 
-        return ApiResponse<HiringWorkflowStateDto>.SuccessResponse(call.Data);
+        var workflowState = new HiringWorkflowStateDto(
+            HireId: normalizedHireId,
+            SessionId: runtimeContext.SessionId,
+            CurrentStage: runtimeContext.CurrentStage,
+            RequiresAudit: false,
+            CollectionPhase: runtimeContext.CollectionPhase,
+            StageSkills: BuildStageSkills(runtimeContext.DiscoverySkill),
+            AuditLogs: runtimeContext.AuditLogs,
+            TemplatePackageId: runtimeContext.TemplatePackage.PackageId,
+            TemplatePackageVersion: runtimeContext.TemplatePackage.PackageVersion,
+            DiscoverySkillId: runtimeContext.DiscoverySkill.SkillId,
+            DiscoverySkillVersion: runtimeContext.DiscoverySkill.SkillVersion,
+            StageCompletion: runtimeContext.StageCompletion,
+            IsConversationPaused: runtimeContext.IsConversationPaused,
+            IsConversationResponding: IsConversationResponding(normalizedHireId, runtimeContext));
+
+        return ApiResponse<HiringWorkflowStateDto>.SuccessResponse(workflowState);
     }
 
     public async Task<ApiResponse<bool>> UploadEvaluationSkillAsync(
@@ -1000,16 +1041,15 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<bool>.ErrorResponse(payloadResult.Code, payloadResult.Message);
         }
 
-        var call = await SendForJsonAsync<SystemSkillUploadResult>(
-            HttpMethod.Post,
-            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/system-skills/upload",
-            payloadResult.Data,
+        var uploadCall = await UploadSystemSkillPackageAsync(
+            normalizedHireId,
             ResolveOwnerByHireId(normalizedHireId),
+            payloadResult.Data,
             cancellationToken);
 
-        if (!call.Success || call.Data is null)
+        if (!uploadCall.Success || uploadCall.Data is null)
         {
-            return ApiResponse<bool>.ErrorResponse(call.StatusCode, call.Message);
+            return ApiResponse<bool>.ErrorResponse(uploadCall.StatusCode, uploadCall.Message);
         }
 
         var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
@@ -1033,8 +1073,8 @@ internal sealed class EmployeeHiringService(
         logger.LogInformation(
             "Uploaded evaluation skill package. EvalHireId={EvalHireId}, SkillId={SkillId}, SkillVersion={SkillVersion}",
             normalizedHireId,
-            call.Data.SkillId,
-            call.Data.SkillVersion);
+            uploadCall.Data.SkillId,
+            uploadCall.Data.SkillVersion);
 
         return ApiResponse<bool>.SuccessResponse(true, "evaluation skill uploaded");
     }
@@ -1048,18 +1088,7 @@ internal sealed class EmployeeHiringService(
             return Task.FromResult(HiringArtifactDownloadResult.Error(400, error));
         }
 
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        if (runtimeContext?.ArtifactArchive is null ||
-            runtimeContext.ArtifactArchive.Length == 0 ||
-            string.IsNullOrWhiteSpace(runtimeContext.ArtifactArchiveFileName))
-        {
-            return Task.FromResult(HiringArtifactDownloadResult.Error(409, "交付包尚未生成，请先执行 finalize"));
-        }
-
-        return Task.FromResult(HiringArtifactDownloadResult.Success(
-            runtimeContext.ArtifactArchiveFileName,
-            "application/zip",
-            runtimeContext.ArtifactArchive));
+        return artifactPackageService.BuildFinalPackageDownloadAsync(normalizedHireId, cancellationToken);
     }
 
     public Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(
@@ -1072,26 +1101,10 @@ internal sealed class EmployeeHiringService(
             return Task.FromResult(HiringArtifactDownloadResult.Error(400, error));
         }
 
-        if (!TryNormalizeArtifactPath(artifactName, out var normalizedArtifactPath, out var artifactError))
-        {
-            return Task.FromResult(HiringArtifactDownloadResult.Error(400, artifactError));
-        }
-
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        if (runtimeContext?.ArtifactFiles is null || runtimeContext.ArtifactFiles.Count == 0)
-        {
-            return Task.FromResult(HiringArtifactDownloadResult.Error(409, "交付物尚未生成，请先执行 finalize"));
-        }
-
-        if (!runtimeContext.ArtifactFiles.TryGetValue(normalizedArtifactPath, out var content) || content.Length == 0)
-        {
-            return Task.FromResult(HiringArtifactDownloadResult.NotFound("交付物不存在"));
-        }
-
-        return Task.FromResult(HiringArtifactDownloadResult.Success(
-            Path.GetFileName(normalizedArtifactPath),
-            ResolveArtifactContentType(normalizedArtifactPath),
-            content));
+        return artifactPackageService.BuildFinalPackageFileDownloadAsync(
+            normalizedHireId,
+            artifactName,
+            cancellationToken);
     }
 
     private Task<ApiResponse<HiringConversationControlResultDto>> SetConversationPausedAsync(
@@ -1139,21 +1152,10 @@ internal sealed class EmployeeHiringService(
             return null;
         }
 
-        var previewCall = await SendForJsonAsync<HiringStagePreviewDto>(
-            HttpMethod.Get,
-            $"/hirings/{Uri.EscapeDataString(hireId)}/stage-preview",
-            body: null,
-            ResolveOwnerByHireId(hireId),
-            cancellationToken);
-
-        if (!previewCall.Success || previewCall.Data is null)
-        {
-            return runtimeContext;
-        }
-
-        var structuredData = NormalizeStructuredData(previewCall.Data.StructuredData);
+        await Task.CompletedTask;
+        var structuredData = NormalizeStructuredData(runtimeContext.StructuredData);
         var stageCompletion = stageCompletionEvaluator.Evaluate(runtimeContext.DiscoverySkill.StageRules, structuredData);
-        var currentStage = ResolveCurrentStage(stageCompletion, previewCall.Data.Stage);
+        var currentStage = ResolveCurrentStage(stageCompletion, runtimeContext.CurrentStage);
         var collectionPhase = ResolveCollectionPhase(stageCompletion, structuredData, runtimeContext.CollectionPhase);
 
         runtimeContext = runtimeContext with
@@ -1223,11 +1225,10 @@ internal sealed class EmployeeHiringService(
         string ownerSubject,
         CancellationToken cancellationToken)
     {
-        return SendForJsonAsync<SystemSkillUploadResult>(
-            HttpMethod.Post,
-            $"/hirings/{Uri.EscapeDataString(hireId)}/system-skills/upload",
-            BuildSystemSkillUploadPayload(discoverySkill),
+        return UploadSystemSkillPackageAsync(
+            hireId,
             ownerSubject,
+            BuildSystemSkillUploadPayload(discoverySkill),
             cancellationToken);
     }
 
@@ -1255,13 +1256,11 @@ internal sealed class EmployeeHiringService(
     {
         var archiveBytes = BuildDigitalEmployeeArchive(templatePackage, discoverySkill);
         var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
-        var uploadCall = await SendMultipartForJsonAsync<DigitalEmployeeUploadResponse>(
-            "/admin/digital-employee/upload",
-            "file",
-            fileName,
-            archiveBytes,
-            "application/zip",
+        var uploadCall = await UploadSandboxArchiveAsync(
+            hireId,
             ownerSubject,
+            archiveBytes,
+            fileName,
             cancellationToken);
         if (!uploadCall.Success || uploadCall.Data is null)
         {
@@ -1309,120 +1308,50 @@ internal sealed class EmployeeHiringService(
         string? skillRootPath,
         CancellationToken cancellationToken)
     {
-        var rootPath = ResolveEvaluationSkillRoot(skillRootPath);
-        if (string.IsNullOrWhiteSpace(rootPath))
+        SystemSkillPackage package;
+        try
         {
-            return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(422, "evaluation skill root not found");
+            package = await systemSkillRegistry.LoadRequiredAsync(
+                EvaluationSkillId,
+                skillRootPath,
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(422, ex.Message);
         }
 
-        var missingDirectories = EvaluationSkillDirectories
-            .Where(directory => !Directory.Exists(Path.Combine(rootPath, directory)))
-            .ToArray();
-        if (missingDirectories.Length > 0)
+        if (package.StageRules.Count == 0)
         {
-            return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(
-                422,
-                $"evaluation skill directories are missing: {string.Join(", ", missingDirectories)}");
+            return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(422, "evaluation system skill must declare stage rules");
         }
 
-        var files = new List<SystemSkillFileUploadPayload>();
-        foreach (var directory in EvaluationSkillDirectories)
-        {
-            var fullDirectory = Path.Combine(rootPath, directory);
-            foreach (var filePath in Directory.EnumerateFiles(fullDirectory, "*", SearchOption.AllDirectories))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (ShouldSkipEvaluationSkillFile(filePath))
-                {
-                    continue;
-                }
-
-                var relativePath = Path.GetRelativePath(rootPath, filePath).Replace('\\', '/');
-                var content = await File.ReadAllTextAsync(filePath, cancellationToken);
-                files.Add(new SystemSkillFileUploadPayload(
-                    RelativePath: relativePath,
-                    ContentHash: ComputeContentHash(content),
-                    Content: content));
-            }
-        }
-
-        if (files.All(file => !file.RelativePath.Equals("SKILL.md", StringComparison.OrdinalIgnoreCase)))
-        {
-            var rootSkillContent = string.Join(
-                '\n',
-                [
-                    "# evaluation-expert",
-                    "",
-                    "Root entry skill for evaluation package upload.",
-                    "Sub-skills are loaded from sibling directories."
-                ]);
-            files.Add(new SystemSkillFileUploadPayload(
-                RelativePath: "SKILL.md",
-                ContentHash: ComputeContentHash(rootSkillContent),
-                Content: rootSkillContent));
-        }
-
-        if (files.Count == 0)
+        if (package.Files.Count == 0)
         {
             return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(422, "evaluation skill payload is empty");
         }
 
-        var orderedFiles = files
+        var orderedFiles = package.Files
+            .Select(file => new SystemSkillFileUploadPayload(
+                RelativePath: file.RelativePath,
+                ContentHash: file.ContentHash,
+                Content: file.Content))
             .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var hashSeed = string.Join('\n', orderedFiles.Select(file => $"{file.RelativePath}:{file.ContentHash}"));
         var payload = new SystemSkillUploadPayload(
-            SkillId: EvaluationSkillId,
-            SkillVersion: EvaluationSkillVersion,
-            SkillHash: ComputeContentHash(hashSeed),
+            SkillId: package.SkillId,
+            SkillVersion: package.Version,
+            SkillHash: package.SkillHash,
             Files: orderedFiles,
-            StageRules:
-            [
-                new SystemSkillStageRuleUploadPayload(
-                    Stage: "evaluation",
-                    SkillName: "evaluation_orchestrator",
-                    Description: "Evaluation expert orchestration skill set",
-                    RequiredFields: ["evaluation_goal"])
-            ]);
+            StageRules: package.StageRules
+                .Select(rule => new SystemSkillStageRuleUploadPayload(
+                    Stage: rule.Stage,
+                    SkillName: rule.SkillName,
+                    Description: rule.Description,
+                    RequiredFields: rule.RequiredFields))
+                .ToArray());
 
         return ApiResponse<SystemSkillUploadPayload>.SuccessResponse(payload);
-    }
-
-    private static string? ResolveEvaluationSkillRoot(string? skillRootPath)
-    {
-        var candidates = new List<string>();
-        if (!string.IsNullOrWhiteSpace(skillRootPath))
-        {
-            candidates.Add(skillRootPath.Trim());
-        }
-
-        var currentDirectory = Directory.GetCurrentDirectory();
-        candidates.Add(Path.Combine(currentDirectory, "hirebot_bot_prototype", "evaluation-expert", "evaluation-expert"));
-        candidates.Add(Path.Combine(currentDirectory, "..", "hirebot_bot_prototype", "evaluation-expert", "evaluation-expert"));
-        candidates.Add(Path.Combine(currentDirectory, "..", "..", "hirebot_bot_prototype", "evaluation-expert", "evaluation-expert"));
-
-        var baseDirectory = AppContext.BaseDirectory;
-        candidates.Add(Path.Combine(baseDirectory, "..", "..", "..", "..", "..", "hirebot_bot_prototype", "evaluation-expert", "evaluation-expert"));
-        candidates.Add(Path.Combine(baseDirectory, "..", "..", "..", "..", "..", "..", "hirebot_bot_prototype", "evaluation-expert", "evaluation-expert"));
-
-        foreach (var candidate in candidates.Where(path => !string.IsNullOrWhiteSpace(path)))
-        {
-            var fullPath = Path.GetFullPath(candidate);
-            if (Directory.Exists(fullPath))
-            {
-                return fullPath;
-            }
-        }
-
-        return null;
-    }
-
-    private static bool ShouldSkipEvaluationSkillFile(string filePath)
-    {
-        var normalizedPath = filePath.Replace('\\', '/');
-        return normalizedPath.Contains("/.venv/", StringComparison.OrdinalIgnoreCase)
-               || normalizedPath.Contains("/__pycache__/", StringComparison.OrdinalIgnoreCase)
-               || normalizedPath.EndsWith(".pyc", StringComparison.OrdinalIgnoreCase);
     }
 
     private static DiscoverySkillDefinition BuildDiscoverySkillFromUploadPayload(SystemSkillUploadPayload payload)
@@ -1516,6 +1445,255 @@ This is the bootstrap skill for evaluation sandbox orchestration.
             StageRules: [stageRule]);
     }
 
+    /// <summary>
+    /// 为雇佣流程创建托管沙箱，并同步等待沙箱就绪（最多 180 秒）。
+    /// 此方法会阻塞直到沙箱状态变为 "Running" 且 GatewayEndpoint 可用。
+    /// </summary>
+    /// <param name="sandboxRole">沙箱角色，如 "hiring" 或 "evaluation-evaluator"</param>
+    /// <param name="ownerSubject">沙箱所有者标识，格式为 "tenant:operator" 或 JWT sub claim</param>
+    /// <param name="tenantId">租户 ID</param>
+    /// <param name="operatorId">操作员 ID</param>
+    /// <param name="useCase">用例描述，用于审计和追踪</param>
+    /// <returns>包含 hireId、sandboxId、状态和网关地址的绑定信息</returns>
+    private async Task<ApiResponse<ProvisionedSandboxBinding>> ProvisionManagedHireSandboxAsync(
+        string sandboxRole,
+        string ownerSubject,
+        string tenantId,
+        string operatorId,
+        string? useCase,
+        CancellationToken cancellationToken)
+    {
+        var hireId = $"hire-{Guid.NewGuid():N}";
+        var createResult = await sandboxService.CreateAsync(
+            new SandboxCreateRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = hireId,
+                SandboxRole = sandboxRole,
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                ProvisioningMode = "managed",
+                UseCase = useCase
+            },
+            cancellationToken);
+        if (!createResult.Success || createResult.Data is null)
+        {
+            return ApiResponse<ProvisionedSandboxBinding>.ErrorResponse(createResult.Code, createResult.Message);
+        }
+
+        var readyResult = await WaitForManagedSandboxReadyAsync(createResult.Data, cancellationToken);
+        if (!readyResult.Success || readyResult.Data is null)
+        {
+            return ApiResponse<ProvisionedSandboxBinding>.ErrorResponse(readyResult.Code, readyResult.Message);
+        }
+
+        return ApiResponse<ProvisionedSandboxBinding>.SuccessResponse(
+            new ProvisionedSandboxBinding(
+                hireId,
+                readyResult.Data.SandboxId,
+                readyResult.Data.State,
+                readyResult.Data.GatewayEndpoint));
+    }
+
+    /// <summary>
+    /// 轮询等待托管沙箱就绪（状态为 "Running" 且 GatewayEndpoint 非空）。
+    /// 最多轮询 36 次，每次间隔 5 秒，总计最多等待 180 秒。
+    /// </summary>
+    /// <param name="instance">沙箱实例初始状态</param>
+    /// <returns>就绪后的沙箱实例信息，或超时错误</returns>
+    private async Task<ApiResponse<SandboxInstanceDto>> WaitForManagedSandboxReadyAsync(
+        SandboxInstanceDto instance,
+        CancellationToken cancellationToken)
+    {
+        if (string.Equals(instance.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(instance.GatewayEndpoint))
+        {
+            return ApiResponse<SandboxInstanceDto>.SuccessResponse(instance);
+        }
+
+        for (var attempt = 0; attempt < 36; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            var refreshResult = await sandboxService.RefreshAsync(
+                new SandboxInstanceLookupRequestDto
+                {
+                    SandboxId = instance.SandboxId
+                },
+                cancellationToken);
+            if (!refreshResult.Success || refreshResult.Data is null)
+            {
+                return ApiResponse<SandboxInstanceDto>.ErrorResponse(refreshResult.Code, refreshResult.Message);
+            }
+
+            if (string.Equals(refreshResult.Data.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint))
+            {
+                return ApiResponse<SandboxInstanceDto>.SuccessResponse(refreshResult.Data);
+            }
+        }
+
+        return ApiResponse<SandboxInstanceDto>.ErrorResponse(504, "sandbox 启动超时，网关 endpoint 尚未就绪");
+    }
+
+    private async Task<RemoteCallResult<DigitalEmployeeUploadResponse>> UploadSandboxArchiveAsync(
+        string hireId,
+        string ownerSubject,
+        byte[] archiveBytes,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        var gatewayTargetResult = await ResolveSandboxGatewayTargetAsync(hireId, ownerSubject, cancellationToken);
+        if (!gatewayTargetResult.Success || gatewayTargetResult.Data is null)
+        {
+            return RemoteCallResult<DigitalEmployeeUploadResponse>.Failure(gatewayTargetResult.Code, gatewayTargetResult.Message);
+        }
+
+        var call = await kingCrabHttpClient.SendMultipartForJsonAsync<DigitalEmployeeUploadResponse>(
+            "/admin/digital-employee/upload",
+            "file",
+            fileName,
+            archiveBytes,
+            "application/zip",
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false,
+            absoluteBaseUrl: gatewayTargetResult.Data.GatewayEndpoint);
+
+        return call.Success && call.Data is not null
+            ? RemoteCallResult<DigitalEmployeeUploadResponse>.Ok(call.Data)
+            : RemoteCallResult<DigitalEmployeeUploadResponse>.Failure(call.StatusCode, call.Message);
+    }
+
+    private async Task<RemoteCallResult<SystemSkillUploadResult>> UploadSystemSkillPackageAsync(
+        string hireId,
+        string ownerSubject,
+        SystemSkillUploadPayload payload,
+        CancellationToken cancellationToken)
+    {
+        var archiveBytes = BuildSystemSkillArchive(payload);
+        var uploadCall = await UploadSandboxArchiveAsync(
+            hireId,
+            ownerSubject,
+            archiveBytes,
+            $"{payload.SkillId}-{payload.SkillVersion}.zip",
+            cancellationToken);
+        if (!uploadCall.Success || uploadCall.Data is null)
+        {
+            return RemoteCallResult<SystemSkillUploadResult>.Failure(uploadCall.StatusCode, uploadCall.Message);
+        }
+
+        if (!uploadCall.Data.Success)
+        {
+            return RemoteCallResult<SystemSkillUploadResult>.Failure(
+                502,
+                string.IsNullOrWhiteSpace(uploadCall.Data.Error) ? "system skill 上传失败" : uploadCall.Data.Error);
+        }
+
+        return RemoteCallResult<SystemSkillUploadResult>.Ok(new SystemSkillUploadResult(
+            HireId: hireId,
+            SandboxId: string.Empty,
+            SkillId: payload.SkillId,
+            SkillVersion: payload.SkillVersion,
+            SkillHash: payload.SkillHash,
+            InstalledPath: "workspace/skills",
+            LoadedStageSkills: payload.StageRules
+                .Select(rule => new StageSkillMappingDto(
+                    rule.Stage,
+                    rule.SkillName,
+                    rule.RequiredFields,
+                    rule.Description))
+                .ToArray()));
+    }
+
+    private async Task<ApiResponse<SandboxGatewayTarget>> ResolveSandboxGatewayTargetAsync(
+        string hireId,
+        string ownerSubject,
+        CancellationToken cancellationToken)
+    {
+        var sandboxRole = ResolveSandboxRole(hireId);
+        var refreshResult = await sandboxService.RefreshAsync(
+            new SandboxInstanceLookupRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = hireId,
+                SandboxRole = sandboxRole,
+                OwnerSubject = ownerSubject
+            },
+            cancellationToken);
+        if (!refreshResult.Success || refreshResult.Data is null)
+        {
+            return ApiResponse<SandboxGatewayTarget>.ErrorResponse(refreshResult.Code, refreshResult.Message);
+        }
+
+        if (string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint))
+        {
+            return ApiResponse<SandboxGatewayTarget>.ErrorResponse(409, "sandbox gateway endpoint 尚未就绪");
+        }
+
+        return ApiResponse<SandboxGatewayTarget>.SuccessResponse(
+            new SandboxGatewayTarget(
+                refreshResult.Data.SandboxId,
+                refreshResult.Data.GatewayEndpoint));
+    }
+
+    private static byte[] BuildSystemSkillArchive(SystemSkillUploadPayload payload)
+    {
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var file in payload.Files)
+            {
+                if (string.IsNullOrWhiteSpace(file.RelativePath))
+                {
+                    continue;
+                }
+
+                var normalizedPath = "skills/" + payload.SkillId.Trim().Trim('/') + "/" + file.RelativePath.TrimStart('/', '\\').Replace('\\', '/');
+                if (!TryNormalizeArchiveEntryPath(normalizedPath, out normalizedPath))
+                {
+                    continue;
+                }
+
+                var contentBytes = Encoding.UTF8.GetBytes(file.Content ?? string.Empty);
+                var entry = archive.CreateEntry(normalizedPath, CompressionLevel.Fastest);
+                using var entryStream = entry.Open();
+                entryStream.Write(contentBytes, 0, contentBytes.Length);
+            }
+        }
+
+        return memoryStream.ToArray();
+    }
+
+    private static HiringStagePreviewDto BuildLocalStagePreview(
+        string hireId,
+        DiscoverySkillDefinition discoverySkill,
+        IReadOnlyList<HiringStageCompletionDto> stageCompletion,
+        string currentStage,
+        string collectionPhase,
+        IReadOnlyDictionary<string, string?> structuredData,
+        string? summaryOverride)
+    {
+        var basePreview = new HiringStagePreviewDto(
+            HireId: hireId,
+            Stage: currentStage,
+            SkillName: string.Empty,
+            Summary: string.IsNullOrWhiteSpace(summaryOverride) ? $"当前阶段：{currentStage}" : summaryOverride.Trim(),
+            StructuredData: structuredData,
+            MissingFields: [],
+            RiskNotes: [],
+            ReadyForAudit: false,
+            GeneratedAt: DateTimeOffset.UtcNow);
+
+        return EnrichStagePreview(
+            basePreview,
+            discoverySkill,
+            stageCompletion,
+            currentStage,
+            collectionPhase,
+            structuredData);
+    }
+
     internal static byte[] BuildDigitalEmployeeArchive(
         TemplatePackageDefinition templatePackage,
         DiscoverySkillDefinition discoverySkill)
@@ -1602,11 +1780,19 @@ This is the bootstrap skill for evaluation sandbox orchestration.
 
     private async Task EnsureAssistantKickoffAsync(string hireId, CancellationToken cancellationToken)
     {
-        var timelineCall = await SendForJsonAsync<HiringConversationTimelineDto>(
-            HttpMethod.Get,
-            $"/hirings/{Uri.EscapeDataString(hireId)}/conversation/messages",
-            body: null,
-            ResolveOwnerByHireId(hireId),
+        var ownerContext = ResolveOwnerContextByHireId(hireId);
+        var timelineCall = await sandboxService.GetTimelineAsync(
+            new SandboxTimelineRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = hireId,
+                SandboxRole = ResolveSandboxRole(hireId),
+                OwnerSubject = ownerContext.OwnerSubject,
+                TenantId = ownerContext.TenantId,
+                OperatorId = ownerContext.OperatorId,
+                SessionKey = "default",
+                SandboxId = hiringRuntimeStore.Get(hireId)?.SandboxId
+            },
             cancellationToken);
         if (!timelineCall.Success || timelineCall.Data is null)
         {
@@ -1625,11 +1811,19 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         {
             Content = string.IsNullOrWhiteSpace(kickoffPrompt) ? DefaultConversationKickoffPrompt : kickoffPrompt.Trim()
         };
-        await SendForJsonAsync<HiringConversationResultDto>(
-            HttpMethod.Post,
-            $"/hirings/{Uri.EscapeDataString(hireId)}/conversation/messages",
-            request,
-            ResolveOwnerByHireId(hireId),
+        await sandboxService.SendMessageAsync(
+            new SandboxSendMessageRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = hireId,
+                SandboxRole = ResolveSandboxRole(hireId),
+                OwnerSubject = ownerContext.OwnerSubject,
+                TenantId = ownerContext.TenantId,
+                OperatorId = ownerContext.OperatorId,
+                SessionKey = "default",
+                SandboxId = hiringRuntimeStore.Get(hireId)?.SandboxId,
+                Content = request.Content
+            },
             cancellationToken);
     }
 
@@ -1646,6 +1840,7 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         UpsertPackageFile(enrichedFiles, "ontology/hiring-session/materials.json", materialsJson);
         if (TryBuildEvaluationTestCases(runtimeContext, out var evaluationTestCasesJson))
         {
+            UpsertPackageFile(enrichedFiles, "testcases/evaluation-test-cases.json", evaluationTestCasesJson);
             UpsertPackageFile(enrichedFiles, "ontology/hiring-session/evaluation-test-cases.json", evaluationTestCasesJson);
         }
 
@@ -1750,7 +1945,7 @@ This is the bootstrap skill for evaluation sandbox orchestration.
                     {
                         "识别阻塞字段并明确追问",
                         "不跳过关键校验步骤",
-                        "给出可执行的fallback方案"
+                        "给出可执行的处置方案"
                     }
                 },
                 new
@@ -1915,6 +2110,48 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         return $"{trimmed[..maxLength]}...";
     }
 
+    private async Task PersistIntermediatePackageAsync(
+        HiringRuntimeContext runtimeContext,
+        CancellationToken cancellationToken)
+    {
+        await artifactPackageService.PersistIntermediatePackageAsync(
+            new HiringArtifactPackagePersistRequestDto(
+                runtimeContext.HireId,
+                runtimeContext.SessionId,
+                BuildIntermediatePackageFileName(runtimeContext.HireId),
+                BuildPackageFileMap(runtimeContext.TemplatePackage)),
+            cancellationToken);
+    }
+
+    private static IReadOnlyDictionary<string, byte[]> BuildPackageFileMap(TemplatePackageDefinition templatePackage)
+    {
+        return templatePackage.PackageFiles.ToDictionary(
+            file => file.RelativePath,
+            file => file.Content,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldPersistArtifactPackages(HiringRuntimeContext runtimeContext)
+    {
+        return !string.IsNullOrWhiteSpace(runtimeContext.SessionId) &&
+               !string.Equals(
+                   runtimeContext.TemplateId,
+                   EvaluationWorkspaceTemplateId,
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildIntermediatePackageFileName(string hireId)
+    {
+        return $"{hireId.Trim()}_intermediate_package.zip";
+    }
+
+    private static string BuildFinalPackageFileName(string hireId, string? upstreamFileName)
+    {
+        return string.IsNullOrWhiteSpace(upstreamFileName)
+            ? $"{hireId.Trim()}_final_package.zip"
+            : upstreamFileName.Trim();
+    }
+
     private static HiringConversationMaterialDto? NormalizeMaterial(HiringConversationMaterialDto? material)
     {
         if (material is null)
@@ -1999,6 +2236,29 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         return result;
     }
 
+    private static Dictionary<string, string?> MergeStructuredData(
+        IReadOnlyDictionary<string, string?> existing,
+        IReadOnlyDictionary<string, string>? incoming)
+    {
+        var result = NormalizeStructuredData(existing);
+        if (incoming is null)
+        {
+            return result;
+        }
+
+        foreach (var pair in incoming)
+        {
+            if (string.IsNullOrWhiteSpace(pair.Key))
+            {
+                continue;
+            }
+
+            result[pair.Key.Trim()] = string.IsNullOrWhiteSpace(pair.Value) ? null : pair.Value.Trim();
+        }
+
+        return result;
+    }
+
     private static string ResolveCurrentStage(
         IReadOnlyList<HiringStageCompletionDto> stageCompletion,
         string fallbackStage)
@@ -2041,63 +2301,16 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         string ownerSubject,
         CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient(KingCrewClientName);
-        if (client.BaseAddress is null)
-        {
-            return RemoteCallResult<T>.Failure(500, "KingCrew:BaseUrl 未配置");
-        }
+        var call = await kingCrabHttpClient.SendForJsonAsync<T>(
+            method,
+            path,
+            body,
+            ownerSubject,
+            cancellationToken);
 
-        using var request = CreateRequest(method, path, ownerSubject);
-        if (body is not null)
-        {
-            request.Content = JsonContent.Create(body, options: JsonOptions);
-        }
-
-        try
-        {
-            using var response = await client.SendAsync(request, cancellationToken);
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                return RemoteCallResult<T>.Failure(
-                    (int)response.StatusCode,
-                    ExtractRemoteMessage(content) ?? $"调用 KingCrew 接口失败（HTTP {(int)response.StatusCode}）");
-            }
-
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口失败：响应为空");
-            }
-
-            var model = JsonSerializer.Deserialize<T>(content, JsonOptions);
-            if (model is null)
-            {
-                return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口失败：响应解析为空");
-            }
-
-            return RemoteCallResult<T>.Ok(model);
-        }
-        catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
-        {
-            logger.LogWarning(oce, "调用 KingCrew 接口被取消. Method={Method}, Path={Path}", method, path);
-            return RemoteCallResult<T>.Failure(499, "请求已取消");
-        }
-        catch (OperationCanceledException oce)
-        {
-            logger.LogWarning(oce, "调用 KingCrew 接口超时. Method={Method}, Path={Path}", method, path);
-            return RemoteCallResult<T>.Failure(504, "调用 KingCrew 接口超时");
-        }
-        catch (Exception ex) when (IsHttpTimeoutException(ex))
-        {
-            logger.LogWarning(ex, "调用 KingCrew 接口超时. Method={Method}, Path={Path}", method, path);
-            return RemoteCallResult<T>.Failure(504, "调用 KingCrew 接口超时");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "调用 KingCrew 接口异常. Method={Method}, Path={Path}", method, path);
-            return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口异常");
-        }
+        return call.Success && call.Data is not null
+            ? RemoteCallResult<T>.Ok(call.Data)
+            : RemoteCallResult<T>.Failure(call.StatusCode, call.Message);
     }
 
     private async Task<RemoteCallResult<T>> SendMultipartForJsonAsync<T>(
@@ -2109,64 +2322,19 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         string ownerSubject,
         CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient(KingCrewClientName);
-        if (client.BaseAddress is null)
-        {
-            return RemoteCallResult<T>.Failure(500, "KingCrew:BaseUrl 未配置");
-        }
+        var call = await kingCrabHttpClient.SendMultipartForJsonAsync<T>(
+            path,
+            formFieldName,
+            fileName,
+            fileBytes,
+            contentType,
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false);
 
-        using var request = CreateRequest(HttpMethod.Post, path, ownerSubject, useHireBotApiPrefix: false);
-        using var form = new MultipartFormDataContent();
-        var fileContent = new ByteArrayContent(fileBytes);
-        fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-        form.Add(fileContent, formFieldName, fileName);
-        request.Content = form;
-
-        try
-        {
-            using var response = await client.SendAsync(request, cancellationToken);
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                return RemoteCallResult<T>.Failure(
-                    (int)response.StatusCode,
-                    ExtractRemoteMessage(content) ?? $"调用 KingCrew 接口失败（HTTP {(int)response.StatusCode}）");
-            }
-
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口失败：响应为空");
-            }
-
-            var model = JsonSerializer.Deserialize<T>(content, JsonOptions);
-            if (model is null)
-            {
-                return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口失败：响应解析为空");
-            }
-
-            return RemoteCallResult<T>.Ok(model);
-        }
-        catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
-        {
-            logger.LogWarning(oce, "调用 KingCrew multipart 接口被取消. Path={Path}", path);
-            return RemoteCallResult<T>.Failure(499, "请求已取消");
-        }
-        catch (OperationCanceledException oce)
-        {
-            logger.LogWarning(oce, "调用 KingCrew multipart 接口超时. Path={Path}", path);
-            return RemoteCallResult<T>.Failure(504, "调用 KingCrew 接口超时");
-        }
-        catch (Exception ex) when (IsHttpTimeoutException(ex))
-        {
-            logger.LogWarning(ex, "调用 KingCrew multipart 接口超时. Path={Path}", path);
-            return RemoteCallResult<T>.Failure(504, "调用 KingCrew 接口超时");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "调用 KingCrew multipart 接口异常. Path={Path}", path);
-            return RemoteCallResult<T>.Failure(502, "调用 KingCrew 接口异常");
-        }
+        return call.Success && call.Data is not null
+            ? RemoteCallResult<T>.Ok(call.Data)
+            : RemoteCallResult<T>.Failure(call.StatusCode, call.Message);
     }
 
     private async Task<RemoteBinaryCallResult> SendForBytesAsync(
@@ -2176,154 +2344,16 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         string ownerSubject,
         CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient(KingCrewClientName);
-        if (client.BaseAddress is null)
-        {
-            return RemoteBinaryCallResult.Failure(500, "KingCrew:BaseUrl 未配置");
-        }
+        var call = await kingCrabHttpClient.SendForBinaryAsync(
+            method,
+            path,
+            body,
+            ownerSubject,
+            cancellationToken);
 
-        using var request = CreateRequest(method, path, ownerSubject);
-        if (body is not null)
-        {
-            request.Content = JsonContent.Create(body, options: JsonOptions);
-        }
-
-        try
-        {
-            using var response = await client.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                var payload = await response.Content.ReadAsStringAsync(cancellationToken);
-                return RemoteBinaryCallResult.Failure(
-                    (int)response.StatusCode,
-                    ExtractRemoteMessage(payload) ?? $"调用 KingCrew 接口失败（HTTP {(int)response.StatusCode}）");
-            }
-
-            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-            if (bytes.Length == 0)
-            {
-                return RemoteBinaryCallResult.Failure(502, "调用 KingCrew 接口失败：响应为空");
-            }
-
-            var fileName = response.Content.Headers.ContentDisposition?.FileNameStar ??
-                           response.Content.Headers.ContentDisposition?.FileName;
-            if (!string.IsNullOrWhiteSpace(fileName))
-            {
-                fileName = fileName.Trim().Trim('"');
-            }
-
-            return RemoteBinaryCallResult.Ok(
-                fileName ?? "hirebot_artifacts.zip",
-                response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream",
-                bytes);
-        }
-        catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
-        {
-            logger.LogWarning(oce, "调用 KingCrew 二进制接口被取消. Method={Method}, Path={Path}", method, path);
-            return RemoteBinaryCallResult.Failure(499, "请求已取消");
-        }
-        catch (OperationCanceledException oce)
-        {
-            logger.LogWarning(oce, "调用 KingCrew 二进制接口超时. Method={Method}, Path={Path}", method, path);
-            return RemoteBinaryCallResult.Failure(504, "调用 KingCrew 接口超时");
-        }
-        catch (Exception ex) when (IsHttpTimeoutException(ex))
-        {
-            logger.LogWarning(ex, "调用 KingCrew 二进制接口超时. Method={Method}, Path={Path}", method, path);
-            return RemoteBinaryCallResult.Failure(504, "调用 KingCrew 接口超时");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "调用 KingCrew 二进制接口异常. Method={Method}, Path={Path}", method, path);
-            return RemoteBinaryCallResult.Failure(502, "调用 KingCrew 接口异常");
-        }
-    }
-
-    private static bool IsHttpTimeoutException(Exception exception)
-    {
-        if (exception is TimeoutException)
-        {
-            return true;
-        }
-
-        for (var current = exception; current is not null; current = current.InnerException)
-        {
-            if (string.Equals(current.GetType().FullName, "Polly.Timeout.TimeoutRejectedException", StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-
-    private void TriggerTemplateUploadRetry(
-        string hireId,
-        TemplatePackageDefinition templatePackage,
-        DiscoverySkillDefinition discoverySkill,
-        string ownerSubject)
-    {
-        if (!templateUploadRetryInFlight.TryAdd(hireId, 0))
-        {
-            return;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                for (var attempt = 1; attempt <= TemplateUploadRetryMaxAttempts; attempt++)
-                {
-                    var call = await UploadTemplatePackageViaDigitalEmployeeAsync(
-                        hireId,
-                        templatePackage,
-                        discoverySkill,
-                        ownerSubject,
-                        CancellationToken.None);
-
-                    var runtime = hiringRuntimeStore.Get(hireId);
-                    if (runtime is null)
-                    {
-                        return;
-                    }
-
-                    if (call.Success)
-                    {
-                        hiringRuntimeStore.Upsert(runtime with
-                        {
-                            IsTemplateUploadPending = false,
-                            TemplateUploadRetryCount = attempt,
-                            TemplateUploadLastError = null,
-                            TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
-                        });
-                        logger.LogInformation("Template package retry succeeded. HireId={HireId}, Attempt={Attempt}", hireId, attempt);
-                        return;
-                    }
-
-                    hiringRuntimeStore.Upsert(runtime with
-                    {
-                        IsTemplateUploadPending = true,
-                        TemplateUploadRetryCount = attempt,
-                        TemplateUploadLastError = call.Message,
-                        TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
-                    });
-                    logger.LogWarning("Template package retry failed. HireId={HireId}, Attempt={Attempt}, Message={Message}", hireId, attempt, call.Message);
-                    if (attempt < TemplateUploadRetryMaxAttempts)
-                    {
-                        await Task.Delay(TemplateUploadRetryDelay);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Template package retry crashed. HireId={HireId}", hireId);
-            }
-            finally
-            {
-                templateUploadRetryInFlight.TryRemove(hireId, out _);
-            }
-        });
+        return call.Success && call.Data is not null
+            ? RemoteBinaryCallResult.Ok(call.FileName ?? "hirebot_artifacts.zip", call.ContentType ?? "application/octet-stream", call.Data)
+            : RemoteBinaryCallResult.Failure(call.StatusCode, call.Message);
     }
 
     private static IReadOnlyDictionary<string, byte[]> ExtractZipEntries(byte[] archiveBytes)
@@ -2409,88 +2439,6 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         return TryNormalizeArtifactPath(path, out normalizedPath, out _);
     }
 
-    private HttpRequestMessage CreateRequest(
-        HttpMethod method,
-        string path,
-        string ownerSubject,
-        bool useHireBotApiPrefix = true)
-    {
-        var normalizedPath = path.StartsWith('/') ? path : "/" + path;
-        string requestPath;
-        if (useHireBotApiPrefix)
-        {
-            var prefix = configuration["KingCrew:HireBotApiPrefix"];
-            var normalizedPrefix = string.IsNullOrWhiteSpace(prefix)
-                ? DefaultHireBotApiPrefix
-                : "/" + prefix.Trim().Trim('/');
-            requestPath = $"{normalizedPrefix}{normalizedPath}";
-        }
-        else
-        {
-            requestPath = normalizedPath;
-        }
-
-        var request = new HttpRequestMessage(method, requestPath);
-
-        var incomingAuthorization = httpContextAccessor.HttpContext?.Request.Headers.Authorization.ToString();
-        if (!string.IsNullOrWhiteSpace(incomingAuthorization))
-        {
-            request.Headers.TryAddWithoutValidation("Authorization", incomingAuthorization);
-        }
-        else
-        {
-            var staticToken = configuration["KingCrew:BearerToken"];
-            if (!string.IsNullOrWhiteSpace(staticToken))
-            {
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", staticToken.Trim());
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(ownerSubject))
-        {
-            request.Headers.TryAddWithoutValidation("X-HireBot-Owner", ownerSubject);
-        }
-
-        return request;
-    }
-
-    private static string? ExtractRemoteMessage(string? payload)
-    {
-        if (string.IsNullOrWhiteSpace(payload))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(payload);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                return null;
-            }
-
-            if (doc.RootElement.TryGetProperty("message", out var messageElement) &&
-                messageElement.ValueKind == JsonValueKind.String)
-            {
-                var message = messageElement.GetString();
-                return string.IsNullOrWhiteSpace(message) ? null : message;
-            }
-
-            if (doc.RootElement.TryGetProperty("error", out var errorElement) &&
-                errorElement.ValueKind == JsonValueKind.String)
-            {
-                var message = errorElement.GetString();
-                return string.IsNullOrWhiteSpace(message) ? null : message;
-            }
-
-            return null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
     private HireOwnerContext ResolveOwnerContextForEvaluation(string targetHireId)
     {
         if (TryResolveOwnerContext(targetHireId, out var ownerContext))
@@ -2545,6 +2493,35 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         return true;
     }
 
+    private HireOwnerContext ResolveOwnerContextByHireId(string hireId)
+    {
+        if (TryResolveOwnerContext(hireId, out var ownerContext))
+        {
+            return ownerContext;
+        }
+
+        var ownerSubject = ResolveOwnerSubject();
+        var (tenantId, operatorId) = ResolveTenantAndOperator(null, null);
+        return new HireOwnerContext(
+            OwnerSubject: ownerSubject,
+            TenantId: tenantId,
+            OperatorId: operatorId,
+            TemplateId: string.Empty,
+            TemplateName: string.Empty,
+            EmployeeId: null);
+    }
+
+    private string ResolveSandboxRole(string hireId)
+    {
+        if (hireOwners.TryGetValue(hireId, out var ownerContext) &&
+            string.Equals(ownerContext.TemplateId, EvaluationWorkspaceTemplateId, StringComparison.OrdinalIgnoreCase))
+        {
+            return "evaluation-evaluator";
+        }
+
+        return "hiring";
+    }
+
     private static bool TryParseOwnerSubject(string ownerSubject, out string tenantId, out string operatorId)
     {
         tenantId = string.Empty;
@@ -2582,6 +2559,14 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         return ResolveOwnerSubject();
     }
 
+    /// <summary>
+    /// 解析当前请求的所有者标识（ownerSubject）。
+    /// 优先级：JWT sub claim > X-HireBot-Owner header > tenant:operator fallback。
+    /// 注意：fallback 格式包含冒号，需要在传递给 Kubernetes 时进行转义（见 OpenSandboxProvisioner.ToK8sLabelValue）。
+    /// </summary>
+    /// <param name="tenantId">可选的租户 ID，用于 fallback</param>
+    /// <param name="operatorId">可选的操作员 ID，用于 fallback</param>
+    /// <returns>所有者标识字符串</returns>
     private string ResolveOwnerSubject(string? tenantId = null, string? operatorId = null)
     {
         var user = httpContextAccessor.HttpContext?.User;
@@ -2603,6 +2588,13 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         return $"{resolvedTenantId}:{resolvedOperatorId}";
     }
 
+    /// <summary>
+    /// 解析租户 ID 和操作员 ID。
+    /// 优先从参数、JWT claims 中提取，最后 fallback 到默认值。
+    /// </summary>
+    /// <param name="tenantId">可选的租户 ID</param>
+    /// <param name="operatorId">可选的操作员 ID</param>
+    /// <returns>租户 ID 和操作员 ID 的元组</returns>
     private (string TenantId, string OperatorId) ResolveTenantAndOperator(string? tenantId, string? operatorId)
     {
         var user = httpContextAccessor.HttpContext?.User;
@@ -2705,11 +2697,15 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         return true;
     }
 
-    private sealed record KingCrewHireRequest(
-        string TemplateId,
-        string TenantId,
-        string OperatorId,
-        string? UseCase);
+    private sealed record ProvisionedSandboxBinding(
+        string HireId,
+        string SandboxId,
+        string State,
+        string? GatewayEndpoint);
+
+    private sealed record SandboxGatewayTarget(
+        string SandboxId,
+        string GatewayEndpoint);
 
     private sealed record SystemSkillUploadPayload(
         string SkillId,

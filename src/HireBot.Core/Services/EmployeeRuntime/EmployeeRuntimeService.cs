@@ -56,8 +56,6 @@ public sealed class EmployeeRuntimeService(
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default)
     {
         var owner = requestContextService.ResolveOwnerSubject();
-        await EnsureSeedDataAsync(owner, cancellationToken);
-
         var employees = await store.ListAsync(owner, cancellationToken);
         var summaries = employees.Select(ToSummary).ToArray();
 
@@ -72,8 +70,6 @@ public sealed class EmployeeRuntimeService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        await EnsureSeedDataAsync(owner, cancellationToken);
-
         var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {

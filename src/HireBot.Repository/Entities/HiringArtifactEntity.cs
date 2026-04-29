@@ -11,7 +11,7 @@ public sealed class HiringArtifactEntity
     public required string SessionId { get; set; }
 
     [MaxLength(32)]
-    public required string Kind { get; set; } // source_zip | intermediate | final_zip
+    public required string Kind { get; set; } // source_zip | intermediate | intermediate_package_zip | final_package_zip
 
     [MaxLength(1024)]
     public required string LogicalPath { get; set; }

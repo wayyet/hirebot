@@ -6,6 +6,7 @@ using HireBot.Abstraction.Services.EmployeeTemplate;
 using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.SkillCatalog;
+using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Abstraction.Services.Team;
 using HireBot.Abstraction.Services.Training;
 using HireBot.Abstraction.Services.User;
@@ -23,6 +24,8 @@ using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.SkillCatalog;
+using HireBot.Core.Services.Sandbox;
+using HireBot.Core.Services.SystemSkills;
 using HireBot.Core.Services.Team;
 using HireBot.Core.Services.Training;
 using HireBot.Repository;
@@ -34,93 +37,119 @@ namespace HireBot.Core.Extensions;
 
 public static class ServiceExtensions
 {
-    private const string KingCrewClientName = "KingCrew";
+    private const string KingCrabClientName = "KingCrab";
     private const string BuildServiceClientName = "BuildService";
 
     public static IServiceCollection AddHireBotServices(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("DefaultConnection") ??
-                               "Server=(localdb)\\mssqllocaldb;Database=HireBot;Trusted_Connection=True;";
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        AddPersistence(services, configuration);
+        AddHttpClients(services, configuration);
+        AddProviders(services);
+        AddDomainServices(services);
+
+        return services;
+    }
+
+    private static void AddPersistence(IServiceCollection services, IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required.");
+        }
 
         services.AddDbContext<HireBotDbContext>(options => options.UseNpgsql(
-            connectionString,
-            npgsql => npgsql.MigrationsAssembly("HireBot.EfCoreMigration")));
+            connectionString.Trim(),
+            npgsql => npgsql.MigrationsAssembly("HireBot.Repository")));
 
         services.AddScoped<IHireBotRepository, HireBotRepository>();
+    }
 
-        services.AddHttpClient(KingCrewClientName, (_, client) =>
+    private static void AddHttpClients(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddHttpClient(KingCrabClientName, (_, client) =>
         {
-            var baseUrl = configuration["KingCrew:BaseUrl"];
-            if (!string.IsNullOrWhiteSpace(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
-            {
-                client.BaseAddress = uri;
-            }
-
-            var timeoutSeconds = configuration.GetValue("KingCrew:HttpTimeoutSeconds", 120);
-            if (timeoutSeconds <= 0)
-            {
-                timeoutSeconds = 120;
-            }
-
-            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            ConfigureHttpClient(
+                client,
+                configuration["KingCrab:BaseUrl"] ?? configuration["KingCrew:BaseUrl"],
+                configuration.GetValue<int?>("KingCrab:HttpTimeoutSeconds") ?? configuration.GetValue("KingCrew:HttpTimeoutSeconds", 120),
+                "KingCrab:BaseUrl",
+                "KingCrab:HttpTimeoutSeconds");
         });
 
         services.AddHttpClient(BuildServiceClientName, (_, client) =>
         {
-            var baseUrl = configuration["BuildService:BaseUrl"];
-            if (!string.IsNullOrWhiteSpace(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
-            {
-                client.BaseAddress = uri;
-            }
-
-            var timeoutSeconds = configuration.GetValue("BuildService:HttpTimeoutSeconds", 60);
-            if (timeoutSeconds <= 0)
-            {
-                timeoutSeconds = 60;
-            }
-
-            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            ConfigureHttpClient(
+                client,
+                configuration["BuildService:BaseUrl"],
+                configuration.GetValue("BuildService:HttpTimeoutSeconds", 60),
+                "BuildService:BaseUrl",
+                "BuildService:HttpTimeoutSeconds");
         });
+    }
 
+    private static void AddProviders(IServiceCollection services)
+    {
         services.AddScoped<IRequestContextService, RequestContextService>();
 
         services.AddSingleton<IEmployeeRuntimeStore, InMemoryEmployeeRuntimeStore>();
         services.AddSingleton<IHiringRuntimeStore, InMemoryHiringRuntimeStore>();
-        services.AddSingleton<IEvaluationScenarioProvider, MockEvaluationScenarioProvider>();
-        services.AddSingleton<ICollaborationProvider, MockCollaborationProvider>();
+        services.AddSingleton<IEvaluationScenarioProvider, UnavailableEvaluationScenarioProvider>();
+        services.AddSingleton<ICollaborationProvider, UnavailableCollaborationProvider>();
         services.AddSingleton<ITeamImProvider, InMemoryTeamImProvider>();
-        services.AddSingleton<ISkillCatalogProvider, MockSkillCatalogProvider>();
-        services.AddSingleton<BuildServiceTemplateDataProvider>();
-        services.AddSingleton<FileSystemTemplateDataProvider>();
-        services.AddSingleton<FallbackTemplateDataProvider>();
-        services.AddSingleton<BuildServiceTemplatePackageProvider>();
-        services.AddSingleton<FileSystemTemplatePackageProvider>();
-        services.AddSingleton<ITemplatePackageProvider, FallbackTemplatePackageProvider>();
+        services.AddSingleton<FileSystemSystemSkillRegistry>();
+        services.AddSingleton<ISystemSkillRegistry>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
+        services.AddSingleton<ISkillCatalogProvider>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
+        services.AddSingleton<ITemplateDataProvider, BuildServiceTemplateDataProvider>();
+        services.AddSingleton<ITemplatePackageProvider, BuildServiceTemplatePackageProvider>();
         services.AddSingleton<IDiscoveryRuleProvider, FileSystemDiscoveryRuleProvider>();
         services.AddSingleton<HiringStageCompletionEvaluator>();
         services.AddSingleton<IArtifactSerializer, PlaceholderArtifactSerializer>();
         services.AddSingleton<IHiringFileStore, FileSystemHiringFileStore>();
+        services.AddSingleton<IEvaluationAssetStore, EvaluationAssetStore>();
+        services.AddSingleton<SandboxPvcService>();
+        services.AddSingleton<OpenSandboxProvisioner>();
+        services.AddScoped<IKingCrabHttpClient, KingCrabHttpClient>();
+        services.AddScoped<KingCrabGatewayClient>();
+    }
 
+    private static void AddDomainServices(IServiceCollection services)
+    {
         services.AddScoped<IUserService, UserService>();
-        services.AddSingleton<ITemplateDataProvider, FallbackTemplateDataProvider>();
-
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
         services.AddScoped<IEmployeeHiringService, EmployeeHiringService>();
+        services.AddScoped<IHiringArtifactPackageService, HiringArtifactPackageService>();
         services.AddScoped<IEmployeeRuntimeService, EmployeeRuntimeService>();
         services.AddScoped<ITrainingService, TrainingService>();
         services.AddScoped<IEvaluationService, EvaluationService>();
-        services.AddSingleton<IEvaluationAssetStore, EvaluationAssetStore>();
-        services.AddScoped<ICollaborationService, MockCollaborationService>();
+        services.AddScoped<ISandboxService, SandboxService>();
+        services.AddScoped<ICollaborationService, CollaborationService>();
         services.AddScoped<ITeamImService, TeamImService>();
-        services.AddScoped<ISkillCatalogService, MockSkillCatalogService>();
+        services.AddScoped<ISkillCatalogService, SkillCatalogService>();
+    }
 
-        var dataMode = configuration["HireBot:DataMode"] ?? "Mock";
-        if (string.Equals(dataMode, "Real", StringComparison.OrdinalIgnoreCase))
+    private static void ConfigureHttpClient(
+        HttpClient client,
+        string? baseUrl,
+        int timeoutSeconds,
+        string baseUrlKey,
+        string timeoutKey)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl) || !Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out var uri))
         {
-            // Keep service contracts unchanged. Real implementations can replace mock services later.
+            throw new InvalidOperationException($"{baseUrlKey} must be configured with an absolute URL.");
         }
 
-        return services;
+        if (timeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException($"{timeoutKey} must be greater than zero.");
+        }
+
+        client.BaseAddress = uri;
+        client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
     }
 }
 

@@ -4,13 +4,15 @@ using HireBot.Abstraction.Models.Training;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Training;
 using HireBot.Core.Services.Internal;
+using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Training;
 
 public sealed class TrainingService(
     IEvaluationScenarioProvider evaluationScenarioProvider,
     IEmployeeRuntimeStore store,
-    IRequestContextService requestContextService) : ITrainingService
+    IRequestContextService requestContextService,
+    ILogger<TrainingService> logger) : ITrainingService
 {
     public async Task<ApiResponse<TrainingStateDto>> GetTrainingStateAsync(string employeeId, CancellationToken cancellationToken = default)
     {
@@ -26,8 +28,16 @@ public sealed class TrainingService(
             return ApiResponse<TrainingStateDto>.ErrorResponse(404, "员工不存在");
         }
 
-        var state = await evaluationScenarioProvider.GetTrainingStateAsync(employeeId.Trim(), cancellationToken);
-        return ApiResponse<TrainingStateDto>.SuccessResponse(state);
+        try
+        {
+            var state = await evaluationScenarioProvider.GetTrainingStateAsync(employeeId.Trim(), cancellationToken);
+            return ApiResponse<TrainingStateDto>.SuccessResponse(state);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Training state unavailable from upstream evaluation provider. EmployeeId={EmployeeId}", employeeId);
+            return ApiResponse<TrainingStateDto>.ErrorResponse(501, ex.Message);
+        }
     }
 
     public async Task<ApiResponse<EmployeeDetailDto>> SubmitTrainingDecisionAsync(

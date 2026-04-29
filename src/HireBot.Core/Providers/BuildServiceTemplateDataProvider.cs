@@ -25,12 +25,7 @@ public sealed class BuildServiceTemplateDataProvider(
 
     public async Task<IReadOnlyList<EmployeeTemplateDefinition>> GetAllAsync(CancellationToken cancellationToken = default)
     {
-        var client = httpClientFactory.CreateClient(BuildServiceClientName);
-        if (client.BaseAddress is null)
-        {
-            logger.LogWarning("BuildService:BaseUrl not configured. Returning empty template list.");
-            return [];
-        }
+        var client = CreateConfiguredClient();
 
         var templates = new List<EmployeeTemplateDefinition>();
         const int pageSize = 100;
@@ -83,12 +78,7 @@ public sealed class BuildServiceTemplateDataProvider(
             return null;
         }
 
-        var client = httpClientFactory.CreateClient(BuildServiceClientName);
-        if (client.BaseAddress is null)
-        {
-            logger.LogWarning("BuildService:BaseUrl not configured. Unable to load template detail. TemplateId={TemplateId}", templateId);
-            return null;
-        }
+        var client = CreateConfiguredClient();
 
         var result = await SendForJsonAsync<JsonElement>(
             client,
@@ -170,6 +160,17 @@ public sealed class BuildServiceTemplateDataProvider(
         }
     }
 
+    private HttpClient CreateConfiguredClient()
+    {
+        var client = httpClientFactory.CreateClient(BuildServiceClientName);
+        if (client.BaseAddress is null)
+        {
+            throw new InvalidOperationException("BuildService:BaseUrl is not configured.");
+        }
+
+        return client;
+    }
+
     private HttpRequestMessage CreateRequest(string path)
     {
         var prefix = configuration["BuildService:ApiPrefix"];
@@ -203,13 +204,11 @@ public sealed class BuildServiceTemplateDataProvider(
 
     private static EmployeeTemplateDefinition MapListItemToDefinition(BuildTemplateDocument item)
     {
-        var templateId = FirstNonEmpty(item.TemplateId, "default");
-        var name = FirstNonEmpty(item.Name, $"Template-{templateId}");
-        var positioning = FirstNonEmpty(item.Positioning, item.Description, "Digital employee template");
-        var description = FirstNonEmpty(item.Description, item.Positioning, $"{name} template");
+        var templateId = RequireNonEmpty(item.TemplateId, "templateId");
+        var name = RequireNonEmpty(item.Name, $"name (templateId={templateId})");
+        var positioning = RequireAny($"positioning/description (templateId={templateId})", item.Positioning, item.Description);
+        var description = RequireAny($"description/positioning (templateId={templateId})", item.Description, item.Positioning);
         var useCases = ParseUseCases(item.UseCases);
-        var coreAbilityTags = useCases.Count > 0 ? useCases : ["General"];
-        var coreAbilities = useCases.Count > 0 ? useCases : ["To be configured"];
 
         return new EmployeeTemplateDefinition(
             TemplateId: templateId,
@@ -217,12 +216,12 @@ public sealed class BuildServiceTemplateDataProvider(
             Name: name,
             Tagline: positioning,
             Description: description,
-            CoreAbilityTags: coreAbilityTags,
+            CoreAbilityTags: useCases,
             HiredCount: Math.Max(0, item.HiredCount),
             SuccessRate: 0m,
             AvgRating: 0m,
             IsAvailable: IsTemplateAvailable(item.Status),
-            CoreAbilities: coreAbilities,
+            CoreAbilities: useCases,
             InScope: useCases,
             OutOfScope: [],
             Prerequisites: [],
@@ -231,18 +230,14 @@ public sealed class BuildServiceTemplateDataProvider(
 
     private static EmployeeTemplateDefinition MapDetailToDefinition(BuildTemplateDocument detail)
     {
-        var templateId = FirstNonEmpty(detail.TemplateId, "default");
-        var name = FirstNonEmpty(detail.Name, $"Template-{templateId}");
-        var positioning = FirstNonEmpty(detail.Positioning, detail.Description, "Digital employee template");
-        var description = FirstNonEmpty(detail.Description, detail.Positioning, $"{name} template");
+        var templateId = RequireNonEmpty(detail.TemplateId, "templateId");
+        var name = RequireNonEmpty(detail.Name, $"name (templateId={templateId})");
+        var positioning = RequireAny($"positioning/description (templateId={templateId})", detail.Positioning, detail.Description);
+        var description = RequireAny($"description/positioning (templateId={templateId})", detail.Description, detail.Positioning);
         var useCases = ParseUseCases(detail.UseCases);
         var coreAbilities = ExtractCoreAbilities(detail.Skills, useCases);
         var coreAbilityTags = BuildCoreAbilityTags(useCases, detail.Skills);
         var inScope = useCases.Count > 0 ? useCases : ExtractOntologyHints(detail.Ontologies);
-        if (inScope.Count == 0)
-        {
-            inScope = ["Execute only within declared template scope"];
-        }
 
         return new EmployeeTemplateDefinition(
             TemplateId: templateId,
@@ -250,12 +245,12 @@ public sealed class BuildServiceTemplateDataProvider(
             Name: name,
             Tagline: positioning,
             Description: description,
-            CoreAbilityTags: coreAbilityTags.Count > 0 ? coreAbilityTags : ["General"],
+            CoreAbilityTags: coreAbilityTags,
             HiredCount: Math.Max(0, detail.HiredCount),
             SuccessRate: 0m,
             AvgRating: 0m,
             IsAvailable: IsTemplateAvailable(detail.Status),
-            CoreAbilities: coreAbilities.Count > 0 ? coreAbilities : ["To be configured"],
+            CoreAbilities: coreAbilities,
             InScope: inScope,
             OutOfScope: [],
             Prerequisites: BuildPrerequisites(detail.Skills, detail.Clis),
@@ -338,8 +333,11 @@ public sealed class BuildServiceTemplateDataProvider(
                 GetString(skillObject, "displayName"),
                 GetString(skillObject, "name"),
                 GetString(binding, "displayName"),
-                GetString(binding, "name"),
-                "Skill");
+                GetString(binding, "name"));
+            if (string.IsNullOrWhiteSpace(systemName))
+            {
+                continue;
+            }
 
             var permissions = DistinctNonEmpty(EnumerateStringArray(GetProperty(effectiveVersion, "permissions")));
             if (permissions.Count > 0)
@@ -359,8 +357,12 @@ public sealed class BuildServiceTemplateDataProvider(
                     GetString(effectiveVersion, "entryPoint"),
                     GetString(effectiveVersion, "version"),
                     GetString(binding, "entryPoint"),
-                    GetString(binding, "version"),
-                    "default");
+                    GetString(binding, "version"));
+                if (string.IsNullOrWhiteSpace(entryPoint))
+                {
+                    continue;
+                }
+
                 result.Add(new TemplatePrerequisiteDto(
                     systemName,
                     entryPoint,
@@ -400,10 +402,10 @@ public sealed class BuildServiceTemplateDataProvider(
         }
 
         var result = new List<string>();
-        var versionText = FirstNonEmpty(version.Version, "unknown");
-        if (!string.IsNullOrWhiteSpace(version.ChangeLog))
+        var versionText = FirstNonEmpty(version.Version);
+        if (!string.IsNullOrWhiteSpace(versionText) && !string.IsNullOrWhiteSpace(version.ChangeLog))
         {
-            result.Add($"Version {versionText}: {version.ChangeLog.Trim()}");
+            result.Add($"Version {versionText.Trim()}: {version.ChangeLog.Trim()}");
         }
 
         return DistinctNonEmpty(result);
@@ -416,14 +418,10 @@ public sealed class BuildServiceTemplateDataProvider(
 
     private static bool IsTemplateAvailable(string? status)
     {
-        if (string.IsNullOrWhiteSpace(status))
-        {
-            return true;
-        }
-
-        return string.Equals(status, "published", StringComparison.OrdinalIgnoreCase) ||
+        return !string.IsNullOrWhiteSpace(status) &&
+               (string.Equals(status, "published", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(status, "active", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(status, "live", StringComparison.OrdinalIgnoreCase);
+               string.Equals(status, "live", StringComparison.OrdinalIgnoreCase));
     }
 
     private static JsonElement GetProperty(JsonElement element, string propertyName)
@@ -507,6 +505,27 @@ public sealed class BuildServiceTemplateDataProvider(
         }
 
         return string.Empty;
+    }
+
+    private static string RequireNonEmpty(string? value, string fieldName)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            return value.Trim();
+        }
+
+        throw new InvalidOperationException($"Build service template payload is missing required field: {fieldName}.");
+    }
+
+    private static string RequireAny(string fieldName, params string?[] values)
+    {
+        var value = FirstNonEmpty(values);
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            return value.Trim();
+        }
+
+        throw new InvalidOperationException($"Build service template payload is missing required field: {fieldName}.");
     }
 
     private static IReadOnlyList<string> DistinctNonEmpty(IEnumerable<string?> values)

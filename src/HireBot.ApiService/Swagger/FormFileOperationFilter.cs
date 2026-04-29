@@ -27,6 +27,7 @@ public sealed class FormFileOperationFilter : IOperationFilter
             operation.RequestBody = requestBody;
         }
 
+        requestBody.Content ??= new Dictionary<string, OpenApiMediaType>();
         requestBody.Content.Clear();
         requestBody.Content["multipart/form-data"] = new OpenApiMediaType
         {
