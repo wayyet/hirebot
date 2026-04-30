@@ -8,9 +8,11 @@ using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Evaluation;
 using HireBot.Abstraction.Models.Evaluation.Tools;
 using HireBot.Abstraction.Models.Hiring;
+using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Hiring;
+using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Evaluation.Persistence;
 using HireBot.Core.Services.Internal;
 using HireBot.Repository;
@@ -25,6 +27,8 @@ namespace HireBot.Core.Services.Evaluation;
 internal sealed class EvaluationService(
     IEmployeeRuntimeStore store,
     IEmployeeHiringService employeeHiringService,
+    IHiringArtifactPackageService artifactPackageService,
+    ISandboxService sandboxService,
     IRequestContextService requestContextService,
     HireBotDbContext dbContext,
     IEvaluationAssetStore evaluationAssetStore,
@@ -79,6 +83,98 @@ internal sealed class EvaluationService(
 
     private readonly string evaluationResourceRoot =
         ResolveEvaluationResourceRoot(hostEnvironment.ContentRootPath, configuration["HireBot:EvaluationResourceRoot"]);
+
+    private Task<ApiResponse<StartHiringConversationResultDto>> EnsureSandboxConversationStartedAsync(
+        string owner,
+        string hireId,
+        string sandboxId,
+        string sandboxRole,
+        CancellationToken cancellationToken)
+    {
+        var (tenantId, operatorId) = ResolveTenantAndOperator(owner);
+        return sandboxService.EnsureSessionAsync(
+            new SandboxEnsureSessionRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = hireId,
+                SandboxRole = sandboxRole,
+                OwnerSubject = owner,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                SandboxId = sandboxId,
+                SessionKey = "default"
+            },
+            cancellationToken);
+    }
+
+    private Task<ApiResponse<HiringConversationTimelineDto>> GetSandboxTimelineAsync(
+        string owner,
+        string hireId,
+        string sandboxId,
+        string sandboxRole,
+        CancellationToken cancellationToken)
+    {
+        var (tenantId, operatorId) = ResolveTenantAndOperator(owner);
+        return sandboxService.GetTimelineAsync(
+            new SandboxTimelineRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = hireId,
+                SandboxRole = sandboxRole,
+                OwnerSubject = owner,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                SandboxId = sandboxId,
+                SessionKey = "default"
+            },
+            cancellationToken);
+    }
+
+    private Task<ApiResponse<HiringConversationResultDto>> SendSandboxMessageAsync(
+        string owner,
+        string hireId,
+        string sandboxId,
+        string sandboxRole,
+        HiringConversationMessageRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var (tenantId, operatorId) = ResolveTenantAndOperator(owner);
+        return sandboxService.SendMessageAsync(
+            new SandboxSendMessageRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = hireId,
+                SandboxRole = sandboxRole,
+                OwnerSubject = owner,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                SandboxId = sandboxId,
+                SessionKey = "default",
+                Content = request.Content,
+                StructuredAnswers = request.StructuredAnswers,
+                Materials = request.Materials
+            },
+            cancellationToken);
+    }
+
+    private static (string TenantId, string OperatorId) ResolveTenantAndOperator(string ownerSubject)
+    {
+        if (!string.IsNullOrWhiteSpace(ownerSubject))
+        {
+            var delimiterIndex = ownerSubject.IndexOf(':');
+            if (delimiterIndex > 0 && delimiterIndex < ownerSubject.Length - 1)
+            {
+                var tenantId = ownerSubject[..delimiterIndex].Trim();
+                var operatorId = ownerSubject[(delimiterIndex + 1)..].Trim();
+                if (!string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(operatorId))
+                {
+                    return (tenantId, operatorId);
+                }
+            }
+        }
+
+        return (ownerSubject, ownerSubject);
+    }
 
     public async Task<ApiResponse<EvaluationStateDto>> GetEvaluationStateAsync(
         string employeeId,
@@ -248,7 +344,7 @@ internal sealed class EvaluationService(
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(workspaceResult.Code, workspaceResult.Message);
         }
 
-        var sessionResult = await EnsureEvaluatorConversationStartedAsync(workspaceResult.Data, cancellationToken);
+        var sessionResult = await EnsureEvaluatorConversationStartedAsync(owner, workspaceResult.Data, cancellationToken);
         if (!sessionResult.Success || sessionResult.Data is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(sessionResult.Code, sessionResult.Message);
@@ -266,8 +362,11 @@ internal sealed class EvaluationService(
                 conversationPreparedResult.Message);
         }
 
-        var timelineResult = await employeeHiringService.GetConversationTimelineAsync(
+        var timelineResult = await GetSandboxTimelineAsync(
+            owner,
             conversationPreparedResult.Data.EvaluatorHireId,
+            conversationPreparedResult.Data.EvaluatorSandboxId,
+            "evaluation-evaluator",
             cancellationToken);
         if (!timelineResult.Success || timelineResult.Data is null)
         {
@@ -311,7 +410,7 @@ internal sealed class EvaluationService(
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(workspaceResult.Code, workspaceResult.Message);
         }
 
-        var sessionResult = await EnsureEvaluatorConversationStartedAsync(workspaceResult.Data, cancellationToken);
+        var sessionResult = await EnsureEvaluatorConversationStartedAsync(owner, workspaceResult.Data, cancellationToken);
         if (!sessionResult.Success || sessionResult.Data is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(sessionResult.Code, sessionResult.Message);
@@ -323,8 +422,11 @@ internal sealed class EvaluationService(
             StructuredAnswers = request.StructuredAnswers,
             Materials = request.Materials
         };
-        var sendResult = await employeeHiringService.SendConversationMessageAsync(
+        var sendResult = await SendSandboxMessageAsync(
+            owner,
             workspaceResult.Data.EvaluatorHireId,
+            workspaceResult.Data.EvaluatorSandboxId,
+            "evaluation-evaluator",
             sendRequest,
             cancellationToken);
         if (!sendResult.Success || sendResult.Data is null)
@@ -332,7 +434,12 @@ internal sealed class EvaluationService(
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(sendResult.Code, sendResult.Message);
         }
 
-        var timelineResult = await employeeHiringService.GetConversationTimelineAsync(workspaceResult.Data.EvaluatorHireId, cancellationToken);
+        var timelineResult = await GetSandboxTimelineAsync(
+            owner,
+            workspaceResult.Data.EvaluatorHireId,
+            workspaceResult.Data.EvaluatorSandboxId,
+            "evaluation-evaluator",
+            cancellationToken);
         if (!timelineResult.Success || timelineResult.Data is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(timelineResult.Code, timelineResult.Message);
@@ -863,7 +970,12 @@ internal sealed class EvaluationService(
             return ApiResponse<EvaluationTargetExecuteResultDto>.ErrorResponse(warmupResult.Code, warmupResult.Message);
         }
 
-        var startConversationResult = await employeeHiringService.StartConversationAsync(workspaceResult.Data.TargetHireId, cancellationToken);
+        var startConversationResult = await EnsureSandboxConversationStartedAsync(
+            owner,
+            workspaceResult.Data.TargetHireId,
+            workspaceResult.Data.TargetSandboxId,
+            "evaluation-target",
+            cancellationToken);
         if (!startConversationResult.Success && startConversationResult.Code != 409)
         {
             logger.LogInformation(
@@ -874,8 +986,11 @@ internal sealed class EvaluationService(
                 startConversationResult.Message);
         }
 
-        var sendResult = await employeeHiringService.SendConversationMessageAsync(
+        var sendResult = await SendSandboxMessageAsync(
+            owner,
             workspaceResult.Data.TargetHireId,
+            workspaceResult.Data.TargetSandboxId,
+            "evaluation-target",
             new HiringConversationMessageRequestDto
             {
                 Content = BuildTargetExecutionPrompt(testcaseId, input)
@@ -887,7 +1002,12 @@ internal sealed class EvaluationService(
             return ApiResponse<EvaluationTargetExecuteResultDto>.ErrorResponse(sendResult.Code, sendResult.Message);
         }
 
-        var timelineResult = await employeeHiringService.GetConversationTimelineAsync(workspaceResult.Data.TargetHireId, cancellationToken);
+        var timelineResult = await GetSandboxTimelineAsync(
+            owner,
+            workspaceResult.Data.TargetHireId,
+            workspaceResult.Data.TargetSandboxId,
+            "evaluation-target",
+            cancellationToken);
         var completedAtUtc = DateTimeOffset.UtcNow;
         var executionId = $"exec_{Guid.NewGuid():N}";
 
@@ -1274,6 +1394,7 @@ internal sealed class EvaluationService(
     }
 
     private async Task<ApiResponse<EvaluationWorkspaceContext>> EnsureEvaluatorConversationStartedAsync(
+        string owner,
         EvaluationWorkspaceContext workspaceContext,
         CancellationToken cancellationToken)
     {
@@ -1282,7 +1403,12 @@ internal sealed class EvaluationService(
             return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(workspaceContext);
         }
 
-        var startResult = await employeeHiringService.StartConversationAsync(workspaceContext.EvaluatorHireId, cancellationToken);
+        var startResult = await EnsureSandboxConversationStartedAsync(
+            owner,
+            workspaceContext.EvaluatorHireId,
+            workspaceContext.EvaluatorSandboxId,
+            "evaluation-evaluator",
+            cancellationToken);
         if (!startResult.Success || startResult.Data is null)
         {
             return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(
@@ -1316,7 +1442,12 @@ internal sealed class EvaluationService(
                 cancellationToken);
         if (testcaseReady && ontologyReady)
         {
-            var readyTimelineResult = await employeeHiringService.GetConversationTimelineAsync(workspaceContext.EvaluatorHireId, cancellationToken);
+            var readyTimelineResult = await GetSandboxTimelineAsync(
+                owner,
+                workspaceContext.EvaluatorHireId,
+                workspaceContext.EvaluatorSandboxId,
+                "evaluation-evaluator",
+                cancellationToken);
             if (!readyTimelineResult.Success || readyTimelineResult.Data is null)
             {
                 return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(readyTimelineResult.Code, readyTimelineResult.Message);
@@ -1350,8 +1481,11 @@ internal sealed class EvaluationService(
             var questionCardsMarkdown = BuildQuestionCardsMarkdown(cards);
             var ontologyRulesMarkdown = BuildOntologyRulesMarkdown();
 
-            var readySendResult = await employeeHiringService.SendConversationMessageAsync(
+            var readySendResult = await SendSandboxMessageAsync(
+                owner,
                 workspaceContext.EvaluatorHireId,
+                workspaceContext.EvaluatorSandboxId,
+                "evaluation-evaluator",
                 new HiringConversationMessageRequestDto
                 {
                     Content = "评估资料已就绪。你可以继续对话询问题卡细节、评分标准，或直接开始执行评估。",
@@ -1375,7 +1509,12 @@ internal sealed class EvaluationService(
             });
         }
 
-        var timelineResult = await employeeHiringService.GetConversationTimelineAsync(workspaceContext.EvaluatorHireId, cancellationToken);
+        var timelineResult = await GetSandboxTimelineAsync(
+            owner,
+            workspaceContext.EvaluatorHireId,
+            workspaceContext.EvaluatorSandboxId,
+            "evaluation-evaluator",
+            cancellationToken);
         if (!timelineResult.Success || timelineResult.Data is null)
         {
             return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(timelineResult.Code, timelineResult.Message);
@@ -1389,8 +1528,11 @@ internal sealed class EvaluationService(
             });
         }
 
-        var sendResult = await employeeHiringService.SendConversationMessageAsync(
+        var sendResult = await SendSandboxMessageAsync(
+            owner,
             workspaceContext.EvaluatorHireId,
+            workspaceContext.EvaluatorSandboxId,
+            "evaluation-evaluator",
             new HiringConversationMessageRequestDto
             {
                 Content = "检测到评估资料不完整，请引导用户补充缺失素材（测试用例/评估本体），补充后继续执行评估流程。",
@@ -1578,7 +1720,7 @@ internal sealed class EvaluationService(
         IReadOnlyList<TraceExecutionEvidence> executionEvidences,
         CancellationToken cancellationToken)
     {
-        var sessionResult = await EnsureEvaluatorConversationStartedAsync(workspaceContext, cancellationToken);
+        var sessionResult = await EnsureEvaluatorConversationStartedAsync(employee.OwnerUserId, workspaceContext, cancellationToken);
         if (!sessionResult.Success || sessionResult.Data is null)
         {
             return ApiResponse<EvaluatorVerdictResult>.ErrorResponse(sessionResult.Code, sessionResult.Message);
@@ -1588,8 +1730,11 @@ internal sealed class EvaluationService(
         var payloadJson = JsonSerializer.Serialize(payload, JsonOptions);
         var prompt = BuildEvaluatorPrompt(payloadJson);
 
-        var sendResult = await employeeHiringService.SendConversationMessageAsync(
+        var sendResult = await SendSandboxMessageAsync(
+            employee.OwnerUserId,
             workspaceContext.EvaluatorHireId,
+            workspaceContext.EvaluatorSandboxId,
+            "evaluation-evaluator",
             new HiringConversationMessageRequestDto
             {
                 Content = prompt,
@@ -1612,7 +1757,12 @@ internal sealed class EvaluationService(
             return ApiResponse<EvaluatorVerdictResult>.SuccessResponse(verdict);
         }
 
-        var timelineResult = await employeeHiringService.GetConversationTimelineAsync(workspaceContext.EvaluatorHireId, cancellationToken);
+        var timelineResult = await GetSandboxTimelineAsync(
+            employee.OwnerUserId,
+            workspaceContext.EvaluatorHireId,
+            workspaceContext.EvaluatorSandboxId,
+            "evaluation-evaluator",
+            cancellationToken);
         if (!timelineResult.Success || timelineResult.Data is null)
         {
             return ApiResponse<EvaluatorVerdictResult>.ErrorResponse(timelineResult.Code, timelineResult.Message);
@@ -2055,8 +2205,8 @@ internal sealed class EvaluationService(
         string targetHireId,
         CancellationToken cancellationToken)
     {
-        var artifactDownload = await employeeHiringService.BuildArtifactDownloadAsync(targetHireId, cancellationToken);
-        if (!artifactDownload.Found || artifactDownload.Content is null || artifactDownload.Content.Length == 0)
+        var packageSnapshot = await artifactPackageService.GetLatestPackageAsync(targetHireId, cancellationToken);
+        if (packageSnapshot?.Content is not { Length: > 0 })
         {
             return [];
         }
@@ -2064,7 +2214,7 @@ internal sealed class EvaluationService(
         var sources = new List<TestcaseSourceFile>();
         try
         {
-            using var stream = new MemoryStream(artifactDownload.Content, writable: false);
+            using var stream = new MemoryStream(packageSnapshot.Content, writable: false);
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
             foreach (var entry in archive.Entries)
             {
@@ -2082,18 +2232,20 @@ internal sealed class EvaluationService(
                     continue;
                 }
 
-                if (!json.Contains("test_case", StringComparison.OrdinalIgnoreCase) &&
+                var normalizedPath = entry.FullName.Replace('\\', '/');
+                var isTestcaseFolderEntry = normalizedPath.StartsWith("testcases/", StringComparison.OrdinalIgnoreCase);
+                if (!isTestcaseFolderEntry &&
+                    !json.Contains("test_case", StringComparison.OrdinalIgnoreCase) &&
                     !json.Contains("test_cases", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                var normalizedPath = entry.FullName.Replace('\\', '/');
                 sources.Add(new TestcaseSourceFile(
                     FileName: Path.GetFileName(normalizedPath),
                     SourcePath: normalizedPath,
                     RawJson: json,
-                    SourceType: "target-artifact"));
+                    SourceType: packageSnapshot.Kind));
             }
         }
         catch (Exception ex)
@@ -2215,7 +2367,12 @@ internal sealed class EvaluationService(
             sourceType: bundle.SourceType,
             cancellationToken);
 
-        var startConversationResult = await employeeHiringService.StartConversationAsync(workspaceContext.TargetHireId, cancellationToken);
+        var startConversationResult = await EnsureSandboxConversationStartedAsync(
+            employee.OwnerUserId,
+            workspaceContext.TargetHireId,
+            workspaceContext.TargetSandboxId,
+            "evaluation-target",
+            cancellationToken);
         if (!startConversationResult.Success && startConversationResult.Code != 409)
         {
             logger.LogInformation(
@@ -2227,8 +2384,11 @@ internal sealed class EvaluationService(
 
         var zipBase64 = Convert.ToBase64String(bundle.Content);
         var warmupMessage = BuildTargetArtifactWarmupPrompt(bundle.FileName, zipAsset.PublicUrl);
-        var warmupSendResult = await employeeHiringService.SendConversationMessageAsync(
+        var warmupSendResult = await SendSandboxMessageAsync(
+            employee.OwnerUserId,
             workspaceContext.TargetHireId,
+            workspaceContext.TargetSandboxId,
+            "evaluation-target",
             new HiringConversationMessageRequestDto
             {
                 Content = warmupMessage,
@@ -2313,25 +2473,22 @@ internal sealed class EvaluationService(
             return ApiResponse<TargetArtifactBundle>.ErrorResponse(404, $"explicit artifact path not found: {normalizedPath}");
         }
 
-        var artifactDownload = await employeeHiringService.BuildArtifactDownloadAsync(targetHireId, cancellationToken);
-        if (artifactDownload.Found && artifactDownload.Content is { Length: > 0 })
+        var packageSnapshot = await artifactPackageService.GetLatestPackageAsync(targetHireId, cancellationToken);
+        if (packageSnapshot?.Content is { Length: > 0 })
         {
-            var sourceName = string.IsNullOrWhiteSpace(artifactDownload.FileName)
+            var sourceName = string.IsNullOrWhiteSpace(packageSnapshot.FileName)
                 ? $"hiring_artifacts_{targetHireId}.zip"
-                : artifactDownload.FileName!;
-            var hash = Convert.ToHexStringLower(SHA256.HashData(artifactDownload.Content));
+                : packageSnapshot.FileName;
+            var hash = Convert.ToHexStringLower(SHA256.HashData(packageSnapshot.Content));
             return ApiResponse<TargetArtifactBundle>.SuccessResponse(new TargetArtifactBundle(
                 FileName: sourceName,
-                Content: artifactDownload.Content,
+                Content: packageSnapshot.Content,
                 Sha256: hash,
-                SourceType: "target-artifact-download",
+                SourceType: packageSnapshot.Kind,
                 SourcePath: targetHireId));
         }
 
-        var errorMessage = artifactDownload.Found
-            ? "target artifact is empty"
-            : $"target artifact not found: {artifactDownload.Message}";
-        return ApiResponse<TargetArtifactBundle>.ErrorResponse(404, errorMessage);
+        return ApiResponse<TargetArtifactBundle>.ErrorResponse(404, "target artifact package not found");
     }
 
     private static async Task<TargetArtifactBundle> ZipDirectoryAsBundleAsync(
@@ -2468,8 +2625,8 @@ internal sealed class EvaluationService(
         string targetHireId,
         CancellationToken cancellationToken)
     {
-        var artifactDownload = await employeeHiringService.BuildArtifactDownloadAsync(targetHireId, cancellationToken);
-        if (!artifactDownload.Found || artifactDownload.Content is null || artifactDownload.Content.Length == 0)
+        var packageSnapshot = await artifactPackageService.GetLatestPackageAsync(targetHireId, cancellationToken);
+        if (packageSnapshot?.Content is not { Length: > 0 })
         {
             return [];
         }
@@ -2477,7 +2634,7 @@ internal sealed class EvaluationService(
         var sources = new List<OntologySourceFile>();
         try
         {
-            using var stream = new MemoryStream(artifactDownload.Content, writable: false);
+            using var stream = new MemoryStream(packageSnapshot.Content, writable: false);
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
             foreach (var entry in archive.Entries)
             {
@@ -2507,7 +2664,7 @@ internal sealed class EvaluationService(
                     FileName: Path.GetFileName(normalizedPath),
                     SourcePath: normalizedPath,
                     Content: content,
-                    SourceType: "target-artifact"));
+                    SourceType: packageSnapshot.Kind));
             }
         }
         catch (Exception ex)

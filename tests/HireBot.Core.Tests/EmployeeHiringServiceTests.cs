@@ -181,8 +181,9 @@ public class EmployeeHiringServiceTests
         var updated = EmployeeHiringService.ApplyConversationProgressToTemplatePackage(runtimeContext);
         var files = updated.TemplatePackage.PackageFiles.ToDictionary(f => f.RelativePath, StringComparer.OrdinalIgnoreCase);
 
+        Assert.Contains("testcases/evaluation-test-cases.json", files.Keys);
         Assert.Contains("ontology/hiring-session/evaluation-test-cases.json", files.Keys);
-        var testCasesJson = Encoding.UTF8.GetString(files["ontology/hiring-session/evaluation-test-cases.json"].Content);
+        var testCasesJson = Encoding.UTF8.GetString(files["testcases/evaluation-test-cases.json"].Content);
         using var testCasesDocument = JsonDocument.Parse(testCasesJson);
         var root = testCasesDocument.RootElement;
         var firstCaseTitle = root.GetProperty("cases")[0].GetProperty("title").GetString();

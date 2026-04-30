@@ -20,6 +20,9 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
     public DbSet<ConversationEntity> Conversations { get; set; }
     public DbSet<MessageEntity> Messages { get; set; }
     public DbSet<ImConfigEntity> ImConfigs { get; set; }
+    public DbSet<SandboxInstanceEntity> SandboxInstances { get; set; }
+    public DbSet<SandboxSessionEntity> SandboxSessions { get; set; }
+    public DbSet<SandboxAssetEntity> SandboxAssets { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -229,6 +232,78 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.HasIndex(e => new { e.InstanceId, e.Platform }).IsUnique();
             entity.HasIndex(e => new { e.TenantId, e.OwnerUserId });
             entity.HasIndex(e => new { e.Platform, e.Status });
+        });
+
+        modelBuilder.Entity<SandboxInstanceEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SandboxId).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.ScopeType).IsRequired().HasMaxLength(40);
+            entity.Property(e => e.ScopeKey).IsRequired().HasMaxLength(160);
+            entity.Property(e => e.SandboxRole).IsRequired().HasMaxLength(80);
+            entity.Property(e => e.ProvisioningMode).IsRequired().HasMaxLength(40);
+            entity.Property(e => e.OwnerSubject).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.OperatorId).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.State).IsRequired().HasMaxLength(80);
+            entity.Property(e => e.GatewayEndpoint).HasMaxLength(512);
+            entity.Property(e => e.LastError).HasMaxLength(1024);
+            entity.Property(e => e.UseCase).HasMaxLength(200);
+            entity.Property(e => e.CreatedAtUtc).IsRequired();
+            entity.Property(e => e.UpdatedAtUtc).IsRequired();
+
+            entity.HasIndex(e => e.SandboxId).IsUnique();
+            entity.HasIndex(e => new { e.OwnerSubject, e.ScopeType, e.ScopeKey, e.SandboxRole });
+            entity.HasIndex(e => new { e.OwnerSubject, e.State, e.UpdatedAtUtc });
+        });
+
+        modelBuilder.Entity<SandboxSessionEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SessionId).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.ScopeType).IsRequired().HasMaxLength(160);
+            entity.Property(e => e.ScopeKey).IsRequired().HasMaxLength(160);
+            entity.Property(e => e.SandboxRole).IsRequired().HasMaxLength(80);
+            entity.Property(e => e.SessionKey).IsRequired().HasMaxLength(160);
+            entity.Property(e => e.ChannelId).HasMaxLength(120);
+            entity.Property(e => e.SenderId).HasMaxLength(120);
+            entity.Property(e => e.OwnerSubject).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.CreatedAtUtc).IsRequired();
+            entity.Property(e => e.UpdatedAtUtc).IsRequired();
+
+            entity.HasIndex(e => e.SessionId).IsUnique();
+            entity.HasIndex(e => new { e.OwnerSubject, e.ScopeType, e.ScopeKey, e.SandboxRole, e.SessionKey }).IsUnique();
+
+            entity.HasOne(e => e.SandboxInstance)
+                .WithMany(s => s.Sessions)
+                .HasForeignKey(e => e.SandboxInstanceEntityId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<SandboxAssetEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.MediaId).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.Url).IsRequired().HasMaxLength(512);
+            entity.Property(e => e.FileName).IsRequired().HasMaxLength(512);
+            entity.Property(e => e.MimeType).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.ContentHash).HasMaxLength(128);
+            entity.Property(e => e.StoragePath).HasMaxLength(1024);
+            entity.Property(e => e.AssetRole).IsRequired().HasMaxLength(80);
+            entity.Property(e => e.CreatedAtUtc).IsRequired();
+
+            entity.HasIndex(e => e.MediaId).IsUnique();
+            entity.HasIndex(e => new { e.SandboxInstanceEntityId, e.CreatedAtUtc });
+
+            entity.HasOne(e => e.SandboxInstance)
+                .WithMany(s => s.Assets)
+                .HasForeignKey(e => e.SandboxInstanceEntityId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.SandboxSession)
+                .WithMany(s => s.Assets)
+                .HasForeignKey(e => e.SandboxSessionEntityId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

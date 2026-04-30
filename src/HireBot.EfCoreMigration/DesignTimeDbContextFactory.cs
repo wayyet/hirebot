@@ -19,12 +19,15 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<Hir
             .AddEnvironmentVariables()
             .Build();
 
-        var connectionString = configuration.GetConnectionString("DefaultConnection")
-                               ?? "Host=localhost;Port=5432;Database=HireBot;Username=postgres;Password=postgres;";
+        var connectionString = configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required for design-time migrations.");
+        }
 
         var optionsBuilder = new DbContextOptionsBuilder<HireBotDbContext>();
         optionsBuilder.UseNpgsql(
-            connectionString,
+            connectionString.Trim(),
             npgsql => npgsql.MigrationsAssembly(typeof(DesignTimeDbContextFactory).Assembly.GetName().Name));
 
         return new HireBotDbContext(optionsBuilder.Options);

@@ -46,8 +46,9 @@ builder.Services.AddHireBotServices(builder.Configuration);
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+if (builder.Configuration.GetValue("Database:AutoMigrateOnStartup", false))
 {
+    using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<HireBotDbContext>();
     await dbContext.Database.MigrateAsync();
 }
