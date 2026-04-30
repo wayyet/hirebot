@@ -112,6 +112,7 @@ public static class ServiceExtensions
         services.AddSingleton<IEvaluationAssetStore, EvaluationAssetStore>();
         services.AddSingleton<SandboxPvcService>();
         services.AddSingleton<OpenSandboxProvisioner>();
+        services.AddSingleton<KingCrabSandboxTokenProvider>();
         services.AddScoped<IKingCrabHttpClient, KingCrabHttpClient>();
         services.AddScoped<KingCrabGatewayClient>();
     }

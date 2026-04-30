@@ -1,9 +1,11 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
+using HireBot.Core.Services.Hiring;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Repository;
 using Microsoft.AspNetCore.Http;
@@ -104,6 +106,30 @@ public sealed class SandboxInfrastructureTests
     }
 
     [Fact]
+    public void EmployeeHiringService_TryBuildSandboxUploadUrl_ShouldAppendUploadPathForDirectEndpoint()
+    {
+        var success = EmployeeHiringService.TryBuildSandboxUploadUrl(
+            "183.6.65.92:90/d9424116-2b57-496f-9cb8-5a972c557de0/18789",
+            out var uploadUrl);
+
+        Assert.True(success);
+        Assert.Equal(
+            "http://183.6.65.92:90/d9424116-2b57-496f-9cb8-5a972c557de0/18789/admin/digital-employee/upload",
+            uploadUrl);
+    }
+
+    [Fact]
+    public void EmployeeHiringService_TryBuildSandboxUploadUrl_ShouldNotAppendUploadPathTwice()
+    {
+        const string expectedUrl = "http://183.6.65.92:90/d9424116-2b57-496f-9cb8-5a972c557de0/18789/admin/digital-employee/upload";
+
+        var success = EmployeeHiringService.TryBuildSandboxUploadUrl(expectedUrl, out var uploadUrl);
+
+        Assert.True(success);
+        Assert.Equal(expectedUrl, uploadUrl);
+    }
+
+    [Fact]
     public void SandboxPvcService_BuildVolumes_ShouldUseOwnerScopedPvcNamesAndMountPaths()
     {
         var configuration = new ConfigurationBuilder()
@@ -149,10 +175,12 @@ public sealed class SandboxInfrastructureTests
         };
         httpContextAccessor.HttpContext.Request.Headers.Authorization = "Bearer inbound-token";
 
+        var httpClientFactory = new StubHttpClientFactory(httpClient);
         var client = new KingCrabHttpClient(
-            new StubHttpClientFactory(httpClient),
+            httpClientFactory,
             new ConfigurationBuilder().Build(),
             httpContextAccessor,
+            CreateSandboxTokenProvider(httpClientFactory, new ConfigurationBuilder().Build()),
             NullLogger<KingCrabHttpClient>.Instance);
 
         var result = await client.SendForJsonAsync<EchoResult>(
@@ -187,10 +215,12 @@ public sealed class SandboxInfrastructureTests
             ])
             .Build();
 
+        var httpClientFactory = new StubHttpClientFactory(httpClient);
         var client = new KingCrabHttpClient(
-            new StubHttpClientFactory(httpClient),
+            httpClientFactory,
             configuration,
             new HttpContextAccessor(),
+            CreateSandboxTokenProvider(httpClientFactory, configuration),
             NullLogger<KingCrabHttpClient>.Instance);
 
         var result = await client.SendForJsonAsync<EchoResult>(
@@ -205,7 +235,7 @@ public sealed class SandboxInfrastructureTests
     }
 
     [Fact]
-    public async Task KingCrabHttpClient_SendMultipartForJsonAsync_ShouldNormalizeSandboxProxyBaseUrlWithoutScheme()
+    public async Task KingCrabHttpClient_SendMultipartForJsonAsync_ShouldHonorAbsoluteUploadUrl()
     {
         var handler = new RecordingHttpMessageHandler(_ => JsonResponse(new EchoResult("ok")));
         var httpClient = new HttpClient(handler)
@@ -220,44 +250,53 @@ public sealed class SandboxInfrastructureTests
             ])
             .Build();
 
+        var httpClientFactory = new StubHttpClientFactory(httpClient);
         var client = new KingCrabHttpClient(
-            new StubHttpClientFactory(httpClient),
+            httpClientFactory,
             configuration,
             new HttpContextAccessor(),
+            CreateSandboxTokenProvider(httpClientFactory, configuration),
             NullLogger<KingCrabHttpClient>.Instance);
 
         var result = await client.SendMultipartForJsonAsync<EchoResult>(
-            "/admin/digital-employee/upload",
+            "http://sandbox-gateway.local/0392ec86-a659-4816-a7af-c6288285df1b/18789/admin/digital-employee/upload",
             "file",
             "skill.zip",
             [0x01, 0x02, 0x03],
             "application/zip",
             "tenant-a:operator-b",
             CancellationToken.None,
-            useHireBotApiPrefix: false,
-            absoluteBaseUrl: "opensandbox-server.zyagi.cn:1080/sandboxes/sandbox-001/proxy/18789");
+            useHireBotApiPrefix: false);
 
         Assert.True(result.Success);
         var request = Assert.Single(handler.Requests);
-        Assert.Equal("opensandbox-server.zyagi.cn", request.Host);
-        Assert.Equal("/sandboxes/sandbox-001/proxy/18789/admin/digital-employee/upload", request.Path);
+        Assert.Equal("sandbox-gateway.local", request.Host);
+        Assert.Equal("/0392ec86-a659-4816-a7af-c6288285df1b/18789/admin/digital-employee/upload", request.Path);
         Assert.Equal("sandbox-token", request.AuthorizationBearerToken);
     }
 
     [Fact]
-    public async Task KingCrabHttpClient_SendMultipartForJsonAsync_ShouldPreferIncomingAuthorizationForOidcSandboxGateway()
+    public async Task KingCrabHttpClient_SendMultipartForJsonAsync_ShouldUseSandboxTokenProviderForOidcSandboxGateway()
     {
-        var handler = new RecordingHttpMessageHandler(_ => JsonResponse(new EchoResult("ok")));
-        var httpClient = new HttpClient(handler)
+        var uploadHandler = new RecordingHttpMessageHandler(_ => JsonResponse(new EchoResult("ok")));
+        var httpClient = new HttpClient(uploadHandler)
         {
             BaseAddress = new Uri("http://kingcrab.local/")
         };
+        var tokenHandler = new RecordingHttpMessageHandler(_ => JsonResponse(new
+        {
+            access_token = "sandbox-access-token",
+            expires_in = 600,
+            token_type = "Bearer"
+        }));
+        var tokenHttpClient = new HttpClient(tokenHandler);
 
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(
             [
-                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token"),
-                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:OidcAuthority", "http://id.example.com/realms/test")
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:OidcAuthority", "http://id.example.com/realms/test"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:ClientId", "sandbox-client"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:ClientSecret", "sandbox-secret")
             ])
             .Build();
 
@@ -267,27 +306,37 @@ public sealed class SandboxInfrastructureTests
         };
         httpContextAccessor.HttpContext.Request.Headers.Authorization = "Bearer inbound-token";
 
+        var httpClientFactory = new StubHttpClientFactory(
+            httpClient,
+            new Dictionary<string, HttpClient>(StringComparer.Ordinal)
+            {
+                [KingCrabSandboxTokenProvider.TokenHttpClientName] = tokenHttpClient
+            });
         var client = new KingCrabHttpClient(
-            new StubHttpClientFactory(httpClient),
+            httpClientFactory,
             configuration,
             httpContextAccessor,
+            CreateSandboxTokenProvider(httpClientFactory, configuration),
             NullLogger<KingCrabHttpClient>.Instance);
 
         var result = await client.SendMultipartForJsonAsync<EchoResult>(
-            "/admin/digital-employee/upload",
+            "http://sandbox-gateway.local/0392ec86-a659-4816-a7af-c6288285df1b/18789/admin/digital-employee/upload",
             "file",
             "skill.zip",
             [0x01, 0x02, 0x03],
             "application/zip",
             "tenant-a:operator-b",
             CancellationToken.None,
-            useHireBotApiPrefix: false,
-            absoluteBaseUrl: "opensandbox-server.zyagi.cn:1080/sandboxes/sandbox-001/proxy/18789");
+            useHireBotApiPrefix: false);
 
         Assert.True(result.Success);
-        var request = Assert.Single(handler.Requests);
-        Assert.Equal("Bearer inbound-token", request.Authorization);
-        Assert.Equal("inbound-token", request.AuthorizationBearerToken);
+        var request = Assert.Single(uploadHandler.Requests);
+        Assert.Equal("Bearer sandbox-access-token", request.Authorization);
+        Assert.Equal("sandbox-access-token", request.AuthorizationBearerToken);
+
+        var tokenRequest = Assert.Single(tokenHandler.Requests);
+        Assert.Equal("id.example.com", tokenRequest.Host);
+        Assert.Equal("/realms/test/protocol/openid-connect/token", tokenRequest.Path);
     }
 
     [Fact]
@@ -398,11 +447,20 @@ public sealed class SandboxInfrastructureTests
     public async Task SandboxService_ConversationLifecycle_ShouldStartSendAndReadTimeline()
     {
         const string databaseName = "sandbox-service-conversation-lifecycle";
+        const string directGatewayEndpoint = "sandbox-direct.local/runtime/sandbox-001/18790";
         var databaseRoot = new InMemoryDatabaseRoot();
+        await using var endpointServer = await OpenSandboxEndpointServer.StartAsync(directGatewayEndpoint);
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(
             [
                 new KeyValuePair<string, string?>("KingCrab:BaseUrl", "http://kingcrab.local/"),
+                new KeyValuePair<string, string?>("OpenSandbox:Domain", $"127.0.0.1:{endpointServer.Port}"),
+                new KeyValuePair<string, string?>("OpenSandbox:Protocol", "Http"),
+                new KeyValuePair<string, string?>("OpenSandbox:UseServerProxy", "true"),
+                new KeyValuePair<string, string?>("OpenSandbox:Image", "registry.local/hirebot-sandbox:latest"),
+                new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
+                new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "3600"),
+                new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token")
             ])
             .Build();
@@ -477,7 +535,9 @@ public sealed class SandboxInfrastructureTests
                 SandboxId = "sandbox-001"
             });
 
-        Assert.True(timelineResult.Success);
+        Assert.True(
+            timelineResult.Success,
+            $"{timelineResult.Code}:{timelineResult.Message}; gateway={string.Join("|", handler.Requests.Select(static request => request.Path))}; endpoint={string.Join("|", endpointServer.Requests)}");
         Assert.Equal(sessionId, timelineResult.Data!.SessionId);
         Assert.Equal(2, timelineResult.Data.Messages.Count);
         Assert.Equal("user", timelineResult.Data.Messages[0].Role);
@@ -494,13 +554,82 @@ public sealed class SandboxInfrastructureTests
         var historyRequest = Assert.Single(
             handler.Requests,
             request => request.Method == HttpMethod.Get &&
-                       request.Path.Equals($"/api/integration/sessions/{sessionId}", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("sandbox-gateway.local", historyRequest.Host);
+                       request.Path.EndsWith($"/api/integration/sessions/{sessionId}", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("sandbox-direct.local", historyRequest.Host);
+        Assert.Equal($"/runtime/sandbox-001/18790/api/integration/sessions/{sessionId}", historyRequest.Path);
         Assert.Equal("sandbox-token", historyRequest.AuthorizationBearerToken);
+
+        var endpointLookupRequest = Assert.Single(endpointServer.Requests);
+        Assert.EndsWith("/sandboxes/sandbox-001/endpoints/18790", endpointLookupRequest, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("use_server_proxy=true", endpointLookupRequest, StringComparison.OrdinalIgnoreCase);
 
         Assert.DoesNotContain(
             handler.Requests,
             request => request.Path.Contains("/conversation/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task SandboxService_GetTimelineAsync_ShouldSurfaceOpenSandboxEndpointLookupFailure()
+    {
+        const string databaseName = "sandbox-service-timeline-endpoint-lookup-failure";
+        var databaseRoot = new InMemoryDatabaseRoot();
+        await using var endpointServer = await OpenSandboxEndpointServer.StartUnavailableAsync(HttpStatusCode.ServiceUnavailable);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+            [
+                new KeyValuePair<string, string?>("KingCrab:BaseUrl", "http://kingcrab.local/"),
+                new KeyValuePair<string, string?>("OpenSandbox:Domain", $"127.0.0.1:{endpointServer.Port}"),
+                new KeyValuePair<string, string?>("OpenSandbox:Protocol", "Http"),
+                new KeyValuePair<string, string?>("OpenSandbox:UseServerProxy", "true"),
+                new KeyValuePair<string, string?>("OpenSandbox:Image", "registry.local/hirebot-sandbox:latest"),
+                new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
+                new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "3600"),
+                new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token")
+            ])
+            .Build();
+
+        using var dbContext = CreateDbContext(databaseName, databaseRoot);
+        var handler = new RecordingHttpMessageHandler(BuildSandboxApiResponse);
+        var service = CreateSandboxService(dbContext, configuration, handler);
+
+        var registerResult = await service.RegisterAsync(
+            new SandboxRegisterRequestDto
+            {
+                SandboxId = "sandbox-001",
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = "hire-001",
+                SandboxRole = "hiring",
+                OwnerSubject = "tenant-1:operator-1",
+                TenantId = "tenant-1",
+                OperatorId = "operator-1",
+                ProvisioningMode = "external",
+                State = "Running",
+                GatewayEndpoint = "http://sandbox-gateway.local/"
+            });
+
+        Assert.True(registerResult.Success);
+
+        var timelineResult = await service.GetTimelineAsync(
+            new SandboxTimelineRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = "hire-001",
+                SandboxRole = "hiring",
+                OwnerSubject = "tenant-1:operator-1",
+                TenantId = "tenant-1",
+                OperatorId = "operator-1",
+                SessionKey = "default",
+                SandboxId = "sandbox-001"
+            });
+
+        Assert.False(timelineResult.Success);
+        Assert.Equal(503, timelineResult.Code);
+        Assert.Equal("OpenSandbox endpoint lookup failed (HTTP 503)", timelineResult.Message);
+
+        var endpointLookupRequest = Assert.Single(endpointServer.Requests);
+        Assert.EndsWith("/sandboxes/sandbox-001/endpoints/18790", endpointLookupRequest, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("use_server_proxy=true", endpointLookupRequest, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -604,13 +733,15 @@ public sealed class SandboxInfrastructureTests
             HttpContext = CreateHttpContext()
         };
 
+        var httpClientFactory = new StubHttpClientFactory(new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://kingcrab.local/")
+        });
         var kingCrabHttpClient = new KingCrabHttpClient(
-            new StubHttpClientFactory(new HttpClient(handler)
-            {
-                BaseAddress = new Uri("http://kingcrab.local/")
-            }),
+            httpClientFactory,
             configuration,
             httpContextAccessor,
+            CreateSandboxTokenProvider(httpClientFactory, configuration),
             NullLogger<KingCrabHttpClient>.Instance);
 
         var scopeFactory = new ServiceCollection()
@@ -664,7 +795,7 @@ public sealed class SandboxInfrastructureTests
             });
         }
 
-        if (request.Path.StartsWith("/api/integration/sessions/", StringComparison.OrdinalIgnoreCase) &&
+        if (request.Path.Contains("/api/integration/sessions/", StringComparison.OrdinalIgnoreCase) &&
             request.Method == HttpMethod.Get)
         {
             return JsonResponse(new
@@ -734,11 +865,31 @@ public sealed class SandboxInfrastructureTests
         };
     }
 
+    private static KingCrabSandboxTokenProvider CreateSandboxTokenProvider(
+        IHttpClientFactory httpClientFactory,
+        IConfiguration configuration)
+    {
+        return new KingCrabSandboxTokenProvider(
+            httpClientFactory,
+            configuration,
+            NullLogger<KingCrabSandboxTokenProvider>.Instance);
+    }
+
     private sealed record EchoResult(string Value);
 
-    private sealed class StubHttpClientFactory(HttpClient client) : IHttpClientFactory
+    private sealed class StubHttpClientFactory(
+        HttpClient defaultClient,
+        IReadOnlyDictionary<string, HttpClient>? namedClients = null) : IHttpClientFactory
     {
-        public HttpClient CreateClient(string name) => client;
+        public HttpClient CreateClient(string name)
+        {
+            if (namedClients is not null && namedClients.TryGetValue(name, out var namedClient))
+            {
+                return namedClient;
+            }
+
+            return defaultClient;
+        }
     }
 
     private sealed record CapturedRequest(
@@ -789,6 +940,110 @@ public sealed class SandboxInfrastructureTests
             }
 
             return responder(captured);
+        }
+    }
+
+    private sealed class OpenSandboxEndpointServer : IAsyncDisposable
+    {
+        private readonly HttpListener listener;
+        private readonly Task processingTask;
+        private readonly string? endpoint;
+        private readonly HttpStatusCode responseStatusCode;
+
+        private OpenSandboxEndpointServer(HttpListener listener, string? endpoint, HttpStatusCode responseStatusCode, int port)
+        {
+            this.listener = listener;
+            this.endpoint = endpoint;
+            this.responseStatusCode = responseStatusCode;
+            Port = port;
+            processingTask = Task.Run(ProcessAsync);
+        }
+
+        public int Port { get; }
+
+        public List<string> Requests { get; } = [];
+
+        public static Task<OpenSandboxEndpointServer> StartAsync(string endpoint)
+        {
+            var tcpListener = new TcpListener(IPAddress.Loopback, 0);
+            tcpListener.Start();
+            var port = ((IPEndPoint)tcpListener.LocalEndpoint).Port;
+            tcpListener.Stop();
+
+            var listener = new HttpListener();
+            listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+            listener.Start();
+
+            return Task.FromResult(new OpenSandboxEndpointServer(listener, endpoint, HttpStatusCode.OK, port));
+        }
+
+        public static Task<OpenSandboxEndpointServer> StartUnavailableAsync(HttpStatusCode responseStatusCode)
+        {
+            var tcpListener = new TcpListener(IPAddress.Loopback, 0);
+            tcpListener.Start();
+            var port = ((IPEndPoint)tcpListener.LocalEndpoint).Port;
+            tcpListener.Stop();
+
+            var listener = new HttpListener();
+            listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+            listener.Start();
+
+            return Task.FromResult(new OpenSandboxEndpointServer(listener, endpoint: null, responseStatusCode, port));
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            listener.Stop();
+            listener.Close();
+
+            try
+            {
+                await processingTask;
+            }
+            catch (HttpListenerException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+
+        private async Task ProcessAsync()
+        {
+            while (listener.IsListening)
+            {
+                try
+                {
+                    var context = await listener.GetContextAsync();
+                    Requests.Add(context.Request.RawUrl ?? string.Empty);
+
+                    if (context.Request.HttpMethod.Equals("GET", StringComparison.OrdinalIgnoreCase) &&
+                        context.Request.Url?.AbsolutePath.EndsWith("/sandboxes/sandbox-001/endpoints/18790", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        context.Response.StatusCode = (int)responseStatusCode;
+                        if (responseStatusCode == HttpStatusCode.OK && endpoint is not null)
+                        {
+                            context.Response.ContentType = "application/json";
+                            await using var writer = new StreamWriter(context.Response.OutputStream, Encoding.UTF8, 1024, leaveOpen: true);
+                            await writer.WriteAsync(JsonSerializer.Serialize(new { endpoint }));
+                        }
+                    }
+                    else
+                    {
+                        context.Response.StatusCode = (int)HttpStatusCode.NotFound;
+                    }
+
+                    context.Response.Close();
+                }
+                catch (HttpListenerException)
+                {
+                    break;
+                }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
+            }
         }
     }
 }

@@ -19,6 +19,7 @@ using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
+using HireBot.Repository.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -88,6 +89,54 @@ public sealed class SandboxDelegationTests
         Assert.True(timelineResult.Success);
         Assert.Equal("hire-001", sandboxService.LastTimelineRequest!.ScopeKey);
         Assert.Equal("tenant-1:operator-1", sandboxService.LastTimelineRequest.OwnerSubject);
+    }
+
+    [Fact]
+    public async Task EmployeeHiringService_GetConversationTimelineAsync_ShouldRecoverOwnerFromSandboxRegistryAfterRestart()
+    {
+        var sandboxService = new RecordingSandboxService
+        {
+            TimelineResponse = ApiResponse<HiringConversationTimelineDto>.SuccessResponse(
+                new HiringConversationTimelineDto(
+                    "hire-001",
+                    "session-001",
+                    "goal",
+                    false,
+                    "in_progress",
+                    [],
+                    []))
+        };
+
+        using var dbContext = CreateDbContext(Guid.NewGuid().ToString("N"));
+        dbContext.SandboxInstances.Add(new SandboxInstanceEntity
+        {
+            SandboxId = "sandbox-001",
+            ScopeType = SandboxScopeTypes.Hire,
+            ScopeKey = "hire-001",
+            SandboxRole = "hiring",
+            ProvisioningMode = "external",
+            OwnerSubject = "owner-from-db",
+            TenantId = "tenant-from-db",
+            OperatorId = "operator-from-db",
+            State = "Running",
+            GatewayEndpoint = "http://sandbox-gateway.local/"
+        });
+        dbContext.SaveChanges();
+
+        var service = CreateEmployeeHiringService(
+            sandboxService,
+            dbContext,
+            new HttpContextAccessor
+            {
+                HttpContext = new DefaultHttpContext()
+            });
+
+        var timelineResult = await service.GetConversationTimelineAsync("hire-001");
+
+        Assert.True(timelineResult.Success);
+        Assert.Equal("owner-from-db", sandboxService.LastTimelineRequest!.OwnerSubject);
+        Assert.Equal("tenant-from-db", sandboxService.LastTimelineRequest.TenantId);
+        Assert.Equal("operator-from-db", sandboxService.LastTimelineRequest.OperatorId);
     }
 
     [Fact]
@@ -223,6 +272,18 @@ public sealed class SandboxDelegationTests
     }
 
     private static EmployeeHiringService CreateEmployeeHiringService(RecordingSandboxService sandboxService)
+        => CreateEmployeeHiringService(
+            sandboxService,
+            CreateDbContext(Guid.NewGuid().ToString("N")),
+            new HttpContextAccessor
+            {
+                HttpContext = CreateHttpContext("tenant-1", "operator-1")
+            });
+
+    private static EmployeeHiringService CreateEmployeeHiringService(
+        RecordingSandboxService sandboxService,
+        HireBotDbContext dbContext,
+        IHttpContextAccessor httpContextAccessor)
     {
         return new EmployeeHiringService(
             new NoopTemplateDataProvider(),
@@ -234,12 +295,9 @@ public sealed class SandboxDelegationTests
             new ThrowingKingCrabHttpClient(),
             sandboxService,
             new ConfigurationBuilder().Build(),
-            new HttpContextAccessor
-            {
-                HttpContext = CreateHttpContext("tenant-1", "operator-1")
-            },
+            httpContextAccessor,
             new SimpleServiceScopeFactory(),
-            CreateDbContext(Guid.NewGuid().ToString("N")),
+            dbContext,
             new NoopHiringFileStore(),
             new NoopHiringArtifactPackageService(),
             NullLogger<EmployeeHiringService>.Instance);

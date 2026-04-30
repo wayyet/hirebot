@@ -11,6 +11,7 @@ internal sealed class KingCrabHttpClient(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
     IHttpContextAccessor httpContextAccessor,
+    KingCrabSandboxTokenProvider sandboxTokenProvider,
     ILogger<KingCrabHttpClient> logger) : IKingCrabHttpClient
 {
     private const string ClientName = "KingCrab";
@@ -37,7 +38,14 @@ internal sealed class KingCrabHttpClient(
             return RemoteCallResult<T>.Failure(500, "KingCrab:BaseUrl 未配置");
         }
 
-        using var request = BuildRequest(method, path, ownerSubject, useHireBotApiPrefix, absoluteBaseUrl, additionalHeaders);
+        using var request = await BuildRequestAsync(
+            method,
+            path,
+            ownerSubject,
+            useHireBotApiPrefix,
+            absoluteBaseUrl,
+            additionalHeaders,
+            cancellationToken);
         if (body is not null)
         {
             request.Content = JsonContent.Create(body, options: JsonOptions);
@@ -110,7 +118,14 @@ internal sealed class KingCrabHttpClient(
             return RemoteCallResult<T>.Failure(500, "KingCrab:BaseUrl 未配置");
         }
 
-        using var request = BuildRequest(HttpMethod.Post, path, ownerSubject, useHireBotApiPrefix, absoluteBaseUrl, additionalHeaders);
+        using var request = await BuildRequestAsync(
+            HttpMethod.Post,
+            path,
+            ownerSubject,
+            useHireBotApiPrefix,
+            absoluteBaseUrl,
+            additionalHeaders,
+            cancellationToken);
         using var multipartContent = new MultipartFormDataContent();
         using var fileContent = new ByteArrayContent(content);
         fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
@@ -182,7 +197,14 @@ internal sealed class KingCrabHttpClient(
             return RemoteBinaryCallResult.Failure(500, "KingCrab:BaseUrl 未配置");
         }
 
-        using var request = BuildRequest(method, path, ownerSubject, useHireBotApiPrefix, absoluteBaseUrl, additionalHeaders);
+        using var request = await BuildRequestAsync(
+            method,
+            path,
+            ownerSubject,
+            useHireBotApiPrefix,
+            absoluteBaseUrl,
+            additionalHeaders,
+            cancellationToken);
         if (body is not null)
         {
             request.Content = JsonContent.Create(body, options: JsonOptions);
@@ -237,28 +259,27 @@ internal sealed class KingCrabHttpClient(
         }
     }
 
-    private HttpRequestMessage BuildRequest(
+    private async Task<HttpRequestMessage> BuildRequestAsync(
         HttpMethod method,
         string path,
         string ownerSubject,
         bool useHireBotApiPrefix,
         string? absoluteBaseUrl,
-        IReadOnlyDictionary<string, string>? additionalHeaders)
+        IReadOnlyDictionary<string, string>? additionalHeaders,
+        CancellationToken cancellationToken)
     {
-        var normalizedPath = path.StartsWith('/') ? path : "/" + path;
-        var requestPath = useHireBotApiPrefix
-            ? $"{ResolveHireBotApiPrefix()}{normalizedPath}"
-            : normalizedPath;
+        var requestPath = BuildRequestPath(path, useHireBotApiPrefix);
 
         var requestUri = BuildRequestUri(requestPath, absoluteBaseUrl);
         var request = new HttpRequestMessage(method, requestUri);
 
-        var sandboxAuthToken = ShouldUseSandboxStaticToken(absoluteBaseUrl)
-            ? configuration["OpenSandbox:KingCrab:AuthToken"]
-            : null;
-        if (!string.IsNullOrWhiteSpace(sandboxAuthToken))
+        if (ShouldUseSandboxToken(path, absoluteBaseUrl))
         {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sandboxAuthToken.Trim());
+            var sandboxAccessToken = await sandboxTokenProvider.GetAccessTokenAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(sandboxAccessToken))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sandboxAccessToken.Trim());
+            }
         }
         else
         {
@@ -296,6 +317,20 @@ internal sealed class KingCrabHttpClient(
         }
 
         return request;
+    }
+
+    private string BuildRequestPath(string path, bool useHireBotApiPrefix)
+    {
+        if (Uri.TryCreate(path, UriKind.Absolute, out var absolutePath) &&
+            IsHttpUri(absolutePath))
+        {
+            return absolutePath.ToString();
+        }
+
+        var normalizedPath = path.StartsWith('/') ? path : "/" + path;
+        return useHireBotApiPrefix
+            ? $"{ResolveHireBotApiPrefix()}{normalizedPath}"
+            : normalizedPath;
     }
 
     private string ResolveHireBotApiPrefix()
@@ -351,10 +386,15 @@ internal sealed class KingCrabHttpClient(
                string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
     }
 
-    private bool ShouldUseSandboxStaticToken(string? absoluteBaseUrl)
+    private bool ShouldUseSandboxToken(string path, string? absoluteBaseUrl)
     {
-        return !string.IsNullOrWhiteSpace(absoluteBaseUrl) &&
-               string.IsNullOrWhiteSpace(configuration["OpenSandbox:KingCrab:OidcAuthority"]);
+        if (!string.IsNullOrWhiteSpace(absoluteBaseUrl))
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(path, UriKind.Absolute, out var absolutePath) &&
+               IsHttpUri(absolutePath);
     }
 
     private static string? ExtractRemoteMessage(string? payload)

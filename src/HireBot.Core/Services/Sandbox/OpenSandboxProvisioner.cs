@@ -94,6 +94,34 @@ internal sealed class OpenSandboxProvisioner(
         return new ProvisionedSandboxResult(sandboxId, state, gatewayEndpoint, expiresAtUtc);
     }
 
+    public async Task<string?> GetGatewayEndpointAsync(
+        string sandboxId,
+        bool useServerProxy,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await GetGatewayEndpointResultAsync(sandboxId, useServerProxy, cancellationToken);
+        return result.Success ? result.Data : null;
+    }
+
+    public async Task<RemoteCallResult<string>> GetGatewayEndpointResultAsync(
+        string sandboxId,
+        bool useServerProxy,
+        CancellationToken cancellationToken = default)
+    {
+        var settings = GetSettings();
+        var connection = settings.BuildConnection();
+        var http = connection.GetHttpClient();
+        var baseUrl = connection.GetBaseUrl().TrimEnd('/');
+
+        return await ResolveGatewayEndpointResultAsync(
+            http,
+            baseUrl,
+            sandboxId,
+            settings.GatewayPort,
+            useServerProxy,
+            cancellationToken);
+    }
+
     public async Task PauseAsync(string sandboxId, CancellationToken cancellationToken = default)
     {
         var settings = GetSettings();
@@ -246,18 +274,43 @@ internal sealed class OpenSandboxProvisioner(
         bool useServerProxy,
         CancellationToken cancellationToken)
     {
+        var result = await ResolveGatewayEndpointResultAsync(
+            http,
+            baseUrl,
+            sandboxId,
+            gatewayPort,
+            useServerProxy,
+            cancellationToken);
+
+        return result.Success ? result.Data : null;
+    }
+
+    private static async Task<RemoteCallResult<string>> ResolveGatewayEndpointResultAsync(
+        HttpClient http,
+        string baseUrl,
+        string sandboxId,
+        int gatewayPort,
+        bool useServerProxy,
+        CancellationToken cancellationToken)
+    {
         using var response = await http.GetAsync(
             BuildEndpointLookupUrl(baseUrl, sandboxId, gatewayPort, useServerProxy),
             cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            return null;
+            return RemoteCallResult<string>.Failure(
+                (int)response.StatusCode,
+                $"OpenSandbox endpoint lookup failed (HTTP {(int)response.StatusCode})");
         }
 
         using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        return doc.RootElement.TryGetProperty("endpoint", out var endpointElement)
-            ? endpointElement.GetString()
-            : null;
+        if (!doc.RootElement.TryGetProperty("endpoint", out var endpointElement) ||
+            string.IsNullOrWhiteSpace(endpointElement.GetString()))
+        {
+            return RemoteCallResult<string>.Failure(502, "OpenSandbox endpoint lookup returned an empty endpoint");
+        }
+
+        return RemoteCallResult<string>.Ok(endpointElement.GetString()!.Trim());
     }
 
     /// <summary>

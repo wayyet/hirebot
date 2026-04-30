@@ -415,9 +415,9 @@ internal sealed class SandboxService(
             return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(404, "sandbox 未找到");
         }
 
-        if (string.IsNullOrWhiteSpace(instance.GatewayEndpoint))
+        if (string.IsNullOrWhiteSpace(instance.SandboxId))
         {
-            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(409, "sandbox gateway endpoint 未就绪");
+            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(409, "sandbox id 未就绪");
         }
 
         {
@@ -440,6 +440,16 @@ internal sealed class SandboxService(
             }
 
             var sessionId = ensureSessionResult.Data.SessionId.Trim();
+            var timelineGatewayEndpointResult = await provisioner.GetGatewayEndpointResultAsync(instance.SandboxId, useServerProxy: false, cancellationToken);
+            if (!timelineGatewayEndpointResult.Success || string.IsNullOrWhiteSpace(timelineGatewayEndpointResult.Data))
+            {
+                return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(
+                    timelineGatewayEndpointResult.StatusCode,
+                    timelineGatewayEndpointResult.Message);
+            }
+
+            var timelineGatewayEndpoint = timelineGatewayEndpointResult.Data;
+
             var gatewayCall = await kingCrabHttpClient.SendForJsonAsync<SandboxGatewaySessionDetailResponse>(
                 HttpMethod.Get,
                 $"/api/integration/sessions/{Uri.EscapeDataString(sessionId)}",
@@ -447,7 +457,7 @@ internal sealed class SandboxService(
                 request.OwnerSubject,
                 cancellationToken,
                 useHireBotApiPrefix: false,
-                absoluteBaseUrl: instance.GatewayEndpoint);
+                absoluteBaseUrl: timelineGatewayEndpoint);
 
             if (!gatewayCall.Success && gatewayCall.StatusCode != (int)HttpStatusCode.NotFound)
             {
