@@ -1,6 +1,7 @@
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeRuntime;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HireBot.ApiService.Controllers;
@@ -11,6 +12,7 @@ namespace HireBot.ApiService.Controllers;
 /// </summary>
 [Route("api/v1/instances")]
 [ApiController]
+[Authorize]
 public sealed class InstancesController(
     IInstanceChatService instanceChatService,
     IInstanceImConfigService instanceImConfigService) : ControllerBase

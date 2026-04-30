@@ -11,7 +11,10 @@ public sealed record ImConfigRequestDto(
     string? EncryptKey,
     string? Token,
     string? AesKey,
-    string? VerificationToken);
+    string? VerificationToken,
+    string? CorpId,
+    string? AgentId,
+    string? AgentSecret);
 
 public sealed record ImConfigResultDto(
     string Platform,

@@ -1,4 +1,5 @@
 using HireBot.Abstraction.Services.EmployeeRuntime;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HireBot.ApiService.Controllers;
@@ -9,6 +10,7 @@ namespace HireBot.ApiService.Controllers;
 /// </summary>
 [Route("api/v1/im")]
 [ApiController]
+[AllowAnonymous]
 public sealed class ImWebhooksController(IImWebhookService imWebhookService) : ControllerBase
 {
     /// <summary>

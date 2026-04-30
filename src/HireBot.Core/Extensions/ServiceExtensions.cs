@@ -32,6 +32,7 @@ using HireBot.Core.Services.Training;
 using HireBot.Abstraction.Services.Security;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -41,6 +42,7 @@ public static class ServiceExtensions
 {
     private const string KingCrabClientName = "KingCrab";
     private const string BuildServiceClientName = "BuildService";
+    private const string FeishuClientName = "Feishu";
 
     public static IServiceCollection AddHireBotServices(this IServiceCollection services, IConfiguration configuration)
     {
@@ -63,9 +65,11 @@ public static class ServiceExtensions
             throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required.");
         }
 
-        services.AddDbContext<HireBotDbContext>(options => options.UseNpgsql(
-            connectionString.Trim(),
-            npgsql => npgsql.MigrationsAssembly("HireBot.Repository")));
+        services.AddDbContext<HireBotDbContext>(options => options
+            .UseNpgsql(
+                connectionString.Trim(),
+                npgsql => npgsql.MigrationsAssembly("HireBot.Repository"))
+            .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
         services.AddScoped<IHireBotRepository, HireBotRepository>();
     }
@@ -90,6 +94,16 @@ public static class ServiceExtensions
                 configuration.GetValue("BuildService:HttpTimeoutSeconds", 60),
                 "BuildService:BaseUrl",
                 "BuildService:HttpTimeoutSeconds");
+        });
+
+        services.AddHttpClient(FeishuClientName, (_, client) =>
+        {
+            ConfigureHttpClient(
+                client,
+                configuration["Feishu:BaseUrl"] ?? "https://open.feishu.cn",
+                configuration.GetValue("Feishu:HttpTimeoutSeconds", 60),
+                "Feishu:BaseUrl",
+                "Feishu:HttpTimeoutSeconds");
         });
     }
 

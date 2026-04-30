@@ -6,12 +6,14 @@ using HireBot.Abstraction.Models.Training;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Training;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HireBot.ApiService.Controllers;
 
 [Route("api/v1/employees")]
 [ApiController]
+[Authorize]
 public sealed class EmployeesController(
     IEmployeeRuntimeService employeeRuntimeService,
     ITrainingService trainingService,

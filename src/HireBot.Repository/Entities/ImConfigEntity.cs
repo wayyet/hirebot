@@ -38,6 +38,15 @@ public sealed class ImConfigEntity
 
     public string? VerificationToken { get; set; }
 
+    [MaxLength(128)]
+    public string? CorpId { get; set; }
+
+    [MaxLength(128)]
+    public string? AgentId { get; set; }
+
+    [MaxLength(256)]
+    public string? AgentSecret { get; set; }
+
     [MaxLength(40)]
     public required string Status { get; set; }
 

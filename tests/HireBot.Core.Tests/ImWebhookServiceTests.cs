@@ -1,3 +1,7 @@
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeRuntime;
@@ -13,36 +17,56 @@ namespace HireBot.Core.Tests;
 public sealed class ImWebhookServiceTests
 {
     [Fact]
-    public async Task HandleAsync_WithValidFeishuPayload_RoutesToRuntimeConversation()
+    public async Task HandleAsync_WithValidFeishuPayload_RoutesToRuntimeConversation_AndSendsReply()
     {
         await using var dbContext = CreateDbContext();
         SeedConfig(dbContext);
+
+        var handler = new RecordingHttpMessageHandler(
+            request =>
+            {
+                if (request.RequestUri!.AbsolutePath.Contains("/auth/v3/tenant_access_token/internal", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"tenant_access_token":"tenant-token","expire":7200}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
+                if (request.RequestUri!.AbsolutePath.Contains("/open-apis/im/v1/messages", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"code":0,"msg":"ok"}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent("not found")
+                };
+            });
+
         var runtime = new FakeRuntimeConversationService();
-        var service = new ImWebhookService(
-            dbContext,
-            new PrefixSecretProtector(),
-            runtime,
-            NullLogger<ImWebhookService>.Instance);
+        var service = CreateService(dbContext, runtime, handler);
+        var payload = """
+        {
+          "event": {
+            "sender": { "open_id": "ou_1" },
+            "message": {
+              "message_id": "im_1",
+              "chat_type": "p2p",
+              "content": "{\"text\":\"帮我总结\"}"
+            }
+          }
+        }
+        """;
 
         var response = await service.HandleAsync(
             "feishu",
             "pc_1",
-            """
-            {
-              "event": {
-                "sender": { "sender_id": { "open_id": "ou_1" } },
-                "message": {
-                  "message_id": "im_1",
-                  "chat_type": "p2p",
-                  "content": "{\"text\":\"帮我总结\"}"
-                }
-              }
-            }
-            """,
-            new Dictionary<string, string>
-            {
-                ["X-HireBot-Verification-Token"] = "verify"
-            });
+            payload,
+            BuildFeishuHeaders(payload, "verify"));
 
         Assert.True(response.Success, response.Message);
         Assert.Equal("replied", response.Data!.Status);
@@ -54,6 +78,12 @@ public sealed class ImWebhookServiceTests
         Assert.Equal("owner-1", runtime.Calls[0].OwnerUserId);
         Assert.Equal("im_1", runtime.Calls[0].ExternalMessageId);
         Assert.Equal("ou_1", runtime.Calls[0].ExternalUserId);
+
+        var sendRequest = handler.Requests.Single(request => request.RequestUri!.AbsolutePath.Contains("/open-apis/im/v1/messages", StringComparison.OrdinalIgnoreCase));
+        var sendBody = await sendRequest.Content!.ReadAsStringAsync();
+        Assert.Contains("\"receive_id\":\"ou_1\"", sendBody);
+        Assert.Contains("\"msg_type\":\"text\"", sendBody);
+        Assert.Contains("runtime reply", sendBody);
     }
 
     [Fact]
@@ -62,20 +92,15 @@ public sealed class ImWebhookServiceTests
         await using var dbContext = CreateDbContext();
         SeedConfig(dbContext);
         var runtime = new FakeRuntimeConversationService();
-        var service = new ImWebhookService(
-            dbContext,
-            new PrefixSecretProtector(),
-            runtime,
-            NullLogger<ImWebhookService>.Instance);
+        var service = CreateService(dbContext, runtime);
+
+        var payload = """{"event":{"sender":{"open_id":"ou_1"},"message":{"message_id":"im_1","chat_type":"p2p","content":"{\"text\":\"hello\"}"}}}""";
 
         var response = await service.HandleAsync(
             "feishu",
             "pc_1",
-            """{"message_id":"im_1","content":"hello"}""",
-            new Dictionary<string, string>
-            {
-                ["X-HireBot-Verification-Token"] = "wrong"
-            });
+            payload,
+            BuildFeishuHeaders(payload, "wrong"));
 
         Assert.False(response.Success);
         Assert.Equal(401, response.Code);
@@ -88,24 +113,55 @@ public sealed class ImWebhookServiceTests
         await using var dbContext = CreateDbContext();
         SeedConfig(dbContext);
         var runtime = new FakeRuntimeConversationService();
-        var service = new ImWebhookService(
-            dbContext,
-            new PrefixSecretProtector(),
-            runtime,
-            NullLogger<ImWebhookService>.Instance);
+        var service = CreateService(dbContext, runtime);
+
+        var payload = """{"event":{"sender":{"open_id":"ou_1"},"message":{"message_id":"im_1","chat_type":"group","content":"{\"text\":\"hello\"}"}}}""";
 
         var response = await service.HandleAsync(
             "feishu",
             "pc_1",
-            """{"message_id":"im_1","chat_type":"group","content":"hello"}""",
-            new Dictionary<string, string>
-            {
-                ["X-HireBot-Verification-Token"] = "verify"
-            });
+            payload,
+            BuildFeishuHeaders(payload, "verify"));
 
         Assert.True(response.Success, response.Message);
         Assert.Equal("ignored", response.Data!.Status);
         Assert.Empty(runtime.Calls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithVerificationChallenge_ReturnsEcho()
+    {
+        await using var dbContext = CreateDbContext();
+        SeedConfig(dbContext);
+        var runtime = new FakeRuntimeConversationService();
+        var service = CreateService(dbContext, runtime);
+
+        var payload = """{"challenge":"echo-123"}""";
+
+        var response = await service.HandleAsync(
+            "feishu",
+            "pc_1",
+            payload,
+            BuildFeishuHeaders(payload, "verify"));
+
+        Assert.True(response.Success, response.Message);
+        Assert.Equal("verified", response.Data!.Status);
+        Assert.Equal("echo-123", response.Data.Reply);
+        Assert.Empty(runtime.Calls);
+    }
+
+    private static IReadOnlyDictionary<string, string> BuildFeishuHeaders(string payload, string verificationToken)
+    {
+        var timestamp = "1714440000";
+        var nonce = "nonce-1";
+        var signature = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes($"{verificationToken}{timestamp}{nonce}{payload}")));
+
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["X-Lark-Signature"] = signature,
+            ["X-Lark-Request-Timestamp"] = timestamp,
+            ["X-Lark-Request-Nonce"] = nonce
+        };
     }
 
     private static HireBotDbContext CreateDbContext()
@@ -128,12 +184,34 @@ public sealed class ImWebhookServiceTests
             ConnectionMode = "url_callback",
             WebhookPath = "/api/v1/im/feishu/webhook/pc_1",
             VerificationToken = "protected:verify",
+            AppId = "protected:app-id",
+            AppSecret = "protected:app-secret",
+            EncryptKey = "protected:encrypt",
             Status = "active",
             ConfiguredAt = DateTimeOffset.UtcNow,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         });
         dbContext.SaveChanges();
+    }
+
+    private static ImWebhookService CreateService(
+        HireBotDbContext dbContext,
+        FakeRuntimeConversationService runtime,
+        RecordingHttpMessageHandler? handler = null)
+    {
+        var factory = new FakeHttpClientFactory(handler ?? new RecordingHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}")
+            }));
+
+        return new ImWebhookService(
+            dbContext,
+            new PrefixSecretProtector(),
+            runtime,
+            factory,
+            NullLogger<ImWebhookService>.Instance);
     }
 
     private sealed class FakeRuntimeConversationService : IInstanceRuntimeConversationService
@@ -182,5 +260,40 @@ public sealed class ImWebhookServiceTests
 
         public string? Unprotect(string? value) => value?.StartsWith("protected:", StringComparison.Ordinal) == true ? value["protected:".Length..] : value;
     }
-}
 
+    private sealed class RecordingHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+    {
+        public List<HttpRequestMessage> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(CloneRequest(request));
+            return Task.FromResult(responder(request));
+        }
+
+        private static HttpRequestMessage CloneRequest(HttpRequestMessage request)
+        {
+            var clone = new HttpRequestMessage(request.Method, request.RequestUri);
+            foreach (var header in request.Headers)
+            {
+                clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            if (request.Content is not null)
+            {
+                var content = request.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                clone.Content = new StringContent(content, Encoding.UTF8, request.Content.Headers.ContentType?.MediaType ?? "application/json");
+            }
+
+            return clone;
+        }
+    }
+
+    private sealed class FakeHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false)
+        {
+            BaseAddress = new Uri("https://open.feishu.cn")
+        };
+    }
+}

@@ -23,7 +23,7 @@ public sealed class InstanceImConfigServiceTests
         var response = await service.UpsertConfigAsync(
             instance.InstanceId,
             "feishu",
-            new ImConfigRequestDto("url_callback", "app-id", "secret", "encrypt", null, null, "verify"));
+            new ImConfigRequestDto("url_callback", "app-id", "secret", "encrypt", null, null, "verify", null, null, null));
 
         Assert.True(response.Success, response.Message);
         Assert.Equal("active", response.Data!.Status);
@@ -44,7 +44,7 @@ public sealed class InstanceImConfigServiceTests
         var response = await service.UpsertConfigAsync(
             instance.InstanceId,
             "feishu",
-            new ImConfigRequestDto("websocket", "app-id", "secret", null, null, null, null));
+            new ImConfigRequestDto("websocket", "app-id", "secret", null, null, null, null, null, null, null));
 
         Assert.False(response.Success);
         Assert.Equal(409, response.Code);
@@ -61,7 +61,7 @@ public sealed class InstanceImConfigServiceTests
         var response = await service.UpsertConfigAsync(
             instance.InstanceId,
             "feishu",
-            new ImConfigRequestDto("websocket", "app-id", "secret", null, null, null, null));
+            new ImConfigRequestDto("websocket", "app-id", "secret", null, null, null, null, null, null, null));
 
         Assert.False(response.Success);
         Assert.Equal(403, response.Code);
@@ -92,11 +92,48 @@ public sealed class InstanceImConfigServiceTests
         await service.UpsertConfigAsync(
             instance.InstanceId,
             "feishu",
-            new ImConfigRequestDto("websocket", "app-id", "secret", null, null, null, null));
+            new ImConfigRequestDto("websocket", "app-id", "secret", null, null, null, null, null, null, null));
 
         var response = await service.DeleteConfigAsync(instance.InstanceId, "feishu");
 
         Assert.True(response.Success, response.Message);
+        Assert.Empty(dbContext.ImConfigs);
+    }
+
+    [Fact]
+    public async Task UpsertConfigAsync_ForWecom_RequiresCallbackCredentials()
+    {
+        await using var dbContext = CreateDbContext();
+        var instance = SeedInstance(dbContext, "personal_clone", "live", "owner-1");
+        var service = CreateService(dbContext);
+
+        var response = await service.UpsertConfigAsync(
+            instance.InstanceId,
+            "wecom",
+            new ImConfigRequestDto("url_callback", null, null, null, "token", "aes", null, "corp", "agent", "secret"));
+
+        Assert.True(response.Success, response.Message);
+        var config = await dbContext.ImConfigs.SingleAsync();
+        Assert.Equal("protected:corp", config.CorpId);
+        Assert.Equal("protected:agent", config.AgentId);
+        Assert.Equal("protected:secret", config.AgentSecret);
+    }
+
+    [Fact]
+    public async Task UpsertConfigAsync_ForWecom_WebsocketMode_IsRejected()
+    {
+        await using var dbContext = CreateDbContext();
+        var instance = SeedInstance(dbContext, "personal_clone", "live", "owner-1");
+        var service = CreateService(dbContext);
+
+        var response = await service.UpsertConfigAsync(
+            instance.InstanceId,
+            "wecom",
+            new ImConfigRequestDto("websocket", "app-id", "secret", null, null, null, null, null, null, null));
+
+        Assert.False(response.Success);
+        Assert.Equal(400, response.Code);
+        Assert.Contains("企业微信仅支持 url_callback 模式", response.Message);
         Assert.Empty(dbContext.ImConfigs);
     }
 

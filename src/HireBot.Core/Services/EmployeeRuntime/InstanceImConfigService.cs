@@ -69,6 +69,7 @@ public sealed class InstanceImConfigService(
         var config = await dbContext.ImConfigs.FirstOrDefaultAsync(
             item => item.InstanceId == access.Instance!.InstanceId && item.Platform == access.Platform,
             cancellationToken);
+
         if (config is null)
         {
             config = new ImConfigEntity
@@ -103,6 +104,9 @@ public sealed class InstanceImConfigService(
         config.Token = secretProtector.Protect(request.Token);
         config.AesKey = secretProtector.Protect(request.AesKey);
         config.VerificationToken = secretProtector.Protect(request.VerificationToken);
+        config.CorpId = secretProtector.Protect(request.CorpId);
+        config.AgentId = secretProtector.Protect(request.AgentId);
+        config.AgentSecret = secretProtector.Protect(request.AgentSecret);
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -114,7 +118,7 @@ public sealed class InstanceImConfigService(
         string instanceId,
         CancellationToken cancellationToken = default)
     {
-        var access = await ResolveConfigAccessAsync(instanceId, "feishu", cancellationToken, validatePlatformOnly: false);
+        var access = await ResolveInstanceAsync(instanceId, cancellationToken);
         if (!access.Success)
         {
             return ApiResponse<ImConfigStatusDto>.ErrorResponse(access.Code, access.Message);
@@ -158,6 +162,7 @@ public sealed class InstanceImConfigService(
         var config = await dbContext.ImConfigs.FirstOrDefaultAsync(
             item => item.InstanceId == access.Instance!.InstanceId && item.Platform == access.Platform,
             cancellationToken);
+
         if (config is not null)
         {
             dbContext.ImConfigs.Remove(config);
@@ -170,8 +175,7 @@ public sealed class InstanceImConfigService(
     private async Task<ConfigAccessResult> ResolveConfigAccessAsync(
         string instanceId,
         string platform,
-        CancellationToken cancellationToken,
-        bool validatePlatformOnly = true)
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(instanceId))
         {
@@ -179,9 +183,25 @@ public sealed class InstanceImConfigService(
         }
 
         var normalizedPlatform = NormalizePlatform(platform);
-        if (normalizedPlatform is null && validatePlatformOnly)
+        if (normalizedPlatform is null)
         {
             return ConfigAccessResult.Fail(400, "platform 不合法");
+        }
+
+        var instanceAccess = await ResolveInstanceAsync(instanceId, cancellationToken);
+        if (!instanceAccess.Success)
+        {
+            return ConfigAccessResult.Fail(instanceAccess.Code, instanceAccess.Message);
+        }
+
+        return ConfigAccessResult.Ok(instanceAccess.Instance!, normalizedPlatform);
+    }
+
+    private async Task<ConfigAccessResult> ResolveInstanceAsync(string instanceId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId))
+        {
+            return ConfigAccessResult.Fail(400, "instanceId 不能为空");
         }
 
         var instance = await dbContext.Instances.FirstOrDefaultAsync(
@@ -209,7 +229,7 @@ public sealed class InstanceImConfigService(
             return ConfigAccessResult.Fail(403, "无权配置该实例 IM");
         }
 
-        return ConfigAccessResult.Ok(instance, normalizedPlatform ?? "feishu");
+        return ConfigAccessResult.Ok(instance, string.Empty);
     }
 
     private static string? NormalizePlatform(string platform)
@@ -238,27 +258,37 @@ public sealed class InstanceImConfigService(
     {
         static bool Missing(string? value) => string.IsNullOrWhiteSpace(value);
 
-        if (mode == "websocket" && (Missing(request.AppId) || Missing(request.AppSecret)))
+        if (platform == "wecom")
         {
-            return "WebSocket 模式需要 app_id 和 app_secret";
+            if (mode != "url_callback")
+            {
+                return "企业微信仅支持 url_callback 模式";
+            }
+
+            if (Missing(request.Token) || Missing(request.AesKey) || Missing(request.CorpId) ||
+                Missing(request.AgentId) || Missing(request.AgentSecret))
+            {
+                return "企业微信 URL 回调模式需提供 token、aes_key、corp_id、agent_id、agent_secret";
+            }
+
+            return null;
         }
 
         if (platform == "feishu" && mode == "url_callback" &&
             (Missing(request.AppId) || Missing(request.AppSecret) || Missing(request.EncryptKey)))
         {
-            return "飞书 URL 回调模式需要 app_id、app_secret、encrypt_key";
+            return "飞书 URL 回调模式需提供 app_id、app_secret、encrypt_key";
         }
 
         if (platform == "dingtalk" && mode == "url_callback" &&
             (Missing(request.AppId) || Missing(request.AppSecret) || Missing(request.EncryptKey)))
         {
-            return "钉钉 URL 回调模式需要 app_id、app_secret、encrypt_key";
+            return "钉钉 URL 回调模式需提供 app_id、app_secret、encrypt_key";
         }
 
-        if (platform == "wecom" && mode == "url_callback" &&
-            (Missing(request.Token) || Missing(request.AesKey)))
+        if (mode == "websocket" && (Missing(request.AppId) || Missing(request.AppSecret)))
         {
-            return "企微 URL 回调模式需要 token 和 aes_key";
+            return "WebSocket 模式需提供 app_id 和 app_secret";
         }
 
         return null;
@@ -304,4 +334,3 @@ public sealed class InstanceImConfigService(
         }
     }
 }
-

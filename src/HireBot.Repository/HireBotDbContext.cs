@@ -223,6 +223,9 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.Property(e => e.Token).HasColumnName("token");
             entity.Property(e => e.AesKey).HasColumnName("aes_key");
             entity.Property(e => e.VerificationToken).HasColumnName("verification_token");
+            entity.Property(e => e.CorpId).HasColumnName("corp_id");
+            entity.Property(e => e.AgentId).HasColumnName("agent_id");
+            entity.Property(e => e.AgentSecret).HasColumnName("agent_secret");
             entity.Property(e => e.Status).HasColumnName("status").IsRequired().HasMaxLength(40);
             entity.Property(e => e.LastError).HasColumnName("last_error").HasMaxLength(1024);
             entity.Property(e => e.ConfiguredAt).HasColumnName("configured_at");
