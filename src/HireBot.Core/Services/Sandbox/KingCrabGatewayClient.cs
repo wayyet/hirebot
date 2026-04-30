@@ -2,24 +2,13 @@ namespace HireBot.Core.Services.Sandbox;
 
 internal sealed class KingCrabGatewayClient(IKingCrabHttpClient kingCrabHttpClient)
 {
-    public Task<RemoteCallResult<MediaUploadResult>> UploadMediaAsync(
+    public async Task<RemoteCallResult<MediaUploadResult>> UploadMediaAsync(
         string ownerSubject,
         string fileName,
         byte[] content,
         string contentType,
         CancellationToken cancellationToken,
         string? absoluteBaseUrl = null)
-    {
-        return UploadInternalAsync(ownerSubject, fileName, content, contentType, cancellationToken, absoluteBaseUrl);
-    }
-
-    private async Task<RemoteCallResult<MediaUploadResult>> UploadInternalAsync(
-        string ownerSubject,
-        string fileName,
-        byte[] content,
-        string contentType,
-        CancellationToken cancellationToken,
-        string? absoluteBaseUrl)
     {
         var uploadCall = await kingCrabHttpClient.SendMultipartForJsonAsync<MediaUploadResponse>(
             "/media/upload",
@@ -45,6 +34,7 @@ internal sealed class KingCrabGatewayClient(IKingCrabHttpClient kingCrabHttpClie
             payload.MimeType,
             payload.SizeBytes,
             $"[FILE_URL:/media/{payload.Id}]"));
+
     }
 
     internal sealed record MediaUploadResult(
