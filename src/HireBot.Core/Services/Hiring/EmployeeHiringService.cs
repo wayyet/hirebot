@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.IO;
 using System.Net.Http.Headers;
@@ -2490,14 +2490,15 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         }
 
         var call = await kingCrabHttpClient.SendMultipartForJsonAsync<DigitalEmployeeUploadResponse>(
-            gatewayTargetResult.Data.GatewayEndpoint,
+            "/admin/digital-employee/upload",
             "file",
             fileName,
             archiveBytes,
             "application/zip",
             ownerSubject,
             cancellationToken,
-            useHireBotApiPrefix: false);
+            useHireBotApiPrefix: false,
+            absoluteBaseUrl: gatewayTargetResult.Data.GatewayEndpoint);
 
         return call.Success && call.Data is not null
             ? RemoteCallResult<DigitalEmployeeUploadResponse>.Ok(call.Data)
@@ -2570,99 +2571,15 @@ This is the bootstrap skill for evaluation sandbox orchestration.
             return ApiResponse<SandboxGatewayTarget>.ErrorResponse(409, "sandbox 尚未就绪");
         }
 
-        var uploadEndpointResult = await ResolveSandboxUploadEndpointAsync(
-            refreshResult.Data.SandboxId,
-            cancellationToken);
-        if (!uploadEndpointResult.Success || string.IsNullOrWhiteSpace(uploadEndpointResult.Data))
+        if (string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint))
         {
-            return ApiResponse<SandboxGatewayTarget>.ErrorResponse(uploadEndpointResult.Code, uploadEndpointResult.Message);
-        }
-
-        if (!TryBuildSandboxUploadUrl(uploadEndpointResult.Data, out var uploadUrl))
-        {
-            return ApiResponse<SandboxGatewayTarget>.ErrorResponse(502, "sandbox gateway endpoint 格式无效");
+            return ApiResponse<SandboxGatewayTarget>.ErrorResponse(409, "sandbox gateway endpoint 尚未就绪");
         }
 
         return ApiResponse<SandboxGatewayTarget>.SuccessResponse(
             new SandboxGatewayTarget(
                 refreshResult.Data.SandboxId,
-                uploadUrl));
-    }
-
-    private async Task<ApiResponse<string>> ResolveSandboxUploadEndpointAsync(
-        string sandboxId,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(sandboxId))
-        {
-            return ApiResponse<string>.ErrorResponse(400, "sandboxId 不能为空");
-        }
-
-        var settings = SandboxProvisioningSettings.FromConfiguration(configuration);
-        var connection = settings.BuildConnection();
-        var lookupUrl = OpenSandboxProvisioner.BuildEndpointLookupUrl(
-            connection.GetBaseUrl().TrimEnd('/'),
-            sandboxId.Trim(),
-            settings.GatewayPort,
-            useServerProxy: false);
-
-        using var response = await connection.GetHttpClient().GetAsync(lookupUrl, cancellationToken);
-        var payload = response.Content is null
-            ? string.Empty
-            : await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            return ApiResponse<string>.ErrorResponse(
-                (int)response.StatusCode,
-                string.IsNullOrWhiteSpace(payload)
-                    ? $"sandbox upload endpoint 查询失败（HTTP {(int)response.StatusCode}）"
-                    : payload);
-        }
-
-        using var document = JsonDocument.Parse(payload);
-        if (!document.RootElement.TryGetProperty("endpoint", out var endpointElement) ||
-            string.IsNullOrWhiteSpace(endpointElement.GetString()))
-        {
-            return ApiResponse<string>.ErrorResponse(502, "sandbox upload endpoint 返回为空");
-        }
-
-        return ApiResponse<string>.SuccessResponse(endpointElement.GetString()!);
-    }
-
-    internal static bool TryBuildSandboxUploadUrl(string gatewayEndpoint, out string uploadUrl)
-    {
-        uploadUrl = string.Empty;
-        if (string.IsNullOrWhiteSpace(gatewayEndpoint))
-        {
-            return false;
-        }
-
-        var normalizedGatewayEndpoint = gatewayEndpoint.Trim();
-        if (!normalizedGatewayEndpoint.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-            !normalizedGatewayEndpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            normalizedGatewayEndpoint = $"http://{normalizedGatewayEndpoint.TrimStart('/')}";
-        }
-
-        if (!Uri.TryCreate(normalizedGatewayEndpoint, UriKind.Absolute, out var gatewayUri) ||
-            !string.Equals(gatewayUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(gatewayUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (gatewayUri.AbsolutePath.EndsWith("/admin/digital-employee/upload", StringComparison.OrdinalIgnoreCase))
-        {
-            uploadUrl = gatewayUri.ToString();
-            return true;
-        }
-
-        var normalizedBaseUrl = normalizedGatewayEndpoint.EndsWith("/", StringComparison.Ordinal)
-            ? normalizedGatewayEndpoint
-            : normalizedGatewayEndpoint + "/";
-
-        uploadUrl = new Uri(new Uri(normalizedBaseUrl, UriKind.Absolute), "admin/digital-employee/upload").ToString();
-        return true;
+                refreshResult.Data.GatewayEndpoint));
     }
 
     private static byte[] BuildSystemSkillArchive(SystemSkillUploadPayload payload)

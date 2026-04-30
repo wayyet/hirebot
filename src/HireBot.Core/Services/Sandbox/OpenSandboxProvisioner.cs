@@ -109,8 +109,10 @@ internal sealed class OpenSandboxProvisioner(
             expiresAtUtc = new DateTimeOffset(expiresAt, TimeSpan.Zero);
         }
 
+        // OpenSandbox endpoint lookup should return the sandbox gateway address itself.
+        // The management-service proxy URL cannot be reused as the chat/upload base URL.
         var gatewayEndpoint = state == "Running"
-            ? await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, settings.UseServerProxy, cancellationToken)
+            ? await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, useServerProxy: false, cancellationToken)
             : null;
 
         return new ProvisionedSandboxResult(sandboxId, state, gatewayEndpoint, expiresAtUtc);
@@ -208,7 +210,7 @@ internal sealed class OpenSandboxProvisioner(
                 string? endpoint = null;
                 if (state == "Running")
                 {
-                    endpoint = await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, settings.UseServerProxy, cancellationToken);
+                    endpoint = await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, useServerProxy: false, cancellationToken);
                 }
 
                 DateTimeOffset? expiresAtUtc = null;

@@ -1,4 +1,4 @@
-﻿using HireBot.Abstraction;
+using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Services.Hiring;
 using Microsoft.AspNetCore.Mvc;
