@@ -265,6 +265,9 @@ internal sealed class FileSystemSystemSkillRegistry(
             .Select(item => item.Asset)
             .ToArray();
         var hashSeed = string.Join('\n', files.Select(file => $"{file.RelativePath}:{file.ContentHash}"));
+        var hasExplicitEntrySkill = !string.IsNullOrWhiteSpace(manifest.EntrySkill);
+        var entrySkill = FirstNonEmpty(manifest.EntrySkill, manifest.SkillId);
+        var entryContent = ResolveEntryContent(files, entrySkill, manifestPath, hasExplicitEntrySkill);
         var stageRules = (manifest.StageRules ?? [])
             .Select(rule => new SystemSkillStageRule(
                 Stage: RequireValue(rule.Stage, manifestPath, "stage_rules[].stage"),
@@ -283,10 +286,10 @@ internal sealed class FileSystemSystemSkillRegistry(
             Level: FirstNonEmpty(manifest.Level, "system"),
             Status: FirstNonEmpty(manifest.Status, "active"),
             Version: FirstNonEmpty(manifest.Version, "1.0"),
-            EntrySkill: FirstNonEmpty(manifest.EntrySkill, manifest.SkillId),
+            EntrySkill: entrySkill,
             SkillHash: HiringAssetFileSystem.ComputeContentHash(hashSeed),
             RootPath: skillRoot,
-            EntryContent: rootContent,
+            EntryContent: entryContent,
             InputExample: manifest.InputExample?.Trim() ?? string.Empty,
             OutputExample: manifest.OutputExample?.Trim() ?? string.Empty,
             UpdatedAtUtc: loadedFiles.Max(item => item.UpdatedAtUtc),
@@ -312,6 +315,31 @@ internal sealed class FileSystemSystemSkillRegistry(
         }
 
         throw new InvalidOperationException($"System skill manifest missing {fieldName}: {manifestPath}");
+    }
+
+    private static string ResolveEntryContent(
+        IReadOnlyList<SystemSkillFileAsset> files,
+        string entrySkill,
+        string manifestPath,
+        bool hasExplicitEntrySkill)
+    {
+        var rootSkill = files.FirstOrDefault(file =>
+            file.RelativePath.Equals("SKILL.md", StringComparison.OrdinalIgnoreCase));
+        if (!hasExplicitEntrySkill)
+        {
+            return rootSkill?.Content
+                   ?? throw new InvalidOperationException($"System skill entry not found: {manifestPath}");
+        }
+
+        var normalizedEntrySkill = entrySkill.Trim().Replace('\\', '/').Trim('/');
+        var candidatePath = normalizedEntrySkill.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+            ? normalizedEntrySkill
+            : $"{normalizedEntrySkill}/SKILL.md";
+        var entryFile = files.FirstOrDefault(file =>
+            file.RelativePath.Equals(candidatePath, StringComparison.OrdinalIgnoreCase));
+        return entryFile?.Content
+               ?? throw new InvalidOperationException(
+                   $"System skill entry_skill target not found: {entrySkill} ({manifestPath})");
     }
 
     private static string FirstNonEmpty(params string?[] values)
