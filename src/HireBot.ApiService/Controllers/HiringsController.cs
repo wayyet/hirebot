@@ -107,6 +107,39 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
         return StatusCode(response.Code, response);
     }
 
+    [HttpPost("{hireId}/credential-bindings")]
+    public async Task<IActionResult> UpsertCredentialBinding(
+        string hireId,
+        [FromBody] HiringCredentialBindingRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<HiringWorkflowStateDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeHiringService.UpsertCredentialBindingAsync(hireId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPut("{hireId}/config-files/{configKey}")]
+    public async Task<IActionResult> UpdateConfigFile(
+        string hireId,
+        string configKey,
+        [FromBody] HiringConfigFileUpdateRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<HiringWorkflowStateDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeHiringService.UpdateConfigFileAsync(hireId, configKey, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpGet("{hireId}/artifacts/download")]
     public async Task<IActionResult> DownloadArtifacts(string hireId, CancellationToken cancellationToken = default)
     {

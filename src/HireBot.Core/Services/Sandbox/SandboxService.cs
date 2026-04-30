@@ -731,7 +731,7 @@ internal sealed class SandboxService(
     {
         return sandboxRole.Contains("evaluation", StringComparison.OrdinalIgnoreCase)
             ? "evaluation"
-            : HiringCollectionStage.Goal;
+            : HiringCollectionStage.Material;
     }
 
     private static Dictionary<string, string?> NormalizeStructuredAnswers(IReadOnlyDictionary<string, string>? structuredAnswers)

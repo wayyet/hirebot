@@ -1,0 +1,222 @@
+{
+  "$schema": "../../templates/TEMPLATE.schema.json",
+  "schema_version": "1.0.0",
+  "template_type": "ontology_slice",
+  "slice_request": {
+    "task_name": "通用代理执行能力梳理",
+    "slice_topic": "代理能力与工具执行边界",
+    "task_goal": "给一个尚未完全澄清的代理执行子域先产出可落库的 ontology slice 草案，用于提醒团队区分结构合法与语义充分是两件事。",
+    "expected_output": [
+      "concept_table",
+      "relation_table",
+      "constraint_list"
+    ]
+  },
+  "scope": {
+    "include": [
+      {
+        "type": "concept",
+        "id": "C1",
+        "name": "代理能力",
+        "reason": "当前任务只先粗粒度表达代理可以做什么。"
+      },
+      {
+        "type": "concept",
+        "id": "C2",
+        "name": "工具执行",
+        "reason": "团队当前主要讨论代理与工具调用之间的粗边界。"
+      },
+      {
+        "type": "relation",
+        "id": "R1",
+        "name": "代理能力依赖工具执行",
+        "reason": "用于表达高层依赖关系，即使细节尚未稳定。"
+      }
+    ],
+    "exclude": [
+      {
+        "name": "权限模型细节",
+        "reason": "当前只做粗粒度梳理，暂不展开鉴权和审批细节。"
+      },
+      {
+        "name": "供应商特定模型差异",
+        "reason": "先保留抽象层，不引入具体模型供应商能力差异。"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "S1",
+      "path": "docs/openclaw-tool-system-architecture.md",
+      "source_type": "document",
+      "role": "提供工具系统的高层说明，但没有完全定义本次切片的概念边界。",
+      "priority": 1,
+      "trust_level": "medium"
+    },
+    {
+      "id": "S2",
+      "path": "docs/openclaw-net-comprehensive-guide.md",
+      "source_type": "document",
+      "role": "补充产品级能力描述，但部分术语偏面向用户而非本体定义。",
+      "priority": 2,
+      "trust_level": "low"
+    }
+  ],
+  "conflicts": [
+    {
+      "item": "代理能力是否天然包含工具调用能力",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "resolution": "当前先保留为可工作的粗粒度定义：代理能力可依赖工具执行，但不等同于工具执行本身，后续再收紧。",
+      "status": "deferred"
+    }
+  ],
+  "summary": {
+    "topic": "代理能力与工具执行边界",
+    "one_line_conclusion": "该样例在结构上完全合法，但它故意保留了来源信任度较低、关系抽象偏粗和歧义未解等问题，用于演示“schema 通过”不代表“建模质量已达标”。",
+    "selection_basis": "当前只纳入能表达粗粒度能力边界的最小概念集合。",
+    "exclusion_basis": "所有会显著细化语义的权限、审批、供应商差异和具体运行时状态均暂不纳入。"
+  },
+  "concepts": [
+    {
+      "id": "C1",
+      "name_zh": "代理能力",
+      "name_en": "AgentCapability",
+      "aliases": [
+        "agent capability",
+        "代理可做的事"
+      ],
+      "kind": "entity",
+      "definition": "一个偏抽象的概念，用来表示代理在系统中能够完成的工作类别，但当前尚未细分到稳定子类型。",
+      "parent_concept_id": null,
+      "key_properties": [
+        {
+          "name": "scope_label",
+          "type": "string",
+          "required": true,
+          "description": "用于标记当前能力范围的粗粒度标签。"
+        }
+      ],
+      "source_ids": [
+        "S1",
+        "S2"
+      ]
+    },
+    {
+      "id": "C2",
+      "name_zh": "工具执行",
+      "name_en": "ToolExecution",
+      "aliases": [
+        "tool call",
+        "工具调用执行"
+      ],
+      "kind": "event",
+      "definition": "表示代理触发外部工具或内部工具行为的一类执行事件，但当前没有进一步定义同步、异步和审批前后状态。",
+      "parent_concept_id": null,
+      "key_properties": [
+        {
+          "name": "execution_mode",
+          "type": "string",
+          "required": false,
+          "description": "描述执行方式的文本字段，目前没有统一枚举。"
+        }
+      ],
+      "source_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "R1",
+      "subject_concept_id": "C1",
+      "predicate": "depends_on",
+      "object_concept_id": "C2",
+      "description": "当前先用一个宽泛关系表示部分代理能力依赖工具执行，但不表达依赖发生的阶段与条件细节。",
+      "cardinality": "1:n",
+      "direction": "uni",
+      "conditions": [
+        "仅在代理需要借助外部或内部工具完成任务时成立。"
+      ],
+      "source_ids": [
+        "S1",
+        "S2"
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "id": "K1",
+      "name": "粗粒度关系不得误解为完整执行语义",
+      "applies_to": {
+        "concept_ids": [
+          "C1",
+          "C2"
+        ],
+        "relation_ids": [
+          "R1"
+        ]
+      },
+      "rule": "在更细粒度 ontology 尚未补齐前，任何基于本切片的实现或文档都不得把 `depends_on` 解释为稳定、完整且无例外的执行语义。",
+      "trigger": "基于该切片继续生成文档、代码或评审结论时。",
+      "forbidden": [
+        "把当前关系直接当作所有代理能力都必须调用工具的定论。",
+        "把当前切片误用为审批、权限或运行时编排的完整本体。"
+      ],
+      "severity": "medium",
+      "source_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "term_mappings": [
+    {
+      "term": "代理会调用工具",
+      "candidate_concept_ids": [
+        "C1",
+        "C2"
+      ],
+      "selected_concept_id": "C2",
+      "reason": "这句话更接近工具执行事件本身，而不是代理能力概念的完整定义。"
+    }
+  ],
+  "ambiguities": [
+    {
+      "description": "“代理能力”到底是抽象能力集合，还是已经绑定到某个运行时代理实例的能力快照，当前尚未澄清。",
+      "impact": "会影响后续是否把能力建模成实体、配置还是运行时状态。",
+      "status": "open"
+    },
+    {
+      "description": "“工具执行”在当前切片中被建模为 event，但也可能在其他团队语境里被看成服务能力或流程节点。",
+      "impact": "会影响关系谓词、属性集合以及与审批流程的连接方式。",
+      "status": "deferred"
+    }
+  ],
+  "uncertainties": [
+    {
+      "item": "是否需要把审批、权限和工具选择策略拆成独立概念层",
+      "missing_evidence": "当前来源只够支撑高层语义，不足以给出稳定边界。",
+      "required_user_input": "需要团队确认后续是继续做高层抽象，还是进入可执行流程级本体建模。"
+    }
+  ],
+  "next_actions": [
+    {
+      "action": "补充至少一个高信任度代码来源，验证 `AgentCapability` 与 `ToolExecution` 的边界是否需要重构。",
+      "owner": "user",
+      "priority": "P1"
+    },
+    {
+      "action": "在继续扩展该切片前，先决定“代理能力”是抽象能力、配置能力还是运行时能力。",
+      "owner": "agent",
+      "priority": "P2"
+    }
+  ],
+  "meta": {
+    "generated_at": "2026-04-21T00:00:00Z",
+    "generated_by": "ontology_extraction",
+    "workspace": "kingcrab",
+    "notes": "这是一个 warning 样例：它结构合法、可通过 schema，但故意保留来源信任度低、歧义未解和概念边界偏粗的问题，用于提醒团队不要把通过校验等同于建模完成。"
+  }
+}

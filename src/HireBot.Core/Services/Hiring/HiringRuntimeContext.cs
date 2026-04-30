@@ -26,6 +26,12 @@ internal sealed record HiringRuntimeContext
     public IReadOnlyList<HiringConversationMessageDto> Messages { get; init; } = [];
     public IReadOnlyList<HiringAuditLogDto> AuditLogs { get; init; } = [];
     public IReadOnlyList<HiringStageCompletionDto> StageCompletion { get; init; } = [];
+    public IReadOnlyList<HiringHandoffTodoDto> HandoffTodos { get; init; } = [];
+    public IReadOnlyList<HiringDispatchRecordDto> LatestDispatches { get; init; } = [];
+    public HiringDiagnosticReportDto? LatestDiagnosticReport { get; init; }
+    public IReadOnlyList<HiringCredentialSlotDto> CredentialSlots { get; init; } = [];
+    public HiringConfigGovernanceStateDto? ConfigGovernance { get; init; }
+    public IReadOnlyList<HiringStageReadinessDto> StageReadiness { get; init; } = [];
     public bool IsTemplateUploadPending { get; init; }
     public int TemplateUploadRetryCount { get; init; }
     public string? TemplateUploadLastError { get; init; }

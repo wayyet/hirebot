@@ -64,6 +64,7 @@ public static class ServiceExtensions
         services.AddDbContext<HireBotDbContext>(options => options.UseNpgsql(
             connectionString.Trim(),
             npgsql => npgsql.MigrationsAssembly("HireBot.Repository")));
+        services.AddDataProtection();
 
         services.AddScoped<IHireBotRepository, HireBotRepository>();
     }
@@ -96,7 +97,7 @@ public static class ServiceExtensions
         services.AddScoped<IRequestContextService, RequestContextService>();
 
         services.AddSingleton<IEmployeeRuntimeStore, InMemoryEmployeeRuntimeStore>();
-        services.AddSingleton<IHiringRuntimeStore, InMemoryHiringRuntimeStore>();
+        services.AddScoped<IHiringRuntimeStore, PersistentHiringRuntimeStore>();
         services.AddSingleton<IEvaluationScenarioProvider, UnavailableEvaluationScenarioProvider>();
         services.AddSingleton<ICollaborationProvider, UnavailableCollaborationProvider>();
         services.AddSingleton<ITeamImProvider, InMemoryTeamImProvider>();

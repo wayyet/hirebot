@@ -24,6 +24,7 @@ using HireBot.Core.Services.Sandbox;
 using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -42,6 +43,7 @@ internal sealed class EmployeeHiringService(
     IKingCrabHttpClient kingCrabHttpClient,
     ISandboxService sandboxService,
     IConfiguration configuration,
+    IDataProtectionProvider dataProtectionProvider,
     IHttpContextAccessor httpContextAccessor,
     IServiceScopeFactory serviceScopeFactory,
     HireBotDbContext dbContext,
@@ -50,6 +52,7 @@ internal sealed class EmployeeHiringService(
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private const string DefaultConversationKickoffPrompt = "你是雇佣流程助手。请先根据当前阶段提出第一个关键问题，引导用户完善模板包内容。";
+    private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
     private const string EvaluationSkillId = "evaluation-expert";
     private const string EvaluationSkillVersion = "2.1.0";
     private const string EvaluationWorkspaceTemplateId = "evaluation-expert";
@@ -150,7 +153,7 @@ internal sealed class EmployeeHiringService(
             OperatorId = operatorId,
             SandboxId = provisionResult.Data.SandboxId,
             SessionId = string.Empty,
-            CurrentStage = HiringCollectionStage.Goal,
+            CurrentStage = HiringCollectionStage.Material,
             CollectionPhase = HiringCollectionPhase.NotStarted,
             IsConversationPaused = false,
             IsConversationResponding = false,
@@ -203,7 +206,7 @@ internal sealed class EmployeeHiringService(
                 OperatorId = operatorId,
                 SandboxId = call.Data.SandboxId,
                 SessionId = conversationStartResponse.Data.SessionId,
-                CurrentStage = HiringCollectionStage.Goal,
+                CurrentStage = HiringCollectionStage.Material,
                 CollectionPhase = HiringCollectionPhase.NotStarted,
                 IsConversationPaused = false,
                 IsConversationResponding = false,
@@ -569,21 +572,14 @@ internal sealed class EmployeeHiringService(
         var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
         if (runtimeContext is not null)
         {
-            var currentStage = ResolveCurrentStage(runtimeContext.StageCompletion, call.Data.CurrentStage);
-            var collectionPhase = ResolveCollectionPhase(
-                runtimeContext.StageCompletion,
-                runtimeContext.StructuredData,
-                runtimeContext.CollectionPhase);
-            runtimeContext = runtimeContext with
+            runtimeContext = ApplyWorkflowProgress(runtimeContext with
             {
-                SessionId = call.Data.SessionId,
-                CurrentStage = currentStage,
-                CollectionPhase = collectionPhase
-            };
+                SessionId = call.Data.SessionId
+            });
             hiringRuntimeStore.Upsert(runtimeContext);
             call = RemoteCallResult<StartHiringConversationResultDto>.Ok(call.Data with
             {
-                CurrentStage = currentStage,
+                CurrentStage = runtimeContext.CurrentStage,
                 StageSkills = BuildStageSkills(runtimeContext.DiscoverySkill),
                 IsConversationPaused = runtimeContext.IsConversationPaused,
                 IsConversationResponding = IsConversationResponding(normalizedHireId, runtimeContext)
@@ -621,10 +617,9 @@ internal sealed class EmployeeHiringService(
 
         if (request is null ||
             (string.IsNullOrWhiteSpace(request.Content) &&
-             (request.StructuredAnswers is null || request.StructuredAnswers.Count == 0) &&
              (request.Materials is null || request.Materials.Count == 0)))
         {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, "content 与 structuredAnswers 不能同时为空");
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, "content 与 materials 不能同时为空");
         }
 
         var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
@@ -648,25 +643,68 @@ internal sealed class EmployeeHiringService(
 
             if (runtimeContext is not null)
             {
-                hiringRuntimeStore.Upsert(runtimeContext with { IsConversationResponding = true });
+                runtimeContext = runtimeContext with { IsConversationResponding = true };
+                hiringRuntimeStore.Upsert(runtimeContext);
             }
 
-            var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
-            var sendResponse = await sandboxService.SendMessageAsync(
-                new SandboxSendMessageRequestDto
+            if (runtimeContext is null)
+            {
+                return ApiResponse<HiringConversationResultDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
+            }
+
+            var requestMaterials = BuildMaterialsFromRequest(request);
+            if (HiringWorkflowSupport.ContainsSensitiveValue(request.Content))
+            {
+                var now = DateTimeOffset.UtcNow;
+                var assistantMessage = new HiringConversationMessageDto(
+                    $"assistant-{Guid.NewGuid():N}",
+                    "assistant",
+                    "检测到你在对话里输入了凭据或密钥，这类信息不会进入会话。请改用右侧凭据表单提交。",
+                    now);
+
+                runtimeContext = runtimeContext with
                 {
-                    ScopeType = SandboxScopeTypes.Hire,
-                    ScopeKey = normalizedHireId,
-                    SandboxRole = ResolveSandboxRole(normalizedHireId),
-                    OwnerSubject = ownerContext.OwnerSubject,
-                    TenantId = ownerContext.TenantId,
-                    OperatorId = ownerContext.OperatorId,
-                    SessionKey = "default",
-                    SandboxId = runtimeContext?.SandboxId,
-                    Content = request.Content,
-                    StructuredAnswers = request.StructuredAnswers,
-                    Materials = request.Materials
-                },
+                    Materials = MergeMaterials(runtimeContext.Materials, requestMaterials),
+                    Messages = AppendMessages(
+                        runtimeContext.Messages,
+                        new HiringConversationMessageDto(
+                            $"user-{Guid.NewGuid():N}",
+                            "user",
+                            "[已拦截敏感凭据输入]",
+                            now),
+                        assistantMessage)
+                };
+                runtimeContext = ApplyWorkflowProgress(runtimeContext);
+                runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
+                if (ShouldPersistArtifactPackages(runtimeContext))
+                {
+                    await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+                }
+
+                hiringRuntimeStore.Upsert(runtimeContext);
+                return ApiResponse<HiringConversationResultDto>.SuccessResponse(
+                    new HiringConversationResultDto(
+                        normalizedHireId,
+                        runtimeContext.SessionId,
+                        runtimeContext.CurrentStage,
+                        false,
+                        assistantMessage,
+                        BuildLocalStagePreview(
+                            normalizedHireId,
+                            runtimeContext.DiscoverySkill,
+                            runtimeContext.StageCompletion,
+                            runtimeContext.CurrentStage,
+                            runtimeContext.CollectionPhase,
+                            runtimeContext.StructuredData,
+                            assistantMessage.Content),
+                        runtimeContext.IsConversationPaused,
+                        true));
+            }
+
+            var sendResponse = await SendSandboxConversationMessageAsync(
+                runtimeContext,
+                request.Content,
+                requestMaterials,
                 cancellationToken);
 
             if (!sendResponse.Success || sendResponse.Data is null)
@@ -674,52 +712,54 @@ internal sealed class EmployeeHiringService(
                 return ApiResponse<HiringConversationResultDto>.ErrorResponse(sendResponse.Code, sendResponse.Message);
             }
 
-            var call = RemoteCallResult<HiringConversationResultDto>.Ok(sendResponse.Data);
-
-            runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-            if (runtimeContext is not null)
+            var parsedReply = HiringWorkflowSupport.ParseAssistantReply(sendResponse.Data.AssistantMessage.Content);
+            var visibleAssistantMessage = sendResponse.Data.AssistantMessage with
             {
-                var structuredData = MergeStructuredData(runtimeContext.StructuredData, request.StructuredAnswers);
-                var materials = MergeMaterials(runtimeContext.Materials, BuildMaterialsFromRequest(request));
-                var stageCompletion = stageCompletionEvaluator.Evaluate(runtimeContext.DiscoverySkill.StageRules, structuredData);
-                var currentStage = ResolveCurrentStage(stageCompletion, runtimeContext.CurrentStage);
-                var collectionPhase = ResolveCollectionPhase(stageCompletion, structuredData, HiringCollectionPhase.InProgress);
-                var preview = BuildLocalStagePreview(
-                    normalizedHireId,
-                    runtimeContext.DiscoverySkill,
-                    stageCompletion,
-                    currentStage,
-                    collectionPhase,
-                    structuredData,
-                    call.Data.AssistantMessage.Content);
+                Content = parsedReply.VisibleContent
+            };
 
-                runtimeContext = runtimeContext with
-                {
-                    SessionId = call.Data.SessionId,
-                    CurrentStage = currentStage,
-                    CollectionPhase = collectionPhase,
-                    StructuredData = structuredData,
-                    Materials = materials,
-                    StageCompletion = stageCompletion,
-                    IsConversationResponding = true
-                };
-                runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
-                if (ShouldPersistArtifactPackages(runtimeContext))
-                {
-                    await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
-                }
-                hiringRuntimeStore.Upsert(runtimeContext);
-
-                call = RemoteCallResult<HiringConversationResultDto>.Ok(call.Data with
-                {
-                    CurrentStage = currentStage,
-                    LatestPreview = preview,
-                    IsConversationPaused = runtimeContext.IsConversationPaused,
-                    IsConversationResponding = true
-                });
+            runtimeContext = runtimeContext with
+            {
+                SessionId = sendResponse.Data.SessionId,
+                Materials = MergeMaterials(runtimeContext.Materials, requestMaterials),
+                Messages = AppendMessages(
+                    runtimeContext.Messages,
+                    new HiringConversationMessageDto(
+                        $"user-{Guid.NewGuid():N}",
+                        "user",
+                        request.Content?.Trim() ?? string.Empty,
+                        DateTimeOffset.UtcNow),
+                    visibleAssistantMessage),
+                StructuredData = MergeStructuredData(runtimeContext.StructuredData, request.StructuredAnswers)
+            };
+            runtimeContext = ApplyAssistantReply(runtimeContext, parsedReply);
+            runtimeContext = ApplyDispatchCallbacks(runtimeContext, parsedReply.DispatchCallbacks);
+            runtimeContext = await ExecuteDispatchCommandsAsync(runtimeContext, parsedReply.DispatchCommands, cancellationToken);
+            runtimeContext = ApplyWorkflowProgress(runtimeContext);
+            runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
+            if (ShouldPersistArtifactPackages(runtimeContext))
+            {
+                await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
             }
 
-            return ApiResponse<HiringConversationResultDto>.SuccessResponse(call.Data);
+            hiringRuntimeStore.Upsert(runtimeContext);
+            return ApiResponse<HiringConversationResultDto>.SuccessResponse(
+                new HiringConversationResultDto(
+                    normalizedHireId,
+                    runtimeContext.SessionId,
+                    runtimeContext.CurrentStage,
+                    false,
+                    visibleAssistantMessage,
+                    BuildLocalStagePreview(
+                        normalizedHireId,
+                        runtimeContext.DiscoverySkill,
+                        runtimeContext.StageCompletion,
+                        runtimeContext.CurrentStage,
+                        runtimeContext.CollectionPhase,
+                        runtimeContext.StructuredData,
+                        visibleAssistantMessage.Content),
+                    runtimeContext.IsConversationPaused,
+                    true));
         }
         finally
         {
@@ -742,40 +782,21 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(400, error);
         }
 
-        var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
-        var timelineResponse = await sandboxService.GetTimelineAsync(
-            new SandboxTimelineRequestDto
-            {
-                ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = normalizedHireId,
-                SandboxRole = ResolveSandboxRole(normalizedHireId),
-                OwnerSubject = ownerContext.OwnerSubject,
-                TenantId = ownerContext.TenantId,
-                OperatorId = ownerContext.OperatorId,
-                SessionKey = "default",
-                SandboxId = hiringRuntimeStore.Get(normalizedHireId)?.SandboxId
-            },
-            cancellationToken);
-
-        if (!timelineResponse.Success || timelineResponse.Data is null)
-        {
-            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(timelineResponse.Code, timelineResponse.Message);
-        }
-
-        var call = RemoteCallResult<HiringConversationTimelineDto>.Ok(timelineResponse.Data);
-
         var runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken);
-        if (runtimeContext is not null)
+        if (runtimeContext is null)
         {
-            call = RemoteCallResult<HiringConversationTimelineDto>.Ok(call.Data with
-            {
-                CurrentStage = runtimeContext.CurrentStage,
-                CollectionPhase = runtimeContext.CollectionPhase,
-                StageSkills = BuildStageSkills(runtimeContext.DiscoverySkill)
-            });
+            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
         }
 
-        return ApiResponse<HiringConversationTimelineDto>.SuccessResponse(call.Data);
+        return ApiResponse<HiringConversationTimelineDto>.SuccessResponse(
+            new HiringConversationTimelineDto(
+                normalizedHireId,
+                runtimeContext.SessionId,
+                runtimeContext.CurrentStage,
+                false,
+                runtimeContext.CollectionPhase,
+                runtimeContext.Messages,
+                BuildStageSkills(runtimeContext.DiscoverySkill)));
     }
 
     public async Task<ApiResponse<HiringStagePreviewDto>> GetStagePreviewAsync(
@@ -796,7 +817,7 @@ internal sealed class EmployeeHiringService(
 
         var targetStage = string.IsNullOrWhiteSpace(stage)
             ? runtimeContext.CurrentStage
-            : stage.Trim().ToUpperInvariant();
+            : NormalizeRequestedStage(stage);
         var preview = BuildLocalStagePreview(
             normalizedHireId,
             runtimeContext.DiscoverySkill,
@@ -879,17 +900,12 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(409, "本地雇佣上下文不存在，请重新发起雇佣流程");
         }
 
-        var incompleteStages = runtimeContext.StageCompletion
-            .Where(item => !item.ReadyForNextStage)
-            .ToArray();
-        if (incompleteStages.Length > 0)
+        if (!string.Equals(runtimeContext.LatestDiagnosticReport?.Status, HiringDiagnosticStatus.Pass, StringComparison.OrdinalIgnoreCase) ||
+            runtimeContext.LatestDiagnosticReport?.ReadyForPackaging != true)
         {
-            var blockingFields = incompleteStages
-                .SelectMany(item => item.BlockingFields.Select(field => $"{item.Stage}:{field}"))
-                .ToArray();
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
                 409,
-                $"仍有 discovery 阻塞字段未补齐：{string.Join("、", blockingFields)}");
+                runtimeContext.LatestDiagnosticReport?.UserSummary ?? "当前尚未通过诊断校验，不能执行打包。");
         }
 
         var call = await SendForJsonAsync<HiringFinalizeResultDto>(
@@ -973,17 +989,20 @@ internal sealed class EmployeeHiringService(
 
         runtimeContext = runtimeContext with
         {
-            CurrentStage = finalizeResult.CurrentStage,
-            CollectionPhase = finalizeResult.CollectionPhase,
+            CurrentStage = HiringCollectionStage.ReadyForPackaging,
+            CollectionPhase = HiringCollectionPhase.Finalized,
             EmployeeId = finalizeResult.EmployeeId,
             ArtifactFiles = mergedArtifacts,
             ArtifactArchive = mergedArtifactArchive,
             ArtifactArchiveFileName = artifactArchiveCall.FileName
         };
+        runtimeContext = ApplyWorkflowProgress(runtimeContext);
         hiringRuntimeStore.Upsert(runtimeContext);
 
         finalizeResult = finalizeResult with
         {
+            CurrentStage = runtimeContext.CurrentStage,
+            CollectionPhase = runtimeContext.CollectionPhase,
             GeneratedFiles = mergedArtifacts.Keys.ToArray(),
             DownloadUrl = $"/api/v1/hirings/{normalizedHireId}/artifacts/download"
         };
@@ -1019,10 +1038,101 @@ internal sealed class EmployeeHiringService(
             DiscoverySkillId: runtimeContext.DiscoverySkill.SkillId,
             DiscoverySkillVersion: runtimeContext.DiscoverySkill.SkillVersion,
             StageCompletion: runtimeContext.StageCompletion,
+            HandoffTodos: runtimeContext.HandoffTodos,
+            LatestDispatches: runtimeContext.LatestDispatches,
+            LatestDiagnosticReport: runtimeContext.LatestDiagnosticReport,
+            CredentialSlots: runtimeContext.CredentialSlots,
+            ConfigGovernance: runtimeContext.ConfigGovernance,
+            StageReadiness: runtimeContext.StageReadiness,
             IsConversationPaused: runtimeContext.IsConversationPaused,
             IsConversationResponding: IsConversationResponding(normalizedHireId, runtimeContext));
 
         return ApiResponse<HiringWorkflowStateDto>.SuccessResponse(workflowState);
+    }
+
+    public async Task<ApiResponse<HiringWorkflowStateDto>> UpsertCredentialBindingAsync(
+        string hireId,
+        HiringCredentialBindingRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(400, error);
+        }
+
+        if (request is null || string.IsNullOrWhiteSpace(request.CredentialSlot) || string.IsNullOrWhiteSpace(request.SecretValue))
+        {
+            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(400, "credentialSlot 与 secretValue 为必填项");
+        }
+
+        var runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken);
+        if (runtimeContext is null)
+        {
+            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
+        }
+
+        UpsertCredentialBindingEntity(runtimeContext, request);
+        runtimeContext = runtimeContext with
+        {
+            CredentialSlots = UpsertCredentialSlot(
+                runtimeContext.CredentialSlots,
+                new HiringCredentialSlotDto(
+                    request.CredentialSlot.Trim(),
+                    string.IsNullOrWhiteSpace(request.SecretRef) ? BuildSecretRef(request.CredentialSlot) : request.SecretRef.Trim(),
+                    request.AuthKind?.Trim(),
+                    request.TargetSystem?.Trim(),
+                    request.TodoId?.Trim(),
+                    HiringCredentialBindingStatus.Bound,
+                    DateTimeOffset.UtcNow))
+        };
+        runtimeContext = ApplyWorkflowProgress(runtimeContext);
+        runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
+        if (ShouldPersistArtifactPackages(runtimeContext))
+        {
+            await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+        }
+
+        hiringRuntimeStore.Upsert(runtimeContext);
+        return await GetWorkflowStateAsync(normalizedHireId, cancellationToken);
+    }
+
+    public async Task<ApiResponse<HiringWorkflowStateDto>> UpdateConfigFileAsync(
+        string hireId,
+        string configKey,
+        HiringConfigFileUpdateRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(400, error);
+        }
+
+        if (!TryResolveConfigFilePath(configKey, out var configFileKey, out var relativePath))
+        {
+            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(400, "configKey 仅支持 soul、identity、agents");
+        }
+
+        if (request is null || string.IsNullOrWhiteSpace(request.Content))
+        {
+            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(400, "content 不能为空");
+        }
+
+        var runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken);
+        if (runtimeContext is null)
+        {
+            return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
+        }
+
+        runtimeContext = UpsertConfigGovernanceFile(runtimeContext, configFileKey, relativePath, request.Content, request.Summary);
+        runtimeContext = ApplyWorkflowProgress(runtimeContext);
+        runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
+        if (ShouldPersistArtifactPackages(runtimeContext))
+        {
+            await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+        }
+
+        hiringRuntimeStore.Upsert(runtimeContext);
+        return await GetWorkflowStateAsync(normalizedHireId, cancellationToken);
     }
 
     public async Task<ApiResponse<bool>> UploadEvaluationSkillAsync(
@@ -1055,18 +1165,10 @@ internal sealed class EmployeeHiringService(
         var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
         if (runtimeContext is not null)
         {
-            var evaluationSkill = BuildDiscoverySkillFromUploadPayload(payloadResult.Data);
-            var stageCompletion = stageCompletionEvaluator.Evaluate(evaluationSkill.StageRules, runtimeContext.StructuredData);
-            var currentStage = ResolveCurrentStage(stageCompletion, runtimeContext.CurrentStage);
-            var collectionPhase = ResolveCollectionPhase(stageCompletion, runtimeContext.StructuredData, runtimeContext.CollectionPhase);
-
-            runtimeContext = runtimeContext with
+            runtimeContext = ApplyWorkflowProgress(runtimeContext with
             {
-                DiscoverySkill = evaluationSkill,
-                StageCompletion = stageCompletion,
-                CurrentStage = currentStage,
-                CollectionPhase = collectionPhase
-            };
+                DiscoverySkill = BuildDiscoverySkillFromUploadPayload(payloadResult.Data)
+            });
             hiringRuntimeStore.Upsert(runtimeContext);
         }
 
@@ -1153,21 +1255,399 @@ internal sealed class EmployeeHiringService(
         }
 
         await Task.CompletedTask;
-        var structuredData = NormalizeStructuredData(runtimeContext.StructuredData);
-        var stageCompletion = stageCompletionEvaluator.Evaluate(runtimeContext.DiscoverySkill.StageRules, structuredData);
-        var currentStage = ResolveCurrentStage(stageCompletion, runtimeContext.CurrentStage);
-        var collectionPhase = ResolveCollectionPhase(stageCompletion, structuredData, runtimeContext.CollectionPhase);
-
-        runtimeContext = runtimeContext with
+        runtimeContext = ApplyWorkflowProgress(runtimeContext with
         {
-            CurrentStage = currentStage,
-            CollectionPhase = collectionPhase,
-            StructuredData = structuredData,
-            StageCompletion = stageCompletion
-        };
+            StructuredData = NormalizeStructuredData(runtimeContext.StructuredData)
+        });
         hiringRuntimeStore.Upsert(runtimeContext);
 
         return runtimeContext;
+    }
+
+    private async Task<ApiResponse<HiringConversationResultDto>> SendSandboxConversationMessageAsync(
+        HiringRuntimeContext runtimeContext,
+        string content,
+        IReadOnlyList<HiringConversationMaterialDto> materials,
+        CancellationToken cancellationToken)
+    {
+        return await sandboxService.SendMessageAsync(
+            new SandboxSendMessageRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = runtimeContext.HireId,
+                SandboxRole = ResolveSandboxRole(runtimeContext.HireId),
+                OwnerSubject = runtimeContext.OwnerSubject,
+                TenantId = runtimeContext.TenantId,
+                OperatorId = runtimeContext.OperatorId,
+                SessionKey = "default",
+                SandboxId = runtimeContext.SandboxId,
+                Content = content?.Trim() ?? string.Empty,
+                StructuredAnswers = null,
+                Materials = materials,
+                UploadMaterialsAsAttachments = materials.Count > 0
+            },
+            cancellationToken);
+    }
+
+    private static IReadOnlyList<HiringConversationMessageDto> AppendMessages(
+        IReadOnlyList<HiringConversationMessageDto> existing,
+        params HiringConversationMessageDto[] appended)
+    {
+        if (appended.Length == 0)
+        {
+            return existing;
+        }
+
+        return existing
+            .Concat(appended)
+            .Where(message => message is not null)
+            .OrderBy(message => message.CreatedAt)
+            .ToArray();
+    }
+
+    private HiringRuntimeContext ApplyWorkflowProgress(HiringRuntimeContext runtimeContext)
+    {
+        var normalizedStructuredData = NormalizeStructuredData(runtimeContext.StructuredData);
+        var normalizedContext = runtimeContext with
+        {
+            StructuredData = normalizedStructuredData,
+            HandoffTodos = runtimeContext.HandoffTodos
+                .OrderBy(item => item.CreatedAtUtc)
+                .ThenBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            CredentialSlots = runtimeContext.CredentialSlots
+                .OrderBy(item => item.CredentialSlot, StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+        };
+
+        var evaluatedDiagnostic = HiringWorkflowSupport.EvaluateDiagnosis(normalizedContext);
+        var diagnostic = normalizedContext.LatestDiagnosticReport is null
+            ? evaluatedDiagnostic
+            : evaluatedDiagnostic with
+            {
+                Confidence = string.IsNullOrWhiteSpace(normalizedContext.LatestDiagnosticReport.Confidence)
+                    ? evaluatedDiagnostic.Confidence
+                    : normalizedContext.LatestDiagnosticReport.Confidence,
+                DiagnosticTodos = normalizedContext.LatestDiagnosticReport.DiagnosticTodos.Count > 0
+                    ? normalizedContext.LatestDiagnosticReport.DiagnosticTodos
+                    : evaluatedDiagnostic.DiagnosticTodos,
+                HandoffCorrelation = normalizedContext.LatestDiagnosticReport.HandoffCorrelation.Count > 0
+                    ? normalizedContext.LatestDiagnosticReport.HandoffCorrelation
+                    : evaluatedDiagnostic.HandoffCorrelation,
+                OpenQuestions = normalizedContext.LatestDiagnosticReport.OpenQuestions.Count > 0
+                    ? normalizedContext.LatestDiagnosticReport.OpenQuestions
+                    : evaluatedDiagnostic.OpenQuestions,
+                UserSummary = string.IsNullOrWhiteSpace(normalizedContext.LatestDiagnosticReport.UserSummary)
+                    ? evaluatedDiagnostic.UserSummary
+                    : normalizedContext.LatestDiagnosticReport.UserSummary,
+                GeneratedAtUtc = normalizedContext.LatestDiagnosticReport.GeneratedAtUtc > evaluatedDiagnostic.GeneratedAtUtc
+                    ? normalizedContext.LatestDiagnosticReport.GeneratedAtUtc
+                    : evaluatedDiagnostic.GeneratedAtUtc
+            };
+        var stageCompletion = HiringWorkflowSupport.BuildStageCompletion(normalizedContext.DiscoverySkill.StageRules, diagnostic);
+        var collectionPhase = string.Equals(normalizedContext.CollectionPhase, HiringCollectionPhase.Finalized, StringComparison.OrdinalIgnoreCase)
+            ? HiringCollectionPhase.Finalized
+            : normalizedStructuredData.Count == 0 &&
+              normalizedContext.Messages.Count == 0 &&
+              normalizedContext.HandoffTodos.Count == 0 &&
+              normalizedContext.CredentialSlots.Count == 0
+                ? HiringCollectionPhase.NotStarted
+                : diagnostic.ReadyForPackaging
+                    ? HiringCollectionPhase.ReadyForFinalize
+                    : HiringCollectionPhase.InProgress;
+
+        return normalizedContext with
+        {
+            CurrentStage = diagnostic.CurrentStage,
+            CollectionPhase = collectionPhase,
+            LatestDiagnosticReport = diagnostic,
+            StageReadiness = diagnostic.StageReadiness,
+            StageCompletion = stageCompletion
+        };
+    }
+
+    private HiringRuntimeContext ApplyAssistantReply(
+        HiringRuntimeContext runtimeContext,
+        ParsedHiringAssistantReply parsedReply)
+    {
+        var handoffTodos = MergeHandoffTodos(runtimeContext.HandoffTodos, parsedReply.HandoffTodos);
+        var updatedRuntimeContext = runtimeContext with
+        {
+            HandoffTodos = handoffTodos,
+            LatestDiagnosticReport = parsedReply.DiagnosticReport ?? runtimeContext.LatestDiagnosticReport
+        };
+
+        foreach (var configFile in parsedReply.ConfigGovernanceFiles)
+        {
+            updatedRuntimeContext = UpsertConfigGovernanceFile(
+                updatedRuntimeContext,
+                configFile.ConfigKey,
+                configFile.RelativePath,
+                configFile.Content,
+                configFile.Summary,
+                configFile.AffectedTodoIds);
+        }
+
+        return updatedRuntimeContext;
+    }
+
+    private async Task<HiringRuntimeContext> ExecuteDispatchCommandsAsync(
+        HiringRuntimeContext runtimeContext,
+        IReadOnlyList<HiringDispatchCommand> dispatchCommands,
+        CancellationToken cancellationToken)
+    {
+        if (dispatchCommands.Count == 0)
+        {
+            return runtimeContext;
+        }
+
+        var updatedRuntimeContext = runtimeContext;
+        foreach (var command in dispatchCommands)
+        {
+            if (string.IsNullOrWhiteSpace(command.Target))
+            {
+                throw new InvalidOperationException("dispatch target 不能为空");
+            }
+
+            var normalizedTodoIds = command.TodoIds
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var dispatchId = $"dispatch-{Guid.NewGuid():N}";
+            var createdAt = DateTimeOffset.UtcNow;
+            updatedRuntimeContext = updatedRuntimeContext with
+            {
+                HandoffTodos = UpdateTodoStatuses(
+                    updatedRuntimeContext.HandoffTodos,
+                    normalizedTodoIds,
+                    HiringTodoStatus.Dispatched),
+                LatestDispatches = AppendDispatchRecord(
+                    updatedRuntimeContext.LatestDispatches,
+                    new HiringDispatchRecordDto(
+                        DispatchId: dispatchId,
+                        Target: command.Target.Trim(),
+                        Status: "running",
+                        TodoIds: normalizedTodoIds,
+                        Note: command.Note?.Trim(),
+                        UserSummary: null,
+                        Artifacts: [],
+                        TodoResults: [],
+                        CreatedAtUtc: createdAt,
+                        CompletedAtUtc: null,
+                        Errors: []))
+            };
+
+            var dispatchContent = BuildDispatchConversationContent(updatedRuntimeContext, command, normalizedTodoIds);
+            var dispatchResponse = await SendSandboxConversationMessageAsync(
+                updatedRuntimeContext,
+                dispatchContent,
+                [],
+                cancellationToken);
+            if (!dispatchResponse.Success || dispatchResponse.Data is null)
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(dispatchResponse.Message)
+                        ? $"dispatch {command.Target.Trim()} 执行失败"
+                        : dispatchResponse.Message);
+            }
+
+            var parsedReply = HiringWorkflowSupport.ParseAssistantReply(dispatchResponse.Data.AssistantMessage.Content);
+            if (parsedReply.DispatchCallbacks.Count == 0)
+            {
+                throw new InvalidOperationException($"dispatch {command.Target.Trim()} 未返回 dispatch_callback");
+            }
+
+            updatedRuntimeContext = ApplyAssistantReply(updatedRuntimeContext, parsedReply);
+            updatedRuntimeContext = ApplyDispatchCallbacks(
+                updatedRuntimeContext,
+                parsedReply.DispatchCallbacks,
+                dispatchId,
+                command.Target.Trim());
+        }
+
+        return updatedRuntimeContext;
+    }
+
+    private static string NormalizeRequestedStage(string stage)
+    {
+        return stage.Trim().ToLowerInvariant() switch
+        {
+            "goal" or "material" => HiringCollectionStage.Material,
+            "scenario" or "skill" => HiringCollectionStage.Skill,
+            "systems" or "gaps" or "external" => HiringCollectionStage.External,
+            "package" or "ready_for_packaging" => HiringCollectionStage.ReadyForPackaging,
+            _ => stage.Trim()
+        };
+    }
+
+    private void UpsertCredentialBindingEntity(
+        HiringRuntimeContext runtimeContext,
+        HiringCredentialBindingRequestDto request)
+    {
+        var normalizedSlot = request.CredentialSlot.Trim();
+        var now = DateTimeOffset.UtcNow;
+        var protector = dataProtectionProvider.CreateProtector(CredentialProtectorPurpose);
+        var protectedSecret = protector.Protect(request.SecretValue.Trim());
+        var entity = dbContext.HiringCredentialBindings
+            .FirstOrDefault(item =>
+                item.HireId == runtimeContext.HireId &&
+                item.CredentialSlot == normalizedSlot);
+
+        if (entity is null)
+        {
+            dbContext.HiringCredentialBindings.Add(new HiringCredentialBindingEntity
+            {
+                BindingId = $"cred-{Guid.NewGuid():N}",
+                SessionId = runtimeContext.SessionId,
+                HireId = runtimeContext.HireId,
+                CredentialSlot = normalizedSlot,
+                SecretRef = string.IsNullOrWhiteSpace(request.SecretRef) ? BuildSecretRef(normalizedSlot) : request.SecretRef.Trim(),
+                AuthKind = request.AuthKind?.Trim(),
+                TargetSystem = request.TargetSystem?.Trim(),
+                TodoId = request.TodoId?.Trim(),
+                BindingStatus = HiringCredentialBindingStatus.Bound,
+                ProtectedSecret = protectedSecret,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            });
+        }
+        else
+        {
+            entity.SessionId = runtimeContext.SessionId;
+            entity.SecretRef = string.IsNullOrWhiteSpace(request.SecretRef) ? entity.SecretRef ?? BuildSecretRef(normalizedSlot) : request.SecretRef.Trim();
+            entity.AuthKind = request.AuthKind?.Trim();
+            entity.TargetSystem = request.TargetSystem?.Trim();
+            entity.TodoId = request.TodoId?.Trim();
+            entity.BindingStatus = HiringCredentialBindingStatus.Bound;
+            entity.ProtectedSecret = protectedSecret;
+            entity.UpdatedAtUtc = now;
+        }
+
+        dbContext.SaveChanges();
+    }
+
+    private static IReadOnlyList<HiringCredentialSlotDto> UpsertCredentialSlot(
+        IReadOnlyList<HiringCredentialSlotDto> existing,
+        HiringCredentialSlotDto incoming)
+    {
+        var normalizedSlot = incoming.CredentialSlot.Trim();
+        var result = existing
+            .Where(item => !string.Equals(item.CredentialSlot, normalizedSlot, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        result.Add(incoming with { CredentialSlot = normalizedSlot });
+        return result
+            .OrderBy(item => item.CredentialSlot, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string BuildSecretRef(string credentialSlot)
+    {
+        var normalized = credentialSlot
+            .Trim()
+            .Replace('-', '_')
+            .Replace(' ', '_')
+            .ToUpperInvariant();
+        return $"secret://hirebot/{normalized}";
+    }
+
+    private static bool TryResolveConfigFilePath(
+        string configKey,
+        out string normalizedConfigKey,
+        out string relativePath)
+    {
+        switch (configKey.Trim().ToLowerInvariant())
+        {
+            case HiringConfigFileKeys.Soul:
+                normalizedConfigKey = HiringConfigFileKeys.Soul;
+                relativePath = "config/SOUL.md";
+                return true;
+            case HiringConfigFileKeys.Identity:
+                normalizedConfigKey = HiringConfigFileKeys.Identity;
+                relativePath = "config/IDENTITY.md";
+                return true;
+            case HiringConfigFileKeys.Agents:
+                normalizedConfigKey = HiringConfigFileKeys.Agents;
+                relativePath = "config/AGENTS.md";
+                return true;
+            default:
+                normalizedConfigKey = string.Empty;
+                relativePath = string.Empty;
+                return false;
+        }
+    }
+
+    private HiringRuntimeContext UpsertConfigGovernanceFile(
+        HiringRuntimeContext runtimeContext,
+        string configKey,
+        string relativePath,
+        string content,
+        string? summary,
+        IReadOnlyList<string>? affectedTodoIds = null)
+    {
+        var normalizedConfigKey = configKey.Trim().ToLowerInvariant();
+        var now = DateTimeOffset.UtcNow;
+        var impactedTodoIds = (affectedTodoIds ?? [])
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (impactedTodoIds.Length == 0)
+        {
+            impactedTodoIds = runtimeContext.HandoffTodos
+                .Where(todo => string.Equals(todo.Status, HiringTodoStatus.Confirmed, StringComparison.OrdinalIgnoreCase))
+                .Select(todo => todo.Id)
+                .ToArray();
+        }
+
+        var packageFiles = runtimeContext.TemplatePackage.PackageFiles.ToDictionary(
+            file => file.RelativePath,
+            file => file,
+            StringComparer.OrdinalIgnoreCase);
+        UpsertPackageFile(packageFiles, relativePath, content);
+
+        var governanceFiles = (runtimeContext.ConfigGovernance?.Files ?? [])
+            .Where(file => !string.Equals(file.ConfigKey, normalizedConfigKey, StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(file => file.ConfigKey, StringComparer.OrdinalIgnoreCase);
+        governanceFiles[normalizedConfigKey] = new HiringConfigGovernanceFileDto(
+            ConfigKey: normalizedConfigKey,
+            DisplayName: ResolveConfigDisplayName(normalizedConfigKey),
+            RelativePath: relativePath,
+            Content: content,
+            Summary: summary?.Trim() ?? string.Empty,
+            UpdatedAtUtc: now,
+            AffectedTodoIds: impactedTodoIds);
+
+        return runtimeContext with
+        {
+            TemplatePackage = runtimeContext.TemplatePackage with
+            {
+                PackageFiles = packageFiles.Values.ToArray()
+            },
+            ConfigGovernance = new HiringConfigGovernanceStateDto(
+                Files: governanceFiles.Values
+                    .OrderBy(file => file.ConfigKey, StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                PendingReviewTodoIds: impactedTodoIds,
+                UpdatedAtUtc: now),
+            HandoffTodos = UpdateTodoStatuses(runtimeContext.HandoffTodos, impactedTodoIds, HiringTodoStatus.NeedsReview)
+        };
+    }
+
+    private static string BuildKickoffMessage(string currentStage)
+    {
+        return NormalizeRequestedStage(currentStage) switch
+        {
+            var stage when string.Equals(stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)
+                => "我们先补齐资料阶段。请描述这位数字员工的业务目标、服务对象，以及你已经准备好的资料来源。",
+            var stage when string.Equals(stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)
+                => "资料阶段已启动。接下来请说明需要沉淀成哪些业务技能、关键步骤和验收标准。",
+            var stage when string.Equals(stage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase)
+                => "现在进入外部能力阶段。请说明需要接入的系统、认证方式，以及哪些配置需要写入 external 或 config 目录。",
+            var stage when string.Equals(stage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase)
+                => "当前已经进入打包准备阶段。我会先检查诊断结果，并确认 ontology、skills、external、config 是否都已齐备。",
+            _ => DefaultConversationKickoffPrompt
+        };
     }
 
     private static IReadOnlyList<StageSkillMappingDto> BuildStageSkills(DiscoverySkillDefinition discoverySkill)
@@ -1179,6 +1659,466 @@ internal sealed class EmployeeHiringService(
                 RequiredFields: rule.RequiredFields,
                 Description: rule.Description))
             .ToArray();
+    }
+
+    private static IReadOnlyList<HiringHandoffTodoDto> MergeHandoffTodos(
+        IReadOnlyList<HiringHandoffTodoDto> existing,
+        IReadOnlyList<HiringHandoffTodoDto> incoming)
+    {
+        if (incoming.Count == 0)
+        {
+            return existing;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var result = existing.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
+        foreach (var todo in incoming)
+        {
+            if (string.IsNullOrWhiteSpace(todo.Id))
+            {
+                continue;
+            }
+
+            var normalizedId = todo.Id.Trim();
+            if (result.TryGetValue(normalizedId, out var current))
+            {
+                result[normalizedId] = todo with
+                {
+                    Id = normalizedId,
+                    Stage = NormalizeRequestedStage(todo.Stage),
+                    Status = NormalizeTodoStatus(todo.Status, current.Status),
+                    CreatedAtUtc = current.CreatedAtUtc,
+                    UpdatedAtUtc = todo.UpdatedAtUtc == default ? now : todo.UpdatedAtUtc
+                };
+            }
+            else
+            {
+                result[normalizedId] = todo with
+                {
+                    Id = normalizedId,
+                    Stage = NormalizeRequestedStage(todo.Stage),
+                    Status = NormalizeTodoStatus(todo.Status, HiringTodoStatus.Drafting),
+                    CreatedAtUtc = todo.CreatedAtUtc == default ? now : todo.CreatedAtUtc,
+                    UpdatedAtUtc = todo.UpdatedAtUtc == default ? now : todo.UpdatedAtUtc
+                };
+            }
+        }
+
+        return result.Values
+            .OrderBy(item => item.CreatedAtUtc)
+            .ThenBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<HiringHandoffTodoDto> UpdateTodoStatuses(
+        IReadOnlyList<HiringHandoffTodoDto> existing,
+        IReadOnlyList<string> todoIds,
+        string status)
+    {
+        if (todoIds.Count == 0)
+        {
+            return existing;
+        }
+
+        var normalizedIds = todoIds
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (normalizedIds.Count == 0)
+        {
+            return existing;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        return existing
+            .Select(todo => normalizedIds.Contains(todo.Id)
+                ? todo with
+                {
+                    Status = NormalizeTodoStatus(status, todo.Status),
+                    UpdatedAtUtc = now
+                }
+                : todo)
+            .ToArray();
+    }
+
+    private static string NormalizeTodoStatus(string? status, string fallbackStatus)
+    {
+        return status?.Trim().ToLowerInvariant() switch
+        {
+            HiringTodoStatus.Drafting => HiringTodoStatus.Drafting,
+            HiringTodoStatus.ReadyToDispatch => HiringTodoStatus.ReadyToDispatch,
+            HiringTodoStatus.Dispatched => HiringTodoStatus.Dispatched,
+            HiringTodoStatus.Dirty => HiringTodoStatus.Dirty,
+            HiringTodoStatus.Confirmed => HiringTodoStatus.Confirmed,
+            HiringTodoStatus.NeedsReview => HiringTodoStatus.NeedsReview,
+            HiringTodoStatus.Dismissed => HiringTodoStatus.Dismissed,
+            _ => fallbackStatus
+        };
+    }
+
+    private static IReadOnlyList<HiringDispatchRecordDto> AppendDispatchRecord(
+        IReadOnlyList<HiringDispatchRecordDto> existing,
+        HiringDispatchRecordDto record)
+    {
+        var result = existing
+            .Where(item => !string.Equals(item.DispatchId, record.DispatchId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        result.Add(record);
+        return result
+            .OrderByDescending(item => item.CreatedAtUtc)
+            .ThenBy(item => item.DispatchId, StringComparer.OrdinalIgnoreCase)
+            .Take(20)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<HiringDispatchRecordDto> UpdateDispatchRecord(
+        IReadOnlyList<HiringDispatchRecordDto> existing,
+        string dispatchId,
+        Func<HiringDispatchRecordDto, HiringDispatchRecordDto> updater)
+    {
+        return existing
+            .Select(record => string.Equals(record.DispatchId, dispatchId, StringComparison.OrdinalIgnoreCase)
+                ? updater(record)
+                : record)
+            .ToArray();
+    }
+
+    private string BuildDispatchConversationContent(
+        HiringRuntimeContext runtimeContext,
+        HiringDispatchCommand command,
+        IReadOnlyList<string> todoIds)
+    {
+        var normalizedTodoIds = todoIds
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var selectedTodos = runtimeContext.HandoffTodos
+            .Where(todo => normalizedTodoIds.Contains(todo.Id, StringComparer.OrdinalIgnoreCase))
+            .Select(todo => new
+            {
+                todo.Id,
+                todo.Stage,
+                todo.TargetSkill,
+                todo.Intent,
+                todo.Category,
+                todo.Status,
+                todo.Acceptance,
+                todo.PayloadJson
+            })
+            .ToArray();
+        var payload = new
+        {
+            target = command.Target.Trim(),
+            todoIds = normalizedTodoIds,
+            note = command.Note?.Trim(),
+            mode = command.Mode?.Trim(),
+            handoffTodos = selectedTodos,
+            secureCredentialContext = BuildSecureCredentialContext(runtimeContext, normalizedTodoIds)
+        };
+
+        return $"<dispatch>{JsonSerializer.Serialize(payload, JsonOptions)}</dispatch>";
+    }
+
+    private object[] BuildSecureCredentialContext(
+        HiringRuntimeContext runtimeContext,
+        IReadOnlyList<string> todoIds)
+    {
+        var relevantTodoIds = todoIds
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var boundSlots = runtimeContext.CredentialSlots
+            .Where(slot =>
+                string.Equals(slot.BindingStatus, HiringCredentialBindingStatus.Bound, StringComparison.OrdinalIgnoreCase) &&
+                (relevantTodoIds.Count == 0 || (!string.IsNullOrWhiteSpace(slot.TodoId) && relevantTodoIds.Contains(slot.TodoId))))
+            .ToArray();
+        if (boundSlots.Length == 0)
+        {
+            return [];
+        }
+
+        var bindings = dbContext.HiringCredentialBindings
+            .AsNoTracking()
+            .Where(item => item.HireId == runtimeContext.HireId)
+            .ToArray();
+        var protector = dataProtectionProvider.CreateProtector(CredentialProtectorPurpose);
+
+        return boundSlots
+            .Select(slot =>
+            {
+                var entity = bindings.FirstOrDefault(item =>
+                    string.Equals(item.CredentialSlot, slot.CredentialSlot, StringComparison.OrdinalIgnoreCase));
+                if (entity is null)
+                {
+                    throw new InvalidOperationException($"凭据槽位 {slot.CredentialSlot} 已绑定但未找到密文记录");
+                }
+
+                return (object)new
+                {
+                    credentialSlot = slot.CredentialSlot,
+                    secretRef = slot.SecretRef,
+                    authKind = slot.AuthKind,
+                    targetSystem = slot.TargetSystem,
+                    todoId = slot.TodoId,
+                    secretValue = protector.Unprotect(entity.ProtectedSecret)
+                };
+            })
+            .ToArray();
+    }
+
+    private HiringRuntimeContext ApplyDispatchCallbacks(
+        HiringRuntimeContext runtimeContext,
+        IReadOnlyList<HiringDispatchCallbackPayload> callbacks,
+        string? dispatchId = null,
+        string? fallbackTarget = null)
+    {
+        var updatedRuntimeContext = runtimeContext;
+        foreach (var callback in callbacks)
+        {
+            updatedRuntimeContext = ApplyDispatchCallback(updatedRuntimeContext, callback, dispatchId, fallbackTarget);
+        }
+
+        return updatedRuntimeContext;
+    }
+
+    private HiringRuntimeContext ApplyDispatchCallback(
+        HiringRuntimeContext runtimeContext,
+        HiringDispatchCallbackPayload callback,
+        string? dispatchId,
+        string? fallbackTarget = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var normalizedTarget = string.IsNullOrWhiteSpace(callback.SourceDispatchTarget)
+            ? fallbackTarget?.Trim() ?? "unknown"
+            : callback.SourceDispatchTarget.Trim();
+        var packageFiles = runtimeContext.TemplatePackage.PackageFiles.ToDictionary(
+            file => file.RelativePath,
+            file => file,
+            StringComparer.OrdinalIgnoreCase);
+        var artifactFiles = runtimeContext.ArtifactFiles.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.OrdinalIgnoreCase);
+        var artifactDtos = new Dictionary<string, HiringDispatchArtifactDto>(StringComparer.OrdinalIgnoreCase);
+
+        void MergeArtifact(HiringDispatchCallbackArtifactPayload artifactPayload)
+        {
+            if (!TryNormalizeArtifactPath(artifactPayload.Path, out var normalizedPath, out var pathError))
+            {
+                throw new InvalidOperationException(pathError);
+            }
+
+            if (!HiringWorkflowSupport.IsAllowedArtifactPath(normalizedPath))
+            {
+                throw new InvalidOperationException($"artifact path 不允许回写: {normalizedPath}");
+            }
+
+            var bytes = HiringWorkflowSupport.DecodeArtifactContent(artifactPayload);
+            var actualSha = HiringWorkflowSupport.ComputeSha256(bytes);
+            if (!string.Equals(actualSha, artifactPayload.Sha256?.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"artifact sha256 校验失败: {normalizedPath}");
+            }
+
+            if (ShouldInspectSensitiveContent(normalizedPath) &&
+                HiringWorkflowSupport.ContainsSensitiveValue(Encoding.UTF8.GetString(bytes)))
+            {
+                throw new InvalidOperationException($"artifact 检测到疑似明文凭据，已拒绝回写: {normalizedPath}");
+            }
+
+            if (packageFiles.TryGetValue(normalizedPath, out var existingFile) &&
+                !string.Equals(existingFile.ContentHash, actualSha, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"artifact path 冲突，禁止覆盖已有文件: {normalizedPath}");
+            }
+
+            if (artifactFiles.TryGetValue(normalizedPath, out var existingBytes) &&
+                !string.Equals(HiringWorkflowSupport.ComputeSha256(existingBytes), actualSha, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"artifact path 冲突，禁止重复写入不同内容: {normalizedPath}");
+            }
+
+            packageFiles[normalizedPath] = new TemplatePackageFileAsset(normalizedPath, bytes, actualSha);
+            artifactFiles[normalizedPath] = bytes;
+            artifactDtos[normalizedPath] = new HiringDispatchArtifactDto(
+                Path: normalizedPath,
+                Kind: string.IsNullOrWhiteSpace(artifactPayload.Kind) ? "file" : artifactPayload.Kind.Trim(),
+                Encoding: string.IsNullOrWhiteSpace(artifactPayload.Encoding) ? "plain" : artifactPayload.Encoding.Trim(),
+                Sha256: actualSha);
+        }
+
+        foreach (var artifact in callback.Artifacts)
+        {
+            MergeArtifact(artifact);
+        }
+
+        foreach (var artifact in callback.TodoResults.SelectMany(item => item.Artifacts))
+        {
+            MergeArtifact(artifact);
+        }
+
+        var todoResults = callback.TodoResults
+            .Select(item => new HiringDispatchTodoResultDto(
+                TodoId: item.TodoId,
+                Status: NormalizeTodoStatus(item.Status, HiringTodoStatus.Dirty),
+                Artifacts: item.Artifacts
+                    .Select(artifact =>
+                    {
+                        if (!TryNormalizeArtifactPath(artifact.Path, out var normalizedPath, out _))
+                        {
+                            normalizedPath = artifact.Path;
+                        }
+
+                        return artifactDtos.TryGetValue(normalizedPath, out var dto)
+                            ? dto
+                            : new HiringDispatchArtifactDto(
+                                Path: normalizedPath,
+                                Kind: string.IsNullOrWhiteSpace(artifact.Kind) ? "file" : artifact.Kind.Trim(),
+                                Encoding: string.IsNullOrWhiteSpace(artifact.Encoding) ? "plain" : artifact.Encoding.Trim(),
+                                Sha256: artifact.Sha256.Trim());
+                    })
+                    .ToArray(),
+                Errors: item.Errors))
+            .ToArray();
+
+        var updatedCredentialSlots = runtimeContext.CredentialSlots;
+        foreach (var credentialSlot in callback.TodoResults
+                     .SelectMany(item => item.CredentialSlots ?? [])
+                     .Where(slot => !string.IsNullOrWhiteSpace(slot.CredentialSlot)))
+        {
+            updatedCredentialSlots = UpsertCredentialSlot(
+                updatedCredentialSlots,
+                credentialSlot with
+                {
+                    BindingStatus = NormalizeCredentialBindingStatus(credentialSlot.BindingStatus),
+                    UpdatedAtUtc = credentialSlot.UpdatedAtUtc == default ? now : credentialSlot.UpdatedAtUtc
+                });
+        }
+
+        var todoStatusMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var todoResult in callback.TodoResults)
+        {
+            if (string.IsNullOrWhiteSpace(todoResult.TodoId))
+            {
+                continue;
+            }
+
+            todoStatusMap[todoResult.TodoId.Trim()] = NormalizeTodoStatus(todoResult.Status, HiringTodoStatus.Dirty);
+        }
+
+        foreach (var todoId in callback.TodoIds)
+        {
+            if (string.IsNullOrWhiteSpace(todoId))
+            {
+                continue;
+            }
+
+            var normalizedTodoId = todoId.Trim();
+            if (!todoStatusMap.ContainsKey(normalizedTodoId))
+            {
+                todoStatusMap[normalizedTodoId] = NormalizeTodoStatus(callback.Status, HiringTodoStatus.Dirty);
+            }
+        }
+
+        var updatedTodos = runtimeContext.HandoffTodos
+            .Select(todo => todoStatusMap.TryGetValue(todo.Id, out var todoStatus)
+                ? todo with
+                {
+                    Status = todoStatus,
+                    UpdatedAtUtc = now
+                }
+                : todo)
+            .ToArray();
+        var resolvedDispatchId = string.IsNullOrWhiteSpace(dispatchId) ? $"dispatch-{Guid.NewGuid():N}" : dispatchId;
+        var updatedDispatches = UpdateDispatchRecord(
+            runtimeContext.LatestDispatches,
+            resolvedDispatchId,
+            record => record with
+            {
+                Target = normalizedTarget,
+                Status = NormalizeDispatchStatus(callback.Status),
+                TodoIds = callback.TodoIds.Count == 0 ? record.TodoIds : callback.TodoIds,
+                Note = record.Note,
+                UserSummary = string.IsNullOrWhiteSpace(callback.UserSummary) ? record.UserSummary : callback.UserSummary.Trim(),
+                Artifacts = artifactDtos.Values.ToArray(),
+                TodoResults = todoResults,
+                CompletedAtUtc = now,
+                Errors = callback.Errors
+            });
+
+        if (!updatedDispatches.Any(item => string.Equals(item.DispatchId, resolvedDispatchId, StringComparison.OrdinalIgnoreCase)))
+        {
+            updatedDispatches = AppendDispatchRecord(
+                updatedDispatches,
+                new HiringDispatchRecordDto(
+                    DispatchId: resolvedDispatchId,
+                    Target: normalizedTarget,
+                    Status: NormalizeDispatchStatus(callback.Status),
+                    TodoIds: callback.TodoIds,
+                    Note: null,
+                    UserSummary: string.IsNullOrWhiteSpace(callback.UserSummary) ? null : callback.UserSummary.Trim(),
+                    Artifacts: artifactDtos.Values.ToArray(),
+                    TodoResults: todoResults,
+                    CreatedAtUtc: now,
+                    CompletedAtUtc: now,
+                    Errors: callback.Errors));
+        }
+
+        return runtimeContext with
+        {
+            TemplatePackage = runtimeContext.TemplatePackage with
+            {
+                PackageFiles = packageFiles.Values.ToArray()
+            },
+            ArtifactFiles = artifactFiles,
+            HandoffTodos = updatedTodos,
+            CredentialSlots = updatedCredentialSlots,
+            LatestDispatches = updatedDispatches
+        };
+    }
+
+    private static string NormalizeCredentialBindingStatus(string? status)
+    {
+        return status?.Trim().ToLowerInvariant() switch
+        {
+            HiringCredentialBindingStatus.Bound => HiringCredentialBindingStatus.Bound,
+            HiringCredentialBindingStatus.NotRequired => HiringCredentialBindingStatus.NotRequired,
+            HiringCredentialBindingStatus.Failed => HiringCredentialBindingStatus.Failed,
+            _ => HiringCredentialBindingStatus.Pending
+        };
+    }
+
+    private static string NormalizeDispatchStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return "completed";
+        }
+
+        return status.Trim().ToLowerInvariant();
+    }
+
+    private static bool ShouldInspectSensitiveContent(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return string.Equals(extension, ".md", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(extension, ".txt", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(extension, ".json", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(extension, ".yaml", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(extension, ".yml", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(extension, ".toml", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ResolveConfigDisplayName(string configKey)
+    {
+        return configKey switch
+        {
+            HiringConfigFileKeys.Soul => "SOUL.md",
+            HiringConfigFileKeys.Identity => "IDENTITY.md",
+            HiringConfigFileKeys.Agents => "AGENTS.md",
+            _ => configKey
+        };
     }
 
     private static HiringStagePreviewDto EnrichStagePreview(
@@ -1868,51 +2808,28 @@ This is the bootstrap skill for evaluation sandbox orchestration.
 
     private async Task EnsureAssistantKickoffAsync(string hireId, CancellationToken cancellationToken)
     {
-        var ownerContext = ResolveOwnerContextByHireId(hireId);
-        var timelineCall = await sandboxService.GetTimelineAsync(
-            new SandboxTimelineRequestDto
-            {
-                ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = hireId,
-                SandboxRole = ResolveSandboxRole(hireId),
-                OwnerSubject = ownerContext.OwnerSubject,
-                TenantId = ownerContext.TenantId,
-                OperatorId = ownerContext.OperatorId,
-                SessionKey = "default",
-                SandboxId = hiringRuntimeStore.Get(hireId)?.SandboxId
-            },
-            cancellationToken);
-        if (!timelineCall.Success || timelineCall.Data is null)
-        {
-            return;
-        }
-
-        var hasAssistantMessage = timelineCall.Data.Messages.Any(message =>
-            string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase));
-        if (hasAssistantMessage)
+        await Task.CompletedTask;
+        var runtimeContext = hiringRuntimeStore.Get(hireId);
+        if (runtimeContext is null || runtimeContext.Messages.Any(message =>
+                string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)))
         {
             return;
         }
 
         var kickoffPrompt = configuration["HireBot:ConversationKickoffPrompt"];
-        var request = new HiringConversationMessageRequestDto
+        var kickoffMessage = new HiringConversationMessageDto(
+            $"assistant-{Guid.NewGuid():N}",
+            "assistant",
+            string.IsNullOrWhiteSpace(kickoffPrompt)
+                ? BuildKickoffMessage(runtimeContext.CurrentStage)
+                : kickoffPrompt.Trim(),
+            DateTimeOffset.UtcNow);
+        runtimeContext = runtimeContext with
         {
-            Content = string.IsNullOrWhiteSpace(kickoffPrompt) ? DefaultConversationKickoffPrompt : kickoffPrompt.Trim()
+            Messages = AppendMessages(runtimeContext.Messages, kickoffMessage)
         };
-        await sandboxService.SendMessageAsync(
-            new SandboxSendMessageRequestDto
-            {
-                ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = hireId,
-                SandboxRole = ResolveSandboxRole(hireId),
-                OwnerSubject = ownerContext.OwnerSubject,
-                TenantId = ownerContext.TenantId,
-                OperatorId = ownerContext.OperatorId,
-                SessionKey = "default",
-                SandboxId = hiringRuntimeStore.Get(hireId)?.SandboxId,
-                Content = request.Content
-            },
-            cancellationToken);
+        runtimeContext = ApplyWorkflowProgress(runtimeContext);
+        hiringRuntimeStore.Upsert(runtimeContext);
     }
 
     internal static HiringRuntimeContext ApplyConversationProgressToTemplatePackage(HiringRuntimeContext runtimeContext)
@@ -2354,12 +3271,12 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         var nextStage = stageCompletion.FirstOrDefault(item => !item.ReadyForNextStage);
         if (nextStage is not null)
         {
-            return nextStage.Stage;
+            return NormalizeRequestedStage(nextStage.Stage);
         }
 
-        return string.Equals(fallbackStage, HiringCollectionStage.Done, StringComparison.OrdinalIgnoreCase)
-            ? HiringCollectionStage.Done
-            : HiringCollectionStage.Package;
+        return string.Equals(fallbackStage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase)
+            ? HiringCollectionStage.ReadyForPackaging
+            : HiringCollectionStage.ReadyForPackaging;
     }
 
     private static string ResolveCollectionPhase(

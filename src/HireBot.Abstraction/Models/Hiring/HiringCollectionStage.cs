@@ -2,10 +2,8 @@
 
 public static class HiringCollectionStage
 {
-    public const string Goal = "GOAL";
-    public const string Scenario = "SCENARIO";
-    public const string Systems = "SYSTEMS";
-    public const string Gaps = "GAPS";
-    public const string Package = "PACKAGE";
-    public const string Done = "DONE";
+    public const string Material = "material";
+    public const string Skill = "skill";
+    public const string External = "external";
+    public const string ReadyForPackaging = "ready_for_packaging";
 }

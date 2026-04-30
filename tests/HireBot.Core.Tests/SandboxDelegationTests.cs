@@ -20,6 +20,7 @@ using HireBot.Core.Services.Sandbox;
 using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -87,24 +88,18 @@ public sealed class SandboxDelegationTests
 
         var timelineResult = await service.GetConversationTimelineAsync("hire-001");
         Assert.True(timelineResult.Success);
-        Assert.Equal("hire-001", sandboxService.LastTimelineRequest!.ScopeKey);
-        Assert.Equal("tenant-1:operator-1", sandboxService.LastTimelineRequest.OwnerSubject);
+        Assert.Null(sandboxService.LastTimelineRequest);
+        Assert.Contains(timelineResult.Data!.Messages, message => message.Role == "user");
+        Assert.Contains(timelineResult.Data.Messages, message => message.Role == "assistant");
     }
 
     [Fact]
-    public async Task EmployeeHiringService_GetConversationTimelineAsync_ShouldRecoverOwnerFromSandboxRegistryAfterRestart()
+    public async Task EmployeeHiringService_StartConversationAsync_ShouldRecoverOwnerFromSandboxRegistryAfterRestart()
     {
         var sandboxService = new RecordingSandboxService
         {
-            TimelineResponse = ApiResponse<HiringConversationTimelineDto>.SuccessResponse(
-                new HiringConversationTimelineDto(
-                    "hire-001",
-                    "session-001",
-                    "goal",
-                    false,
-                    "in_progress",
-                    [],
-                    []))
+            EnsureSessionResponse = ApiResponse<StartHiringConversationResultDto>.SuccessResponse(
+                new StartHiringConversationResultDto("hire-001", "session-001", HiringCollectionStage.Material, false, []))
         };
 
         using var dbContext = CreateDbContext(Guid.NewGuid().ToString("N"));
@@ -129,14 +124,15 @@ public sealed class SandboxDelegationTests
             new HttpContextAccessor
             {
                 HttpContext = new DefaultHttpContext()
-            });
+            },
+            seedRuntimeContext: false);
 
-        var timelineResult = await service.GetConversationTimelineAsync("hire-001");
+        var timelineResult = await service.StartConversationAsync("hire-001");
 
         Assert.True(timelineResult.Success);
-        Assert.Equal("owner-from-db", sandboxService.LastTimelineRequest!.OwnerSubject);
-        Assert.Equal("tenant-from-db", sandboxService.LastTimelineRequest.TenantId);
-        Assert.Equal("operator-from-db", sandboxService.LastTimelineRequest.OperatorId);
+        Assert.Equal("owner-from-db", sandboxService.LastEnsureSessionRequest!.OwnerSubject);
+        Assert.Equal("tenant-from-db", sandboxService.LastEnsureSessionRequest.TenantId);
+        Assert.Equal("operator-from-db", sandboxService.LastEnsureSessionRequest.OperatorId);
     }
 
     [Fact]
@@ -283,24 +279,98 @@ public sealed class SandboxDelegationTests
     private static EmployeeHiringService CreateEmployeeHiringService(
         RecordingSandboxService sandboxService,
         HireBotDbContext dbContext,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        bool seedRuntimeContext = true)
     {
+        var runtimeStore = new PersistentHiringRuntimeStore(dbContext);
+        if (seedRuntimeContext)
+        {
+            runtimeStore.Upsert(BuildRuntimeContext("hire-001", "sandbox-001", "tenant-1:operator-1", "tenant-1", "operator-1"));
+        }
+
         return new EmployeeHiringService(
             new NoopTemplateDataProvider(),
             new NoopTemplatePackageProvider(),
             new NoopDiscoveryRuleProvider(),
             new NoopSystemSkillRegistry(),
             new HiringStageCompletionEvaluator(),
-            new InMemoryHiringRuntimeStore(),
+            runtimeStore,
             new ThrowingKingCrabHttpClient(),
             sandboxService,
             new ConfigurationBuilder().Build(),
+            CreateDataProtectionProvider(),
             httpContextAccessor,
             new SimpleServiceScopeFactory(),
             dbContext,
             new NoopHiringFileStore(),
             new NoopHiringArtifactPackageService(),
             NullLogger<EmployeeHiringService>.Instance);
+    }
+
+    private static IDataProtectionProvider CreateDataProtectionProvider()
+    {
+        var services = new ServiceCollection();
+        services.AddDataProtection();
+        return services.BuildServiceProvider().GetRequiredService<IDataProtectionProvider>();
+    }
+
+    private static HiringRuntimeContext BuildRuntimeContext(
+        string hireId,
+        string sandboxId,
+        string ownerSubject,
+        string tenantId,
+        string operatorId)
+    {
+        return new HiringRuntimeContext
+        {
+            HireId = hireId,
+            TemplateId = "template-001",
+            TemplateName = "Template 001",
+            OwnerSubject = ownerSubject,
+            TenantId = tenantId,
+            OperatorId = operatorId,
+            SandboxId = sandboxId,
+            SessionId = "session-seeded",
+            CurrentStage = HiringCollectionStage.Material,
+            CollectionPhase = HiringCollectionPhase.InProgress,
+            IsConversationPaused = false,
+            IsConversationResponding = false,
+            TemplatePackage = new TemplatePackageDefinition(
+                RequestedTemplateId: "template-001",
+                PackageId: "template-001",
+                PackageVersion: "1.0.0",
+                PackageHash: "hash-template-001",
+                SourceArchive: null,
+                PackageRootPath: "template-001",
+                ManifestJson: "{}",
+                DisplayName: "Template 001",
+                Description: "test",
+                PackageFiles: [],
+                OntologySlices: [],
+                RequiredSkills: []),
+            DiscoverySkill = new DiscoverySkillDefinition(
+                SkillId: "digital-employee-discovery",
+                SkillVersion: "1.0.0",
+                SkillHash: "hash-discovery",
+                SkillRootPath: "digital-employee-discovery",
+                SkillContent: "# discovery",
+                Files:
+                [
+                    new DiscoverySkillFileAsset("SKILL.md", "# discovery", "hash-skill")
+                ],
+                StageRules:
+                [
+                    new DiscoveryStageRule(HiringCollectionStage.Material, "employment-coach-conversation", "material", ["business_goal"]),
+                    new DiscoveryStageRule(HiringCollectionStage.Skill, "skill_generation", "skill", ["skill_blueprint"]),
+                    new DiscoveryStageRule(HiringCollectionStage.External, "external_config", "external", ["external_dependencies"]),
+                    new DiscoveryStageRule(HiringCollectionStage.ReadyForPackaging, "diagnosis", "package", [])
+                ]),
+            StructuredData = new Dictionary<string, string?>(),
+            Materials = [],
+            Messages = [],
+            AuditLogs = [],
+            StageCompletion = []
+        };
     }
 
     private static EvaluationService CreateEvaluationService(RecordingSandboxService sandboxService)
@@ -553,6 +623,12 @@ public sealed class SandboxDelegationTests
         public Task<ApiResponse<HiringWorkflowStateDto>> GetWorkflowStateAsync(string hireId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<ApiResponse<HiringWorkflowStateDto>> UpsertCredentialBindingAsync(string hireId, HiringCredentialBindingRequestDto request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ApiResponse<HiringWorkflowStateDto>> UpdateConfigFileAsync(string hireId, string configKey, HiringConfigFileUpdateRequestDto request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<ApiResponse<bool>> UploadEvaluationSkillAsync(string hireId, string? skillRootPath = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
@@ -566,10 +642,26 @@ public sealed class SandboxDelegationTests
     private sealed class NoopHiringArtifactPackageService : IHiringArtifactPackageService
     {
         public Task<HiringArtifactPackageSnapshotDto> PersistIntermediatePackageAsync(HiringArtifactPackagePersistRequestDto request, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult(new HiringArtifactPackageSnapshotDto(
+                request.HireId,
+                request.SessionId,
+                HiringArtifactPackageKinds.IntermediatePackageZip,
+                request.FileName,
+                $"packages/intermediate/{request.FileName}",
+                "sha256",
+                [],
+                false));
 
         public Task<HiringArtifactPackageSnapshotDto> PersistFinalPackageAsync(HiringArtifactPackagePersistRequestDto request, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult(new HiringArtifactPackageSnapshotDto(
+                request.HireId,
+                request.SessionId,
+                HiringArtifactPackageKinds.FinalPackageZip,
+                request.FileName,
+                $"packages/final/{request.FileName}",
+                "sha256",
+                [],
+                true));
 
         public Task<HiringArtifactPackageSnapshotDto?> GetLatestPackageAsync(string hireId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
