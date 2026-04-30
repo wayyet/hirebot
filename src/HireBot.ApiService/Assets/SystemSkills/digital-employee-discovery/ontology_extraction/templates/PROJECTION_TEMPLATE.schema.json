@@ -1,0 +1,376 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw.local/skills/ontology_extraction/templates/PROJECTION_TEMPLATE.schema.json",
+  "title": "Ncrew Ontology Projection Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "template_type",
+    "projection_version",
+    "projection",
+    "mapping_policy",
+    "concept_mappings",
+    "relation_mappings",
+    "constraint_mappings",
+    "prompt_projection",
+    "delivery_artifacts",
+    "dropped_items",
+    "open_questions",
+    "meta"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "template_type": {
+      "type": "string",
+      "const": "ontology_projection"
+    },
+    "projection_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "projection": {
+      "$ref": "#/$defs/projection"
+    },
+    "mapping_policy": {
+      "$ref": "#/$defs/mappingPolicy"
+    },
+    "concept_mappings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/conceptMapping"
+      }
+    },
+    "relation_mappings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/relationMapping"
+      }
+    },
+    "constraint_mappings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/constraintMapping"
+      }
+    },
+    "prompt_projection": {
+      "$ref": "#/$defs/promptProjection"
+    },
+    "delivery_artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/deliveryArtifact"
+      }
+    },
+    "dropped_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/droppedItem"
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/openQuestion"
+      }
+    },
+    "meta": {
+      "$ref": "#/$defs/meta"
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sourceId": {
+      "type": "string",
+      "pattern": "^S[A-Za-z0-9_-]*$"
+    },
+    "conceptId": {
+      "type": "string",
+      "pattern": "^C[A-Za-z0-9_-]*$"
+    },
+    "relationId": {
+      "type": "string",
+      "pattern": "^R[A-Za-z0-9_-]*$"
+    },
+    "constraintId": {
+      "type": "string",
+      "pattern": "^K[A-Za-z0-9_-]*$"
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projection_id",
+        "projection_type",
+        "target_name",
+        "target_format",
+        "target_runtime",
+        "projection_goal",
+        "source_slice",
+        "intended_consumers"
+      ],
+      "properties": {
+        "projection_id": { "$ref": "#/$defs/nonEmptyString" },
+        "projection_type": {
+          "type": "string",
+          "enum": [
+            "domain_model_projection",
+            "json_schema_projection",
+            "prompt_constraint_projection",
+            "workflow_contract_projection"
+          ]
+        },
+        "target_name": { "$ref": "#/$defs/nonEmptyString" },
+        "target_format": { "$ref": "#/$defs/nonEmptyString" },
+        "target_runtime": { "$ref": "#/$defs/nonEmptyString" },
+        "projection_goal": { "$ref": "#/$defs/nonEmptyString" },
+        "source_slice": { "$ref": "#/$defs/sourceSlice" },
+        "intended_consumers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        }
+      }
+    },
+    "sourceSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "slice_topic", "schema_version"],
+      "properties": {
+        "path": { "$ref": "#/$defs/nonEmptyString" },
+        "slice_topic": { "$ref": "#/$defs/nonEmptyString" },
+        "schema_version": {
+          "type": "string",
+          "const": "1.0.0"
+        }
+      }
+    },
+    "mappingPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preserve_source_trace",
+        "preserve_constraints",
+        "relation_flattening_policy",
+        "unresolved_item_policy",
+        "dropped_item_policy",
+        "prompt_assumption_policy"
+      ],
+      "properties": {
+        "preserve_source_trace": { "type": "boolean" },
+        "preserve_constraints": { "type": "boolean" },
+        "relation_flattening_policy": {
+          "type": "string",
+          "enum": ["disallow_by_default", "allow_with_trace", "allow"]
+        },
+        "unresolved_item_policy": {
+          "type": "string",
+          "enum": ["block_or_escalate", "warn_and_continue", "record_only"]
+        },
+        "dropped_item_policy": {
+          "type": "string",
+          "enum": ["record_with_reason", "record_only", "disallow_drop"]
+        },
+        "prompt_assumption_policy": {
+          "type": "string",
+          "enum": ["disallow_unmapped_terms", "warn_on_unmapped_terms", "allow_unmapped_terms"]
+        }
+      }
+    },
+    "projectionAction": {
+      "type": "string",
+      "enum": ["map", "defer", "drop"]
+    },
+    "conceptMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "concept_id",
+        "projection_action",
+        "target_kind",
+        "target_name",
+        "target_path",
+        "source_ids",
+        "notes"
+      ],
+      "properties": {
+        "concept_id": { "$ref": "#/$defs/conceptId" },
+        "projection_action": { "$ref": "#/$defs/projectionAction" },
+        "target_kind": {
+          "type": "string",
+          "enum": ["domain_entity", "value_object", "enum", "prompt_term", "workflow_input"]
+        },
+        "target_name": { "$ref": "#/$defs/nonEmptyString" },
+        "target_path": { "$ref": "#/$defs/nonEmptyString" },
+        "source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        },
+        "notes": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "relationMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation_id",
+        "projection_action",
+        "target_kind",
+        "target_name",
+        "representation",
+        "source_ids",
+        "notes"
+      ],
+      "properties": {
+        "relation_id": { "$ref": "#/$defs/relationId" },
+        "projection_action": { "$ref": "#/$defs/projectionAction" },
+        "target_kind": {
+          "type": "string",
+          "enum": ["association", "dependency_rule", "reasoning_path", "workflow_edge"]
+        },
+        "target_name": { "$ref": "#/$defs/nonEmptyString" },
+        "representation": { "$ref": "#/$defs/nonEmptyString" },
+        "source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        },
+        "notes": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "constraintMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "constraint_id",
+        "projection_action",
+        "target_kind",
+        "target_name",
+        "severity_mapping",
+        "source_ids",
+        "notes"
+      ],
+      "properties": {
+        "constraint_id": { "$ref": "#/$defs/constraintId" },
+        "projection_action": { "$ref": "#/$defs/projectionAction" },
+        "target_kind": {
+          "type": "string",
+          "enum": ["runtime_guard", "schema_rule", "prompt_guardrail", "workflow_precondition"]
+        },
+        "target_name": { "$ref": "#/$defs/nonEmptyString" },
+        "severity_mapping": { "$ref": "#/$defs/nonEmptyString" },
+        "source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        },
+        "notes": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "promptProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_terms",
+        "forbidden_assumptions",
+        "required_clarifications",
+        "reasoning_paths",
+        "source_digest"
+      ],
+      "properties": {
+        "allowed_terms": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "forbidden_assumptions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "required_clarifications": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "reasoning_paths": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "source_digest": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "deliveryArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_name", "artifact_type", "path", "status"],
+      "properties": {
+        "artifact_name": { "$ref": "#/$defs/nonEmptyString" },
+        "artifact_type": {
+          "type": "string",
+          "enum": ["code_file", "json_schema", "prompt_fragment", "workflow_contract"]
+        },
+        "path": { "$ref": "#/$defs/nonEmptyString" },
+        "status": {
+          "type": "string",
+          "enum": ["planned", "generated", "reviewed"]
+        }
+      }
+    },
+    "droppedItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_type", "item_id", "reason"],
+      "properties": {
+        "item_type": {
+          "type": "string",
+          "enum": ["concept", "relation", "constraint"]
+        },
+        "item_id": { "$ref": "#/$defs/nonEmptyString" },
+        "reason": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "openQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question", "impact", "required_input"],
+      "properties": {
+        "question": { "$ref": "#/$defs/nonEmptyString" },
+        "impact": { "$ref": "#/$defs/nonEmptyString" },
+        "required_input": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generated_at", "generated_by", "workspace", "notes"],
+      "properties": {
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "generated_by": {
+          "type": "string",
+          "const": "ontology_extraction"
+        },
+        "workspace": { "$ref": "#/$defs/nonEmptyString" },
+        "notes": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    }
+  }
+}

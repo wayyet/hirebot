@@ -1,0 +1,115 @@
+{
+  "$schema": "./PROJECTION_TEMPLATE.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "payment-risk-domain-model-v1",
+    "projection_type": "domain_model_projection",
+    "target_name": "PaymentRiskModel",
+    "target_format": "csharp_domain_model",
+    "target_runtime": "dotnet",
+    "projection_goal": "[例如：把支付风险切片投影为领域模型与运行时校验规则]",
+    "source_slice": {
+      "path": "../examples/ready/sample.json",
+      "slice_topic": "[例如：支付风险判断]",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "code_generator",
+      "prompt_orchestrator"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "record_with_reason",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "C1",
+      "projection_action": "map",
+      "target_kind": "domain_entity",
+      "target_name": "RiskSignal",
+      "target_path": "Domain/RiskSignal.cs",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "[例如：保留术语边界，不直接展开为 DTO]"
+    }
+  ],
+  "relation_mappings": [
+    {
+      "relation_id": "R1",
+      "projection_action": "map",
+      "target_kind": "association",
+      "target_name": "RiskSignalDependsOnOrderContext",
+      "representation": "domain_association",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "[例如：保留方向与触发条件，不压平成普通属性]"
+    }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "runtime_guard",
+      "target_name": "RiskAssessmentRequiresTrustedSource",
+      "severity_mapping": "[例如：hard -> blocking_validation]",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "[例如：硬约束必须进入运行时校验，不只留在注释里]"
+    }
+  ],
+  "prompt_projection": {
+    "allowed_terms": [
+      "[例如：risk_signal]",
+      "[例如：trusted_source]"
+    ],
+    "forbidden_assumptions": [
+      "[例如：不得自行补造未映射关系]"
+    ],
+    "required_clarifications": [
+      "[例如：来源冲突未 resolved 时必须先澄清]"
+    ],
+    "reasoning_paths": [
+      "[例如：order_context -> risk_signal -> risk_decision]"
+    ],
+    "source_digest": [
+      "[例如：Primary source: S1 payment-policy.md]"
+    ]
+  },
+  "delivery_artifacts": [
+    {
+      "artifact_name": "RiskSignal.cs",
+      "artifact_type": "code_file",
+      "path": "src/Domain/RiskSignal.cs",
+      "status": "planned"
+    }
+  ],
+  "dropped_items": [
+    {
+      "item_type": "concept",
+      "item_id": "C9",
+      "reason": "[例如：当前 projection 不覆盖历史遗留定义]"
+    }
+  ],
+  "open_questions": [
+    {
+      "question": "[例如：C1 是否应投影为 enum 而不是实体]",
+      "impact": "[例如：会影响生成目标类型与 prompt 术语边界]",
+      "required_input": "[例如：需要领域 owner 确认该概念是否只有有限闭集]"
+    }
+  ],
+  "meta": {
+    "generated_at": "2026-04-21T00:00:00Z",
+    "generated_by": "ontology_extraction",
+    "workspace": "[当前工作区或项目名]",
+    "notes": "[补充说明]"
+  }
+}

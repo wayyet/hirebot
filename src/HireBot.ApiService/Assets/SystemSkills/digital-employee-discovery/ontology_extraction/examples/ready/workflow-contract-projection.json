@@ -1,0 +1,137 @@
+{
+  "$schema": "../../templates/PROJECTION_TEMPLATE.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "openclaw-skill-loading-workflow-contract-v1",
+    "projection_type": "workflow_contract_projection",
+    "target_name": "OpenClawSkillLoadingWorkflowContract",
+    "target_format": "workflow_contract",
+    "target_runtime": "openclaw_gateway",
+    "projection_goal": "Project the skill loading ontology slice into a workflow contract that makes loader inputs, source-resolution edges, and gating preconditions explicit.",
+    "source_slice": {
+      "path": "./sample.json",
+      "slice_topic": "skill loading order, source precedence, and eligibility filtering",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "workflow_orchestrator",
+      "tool_contract_generator"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "disallow_drop",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "C1",
+      "projection_action": "map",
+      "target_kind": "workflow_input",
+      "target_name": "skillsConfig",
+      "target_path": "workflow.inputs.skillsConfig",
+      "source_ids": [
+        "S2",
+        "S3"
+      ],
+      "notes": "Expose the top-level skills configuration as the primary workflow input so downstream steps operate on the same bounded config object defined by the slice."
+    },
+    {
+      "concept_id": "C3",
+      "projection_action": "map",
+      "target_kind": "workflow_input",
+      "target_name": "candidateSkillDefinitions",
+      "target_path": "workflow.steps.discoverSkills.outputs.skillDefinitions",
+      "source_ids": [
+        "S2",
+        "S3"
+      ],
+      "notes": "Treat discovered skill definitions as workflow-visible data so eligibility filtering and overwrite resolution can be expressed as contract steps rather than hidden implementation."
+    },
+    {
+      "concept_id": "C4",
+      "projection_action": "map",
+      "target_kind": "enum",
+      "target_name": "SkillSourceTier",
+      "target_path": "workflow.sharedEnums.skillSourceTier",
+      "source_ids": [
+        "S1",
+        "S2",
+        "S3",
+        "S4"
+      ],
+      "notes": "Keep source tiers as a shared workflow enum so precedence-sensitive routing stays explicit across steps."
+    }
+  ],
+  "relation_mappings": [
+    {
+      "relation_id": "R3",
+      "projection_action": "map",
+      "target_kind": "workflow_edge",
+      "target_name": "DiscoveredSkillBindsToSkillSource",
+      "representation": "workflow_step_edge",
+      "source_ids": [
+        "S2",
+        "S3"
+      ],
+      "notes": "Represent the source-binding relation as an explicit edge between discovery output and source-resolution logic so the workflow contract preserves provenance."
+    }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "HigherPrioritySourcesMustWinBeforeEligibilityFiltering",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "source_ids": [
+        "S1",
+        "S2",
+        "S4"
+      ],
+      "notes": "Make source precedence a precondition on the overwrite-resolution step so eligibility filtering never runs on a semantically inconsistent skill set."
+    }
+  ],
+  "prompt_projection": {
+    "allowed_terms": [
+      "skills_config",
+      "candidate_skill_definitions",
+      "skill_source_tier",
+      "eligibility_filter"
+    ],
+    "forbidden_assumptions": [
+      "Do not treat workflow step order as arbitrary when source precedence has not been resolved.",
+      "Do not model source tier as free text in the workflow contract."
+    ],
+    "required_clarifications": [],
+    "reasoning_paths": [
+      "skills_config -> discover_skills -> resolve_source_precedence -> filter_eligible_skills",
+      "skill_definition -> skill_source -> precedence -> workflow branch"
+    ],
+    "source_digest": [
+      "Primary source: S2 src/OpenClaw.Core/Skills/SkillLoader.cs",
+      "Primary source: S3 src/OpenClaw.Core/Skills/SkillModels.cs",
+      "Supporting source: S1 docs/skillloader-loadall-analysis.md"
+    ]
+  },
+  "delivery_artifacts": [
+    {
+      "artifact_name": "skill-loading.workflow-contract.json",
+      "artifact_type": "workflow_contract",
+      "path": "contracts/skill-loading.workflow-contract.json",
+      "status": "planned"
+    }
+  ],
+  "dropped_items": [],
+  "open_questions": [],
+  "meta": {
+    "generated_at": "2026-04-21T00:00:00Z",
+    "generated_by": "ontology_extraction",
+    "workspace": "kingcrab",
+    "notes": "This READY example specializes the shared sample slice into a workflow contract so orchestration layers can preserve provenance, precedence, and eligibility gating as first-class steps."
+  }
+}

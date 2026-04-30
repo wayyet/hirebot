@@ -1,0 +1,158 @@
+{
+  "name": "skill_generation",
+  "display_name": "技能生成",
+  "description": "根据雇佣教练 handoff todo、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并写入当前沙箱 skills/ 目录。",
+  "triggers": [
+    "生成技能",
+    "创建 skill",
+    "上传 skill 文件",
+    "技能包",
+    "SkillSpec",
+    "metadata.json",
+    "handoff todo",
+    "dispatch skill_generation"
+  ],
+  "capabilities": [
+    {
+      "id": "consume_employment_coach_handoff",
+      "goal": "接收 employment-coach-conversation 阶段二 dispatch 的 handoff todo，并按 todo id 生成或更新业务 skill",
+      "inputs": [
+        "handoff todo id",
+        "payload.skill_name",
+        "payload.skill_description",
+        "payload.trigger",
+        "payload.expected_output",
+        "payload.from_upload",
+        "source",
+        "acceptance"
+      ],
+      "outputs": [
+        "todo_results",
+        "按 todo id 分组的 artifacts",
+        "acceptance_result",
+        "user_summary"
+      ],
+      "fallback": "单条 todo 失败时只标记该 todo failed，不吞掉其他 todo 的成功结果"
+    },
+    {
+      "id": "parse_skill_input",
+      "goal": "入口分流并识别 handoff todo、会话描述、上传文件、混合输入或更新请求",
+      "inputs": [
+        "handoff todo payload",
+        "用户会话描述",
+        "上传文件内容",
+        "当前 skills 目录快照"
+      ],
+      "outputs": [
+        "输入类型",
+        "候选触发词",
+        "候选能力项",
+        "缺口诊断"
+      ],
+      "fallback": "输入不可解析时返回可读错误，并建议用户改用会话描述补全"
+    },
+    {
+      "id": "archive_and_extract_sources",
+      "goal": "归档输入来源并记录从原始输入到候选能力的抽取依据",
+      "inputs": [
+        "用户原话",
+        "上传文件解析结果",
+        "已有 skill 包内容"
+      ],
+      "outputs": [
+        "references/source-digest.md",
+        "references/extraction-notes.md",
+        "不可解析项列表"
+      ],
+      "fallback": "来源质量不足时生成草稿摘要并阻止正式落盘"
+    },
+    {
+      "id": "normalize_skill_spec",
+      "goal": "用复现性、可执行性、排他性三重检查把候选能力归一为 SkillSpec",
+      "inputs": [
+        "候选能力语义",
+        "来源摘要",
+        "命名规范",
+        "缺省版本号"
+      ],
+      "outputs": [
+        "SkillSpec",
+        "skill_slug",
+        "待补全项"
+      ],
+      "fallback": "必填字段缺失时标记为草稿，并在摘要中列出待补全项"
+    },
+    {
+      "id": "render_and_validate_skill_package",
+      "goal": "渲染自包含业务 skill 包、可选 ontology_extraction projection consumer 契约和质量报告",
+      "inputs": [
+        "SkillSpec",
+        "现有 skills 目录快照",
+        "业务技能模板",
+        "可选 consumer projection contract 模板",
+        "quality checklist"
+      ],
+      "outputs": [
+        "todo_results",
+        "technical_artifact",
+        "user_summary",
+        "references/quality-report.md",
+        "可选 contract-index.json",
+        "可选 *.projection.json"
+      ],
+      "fallback": "渲染或校验失败时不覆盖旧文件，返回失败原因和异常上下文"
+    },
+    {
+      "id": "refine_generated_skill",
+      "goal": "从生成器视角和消费方视角二次精炼生成结果",
+      "inputs": [
+        "生成后的 SKILL.md",
+        "metadata.json",
+        "projection contract",
+        "quality-report.md"
+      ],
+      "outputs": [
+        "精炼后的技能包",
+        "改动摘要",
+        "剩余风险"
+      ],
+      "fallback": "精炼发现阻断问题时回退到 SkillSpec 提炼或模板渲染阶段"
+    }
+  ],
+  "boundaries": [
+    "仅写入 skills/<skill_slug>/ 下的 SKILL.md、metadata.json、references/ 与可选 contracts/projections/ontology_extraction/ 契约文件",
+    "不修改 config/、ontology/、external/",
+    "不把 token、密钥、密码或连接串明文写入产物",
+    "不吸收行为约束类信息，这类内容应交给主 skill 更新 agent.md",
+    "不把 skill_generation 自身注册为 projection consumer，projection consumer 结构只写入生成出来的业务 skill",
+    "projection contract 是条件增强：信息不足时写 draft/notes，不伪造 READY contract，也不阻断基础业务 skill 落盘",
+    "handoff 路径必须按 todo id 输出 todo_results，支持批量部分成功和单条失败",
+    "生成目录必须自包含，复制整个 skills/<skill_slug>/ 后仍可审阅和加载"
+  ],
+  "examples": [
+    {
+      "user": "帮我生成一个能处理退货咨询和订单查询的 skill。",
+      "assistant": "已新增 1 个技能：退货与订单查询助手；现在能处理退货咨询、订单状态查询和进度追踪。"
+    }
+  ],
+  "source": "conversation|upload|handoff",
+  "version": "1.0.0",
+  "quality_gates": {
+    "required_fields": [
+      "name",
+      "description",
+      "capabilities"
+    ],
+    "minimum_triggers": 1,
+    "capability_required_fields": [
+      "inputs",
+      "outputs",
+      "fallback"
+    ],
+    "secret_policy": "reject_or_redact_before_write",
+    "handoff_result_policy": "every_dispatched_todo_id_must_have_success_skipped_or_failed_result",
+    "projection_contract_policy": "generate_ready_contract_only_when_ontology_projection_information_is_sufficient_otherwise_write_draft_notes_without_blocking_base_skill",
+    "self_contained_policy": "all_source_notes_templates_contracts_and_quality_reports_live_under_generated_skill_dir",
+    "nuwa_inspired_review_policy": "phase_1_5_review_phase_4_validation_phase_5_dual_refinement"
+  }
+}
