@@ -12,6 +12,7 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 public sealed class KingCrewRuntimeChatClient(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
+    IImWebhookReplayContext replayContext,
     ILogger<KingCrewRuntimeChatClient> logger) : IKingCrewRuntimeChatClient
 {
     private const string KingCrewClientName = "KingCrew";
@@ -23,6 +24,26 @@ public sealed class KingCrewRuntimeChatClient(
         RuntimeChatRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        if (replayContext.UseMockKingCrew)
+        {
+            var lastUserMessage = request.Messages.LastOrDefault(item =>
+                string.Equals(item.Role, "user", StringComparison.OrdinalIgnoreCase));
+            var reply = replayContext.MockKingCrewReply;
+            if (string.IsNullOrWhiteSpace(reply))
+            {
+                reply = lastUserMessage is null
+                    ? "mock reply"
+                    : $"mock reply: {lastUserMessage.Content}";
+            }
+            else
+            {
+                reply = reply.Replace("{last_user_message}", lastUserMessage?.Content ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return ApiResponse<RuntimeChatResponseDto>.SuccessResponse(
+                new RuntimeChatResponseDto(reply));
+        }
+
         if (configuration.GetValue("KingCrew:EnableLocalSimulation", false))
         {
             var lastUserMessage = request.Messages.LastOrDefault(item =>

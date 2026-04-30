@@ -150,6 +150,49 @@ public sealed class ImWebhookServiceTests
         Assert.Empty(runtime.Calls);
     }
 
+    [Fact]
+    public async Task HandleAsync_WhenReplayContextSkipsOutboundSend_DoesNotCallFeishuSend()
+    {
+        await using var dbContext = CreateDbContext();
+        SeedConfig(dbContext);
+
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"tenant_access_token":"tenant-token","expire":7200}""", Encoding.UTF8, "application/json")
+        });
+        var runtime = new FakeRuntimeConversationService();
+        var replayContext = new FakeReplayContext
+        {
+            SkipOutboundSend = true,
+            UseMockKingCrew = true
+        };
+        var service = CreateService(dbContext, runtime, handler, replayContext);
+        var payload = """
+        {
+          "event": {
+            "sender": { "open_id": "ou_1" },
+            "message": {
+              "message_id": "im_1",
+              "chat_type": "p2p",
+              "content": "{\"text\":\"hello\"}"
+            }
+          }
+        }
+        """;
+
+        var response = await service.HandleAsync(
+            "feishu",
+            "pc_1",
+            payload,
+            BuildFeishuHeaders(payload, "verify"));
+
+        Assert.True(response.Success, response.Message);
+        Assert.Equal("replied", response.Data!.Status);
+        Assert.Equal("runtime reply", response.Data.Reply);
+        Assert.Single(runtime.Calls);
+        Assert.Empty(handler.Requests.Where(request => request.RequestUri!.AbsolutePath.Contains("/open-apis/im/v1/messages", StringComparison.OrdinalIgnoreCase)));
+    }
+
     private static IReadOnlyDictionary<string, string> BuildFeishuHeaders(string payload, string verificationToken)
     {
         var timestamp = "1714440000";
@@ -198,7 +241,8 @@ public sealed class ImWebhookServiceTests
     private static ImWebhookService CreateService(
         HireBotDbContext dbContext,
         FakeRuntimeConversationService runtime,
-        RecordingHttpMessageHandler? handler = null)
+        RecordingHttpMessageHandler? handler = null,
+        IImWebhookReplayContext? replayContext = null)
     {
         var factory = new FakeHttpClientFactory(handler ?? new RecordingHttpMessageHandler(_ =>
             new HttpResponseMessage(HttpStatusCode.OK)
@@ -210,6 +254,7 @@ public sealed class ImWebhookServiceTests
             dbContext,
             new PrefixSecretProtector(),
             runtime,
+            replayContext ?? new FakeReplayContext(),
             factory,
             NullLogger<ImWebhookService>.Instance);
     }
@@ -259,6 +304,22 @@ public sealed class ImWebhookServiceTests
         public string? Protect(string? value) => string.IsNullOrWhiteSpace(value) ? null : $"protected:{value.Trim()}";
 
         public string? Unprotect(string? value) => value?.StartsWith("protected:", StringComparison.Ordinal) == true ? value["protected:".Length..] : value;
+    }
+
+    private sealed class FakeReplayContext : IImWebhookReplayContext
+    {
+        public bool SkipOutboundSend { get; set; }
+
+        public bool UseMockKingCrew { get; set; }
+
+        public string? MockKingCrewReply { get; set; }
+
+        public void Reset()
+        {
+            SkipOutboundSend = false;
+            UseMockKingCrew = false;
+            MockKingCrewReply = null;
+        }
     }
 
     private sealed class RecordingHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler

@@ -9,6 +9,8 @@ using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Net;
+using System.Text;
 
 namespace HireBot.Core.Tests;
 
@@ -57,6 +59,33 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         Assert.False(second.Success);
         Assert.Equal(409, second.Code);
         Assert.Single(kingCrew.Requests);
+    }
+
+    [Fact]
+    public async Task SendMessageAsync_WhenReplayContextUsesMockKingCrew_ReturnsMockReply()
+    {
+        await using var dbContext = CreateDbContext();
+        var instance = SeedLivePersonalClone(dbContext);
+        SeedArtifacts(instance);
+
+        var replayContext = new FakeReplayContext
+        {
+            UseMockKingCrew = true,
+            MockKingCrewReply = "mock reply: {last_user_message}"
+        };
+
+        var service = CreateService(
+            dbContext,
+            kingCrew: new KingCrewRuntimeChatClient(
+                new StubHttpClientFactory(),
+                CreateConfiguration(),
+                replayContext,
+                NullLogger<KingCrewRuntimeChatClient>.Instance));
+
+        var response = await service.SendMessageAsync(instance.InstanceId, "inapp", "hello replay", instance.OwnerUserId);
+
+        Assert.True(response.Success, response.Message);
+        Assert.Equal("mock reply: hello replay", response.Data!.AssistantMessage.Content);
     }
 
     [Fact]
@@ -180,6 +209,33 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         {
             Requests.Add(request);
             return Task.FromResult(ApiResponse<RuntimeChatResponseDto>.SuccessResponse(new RuntimeChatResponseDto(reply)));
+        }
+    }
+
+    private sealed class StubHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name)
+        {
+            return new HttpClient(new HttpClientHandler(), disposeHandler: false)
+            {
+                BaseAddress = new Uri("https://open.feishu.cn")
+            };
+        }
+    }
+
+    private sealed class FakeReplayContext : IImWebhookReplayContext
+    {
+        public bool SkipOutboundSend { get; set; }
+
+        public bool UseMockKingCrew { get; set; }
+
+        public string? MockKingCrewReply { get; set; }
+
+        public void Reset()
+        {
+            SkipOutboundSend = false;
+            UseMockKingCrew = false;
+            MockKingCrewReply = null;
         }
     }
 

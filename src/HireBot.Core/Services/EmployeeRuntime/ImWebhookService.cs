@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -16,6 +16,7 @@ public sealed class ImWebhookService(
     HireBotDbContext dbContext,
     ISecretProtector secretProtector,
     IInstanceRuntimeConversationService runtimeConversationService,
+    IImWebhookReplayContext replayContext,
     IHttpClientFactory httpClientFactory,
     ILogger<ImWebhookService> logger) : IImWebhookService
 {
@@ -31,7 +32,7 @@ public sealed class ImWebhookService(
         var normalizedPlatform = NormalizePlatform(platform);
         if (normalizedPlatform is null)
         {
-            return ApiResponse<ImWebhookHandleResultDto>.ErrorResponse(400, "platform 不合法");
+            return ApiResponse<ImWebhookHandleResultDto>.ErrorResponse(400, "platform is invalid");
         }
 
         if (string.IsNullOrWhiteSpace(instanceId))
@@ -55,13 +56,13 @@ public sealed class ImWebhookService(
             if (!ValidateFeishuSignature(payload, headers, secretProtector.Unprotect(config.VerificationToken)))
             {
                 logger.LogWarning("Feishu webhook signature validation failed. InstanceId={InstanceId}", instanceId);
-                return ApiResponse<ImWebhookHandleResultDto>.ErrorResponse(401, "飞书签名校验失败");
+                return ApiResponse<ImWebhookHandleResultDto>.ErrorResponse(401, "飞书签名验证失败");
             }
         }
         else if (!ValidateGenericToken(config, headers))
         {
             logger.LogWarning("IM webhook token validation failed. Platform={Platform}, InstanceId={InstanceId}", normalizedPlatform, instanceId);
-            return ApiResponse<ImWebhookHandleResultDto>.ErrorResponse(401, "IM 签名校验失败");
+            return ApiResponse<ImWebhookHandleResultDto>.ErrorResponse(401, "IM 签名验证失败");
         }
 
         if (normalizedPlatform == "feishu")
@@ -107,14 +108,14 @@ public sealed class ImWebhookService(
         {
             return ApiResponse<ImWebhookHandleResultDto>.SuccessResponse(
                 new ImWebhookHandleResultDto("ignored", null),
-                "飞书群聊消息已忽略");
+                "feishu group chat ignored");
         }
 
         if (!IsTextMessage(inbound.Content))
         {
             return ApiResponse<ImWebhookHandleResultDto>.SuccessResponse(
-                new ImWebhookHandleResultDto("ignored", "暂不支持文件或非文本消息，请发送文本"),
-                "飞书非文本消息已忽略");
+                new ImWebhookHandleResultDto("ignored", "unsupported non-text or file message"),
+                "feishu non-text message ignored");
         }
 
         var content = inbound.Content!.Length > 4000 ? inbound.Content[..4000] : inbound.Content;
@@ -169,14 +170,14 @@ public sealed class ImWebhookService(
         {
             return ApiResponse<ImWebhookHandleResultDto>.SuccessResponse(
                 new ImWebhookHandleResultDto("ignored", null),
-                "群聊消息已忽略");
+                "generic group chat ignored");
         }
 
         if (!IsTextMessage(inbound.Content))
         {
             return ApiResponse<ImWebhookHandleResultDto>.SuccessResponse(
-                new ImWebhookHandleResultDto("ignored", "暂不支持文件或非文本消息，请发送文本"),
-                "非文本消息已忽略");
+                new ImWebhookHandleResultDto("ignored", "unsupported non-text or file message"),
+                "generic non-text message ignored");
         }
 
         var content = inbound.Content!.Length > 4000 ? inbound.Content[..4000] : inbound.Content;
@@ -263,6 +264,12 @@ public sealed class ImWebhookService(
         Repository.Entities.ImConfigEntity config,
         CancellationToken cancellationToken)
     {
+        if (replayContext.SkipOutboundSend)
+        {
+            logger.LogInformation("Feishu outbound send skipped by replay context. InstanceId={InstanceId}, ReceiveId={ReceiveId}", config.InstanceId, receiveId);
+            return ApiResponse<bool>.SuccessResponse(true, "feishu outbound send skipped");
+        }
+
         var token = await GetFeishuTenantAccessTokenAsync(config, cancellationToken);
         if (!token.Success || string.IsNullOrWhiteSpace(token.Data))
         {
@@ -297,7 +304,7 @@ public sealed class ImWebhookService(
         var appSecret = secretProtector.Unprotect(config.AppSecret);
         if (string.IsNullOrWhiteSpace(appId) || string.IsNullOrWhiteSpace(appSecret))
         {
-            return ApiResponse<string>.ErrorResponse(400, "飞书 app_id/app_secret 未配置");
+            return ApiResponse<string>.ErrorResponse(400, "feishu app_id/app_secret is not configured");
         }
 
         var client = httpClientFactory.CreateClient(FeishuClientName);

@@ -144,7 +144,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
 
         modelBuilder.Entity<InstanceEntity>(entity =>
         {
-            entity.ToTable("INSTANCE");
+            entity.ToTable("Instances");
             entity.HasKey(e => e.InstanceId);
             entity.Property(e => e.InstanceId).HasColumnName("instance_id").IsRequired().HasMaxLength(120);
             entity.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
@@ -168,7 +168,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
 
         modelBuilder.Entity<ConversationEntity>(entity =>
         {
-            entity.ToTable("CONVERSATION");
+            entity.ToTable("Conversations");
             entity.HasKey(e => e.ConversationId);
             entity.Property(e => e.ConversationId).HasColumnName("conversation_id").IsRequired().HasMaxLength(120);
             entity.Property(e => e.InstanceId).HasColumnName("instance_id").IsRequired().HasMaxLength(120);
@@ -184,7 +184,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
 
         modelBuilder.Entity<MessageEntity>(entity =>
         {
-            entity.ToTable("MESSAGE");
+            entity.ToTable("Messages");
             entity.HasKey(e => e.MessageId);
             entity.Property(e => e.MessageId).HasColumnName("message_id").IsRequired().HasMaxLength(120);
             entity.Property(e => e.ConversationId).HasColumnName("conversation_id").IsRequired().HasMaxLength(120);
@@ -208,7 +208,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
 
         modelBuilder.Entity<ImConfigEntity>(entity =>
         {
-            entity.ToTable("IM_CONFIG");
+            entity.ToTable("ImConfigs");
             entity.HasKey(e => e.ConfigId);
             entity.Property(e => e.ConfigId).HasColumnName("config_id").IsRequired().HasMaxLength(120);
             entity.Property(e => e.InstanceId).HasColumnName("instance_id").IsRequired().HasMaxLength(120);

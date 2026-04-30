@@ -12,19 +12,19 @@ namespace HireBot.Repository.Migrations
         {
             migrationBuilder.AddColumn<string>(
                 name: "corp_id",
-                table: "IM_CONFIG",
+                table: "ImConfigs",
                 type: "text",
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "agent_id",
-                table: "IM_CONFIG",
+                table: "ImConfigs",
                 type: "text",
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "agent_secret",
-                table: "IM_CONFIG",
+                table: "ImConfigs",
                 type: "text",
                 nullable: true);
         }
@@ -32,9 +32,9 @@ namespace HireBot.Repository.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(name: "corp_id", table: "IM_CONFIG");
-            migrationBuilder.DropColumn(name: "agent_id", table: "IM_CONFIG");
-            migrationBuilder.DropColumn(name: "agent_secret", table: "IM_CONFIG");
+            migrationBuilder.DropColumn(name: "corp_id", table: "ImConfigs");
+            migrationBuilder.DropColumn(name: "agent_id", table: "ImConfigs");
+            migrationBuilder.DropColumn(name: "agent_secret", table: "ImConfigs");
         }
     }
 }

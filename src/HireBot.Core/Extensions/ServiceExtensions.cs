@@ -148,6 +148,7 @@ public static class ServiceExtensions
         services.AddScoped<IInstanceChatService, InstanceChatService>();
         services.AddScoped<ISecretProtector, DataProtectionSecretProtector>();
         services.AddScoped<IInstanceImConfigService, InstanceImConfigService>();
+        services.AddScoped<IImWebhookReplayContext, ImWebhookReplayContext>();
         services.AddScoped<IImWebhookService, ImWebhookService>();
         services.AddScoped<ITrainingService, TrainingService>();
         services.AddScoped<IEvaluationService, EvaluationService>();
