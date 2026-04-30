@@ -401,5 +401,6 @@ FodyWeavers.xsd
 *.sln.iml
 
 .idea
+appsettings.*.local.json
 
 

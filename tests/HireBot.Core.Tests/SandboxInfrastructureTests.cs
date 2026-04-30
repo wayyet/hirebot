@@ -91,6 +91,33 @@ public sealed class SandboxInfrastructureTests
         Assert.Equal("api.openai.com", Assert.Single(networkPolicy.Egress).Target);
     }
 
+    [Fact]
+    public void SandboxProvisioningSettings_BuildRuntimeEnv_ShouldThrow_WhenLlmApiKeyMissing()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+            [
+                new KeyValuePair<string, string?>("OpenSandbox:Domain", "sandbox.example.com"),
+                new KeyValuePair<string, string?>("OpenSandbox:Protocol", "Http"),
+                new KeyValuePair<string, string?>("OpenSandbox:UseServerProxy", "true"),
+                new KeyValuePair<string, string?>("OpenSandbox:Image", "registry.local/hirebot-sandbox:latest"),
+                new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
+                new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "3600"),
+                new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmModel", "MiniMax-M2.5"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmEndpoint", "https://api.minimaxi.com/v1")
+            ])
+            .Build();
+
+        var settings = SandboxProvisioningSettings.FromConfiguration(configuration);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => settings.BuildRuntimeEnv());
+        Assert.Equal(
+            "OpenSandbox:KingCrab:LlmModel, OpenSandbox:KingCrab:LlmEndpoint, and OpenSandbox:KingCrab:LlmApiKey must be configured together.",
+            exception.Message);
+    }
+
     [Theory]
     [InlineData(false, "http://sandbox.example.com/sandboxes/sandbox-001/endpoints/18790")]
     [InlineData(true, "http://sandbox.example.com/sandboxes/sandbox-001/endpoints/18790?use_server_proxy=true")]
@@ -103,6 +130,45 @@ public sealed class SandboxInfrastructureTests
             useServerProxy);
 
         Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void OpenSandboxProvisioner_BuildCreateOptions_ShouldSkipSdkHealthCheck_AndPreserveOwnerMetadata()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+            [
+                new KeyValuePair<string, string?>("OpenSandbox:Domain", "sandbox.example.com"),
+                new KeyValuePair<string, string?>("OpenSandbox:Protocol", "Http"),
+                new KeyValuePair<string, string?>("OpenSandbox:UseServerProxy", "true"),
+                new KeyValuePair<string, string?>("OpenSandbox:Image", "registry.local/hirebot-sandbox:latest"),
+                new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
+                new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "3600"),
+                new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmModel", "MiniMax-M2.5"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmEndpoint", "https://api.minimaxi.com/v1"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmApiKey", "secret")
+            ])
+            .Build();
+
+        var settings = SandboxProvisioningSettings.FromConfiguration(configuration);
+        OpenSandbox.Models.Volume[] volumes =
+        [
+            new OpenSandbox.Models.Volume
+            {
+                Name = "kc-workspace",
+                Pvc = new OpenSandbox.Models.PVC { ClaimName = "kc-ws-tenant-1-operator-1" },
+                MountPath = "/workspace"
+            }
+        ];
+
+        var options = OpenSandboxProvisioner.BuildCreateOptions(settings, "tenant-1:operator-1", volumes);
+
+        Assert.True(options.SkipHealthCheck);
+        Assert.True(options.ManualCleanup);
+        Assert.Equal("tenant-1-operator-1", options.Metadata["owner"]);
+        Assert.Equal("/workspace", Assert.Single(options.Volumes!).MountPath);
     }
 
     [Fact]
@@ -334,6 +400,41 @@ public sealed class SandboxInfrastructureTests
         Assert.Equal("Bearer sandbox-access-token", request.Authorization);
         Assert.Equal("sandbox-access-token", request.AuthorizationBearerToken);
 
+        var tokenRequest = Assert.Single(tokenHandler.Requests);
+        Assert.Equal("id.example.com", tokenRequest.Host);
+        Assert.Equal("/realms/test/protocol/openid-connect/token", tokenRequest.Path);
+    }
+
+    [Fact]
+    public async Task KingCrabSandboxTokenProvider_GetAccessTokenAsync_ShouldFallbackToStaticToken_WhenOidcClientCredentialsRejected()
+    {
+        var tokenHandler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("{\"error\":\"unauthorized_client\"}", Encoding.UTF8, "application/json")
+        });
+        var tokenHttpClient = new HttpClient(tokenHandler);
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+            [
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-static-token"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:OidcAuthority", "http://id.example.com/realms/test"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:ClientId", "sandbox-client"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:ClientSecret", "sandbox-secret")
+            ])
+            .Build();
+
+        var httpClientFactory = new StubHttpClientFactory(
+            new HttpClient(new RecordingHttpMessageHandler(_ => JsonResponse(new EchoResult("unused")))),
+            new Dictionary<string, HttpClient>(StringComparer.Ordinal)
+            {
+                [KingCrabSandboxTokenProvider.TokenHttpClientName] = tokenHttpClient
+            });
+        var provider = CreateSandboxTokenProvider(httpClientFactory, configuration);
+
+        var token = await provider.GetAccessTokenAsync(CancellationToken.None);
+
+        Assert.Equal("sandbox-static-token", token);
         var tokenRequest = Assert.Single(tokenHandler.Requests);
         Assert.Equal("id.example.com", tokenRequest.Host);
         Assert.Equal("/realms/test/protocol/openid-connect/token", tokenRequest.Path);
