@@ -1,0 +1,137 @@
+{
+  "$schema": "../../templates/PROJECTION_TEMPLATE.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "openclaw-skill-loading-json-schema-v1",
+    "projection_type": "json_schema_projection",
+    "target_name": "OpenClawSkillLoadingSchema",
+    "target_format": "json_schema",
+    "target_runtime": "json_schema_2020_12",
+    "projection_goal": "Project the skill loading ontology slice into a JSON Schema contract that preserves source precedence, eligibility filtering, and configuration boundaries.",
+    "source_slice": {
+      "path": "./sample.json",
+      "slice_topic": "skill loading order, source precedence, and eligibility filtering",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "schema_generator",
+      "runtime_validator"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "disallow_drop",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "C1",
+      "projection_action": "map",
+      "target_kind": "value_object",
+      "target_name": "SkillsConfigSchema",
+      "target_path": "#/defs/SkillsConfig",
+      "source_ids": [
+        "S2",
+        "S3"
+      ],
+      "notes": "Model the top-level skills configuration as a reusable schema definition so enabled, allowBundled, and per-skill overrides remain structurally explicit."
+    },
+    {
+      "concept_id": "C3",
+      "projection_action": "map",
+      "target_kind": "value_object",
+      "target_name": "SkillDefinitionSchema",
+      "target_path": "#/defs/SkillDefinition",
+      "source_ids": [
+        "S2",
+        "S3"
+      ],
+      "notes": "Keep the parsed skill definition as a named schema object so downstream generators do not collapse it into opaque free-form JSON."
+    },
+    {
+      "concept_id": "C4",
+      "projection_action": "map",
+      "target_kind": "enum",
+      "target_name": "SkillSourceTierEnum",
+      "target_path": "#/defs/SkillSourceTier",
+      "source_ids": [
+        "S1",
+        "S2",
+        "S3",
+        "S4"
+      ],
+      "notes": "Project source tiers as an enum-backed schema definition so overwrite order keeps a bounded vocabulary."
+    }
+  ],
+  "relation_mappings": [
+    {
+      "relation_id": "R3",
+      "projection_action": "map",
+      "target_kind": "dependency_rule",
+      "target_name": "SkillDefinitionRequiresSourceReference",
+      "representation": "json_schema_ref_dependency",
+      "source_ids": [
+        "S2",
+        "S3"
+      ],
+      "notes": "Represent the SkillDefinition-to-SkillSource relation as an explicit schema dependency so source provenance is not flattened into an untyped label."
+    }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "schema_rule",
+      "target_name": "HigherPrioritySourceOverridesLowerPriorityRule",
+      "severity_mapping": "high -> schema_rejection_or_conflict_report",
+      "source_ids": [
+        "S1",
+        "S2",
+        "S4"
+      ],
+      "notes": "Carry source precedence into schema-level validation guidance so conflicting same-name skill entries cannot be accepted without an explicit priority decision."
+    }
+  ],
+  "prompt_projection": {
+    "allowed_terms": [
+      "skills_config",
+      "skill_definition",
+      "skill_source",
+      "source_precedence"
+    ],
+    "forbidden_assumptions": [
+      "Do not infer source precedence from directory names alone when the enum mapping is absent.",
+      "Do not treat schema optionality as permission to ignore source trace requirements."
+    ],
+    "required_clarifications": [],
+    "reasoning_paths": [
+      "skills_config -> skill_definition -> skill_source",
+      "skill_source -> precedence -> schema conflict handling"
+    ],
+    "source_digest": [
+      "Primary source: S2 src/OpenClaw.Core/Skills/SkillLoader.cs",
+      "Primary source: S3 src/OpenClaw.Core/Skills/SkillModels.cs",
+      "Supporting source: S1 docs/skillloader-loadall-analysis.md"
+    ]
+  },
+  "delivery_artifacts": [
+    {
+      "artifact_name": "openclaw-skill-loading.schema.json",
+      "artifact_type": "json_schema",
+      "path": "schemas/openclaw-skill-loading.schema.json",
+      "status": "planned"
+    }
+  ],
+  "dropped_items": [],
+  "open_questions": [],
+  "meta": {
+    "generated_at": "2026-04-21T00:00:00Z",
+    "generated_by": "ontology_extraction",
+    "workspace": "kingcrab",
+    "notes": "This READY example specializes the shared sample slice into a JSON Schema delivery contract while keeping ontology traceability and precedence semantics explicit."
+  }
+}

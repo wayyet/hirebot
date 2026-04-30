@@ -5,9 +5,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using HireBot.ApiService.Swagger;
 using Microsoft.AspNetCore.Http;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+using System.IdentityModel.Tokens.Jwt;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile(
+    $"appsettings.{builder.Environment.EnvironmentName}.local.json",
+    optional: true,
+    reloadOnChange: true);
 
 builder.AddServiceDefaults();
 builder.Services.AddControllers();
@@ -23,12 +29,27 @@ builder.Services.AddAuthorization();
 var oidcAuthority = builder.Configuration["Security:OidcAuthority"];
 if (!string.IsNullOrWhiteSpace(oidcAuthority))
 {
+    var validOidcValues = BuildOidcValidationValues(
+        builder.Configuration["Security:OidcAudience"],
+        builder.Configuration["Security:OidcClientId"]);
+
+    if (validOidcValues.Count == 0)
+    {
+        throw new InvalidOperationException(
+            "启用 OIDC 鉴权时，必须至少配置 Security:OidcAudience 或 Security:OidcClientId。");
+    }
+
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
         {
             options.Authority = oidcAuthority;
-            options.Audience = builder.Configuration["Security:OidcAudience"];
             options.RequireHttpsMetadata = builder.Configuration.GetValue("Security:OidcRequireHttpsMetadata", true);
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateAudience = true,
+                AudienceValidator = (tokenAudiences, securityToken, _) =>
+                    IsValidOidcToken(tokenAudiences, securityToken, validOidcValues),
+            };
         });
 }
 
@@ -94,4 +115,36 @@ static string ResolveEvaluationResourceRoot(string contentRootPath, string? conf
     return Path.IsPathRooted(configuredResourceRoot)
         ? Path.GetFullPath(configuredResourceRoot.Trim())
         : Path.GetFullPath(Path.Combine(contentRootPath, configuredResourceRoot.Trim()));
+}
+
+static IReadOnlyCollection<string> BuildOidcValidationValues(params string?[] values)
+{
+    return values
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .SelectMany(value => value!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
+}
+
+static bool IsValidOidcToken(
+    IEnumerable<string>? tokenAudiences,
+    SecurityToken securityToken,
+    IReadOnlyCollection<string> validOidcValues)
+{
+    var hasMatchingAudience = tokenAudiences?.Any(validOidcValues.Contains) == true;
+    if (hasMatchingAudience)
+    {
+        return true;
+    }
+
+    if (securityToken is not JwtSecurityToken jwtSecurityToken)
+    {
+        return false;
+    }
+
+    var authorizedParty = jwtSecurityToken.Claims
+        .FirstOrDefault(claim => string.Equals(claim.Type, "azp", StringComparison.Ordinal))
+        ?.Value;
+
+    return !string.IsNullOrWhiteSpace(authorizedParty) && validOidcValues.Contains(authorizedParty);
 }

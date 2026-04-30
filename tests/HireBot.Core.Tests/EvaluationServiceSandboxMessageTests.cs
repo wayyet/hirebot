@@ -216,6 +216,12 @@ public sealed class EvaluationServiceSandboxMessageTests
         public Task<ApiResponse<HiringWorkflowStateDto>> GetWorkflowStateAsync(string hireId, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<HiringWorkflowStateDto>.ErrorResponse(501, "not used"));
 
+        public Task<ApiResponse<HiringWorkflowStateDto>> UpsertCredentialBindingAsync(string hireId, HiringCredentialBindingRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<HiringWorkflowStateDto>.ErrorResponse(501, "not used"));
+
+        public Task<ApiResponse<HiringWorkflowStateDto>> UpdateConfigFileAsync(string hireId, string configKey, HiringConfigFileUpdateRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<HiringWorkflowStateDto>.ErrorResponse(501, "not used"));
+
         public Task<ApiResponse<bool>> UploadEvaluationSkillAsync(string hireId, string? skillRootPath = null, CancellationToken cancellationToken = default)
         {
             LastUploadSkillHireId = hireId;

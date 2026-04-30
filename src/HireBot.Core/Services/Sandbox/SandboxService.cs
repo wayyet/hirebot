@@ -99,7 +99,7 @@ internal sealed class SandboxService(
         var instance = await ResolveInstanceAsync(request, cancellationToken);
         if (instance is null)
         {
-            return ApiResponse<SandboxInstanceDto>.ErrorResponse(404, "sandbox 未找到");
+            return ApiResponse<SandboxInstanceDto>.ErrorResponse(404, "Sandbox not found.");
         }
 
         if (!string.Equals(instance.ProvisioningMode, "managed", StringComparison.OrdinalIgnoreCase))
@@ -130,12 +130,12 @@ internal sealed class SandboxService(
         var instance = await ResolveInstanceAsync(request, cancellationToken);
         if (instance is null)
         {
-            return ApiResponse<SandboxInstanceDto>.ErrorResponse(404, "sandbox 未找到");
+            return ApiResponse<SandboxInstanceDto>.ErrorResponse(404, "Sandbox not found.");
         }
 
         if (!string.Equals(instance.ProvisioningMode, "managed", StringComparison.OrdinalIgnoreCase))
         {
-            return ApiResponse<SandboxInstanceDto>.ErrorResponse(409, "当前 sandbox 不是 HireBot 管理创建，无法重建");
+            return ApiResponse<SandboxInstanceDto>.ErrorResponse(409, "Current sandbox was not provisioned by HireBot and cannot be rebuilt.");
         }
 
         var rebuilt = await provisioner.RebuildAsync(instance.OwnerSubject, instance.SandboxId, cancellationToken);
@@ -157,7 +157,7 @@ internal sealed class SandboxService(
         var instance = await ResolveInstanceAsync(request, cancellationToken);
         if (instance is null)
         {
-            return ApiResponse<bool>.ErrorResponse(404, "sandbox 未找到");
+            return ApiResponse<bool>.ErrorResponse(404, "Sandbox not found.");
         }
 
         if (string.Equals(instance.ProvisioningMode, "managed", StringComparison.OrdinalIgnoreCase))
@@ -179,12 +179,10 @@ internal sealed class SandboxService(
         {
             return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(400, validationMessage);
         }
-
         if (!string.Equals(request.ScopeType, SandboxScopeTypes.Hire, StringComparison.OrdinalIgnoreCase))
         {
-            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(501, "当前仅支持 hire scope 的同步会话创建");
+            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(501, "Only hire scope message sending is supported.");
         }
-
         var instance = await ResolveInstanceForWriteAsync(
             request.OwnerSubject,
             request.ScopeType,
@@ -194,14 +192,13 @@ internal sealed class SandboxService(
             cancellationToken);
         if (instance is null)
         {
-            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(404, "sandbox 未找到");
+            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(404, "Sandbox not found.");
         }
-
-        if (string.IsNullOrWhiteSpace(instance.GatewayEndpoint))
+        var gatewayEndpointResult = await ResolveGatewayEndpointResultAsync(instance, cancellationToken);
+        if (!gatewayEndpointResult.Success)
         {
-            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(409, "sandbox gateway endpoint 未就绪");
+            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(gatewayEndpointResult.StatusCode, gatewayEndpointResult.Message);
         }
-
         var sessionId = request.SessionId?.Trim();
         if (string.IsNullOrWhiteSpace(sessionId))
         {
@@ -216,7 +213,6 @@ internal sealed class SandboxService(
                 ? $"session-{Guid.NewGuid():N}"
                 : existingSession!.SessionId;
         }
-
         await UpsertSessionEntityAsync(
             request.OwnerSubject,
             request.ScopeType,
@@ -243,12 +239,10 @@ internal sealed class SandboxService(
         {
             return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, validationMessage);
         }
-
         if (!string.Equals(request.ScopeType, SandboxScopeTypes.Hire, StringComparison.OrdinalIgnoreCase))
         {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(501, "当前仅支持 hire scope 的同步消息发送");
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(501, "Only hire scope message sending is supported.");
         }
-
         var content = request.Content?.Trim() ?? string.Empty;
         if (request.UploadMaterialsAsAttachments && request.Materials is not null)
         {
@@ -269,28 +263,23 @@ internal sealed class SandboxService(
                         Material = material
                     },
                     cancellationToken);
-
                 if (!uploadResult.Success || uploadResult.Data is null)
                 {
                     return ApiResponse<HiringConversationResultDto>.ErrorResponse(uploadResult.Code, uploadResult.Message);
                 }
-
                 markers.Add(uploadResult.Data.Marker);
             }
-
             if (markers.Count > 0)
             {
                 content = BuildContentWithMarkers(content, markers);
             }
         }
-
         var outboundRequest = new HiringConversationMessageRequestDto
         {
             Content = content,
             StructuredAnswers = request.StructuredAnswers,
             Materials = request.Materials
         };
-
         var instance = await ResolveInstanceForWriteAsync(
             request.OwnerSubject,
             request.ScopeType,
@@ -300,93 +289,85 @@ internal sealed class SandboxService(
             cancellationToken);
         if (instance is null)
         {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(404, "sandbox 未找到");
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(404, "Sandbox not found.");
         }
-
-        if (string.IsNullOrWhiteSpace(instance.GatewayEndpoint))
+        var ensureSessionResult = await EnsureSessionAsync(
+            new SandboxEnsureSessionRequestDto
+            {
+                ScopeType = request.ScopeType,
+                ScopeKey = request.ScopeKey,
+                SandboxRole = request.SandboxRole,
+                OwnerSubject = request.OwnerSubject,
+                TenantId = request.TenantId,
+                OperatorId = request.OperatorId,
+                SessionKey = request.SessionKey,
+                SandboxId = request.SandboxId ?? instance.SandboxId
+            },
+            cancellationToken);
+        if (!ensureSessionResult.Success || ensureSessionResult.Data is null || string.IsNullOrWhiteSpace(ensureSessionResult.Data.SessionId))
         {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "sandbox gateway endpoint 未就绪");
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(ensureSessionResult.Code, ensureSessionResult.Message);
         }
-
+        var gatewayEndpoint = instance.GatewayEndpoint?.Trim();
+        if (string.IsNullOrWhiteSpace(gatewayEndpoint))
         {
-            var ensureSessionResult = await EnsureSessionAsync(
-                new SandboxEnsureSessionRequestDto
-                {
-                    ScopeType = request.ScopeType,
-                    ScopeKey = request.ScopeKey,
-                    SandboxRole = request.SandboxRole,
-                    OwnerSubject = request.OwnerSubject,
-                    TenantId = request.TenantId,
-                    OperatorId = request.OperatorId,
-                    SessionKey = request.SessionKey,
-                    SandboxId = request.SandboxId ?? instance.SandboxId
-                },
-                cancellationToken);
-            if (!ensureSessionResult.Success || ensureSessionResult.Data is null || string.IsNullOrWhiteSpace(ensureSessionResult.Data.SessionId))
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "Sandbox gateway endpoint is not ready.");
+        }
+        var sessionId = ensureSessionResult.Data.SessionId.Trim();
+        var gatewayCall = await kingCrabHttpClient.SendForJsonAsync<SandboxGatewayChatCompletionResponse>(
+            HttpMethod.Post,
+            "/v1/chat/completions",
+            new SandboxGatewayChatCompletionRequest(
+                Model: null,
+                Messages:
+                [
+                    new SandboxGatewayChatMessage("user", outboundRequest.Content)
+                ],
+                Stream: false),
+            request.OwnerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false,
+            absoluteBaseUrl: gatewayEndpoint,
+            additionalHeaders: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                return ApiResponse<HiringConversationResultDto>.ErrorResponse(ensureSessionResult.Code, ensureSessionResult.Message);
-            }
-
-            var sessionId = ensureSessionResult.Data.SessionId.Trim();
-            var gatewayCall = await kingCrabHttpClient.SendForJsonAsync<SandboxGatewayChatCompletionResponse>(
-                HttpMethod.Post,
-                "/v1/chat/completions",
-                new SandboxGatewayChatCompletionRequest(
-                    Model: null,
-                    Messages:
-                    [
-                        new SandboxGatewayChatMessage("user", outboundRequest.Content)
-                    ],
-                    Stream: false),
-                request.OwnerSubject,
-                cancellationToken,
-                useHireBotApiPrefix: false,
-                absoluteBaseUrl: instance.GatewayEndpoint,
-                additionalHeaders: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    [StableSessionHeader] = sessionId
-                });
-
-            if (!gatewayCall.Success || gatewayCall.Data is null)
-            {
-                return ApiResponse<HiringConversationResultDto>.ErrorResponse(gatewayCall.StatusCode, gatewayCall.Message);
-            }
-
-            var assistantContent = gatewayCall.Data.Choices
-                .FirstOrDefault()?
-                .Message?
-                .Content?
-                .Trim();
-            if (string.IsNullOrWhiteSpace(assistantContent))
-            {
-                return ApiResponse<HiringConversationResultDto>.ErrorResponse(502, "sandbox 会话返回为空");
-            }
-
-            var now = DateTimeOffset.UtcNow;
-            var previewStructuredData = NormalizeStructuredAnswers(request.StructuredAnswers);
-            return ApiResponse<HiringConversationResultDto>.SuccessResponse(
-                new HiringConversationResultDto(
+                [StableSessionHeader] = sessionId
+            });
+        if (!gatewayCall.Success || gatewayCall.Data is null)
+        {
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(gatewayCall.StatusCode, gatewayCall.Message);
+        }
+        var assistantContent = gatewayCall.Data.Choices
+            .FirstOrDefault()?
+            .Message?
+            .Content?
+            .Trim();
+        if (string.IsNullOrWhiteSpace(assistantContent))
+        {
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(502, "Sandbox conversation returned an empty response.");
+        }
+        var now = DateTimeOffset.UtcNow;
+        var previewStructuredData = NormalizeStructuredAnswers(request.StructuredAnswers);
+        return ApiResponse<HiringConversationResultDto>.SuccessResponse(
+            new HiringConversationResultDto(
+                request.ScopeKey.Trim(),
+                sessionId,
+                ResolveDefaultStage(request.SandboxRole),
+                false,
+                new HiringConversationMessageDto(
+                    $"assistant-{Guid.NewGuid():N}",
+                    "assistant",
+                    assistantContent,
+                    now),
+                new HiringStagePreviewDto(
                     request.ScopeKey.Trim(),
-                    sessionId,
                     ResolveDefaultStage(request.SandboxRole),
+                    request.SandboxRole.Trim(),
+                    BuildPreviewSummary(assistantContent),
+                    previewStructuredData,
+                    [],
+                    [],
                     false,
-                    new HiringConversationMessageDto(
-                        $"assistant-{Guid.NewGuid():N}",
-                        "assistant",
-                        assistantContent,
-                        now),
-                    new HiringStagePreviewDto(
-                        request.ScopeKey.Trim(),
-                        ResolveDefaultStage(request.SandboxRole),
-                        request.SandboxRole.Trim(),
-                        BuildPreviewSummary(assistantContent),
-                        previewStructuredData,
-                        [],
-                        [],
-                        false,
-                        now)));
-        }
-
+                    now)));
     }
 
     public async Task<ApiResponse<HiringConversationTimelineDto>> GetTimelineAsync(
@@ -412,12 +393,12 @@ internal sealed class SandboxService(
             cancellationToken);
         if (instance is null)
         {
-            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(404, "sandbox 未找到");
+            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(404, "Sandbox not found.");
         }
 
         if (string.IsNullOrWhiteSpace(instance.SandboxId))
         {
-            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(409, "sandbox id 未就绪");
+            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(409, "Sandbox id is not ready.");
         }
 
         {
@@ -508,28 +489,27 @@ internal sealed class SandboxService(
         {
             return ApiResponse<SandboxAttachmentUploadResultDto>.ErrorResponse(400, validationMessage);
         }
-
         if (request.Material is null)
         {
             return ApiResponse<SandboxAttachmentUploadResultDto>.ErrorResponse(400, "material 不能为空");
         }
-
         var payloadResult = await BuildAttachmentPayloadAsync(request.Material, cancellationToken);
         if (!payloadResult.Success || payloadResult.Data is null)
         {
             return ApiResponse<SandboxAttachmentUploadResultDto>.ErrorResponse(payloadResult.Code, payloadResult.Message);
         }
-
-        var targetBaseUrl = await ResolveGatewayEndpointAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, request.SandboxId, cancellationToken);
-        var uploadCall = await gatewayClient.UploadMediaAsync(request.OwnerSubject, payloadResult.Data.FileName, payloadResult.Data.Content, payloadResult.Data.ContentType, cancellationToken, targetBaseUrl);
+        var targetBaseUrlResult = await ResolveGatewayEndpointResultAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, request.SandboxId, cancellationToken);
+        if (!targetBaseUrlResult.Success || string.IsNullOrWhiteSpace(targetBaseUrlResult.Data))
+        {
+            return ApiResponse<SandboxAttachmentUploadResultDto>.ErrorResponse(targetBaseUrlResult.StatusCode, targetBaseUrlResult.Message);
+        }
+        var uploadCall = await gatewayClient.UploadMediaAsync(request.OwnerSubject, payloadResult.Data.FileName, payloadResult.Data.Content, payloadResult.Data.ContentType, cancellationToken, targetBaseUrlResult.Data);
         if (!uploadCall.Success || uploadCall.Data is null)
         {
             return ApiResponse<SandboxAttachmentUploadResultDto>.ErrorResponse(uploadCall.StatusCode, uploadCall.Message);
         }
-
         var session = await FindSessionAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, request.SessionKey, cancellationToken);
         var instance = await ResolveInstanceForWriteAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, request.SandboxId, cancellationToken);
-
         var asset = new SandboxAssetEntity
         {
             SandboxInstanceEntityId = instance?.Id,
@@ -545,7 +525,6 @@ internal sealed class SandboxService(
         };
         dbContext.SandboxAssets.Add(asset);
         await dbContext.SaveChangesAsync(cancellationToken);
-
         return ApiResponse<SandboxAttachmentUploadResultDto>.SuccessResponse(new SandboxAttachmentUploadResultDto(
             asset.Id,
             asset.SandboxInstanceEntityId,
@@ -570,12 +549,12 @@ internal sealed class SandboxService(
         var instance = await ResolveInstanceAsync(request, cancellationToken);
         if (instance is null)
         {
-            return ApiResponse<SandboxInstanceDto>.ErrorResponse(404, "sandbox 未找到");
+            return ApiResponse<SandboxInstanceDto>.ErrorResponse(404, "Sandbox not found.");
         }
 
         if (!string.Equals(instance.ProvisioningMode, "managed", StringComparison.OrdinalIgnoreCase))
         {
-            return ApiResponse<SandboxInstanceDto>.ErrorResponse(409, "当前 sandbox 不是 HireBot 管理创建，无法变更运行状态");
+            return ApiResponse<SandboxInstanceDto>.ErrorResponse(409, "Current sandbox was not provisioned by HireBot and cannot change state.");
         }
 
         await action(provisioner, instance.SandboxId, cancellationToken);
@@ -721,17 +700,57 @@ internal sealed class SandboxService(
             instance.CreatedAtUtc,
             instance.UpdatedAtUtc);
 
-    private async Task<string?> ResolveGatewayEndpointAsync(string ownerSubject, string scopeType, string scopeKey, string sandboxRole, string? sandboxId, CancellationToken cancellationToken)
+    private async Task<RemoteCallResult<string>> ResolveGatewayEndpointResultAsync(
+        string ownerSubject,
+        string scopeType,
+        string scopeKey,
+        string sandboxRole,
+        string? sandboxId,
+        CancellationToken cancellationToken)
     {
         var instance = await ResolveInstanceForWriteAsync(ownerSubject, scopeType, scopeKey, sandboxRole, sandboxId, cancellationToken);
-        return instance?.GatewayEndpoint;
+        if (instance is null)
+        {
+            return RemoteCallResult<string>.Failure(404, "Sandbox not found.");
+        }
+        return await ResolveGatewayEndpointResultAsync(instance, cancellationToken);
+    }
+    private async Task<RemoteCallResult<string>> ResolveGatewayEndpointResultAsync(
+        SandboxInstanceEntity instance,
+        CancellationToken cancellationToken)
+    {
+        if (string.Equals(instance.ProvisioningMode, "managed", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(instance.SandboxId))
+            {
+                return RemoteCallResult<string>.Failure(409, "Sandbox id is not ready.");
+            }
+            var gatewayEndpointResult = await provisioner.GetGatewayEndpointResultAsync(instance.SandboxId, useServerProxy: false, cancellationToken);
+            if (!gatewayEndpointResult.Success || string.IsNullOrWhiteSpace(gatewayEndpointResult.Data))
+            {
+                return RemoteCallResult<string>.Failure(gatewayEndpointResult.StatusCode, gatewayEndpointResult.Message);
+            }
+            var gatewayEndpoint = gatewayEndpointResult.Data.Trim();
+            if (!string.Equals(instance.GatewayEndpoint, gatewayEndpoint, StringComparison.OrdinalIgnoreCase))
+            {
+                instance.GatewayEndpoint = gatewayEndpoint;
+                instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+            return RemoteCallResult<string>.Ok(gatewayEndpoint);
+        }
+        if (string.IsNullOrWhiteSpace(instance.GatewayEndpoint))
+        {
+            return RemoteCallResult<string>.Failure(409, "Sandbox gateway endpoint is not ready.");
+        }
+        return RemoteCallResult<string>.Ok(instance.GatewayEndpoint.Trim());
     }
 
     private static string ResolveDefaultStage(string sandboxRole)
     {
         return sandboxRole.Contains("evaluation", StringComparison.OrdinalIgnoreCase)
             ? "evaluation"
-            : HiringCollectionStage.Goal;
+            : HiringCollectionStage.Material;
     }
 
     private static Dictionary<string, string?> NormalizeStructuredAnswers(IReadOnlyDictionary<string, string>? structuredAnswers)
@@ -759,7 +778,7 @@ internal sealed class SandboxService(
     {
         if (string.IsNullOrWhiteSpace(assistantContent))
         {
-            return "sandbox 对话已完成";
+            return "Sandbox conversation completed.";
         }
 
         var normalized = assistantContent.Trim();
@@ -820,7 +839,7 @@ internal sealed class SandboxService(
 
         if (string.IsNullOrWhiteSpace(material.Content))
         {
-            return ApiResponse<AttachmentPayload>.ErrorResponse(422, $"附件 {fileName} 缺少可上传内容");
+            return ApiResponse<AttachmentPayload>.ErrorResponse(422, $"Attachment {fileName} is missing upload content.");
         }
 
         byte[] contentBytes;
@@ -834,7 +853,7 @@ internal sealed class SandboxService(
             }
             catch (FormatException)
             {
-                return ApiResponse<AttachmentPayload>.ErrorResponse(422, $"附件 {fileName} 的 base64 内容不合法");
+                return ApiResponse<AttachmentPayload>.ErrorResponse(422, $"Attachment {fileName} has invalid base64 content.");
             }
         }
         else
@@ -875,3 +894,6 @@ internal sealed class SandboxService(
 
     private sealed record AttachmentPayload(string FileName, string ContentType, byte[] Content, string ContentHash, string? StoragePath);
 }
+
+
+

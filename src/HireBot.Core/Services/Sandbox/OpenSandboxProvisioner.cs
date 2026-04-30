@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OpenSandbox;
 using OpenSandbox.Config;
+using OpenSandbox.Models;
 
 namespace HireBot.Core.Services.Sandbox;
 
@@ -26,11 +27,35 @@ internal sealed class OpenSandboxProvisioner(
     public async Task<ProvisionedSandboxResult> CreateAsync(string ownerSubject, CancellationToken cancellationToken = default)
     {
         var settings = GetSettings();
+        var volumes = await pvcService.EnsureUserPvcsAsync(ownerSubject, cancellationToken);
+        var createOptions = BuildCreateOptions(settings, ownerSubject, volumes);
+
+        logger.LogInformation(
+            "创建 OpenSandbox 沙箱. Domain={Domain}, Image={Image}, GatewayPort={GatewayPort}, UseServerProxy={UseServerProxy}, Owner={OwnerSubject}",
+            settings.Domain,
+            settings.Image,
+            settings.GatewayPort,
+            settings.UseServerProxy,
+            ownerSubject);
+
+        await using var sandbox = await global::OpenSandbox.Sandbox.CreateAsync(createOptions, cancellationToken);
+
+        return new ProvisionedSandboxResult(
+            sandbox.Id,
+            "Creating",
+            null,
+            null);
+    }
+
+    internal static SandboxCreateOptions BuildCreateOptions(
+        SandboxProvisioningSettings settings,
+        string ownerSubject,
+        IReadOnlyList<Volume> volumes)
+    {
         var connection = settings.BuildConnection();
         var env = settings.BuildRuntimeEnv();
-        var volumes = await pvcService.EnsureUserPvcsAsync(ownerSubject, cancellationToken);
 
-        await using var sandbox = await global::OpenSandbox.Sandbox.CreateAsync(new SandboxCreateOptions
+        return new SandboxCreateOptions
         {
             ConnectionConfig = connection,
             Image = settings.Image,
@@ -44,14 +69,11 @@ internal sealed class OpenSandboxProvisioner(
             // Kubernetes label value 不允许冒号等特殊字符，且长度不超过 63 字符。
             // ownerSubject 可能包含 "tenant:operator" 格式，需要规范化后再传入。
             Metadata = new Dictionary<string, string> { ["owner"] = ToK8sLabelValue(ownerSubject) },
-            ManualCleanup = true
-        }, cancellationToken);
-
-        return new ProvisionedSandboxResult(
-            sandbox.Id,
-            "Creating",
-            null,
-            null);
+            ManualCleanup = true,
+            // HireBot 自己会在 CreateAsync 之后继续轮询 Running + GatewayEndpoint，
+            // 这里跳过 SDK 的前置健康检查，避免 OpenClaw 网关慢启动时直接把创建阶段打成 502。
+            SkipHealthCheck = true
+        };
     }
 
     /// <summary>
@@ -87,8 +109,10 @@ internal sealed class OpenSandboxProvisioner(
             expiresAtUtc = new DateTimeOffset(expiresAt, TimeSpan.Zero);
         }
 
+        // OpenSandbox endpoint lookup should return the sandbox gateway address itself.
+        // The management-service proxy URL cannot be reused as the chat/upload base URL.
         var gatewayEndpoint = state == "Running"
-            ? await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, settings.UseServerProxy, cancellationToken)
+            ? await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, useServerProxy: false, cancellationToken)
             : null;
 
         return new ProvisionedSandboxResult(sandboxId, state, gatewayEndpoint, expiresAtUtc);
@@ -186,7 +210,7 @@ internal sealed class OpenSandboxProvisioner(
                 string? endpoint = null;
                 if (state == "Running")
                 {
-                    endpoint = await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, settings.UseServerProxy, cancellationToken);
+                    endpoint = await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, useServerProxy: false, cancellationToken);
                 }
 
                 DateTimeOffset? expiresAtUtc = null;

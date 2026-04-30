@@ -113,7 +113,7 @@ public static class ServiceExtensions
         services.AddDataProtection();
 
         services.AddSingleton<IEmployeeRuntimeStore, InMemoryEmployeeRuntimeStore>();
-        services.AddSingleton<IHiringRuntimeStore, InMemoryHiringRuntimeStore>();
+        services.AddScoped<IHiringRuntimeStore, PersistentHiringRuntimeStore>();
         services.AddSingleton<IEvaluationScenarioProvider, UnavailableEvaluationScenarioProvider>();
         services.AddSingleton<ICollaborationProvider, UnavailableCollaborationProvider>();
         services.AddSingleton<ITeamImProvider, InMemoryTeamImProvider>();

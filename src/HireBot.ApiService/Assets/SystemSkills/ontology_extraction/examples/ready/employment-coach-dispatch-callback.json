@@ -1,0 +1,46 @@
+{
+  "$schema": "../../templates/DISPATCH_CALLBACK.schema.json",
+  "dispatch_callback": {
+    "source_dispatch_target": "ontology_extraction",
+    "todo_ids": [
+      "m_cs_nonstandard_rules_001"
+    ],
+    "user_summary": "已从非标退货资料中抽出判定条件、经理分流触发规则和关键处置边界；结果已写入 ontology slice。",
+    "technical_artifact": {
+      "ontology_dir": "ontology",
+      "ingest_summary": "新增: 非标退货处理规则；修改: 无；移除: 无",
+      "validation": "PASS"
+    },
+    "artifacts": [
+      {
+        "path": "ontology/nonstandard-return.slice.json",
+        "kind": "ontology_slice_json"
+      },
+      {
+        "path": "ontology/nonstandard-return.slice.md",
+        "kind": "ontology_slice_markdown"
+      }
+    ],
+    "todo_results": [
+      {
+        "todo_id": "m_cs_nonstandard_rules_001",
+        "status": "success",
+        "validation": "PASS",
+        "artifacts": [
+          {
+            "path": "ontology/nonstandard-return.slice.json",
+            "kind": "ontology_slice_json"
+          },
+          {
+            "path": "ontology/nonstandard-return.slice.md",
+            "kind": "ontology_slice_markdown"
+          }
+        ],
+        "ingest_summary": "新增: 非标退货处理规则；修改: 无；移除: 无",
+        "errors": []
+      }
+    ],
+    "status": "success",
+    "errors": []
+  }
+}

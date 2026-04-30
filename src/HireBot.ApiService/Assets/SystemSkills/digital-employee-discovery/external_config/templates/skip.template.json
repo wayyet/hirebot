@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "external_capability",
+  "todoId": "e_external_skip_001",
+  "kind": "skip",
+  "reason": "User explicitly stated that no external system is needed.",
+  "sourceDigest": "External handoff todo source summary without secrets.",
+  "status": "recorded",
+  "validation": {
+    "passed": true,
+    "warnings": []
+  }
+}

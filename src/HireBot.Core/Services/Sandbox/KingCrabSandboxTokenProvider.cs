@@ -62,6 +62,7 @@ internal sealed class KingCrabSandboxTokenProvider(
 
     private async Task<CachedToken?> FetchAsync(CancellationToken cancellationToken)
     {
+        var staticToken = GetStaticToken();
         var clientId = configuration["OpenSandbox:KingCrab:ClientId"];
         var clientSecret = configuration["OpenSandbox:KingCrab:ClientSecret"];
         var authority = configuration["OpenSandbox:KingCrab:OidcAuthority"];
@@ -70,8 +71,12 @@ internal sealed class KingCrabSandboxTokenProvider(
             string.IsNullOrWhiteSpace(clientSecret) ||
             string.IsNullOrWhiteSpace(authority))
         {
-            logger.LogWarning(
-                "OpenSandbox:KingCrab ClientId/ClientSecret/OidcAuthority 未完整配置，将回退使用静态 AuthToken。");
+            if (staticToken is null)
+            {
+                logger.LogWarning(
+                    "OpenSandbox:KingCrab ClientId/ClientSecret/OidcAuthority 未完整配置，且未配置静态 AuthToken。");
+            }
+
             return null;
         }
 
@@ -124,6 +129,12 @@ internal sealed class KingCrabSandboxTokenProvider(
         // 兼容用户填写带或不带尾斜杠的 authority
         var trimmed = authority.TrimEnd('/');
         return new Uri($"{trimmed}/protocol/openid-connect/token", UriKind.Absolute);
+    }
+
+    private string? GetStaticToken()
+    {
+        var staticToken = configuration["OpenSandbox:KingCrab:AuthToken"];
+        return string.IsNullOrWhiteSpace(staticToken) ? null : staticToken.Trim();
     }
 
     private sealed record CachedToken(string AccessToken, DateTimeOffset ExpiresAtUtc);

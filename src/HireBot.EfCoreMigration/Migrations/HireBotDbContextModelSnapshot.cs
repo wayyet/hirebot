@@ -60,54 +60,6 @@ namespace HireBot.Repository.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("HireBot.Repository.Entities.ConversationEntity", b =>
-                {
-                    b.Property<string>("ConversationId")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("conversation_id");
-
-                    b.Property<string>("Channel")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("channel");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("InstanceId")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("instance_id");
-
-                    b.Property<string>("OwnerUserId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("owner_user_id");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("ConversationId");
-
-                    b.HasIndex("TenantId", "UpdatedAt");
-
-                    b.HasIndex("InstanceId", "OwnerUserId", "Channel");
-
-                    b.ToTable("Conversations", (string)null);
-                });
-
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationAssetEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -506,6 +458,108 @@ namespace HireBot.Repository.Migrations
                     b.ToTable("HiringAuditLogs");
                 });
 
+            modelBuilder.Entity("HireBot.Repository.Entities.HiringCredentialBindingEntity", b =>
+                {
+                    b.Property<string>("BindingId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AuthKind")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("BindingStatus")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CredentialSlot")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("HireId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ProtectedSecret")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SecretRef")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TargetSystem")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("TodoId")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("BindingId");
+
+                    b.HasIndex("HireId", "UpdatedAtUtc");
+
+                    b.HasIndex("SessionId", "CredentialSlot")
+                        .IsUnique();
+
+                    b.ToTable("HiringCredentialBindings");
+                });
+
+            modelBuilder.Entity("HireBot.Repository.Entities.HiringRuntimeStateEntity", b =>
+                {
+                    b.Property<string>("HireId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("CollectionPhase")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrentStage")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("HireId");
+
+                    b.HasIndex("SessionId");
+
+                    b.HasIndex("UpdatedAtUtc");
+
+                    b.ToTable("HiringRuntimeStates");
+                });
+
             modelBuilder.Entity("HireBot.Repository.Entities.HiringSessionEntity", b =>
                 {
                     b.Property<string>("SessionId")
@@ -580,272 +634,217 @@ namespace HireBot.Repository.Migrations
                     b.ToTable("HiringSessions");
                 });
 
-            modelBuilder.Entity("HireBot.Repository.Entities.ImConfigEntity", b =>
+            modelBuilder.Entity("HireBot.Repository.Entities.SandboxAssetEntity", b =>
                 {
-                    b.Property<string>("ConfigId")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("config_id");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
 
-                    b.Property<string>("AesKey")
-                        .HasColumnType("text")
-                        .HasColumnName("aes_key");
-
-                    b.Property<string>("AppId")
-                        .HasColumnType("text")
-                        .HasColumnName("app_id");
-
-                    b.Property<string>("AppSecret")
-                        .HasColumnType("text")
-                        .HasColumnName("app_secret");
-
-                    b.Property<DateTimeOffset?>("ConfiguredAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("configured_at");
-
-                    b.Property<string>("ConnectionMode")
+                    b.Property<string>("AssetRole")
                         .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("connection_mode");
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
-                    b.Property<string>("EncryptKey")
-                        .HasColumnType("text")
-                        .HasColumnName("encrypt_key");
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("InstanceId")
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("MediaId")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("instance_id");
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<Guid?>("SandboxInstanceEntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SandboxSessionEntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StoragePath")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MediaId")
+                        .IsUnique();
+
+                    b.HasIndex("SandboxSessionEntityId");
+
+                    b.HasIndex("SandboxInstanceEntityId", "CreatedAtUtc");
+
+                    b.ToTable("SandboxAssets");
+                });
+
+            modelBuilder.Entity("HireBot.Repository.Entities.SandboxInstanceEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("GatewayEndpoint")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
 
                     b.Property<string>("LastError")
                         .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)")
-                        .HasColumnName("last_error");
+                        .HasColumnType("character varying(1024)");
 
-                    b.Property<string>("OwnerUserId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("owner_user_id");
-
-                    b.Property<string>("Platform")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("platform");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("status");
-
-                    b.Property<string>("TenantId")
+                    b.Property<string>("OperatorId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("tenant_id");
+                        .HasColumnType("character varying(128)");
 
-                    b.Property<string>("Token")
-                        .HasColumnType("text")
-                        .HasColumnName("token");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<string>("VerificationToken")
-                        .HasColumnType("text")
-                        .HasColumnName("verification_token");
-
-                    b.Property<string>("WebhookPath")
+                    b.Property<string>("OwnerSubject")
+                        .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("webhook_path");
+                        .HasColumnType("character varying(256)");
 
-                    b.HasKey("ConfigId");
+                    b.Property<string>("ProvisioningMode")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
 
-                    b.HasIndex("InstanceId", "Platform")
-                        .IsUnique();
-
-                    b.HasIndex("Platform", "Status");
-
-                    b.HasIndex("TenantId", "OwnerUserId");
-
-                    b.ToTable("ImConfigs", (string)null);
-                });
-
-            modelBuilder.Entity("HireBot.Repository.Entities.InstanceEntity", b =>
-                {
-                    b.Property<string>("InstanceId")
+                    b.Property<string>("SandboxId")
+                        .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("instance_id");
+                        .HasColumnType("character varying(120)");
 
-                    b.Property<string>("BasedOnTemplateId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("based_on_template_id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CurrentVersion")
+                    b.Property<string>("SandboxRole")
                         .IsRequired()
                         .HasMaxLength(80)
-                        .HasColumnType("character varying(80)")
-                        .HasColumnName("current_version");
+                        .HasColumnType("character varying(80)");
 
-                    b.Property<string>("DepartmentId")
+                    b.Property<string>("ScopeKey")
                         .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("department_id");
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
 
-                    b.Property<string>("EvalReportId")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("eval_report_id");
-
-                    b.Property<string>("FromInstanceId")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("from_instance_id");
-
-                    b.Property<string>("InstanceType")
+                    b.Property<string>("ScopeType")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("instance_type");
+                        .HasColumnType("character varying(40)");
 
-                    b.Property<string>("OwnerUserId")
+                    b.Property<string>("State")
                         .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("owner_user_id");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("status");
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("tenant_id");
+                        .HasColumnType("character varying(128)");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
-                    b.Property<bool>("ViaQuickClone")
-                        .HasColumnType("boolean")
-                        .HasColumnName("via_quick_clone");
+                    b.Property<string>("UseCase")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
-                    b.HasKey("InstanceId");
+                    b.HasKey("Id");
 
-                    b.HasIndex("BasedOnTemplateId");
-
-                    b.HasIndex("FromInstanceId");
-
-                    b.HasIndex("OwnerUserId", "InstanceType", "Status");
-
-                    b.HasIndex("TenantId", "DepartmentId", "InstanceType", "Status");
-
-                    b.ToTable("Instances", (string)null);
-                });
-
-            modelBuilder.Entity("HireBot.Repository.Entities.MessageEntity", b =>
-                {
-                    b.Property<string>("MessageId")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("message_id");
-
-                    b.Property<string>("Channel")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("channel");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("content");
-
-                    b.Property<string>("ConversationId")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("conversation_id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("DeliveryStatus")
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("delivery_status");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)")
-                        .HasColumnName("error_message");
-
-                    b.Property<string>("ExternalMessageId")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("external_message_id");
-
-                    b.Property<string>("ExternalUserId")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("external_user_id");
-
-                    b.Property<string>("InstanceId")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("instance_id");
-
-                    b.Property<string>("MetadataJson")
-                        .HasColumnType("text")
-                        .HasColumnName("metadata_json");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("role");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("MessageId");
-
-                    b.HasIndex("Channel", "ExternalMessageId")
+                    b.HasIndex("SandboxId")
                         .IsUnique();
 
-                    b.HasIndex("ConversationId", "CreatedAt");
+                    b.HasIndex("OwnerSubject", "State", "UpdatedAtUtc");
 
-                    b.HasIndex("InstanceId", "CreatedAt");
+                    b.HasIndex("OwnerSubject", "ScopeType", "ScopeKey", "SandboxRole");
 
-                    b.HasIndex("InstanceId", "Channel", "CreatedAt");
+                    b.ToTable("SandboxInstances");
+                });
 
-                    b.ToTable("Messages", (string)null);
+            modelBuilder.Entity("HireBot.Repository.Entities.SandboxSessionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ChannelId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OwnerSubject")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid?>("SandboxInstanceEntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SandboxRole")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("ScopeKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("ScopeType")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("SenderId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("SessionKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SandboxInstanceEntityId");
+
+                    b.HasIndex("SessionId")
+                        .IsUnique();
+
+                    b.HasIndex("OwnerSubject", "ScopeType", "ScopeKey", "SandboxRole", "SessionKey")
+                        .IsUnique();
+
+                    b.ToTable("SandboxSessions");
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationAssetEntity", b =>
@@ -880,11 +879,50 @@ namespace HireBot.Repository.Migrations
                     b.Navigation("Session");
                 });
 
+            modelBuilder.Entity("HireBot.Repository.Entities.SandboxAssetEntity", b =>
+                {
+                    b.HasOne("HireBot.Repository.Entities.SandboxInstanceEntity", "SandboxInstance")
+                        .WithMany("Assets")
+                        .HasForeignKey("SandboxInstanceEntityId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("HireBot.Repository.Entities.SandboxSessionEntity", "SandboxSession")
+                        .WithMany("Assets")
+                        .HasForeignKey("SandboxSessionEntityId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("SandboxInstance");
+
+                    b.Navigation("SandboxSession");
+                });
+
+            modelBuilder.Entity("HireBot.Repository.Entities.SandboxSessionEntity", b =>
+                {
+                    b.HasOne("HireBot.Repository.Entities.SandboxInstanceEntity", "SandboxInstance")
+                        .WithMany("Sessions")
+                        .HasForeignKey("SandboxInstanceEntityId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("SandboxInstance");
+                });
+
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationSessionEntity", b =>
                 {
                     b.Navigation("Assets");
 
                     b.Navigation("Reports");
+                });
+
+            modelBuilder.Entity("HireBot.Repository.Entities.SandboxInstanceEntity", b =>
+                {
+                    b.Navigation("Assets");
+
+                    b.Navigation("Sessions");
+                });
+
+            modelBuilder.Entity("HireBot.Repository.Entities.SandboxSessionEntity", b =>
+                {
+                    b.Navigation("Assets");
                 });
 #pragma warning restore 612, 618
         }

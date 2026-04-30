@@ -12,6 +12,8 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
     public DbSet<EvaluationReportEntity> EvaluationReports { get; set; }
 
     public DbSet<HiringSessionEntity> HiringSessions { get; set; }
+    public DbSet<HiringRuntimeStateEntity> HiringRuntimeStates { get; set; }
+    public DbSet<HiringCredentialBindingEntity> HiringCredentialBindings { get; set; }
     public DbSet<HiringArtifactEntity> HiringArtifacts { get; set; }
     public DbSet<HiringArtifactUploadEntity> HiringArtifactUploads { get; set; }
     public DbSet<HiringArtifactUploadPartEntity> HiringArtifactUploadParts { get; set; }
@@ -112,6 +114,40 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.HasKey(e => e.SessionId);
             entity.HasIndex(e => e.HireId).IsUnique();
             entity.HasIndex(e => e.CreatedAtUtc);
+        });
+
+        modelBuilder.Entity<HiringRuntimeStateEntity>(entity =>
+        {
+            entity.HasKey(e => e.HireId);
+            entity.Property(e => e.SessionId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.HireId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.CurrentStage).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.CollectionPhase).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.PayloadJson).IsRequired();
+            entity.Property(e => e.CreatedAtUtc).IsRequired();
+            entity.Property(e => e.UpdatedAtUtc).IsRequired();
+
+            entity.HasIndex(e => e.SessionId);
+            entity.HasIndex(e => e.UpdatedAtUtc);
+        });
+
+        modelBuilder.Entity<HiringCredentialBindingEntity>(entity =>
+        {
+            entity.HasKey(e => e.BindingId);
+            entity.Property(e => e.SessionId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.HireId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.CredentialSlot).IsRequired().HasMaxLength(160);
+            entity.Property(e => e.SecretRef).HasMaxLength(256);
+            entity.Property(e => e.AuthKind).HasMaxLength(80);
+            entity.Property(e => e.TargetSystem).HasMaxLength(160);
+            entity.Property(e => e.TodoId).HasMaxLength(160);
+            entity.Property(e => e.BindingStatus).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.ProtectedSecret).IsRequired();
+            entity.Property(e => e.CreatedAtUtc).IsRequired();
+            entity.Property(e => e.UpdatedAtUtc).IsRequired();
+
+            entity.HasIndex(e => new { e.SessionId, e.CredentialSlot }).IsUnique();
+            entity.HasIndex(e => new { e.HireId, e.UpdatedAtUtc });
         });
 
         modelBuilder.Entity<HiringArtifactEntity>(entity =>

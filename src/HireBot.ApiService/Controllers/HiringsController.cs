@@ -1,4 +1,4 @@
-﻿using HireBot.Abstraction;
+using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Services.Hiring;
 using Microsoft.AspNetCore.Mvc;
@@ -104,6 +104,39 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
     public async Task<IActionResult> GetWorkflowState(string hireId, CancellationToken cancellationToken = default)
     {
         var response = await employeeHiringService.GetWorkflowStateAsync(hireId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{hireId}/credential-bindings")]
+    public async Task<IActionResult> UpsertCredentialBinding(
+        string hireId,
+        [FromBody] HiringCredentialBindingRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<HiringWorkflowStateDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeHiringService.UpsertCredentialBindingAsync(hireId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPut("{hireId}/config-files/{configKey}")]
+    public async Task<IActionResult> UpdateConfigFile(
+        string hireId,
+        string configKey,
+        [FromBody] HiringConfigFileUpdateRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<HiringWorkflowStateDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeHiringService.UpdateConfigFileAsync(hireId, configKey, request, cancellationToken);
         return StatusCode(response.Code, response);
     }
 

@@ -41,12 +41,10 @@ internal sealed class FileSystemDiscoveryRuleProvider(
     {
         return stage.Trim().ToUpperInvariant() switch
         {
-            "GOAL" => HiringCollectionStage.Goal,
-            "SCENARIO" => HiringCollectionStage.Scenario,
-            "SYSTEMS" => HiringCollectionStage.Systems,
-            "GAPS" => HiringCollectionStage.Gaps,
-            "PACKAGE" => HiringCollectionStage.Package,
-            "DONE" => HiringCollectionStage.Done,
+            "GOAL" or "MATERIAL" => HiringCollectionStage.Material,
+            "SCENARIO" or "SKILL" => HiringCollectionStage.Skill,
+            "SYSTEMS" or "GAPS" or "EXTERNAL" => HiringCollectionStage.External,
+            "PACKAGE" or "READY_FOR_PACKAGING" => HiringCollectionStage.ReadyForPackaging,
             var value => value
         };
     }

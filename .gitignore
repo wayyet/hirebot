@@ -401,6 +401,7 @@ FodyWeavers.xsd
 *.sln.iml
 
 .idea
+appsettings.*.local.json
 
 
 /src/HireBot.ApiService/Assets/RuntimeArtifacts/instances/personal_clone/e_dev_seed_401_asset-guardian

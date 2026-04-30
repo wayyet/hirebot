@@ -113,6 +113,8 @@ internal sealed record SandboxProvisioningSettings(
 
     public Dictionary<string, string> BuildRuntimeEnv()
     {
+        ValidateGatewayModelProviderConfiguration();
+
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["Logging__LogLevel__Default"] = "Information",
@@ -153,6 +155,27 @@ internal sealed record SandboxProvisioningSettings(
         }
 
         return env;
+    }
+
+    private void ValidateGatewayModelProviderConfiguration()
+    {
+        var hasModel = !string.IsNullOrWhiteSpace(LlmModel);
+        var hasEndpoint = !string.IsNullOrWhiteSpace(LlmEndpoint);
+        var hasApiKey = !string.IsNullOrWhiteSpace(LlmApiKey);
+
+        if (hasModel && hasEndpoint && hasApiKey)
+        {
+            return;
+        }
+
+        if (!hasModel && !hasEndpoint && !hasApiKey)
+        {
+            throw new InvalidOperationException(
+                "OpenSandbox:KingCrab:LlmModel, OpenSandbox:KingCrab:LlmEndpoint, and OpenSandbox:KingCrab:LlmApiKey are required for managed sandbox conversations.");
+        }
+
+        throw new InvalidOperationException(
+            "OpenSandbox:KingCrab:LlmModel, OpenSandbox:KingCrab:LlmEndpoint, and OpenSandbox:KingCrab:LlmApiKey must be configured together.");
     }
 
     public NetworkPolicy? BuildNetworkPolicy()

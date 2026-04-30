@@ -1,0 +1,214 @@
+{
+  "$schema": "../../templates/TEMPLATE.schema.json",
+  "schema_version": "1.0.0",
+  "template_type": "ontology_slice",
+  "slice_request": {
+    "task_name": "数字员工本体切片初始化",
+    "slice_topic": "digital-employee",
+    "task_goal": "抽取数字员工子域的最小概念、关系与约束，作为后续 projection 和 consumer contract 的上游语义输入。",
+    "expected_output": [
+      "concept_table",
+      "relation_table",
+      "constraint_list"
+    ]
+  },
+  "scope": {
+    "include": [
+      {
+        "type": "concept",
+        "id": "C1",
+        "name": "数字员工",
+        "reason": "作为当前主题的核心主体，后续所有能力、任务和边界都围绕它展开。"
+      },
+      {
+        "type": "concept",
+        "id": "C2",
+        "name": "能力配置",
+        "reason": "数字员工的执行边界和可用能力需要明确建模，避免后续 projection 只保留主体名词而丢失约束。"
+      },
+      {
+        "type": "relation",
+        "id": "R1",
+        "name": "数字员工依赖能力配置",
+        "reason": "能力配置与数字员工之间的依赖关系会直接影响 runtime 选择和下游 contract 设计。"
+      },
+      {
+        "type": "constraint",
+        "id": "K1",
+        "name": "数字员工不得脱离能力配置执行",
+        "reason": "需要保留最基本的执行边界约束，避免后续 prompt 或 workflow 投影阶段隐式补造自由度。"
+      }
+    ],
+    "exclude": [
+      {
+        "name": "具体渠道接入实现",
+        "reason": "属于下游实现和集成细节，不是当前最小语义闭包的一部分。"
+      },
+      {
+        "name": "运行时审计日志结构",
+        "reason": "属于运行时数据与治理输出，不应直接混入本体概念层。"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "S1",
+      "path": "src/OpenClaw.Gateway/skills/ontology_extraction/slices/digital-employee/README.md",
+      "source_type": "document",
+      "role": "数字员工主题的初始 producer 入口说明",
+      "priority": 1,
+      "trust_level": "medium"
+    }
+  ],
+  "conflicts": [],
+  "summary": {
+    "topic": "digital-employee",
+    "one_line_conclusion": "当前切片先固定数字员工、能力配置和执行边界三类核心语义，为后续 projection 提供最小上游输入。",
+    "selection_basis": "优先保留会直接影响实体建模、执行路由和边界控制的概念、关系与约束。",
+    "exclusion_basis": "暂不纳入渠道实现、厂商细节和审计数据，避免把实现层与本体层混写。"
+  },
+  "concepts": [
+    {
+      "id": "C1",
+      "name_zh": "数字员工",
+      "name_en": "digital_employee",
+      "aliases": [
+        "digital worker"
+      ],
+      "kind": "entity",
+      "definition": "在业务系统中被识别、配置和调度，用于执行受控任务的数字化执行主体。",
+      "parent_concept_id": null,
+      "key_properties": [
+        {
+          "name": "employee_id",
+          "type": "string",
+          "required": true,
+          "description": "数字员工的稳定标识。"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": true,
+          "description": "数字员工当前是否可被调度和执行任务。"
+        }
+      ],
+      "source_ids": [
+        "S1"
+      ]
+    },
+    {
+      "id": "C2",
+      "name_zh": "能力配置",
+      "name_en": "capability_profile",
+      "aliases": [
+        "ability configuration"
+      ],
+      "kind": "value_object",
+      "definition": "用于定义数字员工可使用的能力、工具、上下文边界和执行限制的配置集合。",
+      "parent_concept_id": null,
+      "key_properties": [
+        {
+          "name": "allowed_capabilities",
+          "type": "array",
+          "required": true,
+          "description": "数字员工允许使用的能力集合。"
+        },
+        {
+          "name": "policy_level",
+          "type": "string",
+          "required": false,
+          "description": "能力配置对应的治理级别或执行策略层级。"
+        }
+      ],
+      "source_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "R1",
+      "subject_concept_id": "C1",
+      "predicate": "depends_on",
+      "object_concept_id": "C2",
+      "description": "数字员工的执行能力和边界依赖于能力配置定义。",
+      "cardinality": "n:1",
+      "direction": "uni",
+      "conditions": [
+        "当数字员工被调度执行任务时，该关系必须成立。"
+      ],
+      "source_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "id": "K1",
+      "name": "数字员工不得脱离能力配置执行",
+      "applies_to": {
+        "concept_ids": [
+          "C1",
+          "C2"
+        ],
+        "relation_ids": [
+          "R1"
+        ]
+      },
+      "rule": "数字员工在执行任何任务前都必须具备明确能力配置，且执行范围不得超出配置允许的能力边界。",
+      "trigger": "当系统准备为数字员工分配任务、工具或上下文时。",
+      "forbidden": [
+        "在没有能力配置的情况下直接执行任务。",
+        "允许数字员工使用未在能力配置中声明的能力。"
+      ],
+      "severity": "high",
+      "source_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "term_mappings": [
+    {
+      "term": "数字员工",
+      "candidate_concept_ids": [
+        "C1"
+      ],
+      "selected_concept_id": "C1",
+      "reason": "当前切片把数字员工作为核心执行主体，不与 workflow 或 skill 本身混同。"
+    },
+    {
+      "term": "能力配置",
+      "candidate_concept_ids": [
+        "C2"
+      ],
+      "selected_concept_id": "C2",
+      "reason": "当前切片把能力配置视为约束执行边界的配置对象，而不是独立执行主体。"
+    }
+  ],
+  "ambiguities": [],
+  "uncertainties": [
+    {
+      "item": "数字员工与 agent、skill、workflow 的正式术语边界",
+      "missing_evidence": "当前还缺少一份明确区分这些术语的产品或架构定义。",
+      "required_user_input": "需要补充数字员工主题的产品说明、术语定义或相关代码入口。"
+    }
+  ],
+  "next_actions": [
+    {
+      "action": "补充数字员工主题的权威来源，并把来源映射回 concepts、relations 和 constraints。",
+      "owner": "user",
+      "priority": "P1"
+    },
+    {
+      "action": "在 slice 稳定后，为 digital-employee 主题生成首个 consumer projection。",
+      "owner": "agent",
+      "priority": "P2"
+    }
+  ],
+  "meta": {
+    "generated_at": "2026-04-22T00:00:00Z",
+    "generated_by": "ontology_extraction",
+    "workspace": "kingcrab",
+    "notes": "这是数字员工主题的初始骨架，用于建立 producer-side ontology slice 入口。"
+  }
+}
