@@ -404,3 +404,5 @@ FodyWeavers.xsd
 
 
 /src/HireBot.ApiService/Assets/RuntimeArtifacts/instances/personal_clone/e_dev_seed_401_asset-guardian
+/src/HireBot.ApiService/Assets/RuntimeArtifacts/instances/personal_clone/dept_source_feishu_001/pc_im_mock_feishu_001/versions/v1
+/src/HireBot.ApiService/Assets/RuntimeArtifacts/instances/personal_clone/dept_source_feishu_001/pc_im_real_feishu_001/versions/v1
