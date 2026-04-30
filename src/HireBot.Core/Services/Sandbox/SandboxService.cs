@@ -32,7 +32,7 @@ internal sealed class SandboxService(
 
         if (string.IsNullOrWhiteSpace(request.SandboxId))
         {
-            return ApiResponse<SandboxInstanceDto>.ErrorResponse(400, "sandboxId 涓嶈兘涓虹┖");
+            return ApiResponse<SandboxInstanceDto>.ErrorResponse(400, "sandboxId 不能为空");
         }
 
         var instance = await FindInstanceBySandboxIdAsync(request.SandboxId.Trim(), cancellationToken)
@@ -60,7 +60,7 @@ internal sealed class SandboxService(
 
         if (!string.Equals(request.ProvisioningMode, "managed", StringComparison.OrdinalIgnoreCase))
         {
-            return ApiResponse<SandboxInstanceDto>.ErrorResponse(400, "CreateAsync 浠呮敮鎸?managed 妯″紡");
+            return ApiResponse<SandboxInstanceDto>.ErrorResponse(400, "CreateAsync 仅支持 managed 模式");
         }
 
         var provisioned = await provisioner.CreateAsync(request.OwnerSubject.Trim(), cancellationToken);
@@ -381,7 +381,7 @@ internal sealed class SandboxService(
 
         if (!string.Equals(request.ScopeType, SandboxScopeTypes.Hire, StringComparison.OrdinalIgnoreCase))
         {
-            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(501, "褰撳墠浠呮敮鎸?hire scope 鐨勬椂闂寸嚎鏌ヨ");
+            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(501, "当前仅支持 hire scope 的时间线查询");
         }
 
         var instance = await ResolveInstanceForWriteAsync(
@@ -491,7 +491,7 @@ internal sealed class SandboxService(
         }
         if (request.Material is null)
         {
-            return ApiResponse<SandboxAttachmentUploadResultDto>.ErrorResponse(400, "material ????");
+            return ApiResponse<SandboxAttachmentUploadResultDto>.ErrorResponse(400, "material 不能为空");
         }
         var payloadResult = await BuildAttachmentPayloadAsync(request.Material, cancellationToken);
         if (!payloadResult.Success || payloadResult.Data is null)
@@ -568,25 +568,25 @@ internal sealed class SandboxService(
     {
         if (string.IsNullOrWhiteSpace(scopeType))
         {
-            message = "scopeType 涓嶈兘涓虹┖";
+            message = "scopeType 不能为空";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(scopeKey))
         {
-            message = "scopeKey 涓嶈兘涓虹┖";
+            message = "scopeKey 不能为空";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(sandboxRole))
         {
-            message = "sandboxRole 涓嶈兘涓虹┖";
+            message = "sandboxRole 不能为空";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(ownerSubject))
         {
-            message = "ownerSubject 涓嶈兘涓虹┖";
+            message = "ownerSubject 不能为空";
             return false;
         }
 
@@ -830,7 +830,7 @@ internal sealed class SandboxService(
         {
             if (!File.Exists(storagePath))
             {
-                return ApiResponse<AttachmentPayload>.ErrorResponse(422, $"闄勪欢鏂囦欢涓嶅瓨鍦? {storagePath}");
+                return ApiResponse<AttachmentPayload>.ErrorResponse(422, $"附件文件不存在: {storagePath}");
             }
 
             var bytes = await File.ReadAllBytesAsync(storagePath, cancellationToken);
