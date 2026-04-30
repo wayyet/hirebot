@@ -104,8 +104,11 @@ public static class ServiceExtensions
         services.AddSingleton<FileSystemSystemSkillRegistry>();
         services.AddSingleton<ISystemSkillRegistry>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
         services.AddSingleton<ISkillCatalogProvider>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
+        services.AddSingleton<FileSystemTemplatePackageProvider>();
         services.AddSingleton<ITemplateDataProvider, BuildServiceTemplateDataProvider>();
         services.AddSingleton<ITemplatePackageProvider, BuildServiceTemplatePackageProvider>();
+        services.AddSingleton<IDiscoveryRoleTemplatePackageProvider, FileSystemDiscoveryRoleTemplatePackageProvider>();
+        services.AddSingleton<IWorkingTemplatePackageProvider, FileSystemWorkingTemplatePackageProvider>();
         services.AddSingleton<IDiscoveryRuleProvider, FileSystemDiscoveryRuleProvider>();
         services.AddSingleton<HiringStageCompletionEvaluator>();
         services.AddSingleton<IArtifactSerializer, PlaceholderArtifactSerializer>();

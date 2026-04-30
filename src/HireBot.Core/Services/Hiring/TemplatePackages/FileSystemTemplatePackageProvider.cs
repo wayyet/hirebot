@@ -1,6 +1,6 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
@@ -30,116 +30,24 @@ internal sealed class FileSystemTemplatePackageProvider(
             candidatePath = Path.Combine(packagesRoot, "default");
         }
 
-        var packageRoot = ResolvePackageRoot(candidatePath);
-        if (packageRoot is null)
-        {
-            throw new InvalidOperationException($"Template package root not found for templateId '{normalizedTemplateId}'.");
-        }
-
-        var manifestPath = Path.Combine(packageRoot, "manifest.json");
-        if (!File.Exists(manifestPath))
-        {
-            throw new InvalidOperationException($"Template manifest not found: {manifestPath}");
-        }
-
-        var manifestJson = await File.ReadAllTextAsync(manifestPath, cancellationToken);
-        var manifest = JsonSerializer.Deserialize<TemplateManifestDocument>(manifestJson, JsonOptions)
-                       ?? throw new InvalidOperationException($"Template manifest is invalid: {manifestPath}");
-
-        var ontologySlices = new List<TemplateOntologySliceAsset>();
-        foreach (var slice in manifest.OntologySlices ?? [])
-        {
-            var relativePath = slice.Path?.Trim();
-            if (string.IsNullOrWhiteSpace(relativePath))
-            {
-                continue;
-            }
-
-            var fullPath = Path.Combine(packageRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
-            if (!File.Exists(fullPath))
-            {
-                continue;
-            }
-
-            var content = await File.ReadAllTextAsync(fullPath, cancellationToken);
-            ontologySlices.Add(new TemplateOntologySliceAsset(
-                Name: FirstNonEmpty(slice.Name, Path.GetFileNameWithoutExtension(fullPath)),
-                RelativePath: relativePath,
-                Type: FirstNonEmpty(slice.Type, "digital_employee_slice"),
-                Required: slice.Required ?? false,
-                Content: content,
-                ContentHash: HiringAssetFileSystem.ComputeContentHash(content)));
-        }
-
-        var requiredSkills = new List<TemplateSkillAsset>();
-        foreach (var skill in manifest.Skills ?? [])
-        {
-            if (skill.Required != true)
-            {
-                continue;
-            }
-
-            var relativePath = skill.Path?.Trim();
-            if (string.IsNullOrWhiteSpace(relativePath))
-            {
-                continue;
-            }
-
-            var fullPath = Path.Combine(packageRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
-            if (!File.Exists(fullPath))
-            {
-                continue;
-            }
-
-            var content = await File.ReadAllTextAsync(fullPath, cancellationToken);
-            requiredSkills.Add(new TemplateSkillAsset(
-                Name: FirstNonEmpty(skill.Name, Path.GetFileNameWithoutExtension(fullPath)),
-                RelativePath: relativePath,
-                Required: true,
-                Content: content,
-                ContentHash: HiringAssetFileSystem.ComputeContentHash(content)));
-        }
-
-        var packageFiles = new List<TemplatePackageFileAsset>();
-        foreach (var filePath in Directory.EnumerateFiles(packageRoot, "*", SearchOption.AllDirectories))
-        {
-            if (HiringAssetFileSystem.IsIgnoredPath(filePath))
-            {
-                continue;
-            }
-
-            var rawRelativePath = Path.GetRelativePath(packageRoot, filePath).Replace('\\', '/');
-            if (!TryNormalizeArchiveRelativePath(rawRelativePath, out var normalizedRelativePath))
-            {
-                continue;
-            }
-
-            var content = await File.ReadAllBytesAsync(filePath, cancellationToken);
-            packageFiles.Add(new TemplatePackageFileAsset(
-                RelativePath: normalizedRelativePath,
-                Content: content,
-                ContentHash: ComputeContentHash(content)));
-        }
-
-        var packageHash = await HiringAssetFileSystem.ComputeDirectoryHashAsync(packageRoot, cancellationToken);
-        return new TemplatePackageDefinition(
-            RequestedTemplateId: normalizedTemplateId,
-            PackageId: FirstNonEmpty(manifest.Name, normalizedTemplateId),
-            PackageVersion: FirstNonEmpty(manifest.Version, "v1-placeholder"),
-            PackageHash: packageHash,
-            SourceArchive: null,
-            PackageRootPath: packageRoot,
-            ManifestJson: manifestJson,
-            DisplayName: FirstNonEmpty(manifest.DisplayName, manifest.Name, normalizedTemplateId),
-            Description: FirstNonEmpty(manifest.Description, manifest.Positioning, "NCrew template package"),
-            PackageFiles: packageFiles
-                .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
-                .ToArray(),
-            OntologySlices: ontologySlices,
-            RequiredSkills: requiredSkills);
+        return await LoadFromDirectoryAsync(candidatePath, normalizedTemplateId, cancellationToken);
     }
 
-    private static string? ResolvePackageRoot(string candidatePath)
+    internal async Task<TemplatePackageDefinition> LoadFromDirectoryAsync(
+        string directoryPath,
+        string requestedTemplateId,
+        CancellationToken cancellationToken = default)
+    {
+        var packageRoot = ResolvePackageRoot(directoryPath);
+        if (packageRoot is null)
+        {
+            throw new InvalidOperationException($"Template package root not found for templateId '{requestedTemplateId}'.");
+        }
+
+        return await LoadFromPackageRootAsync(packageRoot, requestedTemplateId, cancellationToken);
+    }
+
+    internal static string? ResolvePackageRoot(string candidatePath)
     {
         if (File.Exists(Path.Combine(candidatePath, "manifest.json")))
         {
@@ -165,6 +73,167 @@ internal sealed class FileSystemTemplatePackageProvider(
         }
 
         return null;
+    }
+
+    private async Task<TemplatePackageDefinition> LoadFromPackageRootAsync(
+        string packageRoot,
+        string requestedTemplateId,
+        CancellationToken cancellationToken)
+    {
+        var manifestPath = Path.Combine(packageRoot, "manifest.json");
+        if (!File.Exists(manifestPath))
+        {
+            throw new InvalidOperationException($"Template manifest not found: {manifestPath}");
+        }
+
+        var manifestJson = await File.ReadAllTextAsync(manifestPath, cancellationToken);
+        var manifest = JsonSerializer.Deserialize<TemplateManifestDocument>(manifestJson, JsonOptions)
+                       ?? throw new InvalidOperationException($"Template manifest is invalid: {manifestPath}");
+
+        var ontologySlices = new List<TemplateOntologySliceAsset>();
+        foreach (var slice in manifest.OntologySlices ?? [])
+        {
+            var relativePath = slice.Path?.Trim();
+            if (string.IsNullOrWhiteSpace(relativePath))
+            {
+                continue;
+            }
+
+            var fullPath = ResolveManifestAssetFilePath(packageRoot, relativePath);
+            if (fullPath is null)
+            {
+                continue;
+            }
+
+            var content = await File.ReadAllTextAsync(fullPath, cancellationToken);
+            ontologySlices.Add(new TemplateOntologySliceAsset(
+                Name: FirstNonEmpty(slice.Name, Path.GetFileNameWithoutExtension(fullPath)),
+                RelativePath: relativePath.Replace('\\', '/').TrimStart('/'),
+                Type: FirstNonEmpty(slice.Type, "digital_employee_slice"),
+                Required: slice.Required ?? false,
+                Content: content,
+                ContentHash: HiringAssetFileSystem.ComputeContentHash(content)));
+        }
+
+        var requiredSkills = new List<TemplateSkillAsset>();
+        foreach (var skill in manifest.Skills ?? [])
+        {
+            if (skill.Required != true)
+            {
+                continue;
+            }
+
+            var relativePath = skill.Path?.Trim();
+            if (string.IsNullOrWhiteSpace(relativePath))
+            {
+                continue;
+            }
+
+            var fullPath = ResolveManifestAssetFilePath(packageRoot, relativePath, "SKILL.md");
+            if (fullPath is null)
+            {
+                continue;
+            }
+
+            var content = await File.ReadAllTextAsync(fullPath, cancellationToken);
+            requiredSkills.Add(new TemplateSkillAsset(
+                Name: FirstNonEmpty(skill.Name, Path.GetFileNameWithoutExtension(fullPath)),
+                RelativePath: relativePath.Replace('\\', '/').TrimStart('/'),
+                Required: true,
+                Content: content,
+                ContentHash: HiringAssetFileSystem.ComputeContentHash(content)));
+        }
+
+        var stageRules = (manifest.StageRules ?? [])
+            .Where(rule =>
+                !string.IsNullOrWhiteSpace(rule.Stage) &&
+                !string.IsNullOrWhiteSpace(rule.SkillName) &&
+                !string.IsNullOrWhiteSpace(rule.Description))
+            .Select(rule => new TemplatePackageStageRule(
+                Stage: rule.Stage!.Trim(),
+                SkillName: rule.SkillName!.Trim(),
+                Description: rule.Description!.Trim(),
+                RequiredFields: (rule.RequiredFields ?? [])
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value.Trim())
+                    .ToArray()))
+            .ToArray();
+
+        var packageFiles = new List<TemplatePackageFileAsset>();
+        foreach (var filePath in Directory.EnumerateFiles(packageRoot, "*", SearchOption.AllDirectories))
+        {
+            if (HiringAssetFileSystem.IsIgnoredPath(filePath))
+            {
+                continue;
+            }
+
+            var rawRelativePath = Path.GetRelativePath(packageRoot, filePath).Replace('\\', '/');
+            if (!TryNormalizeArchiveRelativePath(rawRelativePath, out var normalizedRelativePath))
+            {
+                continue;
+            }
+
+            var content = await File.ReadAllBytesAsync(filePath, cancellationToken);
+            packageFiles.Add(new TemplatePackageFileAsset(
+                RelativePath: normalizedRelativePath,
+                Content: content,
+                ContentHash: ComputeContentHash(content)));
+        }
+
+        var packageHash = await HiringAssetFileSystem.ComputeDirectoryHashAsync(packageRoot, cancellationToken);
+        return new TemplatePackageDefinition(
+            RequestedTemplateId: requestedTemplateId,
+            PackageId: FirstNonEmpty(manifest.Name, requestedTemplateId),
+            PackageVersion: FirstNonEmpty(manifest.Version, "v1-placeholder"),
+            PackageHash: packageHash,
+            SourceArchive: null,
+            PackageRootPath: packageRoot,
+            ManifestJson: manifestJson,
+            DisplayName: FirstNonEmpty(manifest.DisplayName, manifest.Name, requestedTemplateId),
+            Description: FirstNonEmpty(manifest.Description, manifest.Positioning, "NCrew template package"),
+            PackageFiles: packageFiles
+                .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            OntologySlices: ontologySlices,
+            RequiredSkills: requiredSkills,
+            EntrySkill: NormalizeEntrySkill(manifest.EntrySkill),
+            StageRules: stageRules);
+    }
+
+    private static string? ResolveManifestAssetFilePath(
+        string packageRoot,
+        string relativePath,
+        string? defaultFileName = null)
+    {
+        var normalizedRelativePath = relativePath.Replace('\\', '/').Trim('/');
+        if (normalizedRelativePath.Length == 0)
+        {
+            return null;
+        }
+
+        var fullPath = Path.Combine(packageRoot, normalizedRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        if (File.Exists(fullPath))
+        {
+            return fullPath;
+        }
+
+        if (string.IsNullOrWhiteSpace(defaultFileName) || !Directory.Exists(fullPath))
+        {
+            return null;
+        }
+
+        var defaultPath = Path.Combine(fullPath, defaultFileName);
+        return File.Exists(defaultPath) ? defaultPath : null;
+    }
+
+    private static string? NormalizeEntrySkill(string? entrySkill)
+    {
+        if (string.IsNullOrWhiteSpace(entrySkill))
+        {
+            return null;
+        }
+
+        return entrySkill.Trim().Replace('\\', '/').Trim('/');
     }
 
     private static string FirstNonEmpty(params string?[] candidates)
@@ -209,8 +278,10 @@ internal sealed class FileSystemTemplatePackageProvider(
         [property: JsonPropertyName("positioning")] string? Positioning,
         [property: JsonPropertyName("description")] string? Description,
         [property: JsonPropertyName("version")] string? Version,
+        [property: JsonPropertyName("entry_skill")] string? EntrySkill,
         [property: JsonPropertyName("ontology_slices")] IReadOnlyList<TemplateOntologySliceDocument>? OntologySlices,
-        [property: JsonPropertyName("skills")] IReadOnlyList<TemplateSkillDocument>? Skills);
+        [property: JsonPropertyName("skills")] IReadOnlyList<TemplateSkillDocument>? Skills,
+        [property: JsonPropertyName("stage_rules")] IReadOnlyList<TemplateStageRuleDocument>? StageRules);
 
     private sealed record TemplateOntologySliceDocument(
         [property: JsonPropertyName("name")] string? Name,
@@ -222,4 +293,10 @@ internal sealed class FileSystemTemplatePackageProvider(
         [property: JsonPropertyName("name")] string? Name,
         [property: JsonPropertyName("path")] string? Path,
         [property: JsonPropertyName("required")] bool? Required);
+
+    private sealed record TemplateStageRuleDocument(
+        [property: JsonPropertyName("stage")] string? Stage,
+        [property: JsonPropertyName("skill_name")] string? SkillName,
+        [property: JsonPropertyName("description")] string? Description,
+        [property: JsonPropertyName("required_fields")] IReadOnlyList<string>? RequiredFields);
 }

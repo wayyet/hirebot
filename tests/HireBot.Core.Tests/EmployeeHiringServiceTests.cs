@@ -11,87 +11,33 @@ namespace HireBot.Core.Tests;
 public class EmployeeHiringServiceTests
 {
     [Fact]
-    public void BuildDigitalEmployeeArchive_ShouldContainTemplateAndDiscoveryFiles()
+    public void BuildDigitalEmployeeArchive_ShouldContainOnlyTemplateFiles()
     {
-        var templatePackage = new TemplatePackageDefinition(
-            RequestedTemplateId: "default",
-            PackageId: "pkg",
-            PackageVersion: "1.0.0",
-            PackageHash: "hash",
-            SourceArchive: null,
-            PackageRootPath: "Assets/TemplatePackages/default/NCrewTemplate",
-            ManifestJson: "{\"name\":\"pkg\"}",
-            DisplayName: "pkg",
-            Description: "desc",
-            PackageFiles:
+        var templatePackage = CreateTemplatePackage(
+            packageFiles:
             [
                 new TemplatePackageFileAsset("manifest.json", Encoding.UTF8.GetBytes("{\"name\":\"pkg\"}"), "h1"),
-                new TemplatePackageFileAsset("skills/spec-generation/SKILL.md", Encoding.UTF8.GetBytes("# skill"), "h2"),
-            ],
-            OntologySlices: [],
-            RequiredSkills: []);
+                new TemplatePackageFileAsset("skills/spec-generation/SKILL.md", Encoding.UTF8.GetBytes("# skill"), "h2")
+            ]);
 
-        var discoverySkill = new DiscoverySkillDefinition(
-            SkillId: "digital-employee-discovery",
-            SkillVersion: "1.0.0",
-            SkillHash: "hash",
-            SkillRootPath: "Assets/SystemSkills/digital-employee-discovery",
-            SkillContent: "# discovery",
-            Files:
-            [
-                new DiscoverySkillFileAsset("SKILL.md", "# discovery", "h3")
-            ],
-            StageRules: []);
-
-        var bytes = EmployeeHiringService.BuildDigitalEmployeeArchive(templatePackage, discoverySkill);
+        var bytes = EmployeeHiringService.BuildDigitalEmployeeArchive(templatePackage);
 
         using var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
-        var entries = zip.Entries.Select(e => e.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var entries = zip.Entries.Select(entry => entry.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         Assert.Contains("manifest.json", entries);
         Assert.Contains("skills/spec-generation/SKILL.md", entries);
-        Assert.Contains("skills/digital-employee-discovery/SKILL.md", entries);
+        Assert.DoesNotContain("skills/digital-employee-discovery/SKILL.md", entries);
     }
 
     [Fact]
     public void ApplyConversationProgressToTemplatePackage_ShouldUpsertSnapshotFiles()
     {
-        var templatePackage = new TemplatePackageDefinition(
-            RequestedTemplateId: "default",
-            PackageId: "pkg",
-            PackageVersion: "1.0.0",
-            PackageHash: "hash",
-            SourceArchive: null,
-            PackageRootPath: "Assets/TemplatePackages/default/NCrewTemplate",
-            ManifestJson: "{\"name\":\"pkg\"}",
-            DisplayName: "pkg",
-            Description: "desc",
-            PackageFiles: [],
-            OntologySlices: [],
-            RequiredSkills: []);
-
-        var runtimeContext = new HiringRuntimeContext
+        var templatePackage = CreateTemplatePackage();
+        var runtimeContext = CreateRuntimeContext(templatePackage) with
         {
-            HireId = "hire-1",
-            TemplateId = "default",
-            TemplateName = "template",
-            OwnerSubject = "owner",
-            TenantId = "tenant",
-            OperatorId = "operator",
-            SandboxId = "sandbox",
-            CurrentStage = "goal",
-            CollectionPhase = "in_progress",
-            TemplatePackage = templatePackage,
-            DiscoverySkill = new DiscoverySkillDefinition(
-                SkillId: "digital-employee-discovery",
-                SkillVersion: "1.0.0",
-                SkillHash: "hash",
-                SkillRootPath: "Assets/SystemSkills/digital-employee-discovery",
-                SkillContent: "# discovery",
-                Files: [],
-                StageRules: []),
             StructuredData = new Dictionary<string, string?>
             {
-                ["goal"] = "提升成交率"
+                ["goal"] = "提升成交效率"
             },
             Materials =
             [
@@ -101,13 +47,12 @@ public class EmployeeHiringServiceTests
                     Name = "conversation",
                     Content = "用户补充了业务背景"
                 }
-            ],
-            StageCompletion = []
+            ]
         };
 
         var updated = EmployeeHiringService.ApplyConversationProgressToTemplatePackage(runtimeContext);
 
-        var files = updated.TemplatePackage.PackageFiles.ToDictionary(f => f.RelativePath, StringComparer.OrdinalIgnoreCase);
+        var files = updated.WorkingTemplatePackage.PackageFiles.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("ontology/hiring-session/structured-data.json", files.Keys);
         Assert.Contains("ontology/hiring-session/materials.json", files.Keys);
 
@@ -120,40 +65,10 @@ public class EmployeeHiringServiceTests
     [Fact]
     public void ApplyConversationProgressToTemplatePackage_WithSkillArchiveMaterial_ShouldAppendEvaluationTestCases()
     {
-        var templatePackage = new TemplatePackageDefinition(
-            RequestedTemplateId: "default",
-            PackageId: "pkg",
-            PackageVersion: "1.0.0",
-            PackageHash: "hash",
-            SourceArchive: null,
-            PackageRootPath: "Assets/TemplatePackages/default/NCrewTemplate",
-            ManifestJson: "{\"name\":\"pkg\"}",
-            DisplayName: "pkg",
-            Description: "desc",
-            PackageFiles: [],
-            OntologySlices: [],
-            RequiredSkills: []);
-
-        var runtimeContext = new HiringRuntimeContext
+        var templatePackage = CreateTemplatePackage();
+        var runtimeContext = CreateRuntimeContext(templatePackage) with
         {
-            HireId = "hire-2",
-            TemplateId = "default",
-            TemplateName = "template",
-            OwnerSubject = "owner",
-            TenantId = "tenant",
-            OperatorId = "operator",
-            SandboxId = "sandbox",
             CurrentStage = "systems",
-            CollectionPhase = "in_progress",
-            TemplatePackage = templatePackage,
-            DiscoverySkill = new DiscoverySkillDefinition(
-                SkillId: "digital-employee-discovery",
-                SkillVersion: "1.0.0",
-                SkillHash: "hash",
-                SkillRootPath: "Assets/SystemSkills/digital-employee-discovery",
-                SkillContent: "# discovery",
-                Files: [],
-                StageRules: []),
             StructuredData = new Dictionary<string, string?>
             {
                 ["business_goal"] = "提升客户服务闭环效率",
@@ -169,17 +84,16 @@ public class EmployeeHiringServiceTests
                     Metadata = new Dictionary<string, string>
                     {
                         ["skillName"] = "evaluation-expert",
-                        ["description"] = "严格评估判分",
+                        ["description"] = "严格评估打分",
                         ["archiveFormat"] = "zip",
                         ["contentEncoding"] = "base64"
                     }
                 }
-            ],
-            StageCompletion = []
+            ]
         };
 
         var updated = EmployeeHiringService.ApplyConversationProgressToTemplatePackage(runtimeContext);
-        var files = updated.TemplatePackage.PackageFiles.ToDictionary(f => f.RelativePath, StringComparer.OrdinalIgnoreCase);
+        var files = updated.WorkingTemplatePackage.PackageFiles.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
 
         Assert.Contains("testcases/evaluation-test-cases.json", files.Keys);
         Assert.Contains("ontology/hiring-session/evaluation-test-cases.json", files.Keys);
@@ -194,6 +108,56 @@ public class EmployeeHiringServiceTests
         Assert.Contains("提升客户服务闭环效率", firstCaseTitle);
         Assert.Contains("evaluation-expert", testCasesJson);
         Assert.Contains("红线原则", skillSummary);
+    }
+
+    private static HiringRuntimeContext CreateRuntimeContext(TemplatePackageDefinition templatePackage)
+    {
+        return new HiringRuntimeContext
+        {
+            HireId = "hire-1",
+            TemplateId = "default",
+            TemplateName = "template",
+            OwnerSubject = "owner",
+            TenantId = "tenant",
+            OperatorId = "operator",
+            SandboxId = "sandbox",
+            CurrentStage = "goal",
+            CollectionPhase = "in_progress",
+            ReferenceTemplatePackage = templatePackage,
+            RoleTemplatePackage = templatePackage,
+            WorkingTemplatePackage = templatePackage,
+            DiscoverySkill = new DiscoverySkillDefinition(
+                SkillId: "digital-employee-discovery",
+                SkillVersion: "1.0.0",
+                SkillHash: "hash",
+                SkillRootPath: "Assets/SystemSkills/digital-employee-discovery",
+                SkillContent: "# discovery",
+                Files: [],
+                StageRules: []),
+            StructuredData = new Dictionary<string, string?>(),
+            Materials = [],
+            StageCompletion = []
+        };
+    }
+
+    private static TemplatePackageDefinition CreateTemplatePackage(
+        IReadOnlyList<TemplatePackageFileAsset>? packageFiles = null)
+    {
+        return new TemplatePackageDefinition(
+            RequestedTemplateId: "default",
+            PackageId: "pkg",
+            PackageVersion: "1.0.0",
+            PackageHash: "hash",
+            SourceArchive: null,
+            PackageRootPath: "Assets/TemplatePackages/default/NCrewTemplate",
+            ManifestJson: "{\"name\":\"pkg\"}",
+            DisplayName: "pkg",
+            Description: "desc",
+            PackageFiles: packageFiles ?? [],
+            OntologySlices: [],
+            RequiredSkills: [],
+            EntrySkill: null,
+            StageRules: []);
     }
 
     private static string CreateEvaluationSkillArchiveBase64()

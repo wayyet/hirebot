@@ -291,6 +291,8 @@ public sealed class SandboxDelegationTests
         return new EmployeeHiringService(
             new NoopTemplateDataProvider(),
             new NoopTemplatePackageProvider(),
+            new NoopDiscoveryRoleTemplatePackageProvider(),
+            new NoopWorkingTemplatePackageProvider(),
             new NoopDiscoveryRuleProvider(),
             new NoopSystemSkillRegistry(),
             new HiringStageCompletionEvaluator(),
@@ -335,7 +337,7 @@ public sealed class SandboxDelegationTests
             CollectionPhase = HiringCollectionPhase.InProgress,
             IsConversationPaused = false,
             IsConversationResponding = false,
-            TemplatePackage = new TemplatePackageDefinition(
+            ReferenceTemplatePackage = new TemplatePackageDefinition(
                 RequestedTemplateId: "template-001",
                 PackageId: "template-001",
                 PackageVersion: "1.0.0",
@@ -347,7 +349,39 @@ public sealed class SandboxDelegationTests
                 Description: "test",
                 PackageFiles: [],
                 OntologySlices: [],
-                RequiredSkills: []),
+                RequiredSkills: [],
+                EntrySkill: null,
+                StageRules: []),
+            RoleTemplatePackage = new TemplatePackageDefinition(
+                RequestedTemplateId: "template-001",
+                PackageId: "template-001",
+                PackageVersion: "1.0.0",
+                PackageHash: "hash-template-001",
+                SourceArchive: null,
+                PackageRootPath: "template-001",
+                ManifestJson: "{}",
+                DisplayName: "Template 001",
+                Description: "test",
+                PackageFiles: [],
+                OntologySlices: [],
+                RequiredSkills: [],
+                EntrySkill: null,
+                StageRules: []),
+            WorkingTemplatePackage = new TemplatePackageDefinition(
+                RequestedTemplateId: "template-001",
+                PackageId: "template-001",
+                PackageVersion: "1.0.0",
+                PackageHash: "hash-template-001",
+                SourceArchive: null,
+                PackageRootPath: "template-001",
+                ManifestJson: "{}",
+                DisplayName: "Template 001",
+                Description: "test",
+                PackageFiles: [],
+                OntologySlices: [],
+                RequiredSkills: [],
+                EntrySkill: null,
+                StageRules: []),
             DiscoverySkill = new DiscoverySkillDefinition(
                 SkillId: "digital-employee-discovery",
                 SkillVersion: "1.0.0",
@@ -549,6 +583,18 @@ public sealed class SandboxDelegationTests
     private sealed class NoopTemplatePackageProvider : ITemplatePackageProvider
     {
         public Task<TemplatePackageDefinition> LoadAsync(string templateId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class NoopDiscoveryRoleTemplatePackageProvider : IDiscoveryRoleTemplatePackageProvider
+    {
+        public Task<TemplatePackageDefinition> LoadAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class NoopWorkingTemplatePackageProvider : IWorkingTemplatePackageProvider
+    {
+        public Task<TemplatePackageDefinition> LoadAsync(CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 
