@@ -37,6 +37,8 @@ public sealed class InstanceEntity
     [MaxLength(80)]
     public required string CurrentVersion { get; set; }
 
+    public string? RuntimeSnapshotJson { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

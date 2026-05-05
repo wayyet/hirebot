@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeRuntime;
@@ -193,6 +194,169 @@ public sealed class ImWebhookServiceTests
         Assert.Empty(handler.Requests.Where(request => request.RequestUri!.AbsolutePath.Contains("/open-apis/im/v1/messages", StringComparison.OrdinalIgnoreCase)));
     }
 
+    [Fact]
+    public async Task HandleAsync_WithValidDingTalkPayload_RoutesToRuntimeConversation_AndSendsReply()
+    {
+        await using var dbContext = CreateDbContext();
+        SeedConfig(dbContext, "dingtalk");
+
+        var handler = new RecordingHttpMessageHandler(
+            request =>
+            {
+                if (request.RequestUri!.AbsolutePath.Contains("/gettoken", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"errcode":0,"errmsg":"ok","access_token":"dingtalk-token"}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
+                if (request.RequestUri!.AbsolutePath.Contains("/topapi/message/corpconversation/asyncsend_v2", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"errcode":0,"errmsg":"ok","task_id":123}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent("not found")
+                };
+            });
+
+        var runtime = new FakeRuntimeConversationService();
+        var service = CreateService(dbContext, runtime, handler);
+        var payload = """
+        {
+          "event": {
+            "msgId": "dt_1",
+            "senderStaffId": "manager001",
+            "conversationType": "1",
+            "text": { "content": "查询今天的任务" }
+          }
+        }
+        """;
+
+        var response = await service.HandleAsync(
+            "dingtalk",
+            "pc_1",
+            payload,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["X-Dingtalk-Token"] = "verify"
+            });
+
+        Assert.True(response.Success, response.Message);
+        Assert.Equal("replied", response.Data!.Status);
+        Assert.Single(runtime.Calls);
+        Assert.Equal("dingtalk", runtime.Calls[0].Channel);
+        Assert.Equal("查询今天的任务", runtime.Calls[0].Content);
+        Assert.Equal("dt_1", runtime.Calls[0].ExternalMessageId);
+        Assert.Equal("manager001", runtime.Calls[0].ExternalUserId);
+
+        var sendRequest = handler.Requests.Single(request => request.RequestUri!.AbsolutePath.Contains("/topapi/message/corpconversation/asyncsend_v2", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("access_token=dingtalk-token", sendRequest.RequestUri!.Query);
+        var sendBody = await sendRequest.Content!.ReadAsStringAsync();
+        Assert.Contains("\"agent_id\":123456", sendBody);
+        Assert.Contains("\"userid_list\":\"manager001\"", sendBody);
+        Assert.Contains("runtime reply", sendBody);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithValidWeComPayload_RoutesToRuntimeConversation_AndSendsReply()
+    {
+        await using var dbContext = CreateDbContext();
+        var aesKey = BuildWeComEncodingAesKey();
+        SeedConfig(dbContext, "wecom", aesKey);
+
+        var handler = new RecordingHttpMessageHandler(
+            request =>
+            {
+                if (request.RequestUri!.AbsolutePath.Contains("/cgi-bin/gettoken", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"errcode":0,"errmsg":"ok","access_token":"wecom-token"}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
+                if (request.RequestUri!.AbsolutePath.Contains("/cgi-bin/message/send", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"errcode":0,"errmsg":"ok"}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent("not found")
+                };
+            });
+
+        var runtime = new FakeRuntimeConversationService();
+        var service = CreateService(dbContext, runtime, handler);
+        var plainXml = """
+        <xml>
+          <ToUserName><![CDATA[corp-id]]></ToUserName>
+          <FromUserName><![CDATA[zhangsan]]></FromUserName>
+          <CreateTime>1714440000</CreateTime>
+          <MsgType><![CDATA[text]]></MsgType>
+          <Content><![CDATA[帮我安排会议]]></Content>
+          <MsgId>1234567890123</MsgId>
+          <AgentID>123456</AgentID>
+        </xml>
+        """;
+        var payload = BuildWeComEncryptedPayload(plainXml, "corp-id", aesKey, "verify", "1714440000", "nonce-1");
+
+        var response = await service.HandleAsync(
+            "wecom",
+            "pc_1",
+            payload.PayloadXml,
+            payload.Headers);
+
+        Assert.True(response.Success, response.Message);
+        Assert.Equal("replied", response.Data!.Status);
+        Assert.Single(runtime.Calls);
+        Assert.Equal("wecom", runtime.Calls[0].Channel);
+        Assert.Equal("帮我安排会议", runtime.Calls[0].Content);
+        Assert.Equal("1234567890123", runtime.Calls[0].ExternalMessageId);
+        Assert.Equal("zhangsan", runtime.Calls[0].ExternalUserId);
+
+        var sendRequest = handler.Requests.Single(request => request.RequestUri!.AbsolutePath.Contains("/cgi-bin/message/send", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("access_token=wecom-token", sendRequest.RequestUri!.Query);
+        var sendBody = await sendRequest.Content!.ReadAsStringAsync();
+        Assert.Contains("\"touser\":\"zhangsan\"", sendBody);
+        Assert.Contains("\"agentid\":123456", sendBody);
+        Assert.Contains("runtime reply", sendBody);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_WithValidWeComEcho_ReturnsDecryptedEcho()
+    {
+        await using var dbContext = CreateDbContext();
+        var aesKey = BuildWeComEncodingAesKey();
+        SeedConfig(dbContext, "wecom", aesKey);
+        var service = CreateService(dbContext, new FakeRuntimeConversationService());
+        var echo = BuildWeComEncryptedPayload("echo-ok", "corp-id", aesKey, "verify", "1714440000", "nonce-1");
+
+        var response = await service.VerifyAsync(
+            "wecom",
+            "pc_1",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["msg_signature"] = echo.Signature,
+                ["timestamp"] = "1714440000",
+                ["nonce"] = "nonce-1",
+                ["echostr"] = echo.Encrypt
+            });
+
+        Assert.True(response.Success, response.Message);
+        Assert.Equal("verified", response.Data!.Status);
+        Assert.Equal("echo-ok", response.Data.Reply);
+    }
+
     private static IReadOnlyDictionary<string, string> BuildFeishuHeaders(string payload, string verificationToken)
     {
         var timestamp = "1714440000";
@@ -207,6 +371,74 @@ public sealed class ImWebhookServiceTests
         };
     }
 
+    private static string BuildWeComEncodingAesKey()
+    {
+        return Convert.ToBase64String(Enumerable.Range(1, 32).Select(item => (byte)item).ToArray()).TrimEnd('=');
+    }
+
+    private static WeComEncryptedPayload BuildWeComEncryptedPayload(
+        string plainText,
+        string corpId,
+        string encodingAesKey,
+        string token,
+        string timestamp,
+        string nonce)
+    {
+        var key = Convert.FromBase64String(encodingAesKey + "=");
+        var plainBytes = Encoding.UTF8.GetBytes(plainText);
+        var corpBytes = Encoding.UTF8.GetBytes(corpId);
+        var random = Encoding.UTF8.GetBytes("1234567890123456");
+        var length = BitConverter.GetBytes(IPAddress.HostToNetworkOrder(plainBytes.Length));
+        var combined = random.Concat(length).Concat(plainBytes).Concat(corpBytes).ToArray();
+        var padded = AddPkcs7Padding(combined);
+
+        using var aes = Aes.Create();
+        aes.Key = key;
+        aes.IV = key[..16];
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.None;
+        using var encryptor = aes.CreateEncryptor();
+        var encrypted = Convert.ToBase64String(encryptor.TransformFinalBlock(padded, 0, padded.Length));
+        var signature = BuildWeComSignature(token, timestamp, nonce, encrypted);
+        var payloadXml = new XDocument(
+            new XElement("xml", new XElement("Encrypt", new XCData(encrypted))))
+            .ToString(SaveOptions.DisableFormatting);
+
+        return new WeComEncryptedPayload(
+            encrypted,
+            signature,
+            payloadXml,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["msg_signature"] = signature,
+                ["timestamp"] = timestamp,
+                ["nonce"] = nonce
+            });
+    }
+
+    private static string BuildWeComSignature(string token, string timestamp, string nonce, string encrypted)
+    {
+        var values = new[] { token, timestamp, nonce, encrypted }.OrderBy(item => item, StringComparer.Ordinal);
+        return Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(string.Concat(values)))).ToLowerInvariant();
+    }
+
+    private static byte[] AddPkcs7Padding(byte[] bytes)
+    {
+        var pad = 32 - bytes.Length % 32;
+        if (pad == 0)
+        {
+            pad = 32;
+        }
+
+        return bytes.Concat(Enumerable.Repeat((byte)pad, pad)).ToArray();
+    }
+
+    private sealed record WeComEncryptedPayload(
+        string Encrypt,
+        string Signature,
+        string PayloadXml,
+        IReadOnlyDictionary<string, string> Headers);
+
     private static HireBotDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<HireBotDbContext>()
@@ -215,7 +447,7 @@ public sealed class ImWebhookServiceTests
         return new HireBotDbContext(options);
     }
 
-    private static void SeedConfig(HireBotDbContext dbContext)
+    private static void SeedConfig(HireBotDbContext dbContext, string platform = "feishu", string? aesKey = null)
     {
         dbContext.ImConfigs.Add(new ImConfigEntity
         {
@@ -223,13 +455,18 @@ public sealed class ImWebhookServiceTests
             InstanceId = "pc_1",
             TenantId = "tenant-1",
             OwnerUserId = "owner-1",
-            Platform = "feishu",
+            Platform = platform,
             ConnectionMode = "url_callback",
-            WebhookPath = "/api/v1/im/feishu/webhook/pc_1",
+            WebhookPath = $"/api/v1/im/{platform}/webhook/pc_1",
             VerificationToken = "protected:verify",
             AppId = "protected:app-id",
             AppSecret = "protected:app-secret",
             EncryptKey = "protected:encrypt",
+            Token = "protected:verify",
+            CorpId = "protected:corp-id",
+            AgentId = "protected:123456",
+            AgentSecret = "protected:agent-secret",
+            AesKey = string.IsNullOrWhiteSpace(aesKey) ? null : $"protected:{aesKey}",
             Status = "active",
             ConfiguredAt = DateTimeOffset.UtcNow,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -354,7 +591,12 @@ public sealed class ImWebhookServiceTests
     {
         public HttpClient CreateClient(string name) => new(handler, disposeHandler: false)
         {
-            BaseAddress = new Uri("https://open.feishu.cn")
+            BaseAddress = name switch
+            {
+                "DingTalk" => new Uri("https://oapi.dingtalk.com"),
+                "WeCom" => new Uri("https://qyapi.weixin.qq.com"),
+                _ => new Uri("https://open.feishu.cn")
+            }
         };
     }
 }

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\HireBot.Abstraction\HireBot.Abstraction.csproj" />
@@ -12,6 +12,7 @@
   <ItemGroup>
     <PackageReference Include="Alibaba.OpenSandbox" Version="0.1.1" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
+    <PackageReference Include="Jusoft.DingtalkStream" Version="0.1.8" />
     <PackageReference Include="KubernetesClient" Version="18.0.13" />
   </ItemGroup>
 

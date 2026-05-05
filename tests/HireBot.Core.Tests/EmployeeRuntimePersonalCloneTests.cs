@@ -50,6 +50,68 @@ public sealed class EmployeeRuntimePersonalCloneTests
     }
 
     [Fact]
+    public async Task GetEmployeesAsync_RestoresPersonalCloneFromInstanceSnapshotAfterRestart()
+    {
+        await using var dbContext = CreateDbContext();
+        var firstStore = new MemoryEmployeeRuntimeStore();
+        var source = BuildEmployee("dept_1", "department", "live", "manager", null);
+        await firstStore.UpsertAsync(source.OwnerUserId, source);
+        var firstService = CreateService(firstStore, dbContext, new FakeArtifactCloneService());
+
+        var createResponse = await firstService.CreatePersonalCloneAsync(
+            "dept_1",
+            new CreatePersonalCloneRequestDto("我的销售分身", null, "desc"));
+
+        Assert.True(createResponse.Success, createResponse.Message);
+
+        var restartedStore = new MemoryEmployeeRuntimeStore();
+        var restartedService = CreateService(restartedStore, dbContext, new FakeArtifactCloneService());
+
+        var employeesResponse = await restartedService.GetEmployeesAsync();
+
+        Assert.True(employeesResponse.Success, employeesResponse.Message);
+        Assert.Contains(
+            employeesResponse.Data!,
+            item => item.EmployeeId == createResponse.Data!.EmployeeId &&
+                    item.Nickname == "我的销售分身" &&
+                    item.InstanceType == "personal_clone");
+    }
+
+    [Fact]
+    public async Task GetEmployeesAsync_RestoresLegacyPersonalCloneWithoutSnapshot()
+    {
+        await using var dbContext = CreateDbContext();
+        dbContext.Instances.Add(new Repository.Entities.InstanceEntity
+        {
+            InstanceId = "pc_legacy",
+            TenantId = "tenant-default",
+            InstanceType = "personal_clone",
+            Status = "live",
+            ViaQuickClone = false,
+            BasedOnTemplateId = "tpl-sales",
+            FromInstanceId = "dept_1",
+            EvalReportId = null,
+            OwnerUserId = "owner-1",
+            DepartmentId = "tenant-default",
+            CurrentVersion = "v_legacy",
+            RuntimeSnapshotJson = null,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+        var store = new MemoryEmployeeRuntimeStore();
+        await store.UpsertAsync("manager", BuildEmployee("dept_1", "department", "live", "manager", null));
+        var service = CreateService(store, dbContext, new FakeArtifactCloneService());
+
+        var employeesResponse = await service.GetEmployeesAsync();
+
+        Assert.True(employeesResponse.Success, employeesResponse.Message);
+        Assert.Contains(
+            employeesResponse.Data!,
+            item => item.EmployeeId == "pc_legacy" && item.InstanceType == "personal_clone");
+    }
+
+    [Fact]
     public async Task CreatePersonalCloneAsync_WhenDuplicateName_ReturnsConflictAndDoesNotCloneArtifacts()
     {
         await using var dbContext = CreateDbContext();

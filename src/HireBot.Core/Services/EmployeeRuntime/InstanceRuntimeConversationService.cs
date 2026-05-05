@@ -1,12 +1,17 @@
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
+using HireBot.Abstraction.Models.Hiring;
+using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
+using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.IO.Compression;
+using System.Security.Cryptography;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
@@ -15,10 +20,11 @@ public sealed class InstanceRuntimeConversationService(
     IEmployeeRuntimeStore employeeStore,
     IRequestContextService requestContextService,
     IInstanceArtifactResolver artifactResolver,
-    IKingCrewRuntimeChatClient kingCrewRuntimeChatClient,
+    ISandboxService sandboxService,
     ILogger<InstanceRuntimeConversationService> logger) : IInstanceRuntimeConversationService
 {
     private const int ContextMessageLimit = 40;
+    private const string RuntimeSandboxRole = "runtime";
 
     public async Task<ApiResponse<InstanceChatTimelineDto>> GetMessagesAsync(
         string instanceId,
@@ -120,20 +126,16 @@ public sealed class InstanceRuntimeConversationService(
             .Select(item => new RuntimeChatMessageDto(item.Role, item.Content, item.CreatedAt))
             .ToArrayAsync(cancellationToken);
 
-        var runtimeRequest = new RuntimeChatRequestDto(
-            access.Instance.TenantId,
-            access.Instance.InstanceId,
-            access.Instance.InstanceType,
+        var runtimeResponse = await SendSandboxRuntimeMessageAsync(
+            access.Instance,
             access.OwnerSubject,
             access.Channel,
             conversation.ConversationId,
-            artifact.ArtifactRoot,
-            access.Instance.CurrentVersion,
+            content.Trim(),
+            artifact,
             contextMessages,
-            artifact.Metadata);
-
-        var runtimeResponse = await kingCrewRuntimeChatClient.SendAsync(runtimeRequest, cancellationToken);
-        if (!runtimeResponse.Success || runtimeResponse.Data is null)
+            cancellationToken);
+        if (!runtimeResponse.Success || runtimeResponse.Data is null || runtimeResponse.Data.AssistantMessage is null)
         {
             return ApiResponse<InstanceChatResultDto>.ErrorResponse(runtimeResponse.Code, runtimeResponse.Message);
         }
@@ -145,7 +147,7 @@ public sealed class InstanceRuntimeConversationService(
             InstanceId = access.Instance.InstanceId,
             TenantId = access.Instance.TenantId,
             Role = "assistant",
-            Content = runtimeResponse.Data.Content.Trim(),
+            Content = runtimeResponse.Data.AssistantMessage.Content.Trim(),
             Channel = access.Channel,
             DeliveryStatus = "generated",
             CreatedAt = DateTimeOffset.UtcNow
@@ -229,6 +231,167 @@ public sealed class InstanceRuntimeConversationService(
         dbContext.Conversations.Add(conversation);
         await dbContext.SaveChangesAsync(cancellationToken);
         return conversation;
+    }
+
+    private async Task<ApiResponse<HiringConversationResultDto>> SendSandboxRuntimeMessageAsync(
+        InstanceEntity instance,
+        string ownerSubject,
+        string channel,
+        string conversationId,
+        string content,
+        InstanceArtifactResolution artifact,
+        IReadOnlyList<RuntimeChatMessageDto> contextMessages,
+        CancellationToken cancellationToken)
+    {
+        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(instance.TenantId, instance.OwnerUserId);
+        var scopeKey = BuildRuntimeScopeKey(instance.InstanceId);
+        var sandboxId = await ResolveRuntimeSandboxIdAsync(ownerSubject, scopeKey, cancellationToken);
+        if (string.IsNullOrWhiteSpace(sandboxId))
+        {
+            var create = await sandboxService.CreateAsync(
+                new SandboxCreateRequestDto
+                {
+                    ScopeType = SandboxScopeTypes.Hire,
+                    ScopeKey = scopeKey,
+                    SandboxRole = RuntimeSandboxRole,
+                    OwnerSubject = ownerSubject,
+                    TenantId = tenantId,
+                    OperatorId = operatorId,
+                    ProvisioningMode = "managed",
+                    UseCase = $"runtime-chat-for:{instance.InstanceId}"
+                },
+                cancellationToken);
+            if (!create.Success || create.Data is null)
+            {
+                return ApiResponse<HiringConversationResultDto>.ErrorResponse(create.Code, create.Message);
+            }
+
+            sandboxId = create.Data.SandboxId;
+        }
+
+        var artifactArchivePath = BuildArtifactArchive(instance, artifact.ArtifactRoot);
+        try
+        {
+            return await sandboxService.SendMessageAsync(
+                new SandboxSendMessageRequestDto
+                {
+                    ScopeType = SandboxScopeTypes.Hire,
+                    ScopeKey = scopeKey,
+                    SandboxRole = RuntimeSandboxRole,
+                    OwnerSubject = ownerSubject,
+                    TenantId = tenantId,
+                    OperatorId = operatorId,
+                    SessionKey = channel,
+                    SandboxId = sandboxId,
+                    Content = BuildRuntimePrompt(instance, channel, conversationId, content, artifact, contextMessages),
+                    Materials =
+                    [
+                        new HiringConversationMaterialDto
+                        {
+                            Type = "file",
+                            Name = $"{instance.InstanceId}-{instance.CurrentVersion}-artifacts.zip",
+                            ContentHash = ComputeFileHash(artifactArchivePath),
+                            Size = new FileInfo(artifactArchivePath).Length,
+                            MimeType = "application/zip",
+                            Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                            {
+                                ["storagePath"] = artifactArchivePath,
+                                ["artifactRoot"] = artifact.ArtifactRoot,
+                                ["instanceId"] = instance.InstanceId,
+                                ["instanceType"] = instance.InstanceType,
+                                ["currentVersion"] = instance.CurrentVersion
+                            }
+                        }
+                    ],
+                    UploadMaterialsAsAttachments = true
+                },
+                cancellationToken);
+        }
+        finally
+        {
+            TryDeleteFile(artifactArchivePath);
+        }
+    }
+
+    private async Task<string?> ResolveRuntimeSandboxIdAsync(string ownerSubject, string scopeKey, CancellationToken cancellationToken)
+    {
+        var sandbox = await dbContext.SandboxInstances
+            .AsNoTracking()
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(
+                item =>
+                    item.OwnerSubject == ownerSubject &&
+                    item.ScopeType == SandboxScopeTypes.Hire &&
+                    item.ScopeKey == scopeKey &&
+                    item.SandboxRole == RuntimeSandboxRole &&
+                    item.State != "Deleted",
+                cancellationToken);
+
+        return sandbox?.SandboxId;
+    }
+
+    private static string BuildRuntimeScopeKey(string instanceId)
+        => $"instance:{instanceId.Trim()}";
+
+    private static string BuildRuntimePrompt(
+        InstanceEntity instance,
+        string channel,
+        string conversationId,
+        string content,
+        InstanceArtifactResolution artifact,
+        IReadOnlyList<RuntimeChatMessageDto> contextMessages)
+    {
+        var history = string.Join(
+            Environment.NewLine,
+            contextMessages
+                .TakeLast(12)
+                .Select(message => $"{message.Role}: {message.Content}"));
+
+        return $"""
+你是已上岗数字员工实例的运行时助手。请基于随消息上传的五件套附件、实例元数据和对话历史，直接完成用户请求。
+
+instance_id: {instance.InstanceId}
+instance_type: {instance.InstanceType}
+current_version: {instance.CurrentVersion}
+from_instance_id: {instance.FromInstanceId ?? string.Empty}
+channel: {channel}
+conversation_id: {conversationId}
+artifact_root: {artifact.ArtifactRoot}
+
+recent_messages:
+{history}
+
+user_message:
+{content}
+""";
+    }
+
+    private static string BuildArtifactArchive(InstanceEntity instance, string artifactRoot)
+    {
+        var archivePath = Path.Combine(Path.GetTempPath(), $"hirebot-{instance.InstanceId}-{Guid.NewGuid():N}.zip");
+        ZipFile.CreateFromDirectory(artifactRoot, archivePath, CompressionLevel.Fastest, includeBaseDirectory: false);
+        return archivePath;
+    }
+
+    private static string ComputeFileHash(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexStringLower(SHA256.HashData(stream));
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup for transient runtime artifact archives.
+        }
     }
 
     private async Task<AccessResult> ResolveAccessAsync(

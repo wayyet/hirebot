@@ -84,6 +84,28 @@ public sealed class InstanceImConfigServiceTests
     }
 
     [Fact]
+    public async Task GetConfigsAsync_ReturnsDecryptedCredentialsForConfiguredPlatform()
+    {
+        await using var dbContext = CreateDbContext();
+        var instance = SeedInstance(dbContext, "personal_clone", "live", "owner-1");
+        var service = CreateService(dbContext);
+
+        await service.UpsertConfigAsync(
+            instance.InstanceId,
+            "feishu",
+            new ImConfigRequestDto("url_callback", "app-id", "secret", "encrypt", null, null, "verify", null, null, null));
+
+        var response = await service.GetConfigsAsync(instance.InstanceId);
+
+        Assert.True(response.Success, response.Message);
+        var config = Assert.Single(response.Data!.Configs, item => item.Platform == "feishu");
+        Assert.Equal("app-id", config.AppId);
+        Assert.Equal("secret", config.AppSecret);
+        Assert.Equal("encrypt", config.EncryptKey);
+        Assert.Equal("verify", config.VerificationToken);
+    }
+
+    [Fact]
     public async Task DeleteConfigAsync_RemovesPlatformConfig()
     {
         await using var dbContext = CreateDbContext();
@@ -135,6 +157,41 @@ public sealed class InstanceImConfigServiceTests
         Assert.Equal(400, response.Code);
         Assert.Contains("企业微信仅支持 url_callback 模式", response.Message);
         Assert.Empty(dbContext.ImConfigs);
+    }
+
+    [Fact]
+    public async Task UpsertConfigAsync_ForDingTalk_RequiresAgentId()
+    {
+        await using var dbContext = CreateDbContext();
+        var instance = SeedInstance(dbContext, "personal_clone", "live", "owner-1");
+        var service = CreateService(dbContext);
+
+        var response = await service.UpsertConfigAsync(
+            instance.InstanceId,
+            "dingtalk",
+            new ImConfigRequestDto("url_callback", "app-id", "secret", "encrypt", null, null, null, null, null, null));
+
+        Assert.False(response.Success);
+        Assert.Equal(400, response.Code);
+        Assert.Contains("agent_id", response.Message);
+        Assert.Empty(dbContext.ImConfigs);
+    }
+
+    [Fact]
+    public async Task UpsertConfigAsync_ForDingTalk_StoresAgentId()
+    {
+        await using var dbContext = CreateDbContext();
+        var instance = SeedInstance(dbContext, "personal_clone", "live", "owner-1");
+        var service = CreateService(dbContext);
+
+        var response = await service.UpsertConfigAsync(
+            instance.InstanceId,
+            "dingtalk",
+            new ImConfigRequestDto("url_callback", "app-id", "secret", "encrypt", null, null, null, null, "123456", null));
+
+        Assert.True(response.Success, response.Message);
+        var config = await dbContext.ImConfigs.SingleAsync();
+        Assert.Equal("protected:123456", config.AgentId);
     }
 
     private static InstanceImConfigService CreateService(

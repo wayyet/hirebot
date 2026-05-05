@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0",
+  "name": "sales-coach-live",
+  "display_name": "Sales Coach — 已上岗样例",
+  "positioning": "用于测试已上岗员工的复制分身、IM 配置与站内对话入口。",
+  "description": "Live fixture package for department employee copy tests.",
+  "version": "v1.0.0",
+  "use_cases": [
+    "已上岗员工复制分身",
+    "IM 接入区展示",
+    "站内对话入口测试"
+  ],
+  "config": {
+    "identity": "config/IDENTITY.md",
+    "soul": "config/SOUL.md",
+    "agents": "config/AGENTS.md",
+    "memory": "config/MEMORY.md"
+  },
+  "ontology_slices": [
+    {
+      "name": "sales-discovery-slice",
+      "path": "ontology/sales-discovery-slice.md",
+      "type": "digital_employee_slice",
+      "required": true
+    }
+  ],
+  "skills": [
+    {
+      "name": "pipeline-qualifier",
+      "path": "skills/pipeline-qualifier/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "objection-handler",
+      "path": "skills/objection-handler/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "deal-summary",
+      "path": "skills/deal-summary/SKILL.md",
+      "required": true
+    }
+  ],
+  "cli_tools": []
+}

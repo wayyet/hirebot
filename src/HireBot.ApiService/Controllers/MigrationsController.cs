@@ -9,6 +9,13 @@ namespace HireBot.ApiService.Controllers;
 [ApiController]
 public sealed class MigrationsController(IEmployeeRuntimeService employeeRuntimeService) : ControllerBase
 {
+    [HttpPost("fixture-instances")]
+    public async Task<IActionResult> ImportFixtureInstances(CancellationToken cancellationToken = default)
+    {
+        var response = await employeeRuntimeService.ImportFixtureInstancesAsync(cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpPost("local-state")]
     public async Task<IActionResult> MigrateLocalState(
         [FromBody] LocalStateMigrationRequestDto request,

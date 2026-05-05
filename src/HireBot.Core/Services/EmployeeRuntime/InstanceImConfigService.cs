@@ -142,7 +142,16 @@ public sealed class InstanceImConfigService(
                 config.ConnectionMode,
                 config.WebhookPath,
                 config.ConfiguredAt,
-                config.LastError);
+                config.LastError,
+                secretProtector.Unprotect(config.AppId),
+                secretProtector.Unprotect(config.AppSecret),
+                secretProtector.Unprotect(config.EncryptKey),
+                secretProtector.Unprotect(config.Token),
+                secretProtector.Unprotect(config.AesKey),
+                secretProtector.Unprotect(config.VerificationToken),
+                secretProtector.Unprotect(config.CorpId),
+                secretProtector.Unprotect(config.AgentId),
+                secretProtector.Unprotect(config.AgentSecret));
         }).ToArray();
 
         return ApiResponse<ImConfigStatusDto>.SuccessResponse(new ImConfigStatusDto(items));
@@ -251,7 +260,12 @@ public sealed class InstanceImConfigService(
         }
 
         var normalized = mode.Trim().ToLowerInvariant();
-        return normalized is "websocket" or "url_callback" ? normalized : null;
+        return normalized switch
+        {
+            "websocket" => "websocket",
+            "url_callback" or "webhook" or "callback" => "url_callback",
+            _ => null
+        };
     }
 
     private static string? ValidateCredentialShape(string platform, string mode, ImConfigRequestDto request)
@@ -275,15 +289,22 @@ public sealed class InstanceImConfigService(
         }
 
         if (platform == "feishu" && mode == "url_callback" &&
-            (Missing(request.AppId) || Missing(request.AppSecret) || Missing(request.EncryptKey)))
+            (Missing(request.AppId) || Missing(request.AppSecret) || Missing(request.EncryptKey) ||
+             Missing(request.VerificationToken)))
         {
-            return "飞书 URL 回调模式需提供 app_id、app_secret、encrypt_key";
+            return "飞书 URL 回调模式需提供 app_id、app_secret、encrypt_key、verification_token";
         }
 
         if (platform == "dingtalk" && mode == "url_callback" &&
-            (Missing(request.AppId) || Missing(request.AppSecret) || Missing(request.EncryptKey)))
+            (Missing(request.AppId) || Missing(request.AppSecret) || Missing(request.EncryptKey) || Missing(request.AgentId)))
         {
-            return "钉钉 URL 回调模式需提供 app_id、app_secret、encrypt_key";
+            return "钉钉 URL 回调模式需提供 app_id、app_secret、encrypt_key、agent_id";
+        }
+
+        if (platform == "dingtalk" && mode == "websocket" &&
+            (Missing(request.AppId) || Missing(request.AppSecret) || Missing(request.AgentId)))
+        {
+            return "钉钉 WebSocket 模式需提供 app_id、app_secret、agent_id";
         }
 
         if (mode == "websocket" && (Missing(request.AppId) || Missing(request.AppSecret)))

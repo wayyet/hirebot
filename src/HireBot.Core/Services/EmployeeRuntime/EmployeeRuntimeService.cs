@@ -61,6 +61,7 @@ public sealed class EmployeeRuntimeService(
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default)
     {
         var owner = requestContextService.ResolveOwnerSubject();
+        await EnsureSeedDataAsync(owner, cancellationToken);
         var employees = await store.ListAsync(owner, cancellationToken);
         var summaries = employees.Select(ToSummary).ToArray();
 
@@ -75,6 +76,7 @@ public sealed class EmployeeRuntimeService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
+        await EnsureSeedDataAsync(owner, cancellationToken);
         var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {
@@ -95,7 +97,7 @@ public sealed class EmployeeRuntimeService(
 
         var importedEmployees = await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
         var importedImItems = await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
-        await UpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
+        await TryUpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
 
         var result = new ImportFixtureInstancesResultDto(
             OwnerSubject: owner,
@@ -485,7 +487,7 @@ public sealed class EmployeeRuntimeService(
             ?? [];
 
         var imported = await store.UpsertManyAsync(owner, employees, cancellationToken);
-        await UpsertInstanceRecordsAsync(employees, cancellationToken);
+        await TryUpsertInstanceRecordsAsync(employees, cancellationToken);
         var archivedGroups = request.ArchivedGroupIds?.Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
         var archived = await collaborationService.MarkArchivedAsync(archivedGroups, cancellationToken);
 
@@ -511,14 +513,123 @@ public sealed class EmployeeRuntimeService(
         }
 
         var fixtureBundle = await LoadFixtureBundleAsync(owner, cancellationToken);
-        if (fixtureBundle.Employees.Count == 0)
+        if (fixtureBundle.Employees.Count > 0)
+        {
+            await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
+            await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
+            await TryUpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
+        }
+
+        var persisted = await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
+        if (persisted.Count == 0)
         {
             return;
         }
 
-        await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
-        await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
-        await UpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
+        if (fixtureBundle.Employees.Count == 0)
+        {
+            await store.ReplaceOwnerAsync(owner, persisted, cancellationToken);
+            return;
+        }
+
+        await store.UpsertManyAsync(owner, persisted, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<EmployeeDetailDto>> LoadPersistedRuntimeEmployeesAsync(
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var instances = await dbContext.Instances
+                .AsNoTracking()
+                .Where(item => item.OwnerUserId == owner)
+                .ToArrayAsync(cancellationToken);
+
+            var employees = new List<EmployeeDetailDto>();
+            foreach (var instance in instances)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var employee = !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
+                    ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
+                    : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
+                if (employee is not null &&
+                    string.Equals(employee.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
+                {
+                    employees.Add(employee);
+                }
+            }
+
+            return employees;
+        }
+        catch
+        {
+            // Runtime snapshots are a persistence enhancement. Existing local databases may not have the column until migrations run.
+            return [];
+        }
+    }
+
+    private static EmployeeDetailDto? DeserializeEmployeeSnapshot(string snapshot)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<EmployeeDetailDto>(snapshot);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<EmployeeDetailDto?> BuildEmployeeFromInstanceRecordAsync(
+        InstanceEntity instance,
+        CancellationToken cancellationToken)
+    {
+        EmployeeDetailDto? source = null;
+        if (!string.IsNullOrWhiteSpace(instance.FromInstanceId))
+        {
+            source = await store.FindAsync(instance.FromInstanceId, cancellationToken);
+        }
+
+        var status = NormalizeStatus(instance.Status, null) ?? "hired";
+        var type = string.IsNullOrWhiteSpace(instance.InstanceType) ? "department" : instance.InstanceType;
+        var templateId = instance.BasedOnTemplateId ?? source?.BasedOnTemplateId ?? source?.SourceTemplateId ?? "unknown-template";
+        var roleName = source?.RoleName ?? templateId;
+        IReadOnlyList<EmployeeCapabilityDto> capabilities = source?.Capabilities.Count > 0
+            ? source.Capabilities.Select(item => item with { Ready = status is "live" }).ToArray()
+            : [new EmployeeCapabilityDto("站内对话", status is "live")];
+
+        return new EmployeeDetailDto(
+            EmployeeId: instance.InstanceId,
+            Nickname: source is null ? instance.InstanceId : $"{source.Nickname} 的分身",
+            RoleName: roleName,
+            SourceTemplate: source?.SourceTemplate ?? templateId,
+            SourceTemplateId: source?.SourceTemplateId ?? templateId,
+            InstanceType: type,
+            Status: status,
+            BasedOnTemplateId: instance.BasedOnTemplateId,
+            FromInstanceId: instance.FromInstanceId,
+            OwnerUserId: instance.OwnerUserId,
+            DepartmentId: instance.DepartmentId,
+            LifecycleStatus: MapStatusToLifecycleLabel(status),
+            StageSummary: type is "personal_clone" or "private_branch"
+                ? "个人分身已恢复，站内对话可用"
+                : BuildStageSummary(status, instance.InstanceId),
+            PrimarySignal: BuildPrimarySignal(status),
+            SignalLevel: status is "hired" or "interning_ai" ? "warn" : "ok",
+            OwningTeam: instance.DepartmentId,
+            CreatedAt: DateOnly.FromDateTime(instance.CreatedAt.UtcDateTime).ToString("yyyy-MM-dd"),
+            InternshipStartAt: status is "live" ? DateOnly.FromDateTime(instance.CreatedAt.UtcDateTime).ToString("yyyy-MM-dd") : null,
+            GraduatedAt: status is "live" ? DateOnly.FromDateTime(instance.UpdatedAt.UtcDateTime).ToString("yyyy-MM-dd") : null,
+            TasksDone: 0,
+            TasksTotal: 0,
+            SatisfactionScore: null,
+            PendingActions: [],
+            Capabilities: capabilities,
+            EvalPhase: null,
+            EvalIteration: null,
+            EvalMaxIterations: null,
+            IsConfigured: capabilities.All(item => item.Ready));
     }
 
     private static async Task<FixtureBundle> LoadFixtureBundleAsync(string owner, CancellationToken cancellationToken)
@@ -563,6 +674,7 @@ public sealed class EmployeeRuntimeService(
                 var hireId = TryGetString(root, "hireId", employeeId);
                 var scenario = TryGetString(root, "scenario", "fixture-collaboration");
                 var generatedAtUtc = TryGetString(root, "generatedAtUtc");
+                var explicitStatus = TryGetString(root, "status");
 
                 var displayName = templateId;
                 var capabilityNames = new List<string>();
@@ -593,7 +705,7 @@ public sealed class EmployeeRuntimeService(
                     capabilityNames.Add("report_generator");
                 }
 
-                var status = ResolveFixtureSeedStatus(seedIndex++);
+                var status = NormalizeStatus(explicitStatus, null) ?? ResolveFixtureSeedStatus(seedIndex++);
                 var createdAt = ResolveCreatedAt(generatedAtUtc, seedIndex);
                 var isReady = status is "live";
                 var capabilities = capabilityNames
@@ -930,6 +1042,20 @@ public sealed class EmployeeRuntimeService(
         }
     }
 
+    private async Task TryUpsertInstanceRecordsAsync(
+        IReadOnlyList<EmployeeDetailDto> employees,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await UpsertInstanceRecordsAsync(employees, cancellationToken);
+        }
+        catch
+        {
+            // Local demo seed should still succeed even when the instance table has not been migrated yet.
+        }
+    }
+
     private async Task UpsertInstanceRecordAsync(
         EmployeeDetailDto employee,
         bool viaQuickClone = false,
@@ -959,6 +1085,7 @@ public sealed class EmployeeRuntimeService(
                 OwnerUserId = string.IsNullOrWhiteSpace(employee.OwnerUserId) ? "unknown" : employee.OwnerUserId,
                 DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? "department-default" : employee.DepartmentId,
                 CurrentVersion = version,
+                RuntimeSnapshotJson = JsonSerializer.Serialize(employee),
                 CreatedAt = ParseDate(employee.CreatedAt) ?? now,
                 UpdatedAt = now
             });
@@ -974,6 +1101,7 @@ public sealed class EmployeeRuntimeService(
             existing.OwnerUserId = string.IsNullOrWhiteSpace(employee.OwnerUserId) ? existing.OwnerUserId : employee.OwnerUserId;
             existing.DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? existing.DepartmentId : employee.DepartmentId;
             existing.CurrentVersion = version;
+            existing.RuntimeSnapshotJson = JsonSerializer.Serialize(employee);
             existing.UpdatedAt = now;
         }
 

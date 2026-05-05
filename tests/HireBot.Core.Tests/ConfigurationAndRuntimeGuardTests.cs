@@ -32,7 +32,7 @@ public sealed class ConfigurationAndRuntimeGuardTests
     }
 
     [Fact]
-    public async Task EmployeeRuntimeService_GetEmployeesAsync_ShouldNotAutoSeedFixtureData()
+    public async Task EmployeeRuntimeService_GetEmployeesAsync_ShouldAutoSeedFixtureData()
     {
         var httpContextAccessor = new HttpContextAccessor
         {
@@ -52,7 +52,8 @@ public sealed class ConfigurationAndRuntimeGuardTests
 
         Assert.True(response.Success);
         Assert.NotNull(response.Data);
-        Assert.Empty(response.Data);
+        Assert.NotEmpty(response.Data);
+        Assert.Contains(response.Data, item => item.Status == "live");
     }
 
     [Fact]

@@ -69,6 +69,15 @@ public sealed class ImWebhookReplayControllerTests
         public ApiResponse<ImWebhookHandleResultDto> Response { get; init; } =
             ApiResponse<ImWebhookHandleResultDto>.ErrorResponse(500, "not configured");
 
+        public Task<ApiResponse<ImWebhookHandleResultDto>> VerifyAsync(
+            string platform,
+            string instanceId,
+            IReadOnlyDictionary<string, string> query,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
         public Task<ApiResponse<ImWebhookHandleResultDto>> HandleAsync(
             string platform,
             string instanceId,
@@ -84,6 +93,14 @@ public sealed class ImWebhookReplayControllerTests
             SeenUseMockKingCrew = replayContext.UseMockKingCrew;
             SeenMockKingCrewReply = replayContext.MockKingCrewReply;
             return Task.FromResult(Response);
+        }
+
+        public Task<ApiResponse<string?>> ExtractFeishuUrlVerificationChallengeAsync(
+            string instanceId,
+            string payload,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
     }
 

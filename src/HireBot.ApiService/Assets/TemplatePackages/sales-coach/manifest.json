@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "name": "sales-coach",
+  "display_name": "Sales Coach — 需求与商机澄清助手",
+  "positioning": "帮助销售团队整理线索、提炼异议，并把会议内容沉淀成可执行的下一步。",
+  "description": "Local demo template for testing the hiring workflow with a sales-oriented assistant.",
+  "version": "v1.0.0",
+  "tags": ["sales", "discovery", "pipeline"],
+  "use_cases": [
+    "线索分级与机会判断",
+    "销售会议纪要整理",
+    "异议与下一步行动汇总"
+  ],
+  "config": {
+    "identity": "config/IDENTITY.md",
+    "soul": "config/SOUL.md",
+    "agents": "config/AGENTS.md",
+    "memory": "config/MEMORY.md"
+  },
+  "ontology_slices": [
+    {
+      "name": "sales-discovery-slice",
+      "path": "ontology/sales-discovery-slice.md",
+      "type": "digital_employee_slice",
+      "required": true
+    }
+  ],
+  "skills": [
+    {
+      "name": "pipeline-qualifier",
+      "path": "skills/pipeline-qualifier/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "objection-handler",
+      "path": "skills/objection-handler/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "deal-summary",
+      "path": "skills/deal-summary/SKILL.md",
+      "required": true
+    }
+  ],
+  "cli_tools": []
+}

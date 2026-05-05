@@ -1,5 +1,7 @@
-﻿using HireBot.Core.Extensions;
+using HireBot.ApiService.Authentication;
+using HireBot.Core.Extensions;
 using HireBot.Repository;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -27,6 +29,11 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthorization();
 
 var oidcAuthority = builder.Configuration["Security:OidcAuthority"];
+var authenticationScheme = string.IsNullOrWhiteSpace(oidcAuthority)
+    ? DevelopmentAuthenticationDefaults.SchemeName
+    : JwtBearerDefaults.AuthenticationScheme;
+
+var authenticationBuilder = builder.Services.AddAuthentication(authenticationScheme);
 if (!string.IsNullOrWhiteSpace(oidcAuthority))
 {
     var validOidcValues = BuildOidcValidationValues(
@@ -39,18 +46,23 @@ if (!string.IsNullOrWhiteSpace(oidcAuthority))
             "启用 OIDC 鉴权时，必须至少配置 Security:OidcAudience 或 Security:OidcClientId。");
     }
 
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(options =>
+    authenticationBuilder.AddJwtBearer(options =>
+    {
+        options.Authority = oidcAuthority;
+        options.RequireHttpsMetadata = builder.Configuration.GetValue("Security:OidcRequireHttpsMetadata", true);
+        options.TokenValidationParameters = new TokenValidationParameters
         {
-            options.Authority = oidcAuthority;
-            options.RequireHttpsMetadata = builder.Configuration.GetValue("Security:OidcRequireHttpsMetadata", true);
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidateAudience = true,
-                AudienceValidator = (tokenAudiences, securityToken, _) =>
-                    IsValidOidcToken(tokenAudiences, securityToken, validOidcValues),
-            };
-        });
+            ValidateAudience = true,
+            AudienceValidator = (tokenAudiences, securityToken, _) =>
+                IsValidOidcToken(tokenAudiences, securityToken, validOidcValues),
+        };
+    });
+}
+else
+{
+    authenticationBuilder.AddScheme<AuthenticationSchemeOptions, DevelopmentAuthenticationHandler>(
+        DevelopmentAuthenticationDefaults.SchemeName,
+        _ => { });
 }
 
 builder.Services.AddCors(options =>
@@ -95,11 +107,7 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/resources"
 });
 
-if (!string.IsNullOrWhiteSpace(oidcAuthority))
-{
-    app.UseAuthentication();
-}
-
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 

@@ -1,0 +1,13 @@
+{
+  "hireId": "hire_dev_seed_902_clone-test-ops",
+  "employeeId": "e_clone_test_ops_live",
+  "templateId": "clone-test-ops",
+  "templateVersion": "v1.0.0",
+  "currentStage": "DONE",
+  "collectionPhase": "FINALIZED",
+  "scenario": "tenant-default",
+  "status": "live",
+  "ownerSubject": "local-dev",
+  "generatedAtUtc": "2026-05-04T09:05:00Z",
+  "tags": ["fixture", "clone-test", "department", "live", "copyable"]
+}

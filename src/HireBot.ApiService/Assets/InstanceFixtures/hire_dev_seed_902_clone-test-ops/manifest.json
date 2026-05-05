@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "name": "clone-test-ops",
+  "display_name": "分身测试-运营协调员",
+  "positioning": "用于测试 live 部门员工复制成个人分身后的独立运行。",
+  "description": "Minimal live department fixture for clone and runtime chat testing.",
+  "version": "v1.0.0",
+  "use_cases": [
+    "部门员工复制分身",
+    "个人分身列表展示",
+    "退役流程验证"
+  ],
+  "config": {
+    "identity": "config/IDENTITY.md",
+    "soul": "config/SOUL.md",
+    "agents": "config/AGENTS.md",
+    "memory": "config/MEMORY.md"
+  },
+  "ontology_slices": [
+    {
+      "name": "clone-test-ops-slice",
+      "path": "ontology/clone-test-ops-slice.md",
+      "type": "digital_employee_slice",
+      "required": true
+    }
+  ],
+  "skills": [
+    {
+      "name": "task-router",
+      "path": "skills/task-router/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "handoff-summarizer",
+      "path": "skills/handoff-summarizer/SKILL.md",
+      "required": true
+    }
+  ],
+  "cli_tools": []
+}

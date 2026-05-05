@@ -29,7 +29,16 @@ public sealed record ImConfigItemDto(
     string? ConnectionMode,
     string? WebhookPath,
     DateTimeOffset? ConfiguredAt,
-    string? LastError);
+    string? LastError,
+    string? AppId = null,
+    string? AppSecret = null,
+    string? EncryptKey = null,
+    string? Token = null,
+    string? AesKey = null,
+    string? VerificationToken = null,
+    string? CorpId = null,
+    string? AgentId = null,
+    string? AgentSecret = null);
 
 public sealed record ImConfigStatusDto(
     IReadOnlyList<ImConfigItemDto> Configs);

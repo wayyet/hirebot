@@ -25,6 +25,8 @@ public sealed class InstanceArtifactCloneService(
             throw new InvalidOperationException("源部门员工未找到可复制的实例包，请先完成雇佣交付或重新导入实例产物");
         }
 
+        sourceRoot = ResolveCloneSourceFallback(source, sourceRoot) ?? sourceRoot;
+
         var version = BuildVersion();
         var targetRoot = BuildPersonalCloneVersionRoot(source.EmployeeId, targetInstanceId, version);
         Directory.CreateDirectory(targetRoot);
@@ -89,12 +91,14 @@ public sealed class InstanceArtifactCloneService(
 
     private async Task<string?> ResolveSourceRootAsync(EmployeeDetailDto source, CancellationToken cancellationToken)
     {
-        var instance = await dbContext.Instances
+        var currentVersion = await dbContext.Instances
             .AsNoTracking()
-            .FirstOrDefaultAsync(item => item.InstanceId == source.EmployeeId, cancellationToken);
-        if (instance is not null && !string.IsNullOrWhiteSpace(instance.CurrentVersion))
+            .Where(item => item.InstanceId == source.EmployeeId)
+            .Select(item => item.CurrentVersion)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(currentVersion))
         {
-            var instanceRoot = BuildDepartmentVersionRoot(source.EmployeeId, instance.CurrentVersion);
+            var instanceRoot = BuildDepartmentVersionRoot(source.EmployeeId, currentVersion);
             if (Directory.Exists(instanceRoot))
             {
                 return instanceRoot;
@@ -108,6 +112,44 @@ public sealed class InstanceArtifactCloneService(
         }
 
         return null;
+    }
+
+    private string? ResolveCloneSourceFallback(EmployeeDetailDto source, string sourceRoot)
+    {
+        if (!LooksLikeMetadataOnlyPackage(sourceRoot))
+        {
+            return null;
+        }
+
+        var templateRoot = ResolveTemplatePackageRoot(source.SourceTemplateId);
+        if (!string.IsNullOrWhiteSpace(templateRoot) && Directory.Exists(templateRoot))
+        {
+            return templateRoot;
+        }
+
+        var basedOnRoot = ResolveTemplatePackageRoot(source.BasedOnTemplateId);
+        if (!string.IsNullOrWhiteSpace(basedOnRoot) && Directory.Exists(basedOnRoot))
+        {
+            return basedOnRoot;
+        }
+
+        return null;
+    }
+
+    private string? ResolveTemplatePackageRoot(string? templateId)
+    {
+        if (string.IsNullOrWhiteSpace(templateId))
+        {
+            return null;
+        }
+
+        var configured = configuration["HireBot:TemplatePackagesRoot"];
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            return null;
+        }
+
+        return Path.GetFullPath(Path.Combine(configured.Trim(), templateId.Trim()));
     }
 
     private string? ResolveFixtureRoot(string employeeId)
@@ -195,6 +237,36 @@ public sealed class InstanceArtifactCloneService(
         }
 
         return copied;
+    }
+
+    private static bool LooksLikeMetadataOnlyPackage(string sourceRoot)
+    {
+        try
+        {
+            var files = Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories)
+                .Select(path => Path.GetFileName(path))
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name!.Trim())
+                .ToArray();
+
+            if (files.Length == 0)
+            {
+                return true;
+            }
+
+            if (files.Length > 2)
+            {
+                return false;
+            }
+
+            return files.All(name =>
+                name.Equals("instance.json", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("manifest.json", StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string NormalizeRelativePath(string path)

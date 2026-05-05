@@ -4,6 +4,16 @@
       "templateId": "019dcfca-08a3-7a2a-bd14-09e790eab6f7",
       "fixtureTemplateId": "019dcfca-08a3-7a2a-bd14-09e790eab6f7",
       "fixtureEmployeeId": "e_dev_seed_401_asset-guardian"
+    },
+    {
+      "templateId": "sales-coach",
+      "fixtureTemplateId": "sales-coach",
+      "fixtureEmployeeId": "e_dev_seed_402_sales-coach"
+    },
+    {
+      "templateId": "product-ops",
+      "fixtureTemplateId": "product-ops",
+      "fixtureEmployeeId": "e_dev_seed_403_product-ops"
     }
   ]
 }

@@ -1,4 +1,4 @@
-﻿using HireBot.Abstraction;
+﻿﻿﻿﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
@@ -43,6 +43,8 @@ public static class ServiceExtensions
     private const string KingCrabClientName = "KingCrab";
     private const string BuildServiceClientName = "BuildService";
     private const string FeishuClientName = "Feishu";
+    private const string DingTalkClientName = "DingTalk";
+    private const string WeComClientName = "WeCom";
 
     public static IServiceCollection AddHireBotServices(this IServiceCollection services, IConfiguration configuration)
     {
@@ -51,7 +53,7 @@ public static class ServiceExtensions
 
         AddPersistence(services, configuration);
         AddHttpClients(services, configuration);
-        AddProviders(services);
+        AddProviders(services, configuration);
         AddDomainServices(services);
 
         return services;
@@ -105,10 +107,32 @@ public static class ServiceExtensions
                 "Feishu:BaseUrl",
                 "Feishu:HttpTimeoutSeconds");
         });
+
+        services.AddHttpClient(DingTalkClientName, (_, client) =>
+        {
+            ConfigureHttpClient(
+                client,
+                configuration["DingTalk:BaseUrl"] ?? "https://oapi.dingtalk.com",
+                configuration.GetValue("DingTalk:HttpTimeoutSeconds", 60),
+                "DingTalk:BaseUrl",
+                "DingTalk:HttpTimeoutSeconds");
+        });
+
+        services.AddHttpClient(WeComClientName, (_, client) =>
+        {
+            ConfigureHttpClient(
+                client,
+                configuration["WeCom:BaseUrl"] ?? "https://qyapi.weixin.qq.com",
+                configuration.GetValue("WeCom:HttpTimeoutSeconds", 60),
+                "WeCom:BaseUrl",
+                "WeCom:HttpTimeoutSeconds");
+        });
     }
 
-    private static void AddProviders(IServiceCollection services)
+    private static void AddProviders(IServiceCollection services, IConfiguration configuration)
     {
+        var useLocalTemplateSources = configuration.GetValue("HireBot:UseLocalTemplateSources", false);
+
         services.AddScoped<IRequestContextService, RequestContextService>();
         services.AddDataProtection();
 
@@ -120,8 +144,19 @@ public static class ServiceExtensions
         services.AddSingleton<FileSystemSystemSkillRegistry>();
         services.AddSingleton<ISystemSkillRegistry>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
         services.AddSingleton<ISkillCatalogProvider>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
-        services.AddSingleton<ITemplateDataProvider, BuildServiceTemplateDataProvider>();
-        services.AddSingleton<ITemplatePackageProvider, BuildServiceTemplatePackageProvider>();
+        if (useLocalTemplateSources)
+        {
+            services.AddSingleton<FileSystemTemplatePackageProvider>();
+            services.AddSingleton<ITemplatePackageProvider>(sp => sp.GetRequiredService<FileSystemTemplatePackageProvider>());
+            services.AddSingleton<ITemplateDataProvider, FileSystemTemplateDataProvider>();
+        }
+        else
+        {
+            services.AddSingleton<BuildServiceTemplatePackageProvider>();
+            services.AddSingleton<ITemplatePackageProvider>(sp => sp.GetRequiredService<BuildServiceTemplatePackageProvider>());
+            services.AddSingleton<ITemplateDataProvider, BuildServiceTemplateDataProvider>();
+        }
+
         services.AddSingleton<IDiscoveryRuleProvider, FileSystemDiscoveryRuleProvider>();
         services.AddSingleton<HiringStageCompletionEvaluator>();
         services.AddSingleton<IArtifactSerializer, PlaceholderArtifactSerializer>();
@@ -141,7 +176,7 @@ public static class ServiceExtensions
         services.AddScoped<IEmployeeHiringService, EmployeeHiringService>();
         services.AddScoped<IInstanceArtifactCloneService, InstanceArtifactCloneService>();
         services.AddScoped<IInstanceArtifactResolver, InstanceArtifactResolver>();
-        services.AddScoped<IKingCrewRuntimeChatClient, KingCrewRuntimeChatClient>();
+      
         services.AddScoped<IInstanceRuntimeConversationService, InstanceRuntimeConversationService>();
         services.AddScoped<IHiringArtifactPackageService, HiringArtifactPackageService>();
         services.AddScoped<IEmployeeRuntimeService, EmployeeRuntimeService>();
@@ -150,6 +185,7 @@ public static class ServiceExtensions
         services.AddScoped<IInstanceImConfigService, InstanceImConfigService>();
         services.AddScoped<IImWebhookReplayContext, ImWebhookReplayContext>();
         services.AddScoped<IImWebhookService, ImWebhookService>();
+        services.AddHostedService<DingTalkStreamBackgroundService>();
         services.AddScoped<ITrainingService, TrainingService>();
         services.AddScoped<IEvaluationService, EvaluationService>();
         services.AddScoped<ISandboxService, SandboxService>();

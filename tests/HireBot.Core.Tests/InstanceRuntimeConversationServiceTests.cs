@@ -1,7 +1,10 @@
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
+using HireBot.Abstraction.Models.Hiring;
+using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
+using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
 using HireBot.Repository;
@@ -9,8 +12,6 @@ using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Net;
-using System.Text;
 
 namespace HireBot.Core.Tests;
 
@@ -19,22 +20,27 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
     private readonly string artifactRoot = Path.Combine(Path.GetTempPath(), $"hirebot-tests-{Guid.NewGuid():N}");
 
     [Fact]
-    public async Task SendMessageAsync_ForLivePersonalClone_CallsKingCrewAndPersistsMessages()
+    public async Task SendMessageAsync_ForLivePersonalClone_CallsSandboxAndPersistsMessages()
     {
         await using var dbContext = CreateDbContext();
         var instance = SeedLivePersonalClone(dbContext);
         SeedArtifacts(instance);
-        var kingCrew = new FakeKingCrewRuntimeChatClient("KingCrew answer");
-        var service = CreateService(dbContext, kingCrew: kingCrew);
+        var sandbox = new FakeSandboxService("Sandbox answer");
+        var service = CreateService(dbContext, sandbox: sandbox);
 
         var response = await service.SendMessageAsync(instance.InstanceId, "inapp", "你好", instance.OwnerUserId);
 
         Assert.True(response.Success, response.Message);
-        Assert.Equal("KingCrew answer", response.Data!.AssistantMessage.Content);
-        Assert.Single(kingCrew.Requests);
-        Assert.Equal(instance.InstanceId, kingCrew.Requests[0].InstanceId);
-        Assert.Equal("inapp", kingCrew.Requests[0].Channel);
-        Assert.Equal(Path.Combine(artifactRoot, "instances", "personal_clone", instance.FromInstanceId!, instance.InstanceId, "versions", instance.CurrentVersion), kingCrew.Requests[0].ArtifactRoot);
+        Assert.Equal("Sandbox answer", response.Data!.AssistantMessage.Content);
+        Assert.Single(sandbox.CreateRequests);
+        Assert.Single(sandbox.SendRequests);
+        Assert.Equal($"instance:{instance.InstanceId}", sandbox.SendRequests[0].ScopeKey);
+        Assert.Equal("runtime", sandbox.SendRequests[0].SandboxRole);
+        Assert.Equal("inapp", sandbox.SendRequests[0].SessionKey);
+        Assert.Contains("user_message:", sandbox.SendRequests[0].Content);
+        Assert.NotNull(sandbox.SendRequests[0].Materials);
+        Assert.Single(sandbox.SendRequests[0].Materials!);
+        Assert.Equal("application/zip", sandbox.SendRequests[0].Materials![0].MimeType);
 
         var messages = await dbContext.Messages.OrderBy(item => item.CreatedAt).ToArrayAsync();
         Assert.Equal(2, messages.Length);
@@ -49,8 +55,8 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         await using var dbContext = CreateDbContext();
         var instance = SeedLivePersonalClone(dbContext);
         SeedArtifacts(instance);
-        var kingCrew = new FakeKingCrewRuntimeChatClient("ok");
-        var service = CreateService(dbContext, kingCrew: kingCrew);
+        var sandbox = new FakeSandboxService("ok");
+        var service = CreateService(dbContext, sandbox: sandbox);
 
         var first = await service.SendMessageAsync(instance.InstanceId, "feishu", "hello", instance.OwnerUserId, externalMessageId: "msg-1", externalUserId: "open-1");
         var second = await service.SendMessageAsync(instance.InstanceId, "feishu", "hello again", instance.OwnerUserId, externalMessageId: "msg-1", externalUserId: "open-1");
@@ -58,34 +64,21 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         Assert.True(first.Success, first.Message);
         Assert.False(second.Success);
         Assert.Equal(409, second.Code);
-        Assert.Single(kingCrew.Requests);
+        Assert.Single(sandbox.SendRequests);
     }
 
     [Fact]
-    public async Task SendMessageAsync_WhenReplayContextUsesMockKingCrew_ReturnsMockReply()
+    public async Task SendMessageAsync_UsesSandboxReply()
     {
         await using var dbContext = CreateDbContext();
         var instance = SeedLivePersonalClone(dbContext);
         SeedArtifacts(instance);
-
-        var replayContext = new FakeReplayContext
-        {
-            UseMockKingCrew = true,
-            MockKingCrewReply = "mock reply: {last_user_message}"
-        };
-
-        var service = CreateService(
-            dbContext,
-            kingCrew: new KingCrewRuntimeChatClient(
-                new StubHttpClientFactory(),
-                CreateConfiguration(),
-                replayContext,
-                NullLogger<KingCrewRuntimeChatClient>.Instance));
+        var service = CreateService(dbContext, sandbox: new FakeSandboxService("runtime reply"));
 
         var response = await service.SendMessageAsync(instance.InstanceId, "inapp", "hello replay", instance.OwnerUserId);
 
         Assert.True(response.Success, response.Message);
-        Assert.Equal("mock reply: hello replay", response.Data!.AssistantMessage.Content);
+        Assert.Equal("runtime reply", response.Data!.AssistantMessage.Content);
     }
 
     [Fact]
@@ -121,14 +114,14 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
 
     private InstanceRuntimeConversationService CreateService(
         HireBotDbContext dbContext,
-        IKingCrewRuntimeChatClient? kingCrew = null)
+        ISandboxService? sandbox = null)
     {
         return new InstanceRuntimeConversationService(
             dbContext,
             new FakeEmployeeRuntimeStore(),
             new FakeRequestContextService("owner-1"),
             new InstanceArtifactResolver(CreateConfiguration()),
-            kingCrew ?? new FakeKingCrewRuntimeChatClient("assistant"),
+            sandbox ?? new FakeSandboxService("assistant"),
             NullLogger<InstanceRuntimeConversationService>.Instance);
     }
 
@@ -199,44 +192,53 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         }
     }
 
-    private sealed class FakeKingCrewRuntimeChatClient(string reply) : IKingCrewRuntimeChatClient
+    private sealed class FakeSandboxService(string reply) : ISandboxService
     {
-        public List<RuntimeChatRequestDto> Requests { get; } = [];
+        public List<SandboxCreateRequestDto> CreateRequests { get; } = [];
+        public List<SandboxSendMessageRequestDto> SendRequests { get; } = [];
 
-        public Task<ApiResponse<RuntimeChatResponseDto>> SendAsync(
-            RuntimeChatRequestDto request,
-            CancellationToken cancellationToken = default)
+        public Task<ApiResponse<SandboxInstanceDto>> RegisterAsync(SandboxRegisterRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<SandboxInstanceDto>.SuccessResponse(BuildInstance(request.SandboxId, request.ScopeType, request.ScopeKey, request.SandboxRole, request.OwnerSubject, request.TenantId, request.OperatorId)));
+
+        public Task<ApiResponse<SandboxInstanceDto>> CreateAsync(SandboxCreateRequestDto request, CancellationToken cancellationToken = default)
         {
-            Requests.Add(request);
-            return Task.FromResult(ApiResponse<RuntimeChatResponseDto>.SuccessResponse(new RuntimeChatResponseDto(reply)));
+            CreateRequests.Add(request);
+            return Task.FromResult(ApiResponse<SandboxInstanceDto>.SuccessResponse(BuildInstance("sandbox-test", request.ScopeType, request.ScopeKey, request.SandboxRole, request.OwnerSubject, request.TenantId, request.OperatorId)));
         }
-    }
 
-    private sealed class StubHttpClientFactory : IHttpClientFactory
-    {
-        public HttpClient CreateClient(string name)
+        public Task<ApiResponse<SandboxInstanceDto>> RefreshAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<SandboxInstanceDto>.SuccessResponse(BuildInstance(request.SandboxId ?? "sandbox-test", request.ScopeType ?? SandboxScopeTypes.Hire, request.ScopeKey ?? "scope", request.SandboxRole ?? "runtime", request.OwnerSubject ?? "owner-1", "tenant-1", "operator-1")));
+
+        public Task<ApiResponse<SandboxInstanceDto>> PauseAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default)
+            => RefreshAsync(request, cancellationToken);
+
+        public Task<ApiResponse<SandboxInstanceDto>> ResumeAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default)
+            => RefreshAsync(request, cancellationToken);
+
+        public Task<ApiResponse<SandboxInstanceDto>> RebuildAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default)
+            => RefreshAsync(request, cancellationToken);
+
+        public Task<ApiResponse<bool>> DeleteAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<bool>.SuccessResponse(true));
+
+        public Task<ApiResponse<StartHiringConversationResultDto>> EnsureSessionAsync(SandboxEnsureSessionRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<StartHiringConversationResultDto>.SuccessResponse(new StartHiringConversationResultDto(request.ScopeKey, "session-test", "runtime", false, [])));
+
+        public Task<ApiResponse<HiringConversationResultDto>> SendMessageAsync(SandboxSendMessageRequestDto request, CancellationToken cancellationToken = default)
         {
-            return new HttpClient(new HttpClientHandler(), disposeHandler: false)
-            {
-                BaseAddress = new Uri("https://open.feishu.cn")
-            };
+            SendRequests.Add(request);
+            var message = new HiringConversationMessageDto("assistant-test", "assistant", reply, DateTimeOffset.UtcNow);
+            return Task.FromResult(ApiResponse<HiringConversationResultDto>.SuccessResponse(new HiringConversationResultDto(request.ScopeKey, "session-test", "runtime", false, message, new HiringStagePreviewDto(request.ScopeKey, "runtime", "runtime", reply, new Dictionary<string, string?>(), [], [], false, DateTimeOffset.UtcNow))));
         }
-    }
 
-    private sealed class FakeReplayContext : IImWebhookReplayContext
-    {
-        public bool SkipOutboundSend { get; set; }
+        public Task<ApiResponse<HiringConversationTimelineDto>> GetTimelineAsync(SandboxTimelineRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<HiringConversationTimelineDto>.SuccessResponse(new HiringConversationTimelineDto(request.ScopeKey, "session-test", "runtime", false, "IN_PROGRESS", [], [])));
 
-        public bool UseMockKingCrew { get; set; }
+        public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<SandboxAttachmentUploadResultDto>.SuccessResponse(new SandboxAttachmentUploadResultDto(Guid.NewGuid(), null, null, "media-test", "http://media", request.Material.Name, request.Material.MimeType ?? "application/octet-stream", request.Material.Size ?? 0, request.Material.ContentHash, request.Material.Metadata?.TryGetValue("storagePath", out var path) == true ? path : null, "[media-test]", DateTimeOffset.UtcNow)));
 
-        public string? MockKingCrewReply { get; set; }
-
-        public void Reset()
-        {
-            SkipOutboundSend = false;
-            UseMockKingCrew = false;
-            MockKingCrewReply = null;
-        }
+        private static SandboxInstanceDto BuildInstance(string sandboxId, string scopeType, string scopeKey, string sandboxRole, string ownerSubject, string tenantId, string operatorId)
+            => new(Guid.NewGuid(), sandboxId, scopeType, scopeKey, sandboxRole, "managed", ownerSubject, tenantId, operatorId, "Running", "http://localhost:18789", null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     }
 
     private sealed class FakeRequestContextService(string ownerSubject) : IRequestContextService
