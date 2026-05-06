@@ -1,6 +1,7 @@
 ﻿{
   "hireId": "hire_dev_seed_401_asset-guardian",
   "employeeId": "e_dev_seed_401_asset-guardian",
+  "status": "interning_ai",
   "templateId": "019dcfca-08a3-7a2a-bd14-09e790eab6f7",
   "templateVersion": "v1.0.0",
   "currentStage": "DONE",
