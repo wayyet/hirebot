@@ -85,16 +85,16 @@ public sealed class InstanceRuntimeConversationService(
             }
         }
 
-        InstanceArtifactResolution artifact;
-        try
-        {
-            artifact = await artifactResolver.ResolveAsync(access.Instance!, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to resolve instance artifacts. InstanceId={InstanceId}", access.Instance!.InstanceId);
-            return ApiResponse<InstanceChatResultDto>.ErrorResponse(409, "实例五件套未就绪，无法对话");
-        }
+        //InstanceArtifactResolution artifact;
+        //try
+        //{
+        //    artifact = await artifactResolver.ResolveAsync(access.Instance!, cancellationToken);
+        //}
+        //catch (Exception ex)
+        //{
+        //    logger.LogWarning(ex, "Failed to resolve instance artifacts. InstanceId={InstanceId}", access.Instance!.InstanceId);
+        //    return ApiResponse<InstanceChatResultDto>.ErrorResponse(409, "实例五件套未就绪，无法对话");
+        //}
 
         var conversation = await GetOrCreateConversationAsync(access.Instance!, access.OwnerSubject, access.Channel, cancellationToken);
         var now = DateTimeOffset.UtcNow;
@@ -132,7 +132,7 @@ public sealed class InstanceRuntimeConversationService(
             access.Channel,
             conversation.ConversationId,
             content.Trim(),
-            artifact,
+            null,
             contextMessages,
             cancellationToken);
         if (!runtimeResponse.Success || runtimeResponse.Data is null || runtimeResponse.Data.AssistantMessage is null)
@@ -269,9 +269,17 @@ public sealed class InstanceRuntimeConversationService(
             sandboxId = create.Data.SandboxId;
         }
 
-        var artifactArchivePath = BuildArtifactArchive(instance, artifact.ArtifactRoot);
+        //var artifactArchivePath = BuildArtifactArchive(instance, artifact.ArtifactRoot);
         try
         {
+
+            var history = string.Join(
+           Environment.NewLine,
+           contextMessages
+               .TakeLast(12)
+               .Select(message => $"{message.Role}: {message.Content}"));
+
+
             return await sandboxService.SendMessageAsync(
                 new SandboxSendMessageRequestDto
                 {
@@ -283,33 +291,18 @@ public sealed class InstanceRuntimeConversationService(
                     OperatorId = operatorId,
                     SessionKey = channel,
                     SandboxId = sandboxId,
-                    Content = BuildRuntimePrompt(instance, channel, conversationId, content, artifact, contextMessages),
+                    Content =history,// BuildRuntimePrompt(instance, channel, conversationId, content, artifact, contextMessages),
                     Materials =
                     [
-                        new HiringConversationMaterialDto
-                        {
-                            Type = "file",
-                            Name = $"{instance.InstanceId}-{instance.CurrentVersion}-artifacts.zip",
-                            ContentHash = ComputeFileHash(artifactArchivePath),
-                            Size = new FileInfo(artifactArchivePath).Length,
-                            MimeType = "application/zip",
-                            Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                            {
-                                ["storagePath"] = artifactArchivePath,
-                                ["artifactRoot"] = artifact.ArtifactRoot,
-                                ["instanceId"] = instance.InstanceId,
-                                ["instanceType"] = instance.InstanceType,
-                                ["currentVersion"] = instance.CurrentVersion
-                            }
-                        }
+                       
                     ],
-                    UploadMaterialsAsAttachments = true
+                    UploadMaterialsAsAttachments = false
                 },
                 cancellationToken);
         }
         finally
         {
-            TryDeleteFile(artifactArchivePath);
+            //TryDeleteFile(artifactArchivePath);
         }
     }
 
@@ -356,7 +349,7 @@ current_version: {instance.CurrentVersion}
 from_instance_id: {instance.FromInstanceId ?? string.Empty}
 channel: {channel}
 conversation_id: {conversationId}
-artifact_root: {artifact.ArtifactRoot}
+
 
 recent_messages:
 {history}

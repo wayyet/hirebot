@@ -1,11 +1,10 @@
-﻿﻿﻿﻿using HireBot.Abstraction;
+﻿﻿﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeTemplate;
 using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Hiring;
-using HireBot.Abstraction.Services.SkillCatalog;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Abstraction.Services.Team;
 using HireBot.Abstraction.Services.Training;
@@ -24,7 +23,6 @@ using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Security;
-using HireBot.Core.Services.SkillCatalog;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Core.Services.SystemSkills;
 using HireBot.Core.Services.Team;
@@ -191,7 +189,6 @@ public static class ServiceExtensions
         services.AddScoped<ISandboxService, SandboxService>();
         services.AddScoped<ICollaborationService, CollaborationService>();
         services.AddScoped<ITeamImService, TeamImService>();
-        services.AddScoped<ISkillCatalogService, SkillCatalogService>();
     }
 
     private static void ConfigureHttpClient(

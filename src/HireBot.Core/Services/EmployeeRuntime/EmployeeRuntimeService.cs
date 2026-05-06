@@ -1,14 +1,18 @@
-﻿using HireBot.Abstraction;
+using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Migration;
 using HireBot.Abstraction.Models.Team;
+using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
+using HireBot.Core.Services.Sandbox;
+using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
+using System.IO.Compression;
 using System.Text.Json;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
@@ -19,7 +23,9 @@ public sealed class EmployeeRuntimeService(
     ICollaborationService collaborationService,
     IRequestContextService requestContextService,
     HireBotDbContext dbContext,
-    IInstanceArtifactCloneService artifactCloneService) : IEmployeeRuntimeService
+    IInstanceArtifactCloneService artifactCloneService,
+    ISandboxService sandboxService,
+    IKingCrabHttpClient kingCrabHttpClient) : IEmployeeRuntimeService
 {
     private static readonly HashSet<string> SupportedStatuses =
     [
@@ -52,6 +58,8 @@ public sealed class EmployeeRuntimeService(
 
     private static readonly Lazy<IReadOnlyDictionary<string, FixtureTemplateBinding>> FixtureTemplateBindings =
         new(LoadFixtureTemplateBindings);
+
+    private const string RuntimeSandboxRole = "runtime";
 
     private sealed record FixtureTemplateBinding(
         string TemplateId,
@@ -361,7 +369,7 @@ public sealed class EmployeeRuntimeService(
         var normalizedSourceId = sourceEmployeeId.Trim();
         var displayName = request.DisplayName.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
-        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(null, null);
         await EnsureSeedDataAsync(owner, cancellationToken);
 
         var source = await store.FindAsync(normalizedSourceId, cancellationToken);
@@ -434,6 +442,18 @@ public sealed class EmployeeRuntimeService(
             EvalIteration: null,
             EvalMaxIterations: null,
             IsConfigured: true);
+
+        var sandboxSetup = await InitializePersonalCloneSandboxAsync(
+            clone,
+            artifactResult,
+            owner,
+            tenantId,
+            operatorId,
+            cancellationToken);
+        if (!sandboxSetup.Success || sandboxSetup.Data is null)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(sandboxSetup.Code, sandboxSetup.Message);
+        }
 
         await store.UpsertAsync(owner, clone, cancellationToken);
         await UpsertInstanceRecordAsync(clone, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
@@ -1139,6 +1159,162 @@ public sealed class EmployeeRuntimeService(
         var normalizedPrefix = string.IsNullOrWhiteSpace(prefix) ? "i" : prefix.Trim().Trim('_');
         return $"{normalizedPrefix}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid():N}"[..Math.Min(32, normalizedPrefix.Length + 1 + 13 + 1 + 32)];
     }
+
+    private static string BuildRuntimeScopeKey(string instanceId)
+        => $"instance:{instanceId.Trim()}";
+
+    private async Task<ApiResponse<PersonalCloneSandboxSetupResult>> InitializePersonalCloneSandboxAsync(
+        EmployeeDetailDto clone,
+        InstanceArtifactCloneResult artifactResult,
+        string ownerSubject,
+        string tenantId,
+        string operatorId,
+        CancellationToken cancellationToken)
+    {
+        var scopeKey = BuildRuntimeScopeKey(clone.EmployeeId);
+        var createResponse = await sandboxService.CreateAsync(
+            new SandboxCreateRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = scopeKey,
+                SandboxRole = RuntimeSandboxRole,
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                ProvisioningMode = "managed",
+                UseCase = $"runtime-chat-for:{clone.EmployeeId}"
+            },
+            cancellationToken);
+        if (!createResponse.Success || createResponse.Data is null)
+        {
+            return ApiResponse<PersonalCloneSandboxSetupResult>.ErrorResponse(createResponse.Code, createResponse.Message);
+        }
+
+        var readyResponse = await WaitForManagedSandboxReadyAsync(createResponse.Data, cancellationToken);
+        if (!readyResponse.Success || readyResponse.Data is null)
+        {
+            await TryDeleteSandboxAsync(ownerSubject, scopeKey, createResponse.Data.SandboxId, cancellationToken);
+            return ApiResponse<PersonalCloneSandboxSetupResult>.ErrorResponse(readyResponse.Code, readyResponse.Message);
+        }
+
+        var archiveBytes = BuildArtifactArchiveBytes(artifactResult.TargetRootPath);
+        var uploadResponse = await kingCrabHttpClient.SendMultipartForJsonAsync<DigitalEmployeeUploadResponse>(
+            "/admin/digital-employee/upload",
+            "file",
+            $"{clone.EmployeeId}-{artifactResult.CurrentVersion}.zip",
+            archiveBytes,
+            "application/zip",
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false,
+            absoluteBaseUrl: readyResponse.Data.GatewayEndpoint);
+
+        if (!uploadResponse.Success || uploadResponse.Data is null || !uploadResponse.Data.Success)
+        {
+            await TryDeleteSandboxAsync(ownerSubject, scopeKey, readyResponse.Data.SandboxId, cancellationToken);
+            var message = uploadResponse.Success && uploadResponse.Data is not null && !string.IsNullOrWhiteSpace(uploadResponse.Data.Error)
+                ? uploadResponse.Data.Error
+                : uploadResponse.Message;
+            return ApiResponse<PersonalCloneSandboxSetupResult>.ErrorResponse(
+                uploadResponse.StatusCode <= 0 ? 502 : uploadResponse.StatusCode,
+                string.IsNullOrWhiteSpace(message) ? "个人分身沙箱初始化失败" : message);
+        }
+
+        return ApiResponse<PersonalCloneSandboxSetupResult>.SuccessResponse(
+            new PersonalCloneSandboxSetupResult(readyResponse.Data.SandboxId, readyResponse.Data.GatewayEndpoint));
+    }
+
+    private async Task<ApiResponse<SandboxInstanceDto>> WaitForManagedSandboxReadyAsync(
+        SandboxInstanceDto instance,
+        CancellationToken cancellationToken)
+    {
+        if (string.Equals(instance.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(instance.GatewayEndpoint))
+        {
+            return ApiResponse<SandboxInstanceDto>.SuccessResponse(instance);
+        }
+
+        for (var attempt = 0; attempt < 36; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            var refreshResult = await sandboxService.RefreshAsync(
+                new SandboxInstanceLookupRequestDto
+                {
+                    SandboxId = instance.SandboxId
+                },
+                cancellationToken);
+            if (!refreshResult.Success || refreshResult.Data is null)
+            {
+                return ApiResponse<SandboxInstanceDto>.ErrorResponse(refreshResult.Code, refreshResult.Message);
+            }
+
+            if (string.Equals(refreshResult.Data.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint))
+            {
+                return ApiResponse<SandboxInstanceDto>.SuccessResponse(refreshResult.Data);
+            }
+        }
+
+        return ApiResponse<SandboxInstanceDto>.ErrorResponse(504, "个人分身 sandbox 启动超时");
+    }
+
+    private async Task TryDeleteSandboxAsync(
+        string ownerSubject,
+        string scopeKey,
+        string sandboxId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await sandboxService.DeleteAsync(
+                new SandboxInstanceLookupRequestDto
+                {
+                    SandboxId = sandboxId,
+                    ScopeType = SandboxScopeTypes.Hire,
+                    ScopeKey = scopeKey,
+                    SandboxRole = RuntimeSandboxRole,
+                    OwnerSubject = ownerSubject
+                },
+                cancellationToken);
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
+    }
+
+    private static byte[] BuildArtifactArchiveBytes(string artifactRoot)
+    {
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var sourcePath in Directory.EnumerateFiles(artifactRoot, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(artifactRoot, sourcePath).Replace('\\', '/').Trim('/');
+                if (string.IsNullOrWhiteSpace(relativePath))
+                {
+                    continue;
+                }
+
+                var entry = archive.CreateEntry(relativePath, CompressionLevel.Fastest);
+                using var entryStream = entry.Open();
+                using var fileStream = File.OpenRead(sourcePath);
+                fileStream.CopyTo(entryStream);
+            }
+        }
+
+        return memoryStream.ToArray();
+    }
+
+    private sealed record PersonalCloneSandboxSetupResult(string SandboxId, string? GatewayEndpoint);
+
+    private sealed record DigitalEmployeeUploadResponse(
+        bool Success,
+        string? Error,
+        string? Name,
+        int SkillsInstalled,
+        IReadOnlyList<string>? InstalledFiles,
+        int? TotalSkillsLoaded);
 
     private static string Coalesce(params string?[] values)
     {

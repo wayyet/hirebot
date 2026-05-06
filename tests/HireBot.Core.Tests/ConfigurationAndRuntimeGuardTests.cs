@@ -1,5 +1,7 @@
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
+using HireBot.Abstraction.Models.Hiring;
+using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.Sandbox;
@@ -46,7 +48,9 @@ public sealed class ConfigurationAndRuntimeGuardTests
             new NoopCollaborationService(),
             requestContextService,
             CreateDbContext(Guid.NewGuid().ToString("N")),
-            new NoopInstanceArtifactCloneService());
+            new NoopInstanceArtifactCloneService(),
+            new NoopSandboxService(),
+            new NoopKingCrabHttpClient());
 
         var response = await service.GetEmployeesAsync();
 
@@ -181,5 +185,58 @@ public sealed class ConfigurationAndRuntimeGuardTests
             IReadOnlyDictionary<string, byte[]> files,
             CancellationToken cancellationToken = default)
             => Task.FromResult(new InstanceArtifactCloneResult("current", "target", []));
+    }
+
+    private sealed class NoopSandboxService : ISandboxService
+    {
+        public Task<ApiResponse<SandboxInstanceDto>> RegisterAsync(SandboxRegisterRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<SandboxInstanceDto>> CreateAsync(SandboxCreateRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<SandboxInstanceDto>> RefreshAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<SandboxInstanceDto>> PauseAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<SandboxInstanceDto>> ResumeAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<SandboxInstanceDto>> RebuildAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<bool>> DeleteAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<StartHiringConversationResultDto>> EnsureSessionAsync(SandboxEnsureSessionRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<HiringConversationResultDto>> SendMessageAsync(SandboxSendMessageRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<HiringConversationTimelineDto>> GetTimelineAsync(SandboxTimelineRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class NoopKingCrabHttpClient : IKingCrabHttpClient
+    {
+        public Task<RemoteCallResult<T>> SendForJsonAsync<T>(
+            HttpMethod method,
+            string path,
+            object? body,
+            string ownerSubject,
+            CancellationToken cancellationToken,
+            bool useHireBotApiPrefix = true,
+            string? absoluteBaseUrl = null,
+            IReadOnlyDictionary<string, string>? additionalHeaders = null)
+            => throw new NotSupportedException();
+
+        public Task<RemoteCallResult<T>> SendMultipartForJsonAsync<T>(
+            string path,
+            string formFieldName,
+            string fileName,
+            byte[] content,
+            string contentType,
+            string ownerSubject,
+            CancellationToken cancellationToken,
+            bool useHireBotApiPrefix = false,
+            string? absoluteBaseUrl = null,
+            IReadOnlyDictionary<string, string>? additionalHeaders = null)
+            => throw new NotSupportedException();
+
+        public Task<RemoteBinaryCallResult> SendForBinaryAsync(
+            HttpMethod method,
+            string path,
+            object? body,
+            string ownerSubject,
+            CancellationToken cancellationToken,
+            bool useHireBotApiPrefix = true,
+            string? absoluteBaseUrl = null,
+            IReadOnlyDictionary<string, string>? additionalHeaders = null)
+            => throw new NotSupportedException();
     }
 }

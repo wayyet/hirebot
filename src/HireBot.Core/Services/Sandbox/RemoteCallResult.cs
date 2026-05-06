@@ -2,7 +2,7 @@ using System.Net;
 
 namespace HireBot.Core.Services.Sandbox;
 
-internal sealed record RemoteCallResult<T>(bool Success, int StatusCode, string Message, T? Data)
+public sealed record RemoteCallResult<T>(bool Success, int StatusCode, string Message, T? Data)
 {
     public static RemoteCallResult<T> Ok(T data, int statusCode = (int)HttpStatusCode.OK, string message = "ok")
         => new(true, statusCode, message, data);
@@ -11,7 +11,7 @@ internal sealed record RemoteCallResult<T>(bool Success, int StatusCode, string 
         => new(false, statusCode, message, default);
 }
 
-internal sealed record RemoteBinaryCallResult(
+public sealed record RemoteBinaryCallResult(
     bool Success,
     int StatusCode,
     string Message,
