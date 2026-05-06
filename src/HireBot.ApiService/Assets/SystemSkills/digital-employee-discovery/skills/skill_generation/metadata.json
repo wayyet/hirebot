@@ -1,7 +1,7 @@
 {
   "name": "skill_generation",
   "display_name": "技能生成",
-  "description": "根据雇佣教练 handoff todo、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并写入当前沙箱 skills/ 目录。",
+  "description": "根据雇佣教练 todo 工单、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并写入当前沙箱 skills/ 目录。",
   "triggers": [
     "生成技能",
     "创建 skill",
@@ -9,15 +9,15 @@
     "技能包",
     "SkillSpec",
     "metadata.json",
-    "handoff todo",
+    "todo 工单",
     "dispatch skill_generation"
   ],
   "capabilities": [
     {
       "id": "consume_employment_coach_handoff",
-      "goal": "接收 employment-coach-conversation 阶段二 dispatch 的 handoff todo，并按 todo id 生成或更新业务 skill",
+      "goal": "接收 employment-coach-conversation 阶段二 dispatch 的 todo 工单，并按 todo id 生成或更新业务 skill",
       "inputs": [
-        "handoff todo id",
+        "todo 工单 id",
         "payload.skill_name",
         "payload.skill_description",
         "payload.trigger",
@@ -36,9 +36,9 @@
     },
     {
       "id": "parse_skill_input",
-      "goal": "入口分流并识别 handoff todo、会话描述、上传文件、混合输入或更新请求",
+      "goal": "入口分流并识别 todo 工单、会话描述、上传文件、混合输入或更新请求",
       "inputs": [
-        "handoff todo payload",
+        "todo 工单 payload",
         "用户会话描述",
         "上传文件内容",
         "当前 skills 目录快照"

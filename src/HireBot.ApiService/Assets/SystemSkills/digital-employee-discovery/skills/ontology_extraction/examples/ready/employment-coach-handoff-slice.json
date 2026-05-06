@@ -150,7 +150,7 @@
         "C1"
       ],
       "selected_concept_id": "C1",
-      "reason": "用户 handoff todo 的 intent 明确指向非标退货场景。"
+      "reason": "用户 todo 工单 的 intent 明确指向非标退货场景。"
     }
   ],
   "ambiguities": [],
@@ -166,7 +166,7 @@
     "generated_at": "2026-04-30T00:00:00Z",
     "generated_by": "ontology_extraction",
     "workspace": "employment-coach-sandbox",
-    "notes": "该 slice 覆盖 handoff todo m_cs_nonstandard_rules_001，source 与 acceptance 已进入结构化 handoff 元数据。",
+    "notes": "该 slice 覆盖 todo 工单 m_cs_nonstandard_rules_001，source 与 acceptance 已进入结构化 handoff 元数据。",
     "handoff": {
       "source_dispatch_target": "ontology_extraction",
       "todo_ids": [

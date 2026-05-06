@@ -1,13 +1,13 @@
 ---
 name: external_config
-description: 根据雇佣教练阶段三 external handoff todo，生成外部系统连接配置初稿，并仅写入当前沙箱 external/ 目录。用于处理 read/write/notify/search/transform 外部能力、skip 记录、字段映射占位和凭据槽位引用；不要用于对话引导、收集真实凭据、修改 handoff todo 状态、生成业务 skill、执行本体提取或实例打包。
+description: 根据雇佣教练阶段三 external todo 工单，生成外部系统连接配置初稿，并仅写入当前沙箱 external/ 目录。用于处理 read/write/notify/search/transform 外部能力、skip 记录、字段映射占位和凭据槽位引用；不要用于对话引导、收集真实凭据、修改 todo 工单状态、生成业务 skill、执行本体提取或实例打包。
 metadata: {"openclaw":{"emoji":"🔌"}}
 license: Proprietary. NCrew employment-coach internal flow.
 ---
 
 # External Config
 
-当 `employment-coach-conversation` 通过 `<dispatch target=external_config>` 交接阶段三 handoff todo 时，使用本 skill。
+当 `employment-coach-conversation` 通过 `<dispatch target=external_config>` 交接阶段三 todo 工单时，使用本 skill。
 
 本 skill 的职责是把已经明确的外部能力需求落成可审阅、可校验、可继续由实例包消费的配置草案。它不负责和业务用户继续追问需求，也不负责真正调用外部系统。
 
@@ -15,7 +15,7 @@ license: Proprietary. NCrew employment-coach internal flow.
 
 使用本 skill 当：
 
-- 输入包含 `stage: external`、`target_skill: external_config` 的 handoff todo
+- 输入包含 `stage: external`、`target_skill: external_config` 的 todo 工单
 - 需要为 CRM、ERP、IM、工单、自研系统等生成读取、写入、通知、搜索或转换配置
 - 需要记录用户明确表示“不接外部系统”的 skip 状态
 - 需要把凭据形式映射成安全的凭据槽位引用
@@ -24,7 +24,7 @@ license: Proprietary. NCrew employment-coach internal flow.
 
 - 还需要引导用户说清楚外部能力，这属于 `employment-coach-conversation`
 - 需要从会话文本中读取、追问或验证真实 token、密码、API Key、连接串
-- 需要修改 handoff todo 状态
+- 需要修改 todo 工单状态
 - 需要写 `ontology/`、`skills/`、`config/` 或 `memory.md`
 - 需要直接调用外部系统做联通性测试
 
@@ -41,7 +41,7 @@ license: Proprietary. NCrew employment-coach internal flow.
 
 ## Employment Coach Handoff Mode
 
-输入来自雇佣教练阶段三 dispatch 时，优先按 handoff todo 处理，不要把它当普通会话描述重新抽取。
+输入来自雇佣教练阶段三 dispatch 时，优先按 todo 工单处理，不要把它当普通会话描述重新抽取。
 
 输入形态：
 
@@ -50,7 +50,7 @@ dispatch:
   target: external_config
   todos: [e_xiaoshouyi_read_order_001]
 
-handoff_todos:
+todos:
   - id: e_xiaoshouyi_read_order_001
     stage: external
     target_skill: external_config
@@ -83,7 +83,7 @@ handoff_todos:
 
 ## Secure Credential Input Mode
 
-真实凭据只能从系统层的安全表单 / 安全存储通道进入本 skill，不能来自用户会话文本或 handoff todo payload。
+真实凭据只能从系统层的安全表单 / 安全存储通道进入本 skill，不能来自用户会话文本或 todo 工单 payload。
 
 当系统层传入安全凭据上下文时，输入形态应类似：
 
@@ -121,7 +121,7 @@ external/
 
 - `external-config.index.json`：外部配置总索引，列出所有能力、系统、skip 记录和校验摘要。
 - `systems/<system-slug>.json`：按目标系统聚合认证形式、凭据槽位、能力列表和安全说明。
-- `capabilities/<todo-id>.json`：每条 handoff todo 的主配置草案；`kind: skip` 也使用同一路径记录。
+- `capabilities/<todo-id>.json`：每条 todo 工单的主配置草案；`kind: skip` 也使用同一路径记录。
 - `README.md`：给人工审阅的短说明，不包含任何真实凭据。
 
 输出模板见 [templates/capability.template.json](templates/capability.template.json)、[templates/skip.template.json](templates/skip.template.json) 与 [templates/index.template.json](templates/index.template.json)。

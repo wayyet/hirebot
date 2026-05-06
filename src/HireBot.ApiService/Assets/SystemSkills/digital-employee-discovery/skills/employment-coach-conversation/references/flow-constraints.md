@@ -18,7 +18,7 @@
 
 把强弱差异、卡点、最容易判错的地方，全部转化进 `skill_description`，不要只写"它会处理 X"。
 
-字段明确度对照、handoff todo 字段定义见 [handoff-todo-schema.md](./handoff-todo-schema.md) 阶段 2 部分。
+字段明确度对照、todo 工单字段定义见 [handoff-todo-schema.md](./handoff-todo-schema.md) 阶段 2 部分。
 
 ## 阶段 3 引导细则
 
@@ -77,7 +77,7 @@
 
 每次发 dispatch 前、和最终给出口信号前，对照检查：
 
-- [ ] 当前阶段的所有 handoff todo 是否都达到下游可消化的明确度
+- [ ] 当前阶段的所有 todo 工单是否都达到下游可消化的明确度
 - [ ] todo id 是否稳定（同一意图反复出现没有产生新 id）
 - [ ] 是否有 todo 被用户口头撤销但还停在 `ready_to_dispatch`
 - [ ] 是否在配置文件治理的反问待确认状态中错误地发了 dispatch

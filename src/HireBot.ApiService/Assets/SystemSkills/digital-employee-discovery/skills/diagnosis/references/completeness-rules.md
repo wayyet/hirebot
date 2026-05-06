@@ -5,8 +5,8 @@
 ## 通用判断顺序
 
 1. 先读取模板完备性清单，按 `required`、`recommended`、`optional` 分类建立缺口表。
-2. 再读取 handoff todo，按 `stage` 和 `status` 归类。
-3. 只有 `confirmed` 的 handoff todo 可直接满足完备性项。
+2. 再读取 todo 工单，按 `stage` 和 `status` 归类。
+3. 只有 `confirmed` 的 todo 工单 可直接满足完备性项。
 4. `ready_to_dispatch`、`dispatched`、`dirty`、`needs_review` 只能作为存在证据，不能算完成。
 5. 下游 artifacts 只能作为佐证；如果没有对应 confirmed todo，不单独算完成。
 6. 用户明确撤销的 `dismissed` todo 不参与满足判断，但可以解释为什么某项仍缺。
@@ -15,9 +15,9 @@
 
 必须检查：
 
-- 是否至少有 1 条 `stage: material` 的 handoff todo 已 `confirmed`
+- 是否至少有 1 条 `stage: material` 的 todo 工单 已 `confirmed`
 - 是否覆盖完备性清单要求的资料类型，如业务对象定义、决策规则、流程 SOP、案例库、边界与约束、风格语料
-- 是否有上传资料未被任何 material handoff todo 归类
+- 是否有上传资料未被任何 material todo 工单 归类
 - 是否有 material todo 处于 `ready_to_dispatch`、`dispatched`、`dirty` 或 `needs_review`
 - 最新 `ontology_extraction` callback 是否 `failed` 或 `partial`
 
@@ -33,18 +33,18 @@
 
 - `d_material_required_source_001`: 还缺至少一份可用于抽取本体的业务资料
 - `d_material_decision_rules_required_001`: 还缺决策规则类资料
-- `d_material_unclassified_uploads_001`: 有上传资料尚未归类到 handoff todo
+- `d_material_unclassified_uploads_001`: 有上传资料尚未归类到 todo 工单
 - `d_material_callback_failed_001`: 本体提取回传失败或部分失败，需要重走
 
 ## 阶段 2：skill
 
 必须检查：
 
-- 是否至少有 1 条 `stage: skill` 的 handoff todo 已 `confirmed`
+- 是否至少有 1 条 `stage: skill` 的 todo 工单 已 `confirmed`
 - confirmed skill 是否具备 `payload.skill_name`、`payload.skill_description`、`payload.trigger`、`payload.expected_output`
 - 是否满足完备性清单要求的主线 skill 数量或类别
 - 是否有用户提到的能力只停留在 drafting / ready_to_dispatch
-- 已生成的 `skills/` 产物是否能通过 callback、artifact 或 todo id 对应回 handoff todo
+- 已生成的 `skills/` 产物是否能通过 callback、artifact 或 todo id 对应回 todo 工单
 
 字段明确度判断：
 
@@ -66,13 +66,13 @@
 - `d_skill_main_required_001`: 主线 skill 数量不足
 - `d_skill_trigger_missing_001`: skill 缺少可识别触发条件
 - `d_skill_expected_output_missing_001`: skill 缺少明确输出形态
-- `d_skill_artifact_uncorrelated_001`: 生成产物无法对应到 handoff todo
+- `d_skill_artifact_uncorrelated_001`: 生成产物无法对应到 todo 工单
 
 ## 阶段 3：external
 
 必须检查：
 
-- 是否存在 confirmed 的 `external` handoff todo，或 confirmed 的 `payload.kind: skip`
+- 是否存在 confirmed 的 `external` todo 工单，或 confirmed 的 `payload.kind: skip`
 - 每条 external todo 是否明确 `category`、`payload.objective`、`payload.target_system`
 - `payload.linked_skills` 指向的 skill todo 是否存在且已 confirmed
 - 是否满足完备性清单要求的 read / write / notify / search / transform 能力
@@ -107,14 +107,14 @@
 - `agent.md` 中的判定规则、红线、阈值、必转条件是否和 confirmed skill 冲突
 - `agent.md` 的数据访问范围是否和 external todo 冲突
 - `soul.md` 的使命范围是否让已有 skill 明显越界或遗漏关键能力
-- 是否存在 `needs_review` 的 handoff todo
+- 是否存在 `needs_review` 的 todo 工单
 - 是否存在 `dirty` 或仍在 `dispatched` 的必需相关 todo
 
 常见诊断 todo：
 
 - `d_cross_agent_rule_conflict_001`: agent.md 规则与已确认 skill 存在冲突
 - `d_cross_data_scope_conflict_001`: 数据访问范围与外部能力不一致
-- `d_cross_needs_review_001`: 存在待复核 handoff todo
+- `d_cross_needs_review_001`: 存在待复核 todo 工单
 - `d_cross_pending_dispatch_001`: 必需项仍在等待下游回传
 
 ## 出口判定

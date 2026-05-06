@@ -31,7 +31,7 @@
 
 雇佣教练 (`employment-coach-conversation`) 是雇佣教练产品中**对话引导子 skill**。
 
-它的唯一职责是：在业务用户进入沙箱、选定模板后，按"资料 → 技能 → 外部"三个阶段进行对话引导，把用户的需求**沉淀成可被下游 skill 直接消化的结构化工单（handoff todo）**，并在合适的时机发出 `<dispatch>` 信号让系统调起对应的下游 skill。
+它的唯一职责是：在业务用户进入沙箱、选定模板后，按"资料 → 技能 → 外部"三个阶段进行对话引导，把用户的需求**沉淀成可被下游 skill 直接消化的结构化 todo 工单**，并在合适的时机发出 `<dispatch>` 信号让系统调起对应的下游 skill。
 
 它**不**：
 - 不实现本体提取、技能生成、外部配置、诊断、打包
@@ -40,7 +40,7 @@
 - 不暴露平台架构、orchestrator、hooks、沙箱机制等内部概念给用户
 
 它**会**：
-- 维护 handoff todo 的生命周期（drafting → ... → confirmed）
+- 维护 todo 工单的生命周期（drafting → ... → confirmed）
 - 监听用户对 `soul.md` / `identity.md` / `agent.md` 的修改意图，按混合反问机制写入
 - 在 dispatch 后等回传期间继续合理对话
 - 在所有阶段必需项达成时输出"建议进入阶段 4"的出口信号
@@ -70,7 +70,7 @@
 
 - 本 skill 输出 `<dispatch>` → 主 skill 拦截 → 调起对应下游 skill
 - 下游 skill 完成后通过主 skill 回传 `user_summary` + 已落盘的产物路径
-- 本 skill 把 user_summary 复述给用户、等用户确认、把对应 handoff todo 状态切到 `confirmed`
+- 本 skill 把 user_summary 复述给用户、等用户确认、把对应 todo 工单状态切到 `confirmed`
 
 ---
 
@@ -103,21 +103,21 @@
        │
        ▼
 ┌────────────────────────────────────────────────────────────┐
-│ 阶段 1：资料  ──→  handoff todo (target=ontology_extraction)│
+│ 阶段 1：资料  ──→  todo 工单 (target=ontology_extraction)│
 │   引导上传资料 → 边传边定 todo → 达到最低门槛 → dispatch  │
 │   等回传 → 复述确认 → confirmed → 解锁阶段 2               │
 └────────────────────────────────────────────────────────────┘
        │
        ▼
 ┌────────────────────────────────────────────────────────────┐
-│ 阶段 2：技能  ──→  handoff todo (target=skill_generation) │
+│ 阶段 2：技能  ──→  todo 工单 (target=skill_generation) │
 │   story-driven 引导 → 抽出明确 name+description → dispatch │
 │   等回传 → 复述确认 → confirmed → 解锁阶段 3               │
 └────────────────────────────────────────────────────────────┘
        │
        ▼
 ┌────────────────────────────────────────────────────────────┐
-│ 阶段 3：外部  ──→  handoff todo (target=external_config)  │
+│ 阶段 3：外部  ──→  todo 工单 (target=external_config)  │
 │   紧扣已有 skill 引导 → category+objective+target_system   │
 │   每条达到明确度 → dispatch（凭据走表单，不入会话）        │
 │   等回传 → 复述确认 → confirmed                           │
@@ -136,7 +136,7 @@
 
 阶段解锁规则：
 - 未走过的阶段：严格按 1 → 2 → 3 顺序解锁
-- "走过" = 该阶段产生过至少一份 confirmed handoff todo（外部阶段也可以是 `kind: skip` 的 todo）
+- "走过" = 该阶段产生过至少一份 confirmed todo 工单（外部阶段也可以是 `kind: skip` 的 todo）
 - 走过的阶段：用户可任意跳回修改（系统提供入口），本 skill 进入对应阶段引导
 
 ---
@@ -149,17 +149,17 @@
 
 ### 5.2 阶段最低门槛
 
-至少 1 份资料被指认归类，且对应的 handoff todo 明确写出"要从中抽什么分类的本体 + 目标"。
+至少 1 份资料被指认归类，且对应的 todo 工单明确写出"要从中抽什么分类的本体 + 目标"。
 
 ### 5.3 引导动作（本 skill 在会话中做什么）
 
 1. 从 soul / identity 推断 `scene_hint`（客服 / 销售 / 内勤 / 营销 / 法务 / 技术 / 模糊）
 2. 按场景类型发出"first ask"，让用户拿出最有用的第一批资料
 3. 用 story-driven 方式追真实场景，不让用户感觉在填材料目录
-4. 每收到一份资料 → 实时形成 / 更新 handoff todo（边传边归类）
+4. 每收到一份资料 → 实时形成 / 更新 todo 工单（边传边归类）
 5. 用户表示"先这些" + 至少 1 条 todo 达明确度 → 触发 dispatch
 
-### 5.4 产出：handoff todo
+### 5.4 产出：todo 工单
 
 每条 todo 的结构：
 
@@ -263,10 +263,10 @@ note: 客服场景第一批，含决策规则与风格语料
 1. 从用户最近真实场景拉出"它最应该顶的一类事"
 2. 用 story-driven 方式追：上次怎么处理 / 哪步最容易卡 / 强弱差异 / 做坏会怎样
 3. 把强弱差异、卡点、最容易判错的地方转化进 `skill_description`
-4. 一条一条 skill 形成 handoff todo
+4. 一条一条 skill 形成 todo 工单
 5. 至少 1 条达明确度 + 用户表态 → dispatch
 
-### 6.4 产出：handoff todo
+### 6.4 产出：todo 工单
 
 ```yaml
 id: s_<keyword>_<seq>
@@ -345,7 +345,7 @@ note: 三条退货咨询主线 skill
 3. 凭据红线：在会话里发现凭据值立刻挡回表单
 4. 每条达明确度即可 dispatch（不必等"先这些"）
 
-### 7.4 产出：handoff todo
+### 7.4 产出：todo 工单
 
 ```yaml
 id: e_<system>_<verb>_<seq>
@@ -399,7 +399,7 @@ status: drafting → ready_to_dispatch → dispatched → confirmed
 ### 7.6 凭据规则（强约束 / 安全相关）
 
 - token / 密钥 / 密码 / API Key 等**绝不在会话里收集**
-- handoff todo 的 `auth_kind` 字段只描述凭据形式，不带值
+- todo 工单的 `auth_kind` 字段只描述凭据形式，不带值
 - 凭据由用户在右侧表单填写 → 系统层直接交给 `external_config` 下游 skill → 本 skill 永不接触凭据值
 
 ### 7.7 跳过分支
@@ -434,7 +434,7 @@ note: <可选，给系统/下游的简短上下文>
 | 字段 | 类型 | 必需 | 含义 |
 |---|---|---|---|
 | target | string | 是 | 取值见下表 |
-| todos | string[] | 是 | 本次交接的 handoff todo id 列表，必须存在且状态为 `ready_to_dispatch` 或 `dirty` |
+| todos | string[] | 是 | 本次交接的 todo id 列表，必须存在且状态为 `ready_to_dispatch` 或 `dirty` |
 | mode | string | 否 | 阶段相关，目前只有 ontology_extraction 用：`incremental` / `full_replace` |
 | note | string | 否 | 给系统 / 下游的简短上下文，纯描述性 |
 
@@ -601,7 +601,7 @@ governance_review_proposal:
 
 ## 11. 与诊断 skill 的协作边界
 
-| 维度 | 本 skill 的 handoff todo | 诊断 skill 的诊断 todo |
+| 维度 | 本 skill 的 todo 工单 | 诊断 skill 的诊断 todo |
 |---|---|---|
 | 回答的问题 | "差的部分要交给谁、要带什么去" | "还差什么" |
 | 触发条件 | 引导对话中沉淀出来 | 状态变化后重新评估完备性清单的差距 |
@@ -613,7 +613,7 @@ governance_review_proposal:
 
 UI 合并展示规则由系统层决定，本 skill 不关心。建议合并展示策略：
 - 同一阶段 + 同一意图的两类 todo 合并显示
-- handoff todo 强调"正在做什么 / 已经做到哪一步"
+- todo 工单强调"正在做什么 / 已经做到哪一步"
 - 诊断 todo 强调"还差什么 / 是否必需"
 
 ---
@@ -633,7 +633,7 @@ UI 合并展示规则由系统层决定，本 skill 不关心。建议合并展�
 
 ### 12.2 阶段产出全清单
 
-| 阶段 | handoff todo | dispatch | 回传后状态 |
+| 阶段 | todo 工单 | dispatch | 回传后状态 |
 |---|---|---|---|
 | 阶段 1 资料 | M01: 非标退货判定规则<br>M02: 客服话术风格 | `<dispatch target=ontology_extraction todos=[M01, M02] mode=incremental>` | M01, M02 → confirmed |
 | 阶段 2 技能 | S01: 7天无理由退货初判<br>S02: 非标退货资格预判<br>S03: 退款进度查询与解释 | `<dispatch target=skill_generation todos=[S01, S02, S03]>` | S01-S03 → confirmed |
@@ -705,7 +705,7 @@ UI 合并展示规则由系统层决定，本 skill 不关心。建议合并展�
 
 **诊断协作**
 - [ ] 本 skill 每次收到 dispatch_callback 后，主 skill 调诊断 skill 重跑
-- [ ] 诊断 todo 与 handoff todo 在 UI 上合并展示
+- [ ] 诊断 todo 与 todo 工单在 UI 上合并展示
 
 **中断恢复**
 - [ ] 用户回到会话时，会话历史 + todo list + 4 个 md 内容能完整还原

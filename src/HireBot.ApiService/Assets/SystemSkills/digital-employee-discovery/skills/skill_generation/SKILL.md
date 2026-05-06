@@ -1,12 +1,12 @@
 ---
 name: skill_generation
-description: 根据雇佣教练 handoff todo、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并仅写入当前沙箱 skills/ 目录。
+description: 根据雇佣教练 todo 工单、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并仅写入当前沙箱 skills/ 目录。
 metadata: {"openclaw":{"emoji":"🧩"}}
 ---
 
 # Skill Generation
 
-当用户要求根据雇佣教练阶段二 handoff todo、描述、Markdown、文本、JSON、YAML 或 zip 文件创建、更新、合并、规范化业务技能包时，使用本技能。
+当用户要求根据雇佣教练阶段二 todo 工单、描述、Markdown、文本、JSON、YAML 或 zip 文件创建、更新、合并、规范化业务技能包时，使用本技能。
 
 本技能的职责是生成以 `SKILL.md` 为核心的业务技能包。核心思想是先把非结构化输入抽取为统一的 SkillSpec，再映射到固定模板，生成后通过最小质量校验，通过后才落盘。生成过程中严格区分输入来源、提炼说明、产物质量和消费契约，确保生成过程可审阅、可复盘、可迁移。
 
@@ -17,13 +17,13 @@ metadata: {"openclaw":{"emoji":"🧩"}}
 - 会话描述：例如“它要会处理退货咨询、订单查询”。
 - 上传文件：Markdown、文本、JSON、YAML 或 zip。
 - 混合输入：上传文件作为基线，会话描述作为增量补充。
-- 雇佣教练 handoff todo：由上游 `employment-coach-conversation` 通过 `<dispatch target=skill_generation>` 交接的结构化 todo。
+- 雇佣教练 todo 工单：由上游 `employment-coach-conversation` 通过 `<dispatch target=skill_generation>` 交接的结构化 todo。
 
 同时读取当前沙箱 `skills/` 目录快照，用于同名覆盖、异名新增和去重。
 
 ## Employment Coach Handoff Mode
 
-当输入来自雇佣教练阶段二 dispatch 时，优先按 handoff todo 处理，而不是把它当普通会话描述重新追问。
+当输入来自雇佣教练阶段二 dispatch 时，优先按 todo 工单处理，而不是把它当普通会话描述重新追问。
 
 输入形态：
 
@@ -32,7 +32,7 @@ dispatch:
   target: skill_generation
   todos: [s_refund_init_001, s_refund_progress_001]
 
-handoff_todos:
+todos:
   - id: s_refund_init_001
     stage: skill
     target_skill: skill_generation
@@ -102,7 +102,7 @@ handoff_todos:
 
 先判断请求路径：
 
-- handoff 路径：输入包含 `target_skill: skill_generation` 的 handoff todo，且 payload 已含 `skill_name`、`skill_description`、`trigger`、`expected_output`。
+- todo 路径：输入包含 `target_skill: skill_generation` 的 todo 工单，且 payload 已含 `skill_name`、`skill_description`、`trigger`、`expected_output`。
 - 直接路径：用户已经给出明确业务域、触发词、能力或上传了候选 skill 文件。
 - 模糊路径：用户只说“帮我做个 skill”“把这些能力整理成 skill”，但缺少业务域、能力边界或产物目标。
 - 更新路径：现有 `skills/<skill_slug>/` 已存在，需要同名覆盖、增量合并或跳过。
@@ -138,7 +138,7 @@ skills/<skill_slug>/
 
 对不同输入执行不同采集策略：
 
-- handoff todo：保留 todo id、intent、payload、source、acceptance，写入 `references/source-digest.md` 的 handoff source 区块。
+- todo 工单：保留 todo id、intent、payload、source、acceptance，写入 `references/source-digest.md` 的 todo source 区块。
 - 会话描述：保留用户原话，写入 `references/source-digest.md` 的 conversation source 区块。
 - 上传文件：解析 Markdown、文本、JSON、YAML；zip 递归读取候选 skill 文件；保留文件清单、解析结论和不可解析项。
 - 混合输入：上传文件作为基线，会话描述作为增量补充，不用会话描述覆盖文件里更明确的能力定义。
@@ -205,9 +205,9 @@ skills/<skill_slug>/
 
 ## 兼容执行清单
 
-1. 输入判型：判断是 handoff todo、会话描述、上传文件还是混合输入。
+1. 输入判型：判断是 todo 工单、会话描述、上传文件还是混合输入。
 2. 内容解析：
-  - handoff todo：读取 `payload.skill_name`、`payload.skill_description`、`payload.trigger`、`payload.expected_output`、`from_upload`、`source`、`acceptance`，保留 todo id。
+  - todo 工单：读取 `payload.skill_name`、`payload.skill_description`、`payload.trigger`、`payload.expected_output`、`from_upload`、`source`、`acceptance`，保留 todo id。
    - 会话描述：抽取触发词、能力项、输入、输出、边界和示例。
    - 上传文件：解析 Markdown、文本、JSON、YAML，并映射到 SkillSpec。
    - zip 文件：递归读取候选 skill 文件，优先保留原文件能力定义，再结构化归一。

@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using HireBot.Abstraction.Models.EmployeeTemplate;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Core.Services.Hiring;
 using HireBot.Core.Services.Hiring.Discovery;
@@ -108,6 +109,35 @@ public class EmployeeHiringServiceTests
         Assert.Contains("提升客户服务闭环效率", firstCaseTitle);
         Assert.Contains("evaluation-expert", testCasesJson);
         Assert.Contains("红线原则", skillSummary);
+    }
+
+    [Fact]
+    public void BuildReferenceTemplatePrimingContent_ShouldInlineSummaryAndForbidAskingForAttachmentContent()
+    {
+        var template = new EmployeeTemplateDefinition(
+            TemplateId: "employment-coach",
+            IconUrl: "https://example.com/icon.png",
+            Name: "雇佣教练",
+            Tagline: "帮你把模板配上岗",
+            Description: "引导用户完成资料、技能和外部能力配置。",
+            CoreAbilityTags: ["流程引导"],
+            HiredCount: 12,
+            SuccessRate: 0.97m,
+            AvgRating: 4.8m,
+            IsAvailable: true,
+            CoreAbilities: ["资料归类", "技能拆解"],
+            InScope: ["雇佣流程"],
+            OutOfScope: ["直接写业务代码"],
+            Prerequisites: [],
+            SuccessCases: ["帮助客服团队整理退货流程"]);
+
+        var templatePackage = CreateTemplatePackage();
+        var content = EmployeeHiringService.BuildReferenceTemplatePrimingContent(template, templatePackage);
+
+        Assert.Contains("参考模板摘要", content, StringComparison.Ordinal);
+        Assert.Contains("模板 ID: employment-coach", content, StringComparison.Ordinal);
+        Assert.Contains("模板名称: 雇佣教练", content, StringComparison.Ordinal);
+        Assert.Contains("不要向用户索取你已经收到的附件内容", content, StringComparison.Ordinal);
     }
 
     private static HiringRuntimeContext CreateRuntimeContext(TemplatePackageDefinition templatePackage)

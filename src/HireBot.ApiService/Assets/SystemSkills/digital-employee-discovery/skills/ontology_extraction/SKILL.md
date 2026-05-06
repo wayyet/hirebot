@@ -58,7 +58,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 
 ## Employment Coach Handoff Contract
 
-当本 skill 由 `employment-coach-conversation` 通过 `<dispatch target=ontology_extraction>` 调起时，输入是一组阶段一 material handoff todos。优先按 handoff todo 处理，不要把它当普通会话描述重新追问或重新归类。
+当本 skill 由 `employment-coach-conversation` 通过 `<dispatch target=ontology_extraction>` 调起时，输入是一组阶段一 material todo 工单。优先按 todo 工单处理，不要把它当普通会话描述重新追问或重新归类。
 
 输入形态：
 
@@ -68,7 +68,7 @@ dispatch:
   todos: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
   mode: incremental
 
-handoff_todos:
+todos:
   - id: m_cs_nonstandard_rules_001
     stage: material
     target_skill: ontology_extraction

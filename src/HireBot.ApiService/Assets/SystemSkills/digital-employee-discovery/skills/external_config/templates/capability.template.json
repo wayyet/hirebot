@@ -26,7 +26,7 @@
     "mapping": []
   },
   "acceptance": "external/ contains a draft capability config and field placeholders.",
-  "sourceDigest": "External handoff todo source summary without secrets.",
+  "sourceDigest": "External todo 工单 source summary without secrets.",
   "status": "draft",
   "validation": {
     "passed": true,

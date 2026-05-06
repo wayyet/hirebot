@@ -1,15 +1,15 @@
 # external_config 规范包
 
-`external_config` 是雇佣教练流程阶段三的下游执行型 skill。它接收 `employment-coach-conversation` 产出的 external handoff todo，把“要接哪个外部系统、做什么能力、需要哪些字段和认证形式”落成沙箱内 `external/` 目录下的配置草案。
+`external_config` 是雇佣教练流程阶段三的下游执行型 skill。它接收 `employment-coach-conversation` 产出的 external todo 工单，把“要接哪个外部系统、做什么能力、需要哪些字段和认证形式”落成沙箱内 `external/` 目录下的配置草案。
 
-它不做对话引导，不收集真实凭据，不修改 handoff todo 状态，也不直接调用外部系统。
+它不做对话引导，不收集真实凭据，不修改 todo 工单状态，也不直接调用外部系统。
 
 ## 目录结构
 
 - `SKILL.md`：skill 主入口，定义何时触发、输入合约、输出目录和安全红线。
 - `README.md`：当前规范包总览。
 - `references/`
-  - `handoff-contract.md`：雇佣教练 handoff todo 到 external 配置的字段映射。
+  - `handoff-contract.md`：雇佣教练 todo 工单到 external 配置的字段映射。
   - `output-layout.md`：`external/` 目录与 JSON 结构约定。
   - `security-and-validation.md`：凭据安全、校验规则和失败策略。
 - `templates/`
@@ -19,7 +19,7 @@
 ## 最小运行链路
 
 1. 主 skill 拦截 `<dispatch target=external_config>`。
-2. 系统层把本次 `todos` 对应的 external handoff todo 传给 `external_config`。
+2. 系统层把本次 `todos` 对应的 external todo 工单传给 `external_config`。
 3. `external_config` 校验字段、扫描疑似凭据、生成 capability 与 system 配置草案。
 4. 如系统层提供安全表单凭据上下文，只绑定 `credentialSlot` / `secretRef`，不把真实值写入普通产物。
 5. 产物写入沙箱 `external/`。
@@ -41,8 +41,8 @@
 
 | skill | 职责 | 是否写 `external/` |
 | --- | --- | --- |
-| `employment-coach-conversation` | 引导用户，生成 external handoff todo，发 dispatch | 否 |
-| `external_config` | 把 external handoff todo 落成配置草案 | 是 |
+| `employment-coach-conversation` | 引导用户，生成 external todo 工单，发 dispatch | 否 |
+| `external_config` | 把 external todo 工单落成配置草案 | 是 |
 | `diagnosis` | 只读检查 external 阶段是否完整、安全 | 否 |
 | 主 skill / 系统层 | 调度、传递 callback、维护流程状态 | 视系统实现 |
 

@@ -1,6 +1,6 @@
 ---
 name: employment-coach-conversation
-description: "雇佣教练的阶段化对话引导核心。用于业务用户在沙箱内雇佣 / 装配数字员工时，按『资料 → 技能 → 外部』三阶段引导对话，沉淀面向下游 skill 的交接清单（handoff todos），在合适时机输出系统可识别的下游调用信号；并承担 soul / identity / agent 三份配置文件的对话监听与混合反问治理。当用户已选定模板进入会话窗口、需要按阶段引导对话、需要为本体提取 / 技能生成 / 外部配置等下游 skill 准备明确的工单时，必须使用本 skill。不要用于一次性方案咨询（请用 digital-employee-discovery 或 ncrew-discovery）、还没初始化沙箱的场景、或需要直接执行本体提取 / 技能生成 / 外部配置 / 诊断 / 打包的场景——那些由对应下游 skill 完成。"
+description: "雇佣教练的阶段化对话引导核心。用于业务用户在沙箱内雇佣 / 装配数字员工时，按『资料 → 技能 → 外部』三阶段引导对话，沉淀面向下游 skill 的阶段工单，在合适时机输出系统可识别的下游调用信号；并承担 soul / identity / agent 三份配置文件的对话监听与混合反问治理。当用户已选定模板进入会话窗口、需要按阶段引导对话、需要为本体提取 / 技能生成 / 外部配置等下游 skill 准备明确的工单时，必须使用本 skill。不要用于一次性方案咨询（请用 digital-employee-discovery 或 ncrew-discovery）、还没初始化沙箱的场景、或需要直接执行本体提取 / 技能生成 / 外部配置 / 诊断 / 打包的场景——那些由对应下游 skill 完成。"
 license: Proprietary. NCrew employment-coach internal flow.
 ---
 
@@ -35,23 +35,33 @@ license: Proprietary. NCrew employment-coach internal flow.
 ## 全局原则
 
 1. **阶段硬卡点**：未走过的阶段严格按"资料 → 技能 → 外部"顺序解锁；走过的阶段（产生过有效产出）由系统提供跳转入口
-2. **不偷工**：每条 handoff todo 必须达到下游可消化的明确度，不替用户决定"差不多就行"
-3. **不越权**：不直接写 `ontology/` / `skills/` / `external/` 三个目录；只写 handoff todos 和 soul / identity / agent
+2. **不偷工**：每条阶段工单都必须达到下游可消化的明确度，不替用户决定"差不多就行"
+3. **不越权**：不直接写 `ontology/` / `skills/` / `external/` 三个目录；只维护流程 todo 和 soul / identity / agent
 4. **会话流畅优先**：反问 / 确认 / 状态切换都不打断用户当前在打的字，状态变更只用一行简短反馈
 5. **业务话**：不暴露"本体切片 / CLI 接口 / orchestrator / 沙箱"这些术语
 
 > 节奏与口吻、真实场景优先、情绪信号识别、反馈风格、初始化与开场示例 → 进入会话第一轮 / 拿不准对话节奏时，读 [references/interaction-quality.md](references/interaction-quality.md)。
+
+## 结构化输出契约（必须遵守）
+
+每一轮回复都必须同时满足下面规则：
+
+1. 先写给业务用户看的自然语言回复；不要把机器字段解释给用户。
+2. 只要本轮涉及阶段工单的新建、补全、改写、撤销、确认、跳过，就必须调用 `todo` 工具，而不是在文本里输出 patch。
+3. `todo.text` 只放简短摘要；`todo.notes` 必须写严格 JSON，对应 schema 见 [references/handoff-todo-schema.md](references/handoff-todo-schema.md)。
+4. 新建用 `todo.add`，补全或改状态用 `todo.update`，最终确认或明确跳过外部系统用 `todo.complete`，用户撤销用 `todo.remove`。凡是调用 `todo.complete`，都必须同时提交最新的 `todo.notes` JSON，把 `status` 写成 `confirmed`、刷新 `updatedAtUtc`；若是跳过外部系统，还要把 `payloadJson` 写成 `{"kind":"skip"}`。
+5. 如果同一轮还需要调起下游，再在自然语言回复后追加 `<dispatch>...</dispatch>`；不要把 todo 明细塞回回复文本。
 
 ## 阶段引导通用套路
 
 每个阶段执行四件事：
 
 1. **进入引导**：一句话说清楚"这一步要谈到什么程度才算谈完"
-2. **结构化收集**：用对话推进，不是表单式追问；用户给出的内容随时整理成 handoff todo 草稿
+2. **结构化收集**：用对话推进，不是表单式追问；用户给出的内容随时整理成阶段工单草稿
 3. **明确度校验**：发 dispatch 前逐条检查 todo 是否达到下游可消化的明确度
 4. **交接 + 解锁**：发出 dispatch 信号 → 等下游回传 → 一句话向用户复述结果 → 解锁下一阶段
 
-> handoff todo 完整结构、状态机（drafting / ready_to_dispatch / dispatched / dirty / confirmed / needs_review / dismissed）、各阶段 payload 字段与明确度对照 → 每次新建或更新 todo 前，读 [references/handoff-todo-schema.md](references/handoff-todo-schema.md)。
+> todo 工具动作、`todo.notes` 完整结构、状态机（drafting / ready_to_dispatch / dispatched / dirty / confirmed / needs_review）、各阶段 payload 字段与明确度对照 → 每次新建或更新 todo 前，读 [references/handoff-todo-schema.md](references/handoff-todo-schema.md)。
 
 > dispatch 信号格式、何时不发、等回传期间用户继续说话怎么处理、回传到达时的合流、出口信号 → 第一次发 dispatch 前 / 等回传期间用户继续说话时，读 [references/dispatch-protocol.md](references/dispatch-protocol.md)。
 
@@ -59,7 +69,7 @@ license: Proprietary. NCrew employment-coach internal flow.
 
 **目的**：把用户的业务资料转换成"该抽什么本体"的明确指令。
 
-**最低门槛**：至少 1 份资料被指认归类，且对应的 handoff todo 明确写出"要从中抽什么分类的本体 + 目标"。
+**最低门槛**：至少 1 份资料被指认归类，且对应的 todo 工单明确写出"要从中抽什么分类的本体 + 目标"。
 
 **dispatch 时机**：用户表示"先这些"或"暂时就这么多" + 至少 1 条 todo 达到明确度。
 
@@ -86,7 +96,7 @@ license: Proprietary. NCrew employment-coach internal flow.
 **凭据红线（顶层强约束，安全相关，不下放到 reference）**：
 - token / 密钥 / 密码 / API Key 等**绝不在会话里收集**
 - 用户在会话里输入凭据，立刻提示"这类信息请填到右侧表单，不要在对话里发"
-- handoff todo 里只描述凭据形式（OAuth / Bearer Token / 长期 Key 等），**不写凭据值**
+- todo 工单里只描述凭据形式（OAuth / Bearer Token / 长期 Key 等），**不写凭据值**
 
 > 阶段 3 引导话术、紧扣已有 skills 的套路、跳过分支、字段定义 → 进入阶段 3 之前，读 [references/flow-constraints.md](references/flow-constraints.md) 阶段 3 部分；字段定义见 [references/handoff-todo-schema.md](references/handoff-todo-schema.md) 阶段 3。
 
@@ -102,7 +112,7 @@ license: Proprietary. NCrew employment-coach internal flow.
 
 **memory.md 红线**：任何情况下不修改。
 
-**改动反向触发已 confirmed handoff todo 复核**：仅在判定 / 边界 / 数据访问范围层面改动时提醒，改名字 / 改口吻不触发。
+**改动反向触发已 confirmed todo 复核**：仅在判定 / 边界 / 数据访问范围层面改动时提醒，改名字 / 改口吻不触发。
 
 > 监听关键词集合、混合反问的高低置信度详细处理、用户回应分支（肯定 / 否定 / 答非所问）、连续修改处理、改动反向触发复核的影响判定表 → 识别到对话中含有身份描述类 + 修改类动词同时出现时，读 [references/config-file-governance.md](references/config-file-governance.md)。
 
@@ -115,7 +125,7 @@ license: Proprietary. NCrew employment-coach internal flow.
 - 不做本体提取（ontology_extraction skill 的事）
 - 不做 skill 文件生成（skill_generation skill 的事）
 - 不做外部系统的 endpoint / token 校验和落盘（external_config skill 的事）
-- 不做诊断（diagnosis skill 的事，本 skill 的 handoff todo 与诊断 todo 是两套东西）
+- 不做诊断（diagnosis skill 的事，本 skill 的流程 todo 与诊断 todo 是两套东西）
 - 不做实例打包（主 skill 在阶段 4 自己做的事）
 - 不修改 memory.md
 - 不直接写入 ontology / skills / external 三个目录

@@ -1,6 +1,6 @@
 # Diagnostic Output Schema
 
-本文件定义 `diagnosis` skill 的唯一输出结构。诊断报告是只读评估结果，不是 handoff todo，不驱动下游 skill 直接执行。
+本文件定义 `diagnosis` skill 的唯一输出结构。诊断报告是只读评估结果，不是 todo 工单，不驱动下游 skill 直接执行。
 
 ## 顶层结构
 
@@ -46,7 +46,7 @@ diagnostic_report:
   question: <还差什么>
   evidence: <为什么判断为缺>
   suggested_action: <建议上层流程如何继续引导>
-  related_handoff_todos: [<handoff todo id>]
+  related_handoff_todos: [<todo 工单 id>]
   status: open | resolved | dismissed | superseded
 ```
 
@@ -56,7 +56,7 @@ diagnostic_report:
 - `level` 必须来自完备性清单；清单缺失时用默认门槛并标明 `confidence: low` 或 `medium`。
 - `question` 必须描述缺口，例如“还缺一份决策规则类资料”。
 - `suggested_action` 只给上层流程参考，不得直接写成 `<dispatch>`。
-- `related_handoff_todos` 只能关联已有 handoff todo，不代表修改它们。
+- `related_handoff_todos` 只能关联已有 todo 工单，不代表修改它们。
 
 ## handoff_correlation 结构
 
@@ -69,7 +69,7 @@ diagnostic_report:
 
 常见关系：
 
-- `satisfies`: handoff todo 已 confirmed，满足某个诊断项
+- `satisfies`: todo 工单 已 confirmed，满足某个诊断项
 - `partially_satisfies`: 有相关 todo，但字段不完整或状态未确认
 - `conflicts`: 配置规则与 todo 内容冲突
 - `needs_review`: todo 已被上游治理标记为待复核
@@ -86,13 +86,13 @@ diagnostic_report:
   stage_readiness:
     material:
       status: complete
-      reason: 已有 2 条 material handoff todo confirmed，覆盖决策规则和风格语料。
+      reason: 已有 2 条 material todo 工单 confirmed，覆盖决策规则和风格语料。
     skill:
       status: partial
       reason: 已有 1 条主线 skill confirmed，但模板要求至少 2 条。
     external:
       status: missing
-      reason: 阶段尚未走到，未发现 external handoff todo。
+      reason: 阶段尚未走到，未发现 external todo 工单。
   diagnostic_todos:
     - id: d_skill_main_required_001
       stage: skill

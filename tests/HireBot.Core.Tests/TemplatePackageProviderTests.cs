@@ -1,3 +1,4 @@
+using System.Text;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.TemplatePackages;
@@ -25,6 +26,58 @@ public sealed class TemplatePackageProviderTests
         Assert.NotEmpty(package.StageRules);
         Assert.Contains(package.PackageFiles, file => file.RelativePath.Equals("config/IDENTITY.md", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(package.PackageFiles, file => file.RelativePath.Equals("ontology/ontology-slice.md", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task FileSystemDiscoveryRoleTemplatePackageProvider_LoadAsync_ShouldIncludeTodoToolContract()
+    {
+        var fileSystemProvider = CreateFileSystemTemplatePackageProvider();
+        var roleProvider = new FileSystemDiscoveryRoleTemplatePackageProvider(
+            fileSystemProvider,
+            CreateHostEnvironment(),
+            CreateConfiguration());
+
+        var package = await roleProvider.LoadAsync();
+
+        var entrySkill = Assert.Single(
+            package.PackageFiles,
+            file => file.RelativePath.Equals(
+                "skills/employment-coach-conversation/SKILL.md",
+                StringComparison.OrdinalIgnoreCase));
+        var entrySkillContent = Encoding.UTF8.GetString(entrySkill.Content);
+        Assert.Contains("`todo` 工具", entrySkillContent);
+        Assert.Contains("todo.add", entrySkillContent);
+        Assert.Contains("\"kind\":\"skip\"", entrySkillContent, StringComparison.Ordinal);
+        Assert.Contains("status` 写成 `confirmed`", entrySkillContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("<handoff_todo_patch>", entrySkillContent, StringComparison.Ordinal);
+
+        var todoSchema = Assert.Single(
+            package.PackageFiles,
+            file => file.RelativePath.Equals(
+                "skills/employment-coach-conversation/references/handoff-todo-schema.md",
+                StringComparison.OrdinalIgnoreCase));
+        var todoSchemaContent = Encoding.UTF8.GetString(todoSchema.Content);
+        Assert.Contains("todo.notes", todoSchemaContent);
+        Assert.Contains("\"targetSkill\"", todoSchemaContent);
+        Assert.Contains("todo.complete", todoSchemaContent);
+        Assert.Contains("`status` 写成 `confirmed`", todoSchemaContent, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CoachSystemPrompt_ShouldRequireTodoToolContract()
+    {
+        var apiRoot = ResolveApiServiceRoot();
+        var promptPath = Path.Combine(apiRoot, "Assets", "md", "coach-system-prompt.md");
+
+        Assert.True(File.Exists(promptPath), $"Missing prompt file: {promptPath}");
+
+        var promptContent = File.ReadAllText(promptPath, Encoding.UTF8);
+        Assert.Contains("todo.add", promptContent);
+        Assert.Contains("todo.notes", promptContent);
+        Assert.Contains("\"todoIds\"", promptContent);
+        Assert.Contains("\"kind\":\"skip\"", promptContent, StringComparison.Ordinal);
+        Assert.Contains("status` 写成 `confirmed`", promptContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("<handoff_todo_patch>", promptContent, StringComparison.Ordinal);
     }
 
     [Fact]

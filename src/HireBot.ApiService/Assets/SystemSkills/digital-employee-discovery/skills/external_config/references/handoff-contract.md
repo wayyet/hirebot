@@ -1,6 +1,6 @@
 # Handoff Contract
 
-本文定义 `employment-coach-conversation` 阶段三 external handoff todo 到 `external_config` 的输入、字段映射与回传合约。
+本文定义 `employment-coach-conversation` 阶段三 external todo 工单到 `external_config` 的输入、字段映射与回传合约。
 
 ## 输入过滤
 

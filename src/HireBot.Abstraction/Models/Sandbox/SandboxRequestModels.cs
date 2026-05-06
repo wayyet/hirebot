@@ -80,6 +80,18 @@ public sealed record SandboxTimelineRequestDto
     public string? SandboxId { get; init; }
 }
 
+public sealed record SandboxSessionDetailRequestDto
+{
+    public required string ScopeType { get; init; }
+    public required string ScopeKey { get; init; }
+    public required string SandboxRole { get; init; }
+    public required string OwnerSubject { get; init; }
+    public required string TenantId { get; init; }
+    public required string OperatorId { get; init; }
+    public string SessionKey { get; init; } = "default";
+    public string? SandboxId { get; init; }
+}
+
 public sealed record SandboxAttachmentUploadRequestDto
 {
     public required string ScopeType { get; init; }

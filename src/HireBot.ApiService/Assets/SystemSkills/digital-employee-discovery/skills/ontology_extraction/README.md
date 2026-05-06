@@ -19,7 +19,7 @@
 - `templates/`
   - `TEMPLATE.md`：人工整理版模板。
   - `TEMPLATE.json`：工程化 JSON 模板。
-  - `TEMPLATE.schema.json`：严格 JSON Schema，`meta.handoff` 可携带雇佣教练 handoff todo 的结构化回指。
+  - `TEMPLATE.schema.json`：严格 JSON Schema，`meta.handoff` 可携带雇佣教练 todo 工单的结构化回指。
   - `DISPATCH_CALLBACK.schema.json`：`ontology_extraction` 回传主 skill 的 `dispatch_callback` 结构校验规则。
   - `PROJECTION_TEMPLATE.json`：下游 codegen / prompt orchestration 投影模板。
   - `PROJECTION_TEMPLATE.schema.json`：projection 文件校验规则。
@@ -110,7 +110,7 @@
 - 直接替代后续的 slice 校验、projection 校验或人工 review
 - 删除非 `ontology_ingest` 生成的人工维护 ontology 文件
 
-当 `ontology_extraction` 作为 `employment-coach-conversation` 的下游被调起时，只处理 `stage: material`、`target_skill: ontology_extraction`、`status: ready_to_dispatch | dirty` 且出现在本次 `dispatch.todos` 中的 handoff todo。todo 中的 `payload.mode` 会映射到 `ontology_ingest.mode`，缺失时再使用 dispatch `mode` 或默认 `incremental`。`ontology_ingest` 完成后，还需要继续围绕 todo 的 `objective`、`category`、`scene_hint`、`source` 和 `acceptance` 产出正式 slice；ingest 节点只是资料入库状态，不是最终 slice 交付物。回传主 skill 时应提供 `dispatch_callback`，包含 `source_dispatch_target`、业务用户可读的 `user_summary`、聚合 `technical_artifact`、artifact 相对路径、逐条 `todo_results`、整体 `status` 与 `errors`，以支持多 todo 批次中的部分成功 / 部分失败确认。
+当 `ontology_extraction` 作为 `employment-coach-conversation` 的下游被调起时，只处理 `stage: material`、`target_skill: ontology_extraction`、`status: ready_to_dispatch | dirty` 且出现在本次 `dispatch.todos` 中的 todo 工单。todo 中的 `payload.mode` 会映射到 `ontology_ingest.mode`，缺失时再使用 dispatch `mode` 或默认 `incremental`。`ontology_ingest` 完成后，还需要继续围绕 todo 的 `objective`、`category`、`scene_hint`、`source` 和 `acceptance` 产出正式 slice；ingest 节点只是资料入库状态，不是最终 slice 交付物。回传主 skill 时应提供 `dispatch_callback`，包含 `source_dispatch_target`、业务用户可读的 `user_summary`、聚合 `technical_artifact`、artifact 相对路径、逐条 `todo_results`、整体 `status` 与 `errors`，以支持多 todo 批次中的部分成功 / 部分失败确认。
 
 ---
 

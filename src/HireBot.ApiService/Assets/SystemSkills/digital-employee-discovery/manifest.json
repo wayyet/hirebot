@@ -62,23 +62,23 @@
     {
       "stage": "material",
       "skill_name": "ontology_extraction",
-      "description": "整理材料阶段的 handoff todos，并为本体抽取准备可执行输入。",
+      "description": "整理材料阶段的 todo 工单，并为本体抽取准备可执行输入。",
       "required_fields": [
-        "至少 1 条材料类 handoff todo 已确认"
+        "至少 1 条材料类 todo 工单已确认"
       ]
     },
     {
       "stage": "skill",
       "skill_name": "skill_generation",
-      "description": "整理技能阶段的 handoff todos，并为技能生成准备可执行输入。",
+      "description": "整理技能阶段的 todo 工单，并为技能生成准备可执行输入。",
       "required_fields": [
-        "至少 1 条技能类 handoff todo 已确认"
+        "至少 1 条技能类 todo 工单已确认"
       ]
     },
     {
       "stage": "external",
       "skill_name": "external_config",
-      "description": "整理外部集成阶段的 handoff todos，并补齐凭据槽位或明确跳过。",
+      "description": "整理外部集成阶段的 todo 工单，并补齐凭据槽位或明确跳过。",
       "required_fields": [
         "外部能力已确认，或已明确不需要外部系统"
       ]

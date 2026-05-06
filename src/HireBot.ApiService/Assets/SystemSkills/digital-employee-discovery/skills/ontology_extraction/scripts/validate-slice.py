@@ -293,7 +293,7 @@ def validate_known_ids(parsed_json: Any, validation_issues: list[str]) -> None:
         todo_ids = set(value for value in get_list_items(handoff.get("todo_ids")) if isinstance(value, str))
         result_ids = get_string_set(handoff.get("todos"), "id")
         for todo_id in sorted(todo_ids - result_ids):
-            add_validation_error(validation_issues, "$.meta.handoff.todos", f"missing handoff todo '{todo_id}' listed in todo_ids")
+            add_validation_error(validation_issues, "$.meta.handoff.todos", f"missing todo 工单 '{todo_id}' listed in todo_ids")
         for todo_id in sorted(result_ids - todo_ids):
             add_validation_error(validation_issues, "$.meta.handoff.todo_ids", f"missing todo id '{todo_id}' listed in todos")
 

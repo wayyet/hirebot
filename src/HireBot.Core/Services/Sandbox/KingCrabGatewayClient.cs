@@ -38,13 +38,33 @@ internal sealed class KingCrabGatewayClient(IKingCrabHttpClient kingCrabHttpClie
         }
 
         var payload = uploadCall.Data;
+        var resolvedUrl = ResolveMediaUrl(absoluteBaseUrl, payload.Url, payload.Id);
         return RemoteCallResult<MediaUploadResult>.Ok(new MediaUploadResult(
             payload.Id,
-            payload.Url,
+            resolvedUrl,
             payload.FileName,
             payload.MimeType,
             payload.SizeBytes,
-            $"[FILE_URL:/media/{payload.Id}]"));
+            $"[FILE_URL:/app/memory/media-cache/{payload.Id}]"));
+    }
+
+    private static string ResolveMediaUrl(string? absoluteBaseUrl, string? payloadUrl, string mediaId)
+    {
+        var fallbackPath = $"/app/memory/media-cache/{mediaId}";
+        var candidateUrl = string.IsNullOrWhiteSpace(payloadUrl) ? fallbackPath : payloadUrl.Trim();
+        if (Uri.TryCreate(candidateUrl, UriKind.Absolute, out var absoluteUri))
+        {
+            return absoluteUri.ToString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(absoluteBaseUrl) &&
+            Uri.TryCreate(absoluteBaseUrl.Trim(), UriKind.Absolute, out var baseUri) &&
+            Uri.TryCreate(baseUri, candidateUrl, out var resolvedUri))
+        {
+            return resolvedUri.ToString();
+        }
+
+        return candidateUrl;
     }
 
     internal sealed record MediaUploadResult(
