@@ -39,65 +39,30 @@ internal sealed class KingCrabHttpClient(
         }
 
         using var request = await BuildRequestAsync(
-            method,
-            path,
-            ownerSubject,
-            useHireBotApiPrefix,
-            absoluteBaseUrl,
-            additionalHeaders,
-            cancellationToken);
+            method, path, ownerSubject, useHireBotApiPrefix, absoluteBaseUrl, additionalHeaders, cancellationToken);
         if (body is not null)
         {
             request.Content = JsonContent.Create(body, options: JsonOptions);
         }
 
-        try
+        var response = await SendAsync(client, request, cancellationToken, $"KingCrab 接口", path, method);
+        if (!response.Success)
         {
-            using var response = await client.SendAsync(request, cancellationToken);
-            var content = response.Content is null
-                ? null
-                : await response.Content.ReadAsStringAsync(cancellationToken);
+            return RemoteCallResult<T>.Failure(response.StatusCode, response.Message);
+        }
 
-            if (!response.IsSuccessStatusCode)
-            {
-                return RemoteCallResult<T>.Failure(
-                    (int)response.StatusCode,
-                    ExtractRemoteMessage(content) ?? $"调用 KingCrab 接口失败（HTTP {(int)response.StatusCode}）");
-            }
+        if (string.IsNullOrWhiteSpace(response.Content))
+        {
+            return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口失败：响应为空");
+        }
 
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口失败：响应为空");
-            }
+        var payload = JsonSerializer.Deserialize<T>(response.Content, JsonOptions);
+        if (payload is null)
+        {
+            return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口失败：响应解析为空");
+        }
 
-            var payload = JsonSerializer.Deserialize<T>(content, JsonOptions);
-            if (payload is null)
-            {
-                return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口失败：响应解析为空");
-            }
-
-            return RemoteCallResult<T>.Ok(payload, (int)response.StatusCode);
-        }
-        catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
-        {
-            logger.LogWarning(oce, "调用 KingCrab 接口被取消. Method={Method}, Path={Path}", method, path);
-            return RemoteCallResult<T>.Failure(499, "调用已取消");
-        }
-        catch (OperationCanceledException oce)
-        {
-            logger.LogWarning(oce, "调用 KingCrab 接口超时. Method={Method}, Path={Path}", method, path);
-            return RemoteCallResult<T>.Failure(504, "调用 KingCrab 接口超时");
-        }
-        catch (TimeoutException ex)
-        {
-            logger.LogWarning(ex, "调用 KingCrab 接口超时. Method={Method}, Path={Path}", method, path);
-            return RemoteCallResult<T>.Failure(504, "调用 KingCrab 接口超时");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "调用 KingCrab 接口异常. Method={Method}, Path={Path}", method, path);
-            return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口异常");
-        }
+        return RemoteCallResult<T>.Ok(payload, response.StatusCode);
     }
 
     public async Task<RemoteCallResult<T>> SendMultipartForJsonAsync<T>(
@@ -119,66 +84,31 @@ internal sealed class KingCrabHttpClient(
         }
 
         using var request = await BuildRequestAsync(
-            HttpMethod.Post,
-            path,
-            ownerSubject,
-            useHireBotApiPrefix,
-            absoluteBaseUrl,
-            additionalHeaders,
-            cancellationToken);
+            HttpMethod.Post, path, ownerSubject, useHireBotApiPrefix, absoluteBaseUrl, additionalHeaders, cancellationToken);
         using var multipartContent = new MultipartFormDataContent();
         using var fileContent = new ByteArrayContent(content);
         fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
         multipartContent.Add(fileContent, formFieldName, fileName);
         request.Content = multipartContent;
 
-        try
+        var response = await SendAsync(client, request, cancellationToken, $"KingCrab multipart 接口", path);
+        if (!response.Success)
         {
-            using var response = await client.SendAsync(request, cancellationToken);
-            var payload = response.Content is null
-                ? null
-                : await response.Content.ReadAsStringAsync(cancellationToken);
+            return RemoteCallResult<T>.Failure(response.StatusCode, response.Message);
+        }
 
-            if (!response.IsSuccessStatusCode)
-            {
-                return RemoteCallResult<T>.Failure(
-                    (int)response.StatusCode,
-                    ExtractRemoteMessage(payload) ?? $"调用 KingCrab 接口失败（HTTP {(int)response.StatusCode}）");
-            }
+        if (string.IsNullOrWhiteSpace(response.Content))
+        {
+            return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口失败：响应为空");
+        }
 
-            if (string.IsNullOrWhiteSpace(payload))
-            {
-                return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口失败：响应为空");
-            }
+        var result = JsonSerializer.Deserialize<T>(response.Content, JsonOptions);
+        if (result is null)
+        {
+            return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口失败：响应解析为空");
+        }
 
-            var result = JsonSerializer.Deserialize<T>(payload, JsonOptions);
-            if (result is null)
-            {
-                return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口失败：响应解析为空");
-            }
-
-            return RemoteCallResult<T>.Ok(result, (int)response.StatusCode);
-        }
-        catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
-        {
-            logger.LogWarning(oce, "调用 KingCrab multipart 接口被取消. Path={Path}", path);
-            return RemoteCallResult<T>.Failure(499, "调用已取消");
-        }
-        catch (OperationCanceledException oce)
-        {
-            logger.LogWarning(oce, "调用 KingCrab multipart 接口超时. Path={Path}", path);
-            return RemoteCallResult<T>.Failure(504, "调用 KingCrab 接口超时");
-        }
-        catch (TimeoutException ex)
-        {
-            logger.LogWarning(ex, "调用 KingCrab multipart 接口超时. Path={Path}", path);
-            return RemoteCallResult<T>.Failure(504, "调用 KingCrab 接口超时");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "调用 KingCrab multipart 接口异常. Path={Path}", path);
-            return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口异常");
-        }
+        return RemoteCallResult<T>.Ok(result, response.StatusCode);
     }
 
     public async Task<RemoteBinaryCallResult> SendForBinaryAsync(
@@ -198,64 +128,125 @@ internal sealed class KingCrabHttpClient(
         }
 
         using var request = await BuildRequestAsync(
-            method,
-            path,
-            ownerSubject,
-            useHireBotApiPrefix,
-            absoluteBaseUrl,
-            additionalHeaders,
-            cancellationToken);
+            method, path, ownerSubject, useHireBotApiPrefix, absoluteBaseUrl, additionalHeaders, cancellationToken);
         if (body is not null)
         {
             request.Content = JsonContent.Create(body, options: JsonOptions);
         }
 
+        var response = await SendBinaryAsync(client, request, cancellationToken, $"KingCrab 二进制接口", path, method);
+        if (!response.Success)
+        {
+            return RemoteBinaryCallResult.Failure(response.StatusCode, response.Message);
+        }
+
+        if (response.Data is null || response.Data.Length == 0)
+        {
+            return RemoteBinaryCallResult.Failure(502, "调用 KingCrab 接口失败：响应为空");
+        }
+
+        return RemoteBinaryCallResult.Ok(
+            response.Data,
+            response.ContentType,
+            response.FileName);
+    }
+
+    private async Task<HttpResponseWrapper> SendAsync(
+        HttpClient client,
+        HttpRequestMessage request,
+        CancellationToken cancellationToken,
+        string endpointDescription,
+        string path,
+        HttpMethod? method = null)
+    {
         try
         {
             using var response = await client.SendAsync(request, cancellationToken);
+            var content = response.Content is null
+                ? null
+                : await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = ExtractRemoteMessage(content) ?? $"调用 {endpointDescription} 失败（HTTP {(int)response.StatusCode}）";
+                return HttpResponseWrapper.Failure((int)response.StatusCode, message);
+            }
+
+            return HttpResponseWrapper.Ok(content, (int)response.StatusCode);
+        }
+        catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(oce, "调用 {EndpointDescription} 被取消. Method={Method}, Path={Path}", endpointDescription, method, path);
+            return HttpResponseWrapper.Failure(499, "调用已取消");
+        }
+        catch (OperationCanceledException oce)
+        {
+            logger.LogWarning(oce, "调用 {EndpointDescription} 超时. Method={Method}, Path={Path}", endpointDescription, method, path);
+            return HttpResponseWrapper.Failure(504, $"调用 {endpointDescription} 超时");
+        }
+        catch (TimeoutException ex)
+        {
+            logger.LogWarning(ex, "调用 {EndpointDescription} 超时. Method={Method}, Path={Path}", endpointDescription, method, path);
+            return HttpResponseWrapper.Failure(504, $"调用 {endpointDescription} 超时");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "调用 {EndpointDescription} 异常. Method={Method}, Path={Path}", endpointDescription, method, path);
+            return HttpResponseWrapper.Failure(502, $"调用 {endpointDescription} 异常");
+        }
+    }
+
+    private async Task<HttpBinaryResponseWrapper> SendBinaryAsync(
+        HttpClient client,
+        HttpRequestMessage request,
+        CancellationToken cancellationToken,
+        string endpointDescription,
+        string path,
+        HttpMethod? method = null)
+    {
+        try
+        {
+            using var response = await client.SendAsync(request, cancellationToken);
+
             if (!response.IsSuccessStatusCode)
             {
                 var payload = response.Content is null
                     ? null
                     : await response.Content.ReadAsStringAsync(cancellationToken);
-                return RemoteBinaryCallResult.Failure(
-                    (int)response.StatusCode,
-                    ExtractRemoteMessage(payload) ?? $"调用 KingCrab 接口失败（HTTP {(int)response.StatusCode}）");
+                var message = ExtractRemoteMessage(payload) ?? $"调用 {endpointDescription} 失败（HTTP {(int)response.StatusCode}）";
+                return HttpBinaryResponseWrapper.Failure((int)response.StatusCode, message);
             }
 
             var data = response.Content is null
                 ? null
                 : await response.Content.ReadAsByteArrayAsync(cancellationToken);
-            if (data is null || data.Length == 0)
-            {
-                return RemoteBinaryCallResult.Failure(502, "调用 KingCrab 接口失败：响应为空");
-            }
 
-            return RemoteBinaryCallResult.Ok(
+            return HttpBinaryResponseWrapper.Ok(
                 data,
                 response.Content?.Headers.ContentType?.MediaType,
                 response.Content?.Headers.ContentDisposition?.FileNameStar ??
-                response.Content?.Headers.ContentDisposition?.FileName);
+                response.Content?.Headers.ContentDisposition?.FileName,
+                (int)response.StatusCode);
         }
         catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning(oce, "调用 KingCrab 二进制接口被取消. Method={Method}, Path={Path}", method, path);
-            return RemoteBinaryCallResult.Failure(499, "调用已取消");
+            logger.LogWarning(oce, "调用 {EndpointDescription} 被取消. Method={Method}, Path={Path}", endpointDescription, method, path);
+            return HttpBinaryResponseWrapper.Failure(499, "调用已取消");
         }
         catch (OperationCanceledException oce)
         {
-            logger.LogWarning(oce, "调用 KingCrab 二进制接口超时. Method={Method}, Path={Path}", method, path);
-            return RemoteBinaryCallResult.Failure(504, "调用 KingCrab 接口超时");
+            logger.LogWarning(oce, "调用 {EndpointDescription} 超时. Method={Method}, Path={Path}", endpointDescription, method, path);
+            return HttpBinaryResponseWrapper.Failure(504, $"调用 {endpointDescription} 超时");
         }
         catch (TimeoutException ex)
         {
-            logger.LogWarning(ex, "调用 KingCrab 二进制接口超时. Method={Method}, Path={Path}", method, path);
-            return RemoteBinaryCallResult.Failure(504, "调用 KingCrab 接口超时");
+            logger.LogWarning(ex, "调用 {EndpointDescription} 超时. Method={Method}, Path={Path}", endpointDescription, method, path);
+            return HttpBinaryResponseWrapper.Failure(504, $"调用 {endpointDescription} 超时");
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "调用 KingCrab 二进制接口异常. Method={Method}, Path={Path}", method, path);
-            return RemoteBinaryCallResult.Failure(502, "调用 KingCrab 接口异常");
+            logger.LogError(ex, "调用 {EndpointDescription} 异常. Method={Method}, Path={Path}", endpointDescription, method, path);
+            return HttpBinaryResponseWrapper.Failure(502, $"调用 {endpointDescription} 异常");
         }
     }
 
@@ -269,7 +260,6 @@ internal sealed class KingCrabHttpClient(
         CancellationToken cancellationToken)
     {
         var requestPath = BuildRequestPath(path, useHireBotApiPrefix);
-
         var requestUri = BuildRequestUri(requestPath, absoluteBaseUrl);
         var request = new HttpRequestMessage(method, requestUri);
 
@@ -430,5 +420,17 @@ internal sealed class KingCrabHttpClient(
         }
 
         return null;
+    }
+
+    private sealed record HttpResponseWrapper(bool Success, int StatusCode, string? Message, string? Content)
+    {
+        public static HttpResponseWrapper Ok(string? content, int statusCode) => new(true, statusCode, null, content);
+        public static HttpResponseWrapper Failure(int statusCode, string message) => new(false, statusCode, message, null);
+    }
+
+    private sealed record HttpBinaryResponseWrapper(bool Success, int StatusCode, string? Message, byte[]? Data, string? ContentType, string? FileName)
+    {
+        public static HttpBinaryResponseWrapper Ok(byte[]? data, string? contentType, string? fileName, int statusCode) => new(true, statusCode, null, data, contentType, fileName);
+        public static HttpBinaryResponseWrapper Failure(int statusCode, string message) => new(false, statusCode, message, null, null, null);
     }
 }

@@ -3,14 +3,24 @@ using Microsoft.Extensions.Configuration;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
+/// <summary>
+/// 实例产物解析器，根据实例类型解析产物路径和元数据。
+/// </summary>
 public sealed class InstanceArtifactResolver(IConfiguration configuration) : IInstanceArtifactResolver
 {
+    /// <summary>
+    /// 解析实例的产物路径和元数据。
+    /// </summary>
+    /// <param name="instance">实例实体</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>产物解析结果</returns>
     public Task<InstanceArtifactResolution> ResolveAsync(
         InstanceEntity instance,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        // 根据实例类型构建产物根路径
         var root = instance.InstanceType switch
         {
             "department" => Path.Combine(
@@ -47,7 +57,7 @@ public sealed class InstanceArtifactResolver(IConfiguration configuration) : IIn
 
         if (!Directory.Exists(root))
         {
-            throw new DirectoryNotFoundException($"实例五件套目录不存在: {root}");
+            throw new DirectoryNotFoundException($"实例产物目录不存在: {root}");
         }
 
         var metadata = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
@@ -61,6 +71,9 @@ public sealed class InstanceArtifactResolver(IConfiguration configuration) : IIn
         return Task.FromResult(new InstanceArtifactResolution(root, metadata));
     }
 
+    /// <summary>
+    /// 解析产物存储根目录。
+    /// </summary>
     private string ResolveRoot()
     {
         var configured = configuration["HireBot:ArtifactStoreRoot"];
@@ -72,6 +85,11 @@ public sealed class InstanceArtifactResolver(IConfiguration configuration) : IIn
         return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "hirebot-artifacts"));
     }
 
+    /// <summary>
+    /// 清理路径中的非法字符。
+    /// </summary>
+    /// <param name="value">待清理的值</param>
+    /// <returns>清理后的值</returns>
     private static string Sanitize(string value)
     {
         var trimmed = value.Trim();
@@ -83,4 +101,3 @@ public sealed class InstanceArtifactResolver(IConfiguration configuration) : IIn
         return trimmed.Length == 0 ? "unknown" : trimmed;
     }
 }
-

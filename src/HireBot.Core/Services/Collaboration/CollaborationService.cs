@@ -7,11 +7,20 @@ using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Collaboration;
 
+/// <summary>
+/// 协作群组服务，提供协作群组的查询和管理功能。
+/// </summary>
 public sealed class CollaborationService(
     ICollaborationProvider collaborationProvider,
     IRequestContextService requestContextService,
     ILogger<CollaborationService> logger) : ICollaborationService
 {
+    /// <summary>
+    /// 获取协作群组列表。
+    /// </summary>
+    /// <param name="includeArchived">是否包含已归档的群组</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>群组摘要列表</returns>
     public async Task<ApiResponse<IReadOnlyList<CollaborationGroupSummaryDto>>> GetGroupsAsync(
         bool includeArchived,
         CancellationToken cancellationToken = default)
@@ -29,6 +38,12 @@ public sealed class CollaborationService(
         }
     }
 
+    /// <summary>
+    /// 获取指定协作群组的详细信息。
+    /// </summary>
+    /// <param name="groupId">群组标识</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>群组详细信息</returns>
     public async Task<ApiResponse<CollaborationGroupDetailDto>> GetGroupAsync(
         string groupId,
         CancellationToken cancellationToken = default)
@@ -56,6 +71,13 @@ public sealed class CollaborationService(
         }
     }
 
+    /// <summary>
+    /// 设置协作群组的归档状态。
+    /// </summary>
+    /// <param name="groupId">群组标识</param>
+    /// <param name="archived">归档状态（true=归档，false=恢复）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>更新后的群组详细信息</returns>
     public async Task<ApiResponse<CollaborationGroupDetailDto>> SetArchivedAsync(
         string groupId,
         bool archived,
@@ -86,6 +108,12 @@ public sealed class CollaborationService(
         }
     }
 
+    /// <summary>
+    /// 批量标记群组为已归档状态。
+    /// </summary>
+    /// <param name="groupIds">群组标识列表</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>成功标记的群组数量</returns>
     public Task<int> MarkArchivedAsync(IReadOnlyList<string> groupIds, CancellationToken cancellationToken = default)
     {
         var owner = requestContextService.ResolveOwnerSubject();

@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -13,6 +13,9 @@ using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
+/// <summary>
+/// IM Webhook 服务，处理外部 IM 平台（飞书、钉钉、企业微信）的消息接收和回复。
+/// </summary>
 public sealed class ImWebhookService(
     HireBotDbContext dbContext,
     ISecretProtector secretProtector,
@@ -25,6 +28,14 @@ public sealed class ImWebhookService(
     private const string DingTalkClientName = "DingTalk";
     private const string WeComClientName = "WeCom";
 
+    /// <summary>
+    /// 验证 IM 平台的 URL 验证请求。
+    /// </summary>
+    /// <param name="platform">平台类型（feishu/dingtalk/wecom）</param>
+    /// <param name="instanceId">实例ID</param>
+    /// <param name="query">查询参数</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>验证结果</returns>
     public async Task<ApiResponse<ImWebhookHandleResultDto>> VerifyAsync(
         string platform,
         string instanceId,
@@ -53,6 +64,15 @@ public sealed class ImWebhookService(
             "webhook verified");
     }
 
+    /// <summary>
+    /// 处理 IM 平台的消息推送。
+    /// </summary>
+    /// <param name="platform">平台类型（feishu/dingtalk/wecom）</param>
+    /// <param name="instanceId">实例ID</param>
+    /// <param name="payload">消息 payload</param>
+    /// <param name="headers">请求头</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>消息处理结果</returns>
     public async Task<ApiResponse<ImWebhookHandleResultDto>> HandleAsync(
         string platform,
         string instanceId,
@@ -105,6 +125,13 @@ public sealed class ImWebhookService(
         return await HandleGenericAsync(instanceId, normalizedPlatform, payload, config, cancellationToken);
     }
 
+    /// <summary>
+    /// 提取飞书 URL 验证的挑战值。
+    /// </summary>
+    /// <param name="instanceId">实例ID</param>
+    /// <param name="payload">消息 payload</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>挑战值</returns>
     public async Task<ApiResponse<string?>> ExtractFeishuUrlVerificationChallengeAsync(
         string instanceId,
         string payload,

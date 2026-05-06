@@ -35,8 +35,11 @@ internal sealed class SandboxService(
             return ApiResponse<SandboxInstanceDto>.ErrorResponse(400, "sandboxId 不能为空");
         }
 
-        var instance = await FindInstanceBySandboxIdAsync(request.SandboxId.Trim(), cancellationToken)
-            ?? await FindInstanceByScopeAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, cancellationToken);
+        var instance = await dbContext.SandboxInstances
+            .Where(item => item.SandboxId == request.SandboxId.Trim() ||
+                          (item.OwnerSubject == request.OwnerSubject && item.ScopeType == request.ScopeType && item.ScopeKey == request.ScopeKey && item.SandboxRole == request.SandboxRole && item.State != "Deleted"))
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (instance is null)
         {
@@ -594,22 +597,25 @@ internal sealed class SandboxService(
         return true;
     }
 
-    private async Task<SandboxInstanceEntity?> ResolveInstanceAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken)
+    private Task<SandboxInstanceEntity?> ResolveInstanceAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(request.SandboxId))
+        var trimmedSandboxId = string.IsNullOrWhiteSpace(request.SandboxId) ? null : request.SandboxId.Trim();
+        var hasFullScope = !string.IsNullOrWhiteSpace(request.OwnerSubject) &&
+                           !string.IsNullOrWhiteSpace(request.ScopeType) &&
+                           !string.IsNullOrWhiteSpace(request.ScopeKey) &&
+                           !string.IsNullOrWhiteSpace(request.SandboxRole);
+
+        if (trimmedSandboxId is null && !hasFullScope)
         {
-            return await FindInstanceBySandboxIdAsync(request.SandboxId.Trim(), cancellationToken);
+            return Task.FromResult<SandboxInstanceEntity?>(null);
         }
 
-        if (string.IsNullOrWhiteSpace(request.OwnerSubject) ||
-            string.IsNullOrWhiteSpace(request.ScopeType) ||
-            string.IsNullOrWhiteSpace(request.ScopeKey) ||
-            string.IsNullOrWhiteSpace(request.SandboxRole))
-        {
-            return null;
-        }
-
-        return await FindInstanceByScopeAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, cancellationToken);
+        return dbContext.SandboxInstances
+            .Where(item => trimmedSandboxId != null
+                ? item.SandboxId == trimmedSandboxId
+                : (item.OwnerSubject == request.OwnerSubject && item.ScopeType == request.ScopeType && item.ScopeKey == request.ScopeKey && item.SandboxRole == request.SandboxRole && item.State != "Deleted"))
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task<SandboxInstanceEntity?> ResolveInstanceForWriteAsync(
@@ -620,17 +626,15 @@ internal sealed class SandboxService(
         string? sandboxId,
         CancellationToken cancellationToken)
     {
-        SandboxInstanceEntity? instance = null;
-        if (!string.IsNullOrWhiteSpace(sandboxId))
-        {
-            instance = await FindInstanceBySandboxIdAsync(sandboxId.Trim(), cancellationToken);
-        }
+        var trimmedSandboxId = string.IsNullOrWhiteSpace(sandboxId) ? null : sandboxId.Trim();
 
-        return instance ?? await FindInstanceByScopeAsync(ownerSubject, scopeType, scopeKey, sandboxRole, cancellationToken);
+        return await dbContext.SandboxInstances
+            .Where(item => trimmedSandboxId != null
+                ? item.SandboxId == trimmedSandboxId
+                : (item.OwnerSubject == ownerSubject && item.ScopeType == scopeType && item.ScopeKey == scopeKey && item.SandboxRole == sandboxRole && item.State != "Deleted"))
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
     }
-
-    private Task<SandboxInstanceEntity?> FindInstanceBySandboxIdAsync(string sandboxId, CancellationToken cancellationToken)
-        => dbContext.SandboxInstances.FirstOrDefaultAsync(item => item.SandboxId == sandboxId, cancellationToken);
 
     private Task<SandboxInstanceEntity?> FindInstanceByScopeAsync(string ownerSubject, string scopeType, string scopeKey, string sandboxRole, CancellationToken cancellationToken)
         => dbContext.SandboxInstances

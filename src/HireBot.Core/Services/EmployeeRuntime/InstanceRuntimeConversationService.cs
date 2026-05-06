@@ -10,22 +10,29 @@ using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using System.IO.Compression;
-using System.Security.Cryptography;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
+/// <summary>
+/// 瀹炰緥杩愯鏃跺璇濇湇鍔★紝澶勭悊瀹炰緥涓庣敤鎴蜂箣闂寸殑娑堟伅浜や簰銆?/// </summary>
 public sealed class InstanceRuntimeConversationService(
     HireBotDbContext dbContext,
     IEmployeeRuntimeStore employeeStore,
     IRequestContextService requestContextService,
-    IInstanceArtifactResolver artifactResolver,
     ISandboxService sandboxService,
     ILogger<InstanceRuntimeConversationService> logger) : IInstanceRuntimeConversationService
 {
     private const int ContextMessageLimit = 40;
     private const string RuntimeSandboxRole = "runtime";
 
+    /// <summary>
+    /// 鑾峰彇瀹炰緥鐨勮亰澶╂秷鎭垪琛ㄣ€?    /// </summary>
+    /// <param name="instanceId">瀹炰緥ID</param>
+    /// <param name="channel">娓犻亾绫诲瀷</param>
+    /// <param name="ownerUserId">鎵€鏈夎€呯敤鎴稩D</param>
+    /// <param name="limit">杩斿洖鏁伴噺闄愬埗</param>
+    /// <param name="cancellationToken">鍙栨秷浠ょ墝</param>
+    /// <returns>鑱婂ぉ鏃堕棿绾?/returns>
     public async Task<ApiResponse<InstanceChatTimelineDto>> GetMessagesAsync(
         string instanceId,
         string channel,
@@ -54,6 +61,16 @@ public sealed class InstanceRuntimeConversationService(
             new InstanceChatTimelineDto(access.Instance!.InstanceId, conversation.ConversationId, messages));
     }
 
+    /// <summary>
+    /// 鍙戦€佹秷鎭粰瀹炰緥銆?    /// </summary>
+    /// <param name="instanceId">瀹炰緥ID</param>
+    /// <param name="channel">娓犻亾绫诲瀷</param>
+    /// <param name="content">娑堟伅鍐呭</param>
+    /// <param name="ownerUserId">鎵€鏈夎€呯敤鎴稩D</param>
+    /// <param name="externalMessageId">澶栭儴娑堟伅ID</param>
+    /// <param name="externalUserId">澶栭儴鐢ㄦ埛ID</param>
+    /// <param name="cancellationToken">鍙栨秷浠ょ墝</param>
+    /// <returns>鑱婂ぉ缁撴灉</returns>
     public async Task<ApiResponse<InstanceChatResultDto>> SendMessageAsync(
         string instanceId,
         string channel,
@@ -65,7 +82,7 @@ public sealed class InstanceRuntimeConversationService(
     {
         if (string.IsNullOrWhiteSpace(content))
         {
-            return ApiResponse<InstanceChatResultDto>.ErrorResponse(400, "content 不能为空");
+            return ApiResponse<InstanceChatResultDto>.ErrorResponse(400, "content 涓嶈兘涓虹┖");
         }
 
         var access = await ResolveAccessAsync(instanceId, channel, ownerUserId, cancellationToken);
@@ -81,20 +98,9 @@ public sealed class InstanceRuntimeConversationService(
                 cancellationToken);
             if (exists)
             {
-                return ApiResponse<InstanceChatResultDto>.ErrorResponse(409, "重复的 IM 消息已忽略");
+                return ApiResponse<InstanceChatResultDto>.ErrorResponse(409, "Duplicate IM message ignored.");
             }
         }
-
-        //InstanceArtifactResolution artifact;
-        //try
-        //{
-        //    artifact = await artifactResolver.ResolveAsync(access.Instance!, cancellationToken);
-        //}
-        //catch (Exception ex)
-        //{
-        //    logger.LogWarning(ex, "Failed to resolve instance artifacts. InstanceId={InstanceId}", access.Instance!.InstanceId);
-        //    return ApiResponse<InstanceChatResultDto>.ErrorResponse(409, "实例五件套未就绪，无法对话");
-        //}
 
         var conversation = await GetOrCreateConversationAsync(access.Instance!, access.OwnerSubject, access.Channel, cancellationToken);
         var now = DateTimeOffset.UtcNow;
@@ -132,7 +138,6 @@ public sealed class InstanceRuntimeConversationService(
             access.Channel,
             conversation.ConversationId,
             content.Trim(),
-            null,
             contextMessages,
             cancellationToken);
         if (!runtimeResponse.Success || runtimeResponse.Data is null || runtimeResponse.Data.AssistantMessage is null)
@@ -168,6 +173,13 @@ public sealed class InstanceRuntimeConversationService(
                     assistantMessage.CreatedAt)));
     }
 
+    /// <summary>
+    /// 娓呯┖瀹炰緥鐨勮亰澶╂秷鎭€?    /// </summary>
+    /// <param name="instanceId">瀹炰緥ID</param>
+    /// <param name="channel">娓犻亾绫诲瀷</param>
+    /// <param name="ownerUserId">鎵€鏈夎€呯敤鎴稩D</param>
+    /// <param name="cancellationToken">鍙栨秷浠ょ墝</param>
+    /// <returns>鎿嶄綔缁撴灉</returns>
     public async Task<ApiResponse<bool>> ClearMessagesAsync(
         string instanceId,
         string channel,
@@ -188,7 +200,7 @@ public sealed class InstanceRuntimeConversationService(
             .ToArrayAsync(cancellationToken);
         if (conversations.Length == 0)
         {
-            return ApiResponse<bool>.SuccessResponse(true, "对话已清空");
+            return ApiResponse<bool>.SuccessResponse(true, "Conversation cleared.");
         }
 
         var conversationIds = conversations.Select(item => item.ConversationId).ToArray();
@@ -198,9 +210,11 @@ public sealed class InstanceRuntimeConversationService(
         dbContext.Messages.RemoveRange(messages);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return ApiResponse<bool>.SuccessResponse(true, "对话已清空");
+        return ApiResponse<bool>.SuccessResponse(true, "Conversation cleared.");
     }
 
+    /// <summary>
+    /// 鑾峰彇鎴栧垱寤哄璇濆疄浣撱€?\r\n    /// </summary>
     private async Task<ConversationEntity> GetOrCreateConversationAsync(
         InstanceEntity instance,
         string ownerSubject,
@@ -233,13 +247,14 @@ public sealed class InstanceRuntimeConversationService(
         return conversation;
     }
 
+    /// <summary>
+    /// 鍙戦€佽繍琛屾椂娑堟伅鍒?Sandbox銆?    /// </summary>
     private async Task<ApiResponse<HiringConversationResultDto>> SendSandboxRuntimeMessageAsync(
         InstanceEntity instance,
         string ownerSubject,
         string channel,
         string conversationId,
         string content,
-        InstanceArtifactResolution artifact,
         IReadOnlyList<RuntimeChatMessageDto> contextMessages,
         CancellationToken cancellationToken)
     {
@@ -269,43 +284,32 @@ public sealed class InstanceRuntimeConversationService(
             sandboxId = create.Data.SandboxId;
         }
 
-        //var artifactArchivePath = BuildArtifactArchive(instance, artifact.ArtifactRoot);
-        try
-        {
-
-            var history = string.Join(
+        var history = string.Join(
            Environment.NewLine,
            contextMessages
                .TakeLast(12)
                .Select(message => $"{message.Role}: {message.Content}"));
 
-
-            return await sandboxService.SendMessageAsync(
-                new SandboxSendMessageRequestDto
-                {
-                    ScopeType = SandboxScopeTypes.Hire,
-                    ScopeKey = scopeKey,
-                    SandboxRole = RuntimeSandboxRole,
-                    OwnerSubject = ownerSubject,
-                    TenantId = tenantId,
-                    OperatorId = operatorId,
-                    SessionKey = channel,
-                    SandboxId = sandboxId,
-                    Content =history,// BuildRuntimePrompt(instance, channel, conversationId, content, artifact, contextMessages),
-                    Materials =
-                    [
-                       
-                    ],
-                    UploadMaterialsAsAttachments = false
-                },
-                cancellationToken);
-        }
-        finally
-        {
-            //TryDeleteFile(artifactArchivePath);
-        }
+        return await sandboxService.SendMessageAsync(
+            new SandboxSendMessageRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = scopeKey,
+                SandboxRole = RuntimeSandboxRole,
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                SessionKey = channel,
+                SandboxId = sandboxId,
+                Content = history,
+                Materials = [],
+                UploadMaterialsAsAttachments = false
+            },
+            cancellationToken);
     }
 
+    /// <summary>
+    /// 瑙ｆ瀽杩愯鏃?Sandbox ID銆?    /// </summary>
     private async Task<string?> ResolveRuntimeSandboxIdAsync(string ownerSubject, string scopeKey, CancellationToken cancellationToken)
     {
         var sandbox = await dbContext.SandboxInstances
@@ -323,70 +327,13 @@ public sealed class InstanceRuntimeConversationService(
         return sandbox?.SandboxId;
     }
 
+    /// <summary>
+    /// 鏋勫缓杩愯鏃朵綔鐢ㄥ煙閿€?    /// </summary>
     private static string BuildRuntimeScopeKey(string instanceId)
         => $"instance:{instanceId.Trim()}";
 
-    private static string BuildRuntimePrompt(
-        InstanceEntity instance,
-        string channel,
-        string conversationId,
-        string content,
-        InstanceArtifactResolution artifact,
-        IReadOnlyList<RuntimeChatMessageDto> contextMessages)
-    {
-        var history = string.Join(
-            Environment.NewLine,
-            contextMessages
-                .TakeLast(12)
-                .Select(message => $"{message.Role}: {message.Content}"));
-
-        return $"""
-你是已上岗数字员工实例的运行时助手。请基于随消息上传的五件套附件、实例元数据和对话历史，直接完成用户请求。
-
-instance_id: {instance.InstanceId}
-instance_type: {instance.InstanceType}
-current_version: {instance.CurrentVersion}
-from_instance_id: {instance.FromInstanceId ?? string.Empty}
-channel: {channel}
-conversation_id: {conversationId}
-
-
-recent_messages:
-{history}
-
-user_message:
-{content}
-""";
-    }
-
-    private static string BuildArtifactArchive(InstanceEntity instance, string artifactRoot)
-    {
-        var archivePath = Path.Combine(Path.GetTempPath(), $"hirebot-{instance.InstanceId}-{Guid.NewGuid():N}.zip");
-        ZipFile.CreateFromDirectory(artifactRoot, archivePath, CompressionLevel.Fastest, includeBaseDirectory: false);
-        return archivePath;
-    }
-
-    private static string ComputeFileHash(string path)
-    {
-        using var stream = File.OpenRead(path);
-        return Convert.ToHexStringLower(SHA256.HashData(stream));
-    }
-
-    private static void TryDeleteFile(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // Best-effort cleanup for transient runtime artifact archives.
-        }
-    }
-
+    /// <summary>
+    /// 鏋勫缓杩愯鏃舵彁绀鸿瘝銆?\r\n    /// </summary>
     private async Task<AccessResult> ResolveAccessAsync(
         string instanceId,
         string channel,
@@ -395,13 +342,13 @@ user_message:
     {
         if (string.IsNullOrWhiteSpace(instanceId))
         {
-            return AccessResult.Fail(400, "instanceId 不能为空");
+            return AccessResult.Fail(400, "instanceId 涓嶈兘涓虹┖");
         }
 
         var normalizedChannel = NormalizeChannel(channel);
         if (normalizedChannel is null)
         {
-            return AccessResult.Fail(400, "channel 不合法");
+            return AccessResult.Fail(400, "channel is invalid");
         }
 
         var normalizedInstanceId = instanceId.Trim();
@@ -413,30 +360,32 @@ user_message:
             .FirstOrDefaultAsync(item => item.InstanceId == normalizedInstanceId, cancellationToken);
         if (instance is null)
         {
-            return AccessResult.Fail(404, "实例不存在");
+            return AccessResult.Fail(404, "instance not found");
         }
 
         if (!string.Equals(instance.Status, "live", StringComparison.OrdinalIgnoreCase))
         {
-            return AccessResult.Fail(409, "只有已上岗实例可以对话");
+            return AccessResult.Fail(409, "only live instances can be used for runtime chat");
         }
 
         var isPersonalRuntime = string.Equals(instance.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
                                 string.Equals(instance.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
         if (!isPersonalRuntime)
         {
-            return AccessResult.Fail(409, "部门员工不能直接作为个人运行时对话对象，请先创建个人分身");
+            return AccessResult.Fail(409, "閮ㄩ棬鍛樺伐涓嶈兘鐩存帴浣滀负涓汉杩愯鏃跺璇濆璞★紝璇峰厛鍒涘缓涓汉鍒嗚韩");
         }
 
         if (!string.Equals(instance.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
         {
-            return AccessResult.Fail(403, "无权访问该实例对话");
+            return AccessResult.Fail(403, "forbidden");
         }
 
         var employee = await employeeStore.FindAsync(normalizedInstanceId, cancellationToken);
         return AccessResult.Ok(instance, employee, owner, normalizedChannel);
     }
 
+    /// <summary>
+    /// 瑙勮寖鍖栨笭閬撳悕绉般€?    /// </summary>
     private static string? NormalizeChannel(string channel)
     {
         if (string.IsNullOrWhiteSpace(channel))
@@ -448,11 +397,15 @@ user_message:
         return normalized is "inapp" or "feishu" or "dingtalk" or "wecom" ? normalized : null;
     }
 
+    /// <summary>
+    /// 鏋勫缓鍞竴 ID銆?    /// </summary>
     private static string BuildId(string prefix)
     {
         return $"{prefix}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid():N}"[..32];
     }
 
+    /// <summary>
+    /// 璁块棶缁撴灉銆?\r\n    /// </summary>
     private sealed record AccessResult(
         bool Success,
         int Code,
