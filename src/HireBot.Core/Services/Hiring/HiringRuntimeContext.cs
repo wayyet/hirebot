@@ -19,7 +19,9 @@ internal sealed record HiringRuntimeContext
     public bool IsConversationPaused { get; init; }
     public bool IsConversationResponding { get; init; }
     public string? EmployeeId { get; init; }
-    public required TemplatePackageDefinition TemplatePackage { get; init; }
+    public required TemplatePackageDefinition ReferenceTemplatePackage { get; init; }
+    public required TemplatePackageDefinition RoleTemplatePackage { get; init; }
+    public required TemplatePackageDefinition WorkingTemplatePackage { get; init; }
     public required DiscoverySkillDefinition DiscoverySkill { get; init; }
     public IReadOnlyDictionary<string, string?> StructuredData { get; init; } = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
     public IReadOnlyList<HiringConversationMaterialDto> Materials { get; init; } = [];

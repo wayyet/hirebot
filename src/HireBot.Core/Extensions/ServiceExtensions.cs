@@ -129,8 +129,6 @@ public static class ServiceExtensions
 
     private static void AddProviders(IServiceCollection services, IConfiguration configuration)
     {
-        var useLocalTemplateSources = configuration.GetValue("HireBot:UseLocalTemplateSources", false);
-
         services.AddScoped<IRequestContextService, RequestContextService>();
         services.AddDataProtection();
 
@@ -142,19 +140,11 @@ public static class ServiceExtensions
         services.AddSingleton<FileSystemSystemSkillRegistry>();
         services.AddSingleton<ISystemSkillRegistry>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
         services.AddSingleton<ISkillCatalogProvider>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
-        if (useLocalTemplateSources)
-        {
-            services.AddSingleton<FileSystemTemplatePackageProvider>();
-            services.AddSingleton<ITemplatePackageProvider>(sp => sp.GetRequiredService<FileSystemTemplatePackageProvider>());
-            services.AddSingleton<ITemplateDataProvider, FileSystemTemplateDataProvider>();
-        }
-        else
-        {
-            services.AddSingleton<BuildServiceTemplatePackageProvider>();
-            services.AddSingleton<ITemplatePackageProvider>(sp => sp.GetRequiredService<BuildServiceTemplatePackageProvider>());
-            services.AddSingleton<ITemplateDataProvider, BuildServiceTemplateDataProvider>();
-        }
-
+        services.AddSingleton<FileSystemTemplatePackageProvider>();
+        services.AddSingleton<ITemplateDataProvider, BuildServiceTemplateDataProvider>();
+        services.AddSingleton<ITemplatePackageProvider, BuildServiceTemplatePackageProvider>();
+        services.AddSingleton<IDiscoveryRoleTemplatePackageProvider, FileSystemDiscoveryRoleTemplatePackageProvider>();
+        services.AddSingleton<IWorkingTemplatePackageProvider, FileSystemWorkingTemplatePackageProvider>();
         services.AddSingleton<IDiscoveryRuleProvider, FileSystemDiscoveryRuleProvider>();
         services.AddSingleton<HiringStageCompletionEvaluator>();
         services.AddSingleton<IArtifactSerializer, PlaceholderArtifactSerializer>();

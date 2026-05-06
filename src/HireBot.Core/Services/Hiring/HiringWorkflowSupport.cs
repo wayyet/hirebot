@@ -17,7 +17,6 @@ internal static partial class HiringWorkflowSupport
     public static ParsedHiringAssistantReply ParseAssistantReply(string content)
     {
         var normalizedContent = content ?? string.Empty;
-        var handoffTodos = new List<HiringHandoffTodoDto>();
         var dispatchCommands = new List<HiringDispatchCommand>();
         var dispatchCallbacks = new List<HiringDispatchCallbackPayload>();
         var configFiles = new List<HiringConfigGovernanceFileDto>();
@@ -25,7 +24,7 @@ internal static partial class HiringWorkflowSupport
 
         foreach (Match match in HiringTagRegex().Matches(normalizedContent))
         {
-            var tagName = match.Groups["tag"].Value;
+            var tagName = match.Groups["tag"].Value.ToLowerInvariant();
             var tagContent = match.Groups["content"].Value.Trim();
             if (string.IsNullOrWhiteSpace(tagContent))
             {
@@ -34,9 +33,6 @@ internal static partial class HiringWorkflowSupport
 
             switch (tagName)
             {
-                case "handoff_todo_patch":
-                    handoffTodos.AddRange(DeserializeRequired<HiringHandoffTodoPatchDocument>(tagContent).Todos);
-                    break;
                 case "dispatch":
                     dispatchCommands.Add(DeserializeRequired<HiringDispatchCommand>(tagContent));
                     break;
@@ -55,7 +51,6 @@ internal static partial class HiringWorkflowSupport
         var visibleContent = HiringTagRegex().Replace(normalizedContent, string.Empty).Trim();
         return new ParsedHiringAssistantReply(
             string.IsNullOrWhiteSpace(visibleContent) ? "已处理当前编排事件。" : visibleContent,
-            handoffTodos,
             dispatchCommands,
             dispatchCallbacks,
             diagnosticReport,
@@ -102,6 +97,9 @@ internal static partial class HiringWorkflowSupport
         var needsReviewTodoIds = runtimeContext.HandoffTodos
             .Where(todo => string.Equals(todo.Status, HiringTodoStatus.NeedsReview, StringComparison.OrdinalIgnoreCase))
             .Select(todo => todo.Id)
+            .Concat(runtimeContext.ConfigGovernance?.PendingReviewTodoIds ?? [])
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (needsReviewTodoIds.Length > 0)
         {
@@ -139,6 +137,119 @@ internal static partial class HiringWorkflowSupport
             OpenQuestions: [],
             UserSummary: userSummary,
             GeneratedAtUtc: DateTimeOffset.UtcNow);
+    }
+
+    private static readonly Dictionary<string, int> StageOrderMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [HiringCollectionStage.Material] = 0,
+        [HiringCollectionStage.Skill] = 1,
+        [HiringCollectionStage.External] = 2,
+        [HiringCollectionStage.ReadyForPackaging] = 3
+    };
+
+    public static HiringDiagnosticReportDto MergeDiagnosticReports(
+        HiringDiagnosticReportDto evaluated,
+        HiringDiagnosticReportDto? aiReport)
+    {
+        if (aiReport is null)
+            return evaluated;
+
+        var effectiveCurrentStage = ResolveEffectiveCurrentStage(
+            evaluated.CurrentStage,
+            aiReport.CurrentStage,
+            aiReport.StageReadiness);
+
+        var mergedStageReadiness = MergeStageReadiness(
+            evaluated.StageReadiness,
+            aiReport.StageReadiness);
+
+        var readyForPackaging = string.Equals(
+            effectiveCurrentStage,
+            HiringCollectionStage.ReadyForPackaging,
+            StringComparison.OrdinalIgnoreCase);
+
+        return evaluated with
+        {
+            CurrentStage = effectiveCurrentStage,
+            StageReadiness = mergedStageReadiness,
+            ReadyForPackaging = readyForPackaging,
+            Confidence = string.IsNullOrWhiteSpace(aiReport.Confidence)
+                ? evaluated.Confidence
+                : aiReport.Confidence,
+            DiagnosticTodos = aiReport.DiagnosticTodos.Count > 0
+                ? aiReport.DiagnosticTodos
+                : evaluated.DiagnosticTodos,
+            HandoffCorrelation = aiReport.HandoffCorrelation.Count > 0
+                ? aiReport.HandoffCorrelation
+                : evaluated.HandoffCorrelation,
+            OpenQuestions = aiReport.OpenQuestions.Count > 0
+                ? aiReport.OpenQuestions
+                : evaluated.OpenQuestions,
+            UserSummary = string.IsNullOrWhiteSpace(aiReport.UserSummary)
+                ? evaluated.UserSummary
+                : aiReport.UserSummary,
+            GeneratedAtUtc = aiReport.GeneratedAtUtc > evaluated.GeneratedAtUtc
+                ? aiReport.GeneratedAtUtc
+                : evaluated.GeneratedAtUtc
+        };
+    }
+
+    private static string ResolveEffectiveCurrentStage(
+        string evaluatedStage,
+        string aiStage,
+        IReadOnlyList<HiringStageReadinessDto> aiStageReadiness)
+    {
+        if (string.Equals(aiStage, evaluatedStage, StringComparison.OrdinalIgnoreCase))
+            return evaluatedStage;
+
+        if (!IsStageAhead(aiStage, evaluatedStage))
+            return evaluatedStage;
+
+        var aiDeclaresPriorStagesComplete = StageOrderMap
+            .Where(kv => kv.Value < GetStageOrder(aiStage))
+            .All(kv =>
+            {
+                var aiReadiness = aiStageReadiness.FirstOrDefault(
+                    r => string.Equals(r.Stage, kv.Key, StringComparison.OrdinalIgnoreCase));
+                return aiReadiness is not null &&
+                       (string.Equals(aiReadiness.Status, HiringStageReadinessStatus.Complete, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aiReadiness.Status, HiringStageReadinessStatus.Skipped, StringComparison.OrdinalIgnoreCase));
+            });
+
+        return aiDeclaresPriorStagesComplete ? aiStage : evaluatedStage;
+    }
+
+    private static bool IsStageAhead(string candidate, string baseline)
+    {
+        var candidateOrder = GetStageOrder(candidate);
+        var baselineOrder = GetStageOrder(baseline);
+        return candidateOrder > baselineOrder;
+    }
+
+    private static int GetStageOrder(string stage)
+    {
+        return StageOrderMap.TryGetValue(stage, out var order) ? order : -1;
+    }
+
+    private static IReadOnlyList<HiringStageReadinessDto> MergeStageReadiness(
+        IReadOnlyList<HiringStageReadinessDto> evaluated,
+        IReadOnlyList<HiringStageReadinessDto> aiReport)
+    {
+        return evaluated
+            .Select(evaluatedItem =>
+            {
+                var aiItem = aiReport.FirstOrDefault(
+                    r => string.Equals(r.Stage, evaluatedItem.Stage, StringComparison.OrdinalIgnoreCase));
+                if (aiItem is not null &&
+                    (string.Equals(aiItem.Status, HiringStageReadinessStatus.Complete, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(aiItem.Status, HiringStageReadinessStatus.Skipped, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return aiItem;
+                }
+
+                return evaluatedItem;
+            })
+            .ToArray();
     }
 
     public static IReadOnlyList<HiringStageCompletionDto> BuildStageCompletion(
@@ -217,7 +328,7 @@ internal static partial class HiringWorkflowSupport
 
         if (todos.Count == 0)
         {
-            return new HiringStageReadinessDto(stage, HiringStageReadinessStatus.Missing, $"{DisplayStage(stage)}阶段尚未创建 handoff todo。", []);
+            return new HiringStageReadinessDto(stage, HiringStageReadinessStatus.Missing, $"{DisplayStage(stage)}阶段尚未创建可推进的 todo 工单。", []);
         }
 
         var blockingTodoIds = todos
@@ -319,7 +430,7 @@ internal static partial class HiringWorkflowSupport
         }
     }
 
-    [GeneratedRegex("<(?<tag>handoff_todo_patch|dispatch|dispatch_callback|diagnostic_report|config_governance_patch)>(?<content>[\\s\\S]*?)</\\k<tag>>", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    [GeneratedRegex("<(?<tag>dispatch|dispatch_callback|diagnostic_report|config_governance_patch)>(?<content>[\\s\\S]*?)</\\k<tag>>", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex HiringTagRegex();
 
     [GeneratedRegex("(token|api[_-]?key|secret|password|connection[_-]?string)\\s*[:=]\\s*[\"']?[A-Za-z0-9_\\-:/+=]{8,}", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
@@ -328,14 +439,10 @@ internal static partial class HiringWorkflowSupport
 
 internal sealed record ParsedHiringAssistantReply(
     string VisibleContent,
-    IReadOnlyList<HiringHandoffTodoDto> HandoffTodos,
     IReadOnlyList<HiringDispatchCommand> DispatchCommands,
     IReadOnlyList<HiringDispatchCallbackPayload> DispatchCallbacks,
     HiringDiagnosticReportDto? DiagnosticReport,
     IReadOnlyList<HiringConfigGovernanceFileDto> ConfigGovernanceFiles);
-
-internal sealed record HiringHandoffTodoPatchDocument(
-    IReadOnlyList<HiringHandoffTodoDto> Todos);
 
 internal sealed record HiringDispatchCommand(
     string Target,

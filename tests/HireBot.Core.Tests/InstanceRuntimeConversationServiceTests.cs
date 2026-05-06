@@ -236,6 +236,9 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<SandboxAttachmentUploadResultDto>.SuccessResponse(new SandboxAttachmentUploadResultDto(Guid.NewGuid(), null, null, "media-test", "http://media", request.Material.Name, request.Material.MimeType ?? "application/octet-stream", request.Material.Size ?? 0, request.Material.ContentHash, request.Material.Metadata?.TryGetValue("storagePath", out var path) == true ? path : null, "[media-test]", DateTimeOffset.UtcNow)));
 
+        public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         private static SandboxInstanceDto BuildInstance(string sandboxId, string scopeType, string scopeKey, string sandboxRole, string ownerSubject, string tenantId, string operatorId)
             => new(Guid.NewGuid(), sandboxId, scopeType, scopeKey, sandboxRole, "managed", ownerSubject, tenantId, operatorId, "Running", "http://localhost:18789", null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     }

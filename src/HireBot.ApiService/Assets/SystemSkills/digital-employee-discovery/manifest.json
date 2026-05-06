@@ -1,52 +1,96 @@
 {
-  "skill_id": "digital-employee-discovery",
+  "schema_version": "1.0",
+  "name": "digital-employee-discovery",
   "display_name": "Digital Employee Discovery",
-  "description": "Hiring workflow package for staged employment-coach conversation, ontology extraction, skill generation, external configuration, and diagnosis.",
-  "version": "3.0.0",
-  "level": "system",
-  "status": "active",
-  "entry_skill": "employment-coach-conversation",
+  "positioning": "HireBot 默认的雇佣 Discovery 角色包，用于基于参考模板引导用户生成新的数字员工模板。",
+  "description": "内置的雇佣 Discovery 模板，负责承载分阶段访谈、材料消化、技能拆分、外部配置补齐和最终打包前诊断。",
+  "version": "v3.1.0",
   "tags": [
     "hiring",
     "discovery",
-    "workflow",
-    "employment-coach"
+    "template-builder",
+    "default-role"
   ],
-  "input_example": "雇佣一个面向招聘场景的数字员工，并按资料、技能、外部三阶段推进。",
-  "output_example": "生成阶段化对话引导、下游工单、诊断结果，以及可用于打包的技能与配置产物。",
-  "bound_templates": [],
+  "use_cases": [
+    "用户选中一个参考模板后，自动读取参考模板附件并给出下一步关键问题",
+    "围绕业务目标、技能设计和外部集成逐步完善新的数字员工模板",
+    "在最终打包前执行完整性诊断，确保模板具备交付条件"
+  ],
+  "config": {
+    "identity": "config/IDENTITY.md",
+    "soul": "config/SOUL.md",
+    "agents": "config/AGENTS.md",
+    "memory": "config/MEMORY.md"
+  },
+  "entry_skill": "skills/employment-coach-conversation",
+  "ontology_slices": [
+    {
+      "name": "digital-employee-discovery-ontology",
+      "path": "ontology/ontology-slice.md",
+      "type": "digital_employee_slice",
+      "required": true
+    }
+  ],
+  "skills": [
+    {
+      "name": "employment-coach-conversation",
+      "path": "skills/employment-coach-conversation/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "ontology_extraction",
+      "path": "skills/ontology_extraction/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "skill_generation",
+      "path": "skills/skill_generation/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "external_config",
+      "path": "skills/external_config/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "diagnosis",
+      "path": "skills/diagnosis/SKILL.md",
+      "required": true
+    }
+  ],
   "stage_rules": [
     {
       "stage": "material",
       "skill_name": "ontology_extraction",
-      "description": "整理资料阶段工单，并为本体提取准备可执行输入。",
+      "description": "整理材料阶段的 todo 工单，并为本体抽取准备可执行输入。",
       "required_fields": [
-        "至少 1 条资料工单已确认"
+        "至少 1 条材料类 todo 工单已确认"
       ]
     },
     {
       "stage": "skill",
       "skill_name": "skill_generation",
-      "description": "整理技能阶段工单，并为技能生成准备可执行输入。",
+      "description": "整理技能阶段的 todo 工单，并为技能生成准备可执行输入。",
       "required_fields": [
-        "至少 1 条技能工单已确认"
+        "至少 1 条技能类 todo 工单已确认"
       ]
     },
     {
       "stage": "external",
       "skill_name": "external_config",
-      "description": "整理外部阶段工单，并补齐凭据槽位或明确跳过。",
+      "description": "整理外部集成阶段的 todo 工单，并补齐凭据槽位或明确跳过。",
       "required_fields": [
-        "外部能力已确认或明确跳过"
+        "外部能力已确认，或已明确不需要外部系统"
       ]
     },
     {
       "stage": "ready_for_packaging",
       "skill_name": "diagnosis",
-      "description": "在最终打包前执行完备性诊断并确认产物齐备。",
+      "description": "在最终打包前执行完整性诊断，并确认交付物已经齐备。",
       "required_fields": [
-        "诊断通过并允许打包"
+        "诊断通过且允许打包"
       ]
     }
-  ]
+  ],
+  "cli_tools": []
 }
