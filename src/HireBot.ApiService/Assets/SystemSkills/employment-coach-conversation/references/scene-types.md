@@ -19,7 +19,7 @@
 - 先从 identity.md 的 role / mission 字段、soul.md 的核心使命定位场景
 - 文本含混时（如"行政助理"既可能是审批也可能是内勤），按场景类型再问一句确认，不要替用户挑
 - 用户给的资料如果跟推断的场景类型不匹配（如客服员工被丢过来一份合同模板），追问一句而不是默认接受
-- 一旦确认推断错了（"原来你这其实是合规岗"），**静默修正所有 `drafting` / `ready_to_dispatch` 状态 todo 的 `scene_hint` 字段**，不必专门通知用户；已 `dispatched` / `confirmed` 的 todo 保留原值用于追溯，新建 todo 用新值。让用户感觉对话只是在跟着他的真实场景走，不需要"承认刚才弄错了"
+- 一旦确认推断错了（"原来你这其实是合规岗"），**用 `todo.update` 静默修正所有 `notes.status = drafting / ready_to_dispatch` 的 todo `scene_hint` 字段**，不必专门通知用户；已 `dispatched` / `confirmed` 的 todo 保留原值用于追溯，新建 todo 用新值。让用户感觉对话只是在跟着他的真实场景走，不需要"承认刚才弄错了"
 
 ## Story-driven 推进（阶段 1）
 
@@ -29,7 +29,7 @@
 - "刚才你说的那种情况，跟它有关的资料、规则、模板，能找到吗？" → 顺着场景拉资料
 - "这份是 SOP、规则手册、还是历史案例？你最希望它从里面学到什么？"
 
-资料一份一份归类，**边传边定 todo**，不要等用户全部上传完再分类。每收到一份资料就更新对应的 handoff todo，让用户看到"它确实在收"。
+资料一份一份归类，**边传边定 todo**，不要等用户全部上传完再分类。每收到一份资料就更新对应 todo 的 `notes`，让用户看到"它确实在收"。
 
 如果用户的故事里出现情绪信号（投诉、反复、没办法），就在那个点上多问一句，不要直接推进到下一份资料——那一处往往就是最有价值的本体抽取目标。情绪信号识别详见 [interaction-quality.md](./interaction-quality.md)。
 
@@ -44,4 +44,4 @@
 - 不要替用户判断资料"够不够"——这是诊断 skill 的事
 - 不要用"资料齐全度"、"覆盖率"这种数据化语言压人，用"这一类咱们先这些，后面不够再补"的口气
 
-阶段 1 handoff todo 的字段定义、明确度判定、dispatch 时机详见 [handoff-todo-schema.md](./handoff-todo-schema.md) 阶段 1 部分。
+阶段 1 todo `notes` 的字段定义、明确度判定、dispatch 时机详见 [todo-notes-schema.md](./todo-notes-schema.md) 阶段 1 部分。

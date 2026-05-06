@@ -1,0 +1,195 @@
+{
+  "$schema": "../../templates/TEMPLATE.schema.json",
+  "schema_version": "1.0.0",
+  "template_type": "ontology_slice",
+  "slice_request": {
+    "task_name": "雇佣教练资料阶段本体提取",
+    "slice_topic": "非标退货判定规则",
+    "task_goal": "从用户上传的资料中抽取非标退货判定条件、处置档位和人工分流触发条件。",
+    "expected_output": [
+      "concept_table",
+      "relation_table",
+      "constraint_list"
+    ]
+  },
+  "scope": {
+    "include": [
+      {
+        "type": "concept",
+        "id": "C1",
+        "name": "非标退货请求",
+        "reason": "该概念是本轮 material todo 的核心业务对象。"
+      },
+      {
+        "type": "relation",
+        "id": "R1",
+        "name": "请求触发判定条件",
+        "reason": "用户验收要求包含判定条件。"
+      },
+      {
+        "type": "constraint",
+        "id": "K1",
+        "name": "经理分流触发规则",
+        "reason": "用户验收要求包含人工分流触发节点。"
+      }
+    ],
+    "exclude": [
+      {
+        "name": "退款到账通知话术",
+        "reason": "不属于本轮非标退货判定规则 todo 的验收范围。"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "S1",
+      "path": "uploads/非标退货处理规则.docx",
+      "source_type": "document",
+      "role": "定义非标退货判定条件、处置档位和人工分流触发条件。",
+      "priority": 1,
+      "trust_level": "high"
+    }
+  ],
+  "conflicts": [],
+  "summary": {
+    "topic": "非标退货判定规则",
+    "one_line_conclusion": "该切片覆盖非标退货请求、判定条件和经理分流规则，支持雇佣教练对本轮资料 todo 的验收。",
+    "selection_basis": "只纳入 material todo 的 objective 与 acceptance 明确要求的概念、关系和规则。",
+    "exclusion_basis": "退款到账通知等后续服务话术不影响本轮判定规则抽取。"
+  },
+  "concepts": [
+    {
+      "id": "C1",
+      "name_zh": "非标退货请求",
+      "name_en": "nonstandard_return_request",
+      "aliases": [
+        "特殊退货申请"
+      ],
+      "kind": "entity",
+      "definition": "不满足标准退货条件、需要额外规则判断或人工介入的退货请求。",
+      "parent_concept_id": null,
+      "key_properties": [
+        {
+          "name": "reason",
+          "type": "string",
+          "required": true,
+          "description": "用户提出非标退货的原因。"
+        }
+      ],
+      "source_ids": [
+        "S1"
+      ]
+    },
+    {
+      "id": "C2",
+      "name_zh": "退货判定条件",
+      "name_en": "return_decision_condition",
+      "aliases": [
+        "判定规则"
+      ],
+      "kind": "rule",
+      "definition": "决定非标退货请求应被接受、拒绝或转人工复核的条件集合。",
+      "parent_concept_id": null,
+      "key_properties": [
+        {
+          "name": "condition_expression",
+          "type": "string",
+          "required": true,
+          "description": "可被复述和实现的判定条件表达。"
+        }
+      ],
+      "source_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "R1",
+      "subject_concept_id": "C1",
+      "predicate": "evaluated_by",
+      "object_concept_id": "C2",
+      "description": "非标退货请求必须依据退货判定条件进行判断。",
+      "cardinality": "n:1",
+      "direction": "uni",
+      "conditions": [
+        "当标准退货条件无法直接覆盖用户请求时。"
+      ],
+      "source_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "id": "K1",
+      "name": "经理分流触发规则",
+      "applies_to": {
+        "concept_ids": [
+          "C1"
+        ],
+        "relation_ids": [
+          "R1"
+        ]
+      },
+      "rule": "当请求命中高金额、重复投诉或资料缺失等边界条件时，必须转经理人工复核。",
+      "trigger": "非标退货请求进入自动判定流程时。",
+      "forbidden": [
+        "在经理分流条件命中时直接自动拒绝。"
+      ],
+      "severity": "high",
+      "source_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "term_mappings": [
+    {
+      "term": "非标退货",
+      "candidate_concept_ids": [
+        "C1"
+      ],
+      "selected_concept_id": "C1",
+      "reason": "用户 todo 的 intent 明确指向非标退货场景。"
+    }
+  ],
+  "ambiguities": [],
+  "uncertainties": [],
+  "next_actions": [
+    {
+      "action": "将该 slice 回传给雇佣教练并等待用户确认。",
+      "owner": "system",
+      "priority": "P1"
+    }
+  ],
+  "meta": {
+    "generated_at": "2026-04-30T00:00:00Z",
+    "generated_by": "ontology-extraction",
+    "workspace": "employment-coach-sandbox",
+    "notes": "该 slice 覆盖系统 todo m_cs_nonstandard_rules_001，source 与 acceptance 已进入结构化 todo_context 元数据。",
+    "todo_context": {
+      "source_dispatch_target": "ontology-extraction",
+      "todo_ids": [
+        "m_cs_nonstandard_rules_001"
+      ],
+      "todos": [
+        {
+          "id": "m_cs_nonstandard_rules_001",
+          "intent": "抽出非标退货场景的判定规则与处置路径",
+          "category": "决策规则",
+          "payload": {
+            "objective": "抽取《非标退货处理规则》里的判定条件、处置档位、分流到经理的触发条件",
+            "source_files": [
+              "uploads/非标退货处理规则.docx"
+            ],
+            "scene_hint": "customer_service",
+            "mode": "incremental"
+          },
+          "source": "用户上传《非标退货处理规则.docx》并说明先处理这批资料",
+          "acceptance": "ontology 中包含退货判定条件、处置档位和人工分流触发节点，并给出 slice 文件",
+          "status": "ready_to_dispatch"
+        }
+      ]
+    }
+  }
+}
