@@ -1,0 +1,513 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw.local/skills/ontology-extraction/templates/TEMPLATE.schema.json",
+  "title": "Ncrew Ontology Slice Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "template_type",
+    "slice_request",
+    "scope",
+    "sources",
+    "conflicts",
+    "summary",
+    "concepts",
+    "relations",
+    "constraints",
+    "term_mappings",
+    "ambiguities",
+    "uncertainties",
+    "next_actions",
+    "meta"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "template_type": {
+      "type": "string",
+      "const": "ontology_slice"
+    },
+    "slice_request": {
+      "$ref": "#/$defs/sliceRequest"
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/conflict"
+      }
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
+    "concepts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/concept"
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/relation"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/constraint"
+      }
+    },
+    "term_mappings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/termMapping"
+      }
+    },
+    "ambiguities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ambiguity"
+      }
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/uncertainty"
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nextAction"
+      }
+    },
+    "meta": {
+      "$ref": "#/$defs/meta"
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "conceptId": {
+      "type": "string",
+      "pattern": "^C[A-Za-z0-9_-]*$"
+    },
+    "relationId": {
+      "type": "string",
+      "pattern": "^R[A-Za-z0-9_-]*$"
+    },
+    "constraintId": {
+      "type": "string",
+      "pattern": "^K[A-Za-z0-9_-]*$"
+    },
+    "sourceId": {
+      "type": "string",
+      "pattern": "^S[A-Za-z0-9_-]*$"
+    },
+    "sliceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_name",
+        "slice_topic",
+        "task_goal",
+        "expected_output"
+      ],
+      "properties": {
+        "task_name": { "$ref": "#/$defs/nonEmptyString" },
+        "slice_topic": { "$ref": "#/$defs/nonEmptyString" },
+        "task_goal": { "$ref": "#/$defs/nonEmptyString" },
+        "expected_output": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        }
+      }
+    },
+    "scopeInclude": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "name", "reason"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["concept", "relation", "constraint"]
+        },
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "reason": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "scopeExclude": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "reason"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "reason": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["include", "exclude"],
+      "properties": {
+        "include": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/scopeInclude" }
+        },
+        "exclude": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/scopeExclude" }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "source_type", "role", "priority", "trust_level"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sourceId" },
+        "path": { "$ref": "#/$defs/nonEmptyString" },
+        "source_type": {
+          "type": "string",
+          "enum": ["document", "code", "config", "schema", "ontology", "data"]
+        },
+        "role": { "$ref": "#/$defs/nonEmptyString" },
+        "priority": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "trust_level": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item", "source_ids", "resolution", "status"],
+      "properties": {
+        "item": { "$ref": "#/$defs/nonEmptyString" },
+        "source_ids": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        },
+        "resolution": { "$ref": "#/$defs/nonEmptyString" },
+        "status": {
+          "type": "string",
+          "enum": ["open", "resolved", "deferred"]
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic", "one_line_conclusion", "selection_basis", "exclusion_basis"],
+      "properties": {
+        "topic": { "$ref": "#/$defs/nonEmptyString" },
+        "one_line_conclusion": { "$ref": "#/$defs/nonEmptyString" },
+        "selection_basis": { "$ref": "#/$defs/nonEmptyString" },
+        "exclusion_basis": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "conceptProperty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "required", "description"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "integer", "boolean", "object", "array", "enum"]
+        },
+        "required": { "type": "boolean" },
+        "description": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "concept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name_zh",
+        "name_en",
+        "aliases",
+        "kind",
+        "definition",
+        "parent_concept_id",
+        "key_properties",
+        "source_ids"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/conceptId" },
+        "name_zh": { "$ref": "#/$defs/nonEmptyString" },
+        "name_en": { "$ref": "#/$defs/nonEmptyString" },
+        "aliases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["entity", "value_object", "event", "rule"]
+        },
+        "definition": { "$ref": "#/$defs/nonEmptyString" },
+        "parent_concept_id": {
+          "oneOf": [
+            { "$ref": "#/$defs/conceptId" },
+            { "type": "null" }
+          ]
+        },
+        "key_properties": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/conceptProperty" }
+        },
+        "source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        }
+      }
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "subject_concept_id",
+        "predicate",
+        "object_concept_id",
+        "description",
+        "cardinality",
+        "direction",
+        "conditions",
+        "source_ids"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/relationId" },
+        "subject_concept_id": { "$ref": "#/$defs/conceptId" },
+        "predicate": { "$ref": "#/$defs/nonEmptyString" },
+        "object_concept_id": { "$ref": "#/$defs/conceptId" },
+        "description": { "$ref": "#/$defs/nonEmptyString" },
+        "cardinality": {
+          "type": "string",
+          "enum": ["1:1", "1:n", "n:1", "n:n"]
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["uni", "bidirectional"]
+        },
+        "conditions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        }
+      }
+    },
+    "constraintAppliesTo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["concept_ids", "relation_ids"],
+      "properties": {
+        "concept_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/conceptId" },
+          "uniqueItems": true
+        },
+        "relation_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/relationId" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "applies_to", "rule", "trigger", "forbidden", "severity", "source_ids"],
+      "properties": {
+        "id": { "$ref": "#/$defs/constraintId" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "applies_to": { "$ref": "#/$defs/constraintAppliesTo" },
+        "rule": { "$ref": "#/$defs/nonEmptyString" },
+        "trigger": { "$ref": "#/$defs/nonEmptyString" },
+        "forbidden": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        }
+      }
+    },
+    "termMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["term", "candidate_concept_ids", "selected_concept_id", "reason"],
+      "properties": {
+        "term": { "$ref": "#/$defs/nonEmptyString" },
+        "candidate_concept_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/conceptId" }
+        },
+        "selected_concept_id": { "$ref": "#/$defs/conceptId" },
+        "reason": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "ambiguity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "impact", "status"],
+      "properties": {
+        "description": { "$ref": "#/$defs/nonEmptyString" },
+        "impact": { "$ref": "#/$defs/nonEmptyString" },
+        "status": {
+          "type": "string",
+          "enum": ["open", "resolved", "deferred"]
+        }
+      }
+    },
+    "uncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item", "missing_evidence", "required_user_input"],
+      "properties": {
+        "item": { "$ref": "#/$defs/nonEmptyString" },
+        "missing_evidence": { "$ref": "#/$defs/nonEmptyString" },
+        "required_user_input": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "nextAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "owner", "priority"],
+      "properties": {
+        "action": { "$ref": "#/$defs/nonEmptyString" },
+        "owner": {
+          "type": "string",
+          "enum": ["agent", "user", "system"]
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["P1", "P2", "P3"]
+        }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generated_at", "generated_by", "workspace", "notes"],
+      "properties": {
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "generated_by": {
+          "type": "string",
+          "const": "ontology-extraction"
+        },
+        "workspace": { "$ref": "#/$defs/nonEmptyString" },
+        "notes": { "$ref": "#/$defs/nonEmptyString" },
+        "todo_context": { "$ref": "#/$defs/employmentCoachTodoContext" }
+      }
+    },
+    "employmentCoachTodoContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_dispatch_target", "todo_ids", "todos"],
+      "properties": {
+        "source_dispatch_target": {
+          "type": "string",
+          "const": "ontology-extraction"
+        },
+        "todo_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "todos": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/employmentCoachTodoContextItem" }
+        }
+      }
+    },
+    "employmentCoachTodoContextItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "intent", "category", "payload", "source", "acceptance", "status"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "intent": { "$ref": "#/$defs/nonEmptyString" },
+        "category": { "$ref": "#/$defs/nonEmptyString" },
+        "payload": { "$ref": "#/$defs/employmentCoachTodoContextPayload" },
+        "source": { "$ref": "#/$defs/nonEmptyString" },
+        "acceptance": { "$ref": "#/$defs/nonEmptyString" },
+        "status": {
+          "type": "string",
+          "enum": ["ready_to_dispatch", "dirty"]
+        }
+      }
+    },
+    "employmentCoachTodoContextPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective", "source_files", "scene_hint", "mode"],
+      "properties": {
+        "objective": { "$ref": "#/$defs/nonEmptyString" },
+        "source_files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "scene_hint": { "$ref": "#/$defs/nonEmptyString" },
+        "mode": {
+          "type": "string",
+          "enum": ["incremental", "full_replace"]
+        }
+      }
+    }
+  }
+}

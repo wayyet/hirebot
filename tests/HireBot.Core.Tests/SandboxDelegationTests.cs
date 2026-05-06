@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
@@ -28,6 +29,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HireBot.Core.Tests;
@@ -66,7 +68,13 @@ public sealed class SandboxDelegationTests
                         [],
                         [],
                         false,
-                        DateTimeOffset.UtcNow)))
+                        DateTimeOffset.UtcNow))),
+            SessionDetailResponse = ApiResponse<SandboxSessionDetailDto>.SuccessResponse(
+                new SandboxSessionDetailDto(
+                    "session-001",
+                    [],
+                    [],
+                    true))
         };
 
         var service = CreateEmployeeHiringService(sandboxService);
@@ -87,12 +95,143 @@ public sealed class SandboxDelegationTests
         Assert.True(sendResult.Success);
         Assert.Equal("请继续", sandboxService.LastSendMessageRequest!.Content);
         Assert.Equal("hire-001", sandboxService.LastSendMessageRequest.ScopeKey);
+        Assert.Equal("hire-001", sandboxService.LastSessionDetailRequest!.ScopeKey);
 
         var timelineResult = await service.GetConversationTimelineAsync("hire-001");
         Assert.True(timelineResult.Success);
         Assert.Null(sandboxService.LastTimelineRequest);
         Assert.Contains(timelineResult.Data!.Messages, message => message.Role == "user");
         Assert.Contains(timelineResult.Data.Messages, message => message.Role == "assistant");
+    }
+
+    [Fact]
+    public async Task EmployeeHiringService_SendConversationMessageAsync_ShouldAdvanceStageFromSessionTodoMetadata()
+    {
+        var sandboxService = new RecordingSandboxService
+        {
+            SendMessageResponse = ApiResponse<HiringConversationResultDto>.SuccessResponse(
+                new HiringConversationResultDto(
+                    "hire-001",
+                    "session-001",
+                    HiringCollectionStage.Material,
+                    false,
+                    new HiringConversationMessageDto(
+                        "msg-structured-missing",
+                        "assistant",
+                        "请先告诉我这份资料主要解决什么业务问题。",
+                        DateTimeOffset.UtcNow),
+                    new HiringStagePreviewDto(
+                        "hire-001",
+                        HiringCollectionStage.Material,
+                        "employment-coach-conversation",
+                        "请先告诉我这份资料主要解决什么业务问题。",
+                        new Dictionary<string, string?>(),
+                        [],
+                        [],
+                        false,
+                        DateTimeOffset.UtcNow))),
+            SessionDetailResponse = ApiResponse<SandboxSessionDetailDto>.SuccessResponse(
+                new SandboxSessionDetailDto(
+                    "session-001",
+                    [],
+                    [
+                        new SandboxSessionTodoItemDto(
+                            "todo_material_001",
+                            "资料归类",
+                            BuildTodoNotesJson(
+                                stage: HiringCollectionStage.Material,
+                                targetSkill: "ontology_extraction",
+                                intent: "整理客服退货流程资料",
+                                category: "流程 SOP",
+                                status: HiringTodoStatus.Confirmed,
+                                source: "用户上传的客服退货流程资料",
+                                acceptance: "能够抽出退货流程节点",
+                                payloadJson: "{\"objective\":\"抽出退货流程节点\"}"),
+                            true,
+                            DateTimeOffset.Parse("2026-05-06T10:00:00Z"),
+                            DateTimeOffset.Parse("2026-05-06T10:05:00Z"))
+                    ],
+                    true))
+        };
+        var service = CreateEmployeeHiringService(
+            sandboxService,
+            CreateDbContext(Guid.NewGuid().ToString("N")),
+            new HttpContextAccessor
+            {
+                HttpContext = CreateHttpContext("tenant-1", "operator-1")
+            });
+
+        var sendResult = await service.SendConversationMessageAsync(
+            "hire-001",
+            new HiringConversationMessageRequestDto
+            {
+                Content = "这是客服退货流程资料。"
+            });
+
+        Assert.True(sendResult.Success);
+        Assert.Equal(HiringCollectionStage.Skill, sendResult.Data!.CurrentStage);
+
+        var workflowStateResult = await service.GetWorkflowStateAsync("hire-001");
+        Assert.True(workflowStateResult.Success);
+
+        var materialReadiness = Assert.Single(
+            workflowStateResult.Data!.StageReadiness!,
+            item => string.Equals(item.Stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(HiringStageReadinessStatus.Complete, materialReadiness.Status);
+        Assert.Contains("todo_material_001", materialReadiness.BlockingTodoIds);
+    }
+
+    [Fact]
+    public async Task EmployeeHiringService_SendConversationMessageAsync_ShouldFailWhenTodoNotesInvalid()
+    {
+        var sandboxService = new RecordingSandboxService
+        {
+            SendMessageResponse = ApiResponse<HiringConversationResultDto>.SuccessResponse(
+                new HiringConversationResultDto(
+                    "hire-001",
+                    "session-001",
+                    HiringCollectionStage.Material,
+                    false,
+                    new HiringConversationMessageDto(
+                        "msg-invalid-notes",
+                        "assistant",
+                        "请继续补充资料。",
+                        DateTimeOffset.UtcNow),
+                    new HiringStagePreviewDto(
+                        "hire-001",
+                        HiringCollectionStage.Material,
+                        "employment-coach-conversation",
+                        "请继续补充资料。",
+                        new Dictionary<string, string?>(),
+                        [],
+                        [],
+                        false,
+                        DateTimeOffset.UtcNow))),
+            SessionDetailResponse = ApiResponse<SandboxSessionDetailDto>.SuccessResponse(
+                new SandboxSessionDetailDto(
+                    "session-001",
+                    [],
+                    [
+                        new SandboxSessionTodoItemDto(
+                            "todo_material_invalid",
+                            "资料归类",
+                            "{not-json}",
+                            false,
+                            DateTimeOffset.Parse("2026-05-06T10:00:00Z"),
+                            DateTimeOffset.Parse("2026-05-06T10:05:00Z"))
+                    ],
+                    true))
+        };
+        var service = CreateEmployeeHiringService(sandboxService);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SendConversationMessageAsync(
+            "hire-001",
+            new HiringConversationMessageRequestDto
+            {
+                Content = "这是客服退货流程资料。"
+            }));
+
+        Assert.Contains("notes JSON", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -282,6 +421,7 @@ public sealed class SandboxDelegationTests
         RecordingSandboxService sandboxService,
         HireBotDbContext dbContext,
         IHttpContextAccessor httpContextAccessor,
+        ILogger<EmployeeHiringService>? logger = null,
         bool seedRuntimeContext = true)
     {
         var runtimeStore = new PersistentHiringRuntimeStore(dbContext);
@@ -293,6 +433,8 @@ public sealed class SandboxDelegationTests
         return new EmployeeHiringService(
             new NoopTemplateDataProvider(),
             new NoopTemplatePackageProvider(),
+            new NoopDiscoveryRoleTemplatePackageProvider(),
+            new NoopWorkingTemplatePackageProvider(),
             new NoopDiscoveryRuleProvider(),
             new NoopSystemSkillRegistry(),
             new HiringStageCompletionEvaluator(),
@@ -307,7 +449,7 @@ public sealed class SandboxDelegationTests
             new NoopHiringFileStore(),
             new NoopInstanceArtifactCloneService(),
             new NoopHiringArtifactPackageService(),
-            NullLogger<EmployeeHiringService>.Instance);
+            logger ?? NullLogger<EmployeeHiringService>.Instance);
     }
 
     private static IDataProtectionProvider CreateDataProtectionProvider()
@@ -338,7 +480,7 @@ public sealed class SandboxDelegationTests
             CollectionPhase = HiringCollectionPhase.InProgress,
             IsConversationPaused = false,
             IsConversationResponding = false,
-            TemplatePackage = new TemplatePackageDefinition(
+            ReferenceTemplatePackage = new TemplatePackageDefinition(
                 RequestedTemplateId: "template-001",
                 PackageId: "template-001",
                 PackageVersion: "1.0.0",
@@ -350,7 +492,39 @@ public sealed class SandboxDelegationTests
                 Description: "test",
                 PackageFiles: [],
                 OntologySlices: [],
-                RequiredSkills: []),
+                RequiredSkills: [],
+                EntrySkill: null,
+                StageRules: []),
+            RoleTemplatePackage = new TemplatePackageDefinition(
+                RequestedTemplateId: "template-001",
+                PackageId: "template-001",
+                PackageVersion: "1.0.0",
+                PackageHash: "hash-template-001",
+                SourceArchive: null,
+                PackageRootPath: "template-001",
+                ManifestJson: "{}",
+                DisplayName: "Template 001",
+                Description: "test",
+                PackageFiles: [],
+                OntologySlices: [],
+                RequiredSkills: [],
+                EntrySkill: null,
+                StageRules: []),
+            WorkingTemplatePackage = new TemplatePackageDefinition(
+                RequestedTemplateId: "template-001",
+                PackageId: "template-001",
+                PackageVersion: "1.0.0",
+                PackageHash: "hash-template-001",
+                SourceArchive: null,
+                PackageRootPath: "template-001",
+                ManifestJson: "{}",
+                DisplayName: "Template 001",
+                Description: "test",
+                PackageFiles: [],
+                OntologySlices: [],
+                RequiredSkills: [],
+                EntrySkill: null,
+                StageRules: []),
             DiscoverySkill = new DiscoverySkillDefinition(
                 SkillId: "digital-employee-discovery",
                 SkillVersion: "1.0.0",
@@ -442,6 +616,34 @@ public sealed class SandboxDelegationTests
         return memory.ToArray();
     }
 
+    private static string BuildTodoNotesJson(
+        string stage,
+        string targetSkill,
+        string intent,
+        string category,
+        string status,
+        string source,
+        string acceptance,
+        string? payloadJson = null,
+        string createdAtUtc = "2026-05-06T10:00:00Z",
+        string updatedAtUtc = "2026-05-06T10:05:00Z")
+    {
+        return $$"""
+        {
+          "stage": "{{stage}}",
+          "targetSkill": "{{targetSkill}}",
+          "intent": "{{intent}}",
+          "category": "{{category}}",
+          "status": "{{status}}",
+          "source": "{{source}}",
+          "acceptance": "{{acceptance}}",
+          "payloadJson": {{(payloadJson is null ? "null" : JsonSerializer.Serialize(payloadJson))}},
+          "createdAtUtc": "{{createdAtUtc}}",
+          "updatedAtUtc": "{{updatedAtUtc}}"
+        }
+        """;
+    }
+
     private sealed class RecordingSandboxService : ISandboxService
     {
         public SandboxEnsureSessionRequestDto? LastEnsureSessionRequest { get; private set; }
@@ -449,6 +651,8 @@ public sealed class SandboxDelegationTests
         public SandboxSendMessageRequestDto? LastSendMessageRequest { get; private set; }
 
         public SandboxTimelineRequestDto? LastTimelineRequest { get; private set; }
+
+        public SandboxSessionDetailRequestDto? LastSessionDetailRequest { get; private set; }
 
         public ApiResponse<StartHiringConversationResultDto> EnsureSessionResponse { get; init; } =
             ApiResponse<StartHiringConversationResultDto>.ErrorResponse(500, "not configured");
@@ -458,6 +662,9 @@ public sealed class SandboxDelegationTests
 
         public ApiResponse<HiringConversationTimelineDto> TimelineResponse { get; init; } =
             ApiResponse<HiringConversationTimelineDto>.ErrorResponse(500, "not configured");
+
+        public ApiResponse<SandboxSessionDetailDto> SessionDetailResponse { get; init; } =
+            ApiResponse<SandboxSessionDetailDto>.ErrorResponse(500, "not configured");
 
         public Task<ApiResponse<SandboxInstanceDto>> RegisterAsync(SandboxRegisterRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<SandboxInstanceDto>.ErrorResponse(501, "not used"));
@@ -498,8 +705,44 @@ public sealed class SandboxDelegationTests
             return Task.FromResult(TimelineResponse);
         }
 
+        public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default)
+        {
+            LastSessionDetailRequest = request;
+            return Task.FromResult(SessionDetailResponse);
+        }
+
         public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<SandboxAttachmentUploadResultDto>.ErrorResponse(501, "not used"));
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable BeginScope<TState>(TState state)
+            where TState : notnull
+            => NoopScope.Instance;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Entries.Add((logLevel, formatter(state, exception)));
+        }
+
+        private sealed class NoopScope : IDisposable
+        {
+            public static NoopScope Instance { get; } = new();
+
+            public void Dispose()
+            {
+            }
+        }
     }
 
     private sealed class ThrowingKingCrabHttpClient : IKingCrabHttpClient
@@ -552,6 +795,18 @@ public sealed class SandboxDelegationTests
     private sealed class NoopTemplatePackageProvider : ITemplatePackageProvider
     {
         public Task<TemplatePackageDefinition> LoadAsync(string templateId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class NoopDiscoveryRoleTemplatePackageProvider : IDiscoveryRoleTemplatePackageProvider
+    {
+        public Task<TemplatePackageDefinition> LoadAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class NoopWorkingTemplatePackageProvider : IWorkingTemplatePackageProvider
+    {
+        public Task<TemplatePackageDefinition> LoadAsync(CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 

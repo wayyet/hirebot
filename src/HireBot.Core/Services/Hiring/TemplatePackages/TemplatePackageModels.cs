@@ -12,7 +12,9 @@ internal sealed record TemplatePackageDefinition(
     string Description,
     IReadOnlyList<TemplatePackageFileAsset> PackageFiles,
     IReadOnlyList<TemplateOntologySliceAsset> OntologySlices,
-    IReadOnlyList<TemplateSkillAsset> RequiredSkills);
+    IReadOnlyList<TemplateSkillAsset> RequiredSkills,
+    string? EntrySkill,
+    IReadOnlyList<TemplatePackageStageRule> StageRules);
 
 internal sealed record TemplatePackageFileAsset(
     string RelativePath,
@@ -33,3 +35,9 @@ internal sealed record TemplateSkillAsset(
     bool Required,
     string Content,
     string ContentHash);
+
+internal sealed record TemplatePackageStageRule(
+    string Stage,
+    string SkillName,
+    string Description,
+    IReadOnlyList<string> RequiredFields);

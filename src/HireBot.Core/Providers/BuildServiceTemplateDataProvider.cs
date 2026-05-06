@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using HireBot.Abstraction.Models.EmployeeTemplate;
@@ -212,7 +212,7 @@ public sealed class BuildServiceTemplateDataProvider(
 
         return new EmployeeTemplateDefinition(
             TemplateId: templateId,
-            IconUrl: BuildDefaultIconUrl(templateId, name),
+            IconUrl: TemplatePresentationHelpers.BuildDefaultIconUrl(templateId, name),
             Name: name,
             Tagline: positioning,
             Description: description,
@@ -241,7 +241,7 @@ public sealed class BuildServiceTemplateDataProvider(
 
         return new EmployeeTemplateDefinition(
             TemplateId: templateId,
-            IconUrl: BuildDefaultIconUrl(templateId, name),
+            IconUrl: TemplatePresentationHelpers.BuildDefaultIconUrl(templateId, name),
             Name: name,
             Tagline: positioning,
             Description: description,
@@ -265,7 +265,7 @@ public sealed class BuildServiceTemplateDataProvider(
         foreach (var skill in EnumerateArray(skills))
         {
             var skillObject = ResolveNestedObjectOrSelf(skill, "skill", "skillInfo");
-            var category = FirstNonEmpty(
+        var category = TemplatePresentationHelpers.FirstNonEmpty(
                 GetString(skillObject, "category"),
                 GetString(skill, "category"));
             if (!string.IsNullOrWhiteSpace(category))
@@ -285,7 +285,7 @@ public sealed class BuildServiceTemplateDataProvider(
         foreach (var binding in EnumerateArray(skills))
         {
             var skillObject = ResolveNestedObjectOrSelf(binding, "skill", "skillInfo");
-            var name = FirstNonEmpty(
+        var name = TemplatePresentationHelpers.FirstNonEmpty(
                 GetString(skillObject, "displayName"),
                 GetString(skillObject, "name"),
                 GetString(binding, "displayName"),
@@ -309,7 +309,7 @@ public sealed class BuildServiceTemplateDataProvider(
         var result = new List<string>();
         foreach (var ontology in EnumerateArray(ontologies))
         {
-            var name = FirstNonEmpty(GetString(ontology, "displayName"), GetString(ontology, "name"));
+        var name = TemplatePresentationHelpers.FirstNonEmpty(GetString(ontology, "displayName"), GetString(ontology, "name"));
             if (!string.IsNullOrWhiteSpace(name))
             {
                 result.Add($"Ontology: {name}");
@@ -329,7 +329,7 @@ public sealed class BuildServiceTemplateDataProvider(
             var level = isRequired ? "required" : "optional";
             var skillObject = ResolveNestedObjectOrSelf(binding, "skill", "skillInfo");
             var effectiveVersion = ResolveNestedObjectOrSelf(binding, "effectiveVersion", "versionInfo", "currentVersion");
-            var systemName = FirstNonEmpty(
+        var systemName = TemplatePresentationHelpers.FirstNonEmpty(
                 GetString(skillObject, "displayName"),
                 GetString(skillObject, "name"),
                 GetString(binding, "displayName"),
@@ -353,7 +353,7 @@ public sealed class BuildServiceTemplateDataProvider(
             }
             else
             {
-                var entryPoint = FirstNonEmpty(
+        var entryPoint = TemplatePresentationHelpers.FirstNonEmpty(
                     GetString(effectiveVersion, "entryPoint"),
                     GetString(effectiveVersion, "version"),
                     GetString(binding, "entryPoint"),
@@ -373,7 +373,7 @@ public sealed class BuildServiceTemplateDataProvider(
 
         foreach (var cli in EnumerateArray(clis))
         {
-            var cliName = FirstNonEmpty(GetString(cli, "displayName"), GetString(cli, "name"));
+        var cliName = TemplatePresentationHelpers.FirstNonEmpty(GetString(cli, "displayName"), GetString(cli, "name"));
             if (string.IsNullOrWhiteSpace(cliName))
             {
                 continue;
@@ -402,7 +402,7 @@ public sealed class BuildServiceTemplateDataProvider(
         }
 
         var result = new List<string>();
-        var versionText = FirstNonEmpty(version.Version);
+        var versionText = TemplatePresentationHelpers.FirstNonEmpty(version.Version);
         if (!string.IsNullOrWhiteSpace(versionText) && !string.IsNullOrWhiteSpace(version.ChangeLog))
         {
             result.Add($"Version {versionText.Trim()}: {version.ChangeLog.Trim()}");
@@ -494,19 +494,6 @@ public sealed class BuildServiceTemplateDataProvider(
             .ToArray();
     }
 
-    private static string FirstNonEmpty(params string?[] values)
-    {
-        foreach (var value in values)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value.Trim();
-            }
-        }
-
-        return string.Empty;
-    }
-
     private static string RequireNonEmpty(string? value, string fieldName)
     {
         if (!string.IsNullOrWhiteSpace(value))
@@ -519,7 +506,7 @@ public sealed class BuildServiceTemplateDataProvider(
 
     private static string RequireAny(string fieldName, params string?[] values)
     {
-        var value = FirstNonEmpty(values);
+        var value = TemplatePresentationHelpers.FirstNonEmpty(values);
         if (!string.IsNullOrWhiteSpace(value))
         {
             return value.Trim();
@@ -614,12 +601,12 @@ public sealed class BuildServiceTemplateDataProvider(
 
         if (element.ValueKind == JsonValueKind.Object)
         {
-            var namedValue = FirstNonEmpty(
-                GetString(element, "name"),
-                GetString(element, "displayName"),
-                GetString(element, "title"),
-                GetString(element, "label"),
-                GetString(element, "value"));
+        var namedValue = TemplatePresentationHelpers.FirstNonEmpty(
+            GetString(element, "name"),
+            GetString(element, "displayName"),
+            GetString(element, "title"),
+            GetString(element, "label"),
+            GetString(element, "value"));
             if (!string.IsNullOrWhiteSpace(namedValue))
             {
                 return [namedValue];
@@ -640,46 +627,6 @@ public sealed class BuildServiceTemplateDataProvider(
         }
 
         return [];
-    }
-
-    private static string BuildDefaultIconUrl(string templateId, string name)
-    {
-        var text = FirstNonEmpty(name, templateId).ToUpperInvariant();
-        var firstGlyph = text.Length > 0 ? text[0].ToString() : "T";
-        var background = ResolveColorFromTemplateId(templateId);
-        var svg =
-            "<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'>" +
-            $"<rect width='160' height='160' rx='24' fill='{background}' />" +
-            $"<text x='80' y='97' text-anchor='middle' font-size='64' font-family='Arial' fill='white'>{firstGlyph}</text>" +
-            "</svg>";
-        var encoded = Uri.EscapeDataString(svg);
-        return $"data:image/svg+xml,{encoded}";
-    }
-
-    private static string ResolveColorFromTemplateId(string templateId)
-    {
-        if (string.IsNullOrWhiteSpace(templateId))
-        {
-            return "#334155";
-        }
-
-        var seed = 0;
-        foreach (var ch in templateId)
-        {
-            seed += ch;
-        }
-
-        var palette = new[]
-        {
-            "#2563eb",
-            "#0f766e",
-            "#1d4ed8",
-            "#0369a1",
-            "#4f46e5",
-            "#0891b2"
-        };
-
-        return palette[Math.Abs(seed) % palette.Length];
     }
 
     private static string? ExtractRemoteMessage(string? payload)

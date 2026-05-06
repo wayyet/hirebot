@@ -35,8 +35,11 @@ internal sealed class SandboxService(
             return ApiResponse<SandboxInstanceDto>.ErrorResponse(400, "sandboxId 不能为空");
         }
 
-        var instance = await FindInstanceBySandboxIdAsync(request.SandboxId.Trim(), cancellationToken)
-            ?? await FindInstanceByScopeAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, cancellationToken);
+        var instance = await dbContext.SandboxInstances
+            .Where(item => item.SandboxId == request.SandboxId.Trim() ||
+                          (item.OwnerSubject == request.OwnerSubject && item.ScopeType == request.ScopeType && item.ScopeKey == request.ScopeKey && item.SandboxRole == request.SandboxRole && item.State != "Deleted"))
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (instance is null)
         {
@@ -243,6 +246,17 @@ internal sealed class SandboxService(
         {
             return ApiResponse<HiringConversationResultDto>.ErrorResponse(501, "Only hire scope message sending is supported.");
         }
+
+        logger.LogInformation(
+            "Sending sandbox message. ScopeType={ScopeType}, ScopeKey={ScopeKey}, SandboxRole={SandboxRole}, SessionKey={SessionKey}, SandboxId={SandboxId}, UploadMaterialsAsAttachments={UploadMaterialsAsAttachments}, MaterialCount={MaterialCount}",
+            request.ScopeType,
+            request.ScopeKey,
+            request.SandboxRole,
+            request.SessionKey,
+            request.SandboxId,
+            request.UploadMaterialsAsAttachments,
+            request.Materials?.Count ?? 0);
+
         var content = request.Content?.Trim() ?? string.Empty;
         if (request.UploadMaterialsAsAttachments && request.Materials is not null)
         {
@@ -267,11 +281,32 @@ internal sealed class SandboxService(
                 {
                     return ApiResponse<HiringConversationResultDto>.ErrorResponse(uploadResult.Code, uploadResult.Message);
                 }
+
+                logger.LogInformation(
+                    "Sandbox attachment uploaded and converted to marker. ScopeKey={ScopeKey}, SessionKey={SessionKey}, MaterialName={MaterialName}, MaterialType={MaterialType}, MimeType={MimeType}, MediaId={MediaId}, MediaUrl={MediaUrl}, Marker={Marker}",
+                    request.ScopeKey,
+                    request.SessionKey,
+                    material.Name,
+                    material.Type,
+                    material.MimeType,
+                    uploadResult.Data.MediaId,
+                    uploadResult.Data.Url,
+                    uploadResult.Data.Marker);
+
                 markers.Add(uploadResult.Data.Marker);
             }
             if (markers.Count > 0)
             {
                 content = BuildContentWithMarkers(content, markers);
+
+                logger.LogInformation(
+                    "Sandbox message markers injected into outbound content. ScopeKey={ScopeKey}, SessionKey={SessionKey}, MarkerCount={MarkerCount}, Markers={Markers}, ContentLength={ContentLength}, ContentPreview={ContentPreview}",
+                    request.ScopeKey,
+                    request.SessionKey,
+                    markers.Count,
+                    string.Join(", ", markers),
+                    content.Length,
+                    BuildContentPreview(content));
             }
         }
         var outboundRequest = new HiringConversationMessageRequestDto
@@ -314,6 +349,14 @@ internal sealed class SandboxService(
             return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "Sandbox gateway endpoint is not ready.");
         }
         var sessionId = ensureSessionResult.Data.SessionId.Trim();
+        logger.LogInformation(
+            "Dispatching sandbox chat completion request. ScopeKey={ScopeKey}, SessionId={SessionId}, GatewayEndpoint={GatewayEndpoint}, ContentLength={ContentLength}, ContentPreview={ContentPreview}",
+            request.ScopeKey,
+            sessionId,
+            gatewayEndpoint,
+            outboundRequest.Content?.Length ?? 0,
+            BuildContentPreview(outboundRequest.Content));
+
         var gatewayCall = await kingCrabHttpClient.SendForJsonAsync<SandboxGatewayChatCompletionResponse>(
             HttpMethod.Post,
             "/v1/chat/completions",
@@ -481,6 +524,92 @@ internal sealed class SandboxService(
 
     }
 
+    public async Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(
+        SandboxSessionDetailRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ValidateScope(request.ScopeType, request.ScopeKey, request.SandboxRole, request.OwnerSubject, out var validationMessage))
+        {
+            return ApiResponse<SandboxSessionDetailDto>.ErrorResponse(400, validationMessage);
+        }
+
+        if (!string.Equals(request.ScopeType, SandboxScopeTypes.Hire, StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<SandboxSessionDetailDto>.ErrorResponse(501, "当前仅支持 hire scope 的会话明细查询");
+        }
+
+        var instance = await ResolveInstanceForWriteAsync(
+            request.OwnerSubject,
+            request.ScopeType,
+            request.ScopeKey,
+            request.SandboxRole,
+            request.SandboxId,
+            cancellationToken);
+        if (instance is null)
+        {
+            return ApiResponse<SandboxSessionDetailDto>.ErrorResponse(404, "Sandbox not found.");
+        }
+
+        if (string.IsNullOrWhiteSpace(instance.SandboxId))
+        {
+            return ApiResponse<SandboxSessionDetailDto>.ErrorResponse(409, "Sandbox id is not ready.");
+        }
+
+        var ensureSessionResult = await EnsureSessionAsync(
+            new SandboxEnsureSessionRequestDto
+            {
+                ScopeType = request.ScopeType,
+                ScopeKey = request.ScopeKey,
+                SandboxRole = request.SandboxRole,
+                OwnerSubject = request.OwnerSubject,
+                TenantId = request.TenantId,
+                OperatorId = request.OperatorId,
+                SessionKey = request.SessionKey,
+                SandboxId = request.SandboxId ?? instance.SandboxId
+            },
+            cancellationToken);
+        if (!ensureSessionResult.Success || ensureSessionResult.Data is null || string.IsNullOrWhiteSpace(ensureSessionResult.Data.SessionId))
+        {
+            return ApiResponse<SandboxSessionDetailDto>.ErrorResponse(ensureSessionResult.Code, ensureSessionResult.Message);
+        }
+
+        var sessionId = ensureSessionResult.Data.SessionId.Trim();
+        var gatewayEndpointResult = await provisioner.GetGatewayEndpointResultAsync(instance.SandboxId, useServerProxy: false, cancellationToken);
+        if (!gatewayEndpointResult.Success || string.IsNullOrWhiteSpace(gatewayEndpointResult.Data))
+        {
+            return ApiResponse<SandboxSessionDetailDto>.ErrorResponse(
+                gatewayEndpointResult.StatusCode,
+                gatewayEndpointResult.Message);
+        }
+
+        var gatewayCall = await kingCrabHttpClient.SendForJsonAsync<SandboxGatewaySessionDetailResponse>(
+            HttpMethod.Get,
+            $"/api/integration/sessions/{Uri.EscapeDataString(sessionId)}",
+            body: null,
+            request.OwnerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false,
+            absoluteBaseUrl: gatewayEndpointResult.Data);
+
+        if (!gatewayCall.Success && gatewayCall.StatusCode != (int)HttpStatusCode.NotFound)
+        {
+            return ApiResponse<SandboxSessionDetailDto>.ErrorResponse(gatewayCall.StatusCode, gatewayCall.Message);
+        }
+
+        await UpsertSessionEntityAsync(
+            request.OwnerSubject,
+            request.ScopeType,
+            request.ScopeKey,
+            request.SandboxRole,
+            request.SessionKey,
+            sessionId,
+            request.SandboxId ?? instance.SandboxId,
+            cancellationToken);
+
+        return ApiResponse<SandboxSessionDetailDto>.SuccessResponse(
+            MapSessionDetailDto(sessionId, gatewayCall.Success ? gatewayCall.Data : null));
+    }
+
     public async Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(
         SandboxAttachmentUploadRequestDto request,
         CancellationToken cancellationToken = default)
@@ -525,6 +654,19 @@ internal sealed class SandboxService(
         };
         dbContext.SandboxAssets.Add(asset);
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Sandbox attachment persisted. ScopeKey={ScopeKey}, SessionKey={SessionKey}, AssetId={AssetId}, MediaId={MediaId}, MediaUrl={MediaUrl}, StoragePath={StoragePath}, FileName={FileName}, MimeType={MimeType}, SizeBytes={SizeBytes}",
+            request.ScopeKey,
+            request.SessionKey,
+            asset.Id,
+            asset.MediaId,
+            asset.Url,
+            asset.StoragePath,
+            asset.FileName,
+            asset.MimeType,
+            asset.SizeBytes);
+
         return ApiResponse<SandboxAttachmentUploadResultDto>.SuccessResponse(new SandboxAttachmentUploadResultDto(
             asset.Id,
             asset.SandboxInstanceEntityId,
@@ -594,22 +736,25 @@ internal sealed class SandboxService(
         return true;
     }
 
-    private async Task<SandboxInstanceEntity?> ResolveInstanceAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken)
+    private Task<SandboxInstanceEntity?> ResolveInstanceAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(request.SandboxId))
+        var trimmedSandboxId = string.IsNullOrWhiteSpace(request.SandboxId) ? null : request.SandboxId.Trim();
+        var hasFullScope = !string.IsNullOrWhiteSpace(request.OwnerSubject) &&
+                           !string.IsNullOrWhiteSpace(request.ScopeType) &&
+                           !string.IsNullOrWhiteSpace(request.ScopeKey) &&
+                           !string.IsNullOrWhiteSpace(request.SandboxRole);
+
+        if (trimmedSandboxId is null && !hasFullScope)
         {
-            return await FindInstanceBySandboxIdAsync(request.SandboxId.Trim(), cancellationToken);
+            return Task.FromResult<SandboxInstanceEntity?>(null);
         }
 
-        if (string.IsNullOrWhiteSpace(request.OwnerSubject) ||
-            string.IsNullOrWhiteSpace(request.ScopeType) ||
-            string.IsNullOrWhiteSpace(request.ScopeKey) ||
-            string.IsNullOrWhiteSpace(request.SandboxRole))
-        {
-            return null;
-        }
-
-        return await FindInstanceByScopeAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, cancellationToken);
+        return dbContext.SandboxInstances
+            .Where(item => trimmedSandboxId != null
+                ? item.SandboxId == trimmedSandboxId
+                : (item.OwnerSubject == request.OwnerSubject && item.ScopeType == request.ScopeType && item.ScopeKey == request.ScopeKey && item.SandboxRole == request.SandboxRole && item.State != "Deleted"))
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task<SandboxInstanceEntity?> ResolveInstanceForWriteAsync(
@@ -620,17 +765,15 @@ internal sealed class SandboxService(
         string? sandboxId,
         CancellationToken cancellationToken)
     {
-        SandboxInstanceEntity? instance = null;
-        if (!string.IsNullOrWhiteSpace(sandboxId))
-        {
-            instance = await FindInstanceBySandboxIdAsync(sandboxId.Trim(), cancellationToken);
-        }
+        var trimmedSandboxId = string.IsNullOrWhiteSpace(sandboxId) ? null : sandboxId.Trim();
 
-        return instance ?? await FindInstanceByScopeAsync(ownerSubject, scopeType, scopeKey, sandboxRole, cancellationToken);
+        return await dbContext.SandboxInstances
+            .Where(item => trimmedSandboxId != null
+                ? item.SandboxId == trimmedSandboxId
+                : (item.OwnerSubject == ownerSubject && item.ScopeType == scopeType && item.ScopeKey == scopeKey && item.SandboxRole == sandboxRole && item.State != "Deleted"))
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
     }
-
-    private Task<SandboxInstanceEntity?> FindInstanceBySandboxIdAsync(string sandboxId, CancellationToken cancellationToken)
-        => dbContext.SandboxInstances.FirstOrDefaultAsync(item => item.SandboxId == sandboxId, cancellationToken);
 
     private Task<SandboxInstanceEntity?> FindInstanceByScopeAsync(string ownerSubject, string scopeType, string scopeKey, string sandboxRole, CancellationToken cancellationToken)
         => dbContext.SandboxInstances
@@ -821,6 +964,21 @@ internal sealed class SandboxService(
             : $"{content.Trim()}{Environment.NewLine}{Environment.NewLine}{markerBlock}";
     }
 
+    private static string BuildContentPreview(string? content, int maxLength = 400)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return string.Empty;
+        }
+
+        var normalized = content
+            .Replace("\r", "\\r", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal);
+        return normalized.Length <= maxLength
+            ? normalized
+            : normalized[..maxLength] + "...";
+    }
+
     private async Task<ApiResponse<AttachmentPayload>> BuildAttachmentPayloadAsync(HiringConversationMaterialDto material, CancellationToken cancellationToken)
     {
         var fileName = string.IsNullOrWhiteSpace(material.Name) ? "attachment.bin" : material.Name.Trim();
@@ -879,18 +1037,74 @@ internal sealed class SandboxService(
     private sealed record SandboxGatewayChatCompletionChoice(
         SandboxGatewayChatMessage? Message);
 
+    private static SandboxSessionDetailDto MapSessionDetailDto(
+        string sessionId,
+        SandboxGatewaySessionDetailResponse? response)
+    {
+        var messages = response?.Session?.History is { Count: > 0 } history
+            ? history
+                .Where(item =>
+                    string.Equals(item.Role, "user", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(item.Role, "assistant", StringComparison.OrdinalIgnoreCase))
+                .Select((item, index) => new HiringConversationMessageDto(
+                    $"{sessionId}:{index + 1}",
+                    item.Role,
+                    item.Content ?? string.Empty,
+                    item.Timestamp ?? DateTimeOffset.UtcNow))
+                .ToArray()
+            : [];
+
+        var todoItems = response?.Metadata?.TodoItems is { Count: > 0 } metadataTodoItems
+            ? metadataTodoItems
+                .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+                .Select(item =>
+                {
+                    var createdAtUtc = item.CreatedAtUtc ?? DateTimeOffset.UtcNow;
+                    var updatedAtUtc = item.UpdatedAtUtc ?? createdAtUtc;
+                    return new SandboxSessionTodoItemDto(
+                        item.Id!.Trim(),
+                        item.Text?.Trim() ?? string.Empty,
+                        item.Notes,
+                        item.Completed,
+                        createdAtUtc,
+                        updatedAtUtc);
+                })
+                .OrderBy(item => item.CreatedAtUtc)
+                .ThenBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+            : [];
+
+        return new SandboxSessionDetailDto(
+            sessionId,
+            messages,
+            todoItems,
+            response?.IsActive ?? false);
+    }
+
     private sealed record SandboxGatewaySessionDetailResponse(
         SandboxGatewaySessionDetail? Session,
+        SandboxGatewaySessionMetadata? Metadata,
         bool IsActive);
 
     private sealed record SandboxGatewaySessionDetail(
         string Id,
         IReadOnlyList<SandboxGatewaySessionTurn> History);
 
+    private sealed record SandboxGatewaySessionMetadata(
+        IReadOnlyList<SandboxGatewaySessionTodoItem> TodoItems);
+
     private sealed record SandboxGatewaySessionTurn(
         string Role,
         string? Content,
         DateTimeOffset? Timestamp);
+
+    private sealed record SandboxGatewaySessionTodoItem(
+        string? Id,
+        string? Text,
+        string? Notes,
+        bool Completed,
+        DateTimeOffset? CreatedAtUtc,
+        DateTimeOffset? UpdatedAtUtc);
 
     private sealed record AttachmentPayload(string FileName, string ContentType, byte[] Content, string ContentHash, string? StoragePath);
 }

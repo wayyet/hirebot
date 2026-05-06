@@ -1,6 +1,6 @@
 namespace HireBot.Core.Services.Sandbox;
 
-internal interface IKingCrabHttpClient
+public interface IKingCrabHttpClient
 {
     Task<RemoteCallResult<T>> SendForJsonAsync<T>(
         HttpMethod method,

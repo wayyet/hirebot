@@ -5,10 +5,20 @@ using Microsoft.Extensions.Configuration;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
+/// <summary>
+/// 实例产物克隆服务，负责克隆员工实例的产物文件和存储部门员工产物。
+/// </summary>
 public sealed class InstanceArtifactCloneService(
     IConfiguration configuration,
     HireBotDbContext dbContext) : IInstanceArtifactCloneService
 {
+    /// <summary>
+    /// 克隆源员工的产物到目标实例。
+    /// </summary>
+    /// <param name="source">源员工详情</param>
+    /// <param name="targetInstanceId">目标实例ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>克隆结果</returns>
     public async Task<InstanceArtifactCloneResult> CloneArtifactsAsync(
         EmployeeDetailDto source,
         string targetInstanceId,
@@ -41,6 +51,13 @@ public sealed class InstanceArtifactCloneService(
         return new InstanceArtifactCloneResult(version, targetRoot, copied);
     }
 
+    /// <summary>
+    /// 存储部门员工的产物文件。
+    /// </summary>
+    /// <param name="departmentInstanceId">部门实例ID</param>
+    /// <param name="files">文件内容字典（文件名 -> 字节数组）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>存储结果</returns>
     public async Task<InstanceArtifactCloneResult> StoreDepartmentArtifactsAsync(
         string departmentInstanceId,
         IReadOnlyDictionary<string, byte[]> files,
@@ -89,6 +106,9 @@ public sealed class InstanceArtifactCloneService(
         return new InstanceArtifactCloneResult(version, targetRoot, copied);
     }
 
+    /// <summary>
+    /// 解析源员工的产物根路径。
+    /// </summary>
     private async Task<string?> ResolveSourceRootAsync(EmployeeDetailDto source, CancellationToken cancellationToken)
     {
         var currentVersion = await dbContext.Instances
@@ -114,6 +134,9 @@ public sealed class InstanceArtifactCloneService(
         return null;
     }
 
+    /// <summary>
+    /// 解析克隆源的回退路径。
+    /// </summary>
     private string? ResolveCloneSourceFallback(EmployeeDetailDto source, string sourceRoot)
     {
         if (!LooksLikeMetadataOnlyPackage(sourceRoot))
@@ -136,6 +159,9 @@ public sealed class InstanceArtifactCloneService(
         return null;
     }
 
+    /// <summary>
+    /// 解析模板包根路径。
+    /// </summary>
     private string? ResolveTemplatePackageRoot(string? templateId)
     {
         if (string.IsNullOrWhiteSpace(templateId))
@@ -152,6 +178,9 @@ public sealed class InstanceArtifactCloneService(
         return Path.GetFullPath(Path.Combine(configured.Trim(), templateId.Trim()));
     }
 
+    /// <summary>
+    /// 解析示例实例根路径。
+    /// </summary>
     private string? ResolveFixtureRoot(string employeeId)
     {
         var candidates = new[]
@@ -184,11 +213,17 @@ public sealed class InstanceArtifactCloneService(
         return null;
     }
 
+    /// <summary>
+    /// 构建部门版本根路径。
+    /// </summary>
     private string BuildDepartmentVersionRoot(string instanceId, string version)
     {
         return Path.Combine(ResolveRoot(), "instances", "department", Sanitize(instanceId), "versions", Sanitize(version));
     }
 
+    /// <summary>
+    /// 构建个人分身版本根路径。
+    /// </summary>
     private string BuildPersonalCloneVersionRoot(string sourceDepartmentInstanceId, string cloneInstanceId, string version)
     {
         return Path.Combine(
@@ -201,6 +236,9 @@ public sealed class InstanceArtifactCloneService(
             Sanitize(version));
     }
 
+    /// <summary>
+    /// 解析存储根目录。
+    /// </summary>
     private string ResolveRoot()
     {
         var configured = configuration["HireBot:ArtifactStoreRoot"];
@@ -212,6 +250,9 @@ public sealed class InstanceArtifactCloneService(
         return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "hirebot-artifacts"));
     }
 
+    /// <summary>
+    /// 复制目录内容。
+    /// </summary>
     private static List<string> CopyDirectory(string sourceRoot, string targetRoot, CancellationToken cancellationToken)
     {
         var copied = new List<string>();
@@ -239,6 +280,9 @@ public sealed class InstanceArtifactCloneService(
         return copied;
     }
 
+    /// <summary>
+    /// 判断是否仅包含元数据的包。
+    /// </summary>
     private static bool LooksLikeMetadataOnlyPackage(string sourceRoot)
     {
         try
@@ -269,6 +313,9 @@ public sealed class InstanceArtifactCloneService(
         }
     }
 
+    /// <summary>
+    /// 规范化相对路径。
+    /// </summary>
     private static string NormalizeRelativePath(string path)
     {
         var segments = path
@@ -284,11 +331,17 @@ public sealed class InstanceArtifactCloneService(
         return string.Join('/', segments);
     }
 
+    /// <summary>
+    /// 构建版本号。
+    /// </summary>
     private static string BuildVersion()
     {
         return $"v_{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
     }
 
+    /// <summary>
+    /// 清理路径中的非法字符。
+    /// </summary>
     private static string Sanitize(string value)
     {
         var trimmed = value.Trim();

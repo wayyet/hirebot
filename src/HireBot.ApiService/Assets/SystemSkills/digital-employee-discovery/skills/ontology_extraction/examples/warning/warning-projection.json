@@ -1,0 +1,130 @@
+{
+  "$schema": "../../templates/PROJECTION_TEMPLATE.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "agent-capability-warning-projection-v1",
+    "projection_type": "prompt_constraint_projection",
+    "target_name": "AgentCapabilityPromptPolicyDraft",
+    "target_format": "system_prompt_policy",
+    "target_runtime": "llm_orchestrator",
+    "projection_goal": "Project a still-unsettled agent capability slice into a prompt policy draft without pretending the ontology boundary is fully settled.",
+    "source_slice": {
+      "path": "./warning-sample.json",
+      "slice_topic": "agent capability and tool execution boundary",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "prompt_orchestrator"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "allow_with_trace",
+    "unresolved_item_policy": "warn_and_continue",
+    "dropped_item_policy": "record_with_reason",
+    "prompt_assumption_policy": "warn_on_unmapped_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "C1",
+      "projection_action": "map",
+      "target_kind": "prompt_term",
+      "target_name": "agent_capability",
+      "target_path": "prompt.allowed_terms",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "notes": "The concept is retained as a prompt term even though its boundary is still coarse and not yet stable."
+    },
+    {
+      "concept_id": "C2",
+      "projection_action": "map",
+      "target_kind": "prompt_term",
+      "target_name": "tool_execution",
+      "target_path": "prompt.allowed_terms",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Tool execution is projected as a prompt term, but execution mode and approval semantics remain underspecified."
+    }
+  ],
+  "relation_mappings": [
+    {
+      "relation_id": "R1",
+      "projection_action": "map",
+      "target_kind": "reasoning_path",
+      "target_name": "AgentCapabilityDependsOnToolExecution",
+      "representation": "prompt_reasoning_path",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "notes": "The dependency edge is exposed to prompting, but the path remains intentionally broad and should not be treated as exhaustive execution semantics."
+    }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "prompt_guardrail",
+      "target_name": "DoNotTreatCoarseDependencyAsCompleteRuntimeSemantics",
+      "severity_mapping": "medium -> review_required",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "The projection keeps the warning that this relation must not be interpreted as a complete runtime ontology."
+    }
+  ],
+  "prompt_projection": {
+    "allowed_terms": [
+      "agent capability",
+      "tool execution"
+    ],
+    "forbidden_assumptions": [
+      "Do not assume every agent capability always requires tool execution.",
+      "Do not treat the current projection as a complete ontology for approval, permission, or workflow execution."
+    ],
+    "required_clarifications": [
+      "Clarify whether agent capability refers to an abstract capability set, a configuration capability, or a runtime capability snapshot.",
+      "Clarify whether tool execution should be modeled as an event, a service capability, or a workflow node before downstream hardening."
+    ],
+    "reasoning_paths": [
+      "agent_capability -> tool_execution"
+    ],
+    "source_digest": [
+      "Source quality warning: no high-trust source is present in the source slice.",
+      "Conflict note: capability-to-tool dependency remains deferred rather than fully resolved."
+    ]
+  },
+  "delivery_artifacts": [
+    {
+      "artifact_name": "AgentCapabilityPromptPolicyDraft.md",
+      "artifact_type": "prompt_fragment",
+      "path": "prompts/agent-capability/AgentCapabilityPromptPolicyDraft.md",
+      "status": "planned"
+    }
+  ],
+  "dropped_items": [
+    {
+      "item_type": "concept",
+      "item_id": "approval-boundary",
+      "reason": "Approval and permission concepts are still excluded because the source slice does not define them strongly enough."
+    }
+  ],
+  "open_questions": [
+    {
+      "question": "Should agent capability become a domain entity, a configuration concept, or a runtime state model before code generation starts?",
+      "impact": "This affects whether downstream artifacts should stay prompt-only or move into executable domain models.",
+      "required_input": "Team decision on the intended ontology layer is still required."
+    }
+  ],
+  "meta": {
+    "generated_at": "2026-04-21T00:00:00Z",
+    "generated_by": "ontology-extraction",
+    "workspace": "kingcrab",
+    "notes": "This warning projection is intentionally schema-valid but semantically provisional. It is suitable for review and discussion, not for direct hardening into a final downstream contract."
+  }
+}

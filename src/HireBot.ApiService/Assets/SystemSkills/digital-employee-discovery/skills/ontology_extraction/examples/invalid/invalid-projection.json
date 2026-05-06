@@ -1,0 +1,103 @@
+{
+  "$schema": "../../templates/PROJECTION_TEMPLATE.schema.json",
+  "template_type": "projection_template",
+  "projection_version": "2.0.0",
+  "projection": {
+    "projection_id": "",
+    "projection_type": "runtime_projection",
+    "target_name": "",
+    "target_format": "",
+    "target_runtime": "",
+    "projection_goal": "This file intentionally violates the projection schema so the team can verify projection-side failure reporting.",
+    "source_slice": {
+      "path": "./invalid-sample.json",
+      "slice_topic": "",
+      "schema_version": "9.9.9"
+    },
+    "intended_consumers": [
+      "code_generator",
+      "code_generator"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": "yes",
+    "relation_flattening_policy": "always_flatten",
+    "unresolved_item_policy": "ignore_everything",
+    "dropped_item_policy": "drop_silently",
+    "prompt_assumption_policy": "invent_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "bad-concept",
+      "projection_action": "rewrite",
+      "target_kind": "class",
+      "target_name": "",
+      "target_path": "",
+      "source_ids": [
+        "source-1"
+      ],
+      "notes": "This intentionally violates multiple projection constraints."
+    }
+  ],
+  "relation_mappings": [
+    {
+      "relation_id": "bad-relation",
+      "projection_action": "map",
+      "target_kind": "field",
+      "target_name": "",
+      "representation": "",
+      "source_ids": [],
+      "notes": "Invalid relation mapping on purpose."
+    }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "bad-constraint",
+      "projection_action": "map",
+      "target_kind": "comment_only",
+      "target_name": "",
+      "severity_mapping": "",
+      "source_ids": [
+        "source-1"
+      ],
+      "notes": "Invalid constraint mapping on purpose."
+    }
+  ],
+  "prompt_projection": {
+    "allowed_terms": "not-an-array",
+    "forbidden_assumptions": [],
+    "required_clarifications": [],
+    "reasoning_paths": [],
+    "source_digest": []
+  },
+  "delivery_artifacts": [
+    {
+      "artifact_name": "",
+      "artifact_type": "text_file",
+      "path": "",
+      "status": "done"
+    }
+  ],
+  "dropped_items": [
+    {
+      "item_type": "node",
+      "item_id": "",
+      "reason": ""
+    }
+  ],
+  "open_questions": [
+    {
+      "question": "",
+      "impact": "",
+      "required_input": ""
+    }
+  ],
+  "meta": {
+    "generated_at": "not-a-date-time",
+    "generated_by": "someone-else",
+    "workspace": "",
+    "notes": "Intentionally broken projection sample."
+  },
+  "unexpected": true
+}
