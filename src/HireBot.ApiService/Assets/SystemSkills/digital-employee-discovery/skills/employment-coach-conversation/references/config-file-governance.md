@@ -48,13 +48,13 @@
 
 任何情况下都**不要**修改 memory.md。如果用户尝试讨论"它怎么记住事情"，告诉他这是模板预设、当前阶段不动，等部署后实际跑起来再观察。
 
-## 改动反向触发 todo 工单复核
+## 改动反向触发 todo 复核
 
-soul / identity / agent 改动后，要判断是否影响已经 `confirmed` 的 todo 工单。**只在改动属于"边界 / 规则 / 判定 / 数据访问范围"类时才提醒**，改名字、改口吻这种不要触发，会显得啰嗦。
+soul / identity / agent 改动后，要判断是否影响 `notes.status = confirmed` 的 todo。**只在改动属于"边界 / 规则 / 判定 / 数据访问范围"类时才提醒**，改名字、改口吻这种不要触发，会显得啰嗦。
 
 判定方式（语义级，不是字符匹配）：
 
-| 改动类型 | 可能影响的已 `confirmed` todo |
+| 改动类型 | 可能影响的 `notes.status = confirmed` todo |
 |---|---|
 | soul.md 使命范围调整 | 全部 skill todo 的存在合理性 |
 | identity.md 名字 / 口吻调整 | 通常不影响 todo（不触发提醒） |
@@ -68,13 +68,13 @@ soul / identity / agent 改动后，要判断是否影响已经 `confirmed` 的 
 > 顺便——你刚才改的这条可能影响『非标退货资格预判』和那条 CRM 订单读取，要不要一起回头过一下？
 
 用户回应：
-- **要 / 嗯好** → 把相关 todo 状态从 `confirmed` 改为 `needs_review`，进入跨 todo 复核：逐条问"按新规则，这条还按之前那样跑可以吗"。确认无变更则回到 `confirmed`；需要改的回到 `ready_to_dispatch` 走重发
+- **要 / 嗯好** → 用 `todo.update` 把相关 todo 的 `notes.status` 从 `confirmed` 改为 `needs_review`，进入跨 todo 复核：逐条问"按新规则，这条还按之前那样跑可以吗"。确认无变更则回到 `confirmed`；需要改的回到 `ready_to_dispatch` 走重发
 - **不要 / 先不管** → 不动状态，但在对应 todo 的 payload 里记一笔 `pending_review_reason`，下次诊断 skill 自然会照旧出工单
 - **答非所问 / 转移话题** → 默认不动，不再追问
 
 约束：
 - 不要每改一次都开复核流程，只在判定逻辑层面变化时触发
-- 一次改动最多列 2-3 条最直接相关的 todo，不要把所有 confirmed todo 都念一遍
+- 一次改动最多列 2-3 条最直接相关的 todo，不要把所有 `confirmed` todo 都念一遍
 - 复核过程中保持每条 todo 一个回合，不要批量抛给用户
 
-todo 状态机详见 [handoff-todo-schema.md](./handoff-todo-schema.md)。
+todo 状态机详见 [todo-notes-schema.md](./todo-notes-schema.md)。

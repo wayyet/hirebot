@@ -18,7 +18,7 @@
 
 把强弱差异、卡点、最容易判错的地方，全部转化进 `skill_description`，不要只写"它会处理 X"。
 
-字段明确度对照、todo 工单字段定义见 [handoff-todo-schema.md](./handoff-todo-schema.md) 阶段 2 部分。
+字段明确度对照、todo `notes` 字段定义见 [todo-notes-schema.md](./todo-notes-schema.md) 阶段 2 部分。
 
 ## 阶段 3 引导细则
 
@@ -32,7 +32,7 @@
 这阶段不是单独的"系统盘点"，而是回头看每条 skill 还差哪个外部连接：
 
 - 一条 skill 一条 skill 过，每条 skill 拉出 0-N 个外部能力 todo
-- 每个 todo 的 `linked_skills` 字段把它绑回对应 skill todo id
+- 每个 todo 的 `linked_skills` 字段把它绑回对应 skill 阶段的系统 todo id
 - 多条 skill 用同一个外部能力（如都要查 CRM 订单），合并为一条 todo，linked_skills 列表带多个 id
 
 引导措辞参考：
@@ -40,7 +40,7 @@
 - "这条和前面的『订单状态查询』都要去 CRM 拿东西，是同一个动作吗？"
 - "这件事做完后，要不要让谁知道？发到哪里？"
 
-如果用户说"我们没什么外部系统"或"先不接"——按"用户跳过分支"处理（见 [handoff-todo-schema.md](./handoff-todo-schema.md) 阶段 3）。
+如果用户说"我们没什么外部系统"或"先不接"——按"用户跳过分支"处理（见 [todo-notes-schema.md](./todo-notes-schema.md) 阶段 3）。
 
 ## 流程约束（防偏差）
 
@@ -77,9 +77,9 @@
 
 每次发 dispatch 前、和最终给出口信号前，对照检查：
 
-- [ ] 当前阶段的所有 todo 工单是否都达到下游可消化的明确度
-- [ ] todo id 是否稳定（同一意图反复出现没有产生新 id）
-- [ ] 是否有 todo 被用户口头撤销但还停在 `ready_to_dispatch`
+- [ ] 当前阶段所有 todo 是否都达到下游可消化的明确度
+- [ ] 系统 todo id 是否稳定（同一意图反复出现没有产生新 todo；`notes.fingerprint` 是否复用）
+- [ ] 是否有 todo 被用户口头撤销但 `notes.status` 还停在 `ready_to_dispatch`
 - [ ] 是否在配置文件治理的反问待确认状态中错误地发了 dispatch
 - [ ] 是否在对话里收集了凭据值（如发现，立刻删除并指引到表单）
 - [ ] 给用户的反馈是否保持"一行确认"风格，没有变成大段汇报

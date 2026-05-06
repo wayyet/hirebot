@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "external_capability",
+  "todoId": "e_example_read_order_001",
+  "kind": "normal",
+  "category": "read",
+  "objective": "Read the order fields needed by the linked skills.",
+  "targetSystem": {
+    "name": "Example CRM",
+    "slug": "example-crm"
+  },
+  "linkedSkills": [
+    "s_example_skill_001"
+  ],
+  "auth": {
+    "kind": "API Key",
+    "secretRef": "EXTERNAL_EXAMPLE_CRM_API_KEY",
+    "credentialSlot": "example-crm-api-key",
+    "bindingStatus": "pending",
+    "value": null
+  },
+  "fields": {
+    "required": [
+      "order_id"
+    ],
+    "mapping": []
+  },
+  "acceptance": "external/ contains a draft capability config and field placeholders.",
+  "sourceDigest": "External todo source summary without secrets.",
+  "status": "draft",
+  "validation": {
+    "passed": true,
+    "warnings": []
+  }
+}
