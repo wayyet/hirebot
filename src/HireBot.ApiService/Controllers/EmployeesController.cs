@@ -122,9 +122,12 @@ public sealed class EmployeesController(
     }
 
     [HttpGet("{employeeId}/evaluation/sandbox/conversation")]
-    public async Task<IActionResult> GetEvaluationSandboxConversation(string employeeId, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> GetEvaluationSandboxConversation(
+        string employeeId,
+        [FromQuery(Name = "since")] string? since = null,
+        CancellationToken cancellationToken = default)
     {
-        var response = await evaluationService.GetEvaluationSandboxConversationAsync(employeeId, cancellationToken);
+        var response = await evaluationService.GetEvaluationSandboxConversationAsync(employeeId, since, cancellationToken);
         return StatusCode(response.Code, response);
     }
 

@@ -317,6 +317,7 @@ internal sealed class EvaluationService(
 
     public async Task<ApiResponse<EvaluationSandboxConversationStateDto>> GetEvaluationSandboxConversationAsync(
         string employeeId,
+        string? since = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(employeeId))
@@ -371,6 +372,16 @@ internal sealed class EvaluationService(
         if (!timelineResult.Success || timelineResult.Data is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(timelineResult.Code, timelineResult.Message);
+        }
+
+        // Short-circuit: if since matches the latest message ID, return 304
+        if (!string.IsNullOrWhiteSpace(since) && timelineResult.Data.Messages.Count > 0)
+        {
+            var latestId = timelineResult.Data.Messages[^1].MessageId;
+            if (string.Equals(latestId, since.Trim(), StringComparison.Ordinal))
+            {
+                return ApiResponse<EvaluationSandboxConversationStateDto>.NotModified();
+            }
         }
 
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
