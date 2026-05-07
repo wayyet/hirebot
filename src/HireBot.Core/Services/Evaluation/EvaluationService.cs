@@ -796,8 +796,7 @@ internal sealed class EvaluationService(
             cancellationToken);
         if (!warmupResult.Success)
         {
-            await UpdateSessionStatusAsync(sessionEntity, "waiting_materials", warmupResult.Message, cancellationToken);
-            return ApiResponse<EvaluationFetchTestcasesResultDto>.ErrorResponse(warmupResult.Code, warmupResult.Message);
+            logger.LogInformation("Artifact warmup skipped for testcase loading (no package). Code={Code}", warmupResult.Code);
         }
 
         var sourceFiles = await LoadTestcaseSourcesAsync(workspaceResult.Data, employee, cancellationToken);
@@ -899,8 +898,7 @@ internal sealed class EvaluationService(
             cancellationToken);
         if (!warmupResult.Success)
         {
-            await UpdateSessionStatusAsync(sessionEntity, "waiting_materials", warmupResult.Message, cancellationToken);
-            return ApiResponse<EvaluationOntologyQueryResultDto>.ErrorResponse(warmupResult.Code, warmupResult.Message);
+            logger.LogInformation("Artifact warmup skipped for ontology loading (no package). Code={Code}", warmupResult.Code);
         }
 
         var ontologyProfile = await BuildOntologyProfileAsync(workspaceResult.Data, employee, cancellationToken);
@@ -1048,8 +1046,7 @@ internal sealed class EvaluationService(
             cancellationToken);
         if (!warmupResult.Success)
         {
-            await UpdateSessionStatusAsync(sessionEntity, "execute_failed", warmupResult.Message, cancellationToken);
-            return ApiResponse<EvaluationTargetExecuteResultDto>.ErrorResponse(warmupResult.Code, warmupResult.Message);
+            logger.LogInformation("Artifact warmup skipped for target execute (no package). Code={Code}", warmupResult.Code);
         }
 
         var startConversationResult = await EnsureSandboxConversationStartedAsync(
