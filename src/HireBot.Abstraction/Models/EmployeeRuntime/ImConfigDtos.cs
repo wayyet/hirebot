@@ -36,6 +36,31 @@ public sealed record FeishuChannelEffectiveConfigDto(
     bool RequireMentionInGroup,
     bool ExposeInboundMediaUrls);
 
+public sealed class DingTalkChannelConfig
+{
+    public bool Enabled { get; set; } = false;
+
+    public string? AppId { get; set; }
+    public string AppIdRef { get; set; } = "env:DINGTALK_APP_ID";
+
+    public string? AppKey { get; set; }
+    public string AppKeyRef { get; set; } = "env:DINGTALK_APP_KEY";
+
+    public string? AppSecret { get; set; }
+    public string AppSecretRef { get; set; } = "env:DINGTALK_APP_SECRET";
+
+    public string? RobotCode { get; set; }
+    public string RobotCodeRef { get; set; } = "env:DINGTALK_ROBOT_CODE";
+
+    public string GroupPolicy { get; set; } = "open";
+    public string[] AllowedFromUserIds { get; set; } = [];
+    public string[] AllowedGroupIds { get; set; } = [];
+    public int MaxInboundChars { get; set; } = 4096;
+    public bool RequireMentionInGroup { get; set; } = true;
+    public bool ExposeInboundMediaUrls { get; set; } = true;
+    public int StreamPollIntervalMs { get; set; } = 500;
+}
+
 public sealed record ImConfigItemDto(
     string Platform,
     string Status,

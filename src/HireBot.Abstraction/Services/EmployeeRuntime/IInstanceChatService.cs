@@ -30,17 +30,17 @@ public interface IInstanceChatService
         string instanceId,
         CancellationToken cancellationToken = default);
 
+    Task<ApiResponse<ImConfigResultDto>> UpdateDingTalkChannelConfigAsync(
+        string instanceId,
+        DingTalkChannelConfig request,
+        CancellationToken cancellationToken = default);
 
+    Task<ApiResponse<DingTalkChannelConfig>> GetDingTalkChannelEffectiveConfigAsync(
+        string instanceId,
+        CancellationToken cancellationToken = default);
 
-
-
-
-
-
-
-
-
-
-
+    Task<ApiResponse<bool>> ClearDingTalkChannelOverrideAsync(
+        string instanceId,
+        CancellationToken cancellationToken = default);
 
 }

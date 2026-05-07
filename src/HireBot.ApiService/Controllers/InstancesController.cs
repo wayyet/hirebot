@@ -121,6 +121,25 @@ public sealed class InstancesController(
     }
 
     /// <summary>
+    /// 更新钉钉频道的配置。
+    /// </summary>
+    [HttpPut("{instanceId}/im-config/dingtalk")]
+    public async Task<IActionResult> UpsertDingTalkImConfig(
+        string instanceId,
+        [FromBody] DingTalkChannelConfig request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<ImConfigResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await instanceChatService.UpdateDingTalkChannelConfigAsync(instanceId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    /// <summary>
     /// 获取实例的所有 IM 配置列表
     /// </summary>
     /// <param name="instanceId">员工实例 ID</param>
@@ -144,6 +163,18 @@ public sealed class InstancesController(
         var response = ApiResponse<FeishuChannelEffectiveConfigDto>.ErrorResponse(
             404,
             $"Unknown or unsupported platform '{platform}'.");
+        return StatusCode(response.Code, response);
+    }
+
+    /// <summary>
+    /// 获取实例指定钉钉 IM 配置的当前生效配置。
+    /// </summary>
+    [HttpGet("{instanceId}/im-config/dingtalk/effective")]
+    public async Task<IActionResult> GetEffectiveDingTalkImConfig(
+        string instanceId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await instanceChatService.GetDingTalkChannelEffectiveConfigAsync(instanceId, cancellationToken);
         return StatusCode(response.Code, response);
     }
 
@@ -174,6 +205,18 @@ public sealed class InstancesController(
         }
 
         var response = await instanceImConfigService.DeleteConfigAsync(instanceId, platform, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    /// <summary>
+    /// 清除钉钉频道的运行时覆盖配置。
+    /// </summary>
+    [HttpDelete("{instanceId}/im-config/dingtalk")]
+    public async Task<IActionResult> DeleteDingTalkImConfig(
+        string instanceId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await instanceChatService.ClearDingTalkChannelOverrideAsync(instanceId, cancellationToken);
         return StatusCode(response.Code, response);
     }
 

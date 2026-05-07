@@ -160,22 +160,78 @@ public sealed class RuntimeApiControllerTests
     }
 
     [Fact]
-    public async Task DeleteImConfig_ForFeishu_RoutesToChannelOverrideClear()
+    public async Task UpsertDingTalkImConfig_ReturnsServiceResult()
     {
         var chat = new FakeInstanceChatService
         {
-            ClearFeishuOverrideResponse = ApiResponse<bool>.SuccessResponse(true, "override cleared")
+            UpdateDingTalkResponse = ApiResponse<ImConfigResultDto>.SuccessResponse(
+                new ImConfigResultDto("dingtalk", "url_callback", "active", "钉钉配置已更新", DateTimeOffset.UtcNow))
+        };
+        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
+        var request = new DingTalkChannelConfig
+        {
+            Enabled = true,
+            AppId = "ding_app",
+            AppKey = "ding_key",
+            AppSecret = "ding_secret",
+            RobotCode = "robot_1"
+        };
+
+        var result = await controller.UpsertDingTalkImConfig("pc_1", request);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        var response = Assert.IsType<ApiResponse<ImConfigResultDto>>(objectResult.Value);
+        Assert.True(response.Success);
+        Assert.Equal("dingtalk", response.Data!.Platform);
+        Assert.Equal("pc_1", chat.UpdateDingTalkInstanceId);
+        Assert.Same(request, chat.UpdateDingTalkRequest);
+    }
+
+    [Fact]
+    public async Task GetEffectiveDingTalkImConfig_ReturnsServiceResult()
+    {
+        var chat = new FakeInstanceChatService
+        {
+            GetEffectiveDingTalkResponse = ApiResponse<DingTalkChannelConfig>.SuccessResponse(
+                new DingTalkChannelConfig
+                {
+                    Enabled = true,
+                    AppId = "ding_app",
+                    AppKey = "ding_key",
+                    AppSecret = "ding_secret",
+                    RobotCode = "robot_1"
+                })
         };
         var controller = new InstancesController(chat, new FakeInstanceImConfigService());
 
-        var result = await controller.DeleteImConfig("pc_1", "feishu");
+        var result = await controller.GetEffectiveDingTalkImConfig("pc_1");
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        var response = Assert.IsType<ApiResponse<DingTalkChannelConfig>>(objectResult.Value);
+        Assert.True(response.Success);
+        Assert.Equal("ding_app", response.Data!.AppId);
+        Assert.Equal("pc_1", chat.GetEffectiveDingTalkInstanceId);
+    }
+
+    [Fact]
+    public async Task DeleteDingTalkImConfig_RoutesToChannelOverrideClear()
+    {
+        var chat = new FakeInstanceChatService
+        {
+            ClearDingTalkOverrideResponse = ApiResponse<bool>.SuccessResponse(true, "override cleared")
+        };
+        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
+
+        var result = await controller.DeleteDingTalkImConfig("pc_1");
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(200, objectResult.StatusCode);
         var response = Assert.IsType<ApiResponse<bool>>(objectResult.Value);
         Assert.True(response.Success);
         Assert.True(response.Data);
-        Assert.Equal("pc_1", chat.ClearFeishuOverrideInstanceId);
+        Assert.Equal("pc_1", chat.ClearDingTalkOverrideInstanceId);
     }
 
     private static EmployeeDetailDto BuildEmployee(string id, string type, string status, string? fromInstanceId)
@@ -219,6 +275,10 @@ public sealed class RuntimeApiControllerTests
         public string? ClearInstanceId { get; private set; }
         public string? GetEffectiveFeishuInstanceId { get; private set; }
         public string? ClearFeishuOverrideInstanceId { get; private set; }
+        public string? UpdateDingTalkInstanceId { get; private set; }
+        public DingTalkChannelConfig? UpdateDingTalkRequest { get; private set; }
+        public string? GetEffectiveDingTalkInstanceId { get; private set; }
+        public string? ClearDingTalkOverrideInstanceId { get; private set; }
 
         public ApiResponse<InstanceChatTimelineDto> GetResponse { get; init; } =
             ApiResponse<InstanceChatTimelineDto>.ErrorResponse(500, "not configured");
@@ -233,6 +293,15 @@ public sealed class RuntimeApiControllerTests
             ApiResponse<FeishuChannelEffectiveConfigDto>.ErrorResponse(500, "not configured");
 
         public ApiResponse<bool> ClearFeishuOverrideResponse { get; init; } =
+            ApiResponse<bool>.ErrorResponse(500, "not configured");
+
+        public ApiResponse<ImConfigResultDto> UpdateDingTalkResponse { get; init; } =
+            ApiResponse<ImConfigResultDto>.ErrorResponse(500, "not configured");
+
+        public ApiResponse<DingTalkChannelConfig> GetEffectiveDingTalkResponse { get; init; } =
+            ApiResponse<DingTalkChannelConfig>.ErrorResponse(500, "not configured");
+
+        public ApiResponse<bool> ClearDingTalkOverrideResponse { get; init; } =
             ApiResponse<bool>.ErrorResponse(500, "not configured");
 
         public Task<ApiResponse<InstanceChatTimelineDto>> GetMessagesAsync(string instanceId, CancellationToken cancellationToken = default)
@@ -262,6 +331,16 @@ public sealed class RuntimeApiControllerTests
             return Task.FromResult(ApiResponse<ImConfigResultDto>.ErrorResponse(501, "not configured"));
         }
 
+        public Task<ApiResponse<ImConfigResultDto>> UpdateDingTalkChannelConfigAsync(
+            string instanceId,
+            DingTalkChannelConfig request,
+            CancellationToken cancellationToken = default)
+        {
+            UpdateDingTalkInstanceId = instanceId;
+            UpdateDingTalkRequest = request;
+            return Task.FromResult(UpdateDingTalkResponse);
+        }
+
         public Task<ApiResponse<FeishuChannelEffectiveConfigDto>> GetFeishuChannelEffectiveConfigAsync(
             string instanceId,
             CancellationToken cancellationToken = default)
@@ -270,12 +349,28 @@ public sealed class RuntimeApiControllerTests
             return Task.FromResult(GetEffectiveFeishuResponse);
         }
 
+        public Task<ApiResponse<DingTalkChannelConfig>> GetDingTalkChannelEffectiveConfigAsync(
+            string instanceId,
+            CancellationToken cancellationToken = default)
+        {
+            GetEffectiveDingTalkInstanceId = instanceId;
+            return Task.FromResult(GetEffectiveDingTalkResponse);
+        }
+
         public Task<ApiResponse<bool>> ClearFeishuChannelOverrideAsync(
             string instanceId,
             CancellationToken cancellationToken = default)
         {
             ClearFeishuOverrideInstanceId = instanceId;
             return Task.FromResult(ClearFeishuOverrideResponse);
+        }
+
+        public Task<ApiResponse<bool>> ClearDingTalkChannelOverrideAsync(
+            string instanceId,
+            CancellationToken cancellationToken = default)
+        {
+            ClearDingTalkOverrideInstanceId = instanceId;
+            return Task.FromResult(ClearDingTalkOverrideResponse);
         }
     }
 
