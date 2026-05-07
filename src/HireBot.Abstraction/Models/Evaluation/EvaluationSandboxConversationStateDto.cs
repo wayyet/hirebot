@@ -14,7 +14,8 @@ public sealed record EvaluationSandboxConversationStateDto(
     string EvaluatorSandboxId,
     string SessionId,
     DateTimeOffset? SkillLoadedAtUtc,
-    IReadOnlyList<HiringConversationMessageDto> Messages);
+    IReadOnlyList<HiringConversationMessageDto> Messages,
+    IReadOnlyList<EvaluationQuestionCardDto>? QuestionCards = null);
 
 public sealed record EvaluationSandboxMessageRequestDto
 {

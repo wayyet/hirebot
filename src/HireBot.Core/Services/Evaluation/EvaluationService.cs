@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -376,8 +376,10 @@ internal sealed class EvaluationService(
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
         EvaluationWorkspaces[BuildWorkspaceKey(owner, employee.EmployeeId)] = refreshedWorkspace;
 
+        var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
+
         return ApiResponse<EvaluationSandboxConversationStateDto>.SuccessResponse(
-            BuildSandboxConversationState(employee, refreshedWorkspace, timelineResult.Data));
+            BuildSandboxConversationState(employee, refreshedWorkspace, timelineResult.Data, questionCards));
     }
 
     public async Task<ApiResponse<EvaluationSandboxConversationStateDto>> SendEvaluationSandboxMessageAsync(
@@ -448,8 +450,10 @@ internal sealed class EvaluationService(
         var refreshedWorkspace = workspaceResult.Data with { SessionId = timelineResult.Data.SessionId };
         EvaluationWorkspaces[BuildWorkspaceKey(owner, employee.EmployeeId)] = refreshedWorkspace;
 
+        var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
+
         return ApiResponse<EvaluationSandboxConversationStateDto>.SuccessResponse(
-            BuildSandboxConversationState(employee, refreshedWorkspace, timelineResult.Data),
+            BuildSandboxConversationState(employee, refreshedWorkspace, timelineResult.Data, questionCards),
             "evaluation sandbox replied");
     }
 
@@ -485,17 +489,47 @@ internal sealed class EvaluationService(
                     return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, $"current status does not allow START: {currentStatus}");
                 }
 
+                var startSkillRootPath = ExtractPathFromComment(request.Comment);
+                var startWorkspaceResult = await EnsureWorkspaceReadyAsync(
+                    owner,
+                    employee,
+                    startSkillRootPath,
+                    request.Comment,
+                    allowTargetHireCreation: true,
+                    forceTargetHireRecreate: false,
+                    cancellationToken);
+                if (!startWorkspaceResult.Success || startWorkspaceResult.Data is null)
+                {
+                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(startWorkspaceResult.Code, startWorkspaceResult.Message);
+                }
+
+                var startWorkspaceContext = startWorkspaceResult.Data;
+                await StartNewEvaluationSessionAsync(owner, employee.EmployeeId, startWorkspaceContext, cancellationToken);
+                var startReadiness = await PrimeReadinessMaterialsAsync(employee.EmployeeId, cancellationToken);
+                var startMaterialsReady = startReadiness.TestcasesReady && startReadiness.OntologyReady;
+
+                var startCapabilities = MergeEvaluationCapabilities(employee.Capabilities, EvaluationSkillNames);
+                var startConfigured = startCapabilities.Count > 0 && startCapabilities.All(item => item.Ready);
+
                 updated = employee with
                 {
                     Status = "interning_ai",
                     LifecycleStatus = "AI evaluation",
-                    EvalPhase = "pending_skill_upload",
-                    StageSummary = "AI evaluation started, waiting for evaluation skill load",
-                    PrimarySignal = "Pending action: load evaluation skill",
-                    SignalLevel = "warn",
-                    PendingActions = ["Load evaluation skill", "Submit AI evaluation verdict"]
+                    EvalPhase = "ai_running",
+                    StageSummary = startMaterialsReady
+                        ? "Evaluation skill loaded and materials are ready for auto-run."
+                        : "Evaluation skill loaded but materials are incomplete. Waiting for testcase/ontology supplements.",
+                    PrimarySignal = startMaterialsReady
+                        ? "Double-sandbox evaluation environment is ready"
+                        : "Testcase or ontology is missing, open supplement conversation to upload materials",
+                    SignalLevel = startMaterialsReady ? "ok" : "warn",
+                    PendingActions = startMaterialsReady
+                        ? ["Run evaluation scenarios in evaluator sandbox"]
+                        : ["Open supplement conversation and upload missing testcase/ontology materials"],
+                    Capabilities = startCapabilities,
+                    IsConfigured = startConfigured
                 };
-                message = "AI evaluation started";
+                message = "AI evaluation started, workspace and materials primed";
                 break;
             }
 
@@ -560,7 +594,34 @@ internal sealed class EvaluationService(
 
                 if (!string.Equals(employee.EvalPhase, "ai_running", StringComparison.OrdinalIgnoreCase))
                 {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "LOAD_SKILL must be completed before RUN");
+                    var chainSkillRootPath = ExtractPathFromComment(request.Comment);
+                    var chainWorkspaceResult = await EnsureWorkspaceReadyAsync(
+                        owner,
+                        employee,
+                        chainSkillRootPath,
+                        request.Comment,
+                        allowTargetHireCreation: true,
+                        forceTargetHireRecreate: false,
+                        cancellationToken);
+                    if (!chainWorkspaceResult.Success || chainWorkspaceResult.Data is null)
+                    {
+                        return ApiResponse<EmployeeDetailDto>.ErrorResponse(chainWorkspaceResult.Code, chainWorkspaceResult.Message);
+                    }
+
+                    await StartNewEvaluationSessionAsync(owner, employee.EmployeeId, chainWorkspaceResult.Data, cancellationToken);
+                    var chainReadiness = await PrimeReadinessMaterialsAsync(employee.EmployeeId, cancellationToken);
+
+                    if (!chainReadiness.TestcasesReady || !chainReadiness.OntologyReady)
+                    {
+                        var missingDetail = !chainReadiness.TestcasesReady && !chainReadiness.OntologyReady
+                            ? "testcases and ontology"
+                            : !chainReadiness.TestcasesReady
+                                ? "testcases"
+                                : "ontology";
+
+                        return ApiResponse<EmployeeDetailDto>.ErrorResponse(422,
+                            $"Cannot run evaluation: {missingDetail} are missing. Place required files in the target sandbox artifact package, then retry.");
+                    }
                 }
 
                 var workspaceResult = await EnsureWorkspaceReadyAsync(
@@ -1849,6 +1910,20 @@ internal sealed class EvaluationService(
             ]);
     }
 
+    private static string StripThinkTags(string content)
+    {
+        var result = content;
+        while (true)
+        {
+            var start = result.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
+            if (start < 0) break;
+            var end = result.IndexOf("</think>", start + 7, StringComparison.OrdinalIgnoreCase);
+            if (end < 0) break;
+            result = result[..start] + result[(end + 8)..];
+        }
+        return result;
+    }
+
     private static EvaluatorVerdictResult? ParseSandboxVerdict(string? assistantContent)
     {
         if (string.IsNullOrWhiteSpace(assistantContent))
@@ -1856,7 +1931,7 @@ internal sealed class EvaluationService(
             return null;
         }
 
-        var trimmed = assistantContent.Trim();
+        var trimmed = StripThinkTags(assistantContent).Trim();
         var jsonStart = trimmed.IndexOf('{');
         var jsonEnd = trimmed.LastIndexOf('}');
         if (jsonStart >= 0 && jsonEnd > jsonStart)
@@ -3238,6 +3313,59 @@ internal sealed class EvaluationService(
         return BuildQuestionCards(parsed);
     }
 
+    private async Task<IReadOnlyList<EvaluationQuestionCardDto>?> LoadQuestionCardsForSessionAsync(
+        Guid sessionEntityId,
+        CancellationToken cancellationToken)
+    {
+        var allAssets = await dbContext.EvaluationAssets
+            .AsNoTracking()
+            .Where(item =>
+                item.SessionEntityId == sessionEntityId &&
+                item.AssetType == "testcases-json")
+            .OrderByDescending(item => item.CreatedAtUtc)
+            .Take(50)
+            .ToListAsync(cancellationToken);
+
+        if (allAssets.Count == 0)
+        {
+            return null;
+        }
+
+        var deduplicated = allAssets
+            .GroupBy(
+                item => string.IsNullOrWhiteSpace(item.RelatedKey)
+                    ? item.RelativePath
+                    : item.RelatedKey,
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .Take(5)
+            .ToArray();
+
+        var cards = await BuildQuestionCardsFromAssetsAsync(deduplicated, cancellationToken);
+        return cards.Count > 0 ? cards : null;
+    }
+
+    private async Task<IReadOnlyList<EvaluationQuestionCardDto>?> LoadQuestionCardsForLatestSessionAsync(
+        string owner,
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        var latestSession = await dbContext.EvaluationSessions
+            .AsNoTracking()
+            .Where(item =>
+                item.OwnerSubject == owner &&
+                item.EmployeeId == employeeId.Trim())
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (latestSession is null)
+        {
+            return null;
+        }
+
+        return await LoadQuestionCardsForSessionAsync(latestSession.Id, cancellationToken);
+    }
+
     private static bool HasMaterialsSupplementPrompt(IReadOnlyList<HiringConversationMessageDto> messages)
     {
         if (messages.Count == 0)
@@ -3367,17 +3495,17 @@ internal sealed class EvaluationService(
 
         if (!readiness.TestcasesReady && !readiness.OntologyReady)
         {
-            return "Testcases and ontology are not ready. Upload and parse materials first.";
+            return "Testcases and ontology are not ready. Place testcase JSON files under 'testcases/' and ontology files under 'ontology/' in the target sandbox artifact, then rerun LOAD_SKILL or START.";
         }
 
         if (!readiness.TestcasesReady)
         {
-            return "Testcases are not ready. Run fetch_testcases first.";
+            return "Testcases are not ready. Place testcase JSON files (with 'test_case' fields) under 'testcases/' in the target sandbox artifact, then rerun LOAD_SKILL or START.";
         }
 
         if (!readiness.OntologyReady)
         {
-            return "Ontology is not ready. Run ontology_query first.";
+            return "Ontology is not ready. Place ontology .md/.txt/.json files (with dimension and rule definitions) under 'ontology/' in the target sandbox artifact, then rerun LOAD_SKILL or START.";
         }
 
         return sessionStatus switch
@@ -3860,11 +3988,31 @@ internal sealed class EvaluationService(
                 Message: "Testcases and ontology are ready");
         }
 
+        string message;
+        string? recommendedAction;
+
+        if (!testcaseReady && !ontologyReady)
+        {
+            message = "No test cases or ontology files found. Place testcase JSON files under 'testcases/' and ontology files under 'ontology/' in the target hire artifact package.";
+            recommendedAction = "Upload testcase JSON files (containing 'test_case' fields and expected steps) under 'testcases/' directory, and ontology .md/.txt/.json files (defining scoring dimensions and rules) under 'ontology/' directory in the target sandbox artifact package, then rerun LOAD_SKILL or START.";
+        }
+        else if (!testcaseReady)
+        {
+            message = "No test cases found. Place testcase JSON files under 'testcases/' in the target hire artifact package.";
+            recommendedAction = "Upload testcase JSON files (with 'test_case' identifiers and step definitions) under 'testcases/' in the target sandbox artifact package, then rerun LOAD_SKILL or START.";
+        }
+        else
+        {
+            message = "No ontology found. Place ontology files under 'ontology/' in the target hire artifact package.";
+            recommendedAction = "Upload ontology .md, .txt, or .json files (defining evaluation dimensions, weights, and scoring rules) under 'ontology/' in the target sandbox artifact package, then rerun LOAD_SKILL or START.";
+        }
+
         return new EvaluationReadinessDto(
             TestcasesReady: testcaseReady,
             OntologyReady: ontologyReady,
             Status: "waiting_materials",
-            Message: "Missing testcase or ontology, upload materials first");
+            Message: message,
+            RecommendedAction: recommendedAction);
     }
 
     private static string NormalizeAssetType(string assetType)
@@ -4250,7 +4398,8 @@ internal sealed class EvaluationService(
     private static EvaluationSandboxConversationStateDto BuildSandboxConversationState(
         EmployeeDetailDto employee,
         EvaluationWorkspaceContext workspaceContext,
-        HiringConversationTimelineDto timeline)
+        HiringConversationTimelineDto timeline,
+        IReadOnlyList<EvaluationQuestionCardDto>? questionCards = null)
     {
         return new EvaluationSandboxConversationStateDto(
             EmployeeId: employee.EmployeeId,
@@ -4263,7 +4412,8 @@ internal sealed class EvaluationService(
             EvaluatorSandboxId: workspaceContext.EvaluatorSandboxId,
             SessionId: timeline.SessionId,
             SkillLoadedAtUtc: workspaceContext.SkillLoadedAtUtc,
-            Messages: timeline.Messages);
+            Messages: timeline.Messages,
+            QuestionCards: questionCards);
     }
 
     private static IReadOnlyList<EmployeeCapabilityDto> MergeEvaluationCapabilities(
@@ -4318,15 +4468,6 @@ internal sealed class EvaluationService(
         };
     }
 
-    private static bool IsAiEvaluationPassed(EvaluationStateDto state)
-    {
-        if (state.Scenarios.Count > 0 && state.Scenarios.All(item => string.Equals(item.Verdict, "passed", StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        return string.Equals(state.OverallStatus, "passed", StringComparison.OrdinalIgnoreCase);
-    }
 
     private static string? ExtractTargetRuntimeIdFromComment(string? comment)
     {
