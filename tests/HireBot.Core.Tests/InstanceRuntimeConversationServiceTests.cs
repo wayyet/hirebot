@@ -37,10 +37,10 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         Assert.Equal($"instance:{instance.InstanceId}", sandbox.SendRequests[0].ScopeKey);
         Assert.Equal("runtime", sandbox.SendRequests[0].SandboxRole);
         Assert.Equal("inapp", sandbox.SendRequests[0].SessionKey);
-        Assert.Contains("user_message:", sandbox.SendRequests[0].Content);
+        Assert.Equal("user: 你好", sandbox.SendRequests[0].Content);
         Assert.NotNull(sandbox.SendRequests[0].Materials);
-        Assert.Single(sandbox.SendRequests[0].Materials!);
-        Assert.Equal("application/zip", sandbox.SendRequests[0].Materials![0].MimeType);
+        Assert.Empty(sandbox.SendRequests[0].Materials!);
+        Assert.False(sandbox.SendRequests[0].UploadMaterialsAsAttachments);
 
         var messages = await dbContext.Messages.OrderBy(item => item.CreatedAt).ToArrayAsync();
         Assert.Equal(2, messages.Length);
@@ -120,7 +120,6 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
             dbContext,
             new FakeEmployeeRuntimeStore(),
             new FakeRequestContextService("owner-1"),
-            new InstanceArtifactResolver(CreateConfiguration()),
             sandbox ?? new FakeSandboxService("assistant"),
             NullLogger<InstanceRuntimeConversationService>.Instance);
     }
@@ -236,6 +235,9 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
 
         public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<SandboxAttachmentUploadResultDto>.SuccessResponse(new SandboxAttachmentUploadResultDto(Guid.NewGuid(), null, null, "media-test", "http://media", request.Material.Name, request.Material.MimeType ?? "application/octet-stream", request.Material.Size ?? 0, request.Material.ContentHash, request.Material.Metadata?.TryGetValue("storagePath", out var path) == true ? path : null, "[media-test]", DateTimeOffset.UtcNow)));
+
+        public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
 
         private static SandboxInstanceDto BuildInstance(string sandboxId, string scopeType, string scopeKey, string sandboxRole, string ownerSubject, string tenantId, string operatorId)
             => new(Guid.NewGuid(), sandboxId, scopeType, scopeKey, sandboxRole, "managed", ownerSubject, tenantId, operatorId, "Running", "http://localhost:18789", null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);

@@ -11,12 +11,18 @@ using Microsoft.Extensions.Options;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
+/// <summary>
+/// 钉钉 Stream 后台服务，管理钉钉机器人的实时消息接收连接。
+/// </summary>
 public sealed class DingTalkStreamBackgroundService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DingTalkStreamBackgroundService> _logger;
     private readonly Dictionary<string, DingtalkStreamClient> _clients = new();
 
+    /// <summary>
+    /// 初始化钉钉 Stream 后台服务。
+    /// </summary>
     public DingTalkStreamBackgroundService(
         IServiceProvider serviceProvider,
         ILogger<DingTalkStreamBackgroundService> logger)
@@ -25,6 +31,9 @@ public sealed class DingTalkStreamBackgroundService : BackgroundService
         _logger = logger;
     }
 
+    /// <summary>
+    /// 执行后台服务主循环。
+    /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("钉钉 Stream 后台服务已启动，等待实例配置...");
@@ -47,6 +56,9 @@ public sealed class DingTalkStreamBackgroundService : BackgroundService
         _logger.LogInformation("钉钉 Stream 后台服务已停止");
     }
 
+    /// <summary>
+    /// 刷新钉钉 Stream 连接，移除无效连接并建立新连接。
+    /// </summary>
     private async Task RefreshConnectionsAsync(CancellationToken cancellationToken)
     {
         using var scope = _serviceProvider.CreateScope();
@@ -131,6 +143,9 @@ public sealed class DingTalkStreamBackgroundService : BackgroundService
         }
     }
 
+    /// <summary>
+    /// 停止所有钉钉 Stream 客户端连接。
+    /// </summary>
     private Task StopAllClientsAsync()
     {
         foreach (var (instanceId, client) in _clients)
@@ -149,6 +164,9 @@ public sealed class DingTalkStreamBackgroundService : BackgroundService
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// 钉钉 Stream 消息处理器。
+    /// </summary>
     private sealed class DingTalkStreamMessageHandler
     {
         private readonly string _instanceId;
@@ -156,6 +174,9 @@ public sealed class DingTalkStreamBackgroundService : BackgroundService
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger _logger;
 
+        /// <summary>
+        /// 初始化消息处理器。
+        /// </summary>
         public DingTalkStreamMessageHandler(
             string instanceId,
             Repository.Entities.ImConfigEntity config,
@@ -168,6 +189,9 @@ public sealed class DingTalkStreamBackgroundService : BackgroundService
             _logger = logger;
         }
 
+        /// <summary>
+        /// 处理钉钉 Stream 消息。
+        /// </summary>
         public async Task HandleMessageAsync(MessageEventHanderArgs e)
         {
             using var scope = _serviceProvider.CreateScope();
@@ -221,7 +245,7 @@ public sealed class DingTalkStreamBackgroundService : BackgroundService
                     return;
                 }
 
-                var truncatedContent = content; //content.Length > 4000 ? content[..4000] + "\n\n[消息过长，已截断]" : content;
+                var truncatedContent = content;
 
                 var conversation = await conversationService.SendMessageAsync(
                     _instanceId,
@@ -246,6 +270,9 @@ public sealed class DingTalkStreamBackgroundService : BackgroundService
             }
         }
 
+        /// <summary>
+        /// 发送消息回复。
+        /// </summary>
         private async Task SendReplyAsync(
             string sessionWebhook,
             string content,
@@ -273,6 +300,9 @@ public sealed class DingTalkStreamBackgroundService : BackgroundService
             }
         }
 
+        /// <summary>
+        /// 移除消息中的 think 标签。
+        /// </summary>
         private static string RemoveThinkTags(string content)
         {
             if (string.IsNullOrWhiteSpace(content))
@@ -283,6 +313,9 @@ public sealed class DingTalkStreamBackgroundService : BackgroundService
             return System.Text.RegularExpressions.Regex.Replace(content, @"\<think\>.*?\</think\>", string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline).Trim();
         }
 
+        /// <summary>
+        /// 判断是否为私聊消息。
+        /// </summary>
         private static bool IsPrivateChat(string? chatType)
         {
             if (string.IsNullOrWhiteSpace(chatType))

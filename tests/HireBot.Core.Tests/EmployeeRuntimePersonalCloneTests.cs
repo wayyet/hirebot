@@ -1,13 +1,18 @@
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Collaboration;
 using HireBot.Abstraction.Models.EmployeeRuntime;
+using HireBot.Abstraction.Models.Hiring;
+using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Models.Team;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
+using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
+using HireBot.Core.Services.Sandbox;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
+using System.Reflection;
 
 namespace HireBot.Core.Tests;
 
@@ -144,7 +149,9 @@ public sealed class EmployeeRuntimePersonalCloneTests
             new FakeCollaborationService(),
             new FakeRequestContextService("owner-1"),
             dbContext,
-            artifacts);
+            artifacts,
+            new NoopSandboxService(),
+            new NoopKingCrabHttpClient());
     }
 
     private static HireBotDbContext CreateDbContext()
@@ -265,16 +272,25 @@ public sealed class EmployeeRuntimePersonalCloneTests
     private sealed class FakeArtifactCloneService : IInstanceArtifactCloneService
     {
         public List<(EmployeeDetailDto Source, string TargetInstanceId)> CloneCalls { get; } = [];
+        private readonly string artifactRoot = CreateArtifactRoot();
 
         public Task<InstanceArtifactCloneResult> CloneArtifactsAsync(EmployeeDetailDto source, string targetInstanceId, CancellationToken cancellationToken = default)
         {
             CloneCalls.Add((source, targetInstanceId));
-            return Task.FromResult(new InstanceArtifactCloneResult("v_clone", "root", ["manifest.json"]));
+            return Task.FromResult(new InstanceArtifactCloneResult("v_clone", artifactRoot, ["manifest.json"]));
         }
 
         public Task<InstanceArtifactCloneResult> StoreDepartmentArtifactsAsync(string departmentInstanceId, IReadOnlyDictionary<string, byte[]> files, CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
+        }
+
+        private static string CreateArtifactRoot()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "hirebot-personal-clone-tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            File.WriteAllText(Path.Combine(root, "manifest.json"), "{}");
+            return root;
         }
     }
 
@@ -301,6 +317,96 @@ public sealed class EmployeeRuntimePersonalCloneTests
         public Task<ApiResponse<CollaborationGroupDetailDto>> GetGroupAsync(string groupId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<CollaborationGroupDetailDto>> SetArchivedAsync(string groupId, bool archived, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<int> MarkArchivedAsync(IReadOnlyList<string> groupIds, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class NoopSandboxService : ISandboxService
+    {
+        public Task<ApiResponse<SandboxInstanceDto>> RegisterAsync(SandboxRegisterRequestDto request, CancellationToken cancellationToken = default) => Task.FromResult(SuccessResponse(request));
+        public Task<ApiResponse<SandboxInstanceDto>> CreateAsync(SandboxCreateRequestDto request, CancellationToken cancellationToken = default) => Task.FromResult(SuccessResponse(request));
+        public Task<ApiResponse<SandboxInstanceDto>> RefreshAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Task.FromResult(SuccessResponse(request));
+        public Task<ApiResponse<SandboxInstanceDto>> PauseAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Task.FromResult(SuccessResponse(request));
+        public Task<ApiResponse<SandboxInstanceDto>> ResumeAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Task.FromResult(SuccessResponse(request));
+        public Task<ApiResponse<SandboxInstanceDto>> RebuildAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Task.FromResult(SuccessResponse(request));
+        public Task<ApiResponse<bool>> DeleteAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Task.FromResult(ApiResponse<bool>.SuccessResponse(true));
+        public Task<ApiResponse<StartHiringConversationResultDto>> EnsureSessionAsync(SandboxEnsureSessionRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<HiringConversationResultDto>> SendMessageAsync(SandboxSendMessageRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<HiringConversationTimelineDto>> GetTimelineAsync(SandboxTimelineRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        private static ApiResponse<SandboxInstanceDto> SuccessResponse(object request)
+            => ApiResponse<SandboxInstanceDto>.SuccessResponse(
+                new SandboxInstanceDto(
+                    Guid.NewGuid(),
+                    "sbx_test",
+                    "hire",
+                    "instance:test",
+                    "runtime",
+                    "managed",
+                    "owner-1",
+                    "tenant-default",
+                    "operator-1",
+                    "Running",
+                    "http://gateway.local",
+                    null,
+                    null,
+                    "runtime-chat-for:test",
+                    DateTimeOffset.UtcNow,
+                    DateTimeOffset.UtcNow));
+    }
+
+    private sealed class NoopKingCrabHttpClient : IKingCrabHttpClient
+    {
+        public Task<RemoteCallResult<T>> SendForJsonAsync<T>(
+            HttpMethod method,
+            string path,
+            object? body,
+            string ownerSubject,
+            CancellationToken cancellationToken,
+            bool useHireBotApiPrefix = true,
+            string? absoluteBaseUrl = null,
+            IReadOnlyDictionary<string, string>? additionalHeaders = null)
+            => throw new NotSupportedException();
+
+        public Task<RemoteCallResult<T>> SendMultipartForJsonAsync<T>(
+            string path,
+            string formFieldName,
+            string fileName,
+            byte[] content,
+            string contentType,
+            string ownerSubject,
+            CancellationToken cancellationToken,
+            bool useHireBotApiPrefix = false,
+            string? absoluteBaseUrl = null,
+            IReadOnlyDictionary<string, string>? additionalHeaders = null)
+            => Task.FromResult(BuildSuccess<T>());
+
+        public Task<RemoteBinaryCallResult> SendForBinaryAsync(
+            HttpMethod method,
+            string path,
+            object? body,
+            string ownerSubject,
+            CancellationToken cancellationToken,
+            bool useHireBotApiPrefix = true,
+            string? absoluteBaseUrl = null,
+            IReadOnlyDictionary<string, string>? additionalHeaders = null)
+            => throw new NotSupportedException();
+
+        private static RemoteCallResult<T> BuildSuccess<T>()
+        {
+            if (typeof(T).Name == "DigitalEmployeeUploadResponse")
+            {
+                var data = (T)Activator.CreateInstance(
+                    typeof(T),
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    binder: null,
+                    args: [true, null, "uploaded", 0, Array.Empty<string>(), 0],
+                    culture: null)!;
+                return RemoteCallResult<T>.Ok(data);
+            }
+
+            return RemoteCallResult<T>.Ok(default!);
+        }
     }
 }
 

@@ -1,26 +1,38 @@
-﻿using HireBot.Abstraction;
+using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Migration;
 using HireBot.Abstraction.Models.Team;
+using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
+using HireBot.Core.Services.Sandbox;
+using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
+using System.IO.Compression;
 using System.Text.Json;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
+/// <summary>
+/// 员工运行时服务，管理员工实例的生命周期、状态流转和配置。
+/// </summary>
 public sealed class EmployeeRuntimeService(
     IEmployeeRuntimeStore store,
     ITeamImProvider teamImProvider,
     ICollaborationService collaborationService,
     IRequestContextService requestContextService,
     HireBotDbContext dbContext,
-    IInstanceArtifactCloneService artifactCloneService) : IEmployeeRuntimeService
+    IInstanceArtifactCloneService artifactCloneService,
+    ISandboxService sandboxService,
+    IKingCrabHttpClient kingCrabHttpClient) : IEmployeeRuntimeService
 {
+    /// <summary>
+    /// 支持的员工状态列表。
+    /// </summary>
     private static readonly HashSet<string> SupportedStatuses =
     [
         "hired",
@@ -31,6 +43,9 @@ public sealed class EmployeeRuntimeService(
         "retired"
     ];
 
+    /// <summary>
+    /// 允许的状态流转映射。
+    /// </summary>
     private static readonly Dictionary<string, HashSet<string>> AllowedStatusTransitions =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -42,6 +57,9 @@ public sealed class EmployeeRuntimeService(
             ["retired"] = []
         };
 
+    /// <summary>
+    /// Fixture 状态种子顺序。
+    /// </summary>
     private static readonly string[] FixtureStatusSeedOrder =
     [
         "hired",
@@ -50,14 +68,27 @@ public sealed class EmployeeRuntimeService(
         "live"
     ];
 
+    /// <summary>
+    /// Fixture 模板绑定配置。
+    /// </summary>
     private static readonly Lazy<IReadOnlyDictionary<string, FixtureTemplateBinding>> FixtureTemplateBindings =
         new(LoadFixtureTemplateBindings);
 
+    private const string RuntimeSandboxRole = "runtime";
+
+    /// <summary>
+    /// Fixture 模板绑定记录。
+    /// </summary>
     private sealed record FixtureTemplateBinding(
         string TemplateId,
         string? FixtureTemplateId,
         string? FixtureEmployeeId);
 
+    /// <summary>
+    /// 获取员工列表。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>员工摘要列表</returns>
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default)
     {
         var owner = requestContextService.ResolveOwnerSubject();
@@ -68,6 +99,12 @@ public sealed class EmployeeRuntimeService(
         return ApiResponse<IReadOnlyList<EmployeeSummaryDto>>.SuccessResponse(summaries);
     }
 
+    /// <summary>
+    /// 获取单个员工详情。
+    /// </summary>
+    /// <param name="employeeId">员工ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>员工详情</returns>
     public async Task<ApiResponse<EmployeeDetailDto>> GetEmployeeAsync(string employeeId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(employeeId))
@@ -86,6 +123,11 @@ public sealed class EmployeeRuntimeService(
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(employee);
     }
 
+    /// <summary>
+    /// 导入示例实例产物。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>导入结果</returns>
     public async Task<ApiResponse<ImportFixtureInstancesResultDto>> ImportFixtureInstancesAsync(CancellationToken cancellationToken = default)
     {
         var owner = requestContextService.ResolveOwnerSubject();
@@ -109,6 +151,12 @@ public sealed class EmployeeRuntimeService(
         return ApiResponse<ImportFixtureInstancesResultDto>.SuccessResponse(result, "示例实例产物导入完成");
     }
 
+    /// <summary>
+    /// 从 Fixture 模板承接员工。
+    /// </summary>
+    /// <param name="templateId">模板ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>承接结果</returns>
     public async Task<ApiResponse<FixtureTemplateHireResultDto>> HireFromFixtureTemplateAsync(
         string templateId,
         CancellationToken cancellationToken = default)
@@ -163,6 +211,13 @@ public sealed class EmployeeRuntimeService(
             $"未找到可承接的 fixture 实例（templateId={normalizedTemplateId}）");
     }
 
+    /// <summary>
+    /// 更新员工生命周期状态。
+    /// </summary>
+    /// <param name="employeeId">员工ID</param>
+    /// <param name="request">更新请求</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>更新后的员工详情</returns>
     public async Task<ApiResponse<EmployeeDetailDto>> UpdateLifecycleAsync(
         string employeeId,
         UpdateEmployeeLifecycleRequestDto request,
@@ -218,6 +273,13 @@ public sealed class EmployeeRuntimeService(
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "状态已更新");
     }
 
+    /// <summary>
+    /// 更新员工能力配置。
+    /// </summary>
+    /// <param name="employeeId">员工ID</param>
+    /// <param name="request">更新请求</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>更新后的员工详情</returns>
     public async Task<ApiResponse<EmployeeDetailDto>> UpdateCapabilitiesAsync(
         string employeeId,
         UpdateEmployeeCapabilitiesRequestDto request,
@@ -266,6 +328,13 @@ public sealed class EmployeeRuntimeService(
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "能力配置已更新");
     }
 
+    /// <summary>
+    /// 完成待办操作。
+    /// </summary>
+    /// <param name="employeeId">员工ID</param>
+    /// <param name="actionId">操作ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>更新后的员工详情</returns>
     public async Task<ApiResponse<EmployeeDetailDto>> CompletePendingActionAsync(
         string employeeId,
         string actionId,
@@ -304,6 +373,12 @@ public sealed class EmployeeRuntimeService(
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "待办已处理");
     }
 
+    /// <summary>
+    /// 从雇佣记录创建员工。
+    /// </summary>
+    /// <param name="request">创建请求</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>创建的员工详情</returns>
     public async Task<ApiResponse<EmployeeDetailDto>> CreateFromHireAsync(
         CreateEmployeeFromHireRequestDto request,
         CancellationToken cancellationToken = default)
@@ -348,6 +423,13 @@ public sealed class EmployeeRuntimeService(
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(employee, "员工实例已创建");
     }
 
+    /// <summary>
+    /// 创建个人分身。
+    /// </summary>
+    /// <param name="sourceEmployeeId">源员工ID</param>
+    /// <param name="request">创建请求</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>创建的分身详情</returns>
     public async Task<ApiResponse<EmployeeDetailDto>> CreatePersonalCloneAsync(
         string sourceEmployeeId,
         CreatePersonalCloneRequestDto request,
@@ -361,7 +443,7 @@ public sealed class EmployeeRuntimeService(
         var normalizedSourceId = sourceEmployeeId.Trim();
         var displayName = request.DisplayName.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
-        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(null, null);
         await EnsureSeedDataAsync(owner, cancellationToken);
 
         var source = await store.FindAsync(normalizedSourceId, cancellationToken);
@@ -435,12 +517,30 @@ public sealed class EmployeeRuntimeService(
             EvalMaxIterations: null,
             IsConfigured: true);
 
+        var sandboxSetup = await InitializePersonalCloneSandboxAsync(
+            clone,
+            artifactResult,
+            owner,
+            tenantId,
+            operatorId,
+            cancellationToken);
+        if (!sandboxSetup.Success || sandboxSetup.Data is null)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(sandboxSetup.Code, sandboxSetup.Message);
+        }
+
         await store.UpsertAsync(owner, clone, cancellationToken);
         await UpsertInstanceRecordAsync(clone, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
 
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(clone, "个人分身已创建并上岗");
     }
 
+    /// <summary>
+    /// 迁移本地状态。
+    /// </summary>
+    /// <param name="request">迁移请求</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>迁移结果</returns>
     public async Task<ApiResponse<LocalStateMigrationResultDto>> MigrateLocalStateAsync(
         LocalStateMigrationRequestDto request,
         CancellationToken cancellationToken = default)
@@ -499,11 +599,17 @@ public sealed class EmployeeRuntimeService(
         return ApiResponse<LocalStateMigrationResultDto>.SuccessResponse(result, "本地状态迁移完成");
     }
 
+    /// <summary>
+    /// Fixture 包记录。
+    /// </summary>
     private sealed record FixtureBundle(
         IReadOnlyList<EmployeeDetailDto> Employees,
         IReadOnlyList<TeamImItemDto> TeamImItems,
         int FixtureDirectories);
 
+    /// <summary>
+    /// 确保种子数据存在。
+    /// </summary>
     private async Task EnsureSeedDataAsync(string owner, CancellationToken cancellationToken)
     {
         var existing = await store.ListAsync(owner, cancellationToken);
@@ -535,6 +641,9 @@ public sealed class EmployeeRuntimeService(
         await store.UpsertManyAsync(owner, persisted, cancellationToken);
     }
 
+    /// <summary>
+    /// 加载持久化的运行时员工数据。
+    /// </summary>
     private async Task<IReadOnlyList<EmployeeDetailDto>> LoadPersistedRuntimeEmployeesAsync(
         string owner,
         CancellationToken cancellationToken)
@@ -569,6 +678,9 @@ public sealed class EmployeeRuntimeService(
         }
     }
 
+    /// <summary>
+    /// 反序列化员工快照。
+    /// </summary>
     private static EmployeeDetailDto? DeserializeEmployeeSnapshot(string snapshot)
     {
         try
@@ -581,6 +693,9 @@ public sealed class EmployeeRuntimeService(
         }
     }
 
+    /// <summary>
+    /// 从实例记录构建员工详情。
+    /// </summary>
     private async Task<EmployeeDetailDto?> BuildEmployeeFromInstanceRecordAsync(
         InstanceEntity instance,
         CancellationToken cancellationToken)
@@ -632,6 +747,9 @@ public sealed class EmployeeRuntimeService(
             IsConfigured: capabilities.All(item => item.Ready));
     }
 
+    /// <summary>
+    /// 加载 Fixture 包。
+    /// </summary>
     private static async Task<FixtureBundle> LoadFixtureBundleAsync(string owner, CancellationToken cancellationToken)
     {
         var fixtureRoot = ResolveFixtureRoot();
@@ -763,6 +881,9 @@ public sealed class EmployeeRuntimeService(
             FixtureDirectories: directories.Length);
     }
 
+    /// <summary>
+    /// 解析 Fixture 根目录。
+    /// </summary>
     private static string? ResolveFixtureRoot()
     {
         var candidates = new[]
@@ -776,6 +897,9 @@ public sealed class EmployeeRuntimeService(
         return candidates.FirstOrDefault(Directory.Exists);
     }
 
+    /// <summary>
+    /// 加载 Fixture 模板绑定。
+    /// </summary>
     private static IReadOnlyDictionary<string, FixtureTemplateBinding> LoadFixtureTemplateBindings()
     {
         var fixtureRoot = ResolveFixtureRoot();
@@ -837,6 +961,9 @@ public sealed class EmployeeRuntimeService(
         }
     }
 
+    /// <summary>
+    /// 解析 Fixture 模板绑定。
+    /// </summary>
     private static FixtureTemplateBinding? ResolveFixtureTemplateBinding(string templateId)
     {
         if (string.IsNullOrWhiteSpace(templateId))
@@ -849,6 +976,9 @@ public sealed class EmployeeRuntimeService(
             : null;
     }
 
+    /// <summary>
+    /// 判断 Fixture 模板是否匹配。
+    /// </summary>
     private static bool IsFixtureTemplateMatch(
         EmployeeDetailDto employee,
         string requestedTemplateId,
@@ -874,6 +1004,9 @@ public sealed class EmployeeRuntimeService(
                string.Equals(employee.SourceTemplateId, requestedTemplateId, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// 解析 Fixture 种子状态。
+    /// </summary>
     private static string ResolveFixtureSeedStatus(int index)
     {
         if (FixtureStatusSeedOrder.Length == 0)
@@ -884,12 +1017,18 @@ public sealed class EmployeeRuntimeService(
         return FixtureStatusSeedOrder[index % FixtureStatusSeedOrder.Length];
     }
 
+    /// <summary>
+    /// 构建 Fixture 昵称。
+    /// </summary>
     private static string BuildFixtureNickname(string displayName, string employeeId)
     {
         var suffix = employeeId.Split('_').LastOrDefault() ?? "seed";
         return $"{displayName}-{suffix}";
     }
 
+    /// <summary>
+    /// 解析创建时间。
+    /// </summary>
     private static string ResolveCreatedAt(string generatedAtUtc, int seedOffset)
     {
         if (DateTime.TryParse(generatedAtUtc, out var parsed))
@@ -900,6 +1039,9 @@ public sealed class EmployeeRuntimeService(
         return DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-seedOffset)).ToString("yyyy-MM-dd");
     }
 
+    /// <summary>
+    /// 构建阶段摘要。
+    /// </summary>
     private static string BuildStageSummary(string status, string hireId)
     {
         return status switch
@@ -914,6 +1056,9 @@ public sealed class EmployeeRuntimeService(
         };
     }
 
+    /// <summary>
+    /// 构建主要信号。
+    /// </summary>
     private static string BuildPrimarySignal(string status)
     {
         return status switch
@@ -928,6 +1073,9 @@ public sealed class EmployeeRuntimeService(
         };
     }
 
+    /// <summary>
+    /// 构建待办操作列表。
+    /// </summary>
     private static string[] BuildPendingActions(string status)
     {
         return status switch
@@ -940,6 +1088,9 @@ public sealed class EmployeeRuntimeService(
         };
     }
 
+    /// <summary>
+    /// 构建 Fixture IM 项。
+    /// </summary>
     private static IReadOnlyList<TeamImItemDto> BuildFixtureImItems(IReadOnlyList<EmployeeDetailDto> employees)
     {
         var now = DateTime.UtcNow;
@@ -957,6 +1108,9 @@ public sealed class EmployeeRuntimeService(
             .ToArray();
     }
 
+    /// <summary>
+    /// 解析 IM 分类。
+    /// </summary>
     private static string ResolveImCategory(string status)
     {
         return status switch
@@ -971,6 +1125,9 @@ public sealed class EmployeeRuntimeService(
         };
     }
 
+    /// <summary>
+    /// 构建 IM 内容。
+    /// </summary>
     private static string BuildImContent(EmployeeDetailDto employee)
     {
         return employee.Status switch
@@ -985,6 +1142,9 @@ public sealed class EmployeeRuntimeService(
         };
     }
 
+    /// <summary>
+    /// 尝试获取 JSON 字符串值。
+    /// </summary>
     private static string TryGetString(JsonElement element, string propertyName, string fallback = "")
     {
         if (!element.TryGetProperty(propertyName, out var property))
@@ -1002,6 +1162,9 @@ public sealed class EmployeeRuntimeService(
         };
     }
 
+    /// <summary>
+    /// 转换为摘要。
+    /// </summary>
     private static EmployeeSummaryDto ToSummary(EmployeeDetailDto detail)
     {
         var status = NormalizeStatus(detail.Status, detail.LifecycleStatus) ?? "hired";
@@ -1032,6 +1195,9 @@ public sealed class EmployeeRuntimeService(
             detail.IsConfigured);
     }
 
+    /// <summary>
+    /// 批量插入或更新实例记录。
+    /// </summary>
     private async Task UpsertInstanceRecordsAsync(
         IReadOnlyList<EmployeeDetailDto> employees,
         CancellationToken cancellationToken)
@@ -1042,6 +1208,9 @@ public sealed class EmployeeRuntimeService(
         }
     }
 
+    /// <summary>
+    /// 尝试批量插入或更新实例记录。
+    /// </summary>
     private async Task TryUpsertInstanceRecordsAsync(
         IReadOnlyList<EmployeeDetailDto> employees,
         CancellationToken cancellationToken)
@@ -1056,6 +1225,9 @@ public sealed class EmployeeRuntimeService(
         }
     }
 
+    /// <summary>
+    /// 插入或更新实例记录。
+    /// </summary>
     private async Task UpsertInstanceRecordAsync(
         EmployeeDetailDto employee,
         bool viaQuickClone = false,
@@ -1108,6 +1280,9 @@ public sealed class EmployeeRuntimeService(
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// 解析日期。
+    /// </summary>
     private static DateTimeOffset? ParseDate(string value)
     {
         if (DateOnly.TryParse(value, out var date))
@@ -1118,6 +1293,9 @@ public sealed class EmployeeRuntimeService(
         return DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
     }
 
+    /// <summary>
+    /// 解析租户ID。
+    /// </summary>
     private static string ResolveTenantId(EmployeeDetailDto employee)
     {
         if (!string.IsNullOrWhiteSpace(employee.DepartmentId) &&
@@ -1129,17 +1307,217 @@ public sealed class EmployeeRuntimeService(
         return string.IsNullOrWhiteSpace(employee.OwningTeam) ? "tenant-default" : employee.OwningTeam;
     }
 
+    /// <summary>
+    /// 构建员工ID。
+    /// </summary>
     private static string BuildEmployeeId()
     {
         return $"e_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid():N}"[..24];
     }
 
+    /// <summary>
+    /// 构建实例ID。
+    /// </summary>
     private static string BuildInstanceId(string prefix)
     {
         var normalizedPrefix = string.IsNullOrWhiteSpace(prefix) ? "i" : prefix.Trim().Trim('_');
         return $"{normalizedPrefix}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid():N}"[..Math.Min(32, normalizedPrefix.Length + 1 + 13 + 1 + 32)];
     }
 
+    /// <summary>
+    /// 构建运行时作用域键。
+    /// </summary>
+    private static string BuildRuntimeScopeKey(string instanceId)
+        => $"instance:{instanceId.Trim()}";
+
+    /// <summary>
+    /// 初始化个人分身沙箱。
+    /// </summary>
+    private async Task<ApiResponse<PersonalCloneSandboxSetupResult>> InitializePersonalCloneSandboxAsync(
+        EmployeeDetailDto clone,
+        InstanceArtifactCloneResult artifactResult,
+        string ownerSubject,
+        string tenantId,
+        string operatorId,
+        CancellationToken cancellationToken)
+    {
+        var scopeKey = BuildRuntimeScopeKey(clone.EmployeeId);
+        var createResponse = await sandboxService.CreateAsync(
+            new SandboxCreateRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = scopeKey,
+                SandboxRole = RuntimeSandboxRole,
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                ProvisioningMode = "managed",
+                UseCase = $"runtime-chat-for:{clone.EmployeeId}"
+            },
+            cancellationToken);
+        if (!createResponse.Success || createResponse.Data is null)
+        {
+            return ApiResponse<PersonalCloneSandboxSetupResult>.ErrorResponse(createResponse.Code, createResponse.Message);
+        }
+
+        var readyResponse = await WaitForManagedSandboxReadyAsync(createResponse.Data, cancellationToken);
+        if (!readyResponse.Success || readyResponse.Data is null)
+        {
+            await TryDeleteSandboxAsync(ownerSubject, scopeKey, createResponse.Data.SandboxId, cancellationToken);
+            return ApiResponse<PersonalCloneSandboxSetupResult>.ErrorResponse(readyResponse.Code, readyResponse.Message);
+        }
+
+        var archiveBytes = BuildArtifactArchiveBytes(artifactResult.TargetRootPath);
+        var uploadResponse = await kingCrabHttpClient.SendMultipartForJsonAsync<DigitalEmployeeUploadResponse>(
+            "/admin/digital-employee/upload",
+            "file",
+            $"{clone.EmployeeId}-{artifactResult.CurrentVersion}.zip",
+            archiveBytes,
+            "application/zip",
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false,
+            absoluteBaseUrl: readyResponse.Data.GatewayEndpoint);
+
+        if (!uploadResponse.Success || uploadResponse.Data is null || !uploadResponse.Data.Success)
+        {
+            await TryDeleteSandboxAsync(ownerSubject, scopeKey, readyResponse.Data.SandboxId, cancellationToken);
+            var message = uploadResponse.Success && uploadResponse.Data is not null && !string.IsNullOrWhiteSpace(uploadResponse.Data.Error)
+                ? uploadResponse.Data.Error
+                : uploadResponse.Message;
+            return ApiResponse<PersonalCloneSandboxSetupResult>.ErrorResponse(
+                uploadResponse.StatusCode <= 0 ? 502 : uploadResponse.StatusCode,
+                string.IsNullOrWhiteSpace(message) ? "个人分身沙箱初始化失败" : message);
+        }
+
+        return ApiResponse<PersonalCloneSandboxSetupResult>.SuccessResponse(
+            new PersonalCloneSandboxSetupResult(readyResponse.Data.SandboxId, readyResponse.Data.GatewayEndpoint));
+    }
+
+    /// <summary>
+    /// 等待托管沙箱就绪。
+    /// </summary>
+    private async Task<ApiResponse<SandboxInstanceDto>> WaitForManagedSandboxReadyAsync(
+        SandboxInstanceDto instance,
+        CancellationToken cancellationToken)
+    {
+        if (string.Equals(instance.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(instance.GatewayEndpoint))
+        {
+            return ApiResponse<SandboxInstanceDto>.SuccessResponse(instance);
+        }
+
+        for (var attempt = 0; attempt < 36; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            var refreshResult = await sandboxService.RefreshAsync(
+                new SandboxInstanceLookupRequestDto
+                {
+                    SandboxId = instance.SandboxId
+                },
+                cancellationToken);
+            if (!refreshResult.Success || refreshResult.Data is null)
+            {
+                return ApiResponse<SandboxInstanceDto>.ErrorResponse(refreshResult.Code, refreshResult.Message);
+            }
+
+            if (string.Equals(refreshResult.Data.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint))
+            {
+                return ApiResponse<SandboxInstanceDto>.SuccessResponse(refreshResult.Data);
+            }
+        }
+
+        return ApiResponse<SandboxInstanceDto>.ErrorResponse(504, "个人分身 sandbox 启动超时");
+    }
+
+    /// <summary>
+    /// 尝试删除沙箱。
+    /// </summary>
+    private async Task TryDeleteSandboxAsync(
+        string ownerSubject,
+        string scopeKey,
+        string sandboxId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await sandboxService.DeleteAsync(
+                new SandboxInstanceLookupRequestDto
+                {
+                    SandboxId = sandboxId,
+                    ScopeType = SandboxScopeTypes.Hire,
+                    ScopeKey = scopeKey,
+                    SandboxRole = RuntimeSandboxRole,
+                    OwnerSubject = ownerSubject
+                },
+                cancellationToken);
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
+    }
+
+    /// <summary>
+    /// 构建产物归档字节数组。
+    /// </summary>
+    private static byte[] BuildArtifactArchiveBytes(string artifactRoot)
+    {
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var directory in Directory.EnumerateDirectories(artifactRoot, "*", SearchOption.AllDirectories))
+            {
+                var relativeDirectory = Path.GetRelativePath(artifactRoot, directory)
+                    .Replace('\\', '/')
+                    .Trim('/');
+                if (string.IsNullOrWhiteSpace(relativeDirectory))
+                {
+                    continue;
+                }
+
+                var directoryEntry = archive.CreateEntry($"{relativeDirectory}/");
+                directoryEntry.LastWriteTime = File.GetLastWriteTimeUtc(directory);
+            }
+
+            foreach (var sourcePath in Directory.EnumerateFiles(artifactRoot, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(artifactRoot, sourcePath).Replace('\\', '/').Trim('/');
+                if (string.IsNullOrWhiteSpace(relativePath))
+                {
+                    continue;
+                }
+
+                var entry = archive.CreateEntry(relativePath, CompressionLevel.Fastest);
+                using var entryStream = entry.Open();
+                using var fileStream = File.OpenRead(sourcePath);
+                fileStream.CopyTo(entryStream);
+            }
+        }
+
+        return memoryStream.ToArray();
+    }
+
+    /// <summary>
+    /// 个人分身沙箱设置结果。
+    /// </summary>
+    private sealed record PersonalCloneSandboxSetupResult(string SandboxId, string? GatewayEndpoint);
+
+    /// <summary>
+    /// 数字员工上传响应。
+    /// </summary>
+    private sealed record DigitalEmployeeUploadResponse(
+        bool Success,
+        string? Error,
+        string? Name,
+        int SkillsInstalled,
+        IReadOnlyList<string>? InstalledFiles,
+        int? TotalSkillsLoaded);
+
+    /// <summary>
+    /// 获取第一个非空值。
+    /// </summary>
     private static string Coalesce(params string?[] values)
     {
         foreach (var value in values)
@@ -1153,6 +1531,9 @@ public sealed class EmployeeRuntimeService(
         return string.Empty;
     }
 
+    /// <summary>
+    /// 判断状态流转是否允许。
+    /// </summary>
     private static bool IsAllowedTransition(string from, string to)
     {
         if (!AllowedStatusTransitions.TryGetValue(from.Trim(), out var allowed))
@@ -1163,6 +1544,9 @@ public sealed class EmployeeRuntimeService(
         return allowed.Contains(to.Trim());
     }
 
+    /// <summary>
+    /// 判断是否为可上传技能的实例。
+    /// </summary>
     private static bool IsUploadSkillReadyInstance(EmployeeDetailDto employee)
     {
         var status = NormalizeStatus(employee.Status, employee.LifecycleStatus);
@@ -1180,6 +1564,9 @@ public sealed class EmployeeRuntimeService(
         return phase is "pending_materials" or "pending_skill_upload";
     }
 
+    /// <summary>
+    /// 规范化状态。
+    /// </summary>
     private static string? NormalizeStatus(string? status, string? lifecycleStatus)
     {
         if (!string.IsNullOrWhiteSpace(status))
@@ -1197,41 +1584,38 @@ public sealed class EmployeeRuntimeService(
             };
         }
 
-        if (string.IsNullOrWhiteSpace(lifecycleStatus))
+        if (!string.IsNullOrWhiteSpace(lifecycleStatus))
         {
-            return null;
+            var normalized = lifecycleStatus.Trim().ToLowerInvariant();
+            return normalized switch
+            {
+                "hired" or "待入职" or "已雇佣" => "hired",
+                "interning_ai" or "ai评估" or "ai审核" => "interning_ai",
+                "interning_human" or "人工评估" or "人工审核" => "interning_human",
+                "live" or "上岗" or "在职" => "live",
+                "failed" or "失败" => "failed",
+                "retired" or "退役" or "离职" => "retired",
+                _ => null
+            };
         }
 
-        var value = lifecycleStatus.Trim();
-        return value switch
-        {
-            "待启动" => "hired",
-            "待AI评估" => "interning_ai",
-            "待人工评估" => "interning_human",
-            "待上岗" => "interning_human",
-            "待上岗（强制）" => "interning_human",
-            "实习中" => "interning_human",
-            "已转正" => "live",
-            "离职中" => "retired",
-            "已归档" => "retired",
-            _ when value.Contains("失败", StringComparison.OrdinalIgnoreCase) => "failed",
-            _ when value.Contains("异常", StringComparison.OrdinalIgnoreCase) => "failed",
-            _ => null
-        };
+        return null;
     }
 
+    /// <summary>
+    /// 将状态映射到生命周期标签。
+    /// </summary>
     private static string MapStatusToLifecycleLabel(string status)
     {
         return status switch
         {
-            "hired" => "待启动",
-            "interning_ai" => "待AI评估",
-            "interning_human" => "待人工评估",
-            "live" => "已转正",
+            "hired" => "已雇佣",
+            "interning_ai" => "AI评估中",
+            "interning_human" => "人工复核",
+            "live" => "已上岗",
             "failed" => "评估失败",
-            "retired" => "已归档",
-            _ => "待启动"
+            "retired" => "已退役",
+            _ => status
         };
     }
 }
-

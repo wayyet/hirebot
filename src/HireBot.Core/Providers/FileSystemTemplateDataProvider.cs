@@ -75,18 +75,18 @@ internal sealed class FileSystemTemplateDataProvider(
         using var manifest = JsonDocument.Parse(package.ManifestJson);
         var root = manifest.RootElement;
 
-        var name = FirstNonEmpty(
+        var name = TemplatePresentationHelpers.FirstNonEmpty(
             GetString(root, "display_name"),
             GetString(root, "name"),
             package.DisplayName,
             package.PackageId,
             package.RequestedTemplateId);
-        var tagline = FirstNonEmpty(
+        var tagline = TemplatePresentationHelpers.FirstNonEmpty(
             GetString(root, "positioning"),
             GetString(root, "description"),
             package.Description,
             "Digital employee template");
-        var description = FirstNonEmpty(
+        var description = TemplatePresentationHelpers.FirstNonEmpty(
             GetString(root, "description"),
             GetString(root, "positioning"),
             package.Description,
@@ -117,7 +117,7 @@ internal sealed class FileSystemTemplateDataProvider(
 
         return new EmployeeTemplateDefinition(
             TemplateId: package.RequestedTemplateId,
-            IconUrl: BuildDefaultIconUrl(package.RequestedTemplateId, name),
+            IconUrl: TemplatePresentationHelpers.BuildDefaultIconUrl(package.RequestedTemplateId, name),
             Name: name,
             Tagline: tagline,
             Description: description,
@@ -167,56 +167,5 @@ internal sealed class FileSystemTemplateDataProvider(
             : null;
     }
 
-    private static string FirstNonEmpty(params string?[] values)
-    {
-        foreach (var value in values)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value.Trim();
-            }
-        }
-
-        return string.Empty;
-    }
-
-    private static string BuildDefaultIconUrl(string templateId, string name)
-    {
-        var text = FirstNonEmpty(name, templateId).ToUpperInvariant();
-        var firstGlyph = text.Length > 0 ? text[0].ToString() : "T";
-        var background = ResolveColorFromTemplateId(templateId);
-        var svg =
-            "<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'>" +
-            $"<rect width='160' height='160' rx='24' fill='{background}' />" +
-            $"<text x='80' y='97' text-anchor='middle' font-size='64' font-family='Arial' fill='white'>{firstGlyph}</text>" +
-            "</svg>";
-        var encoded = Uri.EscapeDataString(svg);
-        return $"data:image/svg+xml,{encoded}";
-    }
-
-    private static string ResolveColorFromTemplateId(string templateId)
-    {
-        if (string.IsNullOrWhiteSpace(templateId))
-        {
-            return "#334155";
-        }
-
-        var seed = 0;
-        foreach (var ch in templateId)
-        {
-            seed += ch;
-        }
-
-        var palette = new[]
-        {
-            "#2563eb",
-            "#0f766e",
-            "#1d4ed8",
-            "#0369a1",
-            "#4f46e5",
-            "#0891b2"
-        };
-
-        return palette[Math.Abs(seed) % palette.Length];
-    }
 }
+

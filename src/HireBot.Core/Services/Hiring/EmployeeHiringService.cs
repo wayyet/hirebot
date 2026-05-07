@@ -37,6 +37,8 @@ namespace HireBot.Core.Services.Hiring;
 internal sealed class EmployeeHiringService(
     ITemplateDataProvider templateDataProvider,
     ITemplatePackageProvider templatePackageProvider,
+    IDiscoveryRoleTemplatePackageProvider discoveryRoleTemplatePackageProvider,
+    IWorkingTemplatePackageProvider workingTemplatePackageProvider,
     IDiscoveryRuleProvider discoveryRuleProvider,
     ISystemSkillRegistry systemSkillRegistry,
     HiringStageCompletionEvaluator stageCompletionEvaluator,
@@ -54,6 +56,7 @@ internal sealed class EmployeeHiringService(
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private const string DefaultConversationKickoffPrompt = "你是雇佣流程助手。请先根据当前阶段提出第一个关键问题，引导用户完善模板包内容。";
+    private const string ReferenceTemplatePrimingPrompt = "用户选择了一个参考模板。你会先收到一份系统整理的参考模板摘要，必要时再读取附带源文件。请优先基于摘要直接总结可复用部分，再提出下一步最关键的问题，帮助用户生成新模板；不要向用户索取你已经收到的附件内容。";
     private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
     private const string EvaluationSkillId = "evaluation-expert";
     private const string EvaluationSkillVersion = "2.1.0";
@@ -97,11 +100,15 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(404, "模板不存在或已下架");
         }
 
-        TemplatePackageDefinition templatePackage;
+        TemplatePackageDefinition referenceTemplatePackage;
+        TemplatePackageDefinition roleTemplatePackage;
+        TemplatePackageDefinition workingTemplatePackage;
         DiscoverySkillDefinition discoverySkill;
         try
         {
-            templatePackage = await templatePackageProvider.LoadAsync(normalizedTemplateId, cancellationToken);
+            referenceTemplatePackage = await templatePackageProvider.LoadAsync(normalizedTemplateId, cancellationToken);
+            roleTemplatePackage = await discoveryRoleTemplatePackageProvider.LoadAsync(cancellationToken);
+            workingTemplatePackage = await workingTemplatePackageProvider.LoadAsync(cancellationToken);
             discoverySkill = await discoveryRuleProvider.LoadAsync(cancellationToken);
         }
         catch (Exception ex)
@@ -159,7 +166,9 @@ internal sealed class EmployeeHiringService(
             CollectionPhase = HiringCollectionPhase.NotStarted,
             IsConversationPaused = false,
             IsConversationResponding = false,
-            TemplatePackage = templatePackage,
+            ReferenceTemplatePackage = referenceTemplatePackage,
+            RoleTemplatePackage = roleTemplatePackage,
+            WorkingTemplatePackage = workingTemplatePackage,
             DiscoverySkill = discoverySkill,
             StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
             Materials = [],
@@ -212,20 +221,23 @@ internal sealed class EmployeeHiringService(
                 CollectionPhase = HiringCollectionPhase.NotStarted,
                 IsConversationPaused = false,
                 IsConversationResponding = false,
-                TemplatePackage = templatePackage,
+                ReferenceTemplatePackage = referenceTemplatePackage,
+                RoleTemplatePackage = roleTemplatePackage,
+                WorkingTemplatePackage = workingTemplatePackage,
                 DiscoverySkill = discoverySkill,
                 StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
                 Materials = [],
                 StageCompletion = initialStageCompletion
             });
 
+        PersistedSourceZipInfo? referenceSourceZip;
         try
         {
-            await PersistSessionAndSourceZipAsync(
+            referenceSourceZip = await PersistSessionAndSourceZipAsync(
                 call.Data.HireId,
                 conversationStartResponse.Data.SessionId,
                 normalizedTemplateId,
-                templatePackage,
+                referenceTemplatePackage,
                 ownerSubject,
                 tenantId,
                 operatorId,
@@ -241,32 +253,15 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, "雇佣会话初始化持久化失败");
         }
 
-        var systemSkillCall = await UploadDiscoverySystemSkillAsync(
-            call.Data.HireId,
-            discoverySkill,
-            ownerSubject,
-            cancellationToken);
-        if (!systemSkillCall.Success || systemSkillCall.Data is null)
-        {
-            logger.LogWarning(
-                "Discovery system skill upload failed. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
-                call.Data.HireId,
-                normalizedTemplateId,
-                systemSkillCall.StatusCode,
-                systemSkillCall.Message);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(systemSkillCall.StatusCode, systemSkillCall.Message);
-        }
-
         var templatePackageCall = await UploadTemplatePackageAsync(
             call.Data.HireId,
-            templatePackage,
-            discoverySkill,
+            roleTemplatePackage,
             ownerSubject,
             cancellationToken);
         if (!templatePackageCall.Success || templatePackageCall.Data is null)
         {
             logger.LogWarning(
-                "Template package upload failed. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
+                "Role template package upload failed. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
                 call.Data.HireId,
                 normalizedTemplateId,
                 templatePackageCall.StatusCode,
@@ -287,6 +282,31 @@ internal sealed class EmployeeHiringService(
                 templatePackageCall.Message);
         }
 
+        if (hiringRuntimeStore.Get(call.Data.HireId) is not { } primingRuntimeContext)
+        {
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(409, "闆囦剑涓婁笅鏂囦笉瀛樺湪锛岃閲嶆柊鍙戣捣娴佺▼");
+        }
+
+        var primingContent = BuildReferenceTemplatePrimingContent(template, referenceTemplatePackage);
+        var primingMaterials = BuildReferenceTemplatePrimingMaterials(referenceSourceZip);
+        var primingResponse = await SendInternalPrimingMessageAsync(
+            primingRuntimeContext,
+            primingContent,
+            primingMaterials,
+            cancellationToken);
+        if (!primingResponse.Success || primingResponse.Data is null)
+        {
+            logger.LogWarning(
+                "Reference template priming failed. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
+                call.Data.HireId,
+                normalizedTemplateId,
+                primingResponse.Code,
+                primingResponse.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                primingResponse.Code <= 0 ? 502 : primingResponse.Code,
+                primingResponse.Message);
+        }
+
         if (hiringRuntimeStore.Get(call.Data.HireId) is { } uploadedRuntime)
         {
             hiringRuntimeStore.Upsert(uploadedRuntime with
@@ -298,14 +318,12 @@ internal sealed class EmployeeHiringService(
             });
         }
 
-        var uploadedPackageId = templatePackageCall.Data?.PackageId ?? templatePackage.PackageId;
-        var uploadedPackageVersion = templatePackageCall.Data?.PackageVersion ?? templatePackage.PackageVersion;
+        var uploadedPackageId = templatePackageCall.Data?.PackageId ?? roleTemplatePackage.PackageId;
+        var uploadedPackageVersion = templatePackageCall.Data?.PackageVersion ?? roleTemplatePackage.PackageVersion;
         logger.LogInformation(
-            "Template hire submitted to KingCrew with discovery system skill and template package uploaded. HireId={HireId}, TemplateId={TemplateId}, SkillId={SkillId}, SkillVersion={SkillVersion}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
+            "Template hire submitted to KingCrew with default discovery role package and priming completed. HireId={HireId}, TemplateId={TemplateId}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
             call.Data.HireId,
             normalizedTemplateId,
-            systemSkillCall.Data.SkillId,
-            systemSkillCall.Data.SkillVersion,
             uploadedPackageId,
             uploadedPackageVersion,
             ownerSubject);
@@ -315,7 +333,7 @@ internal sealed class EmployeeHiringService(
             "雇佣任务已创建");
     }
 
-    private async Task PersistSessionAndSourceZipAsync(
+    private async Task<PersistedSourceZipInfo?> PersistSessionAndSourceZipAsync(
         string hireId,
         string sessionId,
         string templateId,
@@ -341,9 +359,21 @@ internal sealed class EmployeeHiringService(
             .FirstOrDefaultAsync(item => item.HireId == normalizedHireId, cancellationToken);
         if (existing is not null)
         {
-            return;
+            var existingArtifact = await dbContext.HiringArtifacts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    item => item.SessionId == existing.SessionId && item.Kind == HiringArtifactPackageKinds.SourceZip,
+                    cancellationToken);
+            return existingArtifact is null
+                ? null
+                : new PersistedSourceZipInfo(
+                    existingArtifact.FileName,
+                    existingArtifact.StoragePath,
+                    existingArtifact.Sha256,
+                    existingArtifact.SizeBytes);
         }
 
+        string? sourceFileName = null;
         string? sourceStoragePath = null;
         string? sourceSha = null;
         long? sourceSize = null;
@@ -353,11 +383,11 @@ internal sealed class EmployeeHiringService(
             sourceSha = Convert.ToHexStringLower(SHA256.HashData(templatePackage.SourceArchive));
             sourceSize = templatePackage.SourceArchive.LongLength;
             await using var stream = new MemoryStream(templatePackage.SourceArchive, writable: false);
-            var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
+            sourceFileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
             sourceStoragePath = await hiringFileStore.SaveAsync(
                 normalizedSessionId,
                 "source",
-                fileName,
+                sourceFileName,
                 stream,
                 cancellationToken);
 
@@ -365,8 +395,8 @@ internal sealed class EmployeeHiringService(
             {
                 SessionId = normalizedSessionId,
                 Kind = HiringArtifactPackageKinds.SourceZip,
-                LogicalPath = $"source/{fileName}",
-                FileName = fileName,
+                LogicalPath = $"source/{sourceFileName}",
+                FileName = sourceFileName,
                 SizeBytes = sourceSize.Value,
                 Sha256 = sourceSha,
                 StoragePath = sourceStoragePath,
@@ -414,6 +444,14 @@ internal sealed class EmployeeHiringService(
             sessionId,
             sourceSha ?? string.Empty,
             sourceStoragePath ?? string.Empty);
+
+        return string.IsNullOrWhiteSpace(sourceStoragePath) || string.IsNullOrWhiteSpace(sourceFileName) || string.IsNullOrWhiteSpace(sourceSha) || sourceSize is null
+            ? null
+            : new PersistedSourceZipInfo(
+                sourceFileName,
+                sourceStoragePath,
+                sourceSha,
+                sourceSize.Value);
     }
 
     public async Task<ApiResponse<HireTemplateResultDto>> CreateEvaluationWorkspaceAsync(
@@ -473,7 +511,9 @@ internal sealed class EmployeeHiringService(
                 CollectionPhase = HiringCollectionPhase.NotStarted,
                 IsConversationPaused = false,
                 IsConversationResponding = false,
-                TemplatePackage = templatePackage,
+                ReferenceTemplatePackage = templatePackage,
+                RoleTemplatePackage = templatePackage,
+                WorkingTemplatePackage = templatePackage,
                 DiscoverySkill = discoverySkill,
                 StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
                 Materials = [],
@@ -579,9 +619,18 @@ internal sealed class EmployeeHiringService(
                 SessionId = call.Data.SessionId
             });
             hiringRuntimeStore.Upsert(runtimeContext);
+            var requiresAudit = BuildLocalStagePreview(
+                normalizedHireId,
+                runtimeContext.DiscoverySkill,
+                runtimeContext.StageCompletion,
+                runtimeContext.CurrentStage,
+                runtimeContext.CollectionPhase,
+                runtimeContext.StructuredData,
+                summaryOverride: null).ReadyForAudit;
             call = RemoteCallResult<StartHiringConversationResultDto>.Ok(call.Data with
             {
                 CurrentStage = runtimeContext.CurrentStage,
+                RequiresAudit = requiresAudit,
                 StageSkills = BuildStageSkills(runtimeContext.DiscoverySkill),
                 IsConversationPaused = runtimeContext.IsConversationPaused,
                 IsConversationResponding = IsConversationResponding(normalizedHireId, runtimeContext)
@@ -684,24 +733,28 @@ internal sealed class EmployeeHiringService(
                 }
 
                 hiringRuntimeStore.Upsert(runtimeContext);
+                var blockedPreview = BuildLocalStagePreview(
+                    normalizedHireId,
+                    runtimeContext.DiscoverySkill,
+                    runtimeContext.StageCompletion,
+                    runtimeContext.CurrentStage,
+                    runtimeContext.CollectionPhase,
+                    runtimeContext.StructuredData,
+                    assistantMessage.Content);
+
                 return ApiResponse<HiringConversationResultDto>.SuccessResponse(
                     new HiringConversationResultDto(
                         normalizedHireId,
                         runtimeContext.SessionId,
                         runtimeContext.CurrentStage,
-                        false,
+                        blockedPreview.ReadyForAudit,
                         assistantMessage,
-                        BuildLocalStagePreview(
-                            normalizedHireId,
-                            runtimeContext.DiscoverySkill,
-                            runtimeContext.StageCompletion,
-                            runtimeContext.CurrentStage,
-                            runtimeContext.CollectionPhase,
-                            runtimeContext.StructuredData,
-                            assistantMessage.Content),
+                        blockedPreview,
                         runtimeContext.IsConversationPaused,
                         true));
             }
+
+            var userMessageTime = DateTimeOffset.UtcNow;
 
             var sendResponse = await SendSandboxConversationMessageAsync(
                 runtimeContext,
@@ -715,6 +768,7 @@ internal sealed class EmployeeHiringService(
             }
 
             var parsedReply = HiringWorkflowSupport.ParseAssistantReply(sendResponse.Data.AssistantMessage.Content);
+            LogParsedAssistantReply(runtimeContext, parsedReply);
             var visibleAssistantMessage = sendResponse.Data.AssistantMessage with
             {
                 Content = parsedReply.VisibleContent
@@ -730,10 +784,11 @@ internal sealed class EmployeeHiringService(
                         $"user-{Guid.NewGuid():N}",
                         "user",
                         request.Content?.Trim() ?? string.Empty,
-                        DateTimeOffset.UtcNow),
+                        userMessageTime),
                     visibleAssistantMessage),
                 StructuredData = MergeStructuredData(runtimeContext.StructuredData, request.StructuredAnswers)
             };
+            runtimeContext = await RefreshTodoProjectionFromSandboxAsync(runtimeContext, cancellationToken);
             runtimeContext = ApplyAssistantReply(runtimeContext, parsedReply);
             runtimeContext = ApplyDispatchCallbacks(runtimeContext, parsedReply.DispatchCallbacks);
             runtimeContext = await ExecuteDispatchCommandsAsync(runtimeContext, parsedReply.DispatchCommands, cancellationToken);
@@ -745,21 +800,23 @@ internal sealed class EmployeeHiringService(
             }
 
             hiringRuntimeStore.Upsert(runtimeContext);
+            var latestPreview = BuildLocalStagePreview(
+                normalizedHireId,
+                runtimeContext.DiscoverySkill,
+                runtimeContext.StageCompletion,
+                runtimeContext.CurrentStage,
+                runtimeContext.CollectionPhase,
+                runtimeContext.StructuredData,
+                visibleAssistantMessage.Content);
+
             return ApiResponse<HiringConversationResultDto>.SuccessResponse(
                 new HiringConversationResultDto(
                     normalizedHireId,
                     runtimeContext.SessionId,
                     runtimeContext.CurrentStage,
-                    false,
+                    latestPreview.ReadyForAudit,
                     visibleAssistantMessage,
-                    BuildLocalStagePreview(
-                        normalizedHireId,
-                        runtimeContext.DiscoverySkill,
-                        runtimeContext.StageCompletion,
-                        runtimeContext.CurrentStage,
-                        runtimeContext.CollectionPhase,
-                        runtimeContext.StructuredData,
-                        visibleAssistantMessage.Content),
+                    latestPreview,
                     runtimeContext.IsConversationPaused,
                     true));
         }
@@ -790,12 +847,21 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
         }
 
+        var timelinePreview = BuildLocalStagePreview(
+            normalizedHireId,
+            runtimeContext.DiscoverySkill,
+            runtimeContext.StageCompletion,
+            runtimeContext.CurrentStage,
+            runtimeContext.CollectionPhase,
+            runtimeContext.StructuredData,
+            summaryOverride: null);
+
         return ApiResponse<HiringConversationTimelineDto>.SuccessResponse(
             new HiringConversationTimelineDto(
                 normalizedHireId,
                 runtimeContext.SessionId,
                 runtimeContext.CurrentStage,
-                false,
+                timelinePreview.ReadyForAudit,
                 runtimeContext.CollectionPhase,
                 runtimeContext.Messages,
                 BuildStageSkills(runtimeContext.DiscoverySkill)));
@@ -971,7 +1037,7 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(502, "后端交付包为空或无法解析");
         }
 
-        var mergedArtifacts = MergeTemplatePackageArtifacts(extractedArtifacts, runtimeContext.TemplatePackage);
+        var mergedArtifacts = MergeTemplatePackageArtifacts(extractedArtifacts, runtimeContext.WorkingTemplatePackage);
         if (mergedArtifacts.Count == 0)
         {
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(502, "artifact archive merge produced no files");
@@ -1051,16 +1117,25 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringWorkflowStateDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
         }
 
+        var workflowPreview = BuildLocalStagePreview(
+            normalizedHireId,
+            runtimeContext.DiscoverySkill,
+            runtimeContext.StageCompletion,
+            runtimeContext.CurrentStage,
+            runtimeContext.CollectionPhase,
+            runtimeContext.StructuredData,
+            summaryOverride: null);
+
         var workflowState = new HiringWorkflowStateDto(
             HireId: normalizedHireId,
             SessionId: runtimeContext.SessionId,
             CurrentStage: runtimeContext.CurrentStage,
-            RequiresAudit: false,
+            RequiresAudit: workflowPreview.ReadyForAudit,
             CollectionPhase: runtimeContext.CollectionPhase,
             StageSkills: BuildStageSkills(runtimeContext.DiscoverySkill),
             AuditLogs: runtimeContext.AuditLogs,
-            TemplatePackageId: runtimeContext.TemplatePackage.PackageId,
-            TemplatePackageVersion: runtimeContext.TemplatePackage.PackageVersion,
+            TemplatePackageId: runtimeContext.WorkingTemplatePackage.PackageId,
+            TemplatePackageVersion: runtimeContext.WorkingTemplatePackage.PackageVersion,
             DiscoverySkillId: runtimeContext.DiscoverySkill.SkillId,
             DiscoverySkillVersion: runtimeContext.DiscoverySkill.SkillVersion,
             StageCompletion: runtimeContext.StageCompletion,
@@ -1315,6 +1390,383 @@ internal sealed class EmployeeHiringService(
             cancellationToken);
     }
 
+    private async Task<ApiResponse<HiringConversationResultDto>> SendInternalPrimingMessageAsync(
+        HiringRuntimeContext runtimeContext,
+        string content,
+        IReadOnlyList<HiringConversationMaterialDto> materials,
+        CancellationToken cancellationToken)
+    {
+        var sendResponse = await SendSandboxConversationMessageAsync(
+            runtimeContext,
+            content,
+            materials,
+            cancellationToken);
+        if (!sendResponse.Success || sendResponse.Data is null)
+        {
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(sendResponse.Code, sendResponse.Message);
+        }
+
+        var parsedReply = HiringWorkflowSupport.ParseAssistantReply(sendResponse.Data.AssistantMessage.Content);
+        var visibleAssistantMessage = sendResponse.Data.AssistantMessage with
+        {
+            Content = parsedReply.VisibleContent
+        };
+
+        runtimeContext = runtimeContext with
+        {
+            SessionId = sendResponse.Data.SessionId,
+            Materials = MergeMaterials(runtimeContext.Materials, materials),
+            Messages = AppendMessages(runtimeContext.Messages, visibleAssistantMessage)
+        };
+        runtimeContext = await RefreshTodoProjectionFromSandboxAsync(runtimeContext, cancellationToken);
+        runtimeContext = ApplyAssistantReply(runtimeContext, parsedReply);
+        runtimeContext = ApplyDispatchCallbacks(runtimeContext, parsedReply.DispatchCallbacks);
+        runtimeContext = await ExecuteDispatchCommandsAsync(runtimeContext, parsedReply.DispatchCommands, cancellationToken);
+        runtimeContext = ApplyWorkflowProgress(runtimeContext);
+        runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
+        if (ShouldPersistArtifactPackages(runtimeContext))
+        {
+            await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+        }
+
+        hiringRuntimeStore.Upsert(runtimeContext);
+        var referencePreview = BuildLocalStagePreview(
+            runtimeContext.HireId,
+            runtimeContext.DiscoverySkill,
+            runtimeContext.StageCompletion,
+            runtimeContext.CurrentStage,
+            runtimeContext.CollectionPhase,
+            runtimeContext.StructuredData,
+            visibleAssistantMessage.Content);
+
+        return ApiResponse<HiringConversationResultDto>.SuccessResponse(
+            new HiringConversationResultDto(
+                runtimeContext.HireId,
+                runtimeContext.SessionId,
+                runtimeContext.CurrentStage,
+                referencePreview.ReadyForAudit,
+                visibleAssistantMessage,
+                referencePreview,
+                runtimeContext.IsConversationPaused,
+                true));
+    }
+
+    private async Task<HiringRuntimeContext> RefreshTodoProjectionFromSandboxAsync(
+        HiringRuntimeContext runtimeContext,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(runtimeContext.SessionId))
+        {
+            return runtimeContext;
+        }
+
+        var sessionDetailResult = await sandboxService.GetSessionDetailAsync(
+            new SandboxSessionDetailRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = runtimeContext.HireId,
+                SandboxRole = ResolveSandboxRole(runtimeContext.HireId),
+                OwnerSubject = runtimeContext.OwnerSubject,
+                TenantId = runtimeContext.TenantId,
+                OperatorId = runtimeContext.OperatorId,
+                SessionKey = "default",
+                SandboxId = runtimeContext.SandboxId
+            },
+            cancellationToken);
+        if (!sessionDetailResult.Success || sessionDetailResult.Data is null)
+        {
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(sessionDetailResult.Message)
+                    ? $"无法刷新会话 {runtimeContext.SessionId} 的 todo 元数据。"
+                    : sessionDetailResult.Message);
+        }
+
+        return runtimeContext with
+        {
+            SessionId = sessionDetailResult.Data.SessionId,
+            HandoffTodos = ProjectTodoItems(sessionDetailResult.Data.TodoItems)
+        };
+    }
+
+    private static IReadOnlyList<HiringHandoffTodoDto> ProjectTodoItems(
+        IReadOnlyList<SandboxSessionTodoItemDto> todoItems)
+    {
+        if (todoItems.Count == 0)
+        {
+            return [];
+        }
+
+        return todoItems
+            .Select(ProjectTodoItem)
+            .OrderBy(item => item.CreatedAtUtc)
+            .ThenBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static HiringHandoffTodoDto ProjectTodoItem(SandboxSessionTodoItemDto todoItem)
+    {
+        if (string.IsNullOrWhiteSpace(todoItem.Notes))
+        {
+            throw new InvalidOperationException($"Todo {todoItem.Id} 缺少 notes JSON，无法驱动雇佣流程。");
+        }
+
+        TodoToolWorkflowNotes notes;
+        try
+        {
+            notes = JsonSerializer.Deserialize<TodoToolWorkflowNotes>(todoItem.Notes, JsonOptions)
+                    ?? throw new InvalidOperationException($"Todo {todoItem.Id} 的 notes JSON 为空。");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException($"Todo {todoItem.Id} 的 notes JSON 无法解析。", ex);
+        }
+
+        return new HiringHandoffTodoDto(
+            Id: todoItem.Id.Trim(),
+            Stage: NormalizeRequestedStage(RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.Stage), notes.Stage)),
+            TargetSkill: RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.TargetSkill), notes.TargetSkill),
+            Intent: RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.Intent), notes.Intent),
+            Category: RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.Category), notes.Category),
+            Status: ResolveTodoStatus(todoItem, notes.Status),
+            Source: RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.Source), notes.Source),
+            Acceptance: RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.Acceptance), notes.Acceptance),
+            PayloadJson: string.IsNullOrWhiteSpace(notes.PayloadJson) ? null : notes.PayloadJson.Trim(),
+            CreatedAtUtc: RequireTodoTimestamp(todoItem.Id, nameof(TodoToolWorkflowNotes.CreatedAtUtc), notes.CreatedAtUtc),
+            UpdatedAtUtc: RequireTodoTimestamp(todoItem.Id, nameof(TodoToolWorkflowNotes.UpdatedAtUtc), notes.UpdatedAtUtc));
+    }
+
+    private static string ResolveTodoStatus(SandboxSessionTodoItemDto todoItem, string? notesStatus)
+    {
+        if (!string.IsNullOrWhiteSpace(notesStatus))
+        {
+            return NormalizeRequiredTodoStatus(todoItem.Id, notesStatus);
+        }
+
+        return todoItem.Completed
+            ? HiringTodoStatus.Confirmed
+            : HiringTodoStatus.Drafting;
+    }
+
+    private static string RequireTodoField(string todoId, string fieldName, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 缺少必填字段 {fieldName}。");
+        }
+
+        return value.Trim();
+    }
+
+    private static DateTimeOffset RequireTodoTimestamp(string todoId, string fieldName, DateTimeOffset? value)
+    {
+        if (value is null || value == default)
+        {
+            throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 缺少必填字段 {fieldName}。");
+        }
+
+        return value.Value;
+    }
+
+    private static string NormalizeRequiredTodoStatus(string todoId, string value)
+    {
+        return value.Trim().ToLowerInvariant() switch
+        {
+            HiringTodoStatus.Drafting => HiringTodoStatus.Drafting,
+            HiringTodoStatus.ReadyToDispatch => HiringTodoStatus.ReadyToDispatch,
+            HiringTodoStatus.Dispatched => HiringTodoStatus.Dispatched,
+            HiringTodoStatus.Dirty => HiringTodoStatus.Dirty,
+            HiringTodoStatus.Confirmed => HiringTodoStatus.Confirmed,
+            HiringTodoStatus.NeedsReview => HiringTodoStatus.NeedsReview,
+            HiringTodoStatus.Dismissed => HiringTodoStatus.Dismissed,
+            _ => throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 字段 Status 非法: {value}")
+        };
+    }
+
+    internal static string BuildReferenceTemplatePrimingContent(
+        EmployeeTemplateDefinition template,
+        TemplatePackageDefinition referenceTemplatePackage)
+    {
+        var summaryMarkdown = BuildReferenceTemplateSummaryMarkdown(template, referenceTemplatePackage);
+        return $"{ReferenceTemplatePrimingPrompt}{Environment.NewLine}{Environment.NewLine}{summaryMarkdown}{Environment.NewLine}{Environment.NewLine}请直接基于上面的摘要进入分析和追问；除非确有必要，不要让用户重复提供你已经收到的资料内容。";
+    }
+
+    private static IReadOnlyList<HiringConversationMaterialDto> BuildReferenceTemplatePrimingMaterials(
+        PersistedSourceZipInfo? referenceSourceZip)
+    {
+        var materials = new List<HiringConversationMaterialDto>();
+        if (referenceSourceZip is not null && !string.IsNullOrWhiteSpace(referenceSourceZip.StoragePath))
+        {
+            materials.Add(new HiringConversationMaterialDto
+            {
+                Type = "file",
+                Name = referenceSourceZip.FileName,
+                ContentHash = referenceSourceZip.ContentHash,
+                Size = referenceSourceZip.SizeBytes,
+                MimeType = "application/zip",
+                Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["storagePath"] = referenceSourceZip.StoragePath,
+                    ["archiveFormat"] = "zip",
+                    ["referenceType"] = "template-source-archive"
+                }
+            });
+        }
+
+        return materials;
+    }
+
+    private static string BuildReferenceTemplateSummaryMarkdown(
+        EmployeeTemplateDefinition template,
+        TemplatePackageDefinition referenceTemplatePackage)
+    {
+        var useCases = CollectReferenceTemplateUseCases(template, referenceTemplatePackage);
+        var skillNames = referenceTemplatePackage.RequiredSkills
+            .Select(skill => skill.Name)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var ontologyNames = referenceTemplatePackage.OntologySlices
+            .Select(slice => slice.Name)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var reuseHints = BuildReferenceTemplateReuseHints(useCases, skillNames, ontologyNames, referenceTemplatePackage);
+
+        var builder = new StringBuilder();
+        builder.AppendLine("# 参考模板摘要");
+        builder.AppendLine();
+        builder.AppendLine("## 模板基本信息");
+        builder.AppendLine($"- 模板 ID: {template.TemplateId}");
+        builder.AppendLine($"- 模板名称: {template.Name}");
+        builder.AppendLine($"- 标语: {template.Tagline}");
+        builder.AppendLine($"- 描述: {template.Description}");
+        builder.AppendLine();
+        builder.AppendLine("## Use Cases");
+        AppendMarkdownList(builder, useCases, "未显式声明 use case");
+        builder.AppendLine();
+        builder.AppendLine("## Skills");
+        AppendMarkdownList(builder, skillNames, "未解析到内置技能");
+        builder.AppendLine();
+        builder.AppendLine("## Ontology");
+        AppendMarkdownList(builder, ontologyNames, "未解析到 ontology 切片");
+        builder.AppendLine();
+        builder.AppendLine("## 版本信息");
+        builder.AppendLine($"- package_id: {referenceTemplatePackage.PackageId}");
+        builder.AppendLine($"- package_version: {referenceTemplatePackage.PackageVersion}");
+        builder.AppendLine($"- package_hash: {referenceTemplatePackage.PackageHash}");
+        builder.AppendLine();
+        builder.AppendLine("## 建议复用点");
+        AppendMarkdownList(builder, reuseHints, "优先关注模板的业务边界、核心技能拆分和 ontology 命名约定");
+
+        return builder.ToString().Trim();
+    }
+
+    private static string[] CollectReferenceTemplateUseCases(
+        EmployeeTemplateDefinition template,
+        TemplatePackageDefinition referenceTemplatePackage)
+    {
+        var manifestUseCases = ParseManifestStringArray(referenceTemplatePackage.ManifestJson, "use_cases");
+        if (manifestUseCases.Length > 0)
+        {
+            return manifestUseCases;
+        }
+
+        return template.InScope
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string[] BuildReferenceTemplateReuseHints(
+        IReadOnlyList<string> useCases,
+        IReadOnlyList<string> skillNames,
+        IReadOnlyList<string> ontologyNames,
+        TemplatePackageDefinition referenceTemplatePackage)
+    {
+        var result = new List<string>();
+        if (useCases.Count > 0)
+        {
+            result.Add($"优先复用业务场景边界：{useCases[0]}");
+        }
+
+        if (skillNames.Count > 0)
+        {
+            result.Add($"优先复用技能拆分方式：{string.Join("、", skillNames.Take(3))}");
+        }
+
+        if (ontologyNames.Count > 0)
+        {
+            result.Add($"优先复用 ontology 命名和切片粒度：{string.Join("、", ontologyNames.Take(3))}");
+        }
+
+        var manifestTags = ParseManifestStringArray(referenceTemplatePackage.ManifestJson, "tags");
+        if (manifestTags.Length > 0)
+        {
+            result.Add($"保留模板标签语义，作为后续配置和定位参考：{string.Join("、", manifestTags.Take(4))}");
+        }
+
+        return result.Count == 0
+            ? ["优先复用模板的业务边界、关键文件组织和技能命名方式"]
+            : result.ToArray();
+    }
+
+    private static string[] ParseManifestStringArray(string manifestJson, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(manifestJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(manifestJson);
+            if (!document.RootElement.TryGetProperty(propertyName, out var property))
+            {
+                return [];
+            }
+
+            if (property.ValueKind == JsonValueKind.String)
+            {
+                var single = property.GetString();
+                return string.IsNullOrWhiteSpace(single) ? [] : [single.Trim()];
+            }
+
+            if (property.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            return property.EnumerateArray()
+                .Where(item => item.ValueKind == JsonValueKind.String)
+                .Select(item => item.GetString())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static void AppendMarkdownList(StringBuilder builder, IReadOnlyList<string> values, string fallback)
+    {
+        if (values.Count == 0)
+        {
+            builder.AppendLine($"- {fallback}");
+            return;
+        }
+
+        foreach (var value in values)
+        {
+            builder.AppendLine($"- {value}");
+        }
+    }
+
     private static IReadOnlyList<HiringConversationMessageDto> AppendMessages(
         IReadOnlyList<HiringConversationMessageDto> existing,
         params HiringConversationMessageDto[] appended)
@@ -1347,29 +1799,9 @@ internal sealed class EmployeeHiringService(
         };
 
         var evaluatedDiagnostic = HiringWorkflowSupport.EvaluateDiagnosis(normalizedContext);
-        var diagnostic = normalizedContext.LatestDiagnosticReport is null
-            ? evaluatedDiagnostic
-            : evaluatedDiagnostic with
-            {
-                Confidence = string.IsNullOrWhiteSpace(normalizedContext.LatestDiagnosticReport.Confidence)
-                    ? evaluatedDiagnostic.Confidence
-                    : normalizedContext.LatestDiagnosticReport.Confidence,
-                DiagnosticTodos = normalizedContext.LatestDiagnosticReport.DiagnosticTodos.Count > 0
-                    ? normalizedContext.LatestDiagnosticReport.DiagnosticTodos
-                    : evaluatedDiagnostic.DiagnosticTodos,
-                HandoffCorrelation = normalizedContext.LatestDiagnosticReport.HandoffCorrelation.Count > 0
-                    ? normalizedContext.LatestDiagnosticReport.HandoffCorrelation
-                    : evaluatedDiagnostic.HandoffCorrelation,
-                OpenQuestions = normalizedContext.LatestDiagnosticReport.OpenQuestions.Count > 0
-                    ? normalizedContext.LatestDiagnosticReport.OpenQuestions
-                    : evaluatedDiagnostic.OpenQuestions,
-                UserSummary = string.IsNullOrWhiteSpace(normalizedContext.LatestDiagnosticReport.UserSummary)
-                    ? evaluatedDiagnostic.UserSummary
-                    : normalizedContext.LatestDiagnosticReport.UserSummary,
-                GeneratedAtUtc = normalizedContext.LatestDiagnosticReport.GeneratedAtUtc > evaluatedDiagnostic.GeneratedAtUtc
-                    ? normalizedContext.LatestDiagnosticReport.GeneratedAtUtc
-                    : evaluatedDiagnostic.GeneratedAtUtc
-            };
+        var diagnostic = HiringWorkflowSupport.MergeDiagnosticReports(
+            evaluatedDiagnostic,
+            normalizedContext.LatestDiagnosticReport);
         var stageCompletion = HiringWorkflowSupport.BuildStageCompletion(normalizedContext.DiscoverySkill.StageRules, diagnostic);
         var collectionPhase = string.Equals(normalizedContext.CollectionPhase, HiringCollectionPhase.Finalized, StringComparison.OrdinalIgnoreCase)
             ? HiringCollectionPhase.Finalized
@@ -1396,10 +1828,8 @@ internal sealed class EmployeeHiringService(
         HiringRuntimeContext runtimeContext,
         ParsedHiringAssistantReply parsedReply)
     {
-        var handoffTodos = MergeHandoffTodos(runtimeContext.HandoffTodos, parsedReply.HandoffTodos);
         var updatedRuntimeContext = runtimeContext with
         {
-            HandoffTodos = handoffTodos,
             LatestDiagnosticReport = parsedReply.DiagnosticReport ?? runtimeContext.LatestDiagnosticReport
         };
 
@@ -1415,6 +1845,22 @@ internal sealed class EmployeeHiringService(
         }
 
         return updatedRuntimeContext;
+    }
+
+    private void LogParsedAssistantReply(
+        HiringRuntimeContext runtimeContext,
+        ParsedHiringAssistantReply parsedReply)
+    {
+        logger.LogInformation(
+            "Parsed assistant reply. HireId={HireId}, SessionId={SessionId}, CurrentStage={CurrentStage}, DispatchCount={DispatchCount}, DispatchCallbackCount={DispatchCallbackCount}, HasDiagnosticReport={HasDiagnosticReport}, ConfigGovernanceFileCount={ConfigGovernanceFileCount}, VisibleContentLength={VisibleContentLength}",
+            runtimeContext.HireId,
+            runtimeContext.SessionId,
+            runtimeContext.CurrentStage,
+            parsedReply.DispatchCommands.Count,
+            parsedReply.DispatchCallbacks.Count,
+            parsedReply.DiagnosticReport is not null,
+            parsedReply.ConfigGovernanceFiles.Count,
+            parsedReply.VisibleContent.Length);
     }
 
     private async Task<HiringRuntimeContext> ExecuteDispatchCommandsAsync(
@@ -1440,14 +1886,11 @@ internal sealed class EmployeeHiringService(
                 .Select(value => value.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            EnsureTodoIdsExist(updatedRuntimeContext.HandoffTodos, normalizedTodoIds, command.Target.Trim());
             var dispatchId = $"dispatch-{Guid.NewGuid():N}";
             var createdAt = DateTimeOffset.UtcNow;
             updatedRuntimeContext = updatedRuntimeContext with
             {
-                HandoffTodos = UpdateTodoStatuses(
-                    updatedRuntimeContext.HandoffTodos,
-                    normalizedTodoIds,
-                    HiringTodoStatus.Dispatched),
                 LatestDispatches = AppendDispatchRecord(
                     updatedRuntimeContext.LatestDispatches,
                     new HiringDispatchRecordDto(
@@ -1484,6 +1927,11 @@ internal sealed class EmployeeHiringService(
                 throw new InvalidOperationException($"dispatch {command.Target.Trim()} 未返回 dispatch_callback");
             }
 
+            updatedRuntimeContext = updatedRuntimeContext with
+            {
+                SessionId = dispatchResponse.Data.SessionId
+            };
+            updatedRuntimeContext = await RefreshTodoProjectionFromSandboxAsync(updatedRuntimeContext, cancellationToken);
             updatedRuntimeContext = ApplyAssistantReply(updatedRuntimeContext, parsedReply);
             updatedRuntimeContext = ApplyDispatchCallbacks(
                 updatedRuntimeContext,
@@ -1626,7 +2074,7 @@ internal sealed class EmployeeHiringService(
                 .ToArray();
         }
 
-        var packageFiles = runtimeContext.TemplatePackage.PackageFiles.ToDictionary(
+        var packageFiles = runtimeContext.WorkingTemplatePackage.PackageFiles.ToDictionary(
             file => file.RelativePath,
             file => file,
             StringComparer.OrdinalIgnoreCase);
@@ -1646,7 +2094,7 @@ internal sealed class EmployeeHiringService(
 
         return runtimeContext with
         {
-            TemplatePackage = runtimeContext.TemplatePackage with
+            WorkingTemplatePackage = runtimeContext.WorkingTemplatePackage with
             {
                 PackageFiles = packageFiles.Values.ToArray()
             },
@@ -1655,8 +2103,7 @@ internal sealed class EmployeeHiringService(
                     .OrderBy(file => file.ConfigKey, StringComparer.OrdinalIgnoreCase)
                     .ToArray(),
                 PendingReviewTodoIds: impactedTodoIds,
-                UpdatedAtUtc: now),
-            HandoffTodos = UpdateTodoStatuses(runtimeContext.HandoffTodos, impactedTodoIds, HiringTodoStatus.NeedsReview)
+                UpdatedAtUtc: now)
         };
     }
 
@@ -1687,84 +2134,22 @@ internal sealed class EmployeeHiringService(
             .ToArray();
     }
 
-    private static IReadOnlyList<HiringHandoffTodoDto> MergeHandoffTodos(
-        IReadOnlyList<HiringHandoffTodoDto> existing,
-        IReadOnlyList<HiringHandoffTodoDto> incoming)
-    {
-        if (incoming.Count == 0)
-        {
-            return existing;
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        var result = existing.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
-        foreach (var todo in incoming)
-        {
-            if (string.IsNullOrWhiteSpace(todo.Id))
-            {
-                continue;
-            }
-
-            var normalizedId = todo.Id.Trim();
-            if (result.TryGetValue(normalizedId, out var current))
-            {
-                result[normalizedId] = todo with
-                {
-                    Id = normalizedId,
-                    Stage = NormalizeRequestedStage(todo.Stage),
-                    Status = NormalizeTodoStatus(todo.Status, current.Status),
-                    CreatedAtUtc = current.CreatedAtUtc,
-                    UpdatedAtUtc = todo.UpdatedAtUtc == default ? now : todo.UpdatedAtUtc
-                };
-            }
-            else
-            {
-                result[normalizedId] = todo with
-                {
-                    Id = normalizedId,
-                    Stage = NormalizeRequestedStage(todo.Stage),
-                    Status = NormalizeTodoStatus(todo.Status, HiringTodoStatus.Drafting),
-                    CreatedAtUtc = todo.CreatedAtUtc == default ? now : todo.CreatedAtUtc,
-                    UpdatedAtUtc = todo.UpdatedAtUtc == default ? now : todo.UpdatedAtUtc
-                };
-            }
-        }
-
-        return result.Values
-            .OrderBy(item => item.CreatedAtUtc)
-            .ThenBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
-    private static IReadOnlyList<HiringHandoffTodoDto> UpdateTodoStatuses(
+    private static void EnsureTodoIdsExist(
         IReadOnlyList<HiringHandoffTodoDto> existing,
         IReadOnlyList<string> todoIds,
-        string status)
+        string dispatchTarget)
     {
-        if (todoIds.Count == 0)
-        {
-            return existing;
-        }
-
-        var normalizedIds = todoIds
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value.Trim())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (normalizedIds.Count == 0)
-        {
-            return existing;
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        return existing
-            .Select(todo => normalizedIds.Contains(todo.Id)
-                ? todo with
-                {
-                    Status = NormalizeTodoStatus(status, todo.Status),
-                    UpdatedAtUtc = now
-                }
-                : todo)
+        var missingTodoIds = todoIds
+            .Where(todoId => existing.All(todo => !string.Equals(todo.Id, todoId, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        if (missingTodoIds.Length == 0)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"dispatch {dispatchTarget} 引用的 todo 不存在于当前 session metadata 中: {string.Join(", ", missingTodoIds)}");
     }
 
     private static string NormalizeTodoStatus(string? status, string fallbackStatus)
@@ -1781,6 +2166,18 @@ internal sealed class EmployeeHiringService(
             _ => fallbackStatus
         };
     }
+
+    private sealed record TodoToolWorkflowNotes(
+        string? Stage,
+        string? TargetSkill,
+        string? Intent,
+        string? Category,
+        string? Status,
+        string? Source,
+        string? Acceptance,
+        string? PayloadJson,
+        DateTimeOffset? CreatedAtUtc,
+        DateTimeOffset? UpdatedAtUtc);
 
     private static IReadOnlyList<HiringDispatchRecordDto> AppendDispatchRecord(
         IReadOnlyList<HiringDispatchRecordDto> existing,
@@ -1839,7 +2236,7 @@ internal sealed class EmployeeHiringService(
             todoIds = normalizedTodoIds,
             note = command.Note?.Trim(),
             mode = command.Mode?.Trim(),
-            handoffTodos = selectedTodos,
+            todos = selectedTodos,
             secureCredentialContext = BuildSecureCredentialContext(runtimeContext, normalizedTodoIds)
         };
 
@@ -1918,7 +2315,19 @@ internal sealed class EmployeeHiringService(
         var normalizedTarget = string.IsNullOrWhiteSpace(callback.SourceDispatchTarget)
             ? fallbackTarget?.Trim() ?? "unknown"
             : callback.SourceDispatchTarget.Trim();
-        var packageFiles = runtimeContext.TemplatePackage.PackageFiles.ToDictionary(
+        var callbackTodoIds = callback.TodoIds
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var callbackResultTodoIds = callback.TodoResults
+            .Where(item => !string.IsNullOrWhiteSpace(item.TodoId))
+            .Select(item => item.TodoId.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        EnsureTodoIdsExist(runtimeContext.HandoffTodos, callbackTodoIds, normalizedTarget);
+        EnsureTodoIdsExist(runtimeContext.HandoffTodos, callbackResultTodoIds, normalizedTarget);
+        var packageFiles = runtimeContext.WorkingTemplatePackage.PackageFiles.ToDictionary(
             file => file.RelativePath,
             file => file,
             StringComparer.OrdinalIgnoreCase);
@@ -2022,40 +2431,6 @@ internal sealed class EmployeeHiringService(
                 });
         }
 
-        var todoStatusMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var todoResult in callback.TodoResults)
-        {
-            if (string.IsNullOrWhiteSpace(todoResult.TodoId))
-            {
-                continue;
-            }
-
-            todoStatusMap[todoResult.TodoId.Trim()] = NormalizeTodoStatus(todoResult.Status, HiringTodoStatus.Dirty);
-        }
-
-        foreach (var todoId in callback.TodoIds)
-        {
-            if (string.IsNullOrWhiteSpace(todoId))
-            {
-                continue;
-            }
-
-            var normalizedTodoId = todoId.Trim();
-            if (!todoStatusMap.ContainsKey(normalizedTodoId))
-            {
-                todoStatusMap[normalizedTodoId] = NormalizeTodoStatus(callback.Status, HiringTodoStatus.Dirty);
-            }
-        }
-
-        var updatedTodos = runtimeContext.HandoffTodos
-            .Select(todo => todoStatusMap.TryGetValue(todo.Id, out var todoStatus)
-                ? todo with
-                {
-                    Status = todoStatus,
-                    UpdatedAtUtc = now
-                }
-                : todo)
-            .ToArray();
         var resolvedDispatchId = string.IsNullOrWhiteSpace(dispatchId) ? $"dispatch-{Guid.NewGuid():N}" : dispatchId;
         var updatedDispatches = UpdateDispatchRecord(
             runtimeContext.LatestDispatches,
@@ -2093,12 +2468,11 @@ internal sealed class EmployeeHiringService(
 
         return runtimeContext with
         {
-            TemplatePackage = runtimeContext.TemplatePackage with
+            WorkingTemplatePackage = runtimeContext.WorkingTemplatePackage with
             {
                 PackageFiles = packageFiles.Values.ToArray()
             },
             ArtifactFiles = artifactFiles,
-            HandoffTodos = updatedTodos,
             CredentialSlots = updatedCredentialSlots,
             LatestDispatches = updatedDispatches
         };
@@ -2201,14 +2575,12 @@ internal sealed class EmployeeHiringService(
     private Task<RemoteCallResult<TemplatePackageUploadResult>> UploadTemplatePackageAsync(
         string hireId,
         TemplatePackageDefinition templatePackage,
-        DiscoverySkillDefinition discoverySkill,
         string ownerSubject,
         CancellationToken cancellationToken)
     {
         return UploadTemplatePackageViaDigitalEmployeeAsync(
             hireId,
             templatePackage,
-            discoverySkill,
             ownerSubject,
             cancellationToken);
     }
@@ -2216,11 +2588,10 @@ internal sealed class EmployeeHiringService(
     private async Task<RemoteCallResult<TemplatePackageUploadResult>> UploadTemplatePackageViaDigitalEmployeeAsync(
         string hireId,
         TemplatePackageDefinition templatePackage,
-        DiscoverySkillDefinition discoverySkill,
         string ownerSubject,
         CancellationToken cancellationToken)
     {
-        var archiveBytes = BuildDigitalEmployeeArchive(templatePackage, discoverySkill);
+        var archiveBytes = BuildDigitalEmployeeArchive(templatePackage);
         var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
         var uploadCall = await UploadSandboxArchiveAsync(
             hireId,
@@ -2379,7 +2750,9 @@ internal sealed class EmployeeHiringService(
                     ContentHash: ComputeContentHash(manifestJson))
             ],
             OntologySlices: [],
-            RequiredSkills: []);
+            RequiredSkills: [],
+            EntrySkill: null,
+            StageRules: []);
     }
 
     private static DiscoverySkillDefinition BuildEvaluationWorkspaceDiscoverySkill()
@@ -2666,8 +3039,7 @@ This is the bootstrap skill for evaluation sandbox orchestration.
     }
 
     internal static byte[] BuildDigitalEmployeeArchive(
-        TemplatePackageDefinition templatePackage,
-        DiscoverySkillDefinition discoverySkill)
+        TemplatePackageDefinition templatePackage)
     {
         using var memoryStream = new MemoryStream();
         using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
@@ -2687,26 +3059,6 @@ This is the bootstrap skill for evaluation sandbox orchestration.
                 var entry = archive.CreateEntry(normalizedPath, CompressionLevel.Fastest);
                 using var entryStream = entry.Open();
                 entryStream.Write(file.Content, 0, file.Content.Length);
-            }
-
-            // Ensure system discovery skill is always present in uploaded package.
-            foreach (var file in discoverySkill.Files)
-            {
-                if (string.IsNullOrWhiteSpace(file.RelativePath))
-                {
-                    continue;
-                }
-
-                var normalizedPath = "skills/" + discoverySkill.SkillId.Trim().Trim('/') + "/" + file.RelativePath.TrimStart('/', '\\').Replace('\\', '/');
-                if (!TryNormalizeArchiveEntryPath(normalizedPath, out normalizedPath))
-                {
-                    continue;
-                }
-
-                var contentBytes = Encoding.UTF8.GetBytes(file.Content ?? string.Empty);
-                var entry = archive.CreateEntry(normalizedPath, CompressionLevel.Fastest);
-                using var entryStream = entry.Open();
-                entryStream.Write(contentBytes, 0, contentBytes.Length);
             }
         }
 
@@ -2777,7 +3129,7 @@ This is the bootstrap skill for evaluation sandbox orchestration.
 
     internal static HiringRuntimeContext ApplyConversationProgressToTemplatePackage(HiringRuntimeContext runtimeContext)
     {
-        var enrichedFiles = runtimeContext.TemplatePackage.PackageFiles.ToDictionary(
+        var enrichedFiles = runtimeContext.WorkingTemplatePackage.PackageFiles.ToDictionary(
             file => file.RelativePath,
             file => file,
             StringComparer.OrdinalIgnoreCase);
@@ -2792,14 +3144,14 @@ This is the bootstrap skill for evaluation sandbox orchestration.
             UpsertPackageFile(enrichedFiles, "ontology/hiring-session/evaluation-test-cases.json", evaluationTestCasesJson);
         }
 
-        var enrichedTemplatePackage = runtimeContext.TemplatePackage with
+        var enrichedTemplatePackage = runtimeContext.WorkingTemplatePackage with
         {
             PackageFiles = enrichedFiles.Values.ToArray()
         };
 
         return runtimeContext with
         {
-            TemplatePackage = enrichedTemplatePackage
+            WorkingTemplatePackage = enrichedTemplatePackage
         };
     }
 
@@ -3067,7 +3419,7 @@ This is the bootstrap skill for evaluation sandbox orchestration.
                 runtimeContext.HireId,
                 runtimeContext.SessionId,
                 BuildIntermediatePackageFileName(runtimeContext.HireId),
-                BuildPackageFileMap(runtimeContext.TemplatePackage)),
+                BuildPackageFileMap(runtimeContext.WorkingTemplatePackage)),
             cancellationToken);
     }
 
@@ -3712,6 +4064,12 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         string SkillHash,
         string InstalledPath,
         IReadOnlyList<StageSkillMappingDto> LoadedStageSkills);
+
+    private sealed record PersistedSourceZipInfo(
+        string FileName,
+        string StoragePath,
+        string ContentHash,
+        long SizeBytes);
 
     private sealed record TemplatePackageUploadResult(
         string HireId,

@@ -590,7 +590,7 @@ public sealed class SandboxInfrastructureTests
 
             Assert.True(sendResult.Success);
             Assert.False(string.IsNullOrWhiteSpace(secondHandler.LastChatCompletionContent));
-            Assert.Contains("[FILE_URL:/media/media-001]", secondHandler.LastChatCompletionContent!);
+            Assert.Contains("[FILE_URL:/app/memory/media-cache/media-001]", secondHandler.LastChatCompletionContent!);
 
             var uploadRequest = Assert.Single(secondHandler.Requests, item => item.Path == "/media/upload");
             Assert.Equal("sandbox-gateway.local", uploadRequest.Host);
@@ -603,10 +603,109 @@ public sealed class SandboxInfrastructureTests
 
             var persistedAsset = await secondContext.SandboxAssets.SingleAsync();
             Assert.Equal("media-001", persistedAsset.MediaId);
-            Assert.Equal("/media/media-001", persistedAsset.Url);
+            Assert.Equal("http://sandbox-gateway.local/media/media-001", persistedAsset.Url);
             Assert.NotNull(persistedAsset.SandboxInstanceEntityId);
             Assert.NotNull(persistedAsset.SandboxSessionEntityId);
         }
+    }
+
+    [Fact]
+    public async Task SandboxService_SendMessageAsync_WithTwoAttachments_ShouldInjectTwoFileMarkers()
+    {
+        const string databaseName = "sandbox-service-two-attachments";
+        var databaseRoot = new InMemoryDatabaseRoot();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+            [
+                new KeyValuePair<string, string?>("KingCrab:BaseUrl", "http://kingcrab.local/"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token")
+            ])
+            .Build();
+
+        var uploadIndex = 0;
+        HttpResponseMessage Responder(CapturedRequest request)
+        {
+            if (request.Path.EndsWith("/media/upload", StringComparison.OrdinalIgnoreCase))
+            {
+                uploadIndex++;
+                return JsonResponse(new
+                {
+                    id = $"media-00{uploadIndex}",
+                    url = $"/media/media-00{uploadIndex}",
+                    fileName = uploadIndex == 1 ? "reference.zip" : "reference-template-summary.md",
+                    mimeType = uploadIndex == 1 ? "application/zip" : "text/markdown",
+                    sizeBytes = uploadIndex == 1 ? 128L : 64L
+                });
+            }
+
+            return BuildSandboxApiResponse(request);
+        }
+
+        using var dbContext = CreateDbContext(databaseName, databaseRoot);
+        var handler = new RecordingHttpMessageHandler(Responder);
+        var service = CreateSandboxService(dbContext, configuration, handler);
+
+        var registerResult = await service.RegisterAsync(
+            new SandboxRegisterRequestDto
+            {
+                SandboxId = "sandbox-001",
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = "hire-001",
+                SandboxRole = "hiring",
+                OwnerSubject = "tenant-1:operator-1",
+                TenantId = "tenant-1",
+                OperatorId = "operator-1",
+                ProvisioningMode = "external",
+                State = "Running",
+                GatewayEndpoint = "http://sandbox-gateway.local/"
+            });
+
+        Assert.True(registerResult.Success);
+
+        var sendResult = await service.SendMessageAsync(
+            new SandboxSendMessageRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = "hire-001",
+                SandboxRole = "hiring",
+                OwnerSubject = "tenant-1:operator-1",
+                TenantId = "tenant-1",
+                OperatorId = "operator-1",
+                SessionKey = "default",
+                Content = "请先阅读参考模板附件。",
+                Materials =
+                [
+                    new HiringConversationMaterialDto
+                    {
+                        Type = "file",
+                        Name = "reference.zip",
+                        MimeType = "application/zip",
+                        Content = Convert.ToBase64String(Encoding.UTF8.GetBytes("zip-bytes")),
+                        Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ["contentEncoding"] = "base64"
+                        }
+                    },
+                    new HiringConversationMaterialDto
+                    {
+                        Type = "document",
+                        Name = "reference-template-summary.md",
+                        MimeType = "text/markdown",
+                        Content = "# summary"
+                    }
+                ]
+            });
+
+        Assert.True(sendResult.Success);
+        Assert.False(string.IsNullOrWhiteSpace(handler.LastChatCompletionContent));
+        Assert.Contains("请先阅读参考模板附件。", handler.LastChatCompletionContent!, StringComparison.Ordinal);
+        Assert.Contains("[FILE_URL:/app/memory/media-cache/media-001]", handler.LastChatCompletionContent!, StringComparison.Ordinal);
+        Assert.Contains("[FILE_URL:/app/memory/media-cache/media-002]", handler.LastChatCompletionContent!, StringComparison.Ordinal);
+
+        var uploadRequests = handler.Requests
+            .Where(item => item.Path == "/media/upload")
+            .ToArray();
+        Assert.Equal(2, uploadRequests.Length);
     }
 
     [Fact]
@@ -740,6 +839,69 @@ public sealed class SandboxInfrastructureTests
         Assert.DoesNotContain(
             handler.Requests,
             request => request.Path.Contains("/conversation/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task SandboxService_GetSessionDetailAsync_ShouldReturnTodoMetadata()
+    {
+        const string databaseName = "sandbox-service-session-detail-metadata";
+        const string directGatewayEndpoint = "sandbox-direct.local/runtime/sandbox-001/18790";
+        var databaseRoot = new InMemoryDatabaseRoot();
+        await using var endpointServer = await OpenSandboxEndpointServer.StartAsync(directGatewayEndpoint);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+            [
+                new KeyValuePair<string, string?>("KingCrab:BaseUrl", "http://kingcrab.local/"),
+                new KeyValuePair<string, string?>("OpenSandbox:Domain", $"127.0.0.1:{endpointServer.Port}"),
+                new KeyValuePair<string, string?>("OpenSandbox:Protocol", "Http"),
+                new KeyValuePair<string, string?>("OpenSandbox:UseServerProxy", "true"),
+                new KeyValuePair<string, string?>("OpenSandbox:Image", "registry.local/hirebot-sandbox:latest"),
+                new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
+                new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "3600"),
+                new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token")
+            ])
+            .Build();
+
+        using var dbContext = CreateDbContext(databaseName, databaseRoot);
+        var handler = new RecordingHttpMessageHandler(BuildSandboxApiResponse);
+        var service = CreateSandboxService(dbContext, configuration, handler);
+
+        var registerResult = await service.RegisterAsync(
+            new SandboxRegisterRequestDto
+            {
+                SandboxId = "sandbox-001",
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = "hire-001",
+                SandboxRole = "hiring",
+                OwnerSubject = "tenant-1:operator-1",
+                TenantId = "tenant-1",
+                OperatorId = "operator-1",
+                ProvisioningMode = "managed",
+                State = "Running",
+                GatewayEndpoint = "http://127.0.0.1:8080/sandboxes/sandbox-001/proxy/18790"
+            });
+
+        Assert.True(registerResult.Success);
+
+        var detailResult = await service.GetSessionDetailAsync(
+            new SandboxSessionDetailRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = "hire-001",
+                SandboxRole = "hiring",
+                OwnerSubject = "tenant-1:operator-1",
+                TenantId = "tenant-1",
+                OperatorId = "operator-1",
+                SessionKey = "default",
+                SandboxId = "sandbox-001"
+            });
+
+        Assert.True(detailResult.Success);
+        var todo = Assert.Single(detailResult.Data!.TodoItems);
+        Assert.Equal("todo_material_001", todo.Id);
+        Assert.True(todo.Completed);
+        Assert.Contains("ontology_extraction", todo.Notes, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -991,6 +1153,29 @@ public sealed class SandboxInfrastructureTests
                             timestamp = DateTimeOffset.UtcNow
                         }
                     }
+                },
+                metadata = new
+                {
+                    todoItems = new object[]
+                    {
+                        new
+                        {
+                            id = "todo_material_001",
+                            text = "资料归类",
+                            notes = BuildTodoNotesJson(
+                                stage: HiringCollectionStage.Material,
+                                targetSkill: "ontology_extraction",
+                                intent: "整理客服退货流程资料",
+                                category: "流程 SOP",
+                                status: HiringTodoStatus.Confirmed,
+                                source: "用户上传的客服退货流程资料",
+                                acceptance: "能够抽出退货流程节点",
+                                payloadJson: "{\"objective\":\"抽出退货流程节点\"}"),
+                            completed = true,
+                            createdAtUtc = DateTimeOffset.Parse("2026-05-06T10:00:00Z"),
+                            updatedAtUtc = DateTimeOffset.Parse("2026-05-06T10:05:00Z")
+                        }
+                    }
                 }
             });
         }
@@ -1037,6 +1222,34 @@ public sealed class SandboxInfrastructureTests
         {
             Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
         };
+    }
+
+    private static string BuildTodoNotesJson(
+        string stage,
+        string targetSkill,
+        string intent,
+        string category,
+        string status,
+        string source,
+        string acceptance,
+        string? payloadJson = null,
+        string createdAtUtc = "2026-05-06T10:00:00Z",
+        string updatedAtUtc = "2026-05-06T10:05:00Z")
+    {
+        return $$"""
+        {
+          "stage": "{{stage}}",
+          "targetSkill": "{{targetSkill}}",
+          "intent": "{{intent}}",
+          "category": "{{category}}",
+          "status": "{{status}}",
+          "source": "{{source}}",
+          "acceptance": "{{acceptance}}",
+          "payloadJson": {{(payloadJson is null ? "null" : JsonSerializer.Serialize(payloadJson))}},
+          "createdAtUtc": "{{createdAtUtc}}",
+          "updatedAtUtc": "{{updatedAtUtc}}"
+        }
+        """;
     }
 
     private static KingCrabSandboxTokenProvider CreateSandboxTokenProvider(

@@ -166,6 +166,21 @@ internal sealed class BuildServiceTemplatePackageProvider(
                 ContentHash: HiringAssetFileSystem.ComputeContentHash(content)));
         }
 
+        var stageRules = (manifest.StageRules ?? [])
+            .Where(rule =>
+                !string.IsNullOrWhiteSpace(rule.Stage) &&
+                !string.IsNullOrWhiteSpace(rule.SkillName) &&
+                !string.IsNullOrWhiteSpace(rule.Description))
+            .Select(rule => new TemplatePackageStageRule(
+                Stage: rule.Stage!.Trim(),
+                SkillName: rule.SkillName!.Trim(),
+                Description: rule.Description!.Trim(),
+                RequiredFields: (rule.RequiredFields ?? [])
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value.Trim())
+                    .ToArray()))
+            .ToArray();
+
         return new TemplatePackageDefinition(
             RequestedTemplateId: templateId,
             PackageId: FirstNonEmpty(manifest.Name, detail.Name, templateId),
@@ -180,7 +195,9 @@ internal sealed class BuildServiceTemplatePackageProvider(
                 .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
             OntologySlices: ontologySlices,
-            RequiredSkills: requiredSkills);
+            RequiredSkills: requiredSkills,
+            EntrySkill: string.IsNullOrWhiteSpace(manifest.EntrySkill) ? null : NormalizeRelativePath(manifest.EntrySkill),
+            StageRules: stageRules);
     }
 
     private async Task<RemoteCallResult<T>> SendForJsonAsync<T>(
@@ -457,8 +474,10 @@ internal sealed class BuildServiceTemplatePackageProvider(
         [property: JsonPropertyName("display_name")] string? DisplayName,
         [property: JsonPropertyName("description")] string? Description,
         [property: JsonPropertyName("version")] string? Version,
+        [property: JsonPropertyName("entry_skill")] string? EntrySkill,
         [property: JsonPropertyName("ontology_slices")] IReadOnlyList<TemplateOntologySliceDocument>? OntologySlices,
-        [property: JsonPropertyName("skills")] IReadOnlyList<TemplateSkillDocument>? Skills);
+        [property: JsonPropertyName("skills")] IReadOnlyList<TemplateSkillDocument>? Skills,
+        [property: JsonPropertyName("stage_rules")] IReadOnlyList<TemplateStageRuleDocument>? StageRules);
 
     private sealed record TemplateOntologySliceDocument(
         [property: JsonPropertyName("name")] string? Name,
@@ -470,6 +489,12 @@ internal sealed class BuildServiceTemplatePackageProvider(
         [property: JsonPropertyName("name")] string? Name,
         [property: JsonPropertyName("path")] string? Path,
         [property: JsonPropertyName("required")] bool? Required);
+
+    private sealed record TemplateStageRuleDocument(
+        [property: JsonPropertyName("stage")] string? Stage,
+        [property: JsonPropertyName("skill_name")] string? SkillName,
+        [property: JsonPropertyName("description")] string? Description,
+        [property: JsonPropertyName("required_fields")] IReadOnlyList<string>? RequiredFields);
 
     private sealed record RemoteCallResult<T>(bool Success, int StatusCode, string Message, T? Data)
     {
