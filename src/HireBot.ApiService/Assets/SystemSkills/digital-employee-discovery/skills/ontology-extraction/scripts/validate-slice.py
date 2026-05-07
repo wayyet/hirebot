@@ -293,11 +293,7 @@ def validate_known_ids(parsed_json: Any, validation_issues: list[str]) -> None:
         todo_ids = set(value for value in get_list_items(todo_context.get("todo_ids")) if isinstance(value, str))
         result_ids = get_string_set(todo_context.get("todos"), "id")
         for todo_id in sorted(todo_ids - result_ids):
-<<<<<<<< HEAD:src/HireBot.ApiService/Assets/SystemSkills/employment-coach-conversation/ontology-extraction/scripts/validate-slice.py
             add_validation_error(validation_issues, "$.meta.todo_context.todos", f"missing todo '{todo_id}' listed in todo_ids")
-========
-            add_validation_error(validation_issues, "$.meta.handoff.todos", f"missing todo 工单 '{todo_id}' listed in todo_ids")
->>>>>>>> 55b9227ba124696b492fd60ba42dda25d7be1817:src/HireBot.ApiService/Assets/SystemSkills/digital-employee-discovery/skills/ontology_extraction/scripts/validate-slice.py
         for todo_id in sorted(result_ids - todo_ids):
             add_validation_error(validation_issues, "$.meta.todo_context.todo_ids", f"missing todo id '{todo_id}' listed in todos")
 

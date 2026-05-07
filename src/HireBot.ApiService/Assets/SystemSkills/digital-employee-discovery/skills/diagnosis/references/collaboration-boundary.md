@@ -6,18 +6,20 @@
 
 | 角色 | 回答的问题 | 是否写入状态 | 是否调下游 |
 |---|---|---|---|
-| `diagnosis` | 还差什么 | 否 | 否 |
-| `employment-coach-conversation` | 当前 todo 的目标阶段、下游 skill 和输入 | 是，维护系统 todo 的 `notes` 和配置治理 | 是，通过 `<dispatch>` 信号 |
+| `diagnosis` | 还差什么 | 是，仅通过系统 `todo` 工具维护诊断 todo；不改流程 todo | 否 |
+| `employment-coach-conversation` | 当前 todo 的目标阶段、下游 skill 和输入 | 是，维护流程系统 todo 的 `notes` 和配置治理 | 是，通过 `<dispatch>` 信号 |
 | `ontology-extraction` | 如何把资料写成 ontology / slice | 是，写 `ontology/` | 否 |
 | `skill-generation` | 如何生成业务 skill 包 | 是，写 `skills/` | 否 |
 | `external-config` | 如何生成外部系统配置 | 是，写 `external/` | 否 |
 | 主 skill / 系统层 | 何时调谁、如何合并 UI | 是，维护流程状态 | 是 |
-| `employment-coach-conversation` | 差的部分要交给谁、要带什么去 | 是，维护 todo 工单和配置治理 | 是，通过 `<dispatch>` 信号 |
-| `ontology_extraction` | 如何把资料写成 ontology / slice | 是，写 `ontology/` | 否 |
-| `skill_generation` | 如何生成业务 skill 包 | 是，写 `skills/` | 否 |
-| `external_config` | 如何生成外部系统配置 | 是，写 `external/` | 否 |
-| 主 skill / 系统层 | 何时调谁、如何合并 UI | 是，维护流程状态 | 是 |
 
+
+同一 Session todo list：
+
+- `diagnosis` 诊断的对象是当前 Session 中系统 `todo` 工具 `{"action":"list","format":"json"}` 返回的结构化完整清单
+- `employment-coach-conversation` 维护的流程 todo 是主要被诊断对象
+- `diagnosis` 产生的诊断 todo 也写回同一张清单，用 `notes.kind: diagnosis` 标记
+- 不存在第二套诊断专用 todo list
 
 诊断 todo：
 
@@ -25,7 +27,8 @@
 - 有 `level: 必需 | 推荐 | 可选`
 - 可以跨阶段
 - 可以关联多个系统 todo
-- 只读，不直接触发下游
+- 通过系统 `todo` 工具维护，`notes.kind` 必须为 `diagnosis`
+- 不直接触发下游，不修改流程 todo 状态
 
 流程 todo：
 
@@ -38,9 +41,9 @@
 ## 推荐协作链路
 
 1. 主 skill 初始化沙箱并加载模板完备性清单。
-2. `employment-coach-conversation` 引导用户并维护系统 todo。
-3. 状态变化后，主 skill 调 `diagnosis` 重跑。
-4. `diagnosis` 输出 `diagnostic_report` 和诊断 todo。
+2. `employment-coach-conversation` 引导用户并维护当前 Session 的系统 todo。
+3. 状态变化后，主 skill 调 `diagnosis` 重跑，并让它读取同一 Session 的结构化 `todo.list`：`{"action":"list","format":"json"}`。
+4. `diagnosis` 诊断这份 todo list 中的流程 todo，通过系统 `todo` 工具把诊断 todo 写回同一张清单，并输出 `diagnostic_report`。
 5. UI 合并展示流程 todo 与诊断 todo。
 6. 用户选择补齐缺口时，主 skill 通知 `employment-coach-conversation` 回到对应阶段继续引导。
 7. `employment-coach-conversation` 把用户补齐的内容沉淀成系统 todo 并 dispatch。
@@ -50,7 +53,7 @@
 - 同一阶段 + 同一意图的诊断 todo 与流程 todo 可以合并成一行显示。
 - 流程 todo 强调“正在做什么 / 做到哪一步”。
 - 诊断 todo 强调“还差什么 / 是否必需”。
-- 当诊断用途 todo 关联多个系统 todo 时，UI 应展示为一个缺口组，而不是复制多条重复缺口。
+- 当诊断 todo 关联多个系统 todo 时，UI 应展示为一个缺口组，而不是复制多条重复缺口。
 - `level: 必需` 的诊断 todo 应比推荐 / 可选更突出，但不要让业务用户看到内部字段名。
 
 ## 诊断报告给用户的口径
@@ -65,7 +68,7 @@
 ## 禁止行为
 
 - 不要输出 `<dispatch>`
-- 不要把诊断 todo 写入流程 todo 索引
+- 不要把诊断 todo 写成流程 todo，诊断 todo 必须带 `notes.kind: diagnosis`
 - 不要把系统 todo 的状态改成 `needs_review`、`confirmed` 或任何其他状态
 - 不要替 `employment-coach-conversation` 追问用户
 - 不要替 `external-config` 接收或校验凭据

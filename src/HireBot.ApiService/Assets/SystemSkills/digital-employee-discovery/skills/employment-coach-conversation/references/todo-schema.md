@@ -1,6 +1,6 @@
-# todo notes 结构化合约
+# Todo 完整 schema
 
-本 skill 不引入新的 todo 对象，也不要求运行时提供第二套 todo。所有待下游处理的事项都必须写入系统 `todo` 工具；系统 `todo` 负责 session 级持久化、展示和可见完成态。本文件只定义写入 `todo.notes` 的结构化输入合约，下游 skill 按这个合约消化。
+本 skill 维护的所有流程 todo 必须由系统 `todo` 工具承载。系统 todo 负责 session 级持久化、展示和可见完成态；本文件定义的是写入 todo `notes` 的结构化输入合约，下游 skill 按这个合约消化。
 
 ## 目录
 
@@ -15,12 +15,12 @@
 
 ## 系统 todo 工具映射
 
-每个待下游处理的事项对应一条系统 `todo`：
+每条流程 todo 对应一条系统 todo：
 
 - `id`：由 `todo.add` 返回，作为 dispatch 块中的 todo id；不要自己伪造
 - `text`：给用户和侧边栏看的短标题，例如`资料：退货规则手册抽取退款节点`、`技能：退货资格初判`
 - `notes`：一段 JSON 字符串，内容见 [notes 通用结构](#notes-通用结构)
-- `Completed`：仅在 `notes.status = confirmed` 且用户确认后，通过 `todo.complete` 置为 done
+- `Completed`：仅在流程 `status = confirmed` 且用户确认后，通过 `todo.complete` 置为 done
 
 工具调用规则：
 
@@ -30,14 +30,14 @@
 - 用户撤销：`todo.update` 把 `notes.status` 写成 `dismissed`；如果不需要继续展示，再 `todo.remove`
 - 查询当前清单：`todo.list` 可核对系统 todo id、标题和 open / done 状态；结构化状态以该 todo 的 `notes.status` 为准，更新时继续使用同一个 id
 
-系统 `todo` 只有 `open / done` 两个可见状态，因此 `drafting / ready_to_dispatch / dispatched / dirty / confirmed / needs_review / dismissed` 必须放在 `notes.status`。
+系统 todo 只有 `open / done` 两个可见状态，因此 `drafting / ready_to_dispatch / dispatched / dirty / confirmed / needs_review / dismissed` 必须放在 `notes.status`。
 
 ## notes 通用结构
 
 ```json
 {
   stage,               // material | skill | external
-  target_skill,        // ontology-extraction | skill-generation | external-config
+  target_skill,        // ontology_extraction | skill_generation | external_config
   intent,              // 一句话目标，给用户读
   category,            // 阶段相关分类（见各阶段定义）
   payload,             // 阶段相关结构化字段（见各阶段 payload 字段）
@@ -81,17 +81,17 @@
 
 `diagnosis` 诊断的是同一个 Session 中系统 `todo` 工具 `list` 返回的完整 todo list；本 skill 维护的流程 todo 是它的主要诊断对象。诊断结果如果需要落到 todo，也写回同一张 Session todo list，而不是另一套清单。
 
-- 诊断用途 todo 回答"还差什么"
-- 流程 todo 记录目标阶段、下游 skill 和输入
-- 两类都是系统 `todo`，只通过 `notes.target_skill` / `notes.stage` / `notes.kind` 区分用途；本 skill 只维护 `todo.notes`
+- 诊断 todo 回答"还差什么"
+- 本 skill 的流程 todo 回答"差的部分要交给谁、要带什么去"
+- 两类 todo 共用系统 `todo` 工具承载，但 `notes.target_skill` / `notes.stage` / `notes.kind` 必须区分清楚；本 skill 只维护自己的流程 todo
 
 ---
 
 ## 阶段 1：material
 
-`target_skill = ontology-extraction`
+`target_skill = ontology_extraction`
 
-**最低门槛**：至少 1 份资料被指认归类，且对应 todo 的 `notes` 明确写出"要从中抽什么分类的本体 + 目标"。
+**最低门槛**：至少 1 份资料被指认归类，且对应的流程 todo 明确写出"要从中抽什么分类的本体 + 目标"。
 
 **核心字段**：
 - `category`: 资料类型（业务对象定义 / 决策规则 / 流程 SOP / 案例库 / 边界与约束 / 风格语料 / 其他）
@@ -106,7 +106,7 @@
 
 ## 阶段 2：skill
 
-`target_skill = skill-generation`
+`target_skill = skill_generation`
 
 **最低门槛**：至少 1 条 skill 同时具备**明确的 name + 明确的 description**，并且每条 skill 能说清触发条件和期望输出。
 
@@ -127,7 +127,7 @@
 | `expected_output` | "回复用户" | "一条回复消息（含结论 + 依据），以及一条工单流转建议（如需要人工介入）" |
 
 **支持的输入路径**：
-- 主路径：用户用对话描述能力 → 你引导 → 形成带结构化 `notes` 的 todo
+- 主路径：用户用对话描述能力 → 你引导 → 形成流程 todo
 - 二级路径：用户上传现成的 skill 文件 → 直接形成 todo（标记 `from_upload: true`），不必再追问明确度
 
 **不要做的事**：
@@ -141,7 +141,7 @@
 
 ## 阶段 3：external
 
-`target_skill = external-config`
+`target_skill = external_config`
 
 **最低门槛**：每条外部能力都明确 `category` + `objective` + `target_system`；或者用户明确表达"不需要外部系统"（标记 skipped）。
 
@@ -159,7 +159,7 @@
 **凭据规则（强约束，与 SKILL.md 顶层一致）**：
 - token / 密钥 / 密码 / API Key 等**绝不在会话里收集**
 - 用户在会话里如果输入了凭据，立刻提示"这类信息请填到右侧表单，不要在对话里发"
-- todo `notes` 里只描述"需要凭据 X 的形式"，不带值
+- 流程 todo 里只描述"需要凭据 X 的形式"，不带值
 
 **用户跳过分支**：
 - 用户明确说"不需要外部系统"或等价表述 → 形成一条 `kind: skip` 的 todo

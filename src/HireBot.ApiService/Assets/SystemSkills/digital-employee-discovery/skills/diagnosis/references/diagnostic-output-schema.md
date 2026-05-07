@@ -1,6 +1,6 @@
 # Diagnostic Output Schema
 
-本文件定义 `diagnosis` skill 的唯一输出结构。诊断报告是只读评估结果，不驱动下游 skill 直接执行。
+本文件定义 `diagnosis` skill 的输出结构。诊断报告是评估结果投影，不驱动下游 skill 直接执行；其中的诊断 todo 必须来自系统 `todo` 工具里的诊断项。
 
 ## 顶层结构
 
@@ -38,6 +38,30 @@ diagnostic_report:
 
 ## diagnostic_todo 结构
 
+诊断 todo 与流程 todo 一样使用系统 `todo` 工具承载。`diagnostic_report.diagnostic_todos` 只是 `{"action":"list","format":"json","kind":"diagnosis"}` 返回项的结构化投影，不是另一套存储。
+
+系统 todo 可见字段：
+
+```yaml
+id: d_<stage>_<gap_key>_<seq>
+text: <还差什么的用户可读标题>
+status: open | done
+notes:
+  kind: diagnosis
+  stage: material | skill | external | cross_stage
+  level: 必需 | 推荐 | 可选
+  category: <缺口类型>
+  question: <还差什么>
+  evidence: <为什么判断为缺>
+  suggested_action: <建议上层流程如何继续引导>
+  related_todos: [<todo id>]
+  status: open | resolved | dismissed | superseded
+```
+
+其中顶层 `status: open | done` 来自系统 todo 的可见完成态；`notes.status` 才是诊断流程状态。
+
+报告投影：
+
 ```yaml
 - id: d_<stage>_<gap_key>_<seq>
   stage: material | skill | external | cross_stage
@@ -52,7 +76,8 @@ diagnostic_report:
 
 字段要求：
 
-- `id` 必须稳定。相同缺口在多次诊断中复现时，保持同一 id。
+- `id` 必须稳定。相同缺口在多次诊断中复现时，继续使用同一 `d_...` id；新增诊断项时可把该 id 传给 `todo.add`。
+- `notes.kind` 必须为 `diagnosis`；不得用诊断 todo 承载下游 dispatch 输入。
 - `level` 必须来自完备性清单；清单缺失时用默认门槛并标明 `confidence: low` 或 `medium`。
 - `question` 必须描述缺口，例如“还缺一份决策规则类资料”。
 - `suggested_action` 只给上层流程参考，不得直接写成 `<dispatch>`。
@@ -60,7 +85,7 @@ diagnostic_report:
 
 ## todo_correlation 结构
 
-`todo_correlation` 表示诊断项与系统 todo 的关联，不表示存在新的 todo 类型。
+`todo_correlation` 表示诊断项与流程系统 todo 的关联，不表示存在新的 todo 类型，也不表示可以修改流程 todo。
 
 ```yaml
 - diagnosis_todo_id: d_skill_main_required_001
@@ -71,7 +96,7 @@ diagnostic_report:
 
 常见关系：
 
-- `satisfies`: 相关系统 todo 已 confirmed，满足某个诊断项
+- `satisfies`: 相关系统 todo 已 `notes.status: confirmed`，满足某个诊断项
 - `partially_satisfies`: 有相关 todo，但字段不完整或状态未确认
 - `conflicts`: 配置规则与 todo 内容冲突
 - `needs_review`: todo 已被上游治理标记为待复核

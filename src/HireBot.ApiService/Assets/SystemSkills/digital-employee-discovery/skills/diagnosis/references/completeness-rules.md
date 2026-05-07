@@ -5,9 +5,8 @@
 ## 通用判断顺序
 
 1. 先读取模板完备性清单，按 `required`、`recommended`、`optional` 分类建立缺口表。
-<<<<<<<< HEAD:src/HireBot.ApiService/Assets/SystemSkills/employment-coach-conversation/diagnosis/references/completeness-rules.md
-2. 再读取系统 todo，按 `notes.stage` 和 `notes.status` 归类。
-3. 只有 `confirmed` 的 todo 可直接满足完备性项。
+2. 再用 `{"action":"list","format":"json"}` 读取系统 todo，按 `notes.stage` 和 `notes.status` 归类。
+3. 只有 `notes.status: confirmed` 的 todo 可直接满足完备性项；顶层 `status: open | done` 只表示系统 todo 可见完成态。
 4. `ready_to_dispatch`、`dispatched`、`dirty`、`needs_review` 只能作为存在证据，不能算完成。
 5. 下游 artifacts 只能作为佐证；如果没有对应 confirmed todo，不单独算完成。
 6. 用户明确撤销的 `dismissed` todo 不参与满足判断，但可以解释为什么某项仍缺。
@@ -16,7 +15,7 @@
 
 必须检查：
 
-- 是否至少有 1 条 `notes.stage: material` 的系统 todo 已 `confirmed`
+- 是否至少有 1 条 `notes.stage: material` 且 `notes.status: confirmed` 的系统 todo
 - 是否覆盖完备性清单要求的资料类型，如业务对象定义、决策规则、流程 SOP、案例库、边界与约束、风格语料
 - 是否有上传资料未被任何 material 系统 todo 归类
 - 是否有 material todo 处于 `ready_to_dispatch`、`dispatched`、`dirty` 或 `needs_review`
@@ -41,7 +40,7 @@
 
 必须检查：
 
-- 是否至少有 1 条 `notes.stage: skill` 的系统 todo 已 `confirmed`
+- 是否至少有 1 条 `notes.stage: skill` 且 `notes.status: confirmed` 的系统 todo
 - confirmed skill 是否具备 `payload.skill_name`、`payload.skill_description`、`payload.trigger`、`payload.expected_output`
 - 是否满足完备性清单要求的主线 skill 数量或类别
 - 是否有用户提到的能力只停留在 drafting / ready_to_dispatch
@@ -73,9 +72,9 @@
 
 必须检查：
 
-- 是否存在 confirmed 的 `external` 系统 todo，或 confirmed 的 `payload.kind: skip`
+- 是否存在 `notes.stage: external` 且 `notes.status: confirmed` 的系统 todo，或 `notes.status: confirmed` 的 `payload.kind: skip`
 - 每条 external todo 是否明确 `category`、`payload.objective`、`payload.target_system`
-- `payload.linked_skills` 指向的 skill todo 是否存在且已 confirmed
+- `payload.linked_skills` 指向的 skill todo 是否存在且 `notes.status: confirmed`
 - 是否满足完备性清单要求的 read / write / notify / search / transform 能力
 - 是否有凭据值出现在对话、todo payload、callback 摘要或 artifacts 摘要中
 - 最新 `external-config` callback 是否失败或部分失败
