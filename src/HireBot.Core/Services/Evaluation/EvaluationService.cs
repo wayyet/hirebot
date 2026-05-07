@@ -15,6 +15,7 @@ using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Evaluation.Persistence;
 using HireBot.Core.Services.Internal;
+using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -34,7 +35,8 @@ internal sealed class EvaluationService(
     IEvaluationAssetStore evaluationAssetStore,
     IHostEnvironment hostEnvironment,
     IConfiguration configuration,
-    ILogger<EvaluationService> logger) : IEvaluationService
+    ILogger<EvaluationService> logger,
+    ISystemSkillRegistry systemSkillRegistry) : IEvaluationService
 {
     private static readonly string[] EvaluationSkillNames =
     [
@@ -1310,167 +1312,155 @@ internal sealed class EvaluationService(
         CancellationToken cancellationToken)
     {
         var workspaceKey = BuildWorkspaceKey(owner, employee.EmployeeId);
-        var explicitTargetHireId = ExtractTargetRuntimeIdFromComment(comment);
-        var hasBoundTargetHireId = false;
-        string? targetHireId = null;
-        if (!forceTargetHireRecreate)
-        {
-            targetHireId = explicitTargetHireId;
-            if (string.IsNullOrWhiteSpace(targetHireId) &&
-                TargetHireBindings.TryGetValue(workspaceKey, out var boundTargetHireId))
-            {
-                targetHireId = boundTargetHireId;
-                hasBoundTargetHireId = true;
-            }
+        var employeeId = employee.EmployeeId;
 
+        // Reuse cached workspace if not forced to recreate
+        if (!forceTargetHireRecreate &&
+            EvaluationWorkspaces.TryGetValue(workspaceKey, out var cachedWorkspace) &&
+            cachedWorkspace.SkillLoadedAtUtc is not null)
+        {
+            return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(cachedWorkspace);
         }
 
-        if (string.IsNullOrWhiteSpace(targetHireId) && allowTargetHireCreation)
-        {
-            var createTargetResult = await CreateTargetHireAsync(owner, employee, comment, cancellationToken);
-            if (!createTargetResult.Success || string.IsNullOrWhiteSpace(createTargetResult.Data))
-            {
-                return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(createTargetResult.Code, createTargetResult.Message);
-            }
+        // Create target sandbox directly via native sandbox API
+        var targetResult = await CreateEvaluationSandboxAsync(owner, employeeId, "evaluation-target", cancellationToken);
+        if (!targetResult.Success || targetResult.Data.SandboxId is null)
+            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(targetResult.Code, targetResult.Message);
 
-            targetHireId = createTargetResult.Data.Trim();
-        }
+        var (targetRuntimeId, targetSandboxId) = targetResult.Data;
 
-        if (string.IsNullOrWhiteSpace(targetHireId))
-        {
-            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(422, "cannot resolve target runtimeId");
-        }
+        // Create evaluator sandbox directly via native sandbox API
+        var evaluatorResult = await CreateEvaluationSandboxAsync(owner, employeeId, "evaluation-evaluator", cancellationToken);
+        if (!evaluatorResult.Success || evaluatorResult.Data.SandboxId is null)
+            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(evaluatorResult.Code, evaluatorResult.Message);
 
-        var targetStatusResult = await employeeHiringService.GetHiringStatusAsync(targetHireId, cancellationToken);
-        if (!targetStatusResult.Success || targetStatusResult.Data is null)
-        {
-            var shouldRetryWithNewTargetHire =
-                allowTargetHireCreation &&
-                !forceTargetHireRecreate &&
-                string.IsNullOrWhiteSpace(explicitTargetHireId) &&
-                !hasBoundTargetHireId;
+        var (evaluatorRuntimeId, evaluatorSandboxId) = evaluatorResult.Data;
 
-            if (shouldRetryWithNewTargetHire)
-            {
-                var createTargetResult = await CreateTargetHireAsync(owner, employee, comment, cancellationToken);
-                if (!createTargetResult.Success || string.IsNullOrWhiteSpace(createTargetResult.Data))
-                {
-                    return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(createTargetResult.Code, createTargetResult.Message);
-                }
+        TargetHireBindings[workspaceKey] = targetRuntimeId;
 
-                targetHireId = createTargetResult.Data.Trim();
-                targetStatusResult = await employeeHiringService.GetHiringStatusAsync(targetHireId, cancellationToken);
-            }
-        }
+        var workspaceContext = new EvaluationWorkspaceContext(
+            TargetHireId: targetRuntimeId,
+            TargetSandboxId: targetSandboxId,
+            EvaluatorHireId: evaluatorRuntimeId,
+            EvaluatorSandboxId: evaluatorSandboxId,
+            SkillLoadedAtUtc: null,
+            SessionId: null);
 
-        if (!targetStatusResult.Success || targetStatusResult.Data is null)
-        {
-            logger.LogWarning(
-                "Failed to load target sandbox status from remote. Owner={Owner}, EmployeeId={EmployeeId}, TargetHireId={TargetHireId}, Code={Code}, Message={Message}",
-                owner,
-                employee.EmployeeId,
-                targetHireId,
-                targetStatusResult.Code,
-                targetStatusResult.Message);
+        // Upload evaluation-expert skill to evaluator sandbox
+        var uploadResult = await UploadSkillToSandboxAsync(evaluatorSandboxId, owner, cancellationToken);
+        if (!uploadResult.Success)
+            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(uploadResult.Code, uploadResult.Message);
 
-            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(
-                targetStatusResult.Code,
-                $"failed to read target sandbox info by runtimeId: {targetStatusResult.Message}");
-        }
-
-        if (string.IsNullOrWhiteSpace(targetStatusResult.Data.SandboxId))
-        {
-            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(422, "target sandbox info is incomplete: sandboxId missing");
-        }
-
-        TargetHireBindings[workspaceKey] = targetHireId;
-
-        EvaluationWorkspaceContext workspaceContext;
-        if (EvaluationWorkspaces.TryGetValue(workspaceKey, out var existingWorkspace) &&
-            existingWorkspace.TargetHireId.Equals(targetHireId, StringComparison.OrdinalIgnoreCase))
-        {
-            workspaceContext = existingWorkspace with
-            {
-                TargetSandboxId = targetStatusResult.Data.SandboxId
-            };
-        }
-        else
-        {
-            var createWorkspaceResult = await employeeHiringService.CreateEvaluationWorkspaceAsync(targetHireId, cancellationToken);
-            if (!createWorkspaceResult.Success || createWorkspaceResult.Data is null)
-            {
-                return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(
-                    createWorkspaceResult.Code,
-                    $"failed to create evaluator workspace: {createWorkspaceResult.Message}");
-            }
-
-            workspaceContext = new EvaluationWorkspaceContext(
-                TargetHireId: targetHireId,
-                TargetSandboxId: targetStatusResult.Data.SandboxId,
-                EvaluatorHireId: createWorkspaceResult.Data.HireId,
-                EvaluatorSandboxId: createWorkspaceResult.Data.SandboxId,
-                SkillLoadedAtUtc: null,
-                SessionId: null);
-        }
-
-        if (workspaceContext.SkillLoadedAtUtc is null || !string.IsNullOrWhiteSpace(skillRootPath))
-        {
-            var uploadResult = await employeeHiringService.UploadEvaluationSkillAsync(
-                workspaceContext.EvaluatorHireId,
-                skillRootPath,
-                cancellationToken);
-            if (!uploadResult.Success || uploadResult.Data is not true)
-            {
-                return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(uploadResult.Code, uploadResult.Message);
-            }
-
-            workspaceContext = workspaceContext with
-            {
-                SkillLoadedAtUtc = DateTimeOffset.UtcNow
-            };
-        }
-
+        workspaceContext = workspaceContext with { SkillLoadedAtUtc = DateTimeOffset.UtcNow };
         EvaluationWorkspaces[workspaceKey] = workspaceContext;
+
+        logger.LogInformation("[Eval] Workspace ready employeeId={EmployeeId} target={TargetRuntime} evaluator={EvalRuntime}",
+            employeeId, targetRuntimeId, evaluatorRuntimeId);
+
         return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(workspaceContext);
     }
 
-    private async Task<ApiResponse<string>> CreateTargetHireAsync(
+    private async Task<ApiResponse<(string RuntimeId, string SandboxId)>> CreateEvaluationSandboxAsync(
         string owner,
-        EmployeeDetailDto employee,
-        string? comment,
+        string employeeId,
+        string sandboxRole,
         CancellationToken cancellationToken)
     {
-        var templateId = ExtractValueFromComment(comment, "templateId");
-        if (string.IsNullOrWhiteSpace(templateId))
-        {
-            templateId = ResolveTargetTemplateId(employee);
-        }
-
-        if (string.IsNullOrWhiteSpace(templateId))
-        {
-            return ApiResponse<string>.ErrorResponse(422, "cannot resolve target templateId");
-        }
-
-        var hireResult = await employeeHiringService.HireAsync(
-            templateId,
-            new HireTemplateRequestDto
+        var runtimeId = $"eval-{sandboxRole}-{Guid.NewGuid():N}"[..Math.Min(40, 15 + sandboxRole.Length + 32)];
+        var createResult = await sandboxService.CreateAsync(
+            new SandboxCreateRequestDto
             {
-                UseCase = $"evaluation-target-for:{employee.EmployeeId}"
+                ScopeType = SandboxScopeTypes.Managed,
+                ScopeKey = runtimeId,
+                SandboxRole = sandboxRole,
+                OwnerSubject = owner,
+                TenantId = "tenant-default",
+                OperatorId = "operator-default",
+                ProvisioningMode = "managed",
+                UseCase = $"evaluation-{sandboxRole}-for:{employeeId}"
             },
             cancellationToken);
-        if (!hireResult.Success || hireResult.Data is null || string.IsNullOrWhiteSpace(hireResult.Data.HireId))
+
+        if (!createResult.Success || createResult.Data is null)
+            return ApiResponse<(string, string)>.ErrorResponse(createResult.Code, createResult.Message);
+
+        var sandboxId = createResult.Data.SandboxId;
+        logger.LogInformation("[Eval] Creating sandbox runtimeId={RuntimeId} sandboxId={SandboxId} role={Role}",
+            runtimeId, sandboxId, sandboxRole);
+
+        for (var i = 0; i < 36; i++)
         {
-            return ApiResponse<string>.ErrorResponse(hireResult.Code, $"failed to create target sandbox: {hireResult.Message}");
+            await Task.Delay(5000, cancellationToken);
+            var refresh = await sandboxService.RefreshAsync(
+                new SandboxInstanceLookupRequestDto { SandboxId = sandboxId, OwnerSubject = owner },
+                cancellationToken);
+            if (refresh.Success && refresh.Data is not null &&
+                string.Equals(refresh.Data.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(refresh.Data.GatewayEndpoint))
+            {
+                logger.LogInformation("[Eval] Sandbox ready runtimeId={RuntimeId} sandboxId={SandboxId}", runtimeId, sandboxId);
+                return ApiResponse<(string, string)>.SuccessResponse((runtimeId, sandboxId));
+            }
         }
 
-        logger.LogInformation(
-            "Created target sandbox for evaluation. Owner={Owner}, EmployeeId={EmployeeId}, TemplateId={TemplateId}, TargetHireId={TargetHireId}",
-            owner,
-            employee.EmployeeId,
-            templateId,
-            hireResult.Data.HireId);
+        return ApiResponse<(string, string)>.ErrorResponse(504, $"sandbox {sandboxRole} not ready within 180s");
+    }
 
-        return ApiResponse<string>.SuccessResponse(hireResult.Data.HireId);
+    private async Task<ApiResponse<bool>> UploadSkillToSandboxAsync(
+        string sandboxId,
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        const string skillId = "evaluation-expert";
+        SystemSkillPackage package;
+        try
+        {
+            package = await systemSkillRegistry.LoadRequiredAsync(skillId, null, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiResponse<bool>.ErrorResponse(422, ex.Message);
+        }
+
+        if (package.Files.Count == 0)
+            return ApiResponse<bool>.ErrorResponse(422, "evaluation skill payload is empty");
+
+        var archiveBytes = BuildSkillArchive(package);
+        var uploadResult = await sandboxService.UploadSkillPackageAsync(
+            new SkillPackageUploadRequestDto
+            {
+                SandboxId = sandboxId,
+                OwnerSubject = owner,
+                ArchiveBytes = archiveBytes,
+                FileName = $"{skillId}-{package.Version}.zip"
+            },
+            cancellationToken);
+
+        if (!uploadResult.Success || uploadResult.Data is null)
+            return ApiResponse<bool>.ErrorResponse(uploadResult.Code, uploadResult.Message);
+
+        logger.LogInformation("[Eval] Skill uploaded sandboxId={SandboxId} installed={Count}",
+            sandboxId, uploadResult.Data.SkillsInstalled);
+        return ApiResponse<bool>.SuccessResponse(true, "evaluation skill uploaded");
+    }
+
+    private static byte[] BuildSkillArchive(SystemSkillPackage package)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var file in package.Files)
+            {
+                if (string.IsNullOrWhiteSpace(file.RelativePath)) continue;
+                var path = "skills/" + package.SkillId.Trim().Trim('/') + "/" +
+                           file.RelativePath.TrimStart('/', '\\').Replace('\\', '/');
+                var entry = archive.CreateEntry(path, CompressionLevel.Fastest);
+                using var entryStream = entry.Open();
+                var contentBytes = System.Text.Encoding.UTF8.GetBytes(file.Content);
+                entryStream.Write(contentBytes, 0, contentBytes.Length);
+            }
+        }
+        return stream.ToArray();
     }
 
     private async Task<ApiResponse<EvaluationWorkspaceContext>> EnsureEvaluatorConversationStartedAsync(

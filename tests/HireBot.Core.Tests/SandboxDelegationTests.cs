@@ -250,7 +250,8 @@ public sealed class SandboxDelegationTests
             new NoopEvaluationAssetStore(),
             new StubHostEnvironment(),
             new ConfigurationBuilder().Build(),
-            NullLogger<EvaluationService>.Instance);
+            NullLogger<EvaluationService>.Instance,
+            new NoopSystemSkillRegistry());
 
         var result = await InvokePrivateAsync<object>(
             service,
@@ -388,7 +389,8 @@ public sealed class SandboxDelegationTests
             new NoopEvaluationAssetStore(),
             new StubHostEnvironment(),
             new ConfigurationBuilder().Build(),
-            NullLogger<EvaluationService>.Instance);
+            NullLogger<EvaluationService>.Instance,
+            new NoopSystemSkillRegistry());
     }
 
     private static HireBotDbContext CreateDbContext(string databaseName)
@@ -500,6 +502,9 @@ public sealed class SandboxDelegationTests
 
         public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<SandboxAttachmentUploadResultDto>.ErrorResponse(501, "not used"));
+
+        public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<SkillPackageUploadResultDto>.ErrorResponse(501, "not used"));
     }
 
     private sealed class ThrowingKingCrabHttpClient : IKingCrabHttpClient

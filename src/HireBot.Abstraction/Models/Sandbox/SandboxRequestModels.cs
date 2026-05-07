@@ -92,3 +92,16 @@ public sealed record SandboxAttachmentUploadRequestDto
     public string? SandboxId { get; init; }
     public required HiringConversationMaterialDto Material { get; init; }
 }
+
+public sealed record SkillPackageUploadRequestDto
+{
+    public required string SandboxId { get; init; }
+    public required string OwnerSubject { get; init; }
+    public required byte[] ArchiveBytes { get; init; }
+    public required string FileName { get; init; }
+}
+
+public sealed record SkillPackageUploadResultDto(
+    bool Success,
+    string? Error,
+    int SkillsInstalled);
