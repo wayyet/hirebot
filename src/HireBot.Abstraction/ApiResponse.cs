@@ -24,4 +24,9 @@ public record ApiResponse<T>
     {
         return new ApiResponse<T>(code, false, message, default);
     }
+
+    public static ApiResponse<T> NotModified(string message = "Not Modified")
+    {
+        return new ApiResponse<T>(304, true, message, default);
+    }
 }

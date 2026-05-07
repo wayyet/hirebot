@@ -11,6 +11,7 @@ using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Evaluation;
 using HireBot.Core.Services.Evaluation.Persistence;
 using HireBot.Core.Services.Internal;
+using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -104,7 +105,8 @@ public sealed class EvaluationServiceSandboxMessageTests
             new NoopEvaluationAssetStore(),
             new StubHostEnvironment(),
             new ConfigurationBuilder().Build(),
-            NullLogger<EvaluationService>.Instance);
+            NullLogger<EvaluationService>.Instance,
+            new NoopSystemSkillRegistry());
 
         var response = await service.SendEvaluationSandboxMessageAsync(
             employeeId,
@@ -293,6 +295,19 @@ public sealed class EvaluationServiceSandboxMessageTests
             => throw new NotSupportedException();
 
         public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class NoopSystemSkillRegistry : ISystemSkillRegistry
+    {
+        public Task<IReadOnlyList<SystemSkillPackage>> ListAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task<SystemSkillPackage?> FindAsync(string skillId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task<SystemSkillPackage> LoadRequiredAsync(string skillId, string? configuredPath = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 

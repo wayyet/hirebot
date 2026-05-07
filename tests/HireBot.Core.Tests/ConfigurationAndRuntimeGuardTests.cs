@@ -201,6 +201,7 @@ public sealed class ConfigurationAndRuntimeGuardTests
         public Task<ApiResponse<HiringConversationTimelineDto>> GetTimelineAsync(SandboxTimelineRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class NoopKingCrabHttpClient : IKingCrabHttpClient

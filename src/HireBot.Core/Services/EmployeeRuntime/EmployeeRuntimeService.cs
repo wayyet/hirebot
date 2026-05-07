@@ -1561,7 +1561,7 @@ public sealed class EmployeeRuntimeService(
         }
 
         var phase = employee.EvalPhase.Trim().ToLowerInvariant();
-        return phase is "pending_materials" or "pending_skill_upload";
+        return phase is "pending_materials" or "pending_skill_upload" or "ai_running";
     }
 
     /// <summary>

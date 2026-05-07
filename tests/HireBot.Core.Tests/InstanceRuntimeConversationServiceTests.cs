@@ -239,6 +239,9 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<SkillPackageUploadResultDto>.SuccessResponse(new SkillPackageUploadResultDto(true, null, 1)));
+
         private static SandboxInstanceDto BuildInstance(string sandboxId, string scopeType, string scopeKey, string sandboxRole, string ownerSubject, string tenantId, string operatorId)
             => new(Guid.NewGuid(), sandboxId, scopeType, scopeKey, sandboxRole, "managed", ownerSubject, tenantId, operatorId, "Running", "http://localhost:18789", null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     }

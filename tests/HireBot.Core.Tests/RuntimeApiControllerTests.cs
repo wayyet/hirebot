@@ -322,7 +322,7 @@ public sealed class RuntimeApiControllerTests
     private sealed class FakeEvaluationService : IEvaluationService
     {
         public Task<ApiResponse<EvaluationStateDto>> GetEvaluationStateAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<ApiResponse<EvaluationSandboxConversationStateDto>> GetEvaluationSandboxConversationAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<EvaluationSandboxConversationStateDto>> GetEvaluationSandboxConversationAsync(string employeeId, string? since = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EvaluationSandboxConversationStateDto>> SendEvaluationSandboxMessageAsync(string employeeId, EvaluationSandboxMessageRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> SubmitAiEvaluationDecisionAsync(string employeeId, AiEvaluationDecisionRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> SubmitOnboardingDecisionAsync(string employeeId, EvaluationOnboardingDecisionRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();

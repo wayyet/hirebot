@@ -4,4 +4,5 @@ public sealed record EvaluationReadinessDto(
     bool TestcasesReady,
     bool OntologyReady,
     string Status,
-    string? Message);
+    string? Message,
+    string? RecommendedAction = null);
