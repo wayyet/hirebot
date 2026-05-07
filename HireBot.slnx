@@ -3,7 +3,9 @@
     <Project Path="src/HireBot.Abstraction/HireBot.Abstraction.csproj" />
     <Project Path="src/HireBot.ApiService/HireBot.ApiService.csproj" />
     <Project Path="src/HireBot.Core/HireBot.Core.csproj" />
-    <Project Path="src/HireBot.EfCoreMigration/HireBot.EfCoreMigration.csproj" />
+    <Project Path="src/HireBot.EfCoreMigration/HireBot.EfCoreMigration.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
     <Project Path="src/HireBot.Repository/HireBot.Repository.csproj" />
   </Folder>
   <Folder Name="/tests/">
