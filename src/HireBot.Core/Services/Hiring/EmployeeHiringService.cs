@@ -30,6 +30,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Hiring;
@@ -53,10 +54,10 @@ internal sealed class EmployeeHiringService(
     IHiringFileStore hiringFileStore,
     IInstanceArtifactCloneService instanceArtifactCloneService,
     IHiringArtifactPackageService artifactPackageService,
-    ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
+    ILogger<EmployeeHiringService> logger,
+    IHostEnvironment hostEnvironment) : IEmployeeHiringService
 {
     private const string DefaultConversationKickoffPrompt = "你是雇佣流程助手。请先根据当前阶段提出第一个关键问题，引导用户完善模板包内容。";
-    private const string ReferenceTemplatePrimingPrompt = "用户选择了一个参考模板。你会先收到一份系统整理的参考模板摘要，必要时再读取附带源文件。请优先基于摘要直接总结可复用部分，再提出下一步最关键的问题，帮助用户生成新模板；不要向用户索取你已经收到的附件内容。";
     private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
     private const string EvaluationSkillId = "evaluation-expert";
     private const string EvaluationSkillVersion = "2.1.0";
@@ -67,6 +68,12 @@ internal sealed class EmployeeHiringService(
     {
         PropertyNameCaseInsensitive = true
     };
+
+    private string LoadReferenceTemplatePrimingPrompt()
+    {
+        var path = Path.Combine(hostEnvironment.ContentRootPath, "Assets", "md", "coach-system-prompt.md");
+        return File.ReadAllText(path);
+    }
 
     private readonly ConcurrentDictionary<string, HireOwnerContext> hireOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> conversationInFlight = new(StringComparer.OrdinalIgnoreCase);
@@ -287,7 +294,8 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(409, "闆囦剑涓婁笅鏂囦笉瀛樺湪锛岃閲嶆柊鍙戣捣娴佺▼");
         }
 
-        var primingContent = BuildReferenceTemplatePrimingContent(template, referenceTemplatePackage);
+        var primingContent = BuildReferenceTemplatePrimingContent(
+            template, referenceTemplatePackage, LoadReferenceTemplatePrimingPrompt());
         var primingMaterials = BuildReferenceTemplatePrimingMaterials(referenceSourceZip);
         var primingResponse = await SendInternalPrimingMessageAsync(
             primingRuntimeContext,
@@ -1584,10 +1592,11 @@ internal sealed class EmployeeHiringService(
 
     internal static string BuildReferenceTemplatePrimingContent(
         EmployeeTemplateDefinition template,
-        TemplatePackageDefinition referenceTemplatePackage)
+        TemplatePackageDefinition referenceTemplatePackage,
+        string referenceTemplatePrimingPrompt)
     {
         var summaryMarkdown = BuildReferenceTemplateSummaryMarkdown(template, referenceTemplatePackage);
-        return $"{ReferenceTemplatePrimingPrompt}{Environment.NewLine}{Environment.NewLine}{summaryMarkdown}{Environment.NewLine}{Environment.NewLine}请直接基于上面的摘要进入分析和追问；除非确有必要，不要让用户重复提供你已经收到的资料内容。";
+        return $"{referenceTemplatePrimingPrompt}{Environment.NewLine}{Environment.NewLine}{summaryMarkdown}{Environment.NewLine}{Environment.NewLine}请直接基于上面的摘要进入分析和追问；除非确有必要，不要让用户重复提供你已经收到的资料内容。";
     }
 
     private static IReadOnlyList<HiringConversationMaterialDto> BuildReferenceTemplatePrimingMaterials(

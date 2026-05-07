@@ -449,7 +449,8 @@ public sealed class SandboxDelegationTests
             new NoopHiringFileStore(),
             new NoopInstanceArtifactCloneService(),
             new NoopHiringArtifactPackageService(),
-            logger ?? NullLogger<EmployeeHiringService>.Instance);
+            logger ?? NullLogger<EmployeeHiringService>.Instance,
+            new StubHostEnvironment());
     }
 
     private static IDataProtectionProvider CreateDataProtectionProvider()

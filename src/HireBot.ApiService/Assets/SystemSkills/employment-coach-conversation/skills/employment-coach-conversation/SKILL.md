@@ -1,6 +1,6 @@
 ---
 name: employment-coach-conversation
-description: "雇佣教练的阶段化对话引导核心。用于业务用户在沙箱内雇佣 / 装配数字员工时，按『资料 → 技能 → 外部』三阶段引导对话，把下游 skill 可执行的信息沉淀到系统 todo 的 notes 中，在合适时机输出系统可识别的下游调用信号；并承担 soul / identity / agent 三份配置文件的对话监听与混合反问治理。当用户已选定模板进入会话窗口、需要按阶段引导对话、需要为本体提取 / 技能生成 / 外部配置等下游 skill 准备明确的工单时，必须使用本 skill。不要用于一次性方案咨询（请用 digital-employee-discovery 或 ncrew-discovery）、还没初始化沙箱的场景、或需要直接执行本体提取 / 技能生成 / 外部配置 / 诊断 / 打包的场景——那些由对应下游 skill 完成。"
+description: "雇佣教练的阶段化对话引导核心。用于业务用户在沙箱内雇佣 / 装配数字员工时，按『资料 → 技能 → 外部』三阶段引导对话，把下游 skill 可执行的信息沉淀到系统 todo 的 notes 中，在合适时机输出系统可识别的下游调用信号；并承担 soul / identity / agent 三份配置文件的对话监听与混合反问治理。当用户已选定模板进入会话窗口、需要按阶段引导对话、需要为本体提取 / 技能生成 / 外部配置等下游 skill 准备明确的工单时，必须使用本 skill。不要用于一次性方案咨询（请用 employment-coach-conversation 或 ncrew-discovery）、还没初始化沙箱的场景、或需要直接执行本体提取 / 技能生成 / 外部配置 / 诊断 / 打包的场景——那些由对应下游 skill 完成。"
 license: Proprietary. NCrew employment-coach internal flow.
 ---
 

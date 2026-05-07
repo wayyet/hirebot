@@ -132,7 +132,7 @@ public class EmployeeHiringServiceTests
             SuccessCases: ["帮助客服团队整理退货流程"]);
 
         var templatePackage = CreateTemplatePackage();
-        var content = EmployeeHiringService.BuildReferenceTemplatePrimingContent(template, templatePackage);
+        var content = EmployeeHiringService.BuildReferenceTemplatePrimingContent(template, templatePackage, "你是雇佣流程助手。");
 
         Assert.Contains("参考模板摘要", content, StringComparison.Ordinal);
         Assert.Contains("模板 ID: employment-coach", content, StringComparison.Ordinal);
