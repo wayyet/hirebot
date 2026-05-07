@@ -27,7 +27,7 @@ public class EmployeeHiringServiceTests
         var entries = zip.Entries.Select(entry => entry.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         Assert.Contains("manifest.json", entries);
         Assert.Contains("skills/spec-generation/SKILL.md", entries);
-        Assert.DoesNotContain("skills/digital-employee-discovery/SKILL.md", entries);
+        Assert.DoesNotContain("skills/employment-coach-conversation/SKILL.md", entries);
     }
 
     [Fact]
@@ -98,6 +98,7 @@ public class EmployeeHiringServiceTests
 
         Assert.Contains("testcases/evaluation-test-cases.json", files.Keys);
         Assert.Contains("ontology/hiring-session/evaluation-test-cases.json", files.Keys);
+
         var testCasesJson = Encoding.UTF8.GetString(files["testcases/evaluation-test-cases.json"].Content);
         using var testCasesDocument = JsonDocument.Parse(testCasesJson);
         var root = testCasesDocument.RootElement;
@@ -127,17 +128,20 @@ public class EmployeeHiringServiceTests
             IsAvailable: true,
             CoreAbilities: ["资料归类", "技能拆解"],
             InScope: ["雇佣流程"],
-            OutOfScope: ["直接写业务代码"],
+            OutOfScope: ["直接编写业务代码"],
             Prerequisites: [],
-            SuccessCases: ["帮助客服团队整理退货流程"]);
+            SuccessCases: ["帮助客服团队整理退款流程"]);
 
         var templatePackage = CreateTemplatePackage();
-        var content = EmployeeHiringService.BuildReferenceTemplatePrimingContent(template, templatePackage, "你是雇佣流程助手。");
+        var content = EmployeeHiringService.BuildReferenceTemplatePrimingContent(
+            template,
+            templatePackage,
+            "你是雇佣流程助手。");
 
         Assert.Contains("参考模板摘要", content, StringComparison.Ordinal);
         Assert.Contains("模板 ID: employment-coach", content, StringComparison.Ordinal);
         Assert.Contains("模板名称: 雇佣教练", content, StringComparison.Ordinal);
-        Assert.Contains("不要向用户索取你已经收到的附件内容", content, StringComparison.Ordinal);
+        Assert.Contains("不要让用户重复提供你已经收到的资料内容", content, StringComparison.Ordinal);
     }
 
     private static HiringRuntimeContext CreateRuntimeContext(TemplatePackageDefinition templatePackage)
@@ -157,10 +161,10 @@ public class EmployeeHiringServiceTests
             RoleTemplatePackage = templatePackage,
             WorkingTemplatePackage = templatePackage,
             DiscoverySkill = new DiscoverySkillDefinition(
-                SkillId: "digital-employee-discovery",
+                SkillId: "employment-coach-conversation",
                 SkillVersion: "1.0.0",
                 SkillHash: "hash",
-                SkillRootPath: "Assets/SystemSkills/digital-employee-discovery",
+                SkillRootPath: "Assets/SystemSkills/employment-coach-conversation",
                 SkillContent: "# discovery",
                 Files: [],
                 StageRules: []),

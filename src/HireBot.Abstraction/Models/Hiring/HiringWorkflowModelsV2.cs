@@ -1,14 +1,29 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace HireBot.Abstraction.Models.Hiring;
 
 public static class HiringTodoStatus
 {
-    public const string Drafting = "drafting";
-    public const string ReadyToDispatch = "ready_to_dispatch";
-    public const string Dispatched = "dispatched";
-    public const string Dirty = "dirty";
-    public const string Confirmed = "confirmed";
+    public const string Open = "open";
+    public const string InProgress = "in_progress";
+    public const string Done = "done";
     public const string NeedsReview = "needs_review";
     public const string Dismissed = "dismissed";
+    public const string Resolved = "resolved";
+}
+
+public static class HiringTodoKind
+{
+    public const string Gap = "gap";
+    public const string Diagnosis = "diagnosis";
+}
+
+public static class HiringTodoPriority
+{
+    public const string Required = "required";
+    public const string Recommended = "recommended";
+    public const string Optional = "optional";
 }
 
 public static class HiringDiagnosticStatus
@@ -41,16 +56,28 @@ public static class HiringConfigFileKeys
     public const string Agents = "agents";
 }
 
-public sealed record HiringHandoffTodoDto(
+public sealed record HiringWorkflowTodoDto(
     string Id,
+    string Title,
     string Stage,
-    string TargetSkill,
-    string Intent,
-    string Category,
+    string Kind,
     string Status,
+    string? GapType,
+    string? Priority,
+    string? CurrentState,
+    string? ExpectedState,
+    string? AcceptanceCriteria,
+    string? AcceptanceEvidence,
     string Source,
-    string Acceptance,
-    string? PayloadJson,
+    string? Fingerprint,
+    string? Category,
+    JsonElement? Payload,
+    string? Level,
+    string? Question,
+    string? Evidence,
+    string? SuggestedAction,
+    IReadOnlyList<string> RelatedTodoIds,
+    IReadOnlyList<string> RelatedFiles,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
@@ -93,7 +120,8 @@ public sealed record HiringDiagnosticTodoDto(
     string Question,
     string Evidence,
     string SuggestedAction,
-    IReadOnlyList<string> RelatedHandoffTodos);
+    [property: JsonPropertyName("related_todos")]
+    IReadOnlyList<string> RelatedTodoIds);
 
 public sealed record HiringDiagnosticReportDto(
     string Status,
@@ -102,7 +130,7 @@ public sealed record HiringDiagnosticReportDto(
     bool ReadyForPackaging,
     IReadOnlyList<HiringStageReadinessDto> StageReadiness,
     IReadOnlyList<HiringDiagnosticTodoDto> DiagnosticTodos,
-    IReadOnlyList<string> HandoffCorrelation,
+    IReadOnlyList<string> TodoCorrelation,
     IReadOnlyList<string> OpenQuestions,
     string UserSummary,
     DateTimeOffset GeneratedAtUtc);

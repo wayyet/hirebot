@@ -1167,7 +1167,7 @@ public sealed class SandboxInfrastructureTests
                                 targetSkill: "ontology_extraction",
                                 intent: "整理客服退货流程资料",
                                 category: "流程 SOP",
-                                status: HiringTodoStatus.Confirmed,
+                                status: HiringTodoStatus.Done,
                                 source: "用户上传的客服退货流程资料",
                                 acceptance: "能够抽出退货流程节点",
                                 payloadJson: "{\"objective\":\"抽出退货流程节点\"}"),
@@ -1226,30 +1226,82 @@ public sealed class SandboxInfrastructureTests
 
     private static string BuildTodoNotesJson(
         string stage,
-        string targetSkill,
-        string intent,
-        string category,
-        string status,
-        string source,
-        string acceptance,
+        string kind = HiringTodoKind.Gap,
+        string status = HiringTodoStatus.Open,
+        string source = "test-source",
+        string? targetSkill = null,
+        string? intent = null,
+        string? acceptance = null,
+        string? category = null,
+        string? gapType = null,
+        string? priority = null,
+        string? currentState = null,
+        string? expectedState = null,
+        string? acceptanceCriteria = null,
+        string? acceptanceEvidence = null,
+        string? fingerprint = null,
+        string? level = null,
+        string? question = null,
+        string? evidence = null,
+        string? suggestedAction = null,
         string? payloadJson = null,
+        string[]? relatedTodoIds = null,
+        string[]? relatedFiles = null,
         string createdAtUtc = "2026-05-06T10:00:00Z",
         string updatedAtUtc = "2026-05-06T10:05:00Z")
     {
+        gapType ??= ResolveGapType(targetSkill);
+        priority ??= HiringTodoPriority.Required;
+        currentState ??= source;
+        expectedState ??= intent ?? source;
+        acceptanceCriteria ??= acceptance ?? "存在对应产物即可";
+        fingerprint ??= BuildTestTodoFingerprint(stage, targetSkill, kind);
+        var payload = payloadJson is null ? "null" : payloadJson;
+        var relatedTodos = JsonSerializer.Serialize(relatedTodoIds ?? []);
+        var relatedFilesJson = JsonSerializer.Serialize(relatedFiles ?? []);
         return $$"""
         {
           "stage": "{{stage}}",
-          "targetSkill": "{{targetSkill}}",
-          "intent": "{{intent}}",
-          "category": "{{category}}",
+          "kind": "{{kind}}",
+          "gap_type": {{JsonSerializer.Serialize(gapType)}},
+          "priority": {{JsonSerializer.Serialize(priority)}},
+          "current_state": {{JsonSerializer.Serialize(currentState)}},
+          "expected_state": {{JsonSerializer.Serialize(expectedState)}},
+          "acceptance_criteria": {{JsonSerializer.Serialize(acceptanceCriteria)}},
+          "acceptance_evidence": {{JsonSerializer.Serialize(acceptanceEvidence)}},
+          "category": {{JsonSerializer.Serialize(category)}},
           "status": "{{status}}",
           "source": "{{source}}",
-          "acceptance": "{{acceptance}}",
-          "payloadJson": {{(payloadJson is null ? "null" : JsonSerializer.Serialize(payloadJson))}},
-          "createdAtUtc": "{{createdAtUtc}}",
-          "updatedAtUtc": "{{updatedAtUtc}}"
+          "fingerprint": {{JsonSerializer.Serialize(fingerprint)}},
+          "payload": {{payload}},
+          "level": {{JsonSerializer.Serialize(level)}},
+          "question": {{JsonSerializer.Serialize(question)}},
+          "evidence": {{JsonSerializer.Serialize(evidence)}},
+          "suggested_action": {{JsonSerializer.Serialize(suggestedAction)}},
+          "related_todos": {{relatedTodos}},
+          "related_files": {{relatedFilesJson}},
+          "created_at": "{{createdAtUtc}}",
+          "updated_at": "{{updatedAtUtc}}"
         }
         """;
+    }
+
+    private static string ResolveGapType(string? targetSkill)
+    {
+        return targetSkill?.Trim() switch
+        {
+            "skill_generation" or "skill-generation" => "missing_skill_definition",
+            "external_config" or "external-config" => "missing_external_config",
+            _ => "ontology_slice"
+        };
+    }
+
+    private static string BuildTestTodoFingerprint(string stage, string? targetSkill, string kind)
+    {
+        var normalizedTarget = string.IsNullOrWhiteSpace(targetSkill)
+            ? "workflow"
+            : targetSkill.Trim().Replace('-', '_').ToLowerInvariant();
+        return $"{stage}:{normalizedTarget}:{kind}-001";
     }
 
     private static KingCrabSandboxTokenProvider CreateSandboxTokenProvider(

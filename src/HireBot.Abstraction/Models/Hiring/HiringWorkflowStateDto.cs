@@ -13,7 +13,7 @@ public sealed record HiringWorkflowStateDto(
     string? DiscoverySkillId = null,
     string? DiscoverySkillVersion = null,
     IReadOnlyList<HiringStageCompletionDto>? StageCompletion = null,
-    IReadOnlyList<HiringHandoffTodoDto>? HandoffTodos = null,
+    IReadOnlyList<HiringWorkflowTodoDto>? WorkflowTodos = null,
     IReadOnlyList<HiringDispatchRecordDto>? LatestDispatches = null,
     HiringDiagnosticReportDto? LatestDiagnosticReport = null,
     IReadOnlyList<HiringCredentialSlotDto>? CredentialSlots = null,

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
@@ -38,41 +39,12 @@ internal sealed class FileSystemTemplatePackageProvider(
         string requestedTemplateId,
         CancellationToken cancellationToken = default)
     {
-        var packageRoot = ResolvePackageRoot(directoryPath);
-        if (packageRoot is null)
+        if (!Directory.Exists(directoryPath))
         {
-            throw new InvalidOperationException($"Template package root not found for templateId '{requestedTemplateId}'.");
+            throw new InvalidOperationException($"Template package directory not found for templateId '{requestedTemplateId}': {directoryPath}");
         }
 
-        return await LoadFromPackageRootAsync(packageRoot, requestedTemplateId, cancellationToken);
-    }
-
-    internal static string? ResolvePackageRoot(string candidatePath)
-    {
-        if (File.Exists(Path.Combine(candidatePath, "manifest.json")))
-        {
-            return candidatePath;
-        }
-
-        if (!Directory.Exists(candidatePath))
-        {
-            return null;
-        }
-
-        foreach (var directory in Directory.GetDirectories(candidatePath))
-        {
-            if (HiringAssetFileSystem.IsIgnoredDirectory(directory))
-            {
-                continue;
-            }
-
-            if (File.Exists(Path.Combine(directory, "manifest.json")))
-            {
-                return directory;
-            }
-        }
-
-        return null;
+        return await LoadFromPackageRootAsync(directoryPath, requestedTemplateId, cancellationToken);
     }
 
     private async Task<TemplatePackageDefinition> LoadFromPackageRootAsync(
@@ -83,7 +55,7 @@ internal sealed class FileSystemTemplatePackageProvider(
         var manifestPath = Path.Combine(packageRoot, "manifest.json");
         if (!File.Exists(manifestPath))
         {
-            throw new InvalidOperationException($"Template manifest not found: {manifestPath}");
+            return await LoadFromConventionPackageRootAsync(packageRoot, requestedTemplateId, cancellationToken);
         }
 
         var manifestJson = await File.ReadAllTextAsync(manifestPath, cancellationToken);
@@ -159,6 +131,221 @@ internal sealed class FileSystemTemplatePackageProvider(
                     .ToArray()))
             .ToArray();
 
+        var packageFiles = await LoadPackageFilesAsync(packageRoot, cancellationToken);
+
+        var packageHash = await HiringAssetFileSystem.ComputeDirectoryHashAsync(packageRoot, cancellationToken);
+        return new TemplatePackageDefinition(
+            RequestedTemplateId: requestedTemplateId,
+            PackageId: FirstNonEmpty(manifest.Name, requestedTemplateId),
+            PackageVersion: FirstNonEmpty(manifest.Version, "v1-placeholder"),
+            PackageHash: packageHash,
+            SourceArchive: null,
+            PackageRootPath: packageRoot,
+            ManifestJson: manifestJson,
+            DisplayName: FirstNonEmpty(manifest.DisplayName, manifest.Name, requestedTemplateId),
+            Description: FirstNonEmpty(manifest.Description, manifest.Positioning, "NCrew template package"),
+            PackageFiles: packageFiles
+                .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            OntologySlices: ontologySlices,
+            RequiredSkills: requiredSkills,
+            EntrySkill: NormalizeEntrySkill(manifest.EntrySkill),
+            StageRules: stageRules);
+    }
+
+    private async Task<TemplatePackageDefinition> LoadFromConventionPackageRootAsync(
+        string packageRoot,
+        string requestedTemplateId,
+        CancellationToken cancellationToken)
+    {
+        var packageFiles = await LoadPackageFilesAsync(packageRoot, cancellationToken);
+        if (packageFiles.Length == 0)
+        {
+            throw new InvalidOperationException($"Template package directory is empty: {packageRoot}");
+        }
+
+        var packageId = ResolveConventionPackageId(packageRoot, requestedTemplateId);
+        var ontologySlices = BuildConventionOntologySlices(packageFiles);
+        var requiredSkills = BuildConventionRequiredSkills(packageFiles);
+        var entrySkill = ResolveConventionEntrySkill(packageId, requiredSkills);
+        var stageRules = BuildConventionStageRules(requiredSkills);
+        var displayName = packageId.Replace('-', ' ');
+        var manifestJson = BuildConventionManifestJson(packageId, displayName, entrySkill, ontologySlices, requiredSkills, stageRules);
+        var packageHash = await HiringAssetFileSystem.ComputeDirectoryHashAsync(packageRoot, cancellationToken);
+
+        return new TemplatePackageDefinition(
+            RequestedTemplateId: requestedTemplateId,
+            PackageId: packageId,
+            PackageVersion: "v1-placeholder",
+            PackageHash: packageHash,
+            SourceArchive: null,
+            PackageRootPath: packageRoot,
+            ManifestJson: manifestJson,
+            DisplayName: displayName,
+            Description: "Convention-based template package",
+            PackageFiles: packageFiles,
+            OntologySlices: ontologySlices,
+            RequiredSkills: requiredSkills,
+            EntrySkill: entrySkill,
+            StageRules: stageRules);
+    }
+
+    private static string ResolveConventionPackageId(string packageRoot, string requestedTemplateId)
+    {
+        var packageDirectoryName = Path.GetFileName(packageRoot);
+        return FirstNonEmpty(
+            HiringAssetFileSystem.SanitizePathSegment(requestedTemplateId),
+            HiringAssetFileSystem.SanitizePathSegment(packageDirectoryName));
+    }
+
+    private static TemplateOntologySliceAsset[] BuildConventionOntologySlices(
+        IReadOnlyList<TemplatePackageFileAsset> packageFiles)
+    {
+        return packageFiles
+            .Where(file =>
+                file.RelativePath.StartsWith("ontology/", StringComparison.OrdinalIgnoreCase) &&
+                file.RelativePath.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+            .Select(file => new TemplateOntologySliceAsset(
+                Name: Path.GetFileNameWithoutExtension(file.RelativePath),
+                RelativePath: file.RelativePath,
+                Type: "digital_employee_slice",
+                Required: true,
+                Content: Encoding.UTF8.GetString(file.Content),
+                ContentHash: file.ContentHash))
+            .ToArray();
+    }
+
+    private static TemplateSkillAsset[] BuildConventionRequiredSkills(
+        IReadOnlyList<TemplatePackageFileAsset> packageFiles)
+    {
+        return packageFiles
+            .Where(file =>
+                file.RelativePath.StartsWith("skills/", StringComparison.OrdinalIgnoreCase) &&
+                file.RelativePath.EndsWith("/SKILL.md", StringComparison.OrdinalIgnoreCase))
+            .Select(file => new TemplateSkillAsset(
+                Name: ExtractSkillName(file.RelativePath),
+                RelativePath: file.RelativePath,
+                Required: true,
+                Content: Encoding.UTF8.GetString(file.Content),
+                ContentHash: file.ContentHash))
+            .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string? ResolveConventionEntrySkill(
+        string packageId,
+        IReadOnlyList<TemplateSkillAsset> requiredSkills)
+    {
+        var preferredRelativePath = $"skills/{packageId}/SKILL.md";
+        var preferred = requiredSkills.FirstOrDefault(skill =>
+            string.Equals(skill.RelativePath, preferredRelativePath, StringComparison.OrdinalIgnoreCase));
+        if (preferred is not null)
+        {
+            return $"skills/{preferred.Name}";
+        }
+
+        var fallback = requiredSkills.FirstOrDefault();
+        return fallback is null
+            ? null
+            : $"skills/{fallback.Name}";
+    }
+
+    private static TemplatePackageStageRule[] BuildConventionStageRules(
+        IReadOnlyList<TemplateSkillAsset> requiredSkills)
+    {
+        static bool HasSkill(IReadOnlyList<TemplateSkillAsset> skills, string relativePath)
+            => skills.Any(skill => string.Equals(skill.RelativePath, relativePath, StringComparison.OrdinalIgnoreCase));
+
+        var stageRules = new List<TemplatePackageStageRule>();
+        if (HasSkill(requiredSkills, "skills/ontology-extraction/SKILL.md"))
+        {
+            stageRules.Add(new TemplatePackageStageRule(
+                Stage: "material",
+                SkillName: "ontology-extraction",
+                Description: "Organize material-stage inputs for ontology extraction.",
+                RequiredFields: []));
+        }
+
+        if (HasSkill(requiredSkills, "skills/skill-generation/SKILL.md"))
+        {
+            stageRules.Add(new TemplatePackageStageRule(
+                Stage: "skill",
+                SkillName: "skill-generation",
+                Description: "Organize skill-stage inputs for skill generation.",
+                RequiredFields: []));
+        }
+
+        if (HasSkill(requiredSkills, "skills/external-config/SKILL.md"))
+        {
+            stageRules.Add(new TemplatePackageStageRule(
+                Stage: "external",
+                SkillName: "external-config",
+                Description: "Organize external-stage inputs for external configuration.",
+                RequiredFields: []));
+        }
+
+        if (HasSkill(requiredSkills, "skills/diagnosis/SKILL.md"))
+        {
+            stageRules.Add(new TemplatePackageStageRule(
+                Stage: "ready_for_packaging",
+                SkillName: "diagnosis",
+                Description: "Run diagnosis before packaging.",
+                RequiredFields: []));
+        }
+
+        return stageRules.ToArray();
+    }
+
+    private static string BuildConventionManifestJson(
+        string packageId,
+        string displayName,
+        string? entrySkill,
+        IReadOnlyList<TemplateOntologySliceAsset> ontologySlices,
+        IReadOnlyList<TemplateSkillAsset> requiredSkills,
+        IReadOnlyList<TemplatePackageStageRule> stageRules)
+    {
+        var payload = new
+        {
+            name = packageId,
+            display_name = displayName,
+            description = "Convention-based template package",
+            version = "v1-placeholder",
+            entry_skill = entrySkill,
+            ontology_slices = ontologySlices.Select(slice => new
+            {
+                name = slice.Name,
+                path = slice.RelativePath,
+                type = slice.Type,
+                required = slice.Required
+            }),
+            skills = requiredSkills.Select(skill => new
+            {
+                name = skill.Name,
+                path = skill.RelativePath,
+                required = skill.Required
+            }),
+            stage_rules = stageRules.Select(rule => new
+            {
+                stage = rule.Stage,
+                skill_name = rule.SkillName,
+                description = rule.Description,
+                required_fields = rule.RequiredFields
+            })
+        };
+
+        return JsonSerializer.Serialize(payload, JsonOptions);
+    }
+
+    private static string ExtractSkillName(string relativePath)
+    {
+        var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return segments.Length >= 2 ? segments[1] : Path.GetFileNameWithoutExtension(relativePath);
+    }
+
+    private static async Task<TemplatePackageFileAsset[]> LoadPackageFilesAsync(
+        string packageRoot,
+        CancellationToken cancellationToken)
+    {
         var packageFiles = new List<TemplatePackageFileAsset>();
         foreach (var filePath in Directory.EnumerateFiles(packageRoot, "*", SearchOption.AllDirectories))
         {
@@ -180,24 +367,9 @@ internal sealed class FileSystemTemplatePackageProvider(
                 ContentHash: ComputeContentHash(content)));
         }
 
-        var packageHash = await HiringAssetFileSystem.ComputeDirectoryHashAsync(packageRoot, cancellationToken);
-        return new TemplatePackageDefinition(
-            RequestedTemplateId: requestedTemplateId,
-            PackageId: FirstNonEmpty(manifest.Name, requestedTemplateId),
-            PackageVersion: FirstNonEmpty(manifest.Version, "v1-placeholder"),
-            PackageHash: packageHash,
-            SourceArchive: null,
-            PackageRootPath: packageRoot,
-            ManifestJson: manifestJson,
-            DisplayName: FirstNonEmpty(manifest.DisplayName, manifest.Name, requestedTemplateId),
-            Description: FirstNonEmpty(manifest.Description, manifest.Positioning, "NCrew template package"),
-            PackageFiles: packageFiles
-                .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
-                .ToArray(),
-            OntologySlices: ontologySlices,
-            RequiredSkills: requiredSkills,
-            EntrySkill: NormalizeEntrySkill(manifest.EntrySkill),
-            StageRules: stageRules);
+        return packageFiles
+            .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static string? ResolveManifestAssetFilePath(

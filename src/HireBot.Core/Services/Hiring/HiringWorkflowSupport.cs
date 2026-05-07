@@ -11,7 +11,8 @@ internal static partial class HiringWorkflowSupport
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
     };
 
     public static ParsedHiringAssistantReply ParseAssistantReply(string content)
@@ -59,12 +60,13 @@ internal static partial class HiringWorkflowSupport
 
     public static HiringDiagnosticReportDto EvaluateDiagnosis(HiringRuntimeContext runtimeContext)
     {
+        var workflowTodos = runtimeContext.WorkflowTodos;
         var materialReadiness = BuildStageReadiness(
             HiringCollectionStage.Material,
-            runtimeContext.HandoffTodos.Where(todo => string.Equals(todo.Stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)).ToArray());
+            workflowTodos.Where(todo => string.Equals(todo.Stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)).ToArray());
         var skillReadiness = BuildStageReadiness(
             HiringCollectionStage.Skill,
-            runtimeContext.HandoffTodos.Where(todo => string.Equals(todo.Stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)).ToArray());
+            workflowTodos.Where(todo => string.Equals(todo.Stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)).ToArray());
         var externalReadiness = BuildExternalStageReadiness(runtimeContext);
 
         var stageReadiness = new[]
@@ -86,16 +88,17 @@ internal static partial class HiringWorkflowSupport
             diagnosticTodos.Add(new HiringDiagnosticTodoDto(
                 Id: $"d_{readiness.Stage}",
                 Stage: readiness.Stage,
-                Level: "必需",
-                Category: "阶段完备性",
+                Level: HiringTodoPriority.Required,
+                Category: "stage_readiness",
                 Question: BuildDiagnosticQuestion(readiness.Stage),
                 Evidence: readiness.Reason,
-                SuggestedAction: $"继续补齐 {readiness.Stage} 阶段并等待相关 todo confirmed。",
-                RelatedHandoffTodos: readiness.BlockingTodoIds));
+                SuggestedAction: $"继续补齐 {DisplayStage(readiness.Stage)} 阶段，并完成关联 required todo。",
+                RelatedTodoIds: readiness.BlockingTodoIds));
         }
 
-        var needsReviewTodoIds = runtimeContext.HandoffTodos
-            .Where(todo => string.Equals(todo.Status, HiringTodoStatus.NeedsReview, StringComparison.OrdinalIgnoreCase))
+        var needsReviewTodoIds = workflowTodos
+            .Where(todo => string.Equals(todo.Kind, HiringTodoKind.Gap, StringComparison.OrdinalIgnoreCase) &&
+                           string.Equals(todo.Status, HiringTodoStatus.NeedsReview, StringComparison.OrdinalIgnoreCase))
             .Select(todo => todo.Id)
             .Concat(runtimeContext.ConfigGovernance?.PendingReviewTodoIds ?? [])
             .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -106,12 +109,12 @@ internal static partial class HiringWorkflowSupport
             diagnosticTodos.Add(new HiringDiagnosticTodoDto(
                 Id: "d_cross_stage_needs_review",
                 Stage: "cross_stage",
-                Level: "必需",
-                Category: "配置治理复核",
-                Question: "已确认的工单需要因配置治理变更重新复核。",
-                Evidence: $"待复核 todo: {string.Join("、", needsReviewTodoIds)}",
-                SuggestedAction: "检查配置文件变更影响，并重新确认或重新 dispatch。",
-                RelatedHandoffTodos: needsReviewTodoIds));
+                Level: HiringTodoPriority.Required,
+                Category: "config_governance",
+                Question: "已完成的缺口可能受配置文件变更影响，是否需要重新复核？",
+                Evidence: $"待复核 todo: {string.Join(", ", needsReviewTodoIds)}",
+                SuggestedAction: "检查配置治理变更影响，并重新确认或重新分发受影响的 todo。",
+                RelatedTodoIds: needsReviewTodoIds));
         }
 
         var readyForPackaging = stageReadiness.All(item =>
@@ -123,7 +126,7 @@ internal static partial class HiringWorkflowSupport
             : HiringDiagnosticStatus.Blocked;
         var currentStage = ResolveCurrentStage(stageReadiness, readyForPackaging);
         var userSummary = readyForPackaging
-            ? "资料、技能和外部阶段都已齐备，可以进入打包。"
+            ? "资料、技能和外部阶段都已满足要求，可以进入打包。"
             : $"当前仍需补齐 {DisplayStage(currentStage)} 阶段后才能继续。";
 
         return new HiringDiagnosticReportDto(
@@ -133,7 +136,10 @@ internal static partial class HiringWorkflowSupport
             ReadyForPackaging: readyForPackaging,
             StageReadiness: stageReadiness,
             DiagnosticTodos: diagnosticTodos,
-            HandoffCorrelation: runtimeContext.HandoffTodos.Select(todo => todo.Id).ToArray(),
+            TodoCorrelation: workflowTodos
+                .Where(todo => string.Equals(todo.Kind, HiringTodoKind.Gap, StringComparison.OrdinalIgnoreCase))
+                .Select(todo => todo.Id)
+                .ToArray(),
             OpenQuestions: [],
             UserSummary: userSummary,
             GeneratedAtUtc: DateTimeOffset.UtcNow);
@@ -152,7 +158,9 @@ internal static partial class HiringWorkflowSupport
         HiringDiagnosticReportDto? aiReport)
     {
         if (aiReport is null)
+        {
             return evaluated;
+        }
 
         var effectiveCurrentStage = ResolveEffectiveCurrentStage(
             evaluated.CurrentStage,
@@ -179,9 +187,9 @@ internal static partial class HiringWorkflowSupport
             DiagnosticTodos = aiReport.DiagnosticTodos.Count > 0
                 ? aiReport.DiagnosticTodos
                 : evaluated.DiagnosticTodos,
-            HandoffCorrelation = aiReport.HandoffCorrelation.Count > 0
-                ? aiReport.HandoffCorrelation
-                : evaluated.HandoffCorrelation,
+            TodoCorrelation = aiReport.TodoCorrelation.Count > 0
+                ? aiReport.TodoCorrelation
+                : evaluated.TodoCorrelation,
             OpenQuestions = aiReport.OpenQuestions.Count > 0
                 ? aiReport.OpenQuestions
                 : evaluated.OpenQuestions,
@@ -200,17 +208,21 @@ internal static partial class HiringWorkflowSupport
         IReadOnlyList<HiringStageReadinessDto> aiStageReadiness)
     {
         if (string.Equals(aiStage, evaluatedStage, StringComparison.OrdinalIgnoreCase))
+        {
             return evaluatedStage;
+        }
 
         if (!IsStageAhead(aiStage, evaluatedStage))
+        {
             return evaluatedStage;
+        }
 
         var aiDeclaresPriorStagesComplete = StageOrderMap
             .Where(kv => kv.Value < GetStageOrder(aiStage))
             .All(kv =>
             {
                 var aiReadiness = aiStageReadiness.FirstOrDefault(
-                    r => string.Equals(r.Stage, kv.Key, StringComparison.OrdinalIgnoreCase));
+                    item => string.Equals(item.Stage, kv.Key, StringComparison.OrdinalIgnoreCase));
                 return aiReadiness is not null &&
                        (string.Equals(aiReadiness.Status, HiringStageReadinessStatus.Complete, StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aiReadiness.Status, HiringStageReadinessStatus.Skipped, StringComparison.OrdinalIgnoreCase));
@@ -239,7 +251,7 @@ internal static partial class HiringWorkflowSupport
             .Select(evaluatedItem =>
             {
                 var aiItem = aiReport.FirstOrDefault(
-                    r => string.Equals(r.Stage, evaluatedItem.Stage, StringComparison.OrdinalIgnoreCase));
+                    item => string.Equals(item.Stage, evaluatedItem.Stage, StringComparison.OrdinalIgnoreCase));
                 if (aiItem is not null &&
                     (string.Equals(aiItem.Status, HiringStageReadinessStatus.Complete, StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(aiItem.Status, HiringStageReadinessStatus.Skipped, StringComparison.OrdinalIgnoreCase)))
@@ -315,41 +327,68 @@ internal static partial class HiringWorkflowSupport
                path.StartsWith("config/", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static HiringStageReadinessDto BuildStageReadiness(string stage, IReadOnlyList<HiringHandoffTodoDto> todos)
+    private static HiringStageReadinessDto BuildStageReadiness(string stage, IReadOnlyList<HiringWorkflowTodoDto> todos)
     {
-        var confirmedTodoIds = todos
-            .Where(todo => string.Equals(todo.Status, HiringTodoStatus.Confirmed, StringComparison.OrdinalIgnoreCase))
-            .Select(todo => todo.Id)
+        var requiredGapTodos = todos
+            .Where(IsRequiredGapTodo)
             .ToArray();
-        if (confirmedTodoIds.Length > 0)
+        if (requiredGapTodos.Length == 0)
         {
-            return new HiringStageReadinessDto(stage, HiringStageReadinessStatus.Complete, $"{DisplayStage(stage)}阶段已有已确认产物。", confirmedTodoIds);
+            return new HiringStageReadinessDto(
+                stage,
+                HiringStageReadinessStatus.Missing,
+                $"{DisplayStage(stage)}阶段缺少 required gap todo。",
+                []);
         }
 
-        if (todos.Count == 0)
+        var activeRequiredTodos = requiredGapTodos
+            .Where(todo => !IsTodoDismissed(todo))
+            .ToArray();
+        if (activeRequiredTodos.Length == 0)
         {
-            return new HiringStageReadinessDto(stage, HiringStageReadinessStatus.Missing, $"{DisplayStage(stage)}阶段尚未创建可推进的 todo 工单。", []);
+            return new HiringStageReadinessDto(
+                stage,
+                HiringStageReadinessStatus.Missing,
+                $"{DisplayStage(stage)}阶段的 required gap todo 均被忽略，当前仍不满足推进条件。",
+                []);
         }
 
-        var blockingTodoIds = todos
-            .Where(todo => !string.Equals(todo.Status, HiringTodoStatus.Dismissed, StringComparison.OrdinalIgnoreCase))
+        var blockingTodoIds = activeRequiredTodos
+            .Where(todo => !IsTodoDone(todo))
             .Select(todo => todo.Id)
             .ToArray();
-        return new HiringStageReadinessDto(stage, HiringStageReadinessStatus.Partial, $"{DisplayStage(stage)}阶段仍有待确认或待重跑工单。", blockingTodoIds);
+        if (blockingTodoIds.Length == 0)
+        {
+            return new HiringStageReadinessDto(
+                stage,
+                HiringStageReadinessStatus.Complete,
+                $"{DisplayStage(stage)}阶段的 required gap todo 已全部完成。",
+                activeRequiredTodos.Select(todo => todo.Id).ToArray());
+        }
+
+        return new HiringStageReadinessDto(
+            stage,
+            HiringStageReadinessStatus.Partial,
+            $"{DisplayStage(stage)}阶段仍有 required gap todo 未完成。",
+            blockingTodoIds);
     }
 
     private static HiringStageReadinessDto BuildExternalStageReadiness(HiringRuntimeContext runtimeContext)
     {
-        var externalTodos = runtimeContext.HandoffTodos
+        var externalTodos = runtimeContext.WorkflowTodos
             .Where(todo => string.Equals(todo.Stage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase))
             .ToArray();
         var skipTodo = externalTodos.FirstOrDefault(todo =>
-            string.Equals(todo.Status, HiringTodoStatus.Confirmed, StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(todo.PayloadJson) &&
-            todo.PayloadJson.Contains("\"kind\":\"skip\"", StringComparison.OrdinalIgnoreCase));
+            string.Equals(todo.Kind, HiringTodoKind.Gap, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(todo.GapType, "external_skip_declaration", StringComparison.OrdinalIgnoreCase) &&
+            IsTodoDone(todo));
         if (skipTodo is not null)
         {
-            return new HiringStageReadinessDto(HiringCollectionStage.External, HiringStageReadinessStatus.Skipped, "用户已明确跳过外部系统。", [skipTodo.Id]);
+            return new HiringStageReadinessDto(
+                HiringCollectionStage.External,
+                HiringStageReadinessStatus.Skipped,
+                "用户已明确跳过外部阶段。",
+                [skipTodo.Id]);
         }
 
         var readiness = BuildStageReadiness(HiringCollectionStage.External, externalTodos);
@@ -378,6 +417,23 @@ internal static partial class HiringWorkflowSupport
         return readiness;
     }
 
+    private static bool IsRequiredGapTodo(HiringWorkflowTodoDto todo)
+    {
+        return string.Equals(todo.Kind, HiringTodoKind.Gap, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(todo.Priority, HiringTodoPriority.Required, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsTodoDismissed(HiringWorkflowTodoDto todo)
+    {
+        return string.Equals(todo.Status, HiringTodoStatus.Dismissed, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsTodoDone(HiringWorkflowTodoDto todo)
+    {
+        return string.Equals(todo.Status, HiringTodoStatus.Done, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(todo.Status, HiringTodoStatus.Resolved, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string ResolveCurrentStage(IReadOnlyList<HiringStageReadinessDto> stageReadiness, bool readyForPackaging)
     {
         if (readyForPackaging)
@@ -396,11 +452,11 @@ internal static partial class HiringWorkflowSupport
         return stage switch
         {
             var value when string.Equals(value, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)
-                => "还缺至少一条可确认的资料抽取工单。",
+                => "还缺至少一条可完成的资料阶段 required gap todo。",
             var value when string.Equals(value, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)
-                => "还缺至少一条可确认的业务技能工单。",
+                => "还缺至少一条可完成的技能阶段 required gap todo。",
             var value when string.Equals(value, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase)
-                => "还缺外部能力配置确认，或需要明确跳过外部系统。",
+                => "还缺外部阶段 required gap todo 的完成结果，或明确的跳过声明。",
             _ => "仍有阶段未完成。"
         };
     }
