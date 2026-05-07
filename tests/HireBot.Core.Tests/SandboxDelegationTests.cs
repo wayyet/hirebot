@@ -179,16 +179,31 @@ public sealed class SandboxDelegationTests
             });
 
         Assert.True(sendResult.Success);
-        Assert.Equal(HiringCollectionStage.Skill, sendResult.Data!.CurrentStage);
+        Assert.Equal(HiringCollectionStage.ReadyForPackaging, sendResult.Data!.CurrentStage);
 
         var workflowStateResult = await service.GetWorkflowStateAsync("hire-001");
         Assert.True(workflowStateResult.Success);
+        Assert.Equal(HiringCollectionStage.ReadyForPackaging, workflowStateResult.Data!.CurrentStage);
+        Assert.Equal(HiringCollectionPhase.ReadyForFinalize, workflowStateResult.Data.CollectionPhase);
+        Assert.True(workflowStateResult.Data.LatestDiagnosticReport!.ReadyForPackaging);
 
         var materialReadiness = Assert.Single(
-            workflowStateResult.Data!.StageReadiness!,
+            workflowStateResult.Data.StageReadiness!,
             item => string.Equals(item.Stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase));
         Assert.Equal(HiringStageReadinessStatus.Complete, materialReadiness.Status);
         Assert.Empty(materialReadiness.BlockingTodoIds);
+
+        var skillReadiness = Assert.Single(
+            workflowStateResult.Data.StageReadiness!,
+            item => string.Equals(item.Stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(HiringStageReadinessStatus.Complete, skillReadiness.Status);
+
+        var externalReadiness = Assert.Single(
+            workflowStateResult.Data.StageReadiness!,
+            item => string.Equals(item.Stage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(HiringStageReadinessStatus.Complete, externalReadiness.Status);
+        Assert.True(workflowStateResult.Data.RuntimeFacts!.MaterialReady);
+        Assert.True(workflowStateResult.Data.RuntimeFacts.SkillBaselineConfirmed);
     }
 
     [Fact]
@@ -270,12 +285,91 @@ public sealed class SandboxDelegationTests
 
         var workflowStateResult = await service.GetWorkflowStateAsync("hire-001");
         Assert.True(workflowStateResult.Success);
+        Assert.Equal(HiringCollectionStage.ReadyForPackaging, workflowStateResult.Data!.CurrentStage);
+        Assert.Equal(HiringCollectionPhase.ReadyForFinalize, workflowStateResult.Data.CollectionPhase);
 
         var materialReadiness = Assert.Single(
-            workflowStateResult.Data!.StageReadiness!,
+            workflowStateResult.Data.StageReadiness!,
             item => string.Equals(item.Stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase));
         Assert.Equal(HiringStageReadinessStatus.Complete, materialReadiness.Status);
         Assert.Empty(materialReadiness.BlockingTodoIds);
+        Assert.True(workflowStateResult.Data.RuntimeFacts!.MaterialReady);
+        Assert.True(workflowStateResult.Data.RuntimeFacts.SkillBaselineConfirmed);
+    }
+
+    [Fact]
+    public async Task EmployeeHiringService_SendConversationMessageAsync_ShouldShortcutToPackagingAfterMaterialUpload()
+    {
+        var sandboxService = new RecordingSandboxService
+        {
+            SendMessageResponse = ApiResponse<HiringConversationResultDto>.SuccessResponse(
+                new HiringConversationResultDto(
+                    "hire-001",
+                    "session-001",
+                    HiringCollectionStage.Material,
+                    false,
+                    new HiringConversationMessageDto(
+                        "msg-demo-shortcut",
+                        "assistant",
+                        "已收到资料。",
+                        DateTimeOffset.UtcNow),
+                    new HiringStagePreviewDto(
+                        "hire-001",
+                        HiringCollectionStage.Material,
+                        "employment-coach-conversation",
+                        "已收到资料。",
+                        new Dictionary<string, string?>(),
+                        [],
+                        [],
+                        false,
+                        DateTimeOffset.UtcNow))),
+            SessionDetailResponse = ApiResponse<SandboxSessionDetailDto>.SuccessResponse(
+                new SandboxSessionDetailDto(
+                    "session-001",
+                    [],
+                    [],
+                    true))
+        };
+
+        var service = CreateEmployeeHiringService(
+            sandboxService,
+            CreateDbContext(Guid.NewGuid().ToString("N")),
+            new HttpContextAccessor
+            {
+                HttpContext = CreateHttpContext("tenant-1", "operator-1")
+            });
+
+        var sendResult = await service.SendConversationMessageAsync(
+            "hire-001",
+            new HiringConversationMessageRequestDto
+            {
+                Content = "这是明天演示用的资料。",
+                Materials =
+                [
+                    new HiringConversationMaterialDto
+                    {
+                        Type = "file",
+                        Name = "demo-playbook.pdf",
+                        Content = "demo playbook"
+                    }
+                ]
+            });
+
+        Assert.True(sendResult.Success);
+        Assert.Equal(HiringCollectionStage.ReadyForPackaging, sendResult.Data!.CurrentStage);
+
+        var workflowStateResult = await service.GetWorkflowStateAsync("hire-001");
+        Assert.True(workflowStateResult.Success);
+        Assert.Equal(HiringCollectionStage.ReadyForPackaging, workflowStateResult.Data!.CurrentStage);
+        Assert.Equal(HiringCollectionPhase.ReadyForFinalize, workflowStateResult.Data.CollectionPhase);
+        Assert.True(workflowStateResult.Data.LatestDiagnosticReport!.ReadyForPackaging);
+        Assert.All(
+            workflowStateResult.Data.StageReadiness!,
+            item => Assert.Equal(HiringStageReadinessStatus.Complete, item.Status));
+        Assert.True(workflowStateResult.Data.RuntimeFacts!.MaterialReady);
+        Assert.True(workflowStateResult.Data.RuntimeFacts.SkillBaselineReviewed);
+        Assert.True(workflowStateResult.Data.RuntimeFacts.SkillBaselineConfirmed);
+        Assert.Contains("demo-playbook.pdf", workflowStateResult.Data.RuntimeFacts.MaterialClassifiedFiles);
     }
 
     [Fact]
