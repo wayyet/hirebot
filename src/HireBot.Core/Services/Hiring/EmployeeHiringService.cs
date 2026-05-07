@@ -30,6 +30,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Hiring;
@@ -53,10 +54,10 @@ internal sealed class EmployeeHiringService(
     IHiringFileStore hiringFileStore,
     IInstanceArtifactCloneService instanceArtifactCloneService,
     IHiringArtifactPackageService artifactPackageService,
-    ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
+    ILogger<EmployeeHiringService> logger,
+    IHostEnvironment hostEnvironment) : IEmployeeHiringService
 {
     private const string DefaultConversationKickoffPrompt = "你是雇佣流程助手。请先根据当前阶段提出第一个关键问题，引导用户完善模板包内容。";
-    private const string ReferenceTemplatePrimingPrompt = "用户选择了一个参考模板。你会先收到一份系统整理的参考模板摘要，必要时再读取附带源文件。请优先基于摘要直接总结可复用部分，再提出下一步最关键的问题，帮助用户生成新模板；不要向用户索取你已经收到的附件内容。";
     private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
     private const string EvaluationSkillId = "evaluation-expert";
     private const string EvaluationSkillVersion = "2.1.0";
@@ -67,6 +68,24 @@ internal sealed class EmployeeHiringService(
     {
         PropertyNameCaseInsensitive = true
     };
+
+    private string LoadReferenceTemplatePrimingPrompt()
+    {
+        var configuredPath = configuration["HireBot:CoachSystemPromptPath"];
+        string filePath;
+        if (!string.IsNullOrWhiteSpace(configuredPath))
+        {
+            filePath = Path.IsPathRooted(configuredPath)
+                ? configuredPath.Trim()
+                : Path.GetFullPath(configuredPath.Trim(), hostEnvironment.ContentRootPath);
+        }
+        else
+        {
+            filePath = Path.Combine(hostEnvironment.ContentRootPath, "Assets", "md", "coach-system-prompt.md");
+        }
+
+        return File.ReadAllText(filePath);
+    }
 
     private readonly ConcurrentDictionary<string, HireOwnerContext> hireOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> conversationInFlight = new(StringComparer.OrdinalIgnoreCase);
@@ -287,7 +306,8 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(409, "闆囦剑涓婁笅鏂囦笉瀛樺湪锛岃閲嶆柊鍙戣捣娴佺▼");
         }
 
-        var primingContent = BuildReferenceTemplatePrimingContent(template, referenceTemplatePackage);
+        var primingContent = BuildReferenceTemplatePrimingContent(
+            template, referenceTemplatePackage, LoadReferenceTemplatePrimingPrompt());
         var primingMaterials = BuildReferenceTemplatePrimingMaterials(referenceSourceZip);
         var primingResponse = await SendInternalPrimingMessageAsync(
             primingRuntimeContext,
@@ -1139,12 +1159,13 @@ internal sealed class EmployeeHiringService(
             DiscoverySkillId: runtimeContext.DiscoverySkill.SkillId,
             DiscoverySkillVersion: runtimeContext.DiscoverySkill.SkillVersion,
             StageCompletion: runtimeContext.StageCompletion,
-            HandoffTodos: runtimeContext.HandoffTodos,
+            WorkflowTodos: runtimeContext.WorkflowTodos,
             LatestDispatches: runtimeContext.LatestDispatches,
             LatestDiagnosticReport: runtimeContext.LatestDiagnosticReport,
             CredentialSlots: runtimeContext.CredentialSlots,
             ConfigGovernance: runtimeContext.ConfigGovernance,
             StageReadiness: runtimeContext.StageReadiness,
+            RuntimeFacts: runtimeContext.RuntimeFacts,
             IsConversationPaused: runtimeContext.IsConversationPaused,
             IsConversationResponding: IsConversationResponding(normalizedHireId, runtimeContext));
 
@@ -1484,11 +1505,11 @@ internal sealed class EmployeeHiringService(
         return runtimeContext with
         {
             SessionId = sessionDetailResult.Data.SessionId,
-            HandoffTodos = ProjectTodoItems(sessionDetailResult.Data.TodoItems)
+            WorkflowTodos = ProjectTodoItems(sessionDetailResult.Data.TodoItems)
         };
     }
 
-    private static IReadOnlyList<HiringHandoffTodoDto> ProjectTodoItems(
+    private static IReadOnlyList<HiringWorkflowTodoDto> ProjectTodoItems(
         IReadOnlyList<SandboxSessionTodoItemDto> todoItems)
     {
         if (todoItems.Count == 0)
@@ -1503,48 +1524,89 @@ internal sealed class EmployeeHiringService(
             .ToArray();
     }
 
-    private static HiringHandoffTodoDto ProjectTodoItem(SandboxSessionTodoItemDto todoItem)
+    private static HiringWorkflowTodoDto ProjectTodoItem(SandboxSessionTodoItemDto todoItem)
     {
         if (string.IsNullOrWhiteSpace(todoItem.Notes))
         {
             throw new InvalidOperationException($"Todo {todoItem.Id} 缺少 notes JSON，无法驱动雇佣流程。");
         }
 
-        TodoToolWorkflowNotes notes;
+        WorkflowTodoNotes notes;
         try
         {
-            notes = JsonSerializer.Deserialize<TodoToolWorkflowNotes>(todoItem.Notes, JsonOptions)
-                    ?? throw new InvalidOperationException($"Todo {todoItem.Id} 的 notes JSON 为空。");
+            notes = ParseWorkflowTodoNotes(todoItem.Id, todoItem.Notes);
         }
         catch (JsonException ex)
         {
             throw new InvalidOperationException($"Todo {todoItem.Id} 的 notes JSON 无法解析。", ex);
         }
 
-        return new HiringHandoffTodoDto(
-            Id: todoItem.Id.Trim(),
-            Stage: NormalizeRequestedStage(RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.Stage), notes.Stage)),
-            TargetSkill: RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.TargetSkill), notes.TargetSkill),
-            Intent: RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.Intent), notes.Intent),
-            Category: RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.Category), notes.Category),
-            Status: ResolveTodoStatus(todoItem, notes.Status),
-            Source: RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.Source), notes.Source),
-            Acceptance: RequireTodoField(todoItem.Id, nameof(TodoToolWorkflowNotes.Acceptance), notes.Acceptance),
-            PayloadJson: string.IsNullOrWhiteSpace(notes.PayloadJson) ? null : notes.PayloadJson.Trim(),
-            CreatedAtUtc: RequireTodoTimestamp(todoItem.Id, nameof(TodoToolWorkflowNotes.CreatedAtUtc), notes.CreatedAtUtc),
-            UpdatedAtUtc: RequireTodoTimestamp(todoItem.Id, nameof(TodoToolWorkflowNotes.UpdatedAtUtc), notes.UpdatedAtUtc));
-    }
+        var todoId = RequireTodoField(todoItem.Id, nameof(todoItem.Id), todoItem.Id);
+        var title = RequireTodoField(todoId, nameof(todoItem.Text), todoItem.Text);
+        var stage = NormalizeRequiredTodoStage(todoId, notes.Stage);
+        var kind = NormalizeRequiredTodoKind(todoId, notes.Kind);
+        var status = NormalizeRequiredTodoStatus(todoId, RequireTodoField(todoId, nameof(WorkflowTodoNotes.Status), notes.Status));
+        var source = RequireTodoField(todoId, nameof(WorkflowTodoNotes.Source), notes.Source);
+        var createdAtUtc = notes.CreatedAtUtc ?? todoItem.CreatedAtUtc;
+        var updatedAtUtc = notes.UpdatedAtUtc ?? notes.CreatedAtUtc ?? todoItem.UpdatedAtUtc;
 
-    private static string ResolveTodoStatus(SandboxSessionTodoItemDto todoItem, string? notesStatus)
-    {
-        if (!string.IsNullOrWhiteSpace(notesStatus))
+        if (string.Equals(kind, HiringTodoKind.Gap, StringComparison.OrdinalIgnoreCase))
         {
-            return NormalizeRequiredTodoStatus(todoItem.Id, notesStatus);
+            return new HiringWorkflowTodoDto(
+                Id: todoId,
+                Title: title,
+                Stage: stage,
+                Kind: kind,
+                Status: status,
+                GapType: RequireTodoField(todoId, nameof(WorkflowTodoNotes.GapType), notes.GapType),
+                Priority: NormalizeRequiredTodoPriority(todoId, notes.Priority),
+                CurrentState: RequireTodoField(todoId, nameof(WorkflowTodoNotes.CurrentState), notes.CurrentState),
+                ExpectedState: RequireTodoField(todoId, nameof(WorkflowTodoNotes.ExpectedState), notes.ExpectedState),
+                AcceptanceCriteria: RequireTodoField(todoId, nameof(WorkflowTodoNotes.AcceptanceCriteria), notes.AcceptanceCriteria),
+                AcceptanceEvidence: TrimOrNull(notes.AcceptanceEvidence),
+                Source: source,
+                Fingerprint: RequireTodoField(todoId, nameof(WorkflowTodoNotes.Fingerprint), notes.Fingerprint),
+                Category: TrimOrNull(notes.Category),
+                Payload: notes.Payload,
+                Level: null,
+                Question: null,
+                Evidence: null,
+                SuggestedAction: null,
+                RelatedTodoIds: notes.RelatedTodoIds,
+                RelatedFiles: notes.RelatedFiles,
+                CreatedAtUtc: createdAtUtc,
+                UpdatedAtUtc: updatedAtUtc);
         }
 
-        return todoItem.Completed
-            ? HiringTodoStatus.Confirmed
-            : HiringTodoStatus.Drafting;
+        return new HiringWorkflowTodoDto(
+            Id: todoId,
+            Title: title,
+            Stage: stage,
+            Kind: kind,
+            Status: status,
+            GapType: null,
+            Priority: null,
+            CurrentState: null,
+            ExpectedState: null,
+            AcceptanceCriteria: null,
+            AcceptanceEvidence: null,
+            Source: source,
+            Fingerprint: null,
+            Category: RequireTodoField(todoId, nameof(WorkflowTodoNotes.Category), notes.Category),
+            Payload: notes.Payload,
+            Level: NormalizeRequiredTodoLevel(todoId, notes.Level),
+            Question: RequireTodoField(todoId, nameof(WorkflowTodoNotes.Question), notes.Question),
+            Evidence: RequireTodoField(todoId, nameof(WorkflowTodoNotes.Evidence), notes.Evidence),
+            SuggestedAction: RequireTodoField(todoId, nameof(WorkflowTodoNotes.SuggestedAction), notes.SuggestedAction),
+            RelatedTodoIds: notes.RelatedTodoIds,
+            RelatedFiles: notes.RelatedFiles,
+            CreatedAtUtc: createdAtUtc,
+            UpdatedAtUtc: updatedAtUtc);
+    }
+
+    private static string? TrimOrNull(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private static string RequireTodoField(string todoId, string fieldName, string? value)
@@ -1555,6 +1617,93 @@ internal sealed class EmployeeHiringService(
         }
 
         return value.Trim();
+    }
+
+    private static WorkflowTodoNotes ParseWorkflowTodoNotes(string todoId, string rawNotesJson)
+    {
+        using var document = JsonDocument.Parse(rawNotesJson);
+        if (document.RootElement.ValueKind is not JsonValueKind.Object)
+        {
+            throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 必须是对象。");
+        }
+
+        var root = document.RootElement;
+        return new WorkflowTodoNotes(
+            Stage: ReadTodoString(root, "stage"),
+            Kind: ReadTodoString(root, "kind"),
+            GapType: ReadTodoString(root, "gap_type", "gapType"),
+            Priority: ReadTodoString(root, "priority"),
+            CurrentState: ReadTodoString(root, "current_state", "currentState"),
+            ExpectedState: ReadTodoString(root, "expected_state", "expectedState"),
+            AcceptanceCriteria: ReadTodoString(root, "acceptance_criteria", "acceptanceCriteria"),
+            AcceptanceEvidence: ReadTodoString(root, "acceptance_evidence", "acceptanceEvidence"),
+            Status: ReadTodoString(root, "status"),
+            Source: ReadTodoString(root, "source"),
+            Fingerprint: ReadTodoString(root, "fingerprint"),
+            Category: ReadTodoString(root, "category"),
+            Level: ReadTodoString(root, "level"),
+            Question: ReadTodoString(root, "question"),
+            Evidence: ReadTodoString(root, "evidence"),
+            SuggestedAction: ReadTodoString(root, "suggested_action", "suggestedAction"),
+            Payload: ReadTodoPayload(root),
+            RelatedTodoIds: ReadTodoStringArray(root, "related_todos", "relatedTodos"),
+            RelatedFiles: ReadTodoStringArray(root, "related_files", "relatedFiles"),
+            CreatedAtUtc: ReadTodoTimestamp(root, "createdAtUtc", "created_at", "createdAt"),
+            UpdatedAtUtc: ReadTodoTimestamp(root, "updatedAtUtc", "updated_at", "updatedAt"));
+    }
+
+    private static string? ReadTodoString(JsonElement root, params string[] propertyNames)
+    {
+        if (!TryGetTodoProperty(root, propertyNames, out var property))
+        {
+            return null;
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.String => property.GetString(),
+            JsonValueKind.Null or JsonValueKind.Undefined => null,
+            _ => property.GetRawText()
+        };
+    }
+
+    private static DateTimeOffset? ReadTodoTimestamp(JsonElement root, params string[] propertyNames)
+    {
+        if (!TryGetTodoProperty(root, propertyNames, out var property))
+        {
+            return null;
+        }
+
+        if (property.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        if (property.ValueKind == JsonValueKind.String &&
+            DateTimeOffset.TryParse(property.GetString(), out var timestamp))
+        {
+            return timestamp;
+        }
+
+        return null;
+    }
+
+    private static bool TryGetTodoProperty(JsonElement root, IReadOnlyList<string> propertyNames, out JsonElement property)
+    {
+        foreach (var candidateName in propertyNames)
+        {
+            foreach (var currentProperty in root.EnumerateObject())
+            {
+                if (string.Equals(currentProperty.Name, candidateName, StringComparison.OrdinalIgnoreCase))
+                {
+                    property = currentProperty.Value;
+                    return true;
+                }
+            }
+        }
+
+        property = default;
+        return false;
     }
 
     private static DateTimeOffset RequireTodoTimestamp(string todoId, string fieldName, DateTimeOffset? value)
@@ -1571,23 +1720,101 @@ internal sealed class EmployeeHiringService(
     {
         return value.Trim().ToLowerInvariant() switch
         {
-            HiringTodoStatus.Drafting => HiringTodoStatus.Drafting,
-            HiringTodoStatus.ReadyToDispatch => HiringTodoStatus.ReadyToDispatch,
-            HiringTodoStatus.Dispatched => HiringTodoStatus.Dispatched,
-            HiringTodoStatus.Dirty => HiringTodoStatus.Dirty,
-            HiringTodoStatus.Confirmed => HiringTodoStatus.Confirmed,
+            HiringTodoStatus.Open => HiringTodoStatus.Open,
+            HiringTodoStatus.InProgress => HiringTodoStatus.InProgress,
+            HiringTodoStatus.Done => HiringTodoStatus.Done,
             HiringTodoStatus.NeedsReview => HiringTodoStatus.NeedsReview,
             HiringTodoStatus.Dismissed => HiringTodoStatus.Dismissed,
+            HiringTodoStatus.Resolved => HiringTodoStatus.Resolved,
             _ => throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 字段 Status 非法: {value}")
         };
     }
 
+    private static string NormalizeRequiredTodoStage(string todoId, string? value)
+    {
+        return RequireTodoField(todoId, nameof(WorkflowTodoNotes.Stage), value).Trim().ToLowerInvariant() switch
+        {
+            "material" => HiringCollectionStage.Material,
+            "skill" => HiringCollectionStage.Skill,
+            "external" => HiringCollectionStage.External,
+            "ready_for_packaging" => HiringCollectionStage.ReadyForPackaging,
+            "cross_stage" or "cross-stage" => "cross_stage",
+            _ => throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 字段 stage 非法: {value}")
+        };
+    }
+
+    private static string NormalizeRequiredTodoKind(string todoId, string? value)
+    {
+        return RequireTodoField(todoId, nameof(WorkflowTodoNotes.Kind), value).Trim().ToLowerInvariant() switch
+        {
+            HiringTodoKind.Gap => HiringTodoKind.Gap,
+            HiringTodoKind.Diagnosis => HiringTodoKind.Diagnosis,
+            _ => throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 字段 kind 非法: {value}")
+        };
+    }
+
+    private static string NormalizeRequiredTodoPriority(string todoId, string? value)
+    {
+        return NormalizeTodoTriageValue(todoId, nameof(WorkflowTodoNotes.Priority), value);
+    }
+
+    private static string NormalizeRequiredTodoLevel(string todoId, string? value)
+    {
+        return NormalizeTodoTriageValue(todoId, nameof(WorkflowTodoNotes.Level), value);
+    }
+
+    private static string NormalizeTodoTriageValue(string todoId, string fieldName, string? value)
+    {
+        return RequireTodoField(todoId, fieldName, value).Trim().ToLowerInvariant() switch
+        {
+            HiringTodoPriority.Required or "必需" or "必须" => HiringTodoPriority.Required,
+            HiringTodoPriority.Recommended or "推荐" => HiringTodoPriority.Recommended,
+            HiringTodoPriority.Optional or "可选" => HiringTodoPriority.Optional,
+            _ => throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 字段 {fieldName} 非法: {value}")
+        };
+    }
+
+    private static JsonElement? ReadTodoPayload(JsonElement root)
+    {
+        if (!TryGetTodoProperty(root, ["payload"], out var property) ||
+            property.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return property.Clone();
+    }
+
+    private static IReadOnlyList<string> ReadTodoStringArray(JsonElement root, params string[] propertyNames)
+    {
+        if (!TryGetTodoProperty(root, propertyNames, out var property) ||
+            property.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return [];
+        }
+
+        if (property.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return property
+            .EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String)
+            .Select(item => item.GetString())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     internal static string BuildReferenceTemplatePrimingContent(
         EmployeeTemplateDefinition template,
-        TemplatePackageDefinition referenceTemplatePackage)
+        TemplatePackageDefinition referenceTemplatePackage,
+        string referenceTemplatePrimingPrompt)
     {
         var summaryMarkdown = BuildReferenceTemplateSummaryMarkdown(template, referenceTemplatePackage);
-        return $"{ReferenceTemplatePrimingPrompt}{Environment.NewLine}{Environment.NewLine}{summaryMarkdown}{Environment.NewLine}{Environment.NewLine}请直接基于上面的摘要进入分析和追问；除非确有必要，不要让用户重复提供你已经收到的资料内容。";
+        return $"{referenceTemplatePrimingPrompt}{Environment.NewLine}{Environment.NewLine}{summaryMarkdown}{Environment.NewLine}{Environment.NewLine}请直接基于上面的摘要进入分析和追问；除非确有必要，不要让用户重复提供你已经收到的资料内容。";
     }
 
     private static IReadOnlyList<HiringConversationMaterialDto> BuildReferenceTemplatePrimingMaterials(
@@ -1786,16 +2013,27 @@ internal sealed class EmployeeHiringService(
     private HiringRuntimeContext ApplyWorkflowProgress(HiringRuntimeContext runtimeContext)
     {
         var normalizedStructuredData = NormalizeStructuredData(runtimeContext.StructuredData);
+        var normalizedRuntimeFacts = HiringWorkflowSupport.NormalizeRuntimeFacts(runtimeContext);
+        logger.LogInformation(
+            "ApplyWorkflowProgress diagnostics. HireId={HireId}, MaterialReady={MaterialReady}, UploadedFiles=[{UploadedFiles}], ClassifiedFiles=[{ClassifiedFiles}], ExtractionTargets=[{ExtractionTargets}], SkillBaselineReviewed={SkillBaselineReviewed}, SkillBaselineConfirmed={SkillBaselineConfirmed}",
+            runtimeContext.HireId,
+            normalizedRuntimeFacts.MaterialReady,
+            string.Join(", ", HiringWorkflowSupport.GetUploadedMaterialFileNamesForDiagnostics(runtimeContext.Materials)),
+            string.Join(", ", normalizedRuntimeFacts.MaterialClassifiedFiles),
+            string.Join("; ", normalizedRuntimeFacts.MaterialExtractionTargets.Select(kv => $"{kv.Key}={kv.Value}")),
+            normalizedRuntimeFacts.SkillBaselineReviewed,
+            normalizedRuntimeFacts.SkillBaselineConfirmed);
         var normalizedContext = runtimeContext with
         {
             StructuredData = normalizedStructuredData,
-            HandoffTodos = runtimeContext.HandoffTodos
+            WorkflowTodos = runtimeContext.WorkflowTodos
                 .OrderBy(item => item.CreatedAtUtc)
                 .ThenBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
             CredentialSlots = runtimeContext.CredentialSlots
                 .OrderBy(item => item.CredentialSlot, StringComparer.OrdinalIgnoreCase)
-                .ToArray()
+                .ToArray(),
+            RuntimeFacts = normalizedRuntimeFacts
         };
 
         var evaluatedDiagnostic = HiringWorkflowSupport.EvaluateDiagnosis(normalizedContext);
@@ -1807,7 +2045,7 @@ internal sealed class EmployeeHiringService(
             ? HiringCollectionPhase.Finalized
             : normalizedStructuredData.Count == 0 &&
               normalizedContext.Messages.Count == 0 &&
-              normalizedContext.HandoffTodos.Count == 0 &&
+              normalizedContext.WorkflowTodos.Count == 0 &&
               normalizedContext.CredentialSlots.Count == 0
                 ? HiringCollectionPhase.NotStarted
                 : diagnostic.ReadyForPackaging
@@ -1830,7 +2068,8 @@ internal sealed class EmployeeHiringService(
     {
         var updatedRuntimeContext = runtimeContext with
         {
-            LatestDiagnosticReport = parsedReply.DiagnosticReport ?? runtimeContext.LatestDiagnosticReport
+            LatestDiagnosticReport = parsedReply.DiagnosticReport ?? runtimeContext.LatestDiagnosticReport,
+            RuntimeFacts = MergeRuntimeFacts(runtimeContext.RuntimeFacts, parsedReply.StageFacts)
         };
 
         foreach (var configFile in parsedReply.ConfigGovernanceFiles)
@@ -1845,6 +2084,41 @@ internal sealed class EmployeeHiringService(
         }
 
         return updatedRuntimeContext;
+    }
+
+    private static HiringWorkflowRuntimeFactsDto MergeRuntimeFacts(
+        HiringWorkflowRuntimeFactsDto existing,
+        HiringWorkflowStageFactsUpdate? update)
+    {
+        if (update is null)
+        {
+            return existing;
+        }
+
+        return new HiringWorkflowRuntimeFactsDto
+        {
+            MaterialReady = update.MaterialReady ?? existing.MaterialReady,
+            MaterialClassifiedFiles = update.MaterialClassifiedFiles is { Count: > 0 }
+                ? update.MaterialClassifiedFiles
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray()
+                : update.MaterialClassifiedFiles is not null
+                    ? []
+                    : existing.MaterialClassifiedFiles,
+            MaterialExtractionTargets = update.MaterialExtractionTargets is not null
+                ? update.MaterialExtractionTargets
+                    .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
+                    .GroupBy(pair => pair.Key.Trim(), StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.Last().Value.Trim(),
+                        StringComparer.OrdinalIgnoreCase)
+                : existing.MaterialExtractionTargets,
+            SkillBaselineReviewed = update.SkillBaselineReviewed ?? existing.SkillBaselineReviewed,
+            SkillBaselineConfirmed = update.SkillBaselineConfirmed ?? existing.SkillBaselineConfirmed
+        };
     }
 
     private void LogParsedAssistantReply(
@@ -1886,7 +2160,7 @@ internal sealed class EmployeeHiringService(
                 .Select(value => value.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            EnsureTodoIdsExist(updatedRuntimeContext.HandoffTodos, normalizedTodoIds, command.Target.Trim());
+            EnsureTodoIdsExist(updatedRuntimeContext.WorkflowTodos, normalizedTodoIds, command.Target.Trim());
             var dispatchId = $"dispatch-{Guid.NewGuid():N}";
             var createdAt = DateTimeOffset.UtcNow;
             updatedRuntimeContext = updatedRuntimeContext with
@@ -2068,8 +2342,9 @@ internal sealed class EmployeeHiringService(
             .ToArray();
         if (impactedTodoIds.Length == 0)
         {
-            impactedTodoIds = runtimeContext.HandoffTodos
-                .Where(todo => string.Equals(todo.Status, HiringTodoStatus.Confirmed, StringComparison.OrdinalIgnoreCase))
+            impactedTodoIds = runtimeContext.WorkflowTodos
+                .Where(todo => string.Equals(todo.Kind, HiringTodoKind.Gap, StringComparison.OrdinalIgnoreCase) &&
+                               string.Equals(todo.Status, HiringTodoStatus.Done, StringComparison.OrdinalIgnoreCase))
                 .Select(todo => todo.Id)
                 .ToArray();
         }
@@ -2112,13 +2387,13 @@ internal sealed class EmployeeHiringService(
         return NormalizeRequestedStage(currentStage) switch
         {
             var stage when string.Equals(stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)
-                => "我们先补齐资料阶段。请描述这位数字员工的业务目标、服务对象，以及你已经准备好的资料来源。",
+                => "我们先完成资料阶段。请先上传至少 1 份最有代表性的资料，并说明每份资料分别属于什么类型、希望抽取什么内容沉淀进模板包。",
             var stage when string.Equals(stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)
-                => "资料阶段已启动。接下来请说明需要沉淀成哪些业务技能、关键步骤和验收标准。",
+                => "现在进入技能阶段。模板包里的默认 skills 视为基线，我们只补充新增或明显缺失的技能；如果当前基线已经足够，也请直接确认是否推进到第三阶段。",
             var stage when string.Equals(stage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase)
-                => "现在进入外部能力阶段。请说明需要接入的系统、认证方式，以及哪些配置需要写入 external 或 config 目录。",
+                => "现在进入外部能力阶段。请按连接器能力来描述需求，例如 MCP、CLI 或 database，并明确每项能力的操作目标、认证方式和对应 skill。",
             var stage when string.Equals(stage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase)
-                => "当前已经进入打包准备阶段。我会先检查诊断结果，并确认 ontology、skills、external、config 是否都已齐备。",
+                => "当前进入打包准备阶段。这里不再新增业务补齐项，只处理诊断、复核和收口问题；请确认剩余阻塞项是否都已经解决。",
             _ => DefaultConversationKickoffPrompt
         };
     }
@@ -2135,7 +2410,7 @@ internal sealed class EmployeeHiringService(
     }
 
     private static void EnsureTodoIdsExist(
-        IReadOnlyList<HiringHandoffTodoDto> existing,
+        IReadOnlyList<HiringWorkflowTodoDto> existing,
         IReadOnlyList<string> todoIds,
         string dispatchTarget)
     {
@@ -2156,26 +2431,34 @@ internal sealed class EmployeeHiringService(
     {
         return status?.Trim().ToLowerInvariant() switch
         {
-            HiringTodoStatus.Drafting => HiringTodoStatus.Drafting,
-            HiringTodoStatus.ReadyToDispatch => HiringTodoStatus.ReadyToDispatch,
-            HiringTodoStatus.Dispatched => HiringTodoStatus.Dispatched,
-            HiringTodoStatus.Dirty => HiringTodoStatus.Dirty,
-            HiringTodoStatus.Confirmed => HiringTodoStatus.Confirmed,
-            HiringTodoStatus.NeedsReview => HiringTodoStatus.NeedsReview,
-            HiringTodoStatus.Dismissed => HiringTodoStatus.Dismissed,
+            "success" => "success",
+            "warning" => "warning",
+            "failed" => "failed",
+            "skipped" => "skipped",
             _ => fallbackStatus
         };
     }
 
-    private sealed record TodoToolWorkflowNotes(
+    private sealed record WorkflowTodoNotes(
         string? Stage,
-        string? TargetSkill,
-        string? Intent,
+        string? Kind,
+        string? GapType,
+        string? Priority,
+        string? CurrentState,
+        string? ExpectedState,
+        string? AcceptanceCriteria,
+        string? AcceptanceEvidence,
         string? Category,
         string? Status,
         string? Source,
-        string? Acceptance,
-        string? PayloadJson,
+        string? Fingerprint,
+        JsonElement? Payload,
+        string? Level,
+        string? Question,
+        string? Evidence,
+        string? SuggestedAction,
+        IReadOnlyList<string> RelatedTodoIds,
+        IReadOnlyList<string> RelatedFiles,
         DateTimeOffset? CreatedAtUtc,
         DateTimeOffset? UpdatedAtUtc);
 
@@ -2216,28 +2499,41 @@ internal sealed class EmployeeHiringService(
             .Select(value => value.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var selectedTodos = runtimeContext.HandoffTodos
+        var selectedTodos = runtimeContext.WorkflowTodos
             .Where(todo => normalizedTodoIds.Contains(todo.Id, StringComparer.OrdinalIgnoreCase))
             .Select(todo => new
             {
-                todo.Id,
-                todo.Stage,
-                todo.TargetSkill,
-                todo.Intent,
-                todo.Category,
-                todo.Status,
-                todo.Acceptance,
-                todo.PayloadJson
+                id = todo.Id,
+                title = todo.Title,
+                stage = todo.Stage,
+                kind = todo.Kind,
+                status = todo.Status,
+                gap_type = todo.GapType,
+                priority = todo.Priority,
+                current_state = todo.CurrentState,
+                expected_state = todo.ExpectedState,
+                acceptance_criteria = todo.AcceptanceCriteria,
+                acceptance_evidence = todo.AcceptanceEvidence,
+                source = todo.Source,
+                fingerprint = todo.Fingerprint,
+                category = todo.Category,
+                payload = todo.Payload,
+                level = todo.Level,
+                question = todo.Question,
+                evidence = todo.Evidence,
+                suggested_action = todo.SuggestedAction,
+                related_todos = todo.RelatedTodoIds,
+                related_files = todo.RelatedFiles
             })
             .ToArray();
         var payload = new
         {
             target = command.Target.Trim(),
-            todoIds = normalizedTodoIds,
+            todo_ids = normalizedTodoIds,
             note = command.Note?.Trim(),
             mode = command.Mode?.Trim(),
             todos = selectedTodos,
-            secureCredentialContext = BuildSecureCredentialContext(runtimeContext, normalizedTodoIds)
+            secure_credential_context = BuildSecureCredentialContext(runtimeContext, normalizedTodoIds)
         };
 
         return $"<dispatch>{JsonSerializer.Serialize(payload, JsonOptions)}</dispatch>";
@@ -2325,8 +2621,8 @@ internal sealed class EmployeeHiringService(
             .Select(item => item.TodoId.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        EnsureTodoIdsExist(runtimeContext.HandoffTodos, callbackTodoIds, normalizedTarget);
-        EnsureTodoIdsExist(runtimeContext.HandoffTodos, callbackResultTodoIds, normalizedTarget);
+        EnsureTodoIdsExist(runtimeContext.WorkflowTodos, callbackTodoIds, normalizedTarget);
+        EnsureTodoIdsExist(runtimeContext.WorkflowTodos, callbackResultTodoIds, normalizedTarget);
         var packageFiles = runtimeContext.WorkingTemplatePackage.PackageFiles.ToDictionary(
             file => file.RelativePath,
             file => file,
@@ -2396,7 +2692,7 @@ internal sealed class EmployeeHiringService(
         var todoResults = callback.TodoResults
             .Select(item => new HiringDispatchTodoResultDto(
                 TodoId: item.TodoId,
-                Status: NormalizeTodoStatus(item.Status, HiringTodoStatus.Dirty),
+                Status: NormalizeTodoStatus(item.Status, "failed"),
                 Artifacts: item.Artifacts
                     .Select(artifact =>
                     {
