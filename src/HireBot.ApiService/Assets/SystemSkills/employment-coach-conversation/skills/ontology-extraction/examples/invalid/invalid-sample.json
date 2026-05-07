@@ -1,0 +1,82 @@
+{
+  "$schema": "../../templates/TEMPLATE.schema.json",
+  "schema_version": "2.0.0",
+  "template_type": "ontology_slice",
+  "slice_request": {
+    "task_name": "故意失败的 ontology slice 样例",
+    "slice_topic": "用于验证校验脚本报错输出",
+    "task_goal": "构造一个包含典型结构错误的 JSON，用于团队检查校验器是否能给出可读报错。",
+    "expected_output": [
+      "concept_table",
+      "concept_table"
+    ]
+  },
+  "scope": {
+    "include": [
+      {
+        "type": "concept",
+        "id": "bad-concept-id",
+        "name": "错误概念",
+        "reason": "故意给后续 concepts 里的 ID 制造不匹配。"
+      }
+    ],
+    "exclude": []
+  },
+  "sources": [
+    {
+      "id": "source-1",
+      "path": "docs/non-existent.md",
+      "source_type": "doc",
+      "role": "故意使用非法来源类型。",
+      "priority": 0,
+      "trust_level": "critical"
+    }
+  ],
+  "conflicts": [],
+  "summary": {
+    "topic": "失败样例",
+    "selection_basis": "用于演示校验失败时的输出。",
+    "exclusion_basis": "不追求业务正确性，只追求报错覆盖。"
+  },
+  "concepts": [
+    {
+      "id": "bad-id",
+      "name_zh": "错误概念",
+      "name_en": "BadConcept",
+      "aliases": "not-an-array",
+      "kind": "model",
+      "definition": "这个概念故意违反多项 schema 约束。",
+      "parent_concept_id": null,
+      "key_properties": [
+        {
+          "name": "broken_property",
+          "type": "map",
+          "required": true,
+          "description": "非法属性类型。"
+        }
+      ],
+      "source_ids": [
+        "source-1"
+      ]
+    }
+  ],
+  "relations": [],
+  "constraints": [],
+  "term_mappings": [],
+  "ambiguities": [],
+  "uncertainties": [],
+  "next_actions": [
+    {
+      "action": "观察校验输出",
+      "owner": "reviewer",
+      "priority": "P0"
+    }
+  ],
+  "meta": {
+    "generated_at": "not-a-date-time",
+    "generated_by": "someone-else",
+    "workspace": "",
+    "notes": "这是一个故意失败的样例。"
+  },
+  "unexpected": true
+}
