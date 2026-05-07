@@ -34,6 +34,7 @@ internal sealed record HiringRuntimeContext
     public IReadOnlyList<HiringCredentialSlotDto> CredentialSlots { get; init; } = [];
     public HiringConfigGovernanceStateDto? ConfigGovernance { get; init; }
     public IReadOnlyList<HiringStageReadinessDto> StageReadiness { get; init; } = [];
+    public HiringWorkflowRuntimeFactsDto RuntimeFacts { get; init; } = HiringWorkflowRuntimeFactsDto.Empty;
     public bool IsTemplateUploadPending { get; init; }
     public int TemplateUploadRetryCount { get; init; }
     public string? TemplateUploadLastError { get; init; }

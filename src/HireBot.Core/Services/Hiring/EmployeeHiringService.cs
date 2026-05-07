@@ -71,8 +71,20 @@ internal sealed class EmployeeHiringService(
 
     private string LoadReferenceTemplatePrimingPrompt()
     {
-        var path = Path.Combine(hostEnvironment.ContentRootPath, "Assets", "md", "coach-system-prompt.md");
-        return File.ReadAllText(path);
+        var configuredPath = configuration["HireBot:CoachSystemPromptPath"];
+        string filePath;
+        if (!string.IsNullOrWhiteSpace(configuredPath))
+        {
+            filePath = Path.IsPathRooted(configuredPath)
+                ? configuredPath.Trim()
+                : Path.GetFullPath(configuredPath.Trim(), hostEnvironment.ContentRootPath);
+        }
+        else
+        {
+            filePath = Path.Combine(hostEnvironment.ContentRootPath, "Assets", "md", "coach-system-prompt.md");
+        }
+
+        return File.ReadAllText(filePath);
     }
 
     private readonly ConcurrentDictionary<string, HireOwnerContext> hireOwners = new(StringComparer.OrdinalIgnoreCase);
@@ -1153,6 +1165,7 @@ internal sealed class EmployeeHiringService(
             CredentialSlots: runtimeContext.CredentialSlots,
             ConfigGovernance: runtimeContext.ConfigGovernance,
             StageReadiness: runtimeContext.StageReadiness,
+            RuntimeFacts: runtimeContext.RuntimeFacts,
             IsConversationPaused: runtimeContext.IsConversationPaused,
             IsConversationResponding: IsConversationResponding(normalizedHireId, runtimeContext));
 
@@ -2000,6 +2013,16 @@ internal sealed class EmployeeHiringService(
     private HiringRuntimeContext ApplyWorkflowProgress(HiringRuntimeContext runtimeContext)
     {
         var normalizedStructuredData = NormalizeStructuredData(runtimeContext.StructuredData);
+        var normalizedRuntimeFacts = HiringWorkflowSupport.NormalizeRuntimeFacts(runtimeContext);
+        logger.LogInformation(
+            "ApplyWorkflowProgress diagnostics. HireId={HireId}, MaterialReady={MaterialReady}, UploadedFiles=[{UploadedFiles}], ClassifiedFiles=[{ClassifiedFiles}], ExtractionTargets=[{ExtractionTargets}], SkillBaselineReviewed={SkillBaselineReviewed}, SkillBaselineConfirmed={SkillBaselineConfirmed}",
+            runtimeContext.HireId,
+            normalizedRuntimeFacts.MaterialReady,
+            string.Join(", ", HiringWorkflowSupport.GetUploadedMaterialFileNamesForDiagnostics(runtimeContext.Materials)),
+            string.Join(", ", normalizedRuntimeFacts.MaterialClassifiedFiles),
+            string.Join("; ", normalizedRuntimeFacts.MaterialExtractionTargets.Select(kv => $"{kv.Key}={kv.Value}")),
+            normalizedRuntimeFacts.SkillBaselineReviewed,
+            normalizedRuntimeFacts.SkillBaselineConfirmed);
         var normalizedContext = runtimeContext with
         {
             StructuredData = normalizedStructuredData,
@@ -2009,7 +2032,8 @@ internal sealed class EmployeeHiringService(
                 .ToArray(),
             CredentialSlots = runtimeContext.CredentialSlots
                 .OrderBy(item => item.CredentialSlot, StringComparer.OrdinalIgnoreCase)
-                .ToArray()
+                .ToArray(),
+            RuntimeFacts = normalizedRuntimeFacts
         };
 
         var evaluatedDiagnostic = HiringWorkflowSupport.EvaluateDiagnosis(normalizedContext);
@@ -2044,7 +2068,8 @@ internal sealed class EmployeeHiringService(
     {
         var updatedRuntimeContext = runtimeContext with
         {
-            LatestDiagnosticReport = parsedReply.DiagnosticReport ?? runtimeContext.LatestDiagnosticReport
+            LatestDiagnosticReport = parsedReply.DiagnosticReport ?? runtimeContext.LatestDiagnosticReport,
+            RuntimeFacts = MergeRuntimeFacts(runtimeContext.RuntimeFacts, parsedReply.StageFacts)
         };
 
         foreach (var configFile in parsedReply.ConfigGovernanceFiles)
@@ -2059,6 +2084,41 @@ internal sealed class EmployeeHiringService(
         }
 
         return updatedRuntimeContext;
+    }
+
+    private static HiringWorkflowRuntimeFactsDto MergeRuntimeFacts(
+        HiringWorkflowRuntimeFactsDto existing,
+        HiringWorkflowStageFactsUpdate? update)
+    {
+        if (update is null)
+        {
+            return existing;
+        }
+
+        return new HiringWorkflowRuntimeFactsDto
+        {
+            MaterialReady = update.MaterialReady ?? existing.MaterialReady,
+            MaterialClassifiedFiles = update.MaterialClassifiedFiles is { Count: > 0 }
+                ? update.MaterialClassifiedFiles
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray()
+                : update.MaterialClassifiedFiles is not null
+                    ? []
+                    : existing.MaterialClassifiedFiles,
+            MaterialExtractionTargets = update.MaterialExtractionTargets is not null
+                ? update.MaterialExtractionTargets
+                    .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
+                    .GroupBy(pair => pair.Key.Trim(), StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.Last().Value.Trim(),
+                        StringComparer.OrdinalIgnoreCase)
+                : existing.MaterialExtractionTargets,
+            SkillBaselineReviewed = update.SkillBaselineReviewed ?? existing.SkillBaselineReviewed,
+            SkillBaselineConfirmed = update.SkillBaselineConfirmed ?? existing.SkillBaselineConfirmed
+        };
     }
 
     private void LogParsedAssistantReply(
@@ -2327,13 +2387,13 @@ internal sealed class EmployeeHiringService(
         return NormalizeRequestedStage(currentStage) switch
         {
             var stage when string.Equals(stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)
-                => "我们先补齐资料阶段。请描述这位数字员工的业务目标、服务对象，以及你已经准备好的资料来源。",
+                => "我们先完成资料阶段。请先上传至少 1 份最有代表性的资料，并说明每份资料分别属于什么类型、希望抽取什么内容沉淀进模板包。",
             var stage when string.Equals(stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)
-                => "资料阶段已启动。接下来请说明需要沉淀成哪些业务技能、关键步骤和验收标准。",
+                => "现在进入技能阶段。模板包里的默认 skills 视为基线，我们只补充新增或明显缺失的技能；如果当前基线已经足够，也请直接确认是否推进到第三阶段。",
             var stage when string.Equals(stage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase)
-                => "现在进入外部能力阶段。请说明需要接入的系统、认证方式，以及哪些配置需要写入 external 或 config 目录。",
+                => "现在进入外部能力阶段。请按连接器能力来描述需求，例如 MCP、CLI 或 database，并明确每项能力的操作目标、认证方式和对应 skill。",
             var stage when string.Equals(stage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase)
-                => "当前已经进入打包准备阶段。我会先检查诊断结果，并确认 ontology、skills、external、config 是否都已齐备。",
+                => "当前进入打包准备阶段。这里不再新增业务补齐项，只处理诊断、复核和收口问题；请确认剩余阻塞项是否都已经解决。",
             _ => DefaultConversationKickoffPrompt
         };
     }

@@ -19,5 +19,6 @@ public sealed record HiringWorkflowStateDto(
     IReadOnlyList<HiringCredentialSlotDto>? CredentialSlots = null,
     HiringConfigGovernanceStateDto? ConfigGovernance = null,
     IReadOnlyList<HiringStageReadinessDto>? StageReadiness = null,
+    HiringWorkflowRuntimeFactsDto? RuntimeFacts = null,
     bool IsConversationPaused = false,
     bool IsConversationResponding = false);

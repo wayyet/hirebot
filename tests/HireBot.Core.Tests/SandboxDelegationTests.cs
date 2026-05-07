@@ -118,6 +118,7 @@ public sealed class SandboxDelegationTests
                     new HiringConversationMessageDto(
                         "msg-structured-missing",
                         "assistant",
+                        BuildStageFactsReply("refund-flow.pdf", "提取退货流程节点与判定条件") +
                         "请先告诉我这份资料主要解决什么业务问题。",
                         DateTimeOffset.UtcNow),
                     new HiringStagePreviewDto(
@@ -165,7 +166,16 @@ public sealed class SandboxDelegationTests
             "hire-001",
             new HiringConversationMessageRequestDto
             {
-                Content = "这是客服退货流程资料。"
+                Content = "这是客服退货流程资料。",
+                Materials =
+                [
+                    new HiringConversationMaterialDto
+                    {
+                        Type = "file",
+                        Name = "refund-flow.pdf",
+                        Content = "refund flow"
+                    }
+                ]
             });
 
         Assert.True(sendResult.Success);
@@ -178,7 +188,7 @@ public sealed class SandboxDelegationTests
             workflowStateResult.Data!.StageReadiness!,
             item => string.Equals(item.Stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase));
         Assert.Equal(HiringStageReadinessStatus.Complete, materialReadiness.Status);
-        Assert.Contains("todo_material_001", materialReadiness.BlockingTodoIds);
+        Assert.Empty(materialReadiness.BlockingTodoIds);
     }
 
     [Fact]
@@ -195,6 +205,7 @@ public sealed class SandboxDelegationTests
                     new HiringConversationMessageDto(
                         "msg-snake-case-notes",
                         "assistant",
+                        BuildStageFactsReply("refund-process.pdf", "提取退款流程节点与异常分支") +
                         "请继续补充资料。",
                         DateTimeOffset.UtcNow),
                     new HiringStagePreviewDto(
@@ -243,7 +254,16 @@ public sealed class SandboxDelegationTests
             "hire-001",
             new HiringConversationMessageRequestDto
             {
-                Content = "这是客服退款流程资料。"
+                Content = "这是客服退款流程资料。",
+                Materials =
+                [
+                    new HiringConversationMaterialDto
+                    {
+                        Type = "file",
+                        Name = "refund-process.pdf",
+                        Content = "refund process"
+                    }
+                ]
             });
 
         Assert.True(sendResult.Success);
@@ -255,7 +275,7 @@ public sealed class SandboxDelegationTests
             workflowStateResult.Data!.StageReadiness!,
             item => string.Equals(item.Stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase));
         Assert.Equal(HiringStageReadinessStatus.Complete, materialReadiness.Status);
-        Assert.Contains("todo_material_snake_case", materialReadiness.BlockingTodoIds);
+        Assert.Empty(materialReadiness.BlockingTodoIds);
     }
 
     [Fact]
@@ -692,6 +712,20 @@ public sealed class SandboxDelegationTests
         }
 
         return memory.ToArray();
+    }
+
+    private static string BuildStageFactsReply(string fileName, string objective)
+    {
+        return $$"""
+        <workflow_stage_facts>
+        {
+          "material_classified_files": ["{{fileName}}"],
+          "material_extraction_targets": {
+            "{{fileName}}": "{{objective}}"
+          }
+        }
+        </workflow_stage_facts>
+        """;
     }
 
     private static string BuildTodoNotesJson(
