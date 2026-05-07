@@ -1,4 +1,4 @@
-﻿﻿﻿using HireBot.Abstraction;
+﻿﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
@@ -171,9 +171,9 @@ public static class ServiceExtensions
         services.AddScoped<IInstanceChatService, InstanceChatService>();
         services.AddScoped<ISecretProtector, DataProtectionSecretProtector>();
         services.AddScoped<IInstanceImConfigService, InstanceImConfigService>();
-        services.AddScoped<IImWebhookReplayContext, ImWebhookReplayContext>();
-        services.AddScoped<IImWebhookService, ImWebhookService>();
-        services.AddHostedService<DingTalkStreamBackgroundService>();
+      
+    
+
         services.AddScoped<ITrainingService, TrainingService>();
         services.AddScoped<IEvaluationService, EvaluationService>();
         services.AddScoped<ISandboxService, SandboxService>();

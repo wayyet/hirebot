@@ -238,7 +238,6 @@ public sealed class SandboxInfrastructureTests
         var client = new KingCrabHttpClient(
             new StubHttpClientFactory(httpClient),
             configuration,
-            httpContextAccessor,
             CreateSandboxTokenProvider(new StubHttpClientFactory(httpClient), configuration),
             NullLogger<KingCrabHttpClient>.Instance);
 
@@ -292,7 +291,7 @@ public sealed class SandboxInfrastructureTests
     }
 
     [Fact]
-    public async Task KingCrabHttpClient_SendForJsonAsync_ShouldPreferIncomingAuthorizationHeader()
+    public async Task KingCrabHttpClient_SendForJsonAsync_ShouldIgnoreIncomingAuthorizationHeaderWhenNoServiceTokenConfigured()
     {
         var handler = new RecordingHttpMessageHandler(_ => JsonResponse(new EchoResult("ok")));
         var httpClient = new HttpClient(handler)
@@ -310,7 +309,6 @@ public sealed class SandboxInfrastructureTests
         var client = new KingCrabHttpClient(
             httpClientFactory,
             new ConfigurationBuilder().Build(),
-            httpContextAccessor,
             CreateSandboxTokenProvider(httpClientFactory, new ConfigurationBuilder().Build()),
             NullLogger<KingCrabHttpClient>.Instance);
 
@@ -326,7 +324,7 @@ public sealed class SandboxInfrastructureTests
 
         var request = Assert.Single(handler.Requests);
         Assert.Equal("/api/integration/hirebot/ping", request.Path);
-        Assert.Equal("Bearer inbound-token", request.Authorization);
+        Assert.Null(request.Authorization);
         Assert.Equal("tenant-a:operator-b", request.OwnerHeader);
     }
 
@@ -350,7 +348,6 @@ public sealed class SandboxInfrastructureTests
         var client = new KingCrabHttpClient(
             httpClientFactory,
             configuration,
-            new HttpContextAccessor(),
             CreateSandboxTokenProvider(httpClientFactory, configuration),
             NullLogger<KingCrabHttpClient>.Instance);
 
@@ -385,7 +382,6 @@ public sealed class SandboxInfrastructureTests
         var client = new KingCrabHttpClient(
             httpClientFactory,
             configuration,
-            new HttpContextAccessor(),
             CreateSandboxTokenProvider(httpClientFactory, configuration),
             NullLogger<KingCrabHttpClient>.Instance);
 
@@ -446,7 +442,6 @@ public sealed class SandboxInfrastructureTests
         var client = new KingCrabHttpClient(
             httpClientFactory,
             configuration,
-            httpContextAccessor,
             CreateSandboxTokenProvider(httpClientFactory, configuration),
             NullLogger<KingCrabHttpClient>.Instance);
 
@@ -1076,7 +1071,6 @@ public sealed class SandboxInfrastructureTests
         var kingCrabHttpClient = new KingCrabHttpClient(
             httpClientFactory,
             configuration,
-            httpContextAccessor,
             CreateSandboxTokenProvider(httpClientFactory, configuration),
             NullLogger<KingCrabHttpClient>.Instance);
 

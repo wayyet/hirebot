@@ -128,6 +128,56 @@ public sealed class RuntimeApiControllerTests
         Assert.Equal("pc_1", chat.ClearInstanceId);
     }
 
+    [Fact]
+    public async Task GetEffectiveImConfig_ForFeishu_ReturnsServiceResult()
+    {
+        var chat = new FakeInstanceChatService
+        {
+            GetEffectiveFeishuResponse = ApiResponse<FeishuChannelEffectiveConfigDto>.SuccessResponse(
+                new FeishuChannelEffectiveConfigDto(
+                    true,
+                    "cli_test",
+                    "env:FEISHU_APP_ID",
+                    "secret",
+                    "env:FEISHU_APP_SECRET",
+                    "open",
+                    ["ou_1"],
+                    ["oc_1"],
+                    4096,
+                    false,
+                    true))
+        };
+        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
+
+        var result = await controller.GetEffectiveImConfig("pc_1", "feishu");
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        var response = Assert.IsType<ApiResponse<FeishuChannelEffectiveConfigDto>>(objectResult.Value);
+        Assert.True(response.Success);
+        Assert.Equal("cli_test", response.Data!.AppId);
+        Assert.Equal("pc_1", chat.GetEffectiveFeishuInstanceId);
+    }
+
+    [Fact]
+    public async Task DeleteImConfig_ForFeishu_RoutesToChannelOverrideClear()
+    {
+        var chat = new FakeInstanceChatService
+        {
+            ClearFeishuOverrideResponse = ApiResponse<bool>.SuccessResponse(true, "override cleared")
+        };
+        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
+
+        var result = await controller.DeleteImConfig("pc_1", "feishu");
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        var response = Assert.IsType<ApiResponse<bool>>(objectResult.Value);
+        Assert.True(response.Success);
+        Assert.True(response.Data);
+        Assert.Equal("pc_1", chat.ClearFeishuOverrideInstanceId);
+    }
+
     private static EmployeeDetailDto BuildEmployee(string id, string type, string status, string? fromInstanceId)
     {
         return new EmployeeDetailDto(
@@ -167,6 +217,8 @@ public sealed class RuntimeApiControllerTests
         public string? SendInstanceId { get; private set; }
         public SendInstanceChatMessageRequestDto? SendRequest { get; private set; }
         public string? ClearInstanceId { get; private set; }
+        public string? GetEffectiveFeishuInstanceId { get; private set; }
+        public string? ClearFeishuOverrideInstanceId { get; private set; }
 
         public ApiResponse<InstanceChatTimelineDto> GetResponse { get; init; } =
             ApiResponse<InstanceChatTimelineDto>.ErrorResponse(500, "not configured");
@@ -175,6 +227,12 @@ public sealed class RuntimeApiControllerTests
             ApiResponse<InstanceChatResultDto>.ErrorResponse(500, "not configured");
 
         public ApiResponse<bool> ClearResponse { get; init; } =
+            ApiResponse<bool>.ErrorResponse(500, "not configured");
+
+        public ApiResponse<FeishuChannelEffectiveConfigDto> GetEffectiveFeishuResponse { get; init; } =
+            ApiResponse<FeishuChannelEffectiveConfigDto>.ErrorResponse(500, "not configured");
+
+        public ApiResponse<bool> ClearFeishuOverrideResponse { get; init; } =
             ApiResponse<bool>.ErrorResponse(500, "not configured");
 
         public Task<ApiResponse<InstanceChatTimelineDto>> GetMessagesAsync(string instanceId, CancellationToken cancellationToken = default)
@@ -194,6 +252,30 @@ public sealed class RuntimeApiControllerTests
         {
             ClearInstanceId = instanceId;
             return Task.FromResult(ClearResponse);
+        }
+
+        public Task<ApiResponse<ImConfigResultDto>> UpdateFeishuChannelConfigAsync(
+            string instanceId,
+            ImConfigRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ApiResponse<ImConfigResultDto>.ErrorResponse(501, "not configured"));
+        }
+
+        public Task<ApiResponse<FeishuChannelEffectiveConfigDto>> GetFeishuChannelEffectiveConfigAsync(
+            string instanceId,
+            CancellationToken cancellationToken = default)
+        {
+            GetEffectiveFeishuInstanceId = instanceId;
+            return Task.FromResult(GetEffectiveFeishuResponse);
+        }
+
+        public Task<ApiResponse<bool>> ClearFeishuChannelOverrideAsync(
+            string instanceId,
+            CancellationToken cancellationToken = default)
+        {
+            ClearFeishuOverrideInstanceId = instanceId;
+            return Task.FromResult(ClearFeishuOverrideResponse);
         }
     }
 

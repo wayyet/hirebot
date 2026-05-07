@@ -16,4 +16,31 @@ public interface IInstanceChatService
     Task<ApiResponse<bool>> ClearMessagesAsync(
         string instanceId,
         CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<ImConfigResultDto>> UpdateFeishuChannelConfigAsync(
+        string instanceId,
+        ImConfigRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<FeishuChannelEffectiveConfigDto>> GetFeishuChannelEffectiveConfigAsync(
+        string instanceId,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<bool>> ClearFeishuChannelOverrideAsync(
+        string instanceId,
+        CancellationToken cancellationToken = default);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 }

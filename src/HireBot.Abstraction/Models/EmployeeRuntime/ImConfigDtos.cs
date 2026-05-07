@@ -23,6 +23,19 @@ public sealed record ImConfigResultDto(
     string Message,
     DateTimeOffset? ConfiguredAt);
 
+public sealed record FeishuChannelEffectiveConfigDto(
+    bool Enabled,
+    string? AppId,
+    string AppIdRef,
+    string? AppSecret,
+    string AppSecretRef,
+    string GroupPolicy,
+    string[] AllowedFromUserIds,
+    string[] AllowedGroupIds,
+    int MaxInboundChars,
+    bool RequireMentionInGroup,
+    bool ExposeInboundMediaUrls);
+
 public sealed record ImConfigItemDto(
     string Platform,
     string Status,

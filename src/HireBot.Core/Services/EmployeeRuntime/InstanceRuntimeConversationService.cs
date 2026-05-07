@@ -14,7 +14,8 @@ using Microsoft.Extensions.Logging;
 namespace HireBot.Core.Services.EmployeeRuntime;
 
 /// <summary>
-/// 瀹炰緥杩愯鏃跺璇濇湇鍔★紝澶勭悊瀹炰緥涓庣敤鎴蜂箣闂寸殑娑堟伅浜や簰銆?/// </summary>
+/// 实例运行时对话服务，处理实例与用户之间的消息交互。
+/// </summary>
 public sealed class InstanceRuntimeConversationService(
     HireBotDbContext dbContext,
     IEmployeeRuntimeStore employeeStore,
@@ -26,13 +27,14 @@ public sealed class InstanceRuntimeConversationService(
     private const string RuntimeSandboxRole = "runtime";
 
     /// <summary>
-    /// 鑾峰彇瀹炰緥鐨勮亰澶╂秷鎭垪琛ㄣ€?    /// </summary>
-    /// <param name="instanceId">瀹炰緥ID</param>
-    /// <param name="channel">娓犻亾绫诲瀷</param>
-    /// <param name="ownerUserId">鎵€鏈夎€呯敤鎴稩D</param>
-    /// <param name="limit">杩斿洖鏁伴噺闄愬埗</param>
-    /// <param name="cancellationToken">鍙栨秷浠ょ墝</param>
-    /// <returns>鑱婂ぉ鏃堕棿绾?/returns>
+    /// 获取实例的聊天消息列表。
+    /// </summary>
+    /// <param name="instanceId">实例ID</param>
+    /// <param name="channel">渠道类型</param>
+    /// <param name="ownerUserId">所有者用户ID</param>
+    /// <param name="limit">返回数量限制</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>聊天时间线</returns>
     public async Task<ApiResponse<InstanceChatTimelineDto>> GetMessagesAsync(
         string instanceId,
         string channel,
@@ -62,15 +64,16 @@ public sealed class InstanceRuntimeConversationService(
     }
 
     /// <summary>
-    /// 鍙戦€佹秷鎭粰瀹炰緥銆?    /// </summary>
-    /// <param name="instanceId">瀹炰緥ID</param>
-    /// <param name="channel">娓犻亾绫诲瀷</param>
-    /// <param name="content">娑堟伅鍐呭</param>
-    /// <param name="ownerUserId">鎵€鏈夎€呯敤鎴稩D</param>
-    /// <param name="externalMessageId">澶栭儴娑堟伅ID</param>
-    /// <param name="externalUserId">澶栭儴鐢ㄦ埛ID</param>
-    /// <param name="cancellationToken">鍙栨秷浠ょ墝</param>
-    /// <returns>鑱婂ぉ缁撴灉</returns>
+    /// 发送消息给实例。
+    /// </summary>
+    /// <param name="instanceId">实例ID</param>
+    /// <param name="channel">渠道类型</param>
+    /// <param name="content">消息内容</param>
+    /// <param name="ownerUserId">所有者用户ID</param>
+    /// <param name="externalMessageId">外部消息ID</param>
+    /// <param name="externalUserId">外部用户ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>聊天结果</returns>
     public async Task<ApiResponse<InstanceChatResultDto>> SendMessageAsync(
         string instanceId,
         string channel,
@@ -82,7 +85,7 @@ public sealed class InstanceRuntimeConversationService(
     {
         if (string.IsNullOrWhiteSpace(content))
         {
-            return ApiResponse<InstanceChatResultDto>.ErrorResponse(400, "content 涓嶈兘涓虹┖");
+            return ApiResponse<InstanceChatResultDto>.ErrorResponse(400, "content 不能为空");
         }
 
         var access = await ResolveAccessAsync(instanceId, channel, ownerUserId, cancellationToken);
@@ -174,12 +177,13 @@ public sealed class InstanceRuntimeConversationService(
     }
 
     /// <summary>
-    /// 娓呯┖瀹炰緥鐨勮亰澶╂秷鎭€?    /// </summary>
-    /// <param name="instanceId">瀹炰緥ID</param>
-    /// <param name="channel">娓犻亾绫诲瀷</param>
-    /// <param name="ownerUserId">鎵€鏈夎€呯敤鎴稩D</param>
-    /// <param name="cancellationToken">鍙栨秷浠ょ墝</param>
-    /// <returns>鎿嶄綔缁撴灉</returns>
+    /// 清空实例的聊天消息。
+    /// </summary>
+    /// <param name="instanceId">实例ID</param>
+    /// <param name="channel">渠道类型</param>
+    /// <param name="ownerUserId">所有者用户ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>操作结果</returns>
     public async Task<ApiResponse<bool>> ClearMessagesAsync(
         string instanceId,
         string channel,
@@ -214,7 +218,8 @@ public sealed class InstanceRuntimeConversationService(
     }
 
     /// <summary>
-    /// 鑾峰彇鎴栧垱寤哄璇濆疄浣撱€?\r\n    /// </summary>
+    /// 获取或创建对话实体。
+    /// </summary>
     private async Task<ConversationEntity> GetOrCreateConversationAsync(
         InstanceEntity instance,
         string ownerSubject,
@@ -248,7 +253,8 @@ public sealed class InstanceRuntimeConversationService(
     }
 
     /// <summary>
-    /// 鍙戦€佽繍琛屾椂娑堟伅鍒?Sandbox銆?    /// </summary>
+    /// 发送运行时消息到 Sandbox。
+    /// </summary>
     private async Task<ApiResponse<HiringConversationResultDto>> SendSandboxRuntimeMessageAsync(
         InstanceEntity instance,
         string ownerSubject,
@@ -309,7 +315,8 @@ public sealed class InstanceRuntimeConversationService(
     }
 
     /// <summary>
-    /// 瑙ｆ瀽杩愯鏃?Sandbox ID銆?    /// </summary>
+    /// 解析运行时 Sandbox ID。
+    /// </summary>
     private async Task<string?> ResolveRuntimeSandboxIdAsync(string ownerSubject, string scopeKey, CancellationToken cancellationToken)
     {
         var sandbox = await dbContext.SandboxInstances
@@ -328,12 +335,14 @@ public sealed class InstanceRuntimeConversationService(
     }
 
     /// <summary>
-    /// 鏋勫缓杩愯鏃朵綔鐢ㄥ煙閿€?    /// </summary>
+    /// 构建运行时作用域密钥。
+    /// </summary>
     private static string BuildRuntimeScopeKey(string instanceId)
         => $"instance:{instanceId.Trim()}";
 
     /// <summary>
-    /// 鏋勫缓杩愯鏃舵彁绀鸿瘝銆?\r\n    /// </summary>
+    /// 构建运行时提供令牌。
+    /// </summary>
     private async Task<AccessResult> ResolveAccessAsync(
         string instanceId,
         string channel,
@@ -342,7 +351,7 @@ public sealed class InstanceRuntimeConversationService(
     {
         if (string.IsNullOrWhiteSpace(instanceId))
         {
-            return AccessResult.Fail(400, "instanceId 涓嶈兘涓虹┖");
+            return AccessResult.Fail(400, "instanceId 不能为空");
         }
 
         var normalizedChannel = NormalizeChannel(channel);
@@ -372,7 +381,7 @@ public sealed class InstanceRuntimeConversationService(
                                 string.Equals(instance.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
         if (!isPersonalRuntime)
         {
-            return AccessResult.Fail(409, "閮ㄩ棬鍛樺伐涓嶈兘鐩存帴浣滀负涓汉杩愯鏃跺璇濆璞★紝璇峰厛鍒涘缓涓汉鍒嗚韩");
+            return AccessResult.Fail(409, "部门员工不能直接作为个人运行时对话对象，请先创建个人分身");
         }
 
         if (!string.Equals(instance.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
@@ -385,7 +394,8 @@ public sealed class InstanceRuntimeConversationService(
     }
 
     /// <summary>
-    /// 瑙勮寖鍖栨笭閬撳悕绉般€?    /// </summary>
+    /// 规范化频道名称。
+    /// </summary>
     private static string? NormalizeChannel(string channel)
     {
         if (string.IsNullOrWhiteSpace(channel))
@@ -398,14 +408,16 @@ public sealed class InstanceRuntimeConversationService(
     }
 
     /// <summary>
-    /// 鏋勫缓鍞竴 ID銆?    /// </summary>
+    /// 构建唯一 ID。
+    /// </summary>
     private static string BuildId(string prefix)
     {
         return $"{prefix}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid():N}"[..32];
     }
 
     /// <summary>
-    /// 璁块棶缁撴灉銆?\r\n    /// </summary>
+    /// 访问结果。
+    /// </summary>
     private sealed record AccessResult(
         bool Success,
         int Code,
@@ -426,4 +438,3 @@ public sealed class InstanceRuntimeConversationService(
         }
     }
 }
-

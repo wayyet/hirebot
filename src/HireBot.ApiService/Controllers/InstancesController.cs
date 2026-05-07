@@ -107,7 +107,15 @@ public sealed class InstancesController(
             return invalidResponse;
         }
 
-        // 更新配置
+        if (string.Equals(platform, "feishu", StringComparison.OrdinalIgnoreCase))
+        {
+            var feishuResponse = await instanceChatService.UpdateFeishuChannelConfigAsync(instanceId, request, cancellationToken);
+            return StatusCode(feishuResponse.Code, feishuResponse);
+        }
+        //增加其他平台
+
+
+        // 更新其他平台的配置，继续走原来的实例 IM 配置服务
         var response = await instanceImConfigService.UpsertConfigAsync(instanceId, platform, request, cancellationToken);
         return StatusCode(response.Code, response);
     }
@@ -118,6 +126,27 @@ public sealed class InstancesController(
     /// <param name="instanceId">员工实例 ID</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>IM 配置列表</returns>
+    /// <summary>
+    /// 获取实例指定 IM 平台的当前生效配置。
+    /// </summary>
+    [HttpGet("{instanceId}/im-config/{platform}/effective")]
+    public async Task<IActionResult> GetEffectiveImConfig(
+        string instanceId,
+        string platform,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.Equals(platform, "feishu", StringComparison.OrdinalIgnoreCase))
+        {
+            var feishuResponse = await instanceChatService.GetFeishuChannelEffectiveConfigAsync(instanceId, cancellationToken);
+            return StatusCode(feishuResponse.Code, feishuResponse);
+        }
+
+        var response = ApiResponse<FeishuChannelEffectiveConfigDto>.ErrorResponse(
+            404,
+            $"Unknown or unsupported platform '{platform}'.");
+        return StatusCode(response.Code, response);
+    }
+
     [HttpGet("{instanceId}/im-config")]
     public async Task<IActionResult> GetImConfigs(string instanceId, CancellationToken cancellationToken = default)
     {
@@ -138,6 +167,12 @@ public sealed class InstancesController(
         string platform,
         CancellationToken cancellationToken = default)
     {
+        if (string.Equals(platform, "feishu", StringComparison.OrdinalIgnoreCase))
+        {
+            var feishuResponse = await instanceChatService.ClearFeishuChannelOverrideAsync(instanceId, cancellationToken);
+            return StatusCode(feishuResponse.Code, feishuResponse);
+        }
+
         var response = await instanceImConfigService.DeleteConfigAsync(instanceId, platform, cancellationToken);
         return StatusCode(response.Code, response);
     }

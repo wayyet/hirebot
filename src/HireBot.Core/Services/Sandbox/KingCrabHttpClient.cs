@@ -1,7 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -10,7 +9,6 @@ namespace HireBot.Core.Services.Sandbox;
 internal sealed class KingCrabHttpClient(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
-    IHttpContextAccessor httpContextAccessor,
     KingCrabSandboxTokenProvider sandboxTokenProvider,
     ILogger<KingCrabHttpClient> logger) : IKingCrabHttpClient
 {
@@ -263,28 +261,17 @@ internal sealed class KingCrabHttpClient(
         var requestUri = BuildRequestUri(requestPath, absoluteBaseUrl);
         var request = new HttpRequestMessage(method, requestUri);
 
-        if (ShouldUseSandboxToken(path, absoluteBaseUrl))
+        var serviceToken = await sandboxTokenProvider.GetAccessTokenAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(serviceToken))
         {
-            var sandboxAccessToken = await sandboxTokenProvider.GetAccessTokenAsync(cancellationToken);
-            if (!string.IsNullOrWhiteSpace(sandboxAccessToken))
-            {
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sandboxAccessToken.Trim());
-            }
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", serviceToken.Trim());
         }
         else
         {
-            var incomingAuthorization = httpContextAccessor.HttpContext?.Request.Headers.Authorization.ToString();
-            if (!string.IsNullOrWhiteSpace(incomingAuthorization))
+            var staticToken = configuration["KingCrab:BearerToken"] ?? configuration["KingCrew:BearerToken"];
+            if (!string.IsNullOrWhiteSpace(staticToken))
             {
-                request.Headers.TryAddWithoutValidation("Authorization", incomingAuthorization);
-            }
-            else
-            {
-                var staticToken = configuration["KingCrab:BearerToken"] ?? configuration["KingCrew:BearerToken"];
-                if (!string.IsNullOrWhiteSpace(staticToken))
-                {
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", staticToken.Trim());
-                }
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", staticToken.Trim());
             }
         }
 
@@ -374,17 +361,6 @@ internal sealed class KingCrabHttpClient(
     {
         return string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private bool ShouldUseSandboxToken(string path, string? absoluteBaseUrl)
-    {
-        if (!string.IsNullOrWhiteSpace(absoluteBaseUrl))
-        {
-            return true;
-        }
-
-        return Uri.TryCreate(path, UriKind.Absolute, out var absolutePath) &&
-               IsHttpUri(absolutePath);
     }
 
     private static string? ExtractRemoteMessage(string? payload)
