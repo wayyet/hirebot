@@ -8,6 +8,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/HireBot.Core.Tests/HireBot.Core.Tests.csproj" />
   </Folder>
+  <Folder Name="/web/" />
   <Project Path="HireBot.AppHost/HireBot.AppHost.csproj" />
   <Project Path="HireBot.ServiceDefaults/HireBot.ServiceDefaults.csproj" />
 </Solution>
