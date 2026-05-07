@@ -10,8 +10,26 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.IdentityModel.Tokens.Jwt;
+using Serilog;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var logPath = builder.Configuration["Serilog:LogPath"] ?? "logs/hirebot-.log";
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Debug()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+    .WriteTo.Async(wt => wt.File(
+        logPath,
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 14,
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}"))
+    .CreateLogger();
+
+builder.Host.UseSerilog();
 builder.Configuration.AddJsonFile(
     $"appsettings.{builder.Environment.EnvironmentName}.local.json",
     optional: true,

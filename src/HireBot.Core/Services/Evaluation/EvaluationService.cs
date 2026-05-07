@@ -479,6 +479,8 @@ internal sealed class EvaluationService(
 
         EmployeeDetailDto? updated = null;
         var message = "AI evaluation decision submitted";
+        logger.LogInformation("[Eval] AiDecision employeeId={EmployeeId} decision={Decision} status={Status} phase={Phase}",
+            employee.EmployeeId, decision, currentStatus, employee.EvalPhase);
 
         switch (decision)
         {
@@ -530,6 +532,8 @@ internal sealed class EvaluationService(
                     IsConfigured = startConfigured
                 };
                 message = "AI evaluation started, workspace and materials primed";
+                logger.LogInformation("[Eval] START completed employeeId={EmployeeId} materialsReady={Ready}",
+                    employee.EmployeeId, startMaterialsReady);
                 break;
             }
 
@@ -582,6 +586,8 @@ internal sealed class EvaluationService(
                     IsConfigured = configured
                 };
                 message = "Evaluation skill loaded and evaluator workspace is ready";
+                logger.LogInformation("[Eval] LOAD_SKILL completed employeeId={EmployeeId} materialsReady={Ready}",
+                    employee.EmployeeId, materialsReady);
                 break;
             }
 
@@ -649,6 +655,8 @@ internal sealed class EvaluationService(
                 message = verdictResult.Data.Passed
                     ? "AI evaluation completed by evaluator sandbox: PASS"
                     : "AI evaluation completed by evaluator sandbox: FAIL";
+                logger.LogInformation("[Eval] RUN completed employeeId={EmployeeId} passed={Passed} score={Score}",
+                    employee.EmployeeId, verdictResult.Data.Passed, verdictResult.Data.OverallScore);
                 break;
             }
 
@@ -1656,6 +1664,8 @@ internal sealed class EvaluationService(
     {
         var owner = requestContextService.ResolveOwnerSubject();
         var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, workspaceContext, cancellationToken);
+        logger.LogInformation("[Eval] Pipeline start employeeId={EmployeeId} sessionId={SessionId}",
+            employee.EmployeeId, sessionEntity.SessionId);
 
         var testcaseResult = await FetchTestcasesAsync(employee.EmployeeId, cancellationToken);
         if (!testcaseResult.Success || testcaseResult.Data is null)
@@ -1671,6 +1681,8 @@ internal sealed class EvaluationService(
         }
 
         var ontologyResult = await QueryOntologyAsync(employee.EmployeeId, cancellationToken);
+        logger.LogInformation("[Eval] Testcases loaded employeeId={EmployeeId} count={Count}",
+            employee.EmployeeId, testcaseResult.Data.Testcases.Count);
         if (!ontologyResult.Success || ontologyResult.Data is null)
         {
             await UpdateSessionStatusAsync(sessionEntity, "run_failed", ontologyResult.Message, cancellationToken);
@@ -1718,6 +1730,9 @@ internal sealed class EvaluationService(
                 TraceAssetUrl: traceResult.Data.TraceAsset.PublicUrl));
         }
 
+        logger.LogInformation("[Eval] Execution completed employeeId={EmployeeId} evidenceCount={Count}",
+            employee.EmployeeId, executionEvidences.Count);
+
         var evaluatorVerdictResult = await RequestSandboxVerdictAsync(
             employee,
             workspaceContext,
@@ -1728,11 +1743,15 @@ internal sealed class EvaluationService(
             cancellationToken);
         if (!evaluatorVerdictResult.Success || evaluatorVerdictResult.Data is null)
         {
+            logger.LogWarning("[Eval] Verdict failed employeeId={EmployeeId} message={Message}",
+                employee.EmployeeId, evaluatorVerdictResult.Message);
             await UpdateSessionStatusAsync(sessionEntity, "run_failed", evaluatorVerdictResult.Message, cancellationToken);
             return ApiResponse<EvaluatorVerdictResult>.ErrorResponse(evaluatorVerdictResult.Code, evaluatorVerdictResult.Message);
         }
 
         var evaluatorVerdict = evaluatorVerdictResult.Data;
+        logger.LogInformation("[Eval] Verdict received employeeId={EmployeeId} passed={Passed} score={Score}",
+            employee.EmployeeId, evaluatorVerdict.Passed, evaluatorVerdict.OverallScore);
         await PersistTextAssetAsync(
             sessionEntity,
             assetType: "evaluator-verdict-json",
@@ -1761,6 +1780,8 @@ internal sealed class EvaluationService(
         }
 
         await UpdateSessionStatusAsync(sessionEntity, evaluatorVerdict.Passed ? "passed" : "failed", null, cancellationToken);
+        logger.LogInformation("[Eval] Pipeline complete employeeId={EmployeeId} passed={Passed} score={Score} reportIteration={Iter}",
+            employee.EmployeeId, evaluatorVerdict.Passed, evaluatorVerdict.OverallScore, reportResult.Data.Iteration);
         return ApiResponse<EvaluatorVerdictResult>.SuccessResponse(evaluatorVerdict);
     }
 
