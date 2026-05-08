@@ -105,7 +105,11 @@ if (builder.Configuration.GetValue("Database:AutoMigrateOnStartup", false))
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<HireBotDbContext>();
-    await dbContext.Database.MigrateAsync();
+    // SQLite 使用 EnsureCreated 直接从模型建表（无需运行 PostgreSQL 迁移脚本）
+    if (dbContext.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true)
+        await dbContext.Database.EnsureCreatedAsync();
+    else
+        await dbContext.Database.MigrateAsync();
 }
 
 var evaluationResourceRoot = ResolveEvaluationResourceRoot(
