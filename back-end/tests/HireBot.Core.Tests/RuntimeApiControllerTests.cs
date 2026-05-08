@@ -174,7 +174,7 @@ public sealed class RuntimeApiControllerTests
             AppId = "ding_app",
             AppKey = "ding_key",
             AppSecret = "ding_secret"
-           
+          
         };
 
         var result = await controller.UpsertDingTalkImConfig("pc_1", request);
@@ -189,7 +189,7 @@ public sealed class RuntimeApiControllerTests
     }
 
    
-
+    
 
     private static EmployeeDetailDto BuildEmployee(string id, string type, string status, string? fromInstanceId)
     {

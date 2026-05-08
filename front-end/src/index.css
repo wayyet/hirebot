@@ -1303,6 +1303,61 @@ body {
   color: var(--hb-body);
 }
 
+.hb-template-doc {
+  color: var(--hb-body);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.hb-template-doc > *:first-child {
+  margin-top: 0;
+}
+
+.hb-template-doc > *:last-child {
+  margin-bottom: 0;
+}
+
+.hb-template-doc h1,
+.hb-template-doc h2,
+.hb-template-doc h3,
+.hb-template-doc h4 {
+  margin: 1.1em 0 0.5em;
+  color: var(--hb-near-black);
+  line-height: 1.4;
+}
+
+.hb-template-doc p,
+.hb-template-doc ul,
+.hb-template-doc ol,
+.hb-template-doc blockquote {
+  margin: 0.7em 0;
+}
+
+.hb-template-doc ul,
+.hb-template-doc ol {
+  padding-left: 1.4em;
+}
+
+.hb-template-doc code {
+  border-radius: 8px;
+  background: #f5f5f5;
+  padding: 0.12em 0.36em;
+  font-size: 12px;
+}
+
+.hb-template-doc pre {
+  overflow: auto;
+  border: 1px solid var(--hb-border);
+  border-radius: 12px;
+  background: var(--hb-surface-soft);
+  padding: 12px 14px;
+}
+
+.hb-template-doc pre code {
+  background: transparent;
+  padding: 0;
+}
+
 .hb-upload-drop {
   position: relative;
   display: grid;

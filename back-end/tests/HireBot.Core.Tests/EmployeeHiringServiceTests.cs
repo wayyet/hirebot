@@ -121,6 +121,7 @@ public class EmployeeHiringServiceTests
             Name: "雇佣教练",
             Tagline: "帮你把模板配上岗",
             Description: "引导用户完成资料、技能和外部能力配置。",
+            DetailDoc: "## 详细说明",
             CoreAbilityTags: ["流程引导"],
             HiredCount: 12,
             SuccessRate: 0.97m,
