@@ -66,6 +66,12 @@ Handoff todo 的流程状态为 `drafting / ready_to_dispatch / dispatched / dir
 3. **明确度校验**：发 dispatch 前逐条检查 Handoff todo 是否达到下游可消化的明确度
 4. **dispatch + 解锁**：发出 dispatch 信号 → 等下游回传 → 更新对应 Handoff todo → 一句话向用户复述结果 → 解锁下一阶段
 
+还要始终区分两层判断：
+
+- **单条 Handoff todo 达到明确度**：通常对应 `drafting -> ready_to_dispatch`，表示这条已经可以交给下游处理，但还**不等于完成**
+- **单条 Handoff todo 完成交接闭环**：必须经历下游回传 + 用户确认，状态进入 `confirmed`，这时才算这条真正完成
+- **整个阶段完成**：看该阶段的阶段级完成条件是否满足，而不是只看“有没有某一条已经发出 dispatch”
+
 > Handoff tool 操作、Handoff todo JSON 结构、状态机（drafting / ready_to_dispatch / dispatched / dirty / confirmed / needs_review / dismissed）、各阶段 payload 字段与明确度对照 → 每次新建或更新 Handoff todo 前，读 [references/handoff-tools.md](references/handoff-tools.md)。
 
 > dispatch 信号格式、何时不发、等回传期间用户继续说话怎么处理、回传到达时的合流、出口信号 → 第一次发 dispatch 前 / 等回传期间用户继续说话时，读 [references/dispatch-protocol.md](references/dispatch-protocol.md)。
@@ -82,6 +88,16 @@ Handoff todo 的流程状态为 `drafting / ready_to_dispatch / dispatched / dir
 
 **dispatch 时机**：用户表示"先这些"或"暂时就这么多" + 至少 1 条 Handoff todo 达到明确度。
 
+**阶段完成条件**：
+
+- 至少 1 份真实业务资料已经被纳入当前轮 material Handoff todo，不遗漏用户明确要处理的上传文件
+- 当前准备进入下一阶段的资料，已经完成分类，并且每条对应 Handoff todo 都明确写出抽取目标与 `source_files`
+- 对当前批次真正要处理的 material Handoff todo，已经完成一轮 `dispatch -> dispatch_callback -> 用户确认`，状态进入 `confirmed`
+- 当前批次不再存在阻塞推进的 material Handoff todo：`drafting` / `ready_to_dispatch` / `dispatched` / `dirty`
+- 用户已经明确表达“先这些”“这批资料先这样”或等价意思，允许以当前资料批次作为技能阶段输入
+
+不要因为“已经建了 Handoff todo”就视为资料阶段完成；`ready_to_dispatch` 和 `dispatched` 都只是中间态，不是完成态。
+
 > 第一批资料怎么按场景类型开口要、scene_hint 推断与静默修正、阶段 1 story-driven 推进 → 进入阶段 1 之前，读 [references/scene-types.md](references/scene-types.md)。
 
 ### 阶段 2：技能
@@ -91,6 +107,16 @@ Handoff todo 的流程状态为 `drafting / ready_to_dispatch / dispatched / dir
 **最低门槛**：阶段 2 Handoff todo 的 `payload.skills` 必须是 Skill 数组，且至少 1 项；数组要同时包含初始数字员工模板包里已有的 skill 和本轮需要新生成的 skill，并用 `generation_action: reuse_existing | generate_new` 区分。每个 Skill 同时具备**明确的 name + 明确的 description**，并且能说清触发条件和期望输出。
 
 **dispatch 时机**：至少 1 条 skill Handoff todo 达到明确度，且用户表示"先这些"。
+
+**阶段完成条件**：
+
+- 默认技能基线已经盘清；用户和教练都清楚“哪些现有能力直接复用，哪些能力需要新增”
+- 所有真正需要补充或生成的 skill Handoff todo 都已经完成 `dispatch -> dispatch_callback -> 用户确认`，状态进入 `confirmed`
+- 如果本轮没有任何需要新增的能力，也必须得到用户对“当前技能基线已经足够”的明确确认，不能无声跳到外部阶段
+- 当前不再存在阻塞推进的 skill Handoff todo：`drafting` / `ready_to_dispatch` / `dispatched` / `dirty`
+- 只有当用户认可“技能阶段已经足够”后，才解锁外部阶段；不要把“下游刚生成完”直接等同于“阶段已经完成”
+
+模板包里默认就有的 skill，不自动算成需要新增的 Handoff todo；只有真正缺失、需要补充、需要重做或需要新生成的能力才进入这一阶段的完成判断。
 
 > 阶段 2 引导话术、story-driven 推进、字段明确度对照 → 进入阶段 2 之前，读 [references/flow-constraints.md](references/flow-constraints.md) 阶段 2 部分；字段定义见 [references/handoff-tools.md](references/handoff-tools.md) 阶段 2。
 
@@ -106,6 +132,16 @@ Handoff todo 的流程状态为 `drafting / ready_to_dispatch / dispatched / dir
 - token / 密钥 / 密码 / API Key 等**绝不在会话里收集**
 - 用户在会话里输入凭据，立刻提示"这类信息请填到右侧表单，不要在对话里发"
 - Handoff payload 里只描述凭据形式（OAuth / Bearer Token / 长期 Key 等），**不写凭据值**
+
+**阶段完成条件**：
+
+- 每条 required external Handoff todo 都已经形成明确的外部能力定义，不再停留在泛泛的“要接 CRM / 要调 API”
+- 每条真正需要落地的 external Handoff todo 都已经完成 `dispatch -> dispatch_callback -> 用户确认`，状态进入 `confirmed`
+- 对 `auth_kind != none` 的能力，虽然可以先 dispatch 生成配置草案，但进入出口前仍要确认必要的凭据绑定路径已经明确；不能把“配置草案生成了”误当成“外部阶段已经完成”
+- 如果用户明确声明不需要外部系统，应把 skip 分支也走完整：形成 skip Handoff todo、完成回传或确认，并让它进入可追溯的完成态，而不是只在对话里口头带过
+- 当前不再存在阻塞推进的 external Handoff todo：`drafting` / `ready_to_dispatch` / `dispatched` / `dirty`
+
+外部阶段的“可 dispatch”不等于“可出阶段”。只有能力定义、回传确认，以及必要的凭据收口都完成后，才算真正收尾。
 
 > 阶段 3 引导话术、紧扣已有 skills 的套路、跳过分支、字段定义 → 进入阶段 3 之前，读 [references/flow-constraints.md](references/flow-constraints.md) 阶段 3 部分；字段定义见 [references/handoff-tools.md](references/handoff-tools.md) 阶段 3。
 
