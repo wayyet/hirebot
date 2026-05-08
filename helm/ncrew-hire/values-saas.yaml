@@ -1,0 +1,102 @@
+# values-saas.yaml — SaaS 生产环境覆盖值
+# 使用方式：helm upgrade --install ncrew-hire ./helm/ncrew-hire -f helm/ncrew-hire/values-saas.yaml
+
+replicaCount: 1
+
+image:
+  repository: ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot
+  tag: dev-202605081346   # 部署时替换为实际镜像标签
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "500m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+autoscaling:
+  enabled: false
+
+env:
+  ASPNETCORE_URLS: http://+:8080
+  DOTNET_NOLOGO: "true"
+  Database__AutoMigrateOnStartup: "false"
+  # ---- 安全 / OIDC (SaaS) ----
+  Security__OidcAuthority: https://passport.ai4c.cn/realms/ai4c-saas
+  Security__OidcAudience: ""
+  Security__OidcClientId: ncrew-client
+  Security__OidcRequireHttpsMetadata: "true"
+  # ---- 前端 runtime-config 注入 (SaaS) ----
+  ConsoleAuth__Authority: https://passport.ai4c.cn
+  ConsoleAuth__Realm: ai4c-saas
+  ConsoleAuth__ClientId: ncrew-client
+  ConsoleAuth__BypassAuth: "false"
+  # ---- 跨域 ----
+  AllowedOrigins__0: https://hire.ai4c.cn
+  AllowedOrigins__1: https://ncrew.ai4c.cn
+  AllowedOrigins__2: https://ncrew-hire.ai4c.cn
+  # ---- OpenSandbox 沙箱服务地址（SaaS 集群内地址）----
+  OpenSandbox__Domain: opensandbox-server.opensandbox-system:80
+  OpenSandbox__Protocol: Http
+  OpenSandbox__UseServerProxy: "false"
+  OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605081001
+  OpenSandbox__Resource__cpu: 500m
+  OpenSandbox__Resource__memory: 1Gi
+  OpenSandbox__TimeoutSeconds: "43200"
+  OpenSandbox__ReadyTimeoutSeconds: "180"
+  OpenSandbox__RequestTimeoutSeconds: "180"
+  OpenSandbox__GatewayPort: "18789"
+  OpenSandbox__Entrypoint__0: /app/OpenClaw.Gateway
+  # ---- 沙箱 KingCrab 子配置 (SaaS OIDC) ----
+  OpenSandbox__KingCrab__AuthToken: ncrew-hire-sandbox-token
+  OpenSandbox__KingCrab__OidcAuthority: https://passport.ai4c.cn/realms/ai4c-saas
+  OpenSandbox__KingCrab__OidcAudience: account
+  OpenSandbox__KingCrab__ToolTimeoutSeconds: "300"
+  OpenSandbox__KingCrab__LlmModel: MiniMax-M2.5
+  OpenSandbox__KingCrab__LlmEndpoint: https://api.minimaxi.com/v1
+  # LlmApiKey 和 ClientSecret 通过 secretEnv 注入
+  # KingCrabSandboxTokenProvider 优先用 ClientId/ClientSecret 向 Keycloak 换取 token；
+  # 若两者未配置则回退到静态 AuthToken。
+  OpenSandbox__KingCrab__ClientId: ncrew-hire
+  # ---- 沙箱 PVC (SaaS CFS) ----
+  SandboxPvc__Enabled: "true"
+  SandboxPvc__Namespace: opensandbox
+  SandboxPvc__StorageClassName: ai4c-saas-cfs
+  SandboxPvc__WorkspaceSize: 5Gi
+  SandboxPvc__MemorySize: 5Gi
+  SandboxPvc__AccessMode: ReadWriteMany
+  SandboxPvc__KubeConfigPath: ""
+  # ---- KingCrab HTTP 客户端（调用 KingCrab API 服务，SaaS 集群内）----
+  KingCrab__BaseUrl: http://opensandbox-server.opensandbox-system:80/
+  KingCrab__BearerToken: ""
+  KingCrab__HttpTimeoutSeconds: "120"
+  KingCrab__HireBotApiPrefix: /api/integration/hirebot
+  # ---- 构建服务 (ncrew-builder SaaS 地址) ----
+  BuildService__BaseUrl: http://ncrew-builder.ai4c.cn/
+  BuildService__ApiPrefix: /api/store
+  BuildService__BearerToken: ""
+  BuildService__HttpTimeoutSeconds: "60"
+
+# 敏感值由 helm 统一管理（secrets.create=true 时自动创建 Secret ncrew-hire-env）
+# 部署前将下方 PLACEHOLDER 替换为真实值
+secretEnv:
+  - name: OpenSandbox__KingCrab__LlmApiKey
+    secretName: ncrew-hire-env
+    secretKey: OpenSandboxKingCrabLlmApiKey
+  - name: OpenSandbox__KingCrab__ClientSecret
+    secretName: ncrew-hire-env
+    secretKey: OpenSandboxKingCrabClientSecret
+
+secrets:
+  create: true
+  stringData:
+    OpenSandboxKingCrabLlmApiKey: "sk-cp-cKAEvOlT0QxJacIbrmO0Ua-RA7S0AiDL__HCMF274d-bds9g4lgILdhBlUmLLjDv6biKZ9Acr6Y65HDuLgkYi-UOkwIYwTaRzVs87LKDJPEuc1j6aixpnhQ"
+    OpenSandboxKingCrabClientSecret: "b6cWTUKq541ziC2daLGcIvbUoBtuAwBs"
+
+database:
+  existingSecret: ""
+  secretName: ncrew-hire-db
+  secretKey: ConnectionStrings__DefaultConnection
+  connectionString: "Host=10.127.1.10;Port=5432;Username=ai4c_pro;Password=KT~/ry0o~SV~;Database=ncrew_hire"
