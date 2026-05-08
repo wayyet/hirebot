@@ -3,8 +3,26 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
+function runtimeConfigFallback() {
+  return {
+    name: 'runtime-config-fallback',
+    configureServer(server: any) {
+      server.middlewares.use('/runtime-config.js', (_req: any, res: any, next: any) => {
+        if (_req?.url?.startsWith('/runtime-config.js')) {
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
+          res.end('window.__AUTH_CONFIG__ = window.__AUTH_CONFIG__ || {};')
+          return
+        }
+
+        next()
+      })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), runtimeConfigFallback()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -16,13 +34,7 @@ export default defineConfig({
     port: 5173,
     strictPort: false,
     proxy: {
-      // 开发模式将 /api/ 和 /runtime-config.js 转发到后端
-      // 后端未运行时 runtime-config.js 会 404， onerror 将回退为空配置
       '/api': {
-        target: 'http://localhost:5280',
-        changeOrigin: true,
-      },
-      '/runtime-config.js': {
         target: 'http://localhost:5280',
         changeOrigin: true,
       },
