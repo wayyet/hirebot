@@ -17,7 +17,7 @@ import {
   Upload,
   Zap,
 } from 'lucide-react'
-import { useKeycloak } from '@react-keycloak/web'
+import { signOut } from '@/infra/auth/oidc'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   api,
@@ -107,8 +107,6 @@ function progressStepByState(params: {
 export default function EvaluationPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const keycloak = useOptionalKeycloak()
-
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null)
   const [evaluation, setEvaluation] = useState<EvaluationState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -272,15 +270,9 @@ export default function EvaluationPage() {
   }
 
   async function handleLogout() {
-    if (!keycloak) {
-      navigate('/department-employees')
-      return
-    }
     setLogoutLoading(true)
     try {
-      await keycloak.logout({
-        redirectUri: `${window.location.origin}/login`,
-      })
+      await signOut()
     } catch (logoutError: unknown) {
       setError(logoutError instanceof Error ? logoutError.message : '退出登录失败，请稍后重试')
       setLogoutLoading(false)
@@ -867,11 +859,4 @@ export default function EvaluationPage() {
   )
 }
 
-function useOptionalKeycloak() {
-  if (isAuthBypassed) {
-    return null
-  }
 
-  const { keycloak } = useKeycloak()
-  return keycloak
-}
