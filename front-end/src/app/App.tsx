@@ -132,7 +132,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
-          <Route path="/" element={<Navigate to="/department-employees" replace />} />
+          <Route path="/" element={<Navigate to="/template-pool" replace />} />
           <Route path="/template-pool" element={<ProtectedLayout><MarketPage /></ProtectedLayout>} />
           <Route path="/market" element={<Navigate to="/template-pool" replace />} />
           <Route path="/templates/:id" element={<ProtectedLayout><TemplateDetailPage /></ProtectedLayout>} />
@@ -155,7 +155,7 @@ export default function App() {
           <Route path="/skill/register" element={<ProtectedLayout><RegisterSkillPage /></ProtectedLayout>} />
           <Route path="/skill/:id" element={<ProtectedLayout><SkillDetailPage /></ProtectedLayout>} />
           <Route path="/prototype" element={<AuthGate><PrototypeStandalonePage /></AuthGate>} />
-          <Route path="*" element={<Navigate to="/department-employees" replace />} />
+          <Route path="*" element={<Navigate to="/template-pool" replace />} />
         </Routes>
       </BrowserRouter>
     </UxOverlayProvider>

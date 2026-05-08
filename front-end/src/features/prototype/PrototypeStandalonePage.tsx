@@ -2705,7 +2705,6 @@ export default function PrototypeStandalonePage() {
           >
             <span className="hb-brand-logo">雇</span>
             <span className="hb-brand-text">HireBot 原型预览</span>
-            <span className="hb-brand-eyes" aria-hidden>👀</span>
           </button>
 
           <nav className="hb-nav">

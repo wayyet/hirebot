@@ -22,7 +22,7 @@ export default function AuthCallbackPage() {
       .signinRedirectCallback()
       .then((user) => {
         const state = user?.state as { returnTo?: string } | null | undefined
-        const returnTo = state?.returnTo ?? '/department-employees'
+        const returnTo = state?.returnTo ?? '/template-pool'
         window.location.replace(returnTo)
       })
       .catch((err: unknown) => {

@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Loader2, LogOut } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { UserRoleContext, type HirebotUserRole } from '@/app/context/UserRoleContext'
 import { useUxOverlay } from '@/app/context/UxOverlayContext'
+import { isAuthBypassed } from '@/infra/auth/auth-mode'
+import { signOut } from '@/infra/auth/oidc'
 
 const ROLE_STORAGE_KEY = 'hirebot_user_role_v1'
 
@@ -57,6 +60,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const { showToast } = useUxOverlay()
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole)
+  const [logoutLoading, setLogoutLoading] = useState(false)
 
   useEffect(() => {
     localStorage.setItem(ROLE_STORAGE_KEY, role)
@@ -76,6 +80,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     })
   }, [role])
 
+  async function handleLogout() {
+    if (logoutLoading) return
+
+    setLogoutLoading(true)
+    try {
+      await signOut()
+    } catch (logoutError: unknown) {
+      setLogoutLoading(false)
+      showToast(logoutError instanceof Error ? logoutError.message : '退出登录失败，请稍后重试', 'error')
+    }
+  }
+
   return (
     <UserRoleContext.Provider value={{ role, setRole }}>
       <div className="hb-shell">
@@ -84,7 +100,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Link to={role === 'manager' ? '/template-pool' : '/department-employees'} className="hb-brand">
               <span className="hb-brand-logo">雇</span>
               <span className="hb-brand-text">HireBot 雇佣端</span>
-              <span className="hb-brand-eyes" aria-hidden>👀</span>
             </Link>
 
             <nav className="hb-nav">
@@ -120,6 +135,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <span className="hb-user-avatar">{role === 'manager' ? '李' : '王'}</span>
                 <span>{role === 'manager' ? '李部门长 · 研发部' : '王成员 · 研发部'}</span>
               </div>
+              {!isAuthBypassed && (
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  className="hb-btn-ghost !px-3 !py-1.5 !text-xs text-[#b91c1c] hover:!bg-[#fef2f2]"
+                  disabled={logoutLoading}
+                >
+                  {logoutLoading ? <Loader2 size={12} className="animate-spin" /> : <LogOut size={12} />}
+                  退出登录
+                </button>
+              )}
             </div>
           </div>
         </header>

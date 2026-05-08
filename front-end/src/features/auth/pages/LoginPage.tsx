@@ -8,12 +8,12 @@ const POST_LOGIN_REDIRECT_KEY = 'ncrew_post_login_redirect'
 
 function normalizeRedirectPath(raw: string | null): string {
   if (!raw || raw.trim().length === 0) {
-    return '/market'
+    return '/template-pool'
   }
 
   const value = raw.trim()
   if (!value.startsWith('/')) {
-    return '/market'
+    return '/template-pool'
   }
 
   return value

@@ -138,6 +138,10 @@ async function ensureDiscovery(): Promise<Record<string, string>> {
   return discoveryCache!
 }
 
+function redirectToLogin() {
+  window.location.assign('/login')
+}
+
 // ---------------------------------------------------------------------------
 // TokenSet 持久化
 // ---------------------------------------------------------------------------
@@ -307,10 +311,16 @@ export const userManager = {
 
   async signoutRedirect(): Promise<void> {
     const ts = loadTokenSet()
-    const endpoints = await ensureDiscovery()
     storeClear()
-    const logoutUrl = endpoints.end_session_endpoint ?? endpoints.revocation_endpoint
-    if (!logoutUrl) { window.location.assign('/login'); return }
+    let logoutUrl: string | undefined
+    try {
+      const endpoints = await ensureDiscovery()
+      logoutUrl = endpoints.end_session_endpoint ?? endpoints.revocation_endpoint
+    } catch {
+      redirectToLogin()
+      return
+    }
+    if (!logoutUrl) { redirectToLogin(); return }
     const p = new URLSearchParams({
       post_logout_redirect_uri: window.location.origin + '/login',
       client_id: clientId,
