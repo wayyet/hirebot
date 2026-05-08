@@ -158,8 +158,8 @@ public sealed class InstanceChatServiceTests
             Enabled = true,
             AppId = "ding-app",
             AppKey = "ding-key",
-            AppSecret = "ding-secret",
-         
+            AppSecret = "ding-secret"
+           
         });
 
         Assert.True(response.Success);

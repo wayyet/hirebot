@@ -173,7 +173,7 @@ public sealed class RuntimeApiControllerTests
             Enabled = true,
             AppId = "ding_app",
             AppKey = "ding_key",
-            AppSecret = "ding_secret",
+            AppSecret = "ding_secret"
           
         };
 
@@ -189,6 +189,7 @@ public sealed class RuntimeApiControllerTests
     }
 
    
+    
 
     private static EmployeeDetailDto BuildEmployee(string id, string type, string status, string? fromInstanceId)
     {
