@@ -7,7 +7,7 @@ import {
 } from "@/app/context/UserRoleContext";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { isAuthBypassed } from "@/infra/auth/auth-mode";
-import { signOut } from "@/infra/auth/oidc";
+import { signOut, getAuthUser, getUserDisplayName } from "@/infra/auth/oidc";
 
 const ROLE_STORAGE_KEY = "hirebot_user_role_v1";
 
@@ -72,6 +72,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { showToast } = useUxOverlay();
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
   const [logoutLoading, setLogoutLoading] = useState(false);
+  const [userDisplayName, setUserDisplayName] = useState<string>('');
+  const [loadingUser, setLoadingUser] = useState(true);
 
   useEffect(() => {
     localStorage.setItem(ROLE_STORAGE_KEY, role);
@@ -82,6 +84,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       navigate("/department-employees", { replace: true });
     }
   }, [location.pathname, navigate, role]);
+
+  useEffect(() => {
+    async function loadUserInfo() {
+      try {
+        const user = await getAuthUser();
+        if (user) {
+          setUserDisplayName(getUserDisplayName(user));
+        }
+      } catch (err) {
+        console.warn('Failed to load user info:', err);
+      } finally {
+        setLoadingUser(false);
+      }
+    }
+    loadUserInfo();
+  }, []);
 
   const visibleNavItems = useMemo(() => {
     return navItems.filter((item) => {
@@ -160,10 +178,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
               <div className="hb-user-chip">
                 <span className="hb-user-avatar">
-                  {role === "manager" ? "李" : "王"}
+                  {loadingUser ? '?' : (userDisplayName?.charAt(0) ?? '?')}
                 </span>
                 <span>
-                  {role === "manager" ? "李部门长 · 研发部" : "王成员 · 研发部"}
+                  {loadingUser ? '加载中...' : (userDisplayName || '用户')} · {role === "manager" ? "部门长" : "成员"}
                 </span>
               </div>
               {!isAuthBypassed && (
