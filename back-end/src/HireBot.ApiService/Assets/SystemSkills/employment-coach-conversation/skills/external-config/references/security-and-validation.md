@@ -58,7 +58,7 @@ secure_credential_context:
 
 1. 不复述原文。
 2. 不写入 artifact。
-3. 将对应 todo 标为 `failed`，或在可安全剔除时标为 `partial`。
+3. 将对应 Handoff todo 的回传结果标为 `failed`，或在可安全剔除时标为 `partial`。
 4. `errors` 只写“发现疑似凭据值，请通过右侧表单重新提交”。
 
 ## 字段校验
@@ -66,10 +66,12 @@ secure_credential_context:
 普通能力必须满足：
 
 - `category` 属于 `read/write/notify/search/transform`
-- `payload.objective` 非空
-- `payload.target_system` 非空
-- `payload.linked_skills` 至少 1 个，且由系统层证明对应 skill todo 已 confirmed
-- `auth.kind` 有值；缺失时优先返回 `partial`，只有系统层允许临时草案时才写 `unknown` 并给 warning
+- `payload.external_capabilities[]` 至少 1 项
+- `payload.external_capabilities[].objective` 非空
+- `payload.external_capabilities[].target_system` 非空
+- `payload.external_capabilities[].integration_methods` 是至少 1 项的数组；仅描述对接方式（如 `mcp`、`cli`、`http_api`、`sdk`、`webhook`），不得携带真实 endpoint、命令参数或凭据
+- `payload.external_capabilities[].linked_skills` 至少 1 个，且由系统层证明对应 skill Handoff todo 已 confirmed
+- `payload.external_capabilities[].auth_kind` 有值；缺失时优先返回 `partial`，只有系统层允许临时草案时才写 `unknown` 并给 warning
 - artifact path 使用相对路径
 
 skip 能力必须满足：
@@ -77,7 +79,7 @@ skip 能力必须满足：
 - `kind` 为 `skip`
 - 有可读 reason
 - 写入 index 的 `skips` 或等价列表
-- 写入 `external/capabilities/<todo-id>.json`，便于 callback 和诊断用统一路径关联 artifact
+- 写入 `external/capabilities/<handoff-id>.json`，便于 callback 和诊断用统一路径关联 artifact
 
 ## 分类口径
 
@@ -93,11 +95,11 @@ skip 能力必须满足：
 
 ## 失败策略
 
-单条 todo 失败不影响其他 todo：
+单条 Handoff todo 失败不影响其他 Handoff todo：
 
 ```json
 {
-  "todoId": "e_bad_secret_001",
+  "handoff_id": "e_bad_secret_001",
   "status": "failed",
   "reason": "发现疑似凭据值，请通过右侧表单重新提交。"
 }

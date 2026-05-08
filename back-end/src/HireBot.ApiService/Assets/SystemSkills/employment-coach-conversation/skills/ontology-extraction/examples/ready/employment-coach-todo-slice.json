@@ -166,30 +166,6 @@
     "generated_at": "2026-04-30T00:00:00Z",
     "generated_by": "ontology-extraction",
     "workspace": "employment-coach-sandbox",
-    "notes": "该 slice 覆盖系统 todo m_cs_nonstandard_rules_001，source 与 acceptance 已进入结构化 todo_context 元数据。",
-    "todo_context": {
-      "source_dispatch_target": "ontology-extraction",
-      "todo_ids": [
-        "m_cs_nonstandard_rules_001"
-      ],
-      "todos": [
-        {
-          "id": "m_cs_nonstandard_rules_001",
-          "intent": "抽出非标退货场景的判定规则与处置路径",
-          "category": "决策规则",
-          "payload": {
-            "objective": "抽取《非标退货处理规则》里的判定条件、处置档位、分流到经理的触发条件",
-            "source_files": [
-              "uploads/非标退货处理规则.docx"
-            ],
-            "scene_hint": "customer_service",
-            "mode": "incremental"
-          },
-          "source": "用户上传《非标退货处理规则.docx》并说明先处理这批资料",
-          "acceptance": "ontology 中包含退货判定条件、处置档位和人工分流触发节点，并给出 slice 文件",
-          "status": "ready_to_dispatch"
-        }
-      ]
-    }
+    "notes": "该 slice 覆盖非标退货资料中的判定规则与处置路径；Handoff 工单与确认关系由 Handoff tools 和 dispatch_callback 承载。"
   }
 }

@@ -10,13 +10,13 @@ external/
   systems/
     <system-slug>.json
   capabilities/
-    <todo-id>.json
+    <handoff-id>.json
   README.md
 ```
 
 ## capability 文件
 
-每条 external todo 对应一个 `external/capabilities/<todo-id>.json`。普通能力使用 `kind: normal`，跳过外部系统使用 `kind: skip`。
+每条 external Handoff todo 对应一个 `external/capabilities/<handoff-id>.json`。文件内可以包含该 Handoff todo 的 `payload.external_capabilities[]` 多项能力；普通能力使用 `kind: normal`，跳过外部系统使用 `kind: skip`。
 
 建议字段：
 
@@ -24,7 +24,7 @@ external/
 {
   "schemaVersion": "1.0.0",
   "artifactType": "external_capability",
-  "todoId": "e_xiaoshouyi_read_order_001",
+  "handoff_id": "e_xiaoshouyi_read_order_001",
   "kind": "normal",
   "category": "read",
   "objective": "在退货咨询时，从 CRM 拉指定订单的创建时间、状态、客户等级、商品类型",
@@ -32,6 +32,7 @@ external/
     "name": "销售易 CRM",
     "slug": "xiaoshouyi-crm"
   },
+  "integrationMethods": ["mcp"],
   "linkedSkills": ["s_seven_day_init_001"],
   "auth": {
     "kind": "API Key",
@@ -62,7 +63,7 @@ skip artifact 使用同一路径，建议字段：
 {
   "schemaVersion": "1.0.0",
   "artifactType": "external_capability",
-  "todoId": "e_external_skip_001",
+  "handoff_id": "e_external_skip_001",
   "kind": "skip",
   "reason": "用户明确表示不需要外部系统",
   "sourceDigest": "用户说明本阶段先不接外部系统",
@@ -86,11 +87,12 @@ skip artifact 使用同一路径，建议字段：
   "artifactType": "external_system",
   "name": "销售易 CRM",
   "slug": "xiaoshouyi-crm",
+  "integrationMethods": ["mcp"],
   "authKinds": ["API Key"],
   "credentialSlots": ["xiaoshouyi-crm-api-key"],
   "capabilities": [
     {
-      "todoId": "e_xiaoshouyi_read_order_001",
+      "handoff_id": "e_xiaoshouyi_read_order_001",
       "category": "read",
       "path": "external/capabilities/e_xiaoshouyi_read_order_001.json"
     }
@@ -107,10 +109,10 @@ skip artifact 使用同一路径，建议字段：
 
 它应列出：
 
-- 本次配置覆盖的 todo id
+- 本次配置覆盖的 Handoff id
 - 所有 target system
 - 所有 capability artifact path
-- skip 记录，至少包含 `todoId`、`reason`、`path`、`status`
+- skip 记录，至少包含 `handoff_id`、`reason`、`path`、`status`
 - validation 摘要
 - 是否发现安全阻断
 
