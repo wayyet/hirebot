@@ -1,7 +1,14 @@
 ﻿import type { ApiResponseEnvelope, QueryParams, RequestOptions } from './types'
 import { tokenService } from '@/infra/auth/token-service'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5280'
+// 优先取后端注入的 ApiBase（镜像内部署时为 ""，即相对路径），
+// 其次 VITE 环境变量，最后回退到本地开发默认地址
+const API_BASE_URL = (() => {
+  if (typeof window !== 'undefined' && window.__AUTH_CONFIG__?.ApiBase !== undefined) {
+    return window.__AUTH_CONFIG__.ApiBase
+  }
+  return (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:5280'
+})()
 
 export class ApiClientError extends Error {
   public readonly status: number
@@ -19,7 +26,9 @@ export class ApiClientError extends Error {
 
 function buildUrl(path: string, query?: QueryParams): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  const url = new URL(`${API_BASE_URL}${normalizedPath}`)
+  // 支持空 base（相对路径）：new URL('/api/...', origin) 可正确解析相对 URL
+  const locationBase = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+  const url = new URL(`${API_BASE_URL}${normalizedPath}`, locationBase)
 
   if (!query) {
     return url.toString()

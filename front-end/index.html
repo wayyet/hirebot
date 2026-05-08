@@ -4,7 +4,11 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ncrew-web</title>
+    <title>HireBot</title>
+    <!-- 当后端可用时，从后端读取运行时配置（OIDC / API 地址）。
+         后端不可用时 onerror 回退，前端自行使用环境变量。
+         此标签为同步非模块脚本，在所有 ESM 模块执行前完成。 -->
+    <script src="/runtime-config.js" onerror="window.__AUTH_CONFIG__={}"></script>
   </head>
   <body>
     <div id="root"></div>

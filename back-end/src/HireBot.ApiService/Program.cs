@@ -122,6 +122,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+// 提供默认文件（index.html），使 ASP.NET Core 可作为前端宿主
+app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseStaticFiles(new StaticFileOptions
 {
@@ -132,6 +134,29 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// 向前端 SPA 注入运行时配置（OIDC / API 地址），支持镜像内前后端合并部署
+app.MapGet("/runtime-config.js", (IConfiguration cfg) =>
+{
+    var consoleCfg = cfg.GetSection("ConsoleAuth");
+    // 使用 JsonSerializer 对字符串值做安全转义，防止注入
+    var config = new
+    {
+        Authority = consoleCfg["Authority"] ?? string.Empty,
+        Realm = consoleCfg["Realm"] ?? string.Empty,
+        ClientId = consoleCfg["ClientId"] ?? string.Empty,
+        BypassAuth = consoleCfg.GetValue("BypassAuth", false),
+        ApiBase = string.Empty,
+    };
+    var json = System.Text.Json.JsonSerializer.Serialize(config);
+    return Results.Content($"window.__AUTH_CONFIG__ = {json};", "application/javascript");
+}).ExcludeFromDescription();
+
+// 防止未匹配的 /api/* 路由被 SPA 回退捕获（应返回 404）
+app.Map("/api/{**path}", () => Results.NotFound()).ExcludeFromDescription();
+
+// SPA 回退：前端路由（如 /jobs/123）由 index.html 接管
+app.MapFallbackToFile("index.html");
 
 await app.RunAsync();
 
