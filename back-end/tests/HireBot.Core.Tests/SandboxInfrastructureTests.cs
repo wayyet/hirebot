@@ -566,7 +566,7 @@ public sealed class SandboxInfrastructureTests
                     TenantId = "tenant-1",
                     OperatorId = "operator-1",
                     SessionKey = "default",
-                    Content = "鐠囬婀呴梽鍕",
+                    Content = "Please summarize the brief.",
                     Materials =
                     [
                         new HiringConversationMaterialDto
@@ -667,7 +667,7 @@ public sealed class SandboxInfrastructureTests
                 TenantId = "tenant-1",
                 OperatorId = "operator-1",
                 SessionKey = "default",
-                Content = "请先阅读参考模板附件。",
+                Content = "Please analyze the reference package and summary.",
                 Materials =
                 [
                     new HiringConversationMaterialDto
@@ -693,7 +693,7 @@ public sealed class SandboxInfrastructureTests
 
         Assert.True(sendResult.Success);
         Assert.False(string.IsNullOrWhiteSpace(handler.LastChatCompletionContent));
-        Assert.Contains("请先阅读参考模板附件。", handler.LastChatCompletionContent!, StringComparison.Ordinal);
+        Assert.Contains("Please analyze the reference package and summary.", handler.LastChatCompletionContent!, StringComparison.Ordinal);
         Assert.Contains("[FILE_URL:/app/memory/media-cache/media-001]", handler.LastChatCompletionContent!, StringComparison.Ordinal);
         Assert.Contains("[FILE_URL:/app/memory/media-cache/media-002]", handler.LastChatCompletionContent!, StringComparison.Ordinal);
 
@@ -893,10 +893,10 @@ public sealed class SandboxInfrastructureTests
             });
 
         Assert.True(detailResult.Success);
-        var todo = Assert.Single(detailResult.Data!.TodoItems);
-        Assert.Equal("todo_material_001", todo.Id);
-        Assert.True(todo.Completed);
-        Assert.Contains("ontology_extraction", todo.Notes, StringComparison.Ordinal);
+        var handoff = Assert.Single(detailResult.Data!.HandoffItems);
+        Assert.Equal("todo_material_001", handoff.HandoffId);
+        Assert.Equal(HiringHandoffStatus.Confirmed, handoff.Status);
+        Assert.Equal("ontology-extraction", handoff.TargetSkill);
     }
 
     [Fact]
@@ -1118,7 +1118,7 @@ public sealed class SandboxInfrastructureTests
                         message = new
                         {
                             role = "assistant",
-                            content = "閺€璺哄煂"
+                            content = "Continue processing."
                         }
                     }
                 }
@@ -1150,24 +1150,31 @@ public sealed class SandboxInfrastructureTests
                 },
                 metadata = new
                 {
-                    todoItems = new object[]
+                    handoffItems = new object[]
                     {
                         new
                         {
-                            id = "todo_material_001",
-                            text = "资料归类",
-                            notes = BuildTodoNotesJson(
-                                stage: HiringCollectionStage.Material,
-                                targetSkill: "ontology_extraction",
-                                intent: "整理客服退货流程资料",
-                                category: "流程 SOP",
-                                status: HiringTodoStatus.Done,
-                                source: "用户上传的客服退货流程资料",
-                                acceptance: "能够抽出退货流程节点",
-                                payloadJson: "{\"objective\":\"抽出退货流程节点\"}"),
-                            completed = true,
+                            sessionId = "session-001",
+                            workflowId = "employment-coach",
+                            handoffId = "todo_material_001",
+                            title = "Material classification",
+                            kind = "handoff_todo",
+                            stage = HiringCollectionStage.Material,
+                            targetSkill = "ontology-extraction",
+                            intent = "Summarize refund flow material",
+                            category = "process_sop",
+                            payload = BuildHandoffPayloadElement("refund-flow.pdf", "Extract refund flow nodes"),
+                            source = "uploaded material",
+                            acceptance = "objective and source_files are present",
+                            status = HiringHandoffStatus.Confirmed,
+                            fingerprint = BuildTestHandoffFingerprint(HiringCollectionStage.Material, "ontology-extraction", "todo_material_001"),
+                            relatedTodos = Array.Empty<string>(),
+                            relatedFiles = new[] { "refund-flow.pdf" },
+                            revision = 1,
                             createdAtUtc = DateTimeOffset.Parse("2026-05-06T10:00:00Z"),
-                            updatedAtUtc = DateTimeOffset.Parse("2026-05-06T10:05:00Z")
+                            updatedAtUtc = DateTimeOffset.Parse("2026-05-06T10:05:00Z"),
+                            dispatchId = (string?)null,
+                            callbackSummary = (string?)null
                         }
                     }
                 }
@@ -1182,7 +1189,7 @@ public sealed class SandboxInfrastructureTests
                 "session-001",
                 "goal",
                 false,
-                new HiringConversationMessageDto("msg-001", "assistant", "閺€璺哄煂", DateTimeOffset.UtcNow),
+                new HiringConversationMessageDto("msg-001", "assistant", "Continue processing.", DateTimeOffset.UtcNow),
                 new HiringStagePreviewDto(
                     "hire-001",
                     "goal",
@@ -1218,84 +1225,19 @@ public sealed class SandboxInfrastructureTests
         };
     }
 
-    private static string BuildTodoNotesJson(
-        string stage,
-        string kind = HiringTodoKind.Gap,
-        string status = HiringTodoStatus.Open,
-        string source = "test-source",
-        string? targetSkill = null,
-        string? intent = null,
-        string? acceptance = null,
-        string? category = null,
-        string? gapType = null,
-        string? priority = null,
-        string? currentState = null,
-        string? expectedState = null,
-        string? acceptanceCriteria = null,
-        string? acceptanceEvidence = null,
-        string? fingerprint = null,
-        string? level = null,
-        string? question = null,
-        string? evidence = null,
-        string? suggestedAction = null,
-        string? payloadJson = null,
-        string[]? relatedTodoIds = null,
-        string[]? relatedFiles = null,
-        string createdAtUtc = "2026-05-06T10:00:00Z",
-        string updatedAtUtc = "2026-05-06T10:05:00Z")
+    private static JsonElement BuildHandoffPayloadElement(string fileName, string objective)
     {
-        gapType ??= ResolveGapType(targetSkill);
-        priority ??= HiringTodoPriority.Required;
-        currentState ??= source;
-        expectedState ??= intent ?? source;
-        acceptanceCriteria ??= acceptance ?? "存在对应产物即可";
-        fingerprint ??= BuildTestTodoFingerprint(stage, targetSkill, kind);
-        var payload = payloadJson is null ? "null" : payloadJson;
-        var relatedTodos = JsonSerializer.Serialize(relatedTodoIds ?? []);
-        var relatedFilesJson = JsonSerializer.Serialize(relatedFiles ?? []);
-        return $$"""
+        return JsonSerializer.SerializeToElement(new
         {
-          "stage": "{{stage}}",
-          "kind": "{{kind}}",
-          "gap_type": {{JsonSerializer.Serialize(gapType)}},
-          "priority": {{JsonSerializer.Serialize(priority)}},
-          "current_state": {{JsonSerializer.Serialize(currentState)}},
-          "expected_state": {{JsonSerializer.Serialize(expectedState)}},
-          "acceptance_criteria": {{JsonSerializer.Serialize(acceptanceCriteria)}},
-          "acceptance_evidence": {{JsonSerializer.Serialize(acceptanceEvidence)}},
-          "category": {{JsonSerializer.Serialize(category)}},
-          "status": "{{status}}",
-          "source": "{{source}}",
-          "fingerprint": {{JsonSerializer.Serialize(fingerprint)}},
-          "payload": {{payload}},
-          "level": {{JsonSerializer.Serialize(level)}},
-          "question": {{JsonSerializer.Serialize(question)}},
-          "evidence": {{JsonSerializer.Serialize(evidence)}},
-          "suggested_action": {{JsonSerializer.Serialize(suggestedAction)}},
-          "related_todos": {{relatedTodos}},
-          "related_files": {{relatedFilesJson}},
-          "created_at": "{{createdAtUtc}}",
-          "updated_at": "{{updatedAtUtc}}"
-        }
-        """;
+            objective,
+            source_files = new[] { fileName }
+        });
     }
 
-    private static string ResolveGapType(string? targetSkill)
+    private static string BuildTestHandoffFingerprint(string stage, string targetSkill, string handoffId)
     {
-        return targetSkill?.Trim() switch
-        {
-            "skill_generation" or "skill-generation" => "missing_skill_definition",
-            "external_config" or "external-config" => "missing_external_config",
-            _ => "ontology_slice"
-        };
-    }
-
-    private static string BuildTestTodoFingerprint(string stage, string? targetSkill, string kind)
-    {
-        var normalizedTarget = string.IsNullOrWhiteSpace(targetSkill)
-            ? "workflow"
-            : targetSkill.Trim().Replace('-', '_').ToLowerInvariant();
-        return $"{stage}:{normalizedTarget}:{kind}-001";
+        var normalizedTarget = targetSkill.Trim().Replace('-', '_').ToLowerInvariant();
+        return $"{stage}:{normalizedTarget}:{handoffId}";
     }
 
     private static KingCrabSandboxTokenProvider CreateSandboxTokenProvider(

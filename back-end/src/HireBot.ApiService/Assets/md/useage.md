@@ -226,7 +226,7 @@ created_at, updated_at
 ```
 <dispatch>
 target: ontology_extraction
-todos: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
+handoff_ids: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
 mode: incremental
 note: 客服场景第一批，含决策规则与风格语料
 </dispatch>
@@ -315,7 +315,7 @@ status: drafting → ready_to_dispatch → dispatched → confirmed
 ```
 <dispatch>
 target: skill_generation
-todos: [s_seven_day_init_001, s_nonstandard_assessment_001, s_refund_progress_001]
+handoff_ids: [s_seven_day_init_001, s_nonstandard_assessment_001, s_refund_progress_001]
 note: 三条退货咨询主线 skill
 </dispatch>
 ```
@@ -423,7 +423,7 @@ status: drafting → ready_to_dispatch → dispatched → confirmed
 ```
 <dispatch>
 target: <下游 skill 名>
-todos: [<todo_id_1>, <todo_id_2>, ...]
+handoff_ids: [<handoff_id_1>, <handoff_id_2>, ...]
 mode: <可选，阶段相关模式标记>
 note: <可选，给系统/下游的简短上下文>
 </dispatch>
@@ -434,7 +434,7 @@ note: <可选，给系统/下游的简短上下文>
 | 字段 | 类型 | 必需 | 含义 |
 |---|---|---|---|
 | target | string | 是 | 取值见下表 |
-| todos | string[] | 是 | 本次交接的 todo id 列表，必须存在且状态为 `ready_to_dispatch` 或 `dirty` |
+| handoff_ids | string[] | 是 | 本次交接的 Handoff id 列表，必须存在且状态为 `ready_to_dispatch` 或 `dirty` |
 | mode | string | 否 | 阶段相关，目前只有 ontology_extraction 用：`incremental` / `full_replace` |
 | note | string | 否 | 给系统 / 下游的简短上下文，纯描述性 |
 
@@ -457,15 +457,15 @@ note: 三个阶段的必需项均已完成，可进入打包
 </dispatch>
 ```
 
-不携带 todos，也不期待回传——它只是一个"建议进入下一阶段"的语义信号，主 skill 接收后接管。
+不携带 handoff_ids，也不期待回传——它只是一个“建议进入下一阶段”的语义信号，主 skill 接收后接管。
 
 ### 8.2 系统层的解析合约
 
 主 skill 在监听对话流时，遇到符合上述 schema 的 `<dispatch>` 块：
 
-1. 解析出 `target` + `todos` + 可选字段
-2. 校验 todos 是否都存在于本 skill 维护的 todo 索引中、状态合法
-3. 调起对应下游 skill，把 todos 的 payload 作为输入传过去
+1. 解析出 `target` + `handoff_ids` + 可选字段
+2. 校验 handoff_ids 是否都存在于本 skill 维护的 Handoff 索引中、状态合法
+3. 调起对应下游 skill，把这些 Handoff 的 payload 作为输入传过去
 4. 等下游完成 → 收 user_summary + 产物路径
 5. 推送回本 skill（按下面的回传约定）
 
@@ -481,7 +481,7 @@ note: 三个阶段的必需项均已完成，可进入打包
 ```yaml
 dispatch_callback:
   source_dispatch_target: ontology_extraction    # 与之前 dispatch 的 target 对应
-  todo_ids: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
+  handoff_ids: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
   user_summary: "已抽取：非标退货 6 条判定规则、3 档处置路径；从工单截图归纳出 4 类话术模板。"
   artifacts:
     - path: ontology/non_standard_return_rules.json
@@ -494,7 +494,7 @@ dispatch_callback:
 
 本 skill 收到回传后：
 1. 把 user_summary 用一两句话向用户复述，请确认
-2. 用户确认 → 对应 todos status 切到 `confirmed`
+2. 用户确认 → 对应 Handoff status 切到 `confirmed`
 3. 用户提出问题 → 进入对应 todo 的修改流程，状态切回 `ready_to_dispatch`
 4. status 是 `failed` → 在会话中以"我让那边重新走一次"的口气重新 dispatch（不暴露 error 细节给用户，error 给系统层）
 
@@ -567,7 +567,7 @@ governance_review_proposal:
   triggered_by:
     file: agent.md
     change_summary: "VIP 必转规则改为：金牌 VIP 必转，普通 VIP 走金额判定"
-  potentially_affected_todos:
+  potentially_affected_handoffs:
     - id: s_nonstandard_assessment_001
       reason: 该 skill 含 VIP 维度判定
     - id: e_xiaoshouyi_read_order_001
@@ -635,8 +635,8 @@ UI 合并展示规则由系统层决定，本 skill 不关心。建议合并展�
 
 | 阶段 | todo 工单 | dispatch | 回传后状态 |
 |---|---|---|---|
-| 阶段 1 资料 | M01: 非标退货判定规则<br>M02: 客服话术风格 | `<dispatch target=ontology_extraction todos=[M01, M02] mode=incremental>` | M01, M02 → confirmed |
-| 阶段 2 技能 | S01: 7天无理由退货初判<br>S02: 非标退货资格预判<br>S03: 退款进度查询与解释 | `<dispatch target=skill_generation todos=[S01, S02, S03]>` | S01-S03 → confirmed |
+| 阶段 1 资料 | M01: 非标退货判定规则<br>M02: 客服话术风格 | `<dispatch target=ontology_extraction handoff_ids=[M01, M02] mode=incremental>` | M01, M02 → confirmed |
+| 阶段 2 技能 | S01: 7天无理由退货初判<br>S02: 非标退货资格预判<br>S03: 退款进度查询与解释 | `<dispatch target=skill_generation handoff_ids=[S01, S02, S03]>` | S01-S03 → confirmed |
 | 配置治理 | agent.md 修改：VIP 规则改为分级 | （无 dispatch，治理路径独立） | agent.md 已写入 + 触发 S02 进入 needs_review → 复核后回 confirmed |
 | 阶段 3 外部 | E01: 销售易 CRM 读订单<br>E02: 企微建工单<br>E03: 自研 OA 读审批进度 | 三次逐条 dispatch | E01-E03 → confirmed |
 | 出口 | — | `<dispatch target=stage_transition to=instance_packaging>` | 本 skill 范围结束 |
@@ -684,7 +684,7 @@ UI 合并展示规则由系统层决定，本 skill 不关心。建议合并展�
 - [ ] 会话窗口已建立，与沙箱一一对应
 
 **dispatch 钩子**
-- [ ] 监听本 skill 输出中的 `<dispatch>` 块，能正确解析 target / todos / mode / note
+- [ ] 监听本 skill 输出中的 `<dispatch>` 块，能正确解析 target / handoff_ids / mode / note
 - [ ] target 取值映射到对应下游 skill 的调度逻辑（含 stage_transition 特例）
 - [ ] 不合规的 dispatch 块不被静默忽略，给本 skill 反馈让它重组
 

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
@@ -1054,30 +1055,62 @@ internal sealed class SandboxService(
                 .ToArray()
             : [];
 
-        var todoItems = response?.Metadata?.TodoItems is { Count: > 0 } metadataTodoItems
-            ? metadataTodoItems
-                .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+        var handoffItems = response?.Metadata?.HandoffItems is { Count: > 0 } metadataHandoffItems
+            ? metadataHandoffItems
+                .Where(item =>
+                    !string.IsNullOrWhiteSpace(item.SessionId) &&
+                    !string.IsNullOrWhiteSpace(item.WorkflowId) &&
+                    !string.IsNullOrWhiteSpace(item.HandoffId) &&
+                    !string.IsNullOrWhiteSpace(item.Title) &&
+                    !string.IsNullOrWhiteSpace(item.Kind) &&
+                    !string.IsNullOrWhiteSpace(item.Stage) &&
+                    !string.IsNullOrWhiteSpace(item.TargetSkill) &&
+                    !string.IsNullOrWhiteSpace(item.Status) &&
+                    !string.IsNullOrWhiteSpace(item.Fingerprint))
                 .Select(item =>
                 {
                     var createdAtUtc = item.CreatedAtUtc ?? DateTimeOffset.UtcNow;
                     var updatedAtUtc = item.UpdatedAtUtc ?? createdAtUtc;
-                    return new SandboxSessionTodoItemDto(
-                        item.Id!.Trim(),
-                        item.Text?.Trim() ?? string.Empty,
-                        item.Notes,
-                        item.Completed,
+                    return new SandboxSessionHandoffItemDto(
+                        item.SessionId!.Trim(),
+                        item.WorkflowId!.Trim(),
+                        item.HandoffId!.Trim(),
+                        item.Title!.Trim(),
+                        item.Kind!.Trim(),
+                        item.Stage!.Trim(),
+                        item.TargetSkill!.Trim(),
+                        string.IsNullOrWhiteSpace(item.Intent) ? null : item.Intent.Trim(),
+                        string.IsNullOrWhiteSpace(item.Category) ? null : item.Category.Trim(),
+                        item.Payload is { } payload && payload.ValueKind != JsonValueKind.Undefined ? payload.Clone() : EmptyObject(),
+                        string.IsNullOrWhiteSpace(item.Source) ? null : item.Source.Trim(),
+                        string.IsNullOrWhiteSpace(item.Acceptance) ? null : item.Acceptance.Trim(),
+                        item.Status!.Trim(),
+                        item.Fingerprint!.Trim(),
+                        item.RelatedTodos?
+                            .Where(value => !string.IsNullOrWhiteSpace(value))
+                            .Select(value => value.Trim())
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToArray() ?? [],
+                        item.RelatedFiles?
+                            .Where(value => !string.IsNullOrWhiteSpace(value))
+                            .Select(value => value.Trim())
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToArray() ?? [],
+                        Math.Max(1, item.Revision ?? 1),
                         createdAtUtc,
-                        updatedAtUtc);
+                        updatedAtUtc,
+                        string.IsNullOrWhiteSpace(item.DispatchId) ? null : item.DispatchId.Trim(),
+                        string.IsNullOrWhiteSpace(item.CallbackSummary) ? null : item.CallbackSummary.Trim());
                 })
                 .OrderBy(item => item.CreatedAtUtc)
-                .ThenBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.HandoffId, StringComparer.OrdinalIgnoreCase)
                 .ToArray()
             : [];
 
         return new SandboxSessionDetailDto(
             sessionId,
             messages,
-            todoItems,
+            handoffItems,
             response?.IsActive ?? false);
     }
 
@@ -1091,7 +1124,7 @@ internal sealed class SandboxService(
         IReadOnlyList<SandboxGatewaySessionTurn> History);
 
     private sealed record SandboxGatewaySessionMetadata(
-        IReadOnlyList<SandboxGatewaySessionTodoItem> TodoItems);
+        IReadOnlyList<SandboxGatewaySessionHandoffItem> HandoffItems);
 
     private sealed record SandboxGatewaySessionTurn(
         string Role,
@@ -1150,13 +1183,34 @@ internal sealed class SandboxService(
         string? Name,
         int SkillsInstalled);
 
-    private sealed record SandboxGatewaySessionTodoItem(
-        string? Id,
-        string? Text,
-        string? Notes,
-        bool Completed,
+    private sealed record SandboxGatewaySessionHandoffItem(
+        string? SessionId,
+        string? WorkflowId,
+        string? HandoffId,
+        string? Title,
+        string? Kind,
+        string? Stage,
+        string? TargetSkill,
+        string? Intent,
+        string? Category,
+        JsonElement? Payload,
+        string? Source,
+        string? Acceptance,
+        string? Status,
+        string? Fingerprint,
+        IReadOnlyList<string>? RelatedTodos,
+        IReadOnlyList<string>? RelatedFiles,
+        int? Revision,
         DateTimeOffset? CreatedAtUtc,
-        DateTimeOffset? UpdatedAtUtc);
+        DateTimeOffset? UpdatedAtUtc,
+        string? DispatchId,
+        string? CallbackSummary);
+
+    private static JsonElement EmptyObject()
+    {
+        using var document = JsonDocument.Parse("{}");
+        return document.RootElement.Clone();
+    }
 
     private sealed record AttachmentPayload(string FileName, string ContentType, byte[] Content, string ContentHash, string? StoragePath);
 }
