@@ -62,9 +62,7 @@ function isNavItemActive(pathname: string, navPath: string) {
       pathname.includes("/chat")
     );
   }
-  if (navPath === "/prototype") {
-    return pathname.startsWith("/prototype");
-  }
+
   return pathname.startsWith(navPath);
 }
 
