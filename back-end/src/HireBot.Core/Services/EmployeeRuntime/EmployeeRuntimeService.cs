@@ -270,6 +270,10 @@ public sealed class EmployeeRuntimeService(
 
         await store.UpsertAsync(owner, updated, cancellationToken);
         await UpsertInstanceRecordAsync(updated, cancellationToken: cancellationToken);
+        if (string.Equals(targetStatus, "retired", StringComparison.OrdinalIgnoreCase))
+        {
+            await CleanupRetiredInstanceArtifactsAsync(owner, updated.EmployeeId, cancellationToken);
+        }
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "状态已更新");
     }
 
@@ -1457,6 +1461,102 @@ public sealed class EmployeeRuntimeService(
         {
             // Best-effort cleanup only.
         }
+    }
+
+    /// <summary>
+    /// 退役时清理该实例的运行时资源。
+    /// </summary>
+    private async Task CleanupRetiredInstanceArtifactsAsync(
+        string ownerSubject,
+        string instanceId,
+        CancellationToken cancellationToken)
+    {
+        await TryDeleteRuntimeSandboxAsync(ownerSubject, instanceId, cancellationToken);
+        await RemoveInstanceImConfigsAsync(instanceId, cancellationToken);
+    }
+
+    /// <summary>
+    /// 尝试删除分身运行时沙箱。
+    /// </summary>
+    private async Task TryDeleteRuntimeSandboxAsync(
+        string ownerSubject,
+        string instanceId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await sandboxService.DeleteAsync(
+                new SandboxInstanceLookupRequestDto
+                {
+                    ScopeType = SandboxScopeTypes.Hire,
+                    ScopeKey = BuildRuntimeScopeKey(instanceId),
+                    SandboxRole = RuntimeSandboxRole,
+                    OwnerSubject = ownerSubject
+                },
+                cancellationToken);
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
+    }
+
+    /// <summary>
+    /// 删除该实例已配置的 IM 绑定。
+    /// </summary>
+    private async Task RemoveInstanceImConfigsAsync(string instanceId, CancellationToken cancellationToken)
+    {
+        foreach (var platform in new[] { "feishu", "dingtalk", "wecom" })
+        {
+            await TryDeleteChannelOverrideAsync(platform, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// 删除沙箱内指定频道的运行时覆盖配置。
+    /// </summary>
+    private async Task TryDeleteChannelOverrideAsync(string platform, CancellationToken cancellationToken)
+    {
+        var normalizedPlatform = platform.Trim().ToLowerInvariant();
+        var path = normalizedPlatform switch
+        {
+            "feishu" => "/admin/channels/feishu/override",
+            "dingtalk" => "/admin/channels/dingtalk/override",
+            "wecom" => "/admin/channels/wecom/override",
+            _ => null
+        };
+
+        if (path is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var ownerSubject = requestContextService.ResolveOwnerSubject();
+            await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
+                HttpMethod.Delete,
+                path,
+                body: null,
+                ownerSubject,
+                cancellationToken,
+                useHireBotApiPrefix: false);
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
+    }
+
+    /// <summary>
+    /// KingCrab 管理接口的通用操作结果。
+    /// </summary>
+    private sealed class KingCrabOperationStatusResult
+    {
+        public bool Success { get; set; }
+        public string? Message { get; set; }
+        public string? Error { get; set; }
+        public string? Mode { get; set; }
     }
 
     /// <summary>

@@ -112,6 +112,7 @@ public sealed class InstancesController(
             var feishuResponse = await instanceChatService.UpdateFeishuChannelConfigAsync(instanceId, request, cancellationToken);
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
+
         //增加其他平台
 
 
