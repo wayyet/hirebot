@@ -76,6 +76,9 @@ internal static class BuildServiceTemplatePayloadParser
             Description: FirstNonEmpty(
                 GetString(element, "description", "desc", "introduction", "summary"),
                 GetString(FindProperty(element, "template"), "description", "desc", "introduction", "summary")),
+            DetailDoc: FirstNonEmpty(
+                GetString(element, "detailDoc", "detail_doc", "detailMarkdown", "detail_markdown"),
+                GetString(FindProperty(element, "template"), "detailDoc", "detail_doc", "detailMarkdown", "detail_markdown")),
             CurrentVersion: currentVersion,
             UpdatedAt: GetDateTimeOffset(element, "updatedAt", "lastUpdatedAt", "modifiedAt"),
             Status: status,
@@ -312,6 +315,7 @@ internal sealed record BuildTemplateDocument(
     string Name,
     string Positioning,
     string Description,
+    string DetailDoc,
     string CurrentVersion,
     DateTimeOffset? UpdatedAt,
     string Status,

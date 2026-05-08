@@ -1,0 +1,24 @@
+{
+  "test_cases": [
+    {
+      "test_case_id": "CONN-001",
+      "scenario_name": "基础连通性与问候响应",
+      "input": {
+        "user_request": "你好，先确认你能否处理办公资产管理请求。",
+        "context": {}
+      },
+      "expected_behavior_sequence": [
+        {
+          "step": 1,
+          "action": "确认身份与能力范围",
+          "criteria": "明确可处理资产全生命周期相关任务"
+        }
+      ],
+      "expected_output": {
+        "resolution": "连接成功",
+        "user_satisfaction": "基本满意",
+        "artifacts_created": []
+      }
+    }
+  ]
+}

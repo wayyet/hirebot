@@ -1,4 +1,4 @@
-﻿using HireBot.Abstraction;
+using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeTemplate;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeTemplate;
@@ -131,6 +131,7 @@ public sealed class EmployeeTemplateService(
             template.Name,
             template.Tagline,
             template.Description,
+            template.DetailDoc,
             template.CoreAbilities,
             new TemplateResponsibilityBoundaryDto(template.InScope, template.OutOfScope),
             template.Prerequisites,

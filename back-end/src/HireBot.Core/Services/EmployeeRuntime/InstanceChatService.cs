@@ -14,7 +14,7 @@ using Microsoft.AspNetCore.Mvc.ActionConstraints;
 namespace HireBot.Core.Services.EmployeeRuntime;
 
 /// <summary>
-/// 实例聊天服务，封装站内聊天功能。
+/// 主要服务于IM的配置
 /// </summary>
 public sealed class InstanceChatService(
     IInstanceRuntimeConversationService runtimeConversationService,
@@ -41,8 +41,10 @@ public sealed class InstanceChatService(
         return await runtimeConversationService.GetMessagesAsync(instanceId, InAppChannel, cancellationToken: cancellationToken);
     }
 
+    #region 站内
+
     /// <summary>
-    /// 发送消息给实例。
+    /// 发送消息给实例。站内用
     /// </summary>
     /// <param name="instanceId">实例ID</param>
     /// <param name="request">消息请求</param>
@@ -78,7 +80,7 @@ public sealed class InstanceChatService(
         return await runtimeConversationService.ClearMessagesAsync(instanceId, InAppChannel, cancellationToken: cancellationToken);
     }
 
-
+    #endregion
 
 
     #region 飞书
@@ -135,44 +137,7 @@ public sealed class InstanceChatService(
             new ImConfigResultDto("feishu", "url_callback", "active", remoteResult.Data.Message ?? "飞书配置已更新", DateTimeOffset.UtcNow));
     }
 
-    /// <summary>
-    /// 更新钉钉频道配置（新的 KingCrab 网关入口）。
-    /// </summary>
-    public async Task<ApiResponse<ImConfigResultDto>> UpdateDingTalkChannelConfigAsync(
-        string instanceId,
-        DingTalkChannelConfig request,
-        CancellationToken cancellationToken = default)
-    {
-        if (request is null)
-        {
-            return ApiResponse<ImConfigResultDto>.ErrorResponse(400, "配置不能为空");
-        }
-
-        var access = await ResolveChannelConfigTargetAsync(instanceId, "dingtalk", cancellationToken);
-        if (!access.Success)
-        {
-            return ApiResponse<ImConfigResultDto>.ErrorResponse(access.Code, access.Message);
-        }
-
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
-        var remoteResult = await SendDingTalkChannelConfigAsync(request, ownerSubject, cancellationToken);
-
-        if (!remoteResult.Success || remoteResult.Data is null)
-        {
-            var message = remoteResult.Data?.Message ?? remoteResult.Message;
-            return ApiResponse<ImConfigResultDto>.ErrorResponse(remoteResult.StatusCode, string.IsNullOrWhiteSpace(message) ? "钉钉配置更新失败" : message);
-        }
-
-        if (!remoteResult.Data.Success)
-        {
-            return ApiResponse<ImConfigResultDto>.ErrorResponse(
-                remoteResult.StatusCode,
-                string.IsNullOrWhiteSpace(remoteResult.Data.Error) ? "钉钉配置更新失败" : remoteResult.Data.Error);
-        }
-
-        return ApiResponse<ImConfigResultDto>.SuccessResponse(
-            new ImConfigResultDto("dingtalk", "url_callback", "active", remoteResult.Data.Message ?? "钉钉配置已更新", DateTimeOffset.UtcNow));
-    }
+  
 
     /// <summary>
     /// 更新飞书频道配置。
@@ -216,37 +181,7 @@ public sealed class InstanceChatService(
         return ApiResponse<FeishuChannelEffectiveConfigDto>.SuccessResponse(remoteResult.Data);
     }
 
-    /// <summary>
-    /// 获取钉钉频道当前生效配置。
-    /// </summary>
-    public async Task<ApiResponse<DingTalkChannelConfig>> GetDingTalkChannelEffectiveConfigAsync(
-        string instanceId,
-        CancellationToken cancellationToken = default)
-    {
-        var access = await ResolveChannelConfigTargetAsync(instanceId, "dingtalk", cancellationToken);
-        if (!access.Success)
-        {
-            return ApiResponse<DingTalkChannelConfig>.ErrorResponse(access.Code, access.Message);
-        }
-
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
-        var remoteResult = await kingCrabHttpClient.SendForJsonAsync<DingTalkChannelConfig>(
-            HttpMethod.Get,
-            "/admin/channels/dingtalk",
-            body: null,
-            ownerSubject,
-            cancellationToken,
-            useHireBotApiPrefix: false);
-
-        if (!remoteResult.Success || remoteResult.Data is null)
-        {
-            return ApiResponse<DingTalkChannelConfig>.ErrorResponse(
-                remoteResult.StatusCode,
-                string.IsNullOrWhiteSpace(remoteResult.Message) ? "获取钉钉当前配置失败" : remoteResult.Message);
-        }
-
-        return ApiResponse<DingTalkChannelConfig>.SuccessResponse(remoteResult.Data);
-    }
+    
 
     /// <summary>
     /// 清除飞书频道的运行时覆盖配置，恢复 appsettings 生效。
@@ -293,6 +228,127 @@ public sealed class InstanceChatService(
                 : remoteResult.Data.Message);
     }
 
+
+    private async Task<RemoteCallResult<KingCrabOperationStatusResult>> SendFeishuChannelConfigAsync(
+        FeishuChannelConfig config,
+        string ownerSubject,
+        CancellationToken cancellationToken = default)
+    {
+        if (config is null)
+        {
+            return RemoteCallResult<KingCrabOperationStatusResult>.Failure(400, "配置不能为空");
+        }
+
+        return await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
+            HttpMethod.Post,
+            FeishuChannelUpdatePath,
+            config,
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false);
+    }
+
+
+
+    #endregion
+
+
+    #region 钉钉
+
+
+    /// <summary>
+    /// 获取钉钉频道当前生效配置。
+    /// </summary>
+    public async Task<ApiResponse<DingTalkChannelConfig>> GetDingTalkChannelEffectiveConfigAsync(
+        string instanceId,
+        CancellationToken cancellationToken = default)
+    {
+        var access = await ResolveChannelConfigTargetAsync(instanceId, "dingtalk", cancellationToken);
+        if (!access.Success)
+        {
+            return ApiResponse<DingTalkChannelConfig>.ErrorResponse(access.Code, access.Message);
+        }
+
+        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var remoteResult = await kingCrabHttpClient.SendForJsonAsync<DingTalkChannelConfig>(
+            HttpMethod.Get,
+            "/admin/channels/dingtalk",
+            body: null,
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false);
+
+        if (!remoteResult.Success || remoteResult.Data is null)
+        {
+            return ApiResponse<DingTalkChannelConfig>.ErrorResponse(
+                remoteResult.StatusCode,
+                string.IsNullOrWhiteSpace(remoteResult.Message) ? "获取钉钉当前配置失败" : remoteResult.Message);
+        }
+
+        return ApiResponse<DingTalkChannelConfig>.SuccessResponse(remoteResult.Data);
+    }
+
+    /// <summary>
+    /// 更新钉钉频道配置（新的 KingCrab 网关入口）。
+    /// </summary>
+    public async Task<ApiResponse<ImConfigResultDto>> UpdateDingTalkChannelConfigAsync(
+        string instanceId,
+        DingTalkChannelConfig request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request is null)
+        {
+            return ApiResponse<ImConfigResultDto>.ErrorResponse(400, "配置不能为空");
+        }
+
+        var access = await ResolveChannelConfigTargetAsync(instanceId, "dingtalk", cancellationToken);
+        if (!access.Success)
+        {
+            return ApiResponse<ImConfigResultDto>.ErrorResponse(access.Code, access.Message);
+        }
+
+        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var remoteResult = await SendDingTalkChannelConfigAsync(request, ownerSubject, cancellationToken);
+
+        if (!remoteResult.Success || remoteResult.Data is null)
+        {
+            var message = remoteResult.Data?.Message ?? remoteResult.Message;
+            return ApiResponse<ImConfigResultDto>.ErrorResponse(remoteResult.StatusCode, string.IsNullOrWhiteSpace(message) ? "钉钉配置更新失败" : message);
+        }
+
+        if (!remoteResult.Data.Success)
+        {
+            return ApiResponse<ImConfigResultDto>.ErrorResponse(
+                remoteResult.StatusCode,
+                string.IsNullOrWhiteSpace(remoteResult.Data.Error) ? "钉钉配置更新失败" : remoteResult.Data.Error);
+        }
+
+        return ApiResponse<ImConfigResultDto>.SuccessResponse(
+            new ImConfigResultDto("dingtalk", "url_callback", "active", remoteResult.Data.Message ?? "钉钉配置已更新", DateTimeOffset.UtcNow));
+    }
+
+
+    private async Task<RemoteCallResult<KingCrabOperationStatusResult>> SendDingTalkChannelConfigAsync(
+    DingTalkChannelConfig config,
+    string ownerSubject,
+    CancellationToken cancellationToken = default)
+    {
+        if (config is null)
+        {
+            return RemoteCallResult<KingCrabOperationStatusResult>.Failure(400, "配置不能为空");
+        }
+
+        return await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
+            HttpMethod.Post,
+            DingTalkChannelUpdatePath,
+            config,
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false);
+    }
+
+
+
     /// <summary>
     /// 清除钉钉频道的运行时覆盖配置，恢复 appsettings 生效。
     /// </summary>
@@ -338,50 +394,18 @@ public sealed class InstanceChatService(
                 : remoteResult.Data.Message);
     }
 
-    private async Task<RemoteCallResult<KingCrabOperationStatusResult>> SendFeishuChannelConfigAsync(
-        FeishuChannelConfig config,
-        string ownerSubject,
-        CancellationToken cancellationToken = default)
-    {
-        if (config is null)
-        {
-            return RemoteCallResult<KingCrabOperationStatusResult>.Failure(400, "配置不能为空");
-        }
-
-        return await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
-            HttpMethod.Post,
-            FeishuChannelUpdatePath,
-            config,
-            ownerSubject,
-            cancellationToken,
-            useHireBotApiPrefix: false);
-    }
-
-    private async Task<RemoteCallResult<KingCrabOperationStatusResult>> SendDingTalkChannelConfigAsync(
-        DingTalkChannelConfig config,
-        string ownerSubject,
-        CancellationToken cancellationToken = default)
-    {
-        if (config is null)
-        {
-            return RemoteCallResult<KingCrabOperationStatusResult>.Failure(400, "配置不能为空");
-        }
-
-        return await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
-            HttpMethod.Post,
-            DingTalkChannelUpdatePath,
-            config,
-            ownerSubject,
-            cancellationToken,
-            useHireBotApiPrefix: false);
-    }
 
     #endregion
 
 
-    #region 钉钉
-    #endregion
-
+    #region 公用
+    /// <summary>
+    /// 前置检查
+    /// </summary>
+    /// <param name="instanceId"></param>
+    /// <param name="platform"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
 
     private async Task<ConfigAccessResult> ResolveChannelConfigTargetAsync(
         string instanceId,
@@ -420,48 +444,17 @@ public sealed class InstanceChatService(
 
         return ConfigAccessResult.Ok(instance, platform);
     }
+    #endregion
 
-    /// <summary>
-    /// 飞书频道配置类。
-    /// 用于更新飞书频道的配置参数。
-    /// </summary>
-    private sealed class FeishuChannelConfig
-    {
-        /// <summary>
-        /// 是否启用飞书频道。
-        /// </summary>
-        public bool Enabled { get; set; } = false;
 
-        /// <summary>
-        /// 飞书 App ID。
-        /// </summary>
-        public string? AppId { get; set; }
 
-        /// <summary>
-        /// App ID 的引用（如 "env:FEISHU_APP_ID"）。
-        /// </summary>
-        public string AppIdRef { get; set; } = "env:FEISHU_APP_ID";
+    #region 配置实体
 
-        /// <summary>
-        /// 飞书 App Secret。
-        /// </summary>
-        public string? AppSecret { get; set; }
+    
 
-        /// <summary>
-        /// App Secret 的引用（如 "env:FEISHU_APP_SECRET"）。
-        /// </summary>
-        public string AppSecretRef { get; set; } = "env:FEISHU_APP_SECRET";
 
-        /// <summary>
-        /// 群聊策略："open" 允许所有群组，"allowlist" 限制为允许的群组ID，"disabled" 丢弃群消息。
-        /// </summary>
-        public string GroupPolicy { get; set; } = "open";
 
-        /// <summary>
-        /// 允许的发送者 open_id 列表。为空则允许所有发送者。
-        /// </summary>
-        public string[] AllowedFromUserIds { get; set; } = [];
-    }
+    #endregion
 
     /// <summary>
     /// 飞书配置目标校验结果。

@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
-import { useKeycloak } from '@react-keycloak/web'
+import { useQuery } from '@tanstack/react-query'
+import { getAuthUser } from '@/infra/auth/oidc'
 import { isAuthBypassed } from '@/infra/auth/auth-mode'
 
 export default function AuthGate({ children }: { children: ReactElement }) {
@@ -8,14 +9,19 @@ export default function AuthGate({ children }: { children: ReactElement }) {
     return children
   }
 
-  return <KeycloakAuthGate>{children}</KeycloakAuthGate>
+  return <OidcAuthGate>{children}</OidcAuthGate>
 }
 
-function KeycloakAuthGate({ children }: { children: ReactElement }) {
-  const { keycloak, initialized } = useKeycloak()
+function OidcAuthGate({ children }: { children: ReactElement }) {
+  const { data: user, isLoading } = useQuery({
+    queryKey: ['auth-user'],
+    queryFn: getAuthUser,
+    staleTime: 60_000,
+    retry: false,
+  })
   const location = useLocation()
 
-  if (!initialized) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center text-sm text-slate-500">
         正在检查登录状态...
@@ -23,10 +29,11 @@ function KeycloakAuthGate({ children }: { children: ReactElement }) {
     )
   }
 
-  if (!keycloak?.authenticated) {
+  if (!user) {
     const redirect = encodeURIComponent(location.pathname + location.search)
     return <Navigate to={`/login?redirect=${redirect}`} replace />
   }
 
   return children
 }
+

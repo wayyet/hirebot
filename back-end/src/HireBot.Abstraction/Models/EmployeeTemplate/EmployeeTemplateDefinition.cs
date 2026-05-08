@@ -1,4 +1,4 @@
-﻿namespace HireBot.Abstraction.Models.EmployeeTemplate;
+namespace HireBot.Abstraction.Models.EmployeeTemplate;
 
 public sealed record EmployeeTemplateDefinition(
     string TemplateId,
@@ -6,6 +6,7 @@ public sealed record EmployeeTemplateDefinition(
     string Name,
     string Tagline,
     string Description,
+    string DetailDoc,
     IReadOnlyList<string> CoreAbilityTags,
     int HiredCount,
     decimal SuccessRate,

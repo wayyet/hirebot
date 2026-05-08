@@ -6,6 +6,7 @@ import { UxOverlayProvider } from '@/app/context/UxOverlayContext'
 import { api } from '@/infra/api'
 import type { LocalStateMigrationRequest } from '@/infra/api'
 import LoginPage from '@/features/auth/pages/LoginPage'
+import AuthCallbackPage from '@/features/auth/pages/AuthCallbackPage'
 import MarketPage from '@/features/market/pages/MarketPage'
 import TemplateDetailPage from '@/features/market/pages/TemplateDetailPage'
 import DepartmentEmployeesPage from '@/features/hiring/pages/DepartmentEmployeesPage'
@@ -130,7 +131,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={<Navigate to="/department-employees" replace />} />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route path="/" element={<Navigate to="/template-pool" replace />} />
           <Route path="/template-pool" element={<ProtectedLayout><MarketPage /></ProtectedLayout>} />
           <Route path="/market" element={<Navigate to="/template-pool" replace />} />
           <Route path="/templates/:id" element={<ProtectedLayout><TemplateDetailPage /></ProtectedLayout>} />
@@ -153,7 +155,7 @@ export default function App() {
           <Route path="/skill/register" element={<ProtectedLayout><RegisterSkillPage /></ProtectedLayout>} />
           <Route path="/skill/:id" element={<ProtectedLayout><SkillDetailPage /></ProtectedLayout>} />
           <Route path="/prototype" element={<AuthGate><PrototypeStandalonePage /></AuthGate>} />
-          <Route path="*" element={<Navigate to="/department-employees" replace />} />
+          <Route path="*" element={<Navigate to="/template-pool" replace />} />
         </Routes>
       </BrowserRouter>
     </UxOverlayProvider>

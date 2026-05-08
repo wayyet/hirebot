@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# 测试产物（运行时生成，无需跟踪）
+test-results/
+e2e-report/
+output-*.png
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

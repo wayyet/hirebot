@@ -1,5 +1,7 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Loader2 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, type EmployeeTemplateDetail, type TemplatePrerequisite } from '@/infra/api'
 
@@ -238,6 +240,17 @@ export default function TemplateDetailPage() {
           </div>
         </div>
       </div>
+
+      {template.detailDoc.trim() ? (
+        <div className="hb-card p-6">
+          <h2 className="text-base font-semibold text-[#0a0a0a]">详细说明</h2>
+          <div className="hb-template-doc mt-4">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {template.detailDoc}
+            </ReactMarkdown>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-5 xl:grid-cols-2">
         <div className="hb-card p-6">

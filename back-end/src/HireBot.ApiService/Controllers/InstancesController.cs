@@ -160,23 +160,24 @@ public sealed class InstancesController(
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
 
+        if (string.Equals(platform, "dingtalk", StringComparison.OrdinalIgnoreCase))
+        {
+            var feishuResponse = await instanceChatService.GetDingTalkChannelEffectiveConfigAsync(instanceId, cancellationToken);
+            return StatusCode(feishuResponse.Code, feishuResponse);
+        }
+
+
+
+
+
+
+
         var response = ApiResponse<FeishuChannelEffectiveConfigDto>.ErrorResponse(
             404,
             $"Unknown or unsupported platform '{platform}'.");
         return StatusCode(response.Code, response);
     }
 
-    /// <summary>
-    /// 获取实例指定钉钉 IM 配置的当前生效配置。
-    /// </summary>
-    [HttpGet("{instanceId}/im-config/dingtalk/effective")]
-    public async Task<IActionResult> GetEffectiveDingTalkImConfig(
-        string instanceId,
-        CancellationToken cancellationToken = default)
-    {
-        var response = await instanceChatService.GetDingTalkChannelEffectiveConfigAsync(instanceId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
 
     [HttpGet("{instanceId}/im-config")]
     public async Task<IActionResult> GetImConfigs(string instanceId, CancellationToken cancellationToken = default)
@@ -204,21 +205,18 @@ public sealed class InstancesController(
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
 
+        if (string.Equals(platform, "dingtalk", StringComparison.OrdinalIgnoreCase))
+        {
+            var feishuResponse = await instanceChatService.ClearDingTalkChannelOverrideAsync(instanceId, cancellationToken);
+            return StatusCode(feishuResponse.Code, feishuResponse);
+        }
+
+
         var response = await instanceImConfigService.DeleteConfigAsync(instanceId, platform, cancellationToken);
         return StatusCode(response.Code, response);
     }
 
-    /// <summary>
-    /// 清除钉钉频道的运行时覆盖配置。
-    /// </summary>
-    [HttpDelete("{instanceId}/im-config/dingtalk")]
-    public async Task<IActionResult> DeleteDingTalkImConfig(
-        string instanceId,
-        CancellationToken cancellationToken = default)
-    {
-        var response = await instanceChatService.ClearDingTalkChannelOverrideAsync(instanceId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
+ 
 
     /// <summary>
     /// 构建模型校验错误响应
