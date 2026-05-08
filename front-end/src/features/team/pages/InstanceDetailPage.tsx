@@ -4,14 +4,12 @@ import {
   ArrowLeft,
   Bot,
   Check,
-  CheckCircle2,
   Clock3,
   CopyPlus,
   GitBranch,
   Loader2,
   MessageCircle,
   ShieldCheck,
-  Sparkles,
   Users,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -123,23 +121,6 @@ export default function InstanceDetailPage() {
   useEffect(() => {
     void loadEmployee();
   }, [id]);
-
-  async function completeAction(action: string) {
-    if (!id) return;
-    setSubmitting(true);
-    setError("");
-    try {
-      const data = await api.employeeRuntime.completePendingAction(id, action);
-      setEmployee(data);
-      showToast("待办已标记完成", "success");
-    } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error ? requestError.message : "处理待办失败",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   async function toggleCapability(name: string, ready: boolean) {
     if (!employee || !id) return;
