@@ -17,10 +17,7 @@ resources:
     cpu: "1000m"
 
 autoscaling:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 5
-  targetCPUUtilizationPercentage: 70
+  enabled: false
 
 env:
   ASPNETCORE_URLS: http://+:8080
