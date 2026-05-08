@@ -59,7 +59,7 @@ env:
   # LlmApiKey 和 ClientSecret 通过 secretEnv 注入
   # KingCrabSandboxTokenProvider 优先用 ClientId/ClientSecret 向 Keycloak 换取 token；
   # 若两者未配置则回退到静态 AuthToken。
-  OpenSandbox__KingCrab__ClientId: ncrew-hire
+  OpenSandbox__KingCrab__ClientId: ncrew-hire-sandbox
   # ---- 沙箱 PVC (SaaS CFS) ----
   SandboxPvc__Enabled: "true"
   SandboxPvc__Namespace: opensandbox
@@ -93,7 +93,7 @@ secrets:
   create: true
   stringData:
     OpenSandboxKingCrabLlmApiKey: "sk-cp-cKAEvOlT0QxJacIbrmO0Ua-RA7S0AiDL__HCMF274d-bds9g4lgILdhBlUmLLjDv6biKZ9Acr6Y65HDuLgkYi-UOkwIYwTaRzVs87LKDJPEuc1j6aixpnhQ"
-    OpenSandboxKingCrabClientSecret: "b6cWTUKq541ziC2daLGcIvbUoBtuAwBs"
+    OpenSandboxKingCrabClientSecret: "IZTY9YKEO1Qx4pgrKIYaOSfUdcyYag9z"
 
 database:
   existingSecret: ""
