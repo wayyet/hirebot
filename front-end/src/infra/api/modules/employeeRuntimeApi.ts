@@ -90,6 +90,10 @@ export interface ImConfigRequest {
   connectionMode: ImConnectionMode
   appId?: string
   appSecret?: string
+  appKey?: string
+  appIdRef?: string
+  appKeyRef?: string
+  appSecretRef?: string
   encryptKey?: string
   token?: string
   aesKey?: string
@@ -97,6 +101,15 @@ export interface ImConfigRequest {
   corpId?: string
   agentId?: string
   agentSecret?: string
+  robotCode?: string
+  robotCodeRef?: string
+  groupPolicy?: string
+  allowedFromUserIds?: string
+  allowedGroupIds?: string
+  maxInboundChars?: string
+  requireMentionInGroup?: string
+  exposeInboundMediaUrls?: string
+  streamPollIntervalMs?: string
 }
 
 export interface ImWebhookUrl {
@@ -128,6 +141,69 @@ export interface ImConfigItem {
   corpId?: string | null
   agentId?: string | null
   agentSecret?: string | null
+  appKey?: string | null
+  appIdRef?: string | null
+  appKeyRef?: string | null
+  appSecretRef?: string | null
+  robotCode?: string | null
+  robotCodeRef?: string | null
+  groupPolicy?: string | null
+  allowedFromUserIds?: string[] | null
+  allowedGroupIds?: string[] | null
+  maxInboundChars?: number | null
+  requireMentionInGroup?: boolean | null
+  exposeInboundMediaUrls?: boolean | null
+  streamPollIntervalMs?: number | null
+}
+
+export interface FeishuChannelEffectiveConfig {
+  status?: string | null
+  connectionMode?: ImConnectionMode | null
+  webhookPath?: string | null
+  configuredAt?: string | null
+  lastError?: string | null
+  appId?: string | null
+  appSecret?: string | null
+  appIdRef?: string | null
+  appSecretRef?: string | null
+}
+
+export interface DingTalkChannelEffectiveConfig {
+  enabled?: boolean
+  appId?: string | null
+  appIdRef?: string | null
+  appKey?: string | null
+  appKeyRef?: string | null
+  appSecret?: string | null
+  appSecretRef?: string | null
+  robotCode?: string | null
+  robotCodeRef?: string | null
+  groupPolicy?: string | null
+  allowedFromUserIds?: string[] | null
+  allowedGroupIds?: string[] | null
+  maxInboundChars?: number | null
+  requireMentionInGroup?: boolean | null
+  exposeInboundMediaUrls?: boolean | null
+  streamPollIntervalMs?: number | null
+}
+
+export interface DingTalkChannelConfigRequest {
+  enabled: boolean
+  appId?: string | null
+  appIdRef?: string | null
+  appKey?: string | null
+  appKeyRef?: string | null
+  appSecret?: string | null
+  appSecretRef?: string | null
+  robotCode?: string | null
+  robotCodeRef?: string | null
+  groupPolicy?: string | null
+  allowedFromUserIds?: string[] | null
+  allowedGroupIds?: string[] | null
+  maxInboundChars?: number | null
+  requireMentionInGroup?: boolean | null
+  exposeInboundMediaUrls?: boolean | null
+  streamPollIntervalMs?: number | null
 }
 
 export interface ImConfigStatus {
@@ -313,6 +389,21 @@ export const employeeRuntimeApi = {
     return httpClient.get<ImWebhookUrl>(`/api/v1/instances/${instanceId}/im-webhook-url`, { platform })
   },
 
+  getFeishuEffectiveImConfig(instanceId: string) {
+    return httpClient.get<FeishuChannelEffectiveConfig>(`/api/v1/instances/${instanceId}/im-config/feishu/effective`)
+  },
+
+  getDingTalkEffectiveImConfig(instanceId: string) {
+    return httpClient.get<DingTalkChannelEffectiveConfig>(`/api/v1/instances/${instanceId}/im-config/dingtalk/effective`)
+  },
+
+  updateDingTalkImConfig(instanceId: string, payload: DingTalkChannelConfigRequest) {
+    return httpClient.put<ImConfigResult, DingTalkChannelConfigRequest>(
+      `/api/v1/instances/${instanceId}/im-config/dingtalk`,
+      payload,
+    )
+  },
+
   upsertImConfig(instanceId: string, platform: ImPlatformId, payload: ImConfigRequest) {
     return httpClient.put<ImConfigResult, ImConfigRequest>(
       `/api/v1/instances/${instanceId}/im-config/${platform}`,
@@ -326,6 +417,10 @@ export const employeeRuntimeApi = {
 
   deleteImConfig(instanceId: string, platform: ImPlatformId) {
     return httpClient.delete<boolean>(`/api/v1/instances/${instanceId}/im-config/${platform}`)
+  },
+
+  deleteDingTalkImConfig(instanceId: string) {
+    return httpClient.delete<boolean>(`/api/v1/instances/${instanceId}/im-config/dingtalk`)
   },
 
   clearInstanceChatMessages(instanceId: string) {
