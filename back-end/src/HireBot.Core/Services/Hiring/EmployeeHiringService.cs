@@ -1145,6 +1145,7 @@ internal sealed class EmployeeHiringService(
             runtimeContext.CollectionPhase,
             runtimeContext.StructuredData,
             summaryOverride: null);
+        var displayWorkflowTodos = HiringWorkflowTodoProjector.BuildDisplayTodos(runtimeContext);
 
         var workflowState = new HiringWorkflowStateDto(
             HireId: normalizedHireId,
@@ -1159,7 +1160,7 @@ internal sealed class EmployeeHiringService(
             DiscoverySkillId: runtimeContext.DiscoverySkill.SkillId,
             DiscoverySkillVersion: runtimeContext.DiscoverySkill.SkillVersion,
             StageCompletion: runtimeContext.StageCompletion,
-            WorkflowTodos: runtimeContext.WorkflowTodos,
+            WorkflowTodos: displayWorkflowTodos,
             LatestDispatches: runtimeContext.LatestDispatches,
             LatestDiagnosticReport: runtimeContext.LatestDiagnosticReport,
             CredentialSlots: runtimeContext.CredentialSlots,
@@ -1502,10 +1503,21 @@ internal sealed class EmployeeHiringService(
                     : sessionDetailResult.Message);
         }
 
+        var projectionResult = HiringWorkflowTodoProjector.ProjectAuthoritativeTodos(sessionDetailResult.Data.TodoItems);
+        foreach (var warning in projectionResult.Warnings)
+        {
+            logger.LogWarning(
+                "Ignored malformed sandbox todo during authoritative projection. HireId={HireId}, SessionId={SessionId}, TodoId={TodoId}, Reason={Reason}",
+                runtimeContext.HireId,
+                sessionDetailResult.Data.SessionId,
+                warning.TodoId,
+                warning.Reason);
+        }
+
         return runtimeContext with
         {
             SessionId = sessionDetailResult.Data.SessionId,
-            WorkflowTodos = ProjectTodoItems(sessionDetailResult.Data.TodoItems)
+            WorkflowTodos = projectionResult.Todos
         };
     }
 
