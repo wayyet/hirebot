@@ -128,11 +128,6 @@ body {
   color: var(--hb-near-black);
 }
 
-.hb-brand-eyes {
-  font-size: 1.15em;
-  line-height: 1;
-}
-
 .hb-nav {
   display: inline-flex;
   align-items: center;
