@@ -9,6 +9,7 @@ namespace HireBot.Core.Services.Hiring;
 
 internal static partial class HiringWorkflowSupport
 {
+    private const string DemoFastTrackDefaultExtractionObjective = "演示临时默认抽取目标";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -149,6 +150,26 @@ internal static partial class HiringWorkflowSupport
     {
         var runtimeFacts = runtimeContext.RuntimeFacts ?? HiringWorkflowRuntimeFactsDto.Empty;
         var uploadedMaterialFiles = GetUploadedMaterialFileNames(runtimeContext.Materials);
+        if (ShouldApplyDemoPackagingShortcut(uploadedMaterialFiles))
+        {
+            var demoMaterialExtractionTargets = uploadedMaterialFiles.ToDictionary(
+                file => file,
+                file => runtimeFacts.MaterialExtractionTargets.TryGetValue(file, out var objective) &&
+                        !string.IsNullOrWhiteSpace(objective)
+                    ? objective.Trim()
+                    : DemoFastTrackDefaultExtractionObjective,
+                StringComparer.OrdinalIgnoreCase);
+
+            return new HiringWorkflowRuntimeFactsDto
+            {
+                MaterialReady = true,
+                MaterialClassifiedFiles = uploadedMaterialFiles,
+                MaterialExtractionTargets = demoMaterialExtractionTargets,
+                SkillBaselineReviewed = true,
+                SkillBaselineConfirmed = true
+            };
+        }
+
         var uploadedMaterialFileSet = uploadedMaterialFiles.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var materialClassifiedFiles = runtimeFacts.MaterialClassifiedFiles
             .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -172,20 +193,6 @@ internal static partial class HiringWorkflowSupport
             uploadedMaterialFiles.All(file =>
                 materialExtractionTargets.TryGetValue(file, out var objective) &&
                 !string.IsNullOrWhiteSpace(objective));
-
-        // Fallback: when files are uploaded but materialReady is still false
-        // (sandbox / LLM hasn't provided complete classification + extraction data),
-        // auto-classify all files and set default extraction targets so the stage can complete.
-        if (uploadedMaterialFiles.Length > 0 && !materialReady)
-        {
-            materialClassifiedFiles = uploadedMaterialFiles;
-            materialExtractionTargets = uploadedMaterialFiles.ToDictionary(
-                file => file,
-                _ => "从资料中抽取业务规则与关键信息",
-                StringComparer.OrdinalIgnoreCase);
-            materialReady = true;
-        }
-
         var activeSkillSupplementTodos = runtimeContext.WorkflowTodos
             .Where(todo =>
                 string.Equals(todo.Stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase) &&
@@ -313,6 +320,15 @@ internal static partial class HiringWorkflowSupport
                 []);
         }
 
+        if (ShouldApplyDemoPackagingShortcut(uploadedMaterialFiles))
+        {
+            return new HiringStageReadinessDto(
+                HiringCollectionStage.Material,
+                HiringStageReadinessStatus.Complete,
+                "演示临时处理：检测到已上传资料，资料阶段直接视为完成。",
+                []);
+        }
+
         var runtimeFacts = runtimeContext.RuntimeFacts;
         var classifiedFileSet = runtimeFacts.MaterialClassifiedFiles
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -351,6 +367,15 @@ internal static partial class HiringWorkflowSupport
 
     private static HiringStageReadinessDto BuildSkillStageReadiness(HiringRuntimeContext runtimeContext)
     {
+        if (ShouldApplyDemoPackagingShortcut(GetUploadedMaterialFileNames(runtimeContext.Materials)))
+        {
+            return new HiringStageReadinessDto(
+                HiringCollectionStage.Skill,
+                HiringStageReadinessStatus.Complete,
+                "演示临时处理：上传资料后默认技能阶段已完备，可直接进入打包阶段。",
+                []);
+        }
+
         var runtimeFacts = runtimeContext.RuntimeFacts;
         var activeRequiredTodos = runtimeContext.WorkflowTodos
             .Where(todo =>
@@ -402,6 +427,15 @@ internal static partial class HiringWorkflowSupport
 
     private static HiringStageReadinessDto BuildExternalStageReadiness(HiringRuntimeContext runtimeContext)
     {
+        if (ShouldApplyDemoPackagingShortcut(GetUploadedMaterialFileNames(runtimeContext.Materials)))
+        {
+            return new HiringStageReadinessDto(
+                HiringCollectionStage.External,
+                HiringStageReadinessStatus.Complete,
+                "演示临时处理：上传资料后默认外部系统阶段已完备，可直接进入打包阶段。",
+                []);
+        }
+
         var externalTodos = runtimeContext.WorkflowTodos
             .Where(todo => string.Equals(todo.Stage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase))
             .ToArray();
@@ -669,6 +703,13 @@ internal static partial class HiringWorkflowSupport
 
     public static string[] GetUploadedMaterialFileNamesForDiagnostics(IReadOnlyList<HiringConversationMaterialDto> materials)
         => GetUploadedMaterialFileNames(materials);
+
+    private static bool ShouldApplyDemoPackagingShortcut(IReadOnlyList<string> uploadedMaterialFiles)
+    {
+        // Temporary demo shortcut: once at least one business file is uploaded,
+        // skip stage-two and stage-three collection work and unlock packaging.
+        return uploadedMaterialFiles.Count > 0;
+    }
 
     private static string JoinPreview(IReadOnlyList<string> values)
     {

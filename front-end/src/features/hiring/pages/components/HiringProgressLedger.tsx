@@ -14,12 +14,7 @@ import type {
 } from '@/infra/api'
 
 import type { CredentialDraft } from '../hiringPageTypes'
-import type {
-  HiringActionVm,
-  HiringStageCardVm,
-  HiringStageTodoVm,
-  HiringUiStage,
-} from '../hiringWorkflowViewModel'
+import type { HiringActionVm, HiringStageCardVm, HiringUiStage } from '../hiringWorkflowViewModel'
 
 type SummaryItem = {
   label: string
@@ -92,8 +87,8 @@ export function HiringProgressLedger({
           <h3 className="hb-hiring-panel-title">待办事项</h3>
         </div>
         <div className="hb-hiring-score-card">
-          <span>{overallProgress}/{stageCards.length}</span>
-          <small>阶段完成</small>
+          <span>{overallProgress}%</span>
+          <small>完成度</small>
         </div>
       </div>
 
@@ -106,8 +101,8 @@ export function HiringProgressLedger({
             subtask={item.subtask}
             detail={item.detail}
             status={item.status}
+            progress={item.progress}
             notes={item.notes}
-            todoItems={item.todoItems}
           >
             {item.stage === HiringCollectionStage.ReadyForPackaging && !instanceCreated ? (
               <button
@@ -198,8 +193,8 @@ type TodoItemProps = {
   subtask: string
   detail: string
   status: 'complete' | 'active' | 'pending'
+  progress: number
   notes: string[]
-  todoItems: HiringStageTodoVm[]
   children?: ReactNode
 }
 
@@ -209,12 +204,12 @@ function TodoItem({
   subtask,
   detail,
   status,
+  progress,
   notes,
-  todoItems,
   children,
 }: TodoItemProps) {
   const statusLabel = status === 'complete' ? '已完成' : status === 'active' ? '进行中' : '待办'
-  const statusIcon = status === 'complete' ? '✓' : status === 'active' ? '●' : '○'
+  const statusIcon = status === 'complete' ? '●' : status === 'active' ? '•' : '○'
 
   return (
     <div className="hb-hiring-todo-item">
@@ -228,9 +223,12 @@ function TodoItem({
           <span>{statusLabel}</span>
         </div>
       </div>
+      <div className="hb-hiring-todo-progress">
+        <span style={{ width: `${progress}%` }} />
+      </div>
       <div className={`hb-hiring-subtask-chip is-${status}`}>
         <span>{subtask}</span>
-        <strong>{status === 'complete' ? `✓ ${detail}` : `○ ${detail}`}</strong>
+        <strong>{status === 'complete' ? `● ${detail}` : `○ ${detail}`}</strong>
       </div>
       {notes.length > 0 ? (
         <div className="hb-hiring-todo-notes">
@@ -239,64 +237,9 @@ function TodoItem({
           ))}
         </div>
       ) : null}
-      {todoItems.length > 0 ? (
-        <div className="hb-hiring-stage-todo-list">
-          {todoItems.map((todo) => (
-            <WorkflowTodoRow key={todo.id} todo={todo} />
-          ))}
-        </div>
-      ) : null}
       {children ? <div className="hb-hiring-todo-footer">{children}</div> : null}
     </div>
   )
-}
-
-function WorkflowTodoRow({ todo }: { todo: HiringStageTodoVm }) {
-  return (
-    <div className={clsx('hb-hiring-stage-todo-row', todo.isFallback && 'is-fallback')}>
-      <div className="hb-hiring-stage-todo-row-head">
-        <strong>{todo.title}</strong>
-        <div className="hb-hiring-stage-todo-row-tags">
-          <span className={clsx('hb-hiring-stage-todo-pill', `is-${statusTone(todo.status)}`)}>
-            {getWorkflowTodoStatusLabel(todo.status)}
-          </span>
-          <span className={clsx('hb-hiring-stage-todo-pill', todo.isFallback ? 'is-fallback' : 'is-structured')}>
-            {todo.sourceLabel}
-          </span>
-        </div>
-      </div>
-      {todo.summary ? <p>{todo.summary}</p> : null}
-      {todo.detail ? <small>{todo.detail}</small> : null}
-    </div>
-  )
-}
-
-function getWorkflowTodoStatusLabel(status: string) {
-  if (status === 'done' || status === 'resolved') {
-    return '已完成'
-  }
-
-  if (status === 'in_progress') {
-    return '进行中'
-  }
-
-  if (status === 'needs_review') {
-    return '待复核'
-  }
-
-  return '待处理'
-}
-
-function statusTone(status: string) {
-  if (status === 'done' || status === 'resolved') {
-    return 'complete'
-  }
-
-  if (status === 'in_progress') {
-    return 'active'
-  }
-
-  return 'pending'
 }
 
 type CredentialBindingSectionProps = {

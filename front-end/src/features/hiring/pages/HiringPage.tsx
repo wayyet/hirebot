@@ -160,11 +160,11 @@ function buildSummaryItems(workflowState: HiringWorkflowState | null, uploadedFi
   const workflowTodos = workflowState.workflowTodos ?? []
   const completedTodos = workflowTodos.filter(todo => todo.status === 'done' || todo.status === 'resolved')
   return [
-    { label: '待办总数', value: String(workflowTodos.length) },
-    { label: '已完成', value: String(completedTodos.length) },
-    { label: '诊断项', value: String(workflowState.latestDiagnosticReport?.diagnosticTodos.length ?? 0) },
-    { label: '待复核', value: String(workflowState.configGovernance?.pendingReviewTodoIds.length ?? 0) },
-    { label: '已上传文件', value: String(uploadedFileCount) },
+    { label: '????', value: String(workflowTodos.length) },
+    { label: '?????', value: String(completedTodos.length) },
+    { label: '????', value: String(workflowState.latestDiagnosticReport?.diagnosticTodos.length ?? 0) },
+    { label: '?????', value: String(workflowState.configGovernance?.pendingReviewTodoIds.length ?? 0) },
+    { label: '?????', value: String(uploadedFileCount) },
   ]
 }
 
