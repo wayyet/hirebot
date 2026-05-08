@@ -192,14 +192,15 @@ static bool IsValidOidcToken(
         return true;
     }
 
-    if (securityToken is not JwtSecurityToken jwtSecurityToken)
+    // .NET 10 的 JwtBearerHandler 默认将 token 解析为 JsonWebToken（Microsoft.IdentityModel.JsonWebTokens）
+    // 而非旧版 JwtSecurityToken（System.IdentityModel.Tokens.Jwt），需兼容两种类型
+    string? authorizedParty = securityToken switch
     {
-        return false;
-    }
-
-    var authorizedParty = jwtSecurityToken.Claims
-        .FirstOrDefault(claim => string.Equals(claim.Type, "azp", StringComparison.Ordinal))
-        ?.Value;
+        Microsoft.IdentityModel.JsonWebTokens.JsonWebToken jwt => jwt.TryGetClaim("azp", out var azpClaim) ? azpClaim.Value : null,
+        JwtSecurityToken legacyJwt => legacyJwt.Claims
+            .FirstOrDefault(c => string.Equals(c.Type, "azp", StringComparison.Ordinal))?.Value,
+        _ => null,
+    };
 
     return !string.IsNullOrWhiteSpace(authorizedParty) && validOidcValues.Contains(authorizedParty);
 }

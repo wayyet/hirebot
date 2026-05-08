@@ -5,7 +5,7 @@ replicaCount: 1
 
 image:
   repository: ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot
-  tag: dev-202605081513   # 部署时替换为实际镜像标签
+  tag: dev-202605081533   # 部署时替换为实际镜像标签
   pullPolicy: IfNotPresent
 
 resources:
@@ -25,7 +25,7 @@ env:
   Database__AutoMigrateOnStartup: "false"
   # ---- 安全 / OIDC (SaaS) ----
   Security__OidcAuthority: https://passport.ai4c.cn/realms/ai4c-saas
-  Security__OidcAudience: ""
+  Security__OidcAudience: account
   Security__OidcClientId: ncrew-client
   Security__OidcRequireHttpsMetadata: "true"
   # ---- 前端 runtime-config 注入 (SaaS) ----
