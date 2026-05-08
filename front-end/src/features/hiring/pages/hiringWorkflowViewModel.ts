@@ -35,9 +35,20 @@ export interface HiringStageCardVm {
   description: string
   subtask: string
   status: HiringStepStatus
-  progress: number
   detail: string
   notes: string[]
+  todoItems: HiringStageTodoVm[]
+}
+
+export interface HiringStageTodoVm {
+  id: string
+  title: string
+  status: string
+  summary: string
+  detail: string
+  source: string
+  sourceLabel: string
+  isFallback: boolean
 }
 
 export interface HiringGuideVm {
@@ -168,6 +179,29 @@ function getDiagnosticTodos(
   return workflowState?.latestDiagnosticReport?.diagnosticTodos.filter(item => item.stage === stage) ?? []
 }
 
+function isFallbackTodoSource(source: string | null | undefined) {
+  return typeof source === 'string' && source.startsWith('system:fallback:')
+}
+
+function buildStageTodoItems(stageTodos: WorkflowTodo[]): HiringStageTodoVm[] {
+  return stageTodos
+    .filter(todo => todo.status !== HiringTodoStatus.Dismissed)
+    .map((todo) => {
+      const isFallback = isFallbackTodoSource(todo.source)
+
+      return {
+        id: todo.id,
+        title: todo.title,
+        status: todo.status,
+        summary: todo.currentState ?? todo.question ?? todo.evidence ?? todo.acceptanceEvidence ?? '',
+        detail: todo.expectedState ?? todo.acceptanceCriteria ?? todo.suggestedAction ?? '',
+        source: todo.source,
+        sourceLabel: isFallback ? '系统补位' : '结构化待办',
+        isFallback,
+      }
+    })
+}
+
 function getExternalPendingCredentialSlots(credentialSlots: CredentialSlot[] | null | undefined) {
   return credentialSlots?.filter(slot =>
     slot.bindingStatus !== HiringCredentialBindingStatus.Bound &&
@@ -289,41 +323,6 @@ function getStageStatus(
   }
 
   return 'pending'
-}
-
-function getStageProgress(
-  status: HiringStepStatus,
-  workflowState: HiringWorkflowState | null,
-  stage: HiringUiStage,
-  notes: string[],
-) {
-  if (status === 'complete') return 100
-  if (status === 'pending') return 0
-
-  const completionRate = workflowState?.stageCompletion?.find(item => item.stage === stage)?.completionRate ?? 0
-  if (completionRate > 0) {
-    return Math.round(completionRate * 100)
-  }
-
-  const runtimeFacts = getRuntimeFacts(workflowState)
-  if (stage === HiringCollectionStage.Material) {
-    if (runtimeFacts.materialReady) return 100
-    const classifiedCount = runtimeFacts.materialClassifiedFiles.length
-    const targetCount = Object.keys(runtimeFacts.materialExtractionTargets ?? {}).length
-    return Math.min(92, 20 + (classifiedCount * 18) + (targetCount * 12))
-  }
-
-  if (stage === HiringCollectionStage.Skill) {
-    if (runtimeFacts.skillBaselineConfirmed) return 100
-    if (runtimeFacts.skillBaselineReviewed) return 68
-  }
-
-  if (stage === HiringCollectionStage.External) {
-    const pendingSlots = getExternalPendingCredentialSlots(workflowState?.credentialSlots)
-    return pendingSlots.length > 0 ? 72 : 46
-  }
-
-  return notes.length > 0 ? 48 : 18
 }
 
 function getStageDetail(
@@ -518,9 +517,9 @@ export function buildHiringWorkflowViewModel(
       description: STAGE_CONFIG[stage].panelDescription,
       subtask: STAGE_CONFIG[stage].subtask,
       status,
-      progress: getStageProgress(status, workflowState, stage, notes),
       detail: getStageDetail(workflowState, stage, status, readiness?.status, stageTodos),
       notes,
+      todoItems: buildStageTodoItems(stageTodos),
     } satisfies HiringStageCardVm
   })
 
@@ -556,10 +555,6 @@ export function buildHiringWorkflowViewModel(
   })
 
   const completedCount = stageCards.filter(item => item.status === 'complete').length
-  const overallProgress = Math.min(
-    100,
-    Math.round(stageCards.reduce((sum, item) => sum + item.progress, 0) / stageCards.length),
-  )
 
   return {
     uiCurrentStage,
@@ -572,7 +567,7 @@ export function buildHiringWorkflowViewModel(
       blockedReason,
     },
     blockedReason: completedCount === STAGE_ORDER.length ? '' : blockedReason,
-    overallProgress,
+    overallProgress: completedCount,
     promptPlaceholder: STAGE_CONFIG[uiCurrentStage].placeholder,
     workflowMeta: buildWorkflowMeta(workflowState, currentStageReason),
     currentStageReason,
