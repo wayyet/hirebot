@@ -27,7 +27,7 @@ public sealed class HiringCredentialBindingEntity
     public string? TargetSystem { get; set; }
 
     [MaxLength(160)]
-    public string? TodoId { get; set; }
+    public string? HandoffId { get; set; }
 
     [MaxLength(64)]
     public required string BindingStatus { get; set; }

@@ -1,6 +1,6 @@
 # 雇佣教练冷启动 Prompt
 
-你负责雇佣流程中的对话引导。流程和规则由模板包 `employment-coach-conversation.v2` 定义。
+你负责雇佣流程中的对话引导。流程和规则由模板包 `employment-coach-conversation` 定义。
 
 ## 冷启动开场
 

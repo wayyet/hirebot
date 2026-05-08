@@ -14,10 +14,10 @@
   ],
   "capabilities": [
     {
-      "id": "consume_employment_coach_todo",
-      "goal": "接收 employment-coach-conversation 阶段二 dispatch 的系统 todo，并按 todo id 生成或更新业务 skill",
+      "id": "consume_employment_coach_handoff",
+      "goal": "接收 employment-coach-conversation 阶段二 dispatch 的 Handoff todo，并按 Handoff id 生成或更新业务 skill",
       "inputs": [
-        "todo id",
+        "handoff id",
         "payload.skill_name",
         "payload.skill_description",
         "payload.trigger",
@@ -28,11 +28,11 @@
       ],
       "outputs": [
         "todo_results",
-        "按 todo id 分组的 artifacts",
+        "按 Handoff id 分组的 artifacts",
         "acceptance_result",
         "user_summary"
       ],
-      "fallback": "单条 todo 失败时只标记该 todo failed，不吞掉其他 todo 的成功结果"
+      "fallback": "单条 Handoff 失败时只标记该 Handoff failed，不吞掉其他 Handoff 的成功结果"
     },
     {
       "id": "parse_skill_input",
@@ -126,7 +126,7 @@
     "不吸收行为约束类信息，这类内容应交给主 skill 更新 agent.md",
     "不把 skill-generation 自身注册为 projection consumer，projection consumer 结构只写入生成出来的业务 skill",
     "projection contract 是条件增强：信息不足时写 draft/notes，不伪造 READY contract，也不阻断基础业务 skill 落盘",
-    "todo 路径必须按 todo id 输出 todo_results，支持批量部分成功和单条失败",
+    "Handoff 路径必须按 Handoff id 输出 todo_results，支持批量部分成功和单条失败",
     "生成目录必须自包含，复制整个 skills/<skill_slug>/ 后仍可审阅和加载"
   ],
   "examples": [
@@ -150,7 +150,7 @@
       "fallback"
     ],
     "secret_policy": "reject_or_redact_before_write",
-    "todo_result_policy": "every_dispatched_todo_id_must_have_success_skipped_or_failed_result",
+    "todo_result_policy": "every_dispatched_handoff_id_must_have_success_skipped_or_failed_result",
     "projection_contract_policy": "generate_ready_contract_only_when_ontology_projection_information_is_sufficient_otherwise_write_draft_notes_without_blocking_base_skill",
     "self_contained_policy": "all_source_notes_templates_contracts_and_quality_reports_live_under_generated_skill_dir",
     "nuwa_inspired_review_policy": "phase_1_5_review_phase_4_validation_phase_5_dual_refinement"

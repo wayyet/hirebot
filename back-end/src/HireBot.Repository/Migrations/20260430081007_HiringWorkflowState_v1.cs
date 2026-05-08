@@ -22,7 +22,7 @@ namespace HireBot.Repository.Migrations
                     SecretRef = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
                     AuthKind = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: true),
                     TargetSystem = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: true),
-                    TodoId = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: true),
+                    HandoffId = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: true),
                     BindingStatus = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     ProtectedSecret = table.Column<string>(type: "text", nullable: false),
                     CreatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),

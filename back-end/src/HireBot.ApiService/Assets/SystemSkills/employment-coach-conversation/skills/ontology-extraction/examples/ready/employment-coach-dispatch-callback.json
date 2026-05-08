@@ -2,13 +2,13 @@
   "$schema": "../../templates/DISPATCH_CALLBACK.schema.json",
   "dispatch_callback": {
     "source_dispatch_target": "ontology-extraction",
-    "todo_ids": [
+    "handoff_ids": [
       "m_cs_nonstandard_rules_001"
     ],
-    "user_summary": "已从非标退货资料中抽出判定条件、经理分流触发规则和关键处置边界；结果已写入 ontology slice。",
+    "user_summary": "已从这批非标退货资料中抽出判定条件、经理分流触发规则和关键处置边界，结果已经写入 ontology slice。",
     "technical_artifact": {
       "ontology_dir": "ontology",
-      "extraction_summary": "已读取非标退货处理规则，按 incremental 模式生成非标退货判定规则 slice。",
+      "extraction_summary": "已读取非标退货处理规则，并按 incremental 模式生成非标退货判定规则 slice。",
       "validation": "PASS"
     },
     "artifacts": [
@@ -23,7 +23,7 @@
     ],
     "todo_results": [
       {
-        "todo_id": "m_cs_nonstandard_rules_001",
+        "handoff_id": "m_cs_nonstandard_rules_001",
         "status": "success",
         "validation": "PASS",
         "artifacts": [
@@ -36,7 +36,7 @@
             "kind": "ontology_slice_markdown"
           }
         ],
-        "extraction_summary": "已读取非标退货处理规则，覆盖判定条件、经理分流触发规则和关键处置边界。",
+        "extraction_summary": "本轮资料已经覆盖判定条件、经理分流触发规则和关键处置边界。",
         "errors": []
       }
     ],

@@ -281,7 +281,7 @@ CREATE TABLE "HiringCredentialBindings" (
     "SecretRef" character varying(256),
     "AuthKind" character varying(80),
     "TargetSystem" character varying(160),
-    "TodoId" character varying(160),
+    "HandoffId" character varying(160),
     "BindingStatus" character varying(64) NOT NULL,
     "ProtectedSecret" text NOT NULL,
     "CreatedAtUtc" timestamp with time zone NOT NULL,

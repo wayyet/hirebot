@@ -158,7 +158,7 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 
 - Handoff tool 返回的 `session_id` + `handoff_id` 是存储主键；不要在对话里伪造不存在的 id。
 - `<dispatch>` 和 `<dispatch_callback>` 只使用 `handoff_ids` / `handoff_id` 表达主键；系统层不得生成非 Handoff 主键字段，skill 文档、payload 与 artifact 一律以 Handoff id 为主键。
-- 如果宿主仍把 Handoff todo 投影为 `WorkflowTodos`，只允许做投影，不允许重新把通用系统 todo 工具变成主存储。
+- 宿主必须以 `SessionMetadata.HandoffItems` 作为唯一 workflow 主存储；不允许重新把通用系统 todo 工具或其他投影层变成 canonical 数据源。
 - 下游 skill 必须消费 `handoff_todos` 数组里的完整结构，并校验每条 `session_id` 属于当前会话；不能只靠 id 重新猜 payload。
 
 

@@ -12,5 +12,5 @@ public sealed record HiringCredentialBindingRequestDto
 
     public string? TargetSystem { get; init; }
 
-    public string? TodoId { get; init; }
+    public string? HandoffId { get; init; }
 }
