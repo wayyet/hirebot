@@ -121,6 +121,7 @@ internal sealed class FileSystemTemplateDataProvider(
             Name: name,
             Tagline: tagline,
             Description: description,
+            DetailDoc: string.Empty,
             CoreAbilityTags: tags.Count > 0 ? tags : useCases.Count > 0 ? useCases : ["General"],
             HiredCount: package.RequiredSkills.Count,
             SuccessRate: 0m,

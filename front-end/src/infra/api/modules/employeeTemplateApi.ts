@@ -1,4 +1,4 @@
-﻿import { httpClient } from '../httpClient'
+import { httpClient } from '../httpClient'
 
 export interface TemplateTrustProof {
   hiredCount: number
@@ -46,6 +46,7 @@ export interface EmployeeTemplateDetail {
   name: string
   tagline: string
   description: string
+  detailDoc: string
   coreAbilities: string[]
   responsibilityBoundary: TemplateResponsibilityBoundary
   prerequisites: TemplatePrerequisite[]
