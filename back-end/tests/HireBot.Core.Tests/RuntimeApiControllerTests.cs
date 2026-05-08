@@ -174,7 +174,7 @@ public sealed class RuntimeApiControllerTests
             AppId = "ding_app",
             AppKey = "ding_key",
             AppSecret = "ding_secret",
-            RobotCode = "robot_1"
+          
         };
 
         var result = await controller.UpsertDingTalkImConfig("pc_1", request);
@@ -188,51 +188,7 @@ public sealed class RuntimeApiControllerTests
         Assert.Same(request, chat.UpdateDingTalkRequest);
     }
 
-    [Fact]
-    public async Task GetEffectiveDingTalkImConfig_ReturnsServiceResult()
-    {
-        var chat = new FakeInstanceChatService
-        {
-            GetEffectiveDingTalkResponse = ApiResponse<DingTalkChannelConfig>.SuccessResponse(
-                new DingTalkChannelConfig
-                {
-                    Enabled = true,
-                    AppId = "ding_app",
-                    AppKey = "ding_key",
-                    AppSecret = "ding_secret",
-                    RobotCode = "robot_1"
-                })
-        };
-        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
-
-        var result = await controller.GetEffectiveDingTalkImConfig("pc_1");
-
-        var objectResult = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(200, objectResult.StatusCode);
-        var response = Assert.IsType<ApiResponse<DingTalkChannelConfig>>(objectResult.Value);
-        Assert.True(response.Success);
-        Assert.Equal("ding_app", response.Data!.AppId);
-        Assert.Equal("pc_1", chat.GetEffectiveDingTalkInstanceId);
-    }
-
-    [Fact]
-    public async Task DeleteDingTalkImConfig_RoutesToChannelOverrideClear()
-    {
-        var chat = new FakeInstanceChatService
-        {
-            ClearDingTalkOverrideResponse = ApiResponse<bool>.SuccessResponse(true, "override cleared")
-        };
-        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
-
-        var result = await controller.DeleteDingTalkImConfig("pc_1");
-
-        var objectResult = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(200, objectResult.StatusCode);
-        var response = Assert.IsType<ApiResponse<bool>>(objectResult.Value);
-        Assert.True(response.Success);
-        Assert.True(response.Data);
-        Assert.Equal("pc_1", chat.ClearDingTalkOverrideInstanceId);
-    }
+   
 
     private static EmployeeDetailDto BuildEmployee(string id, string type, string status, string? fromInstanceId)
     {

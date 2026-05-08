@@ -159,7 +159,7 @@ public sealed class InstanceChatServiceTests
             AppId = "ding-app",
             AppKey = "ding-key",
             AppSecret = "ding-secret",
-            RobotCode = "robot-123"
+         
         });
 
         Assert.True(response.Success);
