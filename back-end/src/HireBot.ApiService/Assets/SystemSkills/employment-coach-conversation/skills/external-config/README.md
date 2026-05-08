@@ -42,7 +42,6 @@
 | --- | --- | --- |
 | `employment-coach-conversation` | 引导用户，生成 external Handoff todo，发 dispatch | 否 |
 | `external-config` | 把 external Handoff todo 落成配置草案 | 是 |
-| `diagnosis` | 只读检查 external 阶段是否完整、安全 | 否 |
 | 主 skill / 系统层 | 调度、传递 callback、维护流程状态 | 视系统实现 |
 
 ## 安全原则

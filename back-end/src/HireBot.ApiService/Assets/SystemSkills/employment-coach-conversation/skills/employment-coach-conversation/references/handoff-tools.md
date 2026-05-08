@@ -1,8 +1,8 @@
-# Handoff tools 结构化交接合约
+# Handoff tool 结构化交接合约
 
-本文件定义 `employment-coach-conversation` 维护下游交接 todo 的唯一入口。当前流程不再把通用系统 todo 工具当作主存储；所有要交给 `ontology-extraction`、`skill-generation`、`external-config` 或 `diagnosis` 的事项，都必须通过 Handoff tools 维护为当前会话 session 下的结构化 Handoff todo。
+本文件定义 `employment-coach-conversation` 维护下游交接 todo 的唯一入口。所有要交给 `ontology-extraction`、`skill-generation` 或 `external-config` 的事项，都必须通过 Gateway 内置 Handoff tool 中由 `OpenClaw:Handoff` 配置声明的 `employment-coach` workflow 维护为当前会话 session 下的结构化 Handoff todo。
 
-Handoff todo 是“交给谁、带什么输入、做到哪一步”的工作单元。它可以投影给 UI，但 canonical 状态、`session_id` 和 payload 以 Handoff tools 返回的数据为准。
+Handoff todo 是“交给谁、带什么输入、做到哪一步”的工作单元。它可以投影给 UI，但 canonical 状态、`session_id` 和 payload 以 Handoff tool 返回的数据为准。
 
 ## 目录
 
@@ -10,7 +10,6 @@ Handoff todo 是“交给谁、带什么输入、做到哪一步”的工作单�
 - [通用结构](#通用结构)
 - [状态机](#状态机)
 - [ID 与字段规范](#id-与字段规范)
-- [与诊断项的区分](#与诊断项的区分)
 - [阶段 1：material](#阶段-1material)
 - [阶段 2：skill](#阶段-2skill)
 - [阶段 3：external](#阶段-3external)
@@ -18,27 +17,57 @@ Handoff todo 是“交给谁、带什么输入、做到哪一步”的工作单�
 
 ## 工具面
 
-运行时应暴露以下 Handoff tools。若工具名在具体宿主里有前缀，语义必须保持一致。
-
-| 工具 | 用途 | 关键输入 | 关键输出 |
+| action | 用途 | 关键输入 | 关键输出 |
 | --- | --- | --- | --- |
-| `handoff.upsert` | 新建或按 `fingerprint` 更新同一条 Handoff todo | `title`、`stage`、`kind`、`target_skill`、`payload`、`fingerprint` | `session_id`、`handoff_id`、`revision`、完整 item |
-| `handoff.patch` | 修改字段、payload 或来源摘要 | `handoff_id`、`patch`、可选 `expected_revision` | 更新后的 item |
-| `handoff.transition` | 执行状态流转 | `handoff_id`、`status`、可选 `dispatch_id` / `callback_summary` | 更新后的 item |
-| `handoff.list` | 读取当前 session 的结构化清单 | 可选 `stage`、`kind`、`target_skill`、`status`、`fingerprint` | Handoff todo 列表 |
-| `handoff.remove` | 用户撤销且 UI 不需要继续展示时移除投影 | `handoff_id`、`reason` | 移除结果 |
+| `upsert` | 新建或按 `fingerprint` 更新同一条 Handoff todo | `title`、`stage`、`target_skill`、`payload`、`fingerprint` | `session_id`、`handoff_id`、`revision`、完整 item |
+| `patch` | 修改字段、payload 或来源摘要 | `handoff_id`、`patch`、可选 `expected_revision` | 更新后的 item |
+| `transition` | 执行状态流转 | `handoff_id`、`status`、可选 `dispatch_id` / `callback_summary` | 更新后的 item |
+| `list` | 读取当前 session 的结构化清单 | 可选 `stage`、`kind`、`target_skill`、`status`、`fingerprint` | Handoff todo 列表 |
+| `remove` | 用户撤销且 UI 不需要继续展示时移除投影 | `handoff_id`、`reason` | 移除结果 |
+
+参数 schema 建议保持扁平，方便模型稳定调用：
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": { "type": "string", "enum": ["list", "upsert", "patch", "transition", "remove"], "default": "list" },
+    "workflow_id": { "type": "string", "const": "employment-coach" },
+    "handoff_id": { "type": "string" },
+    "title": { "type": "string" },
+    "kind": { "type": "string", "const": "handoff_todo" },
+    "stage": { "type": "string", "enum": ["material", "skill", "external", "cross_stage"] },
+    "target_skill": { "type": "string", "enum": ["ontology-extraction", "skill-generation", "external-config"] },
+    "intent": { "type": "string" },
+    "category": { "type": "string" },
+    "payload": { "type": "object" },
+    "source": { "type": "string" },
+    "acceptance": { "type": "string" },
+    "status": { "type": "string", "enum": ["drafting", "ready_to_dispatch", "dispatched", "dirty", "confirmed", "needs_review", "dismissed"] },
+    "fingerprint": { "type": "string" },
+    "patch": { "type": "object" },
+    "expected_revision": { "type": "integer" },
+    "dispatch_id": { "type": "string" },
+    "callback_summary": { "type": "string" },
+    "reason": { "type": "string" }
+  },
+  "required": ["action"]
+}
+```
 
 使用规则：
 
-- 新建或合并同一意图：调用 `handoff.upsert`，必须传 `fingerprint`，避免同一意图换个说法就生成新条目。
+- 新建或合并同一意图：调用 `handoff`，传 `action = upsert`，必须传 `fingerprint`，避免同一意图换个说法就生成新条目。
+- `workflow_id` 可省略；省略时 Gateway 内置工具使用配置的默认 workflow。Employment Coach 场景需要显式写出时只能写 `employment-coach`。
 - `session_id` 由宿主从当前会话上下文注入，skill 不手写、不伪造、不跨 session 查询。
-- 更新字段或 payload：调用 `handoff.patch`，保持同一个 `handoff_id`。
-- 发 dispatch 前：先用 `handoff.list` 读取目标阶段，逐条确认 `status = ready_to_dispatch`。
-- 发 dispatch 后：用 `handoff.transition` 把本轮条目标为 `dispatched`，并写入 `dispatch_id`。
-- 用户确认下游结果：用 `handoff.transition` 把成功条目标为 `confirmed`，并写入回传摘要或 artifact 引用。
-- 用户撤销：先把状态流转为 `dismissed`；只有 UI 不需要保留追溯时才调用 `handoff.remove`。
+- 更新字段或 payload：调用 `handoff`，传 `action = patch`，保持同一个 `handoff_id`。
+- 发 dispatch 前：调用 `handoff`，传 `action = list` 读取目标阶段，逐条确认 `status = ready_to_dispatch`。
+- 发 dispatch 后：调用 `handoff`，传 `action = transition` 把本轮条目标为 `dispatched`，并写入 `dispatch_id`。
+- 用户确认下游结果：调用 `handoff`，传 `action = transition` 把成功条目标为 `confirmed`，并写入回传摘要或 artifact 引用。
+- 用户撤销：先把状态流转为 `dismissed`；只有 UI 不需要保留追溯时才调用 `handoff`，传 `action = remove`。
 
 不要用对话正文、memory、临时文件或通用 todo 工具另维护一套清单。
+
 
 ## 通用结构
 
@@ -47,6 +76,7 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 ```json
 {
   "session_id": "session_20260508_001",
+  "workflow_id": "employment-coach",
   "handoff_id": "s_refund_init_001",
   "title": "技能：退货资格初判",
   "kind": "handoff_todo",
@@ -70,18 +100,19 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 字段说明：
 
 - `session_id`：当前会话 session id，是 Handoff todo 的存储边界；由宿主注入并随 item 返回。
-- `handoff_id`：Handoff tools 返回的稳定 id，是 canonical id。
+- `workflow_id`：当前交接流程作用域；本文件固定为 `employment-coach`，用于与其他通用 Handoff workflow 隔离。
+- `handoff_id`：Handoff tool 返回的稳定 id，是 canonical id。
 - `title`：给用户和 UI 看的短标题。
-- `kind`：流程交接项用 `handoff_todo`；诊断项用 `diagnosis`。
+- `kind`：流程交接项固定使用 `handoff_todo`。
 - `stage`：`material` / `skill` / `external` / `cross_stage`。
-- `target_skill`：`ontology-extraction` / `skill-generation` / `external-config`；诊断项可为空或写 `diagnosis`。
+- `target_skill`：`ontology-extraction` / `skill-generation` / `external-config`。
 - `intent`：一句话目标，给用户可读。
 - `category`：阶段相关分类。
 - `payload`：阶段相关结构化字段。
 - `source`：来自对话、上传文件或系统回传的依据。
 - `acceptance`：下游完成后如何判断可确认。
 - `status`：见状态机。
-- `fingerprint`：基于 session_id + stage + 核心意图生成的稳定指纹。
+- `fingerprint`：当前 session 范围内基于 `stage` + `target_skill` + 核心意图生成的稳定指纹。同一意图无论说法如何变化都应该保持一致，供 `upsert` 合并使用；skill 不需要把 `session_id` 写进 fingerprint。
 - `revision`：工具维护的并发版本；多轮更新时递增。
 
 ## 状态机
@@ -107,21 +138,11 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 
 ## ID 与字段规范
 
-- Handoff tools 返回的 `session_id` + `handoff_id` 是存储主键；不要在对话里伪造不存在的 id。
+- Handoff tool 返回的 `session_id` + `handoff_id` 是存储主键；不要在对话里伪造不存在的 id。
 - `<dispatch>` 和 `<dispatch_callback>` 只使用 `handoff_ids` / `handoff_id` 表达主键；系统层不得生成非 Handoff 主键字段，skill 文档、payload 与 artifact 一律以 Handoff id 为主键。
 - 如果宿主仍把 Handoff todo 投影为 `WorkflowTodos`，只允许做投影，不允许重新把通用系统 todo 工具变成主存储。
 - 下游 skill 必须消费 `handoff_todos` 数组里的完整结构，并校验每条 `session_id` 属于当前会话；不能只靠 id 重新猜 payload。
 
-## 与诊断项的区分
-
-流程 Handoff todo 回答“要交给谁、带什么输入”。诊断项回答“还差什么”。两者都可以由 Handoff tools 承载，但必须用 `kind` 区分：
-
-- `kind: handoff_todo`：由 `employment-coach-conversation` 维护，允许 dispatch 给生成类下游 skill。
-- `kind: diagnosis`：由 `diagnosis` 维护，不触发生成类下游，不得修改流程 Handoff todo 的 payload。
-
-诊断项关联流程项时使用 `related_todos`，其中的 id 仍是 Handoff id。
-
----
 
 ## 阶段 1：material
 
@@ -150,16 +171,16 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 **核心字段**：
 
 - `payload.skills`: Skill 数组，`minItems = 1`
-- `payload.skills[].origin`: `template_package` / `conversation` / `upload`
-- `payload.skills[].generation_action`: `reuse_existing` / `generate_new`
-- `payload.skills[].skill_name`
+- `payload.skills[].origin`: `template_package` / `conversation` / `upload` 之一，且和真实来源一致
+- `payload.skills[].generation_action`: `reuse_existing` / `generate_new` 之一；已有 skill 用 `reuse_existing`，本轮新增 skill 用 `generate_new`
+- `payload.skills[].skill_name`: 技能名称，例如“退货资格初判”
 - `payload.skills[].skill_description`
 - `payload.skills[].trigger`
 - `payload.skills[].expected_output`
 - `payload.skills[].from_upload`
 - `payload.skills[].existing_skill_slug`: `generation_action = reuse_existing` 时必填
 - `payload.skills[].existing_artifact_path`: `generation_action = reuse_existing` 时必填，指向模板包已有 skill 产物
-- `payload.skills[].template_package_id`: 来自模板包时填写
+- `payload.skills[].template_package_id`: 来自模板包时填写模板包 id，例如 `customer-service-starter`；非模板来源可为空
 - `payload.skills[].template_package_version`: 来自模板包时填写
 
 `generation_action = reuse_existing` 的条目表示该 skill 已在初始数字员工模板包或上传的现成 skill 中存在，不要求 `skill-generation` 重新生成文件；`generation_action = generate_new` 的条目才是本轮需要生成的新业务 skill。
@@ -191,7 +212,7 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
       "expected_output": "一条回复消息（含结论 + 依据），以及一条工单流转建议（如需要人工介入）",
       "from_upload": false
     }
-  ]
+  ] 
 }
 ```
 
@@ -218,7 +239,7 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 
 `target_skill = external-config`
 
-**最低门槛**：`payload.external_capabilities` 必须是外部能力数组，且至少 1 个元素；每个普通外部能力都明确 `category` + `objective` + `target_system`；或者用户明确表达“不需要外部系统”（数组内写 1 个 `kind = skip` 的跳过项）。
+**最低门槛**：`payload.external_capabilities` 必须是外部能力数组，且至少 1 个元素；每个普通外部能力都明确 `category` + `objective` + `target_system` + `integration_methods`；或者用户明确表达“不需要外部系统”（数组内写 1 个 `kind = skip` 的跳过项）。
 
 **核心字段**：
 
@@ -229,6 +250,7 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 | `payload.external_capabilities[].category` | `read` / `write` / `notify` / `search` / `transform` 中之一；`kind = skip` 时可为空 |
 | `payload.external_capabilities[].objective` | 一句话目标，例如“在用户咨询时，从 CRM 拉到该用户的最近 3 个订单” |
 | `payload.external_capabilities[].target_system` | 目标系统名（CRM / ERP / 企微 / 钉钉 / 自有 OA 等） |
+| `payload.external_capabilities[].integration_methods` | 对接方式数组，表示计划通过哪些接入通道实现该能力；建议值为 `mcp` / `cli` / `http_api` / `sdk` / `webhook` / `manual` / `unknown`，不写真实 endpoint、命令参数或凭据 |
 | `payload.external_capabilities[].linked_skills` | 这个能力被哪条 skill 用到，使用 skill 阶段 Handoff id |
 | `payload.external_capabilities[].auth_kind` | 凭据形式（OAuth / Bearer Token / 长期 Key 等），不含凭据值 |
 | `payload.external_capabilities[].required_fields` | 需要读取、写入、通知或转换的字段列表 |
@@ -243,6 +265,7 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
       "category": "read",
       "objective": "在退货咨询时，从 CRM 拉指定订单的创建时间、状态、客户等级、商品类型",
       "target_system": "销售易 CRM",
+      "integration_methods": ["mcp"],
       "linked_skills": ["s_seven_day_init_001", "s_nonstandard_assessment_001"],
       "auth_kind": "API Key",
       "required_fields": ["order_id", "created_at", "status", "customer_tier", "product_category"]
@@ -255,5 +278,5 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 
 - 不在会话、Handoff payload、source、acceptance、callback 或 artifact 摘要中保存真实 token、密钥、密码、API Key、连接串。
 - 不把 Handoff todo 当作阶段占位物；每条都必须有可交给下游执行的目标。
-- 不绕过 Handoff tools 自建文件、内存清单或对话内清单。
+- 不绕过 Handoff tool 自建文件、内存清单或对话内清单。
 - 不让下游 skill 修改 `employment-coach-conversation` 维护的流程 Handoff todo；下游只回传 callback，确认和状态合流由上游完成。

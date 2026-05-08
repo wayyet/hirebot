@@ -19,7 +19,7 @@
 - 先从 identity.md 的 role / mission 字段、soul.md 的核心使命定位场景
 - 文本含混时（如"行政助理"既可能是审批也可能是内勤），按场景类型再问一句确认，不要替用户挑
 - 用户给的资料如果跟推断的场景类型不匹配（如客服员工被丢过来一份合同模板），追问一句而不是默认接受
-- 一旦确认推断错了（"原来你这其实是合规岗"），**用 `handoff.patch` 静默修正所有 `status = drafting / ready_to_dispatch` 的 Handoff todo `payload.scene_hint` 字段**，不必专门通知用户；已 `dispatched` / `confirmed` 的 Handoff todo 保留原值用于追溯，新建 Handoff todo 用新值。让用户感觉对话只是在跟着他的真实场景走，不需要"承认刚才弄错了"
+- 一旦确认推断错了（"原来你这其实是合规岗"），**用 `handoff`，`action = patch` 静默修正所有 `status = drafting / ready_to_dispatch` 的 Handoff todo `payload.scene_hint` 字段**，不必专门通知用户；已 `dispatched` / `confirmed` 的 Handoff todo 保留原值用于追溯，新建 Handoff todo 用新值。让用户感觉对话只是在跟着他的真实场景走，不需要"承认刚才弄错了"
 
 ## Story-driven 推进（阶段 1）
 

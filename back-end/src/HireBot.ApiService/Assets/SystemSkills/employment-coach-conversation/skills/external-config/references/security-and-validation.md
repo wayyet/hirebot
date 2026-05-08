@@ -69,6 +69,7 @@ secure_credential_context:
 - `payload.external_capabilities[]` 至少 1 项
 - `payload.external_capabilities[].objective` 非空
 - `payload.external_capabilities[].target_system` 非空
+- `payload.external_capabilities[].integration_methods` 是至少 1 项的数组；仅描述对接方式（如 `mcp`、`cli`、`http_api`、`sdk`、`webhook`），不得携带真实 endpoint、命令参数或凭据
 - `payload.external_capabilities[].linked_skills` 至少 1 个，且由系统层证明对应 skill Handoff todo 已 confirmed
 - `payload.external_capabilities[].auth_kind` 有值；缺失时优先返回 `partial`，只有系统层允许临时草案时才写 `unknown` 并给 warning
 - artifact path 使用相对路径

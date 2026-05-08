@@ -64,6 +64,7 @@ handoff_todos:
           category: read
           objective: 在退货咨询时，从 CRM 拉指定订单的创建时间、状态、客户等级、商品类型
           target_system: 销售易 CRM
+          integration_methods: [mcp]
           linked_skills: [s_seven_day_init_001, s_nonstandard_assessment_001]
           auth_kind: API Key
           required_fields: [order_id, created_at, status, customer_tier, product_category]
@@ -81,6 +82,7 @@ handoff_todos:
 - `payload.external_capabilities[].objective` 映射为 capability 的业务目标。
 - `payload.external_capabilities[].category` 映射为 capability 类型，取值只能是 `read`、`write`、`notify`、`search`、`transform`。
 - `payload.external_capabilities[].target_system` 映射为系统名称与 slug 来源。
+- `payload.external_capabilities[].integration_methods` 映射为能力对接方式，取值建议使用 `mcp`、`cli`、`http_api`、`sdk`、`webhook`、`manual` 或 `unknown`，不得携带真实 endpoint、命令参数或凭据。
 - `payload.external_capabilities[].linked_skills` 映射为能力依赖的上游 skill Handoff id；普通能力不得为空。
 - `payload.external_capabilities[].auth_kind` 只映射为认证类型和凭据槽位，不得携带任何真实凭据值。
 - `payload.external_capabilities[].required_fields` 映射为字段需求与待补映射清单。
@@ -136,7 +138,7 @@ external/
 1. **入口校验**：确认 dispatch target、Handoff stage、target_skill、status、`payload.external_capabilities[]` 字段合法。
 2. **凭据扫描**：检查 Handoff todo、source、acceptance、外部能力字段、目标系统描述中是否混入疑似 token、密码、API Key 或连接串。
 3. **系统归一化**：从 `external_capabilities[].target_system` 生成稳定 `system_slug`，同一系统的多条 capability 合并进同一个 `systems/<system-slug>.json`。
-4. **能力建模**：按 `payload.external_capabilities[]` 逐项生成 capability 草案，保留 objective、category、linked_skills、required_fields、auth_kind 和 acceptance。
+4. **能力建模**：按 `payload.external_capabilities[]` 逐项生成 capability 草案，保留 objective、category、integration_methods、linked_skills、required_fields、auth_kind 和 acceptance。
 5. **凭据槽位生成**：为 `auth_kind != none` 的普通能力生成 `secretRef` 或 `credentialSlot`，值必须为空。
 6. **落盘**：写入 `external/capabilities/<handoff-id>.json`，其中包含该 Handoff todo 下所有外部能力；更新 `external/systems/<system-slug>.json` 和 `external/external-config.index.json`。
 7. **校验**：确认普通能力字段完整、skip 可识别、索引路径存在、无明文凭据。

@@ -9,6 +9,9 @@
     "name": "Example CRM",
     "slug": "example-crm"
   },
+  "integrationMethods": [
+    "mcp"
+  ],
   "linkedSkills": [
     "s_example_skill_001"
   ],

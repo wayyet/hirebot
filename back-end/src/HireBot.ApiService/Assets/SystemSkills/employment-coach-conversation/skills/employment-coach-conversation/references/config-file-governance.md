@@ -74,7 +74,7 @@ soul / identity / agent 改动后，要判断是否影响 `status = confirmed` �
 
 用户回应：
 
-- **要 / 嗯好** → 用 `handoff.transition` 把相关 Handoff todo 的 `status` 从 `confirmed` 改为 `needs_review`，进入跨 Handoff 复核：逐条问"按新规则，这条还按之前那样跑可以吗"。确认无变更则回到 `confirmed`；需要改的回到 `ready_to_dispatch` 走重发
+- **要 / 嗯好** → 用 `handoff`，`action = transition` 把相关 Handoff todo 的 `status` 从 `confirmed` 改为 `needs_review`，进入跨 Handoff 复核：逐条问"按新规则，这条还按之前那样跑可以吗"。确认无变更则回到 `confirmed`；需要改的回到 `ready_to_dispatch` 走重发
 - **不要 / 先不管** → 不动状态，但在对应 Handoff todo 的 payload 里记一笔 `pending_review_reason`，下次诊断 skill 自然会照旧出工单
 - **答非所问 / 转移话题** → 默认不动，不再追问
 

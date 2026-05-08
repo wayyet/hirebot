@@ -32,6 +32,7 @@ external/
     "name": "销售易 CRM",
     "slug": "xiaoshouyi-crm"
   },
+  "integrationMethods": ["mcp"],
   "linkedSkills": ["s_seven_day_init_001"],
   "auth": {
     "kind": "API Key",
@@ -86,6 +87,7 @@ skip artifact 使用同一路径，建议字段：
   "artifactType": "external_system",
   "name": "销售易 CRM",
   "slug": "xiaoshouyi-crm",
+  "integrationMethods": ["mcp"],
   "authKinds": ["API Key"],
   "credentialSlots": ["xiaoshouyi-crm-api-key"],
   "capabilities": [
