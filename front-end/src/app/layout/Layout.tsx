@@ -1,94 +1,112 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Loader2, LogOut } from 'lucide-react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { UserRoleContext, type HirebotUserRole } from '@/app/context/UserRoleContext'
-import { useUxOverlay } from '@/app/context/UxOverlayContext'
-import { isAuthBypassed } from '@/infra/auth/auth-mode'
-import { signOut } from '@/infra/auth/oidc'
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, LogOut } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import {
+  UserRoleContext,
+  type HirebotUserRole,
+} from "@/app/context/UserRoleContext";
+import { useUxOverlay } from "@/app/context/UxOverlayContext";
+import { isAuthBypassed } from "@/infra/auth/auth-mode";
+import { signOut } from "@/infra/auth/oidc";
 
-const ROLE_STORAGE_KEY = 'hirebot_user_role_v1'
+const ROLE_STORAGE_KEY = "hirebot_user_role_v1";
 
 type NavItem = {
-  path: string
-  label: string
-  managerOnly?: boolean
-  alwaysVisible?: boolean
-  isNew?: boolean
-}
+  path: string;
+  label: string;
+  managerOnly?: boolean;
+  alwaysVisible?: boolean;
+  isNew?: boolean;
+};
 
 const navItems: NavItem[] = [
-  { path: '/template-pool', label: '企业模板池', managerOnly: true, isNew: true },
-  { path: '/department-employees', label: '部门数字员工', alwaysVisible: true },
-  { path: '/my-employees', label: '我的数字员工', alwaysVisible: true },
-  { path: '/prototype', label: '原型预览', alwaysVisible: true },
-]
+  {
+    path: "/template-pool",
+    label: "企业模板池",
+    managerOnly: true,
+    isNew: true,
+  },
+  { path: "/department-employees", label: "部门数字员工", alwaysVisible: true },
+  { path: "/my-employees", label: "我的数字员工", alwaysVisible: true },
+];
 
 function deriveDefaultRole(): HirebotUserRole {
-  const cachedRole = localStorage.getItem(ROLE_STORAGE_KEY)
-  if (cachedRole === 'manager' || cachedRole === 'member') {
-    return cachedRole
+  const cachedRole = localStorage.getItem(ROLE_STORAGE_KEY);
+  if (cachedRole === "manager" || cachedRole === "member") {
+    return cachedRole;
   }
-  return 'manager'
+  return "manager";
 }
 
 function isNavItemActive(pathname: string, navPath: string) {
-  if (pathname === navPath) return true
-  if (navPath === '/template-pool') {
-    return pathname.startsWith('/templates/') || pathname.startsWith('/hiring/')
+  if (pathname === navPath) return true;
+  if (navPath === "/template-pool") {
+    return (
+      pathname.startsWith("/templates/") || pathname.startsWith("/hiring/")
+    );
   }
-  if (navPath === '/department-employees') {
-    return pathname.startsWith('/department-employees')
-      || pathname.startsWith('/instances/')
-      || pathname.includes('/evaluation')
-      || pathname.includes('/review')
-      || pathname.includes('/onboarding')
+  if (navPath === "/department-employees") {
+    return (
+      pathname.startsWith("/department-employees") ||
+      pathname.startsWith("/instances/") ||
+      pathname.includes("/evaluation") ||
+      pathname.includes("/review") ||
+      pathname.includes("/onboarding")
+    );
   }
-  if (navPath === '/my-employees') {
-    return pathname.startsWith('/my-employees')
-      || pathname.startsWith('/clone/')
-      || pathname.startsWith('/private-branch/')
-      || pathname.includes('/chat')
+  if (navPath === "/my-employees") {
+    return (
+      pathname.startsWith("/my-employees") ||
+      pathname.startsWith("/clone/") ||
+      pathname.startsWith("/private-branch/") ||
+      pathname.includes("/chat")
+    );
   }
-  if (navPath === '/prototype') {
-    return pathname.startsWith('/prototype')
+  if (navPath === "/prototype") {
+    return pathname.startsWith("/prototype");
   }
-  return pathname.startsWith(navPath)
+  return pathname.startsWith(navPath);
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const location = useLocation()
-  const navigate = useNavigate()
-  const { showToast } = useUxOverlay()
-  const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole)
-  const [logoutLoading, setLogoutLoading] = useState(false)
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { showToast } = useUxOverlay();
+  const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
+  const [logoutLoading, setLogoutLoading] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem(ROLE_STORAGE_KEY, role)
-  }, [role])
+    localStorage.setItem(ROLE_STORAGE_KEY, role);
+  }, [role]);
 
   useEffect(() => {
-    if (role === 'member' && location.pathname.startsWith('/template-pool')) {
-      navigate('/department-employees', { replace: true })
+    if (role === "member" && location.pathname.startsWith("/template-pool")) {
+      navigate("/department-employees", { replace: true });
     }
-  }, [location.pathname, navigate, role])
+  }, [location.pathname, navigate, role]);
 
   const visibleNavItems = useMemo(() => {
     return navItems.filter((item) => {
-      if (item.alwaysVisible) return true
-      if (item.managerOnly) return role === 'manager'
-      return true
-    })
-  }, [role])
+      if (item.alwaysVisible) return true;
+      if (item.managerOnly) return role === "manager";
+      return true;
+    });
+  }, [role]);
 
   async function handleLogout() {
-    if (logoutLoading) return
+    if (logoutLoading) return;
 
-    setLogoutLoading(true)
+    setLogoutLoading(true);
     try {
-      await signOut()
+      await signOut();
     } catch (logoutError: unknown) {
-      setLogoutLoading(false)
-      showToast(logoutError instanceof Error ? logoutError.message : '退出登录失败，请稍后重试', 'error')
+      setLogoutLoading(false);
+      showToast(
+        logoutError instanceof Error
+          ? logoutError.message
+          : "退出登录失败，请稍后重试",
+        "error",
+      );
     }
   }
 
@@ -97,20 +115,31 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <div className="hb-shell">
         <header className="hb-topnav">
           <div className="hb-topnav-inner">
-            <Link to={role === 'manager' ? '/template-pool' : '/department-employees'} className="hb-brand">
+            <Link
+              to={
+                role === "manager" ? "/template-pool" : "/department-employees"
+              }
+              className="hb-brand"
+            >
               <span className="hb-brand-logo">雇</span>
               <span className="hb-brand-text">HireBot 雇佣端</span>
             </Link>
 
             <nav className="hb-nav">
               {visibleNavItems.map((item) => {
-                const active = isNavItemActive(location.pathname, item.path)
+                const active = isNavItemActive(location.pathname, item.path);
                 return (
-                  <Link key={item.path} to={item.path} className={`hb-nav-item ${active ? 'is-active' : ''}`}>
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`hb-nav-item ${active ? "is-active" : ""}`}
+                  >
                     {item.label}
-                    {item.isNew ? <span className="hb-nav-flag">new</span> : null}
+                    {item.isNew ? (
+                      <span className="hb-nav-flag">new</span>
+                    ) : null}
                   </Link>
-                )
+                );
               })}
             </nav>
 
@@ -118,22 +147,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <div className="hb-role-switch">
                 <button
                   type="button"
-                  className={role === 'manager' ? 'is-active' : ''}
-                  onClick={() => setRole('manager')}
+                  className={role === "manager" ? "is-active" : ""}
+                  onClick={() => setRole("manager")}
                 >
                   🧑‍💼 部门长
                 </button>
                 <button
                   type="button"
-                  className={role === 'member' ? 'is-active' : ''}
-                  onClick={() => setRole('member')}
+                  className={role === "member" ? "is-active" : ""}
+                  onClick={() => setRole("member")}
                 >
                   🧑‍💻 普通成员
                 </button>
               </div>
               <div className="hb-user-chip">
-                <span className="hb-user-avatar">{role === 'manager' ? '李' : '王'}</span>
-                <span>{role === 'manager' ? '李部门长 · 研发部' : '王成员 · 研发部'}</span>
+                <span className="hb-user-avatar">
+                  {role === "manager" ? "李" : "王"}
+                </span>
+                <span>
+                  {role === "manager" ? "李部门长 · 研发部" : "王成员 · 研发部"}
+                </span>
               </div>
               {!isAuthBypassed && (
                 <button
@@ -142,7 +175,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   className="hb-btn-ghost !px-3 !py-1.5 !text-xs text-[#b91c1c] hover:!bg-[#fef2f2]"
                   disabled={logoutLoading}
                 >
-                  {logoutLoading ? <Loader2 size={12} className="animate-spin" /> : <LogOut size={12} />}
+                  {logoutLoading ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <LogOut size={12} />
+                  )}
                   退出登录
                 </button>
               )}
@@ -153,11 +190,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <button
           type="button"
           className="hb-feedback-strip"
-          onClick={() => showToast('反馈入口已收到，后续将接入真实表单', 'info')}
+          onClick={() =>
+            showToast("反馈入口已收到，后续将接入真实表单", "info")
+          }
         >
           建议反馈
         </button>
       </div>
     </UserRoleContext.Provider>
-  )
+  );
 }
