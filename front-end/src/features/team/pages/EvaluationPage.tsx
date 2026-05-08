@@ -27,7 +27,6 @@ import {
   type EvaluationState,
   type HiringConversationMessage,
 } from '@/infra/api'
-import { isAuthBypassed } from '@/infra/auth/auth-mode'
 
 type ArtifactTab = 'testcase' | 'trace' | 'report'
 
