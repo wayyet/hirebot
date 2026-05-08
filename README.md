@@ -68,6 +68,77 @@ docker push $tag
 
 ---
 
+## Helm 构建与部署
+
+### 目录结构
+
+```
+helm/
+  ncrew-hire/          # Helm chart
+    Chart.yaml         # chart 元信息（version / appVersion）
+    values.yaml        # 默认值
+    values-saas.yaml   # SaaS 生产环境覆盖值
+    templates/         # K8s 资源模板
+  dist/                # helm package 产物（.tgz）
+```
+
+### 完整发布流程（PowerShell）
+
+```powershell
+# 1. 构建镜像（在仓库根目录执行）
+$tag = "ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot:dev-$(Get-Date -Format 'yyyyMMddHHmm')"
+docker build -t $tag C:\path\to\hirebot
+Write-Host "TAG=$tag"
+
+# 2. 推送到 TCR
+docker push $tag
+
+# 3. 更新 Helm chart 中的镜像 tag（手动编辑或用 sed/PowerShell 替换）
+#    helm/ncrew-hire/values-saas.yaml  →  image.tag: <新 tag>
+#    helm/ncrew-hire/Chart.yaml        →  appVersion: "<新 tag>"
+
+# 4. （可选）打包 chart 到 dist/
+helm package helm/ncrew-hire -d helm/dist
+
+# 5. 部署 / 升级到 opensandbox 命名空间
+helm upgrade --install ncrew-hire helm/ncrew-hire `
+  -f helm/ncrew-hire/values-saas.yaml `
+  -n opensandbox
+```
+
+### 单步说明
+
+| 步骤 | 命令 | 说明 |
+|---|---|---|
+| 构建 | `docker build -t <tag> .` | 多阶段构建，同时编译前端（Node 22）和后端（.NET 10） |
+| 推送 | `docker push <tag>` | 推送到腾讯云 TCR `agentfoundry` 仓库 |
+| 更新 tag | 编辑 `values-saas.yaml` 和 `Chart.yaml` | `image.tag` 与 `appVersion` 保持一致 |
+| 打包 | `helm package helm/ncrew-hire -d helm/dist` | 生成 `ncrew-hire-<version>.tgz`，版本取自 `Chart.yaml` |
+| 部署 | `helm upgrade --install ... -n opensandbox` | 首次自动 install，后续为 upgrade |
+
+### 查看部署状态
+
+```powershell
+# 查看 Helm release 历史
+helm history ncrew-hire -n opensandbox
+
+# 查看 Pod 状态
+kubectl get pods -n opensandbox -l app.kubernetes.io/name=ncrew-hire
+
+# 查看最新日志
+kubectl logs -n opensandbox -l app.kubernetes.io/name=ncrew-hire --tail=100 -f
+```
+
+### TCR 登录
+
+```powershell
+docker login ai4c-tcr.tencentcloudcr.com --username <账号UIN> --password <临时token>
+```
+
+临时 token 通过腾讯云控制台「容器镜像服务 → 访问凭证」生成，有效期通常为 1 小时。
+
+---
+
 ## 雇佣流程改造关键配置
 
 以下配置位于 `src/HireBot.ApiService/appsettings.json`（开发环境可在 `appsettings.Development.json` 覆盖）：
