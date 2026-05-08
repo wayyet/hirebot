@@ -3,7 +3,7 @@
   "artifactType": "external-config_index",
   "generatedFrom": {
     "sourceDispatchTarget": "external-config",
-    "todoIds": [
+    "handoff_ids": [
       "e_example_read_order_001"
     ]
   },
@@ -16,7 +16,7 @@
   ],
   "capabilities": [
     {
-      "todoId": "e_example_read_order_001",
+      "handoff_id": "e_example_read_order_001",
       "kind": "normal",
       "category": "read",
       "targetSystemSlug": "example-crm",
@@ -25,7 +25,7 @@
   ],
   "skips": [
     {
-      "todoId": "e_external_skip_001",
+      "handoff_id": "e_external_skip_001",
       "reason": "User explicitly skipped external systems.",
       "path": "external/capabilities/e_external_skip_001.json",
       "status": "recorded"

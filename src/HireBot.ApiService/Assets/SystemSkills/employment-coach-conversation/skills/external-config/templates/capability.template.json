@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "artifactType": "external_capability",
-  "todoId": "e_example_read_order_001",
+  "handoff_id": "e_example_read_order_001",
   "kind": "normal",
   "category": "read",
   "objective": "Read the order fields needed by the linked skills.",
@@ -26,7 +26,7 @@
     "mapping": []
   },
   "acceptance": "external/ contains a draft capability config and field placeholders.",
-  "sourceDigest": "External todo source summary without secrets.",
+  "sourceDigest": "External Handoff todo source summary without secrets.",
   "status": "draft",
   "validation": {
     "passed": true,

@@ -288,15 +288,6 @@ def validate_known_ids(parsed_json: Any, validation_issues: list[str]) -> None:
         if isinstance(selected_id, str) and selected_id not in concept_ids:
             add_validation_error(validation_issues, f"$.term_mappings[{index}].selected_concept_id", f"references unknown concept id '{selected_id}'")
 
-    todo_context = get_raw_object_value(parsed_json.get("meta"), "todo_context")
-    if isinstance(todo_context, dict):
-        todo_ids = set(value for value in get_list_items(todo_context.get("todo_ids")) if isinstance(value, str))
-        result_ids = get_string_set(todo_context.get("todos"), "id")
-        for todo_id in sorted(todo_ids - result_ids):
-            add_validation_error(validation_issues, "$.meta.todo_context.todos", f"missing todo '{todo_id}' listed in todo_ids")
-        for todo_id in sorted(result_ids - todo_ids):
-            add_validation_error(validation_issues, "$.meta.todo_context.todo_ids", f"missing todo id '{todo_id}' listed in todos")
-
 
 def get_heuristic_review_verdict(structure_passed: bool, parsed_json: Any, resolved_input_path: Path) -> ReviewVerdict:
     result = ReviewVerdict(label="FAIL", basis=[])

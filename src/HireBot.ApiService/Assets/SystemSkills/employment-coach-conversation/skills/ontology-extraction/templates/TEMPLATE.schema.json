@@ -447,66 +447,7 @@
           "const": "ontology-extraction"
         },
         "workspace": { "$ref": "#/$defs/nonEmptyString" },
-        "notes": { "$ref": "#/$defs/nonEmptyString" },
-        "todo_context": { "$ref": "#/$defs/employmentCoachTodoContext" }
-      }
-    },
-    "employmentCoachTodoContext": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["source_dispatch_target", "todo_ids", "todos"],
-      "properties": {
-        "source_dispatch_target": {
-          "type": "string",
-          "const": "ontology-extraction"
-        },
-        "todo_ids": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": { "$ref": "#/$defs/nonEmptyString" }
-        },
-        "todos": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/employmentCoachTodoContextItem" }
-        }
-      }
-    },
-    "employmentCoachTodoContextItem": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "intent", "category", "payload", "source", "acceptance", "status"],
-      "properties": {
-        "id": { "$ref": "#/$defs/nonEmptyString" },
-        "intent": { "$ref": "#/$defs/nonEmptyString" },
-        "category": { "$ref": "#/$defs/nonEmptyString" },
-        "payload": { "$ref": "#/$defs/employmentCoachTodoContextPayload" },
-        "source": { "$ref": "#/$defs/nonEmptyString" },
-        "acceptance": { "$ref": "#/$defs/nonEmptyString" },
-        "status": {
-          "type": "string",
-          "enum": ["ready_to_dispatch", "dirty"]
-        }
-      }
-    },
-    "employmentCoachTodoContextPayload": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["objective", "source_files", "scene_hint", "mode"],
-      "properties": {
-        "objective": { "$ref": "#/$defs/nonEmptyString" },
-        "source_files": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": { "$ref": "#/$defs/nonEmptyString" }
-        },
-        "scene_hint": { "$ref": "#/$defs/nonEmptyString" },
-        "mode": {
-          "type": "string",
-          "enum": ["incremental", "full_replace"]
-        }
+        "notes": { "$ref": "#/$defs/nonEmptyString" }
       }
     }
   }

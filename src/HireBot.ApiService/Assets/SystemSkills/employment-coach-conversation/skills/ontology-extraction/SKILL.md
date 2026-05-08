@@ -56,20 +56,22 @@ meta: 生成信息
 
 Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落到 JSON；如果先生成 JSON，也必须补齐对应 Markdown 人读版。
 
-## Employment Coach Todo Contract
+## Employment Coach Handoff Contract
 
-当本 skill 由 `employment-coach-conversation` 通过 `<dispatch target=ontology-extraction>` 调起时，输入是一组阶段一 material 系统 todo。优先按 todo 的 `notes` 合约处理，不要把它当普通会话描述重新追问或重新归类。
+当本 skill 由 `employment-coach-conversation` 通过 `<dispatch target=ontology-extraction>` 调起时，输入是一组阶段一 material Handoff todo。优先按 Handoff todo 合约处理，不要把它当普通会话描述重新追问或重新归类。
 
 输入形态：
 
 ```yaml
 dispatch:
   target: ontology-extraction
-  todos: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
+  handoff_ids: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
   mode: incremental
 
-todos:
-  - id: m_cs_nonstandard_rules_001
+handoff_todos:
+  - session_id: session_20260508_001
+    handoff_id: m_cs_nonstandard_rules_001
+    kind: handoff_todo
     stage: material
     target_skill: ontology-extraction
     intent: 抽出非标退货场景的判定规则与处置路径
@@ -86,21 +88,21 @@ todos:
 
 处理规则：
 
-1. 入口先校验 dispatch target 与 todo 范围：只处理本次 `dispatch.todos` 中存在、且 `stage: material`、`target_skill: ontology-extraction`、`status: ready_to_dispatch | dirty` 的 todo。
-2. `drafting`、`dispatched`、`confirmed`、`needs_review`、`dismissed` 或 stage / target_skill 不匹配的 todo 不得落盘正式 slice；必须在 `todo_results` 中标为 `skipped` 或 `failed`，并给出可读原因。
-3. 每条 todo 必须保留 `id`、`intent`、`category`、`payload`、`source`、`acceptance` 和 `status`；`source` 与 `acceptance` 必须进入 slice 的来源说明、`meta.notes` 或人读版，方便上游确认。
-4. 按 todo 的 `payload.source_files` 收集上传资料；文件路径可能来自沙箱上传通道，也可能是系统解析后的可读路径。
-5. 直接读取 `payload.source_files` 指向的资料，并围绕 todo 的 `objective`、`category`、`scene_hint`、`source` 和 `acceptance` 构造最小可验证 slice；不要调用不存在的中间接入 skill 或工具。
+1. 入口先校验 dispatch target 与 Handoff 范围：只处理本次 `dispatch.handoff_ids` 中存在、且 `kind: handoff_todo`、`stage: material`、`target_skill: ontology-extraction`、`status: ready_to_dispatch | dirty` 的 Handoff todo。
+2. `drafting`、`dispatched`、`confirmed`、`needs_review`、`dismissed` 或 stage / target_skill 不匹配的 Handoff todo 不得落盘正式 slice；必须在 `todo_results` 中标为 `skipped` 或 `failed`，并给出可读原因。
+3. 每条 Handoff todo 的完整结构只作为输入使用，不写入 slice 产物；上游确认关系由 `dispatch_callback` 的 `handoff_ids` 和 `todo_results` 承载。
+4. 按 Handoff todo 的 `payload.source_files` 收集上传资料；文件路径可能来自沙箱上传通道，也可能是系统解析后的可读路径。
+5. 直接读取 `payload.source_files` 指向的资料，并围绕 Handoff todo 的 `objective`、`category`、`scene_hint`、`source` 和 `acceptance` 构造最小可验证 slice；不要调用不存在的中间接入 skill 或工具。
 6. `payload.mode` 优先，缺失时使用 dispatch `mode`，仍缺失时默认为 `incremental`。`incremental` 表示在现有同主题 slice 上增量合并；`full_replace` 表示替换同主题 slice 的内容。两种模式都只作用于本 skill 产出的 slice，不删除人工维护的其他 ontology 文件。
 7. 每条 todo 产出的 slice 必须同时落盘 `.md` 与 `.json`，并在 `sources` 中回指本轮资料或其他权威来源。
-8. 如果多个 todo 属于同一业务主题，可以合并为一份 slice，但必须在 `meta.notes`、人读版和回传 `todo_results[].artifacts` 中列出覆盖的 todo id，避免回传时无法逐条确认。
+8. 如果多个 Handoff todo 属于同一业务主题，可以合并为一份 slice，但必须在 `meta.notes`、人读版和回传 `todo_results[].artifacts` 中列出覆盖的 Handoff id，避免回传时无法逐条确认。
 
 回传给主 skill 时输出 `dispatch_callback` 兼容结构化摘要，必须支持批量 todo 的部分成功 / 部分失败：
 
 ```yaml
 dispatch_callback:
   source_dispatch_target: ontology-extraction
-  todo_ids: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
+  handoff_ids: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
   user_summary: 已从这批资料中抽出退货判定条件、处置档位和话术风格特征；结果已写入 ontology，并标出仍需确认的边界。
   technical_artifact:
     ontology_dir: ontology
@@ -112,7 +114,7 @@ dispatch_callback:
     - path: ontology/return-policy.slice.md
       kind: ontology_slice_markdown
   todo_results:
-    - todo_id: m_cs_nonstandard_rules_001
+    - handoff_id: m_cs_nonstandard_rules_001
       status: success | warning | failed | skipped
       validation: PASS | WARNING | FAIL
       artifacts:
@@ -122,7 +124,7 @@ dispatch_callback:
           kind: ontology_slice_markdown
       extraction_summary: 本轮资料解析、切片范围和更新模式摘要
       errors: []
-    - todo_id: m_cs_dialogue_style_001
+    - handoff_id: m_cs_dialogue_style_001
       status: failed
       validation: FAIL
       artifacts: []
@@ -133,7 +135,7 @@ dispatch_callback:
   errors: []
 ```
 
-`user_summary` 必须能被雇佣教练用一两句话复述给业务用户；不要只返回文件列表。`todo_results` 必须覆盖本次 dispatch 的每个 todo id，让主 skill 能单独确认成功项、重发 dirty / failed 项，或跳过不合法项。若 schema 校验失败、来源不足以支撑结论，或某条 todo 的 `acceptance` 未达成，对应 `todo_results[].validation` 标为 `FAIL` 或 `WARNING`，并在 `todo_results[].errors` 与 `user_summary` 中说明需要补什么。整体 `status` 规则：全部成功为 `success`，成功与失败 / warning 混合为 `partial`，全部失败为 `failed`。
+`user_summary` 必须能被雇佣教练用一两句话复述给业务用户；不要只返回文件列表。`todo_results` 必须覆盖本次 dispatch 的每个 Handoff id，让主 skill 能单独确认成功项、重发 dirty / failed 项，或跳过不合法项。若 schema 校验失败、来源不足以支撑结论，或某条 Handoff todo 的 `acceptance` 未达成，对应 `todo_results[].validation` 标为 `FAIL` 或 `WARNING`，并在 `todo_results[].errors` 与 `user_summary` 中说明需要补什么。整体 `status` 规则：全部成功为 `success`，成功与失败 / warning 混合为 `partial`，全部失败为 `failed`。
 
 ## Workflow
 
@@ -153,7 +155,7 @@ dispatch_callback:
 
 如果用户给的是上传文件，而不是已经整理好的 slice JSON，本 skill 自己读取资料并产出 slice：
 
-- 从 todo 的 `payload.source_files` 收集资料路径。
+- 从 Handoff todo 的 `payload.source_files` 收集资料路径。
 - 支持 Markdown、文本、JSON、YAML 等可读资料；无法读取的文件必须写入 `todo_results[].errors`。
 - 如果遇到 zip 或二进制文档，只有在运行时已经提供可读文本或解析后路径时才处理；不要假设存在额外解析工具。
 - 默认使用 `incremental` 模式更新当前主题 slice；用户明确要求“全量替换”时使用 `full_replace` 替换当前主题 slice。

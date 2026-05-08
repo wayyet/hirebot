@@ -2,7 +2,7 @@
   "$schema": "../../templates/DISPATCH_CALLBACK.schema.json",
   "dispatch_callback": {
     "source_dispatch_target": "ontology-extraction",
-    "todo_ids": [
+    "handoff_ids": [
       "m_cs_nonstandard_rules_001"
     ],
     "user_summary": "已从非标退货资料中抽出判定条件、经理分流触发规则和关键处置边界；结果已写入 ontology slice。",
@@ -23,7 +23,7 @@
     ],
     "todo_results": [
       {
-        "todo_id": "m_cs_nonstandard_rules_001",
+        "handoff_id": "m_cs_nonstandard_rules_001",
         "status": "success",
         "validation": "PASS",
         "artifacts": [

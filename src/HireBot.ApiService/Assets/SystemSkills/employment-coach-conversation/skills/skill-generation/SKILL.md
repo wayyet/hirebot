@@ -1,12 +1,12 @@
 ---
 name: skill-generation
-description: 根据雇佣教练 todo、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并仅写入当前沙箱 skills/ 目录。
+description: 根据雇佣教练 Handoff todo、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并仅写入当前沙箱 skills/ 目录。
 metadata: {"openclaw":{"emoji":"🧩"}}
 ---
 
 # Skill Generation
 
-当用户要求根据雇佣教练阶段二 todo notes、描述、Markdown、文本、JSON、YAML 或 zip 文件创建、更新、合并、规范化业务技能包时，使用本技能。输入可以是结构化的系统 todo，也可以是非结构化的会话描述或上传文件；无论哪种输入，都必须先抽取为统一的 SkillSpec 中间模型，再映射到固定模板生成技能文件，最后通过质量校验后才落盘。整个过程中要严格区分输入来源、提炼说明、产物质量和消费契约，确保生成过程可审阅、可复盘、可迁移。
+当用户要求根据雇佣教练阶段二 Handoff todo、描述、Markdown、文本、JSON、YAML 或 zip 文件创建、更新、合并、规范化业务技能包时，使用本技能。输入可以是结构化的 Handoff todo，也可以是非结构化的会话描述或上传文件；无论哪种输入，都必须先抽取为统一的 SkillSpec 中间模型，再映射到固定模板生成技能文件，最后通过质量校验后才落盘。整个过程中要严格区分输入来源、提炼说明、产物质量和消费契约，确保生成过程可审阅、可复盘、可迁移。
 
 本技能的职责是生成以 `SKILL.md` 为核心的业务技能包。核心思想是先把非结构化输入抽取为统一的 SkillSpec，再映射到固定模板，生成后通过最小质量校验，通过后才落盘。生成过程中严格区分输入来源、提炼说明、产物质量和消费契约，确保生成过程可审阅、可复盘、可迁移。
 
@@ -17,50 +17,72 @@ metadata: {"openclaw":{"emoji":"🧩"}}
 - 会话描述：例如“它要会处理退货咨询、订单查询”。
 - 上传文件：Markdown、文本、JSON、YAML 或 zip。
 - 混合输入：上传文件作为基线，会话描述作为增量补充。
-- 雇佣教练 todo 工单：由上游 `employment-coach-conversation` 通过 `<dispatch target=skill_generation>` 交接的结构化 todo。
+- 雇佣教练 Handoff todo 工单：由上游 `employment-coach-conversation` 通过 `<dispatch target=skill-generation>` 交接的结构化 Handoff todo。
 
 同时读取当前沙箱 `skills/` 目录快照，用于同名覆盖、异名新增和去重。
 
-## Employment Coach Todo Mode
+## Employment Coach Handoff Mode
 
-当输入来自雇佣教练阶段二 dispatch 时，优先按系统 todo 的 `notes` 合约处理，而不是把它当普通会话描述重新追问。
+当输入来自雇佣教练阶段二 dispatch 时，优先按 Handoff todo 合约处理，而不是把它当普通会话描述重新追问。
 
 输入形态：
 
 ```yaml
 dispatch:
   target: skill-generation
-  todos: [s_refund_init_001, s_refund_progress_001]
+  handoff_ids: [s_refund_init_001, s_refund_progress_001]
 
-todos:
-  - id: s_refund_init_001
+handoff_todos:
+  - session_id: session_20260508_001
+    handoff_id: s_refund_init_001
+    kind: handoff_todo
     stage: skill
     target_skill: skill-generation
     intent: 生成退货资格初判技能
     category: 判定
     payload:
-      skill_name: 退货资格初判
-      skill_description: 在用户提出退货请求时，根据订单状态、商品类型、是否超过 7 天来判断是否符合退货条件，并把结论和理由回给用户。
-      trigger: 用户消息中出现退货 / 退款 / 退掉等关键词，且能匹配到具体订单
-      expected_output: 一条回复消息（含结论 + 依据），以及一条工单流转建议
-      from_upload: false
+      skills:
+        - origin: template_package
+          generation_action: reuse_existing
+          skill_name: 订单状态查询
+          skill_description: 根据订单号查询订单状态、物流进度和基础异常原因，并给出下一步指引。
+          trigger: 用户询问订单状态 / 物流进度 / 订单到哪了，且能匹配到订单号
+          expected_output: 一条订单状态回复，以及必要时的人工转接建议
+          from_upload: false
+          existing_skill_slug: order-status-query
+          existing_artifact_path: skills/order-status-query/SKILL.md
+          template_package_id: customer-service-starter
+          template_package_version: 1.0.0
+        - origin: conversation
+          generation_action: generate_new
+          skill_name: 退货资格初判
+          skill_description: 在用户提出退货请求时，根据订单状态、商品类型、是否超过 7 天来判断是否符合退货条件，并把结论和理由回给用户。
+          trigger: 用户消息中出现退货 / 退款 / 退掉等关键词，且能匹配到具体订单
+          expected_output: 一条回复消息（含结论 + 依据），以及一条工单流转建议
+          from_upload: false
     source: 用户描述退货咨询主线
-    acceptance: skill-generation 产出的 skill 文件能匹配该 todo 的 name + description
+    acceptance: skill-generation 产出的 skill 文件能匹配该 Handoff todo 的 name + description
     status: ready_to_dispatch
 ```
 
 处理规则：
 
-- 只处理 `target_skill: skill-generation` 且状态为 `ready_to_dispatch` 或 `dirty` 的 todo。
-- 每条 todo 必须保留 `id`，并在输出中按同一个 `todo_id` 回传结果。
-- `payload.skill_name` 映射为 SkillSpec 的 `display_name` 和 slug 来源。
-- `payload.skill_description` 映射为 SkillSpec 的 `description`，并作为能力边界的主要依据。
-- `payload.trigger` 映射为 SkillSpec 的 `triggers`。
-- `payload.expected_output` 映射为 capability 的 `outputs`，并写入 `references/extraction-notes.md`。
+  - 只处理 `kind: handoff_todo`、`target_skill: skill-generation` 且状态为 `ready_to_dispatch` 或 `dirty` 的 Handoff todo。
+  - 每条 Handoff todo 必须保留 `session_id` 和 `handoff_id`，并在输出中按同一个 `handoff_id` 回传结果。
+- `payload.skills` 必须是 Skill 数组且至少 1 项；数组为空或不是数组时，该 Handoff todo 标为 `failed`。
+- `payload.skills[]` 是完整技能清单，必须同时包含初始数字员工模板包已有的 skill 和本轮需要新生成的 skill。
+- `payload.skills[].origin` 表示来源，取值为 `template_package`、`conversation` 或 `upload`。
+- `payload.skills[].generation_action` 表示处理动作：`reuse_existing` 表示复用已有 skill，不重新生成；`generate_new` 表示本轮需要生成新 skill。
+- `payload.skills[].skill_name` 映射为 SkillSpec 的 `display_name` 和 slug 来源。
+- `payload.skills[].skill_description` 映射为 SkillSpec 的 `description`，并作为能力边界的主要依据。
+- `payload.skills[].trigger` 映射为 SkillSpec 的 `triggers`。
+- `payload.skills[].expected_output` 映射为 capability 的 `outputs`，并写入 `references/extraction-notes.md`。
 - `source` 与 `acceptance` 必须写入 `references/source-digest.md` 或 `references/quality-report.md`，方便上游确认。
-- `from_upload: true` 表示上游已确认该输入是现成 skill 文件；优先导入、规范化和补齐元数据，不再要求用户重新证明明确度。
-- 批量 todo 可以生成多个 `skills/<skill_slug>/` 目录；如果多个 todo 明确属于同一个业务 skill，可合并为一个目录，但 `todo_results` 必须列出每个 todo 的映射结果。
-- 单条失败不能吞掉其他 todo 的成功结果；失败项在 `todo_results` 中标为 `failed`，并给出可给用户复述的原因。
+- `payload.skills[].from_upload: true` 表示上游已确认该输入是现成 skill 文件；优先导入、规范化和补齐元数据，不再要求用户重新证明明确度。新结构中优先使用 `origin: upload` 表达来源，`from_upload` 保留用于兼容。
+- `generation_action = reuse_existing` 的条目必须保留 `existing_skill_slug`、`existing_artifact_path`，并在 `references/source-digest.md` 中说明来自哪个模板包或上传文件；不得覆盖已有文件。
+- `generation_action = generate_new` 的条目才进入 SkillSpec 提炼、模板渲染和正式落盘流程。
+  - 批量 Handoff todo 可以生成多个 `skills/<skill_slug>/` 目录；如果多个 Handoff todo 明确属于同一个业务 skill，可合并为一个目录，但 `todo_results` 必须列出每个 Handoff todo 的映射结果。
+  - 单条失败不能吞掉其他 Handoff todo 的成功结果；失败项在 `todo_results` 中标为 `failed`，并给出可给用户复述的原因。
 
 ## 统一中间模型
 
@@ -102,12 +124,12 @@ todos:
 
 先判断请求路径：
 
-- todo 路径：输入包含 `target_skill: skill_generation` 的 todo 工单，且 payload 已含 `skill_name`、`skill_description`、`trigger`、`expected_output`。
+- Handoff 路径：输入包含 `target_skill: skill-generation` 的 Handoff todo 工单，且 `payload.skills` 是至少 1 项的 Skill 数组，每项已含 `origin`、`generation_action`、`skill_name`、`skill_description`、`trigger`、`expected_output`。
 - 直接路径：用户已经给出明确业务域、触发词、能力或上传了候选 skill 文件。
 - 模糊路径：用户只说“帮我做个 skill”“把这些能力整理成 skill”，但缺少业务域、能力边界或产物目标。
 - 更新路径：现有 `skills/<skill_slug>/` 已存在，需要同名覆盖、增量合并或跳过。
 
-todo 路径和直接路径继续 Phase 0.5。模糊路径先做需求诊断：列出最多 3 个候选业务域、每个候选域的触发词和预计能力，要求用户确认后再落盘。
+Handoff 路径和直接路径继续 Phase 0.5。模糊路径先做需求诊断：列出最多 3 个候选业务域、每个候选域的触发词和预计能力，要求用户确认后再落盘。
 
 ### Phase 0.5: 创建自包含技能目录
 
@@ -138,7 +160,7 @@ skills/<skill_slug>/
 
 对不同输入执行不同采集策略：
 
-- todo notes：保留 todo id、intent、payload、source、acceptance，写入 `references/source-digest.md` 的 todo source 区块。
+- Handoff todo：保留 `session_id`、`handoff_id`、intent、payload、source、acceptance，写入 `references/source-digest.md` 的 handoff source 区块。
 - 会话描述：保留用户原话，写入 `references/source-digest.md` 的 conversation source 区块。
 - 上传文件：解析 Markdown、文本、JSON、YAML；zip 递归读取候选 skill 文件；保留文件清单、解析结论和不可解析项。
 - 混合输入：上传文件作为基线，会话描述作为增量补充，不用会话描述覆盖文件里更明确的能力定义。
@@ -149,9 +171,10 @@ skills/<skill_slug>/
 
 进入结构化归一前检查：
 
-- 至少有一个可解释的业务域或能力域；todo 路径中可由 `skill_name` 和 `skill_description` 直接给出。
-- 至少能推导出一个 trigger；todo 路径中优先使用 `payload.trigger`。
-- 至少能推导出一个 capability；todo 路径中由 `skill_description` + `expected_output` 构造。
+- 至少有一个可解释的业务域或能力域；Handoff 路径中可由 `payload.skills[].skill_name` 和 `payload.skills[].skill_description` 直接给出。
+- 每个 Handoff Skill 都明确 `generation_action`；`reuse_existing` 条目有已有产物引用，`generate_new` 条目有生成所需字段。
+- 至少能推导出一个 trigger；Handoff 路径中优先使用 `payload.skills[].trigger`。
+- 至少能推导出一个 capability；Handoff 路径中由 `payload.skills[].skill_description` + `payload.skills[].expected_output` 构造。
 - 所有敏感字段已脱敏或阻断。
 - 上传文件不可解析时，已记录失败原因和补全建议。
 
@@ -207,7 +230,7 @@ skills/<skill_slug>/
 
 1. 输入判型：判断是 todo、会话描述、上传文件还是混合输入。
 2. 内容解析：
-  - todo：读取 `payload.skill_name`、`payload.skill_description`、`payload.trigger`、`payload.expected_output`、`from_upload`、`source`、`acceptance`，保留 todo id。
+  - Handoff todo：读取 `payload.skills[]` 中每个 Skill 的 `origin`、`generation_action`、`skill_name`、`skill_description`、`trigger`、`expected_output`、`from_upload`、已有 skill 引用，同时保留 `source`、`acceptance`、`session_id` 和 `handoff_id`。
    - 会话描述：抽取触发词、能力项、输入、输出、边界和示例。
    - 上传文件：解析 Markdown、文本、JSON、YAML，并映射到 SkillSpec。
    - zip 文件：递归读取候选 skill 文件，优先保留原文件能力定义，再结构化归一。
@@ -352,7 +375,7 @@ This skill may be augmented by bound `ontology-extraction` projection contracts 
 - 只生成业务技能包，不更新主 agent 行为约束。
 - 不识别或吸收行为约束类信息；这类内容应交给主 skill 更新 `agent.md`。
 - 不修改 `config/`、`ontology/`、`external/`。
-- 不直接推送 UI，不触发诊断 skill 重跑，不更新主流程 todo。
+- 不直接推送 UI，不触发诊断 skill 重跑，不更新主流程 Handoff todo。
 - 不覆盖旧技能，除非新 SkillSpec 的规范化 `name` 与现有技能同名。
 - 不把 `skill-generation` 自身注册为 projection consumer；projection consumer 结构只写入生成出来的业务 skill。
 
@@ -385,21 +408,35 @@ This skill may be augmented by bound `ontology-extraction` projection contracts 
   ],
   "todo_results": [
     {
-      "todo_id": "s_seven_day_init_001",
+      "handoff_id": "s_seven_day_init_001",
       "status": "success",
       "skill_slug": "seven-day-return-initial-check",
       "artifacts": [
         "skills/seven-day-return-initial-check/SKILL.md",
         "skills/seven-day-return-initial-check/metadata.json"
       ],
-      "acceptance_result": "生成的 skill 文件匹配 todo 的 skill_name、skill_description、trigger 和 expected_output。"
+      "skill_results": [
+        {
+          "skill_name": "订单状态查询",
+          "generation_action": "reuse_existing",
+          "status": "reused",
+          "artifact": "skills/order-status-query/SKILL.md"
+        },
+        {
+          "skill_name": "退货资格初判",
+          "generation_action": "generate_new",
+          "status": "success",
+          "artifact": "skills/seven-day-return-initial-check/SKILL.md"
+        }
+      ],
+      "acceptance_result": "复用项已保留已有 skill 引用；新生成的 skill 文件匹配 Handoff todo 的 payload.skills[] 中对应 Skill 的 skill_name、skill_description、trigger 和 expected_output。"
     }
   ],
   "user_summary": "已新增 1 个技能：退货与订单查询助手；现在能处理退货咨询、订单状态查询和物流进度追踪。"
 }
 ```
 
-如果发生新增和更新混合，摘要必须按新增、更新、跳过、失败分类说明。todo 路径中，`todo_results` 必须覆盖本次 dispatch 的每个 todo id；失败项必须包含 `status: failed`、可读 `error`，以及是否保留旧产物。
+如果发生新增、复用和更新混合，摘要必须按复用、新增、更新、跳过、失败分类说明。Handoff 路径中，`todo_results` 必须覆盖本次 dispatch 的每个 Handoff id；同一 Handoff todo 内的每个 `payload.skills[]` 条目必须在 `todo_results[].skill_results[]` 里给出 `generation_action` 与结果。失败项必须包含 `status: failed`、可读 `error`，以及是否保留旧产物。
 
 ## References
 

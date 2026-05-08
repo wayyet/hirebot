@@ -4,9 +4,13 @@ Run these checks before writing a generated skill package.
 
 ## Input And Extraction
 
-- [ ] Input type is classified as todo, conversation, upload, or mixed.
-- [ ] In todo mode, every dispatched todo id appears in `todo_results` with `success`, `skipped`, or `failed`.
-- [ ] In todo mode, `skill_name`, `skill_description`, `trigger`, `expected_output`, `source`, and `acceptance` are preserved in source or extraction notes.
+- [ ] Input type is classified as Handoff, conversation, upload, or mixed.
+- [ ] In Handoff mode, every dispatched Handoff id appears in `todo_results` with `success`, `skipped`, or `failed`.
+- [ ] In Handoff mode, `payload.skills` is an array with at least one Skill.
+- [ ] In Handoff mode, `payload.skills[]` includes both initial template-package skills and newly requested skills when both exist.
+- [ ] In Handoff mode, every `payload.skills[]` item preserves `origin`, `generation_action`, `skill_name`, `skill_description`, `trigger`, `expected_output`, `source`, and `acceptance` in source or extraction notes.
+- [ ] `generation_action = reuse_existing` items preserve `existing_skill_slug` and `existing_artifact_path`, and are not regenerated or overwritten.
+- [ ] `generation_action = generate_new` items are the only items rendered into new skill packages.
 - [ ] Source summary is recorded in `references/source-digest.md`.
 - [ ] Every capability has a source or extraction note.
 - [ ] Ambiguous capabilities are listed as pending instead of silently finalized.
@@ -40,5 +44,6 @@ Run these checks before writing a generated skill package.
 
 - [ ] `references/quality-report.md` records passed checks and any skipped checks.
 - [ ] `technical_artifact` lists all generated files.
-- [ ] `todo_results` maps each todo id to artifacts, acceptance result, or readable failure reason.
-- [ ] `user_summary` groups新增、更新、跳过、失败。
+- [ ] `todo_results` maps each Handoff id to artifacts, acceptance result, or readable failure reason.
+- [ ] `todo_results[].skill_results[]` maps every `payload.skills[]` item to `reused`, `success`, `skipped`, or `failed` with its `generation_action`.
+- [ ] `user_summary` groups复用、新增、更新、跳过、失败。

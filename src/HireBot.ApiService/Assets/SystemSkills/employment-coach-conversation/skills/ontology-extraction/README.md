@@ -19,7 +19,7 @@
 - `templates/`
   - `TEMPLATE.md`：人工整理版模板。
   - `TEMPLATE.json`：工程化 JSON 模板。
-  - `TEMPLATE.schema.json`：严格 JSON Schema，`meta.todo_context` 可携带雇佣教练系统 todo 的结构化回指。
+  - `TEMPLATE.schema.json`：严格 JSON Schema，只约束 ontology slice 产物本身，不保存 Handoff 上下文。
   - `DISPATCH_CALLBACK.schema.json`：`ontology-extraction` 回传主 skill 的 `dispatch_callback` 结构校验规则。
   - `PROJECTION_TEMPLATE.json`：下游 codegen / prompt orchestration 投影模板。
   - `PROJECTION_TEMPLATE.schema.json`：projection 文件校验规则。
@@ -42,7 +42,7 @@
   - `json-schema-projection.json`：面向 `json_schema_projection` 的 `READY` 样例。
   - `workflow-contract-projection.json`：面向 `workflow_contract_projection` 的 `READY` 样例。
   - `minimal-projection.json`：最小可机读 projection 样例。
-  - `employment-coach-todo-slice.json`：包含 `meta.todo_context` 的雇佣教练资料阶段 slice 样例。
+  - `employment-coach-todo-slice.json`：雇佣教练资料阶段 slice 样例，Handoff 工单与确认关系由 dispatch callback 关联。
   - `employment-coach-dispatch-callback.json`：雇佣教练下游回传 `dispatch_callback` 样例。
   - `sample.entry.md`：`sample.json` 的短入口页。
   - `sample-projection.entry.md`：`sample-projection.json` 的短入口页。
@@ -110,7 +110,7 @@
 - 直接替代后续的 slice 校验、projection 校验或人工 review
 - 删除人工维护的其他 ontology 文件
 
-当 `ontology-extraction` 作为 `employment-coach-conversation` 的下游被调起时，只处理 `stage: material`、`target_skill: ontology-extraction`、`status: ready_to_dispatch | dirty` 且出现在本次 `dispatch.todos` 中的系统 todo。todo 中的 `payload.mode` 缺失时使用 dispatch `mode`，仍缺失时默认 `incremental`。`incremental` 表示在现有同主题 slice 上增量合并，`full_replace` 表示替换同主题 slice 的内容；两者都只作用于本 skill 产出的 slice。回传主 skill 时应提供 `dispatch_callback`，包含 `source_dispatch_target`、业务用户可读的 `user_summary`、聚合 `technical_artifact`、artifact 相对路径、逐条 `todo_results`、整体 `status` 与 `errors`，以支持多 todo 批次中的部分成功 / 部分失败确认。
+当 `ontology-extraction` 作为 `employment-coach-conversation` 的下游被调起时，只处理 `stage: material`、`target_skill: ontology-extraction`、`status: ready_to_dispatch | dirty` 且出现在本次 `dispatch.handoff_ids` 中的 Handoff todo。Handoff todo 中的 `payload.mode` 缺失时使用 dispatch `mode`，仍缺失时默认 `incremental`。`incremental` 表示在现有同主题 slice 上增量合并，`full_replace` 表示替换同主题 slice 的内容；两者都只作用于本 skill 产出的 slice。回传主 skill 时应提供 `dispatch_callback`，包含 `source_dispatch_target`、业务用户可读的 `user_summary`、聚合 `technical_artifact`、artifact 相对路径、逐条 `todo_results`、整体 `status` 与 `errors`，以支持多 Handoff todo 批次中的部分成功 / 部分失败确认。
 
 ---
 
