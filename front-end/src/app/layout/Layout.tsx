@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { LogOut, Loader2 } from 'lucide-react'
+import { useKeycloak } from '@react-keycloak/web'
 import { UserRoleContext, type HirebotUserRole } from '@/app/context/UserRoleContext'
 import { useUxOverlay } from '@/app/context/UxOverlayContext'
+import { isAuthBypassed } from '@/infra/auth/auth-mode'
+import { tokenService } from '@/infra/auth/token-service'
 
 const ROLE_STORAGE_KEY = 'hirebot_user_role_v1'
 
@@ -55,8 +59,10 @@ function isNavItemActive(pathname: string, navPath: string) {
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const { keycloak } = useKeycloak()
   const { showToast } = useUxOverlay()
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole)
+  const [logoutLoading, setLogoutLoading] = useState(false)
 
   useEffect(() => {
     localStorage.setItem(ROLE_STORAGE_KEY, role)
@@ -67,6 +73,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       navigate('/department-employees', { replace: true })
     }
   }, [location.pathname, navigate, role])
+
+  const handleLogout = useCallback(async () => {
+    if (logoutLoading) return
+    setLogoutLoading(true)
+    try {
+      if (isAuthBypassed || !keycloak) {
+        tokenService.clear()
+        navigate('/login', { replace: true })
+        return
+      }
+      await keycloak.logout({
+        redirectUri: `${window.location.origin}/login`,
+      })
+    } catch {
+      tokenService.clear()
+      navigate('/login', { replace: true })
+    } finally {
+      setLogoutLoading(false)
+    }
+  }, [logoutLoading, keycloak, navigate])
 
   const visibleNavItems = useMemo(() => {
     return navItems.filter((item) => {
@@ -120,6 +146,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <span className="hb-user-avatar">{role === 'manager' ? '李' : '王'}</span>
                 <span>{role === 'manager' ? '李部门长 · 研发部' : '王成员 · 研发部'}</span>
               </div>
+              <button
+                type="button"
+                className="hb-btn-ghost hb-logout-btn"
+                onClick={() => void handleLogout()}
+                disabled={logoutLoading}
+                title="退出登录"
+              >
+                {logoutLoading ? <Loader2 size={14} className="animate-spin" /> : <LogOut size={14} />}
+              </button>
             </div>
           </div>
         </header>

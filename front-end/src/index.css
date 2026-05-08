@@ -2716,6 +2716,97 @@ body.hb-body-hiring-prototype {
   color: var(--hb-soft);
 }
 
+.hb-hiring-stage-todo-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hb-hiring-stage-todo-row {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #e6e8ef;
+  background: #f9fafc;
+}
+
+.hb-hiring-stage-todo-row.is-fallback {
+  border-style: dashed;
+  background: #f7f9ff;
+}
+
+.hb-hiring-stage-todo-row-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hb-hiring-stage-todo-row-head strong {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--hb-near-black);
+}
+
+.hb-hiring-stage-todo-row-tags {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hb-hiring-stage-todo-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.5;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hb-hiring-stage-todo-pill.is-active {
+  background: #e8edff;
+  color: #3654d4;
+}
+
+.hb-hiring-stage-todo-pill.is-complete {
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+.hb-hiring-stage-todo-pill.is-pending {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.hb-hiring-stage-todo-pill.is-fallback {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
+.hb-hiring-stage-todo-pill.is-structured {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.hb-hiring-stage-todo-row p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--hb-near-black);
+}
+
+.hb-hiring-stage-todo-row small {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--hb-soft);
+}
+
 .hb-hiring-summary-card {
   padding: 14px;
   border: 1px solid rgba(0, 0, 0, 0.06);
@@ -2925,7 +3016,8 @@ body.hb-body-hiring-prototype {
   .hb-hiring-journey-head,
   .hb-hiring-panel-head.is-ledger,
   .hb-hiring-input-toolbar,
-  .hb-hiring-todo-head {
+  .hb-hiring-todo-head,
+  .hb-hiring-stage-todo-row-head {
     flex-direction: column;
   }
 
