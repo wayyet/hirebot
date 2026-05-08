@@ -1,102 +1,119 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Loader2 } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
-import { api, type EmployeeDetail } from '@/infra/api'
-import { firstCharacter } from './employeeView'
+import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { api, type EmployeeDetail } from "@/infra/api";
+import { firstCharacter } from "./employeeView";
 
-type Step = 0 | 1 | 2
+type Step = 0 | 1 | 2;
 
 export default function CloneEmployeePage() {
-  const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [employee, setEmployee] = useState<EmployeeDetail | null>(null)
-  const [step, setStep] = useState<Step>(0)
-  const [displayName, setDisplayName] = useState('')
-  const [displayDescription, setDisplayDescription] = useState('')
-  const [bindProgress, setBindProgress] = useState(0)
-  const progressRef = useRef<number | null>(null)
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
+  const [step, setStep] = useState<Step>(0);
+  const [displayName, setDisplayName] = useState("");
+  const [displayDescription, setDisplayDescription] = useState("");
+  const [bindProgress, setBindProgress] = useState(0);
+  const [creatingClone, setCreatingClone] = useState(false);
+  const progressRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!id) {
-      setError('实例 ID 缺失')
-      setLoading(false)
-      return
+      setError("实例 ID 缺失");
+      setLoading(false);
+      return;
     }
 
-    let cancelled = false
-    setLoading(true)
-    setError('')
+    let cancelled = false;
+    setLoading(true);
+    setError("");
 
-    api.employeeRuntime.getEmployee(id)
+    api.employeeRuntime
+      .getEmployee(id)
       .then((detail) => {
         if (!cancelled) {
-          setEmployee(detail)
-          setDisplayName(`${detail.nickname} · 我的分身`)
-          setDisplayDescription(`基于 ${detail.nickname} 创建的个人版本，记住我的工作偏好。`)
+          setEmployee(detail);
+          setDisplayName(`${detail.nickname} · 我的分身`);
+          setDisplayDescription(
+            `基于 ${detail.nickname} 创建的个人版本，记住我的工作偏好。`,
+          );
         }
       })
       .catch((requestError: unknown) => {
         if (!cancelled) {
-          setEmployee(null)
-          setError(requestError instanceof Error ? requestError.message : '加载复制页面失败')
+          setEmployee(null);
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "加载复制页面失败",
+          );
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setLoading(false)
+          setLoading(false);
         }
-      })
+      });
 
     return () => {
-      cancelled = true
-    }
-  }, [id])
+      cancelled = true;
+    };
+  }, [id]);
 
   useEffect(() => {
     return () => {
       if (progressRef.current !== null) {
-        window.clearInterval(progressRef.current)
+        window.clearInterval(progressRef.current);
       }
-    }
-  }, [])
+    };
+  }, []);
 
   function beginBinding() {
-    setStep(2)
-    setBindProgress(0)
+    setStep(2);
+    setBindProgress(0);
 
     if (progressRef.current !== null) {
-      window.clearInterval(progressRef.current)
-      progressRef.current = null
+      window.clearInterval(progressRef.current);
+      progressRef.current = null;
     }
 
     progressRef.current = window.setInterval(() => {
       setBindProgress((prev) => {
-        const next = prev + 1
+        const next = prev + 1;
         if (next >= 3 && progressRef.current !== null) {
-          window.clearInterval(progressRef.current)
-          progressRef.current = null
-          void createClone()
+          window.clearInterval(progressRef.current);
+          progressRef.current = null;
+          void createClone();
         }
-        return Math.min(next, 3)
-      })
-    }, 700)
+        return Math.min(next, 3);
+      });
+    }, 700);
   }
 
   async function createClone() {
-    if (!id || !employee) return
+    if (!id || !employee || creatingClone) return;
+
+    setCreatingClone(true);
+    setError("");
 
     try {
       const cloned = await api.employeeRuntime.createPersonalClone(id, {
         displayName: displayName.trim(),
         displayDescription: displayDescription.trim(),
-      })
-      navigate(`/instances/${cloned.employeeId}`)
+      });
+      navigate(`/instances/${cloned.employeeId}`);
     } catch (requestError: unknown) {
-      setError(requestError instanceof Error ? requestError.message : '创建个人分身失败')
-      setStep(1)
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "创建个人分身失败",
+      );
+      setStep(1);
+    } finally {
+      setCreatingClone(false);
     }
   }
 
@@ -108,28 +125,36 @@ export default function CloneEmployeePage() {
           正在加载复制向导...
         </div>
       </div>
-    )
+    );
   }
 
   if (!employee) {
     return (
       <div className="hb-page space-y-4">
-        <button type="button" onClick={() => navigate('/department-employees')} className="hb-btn-ghost">
+        <button
+          type="button"
+          onClick={() => navigate("/department-employees")}
+          className="hb-btn-ghost"
+        >
           <ArrowLeft size={14} />
           返回部门数字员工
         </button>
         <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">
-          {error || '未找到实例数据'}
+          {error || "未找到实例数据"}
         </div>
       </div>
-    )
+    );
   }
 
-  const steps = ['确认复制', '配置个人身份', '绑定并上岗']
+  const steps = ["确认复制", "配置个人身份", "绑定并上岗"];
 
   return (
     <div className="hb-page space-y-5">
-      <button type="button" onClick={() => navigate('/department-employees')} className="hb-btn-ghost">
+      <button
+        type="button"
+        onClick={() => navigate("/department-employees")}
+        className="hb-btn-ghost"
+      >
         <ArrowLeft size={14} />
         返回部门数字员工
       </button>
@@ -139,7 +164,9 @@ export default function CloneEmployeePage() {
           <div className="hb-toolbar">
             <div>
               <div className="hb-hero-eyebrow">分身复制向导</div>
-              <h1 className="hb-hero-title">复制为我的分身 · {employee.nickname}</h1>
+              <h1 className="hb-hero-title">
+                复制为我的分身 · {employee.nickname}
+              </h1>
               <p className="hb-hero-copy">
                 复制流程不会触发新的雇佣对话，完成后会进入「我的数字员工」。你只需要确认名称、描述，再完成绑定即可。
               </p>
@@ -169,12 +196,12 @@ export default function CloneEmployeePage() {
               key={label}
               className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm ${
                 index < step
-                ? 'border-[#d1fae5] bg-[#ecfdf5] text-[#15803d]'
-                : index === step
-                  ? 'border-[#0a0a0a] bg-[#0a0a0a] text-white'
-                  : 'border-[#ececec] bg-white text-[#737373]'
-            }`}
-          >
+                  ? "border-[#d1fae5] bg-[#ecfdf5] text-[#15803d]"
+                  : index === step
+                    ? "border-[#0a0a0a] bg-[#0a0a0a] text-white"
+                    : "border-[#ececec] bg-white text-[#737373]"
+              }`}
+            >
               <span className="text-xs">{index + 1}</span>
               {label}
             </span>
@@ -190,19 +217,33 @@ export default function CloneEmployeePage() {
                 {firstCharacter(employee.nickname)}
               </span>
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-[#0a0a0a]">{employee.nickname}</div>
-                <div className="mt-1 text-xs text-[#737373]">{employee.roleName || employee.sourceTemplate}</div>
-                <div className="mt-2 text-sm text-[#404040]">{employee.stageSummary || employee.primarySignal}</div>
+                <div className="text-sm font-semibold text-[#0a0a0a]">
+                  {employee.nickname}
+                </div>
+                <div className="mt-1 text-xs text-[#737373]">
+                  {employee.roleName || employee.sourceTemplate}
+                </div>
+                <div className="mt-2 text-sm text-[#404040]">
+                  {employee.stageSummary || employee.primarySignal}
+                </div>
               </div>
             </div>
             <div className="rounded-xl border border-[#d9e1ff] bg-[#eef2ff] px-4 py-3 text-sm text-[#2e3da9]">
               复制后是独立实例，你的会话不会回流给部门版，他人也看不到你的会话明细。
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" className="hb-btn-ghost" onClick={() => navigate('/department-employees')}>
+              <button
+                type="button"
+                className="hb-btn-ghost"
+                onClick={() => navigate("/department-employees")}
+              >
                 取消
               </button>
-              <button type="button" className="hb-btn-primary" onClick={() => setStep(1)}>
+              <button
+                type="button"
+                className="hb-btn-primary"
+                onClick={() => setStep(1)}
+              >
                 开始复制 →
               </button>
             </div>
@@ -212,7 +253,9 @@ export default function CloneEmployeePage() {
         {step === 1 && (
           <div className="space-y-4">
             <label className="block">
-              <div className="mb-1 text-sm font-medium text-[#404040]">display_name</div>
+              <div className="mb-1 text-sm font-medium text-[#404040]">
+                display_name
+              </div>
               <input
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
@@ -220,7 +263,9 @@ export default function CloneEmployeePage() {
               />
             </label>
             <label className="block">
-              <div className="mb-1 text-sm font-medium text-[#404040]">display_description</div>
+              <div className="mb-1 text-sm font-medium text-[#404040]">
+                display_description
+              </div>
               <textarea
                 rows={4}
                 value={displayDescription}
@@ -234,7 +279,11 @@ export default function CloneEmployeePage() {
               </div>
             )}
             <div className="flex justify-end gap-2">
-              <button type="button" className="hb-btn-ghost" onClick={() => setStep(0)}>
+              <button
+                type="button"
+                className="hb-btn-ghost"
+                onClick={() => setStep(0)}
+              >
                 上一步
               </button>
               <button
@@ -251,11 +300,20 @@ export default function CloneEmployeePage() {
 
         {step === 2 && (
           <div className="space-y-3">
-            {['注册 bot', '启动运行时', '状态切为 live'].map((task, index) => (
-              <div key={task} className="flex items-center justify-between rounded-xl border border-[#f3f4f6] px-3 py-2">
+            {["注册 bot", "启动运行时", "状态切为 live"].map((task, index) => (
+              <div
+                key={task}
+                className="flex items-center justify-between rounded-xl border border-[#f3f4f6] px-3 py-2"
+              >
                 <span className="text-sm text-[#404040]">{task}</span>
-                <span className={`hb-pill ${bindProgress > index ? 'green' : bindProgress === index ? 'blue' : 'gray'}`}>
-                  {bindProgress > index ? '已完成' : bindProgress === index ? '进行中' : '等待'}
+                <span
+                  className={`hb-pill ${bindProgress > index ? "green" : bindProgress === index ? "blue" : "gray"}`}
+                >
+                  {bindProgress > index
+                    ? "已完成"
+                    : bindProgress === index
+                      ? "进行中"
+                      : "等待"}
                 </span>
               </div>
             ))}
@@ -263,11 +321,24 @@ export default function CloneEmployeePage() {
             {bindProgress >= 3 && (
               <>
                 <div className="rounded-2xl border border-[#d1fae5] bg-[#ecfdf5] px-4 py-3 text-sm text-[#15803d]">
-                  {displayName} 正在调用真实个人分身接口，完成后会直接进入实例详情。
+                  {displayName}{" "}
+                  正在调用真实个人分身接口，完成后会直接进入实例详情。
                 </div>
                 <div className="flex justify-end">
-                  <button type="button" className="hb-btn-primary" onClick={() => void createClone()}>
-                    生成分身 →
+                  <button
+                    type="button"
+                    className="hb-btn-primary"
+                    onClick={() => void createClone()}
+                    disabled={creatingClone}
+                  >
+                    {creatingClone ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin mr-2" />
+                        生成分身中...
+                      </>
+                    ) : (
+                      "生成分身 →"
+                    )}
                   </button>
                 </div>
               </>
@@ -276,5 +347,5 @@ export default function CloneEmployeePage() {
         )}
       </div>
     </div>
-  )
+  );
 }
