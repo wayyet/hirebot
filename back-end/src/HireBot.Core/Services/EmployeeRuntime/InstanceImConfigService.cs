@@ -24,12 +24,13 @@ public sealed class InstanceImConfigService(
     private static readonly string[] Platforms = ["feishu", "dingtalk", "wecom"];
 
     /// <summary>
-    /// 获取实例的 Webhook URL。
+    /// 获取实例的 Webhook URL。已经废弃
     /// </summary>
     /// <param name="instanceId">实例ID</param>
     /// <param name="platform">平台类型</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>Webhook URL</returns>
+    [Obsolete("此方法已废弃")]
     public async Task<ApiResponse<ImWebhookUrlDto>> GetWebhookUrlAsync(
         string instanceId,
         string platform,
@@ -47,13 +48,14 @@ public sealed class InstanceImConfigService(
     }
 
     /// <summary>
-    /// 创建或更新实例的 IM 配置。
+    /// 创建或更新实例的 IM 配置。已经废弃
     /// </summary>
     /// <param name="instanceId">实例ID</param>
     /// <param name="platform">平台类型</param>
     /// <param name="request">配置请求</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>配置结果</returns>
+    [Obsolete("此方法已废弃，请使用其他方式配置 IM")]
     public async Task<ApiResponse<ImConfigResultDto>> UpsertConfigAsync(
         string instanceId,
         string platform,
@@ -138,6 +140,7 @@ public sealed class InstanceImConfigService(
     /// <param name="instanceId">实例ID</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>配置状态列表</returns>
+    [Obsolete("此方法已废弃")]
     public async Task<ApiResponse<ImConfigStatusDto>> GetConfigsAsync(
         string instanceId,
         CancellationToken cancellationToken = default)
@@ -188,6 +191,7 @@ public sealed class InstanceImConfigService(
     /// <param name="platform">平台类型</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>删除结果</returns>
+    [Obsolete("此方法已废弃")]
     public async Task<ApiResponse<bool>> DeleteConfigAsync(
         string instanceId,
         string platform,
@@ -384,6 +388,7 @@ public sealed class InstanceImConfigService(
     /// <summary>
     /// 构建 Webhook 路径。
     /// </summary>
+    [Obsolete("此方法已废弃")]
     private static string BuildWebhookPath(string platform, string instanceId)
     {
         return $"/api/v1/im/{platform}/webhook/{Uri.EscapeDataString(instanceId)}";
