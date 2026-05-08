@@ -7,11 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Assets\SystemSkills\README.md" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Content Include="Assets\SystemSkills\README.md">
+    <Content Update="Assets\SystemSkills\README.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -38,6 +34,11 @@
   <ItemGroup>
     <Content Update="appsettings.Development.local.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Assets/ 下的 .md 文件默认不被 Web SDK 发布，需显式声明 -->
+    <Content Include="Assets\**\*.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
 

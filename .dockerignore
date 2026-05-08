@@ -1,0 +1,28 @@
+# 前端构建产物（在 Docker 内重新构建）
+front-end/dist
+front-end/node_modules
+
+# .NET 构建产物
+back-end/**/bin
+back-end/**/obj
+
+# 测试工件
+back-end/tests
+front-end/test-results
+front-end/e2e-report
+
+# 本地开发数据库 / 日志
+back-end/**/*.db
+back-end/**/*.db-shm
+back-end/**/*.db-wal
+back-end/**/logs
+
+# IDE / 系统文件
+.vs
+.vscode
+.git
+.DS_Store
+**/.DS_Store
+
+# Aspire AppHost（不在镜像内运行）
+back-end/HireBot.AppHost

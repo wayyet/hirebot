@@ -100,6 +100,7 @@ internal sealed class SandboxPvcService
         CancellationToken cancellationToken)
     {
         var storageClassName = configuration["SandboxPvc:StorageClassName"];
+        var sanitizedOwner = SanitizeOwner(ownerSubject);
 
         var pvc = new V1PersistentVolumeClaim
         {
@@ -114,7 +115,7 @@ internal sealed class SandboxPvcService
                     ["app"] = "hirebot",
                     ["managed-by"] = "hirebot",
                     ["role"] = role,
-                    ["owner-subject"] = ownerSubject[..Math.Min(ownerSubject.Length, 63)]
+                    ["owner-subject"] = sanitizedOwner[..Math.Min(sanitizedOwner.Length, 63)]
                 }
             },
             Spec = new V1PersistentVolumeClaimSpec

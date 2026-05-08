@@ -12,6 +12,62 @@
 - 运行该测试工程：
   - `dotnet test tests/HireBot.Core.Tests/HireBot.Core.Tests.csproj`
 
+## Docker 镜像构建
+
+### 命名格式
+
+```
+ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot:<env>-<yyyyMMddHHmm>
+```
+
+| 字段 | 说明 |
+|---|---|
+| `env` | 环境标识，开发构建用 `dev` |
+| `yyyyMMddHHmm` | 构建时间，精确到分钟 |
+
+示例：`ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot:dev-202605081149`
+
+### 构建命令
+
+在**仓库根目录**（`hirebot/`）执行，构建上下文包含前端和后端：
+
+```powershell
+# 自动生成带时间戳的 tag 并构建
+$tag = "ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot:dev-$(Get-Date -Format 'yyyyMMddHHmm')"
+docker build -t $tag .
+Write-Host "Built: $tag"
+```
+
+```bash
+# Bash / Linux / macOS
+tag="ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot:dev-$(date +%Y%m%d%H%M)"
+docker build -t "$tag" .
+echo "Built: $tag"
+```
+
+### 本地运行
+
+```powershell
+# 使用远程 PostgreSQL
+docker run --rm -d `
+  --name hirebot-test `
+  -p 8080:8080 `
+  -e "ConnectionStrings__DefaultConnection=Host=<pg-host>;Port=<port>;Database=<db>;Username=<user>;Password=<pass>;SSL Mode=Prefer;Trust Server Certificate=true;" `
+  ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot:<tag>
+```
+
+访问 http://localhost:8080
+
+停止：`docker stop hirebot-test`
+
+### 推送镜像
+
+```powershell
+docker push $tag
+```
+
+---
+
 ## 雇佣流程改造关键配置
 
 以下配置位于 `src/HireBot.ApiService/appsettings.json`（开发环境可在 `appsettings.Development.json` 覆盖）：

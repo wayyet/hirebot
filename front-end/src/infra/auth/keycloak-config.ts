@@ -2,6 +2,8 @@ interface RuntimeAuthConfig {
   Authority?: string
   Realm?: string
   ClientId?: string
+  BypassAuth?: boolean
+  ApiBase?: string
 }
 
 declare global {
@@ -15,7 +17,7 @@ export const keycloakConfig = (() => {
   let realm = (import.meta.env.VITE_KEYCLOAK_REALM as string | undefined)?.trim()
   let clientId = (import.meta.env.VITE_KEYCLOAK_CLIENT_ID as string | undefined)?.trim()
 
-  if (!import.meta.env.DEV && typeof window !== 'undefined') {
+  if (typeof window !== 'undefined') {
     const runtimeConfig = window.__AUTH_CONFIG__
     if (runtimeConfig && typeof runtimeConfig === 'object') {
       url = runtimeConfig.Authority?.trim() || url
