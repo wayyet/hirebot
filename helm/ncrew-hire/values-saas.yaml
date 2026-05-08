@@ -95,8 +95,8 @@ secretEnv:
 secrets:
   create: true
   stringData:
-    OpenSandboxKingCrabLlmApiKey: "PLACEHOLDER"
-    OpenSandboxKingCrabClientSecret: "PLACEHOLDER"
+    OpenSandboxKingCrabLlmApiKey: "sk-cp-cKAEvOlT0QxJacIbrmO0Ua-RA7S0AiDL__HCMF274d-bds9g4lgILdhBlUmLLjDv6biKZ9Acr6Y65HDuLgkYi-UOkwIYwTaRzVs87LKDJPEuc1j6aixpnhQ"
+    OpenSandboxKingCrabClientSecret: "b6cWTUKq541ziC2daLGcIvbUoBtuAwBs"
 
 database:
   existingSecret: ""
