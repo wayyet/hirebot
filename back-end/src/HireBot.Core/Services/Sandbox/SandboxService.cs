@@ -104,7 +104,36 @@ internal sealed class SandboxService(
         var instance = await ResolveInstanceAsync(request, cancellationToken);
         if (instance is null)
         {
-            return ApiResponse<SandboxInstanceDto>.ErrorResponse(404, "Sandbox not found.");
+            if (string.IsNullOrWhiteSpace(request.OwnerSubject))
+            {
+                return ApiResponse<SandboxInstanceDto>.ErrorResponse(400, "Cannot create sandbox: OwnerSubject is required.");
+            }
+
+            logger.LogWarning("Sandbox instance not found, auto-creating. ScopeType={ScopeType}, ScopeKey={ScopeKey}, SandboxRole={SandboxRole}, OwnerSubject={OwnerSubject}",
+                request.ScopeType, request.ScopeKey, request.SandboxRole, request.OwnerSubject);
+
+            var provisioned = await provisioner.CreateAsync(request.OwnerSubject.Trim(), cancellationToken);
+            instance = new SandboxInstanceEntity();
+            dbContext.SandboxInstances.Add(instance);
+            PopulateInstance(instance, new SandboxRegisterRequestDto
+            {
+                SandboxId = provisioned.SandboxId,
+                ScopeType = request.ScopeType ?? string.Empty,
+                ScopeKey = request.ScopeKey ?? string.Empty,
+                SandboxRole = request.SandboxRole ?? string.Empty,
+                OwnerSubject = request.OwnerSubject,
+                TenantId = request.TenantId ?? string.Empty,
+                OperatorId = request.OperatorId ?? string.Empty,
+                ProvisioningMode = "managed",
+                State = provisioned.State,
+                GatewayEndpoint = provisioned.GatewayEndpoint,
+                ExpiresAtUtc = provisioned.ExpiresAtUtc,
+                UseCase = request.UseCase,
+                TemplateId = request.TemplateId
+            });
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await provisioner.BeginTrackingAsync(instance.Id, provisioned.SandboxId);
+            return ApiResponse<SandboxInstanceDto>.SuccessResponse(ToDto(instance));
         }
 
         if (!string.Equals(instance.ProvisioningMode, "managed", StringComparison.OrdinalIgnoreCase))
@@ -756,7 +785,7 @@ internal sealed class SandboxService(
         return true;
     }
 
-    private Task<SandboxInstanceEntity?> ResolveInstanceAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken)
+    private async Task<SandboxInstanceEntity?> ResolveInstanceAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken)
     {
         var trimmedSandboxId = string.IsNullOrWhiteSpace(request.SandboxId) ? null : request.SandboxId.Trim();
         var hasFullScope = !string.IsNullOrWhiteSpace(request.OwnerSubject) &&
@@ -766,15 +795,33 @@ internal sealed class SandboxService(
 
         if (trimmedSandboxId is null && !hasFullScope)
         {
-            return Task.FromResult<SandboxInstanceEntity?>(null);
+            return null;
         }
 
-        return dbContext.SandboxInstances
-            .Where(item => trimmedSandboxId != null
-                ? item.SandboxId == trimmedSandboxId
-                : (item.OwnerSubject == request.OwnerSubject && item.ScopeType == request.ScopeType && item.ScopeKey == request.ScopeKey && item.SandboxRole == request.SandboxRole && item.State != "Deleted"))
-            .OrderByDescending(item => item.UpdatedAtUtc)
-            .FirstOrDefaultAsync(cancellationToken);
+        // 优先按 sandboxId 查找；未找到时回退到 scope 查找（sandboxId 可能因自动重建而过期）
+        if (trimmedSandboxId is not null)
+        {
+            var byId = await dbContext.SandboxInstances
+                .FirstOrDefaultAsync(item => item.SandboxId == trimmedSandboxId, cancellationToken);
+            if (byId is not null)
+            {
+                return byId;
+            }
+        }
+
+        if (hasFullScope)
+        {
+            return await dbContext.SandboxInstances
+                .Where(item => item.OwnerSubject == request.OwnerSubject
+                    && item.ScopeType == request.ScopeType
+                    && item.ScopeKey == request.ScopeKey
+                    && item.SandboxRole == request.SandboxRole
+                    && item.State != "Deleted")
+                .OrderByDescending(item => item.UpdatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        return null;
     }
 
     private async Task<SandboxInstanceEntity?> ResolveInstanceForWriteAsync(

@@ -39,6 +39,10 @@ public sealed record SandboxInstanceLookupRequestDto
     public string? ScopeKey { get; init; }
     public string? SandboxRole { get; init; }
     public string? OwnerSubject { get; init; }
+    public string? TenantId { get; init; }
+    public string? OperatorId { get; init; }
+    public string? UseCase { get; init; }
+    public string? TemplateId { get; init; }
 }
 
 public sealed record SandboxEnsureSessionRequestDto
