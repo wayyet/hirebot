@@ -58,6 +58,32 @@ license: Proprietary. NCrew employment-coach internal flow.
 
 Handoff todo 的流程状态为 `drafting / ready_to_dispatch / dispatched / dirty / confirmed / needs_review / dismissed`。dispatch 块统一使用 Handoff tool 返回的 `handoff_ids`。
 
+### Handoff 返回消费与对话输出约束
+
+Handoff tool 的返回结果是给模型判断下一步动作的机器状态，不是默认展示给用户的对话内容。返回结构见 [references/handoff-tools.md](references/handoff-tools.md) 的“返回结构”章节；拿到返回后按下面规则处理：
+
+- 先判断返回是否以 `Error:` 开头；如果是错误，只用一句自然语言说明“这条还没记成功 / 我需要重新整理一下”，不要把原始错误字符串、堆栈、字段校验细节贴给用户。
+- 成功返回时，把 `item` / `items` 只用于内部决策：更新当前 `handoff_id`、`revision`、`status`、`dispatch_id`、`callback_summary` 和下一步动作判断。
+- 特别注意 `payload`：它不是普通元数据，而是 Handoff todo 的可执行任务内容，直接决定“这条 todo 具体要下游做什么、还缺什么、是否覆盖旧任务、是否达到可发条件”。成功返回后必须读取 `payload` 来判断当前 todo 的业务内容、缺口、合流关系和状态推进；但对用户输出时只能转成业务化摘要或下一步提示，不能原样展示结构化 JSON。
+- 默认对用户只输出一行业务化反馈，例如“我先把这批资料记成待抽取项了，等你说先这些我就送去整理。”不要在会话里自动列出 Handoff todo 清单。
+- 不默认展示原始 JSON，不展示 `session_id`、`handoff_id`、`workflow_id`、`target_skill`、`fingerprint`、`revision`、`payload`、`acceptance`、`created_at`、`updated_at`、`dispatch_id`、`callback_summary` 等内部字段。
+- 不把 `items` 当成“要向用户朗读的列表”。`items` 是当前 workflow 状态快照，只用于查重、合流、阻塞判断和阶段完成判断。
+- 用户明确要求“看看当前待办 / 现在有哪些项 / 列一下 Handoff todo”时，才可以输出**业务摘要版**清单：只列标题、阶段、当前状态的业务含义、还差什么或下一步；其中“任务内容 / 还差什么 / 下一步”应从 `payload` 提炼成人能看懂的业务话，而不是把 `payload` 原文贴出；默认仍不暴露 id、payload、指纹、时间戳和内部目标 skill。
+- 只有在用户明确要求调试 / 开发者信息 / 原始 Handoff 数据时，才可以展示 `handoff_id`、`revision` 等技术字段；仍然不得展示真实 token、密钥、密码、API Key、连接串。
+- mutation 类 action（`upsert` / `patch` / `transition`）返回的 `items` 不代表需要向用户复述全部清单；只根据本次 `item` 给一句确认，除非用户正在主动查看清单。
+
+业务摘要版状态表达：
+
+| 内部状态 | 对用户说法 |
+| --- | --- |
+| `drafting` | 还在补信息，暂时不能交给下游处理 |
+| `ready_to_dispatch` | 信息已经够了，等你确认“先这些”就可以送去处理 |
+| `dispatched` | 已经送去处理，正在等结果回来 |
+| `dirty` | 你刚改过这条，需要重新整理或重发 |
+| `confirmed` | 这条已经确认可用 |
+| `needs_review` | 上游规则变了，这条需要复核 |
+| `dismissed` | 这条已经按你的意思取消 |
+
 > 节奏与口吻、真实场景优先、情绪信号识别、反馈风格、初始化与开场示例 → 进入会话第一轮 / 拿不准对话节奏时，读 [references/interaction-quality.md](references/interaction-quality.md)。
 
 ## 阶段引导通用套路
