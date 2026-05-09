@@ -594,6 +594,7 @@ internal sealed class EmployeeHiringService(
                 normalizedHireId,
                 refreshResult.Data.SandboxId,
                 frontendStatus,
+                GatewayEndpoint: refreshResult.Data.GatewayEndpoint,
                 ErrorCode: null,
                 ErrorMessage: refreshResult.Data.LastError,
                 CollectionPhase: runtimeContext?.CollectionPhase,

@@ -11,6 +11,9 @@ import type {
   HiringConversationMaterial,
   HiringWorkflowState,
 } from '@/infra/api'
+import { GatewayWs } from '@/infra/sandbox/gateway-ws'
+import { fetchSandboxSessionMessages } from '@/infra/sandbox/sandbox-api'
+import { tokenService } from '@/infra/auth/token-service'
 
 import { HiringConversationPanel } from './components/HiringConversationPanel'
 import { HiringJourneyHeader } from './components/HiringJourneyHeader'
@@ -194,6 +197,8 @@ export default function HiringPage() {
   const [artifactArchive, setArtifactArchive] = useState<{ fileName: string; blob: Blob } | null>(null)
   const [artifactFileNames, setArtifactFileNames] = useState<string[]>([])
   const [submittingMessage, setSubmittingMessage] = useState(false)
+  // WS 流式内容：非 null 时表示 AI 正在逐字输出
+  const [streamingContent, setStreamingContent] = useState<string | null>(null)
   const [credentialDrafts, setCredentialDrafts] = useState<Record<string, CredentialDraft>>({})
   const [configDrafts, setConfigDrafts] = useState<Record<string, string>>({})
   const [credentialSubmittingSlot, setCredentialSubmittingSlot] = useState<string | null>(null)
@@ -205,6 +210,10 @@ export default function HiringPage() {
   const workflowInitRef = useRef<Promise<string | null> | null>(null)
   const messageSubmitRef = useRef(false)
   const handleSendRef = useRef(false)
+  // 沙箱直连引用：WebSocket 实例、网关端点、会话 ID
+  const wsRef = useRef<GatewayWs | null>(null)
+  const gatewayEndpointRef = useRef<string | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
 
   const workflowReady = Boolean(workflowHireId && workflowState)
   const workflowCollectionPhase = normalizeCollectionPhase(workflowState?.collectionPhase ?? HiringCollectionPhase.NotStarted)
@@ -222,7 +231,12 @@ export default function HiringPage() {
 
   useEffect(() => {
     document.body.classList.add('hb-body-hiring-prototype')
-    return () => document.body.classList.remove('hb-body-hiring-prototype')
+    return () => {
+      document.body.classList.remove('hb-body-hiring-prototype')
+      // 离开页面时断开沙箱 WebSocket
+      wsRef.current?.disconnect()
+      wsRef.current = null
+    }
   }, [])
 
   useEffect(() => {
@@ -326,8 +340,26 @@ export default function HiringPage() {
 
   async function syncWorkflowState(hireId: string) {
     const nextWorkflowState = await api.hiringWorkflow.getWorkflowState(hireId)
-    const timeline = await api.hiringWorkflow.getConversationTimeline(hireId)
-    setMessages(prev => timeline.messages.length >= prev.length ? mapTimelineMessagesToChat(timeline.messages) : prev)
+    // 优先直连沙箱拉取历史消息，减少后端中转
+    const endpoint = gatewayEndpointRef.current
+    const sid = sessionIdRef.current
+    if (endpoint && sid) {
+      const sandboxMessages = await fetchSandboxSessionMessages(endpoint, sid)
+      const mapped = sandboxMessages
+        .filter(m => m.type === 'user_message' || m.type === 'assistant_message')
+        .map<ChatMessage>(m => ({
+          id: mkId(),
+          role: m.type === 'user_message' ? 'user' : 'bot',
+          content: m.type === 'assistant_message'
+            ? normalizeAssistantReply(String(m.content ?? ''))
+            : String(m.text ?? ''),
+        }))
+        .filter(m => m.content.trim().length > 0)
+      setMessages(prev => mapped.length >= prev.length ? mapped : prev)
+    } else {
+      const timeline = await api.hiringWorkflow.getConversationTimeline(hireId)
+      setMessages(prev => timeline.messages.length >= prev.length ? mapTimelineMessagesToChat(timeline.messages) : prev)
+    }
     setWorkflowState(nextWorkflowState)
     if (nextWorkflowState.collectionPhase === HiringCollectionPhase.Finalized) {
       setInstanceCreated(true)
@@ -356,17 +388,39 @@ export default function HiringPage() {
         setWorkflowHireId(hired.hireId)
 
         let latestStatus = hired.status
+        let latestGatewayEndpoint: string | null = null
         for (let retry = 0; retry < 30; retry += 1) {
           if (latestStatus === 'READY' || latestStatus === 'FAILED') break
           await sleep(1000)
-          latestStatus = (await api.employeeTemplate.getHiringStatus(hired.hireId)).status
+          const statusResult = await api.employeeTemplate.getHiringStatus(hired.hireId)
+          latestStatus = statusResult.status
+          latestGatewayEndpoint = statusResult.gatewayEndpoint ?? null
         }
         if (latestStatus !== 'READY') {
           throw new Error('沙箱尚未就绪，请稍后重试')
         }
 
-        await api.hiringWorkflow.startConversation(hired.hireId)
-        setMessages(mapTimelineMessagesToChat((await api.hiringWorkflow.getConversationTimeline(hired.hireId)).messages))
+        // 如果 hired.status 初始就是 READY（沙箱已在运行），循环体从未执行，
+        // gatewayEndpoint 未被填充，需要补一次查询
+        if (!latestGatewayEndpoint) {
+          const statusResult = await api.employeeTemplate.getHiringStatus(hired.hireId)
+          latestGatewayEndpoint = statusResult.gatewayEndpoint ?? null
+        }
+
+        // 保存网关端点，后续直连沙箱使用
+        if (latestGatewayEndpoint) {
+          gatewayEndpointRef.current = latestGatewayEndpoint
+        }
+
+        const conversation = await api.hiringWorkflow.startConversation(hired.hireId)
+        // 保存会话 ID，用于直连沙箱拉取历史和建立 WebSocket
+        sessionIdRef.current = conversation.sessionId
+
+        // 建立到沙箱的 WebSocket 直连，用于流式展示 AI 回复
+        if (latestGatewayEndpoint) {
+          await connectSandboxWs(latestGatewayEndpoint)
+        }
+
         await syncWorkflowState(hired.hireId)
         setWorkflowNotice('')
         return hired.hireId
@@ -383,8 +437,52 @@ export default function HiringPage() {
     return workflowInitRef.current
   }
 
+  /**
+   * 建立到沙箱 Gateway 的 WebSocket 直连。
+   * 消息发送直接经由 WebSocket，沙箱流式推送 AI 回复。
+   */
+  async function connectSandboxWs(endpoint: string) {
+    wsRef.current?.disconnect()
+
+    const token = await tokenService.ensureFresh()
+    if (!token) return
+
+    const ws = new GatewayWs(endpoint, token)
+
+    ws.onMessage = (msg) => {
+      const type = msg.type as string
+      if (type === 'typing_start') {
+        // AI 开始思考，切换到流式展示
+        setStreamingContent('')
+        setTyping(true)
+      } else if (type === 'text_delta' || type === 'assistant_chunk') {
+        // 逐字追加流式内容
+        const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
+        setStreamingContent(prev => (prev === null ? chunk : prev + chunk))
+      } else if (type === 'typing_stop' || type === 'assistant_done') {
+        // AI 回复完毕，将流式内容提交为正式气泡
+        setStreamingContent(prev => {
+          if (prev !== null && prev.trim().length > 0) {
+            const cleaned = normalizeAssistantReply(prev)
+            if (cleaned.length > 0) {
+              setMessages(msgs => [...msgs, { id: mkId(), role: 'bot', content: cleaned }])
+            }
+          }
+          return null
+        })
+        setTyping(false)
+        // AI 回复完毕后同步工作流状态（更新侧边栏进度等）
+        if (workflowHireId) {
+          syncWorkflowState(workflowHireId).catch(() => { /* 忽略同步失败 */ })
+        }
+      }
+    }
+
+    ws.connect()
+    wsRef.current = ws
+  }
+
   function retryWorkflowInitialization() {
-    if (workflowBooting) return
     setWorkflowError('')
     setWorkflowNotice('')
     setWorkflowInitAttempted(false)
@@ -406,6 +504,34 @@ export default function HiringPage() {
 
     messageSubmitRef.current = true
     setSubmittingMessage(true)
+
+    const ws = wsRef.current
+    const sessionId = sessionIdRef.current
+
+    // WS 已连通：直接通过 WebSocket 发送消息，沙箱实时流式回复；
+    // WS 未就绪：降级走 REST，等待同步响应
+    if (ws && sessionId) {
+      try {
+        ws.send({ type: 'user_message', text: text || '补充信息', sessionId })
+        setTyping(true)
+        // typing / streamingContent 由 WS 事件（typing_stop/assistant_done）自动清除；
+        // 此处只需要拉一次工作流状态以更新侧边栏，不等待 AI 完成
+        syncWorkflowState(hireId).catch(() => { /* 忽略状态同步失败，不影响对话 */ })
+        setWorkflowError('')
+        setWorkflowNotice('')
+        return true
+      } catch (error: unknown) {
+        setWorkflowError(normalizeErrorMessage(error))
+        setTyping(false)
+        setStreamingContent(null)
+        return false
+      } finally {
+        messageSubmitRef.current = false
+        setSubmittingMessage(false)
+      }
+    }
+
+    // 降级：WS 未连接，走 REST
     setTyping(true)
     try {
       const response = await api.hiringWorkflow.sendConversationMessage(hireId, {
@@ -442,6 +568,7 @@ export default function HiringPage() {
       return false
     } finally {
       setTyping(false)
+      setStreamingContent(null)
       messageSubmitRef.current = false
       setSubmittingMessage(false)
     }
@@ -725,6 +852,7 @@ export default function HiringPage() {
             guideCard={viewModel.guideCard}
             messages={messages}
             typing={typing}
+            streamingContent={streamingContent}
             pendingFiles={pendingFiles}
             input={input}
             promptPlaceholder={viewModel.promptPlaceholder}

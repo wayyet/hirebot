@@ -71,6 +71,7 @@ export interface HiringStatusResult {
   hireId: string
   sandboxId: string
   status: string
+  gatewayEndpoint?: string | null
   errorCode?: string | null
   errorMessage?: string | null
 }
