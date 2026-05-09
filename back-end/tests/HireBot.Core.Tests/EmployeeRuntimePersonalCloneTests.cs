@@ -334,6 +334,8 @@ public sealed class EmployeeRuntimePersonalCloneTests
         public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default)
+            => Task.FromResult<SandboxInstanceDto?>(null);
 
         private static ApiResponse<SandboxInstanceDto> SuccessResponse(object request)
             => ApiResponse<SandboxInstanceDto>.SuccessResponse(
@@ -352,6 +354,7 @@ public sealed class EmployeeRuntimePersonalCloneTests
                     null,
                     null,
                     "runtime-chat-for:test",
+                    null,
                     DateTimeOffset.UtcNow,
                     DateTimeOffset.UtcNow));
     }
