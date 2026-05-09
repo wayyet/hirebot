@@ -15,5 +15,6 @@ public sealed record SandboxInstanceDto(
     DateTimeOffset? ExpiresAtUtc,
     string? LastError,
     string? UseCase,
+    string? TemplateId,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);

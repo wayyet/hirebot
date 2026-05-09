@@ -88,7 +88,8 @@ internal sealed class SandboxService(
             State = provisioned.State,
             GatewayEndpoint = provisioned.GatewayEndpoint,
             ExpiresAtUtc = provisioned.ExpiresAtUtc,
-            UseCase = request.UseCase
+            UseCase = request.UseCase,
+            TemplateId = request.TemplateId
         });
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -808,6 +809,19 @@ internal sealed class SandboxService(
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(
+        string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken)
+    {
+        var instance = await dbContext.SandboxInstances
+            .Where(item => item.OwnerSubject == ownerSubject
+                           && item.TemplateId == templateId
+                           && item.SandboxRole == sandboxRole
+                           && item.State != "Deleted")
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        return instance is null ? null : ToDto(instance);
+    }
+
     private static void PopulateInstance(SandboxInstanceEntity instance, SandboxRegisterRequestDto request)
     {
         instance.SandboxId = request.SandboxId.Trim();
@@ -822,6 +836,7 @@ internal sealed class SandboxService(
         instance.GatewayEndpoint = string.IsNullOrWhiteSpace(request.GatewayEndpoint) ? null : request.GatewayEndpoint.Trim();
         instance.ExpiresAtUtc = request.ExpiresAtUtc;
         instance.UseCase = string.IsNullOrWhiteSpace(request.UseCase) ? null : request.UseCase.Trim();
+        instance.TemplateId = string.IsNullOrWhiteSpace(request.TemplateId) ? null : request.TemplateId.Trim();
         instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
     }
 
@@ -841,6 +856,7 @@ internal sealed class SandboxService(
             instance.ExpiresAtUtc,
             instance.LastError,
             instance.UseCase,
+            instance.TemplateId,
             instance.CreatedAtUtc,
             instance.UpdatedAtUtc);
 

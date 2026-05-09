@@ -136,11 +136,41 @@ internal sealed class EmployeeHiringService(
         }
 
         var ownerSubject = ResolveOwnerSubject(tenantId, operatorId);
+
+        var existingInstance = await sandboxService.FindActiveByOwnerAndTemplateAsync(
+            ownerSubject, normalizedTemplateId, "hiring", cancellationToken);
+        if (existingInstance is not null)
+        {
+            if (string.Equals(existingInstance.State, "Paused", StringComparison.OrdinalIgnoreCase))
+            {
+                await sandboxService.ResumeAsync(
+                    new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
+                    cancellationToken);
+            }
+
+            hireOwners[existingInstance.ScopeKey] = new HireOwnerContext(
+                OwnerSubject: ownerSubject,
+                TenantId: tenantId,
+                OperatorId: operatorId,
+                TemplateId: normalizedTemplateId,
+                TemplateName: template.Name,
+                EmployeeId: null);
+
+            return ApiResponse<HireTemplateResultDto>.SuccessResponse(
+                new HireTemplateResultDto(
+                    existingInstance.ScopeKey,
+                    existingInstance.SandboxId,
+                    existingInstance.State,
+                    "continue_conversation"),
+                "已复用现有沙箱");
+        }
+
         var provisionResult = await ProvisionManagedHireSandboxAsync(
             sandboxRole: "hiring",
             ownerSubject,
             tenantId,
             operatorId,
+            normalizedTemplateId,
             request.UseCase,
             cancellationToken);
         if (!provisionResult.Success || provisionResult.Data is null)
@@ -489,6 +519,7 @@ internal sealed class EmployeeHiringService(
             ownerContext.OwnerSubject,
             ownerContext.TenantId,
             ownerContext.OperatorId,
+            templateId: null,
             useCase,
             cancellationToken);
         if (!provisionResult.Success || provisionResult.Data is null)
@@ -3066,6 +3097,7 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         string ownerSubject,
         string tenantId,
         string operatorId,
+        string? templateId,
         string? useCase,
         CancellationToken cancellationToken)
     {
@@ -3080,7 +3112,8 @@ This is the bootstrap skill for evaluation sandbox orchestration.
                 TenantId = tenantId,
                 OperatorId = operatorId,
                 ProvisioningMode = "managed",
-                UseCase = useCase
+                UseCase = useCase,
+                TemplateId = templateId
             },
             cancellationToken);
         if (!createResult.Success || createResult.Data is null)
