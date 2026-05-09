@@ -53,6 +53,22 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
         return StatusCode(response.Code, response);
     }
 
+    [HttpPost("{hireId}/conversation/sync")]
+    public async Task<IActionResult> SyncConversationTurn(
+        string hireId,
+        [FromBody] HiringConversationSyncRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<HiringConversationResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeHiringService.SyncConversationTurnAsync(hireId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpGet("{hireId}/conversation/messages")]
     public async Task<IActionResult> GetConversationTimeline(string hireId, CancellationToken cancellationToken = default)
     {

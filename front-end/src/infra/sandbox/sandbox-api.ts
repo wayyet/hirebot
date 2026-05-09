@@ -73,15 +73,20 @@ export async function fetchSandboxSessionMessages(
     if (!resp.session) return []
 
     const messages: SandboxMessage[] = []
+    let assistantStarted = false
     for (const turn of resp.session.history) {
-      if (turn.role === 'user') {
-        messages.push({ type: 'user_message', text: turn.content, _historical: true })
-      } else if (turn.role === 'assistant') {
+      if (turn.role === 'assistant') {
+        assistantStarted = true
         // 工具调用条目跳过，只显示文字内容
         const rawContent = turn.content ?? ''
         if (rawContent && rawContent !== '[tool_use]') {
           messages.push({ type: 'assistant_message', content: rawContent, _historical: true })
         }
+      } else if (turn.role === 'user') {
+        // 第一个 assistant 回复之前的 user 消息是后端内部注入的冷启动 system prompt，
+        // 不是用户真实输入，跳过不显示
+        if (!assistantStarted) continue
+        messages.push({ type: 'user_message', text: turn.content, _historical: true })
       }
     }
     return messages
