@@ -98,6 +98,13 @@ internal sealed class OpenSandboxProvisioner(
         var baseUrl = connection.GetBaseUrl().TrimEnd('/');
 
         var response = await http.GetAsync($"{baseUrl}/sandboxes/{Uri.EscapeDataString(sandboxId)}", cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            logger.LogWarning("OpenSandbox 沙箱不存在，可能已被删除. SandboxId={SandboxId}", sandboxId);
+            return new ProvisionedSandboxResult(sandboxId, "NotFound", null, null);
+        }
+
         response.EnsureSuccessStatusCode();
 
         using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
