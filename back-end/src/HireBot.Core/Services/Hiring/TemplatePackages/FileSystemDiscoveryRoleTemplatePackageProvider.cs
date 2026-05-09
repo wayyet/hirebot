@@ -8,7 +8,7 @@ internal sealed class FileSystemDiscoveryRoleTemplatePackageProvider(
     IHostEnvironment hostEnvironment,
     IConfiguration configuration) : IDiscoveryRoleTemplatePackageProvider
 {
-    private const string DefaultRelativePath = "Assets/SystemSkills/employment-coach-conversation.v2";
+    private const string DefaultRelativePath = "Assets/SystemSkills/employment-coach-conversation";
 
     public Task<TemplatePackageDefinition> LoadAsync(CancellationToken cancellationToken = default)
     {

@@ -140,7 +140,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.Property(e => e.SecretRef).HasMaxLength(256);
             entity.Property(e => e.AuthKind).HasMaxLength(80);
             entity.Property(e => e.TargetSystem).HasMaxLength(160);
-            entity.Property(e => e.TodoId).HasMaxLength(160);
+            entity.Property(e => e.HandoffId).HasMaxLength(160);
             entity.Property(e => e.BindingStatus).IsRequired().HasMaxLength(64);
             entity.Property(e => e.ProtectedSecret).IsRequired();
             entity.Property(e => e.CreatedAtUtc).IsRequired();

@@ -554,7 +554,7 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 
-                    b.Property<string>("TodoId")
+                    b.Property<string>("HandoffId")
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 

@@ -16,7 +16,7 @@
 字段：
 
 - `target`: 目标下游 skill（`ontology-extraction` / `skill-generation` / `external-config` / `stage_transition`）。
-- `handoff_ids`: 本次 dispatch 的 Handoff todo id 列表。
+- `handoff_ids`: 本次 dispatch 的 Handoff id 列表。
 - `mode`（可选）: 阶段相关模式标记（如本体提取的 `incremental` / `full_replace`）。
 - `note`（可选）: 给系统 / 下游的简短上下文。
 

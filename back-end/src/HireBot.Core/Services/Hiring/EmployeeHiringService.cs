@@ -594,6 +594,7 @@ internal sealed class EmployeeHiringService(
                 normalizedHireId,
                 refreshResult.Data.SandboxId,
                 frontendStatus,
+                GatewayEndpoint: refreshResult.Data.GatewayEndpoint,
                 ErrorCode: null,
                 ErrorMessage: refreshResult.Data.LastError,
                 CollectionPhase: runtimeContext?.CollectionPhase,
@@ -808,7 +809,7 @@ internal sealed class EmployeeHiringService(
                     visibleAssistantMessage),
                 StructuredData = MergeStructuredData(runtimeContext.StructuredData, request.StructuredAnswers)
             };
-            runtimeContext = await RefreshTodoProjectionFromSandboxAsync(runtimeContext, cancellationToken);
+        runtimeContext = await RefreshHandoffStateFromSandboxAsync(runtimeContext, cancellationToken);
             runtimeContext = ApplyAssistantReply(runtimeContext, parsedReply);
             runtimeContext = ApplyDispatchCallbacks(runtimeContext, parsedReply.DispatchCallbacks);
             runtimeContext = await ExecuteDispatchCommandsAsync(runtimeContext, parsedReply.DispatchCommands, cancellationToken);
@@ -1145,7 +1146,10 @@ internal sealed class EmployeeHiringService(
             runtimeContext.CollectionPhase,
             runtimeContext.StructuredData,
             summaryOverride: null);
-        var displayWorkflowTodos = HiringWorkflowTodoProjector.BuildDisplayTodos(runtimeContext);
+        var displayHandoffItems = runtimeContext.HandoffItems
+            .OrderBy(item => item.CreatedAtUtc)
+            .ThenBy(item => item.HandoffId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
         var workflowState = new HiringWorkflowStateDto(
             HireId: normalizedHireId,
@@ -1160,13 +1164,12 @@ internal sealed class EmployeeHiringService(
             DiscoverySkillId: runtimeContext.DiscoverySkill.SkillId,
             DiscoverySkillVersion: runtimeContext.DiscoverySkill.SkillVersion,
             StageCompletion: runtimeContext.StageCompletion,
-            WorkflowTodos: displayWorkflowTodos,
+            HandoffItems: displayHandoffItems,
             LatestDispatches: runtimeContext.LatestDispatches,
             LatestDiagnosticReport: runtimeContext.LatestDiagnosticReport,
             CredentialSlots: runtimeContext.CredentialSlots,
             ConfigGovernance: runtimeContext.ConfigGovernance,
             StageReadiness: runtimeContext.StageReadiness,
-            RuntimeFacts: runtimeContext.RuntimeFacts,
             IsConversationPaused: runtimeContext.IsConversationPaused,
             IsConversationResponding: IsConversationResponding(normalizedHireId, runtimeContext));
 
@@ -1204,7 +1207,7 @@ internal sealed class EmployeeHiringService(
                     string.IsNullOrWhiteSpace(request.SecretRef) ? BuildSecretRef(request.CredentialSlot) : request.SecretRef.Trim(),
                     request.AuthKind?.Trim(),
                     request.TargetSystem?.Trim(),
-                    request.TodoId?.Trim(),
+                    request.HandoffId?.Trim(),
                     HiringCredentialBindingStatus.Bound,
                     DateTimeOffset.UtcNow))
         };
@@ -1377,7 +1380,7 @@ internal sealed class EmployeeHiringService(
             return null;
         }
 
-        await Task.CompletedTask;
+        runtimeContext = await RefreshHandoffStateFromSandboxAsync(runtimeContext, cancellationToken);
         runtimeContext = ApplyWorkflowProgress(runtimeContext with
         {
             StructuredData = NormalizeStructuredData(runtimeContext.StructuredData)
@@ -1440,7 +1443,7 @@ internal sealed class EmployeeHiringService(
             Materials = MergeMaterials(runtimeContext.Materials, materials),
             Messages = AppendMessages(runtimeContext.Messages, visibleAssistantMessage)
         };
-        runtimeContext = await RefreshTodoProjectionFromSandboxAsync(runtimeContext, cancellationToken);
+        runtimeContext = await RefreshHandoffStateFromSandboxAsync(runtimeContext, cancellationToken);
         runtimeContext = ApplyAssistantReply(runtimeContext, parsedReply);
         runtimeContext = ApplyDispatchCallbacks(runtimeContext, parsedReply.DispatchCallbacks);
         runtimeContext = await ExecuteDispatchCommandsAsync(runtimeContext, parsedReply.DispatchCommands, cancellationToken);
@@ -1473,7 +1476,7 @@ internal sealed class EmployeeHiringService(
                 true));
     }
 
-    private async Task<HiringRuntimeContext> RefreshTodoProjectionFromSandboxAsync(
+    private async Task<HiringRuntimeContext> RefreshHandoffStateFromSandboxAsync(
         HiringRuntimeContext runtimeContext,
         CancellationToken cancellationToken)
     {
@@ -1499,121 +1502,68 @@ internal sealed class EmployeeHiringService(
         {
             throw new InvalidOperationException(
                 string.IsNullOrWhiteSpace(sessionDetailResult.Message)
-                    ? $"无法刷新会话 {runtimeContext.SessionId} 的 todo 元数据。"
+                    ? $"无法刷新会话 {runtimeContext.SessionId} 的 handoff 元数据。"
                     : sessionDetailResult.Message);
-        }
-
-        var projectionResult = HiringWorkflowTodoProjector.ProjectAuthoritativeTodos(sessionDetailResult.Data.TodoItems);
-        foreach (var warning in projectionResult.Warnings)
-        {
-            logger.LogWarning(
-                "Ignored malformed sandbox todo during authoritative projection. HireId={HireId}, SessionId={SessionId}, TodoId={TodoId}, Reason={Reason}",
-                runtimeContext.HireId,
-                sessionDetailResult.Data.SessionId,
-                warning.TodoId,
-                warning.Reason);
         }
 
         return runtimeContext with
         {
             SessionId = sessionDetailResult.Data.SessionId,
-            WorkflowTodos = projectionResult.Todos
+            HandoffItems = ProjectHandoffItems(sessionDetailResult.Data.HandoffItems)
         };
     }
 
-    private static IReadOnlyList<HiringWorkflowTodoDto> ProjectTodoItems(
-        IReadOnlyList<SandboxSessionTodoItemDto> todoItems)
+    private static IReadOnlyList<HiringWorkflowHandoffDto> ProjectHandoffItems(
+        IReadOnlyList<SandboxSessionHandoffItemDto> handoffItems)
     {
-        if (todoItems.Count == 0)
+        if (handoffItems.Count == 0)
         {
             return [];
         }
 
-        return todoItems
-            .Select(ProjectTodoItem)
+        return handoffItems
+            .Select(ProjectHandoffItem)
             .OrderBy(item => item.CreatedAtUtc)
-            .ThenBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.HandoffId, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
 
-    private static HiringWorkflowTodoDto ProjectTodoItem(SandboxSessionTodoItemDto todoItem)
+    private static HiringWorkflowHandoffDto ProjectHandoffItem(SandboxSessionHandoffItemDto handoffItem)
     {
-        if (string.IsNullOrWhiteSpace(todoItem.Notes))
-        {
-            throw new InvalidOperationException($"Todo {todoItem.Id} 缺少 notes JSON，无法驱动雇佣流程。");
-        }
+        var handoffId = RequireHandoffField(handoffItem.HandoffId, nameof(handoffItem.HandoffId), handoffItem.HandoffId);
+        var createdAtUtc = handoffItem.CreatedAtUtc == default ? DateTimeOffset.UtcNow : handoffItem.CreatedAtUtc;
+        var updatedAtUtc = handoffItem.UpdatedAtUtc == default ? createdAtUtc : handoffItem.UpdatedAtUtc;
 
-        WorkflowTodoNotes notes;
-        try
-        {
-            notes = ParseWorkflowTodoNotes(todoItem.Id, todoItem.Notes);
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidOperationException($"Todo {todoItem.Id} 的 notes JSON 无法解析。", ex);
-        }
-
-        var todoId = RequireTodoField(todoItem.Id, nameof(todoItem.Id), todoItem.Id);
-        var title = RequireTodoField(todoId, nameof(todoItem.Text), todoItem.Text);
-        var stage = NormalizeRequiredTodoStage(todoId, notes.Stage);
-        var kind = NormalizeRequiredTodoKind(todoId, notes.Kind);
-        var status = NormalizeRequiredTodoStatus(todoId, RequireTodoField(todoId, nameof(WorkflowTodoNotes.Status), notes.Status));
-        var source = RequireTodoField(todoId, nameof(WorkflowTodoNotes.Source), notes.Source);
-        var createdAtUtc = notes.CreatedAtUtc ?? todoItem.CreatedAtUtc;
-        var updatedAtUtc = notes.UpdatedAtUtc ?? notes.CreatedAtUtc ?? todoItem.UpdatedAtUtc;
-
-        if (string.Equals(kind, HiringTodoKind.Gap, StringComparison.OrdinalIgnoreCase))
-        {
-            return new HiringWorkflowTodoDto(
-                Id: todoId,
-                Title: title,
-                Stage: stage,
-                Kind: kind,
-                Status: status,
-                GapType: RequireTodoField(todoId, nameof(WorkflowTodoNotes.GapType), notes.GapType),
-                Priority: NormalizeRequiredTodoPriority(todoId, notes.Priority),
-                CurrentState: RequireTodoField(todoId, nameof(WorkflowTodoNotes.CurrentState), notes.CurrentState),
-                ExpectedState: RequireTodoField(todoId, nameof(WorkflowTodoNotes.ExpectedState), notes.ExpectedState),
-                AcceptanceCriteria: RequireTodoField(todoId, nameof(WorkflowTodoNotes.AcceptanceCriteria), notes.AcceptanceCriteria),
-                AcceptanceEvidence: TrimOrNull(notes.AcceptanceEvidence),
-                Source: source,
-                Fingerprint: RequireTodoField(todoId, nameof(WorkflowTodoNotes.Fingerprint), notes.Fingerprint),
-                Category: TrimOrNull(notes.Category),
-                Payload: notes.Payload,
-                Level: null,
-                Question: null,
-                Evidence: null,
-                SuggestedAction: null,
-                RelatedTodoIds: notes.RelatedTodoIds,
-                RelatedFiles: notes.RelatedFiles,
-                CreatedAtUtc: createdAtUtc,
-                UpdatedAtUtc: updatedAtUtc);
-        }
-
-        return new HiringWorkflowTodoDto(
-            Id: todoId,
-            Title: title,
-            Stage: stage,
-            Kind: kind,
-            Status: status,
-            GapType: null,
-            Priority: null,
-            CurrentState: null,
-            ExpectedState: null,
-            AcceptanceCriteria: null,
-            AcceptanceEvidence: null,
-            Source: source,
-            Fingerprint: null,
-            Category: RequireTodoField(todoId, nameof(WorkflowTodoNotes.Category), notes.Category),
-            Payload: notes.Payload,
-            Level: NormalizeRequiredTodoLevel(todoId, notes.Level),
-            Question: RequireTodoField(todoId, nameof(WorkflowTodoNotes.Question), notes.Question),
-            Evidence: RequireTodoField(todoId, nameof(WorkflowTodoNotes.Evidence), notes.Evidence),
-            SuggestedAction: RequireTodoField(todoId, nameof(WorkflowTodoNotes.SuggestedAction), notes.SuggestedAction),
-            RelatedTodoIds: notes.RelatedTodoIds,
-            RelatedFiles: notes.RelatedFiles,
+        return new HiringWorkflowHandoffDto(
+            SessionId: RequireHandoffField(handoffId, nameof(handoffItem.SessionId), handoffItem.SessionId),
+            WorkflowId: RequireHandoffField(handoffId, nameof(handoffItem.WorkflowId), handoffItem.WorkflowId),
+            HandoffId: handoffId,
+            Title: RequireHandoffField(handoffId, nameof(handoffItem.Title), handoffItem.Title),
+            Kind: NormalizeRequiredHandoffKind(handoffId, handoffItem.Kind),
+            Stage: NormalizeRequiredHandoffStage(handoffId, handoffItem.Stage),
+            TargetSkill: RequireHandoffField(handoffId, nameof(handoffItem.TargetSkill), handoffItem.TargetSkill),
+            Intent: TrimOrNull(handoffItem.Intent),
+            Category: TrimOrNull(handoffItem.Category),
+            Payload: CloneHandoffPayloadOrEmpty(handoffItem.Payload),
+            Source: TrimOrNull(handoffItem.Source),
+            Acceptance: TrimOrNull(handoffItem.Acceptance),
+            Status: NormalizeRequiredHandoffStatus(handoffId, handoffItem.Status),
+            Fingerprint: RequireHandoffField(handoffId, nameof(handoffItem.Fingerprint), handoffItem.Fingerprint),
+            RelatedHandoffIds: handoffItem.RelatedHandoffIds
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            RelatedFiles: handoffItem.RelatedFiles
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            Revision: Math.Max(1, handoffItem.Revision),
             CreatedAtUtc: createdAtUtc,
-            UpdatedAtUtc: updatedAtUtc);
+            UpdatedAtUtc: updatedAtUtc,
+            DispatchId: TrimOrNull(handoffItem.DispatchId),
+            CallbackSummary: TrimOrNull(handoffItem.CallbackSummary));
     }
 
     private static string? TrimOrNull(string? value)
@@ -1621,203 +1571,58 @@ internal sealed class EmployeeHiringService(
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private static string RequireTodoField(string todoId, string fieldName, string? value)
+    private static string RequireHandoffField(string handoffId, string fieldName, string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 缺少必填字段 {fieldName}。");
+            throw new InvalidOperationException($"Handoff {handoffId} 缺少必填字段 {fieldName}。");
         }
 
         return value.Trim();
     }
 
-    private static WorkflowTodoNotes ParseWorkflowTodoNotes(string todoId, string rawNotesJson)
+    private static string NormalizeRequiredHandoffKind(string handoffId, string? value)
     {
-        using var document = JsonDocument.Parse(rawNotesJson);
-        if (document.RootElement.ValueKind is not JsonValueKind.Object)
+        return RequireHandoffField(handoffId, nameof(HiringWorkflowHandoffDto.Kind), value).Trim().ToLowerInvariant() switch
         {
-            throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 必须是对象。");
-        }
-
-        var root = document.RootElement;
-        return new WorkflowTodoNotes(
-            Stage: ReadTodoString(root, "stage"),
-            Kind: ReadTodoString(root, "kind"),
-            GapType: ReadTodoString(root, "gap_type", "gapType"),
-            Priority: ReadTodoString(root, "priority"),
-            CurrentState: ReadTodoString(root, "current_state", "currentState"),
-            ExpectedState: ReadTodoString(root, "expected_state", "expectedState"),
-            AcceptanceCriteria: ReadTodoString(root, "acceptance_criteria", "acceptanceCriteria"),
-            AcceptanceEvidence: ReadTodoString(root, "acceptance_evidence", "acceptanceEvidence"),
-            Status: ReadTodoString(root, "status"),
-            Source: ReadTodoString(root, "source"),
-            Fingerprint: ReadTodoString(root, "fingerprint"),
-            Category: ReadTodoString(root, "category"),
-            Level: ReadTodoString(root, "level"),
-            Question: ReadTodoString(root, "question"),
-            Evidence: ReadTodoString(root, "evidence"),
-            SuggestedAction: ReadTodoString(root, "suggested_action", "suggestedAction"),
-            Payload: ReadTodoPayload(root),
-            RelatedTodoIds: ReadTodoStringArray(root, "related_todos", "relatedTodos"),
-            RelatedFiles: ReadTodoStringArray(root, "related_files", "relatedFiles"),
-            CreatedAtUtc: ReadTodoTimestamp(root, "createdAtUtc", "created_at", "createdAt"),
-            UpdatedAtUtc: ReadTodoTimestamp(root, "updatedAtUtc", "updated_at", "updatedAt"));
-    }
-
-    private static string? ReadTodoString(JsonElement root, params string[] propertyNames)
-    {
-        if (!TryGetTodoProperty(root, propertyNames, out var property))
-        {
-            return null;
-        }
-
-        return property.ValueKind switch
-        {
-            JsonValueKind.String => property.GetString(),
-            JsonValueKind.Null or JsonValueKind.Undefined => null,
-            _ => property.GetRawText()
+            HiringHandoffKind.HandoffTodo => HiringHandoffKind.HandoffTodo,
+            _ => throw new InvalidOperationException($"Handoff {handoffId} 的 kind 非法: {value}")
         };
     }
 
-    private static DateTimeOffset? ReadTodoTimestamp(JsonElement root, params string[] propertyNames)
+    private static string NormalizeRequiredHandoffStage(string handoffId, string? value)
     {
-        if (!TryGetTodoProperty(root, propertyNames, out var property))
-        {
-            return null;
-        }
-
-        if (property.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-        {
-            return null;
-        }
-
-        if (property.ValueKind == JsonValueKind.String &&
-            DateTimeOffset.TryParse(property.GetString(), out var timestamp))
-        {
-            return timestamp;
-        }
-
-        return null;
-    }
-
-    private static bool TryGetTodoProperty(JsonElement root, IReadOnlyList<string> propertyNames, out JsonElement property)
-    {
-        foreach (var candidateName in propertyNames)
-        {
-            foreach (var currentProperty in root.EnumerateObject())
-            {
-                if (string.Equals(currentProperty.Name, candidateName, StringComparison.OrdinalIgnoreCase))
-                {
-                    property = currentProperty.Value;
-                    return true;
-                }
-            }
-        }
-
-        property = default;
-        return false;
-    }
-
-    private static DateTimeOffset RequireTodoTimestamp(string todoId, string fieldName, DateTimeOffset? value)
-    {
-        if (value is null || value == default)
-        {
-            throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 缺少必填字段 {fieldName}。");
-        }
-
-        return value.Value;
-    }
-
-    private static string NormalizeRequiredTodoStatus(string todoId, string value)
-    {
-        return value.Trim().ToLowerInvariant() switch
-        {
-            HiringTodoStatus.Open => HiringTodoStatus.Open,
-            HiringTodoStatus.InProgress => HiringTodoStatus.InProgress,
-            HiringTodoStatus.Done => HiringTodoStatus.Done,
-            HiringTodoStatus.NeedsReview => HiringTodoStatus.NeedsReview,
-            HiringTodoStatus.Dismissed => HiringTodoStatus.Dismissed,
-            HiringTodoStatus.Resolved => HiringTodoStatus.Resolved,
-            _ => throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 字段 Status 非法: {value}")
-        };
-    }
-
-    private static string NormalizeRequiredTodoStage(string todoId, string? value)
-    {
-        return RequireTodoField(todoId, nameof(WorkflowTodoNotes.Stage), value).Trim().ToLowerInvariant() switch
+        return RequireHandoffField(handoffId, nameof(HiringWorkflowHandoffDto.Stage), value).Trim().ToLowerInvariant() switch
         {
             "material" => HiringCollectionStage.Material,
             "skill" => HiringCollectionStage.Skill,
             "external" => HiringCollectionStage.External,
             "ready_for_packaging" => HiringCollectionStage.ReadyForPackaging,
             "cross_stage" or "cross-stage" => "cross_stage",
-            _ => throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 字段 stage 非法: {value}")
+            _ => throw new InvalidOperationException($"Handoff {handoffId} 的 stage 非法: {value}")
         };
     }
 
-    private static string NormalizeRequiredTodoKind(string todoId, string? value)
+    private static string NormalizeRequiredHandoffStatus(string handoffId, string? value)
     {
-        return RequireTodoField(todoId, nameof(WorkflowTodoNotes.Kind), value).Trim().ToLowerInvariant() switch
+        return RequireHandoffField(handoffId, nameof(HiringWorkflowHandoffDto.Status), value).Trim().ToLowerInvariant() switch
         {
-            HiringTodoKind.Gap => HiringTodoKind.Gap,
-            HiringTodoKind.Diagnosis => HiringTodoKind.Diagnosis,
-            _ => throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 字段 kind 非法: {value}")
+            HiringHandoffStatus.Drafting => HiringHandoffStatus.Drafting,
+            HiringHandoffStatus.ReadyToDispatch => HiringHandoffStatus.ReadyToDispatch,
+            HiringHandoffStatus.Dispatched => HiringHandoffStatus.Dispatched,
+            HiringHandoffStatus.Dirty => HiringHandoffStatus.Dirty,
+            HiringHandoffStatus.Confirmed => HiringHandoffStatus.Confirmed,
+            HiringHandoffStatus.NeedsReview => HiringHandoffStatus.NeedsReview,
+            HiringHandoffStatus.Dismissed => HiringHandoffStatus.Dismissed,
+            _ => throw new InvalidOperationException($"Handoff {handoffId} 的 status 非法: {value}")
         };
     }
 
-    private static string NormalizeRequiredTodoPriority(string todoId, string? value)
+    private static JsonElement CloneHandoffPayloadOrEmpty(JsonElement payload)
     {
-        return NormalizeTodoTriageValue(todoId, nameof(WorkflowTodoNotes.Priority), value);
-    }
-
-    private static string NormalizeRequiredTodoLevel(string todoId, string? value)
-    {
-        return NormalizeTodoTriageValue(todoId, nameof(WorkflowTodoNotes.Level), value);
-    }
-
-    private static string NormalizeTodoTriageValue(string todoId, string fieldName, string? value)
-    {
-        return RequireTodoField(todoId, fieldName, value).Trim().ToLowerInvariant() switch
-        {
-            HiringTodoPriority.Required or "必需" or "必须" => HiringTodoPriority.Required,
-            HiringTodoPriority.Recommended or "推荐" => HiringTodoPriority.Recommended,
-            HiringTodoPriority.Optional or "可选" => HiringTodoPriority.Optional,
-            _ => throw new InvalidOperationException($"Todo {todoId} 的 notes JSON 字段 {fieldName} 非法: {value}")
-        };
-    }
-
-    private static JsonElement? ReadTodoPayload(JsonElement root)
-    {
-        if (!TryGetTodoProperty(root, ["payload"], out var property) ||
-            property.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-        {
-            return null;
-        }
-
-        return property.Clone();
-    }
-
-    private static IReadOnlyList<string> ReadTodoStringArray(JsonElement root, params string[] propertyNames)
-    {
-        if (!TryGetTodoProperty(root, propertyNames, out var property) ||
-            property.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-        {
-            return [];
-        }
-
-        if (property.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
-        return property
-            .EnumerateArray()
-            .Where(item => item.ValueKind == JsonValueKind.String)
-            .Select(item => item.GetString())
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value!.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        return payload.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined
+            ? JsonSerializer.SerializeToElement(new Dictionary<string, object?>())
+            : payload.Clone();
     }
 
     internal static string BuildReferenceTemplatePrimingContent(
@@ -2025,27 +1830,22 @@ internal sealed class EmployeeHiringService(
     private HiringRuntimeContext ApplyWorkflowProgress(HiringRuntimeContext runtimeContext)
     {
         var normalizedStructuredData = NormalizeStructuredData(runtimeContext.StructuredData);
-        var normalizedRuntimeFacts = HiringWorkflowSupport.NormalizeRuntimeFacts(runtimeContext);
         logger.LogInformation(
-            "ApplyWorkflowProgress diagnostics. HireId={HireId}, MaterialReady={MaterialReady}, UploadedFiles=[{UploadedFiles}], ClassifiedFiles=[{ClassifiedFiles}], ExtractionTargets=[{ExtractionTargets}], SkillBaselineReviewed={SkillBaselineReviewed}, SkillBaselineConfirmed={SkillBaselineConfirmed}",
+            "ApplyWorkflowProgress diagnostics. HireId={HireId}, HandoffCount={HandoffCount}, CredentialSlotCount={CredentialSlotCount}, MessageCount={MessageCount}",
             runtimeContext.HireId,
-            normalizedRuntimeFacts.MaterialReady,
-            string.Join(", ", HiringWorkflowSupport.GetUploadedMaterialFileNamesForDiagnostics(runtimeContext.Materials)),
-            string.Join(", ", normalizedRuntimeFacts.MaterialClassifiedFiles),
-            string.Join("; ", normalizedRuntimeFacts.MaterialExtractionTargets.Select(kv => $"{kv.Key}={kv.Value}")),
-            normalizedRuntimeFacts.SkillBaselineReviewed,
-            normalizedRuntimeFacts.SkillBaselineConfirmed);
+            runtimeContext.HandoffItems.Count,
+            runtimeContext.CredentialSlots.Count,
+            runtimeContext.Messages.Count);
         var normalizedContext = runtimeContext with
         {
             StructuredData = normalizedStructuredData,
-            WorkflowTodos = runtimeContext.WorkflowTodos
+            HandoffItems = runtimeContext.HandoffItems
                 .OrderBy(item => item.CreatedAtUtc)
-                .ThenBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.HandoffId, StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
             CredentialSlots = runtimeContext.CredentialSlots
                 .OrderBy(item => item.CredentialSlot, StringComparer.OrdinalIgnoreCase)
-                .ToArray(),
-            RuntimeFacts = normalizedRuntimeFacts
+                .ToArray()
         };
 
         var evaluatedDiagnostic = HiringWorkflowSupport.EvaluateDiagnosis(normalizedContext);
@@ -2057,7 +1857,7 @@ internal sealed class EmployeeHiringService(
             ? HiringCollectionPhase.Finalized
             : normalizedStructuredData.Count == 0 &&
               normalizedContext.Messages.Count == 0 &&
-              normalizedContext.WorkflowTodos.Count == 0 &&
+              normalizedContext.HandoffItems.Count == 0 &&
               normalizedContext.CredentialSlots.Count == 0
                 ? HiringCollectionPhase.NotStarted
                 : diagnostic.ReadyForPackaging
@@ -2080,8 +1880,7 @@ internal sealed class EmployeeHiringService(
     {
         var updatedRuntimeContext = runtimeContext with
         {
-            LatestDiagnosticReport = parsedReply.DiagnosticReport ?? runtimeContext.LatestDiagnosticReport,
-            RuntimeFacts = MergeRuntimeFacts(runtimeContext.RuntimeFacts, parsedReply.StageFacts)
+            LatestDiagnosticReport = parsedReply.DiagnosticReport ?? runtimeContext.LatestDiagnosticReport
         };
 
         foreach (var configFile in parsedReply.ConfigGovernanceFiles)
@@ -2092,45 +1891,10 @@ internal sealed class EmployeeHiringService(
                 configFile.RelativePath,
                 configFile.Content,
                 configFile.Summary,
-                configFile.AffectedTodoIds);
+                configFile.AffectedHandoffIds);
         }
 
         return updatedRuntimeContext;
-    }
-
-    private static HiringWorkflowRuntimeFactsDto MergeRuntimeFacts(
-        HiringWorkflowRuntimeFactsDto existing,
-        HiringWorkflowStageFactsUpdate? update)
-    {
-        if (update is null)
-        {
-            return existing;
-        }
-
-        return new HiringWorkflowRuntimeFactsDto
-        {
-            MaterialReady = update.MaterialReady ?? existing.MaterialReady,
-            MaterialClassifiedFiles = update.MaterialClassifiedFiles is { Count: > 0 }
-                ? update.MaterialClassifiedFiles
-                    .Where(value => !string.IsNullOrWhiteSpace(value))
-                    .Select(value => value.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray()
-                : update.MaterialClassifiedFiles is not null
-                    ? []
-                    : existing.MaterialClassifiedFiles,
-            MaterialExtractionTargets = update.MaterialExtractionTargets is not null
-                ? update.MaterialExtractionTargets
-                    .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
-                    .GroupBy(pair => pair.Key.Trim(), StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(
-                        group => group.Key,
-                        group => group.Last().Value.Trim(),
-                        StringComparer.OrdinalIgnoreCase)
-                : existing.MaterialExtractionTargets,
-            SkillBaselineReviewed = update.SkillBaselineReviewed ?? existing.SkillBaselineReviewed,
-            SkillBaselineConfirmed = update.SkillBaselineConfirmed ?? existing.SkillBaselineConfirmed
-        };
     }
 
     private void LogParsedAssistantReply(
@@ -2167,12 +1931,23 @@ internal sealed class EmployeeHiringService(
                 throw new InvalidOperationException("dispatch target 不能为空");
             }
 
-            var normalizedTodoIds = command.TodoIds
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            EnsureTodoIdsExist(updatedRuntimeContext.WorkflowTodos, normalizedTodoIds, command.Target.Trim());
+            var normalizedTarget = command.Target.Trim();
+            if (string.Equals(normalizedTarget, "stage_transition", StringComparison.OrdinalIgnoreCase))
+            {
+                updatedRuntimeContext = ExecuteLocalStageTransition(updatedRuntimeContext, command);
+                continue;
+            }
+
+            var normalizedHandoffIds = NormalizeHandoffIds(command.HandoffIds);
+            if (normalizedHandoffIds.Length == 0)
+            {
+                throw new InvalidOperationException($"dispatch {normalizedTarget} 必须提供至少一个 handoff_id");
+            }
+
+            var dispatchHandoffs = ResolveDispatchHandoffs(
+                updatedRuntimeContext.HandoffItems,
+                normalizedHandoffIds,
+                normalizedTarget);
             var dispatchId = $"dispatch-{Guid.NewGuid():N}";
             var createdAt = DateTimeOffset.UtcNow;
             updatedRuntimeContext = updatedRuntimeContext with
@@ -2181,9 +1956,10 @@ internal sealed class EmployeeHiringService(
                     updatedRuntimeContext.LatestDispatches,
                     new HiringDispatchRecordDto(
                         DispatchId: dispatchId,
-                        Target: command.Target.Trim(),
+                        Target: normalizedTarget,
                         Status: "running",
-                        TodoIds: normalizedTodoIds,
+                        HandoffIds: normalizedHandoffIds,
+                        To: null,
                         Note: command.Note?.Trim(),
                         UserSummary: null,
                         Artifacts: [],
@@ -2193,7 +1969,7 @@ internal sealed class EmployeeHiringService(
                         Errors: []))
             };
 
-            var dispatchContent = BuildDispatchConversationContent(updatedRuntimeContext, command, normalizedTodoIds);
+            var dispatchContent = BuildDispatchConversationContent(updatedRuntimeContext, command, dispatchHandoffs);
             var dispatchResponse = await SendSandboxConversationMessageAsync(
                 updatedRuntimeContext,
                 dispatchContent,
@@ -2203,30 +1979,132 @@ internal sealed class EmployeeHiringService(
             {
                 throw new InvalidOperationException(
                     string.IsNullOrWhiteSpace(dispatchResponse.Message)
-                        ? $"dispatch {command.Target.Trim()} 执行失败"
+                        ? $"dispatch {normalizedTarget} 执行失败"
                         : dispatchResponse.Message);
             }
 
             var parsedReply = HiringWorkflowSupport.ParseAssistantReply(dispatchResponse.Data.AssistantMessage.Content);
             if (parsedReply.DispatchCallbacks.Count == 0)
             {
-                throw new InvalidOperationException($"dispatch {command.Target.Trim()} 未返回 dispatch_callback");
+                throw new InvalidOperationException($"dispatch {normalizedTarget} 未返回 dispatch_callback");
             }
 
             updatedRuntimeContext = updatedRuntimeContext with
             {
                 SessionId = dispatchResponse.Data.SessionId
             };
-            updatedRuntimeContext = await RefreshTodoProjectionFromSandboxAsync(updatedRuntimeContext, cancellationToken);
+            updatedRuntimeContext = await RefreshHandoffStateFromSandboxAsync(updatedRuntimeContext, cancellationToken);
             updatedRuntimeContext = ApplyAssistantReply(updatedRuntimeContext, parsedReply);
             updatedRuntimeContext = ApplyDispatchCallbacks(
                 updatedRuntimeContext,
                 parsedReply.DispatchCallbacks,
                 dispatchId,
-                command.Target.Trim());
+                normalizedTarget);
         }
 
         return updatedRuntimeContext;
+    }
+
+    private static string[] NormalizeHandoffIds(IReadOnlyList<string> handoffIds)
+    {
+        return handoffIds
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static HiringWorkflowHandoffDto[] ResolveDispatchHandoffs(
+        IReadOnlyList<HiringWorkflowHandoffDto> existing,
+        IReadOnlyList<string> handoffIds,
+        string dispatchTarget)
+    {
+        if (!string.Equals(dispatchTarget, "ontology-extraction", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(dispatchTarget, "skill-generation", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(dispatchTarget, "external-config", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"dispatch target 不受支持: {dispatchTarget}");
+        }
+
+        EnsureHandoffIdsExist(existing, handoffIds, dispatchTarget);
+        var selectedHandoffs = existing
+            .Where(item => handoffIds.Contains(item.HandoffId, StringComparer.OrdinalIgnoreCase))
+            .OrderBy(item => item.CreatedAtUtc)
+            .ThenBy(item => item.HandoffId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var invalidHandoffIds = selectedHandoffs
+            .Where(item =>
+                !string.Equals(item.Kind, HiringHandoffKind.HandoffTodo, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(item.TargetSkill, dispatchTarget, StringComparison.OrdinalIgnoreCase) ||
+                (!string.Equals(item.Status, HiringHandoffStatus.ReadyToDispatch, StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(item.Status, HiringHandoffStatus.Dirty, StringComparison.OrdinalIgnoreCase)))
+            .Select(item => item.HandoffId)
+            .ToArray();
+        if (invalidHandoffIds.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"dispatch {dispatchTarget} 只允许处理 status=ready_to_dispatch|dirty 且 target_skill 匹配的 handoff: {string.Join(", ", invalidHandoffIds)}");
+        }
+
+        return selectedHandoffs;
+    }
+
+    private HiringRuntimeContext ExecuteLocalStageTransition(
+        HiringRuntimeContext runtimeContext,
+        HiringDispatchCommand command)
+    {
+        if (!string.Equals(command.To?.Trim(), "instance_packaging", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("stage_transition 仅支持 to=instance_packaging");
+        }
+
+        var normalizedHandoffIds = NormalizeHandoffIds(command.HandoffIds);
+        if (normalizedHandoffIds.Length > 0)
+        {
+            throw new InvalidOperationException("stage_transition 不允许携带 handoff_ids");
+        }
+
+        var diagnostic = runtimeContext.LatestDiagnosticReport ?? HiringWorkflowSupport.EvaluateDiagnosis(runtimeContext);
+        if (!diagnostic.ReadyForPackaging)
+        {
+            throw new InvalidOperationException("当前尚未满足 stage_transition 的出口条件");
+        }
+
+        var unresolvedHandoffIds = runtimeContext.HandoffItems
+            .Where(item =>
+                !string.Equals(item.Status, HiringHandoffStatus.Confirmed, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(item.Status, HiringHandoffStatus.Dismissed, StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.HandoffId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (unresolvedHandoffIds.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"仍存在未闭环的 Handoff，不能进入 instance_packaging: {string.Join(", ", unresolvedHandoffIds)}");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        return runtimeContext with
+        {
+            CurrentStage = HiringCollectionStage.ReadyForPackaging,
+            CollectionPhase = HiringCollectionPhase.ReadyForFinalize,
+            LatestDispatches = AppendDispatchRecord(
+                runtimeContext.LatestDispatches,
+                new HiringDispatchRecordDto(
+                    DispatchId: $"dispatch-{Guid.NewGuid():N}",
+                    Target: "stage_transition",
+                    Status: "completed",
+                    HandoffIds: [],
+                    To: "instance_packaging",
+                    Note: command.Note?.Trim(),
+                    UserSummary: "Workflow 已切换到 instance_packaging",
+                    Artifacts: [],
+                    TodoResults: [],
+                    CreatedAtUtc: now,
+                    CompletedAtUtc: now,
+                    Errors: []))
+        };
     }
 
     private static string NormalizeRequestedStage(string stage)
@@ -2265,7 +2143,7 @@ internal sealed class EmployeeHiringService(
                 SecretRef = string.IsNullOrWhiteSpace(request.SecretRef) ? BuildSecretRef(normalizedSlot) : request.SecretRef.Trim(),
                 AuthKind = request.AuthKind?.Trim(),
                 TargetSystem = request.TargetSystem?.Trim(),
-                TodoId = request.TodoId?.Trim(),
+                HandoffId = request.HandoffId?.Trim(),
                 BindingStatus = HiringCredentialBindingStatus.Bound,
                 ProtectedSecret = protectedSecret,
                 CreatedAtUtc = now,
@@ -2278,7 +2156,7 @@ internal sealed class EmployeeHiringService(
             entity.SecretRef = string.IsNullOrWhiteSpace(request.SecretRef) ? entity.SecretRef ?? BuildSecretRef(normalizedSlot) : request.SecretRef.Trim();
             entity.AuthKind = request.AuthKind?.Trim();
             entity.TargetSystem = request.TargetSystem?.Trim();
-            entity.TodoId = request.TodoId?.Trim();
+            entity.HandoffId = request.HandoffId?.Trim();
             entity.BindingStatus = HiringCredentialBindingStatus.Bound;
             entity.ProtectedSecret = protectedSecret;
             entity.UpdatedAtUtc = now;
@@ -2343,21 +2221,20 @@ internal sealed class EmployeeHiringService(
         string relativePath,
         string content,
         string? summary,
-        IReadOnlyList<string>? affectedTodoIds = null)
+        IReadOnlyList<string>? affectedHandoffIds = null)
     {
         var normalizedConfigKey = configKey.Trim().ToLowerInvariant();
         var now = DateTimeOffset.UtcNow;
-        var impactedTodoIds = (affectedTodoIds ?? [])
+        var impactedHandoffIds = (affectedHandoffIds ?? [])
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        if (impactedTodoIds.Length == 0)
+        if (impactedHandoffIds.Length == 0)
         {
-            impactedTodoIds = runtimeContext.WorkflowTodos
-                .Where(todo => string.Equals(todo.Kind, HiringTodoKind.Gap, StringComparison.OrdinalIgnoreCase) &&
-                               string.Equals(todo.Status, HiringTodoStatus.Done, StringComparison.OrdinalIgnoreCase))
-                .Select(todo => todo.Id)
+            impactedHandoffIds = runtimeContext.HandoffItems
+                .Where(handoff => string.Equals(handoff.Status, HiringHandoffStatus.Confirmed, StringComparison.OrdinalIgnoreCase))
+                .Select(handoff => handoff.HandoffId)
                 .ToArray();
         }
 
@@ -2377,7 +2254,7 @@ internal sealed class EmployeeHiringService(
             Content: content,
             Summary: summary?.Trim() ?? string.Empty,
             UpdatedAtUtc: now,
-            AffectedTodoIds: impactedTodoIds);
+            AffectedHandoffIds: impactedHandoffIds);
 
         return runtimeContext with
         {
@@ -2389,7 +2266,7 @@ internal sealed class EmployeeHiringService(
                 Files: governanceFiles.Values
                     .OrderBy(file => file.ConfigKey, StringComparer.OrdinalIgnoreCase)
                     .ToArray(),
-                PendingReviewTodoIds: impactedTodoIds,
+                PendingReviewHandoffIds: impactedHandoffIds,
                 UpdatedAtUtc: now)
         };
     }
@@ -2421,25 +2298,25 @@ internal sealed class EmployeeHiringService(
             .ToArray();
     }
 
-    private static void EnsureTodoIdsExist(
-        IReadOnlyList<HiringWorkflowTodoDto> existing,
-        IReadOnlyList<string> todoIds,
+    private static void EnsureHandoffIdsExist(
+        IReadOnlyList<HiringWorkflowHandoffDto> existing,
+        IReadOnlyList<string> handoffIds,
         string dispatchTarget)
     {
-        var missingTodoIds = todoIds
-            .Where(todoId => existing.All(todo => !string.Equals(todo.Id, todoId, StringComparison.OrdinalIgnoreCase)))
+        var missingHandoffIds = handoffIds
+            .Where(handoffId => existing.All(handoff => !string.Equals(handoff.HandoffId, handoffId, StringComparison.OrdinalIgnoreCase)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        if (missingTodoIds.Length == 0)
+        if (missingHandoffIds.Length == 0)
         {
             return;
         }
 
         throw new InvalidOperationException(
-            $"dispatch {dispatchTarget} 引用的 todo 不存在于当前 session metadata 中: {string.Join(", ", missingTodoIds)}");
+            $"dispatch {dispatchTarget} 引用的 handoff 不存在于当前 session metadata 中: {string.Join(", ", missingHandoffIds)}");
     }
 
-    private static string NormalizeTodoStatus(string? status, string fallbackStatus)
+    private static string NormalizeDispatchResultStatus(string? status, string fallbackStatus)
     {
         return status?.Trim().ToLowerInvariant() switch
         {
@@ -2450,29 +2327,6 @@ internal sealed class EmployeeHiringService(
             _ => fallbackStatus
         };
     }
-
-    private sealed record WorkflowTodoNotes(
-        string? Stage,
-        string? Kind,
-        string? GapType,
-        string? Priority,
-        string? CurrentState,
-        string? ExpectedState,
-        string? AcceptanceCriteria,
-        string? AcceptanceEvidence,
-        string? Category,
-        string? Status,
-        string? Source,
-        string? Fingerprint,
-        JsonElement? Payload,
-        string? Level,
-        string? Question,
-        string? Evidence,
-        string? SuggestedAction,
-        IReadOnlyList<string> RelatedTodoIds,
-        IReadOnlyList<string> RelatedFiles,
-        DateTimeOffset? CreatedAtUtc,
-        DateTimeOffset? UpdatedAtUtc);
 
     private static IReadOnlyList<HiringDispatchRecordDto> AppendDispatchRecord(
         IReadOnlyList<HiringDispatchRecordDto> existing,
@@ -2504,48 +2358,47 @@ internal sealed class EmployeeHiringService(
     private string BuildDispatchConversationContent(
         HiringRuntimeContext runtimeContext,
         HiringDispatchCommand command,
-        IReadOnlyList<string> todoIds)
+        IReadOnlyList<HiringWorkflowHandoffDto> handoffItems)
     {
-        var normalizedTodoIds = todoIds
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value.Trim())
+        var normalizedHandoffIds = handoffItems
+            .Select(item => item.HandoffId)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var selectedTodos = runtimeContext.WorkflowTodos
-            .Where(todo => normalizedTodoIds.Contains(todo.Id, StringComparer.OrdinalIgnoreCase))
-            .Select(todo => new
+        var selectedHandoffs = handoffItems
+            .Select(handoff => new
             {
-                id = todo.Id,
-                title = todo.Title,
-                stage = todo.Stage,
-                kind = todo.Kind,
-                status = todo.Status,
-                gap_type = todo.GapType,
-                priority = todo.Priority,
-                current_state = todo.CurrentState,
-                expected_state = todo.ExpectedState,
-                acceptance_criteria = todo.AcceptanceCriteria,
-                acceptance_evidence = todo.AcceptanceEvidence,
-                source = todo.Source,
-                fingerprint = todo.Fingerprint,
-                category = todo.Category,
-                payload = todo.Payload,
-                level = todo.Level,
-                question = todo.Question,
-                evidence = todo.Evidence,
-                suggested_action = todo.SuggestedAction,
-                related_todos = todo.RelatedTodoIds,
-                related_files = todo.RelatedFiles
+                session_id = handoff.SessionId,
+                workflow_id = handoff.WorkflowId,
+                handoff_id = handoff.HandoffId,
+                title = handoff.Title,
+                kind = handoff.Kind,
+                stage = handoff.Stage,
+                target_skill = handoff.TargetSkill,
+                intent = handoff.Intent,
+                category = handoff.Category,
+                payload = handoff.Payload,
+                source = handoff.Source,
+                acceptance = handoff.Acceptance,
+                status = handoff.Status,
+                fingerprint = handoff.Fingerprint,
+                related_todos = handoff.RelatedHandoffIds,
+                related_files = handoff.RelatedFiles,
+                revision = handoff.Revision,
+                created_at = handoff.CreatedAtUtc,
+                updated_at = handoff.UpdatedAtUtc,
+                dispatch_id = handoff.DispatchId,
+                callback_summary = handoff.CallbackSummary
             })
             .ToArray();
         var payload = new
         {
             target = command.Target.Trim(),
-            todo_ids = normalizedTodoIds,
+            handoff_ids = normalizedHandoffIds,
+            to = command.To?.Trim(),
             note = command.Note?.Trim(),
             mode = command.Mode?.Trim(),
-            todos = selectedTodos,
-            secure_credential_context = BuildSecureCredentialContext(runtimeContext, normalizedTodoIds)
+            handoff_todos = selectedHandoffs,
+            secure_credential_context = BuildSecureCredentialContext(runtimeContext, normalizedHandoffIds)
         };
 
         return $"<dispatch>{JsonSerializer.Serialize(payload, JsonOptions)}</dispatch>";
@@ -2553,16 +2406,16 @@ internal sealed class EmployeeHiringService(
 
     private object[] BuildSecureCredentialContext(
         HiringRuntimeContext runtimeContext,
-        IReadOnlyList<string> todoIds)
+        IReadOnlyList<string> handoffIds)
     {
-        var relevantTodoIds = todoIds
+        var relevantHandoffIds = handoffIds
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value.Trim())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var boundSlots = runtimeContext.CredentialSlots
             .Where(slot =>
                 string.Equals(slot.BindingStatus, HiringCredentialBindingStatus.Bound, StringComparison.OrdinalIgnoreCase) &&
-                (relevantTodoIds.Count == 0 || (!string.IsNullOrWhiteSpace(slot.TodoId) && relevantTodoIds.Contains(slot.TodoId))))
+                (relevantHandoffIds.Count == 0 || (!string.IsNullOrWhiteSpace(slot.HandoffId) && relevantHandoffIds.Contains(slot.HandoffId))))
             .ToArray();
         if (boundSlots.Length == 0)
         {
@@ -2587,12 +2440,12 @@ internal sealed class EmployeeHiringService(
 
                 return (object)new
                 {
-                    credentialSlot = slot.CredentialSlot,
-                    secretRef = slot.SecretRef,
-                    authKind = slot.AuthKind,
-                    targetSystem = slot.TargetSystem,
-                    todoId = slot.TodoId,
-                    secretValue = protector.Unprotect(entity.ProtectedSecret)
+                    credential_slot = slot.CredentialSlot,
+                    secret_ref = slot.SecretRef,
+                    auth_kind = slot.AuthKind,
+                    target_system = slot.TargetSystem,
+                    handoff_id = slot.HandoffId,
+                    secret_value = protector.Unprotect(entity.ProtectedSecret)
                 };
             })
             .ToArray();
@@ -2623,18 +2476,26 @@ internal sealed class EmployeeHiringService(
         var normalizedTarget = string.IsNullOrWhiteSpace(callback.SourceDispatchTarget)
             ? fallbackTarget?.Trim() ?? "unknown"
             : callback.SourceDispatchTarget.Trim();
-        var callbackTodoIds = callback.TodoIds
+        var callbackHandoffIds = callback.HandoffIds
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var callbackResultTodoIds = callback.TodoResults
-            .Where(item => !string.IsNullOrWhiteSpace(item.TodoId))
-            .Select(item => item.TodoId.Trim())
+        var callbackResultHandoffIds = callback.TodoResults
+            .Where(item => !string.IsNullOrWhiteSpace(item.HandoffId))
+            .Select(item => item.HandoffId.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        EnsureTodoIdsExist(runtimeContext.WorkflowTodos, callbackTodoIds, normalizedTarget);
-        EnsureTodoIdsExist(runtimeContext.WorkflowTodos, callbackResultTodoIds, normalizedTarget);
+        EnsureHandoffIdsExist(runtimeContext.HandoffItems, callbackHandoffIds, normalizedTarget);
+        EnsureHandoffIdsExist(runtimeContext.HandoffItems, callbackResultHandoffIds, normalizedTarget);
+        var missingResultHandoffIds = callbackHandoffIds
+            .Where(handoffId => !callbackResultHandoffIds.Contains(handoffId, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        if (missingResultHandoffIds.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"dispatch_callback 缺少这些 handoff 的 todo_results: {string.Join(", ", missingResultHandoffIds)}");
+        }
         var packageFiles = runtimeContext.WorkingTemplatePackage.PackageFiles.ToDictionary(
             file => file.RelativePath,
             file => file,
@@ -2702,9 +2563,9 @@ internal sealed class EmployeeHiringService(
         }
 
         var todoResults = callback.TodoResults
-            .Select(item => new HiringDispatchTodoResultDto(
-                TodoId: item.TodoId,
-                Status: NormalizeTodoStatus(item.Status, "failed"),
+            .Select(item => new HiringDispatchHandoffResultDto(
+                HandoffId: item.HandoffId,
+                Status: NormalizeDispatchResultStatus(item.Status, "failed"),
                 Artifacts: item.Artifacts
                     .Select(artifact =>
                     {
@@ -2747,7 +2608,7 @@ internal sealed class EmployeeHiringService(
             {
                 Target = normalizedTarget,
                 Status = NormalizeDispatchStatus(callback.Status),
-                TodoIds = callback.TodoIds.Count == 0 ? record.TodoIds : callback.TodoIds,
+                HandoffIds = callback.HandoffIds.Count == 0 ? record.HandoffIds : callback.HandoffIds,
                 Note = record.Note,
                 UserSummary = string.IsNullOrWhiteSpace(callback.UserSummary) ? record.UserSummary : callback.UserSummary.Trim(),
                 Artifacts = artifactDtos.Values.ToArray(),
@@ -2764,7 +2625,8 @@ internal sealed class EmployeeHiringService(
                     DispatchId: resolvedDispatchId,
                     Target: normalizedTarget,
                     Status: NormalizeDispatchStatus(callback.Status),
-                    TodoIds: callback.TodoIds,
+                    HandoffIds: callback.HandoffIds,
+                    To: null,
                     Note: null,
                     UserSummary: string.IsNullOrWhiteSpace(callback.UserSummary) ? null : callback.UserSummary.Trim(),
                     Artifacts: artifactDtos.Values.ToArray(),
