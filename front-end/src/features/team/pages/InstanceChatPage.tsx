@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, ArrowLeft, Loader2, MessageCircle, Send, Trash2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
+
 import { api, type EmployeeDetail, type InstanceChatMessage } from '@/infra/api'
-import { firstCharacter, ownershipClass, ownershipLabel, statusClass, statusLabel, toEmployeeDetailSummary, withEmployeeView } from '@/features/hiring/pages/employeeView'
+import { tokenService } from '@/infra/auth/token-service'
+import { GatewayWs } from '@/infra/sandbox/gateway-ws'
+import { fetchSandboxSessionMessages } from '@/infra/sandbox/sandbox-api'
+import {
+  firstCharacter,
+  ownershipClass,
+  ownershipLabel,
+  statusClass,
+  statusLabel,
+  toEmployeeDetailSummary,
+  withEmployeeView,
+} from '@/features/hiring/pages/employeeView'
 
 type ChatDraft = {
   content: string
@@ -35,17 +47,52 @@ function mapMessages(messages: InstanceChatMessage[]) {
     }))
 }
 
+function mapSandboxMessages(messages: { type: string; content?: string; text?: string }[]) {
+  return messages
+    .filter(message => message.type === 'user_message' || message.type === 'assistant_message')
+    .map<InstanceChatMessage>((message, index) => ({
+      messageId: `sandbox-${index}-${Date.now()}`,
+      role: message.type === 'user_message' ? 'user' : 'assistant',
+      content: normalizeMessageContent(String(message.content ?? message.text ?? '')),
+      createdAt: new Date().toISOString(),
+    }))
+    .filter(message => message.content.trim().length > 0)
+}
+
+function normalizeErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+
+  return '请求失败，请稍后重试'
+}
+
+function resolveSandboxGatewayEndpoint() {
+  const runtimeEndpoint = typeof window !== 'undefined'
+    ? window.__AUTH_CONFIG__?.SandboxGatewayEndpoint?.trim()
+    : ''
+  const envEndpoint = (import.meta.env.VITE_SANDBOX_GATEWAY_ENDPOINT as string | undefined)?.trim() ?? ''
+  return runtimeEndpoint || envEndpoint || null
+}
+
 export default function InstanceChatPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null)
   const [messages, setMessages] = useState<InstanceChatMessage[]>([])
   const [draft, setDraft] = useState<ChatDraft>({ content: '' })
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [typing, setTyping] = useState(false)
   const [error, setError] = useState('')
   const [clearing, setClearing] = useState(false)
+  const [streamingContent, setStreamingContent] = useState<string | null>(null)
+
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const wsRef = useRef<GatewayWs | null>(null)
+  const gatewayEndpointRef = useRef<string | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
 
   const employeeView = useMemo(() => {
     if (!employee) return null
@@ -54,10 +101,80 @@ export default function InstanceChatPage() {
 
   const canChat = employeeView?.ownership === 'personal_clone' || employeeView?.ownership === 'private_branch'
   const isLive = employeeView?.mappedStatus === 'live'
+  const directSandboxEndpoint = resolveSandboxGatewayEndpoint()
+
+  async function syncSandboxHistory(endpoint: string, sessionId: string) {
+    const sandboxMessages = await fetchSandboxSessionMessages(endpoint, sessionId)
+    const mapped = mapSandboxMessages(sandboxMessages)
+    setMessages(prev => (mapped.length >= prev.length ? mapped : prev))
+  }
+
+  async function connectSandboxWs(endpoint: string) {
+    wsRef.current?.disconnect()
+
+    const token = await tokenService.ensureFresh()
+    if (!token) return
+
+    const ws = new GatewayWs(endpoint, token)
+
+    ws.onMessage = (msg) => {
+      const type = String(msg.type ?? '')
+      if (type === 'typing_start') {
+        setStreamingContent('')
+        setTyping(true)
+        return
+      }
+
+      if (type === 'text_delta' || type === 'assistant_chunk') {
+        const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
+        setStreamingContent(prev => (prev === null ? chunk : prev + chunk))
+        return
+      }
+
+      if (type === 'typing_stop' || type === 'assistant_done') {
+        setStreamingContent(prev => {
+          if (prev && prev.trim().length > 0) {
+            const cleaned = normalizeMessageContent(prev)
+            if (cleaned.length > 0) {
+              setMessages(current => [
+                ...current,
+                {
+                  messageId: `local-${Date.now()}`,
+                  role: 'assistant',
+                  content: cleaned,
+                  createdAt: new Date().toISOString(),
+                },
+              ])
+            }
+          }
+          return null
+        })
+        setTyping(false)
+
+        const sandboxSessionId = sessionIdRef.current
+        const sandboxGatewayEndpoint = gatewayEndpointRef.current
+        if (sandboxSessionId && sandboxGatewayEndpoint) {
+          void syncSandboxHistory(sandboxGatewayEndpoint, sandboxSessionId).catch(() => {
+            // 历史同步失败时保留当前已渲染内容
+          })
+        }
+      }
+    }
+
+    ws.onStateChange = (state) => {
+      if (state === 'closed' || state === 'error') {
+        setTyping(false)
+      }
+    }
+
+    ws.connect()
+    wsRef.current = ws
+  }
 
   async function loadChat(instanceId: string) {
     setLoading(true)
     setError('')
+
     try {
       const [detail, timeline] = await Promise.all([
         api.employeeRuntime.getEmployee(instanceId),
@@ -66,8 +183,22 @@ export default function InstanceChatPage() {
 
       setEmployee(detail)
       setMessages(mapMessages(timeline.messages))
+      sessionIdRef.current = timeline.conversationId
+
+      if (directSandboxEndpoint) {
+        gatewayEndpointRef.current = directSandboxEndpoint
+        try {
+          await syncSandboxHistory(directSandboxEndpoint, timeline.conversationId)
+          await connectSandboxWs(directSandboxEndpoint)
+        } catch {
+          // 直连沙箱不可用时，保持后端兜底路径
+          gatewayEndpointRef.current = null
+          wsRef.current?.disconnect()
+          wsRef.current = null
+        }
+      }
     } catch (requestError: unknown) {
-      setError(requestError instanceof Error ? requestError.message : '无法加载分身对话')
+      setError(normalizeErrorMessage(requestError))
     } finally {
       setLoading(false)
     }
@@ -85,7 +216,14 @@ export default function InstanceChatPage() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, sending])
+  }, [messages, sending, typing])
+
+  useEffect(() => {
+    return () => {
+      wsRef.current?.disconnect()
+      wsRef.current = null
+    }
+  }, [])
 
   async function handleSend() {
     if (!id || !canChat || !isLive) {
@@ -108,6 +246,26 @@ export default function InstanceChatPage() {
     setMessages(prev => [...prev, optimistic])
     setDraft({ content: '' })
 
+    const sandboxGatewayEndpoint = gatewayEndpointRef.current
+    const sandboxSessionId = sessionIdRef.current
+    const sandboxWs = wsRef.current
+
+    if (sandboxGatewayEndpoint && sandboxSessionId && sandboxWs?.isOpen()) {
+      try {
+        sandboxWs.send({
+          type: 'user_message',
+          text: content,
+          sessionId: sandboxSessionId,
+        })
+        setTyping(true)
+        return
+      } catch (requestError: unknown) {
+        setError(normalizeErrorMessage(requestError))
+      } finally {
+        setSending(false)
+      }
+    }
+
     try {
       const result = await api.employeeRuntime.sendInstanceChatMessage(id, { content })
       setMessages(prev => {
@@ -117,7 +275,7 @@ export default function InstanceChatPage() {
     } catch (requestError: unknown) {
       setMessages(prev => prev.filter(message => message.messageId !== optimistic.messageId))
       setDraft({ content })
-      setError(requestError instanceof Error ? requestError.message : '发送消息失败')
+      setError(normalizeErrorMessage(requestError))
     } finally {
       setSending(false)
     }
@@ -131,10 +289,20 @@ export default function InstanceChatPage() {
     setClearing(true)
     setError('')
     try {
+      wsRef.current?.disconnect()
+      wsRef.current = null
+      setStreamingContent(null)
+      setTyping(false)
+
       await api.employeeRuntime.clearInstanceChatMessages(id)
       setMessages([])
+
+      if (directSandboxEndpoint && sessionIdRef.current) {
+        gatewayEndpointRef.current = directSandboxEndpoint
+        void connectSandboxWs(directSandboxEndpoint)
+      }
     } catch (requestError: unknown) {
-      setError(requestError instanceof Error ? requestError.message : '清空对话失败')
+      setError(normalizeErrorMessage(requestError))
     } finally {
       setClearing(false)
     }
@@ -231,12 +399,23 @@ export default function InstanceChatPage() {
                 </div>
               ))
             )}
-            {sending && (
+
+            {typing && streamingContent && (
+              <div className="hb-chat-message is-assistant">
+                <div className="hb-chat-meta">{employee.nickname} · 正在回复</div>
+                <div className="hb-chat-bubble is-assistant">
+                  {normalizeMessageContent(streamingContent)}
+                </div>
+              </div>
+            )}
+
+            {typing && !streamingContent && (
               <div className="hb-chat-message is-assistant">
                 <div className="hb-chat-meta">{employee.nickname} · 正在回复</div>
                 <div className="hb-chat-bubble is-assistant hb-chat-typing">正在思考中...</div>
               </div>
             )}
+
             <div ref={bottomRef} />
           </div>
 
