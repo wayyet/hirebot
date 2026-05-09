@@ -14,7 +14,6 @@ import {
   PlayCircle,
   RefreshCw,
   SendHorizontal,
-  Upload,
   Zap,
 } from 'lucide-react'
 import { signOut } from '@/infra/auth/oidc'
@@ -96,14 +95,12 @@ function formatDateTime(value?: string | null) {
 }
 
 function progressStepByState(params: {
-  canStart: boolean
-  needLoadSkill: boolean
+  canPrepare: boolean
   aiRunning: boolean
 }) {
-  if (params.canStart) return 0
-  if (params.needLoadSkill) return 1
-  if (params.aiRunning) return 2
-  return 3
+  if (params.canPrepare) return 0
+  if (params.aiRunning) return 1
+  return 2
 }
 
 export default function EvaluationPage() {
@@ -168,16 +165,16 @@ export default function EvaluationPage() {
     return { total, passed, failed, pending, score }
   }, [evaluation])
 
-  const canStart = employee?.status === 'hired' || employee?.status === 'failed'
+  // canPrepare: hired/failed (first time) or interning_ai (re-prepare after failure)
+  const canPrepare = employee?.status === 'hired' || employee?.status === 'failed' || employee?.status === 'interning_ai'
   const isAiStage = employee?.status === 'interning_ai'
   const aiRunning = isAiStage && employee?.evalPhase === 'ai_running'
-  const needLoadSkill = isAiStage && !aiRunning
 
   const currentRound = Math.max(1, employee?.evalIteration ?? 1)
   const maxRounds = Math.max(currentRound, employee?.evalMaxIterations ?? 30)
   const roundOptions = Array.from({ length: currentRound }, (_, index) => index + 1)
 
-  const progressStep = progressStepByState({ canStart, needLoadSkill, aiRunning })
+  const progressStep = progressStepByState({ canPrepare: canPrepare && !aiRunning, aiRunning })
 
   const evaluatorHireId = sandboxConversation?.evaluatorHireId ?? null
   const evaluatorSandboxId = sandboxConversation?.evaluatorSandboxId ?? null
@@ -190,31 +187,21 @@ export default function EvaluationPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatLoading, chatMessages])
 
-  async function submitAiDecision(decision: 'START' | 'LOAD_SKILL' | 'RUN') {
+  async function submitAiDecision(decision: 'START' | 'RUN') {
     if (!id) return
     setSubmitting(true)
     setError('')
 
     try {
-      // RUN: use WebSocket direct evaluation flow
+      // RUN: WebSocket direct evaluation flow
       if (decision === 'RUN') {
-        const updated = await api.employeeRuntime.submitAiEvaluationDecision(id, { decision })
-        setEmployee(updated)
+        await api.employeeRuntime.submitAiEvaluationDecision(id, { decision })
         const connection = await api.employeeRuntime.getSandboxConnection(id)
         await runWsEvaluation(connection)
-
-        if (updated.status === 'interning_human') {
-          navigate(`/instances/${id}/human-evaluation`)
-          return
-        }
-        if (updated.status === 'failed') {
-          navigate(`/instances/${id}/review`)
-          return
-        }
         return
       }
 
-      // START / LOAD_SKILL: use existing backend flow
+      // START: prepare environment (sandboxes + skill + materials)
       const updated = await api.employeeRuntime.submitAiEvaluationDecision(id, { decision })
       setEmployee(updated)
 
@@ -323,7 +310,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
         sessionId: connection.sessionId,
         verdict,
       })
-      setEmployee((prev) => prev ? { ...prev, status: syncResult.status } : prev)
+      setEmployee((prev) => prev ? { ...prev, status: syncResult.status as EmployeeDetail['status'] } : prev)
       setError('')
 
       const evaluationState = await api.employeeRuntime.getEvaluationState(id)
@@ -550,21 +537,12 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               </button>
               <button
                 type="button"
-                disabled={submitting || !canStart}
-                className="hb-btn-ghost !px-3 !py-1.5 !text-xs"
+                disabled={submitting || !canPrepare || aiRunning}
+                className="hb-btn-primary !px-3 !py-1.5 !text-xs"
                 onClick={() => void submitAiDecision('START')}
               >
                 <PlayCircle size={12} />
-                发起 AI 评估
-              </button>
-              <button
-                type="button"
-                disabled={submitting || !needLoadSkill}
-                className="hb-btn-primary !px-3 !py-1.5 !text-xs"
-                onClick={() => void submitAiDecision('LOAD_SKILL')}
-              >
-                <Upload size={12} />
-                上传并加载评估 Skill
+                准备评估环境
               </button>
               <button
                 type="button"
@@ -573,7 +551,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
                 onClick={() => void submitAiDecision('RUN')}
               >
                 {wsEvaluating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-                {wsEvaluating ? (wsProgress || 'WS 评估中...') : '执行 AI 评估'}
+                {wsEvaluating ? (wsProgress || 'WS 评估中...') : '执行评估'}
               </button>
             </div>
           </div>
@@ -595,10 +573,10 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               <div className="text-xs text-[#737373]">evalPhase: {employee.evalPhase || '未设置'}</div>
             </div>
             <div className="mt-2 h-1.5 w-full rounded-full bg-[#efefef]">
-              <div className="h-1.5 rounded-full bg-[#4a6cf7]" style={{ width: `${((progressStep + 1) / 4) * 100}%` }} />
+              <div className="h-1.5 rounded-full bg-[#4a6cf7]" style={{ width: `${((progressStep + 1) / 3) * 100}%` }} />
             </div>
             <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-              {['本体检查', '确认考题', '执行测试', '评估判分'].map((step, index) => (
+              {['环境准备', '执行评估', '评估判分'].map((step, index) => (
                 <span
                   key={step}
                   className={`rounded-full px-2 py-1 font-medium ${
@@ -614,7 +592,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               ))}
             </div>
             <div className="mt-2 text-[11px] text-[#737373]">
-              评估 Skill 加载策略：调用雇佣侧已有上传 Skill 接口，后端将评估 Skill 注入评估沙箱后执行并回传判定结果。
+              评估流程：准备环境（创建沙箱+上传Skill+加载考题）→ 执行评估（WS直连评估沙箱，Agent使用evaluation_score/evaluation_generate_report工具评分）→ 判定结果
             </div>
           </div>
         </section>
@@ -699,7 +677,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
 
               {!aiRunning ? (
                 <div className="rounded-xl border border-[#ececec] bg-white px-3 py-2 text-xs text-[#737373]">
-                  请先执行“上传并加载评估 Skill”，进入 ai_running 后可连接评估沙箱。
+                  请先点击“准备评估环境”，进入 ai_running 后可连接评估沙箱。
                 </div>
               ) : (!evaluatorHireId && chatLoading) ? (
                 <div className="rounded-xl border border-[#ffd5da] bg-[#fff1f2] px-3 py-2 text-xs text-[#b3263c]">

@@ -33,25 +33,6 @@ public sealed record EvaluationTargetExecuteRequestDto
     public string Input { get; init; } = string.Empty;
 }
 
-public sealed record EvaluationTargetBootstrapRequestDto
-{
-    public string? BackendId { get; init; }
-
-    public string? SourceArtifactPath { get; init; }
-
-    public bool ForceRecreate { get; init; }
-}
-
-public sealed record EvaluationTargetBootstrapResultDto(
-    string EmployeeId,
-    string BackendId,
-    string TargetRuntimeId,
-    string EvaluatorRuntimeId,
-    string SessionId,
-    string WorkspacePath,
-    string SourceArtifactPath,
-    string StartedAtUtc);
-
 public sealed record EvaluationTargetExecuteResultDto(
     string SessionId,
     string ExecutionId,
