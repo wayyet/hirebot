@@ -1,6 +1,6 @@
 import type { ReactNode, RefObject } from 'react'
 
-import { FileText, X } from 'lucide-react'
+import { FileText, Paperclip, Package, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -212,6 +212,7 @@ export function HiringConversationPanel({
                   disabled={disabled}
                   className="hb-hiring-tool-btn"
                 >
+                  <Paperclip size={15} />
                   文件上传
                 </button>
                 <button
@@ -220,6 +221,7 @@ export function HiringConversationPanel({
                   disabled={disabled}
                   className="hb-hiring-tool-btn"
                 >
+                  <Package size={15} />
                   skill
                 </button>
               </div>
