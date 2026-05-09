@@ -66,6 +66,7 @@ Handoff todo 是“交给谁、带什么输入、做到哪一步”的工作单�
 - 发 dispatch 后：调用 `handoff`，传 `action = transition` 把本轮条目标为 `dispatched`，并写入 `dispatch_id`。
 - 用户确认下游结果：调用 `handoff`，传 `action = transition` 把成功条目标为 `confirmed`，并写入回传摘要或 artifact 引用。
 - 用户撤销：先把状态流转为 `dismissed`；只有 UI 不需要保留追溯时才调用 `handoff`，传 `action = remove`。
+- 首轮进入会话时：即使用户还没提供资料，也必须 `upsert` 一条 `stage = material`、`target_skill = ontology-extraction`、`status = drafting` 的资料收集 Handoff todo；后续收到资料后 `patch` 同一条，不能等上传后才第一次建工单。
 
 不要用对话正文、memory、临时文件或通用 todo 工具另维护一套清单。
 
@@ -116,6 +117,15 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 - `fingerprint`：当前 session 范围内基于 `stage` + `target_skill` + 核心意图生成的稳定指纹。同一意图无论说法如何变化都应该保持一致，供 `upsert` 合并使用；skill 不需要把 `session_id` 写进 fingerprint。
 - `revision`：工具维护的并发版本；多轮更新时递增。
 
+## 活跃项、阻塞项与合流
+
+- 活跃 Handoff todo：同一 `stage` / `target_skill` 下，`status` 不是 `confirmed` / `dismissed` 的条目。
+- 阻塞 Handoff todo：活跃项中 `status = drafting` / `dispatched` / `dirty` / `needs_review` 的条目；进入下一阶段前还要把 `ready_to_dispatch` 发出并确认，不能把它当完成态。
+- 每次 `upsert` 前必须先 `list` 当前阶段活跃项，检查 `fingerprint`、`payload.source_files`、`payload.objective`、核心意图是否已存在。
+- 新信息补齐同一意图时，优先 `patch` 原 `handoff_id` 并保留原 `fingerprint`；不要靠换标题或扩大描述创建第二条。
+- 新信息覆盖旧草稿时，先把旧草稿补齐后转为 `ready_to_dispatch`；只有用户明确撤销旧范围时，才把旧草稿转为 `dismissed`。
+- 不允许同一阶段中存在“旧草稿仍 `drafting`，新完整项已 `ready_to_dispatch`”且两者指向同一资料、同一来源文件或父子包含关系。
+
 ## 状态机
 
 | 状态 | 含义 |
@@ -153,6 +163,8 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 - 不要把“已经发出 dispatch”误当成“已经完成工作”
 - 只有 `confirmed` 才代表这条 Handoff todo 对应的交接闭环已经完成
 - 如果一条 required Handoff todo 被 `dismissed`，必须是用户明确改变了范围、取消了需求，或切换到了 skip 分支；否则不能靠 `dismissed` 偷渡阶段完成
+- 用户追问“完了吗 / 下一步”时，必须先 `list` 查 Handoff todo 状态；`dispatched` 只能答“已发出，等回传或确认”，不能答“完成”。
+- 已收到下游 `dispatch_callback` 时，也要先把摘要给用户确认；用户确认后 transition 到 `confirmed`，再创建下一阶段 Handoff todo。
 
 ## ID 与字段规范
 
@@ -168,15 +180,30 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 
 **最低门槛**：至少 1 份资料被指认归类，且对应 Handoff todo 明确写出“要从中抽什么分类的本体 + 目标”。
 
+
+**首轮初始化**：首次进入会话时必须先创建或更新一条 material Handoff todo，状态为 `drafting`。这条 todo 表达“等待用户提供第一批业务资料后抽取本体”，不是可 dispatch 的完成项。建议字段：
+
+- `title`: `资料：补充第一批业务资料`
+- `category`: `资料收集`
+- `payload.objective`: `等待用户上传或描述第一批业务资料后，抽取业务对象、流程、规则、字段和边界约束`
+- `payload.scene_hint`: 从模板摘要推断，无法判断时写 `unknown`
+- `payload.mode`: `incremental`
+- `payload.missing_inputs`: [`source_files 或 source_content`]
+- `source`: `冷启动开场，尚未收到用户业务资料`
+- `status`: `drafting`
+- `fingerprint`: `material:first-batch`
+
+用户后续上传文件或补充正文时，优先 `patch` 这条首轮 material Handoff todo，补齐 `payload.source_files` / `payload.source_content`、资料分类和抽取目标；不要另起一条完整资料工单，把首轮草稿留在 `drafting`。
+
 **核心字段**：
 
 - `category`: 资料类型（业务对象定义 / 决策规则 / 流程 SOP / 案例库 / 边界与约束 / 风格语料 / 其他）
 - `payload.objective`: 一句话目标，例如“抽出退货场景里所有可能的退款节点和对应的判定规则”
-- `payload.source_files`: 已上传的文件名列表
+- `payload.source_files`: 已上传的文件名列表；如果资料完全来自对话正文而非上传文件，使用 `payload.source_content` 或 `payload.source_summary`，并在 `source` 里说明来源
 - `payload.scene_hint`: 场景类型（客服 / 销售 / 内勤 / ...）
 - `payload.mode`: `incremental`（默认）/ `full_replace`
 
-**明确度达标后**：状态可从 `drafting` 转为 `ready_to_dispatch`。
+**明确度达标后**：状态可从 `drafting` 转为 `ready_to_dispatch`。上传资料路径必须具备 `category`、`payload.objective`、`payload.source_files`、`payload.scene_hint`；对话资料路径必须具备 `category`、`payload.objective`、`payload.source_content` 或 `payload.source_summary`、`payload.scene_hint`。
 
 **单条 todo 何时可记为 `confirmed`**：
 
@@ -201,6 +228,8 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 `target_skill = skill-generation`
 
 **最低门槛**：`payload.skills` 必须是 Skill 数组，且至少 1 个元素；数组必须覆盖初始数字员工模板包里已有的 skill，以及本轮用户新增、需要生成的 skill。每个 Skill 都必须用 `generation_action` 区分“已有复用”还是“需要新生成”，并具备明确的 `skill_name` + `skill_description`，能说清触发条件和期望输出。
+
+**进入阶段时的 upsert 规则**：material 阶段所有参与当前批次的 Handoff todo 必须已是 `confirmed`。用户表达继续后，先 `upsert` 一条 skill 阶段 Handoff todo，再向用户反馈进入技能阶段；如果根据 material 回传已经能定义 `payload.skills[]`，状态设为 `ready_to_dispatch`，否则设为 `drafting` 并追问缺口。不要只在对话里说“接下来进入技能阶段”而不创建 `target_skill = skill-generation` 的 Handoff todo。
 
 **核心字段**：
 
