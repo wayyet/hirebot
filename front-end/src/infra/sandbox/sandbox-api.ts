@@ -48,6 +48,62 @@ async function authHeaders(): Promise<HeadersInit> {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
 }
 
+// ── Media upload ─────────────────────────────────────────────────────────
+
+interface GatewayMediaUploadResponse {
+  id: string
+  url: string
+  fileName: string
+  mimeType: string
+  sizeBytes: number
+}
+
+export interface GatewayMediaUploadResult {
+  mediaId: string
+  url: string
+  fileName: string
+  mimeType: string
+  sizeBytes: number
+  marker: string
+}
+
+/**
+ * 将文件直接上传到沙箱 Gateway 的 /media/upload 端点。
+ * 返回 mediaId、url 和可用于 WebSocket 消息的 [FILE_URL:...] 标记。
+ */
+export async function uploadMediaToGateway(
+  endpoint: string,
+  token: string,
+  file: File,
+): Promise<GatewayMediaUploadResult> {
+  const url = buildUrl(endpoint, '/media/upload')
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+  if (!res.ok) {
+    let errorMsg = `POST /media/upload: ${res.status}`
+    try {
+      const body = await res.json() as { error?: string; message?: string }
+      if (body.error) errorMsg = body.error
+      else if (body.message) errorMsg = body.message
+    } catch { /* ignore */ }
+    throw new Error(errorMsg)
+  }
+  const data = await res.json() as GatewayMediaUploadResponse
+  return {
+    mediaId: data.id,
+    url: data.url,
+    fileName: data.fileName,
+    mimeType: data.mimeType,
+    sizeBytes: data.sizeBytes,
+    marker: `[FILE_URL:/app/memory/media-cache/${data.id}]`,
+  }
+}
+
 async function sandboxGet<T>(endpoint: string, path: string): Promise<T> {
   const res = await fetch(buildUrl(endpoint, path), { headers: await authHeaders() })
   if (!res.ok) throw new Error(`GET ${path}: ${res.status}`)
@@ -73,15 +129,20 @@ export async function fetchSandboxSessionMessages(
     if (!resp.session) return []
 
     const messages: SandboxMessage[] = []
+    let assistantStarted = false
     for (const turn of resp.session.history) {
-      if (turn.role === 'user') {
-        messages.push({ type: 'user_message', text: turn.content, _historical: true })
-      } else if (turn.role === 'assistant') {
+      if (turn.role === 'assistant') {
+        assistantStarted = true
         // 工具调用条目跳过，只显示文字内容
         const rawContent = turn.content ?? ''
         if (rawContent && rawContent !== '[tool_use]') {
           messages.push({ type: 'assistant_message', content: rawContent, _historical: true })
         }
+      } else if (turn.role === 'user') {
+        // 第一个 assistant 回复之前的 user 消息是后端内部注入的冷启动 system prompt，
+        // 不是用户真实输入，跳过不显示
+        if (!assistantStarted) continue
+        messages.push({ type: 'user_message', text: turn.content, _historical: true })
       }
     }
     return messages

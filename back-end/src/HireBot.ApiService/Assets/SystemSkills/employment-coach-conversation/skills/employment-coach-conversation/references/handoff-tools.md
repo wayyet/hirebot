@@ -7,6 +7,7 @@ Handoff todo 是“交给谁、带什么输入、做到哪一步”的工作单�
 ## 目录
 
 - [工具面](#工具面)
+- [返回结构](#返回结构)
 - [通用结构](#通用结构)
 - [状态机](#状态机)
 - [单条 Handoff todo 的完成判断](#单条-handoff-todo-的完成判断)
@@ -20,11 +21,11 @@ Handoff todo 是“交给谁、带什么输入、做到哪一步”的工作单�
 
 | action | 用途 | 关键输入 | 关键输出 |
 | --- | --- | --- | --- |
-| `upsert` | 新建或按 `fingerprint` 更新同一条 Handoff todo | `title`、`stage`、`target_skill`、`payload`、`fingerprint` | `session_id`、`handoff_id`、`revision`、完整 item |
-| `patch` | 修改字段、payload 或来源摘要 | `handoff_id`、`patch`、可选 `expected_revision` | 更新后的 item |
-| `transition` | 执行状态流转 | `handoff_id`、`status`、可选 `dispatch_id` / `callback_summary` | 更新后的 item |
-| `list` | 读取当前 session 的结构化清单 | 可选 `stage`、`kind`、`target_skill`、`status`、`fingerprint` | Handoff todo 列表 |
-| `remove` | 用户撤销且 UI 不需要继续展示时移除投影 | `handoff_id`、`reason` | 移除结果 |
+| `upsert` | 新建或按 `fingerprint` 更新同一条 Handoff todo | `title`、`stage`、`target_skill`、`payload`、`fingerprint` | `SessionHandoffMutationResponse`：`session_id`、`item`、`items` |
+| `patch` | 修改字段、payload 或来源摘要 | `handoff_id`、`patch`、可选 `expected_revision` | `SessionHandoffMutationResponse`：`session_id`、`item`、`items` |
+| `transition` | 执行状态流转 | `handoff_id`、`status`、可选 `dispatch_id` / `callback_summary` | `SessionHandoffMutationResponse`：`session_id`、`item`、`items` |
+| `list` | 读取当前 session 的结构化清单 | 可选 `stage`、`kind`、`target_skill`、`status`、`fingerprint` | `SessionHandoffListResponse`：`session_id`、`items` |
+| `remove` | 用户撤销且 UI 不需要继续展示时移除投影 | `handoff_id`、`reason` | `SessionHandoffRemoveResponse`：`session_id`、`handoff_id`、`removed`、`reason`、`items` |
 
 参数 schema 建议保持扁平，方便模型稳定调用：
 
@@ -69,6 +70,223 @@ Handoff todo 是“交给谁、带什么输入、做到哪一步”的工作单�
 - 首轮进入会话时：即使用户还没提供资料，也必须 `upsert` 一条 `stage = material`、`target_skill = ontology-extraction`、`status = drafting` 的资料收集 Handoff todo；后续收到资料后 `patch` 同一条，不能等上传后才第一次建工单。
 
 不要用对话正文、memory、临时文件或通用 todo 工具另维护一套清单。
+
+
+## 返回结构
+
+Handoff tool 成功时返回 JSON 字符串；失败时返回以 `Error:` 开头的普通字符串。调用方必须先判断是否为错误字符串，再把成功结果作为 JSON 解析。不要把错误字符串当作空列表、成功 mutation 或已完成状态。
+
+所有成功响应中的 `items` 都只包含当前 `workflow_id` 下、当前 session 内的 Handoff todo；不会返回其他 workflow 或其他 session 的数据。`item` 表示本次被新建或更新的单条 Handoff todo，结构见[通用结构](#通用结构)。
+
+### `list` 返回
+
+`list` 返回当前 session 中匹配过滤条件的结构化清单。未传过滤条件时返回当前 workflow 的全部 Handoff todo；传入 `stage`、`kind`、`target_skill`、`status` 或 `fingerprint` 时按精确值过滤。
+
+```json
+{
+  "session_id": "session_20260508_001",
+  "items": [
+    {
+      "session_id": "session_20260508_001",
+      "workflow_id": "employment-coach",
+      "handoff_id": "m_6d23a9f4b1c8402a",
+      "title": "资料：抽取售后 SOP",
+      "kind": "handoff_todo",
+      "stage": "material",
+      "target_skill": "ontology-extraction",
+      "intent": "从售后 SOP 中抽取退货规则和流程节点",
+      "category": "流程 SOP",
+      "payload": {
+        "objective": "抽出退货场景里的流程节点、判定规则和边界约束",
+        "source_files": ["return-sop.md"],
+        "scene_hint": "客服",
+        "mode": "incremental"
+      },
+      "source": "用户上传 return-sop.md",
+      "acceptance": "ontology-extraction 回传的切片能覆盖退货节点和判定规则",
+      "status": "ready_to_dispatch",
+      "fingerprint": "material:return-sop",
+      "related_todos": [],
+      "related_files": ["return-sop.md"],
+      "revision": 2,
+      "created_at": "2026-05-08T02:10:00Z",
+      "updated_at": "2026-05-08T02:16:00Z",
+      "dispatch_id": null,
+      "callback_summary": null
+    }
+  ]
+}
+```
+
+字段含义：
+
+- `session_id`：宿主注入的当前会话 id。
+- `items`：过滤后的 Handoff todo 数组；数组元素是完整 item，不是 id 列表。
+
+### `upsert` 返回
+
+`upsert` 用 `fingerprint` 在当前 workflow + session 内查重。没有同指纹 item 时创建新 item；已有同指纹 item 时保留原 `handoff_id` 和 `created_at`，合并新输入并递增 `revision`。
+
+```json
+{
+  "session_id": "session_20260508_001",
+  "item": {
+    "session_id": "session_20260508_001",
+    "workflow_id": "employment-coach",
+    "handoff_id": "s_7c7f4dc9101d44fb",
+    "title": "技能：退货资格初判",
+    "kind": "handoff_todo",
+    "stage": "skill",
+    "target_skill": "skill-generation",
+    "intent": "生成退货资格初判技能",
+    "category": "判定",
+    "payload": {
+      "skills": [
+        {
+          "origin": "conversation",
+          "generation_action": "generate_new",
+          "skill_name": "退货资格初判",
+          "skill_description": "根据订单状态、商品类型和购买时间判断是否符合退货条件",
+          "trigger": "用户提出退货、退款或退掉商品",
+          "expected_output": "结论、依据和必要时的人工介入建议",
+          "from_upload": false
+        }
+      ]
+    },
+    "source": "material 阶段回传和用户确认",
+    "acceptance": "skill-generation 产出的 skill 文件能匹配该技能定义",
+    "status": "ready_to_dispatch",
+    "fingerprint": "skill:return-qualification",
+    "related_todos": ["m_6d23a9f4b1c8402a"],
+    "related_files": [],
+    "revision": 1,
+    "created_at": "2026-05-08T03:00:00Z",
+    "updated_at": "2026-05-08T03:00:00Z",
+    "dispatch_id": null,
+    "callback_summary": null
+  },
+  "items": []
+}
+```
+
+字段含义：
+
+- `item`：本次创建或按 `fingerprint` 更新后的完整 Handoff todo。
+- `items`：mutation 后当前 workflow 的完整 Handoff todo 列表。实际返回会包含 `item` 本身；示例中省略为 `[]` 仅表示列表结构。
+- 新建时 `handoff_id` 由工具生成，Employment Coach 中 `material` 使用 `m_` 前缀，`skill` 使用 `s_` 前缀，`external` 使用 `e_` 前缀。
+- 新建时 `revision = 1`；更新已有 item 时 `revision` 递增。
+- `payload` 是对象级递归合并：已有值保留，新对象字段覆盖或补充同名字段；数组和标量按新值整体替换。
+
+### `patch` 返回
+
+`patch` 只修改 `patch` 对象中给出的字段，并返回 mutation 响应。推荐传入 `expected_revision`；如果当前版本不匹配，工具返回 `Error: expected_revision mismatch...`，不会写入。
+
+```json
+{
+  "session_id": "session_20260508_001",
+  "item": {
+    "session_id": "session_20260508_001",
+    "workflow_id": "employment-coach",
+    "handoff_id": "m_6d23a9f4b1c8402a",
+    "title": "资料：抽取售后 SOP",
+    "kind": "handoff_todo",
+    "stage": "material",
+    "target_skill": "ontology-extraction",
+    "intent": "从售后 SOP 中抽取退货规则和流程节点",
+    "category": "流程 SOP",
+    "payload": {
+      "objective": "抽出退货场景里的流程节点、判定规则和边界约束",
+      "source_files": ["return-sop.md"],
+      "scene_hint": "客服",
+      "mode": "incremental"
+    },
+    "source": "用户上传 return-sop.md，并补充退货例外说明",
+    "acceptance": "ontology-extraction 回传的切片能覆盖退货节点、判定规则和例外条件",
+    "status": "ready_to_dispatch",
+    "fingerprint": "material:return-sop",
+    "related_todos": [],
+    "related_files": ["return-sop.md"],
+    "revision": 3,
+    "created_at": "2026-05-08T02:10:00Z",
+    "updated_at": "2026-05-08T02:20:00Z",
+    "dispatch_id": null,
+    "callback_summary": null
+  },
+  "items": []
+}
+```
+
+字段含义：
+
+- `item`：patch 后的完整 item；不是只返回 patch delta。
+- `items`：patch 后当前 workflow 的完整列表。
+- `patch.payload` 和 `upsert.payload` 一样按对象递归合并；未出现在 `patch` 里的字段保持不变。
+- 如果 `patch.status` 改变状态，仍必须符合状态机合法转移。
+- 如果 `patch.fingerprint` 改到另一个已存在指纹，工具会返回错误，避免两个 item 合并成歧义状态。
+
+### `transition` 返回
+
+`transition` 只做状态流转，并可同时写入 `dispatch_id` 或 `callback_summary`。它不会修改 `title`、`payload`、`source`、`acceptance` 等内容字段。
+
+```json
+{
+  "session_id": "session_20260508_001",
+  "item": {
+    "session_id": "session_20260508_001",
+    "workflow_id": "employment-coach",
+    "handoff_id": "s_7c7f4dc9101d44fb",
+    "title": "技能：退货资格初判",
+    "kind": "handoff_todo",
+    "stage": "skill",
+    "target_skill": "skill-generation",
+    "intent": "生成退货资格初判技能",
+    "category": "判定",
+    "payload": {
+      "skills": []
+    },
+    "source": "material 阶段回传和用户确认",
+    "acceptance": "skill-generation 产出的 skill 文件能匹配该技能定义",
+    "status": "dispatched",
+    "fingerprint": "skill:return-qualification",
+    "related_todos": ["m_6d23a9f4b1c8402a"],
+    "related_files": [],
+    "revision": 2,
+    "created_at": "2026-05-08T03:00:00Z",
+    "updated_at": "2026-05-08T03:06:00Z",
+    "dispatch_id": "dispatch_20260508_030600",
+    "callback_summary": null
+  },
+  "items": []
+}
+```
+
+字段含义：
+
+- `item.status`：流转后的状态；只有合法转移会写入。
+- `item.dispatch_id`：发出 dispatch 后写入的调度 id；未传时保留旧值。
+- `item.callback_summary`：收到下游回传、用户确认后写入的摘要；未传时保留旧值。
+- `item.revision`：每次成功 transition 都递增 1。
+
+### `remove` 返回
+
+`remove` 只在用户撤销且 UI 不需要继续保留追溯时使用。它从当前 workflow 的 session Handoff 列表中删除目标 item，并返回删除后的列表。
+
+```json
+{
+  "session_id": "session_20260508_001",
+  "handoff_id": "e_9f4d2ab17c8840f1",
+  "removed": true,
+  "reason": "用户明确取消外部系统对接，UI 不再展示该投影",
+  "items": []
+}
+```
+
+字段含义：
+
+- `handoff_id`：被删除的 Handoff todo id。
+- `removed`：成功删除时固定为 `true`。
+- `reason`：调用方传入的删除原因，会随响应原样返回。
+- `items`：删除后当前 workflow 剩余的完整 Handoff todo 列表。
 
 
 ## 通用结构

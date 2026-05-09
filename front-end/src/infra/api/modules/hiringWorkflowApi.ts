@@ -247,6 +247,12 @@ export interface HiringConversationMessageRequest {
   materials?: HiringConversationMaterial[]
 }
 
+export interface HiringConversationSyncRequest {
+  userMessage: string
+  assistantReply: string
+  materials?: HiringConversationMaterial[]
+}
+
 export interface HiringConversationMessage {
   messageId: string
   role: string
@@ -427,6 +433,13 @@ export const hiringWorkflowApi = {
   sendConversationMessage(hireId: string, payload: HiringConversationMessageRequest) {
     return httpClient.post<HiringConversationResult, HiringConversationMessageRequest>(
       `/api/v1/hirings/${hireId}/conversation/messages`,
+      payload,
+    )
+  },
+
+  syncConversationTurn(hireId: string, payload: HiringConversationSyncRequest) {
+    return httpClient.post<HiringConversationResult, HiringConversationSyncRequest>(
+      `/api/v1/hirings/${hireId}/conversation/sync`,
       payload,
     )
   },

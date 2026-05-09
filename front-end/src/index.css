@@ -3322,37 +3322,30 @@ body.hb-body-hiring-prototype {
 .hb-login-brand {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-}
-
-.hb-login-brand-mark {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #4f7dff 0%, #6f5fff 100%);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  box-shadow: 0 14px 30px rgba(91, 124, 255, 0.22);
-}
-
-.hb-login-brand-copy {
-  display: inline-flex;
-  align-items: center;
   gap: 10px;
 }
 
-.hb-login-brand-copy strong {
-  color: var(--hb-near-black);
-  font-size: 26px;
-  line-height: 1;
-  letter-spacing: -0.05em;
+.hb-login-brand-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #4f7dff 0%, #6f5fff 100%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  box-shadow: 0 10px 22px rgba(91, 124, 255, 0.22);
 }
 
-.hb-login-brand-copy span,
+.hb-login-brand-text {
+  color: var(--hb-near-black);
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
 .hb-login-header-tag {
   display: inline-flex;
   align-items: center;
@@ -3404,9 +3397,9 @@ body.hb-body-hiring-prototype {
 .hb-login-title {
   margin: 0;
   color: #0f172a;
-  font-size: clamp(3.3rem, 10vw, 7rem);
-  line-height: 0.92;
-  letter-spacing: -0.09em;
+  font-size: clamp(2rem, 5.5vw, 3.6rem);
+  line-height: 1.05;
+  letter-spacing: -0.06em;
 }
 
 .hb-login-title-accent {
@@ -3419,8 +3412,8 @@ body.hb-body-hiring-prototype {
   max-width: 760px;
   margin: 0;
   color: #667085;
-  font-size: clamp(1rem, 1.8vw, 1.2rem);
-  line-height: 1.8;
+  font-size: clamp(0.95rem, 1.4vw, 1.05rem);
+  line-height: 1.75;
 }
 
 .hb-login-actions {
@@ -3488,8 +3481,7 @@ body.hb-body-hiring-prototype {
 .hb-login-meta-strip {
   width: min(100%, 760px);
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
+  grid-template-columns: 1fr;
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 28px;
   background: rgba(255, 255, 255, 0.78);
@@ -3520,18 +3512,18 @@ body.hb-body-hiring-prototype {
 
 .hb-login-meta-block strong {
   display: block;
-  margin-top: 10px;
+  margin-top: 8px;
   color: #0f172a;
-  font-size: 20px;
-  line-height: 1.2;
-  letter-spacing: -0.04em;
+  font-size: 16px;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
 }
 
 .hb-login-meta-block p {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   color: #667085;
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .hb-login-meta-block.is-warn {
@@ -3615,17 +3607,8 @@ body.hb-body-hiring-prototype {
 }
 
 @media (max-width: 640px) {
-  .hb-login-brand-copy {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .hb-login-brand-copy strong {
-    font-size: 22px;
-  }
-
   .hb-login-title {
-    font-size: clamp(2.8rem, 18vw, 4.6rem);
+    font-size: clamp(2rem, 14vw, 3.2rem);
   }
 
   .hb-login-copy {

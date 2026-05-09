@@ -25,11 +25,14 @@ export class GatewayWs {
   private ws: WebSocket | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private destroyed = false
+  private isReconnect = false
   private readonly endpoint: string
   private readonly token: string
 
   onMessage: ((msg: GatewayMessage) => void) | null = null
   onStateChange: ((state: 'connecting' | 'open' | 'closed' | 'error') => void) | null = null
+  /** 重连成功后触发，用于拉取断线期间的会话历史 */
+  onReconnected: (() => void) | null = null
 
   constructor(endpoint: string, token: string) {
     this.endpoint = endpoint
@@ -40,9 +43,16 @@ export class GatewayWs {
     if (this.ws?.readyState === WebSocket.OPEN) return
     this.destroyed = false
     const url = buildGatewayWsUrl(this.endpoint, this.token)
+    const wasReconnect = this.isReconnect
     this.ws = new WebSocket(url)
     this.onStateChange?.('connecting')
-    this.ws.onopen = () => this.onStateChange?.('open')
+    this.ws.onopen = () => {
+      this.onStateChange?.('open')
+      if (wasReconnect) {
+        this.isReconnect = false
+        this.onReconnected?.()
+      }
+    }
     this.ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data as string) as GatewayMessage
@@ -52,8 +62,8 @@ export class GatewayWs {
     this.ws.onerror = () => this.onStateChange?.('error')
     this.ws.onclose = () => {
       this.onStateChange?.('closed')
-      // 非主动断开时自动重连
       if (!this.destroyed) {
+        this.isReconnect = true
         this.reconnectTimer = setTimeout(() => this.connect(), 3000)
       }
     }
