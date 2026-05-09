@@ -33,6 +33,13 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    [HttpGet("{employeeId}/sandbox/gateway-endpoint")]
+    public async Task<IActionResult> GetSandboxGatewayEndpoint(string employeeId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeRuntimeService.GetRuntimeSandboxGatewayEndpointAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpPost("{employeeId}/lifecycle")]
     public async Task<IActionResult> UpdateLifecycle(
         string employeeId,
@@ -46,6 +53,15 @@ public sealed class EmployeesController(
         }
 
         var response = await employeeRuntimeService.UpdateLifecycleAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/rehire")]
+    public async Task<IActionResult> Rehire(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await employeeRuntimeService.RehireAsync(employeeId, cancellationToken);
         return StatusCode(response.Code, response);
     }
 

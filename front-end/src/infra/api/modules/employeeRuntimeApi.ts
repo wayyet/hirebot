@@ -1,4 +1,4 @@
-﻿import { httpClient } from '../httpClient'
+import { httpClient } from '../httpClient'
 import type { HiringConversationMessage } from './hiringWorkflowApi'
 
 export interface EmployeeCapability {
@@ -38,6 +38,9 @@ export interface EmployeeDetail extends EmployeeSummary {
   evalPhase?: string | null
   evalIteration?: number | null
   evalMaxIterations?: number | null
+  sandboxId?: string | null
+  gatewayEndpoint?: string | null
+  sandboxStatus?: string | null
 }
 
 export interface UpdateEmployeeLifecycleRequest {
@@ -71,6 +74,7 @@ export interface InstanceChatTimeline {
   instanceId: string
   conversationId: string
   messages: InstanceChatMessage[]
+  gatewayEndpoint?: string | null
 }
 
 export interface InstanceChatResult {
@@ -373,6 +377,10 @@ export const employeeRuntimeApi = {
     return httpClient.get<EmployeeDetail>(`/api/v1/employees/${employeeId}`)
   },
 
+  getSandboxGatewayEndpoint(employeeId: string) {
+    return httpClient.get<string>(`/api/v1/employees/${employeeId}/sandbox/gateway-endpoint`)
+  },
+
   importFixtureInstances() {
     return httpClient.post<ImportFixtureInstancesResult>('/api/v1/migrations/fixture-instances')
   },
@@ -415,6 +423,10 @@ export const employeeRuntimeApi = {
       `/api/v1/employees/${employeeId}/lifecycle`,
       payload,
     )
+  },
+
+  rehire(employeeId: string) {
+    return httpClient.post<EmployeeDetail>(`/api/v1/employees/${employeeId}/rehire`)
   },
 
   updateCapabilities(employeeId: string, payload: UpdateEmployeeCapabilitiesRequest) {

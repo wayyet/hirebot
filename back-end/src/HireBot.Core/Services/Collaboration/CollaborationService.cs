@@ -114,9 +114,17 @@ public sealed class CollaborationService(
     /// <param name="groupIds">群组标识列表</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功标记的群组数量</returns>
-    public Task<int> MarkArchivedAsync(IReadOnlyList<string> groupIds, CancellationToken cancellationToken = default)
+    public async Task<int> MarkArchivedAsync(IReadOnlyList<string> groupIds, CancellationToken cancellationToken = default)
     {
         var owner = requestContextService.ResolveOwnerSubject();
-        return collaborationProvider.MarkArchivedAsync(owner, groupIds, cancellationToken);
+        try
+        {
+            return await collaborationProvider.MarkArchivedAsync(owner, groupIds, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Collaboration mark-archived operation unavailable from upstream provider.");
+            return 0;
+        }
     }
 }

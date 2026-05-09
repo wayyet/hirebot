@@ -4,6 +4,7 @@ interface RuntimeAuthConfig {
   ClientId?: string
   BypassAuth?: boolean
   ApiBase?: string
+  SandboxGatewayEndpoint?: string
 }
 
 declare global {

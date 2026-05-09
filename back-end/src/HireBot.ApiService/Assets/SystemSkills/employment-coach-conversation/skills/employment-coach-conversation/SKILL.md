@@ -40,7 +40,7 @@ license: Proprietary. NCrew employment-coach internal flow.
 2. **不偷工**：每条 Handoff todo 必须达到下游可消化的明确度，不替用户决定"差不多就行"
 3. **Handoff 先行**：进入沙箱会话后，第一轮动作就是调用 Handoff tool 新建或更新阶段 1 的 Handoff todo，先把资料阶段的待收集 / 待处理事项落到交接工单里，再给用户一句反馈；首轮即使用户还没上传资料，也要创建 `status = drafting` 的 material Handoff todo，表达“等待第一批业务资料后交给 ontology-extraction 抽取本体”；后续只要用户给出可交给下游处理的资料、技能或外部能力信息，也必须先调用 Handoff tool 新建或更新 Handoff todo，再给用户一句反馈；不能只在对话里复述、分析或生成结果
 4. **Handoff 承载**：所有下游执行信息必须使用 Handoff tool 承载；不要在对话文本、临时记忆、通用系统 todo 或自建文件里另维护一套清单
-5. **不越权**：不直接写 `ontology/` / `skills/` / `external/` 三个目录；只通过 Handoff tool 维护交接工单，并按治理规则更新 soul / identity / agent
+5. **不越权**：不直接写 `ontology/` / `skills/` / `external/` 三个目录；只通过 Handoff tool 维护交接工单，并按治理规则用 `<config_governance_patch>` 更新 `SOUL.md` / `IDENTITY.md` / `AGENTS.md`
 6. **会话流畅优先**：反问 / 确认 / 状态切换都不打断用户当前在打的字，状态变更只用一行简短反馈
 7. **业务话**：不暴露"本体切片 / CLI 接口 / orchestrator / 沙箱"这些术语
 
@@ -107,7 +107,7 @@ Handoff tool 的返回结果是给模型判断下一步动作的机器状态，�
 
 - `status = dispatched` 只能表示“已发出，正在等下游回传或等待确认”，不能说“已完成”，也不能根据标题、目标或推测路径编造 `ontology/...`、`skills/...` 等产物。
 - 只有当前上下文已经有对应的 `dispatch_callback`，并且 `todo_results[].status` 显示成功或可用的部分成功，才可以复述 `user_summary` 给用户确认；此时仍不能创建下一阶段 Handoff todo。
-- 用户对回传摘要回复“确认”“继续下一步”“可以”“先这样”等，视为认可这批回传可用：先调用 `handoff`，`action = transition` 把对应 todo 更新为 `confirmed`，再 `list` 确认前置阶段无阻塞项，然后才能进入下一阶段。
+- 用户对回传摘要回复“确认”“继续下一步”“可以”“先这样”等，视为认可这批回传可用：如果对应 todo 仍是 `ready_to_dispatch`，先调用 `handoff`，`action = transition` 把它补记为 `dispatched`；再把对应 todo 更新为 `confirmed`，随后 `list` 确认前置阶段无阻塞项，然后才能进入下一阶段。若对应 todo 已是 `dirty`，不能用旧回传确认，必须先回到 `ready_to_dispatch` 并重发。
 - 如果对用户说“进入技能阶段”“继续生成 skill”或类似话术，本轮输出前必须已经通过 Handoff tool 创建或更新 `stage = skill`、`target_skill = skill-generation` 的 Handoff todo；不能只口头承诺下一阶段。
 
 > Handoff tool 操作、Handoff todo JSON 结构、状态机（drafting / ready_to_dispatch / dispatched / dirty / confirmed / needs_review / dismissed）、各阶段 payload 字段与明确度对照 → 每次新建或更新 Handoff todo 前，读 [references/handoff-tools.md](references/handoff-tools.md)。
@@ -122,7 +122,7 @@ Handoff tool 的返回结果是给模型判断下一步动作的机器状态，�
 
 **首轮初始化动作**：首次进入会话时，即使用户还没上传资料，也必须先创建或更新一条 `status = drafting` 的 material Handoff todo，用来承载“等待第一批业务资料并抽取本体”的收集任务。该 todo 的 `payload.objective` 写清后续抽取方向，`payload.missing_inputs` 写 `source_files 或 source_content`；待用户上传或描述资料后，`patch` 同一 `handoff_id` 补齐来源、分类和抽取目标，再按明确度转为 `ready_to_dispatch`。不要等用户上传后才第一次创建资料阶段 Handoff todo。
 
-**收到资料时的强制动作**：用户描述业务场景、资料种类、字段、规则、流程、案例或上传文件后，先调用 `handoff`，`action = upsert`，写入 `stage = material`、`target_skill = ontology-extraction`、`kind = handoff_todo`、稳定 `fingerprint` 和阶段 1 payload；如果已能说清资料分类与抽取目标，`status = ready_to_dispatch`，否则 `status = drafting` 并只追问缺口。
+**收到资料时的强制动作**：用户描述业务场景、资料种类、字段、规则、流程、案例或上传文件后，先调用 `handoff`，`action = list` 检查当前 material 活跃项；如果存在首轮 `material:first-batch` 草稿，或已有条目与新资料属于同一来源、同一目标或父子包含关系，必须 `patch` 原 `handoff_id` 并复用原 `fingerprint`。只有确认是全新资料范围时才 `upsert` 新条目，写入 `stage = material`、`target_skill = ontology-extraction`、`kind = handoff_todo`、稳定 `fingerprint` 和阶段 1 payload；如果已能说清资料分类与抽取目标，`status = ready_to_dispatch`，否则 `status = drafting` 并只追问缺口。
 
 **禁止替下游执行**：本阶段不要直接输出"本体切片"、概念表、关系表、约束表或本体抽取结果；这些只能由 `ontology-extraction` 在收到 Handoff todo 并被 dispatch 后完成。本 skill 只负责把用户给出的资料整理成可执行 Handoff todo，并在用户表示"先这些"后发 dispatch。
 
@@ -168,7 +168,7 @@ Handoff tool 的返回结果是给模型判断下一步动作的机器状态，�
 
 **目的**：把"它要能调用什么外部能力"转换成有分类、有目标的 CLI 工单。
 
-**最低门槛**：阶段 3 Handoff todo 的 `payload.external_capabilities` 必须是外部能力数组，且至少 1 项；每个普通外部能力都明确 `category` + `objective` + `target_system`，或用户明确表达"不需要外部系统"（数组内写 `kind: skip` 的跳过项）。
+**最低门槛**：阶段 3 Handoff todo 的 `payload.external_capabilities` 必须是外部能力数组，且至少 1 项；每个普通外部能力都明确 `category` + `objective` + `target_system` + `auth_kind` + 非空 `linked_skills`。`integration_methods` 是推荐补充字段，不是宿主 readiness 的硬门槛；或用户明确表达"不需要外部系统"（数组内写 `kind: skip` 的跳过项）。
 
 **dispatch 时机**：资料和技能阶段均已完成闭环；每条新的外部能力 Handoff todo 达到明确度即可发。若当前外部阶段已有活跃草稿，先合流或补齐草稿，再发 dispatch；表单里凭据由用户右侧自填，不影响发信号时机。
 
@@ -191,15 +191,15 @@ Handoff tool 的返回结果是给模型判断下一步动作的机器状态，�
 
 ## 配置文件治理（横切，全程在线）
 
-本 skill 持续监听对话，识别用户对 soul / identity / agent 三份配置的修改意图。memory.md 全程不动。
+本 skill 持续监听对话，识别用户对 `SOUL.md` / `IDENTITY.md` / `AGENTS.md` 三份配置的修改意图。`MEMORY.md` 全程不动。
 
 **触发条件（双信号同时出现）**：身份描述类关键词 + 修改类动词。两类都出现才触发；不满足则当普通对话处理。
 
 **两档处理**：
-- 置信度高 → 直接更新 + 一行确认
-- 置信度低 → 短反问回放识别到的具体内容，等待用户拍板
+- 置信度高 → 输出 `<config_governance_patch>` 更新对应配置 + 一行确认
+- 置信度低 → 短反问回放识别到的具体内容，等待用户拍板；用户确认后再输出 `<config_governance_patch>`
 
-**memory.md 红线**：任何情况下不修改。
+**`MEMORY.md` 红线**：任何情况下不修改。
 
 **改动反向触发已 confirmed Handoff todo 复核**：仅在判定 / 边界 / 数据访问范围层面改动时提醒，改名字 / 改口吻不触发。
 
