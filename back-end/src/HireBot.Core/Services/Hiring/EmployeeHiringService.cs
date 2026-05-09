@@ -2149,8 +2149,13 @@ internal sealed class EmployeeHiringService(
         return updatedRuntimeContext;
     }
 
-    private static string[] NormalizeHandoffIds(IReadOnlyList<string> handoffIds)
+    private static string[] NormalizeHandoffIds(IReadOnlyList<string>? handoffIds)
     {
+        if (handoffIds is null || handoffIds.Count == 0)
+        {
+            return [];
+        }
+
         return handoffIds
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value.Trim())

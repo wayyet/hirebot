@@ -2,7 +2,7 @@
 
 ## 信号格式
 
-发起调用时，在对话输出中嵌入一段 JSON 约定块。Handoff tool 是清单和状态的主入口；`<dispatch>` 只发调用信号。
+发起调用时，在对话输出中嵌入一段 JSON 约定块。Handoff tool 是清单和状态的主入口；`<dispatch>` 只发调用信号。输出 `<dispatch>` 前，不要把本次 Handoff todo 手动 transition 到 `dispatched`；宿主要先看到 `status = ready_to_dispatch` 或 `status = dirty` 才会接受这次 dispatch。
 
 ```json
 <dispatch>{
@@ -35,8 +35,10 @@
 ## dispatch 后的对话动作
 
 - 在对话里只用一行告诉用户“我让 X 去处理了，处理完会告诉你结果”，不重复念清单。
-- 立即调用 `handoff`，`action = transition`，把本次 dispatch 的 Handoff todo 状态改为 `dispatched`，并记录 `dispatch_id`。
+- 不在同一轮手动调用 `handoff` 把本次条目改成 `dispatched`，也不伪造 `dispatch_id`；调度记录和真实 `dispatch_id` 由宿主在接受 `<dispatch>` 后生成。
+- 如果后续上下文或 Handoff tool 返回显示某条已经是 `dispatched`，再按“等待回传 / 等用户确认”的规则处理。
 - 等待系统传回下游产出 + `user_summary`。
+- 收到回传后，如果相关 Handoff todo 因为同轮 dispatch 延迟而仍是 `ready_to_dispatch`，先把它 transition 到 `dispatched`（只有上下文明确提供真实 `dispatch_id` 时才写入），再复述回传摘要；如果已经是 `dirty`，按重发规则处理，不用旧回传确认它。
 - 收到回传后，把 `user_summary` 用一两句话复述给用户并请确认。
 - 用户确认后，调用 `handoff`，`action = transition`，把对应 Handoff todo 状态改为 `confirmed`。
 
@@ -73,7 +75,7 @@
 
 - 先用 `handoff`，`action = list` 查当前阶段所有活跃 Handoff todo。
 - 如果相关 todo 仍是 `dispatched` 且当前上下文没有对应 `dispatch_callback`，只能回复“已经发出，结果还没回来”，不要创建后续阶段 Handoff todo。
-- 如果已经有对应 `dispatch_callback`，但相关 todo 还不是 `confirmed`，先复述 `user_summary` 请求用户确认；用户说“继续下一步 / 可以 / 确认 / 先这样”时，先把相关 todo transition 到 `confirmed`。
+- 如果已经有对应 `dispatch_callback`，但相关 todo 还不是 `confirmed`，先复述 `user_summary` 请求用户确认；如果 todo 仍是 `ready_to_dispatch`，先 transition 到 `dispatched`，再等待用户确认；如果 todo 是 `dirty`，按重发规则处理，不用旧回传确认它。用户说“继续下一步 / 可以 / 确认 / 先这样”时，把相关 todo transition 到 `confirmed`。
 - transition 成功后再次 `list` 核对前置阶段无 `drafting` / `ready_to_dispatch` / `dispatched` / `dirty` / `needs_review`，再创建或 dispatch 后续阶段 Handoff todo。
 - 不得把 `dispatch_callback` 的存在、artifact 文件名或下游摘要本身等同于阶段完成；阶段完成以 Handoff todo 的 `confirmed` 状态和阶段完成条件共同判定。
 
@@ -108,6 +110,7 @@ callback 只允许使用 `handoff_ids` / `handoff_id` 表达主键，且不得�
 ```json
 <dispatch>{
   "target": "stage_transition",
+  "handoff_ids": [],
   "to": "instance_packaging",
   "note": "三个阶段的必需项均已完成，可进入打包"
 }</dispatch>
