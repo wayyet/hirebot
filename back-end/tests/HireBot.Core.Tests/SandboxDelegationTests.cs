@@ -31,6 +31,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Net.Http;
 
 namespace HireBot.Core.Tests;
 
@@ -542,7 +543,11 @@ public sealed class SandboxDelegationTests
             new StubHostEnvironment(),
             new ConfigurationBuilder().Build(),
             NullLogger<EvaluationService>.Instance,
-            new NoopSystemSkillRegistry());
+            new NoopSystemSkillRegistry(),
+            new KingCrabSandboxTokenProvider(
+                new NoopHttpClientFactory(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<KingCrabSandboxTokenProvider>.Instance));
 
         var result = await InvokePrivateAsync<object>(
             service,
@@ -717,7 +722,11 @@ public sealed class SandboxDelegationTests
             new StubHostEnvironment(),
             new ConfigurationBuilder().Build(),
             NullLogger<EvaluationService>.Instance,
-            new NoopSystemSkillRegistry());
+            new NoopSystemSkillRegistry(),
+            new KingCrabSandboxTokenProvider(
+                new NoopHttpClientFactory(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<KingCrabSandboxTokenProvider>.Instance));
     }
 
     private static HireBotDbContext CreateDbContext(string databaseName)
@@ -943,6 +952,9 @@ public sealed class SandboxDelegationTests
 
         public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<SkillPackageUploadResultDto>.ErrorResponse(501, "not used"));
+
+        public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default)
+            => Task.FromResult<SandboxInstanceDto?>(null);
     }
 
     private sealed class RecordingLogger<T> : ILogger<T>
@@ -1091,6 +1103,9 @@ public sealed class SandboxDelegationTests
             => throw new NotSupportedException();
 
         public Task<ApiResponse<HiringConversationResultDto>> SendConversationMessageAsync(string hireId, HiringConversationMessageRequestDto request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ApiResponse<HiringConversationResultDto>> SyncConversationTurnAsync(string hireId, HiringConversationSyncRequestDto request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<ApiResponse<HiringConversationTimelineDto>> GetConversationTimelineAsync(string hireId, CancellationToken cancellationToken = default)
@@ -1242,5 +1257,10 @@ public sealed class SandboxDelegationTests
         public void Dispose()
         {
         }
+    }
+
+    private sealed class NoopHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new();
     }
 }

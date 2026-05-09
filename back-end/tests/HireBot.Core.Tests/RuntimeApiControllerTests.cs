@@ -378,12 +378,8 @@ public sealed class RuntimeApiControllerTests
         public Task<ApiResponse<EvaluationSandboxConversationStateDto>> SendEvaluationSandboxMessageAsync(string employeeId, EvaluationSandboxMessageRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> SubmitAiEvaluationDecisionAsync(string employeeId, AiEvaluationDecisionRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> SubmitOnboardingDecisionAsync(string employeeId, EvaluationOnboardingDecisionRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<ApiResponse<EvaluationFetchTestcasesResultDto>> FetchTestcasesAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<ApiResponse<EvaluationOntologyQueryResultDto>> QueryOntologyAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<ApiResponse<EvaluationTargetBootstrapResultDto>> BootstrapTargetSandboxAsync(string employeeId, EvaluationTargetBootstrapRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<ApiResponse<EvaluationTargetExecuteResultDto>> ExecuteTargetAsync(string employeeId, EvaluationTargetExecuteRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<ApiResponse<EvaluationTraceReadResultDto>> ReadTraceAsync(string employeeId, EvaluationTraceReadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<ApiResponse<EvaluationReportUpsertResultDto>> UpsertReportAsync(string employeeId, EvaluationReportUpsertRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<EvaluationSandboxConnectionResultDto>> GetSandboxConnectionAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<EvaluationVerdictSyncResultDto>> SyncVerdictAsync(string employeeId, EvaluationVerdictSyncRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
 

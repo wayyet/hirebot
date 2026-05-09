@@ -11,6 +11,7 @@ using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Evaluation;
 using HireBot.Core.Services.Evaluation.Persistence;
 using HireBot.Core.Services.Internal;
+using HireBot.Core.Services.Sandbox;
 using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
@@ -19,6 +20,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Net.Http;
 
 namespace HireBot.Core.Tests;
 
@@ -66,7 +68,7 @@ public sealed class EvaluationServiceSandboxMessageTests
             HireResponse = ApiResponse<HireTemplateResultDto>.SuccessResponse(
                 new HireTemplateResultDto("hire-target-1", "sandbox-target-1", "running", "ready")),
             StatusResponse = ApiResponse<HiringStatusDto>.SuccessResponse(
-                new HiringStatusDto("hire-target-1", "sandbox-target-1", "running", null, null, null, null)),
+                new HiringStatusDto("hire-target-1", "sandbox-target-1", "running", null, null, null, null, null)),
             CreateWorkspaceResponse = ApiResponse<HireTemplateResultDto>.SuccessResponse(
                 new HireTemplateResultDto("hire-evaluator-1", "sandbox-evaluator-1", "running", "chat")),
             UploadSkillResponse = ApiResponse<bool>.SuccessResponse(true)
@@ -106,7 +108,11 @@ public sealed class EvaluationServiceSandboxMessageTests
             new StubHostEnvironment(),
             new ConfigurationBuilder().Build(),
             NullLogger<EvaluationService>.Instance,
-            new NoopSystemSkillRegistry());
+            new NoopSystemSkillRegistry(),
+            new KingCrabSandboxTokenProvider(
+                new NoopHttpClientFactory(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<KingCrabSandboxTokenProvider>.Instance));
 
         var response = await service.SendEvaluationSandboxMessageAsync(
             employeeId,
@@ -198,6 +204,8 @@ public sealed class EvaluationServiceSandboxMessageTests
             => Task.FromResult(ApiResponse<HiringConversationControlResultDto>.ErrorResponse(501, "not used"));
 
         public Task<ApiResponse<HiringConversationResultDto>> SendConversationMessageAsync(string hireId, HiringConversationMessageRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<HiringConversationResultDto>.ErrorResponse(501, "not used"));
+        public Task<ApiResponse<HiringConversationResultDto>> SyncConversationTurnAsync(string hireId, HiringConversationSyncRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<HiringConversationResultDto>.ErrorResponse(501, "not used"));
 
         public Task<ApiResponse<HiringConversationTimelineDto>> GetConversationTimelineAsync(string hireId, CancellationToken cancellationToken = default)
@@ -299,6 +307,9 @@ public sealed class EvaluationServiceSandboxMessageTests
 
         public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default)
+            => Task.FromResult<SandboxInstanceDto?>(null);
     }
 
     private sealed class NoopSystemSkillRegistry : ISystemSkillRegistry
@@ -355,5 +366,10 @@ public sealed class EvaluationServiceSandboxMessageTests
         public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
 
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class NoopHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new();
     }
 }

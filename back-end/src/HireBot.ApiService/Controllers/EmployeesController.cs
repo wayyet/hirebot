@@ -195,85 +195,28 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
-    [HttpGet("{employeeId}/evaluation/tools/testcases")]
-    public async Task<IActionResult> FetchEvaluationTestcases(
+    [HttpGet("{employeeId}/evaluation/sandbox-connection")]
+    public async Task<IActionResult> GetSandboxConnection(
         string employeeId,
         CancellationToken cancellationToken = default)
     {
-        var response = await evaluationService.FetchTestcasesAsync(employeeId, cancellationToken);
+        var response = await evaluationService.GetSandboxConnectionAsync(employeeId, cancellationToken);
         return StatusCode(response.Code, response);
     }
 
-    [HttpGet("{employeeId}/evaluation/tools/ontology")]
-    public async Task<IActionResult> QueryEvaluationOntology(
+    [HttpPost("{employeeId}/evaluation/sync-verdict")]
+    public async Task<IActionResult> SyncVerdict(
         string employeeId,
+        [FromBody] EvaluationVerdictSyncRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var response = await evaluationService.QueryOntologyAsync(employeeId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{employeeId}/evaluation/target/bootstrap")]
-    public async Task<IActionResult> BootstrapTargetSandbox(
-        string employeeId,
-        [FromBody] EvaluationTargetBootstrapRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<EvaluationTargetBootstrapResultDto>();
+        var invalidResponse = BuildModelValidationError<EvaluationVerdictSyncResultDto>();
         if (invalidResponse is not null)
         {
             return invalidResponse;
         }
 
-        var response = await evaluationService.BootstrapTargetSandboxAsync(employeeId, request, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{employeeId}/evaluation/tools/target-execute")]
-    public async Task<IActionResult> ExecuteTargetSandbox(
-        string employeeId,
-        [FromBody] EvaluationTargetExecuteRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<EvaluationTargetExecuteResultDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await evaluationService.ExecuteTargetAsync(employeeId, request, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{employeeId}/evaluation/tools/trace-read")]
-    public async Task<IActionResult> ReadTargetTrace(
-        string employeeId,
-        [FromBody] EvaluationTraceReadRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<EvaluationTraceReadResultDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await evaluationService.ReadTraceAsync(employeeId, request, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{employeeId}/evaluation/tools/report")]
-    public async Task<IActionResult> UpsertEvaluationReport(
-        string employeeId,
-        [FromBody] EvaluationReportUpsertRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<EvaluationReportUpsertResultDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await evaluationService.UpsertReportAsync(employeeId, request, cancellationToken);
+        var response = await evaluationService.SyncVerdictAsync(employeeId, request, cancellationToken);
         return StatusCode(response.Code, response);
     }
 

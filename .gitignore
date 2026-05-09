@@ -38,7 +38,7 @@ bld/
 #wwwroot/
 
 # HireBot evaluation runtime artifacts (local generated outputs)
-src/HireBot.ApiService/wwwroot/resources/evaluation/
+back-end/src/HireBot.ApiService/wwwroot/resources/evaluation/
 
 # Visual Studio 2017 auto generated files
 Generated\ Files/
