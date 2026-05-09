@@ -48,6 +48,62 @@ async function authHeaders(): Promise<HeadersInit> {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
 }
 
+// ── Media upload ─────────────────────────────────────────────────────────
+
+interface GatewayMediaUploadResponse {
+  id: string
+  url: string
+  fileName: string
+  mimeType: string
+  sizeBytes: number
+}
+
+export interface GatewayMediaUploadResult {
+  mediaId: string
+  url: string
+  fileName: string
+  mimeType: string
+  sizeBytes: number
+  marker: string
+}
+
+/**
+ * 将文件直接上传到沙箱 Gateway 的 /media/upload 端点。
+ * 返回 mediaId、url 和可用于 WebSocket 消息的 [FILE_URL:...] 标记。
+ */
+export async function uploadMediaToGateway(
+  endpoint: string,
+  token: string,
+  file: File,
+): Promise<GatewayMediaUploadResult> {
+  const url = buildUrl(endpoint, '/media/upload')
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+  if (!res.ok) {
+    let errorMsg = `POST /media/upload: ${res.status}`
+    try {
+      const body = await res.json() as { error?: string; message?: string }
+      if (body.error) errorMsg = body.error
+      else if (body.message) errorMsg = body.message
+    } catch { /* ignore */ }
+    throw new Error(errorMsg)
+  }
+  const data = await res.json() as GatewayMediaUploadResponse
+  return {
+    mediaId: data.id,
+    url: data.url,
+    fileName: data.fileName,
+    mimeType: data.mimeType,
+    sizeBytes: data.sizeBytes,
+    marker: `[FILE_URL:/app/memory/media-cache/${data.id}]`,
+  }
+}
+
 async function sandboxGet<T>(endpoint: string, path: string): Promise<T> {
   const res = await fetch(buildUrl(endpoint, path), { headers: await authHeaders() })
   if (!res.ok) throw new Error(`GET ${path}: ${res.status}`)

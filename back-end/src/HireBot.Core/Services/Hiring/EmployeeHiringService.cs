@@ -57,7 +57,6 @@ internal sealed class EmployeeHiringService(
     ILogger<EmployeeHiringService> logger,
     IHostEnvironment hostEnvironment) : IEmployeeHiringService
 {
-    private const string DefaultConversationKickoffPrompt = "你是雇佣流程助手。请先根据当前阶段提出第一个关键问题，引导用户完善模板包内容。";
     private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
     private const string EvaluationSkillId = "evaluation-expert";
     private const string EvaluationSkillVersion = "2.1.0";
@@ -657,8 +656,6 @@ internal sealed class EmployeeHiringService(
                 IsConversationResponding = IsConversationResponding(normalizedHireId, runtimeContext)
             });
         }
-
-        await EnsureAssistantKickoffAsync(normalizedHireId, cancellationToken);
 
         return ApiResponse<StartHiringConversationResultDto>.SuccessResponse(call.Data);
     }
@@ -2387,22 +2384,6 @@ internal sealed class EmployeeHiringService(
         };
     }
 
-    private static string BuildKickoffMessage(string currentStage)
-    {
-        return NormalizeRequestedStage(currentStage) switch
-        {
-            var stage when string.Equals(stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)
-                => "我们先完成资料阶段。请先上传至少 1 份最有代表性的资料，并说明每份资料分别属于什么类型、希望抽取什么内容沉淀进模板包。",
-            var stage when string.Equals(stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)
-                => "现在进入技能阶段。模板包里的默认 skills 视为基线，我们只补充新增或明显缺失的技能；如果当前基线已经足够，也请直接确认是否推进到第三阶段。",
-            var stage when string.Equals(stage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase)
-                => "现在进入外部能力阶段。请按连接器能力来描述需求，例如 MCP、CLI 或 database，并明确每项能力的操作目标、认证方式和对应 skill。",
-            var stage when string.Equals(stage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase)
-                => "当前进入打包准备阶段。这里不再新增业务补齐项，只处理诊断、复核和收口问题；请确认剩余阻塞项是否都已经解决。",
-            _ => DefaultConversationKickoffPrompt
-        };
-    }
-
     private static IReadOnlyList<StageSkillMappingDto> BuildStageSkills(DiscoverySkillDefinition discoverySkill)
     {
         return discoverySkill.StageRules
@@ -3385,32 +3366,6 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         }
 
         return result;
-    }
-
-    private async Task EnsureAssistantKickoffAsync(string hireId, CancellationToken cancellationToken)
-    {
-        await Task.CompletedTask;
-        var runtimeContext = hiringRuntimeStore.Get(hireId);
-        if (runtimeContext is null || runtimeContext.Messages.Any(message =>
-                string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)))
-        {
-            return;
-        }
-
-        var kickoffPrompt = configuration["HireBot:ConversationKickoffPrompt"];
-        var kickoffMessage = new HiringConversationMessageDto(
-            $"assistant-{Guid.NewGuid():N}",
-            "assistant",
-            string.IsNullOrWhiteSpace(kickoffPrompt)
-                ? BuildKickoffMessage(runtimeContext.CurrentStage)
-                : kickoffPrompt.Trim(),
-            DateTimeOffset.UtcNow);
-        runtimeContext = runtimeContext with
-        {
-            Messages = AppendMessages(runtimeContext.Messages, kickoffMessage)
-        };
-        runtimeContext = ApplyWorkflowProgress(runtimeContext);
-        hiringRuntimeStore.Upsert(runtimeContext);
     }
 
     internal static HiringRuntimeContext ApplyConversationProgressToTemplatePackage(HiringRuntimeContext runtimeContext)
