@@ -116,11 +116,19 @@ internal sealed class SandboxService(
 
         if (string.Equals(refreshed.State, "NotFound", StringComparison.OrdinalIgnoreCase))
         {
-            instance.State = "Error";
-            instance.LastError = "Sandbox not found in OpenSandbox, it may have been deleted or expired.";
+            logger.LogWarning("Sandbox not found, recreating. OldSandboxId={OldSandboxId}, OwnerSubject={OwnerSubject}",
+                instance.SandboxId, instance.OwnerSubject);
+
+            var provisioned = await provisioner.CreateAsync(instance.OwnerSubject, cancellationToken);
+            instance.SandboxId = provisioned.SandboxId;
+            instance.State = provisioned.State;
+            instance.GatewayEndpoint = provisioned.GatewayEndpoint;
+            instance.ExpiresAtUtc = provisioned.ExpiresAtUtc;
+            instance.LastError = null;
             instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
             await dbContext.SaveChangesAsync(cancellationToken);
-            return ApiResponse<SandboxInstanceDto>.ErrorResponse(404, "Sandbox not found, it may have been deleted or expired.");
+            await provisioner.BeginTrackingAsync(instance.Id, provisioned.SandboxId);
+            return ApiResponse<SandboxInstanceDto>.SuccessResponse(ToDto(instance));
         }
 
         instance.State = refreshed.State;
