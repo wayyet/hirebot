@@ -30,6 +30,9 @@ public sealed class InstancesController(
         return StatusCode(response.Code, response);
     }
 
+
+    
+
     /// <summary>
     /// 发送应用内聊天消息
     /// </summary>

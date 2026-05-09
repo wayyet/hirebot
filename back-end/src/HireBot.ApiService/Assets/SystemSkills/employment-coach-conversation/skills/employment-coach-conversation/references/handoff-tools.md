@@ -64,8 +64,8 @@ Handoff todo 是“交给谁、带什么输入、做到哪一步”的工作单�
 - `session_id` 由宿主从当前会话上下文注入，skill 不手写、不伪造、不跨 session 查询。
 - 更新字段或 payload：调用 `handoff`，传 `action = patch`，保持同一个 `handoff_id`。
 - 发 dispatch 前：调用 `handoff`，传 `action = list` 读取目标阶段，逐条确认 `status = ready_to_dispatch`。
-- 发 dispatch 后：调用 `handoff`，传 `action = transition` 把本轮条目标为 `dispatched`，并写入 `dispatch_id`。
-- 用户确认下游结果：调用 `handoff`，传 `action = transition` 把成功条目标为 `confirmed`，并写入回传摘要或 artifact 引用。
+- 发 dispatch 时：输出 `<dispatch>` 前不要调用 `handoff` 把本轮条目标为 `dispatched`，也不要写入或猜测 `dispatch_id`；宿主会先校验 `ready_to_dispatch` / `dirty` 条目并生成真实调度记录。
+- 用户确认下游结果：若成功条目仍是 `ready_to_dispatch`，先调用 `handoff` transition 到 `dispatched`；用户确认后再 transition 到 `confirmed`，并写入回传摘要或 artifact 引用。若条目是 `dirty`，不能用旧回传确认，必须先回到 `ready_to_dispatch` 并重发。
 - 用户撤销：先把状态流转为 `dismissed`；只有 UI 不需要保留追溯时才调用 `handoff`，传 `action = remove`。
 - 首轮进入会话时：即使用户还没提供资料，也必须 `upsert` 一条 `stage = material`、`target_skill = ontology-extraction`、`status = drafting` 的资料收集 Handoff todo；后续收到资料后 `patch` 同一条，不能等上传后才第一次建工单。
 
@@ -411,7 +411,7 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 - `status`: `drafting`
 - `fingerprint`: `material:first-batch`
 
-用户后续上传文件或补充正文时，优先 `patch` 这条首轮 material Handoff todo，补齐 `payload.source_files` / `payload.source_content`、资料分类和抽取目标；不要另起一条完整资料工单，把首轮草稿留在 `drafting`。
+用户后续上传文件或补充正文时，必须先 `list` 当前 material 活跃项；如果存在首轮 `material:first-batch` 草稿，或已有条目与新资料属于同一来源、同一目标或父子包含关系，优先 `patch` 原 `handoff_id`，补齐 `payload.source_files` / `payload.source_content`、资料分类和抽取目标。只有确认是全新资料范围时才 `upsert` 新条目；不要另起一条完整资料工单，把首轮草稿留在 `drafting`。
 
 **核心字段**：
 
@@ -535,7 +535,7 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 
 `target_skill = external-config`
 
-**最低门槛**：`payload.external_capabilities` 必须是外部能力数组，且至少 1 个元素；每个普通外部能力都明确 `category` + `objective` + `target_system` + `integration_methods`；或者用户明确表达“不需要外部系统”（数组内写 1 个 `kind = skip` 的跳过项）。
+**最低门槛**：`payload.external_capabilities` 必须是外部能力数组，且至少 1 个元素；每个普通外部能力都明确 `category` + `objective` + `target_system` + `auth_kind` + 非空 `linked_skills`。`integration_methods` 是推荐字段，不是宿主 readiness 的硬门槛；或者用户明确表达“不需要外部系统”（数组内写 1 个 `kind = skip` 的跳过项）。
 
 **核心字段**：
 
@@ -549,6 +549,7 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
 | `payload.external_capabilities[].integration_methods` | 对接方式数组，表示计划通过哪些接入通道实现该能力；建议值为 `mcp` / `cli` / `http_api` / `sdk` / `webhook` / `manual` / `unknown`，不写真实 endpoint、命令参数或凭据 |
 | `payload.external_capabilities[].linked_skills` | 这个能力被哪条 skill 用到，使用 skill 阶段 Handoff id |
 | `payload.external_capabilities[].auth_kind` | 凭据形式（OAuth / Bearer Token / 长期 Key 等），不含凭据值 |
+| `payload.external_capabilities[].credential_slot` | `auth_kind != none` 时建议填写安全表单槽位名，例如 `crm_order_read_api_key`；不写真实凭据值 |
 | `payload.external_capabilities[].required_fields` | 需要读取、写入、通知或转换的字段列表 |
 
 **payload 示例**：
@@ -564,6 +565,7 @@ Handoff todo 至少包含以下字段。字段名使用 snake_case。
       "integration_methods": ["mcp"],
       "linked_skills": ["s_seven_day_init_001", "s_nonstandard_assessment_001"],
       "auth_kind": "API Key",
+      "credential_slot": "crm_order_read_api_key",
       "required_fields": ["order_id", "created_at", "status", "customer_tier", "product_category"]
     }
   ]
