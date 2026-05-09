@@ -295,6 +295,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.HasIndex(e => e.SandboxId).IsUnique();
             entity.HasIndex(e => new { e.OwnerSubject, e.ScopeType, e.ScopeKey, e.SandboxRole });
             entity.HasIndex(e => new { e.OwnerSubject, e.State, e.UpdatedAtUtc });
+            entity.HasIndex(e => new { e.OwnerSubject, e.TemplateId, e.SandboxRole, e.State });
         });
 
         modelBuilder.Entity<SandboxSessionEntity>(entity =>

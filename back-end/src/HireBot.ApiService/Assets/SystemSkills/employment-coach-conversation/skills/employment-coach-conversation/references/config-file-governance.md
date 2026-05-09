@@ -1,6 +1,6 @@
-# 配置文件治理（soul / identity / agent / memory）
+# 配置文件治理（SOUL / IDENTITY / AGENTS / MEMORY）
 
-本 skill 持续监听对话，识别用户对 soul / identity / agent 三份配置的修改意图。memory.md 全程不动。
+本 skill 持续监听对话，识别用户对 `SOUL.md` / `IDENTITY.md` / `AGENTS.md` 三份配置的修改意图。`MEMORY.md` 全程不动。
 
 ## 监听触发条件
 
@@ -13,19 +13,47 @@
 
 ## 文件归属判定
 
-| 文件 | 监听 | 内容范围 |
-| --- | --- | --- |
-| soul.md | ✅ | 角色身份与核心使命（"它是谁、为什么存在"） |
-| identity.md | ✅ | 身份声明与对外展示（名字、形象、口吻、自我介绍） |
-| agent.md | ✅ | 行为规范与边界约束（能做什么不能做什么、必须遵守的规则） |
-| memory.md | ❌ | 用户完全不接触，模板预设原样进实例包 |
+| 文件 | `config_key` | `relative_path` | 监听 | 内容范围 |
+| --- | --- | --- | --- | --- |
+| `SOUL.md` | `soul` | `config/SOUL.md` | ✅ | 角色身份与核心使命（"它是谁、为什么存在"） |
+| `IDENTITY.md` | `identity` | `config/IDENTITY.md` | ✅ | 身份声明与对外展示（名字、形象、口吻、自我介绍） |
+| `AGENTS.md` | `agents` | `config/AGENTS.md` | ✅ | 行为规范与边界约束（能做什么不能做什么、必须遵守的规则） |
+| `MEMORY.md` | 不使用 | 不使用 | ❌ | 用户完全不接触，模板预设原样进实例包 |
+
+## 可执行输出契约
+
+配置治理不是在对话里口头说“已修改”，也不是直接写一个临时文件；必须在回复里输出宿主可解析的 `<config_governance_patch>` 标签。标签外只给用户一行自然语言确认，标签内写完整文件内容，不写 diff。
+
+```json
+<config_governance_patch>{
+  "files": [
+    {
+      "config_key": "agents",
+      "display_name": "AGENTS.md",
+      "relative_path": "config/AGENTS.md",
+      "content": "# AGENTS\n\n...更新后的完整内容...\n",
+      "summary": "新增不主动承诺金额的行为边界",
+      "updated_at": "2026-05-09T00:00:00Z",
+      "affected_handoff_ids": ["s_refund_init_001"]
+    }
+  ]
+}</config_governance_patch>
+```
+
+约束：
+
+- `config_key` 只能写 `soul` / `identity` / `agents`；不要写 `agent`。
+- `relative_path` 必须使用上表中的规范路径，大小写保持一致。
+- `content` 是更新后的完整文件内容，不能只放一句新增规则。
+- `affected_handoff_ids` 只填确实受边界、规则、判定或数据访问范围影响的 Handoff id；改名字、改口吻时写空数组。
+- 任何情况下都不输出 `MEMORY.md` 的 patch。
 
 ## 混合反问机制
 
-**置信度高**（用户表达明确、识别到的内容唯一） → 直接更新对应文件 + 一行轻量反馈：
+**置信度高**（用户表达明确、识别到的内容唯一） → 输出 `<config_governance_patch>` 更新对应文件 + 一行轻量反馈：
 
 - "好的，名字已经改成『小琪』。"
-- "记下了，agent.md 里加上『不主动承诺金额』。"
+- "记下了，AGENTS.md 里加上『不主动承诺金额』。"
 
 **置信度低**（识别到的目标值含糊、可能误读） → 短反问，回放识别到的具体内容：
 
@@ -34,7 +62,7 @@
 
 **用户回应处理**：
 
-- 肯定（对、是的、嗯、没错、就这样）→ 更新文件
+- 肯定（对、是的、嗯、没错、就这样）→ 输出 `<config_governance_patch>` 更新文件
 - 否定（不是、不对、我是说……）→ 不更新；按用户的新表述重新走一次识别
 - 答非所问 / 转移话题 → 视为不确认，不更新，不重复追问
 
@@ -49,27 +77,27 @@
 - 用户在反问待确认状态下又抛出新的修改意图 → 取消上一次反问，用新意图重新发起反问
 - 永远只有一个反问处于待确认
 
-## memory.md 红线
+## MEMORY.md 红线
 
-任何情况下都**不要**修改 memory.md。如果用户尝试讨论"它怎么记住事情"，告诉他这是模板预设、当前阶段不动，等部署后实际跑起来再观察。
+任何情况下都**不要**修改 `MEMORY.md`。如果用户尝试讨论"它怎么记住事情"，告诉他这是模板预设、当前阶段不动，等部署后实际跑起来再观察。
 
 ## 改动反向触发 Handoff todo 复核
 
-soul / identity / agent 改动后，要判断是否影响 `status = confirmed` 的 Handoff todo。**只在改动属于"边界 / 规则 / 判定 / 数据访问范围"类时才提醒**，改名字、改口吻这种不要触发，会显得啰嗦。
+`SOUL.md` / `IDENTITY.md` / `AGENTS.md` 改动后，要判断是否影响 `status = confirmed` 的 Handoff todo。**只在改动属于"边界 / 规则 / 判定 / 数据访问范围"类时才提醒**，改名字、改口吻这种不要触发，会显得啰嗦。
 
 判定方式（语义级，不是字符匹配）：
 
 | 改动类型 | 可能影响的 `status = confirmed` Handoff todo |
 | --- | --- |
-| soul.md 使命范围调整 | 全部 skill Handoff todo 的存在合理性 |
-| identity.md 名字 / 口吻调整 | 通常不影响 Handoff todo（不触发提醒） |
-| agent.md 判定规则 / 阈值 / 必转条件改动 | 含相同维度判定的 skill Handoff todo（trigger / description）、相关外部能力 Handoff todo（access scope） |
-| agent.md 红线 / 不能做的事 改动 | 含越线动作的 skill 和 external Handoff todo |
-| agent.md 数据 / 隐私 / 凭据范围改动 | 全部 external Handoff todo 的 access scope |
+| `SOUL.md` 使命范围调整 | 全部 skill Handoff todo 的存在合理性 |
+| `IDENTITY.md` 名字 / 口吻调整 | 通常不影响 Handoff todo（不触发提醒） |
+| `AGENTS.md` 判定规则 / 阈值 / 必转条件改动 | 含相同维度判定的 skill Handoff todo（trigger / description）、相关外部能力 Handoff todo（access scope） |
+| `AGENTS.md` 红线 / 不能做的事改动 | 含越线动作的 skill 和 external Handoff todo |
+| `AGENTS.md` 数据 / 隐私 / 凭据范围改动 | 全部 external Handoff todo 的 access scope |
 
 发现潜在影响时，在那一行确认反馈后追加一句简短提醒，不要弹窗式打断：
 
-> 好，agent.md 已经改了。
+> 好，AGENTS.md 已经改了。
 > 顺便——你刚才改的这条可能影响『非标退货资格预判』和那条 CRM 订单读取，要不要一起回头过一下？
 
 用户回应：
