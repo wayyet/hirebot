@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, Sparkles, Star, Users } from 'lucide-react'
+import { Search, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api, type EmployeeTemplateCard, type EmployeeTemplateListData } from '@/infra/api'
 
@@ -32,42 +32,17 @@ function tagColor(index: number) {
 
 function TemplateCard({ template, onClick }: { template: EmployeeTemplateCard; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="hb-card p-5 text-left transition-all hover:-translate-y-0.5">
-      <div className="mb-3 flex items-start gap-3">
-        <span className="hb-squircle h-11 w-11 bg-[#dde9ff] text-[#3d5cff]">
-          {template.name.slice(0, 1)}
-        </span>
+    <button type="button" onClick={onClick} className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/60 bg-white/70 p-6 text-left shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:shadow-lg hover:bg-white/85">
+      <h3 className="text-base font-semibold text-[#0a0a0a]">{template.name}</h3>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="truncate text-[15px] font-semibold text-[#0a0a0a]">{template.name}</h3>
-            <span className={`hb-pill ${template.isAvailable ? 'blue' : 'gray'}`}>
-              {template.isAvailable ? '模板' : '暂不可用'}
-            </span>
-          </div>
-          <p className="mt-1 line-clamp-2 text-xs text-[#737373]">{template.tagline}</p>
-        </div>
-      </div>
+      <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[#525252]">{template.tagline}</p>
 
-      <p className="line-clamp-2 min-h-10 text-sm leading-relaxed text-[#404040]">{template.tagline}</p>
-
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-2">
         {template.coreAbilityTags.slice(0, 4).map((tag, index) => (
           <span key={tag} className={`hb-pill ${tagColor(index)}`}>
             {tag}
           </span>
         ))}
-      </div>
-
-      <div className="mt-4 flex items-center justify-between border-t border-[#f5f5f5] pt-3 text-xs text-[#737373]">
-        <span className="inline-flex items-center gap-1.5">
-          <Users size={12} />
-          {template.trustProof.hiredCount} 部门已用
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <Star size={12} className="text-[#c47a26]" />
-          {template.trustProof.avgRating.toFixed(1)} / {template.trustProof.successRate.toFixed(1)}%
-        </span>
       </div>
     </button>
   )
