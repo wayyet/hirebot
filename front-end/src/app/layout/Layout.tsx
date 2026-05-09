@@ -72,7 +72,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { showToast } = useUxOverlay();
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
   const [logoutLoading, setLogoutLoading] = useState(false);
-  const [userDisplayName, setUserDisplayName] = useState<string>('');
+  const [userDisplayName, setUserDisplayName] = useState<string>("");
   const [loadingUser, setLoadingUser] = useState(true);
 
   useEffect(() => {
@@ -93,7 +93,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           setUserDisplayName(getUserDisplayName(user));
         }
       } catch (err) {
-        console.warn('Failed to load user info:', err);
+        console.warn("Failed to load user info:", err);
       } finally {
         setLoadingUser(false);
       }
@@ -178,10 +178,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
               <div className="hb-user-chip">
                 <span className="hb-user-avatar">
-                  {loadingUser ? '?' : (userDisplayName?.charAt(0) ?? '?')}
+                  {loadingUser ? "?" : (userDisplayName?.charAt(0) ?? "?")}
                 </span>
                 <span>
-                  {loadingUser ? '加载中...' : (userDisplayName || '用户')} · {role === "manager" ? "部门长" : "成员"}
+                  {loadingUser ? "加载中..." : userDisplayName || "用户"} ·{" "}
+                  {role}
                 </span>
               </div>
               {!isAuthBypassed && (
