@@ -18,4 +18,6 @@ public interface IEvaluationService
     Task<ApiResponse<EvaluationTargetExecuteResultDto>> ExecuteTargetAsync(string employeeId, EvaluationTargetExecuteRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<EvaluationTraceReadResultDto>> ReadTraceAsync(string employeeId, EvaluationTraceReadRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<EvaluationReportUpsertResultDto>> UpsertReportAsync(string employeeId, EvaluationReportUpsertRequestDto request, CancellationToken cancellationToken = default);
+    Task<ApiResponse<EvaluationSandboxConnectionResultDto>> GetSandboxConnectionAsync(string employeeId, CancellationToken cancellationToken = default);
+    Task<ApiResponse<EvaluationVerdictSyncResultDto>> SyncVerdictAsync(string employeeId, EvaluationVerdictSyncRequestDto request, CancellationToken cancellationToken = default);
 }

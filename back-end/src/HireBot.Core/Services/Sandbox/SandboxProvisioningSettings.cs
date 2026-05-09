@@ -124,7 +124,7 @@ internal sealed record SandboxProvisioningSettings(
             ["OpenClaw__Port"] = GatewayPort.ToString(),
             ["OpenClaw__AuthToken"] = AuthToken,
             ["OpenClaw__Security__AlwaysRequireAuth"] = "true",
-            ["OpenClaw__Security__AllowQueryStringToken"] = "false",
+            ["OpenClaw__Security__AllowQueryStringToken"] = "true",
             ["OpenClaw__Security__OidcAuthority"] = OidcAuthority,
             ["OpenClaw__Security__OidcAudience"] = OidcAudience,
             ["OpenClaw__Security__OidcRequireHttpsMetadata"] = "false",

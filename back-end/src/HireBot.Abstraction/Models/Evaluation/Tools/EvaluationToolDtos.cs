@@ -97,6 +97,38 @@ public sealed record EvaluationReportUpsertRequestDto
     public IReadOnlyList<EvaluationDimensionScoreDto> DimensionScores { get; init; } = [];
 }
 
+public sealed record EvaluationSandboxConnectionResultDto(
+    string GatewayEndpoint,
+    string SandboxToken,
+    string EvaluatorSandboxId,
+    string SessionId,
+    string TargetHireId,
+    string? EvaluationPayloadJson);
+
+public sealed record EvaluationVerdictSyncRequestDto
+{
+    [Required]
+    public string SessionId { get; init; } = string.Empty;
+
+    [Required]
+    public EvaluationVerdictPayloadDto Verdict { get; init; } = null!;
+}
+
+public sealed record EvaluationVerdictPayloadDto(
+    string Verdict,
+    decimal OverallScore,
+    string Summary,
+    IReadOnlyList<EvaluationDimensionScoreDto> DimensionScores);
+
+public sealed record EvaluationVerdictSyncResultDto(
+    string EmployeeId,
+    string SessionId,
+    bool Passed,
+    decimal OverallScore,
+    string Summary,
+    string Status,
+    EvaluationReportSummaryDto? LatestReport);
+
 public sealed record EvaluationReportUpsertResultDto(
     string SessionId,
     string ReportId,

@@ -12,7 +12,7 @@ namespace HireBot.Core.Services.Sandbox;
 /// 缺失 client 凭据时回退到静态 OpenSandbox:KingCrab:AuthToken。
 /// 单例：跨请求共享 token 缓存，避免每次调用都打 Keycloak。
 /// </summary>
-internal sealed class KingCrabSandboxTokenProvider(
+public sealed class KingCrabSandboxTokenProvider(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
     ILogger<KingCrabSandboxTokenProvider> logger)

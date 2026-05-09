@@ -261,6 +261,31 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    [HttpGet("{employeeId}/evaluation/sandbox-connection")]
+    public async Task<IActionResult> GetSandboxConnection(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await evaluationService.GetSandboxConnectionAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPost("{employeeId}/evaluation/sync-verdict")]
+    public async Task<IActionResult> SyncVerdict(
+        string employeeId,
+        [FromBody] EvaluationVerdictSyncRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EvaluationVerdictSyncResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await evaluationService.SyncVerdictAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     private IActionResult? BuildModelValidationError<T>()
     {
         if (ModelState.IsValid)

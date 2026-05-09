@@ -122,6 +122,11 @@ export type {
   EvaluationSandboxMessageRequest,
   AiEvaluationDecisionRequest,
   EvaluationOnboardingDecisionRequest,
+  EvaluationSandboxConnectionResult,
+  EvaluationDimensionScore,
+  EvaluationVerdictPayload,
+  EvaluationVerdictSyncRequest,
+  EvaluationVerdictSyncResult,
   ImportFixtureInstancesResult,
 } from './modules/employeeRuntimeApi'
 
