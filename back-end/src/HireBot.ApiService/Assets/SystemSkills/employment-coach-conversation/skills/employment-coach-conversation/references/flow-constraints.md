@@ -84,6 +84,8 @@
 每次发 dispatch 前、和最终给出口信号前，对照检查：
 
 - [ ] 当前阶段所有 Handoff todo 是否都达到下游可消化的明确度
+- [ ] 当前阶段是否仍有活跃 `drafting` / `dispatched` / `needs_review` 项；如果有，不能因为另有条目 `ready_to_dispatch` 就发 dispatch 或进入下一阶段
+- [ ] 是否存在同一资料、同一来源文件或父子包含关系的重复 Handoff todo；如果有，先 patch 原条目或明确撤销旧范围
 - [ ] Handoff id 是否稳定（同一意图反复出现没有产生新 Handoff todo；`fingerprint` 是否复用）
 - [ ] 是否有 Handoff todo 被用户口头撤销但 `status` 还停在 `ready_to_dispatch`
 - [ ] 是否在配置文件治理的反问待确认状态中错误地发了 dispatch

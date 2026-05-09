@@ -27,7 +27,8 @@
 ## dispatch 前检查
 
 - 先调用 `handoff`，`action = list` 读取本轮候选 Handoff todo。
-- 只 dispatch `status = ready_to_dispatch` 或需要重发的 `status = dirty` 条目。
+- 候选范围不是“模型刚想到的几条”，而是当前阶段、当前 target_skill 下所有未 `confirmed` / 未 `dismissed` 的活跃 Handoff todo。
+- 只 dispatch `status = ready_to_dispatch` 或需要重发的 `status = dirty` 条目；如果同阶段还有 `drafting` / `dispatched` / `needs_review`，先合流、等待回传或复核，不发新的 dispatch。
 - 确认每条 Handoff todo 的 `session_id` 属于当前会话，且 `stage`、`target_skill`、`payload`、`acceptance` 达到对应下游可消化明确度。
 - 用户正在表达异议、修改某条 Handoff todo，或处于配置治理反问待确认状态时，不发 dispatch。
 
@@ -41,7 +42,9 @@
 
 ## 何时不发 dispatch
 
-- 任一候选 Handoff todo 仍是 `drafting`，明确度不够。
+- 当前阶段任一活跃 Handoff todo 仍是 `drafting`，明确度不够；即使另有条目已经 `ready_to_dispatch`，也不能绕过这条草稿。
+- 当前阶段任一活跃 Handoff todo 处于 `dispatched` / `needs_review`，需要等回传合流或完成复核。
+- 前置阶段仍存在未闭环的活跃 Handoff todo；先完成前置阶段，不创建或 dispatch 后续阶段条目。
 - 用户当前正在表达异议或修改某条 Handoff todo。
 - 用户处于反问待确认状态（见 [config-file-governance.md](./config-file-governance.md)）。
 - 本轮 dispatch 的目标下游仍有同阶段未合流回传，且用户不是在修改已走过阶段。
@@ -52,7 +55,7 @@
 
 | 用户在等回传期间的动作 | 处理方式 |
 | --- | --- |
-| 抛出同阶段的新意图（又一份资料 / 又一条 skill） | 正常接住，通过 `handoff`，`action = upsert` 形成新 Handoff todo（`status = drafting`），但不立刻发新的 dispatch；等当前 dispatch 回传后合并下一批一起发，避免下游撞车 |
+| 抛出同阶段的新意图（又一份资料 / 又一条 skill） | 先调用 `handoff` list 判断是否是在补充已有草稿；若是，`patch` 原 Handoff todo 并按明确度转为 `ready_to_dispatch`；确认为全新意图时才 `upsert` 新 Handoff todo（`status = drafting`）。不立刻发新的 dispatch；等当前 dispatch 回传后合并下一批一起发，避免下游撞车 |
 | 修改正在 `dispatched` 状态的某条 Handoff todo | 用 `handoff`，`action = patch` 更新 payload，再用 `handoff`，`action = transition` 把状态切到 `dirty`；回传到达后告诉用户“这条你刚改过，我让那边重新走一次”，再发一次 dispatch |
 | 想去下一阶段 | 拉回：“这边的结果还没回来，回来咱们一起看一眼，再去下一步会更稳。”用户坚持的话允许，但当前阶段保持 `dispatched` 不强制 confirm |
 | 想跳回走过的阶段做修改 | 允许，由系统提供跳转入口；dispatch 等回传不阻塞这种回跳 |
@@ -65,6 +68,14 @@
 2. 如果期间有 `dirty` 的 Handoff todo，告诉用户那条要重新走一次，用 `handoff`，`action = transition` 把状态从 `dirty` 切回 `ready_to_dispatch`。
 3. 如果期间用户提了新 Handoff todo，问一句“刚才你提的那几条要一起合进去吗？”，肯定后再发新一轮 dispatch。
 4. 没有 `dirty` 也没有新 Handoff todo，则推进到下一阶段引导或解锁判定。
+
+用户在回传前后追问“完了吗”“结果出来了吗”“继续下一步”时，按同一套合流规则处理：
+
+- 先用 `handoff`，`action = list` 查当前阶段所有活跃 Handoff todo。
+- 如果相关 todo 仍是 `dispatched` 且当前上下文没有对应 `dispatch_callback`，只能回复“已经发出，结果还没回来”，不要创建后续阶段 Handoff todo。
+- 如果已经有对应 `dispatch_callback`，但相关 todo 还不是 `confirmed`，先复述 `user_summary` 请求用户确认；用户说“继续下一步 / 可以 / 确认 / 先这样”时，先把相关 todo transition 到 `confirmed`。
+- transition 成功后再次 `list` 核对前置阶段无 `drafting` / `ready_to_dispatch` / `dispatched` / `dirty` / `needs_review`，再创建或 dispatch 后续阶段 Handoff todo。
+- 不得把 `dispatch_callback` 的存在、artifact 文件名或下游摘要本身等同于阶段完成；阶段完成以 Handoff todo 的 `confirmed` 状态和阶段完成条件共同判定。
 
 下游回传的主键也统一为 `handoff_ids` 和 `todo_results[].handoff_id`。
 
