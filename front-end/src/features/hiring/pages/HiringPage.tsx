@@ -214,6 +214,12 @@ export default function HiringPage() {
   const wsRef = useRef<GatewayWs | null>(null)
   const gatewayEndpointRef = useRef<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
+  // 记录最近一次通过 WS 发送的用户消息，用于同步端点回传
+  const lastWsUserMessageRef = useRef<string>('')
+  // 保存 WS 流式回复的原始内容（normalizeAssistantReply 之前），供同步端点使用
+  const rawStreamingContentRef = useRef<string>('')
+  // 记录最近一次 WS 发送时的附件材料
+  const lastWsMaterialsRef = useRef<ReturnType<typeof toConversationMaterials> | undefined>(undefined)
 
   const workflowReady = Boolean(workflowHireId && workflowState)
   const workflowCollectionPhase = normalizeCollectionPhase(workflowState?.collectionPhase ?? HiringCollectionPhase.NotStarted)
@@ -453,14 +459,24 @@ export default function HiringPage() {
       const type = msg.type as string
       if (type === 'typing_start') {
         // AI 开始思考，切换到流式展示
+        rawStreamingContentRef.current = ''
         setStreamingContent('')
         setTyping(true)
       } else if (type === 'text_delta' || type === 'assistant_chunk') {
         // 逐字追加流式内容
         const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
-        setStreamingContent(prev => (prev === null ? chunk : prev + chunk))
+        setStreamingContent(prev => {
+          const next = prev === null ? chunk : prev + chunk
+          rawStreamingContentRef.current = next
+          return next
+        })
       } else if (type === 'typing_stop' || type === 'assistant_done') {
-        // AI 回复完毕，将流式内容提交为正式气泡
+        // AI 回复完毕，保存原始内容（供同步端点使用），然后将清理后的内容提交为正式气泡
+        const rawReply = rawStreamingContentRef.current
+        const userMessage = lastWsUserMessageRef.current
+        const materials = lastWsMaterialsRef.current
+        rawStreamingContentRef.current = ''
+
         setStreamingContent(prev => {
           if (prev !== null && prev.trim().length > 0) {
             const cleaned = normalizeAssistantReply(prev)
@@ -471,10 +487,41 @@ export default function HiringPage() {
           return null
         })
         setTyping(false)
-        // AI 回复完毕后同步工作流状态（更新侧边栏进度等）
-        if (workflowHireId) {
-          syncWorkflowState(workflowHireId).catch(() => { /* 忽略同步失败 */ })
+
+        // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等
+        const hireId = workflowHireId
+        if (hireId && rawReply) {
+          api.hiringWorkflow.syncConversationTurn(hireId, {
+            userMessage: userMessage || '',
+            assistantReply: rawReply,
+            materials: materials ?? undefined,
+          }).then(() => {
+            syncWorkflowState(hireId).catch(() => { /* 忽略 */ })
+          }).catch(() => {
+            // 同步失败时仍然刷新工作流状态（后端可从沙箱拉取 handoff 元数据）
+            syncWorkflowState(hireId).catch(() => { /* 忽略 */ })
+          })
         }
+      }
+    }
+
+    // 重连后拉取断线期间的会话历史
+    ws.onReconnected = () => {
+      const sid = sessionIdRef.current
+      if (endpoint && sid) {
+        fetchSandboxSessionMessages(endpoint, sid).then(sandboxMessages => {
+          const mapped = sandboxMessages
+            .filter(m => m.type === 'user_message' || m.type === 'assistant_message')
+            .map<ChatMessage>(m => ({
+              id: mkId(),
+              role: m.type === 'user_message' ? 'user' : 'bot',
+              content: m.type === 'assistant_message'
+                ? normalizeAssistantReply(String(m.content ?? ''))
+                : String(m.text ?? ''),
+            }))
+            .filter(m => m.content.trim().length > 0)
+          setMessages(prev => mapped.length >= prev.length ? mapped : prev)
+        }).catch(() => { /* 忽略拉取失败 */ })
       }
     }
 
@@ -512,11 +559,12 @@ export default function HiringPage() {
     // WS 未就绪：降级走 REST，等待同步响应
     if (ws && sessionId) {
       try {
+        // 记录本次发送的用户消息和材料，供 WS typing_stop 事件中调用同步端点使用
+        lastWsUserMessageRef.current = text || '补充信息'
+        lastWsMaterialsRef.current = toConversationMaterials(incoming)
         ws.send({ type: 'user_message', text: text || '补充信息', sessionId })
         setTyping(true)
-        // typing / streamingContent 由 WS 事件（typing_stop/assistant_done）自动清除；
-        // 此处只需要拉一次工作流状态以更新侧边栏，不等待 AI 完成
-        syncWorkflowState(hireId).catch(() => { /* 忽略状态同步失败，不影响对话 */ })
+        // typing / streamingContent 由 WS 事件（typing_stop/assistant_done）自动清除
         setWorkflowError('')
         setWorkflowNotice('')
         return true
@@ -524,6 +572,7 @@ export default function HiringPage() {
         setWorkflowError(normalizeErrorMessage(error))
         setTyping(false)
         setStreamingContent(null)
+        rawStreamingContentRef.current = ''
         return false
       } finally {
         messageSubmitRef.current = false

@@ -185,8 +185,6 @@ function AuthEntryShell({
   kicker,
   title,
   copy,
-  metaTitle,
-  metaCopy,
   statusLabel,
   statusTitle,
   statusCopy,
@@ -205,13 +203,9 @@ function AuthEntryShell({
       <div className="hb-login-shell">
         <header className="hb-login-header">
           <div className="hb-login-brand">
-            <span className="hb-login-brand-mark">HB</span>
-            <div className="hb-login-brand-copy">
-              <strong>HireBot</strong>
-              <span>Hiring</span>
-            </div>
+            <span className="hb-login-brand-mark"><Sparkles size={16} /></span>
+            <strong className="hb-login-brand-text">HireBot</strong>
           </div>
-
           <span className="hb-login-header-tag">{headerTag}</span>
         </header>
 
@@ -248,12 +242,6 @@ function AuthEntryShell({
             </div>
 
             <div className="hb-login-meta-strip">
-              <div className="hb-login-meta-block">
-                <span className="hb-login-meta-label">登录后去向</span>
-                <strong>{metaTitle}</strong>
-                <p>{metaCopy}</p>
-              </div>
-
               <div className={`hb-login-meta-block is-${statusTone}`}>
                 <span className="hb-login-meta-label">{statusLabel}</span>
                 <strong>{statusTitle}</strong>
