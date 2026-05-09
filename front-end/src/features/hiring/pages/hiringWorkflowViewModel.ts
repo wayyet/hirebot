@@ -574,9 +574,3 @@ export function buildHiringWorkflowViewModel(
   }
 }
 
-export function useHiringWorkflowViewModel(
-  workflowState: HiringWorkflowState | null,
-  focusedStage: HiringUiStage | null,
-) {
-  return buildHiringWorkflowViewModel(workflowState, focusedStage)
-}

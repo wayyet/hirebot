@@ -20,7 +20,7 @@ import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
 import { HiringStagePills } from './components/HiringStagePills'
 import type { ChatFile, ChatMessage, CredentialDraft, SkillUploadPayload } from './hiringPageTypes'
-import { type HiringUiStage, useHiringWorkflowViewModel } from './hiringWorkflowViewModel'
+import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 
 function mkId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -228,7 +228,7 @@ export default function HiringPage() {
   const workflowCurrentStage = normalizeCollectionStage(workflowState?.currentStage ?? HiringCollectionStage.Material)
   const workflowConversationPaused = Boolean(workflowState?.isConversationPaused)
   const workflowConversationResponding = Boolean(workflowState?.isConversationResponding)
-  const viewModel = useHiringWorkflowViewModel(workflowState, focusedStage)
+  const viewModel = buildHiringWorkflowViewModel(workflowState, focusedStage)
   const summaryItems = buildSummaryItems(workflowState, allFiles.length)
   const canCreate = viewModel.actionState.canFinalize && workflowCollectionPhase !== HiringCollectionPhase.Finalized
   const isInteractionLocked = typing || workflowBooting || workflowConversationPaused || workflowConversationResponding || submittingMessage
