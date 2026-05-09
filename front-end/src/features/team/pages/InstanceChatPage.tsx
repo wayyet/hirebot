@@ -104,6 +104,7 @@ function formatTime(value: string) {
 }
 
 function normalizeMessageContent(content: string) {
+  // 最终保存时去掉 <think> 标签内的内容
   return content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
 
@@ -257,14 +258,20 @@ export default function InstanceChatPage() {
       }
 
       if (type === "text_delta" || type === "assistant_chunk") {
-        // 逐字追加流式内容
+        // 逐字追加流式内容，同时处理 <think> 标签
         const chunk = String(
           msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? "",
         );
         setStreamingContent((prev) => {
-          const next = prev === null ? chunk : prev + chunk;
-          rawStreamingContentRef.current = next;
-          return next;
+          const nextRaw = prev === null ? chunk : prev + chunk;
+          rawStreamingContentRef.current = nextRaw;
+          // 对流式内容也处理 <think> 标签
+          return nextRaw
+            .replace(
+              /<think>([\s\S]*?)<\/think>/gi,
+              '<span style="color: #9ca3af; font-style: italic;">$1</span>',
+            )
+            .trim();
         });
         return;
       }
@@ -641,9 +648,8 @@ export default function InstanceChatPage() {
                   </div>
                   <div
                     className={`hb-chat-bubble ${message.role === "assistant" ? "is-assistant" : "is-user"}`}
-                  >
-                    {message.content}
-                  </div>
+                    dangerouslySetInnerHTML={{ __html: message.content }}
+                  />
                 </div>
               ))
             )}
@@ -653,9 +659,13 @@ export default function InstanceChatPage() {
                 <div className="hb-chat-meta">
                   {employee.nickname} · 正在回复
                 </div>
-                <div className="hb-chat-bubble is-assistant">
-                  {streamingContent.length > 0 ? streamingContent : "..."}
-                </div>
+                <div
+                  className="hb-chat-bubble is-assistant"
+                  dangerouslySetInnerHTML={{
+                    __html:
+                      streamingContent.length > 0 ? streamingContent : "...",
+                  }}
+                />
               </div>
             )}
 
@@ -710,17 +720,14 @@ export default function InstanceChatPage() {
                 value={draft.content}
                 onChange={(event) => setDraft({ content: event.target.value })}
                 onKeyDown={(event) => {
-                  if (
-                    event.key === "Enter" &&
-                    (event.ctrlKey || event.metaKey)
-                  ) {
+                  if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
                     void handleSend();
                   }
                 }}
                 placeholder={
                   isLive
-                    ? "输入消息，Ctrl+Enter 发送"
+                    ? "输入消息，Enter 发送，Shift+Enter 换行"
                     : "当前实例未上岗，不能对话"
                 }
                 disabled={sending || !isLive}
