@@ -349,6 +349,45 @@ export interface AiEvaluationDecisionRequest {
   comment?: string
 }
 
+export interface EvaluationSandboxConnectionResult {
+  gatewayEndpoint: string
+  sandboxToken: string
+  evaluatorSandboxId: string
+  sessionId: string
+  targetHireId: string
+  evaluationPayloadJson?: string | null
+}
+
+export interface EvaluationDimensionScore {
+  dimension: string
+  score: number
+  comment: string
+  evidenceRefs: string[]
+}
+
+export interface EvaluationVerdictPayload {
+  verdict: string
+  overallScore: number
+  summary: string
+  dimensionScores: EvaluationDimensionScore[]
+}
+
+export interface EvaluationVerdictSyncRequest {
+  sessionId: string
+  verdict: EvaluationVerdictPayload
+}
+
+
+export interface EvaluationVerdictSyncResult {
+  employeeId: string
+  sessionId: string
+  passed: boolean
+  overallScore: number
+  summary: string
+  status: string
+  latestReport?: EvaluationReportSummary | null
+}
+
 export interface ImportFixtureInstancesResult {
   ownerSubject: string
   fixtureDirectories: number
@@ -530,6 +569,19 @@ export const employeeRuntimeApi = {
   submitOnboardingDecision(employeeId: string, payload: EvaluationOnboardingDecisionRequest) {
     return httpClient.post<EmployeeDetail, EvaluationOnboardingDecisionRequest>(
       `/api/v1/employees/${employeeId}/evaluation/onboarding-decision`,
+      payload,
+    )
+  },
+
+  getSandboxConnection(employeeId: string) {
+    return httpClient.get<EvaluationSandboxConnectionResult>(
+      `/api/v1/employees/${employeeId}/evaluation/sandbox-connection`,
+    )
+  },
+
+  syncVerdict(employeeId: string, payload: EvaluationVerdictSyncRequest) {
+    return httpClient.post<EvaluationVerdictSyncResult, EvaluationVerdictSyncRequest>(
+      `/api/v1/employees/${employeeId}/evaluation/sync-verdict`,
       payload,
     )
   },

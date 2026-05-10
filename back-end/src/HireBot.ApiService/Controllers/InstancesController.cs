@@ -117,9 +117,6 @@ public sealed class InstancesController(
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
 
-        //增加其他平台
-
-
         // 更新其他平台的配置，继续走原来的实例 IM 配置服务
         var response = await instanceImConfigService.UpsertConfigAsync(instanceId, platform, request, cancellationToken);
         return StatusCode(response.Code, response);
@@ -170,19 +167,11 @@ public sealed class InstancesController(
             var feishuResponse = await instanceChatService.GetDingTalkChannelEffectiveConfigAsync(instanceId, cancellationToken);
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
-
-
-
-
-
-
-
         var response = ApiResponse<FeishuChannelEffectiveConfigDto>.ErrorResponse(
             404,
             $"Unknown or unsupported platform '{platform}'.");
         return StatusCode(response.Code, response);
     }
-
 
     [HttpGet("{instanceId}/im-config")]
     public async Task<IActionResult> GetImConfigs(string instanceId, CancellationToken cancellationToken = default)
@@ -216,12 +205,9 @@ public sealed class InstancesController(
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
 
-
         var response = await instanceImConfigService.DeleteConfigAsync(instanceId, platform, cancellationToken);
         return StatusCode(response.Code, response);
     }
-
- 
 
     /// <summary>
     /// 部门长快捷复制：从已上岗部门员工创建新部门员工，跳过评估直接上岗。

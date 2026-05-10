@@ -113,6 +113,24 @@ internal sealed class SandboxService(
         }
 
         var refreshed = await provisioner.RefreshAsync(instance.SandboxId, cancellationToken);
+
+        if (string.Equals(refreshed.State, "NotFound", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogWarning("Sandbox not found, recreating. OldSandboxId={OldSandboxId}, OwnerSubject={OwnerSubject}",
+                instance.SandboxId, instance.OwnerSubject);
+
+            var provisioned = await provisioner.CreateAsync(instance.OwnerSubject, cancellationToken);
+            instance.SandboxId = provisioned.SandboxId;
+            instance.State = provisioned.State;
+            instance.GatewayEndpoint = provisioned.GatewayEndpoint;
+            instance.ExpiresAtUtc = provisioned.ExpiresAtUtc;
+            instance.LastError = null;
+            instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await provisioner.BeginTrackingAsync(instance.Id, provisioned.SandboxId);
+            return ApiResponse<SandboxInstanceDto>.SuccessResponse(ToDto(instance));
+        }
+
         instance.State = refreshed.State;
         instance.GatewayEndpoint = refreshed.GatewayEndpoint;
         instance.ExpiresAtUtc = refreshed.ExpiresAtUtc;

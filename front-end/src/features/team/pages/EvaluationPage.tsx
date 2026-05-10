@@ -14,17 +14,19 @@ import {
   PlayCircle,
   RefreshCw,
   SendHorizontal,
-  Upload,
   Zap,
 } from 'lucide-react'
 import { signOut } from '@/infra/auth/oidc'
 import { useNavigate, useParams } from 'react-router-dom'
+import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import {
   api,
   type EmployeeDetail,
+  type EvaluationSandboxConnectionResult,
   type EvaluationSandboxConversationState,
   type EvaluationScenario,
   type EvaluationState,
+  type EvaluationVerdictPayload,
   type HiringConversationMessage,
 } from '@/infra/api'
 
@@ -93,14 +95,12 @@ function formatDateTime(value?: string | null) {
 }
 
 function progressStepByState(params: {
-  canStart: boolean
-  needLoadSkill: boolean
+  canPrepare: boolean
   aiRunning: boolean
 }) {
-  if (params.canStart) return 0
-  if (params.needLoadSkill) return 1
-  if (params.aiRunning) return 2
-  return 3
+  if (params.canPrepare) return 0
+  if (params.aiRunning) return 1
+  return 2
 }
 
 export default function EvaluationPage() {
@@ -123,6 +123,8 @@ export default function EvaluationPage() {
   const [chatError, setChatError] = useState('')
   const [sandboxConversation, setSandboxConversation] = useState<EvaluationSandboxConversationState | null>(null)
   const [logoutLoading, setLogoutLoading] = useState(false)
+  const [wsEvaluating, setWsEvaluating] = useState(false)
+  const [wsProgress, setWsProgress] = useState('')
   const chatEndRef = useRef<HTMLDivElement | null>(null)
   const pollingCancelledRef = useRef(false)
   const lastMessageCountRef = useRef(0)
@@ -163,16 +165,16 @@ export default function EvaluationPage() {
     return { total, passed, failed, pending, score }
   }, [evaluation])
 
-  const canStart = employee?.status === 'hired' || employee?.status === 'failed'
+  // canPrepare: hired/failed (first time) or interning_ai (re-prepare after failure)
+  const canPrepare = employee?.status === 'hired' || employee?.status === 'failed' || employee?.status === 'interning_ai'
   const isAiStage = employee?.status === 'interning_ai'
   const aiRunning = isAiStage && employee?.evalPhase === 'ai_running'
-  const needLoadSkill = isAiStage && !aiRunning
 
   const currentRound = Math.max(1, employee?.evalIteration ?? 1)
   const maxRounds = Math.max(currentRound, employee?.evalMaxIterations ?? 30)
   const roundOptions = Array.from({ length: currentRound }, (_, index) => index + 1)
 
-  const progressStep = progressStepByState({ canStart, needLoadSkill, aiRunning })
+  const progressStep = progressStepByState({ canPrepare: canPrepare && !aiRunning, aiRunning })
 
   const evaluatorHireId = sandboxConversation?.evaluatorHireId ?? null
   const evaluatorSandboxId = sandboxConversation?.evaluatorSandboxId ?? null
@@ -185,36 +187,140 @@ export default function EvaluationPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatLoading, chatMessages])
 
-  async function submitAiDecision(decision: 'START' | 'LOAD_SKILL' | 'RUN') {
+  async function submitAiDecision(decision: 'START' | 'RUN') {
     if (!id) return
     setSubmitting(true)
     setError('')
 
     try {
-      const updated = await api.employeeRuntime.submitAiEvaluationDecision(id, { decision })
-      setEmployee(updated)
-
+      // RUN: WebSocket direct evaluation flow
       if (decision === 'RUN') {
-        if (updated.status === 'interning_human') {
-          navigate(`/instances/${id}/human-evaluation`)
-          return
-        }
-        if (updated.status === 'failed') {
-          navigate(`/instances/${id}/review`)
-          return
-        }
-      }
-
-      if (decision === 'RUN' && updated.evalPhase === 'pending_human_review') {
-        navigate(`/instances/${id}/human-evaluation`)
+        await api.employeeRuntime.submitAiEvaluationDecision(id, { decision })
+        const connection = await api.employeeRuntime.getSandboxConnection(id)
+        await runWsEvaluation(connection)
         return
       }
+
+      // START: prepare environment (sandboxes + skill + materials)
+      const updated = await api.employeeRuntime.submitAiEvaluationDecision(id, { decision })
+      setEmployee(updated)
 
       const evaluationState = await api.employeeRuntime.getEvaluationState(id)
       setEvaluation(evaluationState)
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '提交 AI 评估动作失败')
     } finally {
+      if (decision !== 'RUN') setSubmitting(false)
+    }
+  }
+
+  async function runWsEvaluation(connection: EvaluationSandboxConnectionResult) {
+    if (!id) return
+    setWsEvaluating(true)
+    setWsProgress('正在连接评估沙箱...')
+    setError('')
+
+    const wsUrl = connection.gatewayEndpoint.trim()
+    const token = connection.sandboxToken
+    const ws = new GatewayWs(wsUrl, token)
+
+    try {
+      // Connect and wait for open
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('WebSocket connection timeout')), 30000)
+        ws.onStateChange = (state) => {
+          if (state === 'open') { clearTimeout(timeout); resolve() }
+          if (state === 'error' || state === 'closed') { clearTimeout(timeout); reject(new Error(`WebSocket ${state}`)) }
+        }
+        ws.connect()
+      })
+
+      setWsProgress('已连接，正在发送评估数据...')
+
+      // Build evaluation message
+      const payloadText = connection.evaluationPayloadJson ??
+        JSON.stringify({
+          session_id: connection.sessionId,
+          target_hire_id: connection.targetHireId,
+          instruction: `You are the AI evaluation expert (ai-evaluation skill). The evaluation payload data was not pre-built by the backend.
+Please use your available tools (evaluation_score and evaluation_generate_report) to help complete the evaluation.
+If evaluation data (testcases, traces, ontology) is missing, respond with a clear message indicating what specific data is needed.
+Otherwise, use the available evaluation tools to score based on whatever data has been provided in this conversation.`
+        })
+
+      // Send and wait for verdict
+      const verdictPromise = new Promise<GatewayMessage>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Evaluation timeout (5 min)')), 300000)
+        let accumulated = ''
+        ws.onMessage = (msg) => {
+          if (msg.type === 'assistant_chunk' && typeof msg.text === 'string') {
+            accumulated += msg.text
+            setWsProgress(`正在评估... 已接收 ${accumulated.length} 字符`)
+          }
+          if (msg.type === 'assistant_done') {
+            clearTimeout(timeout)
+            resolve({ ...msg, text: accumulated || (msg.text as string) })
+          }
+          if (msg.type === 'error') {
+            clearTimeout(timeout)
+            reject(new Error((msg.text as string) || 'Evaluator sandbox returned an error'))
+          }
+        }
+      })
+
+      ws.send({
+        type: 'user_message',
+        text: payloadText,
+        messageId: `eval-${crypto.randomUUID ? crypto.randomUUID() : Date.now()}`,
+      })
+
+      const resultMsg = await verdictPromise
+      setWsProgress('评估完成，正在保存结果...')
+
+      // Parse verdict
+      const rawText = (resultMsg.text as string) || ''
+      const jsonStart = rawText.indexOf('{')
+      const jsonEnd = rawText.lastIndexOf('}')
+      let verdict: EvaluationVerdictPayload
+      if (jsonStart >= 0 && jsonEnd > jsonStart) {
+        const json = rawText.substring(jsonStart, jsonEnd + 1)
+        const parsed = JSON.parse(json)
+        verdict = {
+          verdict: parsed.verdict || 'FAIL',
+          overallScore: parsed.overall_score ?? 0,
+          summary: parsed.summary || '',
+          dimensionScores: (parsed.dimension_scores || []).map((d: Record<string, unknown>) => ({
+            dimension: (d.dimension as string) || '',
+            score: (d.score as number) || 0,
+            comment: (d.comment as string) || '',
+            evidenceRefs: (d.evidence_refs as string[]) || [],
+          })),
+        }
+      } else {
+        verdict = {
+          verdict: 'FAIL',
+          overallScore: 0,
+          summary: `Failed to parse verdict: ${rawText.substring(0, 200)}`,
+          dimensionScores: [],
+        }
+      }
+
+      // Sync verdict back to backend
+      const syncResult = await api.employeeRuntime.syncVerdict(id, {
+        sessionId: connection.sessionId,
+        verdict,
+      })
+      setEmployee((prev) => prev ? { ...prev, status: syncResult.status as EmployeeDetail['status'] } : prev)
+      setError('')
+
+      const evaluationState = await api.employeeRuntime.getEvaluationState(id)
+      setEvaluation(evaluationState)
+    } catch (wsError: unknown) {
+      setError(wsError instanceof Error ? wsError.message : 'WebSocket evaluation failed')
+    } finally {
+      ws.disconnect()
+      setWsEvaluating(false)
+      setWsProgress('')
       setSubmitting(false)
     }
   }
@@ -431,30 +537,21 @@ export default function EvaluationPage() {
               </button>
               <button
                 type="button"
-                disabled={submitting || !canStart}
-                className="hb-btn-ghost !px-3 !py-1.5 !text-xs"
+                disabled={submitting || !canPrepare || aiRunning}
+                className="hb-btn-primary !px-3 !py-1.5 !text-xs"
                 onClick={() => void submitAiDecision('START')}
               >
                 <PlayCircle size={12} />
-                发起 AI 评估
+                准备评估环境
               </button>
               <button
                 type="button"
-                disabled={submitting || !needLoadSkill}
-                className="hb-btn-primary !px-3 !py-1.5 !text-xs"
-                onClick={() => void submitAiDecision('LOAD_SKILL')}
-              >
-                <Upload size={12} />
-                上传并加载评估 Skill
-              </button>
-              <button
-                type="button"
-                disabled={submitting || !aiRunning}
+                disabled={submitting || wsEvaluating || !aiRunning}
                 className="hb-btn-ghost !px-3 !py-1.5 !text-xs"
                 onClick={() => void submitAiDecision('RUN')}
               >
-                <CheckCircle2 size={12} />
-                执行 AI 评估
+                {wsEvaluating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                {wsEvaluating ? (wsProgress || 'WS 评估中...') : '执行评估'}
               </button>
             </div>
           </div>
@@ -476,10 +573,10 @@ export default function EvaluationPage() {
               <div className="text-xs text-[#737373]">evalPhase: {employee.evalPhase || '未设置'}</div>
             </div>
             <div className="mt-2 h-1.5 w-full rounded-full bg-[#efefef]">
-              <div className="h-1.5 rounded-full bg-[#4a6cf7]" style={{ width: `${((progressStep + 1) / 4) * 100}%` }} />
+              <div className="h-1.5 rounded-full bg-[#4a6cf7]" style={{ width: `${((progressStep + 1) / 3) * 100}%` }} />
             </div>
             <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-              {['本体检查', '确认考题', '执行测试', '评估判分'].map((step, index) => (
+              {['环境准备', '执行评估', '评估判分'].map((step, index) => (
                 <span
                   key={step}
                   className={`rounded-full px-2 py-1 font-medium ${
@@ -495,7 +592,7 @@ export default function EvaluationPage() {
               ))}
             </div>
             <div className="mt-2 text-[11px] text-[#737373]">
-              评估 Skill 加载策略：调用雇佣侧已有上传 Skill 接口，后端将评估 Skill 注入评估沙箱后执行并回传判定结果。
+              评估流程：准备环境（创建沙箱+上传Skill+加载考题）→ 执行评估（WS直连评估沙箱，Agent使用evaluation_score/evaluation_generate_report工具评分）→ 判定结果
             </div>
           </div>
         </section>
@@ -580,7 +677,7 @@ export default function EvaluationPage() {
 
               {!aiRunning ? (
                 <div className="rounded-xl border border-[#ececec] bg-white px-3 py-2 text-xs text-[#737373]">
-                  请先执行“上传并加载评估 Skill”，进入 ai_running 后可连接评估沙箱。
+                  请先点击“准备评估环境”，进入 ai_running 后可连接评估沙箱。
                 </div>
               ) : (!evaluatorHireId && chatLoading) ? (
                 <div className="rounded-xl border border-[#ffd5da] bg-[#fff1f2] px-3 py-2 text-xs text-[#b3263c]">

@@ -8,6 +8,7 @@ import {
 import type {
   CredentialSlot,
   DiagnosticTodo,
+  HandoffItem,
   HiringCollectionPhaseType,
   HiringCollectionStageType,
   HiringWorkflowState,
@@ -181,6 +182,70 @@ function getDiagnosticTodos(
 
 function isFallbackTodoSource(source: string | null | undefined) {
   return typeof source === 'string' && source.startsWith('system:fallback:')
+}
+
+function mapHandoffToWorkflowTodo(handoff: HandoffItem): WorkflowTodo {
+  const status = mapHandoffStatus(handoff.status)
+  return {
+    id: handoff.handoffId,
+    title: handoff.title,
+    stage: handoff.stage,
+    kind: handoff.kind,
+    status,
+    gapType: null,
+    priority: null,
+    currentState: handoff.intent ?? null,
+    expectedState: null,
+    acceptanceCriteria: handoff.acceptance ?? null,
+    acceptanceEvidence: null,
+    source: handoff.source ?? '',
+    fingerprint: handoff.fingerprint ?? null,
+    category: handoff.category ?? null,
+    payload: handoff.payload ?? null,
+    level: null,
+    question: null,
+    evidence: null,
+    suggestedAction: null,
+    relatedTodoIds: handoff.relatedHandoffIds ?? [],
+    relatedFiles: handoff.relatedFiles ?? [],
+    createdAtUtc: handoff.createdAtUtc,
+    updatedAtUtc: handoff.updatedAtUtc,
+  }
+}
+
+function mapHandoffStatus(handoffStatus: string): string {
+  switch (handoffStatus) {
+    case 'confirmed':
+      return HiringTodoStatus.Done
+    case 'dismissed':
+      return HiringTodoStatus.Dismissed
+    case 'needs_review':
+      return HiringTodoStatus.NeedsReview
+    case 'dispatched':
+    case 'dirty':
+      return HiringTodoStatus.InProgress
+    case 'drafting':
+    case 'ready_to_dispatch':
+    default:
+      return HiringTodoStatus.Open
+  }
+}
+
+function getAllStageTodos(
+  workflowState: HiringWorkflowState | null,
+  stage: HiringUiStage,
+): WorkflowTodo[] {
+  const directTodos = getStageTodos(workflowState?.workflowTodos, stage)
+  const mappedHandoffTodos = (workflowState?.handoffItems ?? [])
+    .filter(item => item.stage === stage)
+    .map(mapHandoffToWorkflowTodo)
+  return [...directTodos, ...mappedHandoffTodos]
+}
+
+function getAllTodos(workflowState: HiringWorkflowState | null): WorkflowTodo[] {
+  const directTodos = workflowState?.workflowTodos ?? []
+  const mappedHandoffTodos = (workflowState?.handoffItems ?? []).map(mapHandoffToWorkflowTodo)
+  return [...directTodos, ...mappedHandoffTodos]
 }
 
 function buildStageTodoItems(stageTodos: WorkflowTodo[]): HiringStageTodoVm[] {
@@ -368,7 +433,7 @@ function buildGuideCard(
   workflowState: HiringWorkflowState | null,
   stage: HiringUiStage,
 ): HiringGuideVm {
-  const stageTodos = getStageTodos(workflowState?.workflowTodos, stage)
+  const stageTodos = getAllStageTodos(workflowState, stage)
   const diagnostics = getDiagnosticTodos(workflowState, stage)
   const readiness = getStageReadiness(workflowState?.stageReadiness, stage)
   const notes = summarizeStageNotes(workflowState, stage, stageTodos, diagnostics)
@@ -507,7 +572,7 @@ export function buildHiringWorkflowViewModel(
   const stageCards = STAGE_ORDER.map((stage) => {
     const readiness = getStageReadiness(workflowState?.stageReadiness, stage)
     const status = getStageStatus(stage, uiCurrentStage, collectionPhase, readiness?.status)
-    const stageTodos = getStageTodos(workflowState?.workflowTodos, stage)
+    const stageTodos = getAllStageTodos(workflowState, stage)
     const stageDiagnostics = getDiagnosticTodos(workflowState, stage)
     const notes = summarizeStageNotes(workflowState, stage, stageTodos, stageDiagnostics)
 
@@ -574,9 +639,3 @@ export function buildHiringWorkflowViewModel(
   }
 }
 
-export function useHiringWorkflowViewModel(
-  workflowState: HiringWorkflowState | null,
-  focusedStage: HiringUiStage | null,
-) {
-  return buildHiringWorkflowViewModel(workflowState, focusedStage)
-}

@@ -1864,7 +1864,7 @@ body {
   padding: 10px;
 }
 
-.hb-hiring-tool-btn:hover {
+.hb-hiring-tool-btn:hover:not(:disabled) {
   background: var(--hb-surface-soft);
 }
 

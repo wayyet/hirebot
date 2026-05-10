@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Upload, X } from 'lucide-react'
 
-import { api, HiringAuditDecision, HiringCollectionPhase, HiringCollectionStage } from '@/infra/api'
+import { api, HiringAuditDecision, HiringCollectionPhase, HiringCollectionStage, HiringTodoStatus } from '@/infra/api'
 import type {
   CredentialSlot,
   EmployeeTemplateDetail,
@@ -20,7 +20,7 @@ import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
 import { HiringStagePills } from './components/HiringStagePills'
 import type { ChatFile, ChatMessage, CredentialDraft, SkillUploadPayload } from './hiringPageTypes'
-import { type HiringUiStage, useHiringWorkflowViewModel } from './hiringWorkflowViewModel'
+import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 
 function mkId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -161,9 +161,17 @@ function buildSummaryItems(workflowState: HiringWorkflowState | null, uploadedFi
   }
 
   const workflowTodos = workflowState.workflowTodos ?? []
-  const completedTodos = workflowTodos.filter(todo => todo.status === 'done' || todo.status === 'resolved')
+  const handoffItems = workflowState.handoffItems ?? []
+  const allTodos = [...workflowTodos, ...handoffItems.map(item => ({
+    status: item.status === 'confirmed' ? HiringTodoStatus.Done
+      : item.status === 'dismissed' ? HiringTodoStatus.Dismissed
+      : item.status === 'needs_review' ? HiringTodoStatus.NeedsReview
+      : item.status === 'dispatched' || item.status === 'dirty' ? HiringTodoStatus.InProgress
+      : HiringTodoStatus.Open,
+  }))]
+  const completedTodos = allTodos.filter(todo => todo.status === HiringTodoStatus.Done || todo.status === HiringTodoStatus.Resolved)
   return [
-    { label: '待办总数', value: String(workflowTodos.length) },
+    { label: '待办总数', value: String(allTodos.length) },
     { label: '已完成', value: String(completedTodos.length) },
     { label: '诊断项', value: String(workflowState.latestDiagnosticReport?.diagnosticTodos.length ?? 0) },
     { label: '待复核', value: String(workflowState.configGovernance?.pendingReviewTodoIds.length ?? 0) },
@@ -228,7 +236,7 @@ export default function HiringPage() {
   const workflowCurrentStage = normalizeCollectionStage(workflowState?.currentStage ?? HiringCollectionStage.Material)
   const workflowConversationPaused = Boolean(workflowState?.isConversationPaused)
   const workflowConversationResponding = Boolean(workflowState?.isConversationResponding)
-  const viewModel = useHiringWorkflowViewModel(workflowState, focusedStage)
+  const viewModel = buildHiringWorkflowViewModel(workflowState, focusedStage)
   const summaryItems = buildSummaryItems(workflowState, allFiles.length)
   const canCreate = viewModel.actionState.canFinalize && workflowCollectionPhase !== HiringCollectionPhase.Finalized
   const isInteractionLocked = typing || workflowBooting || workflowConversationPaused || workflowConversationResponding || submittingMessage
