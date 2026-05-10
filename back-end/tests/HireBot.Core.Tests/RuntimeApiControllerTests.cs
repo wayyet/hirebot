@@ -348,9 +348,11 @@ public sealed class RuntimeApiControllerTests
 
         public Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> GetEmployeeAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<string>> GetRuntimeSandboxGatewayEndpointAsync(string instanceId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<ImportFixtureInstancesResultDto>> ImportFixtureInstancesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<FixtureTemplateHireResultDto>> HireFromFixtureTemplateAsync(string templateId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> UpdateLifecycleAsync(string employeeId, UpdateEmployeeLifecycleRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<EmployeeDetailDto>> RehireAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> UpdateCapabilitiesAsync(string employeeId, UpdateEmployeeCapabilitiesRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> CompletePendingActionAsync(string employeeId, string actionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> CreateFromHireAsync(CreateEmployeeFromHireRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();

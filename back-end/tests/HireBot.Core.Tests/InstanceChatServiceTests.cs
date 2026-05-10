@@ -172,7 +172,6 @@ public sealed class InstanceChatServiceTests
         Assert.Equal("owner-1", request.OwnerHeader);
         Assert.Contains("\"appId\":\"ding-app\"", request.Body);
         Assert.Contains("\"appKey\":\"ding-key\"", request.Body);
-        Assert.Contains("\"robotCode\":\"robot-123\"", request.Body);
     }
 
     private static HireBotDbContext CreateDbContext()

@@ -49,6 +49,7 @@ public sealed class ConfigurationAndRuntimeGuardTests
             requestContextService,
             CreateDbContext(Guid.NewGuid().ToString("N")),
             new NoopInstanceArtifactCloneService(),
+            new NoopInstanceArtifactResolver(),
             new NoopSandboxService(),
             new NoopKingCrabHttpClient());
 
