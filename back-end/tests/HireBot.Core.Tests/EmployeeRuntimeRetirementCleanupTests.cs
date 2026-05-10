@@ -68,6 +68,7 @@ public sealed class EmployeeRuntimeRetirementCleanupTests
             new FakeRequestContextService("owner-1"),
             dbContext,
             new NoopArtifactCloneService(),
+            new NoopInstanceArtifactResolver(),
             sandboxService,
             kingCrabHttpClient);
     }
@@ -226,6 +227,12 @@ public sealed class EmployeeRuntimeRetirementCleanupTests
 
         public Task<InstanceArtifactCloneResult> StoreDepartmentArtifactsAsync(string departmentInstanceId, IReadOnlyDictionary<string, byte[]> files, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+    }
+
+    private sealed class NoopInstanceArtifactResolver : IInstanceArtifactResolver
+    {
+        public Task<InstanceArtifactResolution> ResolveAsync(InstanceEntity instance, CancellationToken cancellationToken = default)
+            => Task.FromResult(new InstanceArtifactResolution("/noop", new Dictionary<string, string?>()));
     }
 
     private sealed class RecordingSandboxService : ISandboxService

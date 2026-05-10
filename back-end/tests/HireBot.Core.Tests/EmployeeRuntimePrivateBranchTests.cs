@@ -11,6 +11,7 @@ using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Repository;
+using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
 
@@ -326,6 +327,7 @@ public sealed class EmployeeRuntimePrivateBranchTests
             new FakeRequestContextService("owner-1"),
             dbContext,
             artifacts,
+            new NoopInstanceArtifactResolver(),
             new NoopSandboxService(),
             new NoopKingCrabHttpClient());
     }
@@ -460,6 +462,12 @@ public sealed class EmployeeRuntimePrivateBranchTests
         }
     }
 
+    private sealed class NoopInstanceArtifactResolver : IInstanceArtifactResolver
+    {
+        public Task<InstanceArtifactResolution> ResolveAsync(InstanceEntity instance, CancellationToken cancellationToken = default)
+            => Task.FromResult(new InstanceArtifactResolution("/noop", new Dictionary<string, string?>()));
+    }
+
     private sealed class FakeRequestContextService(string ownerSubject) : IRequestContextService
     {
         public string ResolveOwnerSubject(string? tenantId = null, string? operatorId = null) => ownerSubject;
@@ -497,13 +505,14 @@ public sealed class EmployeeRuntimePrivateBranchTests
         public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default) => Task.FromResult<SandboxInstanceDto?>(null);
 
         private static ApiResponse<SandboxInstanceDto> SuccessResponse(object request)
             => ApiResponse<SandboxInstanceDto>.SuccessResponse(
                 new SandboxInstanceDto(
                     Guid.NewGuid(), "sbx_test", "hire", "instance:test", "runtime", "managed",
                     "owner-1", "tenant-default", "operator-1", "Running", "http://gateway.local",
-                    null, null, "runtime-chat-for:test", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+                    null, null, "runtime-chat-for:test", null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
     }
 
     private sealed class NoopKingCrabHttpClient : IKingCrabHttpClient
