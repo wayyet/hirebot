@@ -186,6 +186,24 @@ export default function InstanceDetailPage() {
     }
   }
 
+  async function abandonBranch() {
+    if (!id || !employee) return;
+    if (!window.confirm("废弃后，若已上岗则 IM 路由将恢复到原分身。此操作不可撤销，确定继续？")) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const data = await api.employeeRuntime.abandonPrivateBranch(id);
+      showToast("私有分支已废弃", "success");
+      // Navigate to the source clone (or my-employees as fallback)
+      navigate(`/instances/${data.employeeId}`);
+    } catch (requestError: unknown) {
+      setError(
+        requestError instanceof Error ? requestError.message : "废弃私有分支失败",
+      );
+      setSubmitting(false);
+    }
+  }
+
   const readyCount = useMemo(() => {
     if (!employee) return 0;
     return employee.capabilities.filter((cap) => cap.ready).length;
@@ -358,6 +376,18 @@ export default function InstanceDetailPage() {
                   >
                     <GitBranch size={14} />
                     创建私有分支
+                  </button>
+                ) : null}
+
+                {employeeView?.ownership === "private_branch" &&
+                employeeView.mappedStatus !== "retired" ? (
+                  <button
+                    type="button"
+                    className="rounded-full border border-[#fde2e2] bg-white px-4 py-2 text-sm font-medium text-[#be3a4a] hover:bg-[#fff5f5]"
+                    disabled={submitting}
+                    onClick={() => void abandonBranch()}
+                  >
+                    废弃私有分支
                   </button>
                 ) : null}
 

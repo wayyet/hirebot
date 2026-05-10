@@ -11,6 +11,7 @@ using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Repository;
+using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
 
@@ -293,6 +294,12 @@ public sealed class EmployeeRuntimePersonalCloneTests
             File.WriteAllText(Path.Combine(root, "manifest.json"), "{}");
             return root;
         }
+    }
+
+    private sealed class NoopInstanceArtifactResolver : IInstanceArtifactResolver
+    {
+        public Task<InstanceArtifactResolution> ResolveAsync(InstanceEntity instance, CancellationToken cancellationToken = default)
+            => Task.FromResult(new InstanceArtifactResolution("/noop", new Dictionary<string, string?>()));
     }
 
     private sealed class FakeRequestContextService(string ownerSubject) : IRequestContextService

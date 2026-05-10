@@ -18,6 +18,21 @@ export default function MyEmployeesPage() {
   const [error, setError] = useState('')
   const [employees, setEmployees] = useState<EmployeeSummary[]>([])
   const [filter, setFilter] = useState<FilterTab>('all')
+  const [abandoningId, setAbandoningId] = useState<string | null>(null)
+
+  async function abandonBranch(branchId: string, event: React.MouseEvent) {
+    event.stopPropagation()
+    if (!window.confirm('废弃后，若已上岗则 IM 路由将恢复到原分身。此操作不可撤销，确定继续？')) return
+    setAbandoningId(branchId)
+    try {
+      await api.employeeRuntime.abandonPrivateBranch(branchId)
+      setEmployees((prev) => prev.map((e) => e.employeeId === branchId ? { ...e, lifecycleStatus: '已废弃', primarySignal: '已废弃', status: 'retired' } : e))
+    } catch {
+      // Silently handle — user can retry from detail page
+    } finally {
+      setAbandoningId(null)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -176,7 +191,17 @@ export default function MyEmployeesPage() {
                 </p>
                 <div className="mt-4 flex items-center justify-between border-t border-[#f5f5f5] pt-3 text-xs text-[#737373]">
                   <span>最近更新 {employee.createdAt}</span>
-                  <span className="text-[#4a6cf7]">查看详情 →</span>
+                  <div className="flex items-center gap-2">
+                    {employee.ownership === 'private_branch' && employee.mappedStatus !== 'retired' ? (
+                      <span
+                        className="cursor-pointer text-[#be3a4a] hover:underline"
+                        onClick={(e) => { void abandonBranch(employee.employeeId, e) }}
+                      >
+                        {abandoningId === employee.employeeId ? '废弃中...' : '废弃'}
+                      </span>
+                    ) : null}
+                    <span className="text-[#4a6cf7]">查看详情 →</span>
+                  </div>
                 </div>
               </button>
             ))}

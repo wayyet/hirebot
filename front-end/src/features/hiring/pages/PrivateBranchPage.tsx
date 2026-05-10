@@ -77,11 +77,16 @@ export default function PrivateBranchPage() {
     setSubmitting(true)
     setError('')
     try {
-      const branch = await api.employeeRuntime.createPersonalClone(employee.employeeId, {
+      const selected = (Object.entries(stations) as Array<[StationKey, boolean]>)
+        .filter(([, v]) => v)
+        .map(([k]) => k)
+      const branch = await api.employeeRuntime.createPrivateBranch(employee.employeeId, {
         displayName: `${employee.nickname} · 私有分支`,
         displayDescription: goal.trim() || '基于当前分身创建的私有分支',
+        selectedStations: selected,
       })
-      navigate(`/instances/${branch.employeeId}`)
+      // After creation, go to evaluation page (status is "hired")
+      navigate(`/instances/${branch.branchId}/evaluation`)
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '创建私有分支失败')
     } finally {
@@ -205,7 +210,7 @@ export default function PrivateBranchPage() {
         <h2 className="text-base font-semibold text-[#0a0a0a]">继承说明</h2>
         <div className="mt-3 rounded-xl border border-[#d9e1ff] bg-[#eef2ff] px-4 py-3 text-sm text-[#2e3da9]">
           只对你勾选的 {pickedCount} 个工位做精简追问，其余继续沿用原分身。私有分支不能再创建二级分支。
-          评估通过后将替换原 bot 的底层路由，不新增飞书联系人。
+          创建后需通过 AI 评估 + 用户自评，上岗后将替换原分身的 IM 路由，不新增飞书联系人。
         </div>
       </div>
 

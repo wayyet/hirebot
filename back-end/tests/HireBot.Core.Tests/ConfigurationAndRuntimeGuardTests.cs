@@ -16,6 +16,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using HireBot.Repository;
+using HireBot.Repository.Entities;
 
 namespace HireBot.Core.Tests;
 
@@ -186,6 +187,12 @@ public sealed class ConfigurationAndRuntimeGuardTests
             IReadOnlyDictionary<string, byte[]> files,
             CancellationToken cancellationToken = default)
             => Task.FromResult(new InstanceArtifactCloneResult("current", "target", []));
+    }
+
+    private sealed class NoopInstanceArtifactResolver : IInstanceArtifactResolver
+    {
+        public Task<InstanceArtifactResolution> ResolveAsync(InstanceEntity instance, CancellationToken cancellationToken = default)
+            => Task.FromResult(new InstanceArtifactResolution("/noop", new Dictionary<string, string?>()));
     }
 
     private sealed class NoopSandboxService : ISandboxService

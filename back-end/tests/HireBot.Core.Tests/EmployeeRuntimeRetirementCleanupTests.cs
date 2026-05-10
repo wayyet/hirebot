@@ -229,6 +229,12 @@ public sealed class EmployeeRuntimeRetirementCleanupTests
             => throw new NotSupportedException();
     }
 
+    private sealed class NoopInstanceArtifactResolver : IInstanceArtifactResolver
+    {
+        public Task<InstanceArtifactResolution> ResolveAsync(InstanceEntity instance, CancellationToken cancellationToken = default)
+            => Task.FromResult(new InstanceArtifactResolution("/noop", new Dictionary<string, string?>()));
+    }
+
     private sealed class RecordingSandboxService : ISandboxService
     {
         public List<SandboxInstanceLookupRequestDto> DeleteRequests { get; } = [];

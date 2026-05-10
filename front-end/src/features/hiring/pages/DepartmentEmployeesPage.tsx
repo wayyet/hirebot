@@ -109,6 +109,10 @@ export default function DepartmentEmployeesPage() {
     navigate(`/clone/${employeeId}`)
   }
 
+  function openQuickClone(employeeId: string) {
+    navigate(`/quick-clone/${employeeId}`)
+  }
+
   function openDetail(employeeId: string) {
     navigate(`/instances/${employeeId}`)
   }
@@ -275,14 +279,23 @@ export default function DepartmentEmployeesPage() {
                       {canClone ? <span className="text-[#15803d]">可复制</span> : null}
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {canClone ? (
+                      {canClone && role === 'member' ? (
                         <button
                           type="button"
                           className="hb-btn-primary"
                           onClick={() => openClone(employee.employeeId)}
                         >
                           <CopyPlus size={14} />
-                          {role === 'member' ? '创建分身' : '复制分身'}
+                          创建分身
+                        </button>
+                      ) : null}
+                      {canClone && role === 'manager' ? (
+                        <button
+                          type="button"
+                          className="hb-btn-primary"
+                          onClick={() => openQuickClone(employee.employeeId)}
+                        >
+                          快捷复制
                         </button>
                       ) : null}
                       <button
