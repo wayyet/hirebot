@@ -601,7 +601,10 @@ internal sealed class EmployeeHiringService(
                 ScopeType = SandboxScopeTypes.Hire,
                 ScopeKey = normalizedHireId,
                 SandboxRole = ResolveSandboxRole(normalizedHireId),
-                OwnerSubject = ownerContext.OwnerSubject
+                OwnerSubject = ownerContext.OwnerSubject,
+                TenantId = ownerContext.TenantId,
+                OperatorId = ownerContext.OperatorId,
+                TemplateId = ownerContext.TemplateId
             },
             cancellationToken);
         if (!refreshResult.Success || refreshResult.Data is null)
