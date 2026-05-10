@@ -738,9 +738,10 @@ public sealed class EmployeeRuntimeService(
             EvalMaxIterations: null,
             IsConfigured: true);
 
-        var sandboxSetup = await InitializePersonalCloneSandboxAsync(
+        var sandboxSetup = await InitializeRuntimeSandboxAsync(
             clone,
-            artifactResult,
+            artifactResult.TargetRootPath,
+            artifactResult.CurrentVersion,
             owner,
             tenantId,
             operatorId,
@@ -881,9 +882,10 @@ public sealed class EmployeeRuntimeService(
             EvalMaxIterations: null,
             IsConfigured: false);
 
-        var sandboxSetup = await InitializePersonalCloneSandboxAsync(
+        var sandboxSetup = await InitializeRuntimeSandboxAsync(
             branch,
-            artifactResult,
+            artifactResult.TargetRootPath,
+            artifactResult.CurrentVersion,
             owner,
             tenantId,
             operatorId,
