@@ -1508,11 +1508,7 @@ internal sealed class EvaluationService(
 
         for (var i = 0; i < 36; i++)
         {
-            if (i > 0)
-            {
-                await Task.Delay(5000, cancellationToken);
-            }
-
+            await Task.Delay(5000, cancellationToken);
             var refresh = await sandboxService.RefreshAsync(
                 new SandboxInstanceLookupRequestDto { SandboxId = sandboxId, OwnerSubject = owner },
                 cancellationToken);
