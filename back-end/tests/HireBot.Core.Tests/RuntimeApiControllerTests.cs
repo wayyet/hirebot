@@ -59,7 +59,7 @@ public sealed class RuntimeApiControllerTests
             GetResponse = ApiResponse<InstanceChatTimelineDto>.SuccessResponse(
                 new InstanceChatTimelineDto("pc_1", "conv_1", [new InstanceChatMessageDto("msg_1", "user", "hi", DateTimeOffset.UtcNow)]))
         };
-        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
+        var controller = new InstancesController(chat, new FakeInstanceImConfigService(), new FakeEmployeeRuntimeService());
 
         var result = await controller.GetInAppChatMessages("pc_1");
 
@@ -79,7 +79,7 @@ public sealed class RuntimeApiControllerTests
             SendResponse = ApiResponse<InstanceChatResultDto>.SuccessResponse(
                 new InstanceChatResultDto("pc_1", "conv_1", new InstanceChatMessageDto("msg_2", "assistant", "reply", DateTimeOffset.UtcNow)))
         };
-        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
+        var controller = new InstancesController(chat, new FakeInstanceImConfigService(), new FakeEmployeeRuntimeService());
         var request = new SendInstanceChatMessageRequestDto("hello");
 
         var result = await controller.SendInAppChatMessage("pc_1", request);
@@ -97,7 +97,7 @@ public sealed class RuntimeApiControllerTests
     public async Task SendInAppChatMessage_WhenModelStateInvalid_ReturnsBadRequestAndDoesNotCallService()
     {
         var chat = new FakeInstanceChatService();
-        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
+        var controller = new InstancesController(chat, new FakeInstanceImConfigService(), new FakeEmployeeRuntimeService());
         controller.ModelState.AddModelError("content", "content is required");
 
         var result = await controller.SendInAppChatMessage("pc_1", new SendInstanceChatMessageRequestDto(""));
@@ -116,7 +116,7 @@ public sealed class RuntimeApiControllerTests
         {
             ClearResponse = ApiResponse<bool>.SuccessResponse(true, "对话已清空")
         };
-        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
+        var controller = new InstancesController(chat, new FakeInstanceImConfigService(), new FakeEmployeeRuntimeService());
 
         var result = await controller.ClearInAppChatMessages("pc_1");
 
@@ -147,7 +147,7 @@ public sealed class RuntimeApiControllerTests
                     false,
                     true))
         };
-        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
+        var controller = new InstancesController(chat, new FakeInstanceImConfigService(), new FakeEmployeeRuntimeService());
 
         var result = await controller.GetEffectiveImConfig("pc_1", "feishu");
 
@@ -167,7 +167,7 @@ public sealed class RuntimeApiControllerTests
             UpdateDingTalkResponse = ApiResponse<ImConfigResultDto>.SuccessResponse(
                 new ImConfigResultDto("dingtalk", "url_callback", "active", "钉钉配置已更新", DateTimeOffset.UtcNow))
         };
-        var controller = new InstancesController(chat, new FakeInstanceImConfigService());
+        var controller = new InstancesController(chat, new FakeInstanceImConfigService(), new FakeEmployeeRuntimeService());
         var request = new DingTalkChannelConfig
         {
             Enabled = true,
@@ -354,6 +354,9 @@ public sealed class RuntimeApiControllerTests
         public Task<ApiResponse<EmployeeDetailDto>> UpdateCapabilitiesAsync(string employeeId, UpdateEmployeeCapabilitiesRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> CompletePendingActionAsync(string employeeId, string actionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> CreateFromHireAsync(CreateEmployeeFromHireRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<QuickCloneResultDto>> QuickCloneAsync(string sourceInstanceId, QuickCloneRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<PrivateBranchResultDto>> CreatePrivateBranchAsync(string sourceInstanceId, CreatePrivateBranchRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<EmployeeDetailDto>> AbandonPrivateBranchAsync(string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<LocalStateMigrationResultDto>> MigrateLocalStateAsync(LocalStateMigrationRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 

@@ -60,6 +60,34 @@ export interface CreatePersonalCloneRequest {
   displayDescription?: string | null
 }
 
+export interface QuickCloneRequest {
+  displayName: string
+  userRole: string
+  displayAvatar?: string | null
+  displayDescription?: string | null
+}
+
+export interface QuickCloneResult {
+  newInstanceId: string
+  status: string
+  fromInstanceId: string
+  viaQuickClone: boolean
+}
+
+export interface CreatePrivateBranchRequest {
+  displayName: string
+  displayDescription?: string | null
+  selectedStations: Array<'persona' | 'knowledge' | 'ability' | 'external'>
+}
+
+export interface PrivateBranchResult {
+  branchId: string
+  displayName: string
+  status: string
+  fromInstanceId: string
+  imRoutingSwitched: boolean
+}
+
 export interface InstanceChatMessage {
   messageId: string
   role: 'user' | 'assistant' | string
@@ -343,6 +371,24 @@ export const employeeRuntimeApi = {
       `/api/v1/employees/${employeeId}/personal-clones`,
       payload,
     )
+  },
+
+  quickClone(sourceInstanceId: string, payload: QuickCloneRequest) {
+    return httpClient.post<QuickCloneResult, QuickCloneRequest>(
+      `/api/v1/instances/${sourceInstanceId}/quick-clone`,
+      payload,
+    )
+  },
+
+  createPrivateBranch(sourceInstanceId: string, payload: CreatePrivateBranchRequest) {
+    return httpClient.post<PrivateBranchResult, CreatePrivateBranchRequest>(
+      `/api/v1/instances/${sourceInstanceId}/private-branch`,
+      payload,
+    )
+  },
+
+  abandonPrivateBranch(branchId: string) {
+    return httpClient.post<EmployeeDetail>(`/api/v1/instances/${branchId}/abandon-branch`)
   },
 
   getInAppChatMessages(instanceId: string) {

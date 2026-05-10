@@ -25,6 +25,13 @@ public sealed class InstanceEntity
     [MaxLength(120)]
     public string? FromInstanceId { get; set; }
 
+    /// <summary>
+    /// 当此实例有活跃的私有分支时，指向该分支的 InstanceId。
+    /// IM 消息和站内对话路由到此分支。私有分支废弃时清空。
+    /// </summary>
+    [MaxLength(120)]
+    public string? ActiveBranchId { get; set; }
+
     [MaxLength(120)]
     public string? EvalReportId { get; set; }
 
