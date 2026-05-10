@@ -12,6 +12,7 @@ internal sealed record SandboxProvisioningSettings(
     IReadOnlyDictionary<string, string> ResourceLimits,
     int TimeoutSeconds,
     int ReadyTimeoutSeconds,
+    int RequestTimeoutSeconds,
     int GatewayPort,
     IReadOnlyList<string> Entrypoint,
     IReadOnlyList<string> AllowedOrigins,
@@ -58,6 +59,13 @@ internal sealed record SandboxProvisioningSettings(
             throw new InvalidOperationException("OpenSandbox:ReadyTimeoutSeconds must be greater than zero.");
         }
 
+        // Alibaba.OpenSandbox SDK HttpClient default is 30s; sandbox POST / create often exceeds that when pulling images or scheduling pods.
+        var requestTimeoutSeconds = configuration.GetValue("OpenSandbox:RequestTimeoutSeconds", 0);
+        if (requestTimeoutSeconds < 60)
+        {
+            requestTimeoutSeconds = Math.Max(readyTimeoutSeconds + 120, 300);
+        }
+
         var allowedOrigins = configuration.GetSection("AllowedOrigins:Sandbox").Get<string[]>()
             ?? configuration.GetSection("AllowedOrigins").Get<string[]>()
             ?? ["http://localhost:5173"];
@@ -88,6 +96,7 @@ internal sealed record SandboxProvisioningSettings(
             resourceLimits,
             timeoutSeconds,
             readyTimeoutSeconds,
+            requestTimeoutSeconds,
             gatewayPort,
             entrypoint,
             allowedOrigins,
@@ -107,7 +116,8 @@ internal sealed record SandboxProvisioningSettings(
         {
             Domain = Domain,
             Protocol = Protocol,
-            UseServerProxy = UseServerProxy
+            UseServerProxy = UseServerProxy,
+            RequestTimeoutSeconds = RequestTimeoutSeconds
         });
     }
 

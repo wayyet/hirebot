@@ -8,7 +8,6 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  LogOut,
   MessageSquare,
   Package,
   PlayCircle,
@@ -16,7 +15,6 @@ import {
   SendHorizontal,
   Zap,
 } from 'lucide-react'
-import { signOut } from '@/infra/auth/oidc'
 import { useNavigate, useParams } from 'react-router-dom'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import {
@@ -122,7 +120,6 @@ export default function EvaluationPage() {
   const [chatSending, setChatSending] = useState(false)
   const [chatError, setChatError] = useState('')
   const [sandboxConversation, setSandboxConversation] = useState<EvaluationSandboxConversationState | null>(null)
-  const [logoutLoading, setLogoutLoading] = useState(false)
   const [wsEvaluating, setWsEvaluating] = useState(false)
   const [wsProgress, setWsProgress] = useState('')
   const chatEndRef = useRef<HTMLDivElement | null>(null)
@@ -374,16 +371,6 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
     }
   }
 
-  async function handleLogout() {
-    setLogoutLoading(true)
-    try {
-      await signOut()
-    } catch (logoutError: unknown) {
-      setError(logoutError instanceof Error ? logoutError.message : '退出登录失败，请稍后重试')
-      setLogoutLoading(false)
-    }
-  }
-
   useEffect(() => {
     if (!aiRunning || !id) {
       pollingCancelledRef.current = true
@@ -526,15 +513,6 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               <p className="mt-1 text-xs text-[#737373]">当前阶段：{employee.stageSummary || '待发起 AI 评估'}</p>
             </div>
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void handleLogout()}
-                className="hb-btn-ghost !px-3 !py-1.5 !text-xs text-[#b91c1c] hover:!bg-[#fef2f2]"
-                disabled={logoutLoading}
-              >
-                {logoutLoading ? <Loader2 size={12} className="animate-spin" /> : <LogOut size={12} />}
-                退出登录
-              </button>
               <button
                 type="button"
                 disabled={submitting || !canPrepare || aiRunning}
