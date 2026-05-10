@@ -23,7 +23,6 @@ public sealed class InstanceRuntimeConversationService(
     ISandboxService sandboxService,
     ILogger<InstanceRuntimeConversationService> logger) : IInstanceRuntimeConversationService
 {
-    private const int ContextMessageLimit = 40;
     private const string RuntimeSandboxRole = "runtime";
 
     /// <summary>
@@ -126,22 +125,12 @@ public sealed class InstanceRuntimeConversationService(
         conversation.UpdatedAt = now;
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        var contextMessages = await dbContext.Messages
-            .AsNoTracking()
-            .Where(item => item.ConversationId == conversation.ConversationId)
-            .OrderByDescending(item => item.CreatedAt)
-            .Take(ContextMessageLimit)
-            .OrderBy(item => item.CreatedAt)
-            .Select(item => new RuntimeChatMessageDto(item.Role, item.Content, item.CreatedAt))
-            .ToArrayAsync(cancellationToken);
-
         var runtimeResponse = await SendSandboxRuntimeMessageAsync(
             access.Instance,
             access.OwnerSubject,
             access.Channel,
             conversation.ConversationId,
             content.Trim(),
-            contextMessages,
             cancellationToken);
         if (!runtimeResponse.Success || runtimeResponse.Data is null || runtimeResponse.Data.AssistantMessage is null)
         {
@@ -261,7 +250,6 @@ public sealed class InstanceRuntimeConversationService(
         string channel,
         string conversationId,
         string content,
-        IReadOnlyList<RuntimeChatMessageDto> contextMessages,
         CancellationToken cancellationToken)
     {
         var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(instance.TenantId, instance.OwnerUserId);
@@ -290,12 +278,6 @@ public sealed class InstanceRuntimeConversationService(
             sandboxId = create.Data.SandboxId;
         }
 
-        var history = string.Join(
-           Environment.NewLine,
-           contextMessages
-               .TakeLast(12)
-               .Select(message => $"{message.Role}: {message.Content}"));
-
         return await sandboxService.SendMessageAsync(
             new SandboxSendMessageRequestDto
             {
@@ -307,7 +289,7 @@ public sealed class InstanceRuntimeConversationService(
                 OperatorId = operatorId,
                 SessionKey = channel,
                 SandboxId = sandboxId,
-                Content = history,
+                Content = content,
                 Materials = [],
                 UploadMaterialsAsAttachments = false
             },

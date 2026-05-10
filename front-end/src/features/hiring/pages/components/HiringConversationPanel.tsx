@@ -1,6 +1,6 @@
 import type { ReactNode, RefObject } from 'react'
 
-import { FileText, X } from 'lucide-react'
+import { FileText, Paperclip, Package, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -14,6 +14,8 @@ type HiringConversationPanelProps = {
   guideCard: HiringGuideVm
   messages: ChatMessage[]
   typing: boolean
+  /** WS 流式内容，非 null 时显示逐字输出气泡 */
+  streamingContent?: string | null
   pendingFiles: ChatFile[]
   input: string
   promptPlaceholder: string
@@ -37,6 +39,7 @@ export function HiringConversationPanel({
   guideCard,
   messages,
   typing,
+  streamingContent,
   pendingFiles,
   input,
   promptPlaceholder,
@@ -130,7 +133,17 @@ export function HiringConversationPanel({
           </div>
         ))}
 
-        {typing ? (
+        {/* WS 流式回复：有内容时展示逐字气泡，否则显示 typing 动画 */}
+        {streamingContent !== null && streamingContent !== undefined ? (
+          <div className="hb-hiring-msg">
+            <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
+            <div className="hb-hiring-bubble is-bot">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {streamingContent.length > 0 ? streamingContent : '…'}
+              </ReactMarkdown>
+            </div>
+          </div>
+        ) : typing ? (
           <div className="hb-hiring-msg">
             <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
             <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
@@ -199,6 +212,7 @@ export function HiringConversationPanel({
                   disabled={disabled}
                   className="hb-hiring-tool-btn"
                 >
+                  <Paperclip size={15} />
                   文件上传
                 </button>
                 <button
@@ -207,6 +221,7 @@ export function HiringConversationPanel({
                   disabled={disabled}
                   className="hb-hiring-tool-btn"
                 >
+                  <Package size={15} />
                   skill
                 </button>
               </div>

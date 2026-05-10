@@ -4,14 +4,13 @@ import {
   ArrowLeft,
   Bot,
   Check,
-  CheckCircle2,
   Clock3,
   CopyPlus,
   GitBranch,
   Loader2,
   MessageCircle,
+  RotateCcw,
   ShieldCheck,
-  Sparkles,
   Users,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -124,23 +123,6 @@ export default function InstanceDetailPage() {
     void loadEmployee();
   }, [id]);
 
-  async function completeAction(action: string) {
-    if (!id) return;
-    setSubmitting(true);
-    setError("");
-    try {
-      const data = await api.employeeRuntime.completePendingAction(id, action);
-      setEmployee(data);
-      showToast("待办已标记完成", "success");
-    } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error ? requestError.message : "处理待办失败",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   async function toggleCapability(name: string, ready: boolean) {
     if (!employee || !id) return;
     setSubmitting(true);
@@ -178,6 +160,26 @@ export default function InstanceDetailPage() {
     } catch (requestError: unknown) {
       setError(
         requestError instanceof Error ? requestError.message : "状态更新失败",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function rehireEmployee() {
+    if (!id || !employeeView || !isPersonalAsset || employeeView.mappedStatus !== "retired") {
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+    try {
+      const data = await api.employeeRuntime.rehire(id);
+      setEmployee(data);
+      showToast("重新雇佣已完成，沙箱已重新启动", "success");
+    } catch (requestError: unknown) {
+      setError(
+        requestError instanceof Error ? requestError.message : "重新雇佣失败",
       );
     } finally {
       setSubmitting(false);
@@ -352,6 +354,18 @@ export default function InstanceDetailPage() {
                   </button>
                 ) : null}
 
+                {isPersonalAsset && employeeView.mappedStatus === "retired" ? (
+                  <button
+                    type="button"
+                    className="hb-btn-primary"
+                    onClick={() => void rehireEmployee()}
+                    disabled={submitting}
+                  >
+                    <RotateCcw size={14} />
+                    {submitting ? "重新雇佣中" : "重新雇佣"}
+                  </button>
+                ) : null}
+
                 {canCreatePrivateBranch ? (
                   <button
                     type="button"
@@ -381,22 +395,17 @@ export default function InstanceDetailPage() {
                   type="button"
                   className="hb-btn-ghost"
                   onClick={() => {
-                    if (employeeView.mappedStatus === "retired") {
-                      navigate(`/clone/${employee.employeeId}`);
-                    } else {
-                      const retireAction = STATUS_ACTIONS.find(
-                        (a) => a.status === "retired",
-                      );
-                      if (retireAction) {
-                        void setLifecycle(retireAction);
-                      }
+                    const retireAction = STATUS_ACTIONS.find(
+                      (a) => a.status === "retired",
+                    );
+                    if (retireAction) {
+                      void setLifecycle(retireAction);
                     }
                   }}
+                  disabled={submitting || employeeView.mappedStatus === "retired"}
                 >
                   <ShieldCheck size={14} />
-                  {employeeView.mappedStatus === "retired"
-                    ? "继续雇佣"
-                    : "退役"}
+                  退役
                 </button>
               </div>
             </div>
@@ -483,11 +492,15 @@ export default function InstanceDetailPage() {
                       ? isPersonalAsset
                         ? "已上岗的个人资产可以站内对话，并按需配置飞书、钉钉或企微。"
                         : "已上岗的部门员工可以作为复制源，成员复制后拥有独立会话。"
-                      : employeeView.mappedStatus === "interning_ai"
-                        ? "AI 评估通过后才允许进入人工评估。"
-                        : employeeView.mappedStatus === "interning_human"
-                          ? "人工评估通过后才允许标记为已上岗。"
-                          : "你可以通过评估、回退和上岗配置逐步调整该实例。"}
+                      : employeeView.mappedStatus === "retired"
+                        ? isPersonalAsset
+                          ? "已退役的个人资产可以重新雇佣，系统会重新启动沙箱并恢复站内对话。"
+                          : "该实例已退役，当前仅保留历史信息。"
+                        : employeeView.mappedStatus === "interning_ai"
+                          ? "AI 评估通过后才允许进入人工评估。"
+                          : employeeView.mappedStatus === "interning_human"
+                            ? "人工评估通过后才允许标记为已上岗。"
+                            : "你可以通过评估、回退和上岗配置逐步调整该实例。"}
                   </div>
                 </div>
               </div>

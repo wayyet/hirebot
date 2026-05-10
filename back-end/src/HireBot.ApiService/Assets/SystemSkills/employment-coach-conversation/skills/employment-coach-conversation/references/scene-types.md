@@ -1,6 +1,6 @@
 # 场景类型与资料引导
 
-不同的数字员工角色，第一批最该看的资料不一样。先从 soul.md / identity.md 推断当前场景类型，再决定开口要什么。**目的不是覆盖所有资料分类，而是用最自然的方式让用户拿出最有用的第一批**。
+不同的数字员工角色，第一批最该看的资料不一样。先从 `SOUL.md` / `IDENTITY.md` 推断当前场景类型，再决定开口要什么。**目的不是覆盖所有资料分类，而是用最自然的方式让用户拿出最有用的第一批**。
 
 ## 场景类型 → first ask 对照表
 
@@ -16,7 +16,7 @@
 
 ## 判定原则
 
-- 先从 identity.md 的 role / mission 字段、soul.md 的核心使命定位场景
+- 先从 `IDENTITY.md` 的 role / mission 字段、`SOUL.md` 的核心使命定位场景
 - 文本含混时（如"行政助理"既可能是审批也可能是内勤），按场景类型再问一句确认，不要替用户挑
 - 用户给的资料如果跟推断的场景类型不匹配（如客服员工被丢过来一份合同模板），追问一句而不是默认接受
 - 一旦确认推断错了（"原来你这其实是合规岗"），**用 `handoff`，`action = patch` 静默修正所有 `status = drafting / ready_to_dispatch` 的 Handoff todo `payload.scene_hint` 字段**，不必专门通知用户；已 `dispatched` / `confirmed` 的 Handoff todo 保留原值用于追溯，新建 Handoff todo 用新值。让用户感觉对话只是在跟着他的真实场景走，不需要"承认刚才弄错了"

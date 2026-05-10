@@ -11,6 +11,9 @@ import type {
   HiringConversationMaterial,
   HiringWorkflowState,
 } from '@/infra/api'
+import { GatewayWs } from '@/infra/sandbox/gateway-ws'
+import { fetchSandboxSessionMessages, uploadMediaToGateway } from '@/infra/sandbox/sandbox-api'
+import { tokenService } from '@/infra/auth/token-service'
 
 import { HiringConversationPanel } from './components/HiringConversationPanel'
 import { HiringJourneyHeader } from './components/HiringJourneyHeader'
@@ -194,6 +197,8 @@ export default function HiringPage() {
   const [artifactArchive, setArtifactArchive] = useState<{ fileName: string; blob: Blob } | null>(null)
   const [artifactFileNames, setArtifactFileNames] = useState<string[]>([])
   const [submittingMessage, setSubmittingMessage] = useState(false)
+  // WS 流式内容：非 null 时表示 AI 正在逐字输出
+  const [streamingContent, setStreamingContent] = useState<string | null>(null)
   const [credentialDrafts, setCredentialDrafts] = useState<Record<string, CredentialDraft>>({})
   const [configDrafts, setConfigDrafts] = useState<Record<string, string>>({})
   const [credentialSubmittingSlot, setCredentialSubmittingSlot] = useState<string | null>(null)
@@ -205,6 +210,18 @@ export default function HiringPage() {
   const workflowInitRef = useRef<Promise<string | null> | null>(null)
   const messageSubmitRef = useRef(false)
   const handleSendRef = useRef(false)
+  // 沙箱直连引用：WebSocket 实例、网关端点、会话 ID
+  const wsRef = useRef<GatewayWs | null>(null)
+  const gatewayEndpointRef = useRef<string | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
+  // 记录最近一次通过 WS 发送的用户消息，用于同步端点回传
+  const lastWsUserMessageRef = useRef<string>('')
+  // 保存 WS 流式回复的原始内容（normalizeAssistantReply 之前），供同步端点使用
+  const rawStreamingContentRef = useRef<string>('')
+  // 记录最近一次 WS 发送时的附件材料
+  const lastWsMaterialsRef = useRef<ReturnType<typeof toConversationMaterials> | undefined>(undefined)
+  // 存储原始 File 对象，供 WS 路径上传到 Gateway 使用
+  const rawFileMapRef = useRef<Map<string, File>>(new Map())
 
   const workflowReady = Boolean(workflowHireId && workflowState)
   const workflowCollectionPhase = normalizeCollectionPhase(workflowState?.collectionPhase ?? HiringCollectionPhase.NotStarted)
@@ -222,7 +239,12 @@ export default function HiringPage() {
 
   useEffect(() => {
     document.body.classList.add('hb-body-hiring-prototype')
-    return () => document.body.classList.remove('hb-body-hiring-prototype')
+    return () => {
+      document.body.classList.remove('hb-body-hiring-prototype')
+      // 离开页面时断开沙箱 WebSocket
+      wsRef.current?.disconnect()
+      wsRef.current = null
+    }
   }, [])
 
   useEffect(() => {
@@ -326,8 +348,26 @@ export default function HiringPage() {
 
   async function syncWorkflowState(hireId: string) {
     const nextWorkflowState = await api.hiringWorkflow.getWorkflowState(hireId)
-    const timeline = await api.hiringWorkflow.getConversationTimeline(hireId)
-    setMessages(prev => timeline.messages.length >= prev.length ? mapTimelineMessagesToChat(timeline.messages) : prev)
+    // 优先直连沙箱拉取历史消息，减少后端中转
+    const endpoint = gatewayEndpointRef.current
+    const sid = sessionIdRef.current
+    if (endpoint && sid) {
+      const sandboxMessages = await fetchSandboxSessionMessages(endpoint, sid)
+      const mapped = sandboxMessages
+        .filter(m => m.type === 'user_message' || m.type === 'assistant_message')
+        .map<ChatMessage>(m => ({
+          id: mkId(),
+          role: m.type === 'user_message' ? 'user' : 'bot',
+          content: m.type === 'assistant_message'
+            ? normalizeAssistantReply(String(m.content ?? ''))
+            : String(m.text ?? ''),
+        }))
+        .filter(m => m.content.trim().length > 0)
+      setMessages(prev => mapped.length >= prev.length ? mapped : prev)
+    } else {
+      const timeline = await api.hiringWorkflow.getConversationTimeline(hireId)
+      setMessages(prev => timeline.messages.length >= prev.length ? mapTimelineMessagesToChat(timeline.messages) : prev)
+    }
     setWorkflowState(nextWorkflowState)
     if (nextWorkflowState.collectionPhase === HiringCollectionPhase.Finalized) {
       setInstanceCreated(true)
@@ -356,17 +396,39 @@ export default function HiringPage() {
         setWorkflowHireId(hired.hireId)
 
         let latestStatus = hired.status
+        let latestGatewayEndpoint: string | null = null
         for (let retry = 0; retry < 30; retry += 1) {
           if (latestStatus === 'READY' || latestStatus === 'FAILED') break
           await sleep(1000)
-          latestStatus = (await api.employeeTemplate.getHiringStatus(hired.hireId)).status
+          const statusResult = await api.employeeTemplate.getHiringStatus(hired.hireId)
+          latestStatus = statusResult.status
+          latestGatewayEndpoint = statusResult.gatewayEndpoint ?? null
         }
         if (latestStatus !== 'READY') {
           throw new Error('沙箱尚未就绪，请稍后重试')
         }
 
-        await api.hiringWorkflow.startConversation(hired.hireId)
-        setMessages(mapTimelineMessagesToChat((await api.hiringWorkflow.getConversationTimeline(hired.hireId)).messages))
+        // 如果 hired.status 初始就是 READY（沙箱已在运行），循环体从未执行，
+        // gatewayEndpoint 未被填充，需要补一次查询
+        if (!latestGatewayEndpoint) {
+          const statusResult = await api.employeeTemplate.getHiringStatus(hired.hireId)
+          latestGatewayEndpoint = statusResult.gatewayEndpoint ?? null
+        }
+
+        // 保存网关端点，后续直连沙箱使用
+        if (latestGatewayEndpoint) {
+          gatewayEndpointRef.current = latestGatewayEndpoint
+        }
+
+        const conversation = await api.hiringWorkflow.startConversation(hired.hireId)
+        // 保存会话 ID，用于直连沙箱拉取历史和建立 WebSocket
+        sessionIdRef.current = conversation.sessionId
+
+        // 建立到沙箱的 WebSocket 直连，用于流式展示 AI 回复
+        if (latestGatewayEndpoint) {
+          await connectSandboxWs(latestGatewayEndpoint)
+        }
+
         await syncWorkflowState(hired.hireId)
         setWorkflowNotice('')
         return hired.hireId
@@ -383,8 +445,93 @@ export default function HiringPage() {
     return workflowInitRef.current
   }
 
+  /**
+   * 建立到沙箱 Gateway 的 WebSocket 直连。
+   * 消息发送直接经由 WebSocket，沙箱流式推送 AI 回复。
+   */
+  async function connectSandboxWs(endpoint: string) {
+    wsRef.current?.disconnect()
+
+    const token = await tokenService.ensureFresh()
+    if (!token) return
+
+    const ws = new GatewayWs(endpoint, token)
+
+    ws.onMessage = (msg) => {
+      const type = msg.type as string
+      if (type === 'typing_start') {
+        // AI 开始思考，切换到流式展示
+        rawStreamingContentRef.current = ''
+        setStreamingContent('')
+        setTyping(true)
+      } else if (type === 'text_delta' || type === 'assistant_chunk') {
+        // 逐字追加流式内容
+        const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
+        setStreamingContent(prev => {
+          const next = prev === null ? chunk : prev + chunk
+          rawStreamingContentRef.current = next
+          return next
+        })
+      } else if (type === 'typing_stop' || type === 'assistant_done') {
+        // AI 回复完毕，保存原始内容（供同步端点使用），然后将清理后的内容提交为正式气泡
+        const rawReply = rawStreamingContentRef.current
+        const userMessage = lastWsUserMessageRef.current
+        const materials = lastWsMaterialsRef.current
+        rawStreamingContentRef.current = ''
+
+        // 直接从 ref 取流式内容提交为正式消息（不放在 setStreamingContent 回调里，
+        // 避免 React StrictMode 双重调用导致同一条 bot 消息被 add 两遍）
+        if (rawReply && rawReply.trim().length > 0) {
+          const cleaned = normalizeAssistantReply(rawReply)
+          if (cleaned.length > 0) {
+            setMessages(msgs => [...msgs, { id: mkId(), role: 'bot', content: cleaned }])
+          }
+        }
+        setStreamingContent(null)
+        setTyping(false)
+
+        // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等
+        const hireId = workflowHireId
+        if (hireId && rawReply) {
+          api.hiringWorkflow.syncConversationTurn(hireId, {
+            userMessage: userMessage || '',
+            assistantReply: rawReply,
+            materials: materials ?? undefined,
+          }).then(() => {
+            syncWorkflowState(hireId).catch(() => { /* 忽略 */ })
+          }).catch(() => {
+            // 同步失败时仍然刷新工作流状态（后端可从沙箱拉取 handoff 元数据）
+            syncWorkflowState(hireId).catch(() => { /* 忽略 */ })
+          })
+        }
+      }
+    }
+
+    // 重连后拉取断线期间的会话历史
+    ws.onReconnected = () => {
+      const sid = sessionIdRef.current
+      if (endpoint && sid) {
+        fetchSandboxSessionMessages(endpoint, sid).then(sandboxMessages => {
+          const mapped = sandboxMessages
+            .filter(m => m.type === 'user_message' || m.type === 'assistant_message')
+            .map<ChatMessage>(m => ({
+              id: mkId(),
+              role: m.type === 'user_message' ? 'user' : 'bot',
+              content: m.type === 'assistant_message'
+                ? normalizeAssistantReply(String(m.content ?? ''))
+                : String(m.text ?? ''),
+            }))
+            .filter(m => m.content.trim().length > 0)
+          setMessages(prev => mapped.length >= prev.length ? mapped : prev)
+        }).catch(() => { /* 忽略拉取失败 */ })
+      }
+    }
+
+    ws.connect()
+    wsRef.current = ws
+  }
+
   function retryWorkflowInitialization() {
-    if (workflowBooting) return
     setWorkflowError('')
     setWorkflowNotice('')
     setWorkflowInitAttempted(false)
@@ -406,6 +553,63 @@ export default function HiringPage() {
 
     messageSubmitRef.current = true
     setSubmittingMessage(true)
+
+    const ws = wsRef.current
+    const sessionId = sessionIdRef.current
+
+    // WS 已连通：直接通过 WebSocket 发送消息，沙箱实时流式回复；
+    // 若有附件，先上传到 Gateway 获取 [FILE_URL:...] 标记，再随文本一起发送
+    if (ws && sessionId) {
+      try {
+        let messageText = text || '补充信息'
+
+        if (incoming && incoming.length > 0) {
+          const endpoint = gatewayEndpointRef.current
+          const token = await tokenService.ensureFresh()
+          if (!endpoint || !token) {
+            throw new Error('Gateway endpoint or token not available for file upload')
+          }
+          const markers: string[] = []
+          for (const file of incoming) {
+            const rawFile = rawFileMapRef.current.get(file.id) ?? file.rawFile
+            if (!rawFile) {
+              throw new Error(`无法获取文件原始数据：${file.name}`)
+            }
+            const result = await uploadMediaToGateway(endpoint, token, rawFile)
+            markers.push(`${result.marker}\nAttached file: ${result.fileName} (${formatFileSize(result.sizeBytes)})`)
+          }
+          if (markers.length > 0) {
+            messageText = `${markers.join('\n')}\n\n${messageText}`
+          }
+        }
+
+        // 记录本次发送的用户消息和材料，供 WS typing_stop 事件中调用同步端点使用
+        lastWsUserMessageRef.current = messageText
+        lastWsMaterialsRef.current = toConversationMaterials(incoming)
+        ws.send({ type: 'user_message', text: messageText, sessionId })
+        setTyping(true)
+        setWorkflowError('')
+        setWorkflowNotice('')
+        // 清理已完成上传的原始文件引用
+        if (incoming) {
+          for (const file of incoming) {
+            rawFileMapRef.current.delete(file.id)
+          }
+        }
+        return true
+      } catch (error: unknown) {
+        setWorkflowError(normalizeErrorMessage(error))
+        setTyping(false)
+        setStreamingContent(null)
+        rawStreamingContentRef.current = ''
+        return false
+      } finally {
+        messageSubmitRef.current = false
+        setSubmittingMessage(false)
+      }
+    }
+
+    // 降级：WS 未连接，走 REST
     setTyping(true)
     try {
       const response = await api.hiringWorkflow.sendConversationMessage(hireId, {
@@ -442,6 +646,7 @@ export default function HiringPage() {
       return false
     } finally {
       setTyping(false)
+      setStreamingContent(null)
       messageSubmitRef.current = false
       setSubmittingMessage(false)
     }
@@ -489,14 +694,18 @@ export default function HiringPage() {
 
   const addPendingFiles = useCallback((fl: FileList | File[]) => {
     const files = Array.from(fl)
-    const placeholders = files.map(file => ({
-      id: mkId(),
-      name: file.name,
-      size: file.size,
-      status: '解析中' as const,
-      type: 'file' as const,
-      mimeType: file.type || undefined,
-    }))
+    const placeholders = files.map(file => {
+      const id = mkId()
+      rawFileMapRef.current.set(id, file)
+      return {
+        id,
+        name: file.name,
+        size: file.size,
+        status: '解析中' as const,
+        type: 'file' as const,
+        mimeType: file.type || undefined,
+      }
+    })
     setPendingFiles(prev => [...prev, ...placeholders])
 
     void Promise.all(files.map(file => fileToChatFile(file, 'file'))).then(parsedFiles => {
@@ -725,6 +934,7 @@ export default function HiringPage() {
             guideCard={viewModel.guideCard}
             messages={messages}
             typing={typing}
+            streamingContent={streamingContent}
             pendingFiles={pendingFiles}
             input={input}
             promptPlaceholder={viewModel.promptPlaceholder}

@@ -65,11 +65,22 @@ public static class ServiceExtensions
             throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required.");
         }
 
-        services.AddDbContext<HireBotDbContext>(options => options
-            .UseNpgsql(
-                connectionString.Trim(),
-                npgsql => npgsql.MigrationsAssembly("HireBot.Repository"))
-            .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+        var cs = connectionString.Trim();
+
+        // 连接串包含 Host= 或 postgresql 关键字时使用 PostgreSQL，否则回退到 SQLite（本地开发）
+        if (cs.StartsWith("Host=", StringComparison.OrdinalIgnoreCase)
+            || cs.Contains("postgresql", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddDbContext<HireBotDbContext>(options => options
+                .UseNpgsql(cs, npgsql => npgsql.MigrationsAssembly("HireBot.Repository"))
+                .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+        }
+        else
+        {
+            services.AddDbContext<HireBotDbContext>(options => options
+                .UseSqlite(cs)
+                .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+        }
 
         services.AddScoped<IHireBotRepository, HireBotRepository>();
     }
