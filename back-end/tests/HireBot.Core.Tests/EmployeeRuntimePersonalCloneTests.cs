@@ -150,6 +150,7 @@ public sealed class EmployeeRuntimePersonalCloneTests
             new FakeRequestContextService("owner-1"),
             dbContext,
             artifacts,
+            new NoopInstanceArtifactResolver(),
             new NoopSandboxService(),
             new NoopKingCrabHttpClient());
     }

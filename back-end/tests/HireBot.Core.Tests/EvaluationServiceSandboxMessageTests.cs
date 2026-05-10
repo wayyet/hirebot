@@ -108,7 +108,7 @@ public sealed class EvaluationServiceSandboxMessageTests
             new StubHostEnvironment(),
             new ConfigurationBuilder().Build(),
             NullLogger<EvaluationService>.Instance,
-            new NoopSystemSkillRegistry(),
+            new FakeEvaluationSystemSkillRegistry(),
             new KingCrabSandboxTokenProvider(
                 new NoopHttpClientFactory(),
                 new ConfigurationBuilder().Build(),
@@ -126,13 +126,20 @@ public sealed class EvaluationServiceSandboxMessageTests
         Assert.Equal("evaluation sandbox replied", response.Message);
         Assert.Equal("session-1", response.Data!.SessionId);
         Assert.Equal("hello evaluation sandbox", sandbox.LastSendMessageRequest!.Content);
-        Assert.Equal("hire-evaluator-1", sandbox.LastSendMessageRequest.ScopeKey);
+        Assert.Equal(2, sandbox.CreateRequests.Count);
+        Assert.Contains(sandbox.CreateRequests, r => string.Equals(r.SandboxRole, "evaluation-target", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(sandbox.CreateRequests, r => string.Equals(r.SandboxRole, "evaluation-evaluator", StringComparison.OrdinalIgnoreCase));
+        var evaluatorRuntimeKey = sandbox.CreateRequests
+            .Where(r => string.Equals(r.SandboxRole, "evaluation-evaluator", StringComparison.OrdinalIgnoreCase))
+            .Select(r => r.ScopeKey)
+            .Last();
+        Assert.Equal(evaluatorRuntimeKey, sandbox.LastSendMessageRequest.ScopeKey);
         Assert.Equal("evaluation-evaluator", sandbox.LastSendMessageRequest.SandboxRole);
         Assert.Equal("default", sandbox.LastEnsureSessionRequest!.SessionKey);
         Assert.Equal("sandbox-evaluator-1", sandbox.LastEnsureSessionRequest.SandboxId);
-        Assert.Equal("hire-target-1", hiring.LastGetHiringStatusHireId);
-        Assert.Equal("hire-target-1", hiring.LastCreateWorkspaceTargetHireId);
-        Assert.Equal("hire-evaluator-1", hiring.LastUploadSkillHireId);
+        Assert.Equal(evaluatorRuntimeKey, sandbox.LastEnsureSessionRequest.ScopeKey);
+        Assert.True(sandbox.UploadSkillRequests.Count >= 1);
+        Assert.Equal("sandbox-evaluator-1", sandbox.UploadSkillRequests[^1].SandboxId);
     }
 
     private static HireBotDbContext CreateDbContext(string databaseName)
@@ -247,6 +254,9 @@ public sealed class EvaluationServiceSandboxMessageTests
 
     private sealed class RecordingSandboxService : ISandboxService
     {
+        public List<SandboxCreateRequestDto> CreateRequests { get; } = [];
+        public List<SkillPackageUploadRequestDto> UploadSkillRequests { get; } = [];
+
         public SandboxEnsureSessionRequestDto? LastEnsureSessionRequest { get; private set; }
         public SandboxSendMessageRequestDto? LastSendMessageRequest { get; private set; }
         public SandboxTimelineRequestDto? LastTimelineRequest { get; private set; }
@@ -264,10 +274,56 @@ public sealed class EvaluationServiceSandboxMessageTests
             => throw new NotSupportedException();
 
         public Task<ApiResponse<SandboxInstanceDto>> CreateAsync(SandboxCreateRequestDto request, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        {
+            CreateRequests.Add(request);
+            var sandboxId = string.Equals(request.SandboxRole, "evaluation-evaluator", StringComparison.OrdinalIgnoreCase)
+                ? "sandbox-evaluator-1"
+                : "sandbox-target-1";
+            var now = DateTimeOffset.UtcNow;
+            return Task.FromResult(ApiResponse<SandboxInstanceDto>.SuccessResponse(
+                new SandboxInstanceDto(
+                    Guid.NewGuid(),
+                    sandboxId,
+                    request.ScopeType,
+                    request.ScopeKey,
+                    request.SandboxRole,
+                    request.ProvisioningMode,
+                    request.OwnerSubject,
+                    request.TenantId,
+                    request.OperatorId,
+                    "Provisioning",
+                    null,
+                    null,
+                    null,
+                    request.UseCase,
+                    request.TemplateId,
+                    now,
+                    now)));
+        }
 
         public Task<ApiResponse<SandboxInstanceDto>> RefreshAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        {
+            var now = DateTimeOffset.UtcNow;
+            return Task.FromResult(ApiResponse<SandboxInstanceDto>.SuccessResponse(
+                new SandboxInstanceDto(
+                    Guid.NewGuid(),
+                    request.SandboxId ?? "unknown",
+                    request.ScopeType ?? SandboxScopeTypes.Managed,
+                    request.ScopeKey ?? string.Empty,
+                    request.SandboxRole ?? string.Empty,
+                    "managed",
+                    request.OwnerSubject ?? string.Empty,
+                    request.TenantId ?? string.Empty,
+                    request.OperatorId ?? string.Empty,
+                    "Running",
+                    "http://localhost:18789",
+                    null,
+                    null,
+                    null,
+                    null,
+                    now,
+                    now)));
+        }
 
         public Task<ApiResponse<SandboxInstanceDto>> PauseAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
@@ -306,20 +362,51 @@ public sealed class EvaluationServiceSandboxMessageTests
             => throw new NotSupportedException();
 
         public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        {
+            UploadSkillRequests.Add(request);
+            return Task.FromResult(
+                ApiResponse<SkillPackageUploadResultDto>.SuccessResponse(new SkillPackageUploadResultDto(true, null, 1)));
+        }
 
         public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default)
             => Task.FromResult<SandboxInstanceDto?>(null);
     }
 
-    private sealed class NoopSystemSkillRegistry : ISystemSkillRegistry
+    private sealed class FakeEvaluationSystemSkillRegistry : ISystemSkillRegistry
     {
         public Task<IReadOnlyList<SystemSkillPackage>> ListAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult<IReadOnlyList<SystemSkillPackage>>([]);
+
         public Task<SystemSkillPackage?> FindAsync(string skillId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult<SystemSkillPackage?>(null);
+
         public Task<SystemSkillPackage> LoadRequiredAsync(string skillId, string? configuredPath = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        {
+            if (!string.Equals(skillId, "evaluation-expert", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"unknown skill {skillId}");
+            }
+
+            return Task.FromResult(
+                new SystemSkillPackage(
+                    skillId,
+                    "Evaluation Expert",
+                    "test",
+                    "L1",
+                    "active",
+                    "1.0.0",
+                    "main",
+                    "hash",
+                    "/tmp",
+                    "# entry",
+                    string.Empty,
+                    string.Empty,
+                    DateTimeOffset.UtcNow,
+                    [],
+                    [],
+                    [],
+                    [new SystemSkillFileAsset("SKILL.md", "# evaluation-expert", "abc")]));
+        }
     }
 
     private sealed class NoopHiringArtifactPackageService : IHiringArtifactPackageService

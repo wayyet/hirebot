@@ -37,7 +37,7 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         Assert.Equal($"instance:{instance.InstanceId}", sandbox.SendRequests[0].ScopeKey);
         Assert.Equal("runtime", sandbox.SendRequests[0].SandboxRole);
         Assert.Equal("inapp", sandbox.SendRequests[0].SessionKey);
-        Assert.Equal("user: 你好", sandbox.SendRequests[0].Content);
+        Assert.Equal("你好", sandbox.SendRequests[0].Content);
         Assert.NotNull(sandbox.SendRequests[0].Materials);
         Assert.Empty(sandbox.SendRequests[0].Materials!);
         Assert.False(sandbox.SendRequests[0].UploadMaterialsAsAttachments);

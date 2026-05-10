@@ -68,6 +68,7 @@ public sealed class EmployeeRuntimeRetirementCleanupTests
             new FakeRequestContextService("owner-1"),
             dbContext,
             new NoopArtifactCloneService(),
+            new NoopInstanceArtifactResolver(),
             sandboxService,
             kingCrabHttpClient);
     }
