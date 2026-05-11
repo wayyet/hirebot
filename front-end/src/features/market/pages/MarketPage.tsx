@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, Sparkles } from 'lucide-react'
+import { Clock, Search, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { api, type EmployeeTemplateCard, type EmployeeTemplateListData } from '@/infra/api'
@@ -9,7 +9,7 @@ const PAGE_SIZE = 9
 const EMPTY_LIST: EmployeeTemplateListData = {
   page: 1,
   pageSize: PAGE_SIZE,
-  totalCount: 0,
+  total: 0,
   items: [],
 }
 
@@ -26,6 +26,13 @@ function getVisiblePages(current: number, total: number): number[] {
   return pages
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
+
 function tagColor(index: number) {
   const mods = ['blue', 'orange', 'green', 'gray', 'pink', 'purple'] as const
   return mods[index % mods.length]
@@ -36,14 +43,21 @@ function TemplateCard({ template, onClick }: { template: EmployeeTemplateCard; o
     <button type="button" onClick={onClick} className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--hb-border)] bg-[var(--hb-surface-card)] p-6 text-left shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:shadow-lg hover:opacity-90">
       <h3 className="text-base font-semibold text-[var(--hb-near-black)]">{template.name}</h3>
 
-      <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[var(--hb-body)]">{template.tagline}</p>
+      <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[var(--hb-body)]">{template.positioning}</p>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {template.coreAbilityTags.slice(0, 4).map((tag, index) => (
+        {template.tags.slice(0, 4).map((tag, index) => (
           <span key={tag} className={`hb-pill ${tagColor(index)}`}>
             {tag}
           </span>
         ))}
+      </div>
+
+      <div className="mt-auto pt-4">
+        <div className="flex items-center gap-1.5 border-t border-[var(--hb-border)] pt-3 text-xs text-[var(--hb-soft)]">
+          <Clock size={12} />
+          <span>更新于 {formatDate(template.updatedAt)}</span>
+        </div>
       </div>
     </button>
   )
@@ -103,7 +117,7 @@ export default function MarketPage() {
     }
   }, [page, query])
 
-  const totalPages = Math.max(1, Math.ceil(listData.totalCount / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(listData.total / PAGE_SIZE))
   const visiblePages = useMemo(() => getVisiblePages(page, totalPages), [page, totalPages])
 
   return (
@@ -142,7 +156,7 @@ export default function MarketPage() {
           <span className="hb-pill gray">{t('common.globalGeneral')}</span>
           <span className="hb-pill gray">{t('common.enterpriseSpecific')}</span>
         </div>
-        <span className="text-xs text-[var(--hb-soft)]">{t('market.templateCount', { count: listData.totalCount })}</span>
+        <span className="text-xs text-[var(--hb-soft)]">{t('market.templateCount', { count: listData.total })}</span>
       </div>
 
       {error ? (
@@ -165,9 +179,9 @@ export default function MarketPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {listData.items.map((template) => (
               <TemplateCard
-                key={template.templateId}
+                key={template.id}
                 template={template}
-                onClick={() => navigate(`/templates/${template.templateId}`)}
+                onClick={() => navigate(`/templates/${template.id}`)}
               />
             ))}
           </div>

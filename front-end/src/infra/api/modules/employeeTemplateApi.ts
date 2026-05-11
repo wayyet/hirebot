@@ -1,25 +1,50 @@
-import { httpClient } from '../httpClient'
+import { createRawHttpClient, httpClient } from '../httpClient'
 
-export interface TemplateTrustProof {
-  hiredCount: number
-  successRate: number
-  avgRating: number
+// 从运行时配置读取模板池独立服务地址，未配置时回退到主服务（空字符串）
+const templateApiBase =
+  (typeof window !== 'undefined' ? window.__AUTH_CONFIG__?.TemplateApiBase : undefined) ??
+  (import.meta.env.VITE_TEMPLATE_API_BASE_URL as string | undefined) ??
+  ''
+
+// 模板池专用裸响应客户端（BuildService 响应不含 {code,success,data} 包装）
+const templateRawClient = createRawHttpClient(templateApiBase)
+
+export interface TemplateLatestVersion {
+  id: string
+  version: string
+  changeLog: string
+  publishedAt: string
+  packageUrl: string
+  hasPackage: boolean
+  packageStatus: string
+  unavailableReason: string | null
 }
 
 export interface EmployeeTemplateCard {
-  templateId: string
-  iconUrl: string
+  id: string
   name: string
-  tagline: string
-  coreAbilityTags: string[]
-  trustProof: TemplateTrustProof
-  isAvailable: boolean
+  displayName: string
+  positioning: string
+  description: string
+  currentVersion: string
+  installCount: number
+  updatedAt: string
+  status: string
+  /** JSON 字符串，需要 JSON.parse 后使用 */
+  useCases: string
+  tags: string[]
+  skillCount: number
+  requiredSkillCount: number
+  hasPackage: boolean
+  packageStatus: string
+  unavailableReason: string | null
+  latestVersion: TemplateLatestVersion | null
 }
 
 export interface EmployeeTemplateListData {
   page: number
   pageSize: number
-  totalCount: number
+  total: number
   items: EmployeeTemplateCard[]
 }
 
@@ -85,14 +110,16 @@ export interface FixtureTemplateHireResult {
 }
 
 export const employeeTemplateApi = {
+  // --- BuildService 接口（裸响应）---
   getList(params: {
     q?: string
     page?: number
     pageSize?: number
   }) {
-    return httpClient.get<EmployeeTemplateListData>('/api/v1/employee-templates', params)
+    return templateRawClient.get<EmployeeTemplateListData>('/api/store/templates', params)
   },
 
+  // --- 内部 HireBot API（带 envelope）---
   getDetail(templateId: string) {
     return httpClient.get<EmployeeTemplateDetail>(`/api/v1/employee-templates/${templateId}`)
   },

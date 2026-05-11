@@ -26,7 +26,7 @@ export type {
 } from './types'
 
 export type {
-  TemplateTrustProof,
+  TemplateLatestVersion,
   EmployeeTemplateCard,
   EmployeeTemplateListData,
   TemplateResponsibilityBoundary,
