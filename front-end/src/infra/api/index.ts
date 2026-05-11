@@ -86,6 +86,7 @@ export type {
   HiringCredentialBindingRequest,
   HiringConfigFileUpdateRequest,
   HiringArtifactsDownloadData,
+  HandoffItem,
 } from './modules/hiringWorkflowApi'
 
 export type {

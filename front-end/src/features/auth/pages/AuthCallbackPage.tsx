@@ -29,8 +29,8 @@ export default function AuthCallbackPage() {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[oidc] callback 处理失败:', msg)
         setError(msg)
-        // 3 秒后自动跳回登录页
-        setTimeout(() => window.location.replace('/login'), 3000)
+        // 3 秒后自动跳回首页
+        setTimeout(() => window.location.replace('/'), 3000)
       })
   }, [])
 
@@ -40,7 +40,7 @@ export default function AuthCallbackPage() {
         <div className="hb-section max-w-md w-full">
           <h1 className="hb-page-title text-red-600">登录回调失败</h1>
           <p className="hb-page-copy mt-2 text-red-500">{error}</p>
-          <p className="mt-4 text-sm text-slate-500">3 秒后自动跳转到登录页...</p>
+          <p className="mt-4 text-sm text-slate-500">3 秒后自动跳转到首页...</p>
         </div>
       </div>
     )

@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, LogOut } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Globe, Loader2, LogOut, Moon, Sparkles, Sun } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 import {
   UserRoleContext,
   type HirebotUserRole,
@@ -13,7 +15,7 @@ const ROLE_STORAGE_KEY = "hirebot_user_role_v1";
 
 type NavItem = {
   path: string;
-  label: string;
+  labelKey: string;
   managerOnly?: boolean;
   alwaysVisible?: boolean;
   isNew?: boolean;
@@ -22,12 +24,12 @@ type NavItem = {
 const navItems: NavItem[] = [
   {
     path: "/template-pool",
-    label: "企业模板池",
+    labelKey: "nav.templatePool",
     managerOnly: true,
     isNew: true,
   },
-  { path: "/department-employees", label: "部门数字员工", alwaysVisible: true },
-  { path: "/my-employees", label: "我的数字员工", alwaysVisible: true },
+  { path: "/department-employees", labelKey: "nav.departmentEmployees", alwaysVisible: true },
+  { path: "/my-employees", labelKey: "nav.myEmployees", alwaysVisible: true },
 ];
 
 function deriveDefaultRole(): HirebotUserRole {
@@ -70,10 +72,56 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { showToast } = useUxOverlay();
+  const { t } = useTranslation();
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [userDisplayName, setUserDisplayName] = useState<string>("");
   const [loadingUser, setLoadingUser] = useState(true);
+
+  // Dark / light theme
+  const [isDark, setIsDark] = useState(
+    () => localStorage.getItem("ncrew-hire-theme") === "dark",
+  );
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", isDark);
+    localStorage.setItem("ncrew-hire-theme", isDark ? "dark" : "light");
+  }, [isDark]);
+
+  // Language switcher
+  const [langOpen, setLangOpen] = useState(false);
+  const langRef = useRef<HTMLDivElement>(null);
+  const currentLang = i18n.language ?? "zh";
+
+  useEffect(() => {
+    function handleOutside(e: MouseEvent) {
+      if (langRef.current && !langRef.current.contains(e.target as Node)) {
+        setLangOpen(false);
+      }
+    }
+    if (langOpen) document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [langOpen]);
+
+  // User dropdown
+  const [userOpen, setUserOpen] = useState(false);
+  const userRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleOutside(e: MouseEvent) {
+      if (userRef.current && !userRef.current.contains(e.target as Node)) {
+        setUserOpen(false);
+      }
+    }
+    if (userOpen) document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [userOpen]);
+
+  async function switchLang(lang: string) {
+    await i18n.changeLanguage(lang);
+    localStorage.setItem("ncrew-hire-lang", lang);
+    setLangOpen(false);
+  }
 
   useEffect(() => {
     localStorage.setItem(ROLE_STORAGE_KEY, role);
@@ -111,95 +159,162 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   async function handleLogout() {
     if (logoutLoading) return;
-
     setLogoutLoading(true);
     try {
       await signOut();
     } catch (logoutError: unknown) {
       setLogoutLoading(false);
       showToast(
-        logoutError instanceof Error
-          ? logoutError.message
-          : "退出登录失败，请稍后重试",
+        logoutError instanceof Error ? logoutError.message : t("user.logoutFailed"),
         "error",
       );
     }
   }
+
+  const displayName = loadingUser ? t("user.loading") : userDisplayName || t("user.defaultName");
+  const avatarLetter = loadingUser ? "?" : (userDisplayName?.charAt(0)?.toUpperCase() ?? "?");
 
   return (
     <UserRoleContext.Provider value={{ role, setRole }}>
       <div className="hb-shell">
         <header className="hb-topnav">
           <div className="hb-topnav-inner">
+
+            {/* ── Brand ── */}
             <Link
-              to={
-                role === "manager" ? "/template-pool" : "/department-employees"
-              }
+              to={role === "manager" ? "/template-pool" : "/department-employees"}
               className="hb-brand"
             >
-              <span className="hb-brand-logo">雇</span>
-              <span className="hb-brand-text">HireBot 雇佣端</span>
+              <div className="hb-brand-logo">
+                <Sparkles size={16} color="#fff" />
+              </div>
+              <div className="hb-brand-body">
+                <span className="hb-brand-name">{t("brand.name")}</span>
+                <span className="hb-brand-tagline">{t("brand.tagline")}</span>
+              </div>
             </Link>
 
-            <nav className="hb-nav">
+            {/* ── Nav pill group ── */}
+            <nav className="hb-nav-pill-shell">
               {visibleNavItems.map((item) => {
                 const active = isNavItemActive(location.pathname, item.path);
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`hb-nav-item ${active ? "is-active" : ""}`}
+                    className={`hb-nav-pill-item${active ? " is-active" : ""}`}
                   >
-                    {item.label}
-                    {item.isNew ? (
-                      <span className="hb-nav-flag">new</span>
-                    ) : null}
+                    {t(item.labelKey)}
+                    {item.isNew ? <span className="hb-nav-flag">new</span> : null}
+                    {active && <span className="hb-nav-pill-dot" />}
                   </Link>
                 );
               })}
             </nav>
 
-            <div className="hb-nav-right">
+            {/* ── Right actions ── */}
+            <div className="hb-nav-actions">
+
+              {/* Role switch */}
               <div className="hb-role-switch">
                 <button
                   type="button"
                   className={role === "manager" ? "is-active" : ""}
                   onClick={() => setRole("manager")}
                 >
-                  🧑‍💼 部门长
+                  {t("role.manager")}
                 </button>
                 <button
                   type="button"
                   className={role === "member" ? "is-active" : ""}
                   onClick={() => setRole("member")}
                 >
-                  🧑‍💻 普通成员
+                  {t("role.member")}
                 </button>
               </div>
-              <div className="hb-user-chip">
-                <span className="hb-user-avatar">
-                  {loadingUser ? "?" : (userDisplayName?.charAt(0) ?? "?")}
-                </span>
-                <span>
-                  {loadingUser ? "加载中..." : userDisplayName || "用户"} ·{" "}
-                  {role}
-                </span>
-              </div>
-              {!isAuthBypassed && (
+
+              {/* Theme toggle */}
+              <button
+                type="button"
+                className="hb-icon-btn"
+                title={t("theme.toggle")}
+                onClick={() => setIsDark((prev) => !prev)}
+              >
+                {isDark ? <Sun size={15} /> : <Moon size={15} />}
+              </button>
+
+              {/* Language switcher */}
+              <div className="hb-lang-dropdown" ref={langRef}>
                 <button
                   type="button"
-                  onClick={() => void handleLogout()}
-                  className="hb-btn-ghost !px-3 !py-1.5 !text-xs text-[#b91c1c] hover:!bg-[#fef2f2]"
-                  disabled={logoutLoading}
+                  className="hb-nav-utility-btn"
+                  title={t("language.toggle")}
+                  onClick={() => { setLangOpen((v) => !v); setUserOpen(false); }}
                 >
-                  {logoutLoading ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <LogOut size={12} />
-                  )}
-                  退出登录
+                  <Globe size={14} />
+                  <span>{currentLang === "zh" ? "中文" : "EN"}</span>
+                  <ChevronDown
+                    size={12}
+                    style={{
+                      transform: langOpen ? "rotate(180deg)" : "none",
+                      transition: "transform 180ms ease",
+                    }}
+                  />
                 </button>
-              )}
+                {langOpen && (
+                  <div className="hb-dropdown-menu">
+                    {(["zh", "en"] as const).map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        className={`hb-dropdown-item${currentLang === code ? " is-active" : ""}`}
+                        onClick={() => void switchLang(code)}
+                      >
+                        {t(`language.${code}`)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* User dropdown */}
+              <div className="hb-user-dropdown" ref={userRef}>
+                <button
+                  type="button"
+                  className="hb-user-btn"
+                  onClick={() => { setUserOpen((v) => !v); setLangOpen(false); }}
+                >
+                  <div className="hb-user-avatar">{avatarLetter}</div>
+                  <span className="hb-user-name">{displayName}</span>
+                  <ChevronDown
+                    size={12}
+                    style={{
+                      transform: userOpen ? "rotate(180deg)" : "none",
+                      transition: "transform 180ms ease",
+                      flexShrink: 0,
+                    }}
+                  />
+                </button>
+                {userOpen && (
+                  <div className="hb-dropdown-menu hb-dropdown-menu--right">
+                    {!isAuthBypassed && (
+                      <button
+                        type="button"
+                        className="hb-dropdown-item hb-dropdown-item--danger"
+                        disabled={logoutLoading}
+                        onClick={() => { setUserOpen(false); void handleLogout(); }}
+                      >
+                        {logoutLoading
+                          ? <Loader2 size={13} className="animate-spin" />
+                          : <LogOut size={13} />
+                        }
+                        {t("user.logout")}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
             </div>
           </div>
         </header>
@@ -207,11 +322,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <button
           type="button"
           className="hb-feedback-strip"
-          onClick={() =>
-            showToast("反馈入口已收到，后续将接入真实表单", "info")
-          }
+          onClick={() => showToast(t("feedback.sent"), "info")}
         >
-          建议反馈
+          {t("nav.feedback")}
         </button>
       </div>
     </UserRoleContext.Provider>

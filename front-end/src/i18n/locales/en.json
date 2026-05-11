@@ -1,0 +1,182 @@
+{
+  "brand": {
+    "name": "NCrew Hire",
+    "tagline": "Digital Workforce Platform",
+    "footer": "NCrew Hire · Digital Workforce Platform"
+  },
+  "nav": {
+    "templatePool": "Template Pool",
+    "departmentEmployees": "Department Employees",
+    "myEmployees": "My Employees",
+    "skills": "Skills",
+    "feedback": "Feedback"
+  },
+  "role": {
+    "manager": "Manager",
+    "member": "Member",
+    "label": "Role"
+  },
+  "user": {
+    "loading": "Loading...",
+    "defaultName": "User",
+    "logout": "Sign Out",
+    "logoutFailed": "Sign out failed, please try again"
+  },
+  "common": {
+    "loading": "Loading...",
+    "new": "new",
+    "search": "Search",
+    "previous": "Previous",
+    "next": "Next",
+    "total": "{{count}} total",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "back": "Back",
+    "allTypes": "All",
+    "globalGeneral": "Global",
+    "enterpriseSpecific": "Enterprise"
+  },
+  "theme": {
+    "toggle": "Toggle Theme",
+    "light": "Light Mode",
+    "dark": "Dark Mode"
+  },
+  "language": {
+    "toggle": "Switch Language",
+    "zh": "中文",
+    "en": "English"
+  },
+  "auth": {
+    "headerTag": "Unified Auth Entry",
+    "kicker": "Digital Workforce Platform",
+    "title1": "Hire Your Next",
+    "title2": "Digital Employee",
+    "copy": "From template selection and hiring, to onboarding and collaboration, NCrew Hire unifies the entire digital employee hiring workflow in one place.",
+    "primaryLabel": "Sign In",
+    "primaryLabelLoading": "Checking auth status...",
+    "bypassHeaderTag": "Dev Bypass",
+    "bypassKicker": "Local Dev Mode",
+    "bypassTitle1": "Auth Skipped",
+    "bypassTitle2": "Redirecting to",
+    "bypassCopy": "The frontend is in dev bypass mode. This page is a placeholder and will redirect to your requested route.",
+    "oidcConnected": "OIDC Connected",
+    "oidcNotConfigured": "OIDC Not Configured",
+    "oidcConnectedDesc": "Sign in with unified identity authentication, then continue to the page you were viewing.",
+    "oidcNotConfiguredDesc": "Please check your frontend runtime config or environment variables to ensure the auth service is reachable.",
+    "authStatus": "Auth Status",
+    "needsAttention": "Needs Attention",
+    "devModeRunning": "Dev Mode Active",
+    "devModeDesc": "To test the real auth flow, disable the bypass mode and reload this page.",
+    "runningStatus": "Runtime Status",
+    "redirectTo": "After auth you will be redirected to {{path}}",
+    "currentTarget": "Current target path: {{path}}",
+    "highlights": {
+      "template": "Templates direct to hiring",
+      "onboarding": "Onboarding & collaboration",
+      "security": "Unified auth & secure access"
+    },
+    "redirectLabels": {
+      "templatePool": "Template Pool",
+      "departmentEmployees": "Department Employees",
+      "myEmployees": "My Employees",
+      "templateDetail": "Template Detail",
+      "hiringFlow": "Hiring Flow",
+      "instanceDetail": "Employee Detail"
+    }
+  },
+  "market": {
+    "kicker": "Manager Portal",
+    "title": "Start from the template pool to complete a",
+    "titleAccent": "department hiring",
+    "titleEnd": "workflow",
+    "copy": "Browse existing templates and initiate formal hiring. Actions are focused: search, view details, and start hiring.",
+    "searchPlaceholder": "Search templates by name, scenario, or capability",
+    "exploreAll": "Explore All Templates",
+    "templateCount": "{{count}} templates",
+    "loading": "Loading templates...",
+    "empty": "No matching templates found",
+    "emptyCopy": "Try a different keyword, or wait for more templates to be synced.",
+    "prevPage": "Previous",
+    "nextPage": "Next"
+  },
+  "hiring": {
+    "title": "Start Hiring",
+    "steps": "Hiring Workflow Steps"
+  },
+  "employees": {
+    "department": {
+      "title": "Department Digital Employees",
+      "copy": "View and manage all digital employees in your department"
+    },
+    "my": {
+      "title": "My Digital Employees",
+      "copy": "Manage digital employees you are directly responsible for"
+    }
+  },
+  "skills": {
+    "title": "Skill Library",
+    "copy": "Manage skill modules available to digital employees"
+  },
+  "feedback": {
+    "sent": "Feedback received, a real form will be connected soon"  },
+  "landing": {
+    "badge": "Digital Workforce Hiring Platform",
+    "heroTitle1": "Hire Your Next",
+    "heroTitle2": "Digital Employee",
+    "heroSubtitle": "From template selection and hiring, to onboarding and collaboration, NCrew Hire unifies the entire digital workforce workflow in one place.",
+    "loginBtn": "Sign In",
+    "enterConsole": "Go to Dashboard",
+    "ctaPrimary": "Get Started",
+    "ctaLearnMore": "Learn More",
+    "featuresLabel": "Core Features",
+    "featuresTitle": "End-to-End Digital Employee Hiring",
+    "featuresSubtitle": "Every step of the hiring journey has a dedicated module.",
+    "feature": {
+      "templatePool": {
+        "title": "Template Pool",
+        "desc": "Browse curated enterprise templates and launch the hiring process in one click."
+      },
+      "hiring": {
+        "title": "Hiring Flow",
+        "desc": "Configure roles, permissions, and complete the multi-stage standardized hiring approval."
+      },
+      "employees": {
+        "title": "Employee Management",
+        "desc": "View and manage all digital employees across departments, tracking status and onboarding progress."
+      },
+      "onboarding": {
+        "title": "Onboarding",
+        "desc": "Complete pre-deployment configuration steps including permissions, channel setup, and initialization."
+      },
+      "skills": {
+        "title": "Skills Library",
+        "desc": "Configure and extend skill packages to enhance performance in specific business scenarios."
+      },
+      "collaboration": {
+        "title": "Collaboration",
+        "desc": "Integrate with DingTalk, Feishu, and other IM tools for seamless team collaboration."
+      }
+    },
+    "stepsLabel": "Hiring Process",
+    "stepsTitle": "Three Steps to Hire",
+    "step": {
+      "browse": {
+        "title": "Choose a Template",
+        "desc": "Search the enterprise template pool for the digital employee that fits your business needs."
+      },
+      "hire": {
+        "title": "Start Hiring",
+        "desc": "Configure the role, set permissions and channels, then submit the hiring request for approval."
+      },
+      "onboard": {
+        "title": "Onboard & Deploy",
+        "desc": "Follow the onboarding guide to initialize the digital employee and connect to collaboration channels."
+      }
+    },
+    "finalCtaTitle": "Start Hiring Digital Employees",
+    "finalCtaCopy": "Sign in to NCrew Hire and begin configuring your digital workforce."  }
+}

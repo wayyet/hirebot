@@ -1,0 +1,184 @@
+{
+  "brand": {
+    "name": "NCrew Hire",
+    "tagline": "数字员工雇佣端",
+    "footer": "NCrew Hire · 数字员工雇佣端"
+  },
+  "nav": {
+    "templatePool": "企业模板池",
+    "departmentEmployees": "部门数字员工",
+    "myEmployees": "我的数字员工",
+    "skills": "技能库",
+    "feedback": "建议反馈"
+  },
+  "role": {
+    "manager": "部门长",
+    "member": "普通成员",
+    "label": "角色"
+  },
+  "user": {
+    "loading": "加载中...",
+    "defaultName": "用户",
+    "logout": "退出登录",
+    "logoutFailed": "退出登录失败，请稍后重试"
+  },
+  "common": {
+    "loading": "加载中...",
+    "new": "new",
+    "search": "搜索",
+    "previous": "上一页",
+    "next": "下一页",
+    "total": "共 {{count}} 个",
+    "cancel": "取消",
+    "confirm": "确认",
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "close": "关闭",
+    "back": "返回",
+    "allTypes": "全部",
+    "globalGeneral": "全局通用",
+    "enterpriseSpecific": "企业专属"
+  },
+  "theme": {
+    "toggle": "切换主题",
+    "light": "浅色模式",
+    "dark": "深色模式"
+  },
+  "language": {
+    "toggle": "切换语言",
+    "zh": "中文",
+    "en": "English"
+  },
+  "auth": {
+    "headerTag": "统一认证入口",
+    "kicker": "数字员工雇佣端",
+    "title1": "雇佣下一位",
+    "title2": "数字员工",
+    "copy": "从模板挑选、发起雇佣，到完成入职与上岗协作，NCrew Hire 将整个数字员工雇佣流程收束到同一个入口。",
+    "primaryLabel": "进入统一登录",
+    "primaryLabelLoading": "检查登录状态中...",
+    "bypassHeaderTag": "开发态直通",
+    "bypassKicker": "本地开发模式",
+    "bypassTitle1": "已跳过登录",
+    "bypassTitle2": "正在进入",
+    "bypassCopy": "当前前端处于开发态跳过登录模式，本页只作为入口占位，页面将直接进入你刚才请求的业务路径。",
+    "oidcConnected": "OIDC 已连接",
+    "oidcNotConfigured": "OIDC 尚未配置",
+    "oidcConnectedDesc": "使用统一身份认证完成登录，随后继续你刚才访问的页面。",
+    "oidcNotConfiguredDesc": "请检查前端运行时配置或环境变量，确保认证服务地址可用后再登录。",
+    "authStatus": "认证状态",
+    "needsAttention": "需要处理",
+    "devModeRunning": "开发态已开启",
+    "devModeDesc": "如果你想验证真实登录流程，请关闭跳过登录配置后重新访问当前页面。",
+    "runningStatus": "运行状态",
+    "redirectTo": "认证成功后会自动返回 {{path}}",
+    "currentTarget": "当前目标路径：{{path}}",
+    "highlights": {
+      "template": "模板直达雇佣流程",
+      "onboarding": "入职配置与上岗协作",
+      "security": "统一认证与安全访问"
+    },
+    "redirectLabels": {
+      "templatePool": "模板广场",
+      "departmentEmployees": "部门数字员工",
+      "myEmployees": "我的数字员工",
+      "templateDetail": "模板详情",
+      "hiringFlow": "雇佣流程",
+      "instanceDetail": "数字员工详情"
+    }
+  },
+  "market": {
+    "kicker": "部门长入口",
+    "title": "从模板池出发，完成一条完整的",
+    "titleAccent": "部门版雇佣",
+    "titleEnd": "流程",
+    "copy": "这里不生产模板，只负责选择已有模板并进入正式雇佣。页面动作收敛为搜索、查看详情、发起雇佣。",
+    "searchPlaceholder": "搜索模板名称、场景、能力关键词",
+    "exploreAll": "探索全部模板",
+    "templateCount": "共 {{count}} 个模板",
+    "loading": "模板加载中...",
+    "empty": "没有找到匹配模板",
+    "emptyCopy": "尝试更换关键词，或等待更多模板被同步到模板池中。",
+    "prevPage": "上一页",
+    "nextPage": "下一页"
+  },
+  "hiring": {
+    "title": "发起雇佣",
+    "steps": "雇佣流程步骤"
+  },
+  "employees": {
+    "department": {
+      "title": "部门数字员工",
+      "copy": "查看和管理你所在部门的所有数字员工"
+    },
+    "my": {
+      "title": "我的数字员工",
+      "copy": "管理你直接负责的数字员工"
+    }
+  },
+  "skills": {
+    "title": "技能库",
+    "copy": "管理数字员工可用的技能模块"
+  },
+  "feedback": {
+    "sent": "反馈入口已收到，后续将接入真实表单"
+  },
+  "landing": {
+    "badge": "数字员工雇佣平台",
+    "heroTitle1": "雇佣你的下一位",
+    "heroTitle2": "数字员工",
+    "heroSubtitle": "从模板挑选、发起雇佣，到完成入职与上岗协作，NCrew Hire 将整个数字员工雇佣流程收束到同一个入口。",
+    "loginBtn": "登录",
+    "enterConsole": "进入工作台",
+    "ctaPrimary": "立即登录",
+    "ctaLearnMore": "了解更多",
+    "featuresLabel": "核心能力",
+    "featuresTitle": "一站式数字员工雇佣",
+    "featuresSubtitle": "从选择到上岗，每个环节都有对应的专属功能模块。",
+    "feature": {
+      "templatePool": {
+        "title": "企业模板池",
+        "desc": "从经过审核的企业模板库中挑选最适合的数字员工角色，一键进入雇佣流程。"
+      },
+      "hiring": {
+        "title": "雇佣流程",
+        "desc": "填写岗位信息，配置能力权限，完成多阶段的标准化雇佣审批。"
+      },
+      "employees": {
+        "title": "员工管理",
+        "desc": "统一查看部门与个人名下的所有数字员工，追踪状态与上岗进度。"
+      },
+      "onboarding": {
+        "title": "入职配置",
+        "desc": "完成上岗前的配置步骤，包括权限分配、渠道接入与初始化测试。"
+      },
+      "skills": {
+        "title": "技能库",
+        "desc": "为数字员工配置和扩展技能包，提升其在特定业务场景中的执行能力。"
+      },
+      "collaboration": {
+        "title": "协作管理",
+        "desc": "接入钉钉、飞书等即时通讯工具，让数字员工无缝融入团队日常协作。"
+      }
+    },
+    "stepsLabel": "雇佣步骤",
+    "stepsTitle": "三步完成数字员工雇佣",
+    "step": {
+      "browse": {
+        "title": "选择合适的模板",
+        "desc": "在企业模板池中搜索并找到最符合业务需求的数字员工模板。"
+      },
+      "hire": {
+        "title": "发起雇佣",
+        "desc": "填写岗位配置，设定权限与协作渠道，提交雇佣申请并完成审批。"
+      },
+      "onboard": {
+        "title": "完成入职上岗",
+        "desc": "通过入职配置引导，完成数字员工的初始化与渠道接入，正式上岗。"
+      }
+    },
+    "finalCtaTitle": "开始你的数字员工雇佣",
+    "finalCtaCopy": "立即登录，进入 NCrew Hire 工作台，为团队配置专属数字员工。"
+  }
+}
