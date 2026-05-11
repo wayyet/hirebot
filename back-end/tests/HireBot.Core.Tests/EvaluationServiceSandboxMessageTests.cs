@@ -207,6 +207,9 @@ public sealed class EvaluationServiceSandboxMessageTests
         public Task<ApiResponse<HiringConversationControlResultDto>> PauseConversationAsync(string hireId, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<HiringConversationControlResultDto>.ErrorResponse(501, "not used"));
 
+        public Task<ApiResponse<StartHiringConversationResultDto>> ResetConversationAsync(string hireId, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<StartHiringConversationResultDto>.ErrorResponse(501, "not used"));
+
         public Task<ApiResponse<HiringConversationControlResultDto>> ResumeConversationAsync(string hireId, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<HiringConversationControlResultDto>.ErrorResponse(501, "not used"));
 
@@ -297,6 +300,7 @@ public sealed class EvaluationServiceSandboxMessageTests
                     null,
                     request.UseCase,
                     request.TemplateId,
+                    false,
                     now,
                     now)));
         }
@@ -321,6 +325,7 @@ public sealed class EvaluationServiceSandboxMessageTests
                     null,
                     null,
                     null,
+                    false,
                     now,
                     now)));
         }

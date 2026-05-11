@@ -379,6 +379,13 @@ export default function HiringPage() {
       setMessages(prev => timeline.messages.length >= prev.length ? mapTimelineMessagesToChat(timeline.messages) : prev)
     }
     setWorkflowState(nextWorkflowState)
+    console.log(
+      '[syncWorkflowState] HireId=%s handoffItems=%d workflowTodos=%d diagnosticTodos=%d',
+      hireId,
+      nextWorkflowState.handoffItems?.length ?? 0,
+      nextWorkflowState.workflowTodos?.length ?? 0,
+      nextWorkflowState.latestDiagnosticReport?.diagnosticTodos?.length ?? 0,
+    )
     if (nextWorkflowState.collectionPhase === HiringCollectionPhase.Finalized) {
       setInstanceCreated(true)
     }

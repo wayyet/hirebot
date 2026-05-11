@@ -1099,6 +1099,9 @@ public sealed class SandboxDelegationTests
         public Task<ApiResponse<HiringConversationControlResultDto>> PauseConversationAsync(string hireId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<ApiResponse<StartHiringConversationResultDto>> ResetConversationAsync(string hireId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<ApiResponse<HiringConversationControlResultDto>> ResumeConversationAsync(string hireId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

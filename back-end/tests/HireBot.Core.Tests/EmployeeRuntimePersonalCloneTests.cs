@@ -363,6 +363,7 @@ public sealed class EmployeeRuntimePersonalCloneTests
                     null,
                     "runtime-chat-for:test",
                     null,
+                    true,
                     DateTimeOffset.UtcNow,
                     DateTimeOffset.UtcNow));
     }

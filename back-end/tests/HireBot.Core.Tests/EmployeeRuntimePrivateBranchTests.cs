@@ -512,7 +512,7 @@ public sealed class EmployeeRuntimePrivateBranchTests
                 new SandboxInstanceDto(
                     Guid.NewGuid(), "sbx_test", "hire", "instance:test", "runtime", "managed",
                     "owner-1", "tenant-default", "operator-1", "Running", "http://gateway.local",
-                    null, null, "runtime-chat-for:test", null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+                    null, null, "runtime-chat-for:test", null, true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
     }
 
     private sealed class NoopKingCrabHttpClient : IKingCrabHttpClient

@@ -148,21 +148,33 @@ internal sealed class EmployeeHiringService(
                     cancellationToken);
             }
 
-            hireOwners[existingInstance.ScopeKey] = new HireOwnerContext(
-                OwnerSubject: ownerSubject,
-                TenantId: tenantId,
-                OperatorId: operatorId,
-                TemplateId: normalizedTemplateId,
-                TemplateName: template.Name,
-                EmployeeId: null);
+            if (existingInstance.IsInitialized)
+            {
+                hireOwners[existingInstance.ScopeKey] = new HireOwnerContext(
+                    OwnerSubject: ownerSubject,
+                    TenantId: tenantId,
+                    OperatorId: operatorId,
+                    TemplateId: normalizedTemplateId,
+                    TemplateName: template.Name,
+                    EmployeeId: null);
 
-            return ApiResponse<HireTemplateResultDto>.SuccessResponse(
-                new HireTemplateResultDto(
-                    existingInstance.ScopeKey,
-                    existingInstance.SandboxId,
-                    existingInstance.State,
-                    "continue_conversation"),
-                "已复用现有沙箱");
+                return ApiResponse<HireTemplateResultDto>.SuccessResponse(
+                    new HireTemplateResultDto(
+                        existingInstance.ScopeKey,
+                        existingInstance.SandboxId,
+                        existingInstance.State,
+                        "continue_conversation"),
+                    "已复用现有沙箱");
+            }
+
+            // 沙箱存在但未初始化（被删除后由 RefreshAsync 自动重建的空壳），清理后走正常创建流程。
+            logger.LogInformation(
+                "Existing sandbox is not initialized (recreated after deletion), cleaning up and provisioning fresh. OldSandboxId={OldSandboxId}, HireId={HireId}",
+                existingInstance.SandboxId,
+                existingInstance.ScopeKey);
+            await sandboxService.DeleteAsync(
+                new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
+                cancellationToken);
         }
 
         var provisionResult = await ProvisionManagedHireSandboxAsync(
@@ -181,8 +193,6 @@ internal sealed class EmployeeHiringService(
         var call = RemoteCallResult<HireTemplateResultDto>.Ok(new HireTemplateResultDto(
             provisionResult.Data.HireId,
             provisionResult.Data.SandboxId,
-            // ProvisionManagedHireSandboxAsync 已同步等待沙箱就绪，此时 State 为 "Running"。
-            // 对前端统一映射为 "READY"，使前端轮询可以立即跳过等待。
             string.Equals(provisionResult.Data.State, "Running", StringComparison.OrdinalIgnoreCase)
                 ? "READY"
                 : provisionResult.Data.State,
@@ -253,8 +263,8 @@ internal sealed class EmployeeHiringService(
                 string.IsNullOrWhiteSpace(conversationStartResponse.Message) ? "雇佣会话创建失败" : conversationStartResponse.Message);
         }
 
-        hiringRuntimeStore.Upsert(hiringRuntimeStore.Get(call.Data.HireId) is { } existingRuntime
-            ? existingRuntime with { SessionId = conversationStartResponse.Data.SessionId }
+        hiringRuntimeStore.Upsert(hiringRuntimeStore.Get(call.Data.HireId) is { } runtimeWithNewSession
+            ? runtimeWithNewSession with { SessionId = conversationStartResponse.Data.SessionId }
             : new HiringRuntimeContext
             {
                 HireId = call.Data.HireId,
@@ -366,6 +376,9 @@ internal sealed class EmployeeHiringService(
                 TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
             });
         }
+
+        // 标记沙箱已完成初始化（模板包上传 + 冷启动提示词）
+        await SetSandboxInitializedAsync(provisionResult.Data.SandboxId, cancellationToken);
 
         var uploadedPackageId = templatePackageCall.Data?.PackageId ?? roleTemplatePackage.PackageId;
         var uploadedPackageVersion = templatePackageCall.Data?.PackageVersion ?? roleTemplatePackage.PackageVersion;
@@ -1344,6 +1357,13 @@ internal sealed class EmployeeHiringService(
             IsConversationPaused: runtimeContext.IsConversationPaused,
             IsConversationResponding: IsConversationResponding(normalizedHireId, runtimeContext));
 
+        logger.LogInformation(
+            "GetWorkflowState building response: HireId={HireId}, HandoffItems={HandoffCount}, DiagnosticTodos={DiagCount}, ConfigPendingTodos={ConfigPendingCount}",
+            normalizedHireId,
+            workflowState.HandoffItems?.Count ?? 0,
+            workflowState.LatestDiagnosticReport?.DiagnosticTodos?.Count ?? 0,
+            workflowState.ConfigGovernance?.PendingReviewHandoffIds?.Count ?? 0);
+
         return ApiResponse<HiringWorkflowStateDto>.SuccessResponse(workflowState);
     }
 
@@ -1714,10 +1734,18 @@ internal sealed class EmployeeHiringService(
             return runtimeContext;
         }
 
+        var sandboxHandoffCount = sessionDetailResult.Data.HandoffItems.Count;
+        var projectedHandoffItems = ProjectHandoffItems(sessionDetailResult.Data.HandoffItems);
+        logger.LogInformation(
+            "RefreshHandoffStateFromSandbox: SessionId={SessionId}, SandboxHandoffCount={SandboxCount}, ProjectedCount={ProjectedCount}",
+            runtimeContext.SessionId,
+            sandboxHandoffCount,
+            projectedHandoffItems.Count);
+
         return runtimeContext with
         {
             SessionId = sessionDetailResult.Data.SessionId,
-            HandoffItems = ProjectHandoffItems(sessionDetailResult.Data.HandoffItems)
+            HandoffItems = projectedHandoffItems
         };
     }
 
@@ -3312,6 +3340,19 @@ This is the bootstrap skill for evaluation sandbox orchestration.
                     rule.RequiredFields,
                     rule.Description))
                 .ToArray()));
+    }
+
+    private async Task SetSandboxInitializedAsync(string sandboxId, CancellationToken cancellationToken)
+    {
+        var instance = await dbContext.SandboxInstances
+            .FirstOrDefaultAsync(item => item.SandboxId == sandboxId, cancellationToken);
+        if (instance is not null && !instance.IsInitialized)
+        {
+            instance.IsInitialized = true;
+            instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            logger.LogInformation("Sandbox marked as initialized. SandboxId={SandboxId}", sandboxId);
+        }
     }
 
     private async Task<ApiResponse<SandboxGatewayTarget>> ResolveSandboxGatewayTargetAsync(
