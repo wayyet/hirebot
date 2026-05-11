@@ -113,9 +113,9 @@ const STAGE_CONFIG: Record<HiringUiStage, StageConfig> = {
   [HiringCollectionStage.Skill]: {
     title: '技能补齐',
     description: '默认基线与补充能力',
-    panelTitle: '确认技能阶段',
-    panelDescription: '默认技能基线不再作为待办展示，只补充真正缺失的能力项。',
-    subtask: '技能确认',
+    panelTitle: '确认技能工单',
+    panelDescription: '确认模板默认技能基线，为本轮需要新增或调整的能力项给出明确名称与描述。',
+    subtask: '技能工单',
     pendingLabel: '待补齐',
     completeLabel: '已确认',
     placeholder: '继续描述还缺哪些技能；如果默认基线已经够用，也可以直接确认推进第三阶段。',
