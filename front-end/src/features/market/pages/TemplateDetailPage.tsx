@@ -11,7 +11,6 @@ export default function TemplateDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [template, setTemplate] = useState<EmployeeTemplateDetail | null>(null)
-  const [fixtureHiring, setFixtureHiring] = useState(false)
 
   useEffect(() => {
     if (!id) {
@@ -46,26 +45,6 @@ export default function TemplateDetailPage() {
       cancelled = true
     }
   }, [id])
-
-  async function hireByFixture() {
-    if (!template || fixtureHiring) return
-
-    setFixtureHiring(true)
-    setError('')
-    try {
-      const result = await api.employeeTemplate.fixtureHire(template.templateId)
-      if (result.status === 'interning_ai' || result.status === 'interning_human') {
-        navigate(`/instances/${result.employeeId}/evaluation`)
-        return
-      }
-
-      navigate(`/instances/${result.employeeId}`)
-    } catch (requestError: unknown) {
-      setError(requestError instanceof Error ? requestError.message : '使用 Fixture 承接实例失败')
-    } finally {
-      setFixtureHiring(false)
-    }
-  }
 
   if (loading) {
     return (
@@ -112,9 +91,6 @@ export default function TemplateDetailPage() {
           <div className="flex flex-col gap-2">
             <button type="button" className="hb-btn-primary" onClick={() => navigate(`/hiring/${template.templateId}`)}>
               {template.cta.label || '发起标准雇佣'}
-            </button>
-            <button type="button" className="hb-btn-ghost" onClick={() => void hireByFixture()} disabled={fixtureHiring}>
-              {fixtureHiring ? '承接中...' : '使用 Fixture 数据'}
             </button>
           </div>
         </div>
