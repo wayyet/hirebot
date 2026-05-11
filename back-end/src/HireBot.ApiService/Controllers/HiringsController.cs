@@ -37,6 +37,13 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
         return StatusCode(response.Code, response);
     }
 
+    [HttpPost("{hireId}/conversation/reset")]
+    public async Task<IActionResult> ResetConversation(string hireId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.ResetConversationAsync(hireId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpPost("{hireId}/conversation/messages")]
     public async Task<IActionResult> SendConversationMessage(
         string hireId,

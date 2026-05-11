@@ -118,15 +118,15 @@ export interface WorkflowTodo {
   updatedAtUtc: string
 }
 
-/** 对应后端 HiringWorkflowHandoffDto 的 JSON 输出 (camelCase) */
+/** 对应后端 HiringWorkflowHandoffDto 的 JSON 输出 (snake_case) */
 export interface HandoffItem {
-  sessionId: string
-  workflowId: string
-  handoffId: string
+  session_id: string
+  workflow_id: string
+  handoff_id: string
   title: string
   kind: string
   stage: string
-  targetSkill: string
+  target_skill: string
   intent?: string | null
   category?: string | null
   payload?: Record<string, unknown> | null
@@ -134,13 +134,13 @@ export interface HandoffItem {
   acceptance?: string | null
   status: string
   fingerprint: string
-  relatedHandoffIds: string[]
-  relatedFiles: string[]
+  related_todos: string[]
+  related_files: string[]
   revision: number
-  createdAtUtc: string
-  updatedAtUtc: string
-  dispatchId?: string | null
-  callbackSummary?: string | null
+  created_at: string
+  updated_at: string
+  dispatch_id?: string | null
+  callback_summary?: string | null
 }
 
 export interface DispatchArtifact {
@@ -454,6 +454,10 @@ export const hiringWorkflowApi = {
 
   resumeConversation(hireId: string) {
     return httpClient.post<HiringConversationControlResult>(`/api/v1/hirings/${hireId}/conversation/resume`)
+  },
+
+  resetConversation(hireId: string) {
+    return httpClient.post<StartHiringConversationResult>(`/api/v1/hirings/${hireId}/conversation/reset`)
   },
 
   sendConversationMessage(hireId: string, payload: HiringConversationMessageRequest) {

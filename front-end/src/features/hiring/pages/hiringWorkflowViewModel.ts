@@ -187,7 +187,7 @@ function isFallbackTodoSource(source: string | null | undefined) {
 function mapHandoffToWorkflowTodo(handoff: HandoffItem): WorkflowTodo {
   const status = mapHandoffStatus(handoff.status)
   return {
-    id: handoff.handoffId,
+    id: handoff.handoff_id,
     title: handoff.title,
     stage: handoff.stage,
     kind: handoff.kind,
@@ -206,10 +206,10 @@ function mapHandoffToWorkflowTodo(handoff: HandoffItem): WorkflowTodo {
     question: null,
     evidence: null,
     suggestedAction: null,
-    relatedTodoIds: handoff.relatedHandoffIds ?? [],
-    relatedFiles: handoff.relatedFiles ?? [],
-    createdAtUtc: handoff.createdAtUtc,
-    updatedAtUtc: handoff.updatedAtUtc,
+    relatedTodoIds: handoff.related_todos ?? [],
+    relatedFiles: handoff.related_files ?? [],
+    createdAtUtc: handoff.created_at,
+    updatedAtUtc: handoff.updated_at,
   }
 }
 

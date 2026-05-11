@@ -701,6 +701,62 @@ internal sealed class EmployeeHiringService(
         return ApiResponse<StartHiringConversationResultDto>.SuccessResponse(call.Data);
     }
 
+    public async Task<ApiResponse<StartHiringConversationResultDto>> ResetConversationAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(400, error);
+        }
+
+        var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
+        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
+        var sandboxId = runtimeContext?.SandboxId;
+
+        // 使用唯一 session key 强制创建新会话
+        var newSessionKey = $"default-reset-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        var sessionResult = await sandboxService.EnsureSessionAsync(
+            new SandboxEnsureSessionRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = normalizedHireId,
+                SandboxRole = ResolveSandboxRole(normalizedHireId),
+                OwnerSubject = ownerContext.OwnerSubject,
+                TenantId = ownerContext.TenantId,
+                OperatorId = ownerContext.OperatorId,
+                SandboxId = sandboxId,
+                SessionKey = newSessionKey
+            },
+            cancellationToken);
+
+        if (!sessionResult.Success || sessionResult.Data is null)
+        {
+            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(sessionResult.Code, sessionResult.Message);
+        }
+
+        if (runtimeContext is not null)
+        {
+            runtimeContext = runtimeContext with
+            {
+                SessionId = sessionResult.Data.SessionId,
+                Messages = [],
+                HandoffItems = [],
+                Materials = [],
+                StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
+                CurrentStage = HiringCollectionStage.Material,
+                CollectionPhase = HiringCollectionPhase.InProgress,
+                IsConversationPaused = false,
+                LatestDispatches = [],
+                LatestDiagnosticReport = null,
+                ConfigGovernance = null
+            };
+            hiringRuntimeStore.Upsert(runtimeContext);
+        }
+
+        return ApiResponse<StartHiringConversationResultDto>.SuccessResponse(sessionResult.Data);
+    }
+
     public Task<ApiResponse<HiringConversationControlResultDto>> PauseConversationAsync(
         string hireId,
         CancellationToken cancellationToken = default)
