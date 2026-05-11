@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
@@ -1265,13 +1266,13 @@ internal sealed class SandboxService(
         int SkillsInstalled);
 
     private sealed record SandboxGatewaySessionHandoffItem(
-        string? SessionId,
-        string? WorkflowId,
-        string? HandoffId,
+        [property: JsonPropertyName("session_id")] string? SessionId,
+        [property: JsonPropertyName("workflow_id")] string? WorkflowId,
+        [property: JsonPropertyName("handoff_id")] string? HandoffId,
         string? Title,
         string? Kind,
         string? Stage,
-        string? TargetSkill,
+        [property: JsonPropertyName("target_skill")] string? TargetSkill,
         string? Intent,
         string? Category,
         JsonElement? Payload,
@@ -1279,13 +1280,13 @@ internal sealed class SandboxService(
         string? Acceptance,
         string? Status,
         string? Fingerprint,
-        IReadOnlyList<string>? RelatedTodos,
-        IReadOnlyList<string>? RelatedFiles,
+        [property: JsonPropertyName("related_todos")] IReadOnlyList<string>? RelatedTodos,
+        [property: JsonPropertyName("related_files")] IReadOnlyList<string>? RelatedFiles,
         int? Revision,
-        DateTimeOffset? CreatedAtUtc,
-        DateTimeOffset? UpdatedAtUtc,
-        string? DispatchId,
-        string? CallbackSummary);
+        [property: JsonPropertyName("created_at")] DateTimeOffset? CreatedAtUtc,
+        [property: JsonPropertyName("updated_at")] DateTimeOffset? UpdatedAtUtc,
+        [property: JsonPropertyName("dispatch_id")] string? DispatchId,
+        [property: JsonPropertyName("callback_summary")] string? CallbackSummary);
 
     private static JsonElement EmptyObject()
     {
