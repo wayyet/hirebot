@@ -63,20 +63,6 @@ export interface CreatePersonalCloneRequest {
   displayDescription?: string | null
 }
 
-export interface QuickCloneRequest {
-  displayName: string
-  userRole: string
-  displayAvatar?: string | null
-  displayDescription?: string | null
-}
-
-export interface QuickCloneResult {
-  newInstanceId: string
-  status: string
-  fromInstanceId: string
-  viaQuickClone: boolean
-}
-
 export interface CreatePrivateBranchRequest {
   displayName: string
   displayDescription?: string | null
@@ -416,13 +402,6 @@ export const employeeRuntimeApi = {
   createPersonalClone(employeeId: string, payload: CreatePersonalCloneRequest) {
     return httpClient.post<EmployeeDetail, CreatePersonalCloneRequest>(
       `/api/v1/employees/${employeeId}/personal-clones`,
-      payload,
-    )
-  },
-
-  quickClone(sourceInstanceId: string, payload: QuickCloneRequest) {
-    return httpClient.post<QuickCloneResult, QuickCloneRequest>(
-      `/api/v1/instances/${sourceInstanceId}/quick-clone`,
       payload,
     )
   },

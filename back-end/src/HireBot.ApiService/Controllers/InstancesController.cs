@@ -210,25 +210,6 @@ public sealed class InstancesController(
     }
 
     /// <summary>
-    /// 部门长快捷复制：从已上岗部门员工创建新部门员工，跳过评估直接上岗。
-    /// </summary>
-    [HttpPost("{instanceId}/quick-clone")]
-    public async Task<IActionResult> QuickClone(
-        string instanceId,
-        [FromBody] QuickCloneRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<QuickCloneResultDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await employeeRuntimeService.QuickCloneAsync(instanceId, request, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    /// <summary>
     /// 从个人分身创建私有分支。创建后状态为 hired，需经双阶段评估通过后才上岗。
     /// </summary>
     [HttpPost("{instanceId}/private-branch")]
