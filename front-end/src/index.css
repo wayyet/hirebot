@@ -2596,6 +2596,218 @@ body.hb-body-hiring-prototype {
   color: var(--hb-soft);
 }
 
+/* dispatch 状态徽标：显示在阶段胶囊的副标题下方 */
+.hb-hiring-step-dispatch {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-hiring-step-dispatch.is-running {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.hb-hiring-step-dispatch.is-done {
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+.hb-hiring-step-dispatch.is-failed {
+  background: #fff1f2;
+  color: #b3263c;
+}
+
+/* ===== artifact 产物卡片 ===== */
+.hb-artifact-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 220px;
+  max-width: 520px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.hb-artifact-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hb-artifact-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.hb-artifact-title-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hb-artifact-title {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-artifact-subtitle {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.hb-artifact-file-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  text-decoration: none;
+  color: inherit;
+}
+
+.hb-artifact-file-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-artifact-file-size {
+  font-size: 11px;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.hb-artifact-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ===== stage_gate 阶段推进卡片 ===== */
+.hb-stage-gate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+  max-width: 460px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+}
+
+.hb-stage-gate-card.is-pass {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.hb-stage-gate-card.is-blocked {
+  border-color: #fca5a5;
+  background: #fff1f2;
+}
+
+.hb-stage-gate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hb-stage-gate-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.hb-stage-gate-skill {
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.hb-stage-gate-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.hb-stage-gate-badge.is-pass {
+  background: #16a34a;
+  color: #fff;
+}
+
+.hb-stage-gate-badge.is-blocked {
+  background: #dc2626;
+  color: #fff;
+}
+
+.hb-stage-gate-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.hb-stage-gate-stage {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.hb-stage-gate-stage.is-next {
+  border-color: #86efac;
+  color: #16a34a;
+}
+
+.hb-stage-gate-stage.is-blocked-stage {
+  color: #6b7280;
+}
+
+.hb-stage-gate-arrow {
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.hb-stage-gate-reason {
+  font-size: 11px;
+  color: #dc2626;
+  line-height: 1.5;
+}
+
 .hb-hiring-proto-note {
   display: flex;
   align-items: center;

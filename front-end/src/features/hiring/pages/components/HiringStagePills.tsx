@@ -31,6 +31,17 @@ export function HiringStagePills({
             <span className="hb-hiring-step-copy">
               <strong>{item.title}</strong>
               <span>{item.description}</span>
+              {item.dispatchStatus === 'running' && (
+                <span className="hb-hiring-step-dispatch is-running">派发中</span>
+              )}
+              {item.dispatchStatus === 'completed' && (
+                <span className="hb-hiring-step-dispatch is-done">
+                  {item.dispatchSummary ?? '已产出'}
+                </span>
+              )}
+              {item.dispatchStatus === 'failed' && (
+                <span className="hb-hiring-step-dispatch is-failed">派发失败</span>
+              )}
             </span>
           </button>
         ))}

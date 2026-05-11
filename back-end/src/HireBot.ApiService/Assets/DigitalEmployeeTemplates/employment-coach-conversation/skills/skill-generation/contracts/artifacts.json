@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "stages": [
+    {
+      "name": "skill_spec_analysis",
+      "label": "技能规格分析",
+      "artifacts": [
+        {
+          "type": "spec_analysis_progress",
+          "label": "规格分析进度",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "skill_spec_summary",
+          "label": "技能规格摘要",
+          "display": "tree",
+          "terminal": true
+        }
+      ]
+    },
+    {
+      "name": "skill_package_generation",
+      "label": "技能包生成",
+      "gate": { "requiresStage": "skill_spec_analysis" },
+      "artifacts": [
+        {
+          "type": "generation_progress",
+          "label": "生成进度",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "skill_package_result",
+          "label": "技能包结果",
+          "display": "table",
+          "terminal": true
+        }
+      ]
+    }
+  ]
+}

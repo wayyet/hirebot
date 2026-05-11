@@ -1,7 +1,15 @@
 ---
 name: ontology-extraction
 description: 当用户提到 ontology、本体、slice、schema/projection/mapping、taxonomy 或概念关系建模时，从文档、schema 或代码中抽取当前任务所需的最小可验证 slice，保留 concepts、relations、constraints 与 sources，供评审、codegen 和 prompt 编排使用。
-metadata: {"openclaw":{"emoji":"🧠"}}
+compatibility: HireBot employment-coach-conversation v1.0
+metadata:
+  openclaw:
+    emoji: "🧠"
+  category: generation
+  autonomy: 90
+  trigger: dispatch-ontology-extraction, material-handoff-dispatched
+  input: material-handoff-todos, uploaded-files, source-documents
+  output: ontology-slices, dispatch-callback
 ---
 
 # ontology-extraction

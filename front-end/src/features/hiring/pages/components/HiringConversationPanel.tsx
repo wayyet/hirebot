@@ -6,6 +6,8 @@ import remarkGfm from 'remark-gfm'
 
 import type { ChatFile, ChatMessage } from '../hiringPageTypes'
 import type { HiringGuideVm } from '../hiringWorkflowViewModel'
+import { ArtifactMessageCard } from './ArtifactMessageCard'
+import { StageGateCard } from './StageGateCard'
 
 type HiringConversationPanelProps = {
   introName: string
@@ -109,7 +111,32 @@ export function HiringConversationPanel({
           />
         )}
 
-        {messages.map((message) => (
+        {messages.map((message) => {
+          // artifact 产物卡片：不受 role 方向影响，居左展示
+          if (message.role === 'artifact' && message.artifact) {
+            return (
+              <div key={message.id} className="hb-hiring-msg">
+                <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
+                <div className="hb-hiring-msg-stack">
+                  <ArtifactMessageCard artifact={message.artifact} formatFileSize={formatFileSize} />
+                </div>
+              </div>
+            )
+          }
+
+          // stage_gate 阶段推进卡片：居左展示
+          if (message.role === 'stage_gate' && message.stageGate) {
+            return (
+              <div key={message.id} className="hb-hiring-msg">
+                <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
+                <div className="hb-hiring-msg-stack">
+                  <StageGateCard stageGate={message.stageGate} />
+                </div>
+              </div>
+            )
+          }
+
+          return (
           <div key={message.id} className={`hb-hiring-msg ${message.role === 'user' ? 'is-user' : ''}`}>
             <div className={`hb-hiring-avatar ${message.role === 'user' ? 'is-user' : ''}`}>
               {message.role === 'user' ? '你' : introName.slice(0, 1).toUpperCase()}
@@ -131,7 +158,8 @@ export function HiringConversationPanel({
               ))}
             </div>
           </div>
-        ))}
+          )
+        })}
 
         {/* WS 流式回复：有内容时展示逐字气泡，否则显示 typing 动画 */}
         {streamingContent !== null && streamingContent !== undefined ? (

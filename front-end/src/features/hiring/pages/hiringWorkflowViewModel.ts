@@ -8,6 +8,7 @@ import {
 import type {
   CredentialSlot,
   DiagnosticTodo,
+  DispatchCallback,
   HandoffItem,
   HiringCollectionPhaseType,
   HiringCollectionStageType,
@@ -28,6 +29,10 @@ export interface HiringStageStepVm {
   status: HiringStepStatus
   isClickable: boolean
   blockedReason: string
+  /** 当前阶段最近一次 dispatch 的执行状态 */
+  dispatchStatus: 'running' | 'completed' | 'failed' | null
+  /** 最近 dispatch 的用户摘要（completed 时展示） */
+  dispatchSummary: string | null
 }
 
 export interface HiringStageCardVm {
@@ -182,6 +187,40 @@ function getDiagnosticTodos(
 
 function isFallbackTodoSource(source: string | null | undefined) {
   return typeof source === 'string' && source.startsWith('system:fallback:')
+}
+
+/** 取当前阶段最近一次 dispatch（通过 todoIds 与 handoffItems / workflowTodos 关联） */
+function getStageLatestDispatch(
+  workflowState: HiringWorkflowState | null,
+  stage: HiringUiStage,
+): DispatchCallback | null {
+  const dispatches = workflowState?.latestDispatches
+  if (!dispatches?.length) return null
+
+  const stageHandoffIds = new Set(
+    (workflowState?.handoffItems ?? [])
+      .filter(item => item.stage === stage)
+      .map(item => item.handoff_id),
+  )
+  const stageTodoIds = new Set(
+    (workflowState?.workflowTodos ?? [])
+      .filter(todo => todo.stage === stage)
+      .map(todo => todo.id),
+  )
+
+  const stageDispatches = dispatches.filter(dispatch =>
+    dispatch.todoIds.some(id => stageHandoffIds.has(id) || stageTodoIds.has(id)),
+  )
+  return stageDispatches[stageDispatches.length - 1] ?? null
+}
+
+function resolveDispatchStatus(
+  dispatch: DispatchCallback | null,
+): 'running' | 'completed' | 'failed' | null {
+  if (!dispatch) return null
+  if (dispatch.status === 'completed') return 'completed'
+  if (dispatch.status === 'failed' || (dispatch.errors?.length ?? 0) > 0) return 'failed'
+  return 'running'
 }
 
 function mapHandoffToWorkflowTodo(handoff: HandoffItem): WorkflowTodo {
@@ -617,6 +656,7 @@ export function buildHiringWorkflowViewModel(
     const readiness = getStageReadiness(workflowState?.stageReadiness, stage)
     const status = getStageStatus(stage, uiCurrentStage, collectionPhase, readiness?.status)
     const isClickable = status !== 'pending' || stage === uiCurrentStage
+    const latestDispatch = getStageLatestDispatch(workflowState, stage)
     return {
       stage,
       index,
@@ -625,6 +665,8 @@ export function buildHiringWorkflowViewModel(
       status,
       isClickable,
       blockedReason: isClickable ? '' : getBlockedReasonForStage(workflowState, stage),
+      dispatchStatus: resolveDispatchStatus(latestDispatch),
+      dispatchSummary: latestDispatch?.userSummary ?? null,
     } satisfies HiringStageStepVm
   })
 

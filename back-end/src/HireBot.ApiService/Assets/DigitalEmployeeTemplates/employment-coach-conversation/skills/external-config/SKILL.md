@@ -1,8 +1,16 @@
 ---
 name: external-config
 description: 根据雇佣教练阶段三 external Handoff todo，生成外部系统连接配置初稿，并仅写入当前沙箱 external/ 目录。用于处理 read/write/notify/search/transform 外部能力、skip 记录、字段映射占位和凭据槽位引用；不要用于对话引导、收集真实凭据、修改 Handoff todo 状态、生成业务 skill、执行本体提取或实例打包。
-metadata: {"openclaw":{"emoji":"🔌"}}
+compatibility: HireBot employment-coach-conversation v1.0
 license: Proprietary. NCrew employment-coach internal flow.
+metadata:
+  openclaw:
+    emoji: "🔌"
+  category: generation
+  autonomy: 85
+  trigger: dispatch-external-config, external-handoff-dispatched
+  input: external-handoff-todos, secure-credential-context
+  output: external-config-drafts, dispatch-callback
 ---
 
 # External Config

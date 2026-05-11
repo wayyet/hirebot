@@ -1,7 +1,15 @@
 ---
 name: skill-generation
 description: 根据雇佣教练 Handoff todo、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并仅写入当前沙箱 skills/ 目录。
-metadata: {"openclaw":{"emoji":"🧩"}}
+compatibility: HireBot employment-coach-conversation v1.0
+metadata:
+  openclaw:
+    emoji: "🧩"
+  category: generation
+  autonomy: 80
+  trigger: dispatch-skill-generation, skill-handoff-dispatched
+  input: skill-handoff-todos, uploaded-skill-files, user-dialogue
+  output: skill-packages, dispatch-callback
 ---
 
 # Skill Generation

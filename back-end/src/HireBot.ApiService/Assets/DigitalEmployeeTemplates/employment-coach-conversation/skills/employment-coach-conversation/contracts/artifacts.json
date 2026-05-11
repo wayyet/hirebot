@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "stages": [
+    {
+      "name": "stage1_material",
+      "label": "阶段 1：资料收集",
+      "artifacts": [
+        {
+          "type": "material_collection_progress",
+          "label": "资料收集进度",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "material_handoff_summary",
+          "label": "资料工单摘要",
+          "display": "tree",
+          "terminal": true
+        }
+      ]
+    },
+    {
+      "name": "stage2_skill",
+      "label": "阶段 2：技能定义",
+      "gate": { "requiresStage": "stage1_material" },
+      "artifacts": [
+        {
+          "type": "skill_workorder_progress",
+          "label": "技能工单进度",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "skill_workorder_summary",
+          "label": "技能工单摘要",
+          "display": "tree",
+          "terminal": true
+        }
+      ]
+    },
+    {
+      "name": "stage3_external",
+      "label": "阶段 3：外部能力",
+      "gate": { "requiresStage": "stage2_skill" },
+      "artifacts": [
+        {
+          "type": "external_workorder_progress",
+          "label": "外部能力工单进度",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "external_workorder_summary",
+          "label": "外部能力工单摘要",
+          "display": "tree",
+          "terminal": true
+        }
+      ]
+    }
+  ]
+}

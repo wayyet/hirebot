@@ -19,7 +19,7 @@ import { HiringConversationPanel } from './components/HiringConversationPanel'
 import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
 import { HiringStagePills } from './components/HiringStagePills'
-import type { ChatFile, ChatMessage, CredentialDraft, SkillUploadPayload } from './hiringPageTypes'
+import type { ArtifactDisplayData, ChatFile, ChatMessage, CredentialDraft, SkillUploadPayload, StageGateData } from './hiringPageTypes'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 
 function mkId() {
@@ -144,6 +144,30 @@ function hasPendingDispatch(workflowState: HiringWorkflowState | null) {
   return workflowState?.latestDispatches?.some(dispatch => !dispatch.completedAtUtc) ?? false
 }
 
+/** 技能名称 → 雇佣阶段 ID 的静态映射（基于 contracts/artifacts.json 声明） */
+const SKILL_TO_HIRING_STAGE: Record<string, HiringUiStage> = {
+  'ontology-extraction': HiringCollectionStage.Skill,
+  'skill-generation': HiringCollectionStage.Skill,
+  'external-config': HiringCollectionStage.External,
+}
+
+/**
+ * 从 WS artifact/stage_gate 消息里推导对应的雇佣阶段。
+ * employment-coach-conversation 的阶段名自带语义（stage1_material / stage2_skill / stage3_external），
+ * 其余技能按 SKILL_TO_HIRING_STAGE 映射。
+ */
+function resolveHiringStageFromWs(
+  skillName: string | undefined,
+  stageName: string | undefined,
+): HiringUiStage | null {
+  if (skillName === 'employment-coach-conversation' && stageName) {
+    if (stageName.includes('material')) return HiringCollectionStage.Material
+    if (stageName.includes('skill')) return HiringCollectionStage.Skill
+    if (stageName.includes('external')) return HiringCollectionStage.External
+  }
+  return SKILL_TO_HIRING_STAGE[skillName ?? ''] ?? null
+}
+
 function looksLikeSensitiveSecret(value: string) {
   const normalized = value.trim()
   if (normalized.length < 12) {
@@ -213,6 +237,8 @@ export default function HiringPage() {
   const [configSavingKey, setConfigSavingKey] = useState<string | null>(null)
   const [resetting, setResetting] = useState(false)
   const resettingRef = useRef(false)
+  /** WS 实时推送的阶段状态覆盖，优先级高于 REST 轮询的 dispatchStatus */
+  const [wsStageOverrides, setWsStageOverrides] = useState<Map<HiringUiStage, 'running' | 'completed' | 'failed'>>(new Map())
 
   const fileRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -239,6 +265,14 @@ export default function HiringPage() {
   const workflowConversationPaused = Boolean(workflowState?.isConversationPaused)
   const workflowConversationResponding = Boolean(workflowState?.isConversationResponding)
   const viewModel = buildHiringWorkflowViewModel(workflowState, focusedStage)
+  // 将 WS 实时 override 合并到阶段胶囊（REST 轮询已有值时 WS 不覆盖，避免闪烁）
+  const mergedStepPills = viewModel.stepPills.map(pill => {
+    const wsStatus = wsStageOverrides.get(pill.stage)
+    if (!wsStatus) return pill
+    // REST 已经有确定状态时以 REST 为准（轮询已到达，WS 覆盖不再必要）
+    if (pill.dispatchStatus === 'completed' || pill.dispatchStatus === 'failed') return pill
+    return { ...pill, dispatchStatus: wsStatus }
+  })
   const summaryItems = buildSummaryItems(workflowState, allFiles.length)
   const canCreate = viewModel.actionState.canFinalize && workflowCollectionPhase !== HiringCollectionPhase.Finalized
   const isInteractionLocked = typing || workflowBooting || workflowConversationPaused || workflowConversationResponding || submittingMessage || resetting
@@ -521,6 +555,82 @@ export default function HiringPage() {
             syncWorkflowState(hireId).catch(() => { /* 忽略 */ })
           })
         }
+      } else if (type === 'artifact') {
+        // 下游 skill 通过 emit_artifact 工具推送产物（对应 contracts/artifacts.json 声明的类型）
+        const raw = msg.artifact as Record<string, unknown> | null | undefined
+        if (raw) {
+          const kind = (String(raw.kind ?? 'data')) as 'file' | 'data'
+          const artifactType = String(raw.artifactType ?? raw.artifact_type ?? 'generic')
+          const label = raw.label != null ? String(raw.label) : undefined
+          const skillName = raw.skillName != null ? String(raw.skillName) : undefined
+          const stage = raw.stage != null ? String(raw.stage) : undefined
+          const isTerminal = Boolean(raw.isTerminal ?? raw.is_terminal)
+          const displayHint = raw.displayHint != null ? String(raw.displayHint) : raw.display_hint != null ? String(raw.display_hint) : undefined
+          const artifactData: ArtifactDisplayData = { kind, artifactType, label, skillName, stage, isTerminal, displayHint }
+          if (kind === 'file') {
+            artifactData.fileUrl = String(raw.fileUrl ?? raw.file_url ?? '')
+            artifactData.fileName = String(raw.fileName ?? raw.file_name ?? label ?? 'file')
+            artifactData.mimeType = String(raw.mimeType ?? raw.mime_type ?? '')
+            const sizeBytes = typeof raw.fileSizeBytes === 'number' ? raw.fileSizeBytes : typeof raw.file_size_bytes === 'number' ? raw.file_size_bytes : null
+            artifactData.sizeLabel = sizeBytes !== null ? formatFileSize(sizeBytes) : ''
+          } else {
+            artifactData.data = raw.data
+          }
+          setMessages(msgs => [...msgs, {
+            id: mkId(),
+            role: 'artifact',
+            content: label ?? artifactType,
+            artifact: artifactData,
+          }])
+          // 同步更新阶段胶囊状态（实时，不等 REST 轮询）
+          const hiringStage = resolveHiringStageFromWs(skillName, stage)
+          if (hiringStage) {
+            setWsStageOverrides(prev => {
+              const next = new Map(prev)
+              // terminal artifact 标记阶段完成；否则只在尚未完成时标记运行中
+              if (isTerminal) {
+                next.set(hiringStage, 'completed')
+              } else if (next.get(hiringStage) !== 'completed') {
+                next.set(hiringStage, 'running')
+              }
+              return next
+            })
+          }
+        }
+      } else if (type === 'skill_stage_gate') {
+        // skill 内部阶段推进通知（对应 contracts/artifacts.json 的 gate 声明）
+        const gate = (msg.stageGate ?? msg.stage_gate) as Record<string, unknown> | null | undefined
+        if (gate) {
+          const stageGate: StageGateData = {
+            skillName: String(gate.skillName ?? gate.skill_name ?? ''),
+            completedStage: String(gate.completedStage ?? gate.completed_stage ?? ''),
+            nextStage: String(gate.nextStage ?? gate.next_stage ?? ''),
+            canProceed: Boolean(gate.canProceed ?? gate.can_proceed),
+            blockedReason: gate.blockedReason != null ? String(gate.blockedReason) : gate.blocked_reason != null ? String(gate.blocked_reason) : undefined,
+          }
+          setMessages(msgs => [...msgs, {
+            id: mkId(),
+            role: 'stage_gate',
+            content: stageGate.canProceed
+              ? `${stageGate.skillName}: ${stageGate.completedStage} → ${stageGate.nextStage}`
+              : `${stageGate.nextStage} 阶段阻塞${stageGate.blockedReason ? `：${stageGate.blockedReason}` : ''}`,
+            stageGate,
+          }])
+          // stage_gate 推进：completedStage 对应的雇佣阶段标记完成；nextStage 标记运行中
+          const completedHiringStage = resolveHiringStageFromWs(stageGate.skillName, stageGate.completedStage)
+          const nextHiringStage = resolveHiringStageFromWs(stageGate.skillName, stageGate.nextStage)
+          if (completedHiringStage || nextHiringStage) {
+            setWsStageOverrides(prev => {
+              const next = new Map(prev)
+              if (completedHiringStage && stageGate.canProceed) next.set(completedHiringStage, 'completed')
+              if (completedHiringStage && !stageGate.canProceed) next.set(completedHiringStage, 'failed')
+              if (nextHiringStage && stageGate.canProceed && next.get(nextHiringStage) !== 'completed') {
+                next.set(nextHiringStage, 'running')
+              }
+              return next
+            })
+          }
+        }
       }
     }
 
@@ -546,6 +656,13 @@ export default function HiringPage() {
 
     ws.connect()
     wsRef.current = ws
+
+    // 开发调试钩子：window.__injectWsMsg({ type, ... }) 可在浏览器 Console 模拟 WS 消息
+    if (import.meta.env.DEV) {
+      ;(window as Record<string, unknown>).__injectWsMsg = (msg: Record<string, unknown>) => {
+        ws.onMessage?.(msg)
+      }
+    }
   }
 
   function retryWorkflowInitialization() {
@@ -979,7 +1096,7 @@ export default function HiringPage() {
       <div className="hb-hiring-shell">
         <HiringStagePills
           journeySummary={journeySummary}
-          steps={viewModel.stepPills}
+          steps={mergedStepPills}
           onSelectStage={handleSelectStage}
         />
 

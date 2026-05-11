@@ -148,6 +148,10 @@ export interface DispatchArtifact {
   kind: string
   encoding: string
   sha256: string
+  /** 对应 contracts/artifacts.json 中声明的渲染类型 */
+  display?: 'progress' | 'tree' | 'table' | 'code' | 'badge' | null
+  /** 是否为阶段终结产物 */
+  terminal?: boolean | null
 }
 
 export interface DispatchTodoResult {
