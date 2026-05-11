@@ -109,10 +109,6 @@ export default function DepartmentEmployeesPage() {
     navigate(`/clone/${employeeId}`)
   }
 
-  function openQuickClone(employeeId: string) {
-    navigate(`/quick-clone/${employeeId}`)
-  }
-
   function openDetail(employeeId: string) {
     navigate(`/instances/${employeeId}`)
   }
@@ -287,15 +283,6 @@ export default function DepartmentEmployeesPage() {
                         >
                           <CopyPlus size={14} />
                           创建分身
-                        </button>
-                      ) : null}
-                      {canClone && role === 'manager' ? (
-                        <button
-                          type="button"
-                          className="hb-btn-primary"
-                          onClick={() => openQuickClone(employee.employeeId)}
-                        >
-                          快捷复制
                         </button>
                       ) : null}
                       <button

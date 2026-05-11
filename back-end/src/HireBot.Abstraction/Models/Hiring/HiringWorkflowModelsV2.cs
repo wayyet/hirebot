@@ -57,13 +57,13 @@ public static class HiringConfigFileKeys
 }
 
 public sealed record HiringWorkflowHandoffDto(
-    string SessionId,
-    string WorkflowId,
-    string HandoffId,
+    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("workflow_id")] string WorkflowId,
+    [property: JsonPropertyName("handoff_id")] string HandoffId,
     string Title,
     string Kind,
     string Stage,
-    string TargetSkill,
+    [property: JsonPropertyName("target_skill")] string TargetSkill,
     string? Intent,
     string? Category,
     JsonElement Payload,
@@ -71,13 +71,13 @@ public sealed record HiringWorkflowHandoffDto(
     string? Acceptance,
     string Status,
     string Fingerprint,
-    IReadOnlyList<string> RelatedHandoffIds,
-    IReadOnlyList<string> RelatedFiles,
+    [property: JsonPropertyName("related_todos")] IReadOnlyList<string> RelatedHandoffIds,
+    [property: JsonPropertyName("related_files")] IReadOnlyList<string> RelatedFiles,
     int Revision,
-    DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc,
-    string? DispatchId,
-    string? CallbackSummary);
+    [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAtUtc,
+    [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAtUtc,
+    [property: JsonPropertyName("dispatch_id")] string? DispatchId,
+    [property: JsonPropertyName("callback_summary")] string? CallbackSummary);
 
 public sealed record HiringDispatchArtifactDto(
     string Path,

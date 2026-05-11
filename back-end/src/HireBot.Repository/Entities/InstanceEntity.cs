@@ -17,8 +17,6 @@ public sealed class InstanceEntity
     [MaxLength(40)]
     public required string Status { get; set; }
 
-    public bool ViaQuickClone { get; set; }
-
     [MaxLength(128)]
     public string? BasedOnTemplateId { get; set; }
 
