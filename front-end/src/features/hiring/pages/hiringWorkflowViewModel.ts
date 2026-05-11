@@ -82,7 +82,6 @@ export interface HiringWorkflowVm {
   blockedReason: string
   overallProgress: number
   promptPlaceholder: string
-  workflowMeta: string[]
   currentStageReason: string
 }
 
@@ -145,13 +144,6 @@ const STAGE_CONFIG: Record<HiringUiStage, StageConfig> = {
     completeLabel: '可打包',
     placeholder: '如果还有诊断或复核阻塞项，会在这里继续提示你处理。',
   },
-}
-
-const PHASE_LABELS: Record<HiringCollectionPhaseType, string> = {
-  [HiringCollectionPhase.NotStarted]: '未开始',
-  [HiringCollectionPhase.InProgress]: '进行中',
-  [HiringCollectionPhase.ReadyForFinalize]: '可打包',
-  [HiringCollectionPhase.Finalized]: '已完成',
 }
 
 const EMPTY_RUNTIME_FACTS: WorkflowRuntimeFacts = {
@@ -584,28 +576,6 @@ export function getBlockedReasonForStage(
   return diagnostic?.question ?? `「${STAGE_CONFIG[stage].title}」尚未解锁，请先完成前序阶段。`
 }
 
-function buildWorkflowMeta(
-  workflowState: HiringWorkflowState | null,
-  currentStageReason: string,
-) {
-  if (!workflowState) {
-    return ['等待初始化']
-  }
-
-  const collectionPhase = (workflowState.collectionPhase as HiringCollectionPhaseType) || HiringCollectionPhase.NotStarted
-  const activeSkill = workflowState.stageSkills.find(item => item.stage === workflowState.currentStage)
-  const runtimeFacts = getRuntimeFacts(workflowState)
-
-  return [
-    `收集阶段：${PHASE_LABELS[collectionPhase] ?? collectionPhase}`,
-    `当前步骤：${STAGE_CONFIG[(workflowState.currentStage as HiringUiStage) || HiringCollectionStage.Material].title}`,
-    activeSkill ? `当前 Skill：${activeSkill.skillName}` : '',
-    runtimeFacts.materialReady ? '资料阶段已就绪' : '',
-    runtimeFacts.skillBaselineConfirmed ? '技能基线已确认' : '',
-    currentStageReason,
-  ].filter(Boolean)
-}
-
 export function buildHiringWorkflowViewModel(
   workflowState: HiringWorkflowState | null,
   focusedStage: HiringUiStage | null,
@@ -685,7 +655,6 @@ export function buildHiringWorkflowViewModel(
     blockedReason: completedCount === STAGE_ORDER.length ? '' : blockedReason,
     overallProgress: completedCount,
     promptPlaceholder: STAGE_CONFIG[uiCurrentStage].placeholder,
-    workflowMeta: buildWorkflowMeta(workflowState, currentStageReason),
     currentStageReason,
   }
 }

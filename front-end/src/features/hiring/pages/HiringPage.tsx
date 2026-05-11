@@ -1081,7 +1081,9 @@ export default function HiringPage() {
       ? workflowNotice
       : workflowBooting
         ? '正在初始化后端工作流，请稍候...'
-        : viewModel.workflowMeta.join(' · ')
+        : workflowReady
+          ? '已连接'
+          : ''
 
   return (
     <div className="hb-hiring-page">
