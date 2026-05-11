@@ -93,7 +93,6 @@ public sealed class EmployeeRuntimePersonalCloneTests
             TenantId = "tenant-default",
             InstanceType = "personal_clone",
             Status = "live",
-            ViaQuickClone = false,
             BasedOnTemplateId = "tpl-sales",
             FromInstanceId = "dept_1",
             EvalReportId = null,

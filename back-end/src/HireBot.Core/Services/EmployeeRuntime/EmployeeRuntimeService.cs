@@ -641,136 +641,6 @@ public sealed class EmployeeRuntimeService(
     }
 
     /// <summary>
-    /// 部门长快捷复制：从已上岗部门员工创建新部门员工，跳过评估直接上岗。
-    /// </summary>
-    public async Task<ApiResponse<QuickCloneResultDto>> QuickCloneAsync(
-        string sourceInstanceId,
-        QuickCloneRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(sourceInstanceId) || request is null || string.IsNullOrWhiteSpace(request.DisplayName))
-        {
-            return ApiResponse<QuickCloneResultDto>.ErrorResponse(400, "sourceInstanceId 与 displayName 为必填项");
-        }
-
-        if (!string.Equals(request.UserRole, "manager", StringComparison.OrdinalIgnoreCase))
-        {
-            return ApiResponse<QuickCloneResultDto>.ErrorResponse(403, "仅部门长可执行快捷复制");
-        }
-
-        var normalizedSourceId = sourceInstanceId.Trim();
-        var displayName = request.DisplayName.Trim();
-        var owner = requestContextService.ResolveOwnerSubject();
-        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(null, null);
-        await EnsureSeedDataAsync(owner, cancellationToken);
-
-        var source = await store.FindAsync(normalizedSourceId, cancellationToken);
-        if (source is null)
-        {
-            return ApiResponse<QuickCloneResultDto>.ErrorResponse(404, "源部门员工不存在");
-        }
-
-        if (!string.Equals(source.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
-        {
-            return ApiResponse<QuickCloneResultDto>.ErrorResponse(409, "只能从部门员工快捷复制");
-        }
-
-        if (!string.Equals(source.Status, "live", StringComparison.OrdinalIgnoreCase))
-        {
-            return ApiResponse<QuickCloneResultDto>.ErrorResponse(409, "只能从已上岗部门员工快捷复制");
-        }
-
-        var allEmployees = await store.ListAsync(owner, cancellationToken);
-        var nameConflict = allEmployees.Any(e =>
-            string.Equals(e.InstanceType, "department", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(e.Status, "live", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(e.Nickname, displayName, StringComparison.OrdinalIgnoreCase));
-        if (nameConflict)
-        {
-            return ApiResponse<QuickCloneResultDto>.ErrorResponse(409, "该部门内已存在同名的已上岗部门员工");
-        }
-
-        var cloneId = BuildInstanceId("qc");
-        InstanceArtifactCloneResult artifactResult;
-        try
-        {
-            artifactResult = await artifactCloneService.CloneArtifactsAsync(source, cloneId, cancellationToken);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return ApiResponse<QuickCloneResultDto>.ErrorResponse(409, ex.Message);
-        }
-
-        var sourceInstanceEntity = await dbContext.Instances
-            .FirstOrDefaultAsync(i => i.InstanceId == normalizedSourceId, cancellationToken);
-        var evalReportId = sourceInstanceEntity?.EvalReportId;
-
-        var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
-        var clone = new EmployeeDetailDto(
-            EmployeeId: cloneId,
-            Nickname: displayName,
-            RoleName: source.RoleName,
-            SourceTemplate: source.SourceTemplate,
-            SourceTemplateId: source.SourceTemplateId,
-            InstanceType: "department",
-            Status: "live",
-            BasedOnTemplateId: source.BasedOnTemplateId,
-            FromInstanceId: source.EmployeeId,
-            OwnerUserId: owner,
-            DepartmentId: source.DepartmentId,
-            LifecycleStatus: MapStatusToLifecycleLabel("live"),
-            StageSummary: string.IsNullOrWhiteSpace(request.DisplayDescription)
-                ? "部门员工已上岗（快捷复制），站内对话可用"
-                : request.DisplayDescription.Trim(),
-            PrimarySignal: "运行正常",
-            SignalLevel: "ok",
-            OwningTeam: source.OwningTeam,
-            CreatedAt: today,
-            InternshipStartAt: today,
-            GraduatedAt: today,
-            TasksDone: 0,
-            TasksTotal: 0,
-            SatisfactionScore: null,
-            PendingActions: [],
-            Capabilities: source.Capabilities.Select(item => item with { Ready = true }).ToArray(),
-            EvalPhase: null,
-            EvalIteration: null,
-            EvalMaxIterations: null,
-            IsConfigured: true);
-
-        var sandboxSetup = await InitializeRuntimeSandboxAsync(
-            clone,
-            artifactResult.TargetRootPath,
-            artifactResult.CurrentVersion,
-            owner,
-            tenantId,
-            operatorId,
-            cancellationToken);
-        if (!sandboxSetup.Success || sandboxSetup.Data is null)
-        {
-            return ApiResponse<QuickCloneResultDto>.ErrorResponse(sandboxSetup.Code, sandboxSetup.Message);
-        }
-
-        await store.UpsertAsync(owner, clone, cancellationToken);
-        await UpsertInstanceRecordAsync(clone, viaQuickClone: true, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
-
-        if (!string.IsNullOrWhiteSpace(evalReportId))
-        {
-            var cloneEntity = await dbContext.Instances
-                .FirstOrDefaultAsync(i => i.InstanceId == cloneId, cancellationToken);
-            if (cloneEntity is not null)
-            {
-                cloneEntity.EvalReportId = evalReportId;
-                await dbContext.SaveChangesAsync(cancellationToken);
-            }
-        }
-
-        return ApiResponse<QuickCloneResultDto>.SuccessResponse(
-            new QuickCloneResultDto(cloneId, "live", source.EmployeeId, true),
-            "部门员工已快捷复制并上岗");
-    }
-
-    /// <summary>
     /// 从个人分身创建私有分支。创建后状态为 hired，需经双阶段评估通过后才上岗并切换 IM 路由。
     /// </summary>
     public async Task<ApiResponse<PrivateBranchResultDto>> CreatePrivateBranchAsync(
@@ -1745,7 +1615,6 @@ public sealed class EmployeeRuntimeService(
     /// </summary>
     private async Task UpsertInstanceRecordAsync(
         EmployeeDetailDto employee,
-        bool viaQuickClone = false,
         string? currentVersion = null,
         CancellationToken cancellationToken = default)
     {
@@ -1765,7 +1634,6 @@ public sealed class EmployeeRuntimeService(
                 TenantId = ResolveTenantId(employee),
                 InstanceType = string.IsNullOrWhiteSpace(employee.InstanceType) ? "department" : employee.InstanceType,
                 Status = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired",
-                ViaQuickClone = viaQuickClone,
                 BasedOnTemplateId = employee.BasedOnTemplateId,
                 FromInstanceId = employee.FromInstanceId,
                 EvalReportId = null,
@@ -1782,7 +1650,6 @@ public sealed class EmployeeRuntimeService(
             existing.TenantId = ResolveTenantId(employee);
             existing.InstanceType = string.IsNullOrWhiteSpace(employee.InstanceType) ? existing.InstanceType : employee.InstanceType;
             existing.Status = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? existing.Status;
-            existing.ViaQuickClone = viaQuickClone || existing.ViaQuickClone;
             existing.BasedOnTemplateId = employee.BasedOnTemplateId;
             existing.FromInstanceId = employee.FromInstanceId;
             existing.OwnerUserId = string.IsNullOrWhiteSpace(employee.OwnerUserId) ? existing.OwnerUserId : employee.OwnerUserId;

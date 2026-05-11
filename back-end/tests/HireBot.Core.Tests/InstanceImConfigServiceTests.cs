@@ -229,7 +229,6 @@ public sealed class InstanceImConfigServiceTests
             TenantId = "tenant-1",
             InstanceType = type,
             Status = status,
-            ViaQuickClone = false,
             BasedOnTemplateId = "tpl-1",
             FromInstanceId = type == "personal_clone" ? "dept_1" : null,
             EvalReportId = null,
