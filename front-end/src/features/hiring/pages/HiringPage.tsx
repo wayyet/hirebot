@@ -877,13 +877,6 @@ export default function HiringPage() {
     })()
   }
 
-  function handlePrototypeResetView() {
-    setJourneyGuideVisible(false)
-    setFocusedStage(null)
-    setWorkflowNotice('')
-    composerRef.current?.blur()
-  }
-
   function handleSelectStage(stage: HiringUiStage, blockedReason: string) {
     setJourneyGuideVisible(true)
     if (blockedReason) {
