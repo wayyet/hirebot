@@ -176,6 +176,7 @@ app.MapGet("/runtime-config.js", (IConfiguration cfg) =>
         ClientId = consoleCfg["ClientId"] ?? string.Empty,
         BypassAuth = consoleCfg.GetValue("BypassAuth", false),
         ApiBase = string.Empty,
+        TemplateApiBase = consoleCfg["TemplateApiBase"] ?? string.Empty,
     };
     var json = System.Text.Json.JsonSerializer.Serialize(config);
     return Results.Content($"window.__AUTH_CONFIG__ = {json};", "application/javascript");

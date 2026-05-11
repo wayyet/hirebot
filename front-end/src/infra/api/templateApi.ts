@@ -1,7 +1,7 @@
 ﻿import { api } from './index'
 
 export type {
-  TemplateTrustProof,
+  TemplateLatestVersion,
   EmployeeTemplateCard,
   EmployeeTemplateListData,
   TemplateResponsibilityBoundary,

@@ -139,7 +139,7 @@ async function ensureDiscovery(): Promise<Record<string, string>> {
 }
 
 function redirectToLogin() {
-  window.location.assign('/login')
+  window.location.assign('/')
 }
 
 // ---------------------------------------------------------------------------
@@ -322,7 +322,7 @@ export const userManager = {
     }
     if (!logoutUrl) { redirectToLogin(); return }
     const p = new URLSearchParams({
-      post_logout_redirect_uri: window.location.origin + '/login',
+      post_logout_redirect_uri: window.location.origin + '/',
       client_id: clientId,
     })
     if (ts?.id_token) p.set('id_token_hint', ts.id_token)

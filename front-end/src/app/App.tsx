@@ -5,7 +5,7 @@ import AuthGate from "@/app/guards/AuthGate";
 import { UxOverlayProvider } from "@/app/context/UxOverlayContext";
 import { api } from "@/infra/api";
 import type { LocalStateMigrationRequest } from "@/infra/api";
-import LoginPage from "@/features/auth/pages/LoginPage";
+import LandingPage from "@/features/auth/pages/LandingPage";
 import AuthCallbackPage from "@/features/auth/pages/AuthCallbackPage";
 import MarketPage from "@/features/market/pages/MarketPage";
 import TemplateDetailPage from "@/features/market/pages/TemplateDetailPage";
@@ -134,9 +134,9 @@ export default function App() {
     <UxOverlayProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/login" element={<LoginPage />} />
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/login" element={<LandingPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
-          <Route path="/" element={<Navigate to="/template-pool" replace />} />
           <Route
             path="/template-pool"
             element={

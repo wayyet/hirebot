@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, Sparkles } from 'lucide-react'
+import { Clock, Search, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { api, type EmployeeTemplateCard, type EmployeeTemplateListData } from '@/infra/api'
 
 const PAGE_SIZE = 9
@@ -8,7 +9,7 @@ const PAGE_SIZE = 9
 const EMPTY_LIST: EmployeeTemplateListData = {
   page: 1,
   pageSize: PAGE_SIZE,
-  totalCount: 0,
+  total: 0,
   items: [],
 }
 
@@ -25,6 +26,13 @@ function getVisiblePages(current: number, total: number): number[] {
   return pages
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
+
 function tagColor(index: number) {
   const mods = ['blue', 'orange', 'green', 'gray', 'pink', 'purple'] as const
   return mods[index % mods.length]
@@ -32,17 +40,24 @@ function tagColor(index: number) {
 
 function TemplateCard({ template, onClick }: { template: EmployeeTemplateCard; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/60 bg-white/70 p-6 text-left shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:shadow-lg hover:bg-white/85">
-      <h3 className="text-base font-semibold text-[#0a0a0a]">{template.name}</h3>
+    <button type="button" onClick={onClick} className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--hb-border)] bg-[var(--hb-surface-card)] p-6 text-left shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:shadow-lg hover:opacity-90">
+      <h3 className="text-base font-semibold text-[var(--hb-near-black)]">{template.name}</h3>
 
-      <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[#525252]">{template.tagline}</p>
+      <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[var(--hb-body)]">{template.positioning}</p>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {template.coreAbilityTags.slice(0, 4).map((tag, index) => (
+        {template.tags.slice(0, 4).map((tag, index) => (
           <span key={tag} className={`hb-pill ${tagColor(index)}`}>
             {tag}
           </span>
         ))}
+      </div>
+
+      <div className="mt-auto pt-4">
+        <div className="flex items-center gap-1.5 border-t border-[var(--hb-border)] pt-3 text-xs text-[var(--hb-soft)]">
+          <Clock size={12} />
+          <span>更新于 {formatDate(template.updatedAt)}</span>
+        </div>
       </div>
     </button>
   )
@@ -50,6 +65,7 @@ function TemplateCard({ template, onClick }: { template: EmployeeTemplateCard; o
 
 export default function MarketPage() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [searchInput, setSearchInput] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
@@ -85,7 +101,7 @@ export default function MarketPage() {
       } catch (requestError: unknown) {
         if (!cancelled) {
           setListData(EMPTY_LIST)
-          setError(requestError instanceof Error ? requestError.message : '加载模板池失败')
+          setError(requestError instanceof Error ? requestError.message : t('common.loading'))
         }
       } finally {
         if (!cancelled) {
@@ -101,19 +117,19 @@ export default function MarketPage() {
     }
   }, [page, query])
 
-  const totalPages = Math.max(1, Math.ceil(listData.totalCount / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(listData.total / PAGE_SIZE))
   const visiblePages = useMemo(() => getVisiblePages(page, totalPages), [page, totalPages])
 
   return (
     <div className="hb-page">
       <div className="hb-page-head">
         <div>
-          <span className="hb-kicker">部门长入口</span>
+          <span className="hb-kicker">{t('market.kicker')}</span>
           <h1 className="hb-page-title">
-            从模板池出发，完成一条完整的 <span className="accent">部门版雇佣</span> 流程
+            {t('market.title')} <span className="accent">{t('market.titleAccent')}</span> {t('market.titleEnd')}
           </h1>
           <p className="hb-page-copy">
-            这里不生产模板，只负责选择已有模板并进入正式雇佣。页面动作收敛为搜索、查看详情、发起雇佣。
+            {t('market.copy')}
           </p>
         </div>
       </div>
@@ -123,24 +139,24 @@ export default function MarketPage() {
         <input
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
-          placeholder="搜索模板名称、场景、能力关键词"
+          placeholder={t('market.searchPlaceholder')}
           className="hb-search-input"
         />
         <div className="hb-search-controls">
           <button type="button" className="hb-btn-primary">
             <Sparkles size={14} />
-            探索全部模板
+            {t('market.exploreAll')}
           </button>
         </div>
       </div>
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div className="hb-chip-row">
-          <span className="hb-pill blue">全部</span>
-          <span className="hb-pill gray">全局通用</span>
-          <span className="hb-pill gray">企业专属</span>
+          <span className="hb-pill blue">{t('common.allTypes')}</span>
+          <span className="hb-pill gray">{t('common.globalGeneral')}</span>
+          <span className="hb-pill gray">{t('common.enterpriseSpecific')}</span>
         </div>
-        <span className="text-xs text-[#737373]">共 {listData.totalCount} 个模板</span>
+        <span className="text-xs text-[var(--hb-soft)]">{t('market.templateCount', { count: listData.total })}</span>
       </div>
 
       {error ? (
@@ -151,21 +167,21 @@ export default function MarketPage() {
 
       <div className="mt-5">
         {loading ? (
-          <div className="hb-card py-20 text-center text-sm text-[#737373]">
-            模板加载中...
+          <div className="hb-card py-20 text-center text-sm text-[var(--hb-soft)]">
+            {t('market.loading')}
           </div>
         ) : listData.items.length === 0 ? (
           <div className="hb-empty">
-            <div className="hb-empty-title">没有找到匹配模板</div>
-            <div className="hb-empty-copy">尝试更换关键词，或等待更多模板被同步到模板池中。</div>
+            <div className="hb-empty-title">{t('market.empty')}</div>
+            <div className="hb-empty-copy">{t('market.emptyCopy')}</div>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {listData.items.map((template) => (
               <TemplateCard
-                key={template.templateId}
+                key={template.id}
                 template={template}
-                onClick={() => navigate(`/templates/${template.templateId}`)}
+                onClick={() => navigate(`/templates/${template.id}`)}
               />
             ))}
           </div>
@@ -180,7 +196,7 @@ export default function MarketPage() {
             onClick={() => setPage((current) => Math.max(1, current - 1))}
             className="hb-btn-ghost !px-4 !py-2 !text-sm"
           >
-            上一页
+            {t('market.prevPage')}
           </button>
 
           {visiblePages.map((item) => (
@@ -200,13 +216,13 @@ export default function MarketPage() {
             onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
             className="hb-btn-ghost !px-4 !py-2 !text-sm"
           >
-            下一页
+            {t('market.nextPage')}
           </button>
         </div>
       ) : null}
 
-      <p className="mt-8 text-center text-xs text-[#737373]">
-        📝 模板池只展示企业可雇佣的模板，新增模板统一由构建端生产。
+      <p className="mt-8 text-center text-xs text-[var(--hb-caption)]">
+        📝 {t('market.copy')}
       </p>
     </div>
   )

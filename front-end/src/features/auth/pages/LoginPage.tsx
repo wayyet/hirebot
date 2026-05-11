@@ -2,16 +2,13 @@ import { useEffect, type ReactNode } from 'react'
 import { ArrowRight, Bot, Loader2, ShieldCheck, Sparkles } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { getAuthUser, isOidcConfigured, signIn } from '@/infra/auth/oidc'
 import { isAuthBypassed } from '@/infra/auth/auth-mode'
 
 const POST_LOGIN_REDIRECT_KEY = 'ncrew_post_login_redirect'
 
-const LOGIN_HIGHLIGHTS = [
-  { icon: Sparkles, label: '模板直达雇佣流程' },
-  { icon: Bot, label: '入职配置与上岗协作' },
-  { icon: ShieldCheck, label: '统一认证与安全访问' },
-] as const
+const LOGIN_HIGHLIGHT_ICONS = [Sparkles, Bot, ShieldCheck] as const
 
 function normalizeRedirectPath(raw: string | null): string {
   if (!raw || raw.trim().length === 0) {
@@ -41,31 +38,13 @@ function consumeRedirectPath(fallbackPath: string) {
   return fallbackPath
 }
 
-function resolveRedirectLabel(path: string) {
-  if (path === '/template-pool') {
-    return '模板广场'
-  }
-
-  if (path === '/department-employees') {
-    return '部门数字员工'
-  }
-
-  if (path === '/my-employees') {
-    return '我的数字员工'
-  }
-
-  if (path.startsWith('/templates/')) {
-    return '模板详情'
-  }
-
-  if (path.startsWith('/hiring/')) {
-    return '雇佣流程'
-  }
-
-  if (path.startsWith('/instances/')) {
-    return '数字员工详情'
-  }
-
+function resolveRedirectLabel(path: string, t: (key: string) => string) {
+  if (path === '/template-pool') return t('auth.redirectLabels.templatePool')
+  if (path === '/department-employees') return t('auth.redirectLabels.departmentEmployees')
+  if (path === '/my-employees') return t('auth.redirectLabels.myEmployees')
+  if (path.startsWith('/templates/')) return t('auth.redirectLabels.templateDetail')
+  if (path.startsWith('/hiring/')) return t('auth.redirectLabels.hiringFlow')
+  if (path.startsWith('/instances/')) return t('auth.redirectLabels.instanceDetail')
   return path
 }
 
@@ -80,8 +59,9 @@ export default function LoginPage() {
 function OidcLoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { t } = useTranslation()
   const redirectPath = normalizeRedirectPath(searchParams.get('redirect'))
-  const redirectLabel = resolveRedirectLabel(redirectPath)
+  const redirectLabel = resolveRedirectLabel(redirectPath, t)
 
   const { data: user, isLoading } = useQuery({
     queryKey: ['auth-user'],
@@ -103,28 +83,28 @@ function OidcLoginPage() {
 
   return (
     <AuthEntryShell
-      headerTag="统一认证入口"
-      kicker="数字员工雇佣端"
+      headerTag={t('auth.headerTag')}
+      kicker={t('auth.kicker')}
       title={
         <>
-          雇佣下一位
+          {t('auth.title1')}
           <br />
-          <span className="hb-login-title-accent">数字员工</span>
+          <span className="hb-login-title-accent">{t('auth.title2')}</span>
         </>
       }
-      copy="从模板挑选、发起雇佣，到完成入职与上岗协作，HireBot 将整个数字员工雇佣流程收束到同一个入口。"
-      primaryLabel={isLoading ? '检查登录状态中...' : '进入统一登录'}
+      copy={t('auth.copy')}
+      primaryLabel={isLoading ? t('auth.primaryLabelLoading') : t('auth.primaryLabel')}
       primaryBusy={isLoading}
       onPrimary={handleLogin}
       primaryDisabled={!isOidcConfigured || isLoading}
       metaTitle={redirectLabel}
-      metaCopy={`认证成功后会自动返回 ${redirectPath}`}
-      statusLabel={isOidcConfigured ? '认证状态' : '需要处理'}
-      statusTitle={isOidcConfigured ? 'OIDC 已连接' : 'OIDC 尚未配置'}
+      metaCopy={t('auth.redirectTo', { path: redirectPath })}
+      statusLabel={isOidcConfigured ? t('auth.authStatus') : t('auth.needsAttention')}
+      statusTitle={isOidcConfigured ? t('auth.oidcConnected') : t('auth.oidcNotConfigured')}
       statusCopy={
         isOidcConfigured
-          ? '使用统一身份认证完成登录，随后继续你刚才访问的页面。'
-          : '请检查前端运行时配置或环境变量，确保认证服务地址可用后再登录。'
+          ? t('auth.oidcConnectedDesc')
+          : t('auth.oidcNotConfiguredDesc')
       }
       statusTone={isOidcConfigured ? 'info' : 'warn'}
     />
@@ -134,8 +114,9 @@ function OidcLoginPage() {
 function BypassedLoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { t } = useTranslation()
   const redirectPath = normalizeRedirectPath(searchParams.get('redirect'))
-  const redirectLabel = resolveRedirectLabel(redirectPath)
+  const redirectLabel = resolveRedirectLabel(redirectPath, t)
 
   useEffect(() => {
     navigate(redirectPath, { replace: true })
@@ -143,21 +124,21 @@ function BypassedLoginPage() {
 
   return (
     <AuthEntryShell
-      headerTag="开发态直通"
-      kicker="本地开发模式"
+      headerTag={t('auth.bypassHeaderTag')}
+      kicker={t('auth.bypassKicker')}
       title={
         <>
-          已跳过登录
+          {t('auth.bypassTitle1')}
           <br />
-          <span className="hb-login-title-accent">正在进入 {redirectLabel}</span>
+          <span className="hb-login-title-accent">{t('auth.bypassTitle2')} {redirectLabel}</span>
         </>
       }
-      copy="当前前端处于开发态跳过登录模式，本页只作为入口占位，页面将直接进入你刚才请求的业务路径。"
+      copy={t('auth.bypassCopy')}
       metaTitle={redirectLabel}
-      metaCopy={`当前目标路径：${redirectPath}`}
-      statusLabel="运行状态"
-      statusTitle="开发态已开启"
-      statusCopy="如果你想验证真实登录流程，请关闭跳过登录配置后重新访问当前页面。"
+      metaCopy={t('auth.currentTarget', { path: redirectPath })}
+      statusLabel={t('auth.runningStatus')}
+      statusTitle={t('auth.devModeRunning')}
+      statusCopy={t('auth.devModeDesc')}
       statusTone="success"
     />
   )
@@ -194,6 +175,9 @@ function AuthEntryShell({
   primaryDisabled = false,
   onPrimary,
 }: AuthEntryShellProps) {
+  const { t } = useTranslation()
+  const highlightKeys = ['auth.highlights.template', 'auth.highlights.onboarding', 'auth.highlights.security'] as const
+
   return (
     <div className="hb-login-page">
       <div className="hb-login-grid" aria-hidden="true" />
@@ -204,7 +188,7 @@ function AuthEntryShell({
         <header className="hb-login-header">
           <div className="hb-login-brand">
             <span className="hb-login-brand-mark"><Sparkles size={16} /></span>
-            <strong className="hb-login-brand-text">HireBot</strong>
+            <strong className="hb-login-brand-text">{t('brand.name')}</strong>
           </div>
           <span className="hb-login-header-tag">{headerTag}</span>
         </header>
@@ -232,11 +216,11 @@ function AuthEntryShell({
               </div>
             ) : null}
 
-            <div className="hb-login-highlight-row" aria-label="登录入口亮点">
-              {LOGIN_HIGHLIGHTS.map(({ icon: Icon, label }) => (
-                <span key={label} className="hb-login-highlight-pill">
+            <div className="hb-login-highlight-row" aria-label={kicker}>
+              {LOGIN_HIGHLIGHT_ICONS.map((Icon, idx) => (
+                <span key={highlightKeys[idx]} className="hb-login-highlight-pill">
                   <Icon size={14} />
-                  {label}
+                  {t(highlightKeys[idx])}
                 </span>
               ))}
             </div>
@@ -251,7 +235,7 @@ function AuthEntryShell({
           </section>
         </main>
 
-        <footer className="hb-login-footer">HireBot · 数字员工雇佣端</footer>
+        <footer className="hb-login-footer">{t('brand.footer')}</footer>
       </div>
     </div>
   )

@@ -189,7 +189,7 @@ export default function DepartmentEmployeesPage() {
               onClick={() => setTab(item.id)}
             >
               {item.label}
-              <span className="ml-2 text-xs text-[#737373]">{item.count}</span>
+              <span className="ml-2 text-xs text-[var(--hb-soft)]">{item.count}</span>
             </button>
           ))}
         </div>
@@ -224,7 +224,7 @@ export default function DepartmentEmployeesPage() {
 
       <div className="mt-5">
         {loading ? (
-          <div className="hb-card flex min-h-52 items-center justify-center gap-2 p-8 text-sm text-[#737373]">
+          <div className="hb-card flex min-h-52 items-center justify-center gap-2 p-8 text-sm text-[var(--hb-soft)]">
             <Loader2 size={16} className="animate-spin" />
             正在加载部门数字员工...
           </div>
@@ -252,27 +252,27 @@ export default function DepartmentEmployeesPage() {
                     className="block w-full text-left"
                   >
                     <div className="mb-3 flex items-start gap-3">
-                      <span className="hb-squircle h-11 w-11 bg-[#dde9ff] text-[#3d5cff]">
+                      <span className="hb-squircle h-11 w-11 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
                         {firstCharacter(employee.nickname)}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <h3 className="truncate text-[15px] font-semibold text-[#0a0a0a]">{employee.nickname}</h3>
+                          <h3 className="truncate text-[15px] font-semibold text-[var(--hb-near-black)]">{employee.nickname}</h3>
                           <span className={`hb-pill ${statusClass(employee.mappedStatus, employee.lifecycleStatus)}`}>
                             {statusLabel(employee.mappedStatus, employee.lifecycleStatus)}
                           </span>
                         </div>
-                        <p className="mt-1 truncate text-xs text-[#737373]">{employee.roleName || employee.sourceTemplate}</p>
+                        <p className="mt-1 truncate text-xs text-[var(--hb-soft)]">{employee.roleName || employee.sourceTemplate}</p>
                       </div>
                     </div>
-                    <p className="line-clamp-2 min-h-10 text-sm leading-relaxed text-[#404040]">
+                    <p className="line-clamp-2 min-h-10 text-sm leading-relaxed text-[var(--hb-body)]">
                       {employee.primarySignal || employee.stageSummary}
                     </p>
                   </button>
-                  <div className="mt-4 border-t border-[#f5f5f5] pt-3">
-                    <div className="flex items-center justify-between gap-2 text-xs text-[#737373]">
+                  <div className="mt-4 border-t border-[var(--hb-border)] pt-3">
+                    <div className="flex items-center justify-between gap-2 text-xs text-[var(--hb-soft)]">
                       <span>创建于 {employee.createdAt}</span>
-                      {canClone ? <span className="text-[#15803d]">可复制</span> : null}
+                      {canClone ? <span className="text-emerald-600 dark:text-emerald-400">可复制</span> : null}
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       {canClone && role === 'member' ? (

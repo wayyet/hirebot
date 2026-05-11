@@ -248,17 +248,6 @@ function getAllStageTodos(
   return [...directTodos, ...mappedHandoffTodos]
 }
 
-function getAllTodos(workflowState: HiringWorkflowState | null): WorkflowTodo[] {
-  const directTodos = workflowState?.workflowTodos ?? []
-  const mappedHandoffTodos = (workflowState?.handoffItems ?? []).map(mapHandoffToWorkflowTodo)
-  console.log(
-    '[getAllTodos] directTodos=%d handoffMapped=%d',
-    directTodos.length,
-    mappedHandoffTodos.length,
-  )
-  return [...directTodos, ...mappedHandoffTodos]
-}
-
 function buildStageTodoItems(stageTodos: WorkflowTodo[]): HiringStageTodoVm[] {
   const result = stageTodos
     .filter(todo => todo.status !== HiringTodoStatus.Dismissed)

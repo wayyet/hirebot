@@ -26,7 +26,7 @@ export type {
 } from './types'
 
 export type {
-  TemplateTrustProof,
+  TemplateLatestVersion,
   EmployeeTemplateCard,
   EmployeeTemplateListData,
   TemplateResponsibilityBoundary,
@@ -86,6 +86,7 @@ export type {
   HiringCredentialBindingRequest,
   HiringConfigFileUpdateRequest,
   HiringArtifactsDownloadData,
+  HandoffItem,
 } from './modules/hiringWorkflowApi'
 
 export type {

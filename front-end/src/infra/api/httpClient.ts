@@ -140,4 +140,182 @@ export const httpClient = {
   },
 }
 
+/**
+ * 创建一个使用独立 baseUrl 的 HTTP 客户端实例。
+ * 用于需要请求独立服务地址的模块（如模板池），baseUrl 为空时回退到主服务地址。
+ */
+export function createHttpClient(baseUrl: string) {
+  function buildModuleUrl(path: string, query?: QueryParams): string {
+    const effectiveBase = baseUrl.trim() || API_BASE_URL
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`
+    const locationBase = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+    const url = new URL(`${effectiveBase}${normalizedPath}`, locationBase)
+
+    if (query) {
+      Object.entries(query).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return
+        url.searchParams.set(key, String(value))
+      })
+    }
+
+    return url.toString()
+  }
+
+  async function moduleRequest<TResponse, TBody = unknown>(options: RequestOptions<TBody>): Promise<TResponse> {
+    const { path, method = 'GET', query, body, headers, signal } = options
+
+    const url = buildModuleUrl(path, query)
+    const requestHeaders: Record<string, string> = { ...(headers ?? {}) }
+
+    if (body !== undefined && !hasHeader(requestHeaders, 'Content-Type')) {
+      requestHeaders['Content-Type'] = 'application/json'
+    }
+
+    const accessToken = await tokenService.ensureFresh()
+    if (accessToken && !hasHeader(requestHeaders, 'Authorization')) {
+      requestHeaders.Authorization = `Bearer ${accessToken}`
+    }
+
+    const response = await fetch(url, {
+      method,
+      signal,
+      headers: requestHeaders,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+
+    const rawText = await response.text()
+    const hasBody = rawText.trim().length > 0
+
+    let payload: ApiResponseEnvelope<TResponse> | undefined
+    if (hasBody) {
+      try {
+        payload = JSON.parse(rawText) as ApiResponseEnvelope<TResponse>
+      } catch {
+        throw new ApiClientError(`响应解析失败（HTTP ${response.status}）`, response.status, undefined, rawText)
+      }
+    }
+
+    if (response.status === 304) {
+      return null as unknown as TResponse
+    }
+
+    if (!response.ok || (payload && !payload.success)) {
+      throw new ApiClientError(
+        normalizeMessage(response.status, payload),
+        response.status,
+        payload?.code,
+        payload,
+      )
+    }
+
+    if (!payload) {
+      throw new ApiClientError('响应为空', response.status)
+    }
+
+    return payload.data
+  }
+
+  return {
+    get<TResponse>(path: string, query?: QueryParams, signal?: AbortSignal) {
+      return moduleRequest<TResponse>({ path, method: 'GET', query, signal })
+    },
+    post<TResponse, TBody = unknown>(path: string, body?: TBody, signal?: AbortSignal) {
+      return moduleRequest<TResponse, TBody>({ path, method: 'POST', body, signal })
+    },
+    put<TResponse, TBody = unknown>(path: string, body?: TBody, signal?: AbortSignal) {
+      return moduleRequest<TResponse, TBody>({ path, method: 'PUT', body, signal })
+    },
+    patch<TResponse, TBody = unknown>(path: string, body?: TBody, signal?: AbortSignal) {
+      return moduleRequest<TResponse, TBody>({ path, method: 'PATCH', body, signal })
+    },
+    delete<TResponse>(path: string, query?: QueryParams, signal?: AbortSignal) {
+      return moduleRequest<TResponse>({ path, method: 'DELETE', query, signal })
+    },
+  }
+}
+
+/**
+ * 创建一个使用独立 baseUrl 的裸响应 HTTP 客户端实例。
+ * 用于响应体不包含 {code, success, data} 包装的第三方服务（如 BuildService 模板池 API）。
+ * baseUrl 为空时回退到主服务地址。
+ */
+export function createRawHttpClient(baseUrl: string) {
+  function buildModuleUrl(path: string, query?: QueryParams): string {
+    const effectiveBase = baseUrl.trim() || API_BASE_URL
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`
+    const locationBase = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+    const url = new URL(`${effectiveBase}${normalizedPath}`, locationBase)
+
+    if (query) {
+      Object.entries(query).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return
+        url.searchParams.set(key, String(value))
+      })
+    }
+
+    return url.toString()
+  }
+
+  async function rawRequest<TResponse, TBody = unknown>(options: RequestOptions<TBody>): Promise<TResponse> {
+    const { path, method = 'GET', query, body, headers, signal } = options
+
+    const url = buildModuleUrl(path, query)
+    const requestHeaders: Record<string, string> = { ...(headers ?? {}) }
+
+    if (body !== undefined && !hasHeader(requestHeaders, 'Content-Type')) {
+      requestHeaders['Content-Type'] = 'application/json'
+    }
+
+    const accessToken = await tokenService.ensureFresh()
+    if (accessToken && !hasHeader(requestHeaders, 'Authorization')) {
+      requestHeaders.Authorization = `Bearer ${accessToken}`
+    }
+
+    const response = await fetch(url, {
+      method,
+      signal,
+      headers: requestHeaders,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+
+    if (response.status === 304) {
+      return null as unknown as TResponse
+    }
+
+    const rawText = await response.text()
+    const hasBody = rawText.trim().length > 0
+
+    if (!response.ok) {
+      throw new ApiClientError(`请求失败（HTTP ${response.status}）`, response.status, undefined, rawText)
+    }
+
+    if (!hasBody) {
+      return null as unknown as TResponse
+    }
+
+    try {
+      return JSON.parse(rawText) as TResponse
+    } catch {
+      throw new ApiClientError(`响应解析失败（HTTP ${response.status}）`, response.status, undefined, rawText)
+    }
+  }
+
+  return {
+    get<TResponse>(path: string, query?: QueryParams, signal?: AbortSignal) {
+      return rawRequest<TResponse>({ path, method: 'GET', query, signal })
+    },
+    post<TResponse, TBody = unknown>(path: string, body?: TBody, signal?: AbortSignal) {
+      return rawRequest<TResponse, TBody>({ path, method: 'POST', body, signal })
+    },
+    put<TResponse, TBody = unknown>(path: string, body?: TBody, signal?: AbortSignal) {
+      return rawRequest<TResponse, TBody>({ path, method: 'PUT', body, signal })
+    },
+    patch<TResponse, TBody = unknown>(path: string, body?: TBody, signal?: AbortSignal) {
+      return rawRequest<TResponse, TBody>({ path, method: 'PATCH', body, signal })
+    },
+    delete<TResponse>(path: string, query?: QueryParams, signal?: AbortSignal) {
+      return rawRequest<TResponse>({ path, method: 'DELETE', query, signal })
+    },
+  }
+}
 
