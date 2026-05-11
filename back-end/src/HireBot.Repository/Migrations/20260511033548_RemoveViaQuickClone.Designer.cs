@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HireBot.Repository.Migrations
 {
     [DbContext(typeof(HireBotDbContext))]
-    [Migration("20260510055253_AddActiveBranchId")]
-    partial class AddActiveBranchId
+    [Migration("20260511033548_RemoveViaQuickClone")]
+    partial class RemoveViaQuickClone
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -876,10 +876,6 @@ namespace HireBot.Repository.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
-                    b.Property<bool>("ViaQuickClone")
-                        .HasColumnType("boolean")
-                        .HasColumnName("via_quick_clone");
-
                     b.HasKey("InstanceId");
 
                     b.HasIndex("BasedOnTemplateId");
@@ -1100,6 +1096,10 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
 
+                    b.Property<string>("TemplateId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
@@ -1120,6 +1120,8 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("OwnerSubject", "State", "UpdatedAtUtc");
 
                     b.HasIndex("OwnerSubject", "ScopeType", "ScopeKey", "SandboxRole");
+
+                    b.HasIndex("OwnerSubject", "TemplateId", "SandboxRole", "State");
 
                     b.ToTable("SandboxInstances");
                 });
