@@ -1654,6 +1654,11 @@ body {
   font-size: 12px;
 }
 
+.dark .hb-template-doc code {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--hb-body);
+}
+
 .hb-template-doc pre {
   overflow: auto;
   border: 1px solid var(--hb-border);

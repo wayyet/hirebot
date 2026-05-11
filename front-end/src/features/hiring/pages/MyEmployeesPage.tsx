@@ -154,7 +154,7 @@ export default function MyEmployeesPage() {
 
       <div className="mt-5">
         {loading ? (
-          <div className="hb-card flex min-h-52 items-center justify-center gap-2 p-8 text-sm text-[#737373]">
+          <div className="hb-card flex min-h-52 items-center justify-center gap-2 p-8 text-sm text-[var(--hb-soft)]">
             <Loader2 size={16} className="animate-spin" />
             正在加载我的数字员工...
           </div>
@@ -175,32 +175,32 @@ export default function MyEmployeesPage() {
                 className="hb-card cursor-pointer p-5 text-left transition-transform duration-150 hover:-translate-y-0.5"
               >
                 <div className="mb-3 flex items-start gap-3">
-                  <span className="hb-squircle h-11 w-11 bg-[#ece7fb] text-[#6a5acd]">
+                  <span className="hb-squircle h-11 w-11 bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400">
                     {firstCharacter(employee.nickname)}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
-                      <h3 className="truncate text-[15px] font-semibold text-[#0a0a0a]">{employee.nickname}</h3>
+                      <h3 className="truncate text-[15px] font-semibold text-[var(--hb-near-black)]">{employee.nickname}</h3>
                       <span className={`hb-pill ${ownershipClass(employee.ownership)}`}>{ownershipLabel(employee.ownership)}</span>
                     </div>
-                    <p className="mt-1 truncate text-xs text-[#737373]">{employee.roleName || employee.sourceTemplate}</p>
+                    <p className="mt-1 truncate text-xs text-[var(--hb-soft)]">{employee.roleName || employee.sourceTemplate}</p>
                   </div>
                 </div>
-                <p className="line-clamp-2 min-h-10 text-sm leading-relaxed text-[#404040]">
+                <p className="line-clamp-2 min-h-10 text-sm leading-relaxed text-[var(--hb-body)]">
                   {employee.primarySignal || employee.stageSummary}
                 </p>
-                <div className="mt-4 flex items-center justify-between border-t border-[#f5f5f5] pt-3 text-xs text-[#737373]">
+                <div className="mt-4 flex items-center justify-between border-t border-[var(--hb-border)] pt-3 text-xs text-[var(--hb-soft)]">
                   <span>最近更新 {employee.createdAt}</span>
                   <div className="flex items-center gap-2">
                     {employee.ownership === 'private_branch' && employee.mappedStatus !== 'retired' ? (
                       <span
-                        className="cursor-pointer text-[#be3a4a] hover:underline"
+                        className="cursor-pointer text-red-600 hover:underline dark:text-red-400"
                         onClick={(e) => { void abandonBranch(employee.employeeId, e) }}
                       >
                         {abandoningId === employee.employeeId ? '废弃中...' : '废弃'}
                       </span>
                     ) : null}
-                    <span className="text-[#4a6cf7]">查看详情 →</span>
+                    <span className="text-[var(--hb-blue)]">查看详情 →</span>
                   </div>
                 </div>
               </button>
