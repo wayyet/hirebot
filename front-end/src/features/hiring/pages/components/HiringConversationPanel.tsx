@@ -59,16 +59,6 @@ export function HiringConversationPanel({
 }: HiringConversationPanelProps) {
   return (
     <div className="hb-hiring-chat">
-      <div className="hb-hiring-panel-head">
-        <div className="hb-hiring-employee-chip">
-          <div className="hb-hiring-employee-avatar">{introName.slice(0, 1).toUpperCase()}</div>
-          <div>
-            <strong>{introName}</strong>
-            <span>模板新雇佣</span>
-          </div>
-        </div>
-      </div>
-
       <div className="hb-hiring-chat-body">
         <InfoCard
           title={`我是${introName}`}

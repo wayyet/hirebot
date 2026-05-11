@@ -1086,7 +1086,6 @@ export default function HiringPage() {
   return (
     <div className="hb-hiring-page">
       <HiringJourneyHeader
-        templateName={template.name}
         onBack={() => navigate(`/templates/${template.templateId}`)}
         onReset={handleResetConversation}
         onContinue={handlePrototypeContinue}

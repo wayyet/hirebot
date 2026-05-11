@@ -1,7 +1,6 @@
 import { ArrowLeft } from 'lucide-react'
 
 type HiringJourneyHeaderProps = {
-  templateName: string
   onBack: () => void
   onReset: () => void
   onContinue: () => void
@@ -9,7 +8,6 @@ type HiringJourneyHeaderProps = {
 }
 
 export function HiringJourneyHeader({
-  templateName,
   onBack,
   onReset,
   onContinue,
@@ -25,7 +23,6 @@ export function HiringJourneyHeader({
           </button>
           <h1 className="hb-hiring-hero-title">
             数字员工雇佣
-            <span className="hb-hiring-hero-template-tag">「{templateName}」</span>
           </h1>
         </div>
         <p className="hb-hiring-journey-summary hb-hiring-hero-summary">

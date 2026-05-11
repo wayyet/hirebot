@@ -26,7 +26,6 @@ const navItems: NavItem[] = [
     path: "/template-pool",
     labelKey: "nav.templatePool",
     managerOnly: true,
-    isNew: true,
   },
   { path: "/department-employees", labelKey: "nav.departmentEmployees", alwaysVisible: true },
   { path: "/my-employees", labelKey: "nav.myEmployees", alwaysVisible: true },
@@ -78,6 +77,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [userDisplayName, setUserDisplayName] = useState<string>("");
   const [loadingUser, setLoadingUser] = useState(true);
 
+  // 自适应导航折叠
+  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [navStacked, setNavStacked] = useState(false);
+  const [navMenuOpen, setNavMenuOpen] = useState(false);
+  const layoutRef = useRef<HTMLDivElement | null>(null);
+  const brandRef = useRef<HTMLDivElement | null>(null);
+  const navMeasureRef = useRef<HTMLDivElement | null>(null);
+  const actionsRef = useRef<HTMLDivElement | null>(null);
+
   // Dark / light theme
   const [isDark, setIsDark] = useState(
     () => localStorage.getItem("ncrew-hire-theme") === "dark",
@@ -87,6 +95,43 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     document.documentElement.classList.toggle("dark", isDark);
     localStorage.setItem("ncrew-hire-theme", isDark ? "dark" : "light");
   }, [isDark]);
+
+  // 自适应导航：通过 ResizeObserver 测量各区域宽度，决定是否折叠导航
+  useEffect(() => {
+    let rafId = 0;
+    const measureNavLayout = () => {
+      const layoutWidth = layoutRef.current?.clientWidth ?? 0;
+      const brandWidth = brandRef.current?.offsetWidth ?? 0;
+      const navWidth = navMeasureRef.current?.scrollWidth ?? 0;
+      const actionsWidth = actionsRef.current?.offsetWidth ?? 0;
+      if (!layoutWidth || !brandWidth || !navWidth || !actionsWidth) return;
+
+      const requiredWidth = brandWidth + navWidth + actionsWidth + 48;
+      setNavCollapsed(requiredWidth > layoutWidth);
+      setNavStacked(layoutWidth < 520);
+    };
+    const scheduleMeasure = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(measureNavLayout);
+    };
+
+    scheduleMeasure();
+    window.addEventListener("resize", scheduleMeasure);
+
+    const resizeObserver = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => scheduleMeasure())
+      : null;
+
+    const observedElements = [layoutRef.current, brandRef.current, navMeasureRef.current, actionsRef.current]
+      .filter((el): el is HTMLDivElement => Boolean(el));
+    observedElements.forEach(el => resizeObserver?.observe(el));
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", scheduleMeasure);
+      resizeObserver?.disconnect();
+    };
+  }, [t, role]);
 
   // Language switcher
   const [langOpen, setLangOpen] = useState(false);
@@ -178,60 +223,95 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <UserRoleContext.Provider value={{ role, setRole }}>
       <div className="hb-shell">
         <header className="hb-topnav">
-          <div className="hb-topnav-inner">
+          <div ref={layoutRef} className={`hb-topnav-inner${navStacked ? " is-stacked" : ""}`}>
 
             {/* ── Brand ── */}
-            <Link
-              to={role === "manager" ? "/template-pool" : "/department-employees"}
-              className="hb-brand"
-            >
-              <div className="hb-brand-logo">
-                <Sparkles size={16} color="#fff" />
-              </div>
-              <div className="hb-brand-body">
-                <span className="hb-brand-name">{t("brand.name")}</span>
-                <span className="hb-brand-tagline">{t("brand.tagline")}</span>
-              </div>
-            </Link>
+            <div ref={brandRef} style={{ flexShrink: 0 }}>
+              <Link
+                to={role === "manager" ? "/template-pool" : "/department-employees"}
+                className="hb-brand"
+              >
+                <div className="hb-brand-logo">
+                  <Sparkles size={16} color="#fff" />
+                </div>
+                <div className="hb-brand-body">
+                  <span className="hb-brand-name">{t("brand.name")}</span>
+                  <span className="hb-brand-tagline">{t("brand.tagline")}</span>
+                </div>
+              </Link>
+            </div>
 
-            {/* ── Nav pill group ── */}
-            <nav className="hb-nav-pill-shell">
-              {visibleNavItems.map((item) => {
-                const active = isNavItemActive(location.pathname, item.path);
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`hb-nav-pill-item${active ? " is-active" : ""}`}
+            {/* ── Nav center（居中，自适应折叠） ── */}
+            <div className={`hb-topnav-center${navStacked && navCollapsed ? " is-stacked" : ""}`}>
+              {/* 用于测量导航实际宽度的隐藏克隆 */}
+              <div ref={navMeasureRef} aria-hidden="true" className="hb-nav-measure">
+                <div className="hb-nav-pill-shell">
+                  {visibleNavItems.map((item) => (
+                    <span key={`measure-${item.path}`} className="hb-nav-pill-item" style={{ background: "transparent", boxShadow: "none" }}>
+                      {t(item.labelKey)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {!navCollapsed ? (
+                /* 正常宽度：展示 pill 导航 */
+                <nav className="hb-nav-pill-shell">
+                  {visibleNavItems.map((item) => {
+                    const active = isNavItemActive(location.pathname, item.path);
+                    return (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        className={`hb-nav-pill-item${active ? " is-active" : ""}`}
+                      >
+                        {t(item.labelKey)}
+                        {item.isNew ? <span className="hb-nav-flag">new</span> : null}
+                        {active && <span className="hb-nav-pill-dot" />}
+                      </Link>
+                    );
+                  })}
+                </nav>
+              ) : (
+                /* 宽度不足：折叠为下拉菜单 */
+                <div style={{ position: "relative", width: navStacked ? "100%" : "auto" }}>
+                  <button
+                    type="button"
+                    className={`hb-nav-collapse-btn${navStacked ? " is-stacked" : ""}`}
+                    onClick={() => { setNavMenuOpen(v => !v); setLangOpen(false); setUserOpen(false); }}
                   >
-                    {t(item.labelKey)}
-                    {item.isNew ? <span className="hb-nav-flag">new</span> : null}
-                    {active && <span className="hb-nav-pill-dot" />}
-                  </Link>
-                );
-              })}
-            </nav>
+                    <span className="hb-nav-collapse-btn__label">
+                      {t(visibleNavItems.find(item => isNavItemActive(location.pathname, item.path))?.labelKey ?? visibleNavItems[0]?.labelKey ?? "")}
+                    </span>
+                    <ChevronDown
+                      size={13}
+                      style={{ transform: navMenuOpen ? "rotate(180deg)" : "none", transition: "transform 180ms ease", flexShrink: 0 }}
+                    />
+                  </button>
+
+                  {navMenuOpen && (
+                    <div className={`hb-nav-collapse-menu${navStacked ? " is-stacked" : ""}`}>
+                      {visibleNavItems.map((item) => {
+                        const active = isNavItemActive(location.pathname, item.path);
+                        return (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            className={`hb-nav-menu-item${active ? " is-active" : ""}`}
+                            onClick={() => setNavMenuOpen(false)}
+                          >
+                            {t(item.labelKey)}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* ── Right actions ── */}
-            <div className="hb-nav-actions">
-
-              {/* Role switch */}
-              <div className="hb-role-switch">
-                <button
-                  type="button"
-                  className={role === "manager" ? "is-active" : ""}
-                  onClick={() => setRole("manager")}
-                >
-                  {t("role.manager")}
-                </button>
-                <button
-                  type="button"
-                  className={role === "member" ? "is-active" : ""}
-                  onClick={() => setRole("member")}
-                >
-                  {t("role.member")}
-                </button>
-              </div>
+            <div ref={actionsRef} className="hb-nav-actions">
 
               {/* Theme toggle */}
               <button
