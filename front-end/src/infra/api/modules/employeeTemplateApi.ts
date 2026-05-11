@@ -90,6 +90,10 @@ export interface HireTemplateResult {
   sandboxId: string
   status: string
   nextAction: string
+  // 沙箱处于 Running+Initialized 时后端直接返回，前端可跳过额外的状态轮询
+  gatewayEndpoint?: string | null
+  // 已有会话时后端直接返回，前端可跳过 startConversation() 调用
+  sessionId?: string | null
 }
 
 export interface HiringStatusResult {

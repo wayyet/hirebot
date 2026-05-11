@@ -446,8 +446,10 @@ export default function HiringPage() {
         const hired = await api.employeeTemplate.hire(templateId, {})
         setWorkflowHireId(hired.hireId)
 
+        // hire() 对复用的 Running+Initialized 沙箱会直接返回 READY + gatewayEndpoint，
+        // 避免进入轮询循环；Paused/新建沙箱仍走轮询等待
         let latestStatus = hired.status
-        let latestGatewayEndpoint: string | null = null
+        let latestGatewayEndpoint: string | null = hired.gatewayEndpoint ?? null
         for (let retry = 0; retry < 30; retry += 1) {
           if (latestStatus === 'READY' || latestStatus === 'FAILED') break
           await sleep(1000)
@@ -459,8 +461,7 @@ export default function HiringPage() {
           throw new Error('沙箱尚未就绪，请稍后重试')
         }
 
-        // 如果 hired.status 初始就是 READY（沙箱已在运行），循环体从未执行，
-        // gatewayEndpoint 未被填充，需要补一次查询
+        // 如果 gatewayEndpoint 仍为空（旧版后端或极端情况），补一次查询
         if (!latestGatewayEndpoint) {
           const statusResult = await api.employeeTemplate.getHiringStatus(hired.hireId)
           latestGatewayEndpoint = statusResult.gatewayEndpoint ?? null
@@ -471,16 +472,22 @@ export default function HiringPage() {
           gatewayEndpointRef.current = latestGatewayEndpoint
         }
 
-        const conversation = await api.hiringWorkflow.startConversation(hired.hireId)
-        // 保存会话 ID，用于直连沙箱拉取历史和建立 WebSocket
-        sessionIdRef.current = conversation.sessionId
+        // hire() 对复用的沙箱会直接返回 sessionId，跳过 startConversation() 调用；
+        // 新建沙箱或后端未返回 sessionId 时仍走 startConversation() 获取
+        if (hired.sessionId) {
+          sessionIdRef.current = hired.sessionId
+        } else {
+          const conversation = await api.hiringWorkflow.startConversation(hired.hireId)
+          sessionIdRef.current = conversation.sessionId
+        }
 
         // 建立到沙箱的 WebSocket 直连，用于流式展示 AI 回复
         if (latestGatewayEndpoint) {
           await connectSandboxWs(latestGatewayEndpoint)
         }
 
-        await syncWorkflowState(hired.hireId)
+        // 异步加载工作流状态（todos、阶段信息等），不阻塞 WS 连接就绪
+        void syncWorkflowState(hired.hireId).catch(() => { /* 忽略 */ })
         setWorkflowNotice('')
         return hired.hireId
       } catch (error: unknown) {

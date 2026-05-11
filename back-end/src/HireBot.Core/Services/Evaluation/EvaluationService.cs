@@ -1307,11 +1307,11 @@ internal sealed partial class EvaluationService(
                         Input: executionInput,
                         ExecutionId: executeResult.Data.ExecutionId,
                         TraceJson: traceResult.Data.TraceJson,
-                        TraceAssetUrl: traceResult.Data.TraceAsset.PublicUrl));
+                        TraceAssetUrl: traceResult.Data.TraceAsset?.PublicUrl ?? string.Empty));
                 }
 
                 var payload = BuildEvaluatorPayload(
-                    sessionEntity.SessionId, testcaseResult.Data, ontologyResult.Data, executionEvidences);
+                    sessionEntity.SessionId, testcaseResult.Data, ontologyResult.Data!, executionEvidences);
                 payloadJson = JsonSerializer.Serialize(payload, JsonOptions);
                 logger.LogInformation("[Eval] Full payload built employeeId={EmployeeId} testcases={Count} evidences={EvCount}",
                     employeeId, testcaseResult.Data.Testcases.Count, executionEvidences.Count);

@@ -150,7 +150,9 @@ internal sealed partial class EmployeeHiringService(
 
             if (existingInstance.IsInitialized)
             {
-                hireOwners[existingInstance.ScopeKey] = new HireOwnerContext(
+                var existingHireId = existingInstance.ScopeKey;
+
+                hireOwners[existingHireId] = new HireOwnerContext(
                     OwnerSubject: ownerSubject,
                     TenantId: tenantId,
                     OperatorId: operatorId,
@@ -158,12 +160,58 @@ internal sealed partial class EmployeeHiringService(
                     TemplateName: template.Name,
                     EmployeeId: null);
 
+                // 优先从内存 store 获取 sessionId；服务重启后 store 为空则从 DB 补全
+                var existingRuntime = hiringRuntimeStore.Get(existingHireId);
+                var existingSessionId = existingRuntime?.SessionId;
+                if (string.IsNullOrWhiteSpace(existingSessionId))
+                {
+                    existingSessionId = await dbContext.HiringSessions
+                        .AsNoTracking()
+                        .Where(s => s.HireId == existingHireId && s.DeletedAtUtc == null)
+                        .OrderByDescending(s => s.CreatedAtUtc)
+                        .Select(s => s.SessionId)
+                        .FirstOrDefaultAsync(cancellationToken);
+                }
+
+                // 若内存 store 中无运行时上下文，用 DB 补全的 sessionId 重建最小上下文，
+                // 确保后续 syncConversationTurn 等调用能正常找到 HireId 对应的运行时
+                if (existingRuntime is null && !string.IsNullOrWhiteSpace(existingSessionId))
+                {
+                    var restoredStageCompletion = stageCompletionEvaluator.Evaluate(
+                        discoverySkill.StageRules,
+                        new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
+                    hiringRuntimeStore.Upsert(new HiringRuntimeContext
+                    {
+                        HireId = existingHireId,
+                        TemplateId = normalizedTemplateId,
+                        TemplateName = template.Name,
+                        OwnerSubject = ownerSubject,
+                        TenantId = tenantId,
+                        OperatorId = operatorId,
+                        SandboxId = existingInstance.SandboxId,
+                        SessionId = existingSessionId,
+                        CurrentStage = HiringCollectionStage.Material,
+                        CollectionPhase = HiringCollectionPhase.NotStarted,
+                        IsConversationPaused = false,
+                        IsConversationResponding = false,
+                        ReferenceTemplatePackage = referenceTemplatePackage,
+                        RoleTemplatePackage = roleTemplatePackage,
+                        WorkingTemplatePackage = workingTemplatePackage,
+                        DiscoverySkill = discoverySkill,
+                        StageCompletion = restoredStageCompletion
+                    });
+                }
+
+                // 沙箱 Running 时直接带回 gatewayEndpoint + sessionId，前端可跳过状态轮询和 startConversation() 调用
+                var isRunning = string.Equals(existingInstance.State, "Running", StringComparison.OrdinalIgnoreCase);
                 return ApiResponse<HireTemplateResultDto>.SuccessResponse(
                     new HireTemplateResultDto(
-                        existingInstance.ScopeKey,
+                        existingHireId,
                         existingInstance.SandboxId,
-                        existingInstance.State,
-                        "continue_conversation"),
+                        isRunning ? "READY" : existingInstance.State,
+                        "continue_conversation",
+                        SessionId: string.IsNullOrWhiteSpace(existingSessionId) ? null : existingSessionId,
+                        GatewayEndpoint: isRunning ? existingInstance.GatewayEndpoint : null),
                     "已复用现有沙箱");
             }
 
@@ -241,7 +289,7 @@ internal sealed partial class EmployeeHiringService(
             new SandboxEnsureSessionRequestDto
             {
                 ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = call.Data.HireId,
+                ScopeKey = call.Data!.HireId,
                 SandboxRole = "hiring",
                 OwnerSubject = ownerSubject,
                 TenantId = tenantId,
@@ -707,7 +755,7 @@ internal sealed partial class EmployeeHiringService(
         {
             runtimeContext = ApplyWorkflowProgress(runtimeContext with
             {
-                SessionId = call.Data.SessionId
+                SessionId = call.Data!.SessionId
             });
             hiringRuntimeStore.Upsert(runtimeContext);
             var requiresAudit = BuildLocalStagePreview(
@@ -919,7 +967,7 @@ internal sealed partial class EmployeeHiringService(
                 request.Content?.Trim(),
                 sendResponse.Data.AssistantMessage.Content,
                 requestMaterials,
-                request.StructuredAnswers,
+                request.StructuredAnswers?.ToDictionary(kv => kv.Key, kv => (string?)kv.Value),
                 cancellationToken);
         }
         finally
