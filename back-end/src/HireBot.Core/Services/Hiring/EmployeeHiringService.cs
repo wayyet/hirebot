@@ -612,6 +612,13 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HiringStatusDto>.ErrorResponse(refreshResult.Code, refreshResult.Message);
         }
 
+        // RefreshAsync 可能在沙箱被外部删除后重建了沙箱（新 SandboxId），同步到内存上下文。
+        if (runtimeContext is not null && !string.Equals(runtimeContext.SandboxId, refreshResult.Data.SandboxId, StringComparison.Ordinal))
+        {
+            runtimeContext = runtimeContext with { SandboxId = refreshResult.Data.SandboxId };
+            hiringRuntimeStore.Upsert(runtimeContext);
+        }
+
         runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken) ?? runtimeContext;
 
         // 前端轮询等待 "READY" 信号。
@@ -1647,10 +1654,8 @@ internal sealed class EmployeeHiringService(
             cancellationToken);
         if (!sessionDetailResult.Success || sessionDetailResult.Data is null)
         {
-            throw new InvalidOperationException(
-                string.IsNullOrWhiteSpace(sessionDetailResult.Message)
-                    ? $"无法刷新会话 {runtimeContext.SessionId} 的 handoff 元数据。"
-                    : sessionDetailResult.Message);
+            logger.LogWarning("无法刷新会话 {SessionId} 的 handoff 元数据: {Message}", runtimeContext.SessionId, sessionDetailResult.Message);
+            return runtimeContext;
         }
 
         return runtimeContext with
