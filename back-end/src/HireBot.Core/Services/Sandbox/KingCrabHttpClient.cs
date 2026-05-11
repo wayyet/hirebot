@@ -54,9 +54,24 @@ internal sealed class KingCrabHttpClient(
             return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口失败：响应为空");
         }
 
+        logger.LogDebug(
+            "KingCrab JSON response body. Method={Method}, Path={Path}, ContentType={ContentType}, BodyLength={BodyLength}, BodyPreview={BodyPreview}",
+            method,
+            path,
+            typeof(T).Name,
+            response.Content.Length,
+            response.Content.Length <= 2000 ? response.Content : response.Content[..2000] + "...");
+
         var payload = JsonSerializer.Deserialize<T>(response.Content, JsonOptions);
         if (payload is null)
         {
+            logger.LogWarning(
+                "KingCrab JSON deserialization returned null. Method={Method}, Path={Path}, ContentType={ContentType}, BodyLength={BodyLength}, BodyPreview={BodyPreview}",
+                method,
+                path,
+                typeof(T).Name,
+                response.Content.Length,
+                response.Content.Length <= 500 ? response.Content : response.Content[..500] + "...");
             return RemoteCallResult<T>.Failure(502, "调用 KingCrab 接口失败：响应解析为空");
         }
 

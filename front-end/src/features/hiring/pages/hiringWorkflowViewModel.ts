@@ -187,7 +187,7 @@ function isFallbackTodoSource(source: string | null | undefined) {
 function mapHandoffToWorkflowTodo(handoff: HandoffItem): WorkflowTodo {
   const status = mapHandoffStatus(handoff.status)
   return {
-    id: handoff.handoffId,
+    id: handoff.handoff_id,
     title: handoff.title,
     stage: handoff.stage,
     kind: handoff.kind,
@@ -206,10 +206,10 @@ function mapHandoffToWorkflowTodo(handoff: HandoffItem): WorkflowTodo {
     question: null,
     evidence: null,
     suggestedAction: null,
-    relatedTodoIds: handoff.relatedHandoffIds ?? [],
-    relatedFiles: handoff.relatedFiles ?? [],
-    createdAtUtc: handoff.createdAtUtc,
-    updatedAtUtc: handoff.updatedAtUtc,
+    relatedTodoIds: handoff.related_todos ?? [],
+    relatedFiles: handoff.related_files ?? [],
+    createdAtUtc: handoff.created_at,
+    updatedAtUtc: handoff.updated_at,
   }
 }
 
@@ -239,11 +239,17 @@ function getAllStageTodos(
   const mappedHandoffTodos = (workflowState?.handoffItems ?? [])
     .filter(item => item.stage === stage)
     .map(mapHandoffToWorkflowTodo)
+  console.log(
+    '[getAllStageTodos] stage=%s directTodos=%d handoffMapped=%d',
+    stage,
+    directTodos.length,
+    mappedHandoffTodos.length,
+  )
   return [...directTodos, ...mappedHandoffTodos]
 }
 
 function buildStageTodoItems(stageTodos: WorkflowTodo[]): HiringStageTodoVm[] {
-  return stageTodos
+  const result = stageTodos
     .filter(todo => todo.status !== HiringTodoStatus.Dismissed)
     .map((todo) => {
       const isFallback = isFallbackTodoSource(todo.source)
@@ -259,6 +265,15 @@ function buildStageTodoItems(stageTodos: WorkflowTodo[]): HiringStageTodoVm[] {
         isFallback,
       }
     })
+  const dismissedCount = stageTodos.length - result.length
+  if (dismissedCount > 0) {
+    console.log(
+      '[buildStageTodoItems] filtered out %d dismissed todos, remaining=%d',
+      dismissedCount,
+      result.length,
+    )
+  }
+  return result
 }
 
 function getExternalPendingCredentialSlots(credentialSlots: CredentialSlot[] | null | undefined) {

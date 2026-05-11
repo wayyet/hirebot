@@ -3,6 +3,7 @@ using System;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HireBot.Repository.Migrations
 {
     [DbContext(typeof(HireBotDbContext))]
-    partial class HireBotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260511055120_AddSandboxIsInitialized")]
+    partial class AddSandboxIsInitialized
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -872,6 +875,10 @@ namespace HireBot.Repository.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
+
+                    b.Property<bool>("ViaQuickClone")
+                        .HasColumnType("boolean")
+                        .HasColumnName("via_quick_clone");
 
                     b.HasKey("InstanceId");
 

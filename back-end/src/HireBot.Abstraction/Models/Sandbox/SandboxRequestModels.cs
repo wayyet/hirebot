@@ -13,6 +13,7 @@ public sealed record SandboxCreateRequestDto
     public string ProvisioningMode { get; init; } = "managed";
     public string? UseCase { get; init; }
     public string? TemplateId { get; init; }
+    public bool IsInitialized { get; init; }
 }
 
 public sealed record SandboxRegisterRequestDto
@@ -30,6 +31,7 @@ public sealed record SandboxRegisterRequestDto
     public DateTimeOffset? ExpiresAtUtc { get; init; }
     public string? UseCase { get; init; }
     public string? TemplateId { get; init; }
+    public bool IsInitialized { get; init; }
 }
 
 public sealed record SandboxInstanceLookupRequestDto
@@ -43,6 +45,7 @@ public sealed record SandboxInstanceLookupRequestDto
     public string? OperatorId { get; init; }
     public string? UseCase { get; init; }
     public string? TemplateId { get; init; }
+    public bool IsInitialized { get; init; }
 }
 
 public sealed record SandboxEnsureSessionRequestDto
