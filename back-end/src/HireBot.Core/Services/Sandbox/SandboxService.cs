@@ -661,11 +661,14 @@ internal sealed class SandboxService(
 
         var rawHandoffCount = gatewayCall.Success ? gatewayCall.Data?.Metadata?.HandoffItems?.Count ?? 0 : 0;
         logger.LogInformation(
-            "GetSessionDetail gateway call: Success={Success}, StatusCode={StatusCode}, SessionId={SessionId}, RawHandoffItems={RawHandoffCount}",
+            "GetSessionDetail gateway call: Success={Success}, StatusCode={StatusCode}, SessionId={SessionId}, RawHandoffItems={RawHandoffCount}, DataIsNull={DataIsNull}, MetadataIsNull={MetadataIsNull}, IsActive={IsActive}",
             gatewayCall.Success,
             gatewayCall.StatusCode,
             sessionId,
-            rawHandoffCount);
+            rawHandoffCount,
+            gatewayCall.Data is null,
+            gatewayCall.Data?.Metadata is null,
+            gatewayCall.Data?.IsActive);
 
         var detail = MapSessionDetailDto(sessionId, gatewayCall.Success ? gatewayCall.Data : null);
         logger.LogInformation(
@@ -1156,6 +1159,15 @@ internal sealed class SandboxService(
                     item.Timestamp ?? DateTimeOffset.UtcNow))
                 .ToArray()
             : [];
+
+        logger.LogInformation(
+            "MapSessionDetailDto input: SessionId={SessionId}, ResponseIsNull={ResponseIsNull}, HasSession={HasSession}, HasMetadata={HasMetadata}, MetadataHandoffCount={MetadataHandoffCount}, IsActive={IsActive}",
+            sessionId,
+            response is null,
+            response?.Session is not null,
+            response?.Metadata is not null,
+            response?.Metadata?.HandoffItems?.Count ?? -1,
+            response?.IsActive);
 
         var handoffItems = response?.Metadata?.HandoffItems is { Count: > 0 } metadataHandoffItems
             ? metadataHandoffItems

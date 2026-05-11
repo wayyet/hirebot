@@ -626,10 +626,19 @@ internal sealed class EmployeeHiringService(
         }
 
         // RefreshAsync 可能在沙箱被外部删除后重建了沙箱（新 SandboxId），同步到内存上下文。
-        if (runtimeContext is not null && !string.Equals(runtimeContext.SandboxId, refreshResult.Data.SandboxId, StringComparison.Ordinal))
+        // 如果沙箱未初始化（被删除后重建的空壳），则触发重新初始化（上传模板包 + 冷启动提示词）。
+        if (runtimeContext is not null)
         {
-            runtimeContext = runtimeContext with { SandboxId = refreshResult.Data.SandboxId };
-            hiringRuntimeStore.Upsert(runtimeContext);
+            if (!string.Equals(runtimeContext.SandboxId, refreshResult.Data.SandboxId, StringComparison.Ordinal))
+            {
+                runtimeContext = runtimeContext with { SandboxId = refreshResult.Data.SandboxId };
+                hiringRuntimeStore.Upsert(runtimeContext);
+            }
+
+            if (!refreshResult.Data.IsInitialized)
+            {
+                runtimeContext = await EnsureSandboxReinitializedAsync(runtimeContext, cancellationToken);
+            }
         }
 
         runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken) ?? runtimeContext;
@@ -664,6 +673,14 @@ internal sealed class EmployeeHiringService(
         }
 
         var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
+
+        // 如果沙箱被删除后重建为空壳，先完成初始化（上传模板包 + 冷启动提示词）
+        var runtimeBeforeSession = hiringRuntimeStore.Get(normalizedHireId);
+        if (runtimeBeforeSession is not null)
+        {
+            runtimeBeforeSession = await EnsureSandboxReinitializedAsync(runtimeBeforeSession, cancellationToken);
+        }
+
         var sessionResult = await sandboxService.EnsureSessionAsync(
             new SandboxEnsureSessionRequestDto
             {
@@ -673,7 +690,7 @@ internal sealed class EmployeeHiringService(
                 OwnerSubject = ownerContext.OwnerSubject,
                 TenantId = ownerContext.TenantId,
                 OperatorId = ownerContext.OperatorId,
-                SandboxId = hiringRuntimeStore.Get(normalizedHireId)?.SandboxId,
+                SandboxId = runtimeBeforeSession?.SandboxId ?? hiringRuntimeStore.Get(normalizedHireId)?.SandboxId,
                 SessionKey = "default"
             },
             cancellationToken);
@@ -830,6 +847,9 @@ internal sealed class EmployeeHiringService(
             {
                 return ApiResponse<HiringConversationResultDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
             }
+
+            // 如果沙箱被删除后重建为空壳，先完成初始化再发送消息
+            runtimeContext = await EnsureSandboxReinitializedAsync(runtimeContext, cancellationToken) ?? runtimeContext;
 
             var requestMaterials = BuildMaterialsFromRequest(request);
             if (HiringWorkflowSupport.ContainsSensitiveValue(request.Content))
@@ -1577,6 +1597,161 @@ internal sealed class EmployeeHiringService(
             StructuredData = NormalizeStructuredData(runtimeContext.StructuredData)
         });
         hiringRuntimeStore.Upsert(runtimeContext);
+
+        return runtimeContext;
+    }
+
+    private async Task<HiringRuntimeContext?> EnsureSandboxReinitializedAsync(
+        HiringRuntimeContext runtimeContext,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(runtimeContext.RoleTemplatePackage.PackageId))
+        {
+            return runtimeContext;
+        }
+
+        var refreshResult = await sandboxService.RefreshAsync(
+            new SandboxInstanceLookupRequestDto
+            {
+                SandboxId = runtimeContext.SandboxId,
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = runtimeContext.HireId,
+                SandboxRole = ResolveSandboxRole(runtimeContext.HireId),
+                OwnerSubject = runtimeContext.OwnerSubject,
+                TenantId = runtimeContext.TenantId,
+                OperatorId = runtimeContext.OperatorId,
+                TemplateId = runtimeContext.TemplateId
+            },
+            cancellationToken);
+
+        if (!refreshResult.Success || refreshResult.Data is null)
+        {
+            logger.LogWarning(
+                "Sandbox re-initialization skipped: RefreshAsync failed. HireId={HireId}, Error={Error}",
+                runtimeContext.HireId,
+                refreshResult.Message);
+            return runtimeContext;
+        }
+
+        if (refreshResult.Data.IsInitialized)
+        {
+            if (!string.Equals(runtimeContext.SandboxId, refreshResult.Data.SandboxId, StringComparison.Ordinal))
+            {
+                runtimeContext = runtimeContext with { SandboxId = refreshResult.Data.SandboxId };
+                hiringRuntimeStore.Upsert(runtimeContext);
+            }
+
+            return runtimeContext;
+        }
+
+        logger.LogInformation(
+            "Sandbox re-initialization started. HireId={HireId}, SandboxId={SandboxId}",
+            runtimeContext.HireId,
+            refreshResult.Data.SandboxId);
+
+        runtimeContext = runtimeContext with { SandboxId = refreshResult.Data.SandboxId };
+        hiringRuntimeStore.Upsert(runtimeContext);
+
+        var templatePackageCall = await UploadTemplatePackageAsync(
+            runtimeContext.HireId,
+            runtimeContext.RoleTemplatePackage,
+            runtimeContext.OwnerSubject,
+            cancellationToken);
+        if (!templatePackageCall.Success || templatePackageCall.Data is null)
+        {
+            logger.LogWarning(
+                "Sandbox re-initialization: template upload failed. HireId={HireId}, Error={Error}",
+                runtimeContext.HireId,
+                templatePackageCall.Message);
+            return runtimeContext;
+        }
+
+        EmployeeTemplateDefinition template;
+        try
+        {
+            template = await templateDataProvider.GetByIdAsync(runtimeContext.TemplateId, cancellationToken)
+                ?? new EmployeeTemplateDefinition(
+                    TemplateId: runtimeContext.TemplateId,
+                    IconUrl: string.Empty,
+                    Name: runtimeContext.TemplateName,
+                    Tagline: string.Empty,
+                    Description: string.Empty,
+                    DetailDoc: string.Empty,
+                    CoreAbilityTags: [],
+                    HiredCount: 0,
+                    SuccessRate: 0m,
+                    AvgRating: 0m,
+                    IsAvailable: true,
+                    CoreAbilities: [],
+                    InScope: [],
+                    OutOfScope: [],
+                    Prerequisites: [],
+                    SuccessCases: []);
+        }
+        catch
+        {
+            template = new EmployeeTemplateDefinition(
+                TemplateId: runtimeContext.TemplateId,
+                IconUrl: string.Empty,
+                Name: runtimeContext.TemplateName,
+                Tagline: string.Empty,
+                Description: string.Empty,
+                DetailDoc: string.Empty,
+                CoreAbilityTags: [],
+                HiredCount: 0,
+                SuccessRate: 0m,
+                AvgRating: 0m,
+                IsAvailable: true,
+                CoreAbilities: [],
+                InScope: [],
+                OutOfScope: [],
+                Prerequisites: [],
+                SuccessCases: []);
+        }
+
+        var primingContent = BuildReferenceTemplatePrimingContent(
+            template,
+            runtimeContext.ReferenceTemplatePackage,
+            LoadReferenceTemplatePrimingPrompt());
+
+        var existingSession = await dbContext.HiringSessions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.HireId == runtimeContext.HireId, cancellationToken);
+        PersistedSourceZipInfo? referenceSourceZip = null;
+        if (existingSession is not null
+            && !string.IsNullOrWhiteSpace(existingSession.SourceZipStoragePath)
+            && !string.IsNullOrWhiteSpace(existingSession.SourceZipSha256))
+        {
+            referenceSourceZip = new PersistedSourceZipInfo(
+                existingSession.SourceZipStoragePath
+                    .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                    .LastOrDefault() ?? "source.zip",
+                existingSession.SourceZipStoragePath,
+                existingSession.SourceZipSha256,
+                existingSession.SourceZipSizeBytes ?? 0);
+        }
+
+        var primingMaterials = BuildReferenceTemplatePrimingMaterials(referenceSourceZip);
+        var primingResponse = await SendInternalPrimingMessageAsync(
+            runtimeContext,
+            primingContent,
+            primingMaterials,
+            cancellationToken);
+        if (!primingResponse.Success || primingResponse.Data is null)
+        {
+            logger.LogWarning(
+                "Sandbox re-initialization: priming failed. HireId={HireId}, Error={Error}",
+                runtimeContext.HireId,
+                primingResponse.Message);
+            return runtimeContext;
+        }
+
+        await SetSandboxInitializedAsync(refreshResult.Data.SandboxId, cancellationToken);
+
+        logger.LogInformation(
+            "Sandbox re-initialization completed. HireId={HireId}, SandboxId={SandboxId}",
+            runtimeContext.HireId,
+            runtimeContext.SandboxId);
 
         return runtimeContext;
     }
