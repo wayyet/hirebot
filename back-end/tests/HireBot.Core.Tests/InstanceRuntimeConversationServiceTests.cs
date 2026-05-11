@@ -161,7 +161,6 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
             TenantId = "tenant-1",
             InstanceType = instanceType,
             Status = status,
-            ViaQuickClone = false,
             BasedOnTemplateId = "tpl-1",
             FromInstanceId = fromInstanceId,
             EvalReportId = null,

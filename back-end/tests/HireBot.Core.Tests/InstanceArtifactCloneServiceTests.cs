@@ -37,7 +37,6 @@ public sealed class InstanceArtifactCloneServiceTests
                 TenantId = "tenant-a",
                 InstanceType = "department",
                 Status = "live",
-                ViaQuickClone = false,
                 BasedOnTemplateId = "sales-coach",
                 FromInstanceId = null,
                 EvalReportId = null,

@@ -15,7 +15,6 @@ import MyEmployeesPage from "@/features/hiring/pages/MyEmployeesPage";
 import ReviewPage from "@/features/hiring/pages/ReviewPage";
 import OnboardingPage from "@/features/hiring/pages/OnboardingPage";
 import CloneEmployeePage from "@/features/hiring/pages/CloneEmployeePage";
-import QuickClonePage from "@/features/hiring/pages/QuickClonePage";
 import PrivateBranchPage from "@/features/hiring/pages/PrivateBranchPage";
 import InstanceDetailPage from "@/features/team/pages/InstanceDetailPage";
 import InstanceChatPage from "@/features/team/pages/InstanceChatPage";
@@ -191,14 +190,6 @@ export default function App() {
             element={
               <ProtectedLayout>
                 <CloneEmployeePage />
-              </ProtectedLayout>
-            }
-          />
-          <Route
-            path="/quick-clone/:id"
-            element={
-              <ProtectedLayout>
-                <QuickClonePage />
               </ProtectedLayout>
             }
           />

@@ -355,7 +355,6 @@ CREATE TABLE "Instances" (
     tenant_id character varying(128) NOT NULL,
     instance_type character varying(40) NOT NULL,
     status character varying(40) NOT NULL,
-    via_quick_clone boolean NOT NULL,
     based_on_template_id character varying(128),
     from_instance_id character varying(120),
     eval_report_id character varying(120),

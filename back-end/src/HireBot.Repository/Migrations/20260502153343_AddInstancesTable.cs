@@ -67,7 +67,6 @@ namespace HireBot.Repository.Migrations
                     tenant_id = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
                     instance_type = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
                     status = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                    via_quick_clone = table.Column<bool>(type: "boolean", nullable: false),
                     based_on_template_id = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
                     from_instance_id = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: true),
                     eval_report_id = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: true),

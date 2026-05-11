@@ -867,10 +867,6 @@ namespace HireBot.Repository.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
-                    b.Property<bool>("ViaQuickClone")
-                        .HasColumnType("boolean")
-                        .HasColumnName("via_quick_clone");
-
                     b.HasKey("InstanceId");
 
                     b.HasIndex("BasedOnTemplateId");

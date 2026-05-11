@@ -186,7 +186,6 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
             entity.Property(e => e.InstanceType).HasColumnName("instance_type").IsRequired().HasMaxLength(40);
             entity.Property(e => e.Status).HasColumnName("status").IsRequired().HasMaxLength(40);
-            entity.Property(e => e.ViaQuickClone).HasColumnName("via_quick_clone").IsRequired();
             entity.Property(e => e.BasedOnTemplateId).HasColumnName("based_on_template_id").HasMaxLength(128);
             entity.Property(e => e.FromInstanceId).HasColumnName("from_instance_id").HasMaxLength(120);
             entity.Property(e => e.ActiveBranchId).HasColumnName("active_branch_id").HasMaxLength(120);
