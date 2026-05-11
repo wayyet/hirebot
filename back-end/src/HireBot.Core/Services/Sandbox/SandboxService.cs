@@ -130,7 +130,8 @@ internal sealed class SandboxService(
                 GatewayEndpoint = provisioned.GatewayEndpoint,
                 ExpiresAtUtc = provisioned.ExpiresAtUtc,
                 UseCase = request.UseCase,
-                TemplateId = request.TemplateId
+                TemplateId = request.TemplateId,
+                IsInitialized = false
             });
             await dbContext.SaveChangesAsync(cancellationToken);
             await provisioner.BeginTrackingAsync(instance.Id, provisioned.SandboxId);
@@ -155,6 +156,7 @@ internal sealed class SandboxService(
             instance.GatewayEndpoint = provisioned.GatewayEndpoint;
             instance.ExpiresAtUtc = provisioned.ExpiresAtUtc;
             instance.LastError = null;
+            instance.IsInitialized = false;
             instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
             await dbContext.SaveChangesAsync(cancellationToken);
             await provisioner.BeginTrackingAsync(instance.Id, provisioned.SandboxId);
@@ -197,6 +199,7 @@ internal sealed class SandboxService(
         instance.GatewayEndpoint = rebuilt.GatewayEndpoint;
         instance.ExpiresAtUtc = rebuilt.ExpiresAtUtc;
         instance.LastError = null;
+        instance.IsInitialized = false;
         instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
         await provisioner.BeginTrackingAsync(instance.Id, rebuilt.SandboxId);
@@ -656,8 +659,23 @@ internal sealed class SandboxService(
             request.SandboxId ?? instance.SandboxId,
             cancellationToken);
 
-        return ApiResponse<SandboxSessionDetailDto>.SuccessResponse(
-            MapSessionDetailDto(sessionId, gatewayCall.Success ? gatewayCall.Data : null));
+        var rawHandoffCount = gatewayCall.Success ? gatewayCall.Data?.Metadata?.HandoffItems?.Count ?? 0 : 0;
+        logger.LogInformation(
+            "GetSessionDetail gateway call: Success={Success}, StatusCode={StatusCode}, SessionId={SessionId}, RawHandoffItems={RawHandoffCount}",
+            gatewayCall.Success,
+            gatewayCall.StatusCode,
+            sessionId,
+            rawHandoffCount);
+
+        var detail = MapSessionDetailDto(sessionId, gatewayCall.Success ? gatewayCall.Data : null);
+        logger.LogInformation(
+            "GetSessionDetail result: SessionId={SessionId}, Messages={MessageCount}, HandoffItems={HandoffCount}, IsActive={IsActive}",
+            detail.SessionId,
+            detail.Messages.Count,
+            detail.HandoffItems.Count,
+            detail.IsActive);
+
+        return ApiResponse<SandboxSessionDetailDto>.SuccessResponse(detail);
     }
 
     public async Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(
@@ -903,6 +921,7 @@ internal sealed class SandboxService(
         instance.ExpiresAtUtc = request.ExpiresAtUtc;
         instance.UseCase = string.IsNullOrWhiteSpace(request.UseCase) ? null : request.UseCase.Trim();
         instance.TemplateId = string.IsNullOrWhiteSpace(request.TemplateId) ? null : request.TemplateId.Trim();
+        instance.IsInitialized = request.IsInitialized;
         instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
     }
 
@@ -923,6 +942,7 @@ internal sealed class SandboxService(
             instance.LastError,
             instance.UseCase,
             instance.TemplateId,
+            instance.IsInitialized,
             instance.CreatedAtUtc,
             instance.UpdatedAtUtc);
 
@@ -1120,7 +1140,7 @@ internal sealed class SandboxService(
     private sealed record SandboxGatewayChatCompletionChoice(
         SandboxGatewayChatMessage? Message);
 
-    private static SandboxSessionDetailDto MapSessionDetailDto(
+    private SandboxSessionDetailDto MapSessionDetailDto(
         string sessionId,
         SandboxGatewaySessionDetailResponse? response)
     {
@@ -1140,15 +1160,30 @@ internal sealed class SandboxService(
         var handoffItems = response?.Metadata?.HandoffItems is { Count: > 0 } metadataHandoffItems
             ? metadataHandoffItems
                 .Where(item =>
-                    !string.IsNullOrWhiteSpace(item.SessionId) &&
-                    !string.IsNullOrWhiteSpace(item.WorkflowId) &&
-                    !string.IsNullOrWhiteSpace(item.HandoffId) &&
-                    !string.IsNullOrWhiteSpace(item.Title) &&
-                    !string.IsNullOrWhiteSpace(item.Kind) &&
-                    !string.IsNullOrWhiteSpace(item.Stage) &&
-                    !string.IsNullOrWhiteSpace(item.TargetSkill) &&
-                    !string.IsNullOrWhiteSpace(item.Status) &&
-                    !string.IsNullOrWhiteSpace(item.Fingerprint))
+                {
+                    var missingFields = new List<string>();
+                    if (string.IsNullOrWhiteSpace(item.SessionId)) missingFields.Add(nameof(item.SessionId));
+                    if (string.IsNullOrWhiteSpace(item.WorkflowId)) missingFields.Add(nameof(item.WorkflowId));
+                    if (string.IsNullOrWhiteSpace(item.HandoffId)) missingFields.Add(nameof(item.HandoffId));
+                    if (string.IsNullOrWhiteSpace(item.Title)) missingFields.Add(nameof(item.Title));
+                    if (string.IsNullOrWhiteSpace(item.Kind)) missingFields.Add(nameof(item.Kind));
+                    if (string.IsNullOrWhiteSpace(item.Stage)) missingFields.Add(nameof(item.Stage));
+                    if (string.IsNullOrWhiteSpace(item.TargetSkill)) missingFields.Add(nameof(item.TargetSkill));
+                    if (string.IsNullOrWhiteSpace(item.Status)) missingFields.Add(nameof(item.Status));
+                    if (string.IsNullOrWhiteSpace(item.Fingerprint)) missingFields.Add(nameof(item.Fingerprint));
+                    if (missingFields.Count > 0)
+                    {
+                        logger.LogWarning(
+                            "Handoff item filtered out (missing fields): HandoffId={HandoffId}, Title={Title}, MissingFields=[{MissingFields}], Stage={Stage}, Status={Status}",
+                            item.HandoffId ?? "<null>",
+                            item.Title ?? "<null>",
+                            string.Join(", ", missingFields),
+                            item.Stage ?? "<null>",
+                            item.Status ?? "<null>");
+                        return false;
+                    }
+                    return true;
+                })
                 .Select(item =>
                 {
                     var createdAtUtc = item.CreatedAtUtc ?? DateTimeOffset.UtcNow;
@@ -1188,6 +1223,13 @@ internal sealed class SandboxService(
                 .ThenBy(item => item.HandoffId, StringComparer.OrdinalIgnoreCase)
                 .ToArray()
             : [];
+
+        var rawMetadataCount = response?.Metadata?.HandoffItems?.Count ?? 0;
+        logger.LogInformation(
+            "MapSessionDetailDto handoff filter: RawMetadataCount={RawCount}, PassedFilter={PassedCount}, SessionId={SessionId}",
+            rawMetadataCount,
+            handoffItems.Length,
+            sessionId);
 
         return new SandboxSessionDetailDto(
             sessionId,

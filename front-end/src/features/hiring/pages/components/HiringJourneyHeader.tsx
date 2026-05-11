@@ -5,6 +5,7 @@ type HiringJourneyHeaderProps = {
   onBack: () => void
   onReset: () => void
   onContinue: () => void
+  resetting?: boolean
 }
 
 export function HiringJourneyHeader({
@@ -12,6 +13,7 @@ export function HiringJourneyHeader({
   onBack,
   onReset,
   onContinue,
+  resetting = false,
 }: HiringJourneyHeaderProps) {
   return (
     <>
@@ -32,8 +34,8 @@ export function HiringJourneyHeader({
           <button type="button" className="hb-hiring-ghost-btn">
             保存
           </button>
-          <button type="button" className="hb-hiring-ghost-btn" onClick={onReset}>
-            重置流程
+          <button type="button" className="hb-hiring-ghost-btn" onClick={onReset} disabled={resetting}>
+            {resetting ? '重置中...' : '重置流程'}
           </button>
           <button type="button" className="hb-hiring-primary-btn" onClick={onContinue}>
             从当前阶段继续

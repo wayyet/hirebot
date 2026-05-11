@@ -57,6 +57,8 @@ public sealed class SandboxInstanceEntity
     [MaxLength(128)]
     public string? TemplateId { get; set; }
 
+    public bool IsInitialized { get; set; }
+
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;

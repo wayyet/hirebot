@@ -16,5 +16,6 @@ public sealed record SandboxInstanceDto(
     string? LastError,
     string? UseCase,
     string? TemplateId,
+    bool IsInitialized,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);

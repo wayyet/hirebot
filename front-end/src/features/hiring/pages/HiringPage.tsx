@@ -211,6 +211,8 @@ export default function HiringPage() {
   const [configDrafts, setConfigDrafts] = useState<Record<string, string>>({})
   const [credentialSubmittingSlot, setCredentialSubmittingSlot] = useState<string | null>(null)
   const [configSavingKey, setConfigSavingKey] = useState<string | null>(null)
+  const [resetting, setResetting] = useState(false)
+  const resettingRef = useRef(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -239,7 +241,7 @@ export default function HiringPage() {
   const viewModel = buildHiringWorkflowViewModel(workflowState, focusedStage)
   const summaryItems = buildSummaryItems(workflowState, allFiles.length)
   const canCreate = viewModel.actionState.canFinalize && workflowCollectionPhase !== HiringCollectionPhase.Finalized
-  const isInteractionLocked = typing || workflowBooting || workflowConversationPaused || workflowConversationResponding || submittingMessage
+  const isInteractionLocked = typing || workflowBooting || workflowConversationPaused || workflowConversationResponding || submittingMessage || resetting
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -377,6 +379,13 @@ export default function HiringPage() {
       setMessages(prev => timeline.messages.length >= prev.length ? mapTimelineMessagesToChat(timeline.messages) : prev)
     }
     setWorkflowState(nextWorkflowState)
+    console.log(
+      '[syncWorkflowState] HireId=%s handoffItems=%d workflowTodos=%d diagnosticTodos=%d',
+      hireId,
+      nextWorkflowState.handoffItems?.length ?? 0,
+      nextWorkflowState.workflowTodos?.length ?? 0,
+      nextWorkflowState.latestDiagnosticReport?.diagnosticTodos?.length ?? 0,
+    )
     if (nextWorkflowState.collectionPhase === HiringCollectionPhase.Finalized) {
       setInstanceCreated(true)
     }
@@ -813,6 +822,61 @@ export default function HiringPage() {
     composerRef.current?.focus()
   }
 
+  function handleResetConversation() {
+    if (resettingRef.current) return
+    resettingRef.current = true
+    setResetting(true)
+    setWorkflowError('')
+    setWorkflowNotice('正在重置会话...')
+
+    void (async () => {
+      try {
+        const hireId = await ensureWorkflowReady()
+        if (!hireId) { setResetting(false); resettingRef.current = false; return }
+
+        // 断开旧 WebSocket
+        wsRef.current?.disconnect()
+        wsRef.current = null
+
+        // 调用后端重置 API 创建新会话
+        const resetResult = await api.hiringWorkflow.resetConversation(hireId)
+        const newSessionId = resetResult.sessionId
+
+        // 更新 session ref
+        sessionIdRef.current = newSessionId
+
+        // 清空前端状态
+        setMessages([])
+        setInput('')
+        setPendingFiles([])
+        setAllFiles([])
+        setStreamingContent(null)
+        setTyping(false)
+        setJourneyGuideVisible(false)
+        setFocusedStage(null)
+        setWorkflowState(null)
+        setWorkflowError('')
+        setWorkflowNotice('')
+
+        // 同步工作流状态
+        await syncWorkflowState(hireId)
+
+        // 重新连接 WebSocket
+        const endpoint = gatewayEndpointRef.current
+        if (endpoint) {
+          await connectSandboxWs(endpoint)
+        }
+
+        setWorkflowNotice('会话已重置，可以开始新的雇佣流程。')
+      } catch (error: unknown) {
+        setWorkflowError(normalizeErrorMessage(error))
+      } finally {
+        setResetting(false)
+        resettingRef.current = false
+      }
+    })()
+  }
+
   function handlePrototypeResetView() {
     setJourneyGuideVisible(false)
     setFocusedStage(null)
@@ -914,8 +978,9 @@ export default function HiringPage() {
       <HiringJourneyHeader
         templateName={template.name}
         onBack={() => navigate(`/templates/${template.templateId}`)}
-        onReset={handlePrototypeResetView}
+        onReset={handleResetConversation}
         onContinue={handlePrototypeContinue}
+        resetting={resetting}
       />
 
       <div className="hb-hiring-shell">

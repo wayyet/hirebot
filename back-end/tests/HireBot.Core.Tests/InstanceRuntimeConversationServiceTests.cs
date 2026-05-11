@@ -245,7 +245,7 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
             => Task.FromResult<SandboxInstanceDto?>(null);
 
         private static SandboxInstanceDto BuildInstance(string sandboxId, string scopeType, string scopeKey, string sandboxRole, string ownerSubject, string tenantId, string operatorId)
-            => new(Guid.NewGuid(), sandboxId, scopeType, scopeKey, sandboxRole, "managed", ownerSubject, tenantId, operatorId, "Running", "http://localhost:18789", null, null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+            => new(Guid.NewGuid(), sandboxId, scopeType, scopeKey, sandboxRole, "managed", ownerSubject, tenantId, operatorId, "Running", "http://localhost:18789", null, null, null, null, false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     }
 
     private sealed class FakeRequestContextService(string ownerSubject) : IRequestContextService
