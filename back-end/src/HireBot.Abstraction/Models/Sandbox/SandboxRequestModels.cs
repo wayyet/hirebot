@@ -12,6 +12,7 @@ public sealed record SandboxCreateRequestDto
     public required string OperatorId { get; init; }
     public string ProvisioningMode { get; init; } = "managed";
     public string? UseCase { get; init; }
+    public string? TemplateId { get; init; }
 }
 
 public sealed record SandboxRegisterRequestDto
@@ -28,6 +29,7 @@ public sealed record SandboxRegisterRequestDto
     public string? GatewayEndpoint { get; init; }
     public DateTimeOffset? ExpiresAtUtc { get; init; }
     public string? UseCase { get; init; }
+    public string? TemplateId { get; init; }
 }
 
 public sealed record SandboxInstanceLookupRequestDto
@@ -37,6 +39,10 @@ public sealed record SandboxInstanceLookupRequestDto
     public string? ScopeKey { get; init; }
     public string? SandboxRole { get; init; }
     public string? OwnerSubject { get; init; }
+    public string? TenantId { get; init; }
+    public string? OperatorId { get; init; }
+    public string? UseCase { get; init; }
+    public string? TemplateId { get; init; }
 }
 
 public sealed record SandboxEnsureSessionRequestDto

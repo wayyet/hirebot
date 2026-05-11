@@ -189,6 +189,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.Property(e => e.ViaQuickClone).HasColumnName("via_quick_clone").IsRequired();
             entity.Property(e => e.BasedOnTemplateId).HasColumnName("based_on_template_id").HasMaxLength(128);
             entity.Property(e => e.FromInstanceId).HasColumnName("from_instance_id").HasMaxLength(120);
+            entity.Property(e => e.ActiveBranchId).HasColumnName("active_branch_id").HasMaxLength(120);
             entity.Property(e => e.EvalReportId).HasColumnName("eval_report_id").HasMaxLength(120);
             entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id").IsRequired().HasMaxLength(256);
             entity.Property(e => e.DepartmentId).HasColumnName("department_id").IsRequired().HasMaxLength(128);
@@ -295,6 +296,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.HasIndex(e => e.SandboxId).IsUnique();
             entity.HasIndex(e => new { e.OwnerSubject, e.ScopeType, e.ScopeKey, e.SandboxRole });
             entity.HasIndex(e => new { e.OwnerSubject, e.State, e.UpdatedAtUtc });
+            entity.HasIndex(e => new { e.OwnerSubject, e.TemplateId, e.SandboxRole, e.State });
         });
 
         modelBuilder.Entity<SandboxSessionEntity>(entity =>

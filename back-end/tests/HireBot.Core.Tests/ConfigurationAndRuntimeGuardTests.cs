@@ -16,6 +16,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using HireBot.Repository;
+using HireBot.Repository.Entities;
 
 namespace HireBot.Core.Tests;
 
@@ -49,6 +50,7 @@ public sealed class ConfigurationAndRuntimeGuardTests
             requestContextService,
             CreateDbContext(Guid.NewGuid().ToString("N")),
             new NoopInstanceArtifactCloneService(),
+            new NoopInstanceArtifactResolver(),
             new NoopSandboxService(),
             new NoopKingCrabHttpClient());
 
@@ -187,6 +189,12 @@ public sealed class ConfigurationAndRuntimeGuardTests
             => Task.FromResult(new InstanceArtifactCloneResult("current", "target", []));
     }
 
+    private sealed class NoopInstanceArtifactResolver : IInstanceArtifactResolver
+    {
+        public Task<InstanceArtifactResolution> ResolveAsync(InstanceEntity instance, CancellationToken cancellationToken = default)
+            => Task.FromResult(new InstanceArtifactResolution("/noop", new Dictionary<string, string?>()));
+    }
+
     private sealed class NoopSandboxService : ISandboxService
     {
         public Task<ApiResponse<SandboxInstanceDto>> RegisterAsync(SandboxRegisterRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -202,6 +210,8 @@ public sealed class ConfigurationAndRuntimeGuardTests
         public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default)
+            => Task.FromResult<SandboxInstanceDto?>(null);
     }
 
     private sealed class NoopKingCrabHttpClient : IKingCrabHttpClient

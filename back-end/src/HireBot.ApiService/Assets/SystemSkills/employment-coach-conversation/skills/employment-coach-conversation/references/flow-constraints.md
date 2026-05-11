@@ -15,7 +15,7 @@
 - "最近你最希望它能替你接手的，是哪一类事？"
 - "上一次这种事是怎么处理的？哪一步最容易卡住或者判断不一致？"
 - "做这件事，强的同事跟一般的同事差在哪？"——这是抽 `skill_description` 的黄金时机，强弱差异往往就是这条 skill 的真正含金量
-- "这件事做坏了会怎么样？"——这个回答有助于推断 expected_output 的边界，也常常成为 agent.md 红线的来源
+- "这件事做坏了会怎么样？"——这个回答有助于推断 expected_output 的边界，也常常成为 `AGENTS.md` 红线的来源
 
 把强弱差异、卡点、最容易判错的地方，全部转化进 `skill_description`，不要只写"它会处理 X"。
 
@@ -84,6 +84,8 @@
 每次发 dispatch 前、和最终给出口信号前，对照检查：
 
 - [ ] 当前阶段所有 Handoff todo 是否都达到下游可消化的明确度
+- [ ] 当前阶段是否仍有活跃 `drafting` / `dispatched` / `needs_review` 项；如果有，不能因为另有条目 `ready_to_dispatch` 就发 dispatch 或进入下一阶段
+- [ ] 是否存在同一资料、同一来源文件或父子包含关系的重复 Handoff todo；如果有，先 patch 原条目或明确撤销旧范围
 - [ ] Handoff id 是否稳定（同一意图反复出现没有产生新 Handoff todo；`fingerprint` 是否复用）
 - [ ] 是否有 Handoff todo 被用户口头撤销但 `status` 还停在 `ready_to_dispatch`
 - [ ] 是否在配置文件治理的反问待确认状态中错误地发了 dispatch

@@ -1,4 +1,4 @@
-﻿import { httpClient } from '../httpClient'
+import { httpClient } from '../httpClient'
 import type { HiringConversationMessage } from './hiringWorkflowApi'
 
 export interface EmployeeCapability {
@@ -38,6 +38,9 @@ export interface EmployeeDetail extends EmployeeSummary {
   evalPhase?: string | null
   evalIteration?: number | null
   evalMaxIterations?: number | null
+  sandboxId?: string | null
+  gatewayEndpoint?: string | null
+  sandboxStatus?: string | null
 }
 
 export interface UpdateEmployeeLifecycleRequest {
@@ -60,6 +63,34 @@ export interface CreatePersonalCloneRequest {
   displayDescription?: string | null
 }
 
+export interface QuickCloneRequest {
+  displayName: string
+  userRole: string
+  displayAvatar?: string | null
+  displayDescription?: string | null
+}
+
+export interface QuickCloneResult {
+  newInstanceId: string
+  status: string
+  fromInstanceId: string
+  viaQuickClone: boolean
+}
+
+export interface CreatePrivateBranchRequest {
+  displayName: string
+  displayDescription?: string | null
+  selectedStations: Array<'persona' | 'knowledge' | 'ability' | 'external'>
+}
+
+export interface PrivateBranchResult {
+  branchId: string
+  displayName: string
+  status: string
+  fromInstanceId: string
+  imRoutingSwitched: boolean
+}
+
 export interface InstanceChatMessage {
   messageId: string
   role: 'user' | 'assistant' | string
@@ -71,6 +102,7 @@ export interface InstanceChatTimeline {
   instanceId: string
   conversationId: string
   messages: InstanceChatMessage[]
+  gatewayEndpoint?: string | null
 }
 
 export interface InstanceChatResult {
@@ -317,6 +349,45 @@ export interface AiEvaluationDecisionRequest {
   comment?: string
 }
 
+export interface EvaluationSandboxConnectionResult {
+  gatewayEndpoint: string
+  sandboxToken: string
+  evaluatorSandboxId: string
+  sessionId: string
+  targetHireId: string
+  evaluationPayloadJson?: string | null
+}
+
+export interface EvaluationDimensionScore {
+  dimension: string
+  score: number
+  comment: string
+  evidenceRefs: string[]
+}
+
+export interface EvaluationVerdictPayload {
+  verdict: string
+  overallScore: number
+  summary: string
+  dimensionScores: EvaluationDimensionScore[]
+}
+
+export interface EvaluationVerdictSyncRequest {
+  sessionId: string
+  verdict: EvaluationVerdictPayload
+}
+
+
+export interface EvaluationVerdictSyncResult {
+  employeeId: string
+  sessionId: string
+  passed: boolean
+  overallScore: number
+  summary: string
+  status: string
+  latestReport?: EvaluationReportSummary | null
+}
+
 export interface ImportFixtureInstancesResult {
   ownerSubject: string
   fixtureDirectories: number
@@ -334,6 +405,10 @@ export const employeeRuntimeApi = {
     return httpClient.get<EmployeeDetail>(`/api/v1/employees/${employeeId}`)
   },
 
+  getSandboxGatewayEndpoint(employeeId: string) {
+    return httpClient.get<string>(`/api/v1/employees/${employeeId}/sandbox/gateway-endpoint`)
+  },
+
   importFixtureInstances() {
     return httpClient.post<ImportFixtureInstancesResult>('/api/v1/migrations/fixture-instances')
   },
@@ -343,6 +418,24 @@ export const employeeRuntimeApi = {
       `/api/v1/employees/${employeeId}/personal-clones`,
       payload,
     )
+  },
+
+  quickClone(sourceInstanceId: string, payload: QuickCloneRequest) {
+    return httpClient.post<QuickCloneResult, QuickCloneRequest>(
+      `/api/v1/instances/${sourceInstanceId}/quick-clone`,
+      payload,
+    )
+  },
+
+  createPrivateBranch(sourceInstanceId: string, payload: CreatePrivateBranchRequest) {
+    return httpClient.post<PrivateBranchResult, CreatePrivateBranchRequest>(
+      `/api/v1/instances/${sourceInstanceId}/private-branch`,
+      payload,
+    )
+  },
+
+  abandonPrivateBranch(branchId: string) {
+    return httpClient.post<EmployeeDetail>(`/api/v1/instances/${branchId}/abandon-branch`)
   },
 
   getInAppChatMessages(instanceId: string) {
@@ -376,6 +469,10 @@ export const employeeRuntimeApi = {
       `/api/v1/employees/${employeeId}/lifecycle`,
       payload,
     )
+  },
+
+  rehire(employeeId: string) {
+    return httpClient.post<EmployeeDetail>(`/api/v1/employees/${employeeId}/rehire`)
   },
 
   updateCapabilities(employeeId: string, payload: UpdateEmployeeCapabilitiesRequest) {
@@ -472,6 +569,19 @@ export const employeeRuntimeApi = {
   submitOnboardingDecision(employeeId: string, payload: EvaluationOnboardingDecisionRequest) {
     return httpClient.post<EmployeeDetail, EvaluationOnboardingDecisionRequest>(
       `/api/v1/employees/${employeeId}/evaluation/onboarding-decision`,
+      payload,
+    )
+  },
+
+  getSandboxConnection(employeeId: string) {
+    return httpClient.get<EvaluationSandboxConnectionResult>(
+      `/api/v1/employees/${employeeId}/evaluation/sandbox-connection`,
+    )
+  },
+
+  syncVerdict(employeeId: string, payload: EvaluationVerdictSyncRequest) {
+    return httpClient.post<EvaluationVerdictSyncResult, EvaluationVerdictSyncRequest>(
+      `/api/v1/employees/${employeeId}/evaluation/sync-verdict`,
       payload,
     )
   },

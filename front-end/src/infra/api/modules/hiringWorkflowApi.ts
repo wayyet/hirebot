@@ -118,6 +118,31 @@ export interface WorkflowTodo {
   updatedAtUtc: string
 }
 
+/** 对应后端 HiringWorkflowHandoffDto 的 JSON 输出 (camelCase) */
+export interface HandoffItem {
+  sessionId: string
+  workflowId: string
+  handoffId: string
+  title: string
+  kind: string
+  stage: string
+  targetSkill: string
+  intent?: string | null
+  category?: string | null
+  payload?: Record<string, unknown> | null
+  source?: string | null
+  acceptance?: string | null
+  status: string
+  fingerprint: string
+  relatedHandoffIds: string[]
+  relatedFiles: string[]
+  revision: number
+  createdAtUtc: string
+  updatedAtUtc: string
+  dispatchId?: string | null
+  callbackSummary?: string | null
+}
+
 export interface DispatchArtifact {
   path: string
   kind: string
@@ -247,6 +272,12 @@ export interface HiringConversationMessageRequest {
   materials?: HiringConversationMaterial[]
 }
 
+export interface HiringConversationSyncRequest {
+  userMessage: string
+  assistantReply: string
+  materials?: HiringConversationMaterial[]
+}
+
 export interface HiringConversationMessage {
   messageId: string
   role: string
@@ -346,6 +377,7 @@ export interface HiringWorkflowState {
   discoverySkillVersion?: string | null
   stageCompletion?: HiringStageCompletion[] | null
   workflowTodos?: WorkflowTodo[] | null
+  handoffItems?: HandoffItem[] | null
   latestDispatches?: DispatchCallback[] | null
   latestDiagnosticReport?: DiagnosticReport | null
   credentialSlots?: CredentialSlot[] | null
@@ -427,6 +459,13 @@ export const hiringWorkflowApi = {
   sendConversationMessage(hireId: string, payload: HiringConversationMessageRequest) {
     return httpClient.post<HiringConversationResult, HiringConversationMessageRequest>(
       `/api/v1/hirings/${hireId}/conversation/messages`,
+      payload,
+    )
+  },
+
+  syncConversationTurn(hireId: string, payload: HiringConversationSyncRequest) {
+    return httpClient.post<HiringConversationResult, HiringConversationSyncRequest>(
+      `/api/v1/hirings/${hireId}/conversation/sync`,
       payload,
     )
   },

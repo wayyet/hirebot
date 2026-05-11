@@ -15,7 +15,8 @@ namespace HireBot.ApiService.Controllers;
 [Authorize]
 public sealed class InstancesController(
     IInstanceChatService instanceChatService,
-    IInstanceImConfigService instanceImConfigService) : ControllerBase
+    IInstanceImConfigService instanceImConfigService,
+    IEmployeeRuntimeService employeeRuntimeService) : ControllerBase
 {
     /// <summary>
     /// 获取实例的应用内聊天消息列表
@@ -29,6 +30,9 @@ public sealed class InstancesController(
         var response = await instanceChatService.GetMessagesAsync(instanceId, cancellationToken);
         return StatusCode(response.Code, response);
     }
+
+
+    
 
     /// <summary>
     /// 发送应用内聊天消息
@@ -113,9 +117,6 @@ public sealed class InstancesController(
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
 
-        //增加其他平台
-
-
         // 更新其他平台的配置，继续走原来的实例 IM 配置服务
         var response = await instanceImConfigService.UpsertConfigAsync(instanceId, platform, request, cancellationToken);
         return StatusCode(response.Code, response);
@@ -166,19 +167,11 @@ public sealed class InstancesController(
             var feishuResponse = await instanceChatService.GetDingTalkChannelEffectiveConfigAsync(instanceId, cancellationToken);
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
-
-
-
-
-
-
-
         var response = ApiResponse<FeishuChannelEffectiveConfigDto>.ErrorResponse(
             404,
             $"Unknown or unsupported platform '{platform}'.");
         return StatusCode(response.Code, response);
     }
-
 
     [HttpGet("{instanceId}/im-config")]
     public async Task<IActionResult> GetImConfigs(string instanceId, CancellationToken cancellationToken = default)
@@ -212,12 +205,59 @@ public sealed class InstancesController(
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
 
-
         var response = await instanceImConfigService.DeleteConfigAsync(instanceId, platform, cancellationToken);
         return StatusCode(response.Code, response);
     }
 
- 
+    /// <summary>
+    /// 部门长快捷复制：从已上岗部门员工创建新部门员工，跳过评估直接上岗。
+    /// </summary>
+    [HttpPost("{instanceId}/quick-clone")]
+    public async Task<IActionResult> QuickClone(
+        string instanceId,
+        [FromBody] QuickCloneRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<QuickCloneResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeRuntimeService.QuickCloneAsync(instanceId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    /// <summary>
+    /// 从个人分身创建私有分支。创建后状态为 hired，需经双阶段评估通过后才上岗。
+    /// </summary>
+    [HttpPost("{instanceId}/private-branch")]
+    public async Task<IActionResult> CreatePrivateBranch(
+        string instanceId,
+        [FromBody] CreatePrivateBranchRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<PrivateBranchResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeRuntimeService.CreatePrivateBranchAsync(instanceId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    /// <summary>
+    /// 废弃私有分支。若已上岗则恢复 IM 路由到原分身，否则直接清理资源。
+    /// </summary>
+    [HttpPost("{instanceId}/abandon-branch")]
+    public async Task<IActionResult> AbandonPrivateBranch(
+        string instanceId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await employeeRuntimeService.AbandonPrivateBranchAsync(instanceId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
 
     /// <summary>
     /// 构建模型校验错误响应

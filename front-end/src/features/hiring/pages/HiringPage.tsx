@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Upload, X } from 'lucide-react'
 
-import { api, HiringAuditDecision, HiringCollectionPhase, HiringCollectionStage } from '@/infra/api'
+import { api, HiringAuditDecision, HiringCollectionPhase, HiringCollectionStage, HiringTodoStatus } from '@/infra/api'
 import type {
   CredentialSlot,
   EmployeeTemplateDetail,
@@ -12,7 +12,7 @@ import type {
   HiringWorkflowState,
 } from '@/infra/api'
 import { GatewayWs } from '@/infra/sandbox/gateway-ws'
-import { fetchSandboxSessionMessages } from '@/infra/sandbox/sandbox-api'
+import { fetchSandboxSessionMessages, uploadMediaToGateway } from '@/infra/sandbox/sandbox-api'
 import { tokenService } from '@/infra/auth/token-service'
 
 import { HiringConversationPanel } from './components/HiringConversationPanel'
@@ -20,7 +20,7 @@ import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
 import { HiringStagePills } from './components/HiringStagePills'
 import type { ChatFile, ChatMessage, CredentialDraft, SkillUploadPayload } from './hiringPageTypes'
-import { type HiringUiStage, useHiringWorkflowViewModel } from './hiringWorkflowViewModel'
+import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 
 function mkId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -161,9 +161,17 @@ function buildSummaryItems(workflowState: HiringWorkflowState | null, uploadedFi
   }
 
   const workflowTodos = workflowState.workflowTodos ?? []
-  const completedTodos = workflowTodos.filter(todo => todo.status === 'done' || todo.status === 'resolved')
+  const handoffItems = workflowState.handoffItems ?? []
+  const allTodos = [...workflowTodos, ...handoffItems.map(item => ({
+    status: item.status === 'confirmed' ? HiringTodoStatus.Done
+      : item.status === 'dismissed' ? HiringTodoStatus.Dismissed
+      : item.status === 'needs_review' ? HiringTodoStatus.NeedsReview
+      : item.status === 'dispatched' || item.status === 'dirty' ? HiringTodoStatus.InProgress
+      : HiringTodoStatus.Open,
+  }))]
+  const completedTodos = allTodos.filter(todo => todo.status === HiringTodoStatus.Done || todo.status === HiringTodoStatus.Resolved)
   return [
-    { label: '待办总数', value: String(workflowTodos.length) },
+    { label: '待办总数', value: String(allTodos.length) },
     { label: '已完成', value: String(completedTodos.length) },
     { label: '诊断项', value: String(workflowState.latestDiagnosticReport?.diagnosticTodos.length ?? 0) },
     { label: '待复核', value: String(workflowState.configGovernance?.pendingReviewTodoIds.length ?? 0) },
@@ -214,13 +222,21 @@ export default function HiringPage() {
   const wsRef = useRef<GatewayWs | null>(null)
   const gatewayEndpointRef = useRef<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
+  // 记录最近一次通过 WS 发送的用户消息，用于同步端点回传
+  const lastWsUserMessageRef = useRef<string>('')
+  // 保存 WS 流式回复的原始内容（normalizeAssistantReply 之前），供同步端点使用
+  const rawStreamingContentRef = useRef<string>('')
+  // 记录最近一次 WS 发送时的附件材料
+  const lastWsMaterialsRef = useRef<ReturnType<typeof toConversationMaterials> | undefined>(undefined)
+  // 存储原始 File 对象，供 WS 路径上传到 Gateway 使用
+  const rawFileMapRef = useRef<Map<string, File>>(new Map())
 
   const workflowReady = Boolean(workflowHireId && workflowState)
   const workflowCollectionPhase = normalizeCollectionPhase(workflowState?.collectionPhase ?? HiringCollectionPhase.NotStarted)
   const workflowCurrentStage = normalizeCollectionStage(workflowState?.currentStage ?? HiringCollectionStage.Material)
   const workflowConversationPaused = Boolean(workflowState?.isConversationPaused)
   const workflowConversationResponding = Boolean(workflowState?.isConversationResponding)
-  const viewModel = useHiringWorkflowViewModel(workflowState, focusedStage)
+  const viewModel = buildHiringWorkflowViewModel(workflowState, focusedStage)
   const summaryItems = buildSummaryItems(workflowState, allFiles.length)
   const canCreate = viewModel.actionState.canFinalize && workflowCollectionPhase !== HiringCollectionPhase.Finalized
   const isInteractionLocked = typing || workflowBooting || workflowConversationPaused || workflowConversationResponding || submittingMessage
@@ -453,28 +469,69 @@ export default function HiringPage() {
       const type = msg.type as string
       if (type === 'typing_start') {
         // AI 开始思考，切换到流式展示
+        rawStreamingContentRef.current = ''
         setStreamingContent('')
         setTyping(true)
       } else if (type === 'text_delta' || type === 'assistant_chunk') {
         // 逐字追加流式内容
         const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
-        setStreamingContent(prev => (prev === null ? chunk : prev + chunk))
-      } else if (type === 'typing_stop' || type === 'assistant_done') {
-        // AI 回复完毕，将流式内容提交为正式气泡
         setStreamingContent(prev => {
-          if (prev !== null && prev.trim().length > 0) {
-            const cleaned = normalizeAssistantReply(prev)
-            if (cleaned.length > 0) {
-              setMessages(msgs => [...msgs, { id: mkId(), role: 'bot', content: cleaned }])
-            }
-          }
-          return null
+          const next = prev === null ? chunk : prev + chunk
+          rawStreamingContentRef.current = next
+          return next
         })
-        setTyping(false)
-        // AI 回复完毕后同步工作流状态（更新侧边栏进度等）
-        if (workflowHireId) {
-          syncWorkflowState(workflowHireId).catch(() => { /* 忽略同步失败 */ })
+      } else if (type === 'typing_stop' || type === 'assistant_done') {
+        // AI 回复完毕，保存原始内容（供同步端点使用），然后将清理后的内容提交为正式气泡
+        const rawReply = rawStreamingContentRef.current
+        const userMessage = lastWsUserMessageRef.current
+        const materials = lastWsMaterialsRef.current
+        rawStreamingContentRef.current = ''
+
+        // 直接从 ref 取流式内容提交为正式消息（不放在 setStreamingContent 回调里，
+        // 避免 React StrictMode 双重调用导致同一条 bot 消息被 add 两遍）
+        if (rawReply && rawReply.trim().length > 0) {
+          const cleaned = normalizeAssistantReply(rawReply)
+          if (cleaned.length > 0) {
+            setMessages(msgs => [...msgs, { id: mkId(), role: 'bot', content: cleaned }])
+          }
         }
+        setStreamingContent(null)
+        setTyping(false)
+
+        // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等
+        const hireId = workflowHireId
+        if (hireId && rawReply) {
+          api.hiringWorkflow.syncConversationTurn(hireId, {
+            userMessage: userMessage || '',
+            assistantReply: rawReply,
+            materials: materials ?? undefined,
+          }).then(() => {
+            syncWorkflowState(hireId).catch(() => { /* 忽略 */ })
+          }).catch(() => {
+            // 同步失败时仍然刷新工作流状态（后端可从沙箱拉取 handoff 元数据）
+            syncWorkflowState(hireId).catch(() => { /* 忽略 */ })
+          })
+        }
+      }
+    }
+
+    // 重连后拉取断线期间的会话历史
+    ws.onReconnected = () => {
+      const sid = sessionIdRef.current
+      if (endpoint && sid) {
+        fetchSandboxSessionMessages(endpoint, sid).then(sandboxMessages => {
+          const mapped = sandboxMessages
+            .filter(m => m.type === 'user_message' || m.type === 'assistant_message')
+            .map<ChatMessage>(m => ({
+              id: mkId(),
+              role: m.type === 'user_message' ? 'user' : 'bot',
+              content: m.type === 'assistant_message'
+                ? normalizeAssistantReply(String(m.content ?? ''))
+                : String(m.text ?? ''),
+            }))
+            .filter(m => m.content.trim().length > 0)
+          setMessages(prev => mapped.length >= prev.length ? mapped : prev)
+        }).catch(() => { /* 忽略拉取失败 */ })
       }
     }
 
@@ -509,21 +566,50 @@ export default function HiringPage() {
     const sessionId = sessionIdRef.current
 
     // WS 已连通：直接通过 WebSocket 发送消息，沙箱实时流式回复；
-    // WS 未就绪：降级走 REST，等待同步响应
+    // 若有附件，先上传到 Gateway 获取 [FILE_URL:...] 标记，再随文本一起发送
     if (ws && sessionId) {
       try {
-        ws.send({ type: 'user_message', text: text || '补充信息', sessionId })
+        let messageText = text || '补充信息'
+
+        if (incoming && incoming.length > 0) {
+          const endpoint = gatewayEndpointRef.current
+          const token = await tokenService.ensureFresh()
+          if (!endpoint || !token) {
+            throw new Error('Gateway endpoint or token not available for file upload')
+          }
+          const markers: string[] = []
+          for (const file of incoming) {
+            const rawFile = rawFileMapRef.current.get(file.id) ?? file.rawFile
+            if (!rawFile) {
+              throw new Error(`无法获取文件原始数据：${file.name}`)
+            }
+            const result = await uploadMediaToGateway(endpoint, token, rawFile)
+            markers.push(`${result.marker}\nAttached file: ${result.fileName} (${formatFileSize(result.sizeBytes)})`)
+          }
+          if (markers.length > 0) {
+            messageText = `${markers.join('\n')}\n\n${messageText}`
+          }
+        }
+
+        // 记录本次发送的用户消息和材料，供 WS typing_stop 事件中调用同步端点使用
+        lastWsUserMessageRef.current = messageText
+        lastWsMaterialsRef.current = toConversationMaterials(incoming)
+        ws.send({ type: 'user_message', text: messageText, sessionId })
         setTyping(true)
-        // typing / streamingContent 由 WS 事件（typing_stop/assistant_done）自动清除；
-        // 此处只需要拉一次工作流状态以更新侧边栏，不等待 AI 完成
-        syncWorkflowState(hireId).catch(() => { /* 忽略状态同步失败，不影响对话 */ })
         setWorkflowError('')
         setWorkflowNotice('')
+        // 清理已完成上传的原始文件引用
+        if (incoming) {
+          for (const file of incoming) {
+            rawFileMapRef.current.delete(file.id)
+          }
+        }
         return true
       } catch (error: unknown) {
         setWorkflowError(normalizeErrorMessage(error))
         setTyping(false)
         setStreamingContent(null)
+        rawStreamingContentRef.current = ''
         return false
       } finally {
         messageSubmitRef.current = false
@@ -616,14 +702,18 @@ export default function HiringPage() {
 
   const addPendingFiles = useCallback((fl: FileList | File[]) => {
     const files = Array.from(fl)
-    const placeholders = files.map(file => ({
-      id: mkId(),
-      name: file.name,
-      size: file.size,
-      status: '解析中' as const,
-      type: 'file' as const,
-      mimeType: file.type || undefined,
-    }))
+    const placeholders = files.map(file => {
+      const id = mkId()
+      rawFileMapRef.current.set(id, file)
+      return {
+        id,
+        name: file.name,
+        size: file.size,
+        status: '解析中' as const,
+        type: 'file' as const,
+        mimeType: file.type || undefined,
+      }
+    })
     setPendingFiles(prev => [...prev, ...placeholders])
 
     void Promise.all(files.map(file => fileToChatFile(file, 'file'))).then(parsedFiles => {

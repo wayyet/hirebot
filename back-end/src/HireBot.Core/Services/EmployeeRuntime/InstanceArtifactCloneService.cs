@@ -123,6 +123,20 @@ public sealed class InstanceArtifactCloneService(
             {
                 return instanceRoot;
             }
+
+            // For personal_clone sources, artifacts are under instances/personal_clone/{parentId}/{instanceId}/
+            if (!string.IsNullOrWhiteSpace(source.FromInstanceId))
+            {
+                var cloneRoot = BuildCloneVersionRoot(
+                    source.InstanceType ?? "personal_clone",
+                    source.FromInstanceId,
+                    source.EmployeeId,
+                    currentVersion);
+                if (Directory.Exists(cloneRoot))
+                {
+                    return cloneRoot;
+                }
+            }
         }
 
         var fixtureRoot = ResolveFixtureRoot(source.EmployeeId);
@@ -219,6 +233,27 @@ public sealed class InstanceArtifactCloneService(
     private string BuildDepartmentVersionRoot(string instanceId, string version)
     {
         return Path.Combine(ResolveRoot(), "instances", "department", Sanitize(instanceId), "versions", Sanitize(version));
+    }
+
+    /// <summary>
+    /// 构建分身/私有分支版本的根路径（用于读取已有产物）。
+    /// </summary>
+    private string BuildCloneVersionRoot(string instanceType, string fromInstanceId, string instanceId, string version)
+    {
+        var typeSegment = instanceType switch
+        {
+            "personal_clone" => "personal_clone",
+            "private_branch" => "private_branch",
+            _ => "personal_clone"
+        };
+        return Path.Combine(
+            ResolveRoot(),
+            "instances",
+            typeSegment,
+            Sanitize(fromInstanceId),
+            Sanitize(instanceId),
+            "versions",
+            Sanitize(version));
     }
 
     /// <summary>

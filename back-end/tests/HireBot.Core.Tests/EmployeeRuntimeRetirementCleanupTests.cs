@@ -68,6 +68,7 @@ public sealed class EmployeeRuntimeRetirementCleanupTests
             new FakeRequestContextService("owner-1"),
             dbContext,
             new NoopArtifactCloneService(),
+            new NoopInstanceArtifactResolver(),
             sandboxService,
             kingCrabHttpClient);
     }
@@ -228,6 +229,12 @@ public sealed class EmployeeRuntimeRetirementCleanupTests
             => throw new NotSupportedException();
     }
 
+    private sealed class NoopInstanceArtifactResolver : IInstanceArtifactResolver
+    {
+        public Task<InstanceArtifactResolution> ResolveAsync(InstanceEntity instance, CancellationToken cancellationToken = default)
+            => Task.FromResult(new InstanceArtifactResolution("/noop", new Dictionary<string, string?>()));
+    }
+
     private sealed class RecordingSandboxService : ISandboxService
     {
         public List<SandboxInstanceLookupRequestDto> DeleteRequests { get; } = [];
@@ -273,6 +280,9 @@ public sealed class EmployeeRuntimeRetirementCleanupTests
 
         public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default)
+            => Task.FromResult<SandboxInstanceDto?>(null);
     }
 
     private sealed class RecordingKingCrabHttpClient : IKingCrabHttpClient

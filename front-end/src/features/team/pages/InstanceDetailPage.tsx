@@ -9,6 +9,7 @@ import {
   GitBranch,
   Loader2,
   MessageCircle,
+  RotateCcw,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -165,6 +166,44 @@ export default function InstanceDetailPage() {
     }
   }
 
+  async function rehireEmployee() {
+    if (!id || !employeeView || !isPersonalAsset || employeeView.mappedStatus !== "retired") {
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+    try {
+      const data = await api.employeeRuntime.rehire(id);
+      setEmployee(data);
+      showToast("重新雇佣已完成，沙箱已重新启动", "success");
+    } catch (requestError: unknown) {
+      setError(
+        requestError instanceof Error ? requestError.message : "重新雇佣失败",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function abandonBranch() {
+    if (!id || !employee) return;
+    if (!window.confirm("废弃后，若已上岗则 IM 路由将恢复到原分身。此操作不可撤销，确定继续？")) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const data = await api.employeeRuntime.abandonPrivateBranch(id);
+      showToast("私有分支已废弃", "success");
+      // Navigate to the source clone (or my-employees as fallback)
+      navigate(`/instances/${data.employeeId}`);
+    } catch (requestError: unknown) {
+      setError(
+        requestError instanceof Error ? requestError.message : "废弃私有分支失败",
+      );
+      setSubmitting(false);
+    }
+  }
+
   const readyCount = useMemo(() => {
     if (!employee) return 0;
     return employee.capabilities.filter((cap) => cap.ready).length;
@@ -315,6 +354,18 @@ export default function InstanceDetailPage() {
                   </button>
                 ) : null}
 
+                {isPersonalAsset && employeeView.mappedStatus === "retired" ? (
+                  <button
+                    type="button"
+                    className="hb-btn-primary"
+                    onClick={() => void rehireEmployee()}
+                    disabled={submitting}
+                  >
+                    <RotateCcw size={14} />
+                    {submitting ? "重新雇佣中" : "重新雇佣"}
+                  </button>
+                ) : null}
+
                 {canCreatePrivateBranch ? (
                   <button
                     type="button"
@@ -328,26 +379,33 @@ export default function InstanceDetailPage() {
                   </button>
                 ) : null}
 
+                {employeeView?.ownership === "private_branch" &&
+                employeeView.mappedStatus !== "retired" ? (
+                  <button
+                    type="button"
+                    className="rounded-full border border-[#fde2e2] bg-white px-4 py-2 text-sm font-medium text-[#be3a4a] hover:bg-[#fff5f5]"
+                    disabled={submitting}
+                    onClick={() => void abandonBranch()}
+                  >
+                    废弃私有分支
+                  </button>
+                ) : null}
+
                 <button
                   type="button"
                   className="hb-btn-ghost"
                   onClick={() => {
-                    if (employeeView.mappedStatus === "retired") {
-                      navigate(`/clone/${employee.employeeId}`);
-                    } else {
-                      const retireAction = STATUS_ACTIONS.find(
-                        (a) => a.status === "retired",
-                      );
-                      if (retireAction) {
-                        void setLifecycle(retireAction);
-                      }
+                    const retireAction = STATUS_ACTIONS.find(
+                      (a) => a.status === "retired",
+                    );
+                    if (retireAction) {
+                      void setLifecycle(retireAction);
                     }
                   }}
+                  disabled={submitting || employeeView.mappedStatus === "retired"}
                 >
                   <ShieldCheck size={14} />
-                  {employeeView.mappedStatus === "retired"
-                    ? "继续雇佣"
-                    : "退役"}
+                  退役
                 </button>
               </div>
             </div>
@@ -434,11 +492,15 @@ export default function InstanceDetailPage() {
                       ? isPersonalAsset
                         ? "已上岗的个人资产可以站内对话，并按需配置飞书、钉钉或企微。"
                         : "已上岗的部门员工可以作为复制源，成员复制后拥有独立会话。"
-                      : employeeView.mappedStatus === "interning_ai"
-                        ? "AI 评估通过后才允许进入人工评估。"
-                        : employeeView.mappedStatus === "interning_human"
-                          ? "人工评估通过后才允许标记为已上岗。"
-                          : "你可以通过评估、回退和上岗配置逐步调整该实例。"}
+                      : employeeView.mappedStatus === "retired"
+                        ? isPersonalAsset
+                          ? "已退役的个人资产可以重新雇佣，系统会重新启动沙箱并恢复站内对话。"
+                          : "该实例已退役，当前仅保留历史信息。"
+                        : employeeView.mappedStatus === "interning_ai"
+                          ? "AI 评估通过后才允许进入人工评估。"
+                          : employeeView.mappedStatus === "interning_human"
+                            ? "人工评估通过后才允许标记为已上岗。"
+                            : "你可以通过评估、回退和上岗配置逐步调整该实例。"}
                   </div>
                 </div>
               </div>

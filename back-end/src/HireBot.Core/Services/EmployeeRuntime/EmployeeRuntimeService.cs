@@ -27,6 +27,7 @@ public sealed class EmployeeRuntimeService(
     IRequestContextService requestContextService,
     HireBotDbContext dbContext,
     IInstanceArtifactCloneService artifactCloneService,
+    IInstanceArtifactResolver instanceArtifactResolver,
     ISandboxService sandboxService,
     IKingCrabHttpClient kingCrabHttpClient) : IEmployeeRuntimeService
 {
@@ -270,11 +271,110 @@ public sealed class EmployeeRuntimeService(
 
         await store.UpsertAsync(owner, updated, cancellationToken);
         await UpsertInstanceRecordAsync(updated, cancellationToken: cancellationToken);
+
+        // Private branch lifecycle hook: when going live, switch IM routing
+        if (string.Equals(targetStatus, "live", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(updated.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(updated.FromInstanceId))
+        {
+            await SwitchImRoutingToBranchAsync(updated, updated.FromInstanceId, owner, cancellationToken);
+        }
+
         if (string.Equals(targetStatus, "retired", StringComparison.OrdinalIgnoreCase))
         {
             await CleanupRetiredInstanceArtifactsAsync(owner, updated.EmployeeId, cancellationToken);
         }
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "状态已更新");
+    }
+
+    /// <summary>
+    /// 重新雇佣已退役实例，并重新启动运行时沙箱。
+    /// </summary>
+    /// <param name="employeeId">员工ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>重新雇佣后的员工详情</returns>
+    public async Task<ApiResponse<EmployeeDetailDto>> RehireAsync(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId 不能为空");
+        }
+
+        var owner = requestContextService.ResolveOwnerSubject();
+        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        if (employee is null)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
+        }
+
+        var status = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
+        if (!string.Equals(status, "retired", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "只有已退役的实例才能重新雇佣");
+        }
+
+        if (!string.Equals(employee.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "当前实例类型不支持重新雇佣");
+        }
+
+        var instance = await dbContext.Instances
+            .FirstOrDefaultAsync(item => item.InstanceId == employee.EmployeeId, cancellationToken);
+        if (instance is null)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "实例记录不存在，无法重新雇佣");
+        }
+
+        var instanceStatus = NormalizeStatus(instance.Status, null) ?? "hired";
+        if (!string.Equals(instanceStatus, "retired", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "实例当前不是退役状态");
+        }
+
+        InstanceArtifactResolution artifactResolution;
+        try
+        {
+            artifactResolution = await instanceArtifactResolver.ResolveAsync(instance, cancellationToken);
+        }
+        catch (Exception ex) when (ex is DirectoryNotFoundException or InvalidOperationException)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, ex.Message);
+        }
+
+        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(employee.DepartmentId, employee.OwnerUserId);
+        var sandboxSetup = await InitializeRuntimeSandboxAsync(
+            employee,
+            artifactResolution.ArtifactRoot,
+            instance.CurrentVersion,
+            owner,
+            tenantId,
+            operatorId,
+            cancellationToken);
+        if (!sandboxSetup.Success || sandboxSetup.Data is null)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(sandboxSetup.Code, sandboxSetup.Message);
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        var updated = employee with
+        {
+            Status = "live",
+            LifecycleStatus = MapStatusToLifecycleLabel("live"),
+            StageSummary = "实例已重新上岗，站内对话可用",
+            PrimarySignal = "运行正常",
+            SignalLevel = "ok",
+            InternshipStartAt = today,
+            GraduatedAt = today,
+            IsConfigured = true
+        };
+
+        await store.UpsertAsync(owner, updated, cancellationToken);
+        await UpsertInstanceRecordAsync(updated, currentVersion: instance.CurrentVersion, cancellationToken: cancellationToken);
+
+        return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "重新雇佣已完成");
     }
 
     /// <summary>
@@ -521,9 +621,10 @@ public sealed class EmployeeRuntimeService(
             EvalMaxIterations: null,
             IsConfigured: true);
 
-        var sandboxSetup = await InitializePersonalCloneSandboxAsync(
+        var sandboxSetup = await InitializeRuntimeSandboxAsync(
             clone,
-            artifactResult,
+            artifactResult.TargetRootPath,
+            artifactResult.CurrentVersion,
             owner,
             tenantId,
             operatorId,
@@ -537,6 +638,416 @@ public sealed class EmployeeRuntimeService(
         await UpsertInstanceRecordAsync(clone, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
 
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(clone, "个人分身已创建并上岗");
+    }
+
+    /// <summary>
+    /// 部门长快捷复制：从已上岗部门员工创建新部门员工，跳过评估直接上岗。
+    /// </summary>
+    public async Task<ApiResponse<QuickCloneResultDto>> QuickCloneAsync(
+        string sourceInstanceId,
+        QuickCloneRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sourceInstanceId) || request is null || string.IsNullOrWhiteSpace(request.DisplayName))
+        {
+            return ApiResponse<QuickCloneResultDto>.ErrorResponse(400, "sourceInstanceId 与 displayName 为必填项");
+        }
+
+        if (!string.Equals(request.UserRole, "manager", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<QuickCloneResultDto>.ErrorResponse(403, "仅部门长可执行快捷复制");
+        }
+
+        var normalizedSourceId = sourceInstanceId.Trim();
+        var displayName = request.DisplayName.Trim();
+        var owner = requestContextService.ResolveOwnerSubject();
+        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(null, null);
+        await EnsureSeedDataAsync(owner, cancellationToken);
+
+        var source = await store.FindAsync(normalizedSourceId, cancellationToken);
+        if (source is null)
+        {
+            return ApiResponse<QuickCloneResultDto>.ErrorResponse(404, "源部门员工不存在");
+        }
+
+        if (!string.Equals(source.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<QuickCloneResultDto>.ErrorResponse(409, "只能从部门员工快捷复制");
+        }
+
+        if (!string.Equals(source.Status, "live", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<QuickCloneResultDto>.ErrorResponse(409, "只能从已上岗部门员工快捷复制");
+        }
+
+        var allEmployees = await store.ListAsync(owner, cancellationToken);
+        var nameConflict = allEmployees.Any(e =>
+            string.Equals(e.InstanceType, "department", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(e.Status, "live", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(e.Nickname, displayName, StringComparison.OrdinalIgnoreCase));
+        if (nameConflict)
+        {
+            return ApiResponse<QuickCloneResultDto>.ErrorResponse(409, "该部门内已存在同名的已上岗部门员工");
+        }
+
+        var cloneId = BuildInstanceId("qc");
+        InstanceArtifactCloneResult artifactResult;
+        try
+        {
+            artifactResult = await artifactCloneService.CloneArtifactsAsync(source, cloneId, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiResponse<QuickCloneResultDto>.ErrorResponse(409, ex.Message);
+        }
+
+        var sourceInstanceEntity = await dbContext.Instances
+            .FirstOrDefaultAsync(i => i.InstanceId == normalizedSourceId, cancellationToken);
+        var evalReportId = sourceInstanceEntity?.EvalReportId;
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        var clone = new EmployeeDetailDto(
+            EmployeeId: cloneId,
+            Nickname: displayName,
+            RoleName: source.RoleName,
+            SourceTemplate: source.SourceTemplate,
+            SourceTemplateId: source.SourceTemplateId,
+            InstanceType: "department",
+            Status: "live",
+            BasedOnTemplateId: source.BasedOnTemplateId,
+            FromInstanceId: source.EmployeeId,
+            OwnerUserId: owner,
+            DepartmentId: source.DepartmentId,
+            LifecycleStatus: MapStatusToLifecycleLabel("live"),
+            StageSummary: string.IsNullOrWhiteSpace(request.DisplayDescription)
+                ? "部门员工已上岗（快捷复制），站内对话可用"
+                : request.DisplayDescription.Trim(),
+            PrimarySignal: "运行正常",
+            SignalLevel: "ok",
+            OwningTeam: source.OwningTeam,
+            CreatedAt: today,
+            InternshipStartAt: today,
+            GraduatedAt: today,
+            TasksDone: 0,
+            TasksTotal: 0,
+            SatisfactionScore: null,
+            PendingActions: [],
+            Capabilities: source.Capabilities.Select(item => item with { Ready = true }).ToArray(),
+            EvalPhase: null,
+            EvalIteration: null,
+            EvalMaxIterations: null,
+            IsConfigured: true);
+
+        var sandboxSetup = await InitializeRuntimeSandboxAsync(
+            clone,
+            artifactResult.TargetRootPath,
+            artifactResult.CurrentVersion,
+            owner,
+            tenantId,
+            operatorId,
+            cancellationToken);
+        if (!sandboxSetup.Success || sandboxSetup.Data is null)
+        {
+            return ApiResponse<QuickCloneResultDto>.ErrorResponse(sandboxSetup.Code, sandboxSetup.Message);
+        }
+
+        await store.UpsertAsync(owner, clone, cancellationToken);
+        await UpsertInstanceRecordAsync(clone, viaQuickClone: true, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(evalReportId))
+        {
+            var cloneEntity = await dbContext.Instances
+                .FirstOrDefaultAsync(i => i.InstanceId == cloneId, cancellationToken);
+            if (cloneEntity is not null)
+            {
+                cloneEntity.EvalReportId = evalReportId;
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        return ApiResponse<QuickCloneResultDto>.SuccessResponse(
+            new QuickCloneResultDto(cloneId, "live", source.EmployeeId, true),
+            "部门员工已快捷复制并上岗");
+    }
+
+    /// <summary>
+    /// 从个人分身创建私有分支。创建后状态为 hired，需经双阶段评估通过后才上岗并切换 IM 路由。
+    /// </summary>
+    public async Task<ApiResponse<PrivateBranchResultDto>> CreatePrivateBranchAsync(
+        string sourceInstanceId,
+        CreatePrivateBranchRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sourceInstanceId) || request is null || string.IsNullOrWhiteSpace(request.DisplayName))
+        {
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(400, "sourceInstanceId 与 displayName 为必填项");
+        }
+
+        var normalizedSourceId = sourceInstanceId.Trim();
+        var displayName = request.DisplayName.Trim();
+        var owner = requestContextService.ResolveOwnerSubject();
+        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(null, null);
+        await EnsureSeedDataAsync(owner, cancellationToken);
+
+        var source = await store.FindAsync(normalizedSourceId, cancellationToken);
+        if (source is null)
+        {
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(404, "源分身不存在");
+        }
+
+        if (!string.Equals(source.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(409, "只能从个人分身创建私有分支");
+        }
+
+        if (!string.Equals(source.Status, "live", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(409, "只能从已上岗的个人分身创建私有分支");
+        }
+
+        if (!string.Equals(source.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(403, "只能对自己的分身创建私有分支");
+        }
+
+        if (await store.ExistsNameAsync(owner, displayName, cancellationToken))
+        {
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(409, "你已经有同名的分身或私人定制");
+        }
+
+        // Check for nested branch — source cannot itself be a private_branch
+        if (string.Equals(source.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(409, "不能在私有分支上再创建私有分支");
+        }
+
+        // Check source doesn't already have an active private branch
+        var existingBranch = await dbContext.Instances
+            .AnyAsync(item =>
+                item.FromInstanceId == normalizedSourceId &&
+                item.InstanceType == "private_branch" &&
+                item.Status != "retired" &&
+                item.OwnerUserId == owner,
+                cancellationToken);
+        if (existingBranch)
+        {
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(409, "该分身已存在活跃的私有分支，请先废弃旧分支再创建新分支");
+        }
+
+        var branchId = BuildInstanceId("pb");
+        InstanceArtifactCloneResult artifactResult;
+        try
+        {
+            artifactResult = await artifactCloneService.CloneArtifactsAsync(source, branchId, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(409, ex.Message);
+        }
+
+        var stations = request.SelectedStations?.Count > 0
+            ? string.Join(",", request.SelectedStations.Select(s => s.Trim().ToLowerInvariant()))
+            : "all";
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        var branch = new EmployeeDetailDto(
+            EmployeeId: branchId,
+            Nickname: displayName,
+            RoleName: source.RoleName,
+            SourceTemplate: source.SourceTemplate,
+            SourceTemplateId: source.SourceTemplateId,
+            InstanceType: "private_branch",
+            Status: "hired",
+            BasedOnTemplateId: source.BasedOnTemplateId,
+            FromInstanceId: source.EmployeeId,
+            OwnerUserId: owner,
+            DepartmentId: source.DepartmentId,
+            LifecycleStatus: MapStatusToLifecycleLabel("hired"),
+            StageSummary: string.IsNullOrWhiteSpace(request.DisplayDescription)
+                ? $"私有分支已创建，待评估（工位：{stations}）"
+                : request.DisplayDescription.Trim(),
+            PrimarySignal: "待发起评估",
+            SignalLevel: "warn",
+            OwningTeam: source.OwningTeam,
+            CreatedAt: today,
+            InternshipStartAt: null,
+            GraduatedAt: null,
+            TasksDone: 0,
+            TasksTotal: 0,
+            SatisfactionScore: null,
+            PendingActions: ["发起 AI 评估", "完成用户自评"],
+            Capabilities: source.Capabilities.Select(item => item with { Ready = false }).ToArray(),
+            EvalPhase: null,
+            EvalIteration: null,
+            EvalMaxIterations: null,
+            IsConfigured: false);
+
+        var sandboxSetup = await InitializeRuntimeSandboxAsync(
+            branch,
+            artifactResult.TargetRootPath,
+            artifactResult.CurrentVersion,
+            owner,
+            tenantId,
+            operatorId,
+            cancellationToken);
+        if (!sandboxSetup.Success || sandboxSetup.Data is null)
+        {
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(sandboxSetup.Code, sandboxSetup.Message);
+        }
+
+        await store.UpsertAsync(owner, branch, cancellationToken);
+        await UpsertInstanceRecordAsync(branch, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
+
+        return ApiResponse<PrivateBranchResultDto>.SuccessResponse(
+            new PrivateBranchResultDto(branchId, displayName, "hired", source.EmployeeId, false),
+            "私有分支已创建，请进入评估流程");
+    }
+
+    /// <summary>
+    /// 废弃私有分支。若已上岗则恢复 IM 路由到原分身。
+    /// </summary>
+    public async Task<ApiResponse<EmployeeDetailDto>> AbandonPrivateBranchAsync(
+        string branchId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(branchId))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "branchId 不能为空");
+        }
+
+        var normalizedBranchId = branchId.Trim();
+        var owner = requestContextService.ResolveOwnerSubject();
+
+        var branch = await store.FindAsync(normalizedBranchId, cancellationToken);
+        if (branch is null)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "私有分支不存在");
+        }
+
+        if (!string.Equals(branch.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "只能废弃私有分支类型的实例");
+        }
+
+        if (!string.Equals(branch.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(403, "只能废弃自己的私有分支");
+        }
+
+        if (string.Equals(branch.Status, "retired", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "该私有分支已经被废弃");
+        }
+
+        var wasLive = string.Equals(branch.Status, "live", StringComparison.OrdinalIgnoreCase);
+        var sourceInstanceId = branch.FromInstanceId;
+
+        // If branch was live, restore IM routing to source clone
+        if (wasLive && !string.IsNullOrWhiteSpace(sourceInstanceId))
+        {
+            await RestoreImRoutingToSourceAsync(sourceInstanceId, normalizedBranchId, owner, cancellationToken);
+        }
+
+        // Clean up branch resources
+        await CleanupRetiredInstanceArtifactsAsync(owner, normalizedBranchId, cancellationToken);
+
+        // Clear ActiveBranchId on source clone
+        if (!string.IsNullOrWhiteSpace(sourceInstanceId))
+        {
+            var sourceEntity = await dbContext.Instances
+                .FirstOrDefaultAsync(item => item.InstanceId == sourceInstanceId, cancellationToken);
+            if (sourceEntity is not null && string.Equals(sourceEntity.ActiveBranchId, normalizedBranchId, StringComparison.OrdinalIgnoreCase))
+            {
+                sourceEntity.ActiveBranchId = null;
+                sourceEntity.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+        }
+
+        // Mark branch as retired
+        var retired = branch with
+        {
+            Status = "retired",
+            LifecycleStatus = MapStatusToLifecycleLabel("retired"),
+            StageSummary = "私有分支已废弃",
+            PrimarySignal = "已废弃",
+            SignalLevel = "ok",
+            PendingActions = []
+        };
+        await store.UpsertAsync(owner, retired, cancellationToken);
+        await UpsertInstanceRecordAsync(retired, cancellationToken: cancellationToken);
+
+        // Return source clone detail if available
+        if (!string.IsNullOrWhiteSpace(sourceInstanceId))
+        {
+            var source = await store.FindAsync(sourceInstanceId, cancellationToken);
+            if (source is not null)
+            {
+                return ApiResponse<EmployeeDetailDto>.SuccessResponse(source, wasLive
+                    ? "私有分支已废弃，IM 路由已恢复到原分身"
+                    : "私有分支已废弃");
+            }
+        }
+
+        return ApiResponse<EmployeeDetailDto>.SuccessResponse(retired, "私有分支已废弃");
+    }
+
+    /// <summary>
+    /// 恢复 IM 路由从私有分支到源分身。
+    /// </summary>
+    private async Task RestoreImRoutingToSourceAsync(
+        string sourceInstanceId,
+        string branchId,
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        foreach (var platform in new[] { "feishu", "dingtalk", "wecom" })
+        {
+            try
+            {
+                // Clear branch's channel override
+                var clearPath = platform switch
+                {
+                    "feishu" => "/admin/channels/feishu/override",
+                    "dingtalk" => "/admin/channels/dingtalk/override",
+                    "wecom" => "/admin/channels/wecom/override",
+                    _ => null
+                };
+                if (clearPath is not null)
+                {
+                    await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
+                        HttpMethod.Delete,
+                        clearPath,
+                        body: null,
+                        owner,
+                        cancellationToken,
+                        useHireBotApiPrefix: false);
+                }
+            }
+            catch
+            {
+                // Best-effort restoration
+            }
+        }
+    }
+
+    /// <summary>
+    /// 当私有分支上岗时，切换 IM 路由到分支沙箱。
+    /// </summary>
+    private async Task SwitchImRoutingToBranchAsync(
+        EmployeeDetailDto branch,
+        string sourceInstanceId,
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        // Set ActiveBranchId on source clone to enable in-app chat routing
+        var sourceEntity = await dbContext.Instances
+            .FirstOrDefaultAsync(item => item.InstanceId == sourceInstanceId, cancellationToken);
+        if (sourceEntity is not null)
+        {
+            sourceEntity.ActiveBranchId = branch.EmployeeId;
+            sourceEntity.UpdatedAt = DateTimeOffset.UtcNow;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
     }
 
     /// <summary>
@@ -1334,18 +1845,79 @@ public sealed class EmployeeRuntimeService(
     private static string BuildRuntimeScopeKey(string instanceId)
         => $"instance:{instanceId.Trim()}";
 
+    public async Task<ApiResponse<string>> GetRuntimeSandboxGatewayEndpointAsync(
+        string instanceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId))
+        {
+            return ApiResponse<string>.ErrorResponse(400, "instanceId 不能为空");
+        }
+
+        var sandbox = await ResolveRuntimeSandboxAsync(instanceId, cancellationToken);
+        if (sandbox is null)
+        {
+            return ApiResponse<string>.ErrorResponse(404, "runtime sandbox not found");
+        }
+
+        if (string.IsNullOrWhiteSpace(sandbox.SandboxId))
+        {
+            return ApiResponse<string>.ErrorResponse(409, "sandboxId is not ready");
+        }
+
+        var refreshResult = await sandboxService.RefreshAsync(
+            new SandboxInstanceLookupRequestDto
+            {
+                SandboxId = sandbox.SandboxId
+            },
+            cancellationToken);
+
+        if (!refreshResult.Success || refreshResult.Data is null)
+        {
+            return ApiResponse<string>.ErrorResponse(refreshResult.Code, refreshResult.Message);
+        }
+
+        if (string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint))
+        {
+            return ApiResponse<string>.ErrorResponse(409, "sandbox gateway endpoint is not ready");
+        }
+
+        return ApiResponse<string>.SuccessResponse(refreshResult.Data.GatewayEndpoint.Trim());
+    }
+
+    private Task<SandboxInstanceEntity?> ResolveRuntimeSandboxAsync(string instanceId, CancellationToken cancellationToken)
+    {
+        var normalizedInstanceId = string.IsNullOrWhiteSpace(instanceId) ? null : instanceId.Trim();
+        if (normalizedInstanceId is null)
+        {
+            return Task.FromResult<SandboxInstanceEntity?>(null);
+        }
+
+        var scopeKey = BuildRuntimeScopeKey(normalizedInstanceId);
+        return dbContext.SandboxInstances
+            .AsNoTracking()
+            .Where(item =>
+                item.ScopeType == SandboxScopeTypes.Hire &&
+                item.ScopeKey == scopeKey &&
+                item.SandboxRole == RuntimeSandboxRole &&
+                item.State != "Deleted")
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     /// <summary>
     /// 初始化个人分身沙箱。
     /// </summary>
-    private async Task<ApiResponse<PersonalCloneSandboxSetupResult>> InitializePersonalCloneSandboxAsync(
-        EmployeeDetailDto clone,
-        InstanceArtifactCloneResult artifactResult,
+    private async Task<ApiResponse<PersonalCloneSandboxSetupResult>> InitializeRuntimeSandboxAsync(
+        EmployeeDetailDto employee,
+        string artifactRoot,
+        string artifactVersion,
         string ownerSubject,
         string tenantId,
         string operatorId,
         CancellationToken cancellationToken)
     {
-        var scopeKey = BuildRuntimeScopeKey(clone.EmployeeId);
+        var scopeKey = BuildRuntimeScopeKey(employee.EmployeeId);
         var createResponse = await sandboxService.CreateAsync(
             new SandboxCreateRequestDto
             {
@@ -1356,7 +1928,7 @@ public sealed class EmployeeRuntimeService(
                 TenantId = tenantId,
                 OperatorId = operatorId,
                 ProvisioningMode = "managed",
-                UseCase = $"runtime-chat-for:{clone.EmployeeId}"
+                UseCase = $"runtime-chat-for:{employee.EmployeeId}"
             },
             cancellationToken);
         if (!createResponse.Success || createResponse.Data is null)
@@ -1371,11 +1943,11 @@ public sealed class EmployeeRuntimeService(
             return ApiResponse<PersonalCloneSandboxSetupResult>.ErrorResponse(readyResponse.Code, readyResponse.Message);
         }
 
-        var archiveBytes = BuildArtifactArchiveBytes(artifactResult.TargetRootPath);
+        var archiveBytes = BuildArtifactArchiveBytes(artifactRoot);
         var uploadResponse = await kingCrabHttpClient.SendMultipartForJsonAsync<DigitalEmployeeUploadResponse>(
             "/admin/digital-employee/upload",
             "file",
-            $"{clone.EmployeeId}-{artifactResult.CurrentVersion}.zip",
+            $"{employee.EmployeeId}-{artifactVersion}.zip",
             archiveBytes,
             "application/zip",
             ownerSubject,

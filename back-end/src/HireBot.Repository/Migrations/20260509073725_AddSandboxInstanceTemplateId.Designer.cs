@@ -3,6 +3,7 @@ using System;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HireBot.Repository.Migrations
 {
     [DbContext(typeof(HireBotDbContext))]
-    partial class HireBotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260509073725_AddSandboxInstanceTemplateId")]
+    partial class AddSandboxInstanceTemplateId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -804,11 +807,6 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")
                         .HasColumnName("instance_id");
-
-                    b.Property<string>("ActiveBranchId")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("active_branch_id");
 
                     b.Property<string>("BasedOnTemplateId")
                         .HasMaxLength(128)

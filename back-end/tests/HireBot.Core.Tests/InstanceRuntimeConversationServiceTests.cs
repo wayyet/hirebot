@@ -37,7 +37,7 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         Assert.Equal($"instance:{instance.InstanceId}", sandbox.SendRequests[0].ScopeKey);
         Assert.Equal("runtime", sandbox.SendRequests[0].SandboxRole);
         Assert.Equal("inapp", sandbox.SendRequests[0].SessionKey);
-        Assert.Equal("user: 你好", sandbox.SendRequests[0].Content);
+        Assert.Equal("你好", sandbox.SendRequests[0].Content);
         Assert.NotNull(sandbox.SendRequests[0].Materials);
         Assert.Empty(sandbox.SendRequests[0].Materials!);
         Assert.False(sandbox.SendRequests[0].UploadMaterialsAsAttachments);
@@ -242,8 +242,11 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<SkillPackageUploadResultDto>.SuccessResponse(new SkillPackageUploadResultDto(true, null, 1)));
 
+        public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default)
+            => Task.FromResult<SandboxInstanceDto?>(null);
+
         private static SandboxInstanceDto BuildInstance(string sandboxId, string scopeType, string scopeKey, string sandboxRole, string ownerSubject, string tenantId, string operatorId)
-            => new(Guid.NewGuid(), sandboxId, scopeType, scopeKey, sandboxRole, "managed", ownerSubject, tenantId, operatorId, "Running", "http://localhost:18789", null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+            => new(Guid.NewGuid(), sandboxId, scopeType, scopeKey, sandboxRole, "managed", ownerSubject, tenantId, operatorId, "Running", "http://localhost:18789", null, null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     }
 
     private sealed class FakeRequestContextService(string ownerSubject) : IRequestContextService

@@ -41,6 +41,7 @@ builder.Configuration.AddJsonFile(
 
 builder.AddServiceDefaults();
 builder.Services.AddControllers();
+builder.Services.AddDirectoryBrowser();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -126,13 +127,37 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-// 提供默认文件（index.html），使 ASP.NET Core 可作为前端宿主
-app.UseDefaultFiles();
-app.UseStaticFiles();
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(evaluationResourceRoot),
     RequestPath = "/resources"
+});
+app.UseDirectoryBrowser(new DirectoryBrowserOptions
+{
+    FileProvider = new PhysicalFileProvider(evaluationResourceRoot),
+    RequestPath = "/resources"
+});
+// 提供默认文件（index.html），使 ASP.NET Core 可作为前端宿主
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.UseRouting();
+
+// /resources/evaluation 诊断：直接返回磁盘路径和文件列表（验证路径解析是否正确）
+app.MapGet("/api/diagnostics/evaluation-root", () =>
+{
+    var root = evaluationResourceRoot;
+    var evalDir = Path.Combine(root, "evaluation");
+    var exists = Directory.Exists(evalDir);
+    var dirs = exists ? Directory.GetDirectories(evalDir).Select(Path.GetFileName).ToArray() : Array.Empty<string>();
+    return Results.Ok(new
+    {
+        evaluationResourceRoot = root,
+        evaluationDir = evalDir,
+        evaluationDirExists = exists,
+        sessionCount = dirs.Length,
+        sessions = dirs,
+        contentRoot = app.Environment.ContentRootPath
+    });
 });
 
 app.UseAuthentication();

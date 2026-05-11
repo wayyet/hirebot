@@ -3,6 +3,7 @@ using System;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HireBot.Repository.Migrations
 {
     [DbContext(typeof(HireBotDbContext))]
-    partial class HireBotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260510055253_AddActiveBranchId")]
+    partial class AddActiveBranchId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1097,10 +1100,6 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
 
-                    b.Property<string>("TemplateId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
@@ -1121,8 +1120,6 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("OwnerSubject", "State", "UpdatedAtUtc");
 
                     b.HasIndex("OwnerSubject", "ScopeType", "ScopeKey", "SandboxRole");
-
-                    b.HasIndex("OwnerSubject", "TemplateId", "SandboxRole", "State");
 
                     b.ToTable("SandboxInstances");
                 });

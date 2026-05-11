@@ -57,7 +57,6 @@ internal sealed class EmployeeHiringService(
     ILogger<EmployeeHiringService> logger,
     IHostEnvironment hostEnvironment) : IEmployeeHiringService
 {
-    private const string DefaultConversationKickoffPrompt = "你是雇佣流程助手。请先根据当前阶段提出第一个关键问题，引导用户完善模板包内容。";
     private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
     private const string EvaluationSkillId = "evaluation-expert";
     private const string EvaluationSkillVersion = "2.1.0";
@@ -137,11 +136,41 @@ internal sealed class EmployeeHiringService(
         }
 
         var ownerSubject = ResolveOwnerSubject(tenantId, operatorId);
+
+        var existingInstance = await sandboxService.FindActiveByOwnerAndTemplateAsync(
+            ownerSubject, normalizedTemplateId, "hiring", cancellationToken);
+        if (existingInstance is not null)
+        {
+            if (string.Equals(existingInstance.State, "Paused", StringComparison.OrdinalIgnoreCase))
+            {
+                await sandboxService.ResumeAsync(
+                    new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
+                    cancellationToken);
+            }
+
+            hireOwners[existingInstance.ScopeKey] = new HireOwnerContext(
+                OwnerSubject: ownerSubject,
+                TenantId: tenantId,
+                OperatorId: operatorId,
+                TemplateId: normalizedTemplateId,
+                TemplateName: template.Name,
+                EmployeeId: null);
+
+            return ApiResponse<HireTemplateResultDto>.SuccessResponse(
+                new HireTemplateResultDto(
+                    existingInstance.ScopeKey,
+                    existingInstance.SandboxId,
+                    existingInstance.State,
+                    "continue_conversation"),
+                "已复用现有沙箱");
+        }
+
         var provisionResult = await ProvisionManagedHireSandboxAsync(
             sandboxRole: "hiring",
             ownerSubject,
             tenantId,
             operatorId,
+            normalizedTemplateId,
             request.UseCase,
             cancellationToken);
         if (!provisionResult.Success || provisionResult.Data is null)
@@ -490,6 +519,7 @@ internal sealed class EmployeeHiringService(
             ownerContext.OwnerSubject,
             ownerContext.TenantId,
             ownerContext.OperatorId,
+            templateId: null,
             useCase,
             cancellationToken);
         if (!provisionResult.Success || provisionResult.Data is null)
@@ -571,12 +601,22 @@ internal sealed class EmployeeHiringService(
                 ScopeType = SandboxScopeTypes.Hire,
                 ScopeKey = normalizedHireId,
                 SandboxRole = ResolveSandboxRole(normalizedHireId),
-                OwnerSubject = ownerContext.OwnerSubject
+                OwnerSubject = ownerContext.OwnerSubject,
+                TenantId = ownerContext.TenantId,
+                OperatorId = ownerContext.OperatorId,
+                TemplateId = ownerContext.TemplateId
             },
             cancellationToken);
         if (!refreshResult.Success || refreshResult.Data is null)
         {
             return ApiResponse<HiringStatusDto>.ErrorResponse(refreshResult.Code, refreshResult.Message);
+        }
+
+        // RefreshAsync 可能在沙箱被外部删除后重建了沙箱（新 SandboxId），同步到内存上下文。
+        if (runtimeContext is not null && !string.Equals(runtimeContext.SandboxId, refreshResult.Data.SandboxId, StringComparison.Ordinal))
+        {
+            runtimeContext = runtimeContext with { SandboxId = refreshResult.Data.SandboxId };
+            hiringRuntimeStore.Upsert(runtimeContext);
         }
 
         runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken) ?? runtimeContext;
@@ -657,8 +697,6 @@ internal sealed class EmployeeHiringService(
                 IsConversationResponding = IsConversationResponding(normalizedHireId, runtimeContext)
             });
         }
-
-        await EnsureAssistantKickoffAsync(normalizedHireId, cancellationToken);
 
         return ApiResponse<StartHiringConversationResultDto>.SuccessResponse(call.Data);
     }
@@ -775,8 +813,6 @@ internal sealed class EmployeeHiringService(
                         true));
             }
 
-            var userMessageTime = DateTimeOffset.UtcNow;
-
             var sendResponse = await SendSandboxConversationMessageAsync(
                 runtimeContext,
                 request.Content,
@@ -788,58 +824,137 @@ internal sealed class EmployeeHiringService(
                 return ApiResponse<HiringConversationResultDto>.ErrorResponse(sendResponse.Code, sendResponse.Message);
             }
 
-            var parsedReply = HiringWorkflowSupport.ParseAssistantReply(sendResponse.Data.AssistantMessage.Content);
-            LogParsedAssistantReply(runtimeContext, parsedReply);
-            var visibleAssistantMessage = sendResponse.Data.AssistantMessage with
-            {
-                Content = parsedReply.VisibleContent
-            };
+            runtimeContext = runtimeContext with { SessionId = sendResponse.Data.SessionId };
+            return await ProcessConversationTurnAsync(
+                runtimeContext,
+                request.Content?.Trim(),
+                sendResponse.Data.AssistantMessage.Content,
+                requestMaterials,
+                request.StructuredAnswers,
+                cancellationToken);
+        }
+        finally
+        {
+            conversationInFlight.TryRemove(normalizedHireId, out _);
 
-            runtimeContext = runtimeContext with
+            var latestContext = hiringRuntimeStore.Get(normalizedHireId);
+            if (latestContext?.IsConversationResponding == true)
             {
-                SessionId = sendResponse.Data.SessionId,
-                Materials = MergeMaterials(runtimeContext.Materials, requestMaterials),
-                Messages = AppendMessages(
-                    runtimeContext.Messages,
-                    new HiringConversationMessageDto(
-                        $"user-{Guid.NewGuid():N}",
-                        "user",
-                        request.Content?.Trim() ?? string.Empty,
-                        userMessageTime),
-                    visibleAssistantMessage),
-                StructuredData = MergeStructuredData(runtimeContext.StructuredData, request.StructuredAnswers)
-            };
-        runtimeContext = await RefreshHandoffStateFromSandboxAsync(runtimeContext, cancellationToken);
-            runtimeContext = ApplyAssistantReply(runtimeContext, parsedReply);
-            runtimeContext = ApplyDispatchCallbacks(runtimeContext, parsedReply.DispatchCallbacks);
-            runtimeContext = await ExecuteDispatchCommandsAsync(runtimeContext, parsedReply.DispatchCommands, cancellationToken);
-            runtimeContext = ApplyWorkflowProgress(runtimeContext);
-            runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
-            if (ShouldPersistArtifactPackages(runtimeContext))
+                hiringRuntimeStore.Upsert(latestContext with { IsConversationResponding = false });
+            }
+        }
+    }
+
+    /// <summary>
+    /// 前端通过 WebSocket 直连沙箱完成一轮对话后，调用此接口将对话轮次同步到后端，
+    /// 使后端工作流引擎能够解析 AI 结构化标签、推进阶段状态、执行 dispatch 命令等。
+    /// </summary>
+    public async Task<ApiResponse<HiringConversationResultDto>> SyncConversationTurnAsync(
+        string hireId,
+        HiringConversationSyncRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var idError))
+        {
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, idError);
+        }
+
+        if (request is null || (string.IsNullOrWhiteSpace(request.UserMessage) && string.IsNullOrWhiteSpace(request.AssistantReply)))
+        {
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, "userMessage 与 assistantReply 不能同时为空");
+        }
+
+        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
+        if (runtimeContext is null)
+        {
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
+        }
+
+        if (runtimeContext.IsConversationPaused)
+        {
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "对话已暂停，请先恢复后再继续发送消息");
+        }
+
+        if (!conversationInFlight.TryAdd(normalizedHireId, 0))
+        {
+            return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "上一轮回复仍在生成中，请稍候");
+        }
+
+        try
+        {
+            runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
+            if (runtimeContext is null)
             {
-                await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+                return ApiResponse<HiringConversationResultDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
             }
 
-            hiringRuntimeStore.Upsert(runtimeContext);
-            var latestPreview = BuildLocalStagePreview(
-                normalizedHireId,
-                runtimeContext.DiscoverySkill,
-                runtimeContext.StageCompletion,
-                runtimeContext.CurrentStage,
-                runtimeContext.CollectionPhase,
-                runtimeContext.StructuredData,
-                visibleAssistantMessage.Content);
+            if (runtimeContext.IsConversationPaused)
+            {
+                return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "对话已暂停，请先恢复后再继续发送消息");
+            }
 
-            return ApiResponse<HiringConversationResultDto>.SuccessResponse(
-                new HiringConversationResultDto(
+            runtimeContext = runtimeContext with { IsConversationResponding = true };
+            hiringRuntimeStore.Upsert(runtimeContext);
+
+            var materials = request.Materials ?? Array.Empty<HiringConversationMaterialDto>();
+
+            if (HiringWorkflowSupport.ContainsSensitiveValue(request.UserMessage))
+            {
+                var now = DateTimeOffset.UtcNow;
+                var assistantMessage = new HiringConversationMessageDto(
+                    $"assistant-{Guid.NewGuid():N}",
+                    "assistant",
+                    "检测到你在对话里输入了凭据或密钥，这类信息不会进入会话。请改用右侧凭据表单提交。",
+                    now);
+
+                runtimeContext = runtimeContext with
+                {
+                    Materials = MergeMaterials(runtimeContext.Materials, materials),
+                    Messages = AppendMessages(
+                        runtimeContext.Messages,
+                        new HiringConversationMessageDto(
+                            $"user-{Guid.NewGuid():N}",
+                            "user",
+                            "[已拦截敏感凭据输入]",
+                            now),
+                        assistantMessage)
+                };
+                runtimeContext = ApplyWorkflowProgress(runtimeContext);
+                runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
+                if (ShouldPersistArtifactPackages(runtimeContext))
+                {
+                    await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+                }
+
+                hiringRuntimeStore.Upsert(runtimeContext);
+                var blockedPreview = BuildLocalStagePreview(
                     normalizedHireId,
-                    runtimeContext.SessionId,
+                    runtimeContext.DiscoverySkill,
+                    runtimeContext.StageCompletion,
                     runtimeContext.CurrentStage,
-                    latestPreview.ReadyForAudit,
-                    visibleAssistantMessage,
-                    latestPreview,
-                    runtimeContext.IsConversationPaused,
-                    true));
+                    runtimeContext.CollectionPhase,
+                    runtimeContext.StructuredData,
+                    assistantMessage.Content);
+
+                return ApiResponse<HiringConversationResultDto>.SuccessResponse(
+                    new HiringConversationResultDto(
+                        normalizedHireId,
+                        runtimeContext.SessionId,
+                        runtimeContext.CurrentStage,
+                        blockedPreview.ReadyForAudit,
+                        assistantMessage,
+                        blockedPreview,
+                        runtimeContext.IsConversationPaused,
+                        true));
+            }
+
+            return await ProcessConversationTurnAsync(
+                runtimeContext,
+                string.IsNullOrWhiteSpace(request.UserMessage) ? null : request.UserMessage.Trim(),
+                request.AssistantReply,
+                materials,
+                structuredAnswers: null,
+                cancellationToken);
         }
         finally
         {
@@ -1422,27 +1537,66 @@ internal sealed class EmployeeHiringService(
         CancellationToken cancellationToken)
     {
         var sendResponse = await SendSandboxConversationMessageAsync(
-            runtimeContext,
-            content,
-            materials,
-            cancellationToken);
+            runtimeContext, content, materials, cancellationToken);
         if (!sendResponse.Success || sendResponse.Data is null)
         {
             return ApiResponse<HiringConversationResultDto>.ErrorResponse(sendResponse.Code, sendResponse.Message);
         }
 
-        var parsedReply = HiringWorkflowSupport.ParseAssistantReply(sendResponse.Data.AssistantMessage.Content);
-        var visibleAssistantMessage = sendResponse.Data.AssistantMessage with
+        runtimeContext = runtimeContext with { SessionId = sendResponse.Data.SessionId };
+        return await ProcessConversationTurnAsync(
+            runtimeContext,
+            userMessageContent: null,
+            sendResponse.Data.AssistantMessage.Content,
+            materials,
+            structuredAnswers: null,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// 处理已完成的对话轮次（不负责将消息发送到沙箱）。
+    /// 解析 AI 回复中的结构化标签，推进工作流状态，持久化运行时上下文。
+    /// </summary>
+    private async Task<ApiResponse<HiringConversationResultDto>> ProcessConversationTurnAsync(
+        HiringRuntimeContext runtimeContext,
+        string? userMessageContent,
+        string rawAssistantReply,
+        IReadOnlyList<HiringConversationMaterialDto> materials,
+        IReadOnlyDictionary<string, string?>? structuredAnswers,
+        CancellationToken cancellationToken)
+    {
+        var parsedReply = HiringWorkflowSupport.ParseAssistantReply(rawAssistantReply);
+        LogParsedAssistantReply(runtimeContext, parsedReply);
+        var now = DateTimeOffset.UtcNow;
+        var assistantMessage = new HiringConversationMessageDto(
+            $"assistant-{Guid.NewGuid():N}",
+            "assistant",
+            rawAssistantReply,
+            now);
+        var visibleAssistantMessage = assistantMessage with { Content = parsedReply.VisibleContent };
+
+        var messages = runtimeContext.Messages;
+        if (!string.IsNullOrWhiteSpace(userMessageContent))
         {
-            Content = parsedReply.VisibleContent
-        };
+            messages = AppendMessages(
+                messages,
+                new HiringConversationMessageDto(
+                    $"user-{Guid.NewGuid():N}",
+                    "user",
+                    userMessageContent.Trim(),
+                    now));
+        }
+        messages = AppendMessages(messages, visibleAssistantMessage);
 
         runtimeContext = runtimeContext with
         {
-            SessionId = sendResponse.Data.SessionId,
             Materials = MergeMaterials(runtimeContext.Materials, materials),
-            Messages = AppendMessages(runtimeContext.Messages, visibleAssistantMessage)
+            Messages = messages,
+            StructuredData = structuredAnswers is not null
+                ? MergeStructuredData(runtimeContext.StructuredData, structuredAnswers)
+                : runtimeContext.StructuredData
         };
+
         runtimeContext = await RefreshHandoffStateFromSandboxAsync(runtimeContext, cancellationToken);
         runtimeContext = ApplyAssistantReply(runtimeContext, parsedReply);
         runtimeContext = ApplyDispatchCallbacks(runtimeContext, parsedReply.DispatchCallbacks);
@@ -1455,7 +1609,7 @@ internal sealed class EmployeeHiringService(
         }
 
         hiringRuntimeStore.Upsert(runtimeContext);
-        var referencePreview = BuildLocalStagePreview(
+        var latestPreview = BuildLocalStagePreview(
             runtimeContext.HireId,
             runtimeContext.DiscoverySkill,
             runtimeContext.StageCompletion,
@@ -1469,9 +1623,9 @@ internal sealed class EmployeeHiringService(
                 runtimeContext.HireId,
                 runtimeContext.SessionId,
                 runtimeContext.CurrentStage,
-                referencePreview.ReadyForAudit,
+                latestPreview.ReadyForAudit,
                 visibleAssistantMessage,
-                referencePreview,
+                latestPreview,
                 runtimeContext.IsConversationPaused,
                 true));
     }
@@ -1500,10 +1654,8 @@ internal sealed class EmployeeHiringService(
             cancellationToken);
         if (!sessionDetailResult.Success || sessionDetailResult.Data is null)
         {
-            throw new InvalidOperationException(
-                string.IsNullOrWhiteSpace(sessionDetailResult.Message)
-                    ? $"无法刷新会话 {runtimeContext.SessionId} 的 handoff 元数据。"
-                    : sessionDetailResult.Message);
+            logger.LogWarning("无法刷新会话 {SessionId} 的 handoff 元数据: {Message}", runtimeContext.SessionId, sessionDetailResult.Message);
+            return runtimeContext;
         }
 
         return runtimeContext with
@@ -2005,8 +2157,13 @@ internal sealed class EmployeeHiringService(
         return updatedRuntimeContext;
     }
 
-    private static string[] NormalizeHandoffIds(IReadOnlyList<string> handoffIds)
+    private static string[] NormalizeHandoffIds(IReadOnlyList<string>? handoffIds)
     {
+        if (handoffIds is null || handoffIds.Count == 0)
+        {
+            return [];
+        }
+
         return handoffIds
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value.Trim())
@@ -2268,22 +2425,6 @@ internal sealed class EmployeeHiringService(
                     .ToArray(),
                 PendingReviewHandoffIds: impactedHandoffIds,
                 UpdatedAtUtc: now)
-        };
-    }
-
-    private static string BuildKickoffMessage(string currentStage)
-    {
-        return NormalizeRequestedStage(currentStage) switch
-        {
-            var stage when string.Equals(stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)
-                => "我们先完成资料阶段。请先上传至少 1 份最有代表性的资料，并说明每份资料分别属于什么类型、希望抽取什么内容沉淀进模板包。",
-            var stage when string.Equals(stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)
-                => "现在进入技能阶段。模板包里的默认 skills 视为基线，我们只补充新增或明显缺失的技能；如果当前基线已经足够，也请直接确认是否推进到第三阶段。",
-            var stage when string.Equals(stage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase)
-                => "现在进入外部能力阶段。请按连接器能力来描述需求，例如 MCP、CLI 或 database，并明确每项能力的操作目标、认证方式和对应 skill。",
-            var stage when string.Equals(stage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase)
-                => "当前进入打包准备阶段。这里不再新增业务补齐项，只处理诊断、复核和收口问题；请确认剩余阻塞项是否都已经解决。",
-            _ => DefaultConversationKickoffPrompt
         };
     }
 
@@ -2969,6 +3110,7 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         string ownerSubject,
         string tenantId,
         string operatorId,
+        string? templateId,
         string? useCase,
         CancellationToken cancellationToken)
     {
@@ -2983,7 +3125,8 @@ This is the bootstrap skill for evaluation sandbox orchestration.
                 TenantId = tenantId,
                 OperatorId = operatorId,
                 ProvisioningMode = "managed",
-                UseCase = useCase
+                UseCase = useCase,
+                TemplateId = templateId
             },
             cancellationToken);
         if (!createResult.Success || createResult.Data is null)
@@ -3269,32 +3412,6 @@ This is the bootstrap skill for evaluation sandbox orchestration.
         }
 
         return result;
-    }
-
-    private async Task EnsureAssistantKickoffAsync(string hireId, CancellationToken cancellationToken)
-    {
-        await Task.CompletedTask;
-        var runtimeContext = hiringRuntimeStore.Get(hireId);
-        if (runtimeContext is null || runtimeContext.Messages.Any(message =>
-                string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)))
-        {
-            return;
-        }
-
-        var kickoffPrompt = configuration["HireBot:ConversationKickoffPrompt"];
-        var kickoffMessage = new HiringConversationMessageDto(
-            $"assistant-{Guid.NewGuid():N}",
-            "assistant",
-            string.IsNullOrWhiteSpace(kickoffPrompt)
-                ? BuildKickoffMessage(runtimeContext.CurrentStage)
-                : kickoffPrompt.Trim(),
-            DateTimeOffset.UtcNow);
-        runtimeContext = runtimeContext with
-        {
-            Messages = AppendMessages(runtimeContext.Messages, kickoffMessage)
-        };
-        runtimeContext = ApplyWorkflowProgress(runtimeContext);
-        hiringRuntimeStore.Upsert(runtimeContext);
     }
 
     internal static HiringRuntimeContext ApplyConversationProgressToTemplatePackage(HiringRuntimeContext runtimeContext)
