@@ -5,6 +5,7 @@ import { collaborationApi } from './modules/collaborationApi'
 import { skillCatalogApi } from './modules/skillCatalogApi'
 import { migrationApi } from './modules/migrationApi'
 import { teamImApi } from './modules/teamImApi'
+import { settingsApi } from './modules/settingsApi'
 
 export const api = {
   employeeTemplate: employeeTemplateApi,
@@ -14,9 +15,12 @@ export const api = {
   skillCatalog: skillCatalogApi,
   migration: migrationApi,
   teamIm: teamImApi,
+  settings: settingsApi,
 }
 
 export { ApiClientError } from './httpClient'
+
+export type { HiringSandboxItem } from './modules/settingsApi'
 
 export type {
   ApiResponseEnvelope,

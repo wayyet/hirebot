@@ -12,6 +12,8 @@ public interface ISandboxService
     Task<ApiResponse<SandboxInstanceDto>> ResumeAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<SandboxInstanceDto>> RebuildAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<bool>> DeleteAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default);
+    Task<ApiResponse<IReadOnlyList<SandboxInstanceDto>>> ListByOwnerAsync(string ownerSubject, CancellationToken cancellationToken = default);
+    Task<ApiResponse<bool>> DeleteForOwnerAsync(string sandboxId, string ownerSubject, CancellationToken cancellationToken = default);
     Task<ApiResponse<StartHiringConversationResultDto>> EnsureSessionAsync(SandboxEnsureSessionRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringConversationResultDto>> SendMessageAsync(SandboxSendMessageRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringConversationTimelineDto>> GetTimelineAsync(SandboxTimelineRequestDto request, CancellationToken cancellationToken = default);

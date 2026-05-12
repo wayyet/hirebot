@@ -19,8 +19,40 @@
   "user": {
     "loading": "Loading...",
     "defaultName": "User",
+    "settings": "Settings",
     "logout": "Sign Out",
     "logoutFailed": "Sign out failed, please try again"
+  },
+  "settings": {
+    "title": "Settings",
+    "sandboxes": {
+      "title": "My Hiring Sandboxes",
+      "description": "Manage all hiring sandboxes launched by this account. Delete sandboxes you no longer need.",
+      "refresh": "Refresh",
+      "empty": "No active hiring sandboxes",
+      "loadError": "Failed to load sandbox list",
+      "deleteConfirm": "Delete this sandbox? This action cannot be undone.",
+      "deleteSuccess": "Sandbox deleted",
+      "deleteFailed": "Delete failed",
+      "state": {
+        "running": "Running",
+        "creating": "Creating",
+        "initializing": "Initializing",
+        "deleting": "Deleting",
+        "deleted": "Deleted",
+        "expired": "Expired",
+        "error": "Error"
+      },
+      "col": {
+        "sandboxId": "Sandbox ID",
+        "scope": "Scope",
+        "state": "State",
+        "createdAt": "Created",
+        "expiresAt": "Expires",
+        "actions": "Actions"
+      },
+      "delete": "Delete"
+    }
   },
   "common": {
     "loading": "Loading...",

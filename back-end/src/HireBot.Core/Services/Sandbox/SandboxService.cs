@@ -227,6 +227,60 @@ internal sealed partial class SandboxService(
         return ApiResponse<bool>.SuccessResponse(true);
     }
 
+    public async Task<ApiResponse<IReadOnlyList<SandboxInstanceDto>>> ListByOwnerAsync(
+        string ownerSubject,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(ownerSubject))
+        {
+            return ApiResponse<IReadOnlyList<SandboxInstanceDto>>.ErrorResponse(400, "ownerSubject 不能为空");
+        }
+
+        var items = await dbContext.SandboxInstances
+            .Where(item => item.OwnerSubject == ownerSubject.Trim() && item.State != "Deleted")
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        IReadOnlyList<SandboxInstanceDto> result = items.ConvertAll(ToDto);
+        return ApiResponse<IReadOnlyList<SandboxInstanceDto>>.SuccessResponse(result);
+    }
+
+    public async Task<ApiResponse<bool>> DeleteForOwnerAsync(
+        string sandboxId,
+        string ownerSubject,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sandboxId) || string.IsNullOrWhiteSpace(ownerSubject))
+        {
+            return ApiResponse<bool>.ErrorResponse(400, "sandboxId 和 ownerSubject 不能为空");
+        }
+
+        var instance = await dbContext.SandboxInstances
+            .FirstOrDefaultAsync(item => item.SandboxId == sandboxId.Trim() && item.State != "Deleted", cancellationToken);
+
+        if (instance is null)
+        {
+            return ApiResponse<bool>.ErrorResponse(404, "沙箱不存在");
+        }
+
+        // 校验归属关系，防止越权删除
+        if (!string.Equals(instance.OwnerSubject, ownerSubject.Trim(), StringComparison.Ordinal))
+        {
+            return ApiResponse<bool>.ErrorResponse(403, "无权操作该沙箱");
+        }
+
+        if (string.Equals(instance.ProvisioningMode, "managed", StringComparison.OrdinalIgnoreCase))
+        {
+            await provisioner.DeleteAsync(instance.SandboxId, cancellationToken);
+        }
+
+        instance.State = "Deleted";
+        instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return ApiResponse<bool>.SuccessResponse(true);
+    }
+
     public async Task<ApiResponse<StartHiringConversationResultDto>> EnsureSessionAsync(
         SandboxEnsureSessionRequestDto request,
         CancellationToken cancellationToken = default)

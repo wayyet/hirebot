@@ -26,6 +26,7 @@ import CollaborationPage from "@/features/collaboration/pages/CollaborationPage"
 import SkillListPage from "@/features/skill/pages/SkillListPage";
 import RegisterSkillPage from "@/features/skill/pages/RegisterSkillPage";
 import SkillDetailPage from "@/features/skill/pages/SkillDetailPage";
+import SettingsPage from "@/features/hiring/pages/SettingsPage";
 
 const LOCAL_STATE_MIGRATION_FLAG = "ncrew_local_state_migrated_v1";
 const EMPLOYEE_KEY = "ncrew_digital_employees";
@@ -294,6 +295,15 @@ export default function App() {
             element={
               <ProtectedLayout>
                 <SkillDetailPage />
+              </ProtectedLayout>
+            }
+          />
+
+          <Route
+            path="/settings"
+            element={
+              <ProtectedLayout>
+                <SettingsPage />
               </ProtectedLayout>
             }
           />

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Globe, Loader2, LogOut, Moon, Sparkles, Sun } from "lucide-react";
+import { ChevronDown, Globe, Loader2, LogOut, Moon, Settings, Sparkles, Sun } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
@@ -377,6 +377,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </button>
                 {userOpen && (
                   <div className="hb-dropdown-menu hb-dropdown-menu--right">
+                    {/* 只在控制台展示进入设置页面的入口 */}
+                    <button
+                      type="button"
+                      className="hb-dropdown-item"
+                      onClick={() => { setUserOpen(false); navigate('/settings'); }}
+                    >
+                      <Settings size={13} />
+                      {t("user.settings")}
+                    </button>
                     {!isAuthBypassed && (
                       <button
                         type="button"

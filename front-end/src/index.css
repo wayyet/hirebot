@@ -4757,6 +4757,156 @@ body.hb-body-hiring-prototype {
   background: radial-gradient(circle, rgba(123, 94, 255, 0.12) 0%, transparent 70%);
 }
 
+/* ── 数据表格 (设置页等管理类页面使用) ── */
+.hb-data-table-wrap {
+  overflow-x: auto;
+  border-radius: 14px;
+  border: 1px solid var(--hb-border);
+}
+
+.hb-data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.hb-data-table thead tr {
+  border-bottom: 1px solid var(--hb-border);
+  background: var(--hb-surface-soft);
+}
+
+.hb-data-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--hb-soft);
+  white-space: nowrap;
+}
+
+.hb-data-table th:last-child {
+  text-align: right;
+}
+
+.hb-data-table td {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--hb-body);
+  vertical-align: middle;
+}
+
+.hb-data-table td:last-child {
+  text-align: right;
+}
+
+.hb-data-table tbody tr {
+  border-bottom: 1px solid var(--hb-border-row);
+  transition: background 0.14s ease;
+}
+
+.hb-data-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.hb-data-table tbody tr:hover {
+  background: var(--hb-surface-soft);
+}
+
+.hb-data-table tbody tr.is-deleting {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.hb-data-table td.muted {
+  color: var(--hb-caption);
+  font-size: 12px;
+}
+
+.hb-dt-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hb-dt-id svg {
+  color: var(--hb-caption);
+  flex-shrink: 0;
+}
+
+.hb-dt-mono {
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  color: var(--hb-near-black);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+.hb-dt-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hb-dt-scope svg {
+  color: var(--hb-caption);
+  flex-shrink: 0;
+}
+
+.hb-dt-scope-key {
+  font-size: 12px;
+  color: var(--hb-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+  display: inline-block;
+}
+
+/* 内联删除确认行 */
+.hb-confirm-row td {
+  background: #fff7ed;
+  border-bottom: 1px solid #fde8c6 !important;
+}
+
+.hb-confirm-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #b45309;
+}
+
+/* pill 红色变体（错误状态） */
+.hb-pill.red {
+  background: #fff1f2;
+  color: #b3263c;
+}
+
+/* hb-mini-action 危险变体 */
+.hb-mini-action.danger {
+  border-color: #ffd5da;
+  color: var(--hb-danger);
+}
+
+.hb-mini-action.danger:hover {
+  background: var(--hb-danger-hover-bg);
+  border-color: #fca5a5;
+}
+
+/* 设置页加载占位 */
+.hb-section-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 0;
+  color: var(--hb-soft);
+  font-size: 14px;
+}
+
 /* Hero 内容 */
 .hb-landing-hero-content {
   position: relative;
