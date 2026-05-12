@@ -259,6 +259,19 @@ export default function HiringPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPackageArtifact, workflowHireId, instanceCreated])
 
+  // 对话状态变化时防抖保存到后端（messages 或 wsStageOverrides 变化时触发）
+  useEffect(() => {
+    if (!workflowHireId || messages.length === 0) return
+    const timer = setTimeout(() => {
+      const cache = {
+        messages,
+        stageOverrides: Array.from(wsStageOverrides.entries()),
+      }
+      api.hiringWorkflow.saveConversationCache(workflowHireId, cache).catch(() => {})
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [messages, wsStageOverrides, workflowHireId])
+
   useEffect(() => {
     if (journeyGuideVisible && !focusedStage) {
       setFocusedStage(workflowCurrentStage)
@@ -363,7 +376,7 @@ export default function HiringPage() {
         }
 
         // 前端直连链路：自动下载模板包并上传到当前会话，触发模板分析与引导
-        await autoBootstrapTemplateConversation(templateId).catch((error: unknown) => {
+        await autoBootstrapTemplateConversation(templateId, hired.hireId).catch((error: unknown) => {
           const bootstrapError = normalizeErrorMessage(error)
           console.warn('[HiringPage] auto template bootstrap skipped:', bootstrapError)
           setWorkflowNotice(`模板自动导入失败：${bootstrapError}，请手动上传模板包后继续。`)
@@ -418,7 +431,7 @@ export default function HiringPage() {
     ].join('\n')
   }
 
-  async function autoBootstrapTemplateConversation(currentTemplateId: string) {
+  async function autoBootstrapTemplateConversation(currentTemplateId: string, currentHireId?: string) {
     const endpoint = gatewayEndpointRef.current
     let sessionId = sessionIdRef.current
     const ws = wsRef.current
@@ -444,6 +457,28 @@ export default function HiringPage() {
     // 检查当前会话是否已有历史消息——有消息说明模板之前已上传过，直接恢复历史，跳过引导上传
     const existingMessages = await fetchSandboxSessionMessages(endpoint, sessionId)
     if (existingMessages.length > 0) {
+      // 优先从后端缓存恢复完整对话历史（含 artifact / stage_gate 消息和阶段状态）
+      const hireIdForCache = currentHireId || workflowHireId
+      if (hireIdForCache) {
+        try {
+          const cached = await api.hiringWorkflow.getConversationCache(hireIdForCache) as {
+            messages?: ChatMessage[]
+            stageOverrides?: [string, string][]
+          } | null
+          if (cached?.messages && cached.messages.length > 0) {
+            setMessages(cached.messages)
+            if (cached.stageOverrides && cached.stageOverrides.length > 0) {
+              setWsStageOverrides(new Map(cached.stageOverrides as [HiringUiStage, 'running' | 'completed' | 'failed'][]))
+            }
+            autoTemplateBootstrapSessionRef.current = sessionId
+            return
+          }
+        } catch {
+          // 缓存读取失败时静默回退到沙箱消息恢复
+        }
+      }
+
+      // 后端无缓存时，回退到仅恢复文字消息（沙箱历史）
       const mapped = existingMessages
         .filter(m => m.type === 'user_message' || m.type === 'assistant_message')
         .map<ChatMessage>(m => ({
@@ -1049,6 +1084,10 @@ export default function HiringPage() {
         setFocusedStage(null)
         setWorkflowError('')
         setWorkflowNotice('')
+        setWsStageOverrides(new Map())
+
+        // 清除后端对话缓存，确保重置后刷新页面不会恢复旧记录
+        api.hiringWorkflow.saveConversationCache(hireId, {}).catch(() => {})
 
         // 重新连接 WebSocket
         const endpoint = gatewayEndpointRef.current
@@ -1058,7 +1097,7 @@ export default function HiringPage() {
 
         // 重置后自动重新注入模板包，直接重启引导流程
         if (templateId) {
-          await autoBootstrapTemplateConversation(templateId)
+          await autoBootstrapTemplateConversation(templateId, hireId)
         }
 
         setWorkflowNotice('会话已重置，可以开始新的雇佣流程。')

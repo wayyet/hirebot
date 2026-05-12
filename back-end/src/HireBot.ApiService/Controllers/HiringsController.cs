@@ -2,6 +2,7 @@ using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Services.Hiring;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace HireBot.ApiService.Controllers;
 
@@ -159,6 +160,25 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
     {
         var result = await employeeHiringService.BuildArtifactFileDownloadAsync(hireId, artifactName, cancellationToken);
         return BuildDownloadResponse(result);
+    }
+
+    /// <summary>获取前端对话状态缓存（刷新页面后用于恢复对话历史）。</summary>
+    [HttpGet("{hireId}/conversation/cache")]
+    public async Task<IActionResult> GetConversationCache(string hireId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.GetConversationCacheAsync(hireId, cancellationToken);
+        return Ok(response);
+    }
+
+    /// <summary>保存前端对话状态缓存（messages + stageOverrides）。</summary>
+    [HttpPut("{hireId}/conversation/cache")]
+    public async Task<IActionResult> SaveConversationCache(
+        string hireId,
+        [FromBody] JsonElement cache,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.SaveConversationCacheAsync(hireId, cache, cancellationToken);
+        return Ok(response);
     }
 
     private IActionResult BuildDownloadResponse(HiringArtifactDownloadResult result)

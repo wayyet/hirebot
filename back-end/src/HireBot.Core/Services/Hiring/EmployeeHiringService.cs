@@ -1504,4 +1504,54 @@ internal sealed partial class EmployeeHiringService(
             cancellationToken);
     }
 
+    public async Task<ApiResponse<bool>> SaveConversationCacheAsync(
+        string hireId,
+        JsonElement cache,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return ApiResponse<bool>.ErrorResponse(400, error);
+        }
+
+        var entity = await dbContext.HiringRuntimeStates
+            .Where(e => e.HireId == normalizedHireId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (entity is null)
+        {
+            return ApiResponse<bool>.ErrorResponse(404, "未找到该雇佣流程的运行时状态");
+        }
+
+        entity.ConversationCacheJson = cache.GetRawText();
+        entity.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return ApiResponse<bool>.SuccessResponse(true);
+    }
+
+    public async Task<ApiResponse<JsonElement?>> GetConversationCacheAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return ApiResponse<JsonElement?>.ErrorResponse(400, error);
+        }
+
+        var entity = await dbContext.HiringRuntimeStates
+            .AsNoTracking()
+            .Where(e => e.HireId == normalizedHireId)
+            .Select(e => e.ConversationCacheJson)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (entity is null)
+        {
+            return ApiResponse<JsonElement?>.ErrorResponse(404, "未找到该雇佣流程的运行时状态");
+        }
+
+        var json = JsonSerializer.Deserialize<JsonElement>(entity);
+        return ApiResponse<JsonElement?>.SuccessResponse(json);
+    }
+
 }

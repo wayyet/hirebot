@@ -655,6 +655,16 @@ export const hiringWorkflowApi = {
     }
     return envelope.data
   },
+
+  /** 获取前端对话状态缓存（刷新页面后用于恢复对话历史）。*/
+  async getConversationCache(hireId: string): Promise<unknown> {
+    return httpClient.get<unknown>(`/api/v1/hirings/${encodeURIComponent(hireId)}/conversation/cache`)
+  },
+
+  /** 保存前端对话状态缓存（messages + stageOverrides）。*/
+  async saveConversationCache(hireId: string, cache: unknown): Promise<void> {
+    await httpClient.put<boolean>(`/api/v1/hirings/${encodeURIComponent(hireId)}/conversation/cache`, cache)
+  },
 }
 
 

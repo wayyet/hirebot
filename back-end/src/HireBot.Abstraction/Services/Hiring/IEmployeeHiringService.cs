@@ -1,4 +1,5 @@
 using HireBot.Abstraction.Models.Hiring;
+using System.Text.Json;
 
 namespace HireBot.Abstraction.Services.Hiring;
 
@@ -25,4 +26,10 @@ public interface IEmployeeHiringService
     Task<ApiResponse<bool>> UploadEvaluationSkillAsync(string hireId, string? skillRootPath = null, CancellationToken cancellationToken = default);
     Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(string hireId, CancellationToken cancellationToken = default);
     Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(string hireId, string artifactName, CancellationToken cancellationToken = default);
+
+    /// <summary>保存前端对话状态缓存（messages + stageOverrides），用于刷新页面后恢复。</summary>
+    Task<ApiResponse<bool>> SaveConversationCacheAsync(string hireId, JsonElement cache, CancellationToken cancellationToken = default);
+
+    /// <summary>获取前端对话状态缓存，返回存储的 JSON 对象。</summary>
+    Task<ApiResponse<JsonElement?>> GetConversationCacheAsync(string hireId, CancellationToken cancellationToken = default);
 }

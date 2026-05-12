@@ -124,6 +124,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.Property(e => e.CurrentStage).IsRequired().HasMaxLength(64);
             entity.Property(e => e.CollectionPhase).IsRequired().HasMaxLength(64);
             entity.Property(e => e.PayloadJson).IsRequired();
+            entity.Property(e => e.ConversationCacheJson).IsRequired().HasDefaultValue("{}");
             entity.Property(e => e.CreatedAtUtc).IsRequired();
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
 
