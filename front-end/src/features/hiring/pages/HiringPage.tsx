@@ -2,14 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Upload, X } from 'lucide-react'
 
-import { api, HiringAuditDecision, HiringCollectionPhase, HiringCollectionStage, HiringTodoStatus } from '@/infra/api'
+import { api, HiringAuditDecision, HiringCollectionStage } from '@/infra/api'
 import type {
-  CredentialSlot,
   EmployeeTemplateDetail,
-  HiringCollectionPhaseType,
   HiringCollectionStageType,
   HiringConversationMaterial,
-  HiringWorkflowState,
 } from '@/infra/api'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import { fetchSandboxSessionMessages, uploadMediaToGateway } from '@/infra/sandbox/sandbox-api'
@@ -19,7 +16,7 @@ import { HiringConversationPanel } from './components/HiringConversationPanel'
 import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
 import { HiringStagePills } from './components/HiringStagePills'
-import type { ArtifactDisplayData, ChatFile, ChatMessage, CredentialDraft, SkillUploadPayload, StageGateData } from './hiringPageTypes'
+import type { ArtifactDisplayData, ChatFile, ChatMessage, SkillUploadPayload, StageGateData } from './hiringPageTypes'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 
 function mkId() {
@@ -45,22 +42,6 @@ function normalizeAssistantReply(content: string) {
   return cleaned.length > 0 ? cleaned : content.trim()
 }
 
-function mapTimelineMessagesToChat(messages: { messageId: string; role: string; content: string; createdAt: string }[]): ChatMessage[] {
-  return messages
-    .filter(message => message.content?.trim().length > 0)
-    .sort((a, b) => {
-      const byTime = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      if (byTime !== 0) return byTime
-      return a.role.toLowerCase() === 'user' ? -1 : 1
-    })
-    .map(message => ({
-      id: message.messageId || mkId(),
-      role: message.role.toLowerCase() === 'assistant' ? 'bot' : 'user',
-      content: message.role.toLowerCase() === 'assistant'
-        ? normalizeAssistantReply(message.content)
-        : message.content,
-    }))
-}
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob)
@@ -120,14 +101,6 @@ function toConversationMaterials(files?: ChatFile[]): HiringConversationMaterial
   }))
 }
 
-function normalizeCollectionPhase(value: string): HiringCollectionPhaseType {
-  if (value === HiringCollectionPhase.NotStarted) return HiringCollectionPhase.NotStarted
-  if (value === HiringCollectionPhase.InProgress) return HiringCollectionPhase.InProgress
-  if (value === HiringCollectionPhase.ReadyForFinalize) return HiringCollectionPhase.ReadyForFinalize
-  if (value === HiringCollectionPhase.Finalized) return HiringCollectionPhase.Finalized
-  return HiringCollectionPhase.InProgress
-}
-
 function normalizeCollectionStage(value: string): HiringCollectionStageType {
   if (value === HiringCollectionStage.Material) return HiringCollectionStage.Material
   if (value === HiringCollectionStage.Skill) return HiringCollectionStage.Skill
@@ -140,11 +113,6 @@ function formatFileSize(bytes: number) {
   return bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`
 }
 
-function hasPendingDispatch(workflowState: HiringWorkflowState | null) {
-  return workflowState?.latestDispatches?.some(dispatch => !dispatch.completedAtUtc) ?? false
-}
-
-/** 技能名称 → 雇佣阶段 ID 的静态映射（基于 contracts/artifacts.json 声明） */
 const SKILL_TO_HIRING_STAGE: Record<string, HiringUiStage> = {
   'ontology-extraction': HiringCollectionStage.Skill,
   'skill-generation': HiringCollectionStage.Skill,
@@ -168,41 +136,6 @@ function resolveHiringStageFromWs(
   return SKILL_TO_HIRING_STAGE[skillName ?? ''] ?? null
 }
 
-function looksLikeSensitiveSecret(value: string) {
-  const normalized = value.trim()
-  if (normalized.length < 12) {
-    return false
-  }
-
-  return /\b(token|password|secret|connection[_ -]?string|client[_ -]?secret|api[_ -]?key)\b/i.test(normalized)
-    || /(=|:)\s*["']?[A-Za-z0-9_\-:/+=]{10,}/.test(normalized)
-    || /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/.test(normalized)
-}
-
-function buildSummaryItems(workflowState: HiringWorkflowState | null, uploadedFileCount: number) {
-  if (!workflowState) {
-    return []
-  }
-
-  const workflowTodos = workflowState.workflowTodos ?? []
-  const handoffItems = workflowState.handoffItems ?? []
-  const allTodos = [...workflowTodos, ...handoffItems.map(item => ({
-    status: item.status === 'confirmed' ? HiringTodoStatus.Done
-      : item.status === 'dismissed' ? HiringTodoStatus.Dismissed
-      : item.status === 'needs_review' ? HiringTodoStatus.NeedsReview
-      : item.status === 'dispatched' || item.status === 'dirty' ? HiringTodoStatus.InProgress
-      : HiringTodoStatus.Open,
-  }))]
-  const completedTodos = allTodos.filter(todo => todo.status === HiringTodoStatus.Done || todo.status === HiringTodoStatus.Resolved)
-  return [
-    { label: '待办总数', value: String(allTodos.length) },
-    { label: '已完成', value: String(completedTodos.length) },
-    { label: '诊断项', value: String(workflowState.latestDiagnosticReport?.diagnosticTodos.length ?? 0) },
-    { label: '待复核', value: String(workflowState.configGovernance?.pendingReviewTodoIds.length ?? 0) },
-    { label: '已上传文件', value: String(uploadedFileCount) },
-  ]
-}
-
 export default function HiringPage() {
   const { templateId } = useParams()
   const navigate = useNavigate()
@@ -221,7 +154,6 @@ export default function HiringPage() {
   const [instanceCreated, setInstanceCreated] = useState(false)
   const [createdId, setCreatedId] = useState('')
   const [workflowHireId, setWorkflowHireId] = useState('')
-  const [workflowState, setWorkflowState] = useState<HiringWorkflowState | null>(null)
   const [workflowBooting, setWorkflowBooting] = useState(false)
   const [workflowError, setWorkflowError] = useState('')
   const [workflowNotice, setWorkflowNotice] = useState('')
@@ -231,10 +163,6 @@ export default function HiringPage() {
   const [submittingMessage, setSubmittingMessage] = useState(false)
   // WS 流式内容：非 null 时表示 AI 正在逐字输出
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
-  const [credentialDrafts, setCredentialDrafts] = useState<Record<string, CredentialDraft>>({})
-  const [configDrafts, setConfigDrafts] = useState<Record<string, string>>({})
-  const [credentialSubmittingSlot, setCredentialSubmittingSlot] = useState<string | null>(null)
-  const [configSavingKey, setConfigSavingKey] = useState<string | null>(null)
   const [resetting, setResetting] = useState(false)
   const resettingRef = useRef(false)
   /** WS 实时推送的阶段状态覆盖，优先级高于 REST 轮询的 dispatchStatus */
@@ -261,23 +189,30 @@ export default function HiringPage() {
   // 避免同一会话重复触发“自动上传模板并引导”
   const autoTemplateBootstrapSessionRef = useRef<string | null>(null)
 
-  const workflowReady = Boolean(workflowHireId && workflowState)
-  const workflowCollectionPhase = normalizeCollectionPhase(workflowState?.collectionPhase ?? HiringCollectionPhase.NotStarted)
-  const workflowCurrentStage = normalizeCollectionStage(workflowState?.currentStage ?? HiringCollectionStage.Material)
-  const workflowConversationPaused = Boolean(workflowState?.isConversationPaused)
-  const workflowConversationResponding = Boolean(workflowState?.isConversationResponding)
-  const viewModel = buildHiringWorkflowViewModel(workflowState, focusedStage)
-  // 将 WS 实时 override 合并到阶段胶囊（REST 轮询已有值时 WS 不覆盖，避免闪烁）
+  const workflowReady = Boolean(workflowHireId)
+  const workflowCurrentStage = normalizeCollectionStage(
+    (() => {
+      const stages: HiringCollectionStageType[] = [
+        HiringCollectionStage.Material,
+        HiringCollectionStage.Skill,
+        HiringCollectionStage.External,
+        HiringCollectionStage.ReadyForPackaging,
+      ]
+      for (const stage of stages) {
+        if (wsStageOverrides.get(stage) !== 'completed') return stage
+      }
+      return HiringCollectionStage.ReadyForPackaging
+    })(),
+  )
+  const viewModel = buildHiringWorkflowViewModel(null, focusedStage)
+  // 将 WS 实时推送的阶段状态合并到阶段胶囊
   const mergedStepPills = viewModel.stepPills.map(pill => {
     const wsStatus = wsStageOverrides.get(pill.stage)
     if (!wsStatus) return pill
-    // REST 已经有确定状态时以 REST 为准（轮询已到达，WS 覆盖不再必要）
-    if (pill.dispatchStatus === 'completed' || pill.dispatchStatus === 'failed') return pill
     return { ...pill, dispatchStatus: wsStatus }
   })
-  const summaryItems = buildSummaryItems(workflowState, allFiles.length)
-  const canCreate = viewModel.actionState.canFinalize && workflowCollectionPhase !== HiringCollectionPhase.Finalized
-  const isInteractionLocked = typing || workflowBooting || workflowConversationPaused || workflowConversationResponding || submittingMessage || resetting
+  const canCreate = Boolean(workflowHireId) && !instanceCreated
+  const isInteractionLocked = typing || workflowBooting || submittingMessage || resetting
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -294,59 +229,15 @@ export default function HiringPage() {
   }, [])
 
   useEffect(() => {
-    if (workflowState?.configGovernance?.files) {
-      setConfigDrafts(prev => {
-        const next = { ...prev }
-        for (const file of workflowState.configGovernance?.files ?? []) {
-          if (!(file.configKey in next)) {
-            next[file.configKey] = file.content
-          }
-        }
-        return next
-      })
-    }
-  }, [workflowState?.configGovernance?.files])
-
-  useEffect(() => {
-    if (workflowState?.credentialSlots) {
-      setCredentialDrafts(prev => {
-        const next = { ...prev }
-        for (const slot of workflowState.credentialSlots ?? []) {
-          if (!(slot.credentialSlot in next)) {
-            next[slot.credentialSlot] = { secretValue: '', secretRef: slot.secretRef ?? '' }
-          }
-        }
-        return next
-      })
-    }
-  }, [workflowState?.credentialSlots])
-
-  useEffect(() => {
-    if (!workflowReady || !workflowHireId) {
-      return
-    }
-
-    if (!workflowConversationResponding && !hasPendingDispatch(workflowState)) {
-      return
-    }
-
-    const timer = window.setInterval(() => {
-      void syncWorkflowState(workflowHireId)
-    }, 2000)
-
-    return () => window.clearInterval(timer)
-  }, [workflowConversationResponding, workflowHireId, workflowReady, workflowState])
-
-  useEffect(() => {
     if (templateLoading || templateError || !templateId) {
       return
     }
-    if (workflowReady || workflowBooting || workflowInitAttempted || messages.length > 0) {
+    if (Boolean(workflowHireId) || workflowBooting || workflowInitAttempted || messages.length > 0) {
       return
     }
     void ensureWorkflowReady()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateLoading, templateError, templateId, workflowReady, workflowBooting, workflowInitAttempted, messages.length])
+  }, [templateLoading, templateError, templateId, workflowHireId, workflowBooting, workflowInitAttempted, messages.length])
 
   useEffect(() => {
     if (journeyGuideVisible && !focusedStage) {
@@ -392,48 +283,12 @@ export default function HiringPage() {
   const introAbilities = template?.coreAbilities.slice(0, 3).join('、') || '业务理解、技能配置、外部系统连接'
   const journeySummary = `当前模板为「${introName}」，完成资料、技能、系统与实例包四段闭环后即可进入后续培训与评估。`
 
-  async function syncWorkflowState(hireId: string) {
-    const nextWorkflowState = await api.hiringWorkflow.getWorkflowState(hireId)
-    // 优先直连沙箱拉取历史消息，减少后端中转
-    const endpoint = gatewayEndpointRef.current
-    const sid = sessionIdRef.current
-    if (endpoint && sid) {
-      const sandboxMessages = await fetchSandboxSessionMessages(endpoint, sid)
-      const mapped = sandboxMessages
-        .filter(m => m.type === 'user_message' || m.type === 'assistant_message')
-        .map<ChatMessage>(m => ({
-          id: mkId(),
-          role: m.type === 'user_message' ? 'user' : 'bot',
-          content: m.type === 'assistant_message'
-            ? normalizeAssistantReply(String(m.content ?? ''))
-            : String(m.text ?? ''),
-        }))
-        .filter(m => m.content.trim().length > 0)
-      setMessages(prev => mapped.length >= prev.length ? mapped : prev)
-    } else {
-      const timeline = await api.hiringWorkflow.getConversationTimeline(hireId)
-      setMessages(prev => timeline.messages.length >= prev.length ? mapTimelineMessagesToChat(timeline.messages) : prev)
-    }
-    setWorkflowState(nextWorkflowState)
-    console.log(
-      '[syncWorkflowState] HireId=%s handoffItems=%d workflowTodos=%d diagnosticTodos=%d',
-      hireId,
-      nextWorkflowState.handoffItems?.length ?? 0,
-      nextWorkflowState.workflowTodos?.length ?? 0,
-      nextWorkflowState.latestDiagnosticReport?.diagnosticTodos?.length ?? 0,
-    )
-    if (nextWorkflowState.collectionPhase === HiringCollectionPhase.Finalized) {
-      setInstanceCreated(true)
-    }
-    return nextWorkflowState
-  }
-
   async function ensureWorkflowReady(): Promise<string | null> {
     if (!templateId) {
       setWorkflowError('模板参数缺失，请从模板详情页重新进入')
       return null
     }
-    if (workflowReady && workflowHireId) {
+    if (workflowHireId) {
       return workflowHireId
     }
     if (workflowInitRef.current) {
@@ -493,11 +348,8 @@ export default function HiringPage() {
           console.warn('[HiringPage] auto template bootstrap skipped:', normalizeErrorMessage(error))
         })
 
-        // 异步加载工作流状态（todos、阶段信息等），不阻塞 WS 连接就绪
-        void syncWorkflowState(hired.hireId).catch(() => { /* 忽略 */ })
         return hired.hireId
       } catch (error: unknown) {
-        setWorkflowState(null)
         setWorkflowError(normalizeErrorMessage(error))
         return null
       } finally {
@@ -664,12 +516,7 @@ export default function HiringPage() {
             userMessage: userMessage || '',
             assistantReply: rawReply,
             materials: materials ?? undefined,
-          }).then(() => {
-            syncWorkflowState(hireId).catch(() => { /* 忽略 */ })
-          }).catch(() => {
-            // 同步失败时仍然刷新工作流状态（后端可从沙箱拉取 handoff 元数据）
-            syncWorkflowState(hireId).catch(() => { /* 忽略 */ })
-          })
+          }).catch(() => { /* 忽略 */ })
         }
       } else if (type === 'artifact') {
         // 下游 skill 通过 emit_artifact 工具推送产物（对应 contracts/artifacts.json 声明的类型）
@@ -789,11 +636,7 @@ export default function HiringPage() {
   }
 
   async function submitWorkflowMessage(text: string, incoming?: ChatFile[], autoApprove = true): Promise<boolean> {
-    if (workflowConversationPaused) {
-      setWorkflowError('对话已暂停，请先恢复后再继续发送消息')
-      return false
-    }
-    if (messageSubmitRef.current || workflowConversationResponding) {
+    if (messageSubmitRef.current) {
       setWorkflowError('上一轮回复仍在生成中，请稍候')
       return false
     }
@@ -883,11 +726,6 @@ export default function HiringPage() {
         }])
       }
 
-      if (response.currentStage) {
-        setWorkflowState(prev => prev ? { ...prev, currentStage: response.currentStage } : prev)
-      }
-
-      await syncWorkflowState(hireId)
       setWorkflowError('')
       setWorkflowNotice('')
       return true
@@ -906,13 +744,6 @@ export default function HiringPage() {
     if (isInteractionLocked || handleSendRef.current) return
     const text = input.trim()
     if (!text && pendingFiles.length === 0) return
-
-    if (workflowCurrentStage === HiringCollectionStage.External && text && looksLikeSensitiveSecret(text)) {
-      setWorkflowError('检测到疑似敏感凭据，请改用右侧“凭据绑定”区填写，不要直接发送到聊天框。')
-      setJourneyGuideVisible(true)
-      setFocusedStage(HiringCollectionStage.External)
-      return
-    }
 
     handleSendRef.current = true
     try {
@@ -1029,7 +860,6 @@ export default function HiringPage() {
       }
       setArtifactArchive(await api.hiringWorkflow.downloadArtifacts(hireId))
       setInstanceCreated(true)
-      await syncWorkflowState(hireId)
       setWorkflowError('')
       setWorkflowNotice('')
     } catch (error: unknown) {
@@ -1088,12 +918,8 @@ export default function HiringPage() {
         setTyping(false)
         setJourneyGuideVisible(false)
         setFocusedStage(null)
-        setWorkflowState(null)
         setWorkflowError('')
         setWorkflowNotice('')
-
-        // 同步工作流状态
-        await syncWorkflowState(hireId)
 
         // 重新连接 WebSocket
         const endpoint = gatewayEndpointRef.current
@@ -1128,56 +954,6 @@ export default function HiringPage() {
     setWorkflowNotice('')
   }
 
-  async function handleCredentialSubmit(slot: CredentialSlot) {
-    if (!workflowHireId) return
-    const draft = credentialDrafts[slot.credentialSlot]
-    if (!draft?.secretValue.trim()) {
-      setWorkflowError('请先填写凭据值')
-      return
-    }
-
-    setCredentialSubmittingSlot(slot.credentialSlot)
-    try {
-      await api.hiringWorkflow.upsertCredentialBinding(workflowHireId, {
-        credentialSlot: slot.credentialSlot,
-        secretValue: draft.secretValue.trim(),
-        secretRef: draft.secretRef.trim() || undefined,
-        authKind: slot.authKind ?? undefined,
-        targetSystem: slot.targetSystem ?? undefined,
-        todoId: slot.todoId ?? undefined,
-      })
-      await syncWorkflowState(workflowHireId)
-      setCredentialDrafts(prev => ({ ...prev, [slot.credentialSlot]: { secretValue: '', secretRef: draft.secretRef } }))
-      setWorkflowNotice(`已保存 ${slot.credentialSlot} 的凭据绑定。`)
-      setWorkflowError('')
-    } catch (error: unknown) {
-      setWorkflowError(normalizeErrorMessage(error))
-    } finally {
-      setCredentialSubmittingSlot(null)
-    }
-  }
-
-  async function handleConfigSave(configKey: string) {
-    if (!workflowHireId) return
-    const content = configDrafts[configKey]
-    if (typeof content !== 'string') return
-
-    setConfigSavingKey(configKey)
-    try {
-      await api.hiringWorkflow.updateConfigFile(workflowHireId, configKey, {
-        content,
-        summary: '前端调整配置治理内容',
-      })
-      await syncWorkflowState(workflowHireId)
-      setWorkflowNotice(`已保存 ${configKey} 配置，受影响工单会重新进入复核。`)
-      setWorkflowError('')
-    } catch (error: unknown) {
-      setWorkflowError(normalizeErrorMessage(error))
-    } finally {
-      setConfigSavingKey(null)
-    }
-  }
-
   if (!templateId) {
     return <CenterState message="模板参数缺失" />
   }
@@ -1190,13 +966,11 @@ export default function HiringPage() {
 
   const workflowStatusTone = workflowError
     ? 'pink'
-    : workflowBooting || workflowConversationResponding || workflowNotice
+    : workflowBooting || workflowNotice
       ? 'blue'
-      : workflowConversationPaused
-        ? 'orange'
-        : workflowReady
-          ? 'green'
-          : 'gray'
+      : workflowReady
+        ? 'green'
+        : 'gray'
   const workflowStatusLabel = workflowError
     ? workflowError
     : workflowNotice
@@ -1260,20 +1034,12 @@ export default function HiringPage() {
           <HiringProgressLedger
             stageCards={viewModel.stageCards}
             overallProgress={viewModel.overallProgress}
-            currentStage={workflowCurrentStage}
-            collectionPhase={workflowCollectionPhase}
             actionState={viewModel.actionState}
             instanceCreated={instanceCreated}
             createdId={createdId}
-            summaryItems={summaryItems}
+            summaryItems={[{ label: '已上传文件', value: String(allFiles.length) }]}
             artifactFileNames={artifactFileNames}
             hasArtifactArchive={Boolean(artifactArchive)}
-            credentialSlots={workflowState?.credentialSlots ?? []}
-            credentialDrafts={credentialDrafts}
-            credentialSubmittingSlot={credentialSubmittingSlot}
-            configGovernance={workflowState?.configGovernance ?? null}
-            configDrafts={configDrafts}
-            configSavingKey={configSavingKey}
             onContinue={handlePrototypeContinue}
             onFinalize={() => { void triggerCreate() }}
             onEnterTraining={(employeeId) => navigate(`/instances/${employeeId}/training`)}
@@ -1283,19 +1049,6 @@ export default function HiringPage() {
                 downloadBlob(artifactArchive.blob, artifactArchive.fileName)
               }
             }}
-            onCredentialChange={(credentialSlot, field, value) => {
-              setCredentialDrafts(prev => ({
-                ...prev,
-                [credentialSlot]: {
-                  secretValue: prev[credentialSlot]?.secretValue ?? '',
-                  secretRef: prev[credentialSlot]?.secretRef ?? '',
-                  [field]: value,
-                },
-              }))
-            }}
-            onCredentialSubmit={(slot) => { void handleCredentialSubmit(slot) }}
-            onConfigChange={(configKey, value) => setConfigDrafts(prev => ({ ...prev, [configKey]: value }))}
-            onConfigSave={(configKey) => { void handleConfigSave(configKey) }}
           />
         </div>
       </div>

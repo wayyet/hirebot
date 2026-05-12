@@ -18,9 +18,6 @@ public interface IEmployeeHiringService
     Task<ApiResponse<HiringAuditDecisionResultDto>> SubmitAuditDecisionAsync(string hireId, HiringAuditDecisionRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<IReadOnlyList<HiringAuditLogDto>>> GetAuditLogsAsync(string hireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringFinalizeResultDto>> FinalizeAsync(string hireId, CancellationToken cancellationToken = default);
-    Task<ApiResponse<HiringWorkflowStateDto>> GetWorkflowStateAsync(string hireId, CancellationToken cancellationToken = default);
-    Task<ApiResponse<HiringWorkflowStateDto>> UpsertCredentialBindingAsync(string hireId, HiringCredentialBindingRequestDto request, CancellationToken cancellationToken = default);
-    Task<ApiResponse<HiringWorkflowStateDto>> UpdateConfigFileAsync(string hireId, string configKey, HiringConfigFileUpdateRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<bool>> UploadEvaluationSkillAsync(string hireId, string? skillRootPath = null, CancellationToken cancellationToken = default);
     Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(string hireId, CancellationToken cancellationToken = default);
     Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(string hireId, string artifactName, CancellationToken cancellationToken = default);

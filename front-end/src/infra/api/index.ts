@@ -83,8 +83,6 @@ export type {
   HiringAuditLog,
   HiringFinalizeResult,
   HiringWorkflowState,
-  HiringCredentialBindingRequest,
-  HiringConfigFileUpdateRequest,
   HiringArtifactsDownloadData,
   HandoffItem,
 } from './modules/hiringWorkflowApi'

@@ -392,20 +392,6 @@ export interface HiringWorkflowState {
   isConversationResponding?: boolean
 }
 
-export interface HiringCredentialBindingRequest {
-  credentialSlot: string
-  secretValue: string
-  secretRef?: string
-  authKind?: string
-  targetSystem?: string
-  todoId?: string
-}
-
-export interface HiringConfigFileUpdateRequest {
-  content: string
-  summary?: string
-}
-
 export interface HiringArtifactsDownloadData {
   fileName: string
   blob: Blob
@@ -549,24 +535,6 @@ export const hiringWorkflowApi = {
 
   finalize(hireId: string) {
     return httpClient.post<HiringFinalizeResult>(`/api/v1/hirings/${hireId}/finalize`)
-  },
-
-  getWorkflowState(hireId: string) {
-    return httpClient.get<HiringWorkflowState>(`/api/v1/hirings/${hireId}/workflow`)
-  },
-
-  upsertCredentialBinding(hireId: string, payload: HiringCredentialBindingRequest) {
-    return httpClient.post<HiringWorkflowState, HiringCredentialBindingRequest>(
-      `/api/v1/hirings/${hireId}/credential-bindings`,
-      payload,
-    )
-  },
-
-  updateConfigFile(hireId: string, configKey: string, payload: HiringConfigFileUpdateRequest) {
-    return httpClient.put<HiringWorkflowState, HiringConfigFileUpdateRequest>(
-      `/api/v1/hirings/${hireId}/config-files/${configKey}`,
-      payload,
-    )
   },
 
   getArtifactsDownloadUrl(hireId: string) {
