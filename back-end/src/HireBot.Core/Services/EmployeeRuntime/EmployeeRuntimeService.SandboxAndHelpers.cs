@@ -568,7 +568,7 @@ public sealed partial class EmployeeRuntimeService
             return normalized switch
             {
                 "hired" or "待入职" or "已雇佣" => "hired",
-                "interning_ai" or "ai评估" or "ai审核" => "interning_ai",
+                "interning_ai" or "ai评估" or "ai审核" or "待实习" => "interning_ai",
                 "interning_human" or "人工评估" or "人工审核" => "interning_human",
                 "live" or "上岗" or "在职" => "live",
                 "failed" or "失败" => "failed",

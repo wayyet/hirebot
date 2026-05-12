@@ -399,13 +399,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
         <main className="hb-main">{children}</main>
-        <button
-          type="button"
-          className="hb-feedback-strip"
-          onClick={() => showToast(t("feedback.sent"), "info")}
-        >
-          {t("nav.feedback")}
-        </button>
       </div>
     </UserRoleContext.Provider>
   );
