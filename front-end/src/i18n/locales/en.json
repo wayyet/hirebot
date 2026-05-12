@@ -89,11 +89,9 @@
     }
   },
   "market": {
-    "kicker": "Manager Portal",
-    "title": "Start from the template pool to complete a",
-    "titleAccent": "department hiring",
-    "titleEnd": "workflow",
-    "copy": "Browse existing templates and initiate formal hiring. Actions are focused: search, view details, and start hiring.",
+    "kicker": "Manager Workspace",
+    "title": "Enterprise Template Pool",
+    "copy": "Browse enterprise digital employee templates and quickly initiate department hiring.",
     "searchPlaceholder": "Search templates by name, scenario, or capability",
     "exploreAll": "Explore All Templates",
     "templateCount": "{{count}} templates",
@@ -101,11 +99,14 @@
     "empty": "No matching templates found",
     "emptyCopy": "Try a different keyword, or wait for more templates to be synced.",
     "prevPage": "Previous",
-    "nextPage": "Next"
+    "nextPage": "Next",
+    "footer": "Template pool is regularly updated. More templates coming soon."
   },
   "hiring": {
     "title": "Start Hiring",
-    "steps": "Hiring Workflow Steps"
+    "steps": "Hiring Workflow Steps",
+    "fullscreenEnter": "Enter fullscreen",
+    "fullscreenExit": "Exit fullscreen"
   },
   "employees": {
     "department": {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Upload, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { Minimize2, Upload, X } from 'lucide-react'
 
 import { api, HiringAuditDecision, HiringCollectionPhase, HiringCollectionStage, HiringTodoStatus } from '@/infra/api'
 import type {
@@ -213,6 +214,7 @@ export default function HiringPage() {
   const [configSavingKey, setConfigSavingKey] = useState<string | null>(null)
   const [resetting, setResetting] = useState(false)
   const resettingRef = useRef(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -242,6 +244,7 @@ export default function HiringPage() {
   const summaryItems = buildSummaryItems(workflowState, allFiles.length)
   const canCreate = viewModel.actionState.canFinalize && workflowCollectionPhase !== HiringCollectionPhase.Finalized
   const isInteractionLocked = typing || workflowBooting || workflowConversationPaused || workflowConversationResponding || submittingMessage || resetting
+  const { t } = useTranslation()
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -317,6 +320,26 @@ export default function HiringPage() {
       setFocusedStage(workflowCurrentStage)
     }
   }, [focusedStage, journeyGuideVisible, workflowCurrentStage])
+
+  useEffect(() => {
+    if (isFullscreen) {
+      document.body.classList.add('hb-body-fullscreen')
+    } else {
+      document.body.classList.remove('hb-body-fullscreen')
+    }
+    return () => document.body.classList.remove('hb-body-fullscreen')
+  }, [isFullscreen])
+
+  useEffect(() => {
+    if (!isFullscreen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsFullscreen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isFullscreen])
 
   useEffect(() => {
     if (!templateId) {
@@ -967,7 +990,18 @@ export default function HiringPage() {
         : viewModel.workflowMeta.join(' · ')
 
   return (
-    <div className="hb-hiring-page">
+    <div className={`hb-hiring-page${isFullscreen ? ' is-fullscreen' : ''}`}>
+      {isFullscreen ? (
+        <button
+          type="button"
+          className="hb-hiring-fullscreen-toggle"
+          onClick={() => setIsFullscreen(prev => !prev)}
+          title={t('hiring.fullscreenExit')}
+          aria-label={t('hiring.fullscreenExit')}
+        >
+          <Minimize2 size={18} />
+        </button>
+      ) : null}
       <HiringJourneyHeader
         templateName={template.name}
         onBack={() => navigate(`/templates/${template.templateId}`)}
@@ -1028,12 +1062,14 @@ export default function HiringPage() {
             summaryItems={summaryItems}
             artifactFileNames={artifactFileNames}
             hasArtifactArchive={Boolean(artifactArchive)}
+            isFullscreen={isFullscreen}
             credentialSlots={workflowState?.credentialSlots ?? []}
             credentialDrafts={credentialDrafts}
             credentialSubmittingSlot={credentialSubmittingSlot}
             configGovernance={workflowState?.configGovernance ?? null}
             configDrafts={configDrafts}
             configSavingKey={configSavingKey}
+            onFullscreenToggle={() => setIsFullscreen(true)}
             onContinue={handlePrototypeContinue}
             onFinalize={() => { void triggerCreate() }}
             onEnterTraining={(employeeId) => navigate(`/instances/${employeeId}/training`)}

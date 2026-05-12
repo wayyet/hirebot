@@ -26,7 +26,6 @@ const navItems: NavItem[] = [
     path: "/template-pool",
     labelKey: "nav.templatePool",
     managerOnly: true,
-    isNew: true,
   },
   { path: "/department-employees", labelKey: "nav.departmentEmployees", alwaysVisible: true },
   { path: "/my-employees", labelKey: "nav.myEmployees", alwaysVisible: true },
@@ -224,13 +223,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 >
                   {t("role.manager")}
                 </button>
-                <button
-                  type="button"
-                  className={role === "member" ? "is-active" : ""}
-                  onClick={() => setRole("member")}
-                >
-                  {t("role.member")}
-                </button>
+                {/*<button*/}
+                {/*  type="button"*/}
+                {/*  className={role === "member" ? "is-active" : ""}*/}
+                {/*  onClick={() => setRole("member")}*/}
+                {/*>*/}
+                {/*  {t("role.member")}*/}
+                {/*</button>*/}
               </div>
 
               {/* Theme toggle */}

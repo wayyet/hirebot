@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import clsx from 'clsx'
+import { Maximize2 } from 'lucide-react'
 
 import {
   HiringCollectionPhase,
@@ -37,12 +38,14 @@ type HiringProgressLedgerProps = {
   summaryItems: SummaryItem[]
   artifactFileNames: string[]
   hasArtifactArchive: boolean
+  isFullscreen: boolean
   credentialSlots: CredentialSlot[]
   credentialDrafts: Record<string, CredentialDraft>
   credentialSubmittingSlot: string | null
   configGovernance: ConfigGovernanceState | null
   configDrafts: Record<string, string>
   configSavingKey: string | null
+  onFullscreenToggle: () => void
   onContinue: () => void
   onFinalize: () => void
   onEnterTraining: (employeeId: string) => void
@@ -65,12 +68,14 @@ export function HiringProgressLedger({
   summaryItems,
   artifactFileNames,
   hasArtifactArchive,
+  isFullscreen,
   credentialSlots,
   credentialDrafts,
   credentialSubmittingSlot,
   configGovernance,
   configDrafts,
   configSavingKey,
+  onFullscreenToggle,
   onContinue,
   onFinalize,
   onEnterTraining,
@@ -91,10 +96,23 @@ export function HiringProgressLedger({
           <p className="hb-hiring-eyebrow">PROGRESS LEDGER</p>
           <h3 className="hb-hiring-panel-title">待办事项</h3>
         </div>
-        <div className="hb-hiring-score-card">
-          <span>{overallProgress}/{stageCards.length}</span>
-          <small>阶段完成</small>
+        <div className="hb-hiring-head-right">
+          <div className="hb-hiring-score-card">
+            <span>{overallProgress}/{stageCards.length}</span>
+            <small>阶段完成</small>
+          </div>
         </div>
+        {!isFullscreen ? (
+          <button
+            type="button"
+            className="hb-hiring-ledger-fullscreen-toggle"
+            onClick={onFullscreenToggle}
+            title="放大显示"
+            aria-label="放大显示"
+          >
+            <Maximize2 size={14} />
+          </button>
+        ) : null}
       </div>
 
       <div className="hb-hiring-side-body">
