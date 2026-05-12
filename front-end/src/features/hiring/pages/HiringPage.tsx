@@ -1109,46 +1109,50 @@ export default function HiringPage() {
         resetting={resetting}
       />
 
-      <div className="hb-hiring-shell">
-        <HiringStagePills
-          steps={mergedStepPills}
-          onSelectStage={handleSelectStage}
+      <div className="hb-hiring-workspace">
+        <HiringConversationPanel
+          introName={introName}
+          introAbilities={introAbilities}
+          journeyGuideVisible={journeyGuideVisible}
+          guideCard={viewModel.guideCard}
+          messages={messages}
+          typing={typing}
+          streamingContent={streamingContent}
+          pendingFiles={pendingFiles}
+          input={input}
+          promptPlaceholder={viewModel.promptPlaceholder}
+          disabled={isInteractionLocked}
+          fileInputRef={fileRef}
+          composerRef={composerRef}
+          chatEndRef={chatEndRef}
+          onStartGuide={handlePrototypeContinue}
+          onInputChange={setInput}
+          onSend={() => { void handleSend() }}
+          onFileChange={addPendingFiles}
+          onOpenSkillUpload={() => setShowSkillUploadModal(true)}
+          onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
+          formatFileSize={formatFileSize}
+          onArtifactFileDownload={(url, fileName) => { void downloadGatewayFile(url, fileName) }}
         />
 
-        <div className={`hb-hiring-proto-note is-${workflowStatusTone}`}>
-          <span>{workflowStatusLabel}</span>
-          {workflowError ? (
-            <button type="button" onClick={retryWorkflowInitialization} disabled={workflowBooting} className="hb-hiring-inline-btn">
-              重试初始化
-            </button>
+        <div className="hb-hiring-right-col">
+          {workflowStatusLabel ? (
+            <div className={`hb-hiring-proto-note is-${workflowStatusTone}`}>
+              <span>{workflowStatusLabel}</span>
+              {workflowError ? (
+                <button type="button" onClick={retryWorkflowInitialization} disabled={workflowBooting} className="hb-hiring-inline-btn">
+                  重试初始化
+                </button>
+              ) : null}
+            </div>
           ) : null}
-        </div>
 
-        <div className="hb-hiring-workspace">
-          <HiringConversationPanel
-            introName={introName}
-            introAbilities={introAbilities}
-            journeyGuideVisible={journeyGuideVisible}
-            guideCard={viewModel.guideCard}
-            messages={messages}
-            typing={typing}
-            streamingContent={streamingContent}
-            pendingFiles={pendingFiles}
-            input={input}
-            promptPlaceholder={viewModel.promptPlaceholder}
-            disabled={isInteractionLocked}
-            fileInputRef={fileRef}
-            composerRef={composerRef}
-            chatEndRef={chatEndRef}
-            onStartGuide={handlePrototypeContinue}
-            onInputChange={setInput}
-            onSend={() => { void handleSend() }}
-            onFileChange={addPendingFiles}
-            onOpenSkillUpload={() => setShowSkillUploadModal(true)}
-            onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
-            formatFileSize={formatFileSize}
-            onArtifactFileDownload={(url, fileName) => { void downloadGatewayFile(url, fileName) }}
-          />
+          <div className="hb-hiring-steps-card">
+            <HiringStagePills
+              steps={mergedStepPills}
+              onSelectStage={handleSelectStage}
+            />
+          </div>
 
           <HiringProgressLedger
             stageCards={viewModel.stageCards}

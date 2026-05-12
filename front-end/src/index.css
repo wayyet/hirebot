@@ -3094,8 +3094,8 @@ body.hb-body-hiring-prototype {
 
 .hb-hiring-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.95fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
+  gap: 12px;
   flex: 1;
   min-height: 0;
 }
@@ -3110,6 +3110,37 @@ body.hb-body-hiring-prototype {
   border-radius: 20px;
   background: var(--hb-surface-card);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* ── 右侧列容器：步骤进度 + 状态条 + 待办账本 ── */
+.hb-hiring-right-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 8px;
+}
+
+.hb-hiring-right-col .hb-hiring-side {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 步骤进度卡片（右侧列顶部） */
+.hb-hiring-steps-card {
+  flex-shrink: 0;
+  padding: 8px 12px 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  background: var(--hb-surface-card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+/* 右侧状态条：紧凑单行 */
+.hb-hiring-right-col .hb-hiring-proto-note {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 11.5px;
+  border-radius: 12px;
 }
 
 .hb-hiring-panel-head {
@@ -3873,16 +3904,12 @@ body.hb-body-hiring-prototype {
   .hb-hiring-page {
     height: 100vh;
     height: 100dvh;
-    padding: 10px 20px 16px;
-    gap: 8px;
-  }
-
-  .hb-hiring-shell {
-    gap: 10px;
+    padding: 8px 20px 10px;
+    gap: 6px;
   }
 
   .hb-hiring-hero-title {
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .hb-hiring-hero-summary {
@@ -3891,10 +3918,6 @@ body.hb-body-hiring-prototype {
 
   .hb-hiring-journey-summary {
     font-size: 12px;
-  }
-
-  .hb-hiring-journey {
-    gap: 8px;
   }
 
   .hb-hiring-step-pill {
@@ -3902,13 +3925,34 @@ body.hb-body-hiring-prototype {
   }
 
   .hb-hiring-step-index {
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     font-size: 11px;
   }
 
   .hb-hiring-workspace {
-    gap: 12px;
+    gap: 10px;
+  }
+
+  .hb-hiring-right-col {
+    gap: 6px;
+  }
+
+  .hb-hiring-steps-card {
+    padding: 6px 10px 4px;
+  }
+
+  .hb-hiring-chat-body {
+    padding: 10px 14px 8px;
+    gap: 8px;
+  }
+
+  .hb-hiring-composer {
+    padding: 8px 14px 12px;
+  }
+
+  .hb-hiring-textarea {
+    min-height: 56px;
   }
 }
 
@@ -3916,33 +3960,25 @@ body.hb-body-hiring-prototype {
   .hb-hiring-page {
     height: 100vh;
     height: 100dvh;
-    padding: 8px 20px 12px;
-    gap: 6px;
-  }
-
-  .hb-hiring-shell {
-    gap: 8px;
+    padding: 6px 16px 8px;
+    gap: 4px;
   }
 
   .hb-hiring-workspace {
     min-height: 0;
-    gap: 10px;
+    gap: 8px;
+  }
+
+  .hb-hiring-right-col {
+    gap: 5px;
   }
 
   .hb-hiring-hero-title {
-    font-size: 18px;
+    font-size: 17px;
   }
 
   .hb-hiring-hero-summary {
     display: none;
-  }
-
-  .hb-hiring-journey-summary {
-    font-size: 12px;
-  }
-
-  .hb-hiring-journey {
-    gap: 6px;
   }
 
   .hb-hiring-step-pills {
@@ -3956,27 +3992,35 @@ body.hb-body-hiring-prototype {
 
   .hb-hiring-step-pill {
     flex-shrink: 0;
-    padding: 2px 4px 0;
+    padding: 2px 3px 0;
   }
 
   .hb-hiring-step-index {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     font-size: 10px;
   }
 
+  .hb-hiring-steps-card {
+    padding: 5px 10px 4px;
+  }
+
   .hb-hiring-chat-body {
-    padding: 10px 14px 8px;
-    gap: 8px;
+    padding: 8px 12px 6px;
+    gap: 7px;
   }
 
   .hb-hiring-composer {
-    padding: 8px 14px 12px;
+    padding: 6px 12px 10px;
   }
 
-  .hb-hiring-proto-note {
-    padding: 7px 12px;
-    font-size: 11.5px;
+  .hb-hiring-textarea {
+    min-height: 48px;
+  }
+
+  .hb-hiring-right-col .hb-hiring-proto-note {
+    padding: 5px 10px;
+    font-size: 11px;
   }
 }
 
@@ -3989,12 +4033,12 @@ body.hb-body-hiring-prototype {
     gap: 10px;
   }
 
-  .hb-hiring-shell {
-    gap: 10px;
+  .hb-hiring-workspace {
+    gap: 16px;
   }
 
-  .hb-hiring-workspace {
-    gap: 18px;
+  .hb-hiring-right-col {
+    gap: 10px;
   }
 
   .hb-hiring-journey {
@@ -4049,12 +4093,12 @@ body.hb-body-hiring-prototype {
     font-size: 12.5px;
   }
 
-  .hb-hiring-shell {
-    gap: 12px;
-  }
-
   .hb-hiring-workspace {
     gap: 20px;
+  }
+
+  .hb-hiring-right-col {
+    gap: 12px;
   }
 
   .hb-hiring-step-pill {
@@ -4134,14 +4178,14 @@ body.hb-body-hiring-prototype {
     padding: 18px 16px 28px;
   }
 
-  .hb-hiring-shell {
-    flex: none;
-  }
-
   .hb-hiring-workspace {
     grid-template-columns: 1fr;
     flex: none;
     min-height: auto;
+  }
+
+  .hb-hiring-right-col {
+    gap: 10px;
   }
 }
 
