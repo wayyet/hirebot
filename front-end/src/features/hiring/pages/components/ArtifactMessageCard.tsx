@@ -4,9 +4,11 @@ import type { ArtifactDisplayData } from '../hiringPageTypes'
 interface Props {
   artifact: ArtifactDisplayData
   formatFileSize: (bytes: number) => string
+  /** 带 token 的文件下载回调；未提供时退化为直接 <a href> */
+  onFileDownload?: (url: string, fileName: string) => void
 }
 
-export function ArtifactMessageCard({ artifact, formatFileSize }: Props) {
+export function ArtifactMessageCard({ artifact, formatFileSize, onFileDownload }: Props) {
   const title = artifact.label ?? artifact.artifactType
 
   return (
@@ -26,14 +28,26 @@ export function ArtifactMessageCard({ artifact, formatFileSize }: Props) {
       </div>
 
       {artifact.kind === 'file' ? (
-        <a
-          href={artifact.fileUrl ?? '#'}
-          download={artifact.fileName ?? title}
-          className="hb-artifact-file-link"
-        >
-          <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
-          {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
-        </a>
+        onFileDownload && artifact.fileUrl ? (
+          // gateway 文件需要附带 token，通过回调触发认证下载
+          <button
+            type="button"
+            className="hb-artifact-file-link"
+            onClick={() => onFileDownload(artifact.fileUrl!, artifact.fileName ?? title)}
+          >
+            <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
+            {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
+          </button>
+        ) : (
+          <a
+            href={artifact.fileUrl ?? '#'}
+            download={artifact.fileName ?? title}
+            className="hb-artifact-file-link"
+          >
+            <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
+            {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
+          </a>
+        )
       ) : (
         <ArtifactDataView artifact={artifact} formatFileSize={formatFileSize} />
       )}

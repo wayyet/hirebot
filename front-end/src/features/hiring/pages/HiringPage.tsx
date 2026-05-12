@@ -872,16 +872,23 @@ export default function HiringPage() {
 
       if (packageArtifact && gatewayEndpointRef.current) {
         // 前端直接从沙箱网关下载产物包，然后上传给后端，绕过 KingCrab 依赖
-        // gatewayEndpointRef 可能只是 "host:port" 格式（无协议），需补全为合法绝对 URL，
-        // 否则 fetch 会将其视为相对路径，导致请求打到 Vite 开发服务器而非沙箱网关。
-        const rawGateway = gatewayEndpointRef.current.trim()
-        const normalizedBase = /^https?:\/\//i.test(rawGateway)
-          ? rawGateway.replace(/\/$/, '')
-          : `http://${rawGateway.replace(/^\/+/, '').replace(/\/$/, '')}`
-        const fileUrlPath = packageArtifact.fileUrl.startsWith('/')
-          ? packageArtifact.fileUrl
-          : `/${packageArtifact.fileUrl}`
-        const fullUrl = `${normalizedBase}${fileUrlPath}`
+        // fileUrl 可能是绝对 URL（如 http://opensandbox-gateway.../media/xxx）或相对路径；
+        // 绝对 URL 直接使用，相对路径则需拼接 gateway base。
+        let fullUrl: string
+        if (/^https?:\/\//i.test(packageArtifact.fileUrl)) {
+          fullUrl = packageArtifact.fileUrl
+        } else {
+          // gatewayEndpointRef 可能只是 "host:port" 格式（无协议），需补全为合法绝对 URL，
+          // 否则 fetch 会将其视为相对路径，导致请求打到 Vite 开发服务器而非沙箱网关。
+          const rawGateway = gatewayEndpointRef.current.trim()
+          const normalizedBase = /^https?:\/\//i.test(rawGateway)
+            ? rawGateway.replace(/\/$/, '')
+            : `http://${rawGateway.replace(/^\/+/, '').replace(/\/$/, '')}`
+          const fileUrlPath = packageArtifact.fileUrl.startsWith('/')
+            ? packageArtifact.fileUrl
+            : `/${packageArtifact.fileUrl}`
+          fullUrl = `${normalizedBase}${fileUrlPath}`
+        }
         const accessToken = await tokenService.ensureFresh()
         const dlResp = await fetch(fullUrl, {
           headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
@@ -924,6 +931,38 @@ export default function HiringPage() {
     try {
       const artifact = await api.hiringWorkflow.downloadArtifactFile(workflowHireId, artifactName)
       downloadBlob(artifact.blob, artifact.fileName)
+      setWorkflowError('')
+    } catch (error: unknown) {
+      setWorkflowError(normalizeErrorMessage(error))
+    }
+  }
+
+  /**
+   * 从沙箱 Gateway 下载文件（需要附带 Bearer token）。
+   * fileUrl 可以是绝对 URL 或相对于 gateway endpoint 的路径。
+   */
+  async function downloadGatewayFile(fileUrl: string, fileName: string) {
+    try {
+      let fullUrl: string
+      if (/^https?:\/\//i.test(fileUrl)) {
+        fullUrl = fileUrl
+      } else {
+        const rawGateway = (gatewayEndpointRef.current ?? '').trim()
+        const normalizedBase = /^https?:\/\//i.test(rawGateway)
+          ? rawGateway.replace(/\/$/, '')
+          : `http://${rawGateway.replace(/^\/+/, '').replace(/\/$/, '')}`
+        const urlPath = fileUrl.startsWith('/') ? fileUrl : `/${fileUrl}`
+        fullUrl = `${normalizedBase}${urlPath}`
+      }
+      const accessToken = await tokenService.ensureFresh()
+      const resp = await fetch(fullUrl, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      })
+      if (!resp.ok) {
+        throw new Error(`下载文件失败（HTTP ${resp.status}）`)
+      }
+      const blob = await resp.blob()
+      downloadBlob(blob, fileName)
       setWorkflowError('')
     } catch (error: unknown) {
       setWorkflowError(normalizeErrorMessage(error))
@@ -1081,6 +1120,7 @@ export default function HiringPage() {
             onOpenSkillUpload={() => setShowSkillUploadModal(true)}
             onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
             formatFileSize={formatFileSize}
+            onArtifactFileDownload={(url, fileName) => { void downloadGatewayFile(url, fileName) }}
           />
 
           <HiringProgressLedger

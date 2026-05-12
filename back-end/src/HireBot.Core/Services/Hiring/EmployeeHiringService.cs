@@ -1325,33 +1325,29 @@ internal sealed partial class EmployeeHiringService(
         var mergedArtifactArchive = BuildArtifactArchive(mergedArtifacts);
 
         // 创建数字员工实例（首次调用时）
-        string? employeeId = null;
-        if (hireOwners.TryGetValue(normalizedHireId, out var ownerContext))
+        // hireOwners 是 Scoped（per-request）字典，无法在请求间共享状态；
+        // 直接从 DB 持久化的 runtimeContext 读取所有者信息，保证重启后依然有效。
+        string? employeeId = runtimeContext.EmployeeId;
+        if (string.IsNullOrWhiteSpace(employeeId) && !string.IsNullOrWhiteSpace(runtimeContext.TemplateId))
         {
-            if (string.IsNullOrWhiteSpace(ownerContext.EmployeeId))
+            var capabilities = (await templateDataProvider.GetByIdAsync(runtimeContext.TemplateId, cancellationToken))?.CoreAbilities ?? [];
+            using var scope = serviceScopeFactory.CreateScope();
+            var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
+            var createResponse = await employeeRuntimeService.CreateFromHireAsync(
+                new CreateEmployeeFromHireRequestDto(
+                    HireId: normalizedHireId,
+                    TemplateId: runtimeContext.TemplateId,
+                    TemplateName: runtimeContext.TemplateName,
+                    OwnerSubject: runtimeContext.OwnerSubject,
+                    TenantId: runtimeContext.TenantId,
+                    OperatorId: runtimeContext.OperatorId,
+                    Capabilities: capabilities),
+                cancellationToken);
+
+            if (createResponse.Success && createResponse.Data is not null)
             {
-                var capabilities = (await templateDataProvider.GetByIdAsync(ownerContext.TemplateId, cancellationToken))?.CoreAbilities ?? [];
-                using var scope = serviceScopeFactory.CreateScope();
-                var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
-                var createResponse = await employeeRuntimeService.CreateFromHireAsync(
-                    new CreateEmployeeFromHireRequestDto(
-                        HireId: normalizedHireId,
-                        TemplateId: ownerContext.TemplateId,
-                        TemplateName: ownerContext.TemplateName,
-                        OwnerSubject: ownerContext.OwnerSubject,
-                        TenantId: ownerContext.TenantId,
-                        OperatorId: ownerContext.OperatorId,
-                        Capabilities: capabilities),
-                    cancellationToken);
-
-                if (createResponse.Success && createResponse.Data is not null)
-                {
-                    ownerContext = ownerContext with { EmployeeId = createResponse.Data.EmployeeId };
-                    hireOwners[normalizedHireId] = ownerContext;
-                }
+                employeeId = createResponse.Data.EmployeeId;
             }
-
-            employeeId = ownerContext.EmployeeId;
         }
 
         // 存储数字员工 artifacts

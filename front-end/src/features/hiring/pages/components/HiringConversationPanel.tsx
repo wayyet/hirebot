@@ -32,6 +32,8 @@ type HiringConversationPanelProps = {
   onOpenSkillUpload: () => void
   onRemovePendingFile: (fileId: string) => void
   formatFileSize: (bytes: number) => string
+  /** 带 token 的 gateway 文件下载回调 */
+  onArtifactFileDownload?: (url: string, fileName: string) => void
 }
 
 export function HiringConversationPanel({
@@ -56,6 +58,7 @@ export function HiringConversationPanel({
   onOpenSkillUpload,
   onRemovePendingFile,
   formatFileSize,
+  onArtifactFileDownload,
 }: HiringConversationPanelProps) {
   return (
     <div className="hb-hiring-chat">
@@ -108,7 +111,7 @@ export function HiringConversationPanel({
               <div key={message.id} className="hb-hiring-msg">
                 <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
                 <div className="hb-hiring-msg-stack">
-                  <ArtifactMessageCard artifact={message.artifact} formatFileSize={formatFileSize} />
+                  <ArtifactMessageCard artifact={message.artifact} formatFileSize={formatFileSize} onFileDownload={onArtifactFileDownload} />
                 </div>
               </div>
             )
