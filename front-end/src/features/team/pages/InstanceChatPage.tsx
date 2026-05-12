@@ -21,6 +21,7 @@ import {
   fetchSandboxSessionMessages,
   uploadMediaToGateway,
 } from "@/infra/sandbox/sandbox-api";
+import SessionListPanel from "@/features/team/components/SessionListPanel";
 import {
   firstCharacter,
   ownershipClass,
@@ -108,15 +109,6 @@ function normalizeMessageContent(content: string) {
   return content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
 
-function mapMessages(messages: InstanceChatMessage[]) {
-  return messages
-    .filter((message) => message.content.trim().length > 0)
-    .map((message) => ({
-      ...message,
-      content: normalizeMessageContent(message.content),
-    }));
-}
-
 function mapSandboxMessages(
   messages: { type: string; content?: string; text?: string }[],
 ) {
@@ -158,6 +150,13 @@ export default function InstanceChatPage() {
   const [clearing, setClearing] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
+    null,
+  );
+  const [sessionListVisible] = useState(true);
+  const [sessionListRefreshKey, setSessionListRefreshKey] = useState(0);
+  const [sandboxConnected, setSandboxConnected] = useState(false);
+  const [sessionSwitching, setSessionSwitching] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<GatewayWs | null>(null);
@@ -241,11 +240,42 @@ export default function InstanceChatPage() {
 
   async function connectSandboxWs(endpoint: string) {
     wsRef.current?.disconnect();
+    setSandboxConnected(false);
 
     const token = await tokenService.ensureFresh();
-    if (!token) return;
+    if (!token) {
+      throw new Error("Token not available for sandbox connection");
+    }
 
     const ws = new GatewayWs(endpoint, token);
+    let resolveOpen: (() => void) | null = null;
+    let rejectOpen: ((error: Error) => void) | null = null;
+    let settled = false;
+    let timeoutId: ReturnType<typeof window.setTimeout> | null = null;
+
+    const waitForOpen = new Promise<void>((resolve, reject) => {
+      resolveOpen = resolve;
+      rejectOpen = reject;
+      timeoutId = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error("沙箱连接超时，请稍后重试"));
+      }, 8000);
+    });
+
+    const settleOpen = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (error) {
+        rejectOpen?.(error);
+      } else {
+        resolveOpen?.();
+      }
+    };
 
     ws.onMessage = (msg) => {
       const type = String(msg.type ?? "");
@@ -305,12 +335,13 @@ export default function InstanceChatPage() {
         const sandboxSessionId = sessionIdRef.current;
         const sandboxGatewayEndpoint = gatewayEndpointRef.current;
         if (sandboxSessionId && sandboxGatewayEndpoint) {
-          void syncSandboxHistory(
-            sandboxGatewayEndpoint,
-            sandboxSessionId,
-          ).catch(() => {
-            // 历史同步失败时保留当前已渲染内容
-          });
+          void syncSandboxHistory(sandboxGatewayEndpoint, sandboxSessionId)
+            .catch(() => {
+              // 历史同步失败时保留当前已渲染内容
+            })
+            .finally(() => {
+              setSessionListRefreshKey((k) => k + 1);
+            });
         }
       }
     };
@@ -334,7 +365,12 @@ export default function InstanceChatPage() {
     };
 
     ws.onStateChange = (state) => {
+      setSandboxConnected(state === "open");
+      if (state === "open") {
+        settleOpen();
+      }
       if (state === "closed" || state === "error") {
+        settleOpen(new Error("沙箱连接未建立，无法发送消息"));
         setTyping(false);
         setStreamingContent(null);
         rawStreamingContentRef.current = "";
@@ -343,6 +379,7 @@ export default function InstanceChatPage() {
 
     ws.connect();
     wsRef.current = ws;
+    await waitForOpen;
   }
 
   async function loadChat(instanceId: string) {
@@ -350,15 +387,14 @@ export default function InstanceChatPage() {
     setError("");
 
     try {
-      const [detail, timeline, gatewayEndpointResult] = await Promise.all([
+      const [detail, gatewayEndpointResult] = await Promise.all([
         api.employeeRuntime.getEmployee(instanceId),
-        api.employeeRuntime.getInstanceChatMessages(instanceId),
         api.employeeRuntime.getSandboxGatewayEndpoint(instanceId),
       ]);
 
       setEmployee(detail);
-      setMessages(mapMessages(timeline.messages));
-      sessionIdRef.current = timeline.conversationId;
+      sessionIdRef.current = `instance:${instanceId}:inapp`;
+      setSelectedSessionId(sessionIdRef.current);
 
       // 调用新 API 获取 gateway endpoint（与 HiringPage 一致）
       const gatewayEndpoint = gatewayEndpointResult ?? null;
@@ -370,10 +406,10 @@ export default function InstanceChatPage() {
       if (gatewayEndpoint) {
         gatewayEndpointRef.current = gatewayEndpoint;
         try {
-          await syncSandboxHistory(gatewayEndpoint, timeline.conversationId);
+          await syncSandboxHistory(gatewayEndpoint, sessionIdRef.current!);
           await connectSandboxWs(gatewayEndpoint);
-        } catch {
-          // 直连沙箱不可用时，保持后端兜底路径
+        } catch (sandboxError: unknown) {
+          setError(normalizeErrorMessage(sandboxError));
           gatewayEndpointRef.current = null;
           wsRef.current?.disconnect();
           wsRef.current = null;
@@ -387,6 +423,50 @@ export default function InstanceChatPage() {
       setError(normalizeErrorMessage(requestError));
     } finally {
       setLoading(false);
+    }
+  }
+
+  const viewingOtherSession =
+    selectedSessionId !== null &&
+    sessionIdRef.current !== null &&
+    selectedSessionId !== sessionIdRef.current;
+
+  async function handleSelectSession(sessionId: string) {
+    if (sessionSwitching || sessionId === selectedSessionId) return;
+    const previousSelectedSessionId = selectedSessionId;
+    const previousActiveSessionId = sessionIdRef.current;
+    setSelectedSessionId(sessionId);
+    setSessionSwitching(true);
+    setStreamingContent(null);
+    setTyping(false);
+    setError("");
+
+    const endpoint = gatewayEndpointRef.current;
+    if (!endpoint) {
+      setSelectedSessionId(previousSelectedSessionId);
+      setSessionSwitching(false);
+      return;
+    }
+
+    // Treat the selected history session as the active writable chat.
+    try {
+      const sandboxMessages = await fetchSandboxSessionMessages(
+        endpoint,
+        sessionId,
+      );
+      const mapped = mapSandboxMessages(sandboxMessages);
+      setMessages(mapped);
+      sessionIdRef.current = sessionId;
+      await connectSandboxWs(endpoint);
+    } catch (sessionError: unknown) {
+      setError(normalizeErrorMessage(sessionError));
+      setSelectedSessionId(previousSelectedSessionId);
+      sessionIdRef.current = previousActiveSessionId;
+      if (previousActiveSessionId) {
+        void connectSandboxWs(endpoint);
+      }
+    } finally {
+      setSessionSwitching(false);
     }
   }
 
@@ -452,9 +532,22 @@ export default function InstanceChatPage() {
     const sandboxWs = wsRef.current;
 
     // 必须通过 WebSocket 发送消息，沙箱实时流式回复
-    if (!sandboxGatewayEndpoint || !sandboxSessionId || !sandboxWs) {
+    if (
+      !sandboxGatewayEndpoint ||
+      !sandboxSessionId ||
+      !sandboxWs ||
+      !sandboxWs.isOpen()
+    ) {
       setError("沙箱连接未建立，无法发送消息");
+      setMessages((prev) =>
+        prev.filter((message) => message.messageId !== optimistic.messageId),
+      );
+      setDraft({ content });
+      setPendingFiles(incoming);
       setSending(false);
+      if (sandboxGatewayEndpoint) {
+        void connectSandboxWs(sandboxGatewayEndpoint);
+      }
       return;
     }
 
@@ -487,12 +580,16 @@ export default function InstanceChatPage() {
         }
       }
 
-      sandboxWs.send({
+      const sent = sandboxWs.send({
         type: "user_message",
         text: messageText,
         sessionId: sandboxSessionId,
       });
+      if (!sent) {
+        throw new Error("沙箱连接尚未就绪，请稍后重试");
+      }
       setTyping(true);
+      setTimeout(() => setSessionListRefreshKey((k) => k + 1), 1500);
     } catch (requestError: unknown) {
       setError(normalizeErrorMessage(requestError));
       setMessages((prev) =>
@@ -502,6 +599,17 @@ export default function InstanceChatPage() {
     } finally {
       setSending(false);
     }
+  }
+
+  async function handleNewChat() {
+    if (!id) return;
+
+    const newSessionId = `instance:${id}:inapp-${Date.now()}`;
+    sessionIdRef.current = newSessionId;
+    setSelectedSessionId(newSessionId);
+    setMessages([]);
+    setStreamingContent(null);
+    setTyping(false);
   }
 
   async function handleClear() {
@@ -567,199 +675,240 @@ export default function InstanceChatPage() {
           当前实例不是分身类型，不能进入站内对话。
         </div>
       ) : (
-        <div className="hb-chat-shell hb-card">
-          <div className="hb-chat-head">
-            <div className="flex items-start gap-4">
-              <div
-                className={`hb-user-avatar hb-chat-avatar ${ownershipClass(employeeView.ownership)}`}
-              >
-                {firstCharacter(employee.nickname)}
-              </div>
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-[#0a0a0a]">
-                    {employee.nickname}
-                  </h1>
-                  <span
-                    className={`hb-pill ${statusClass(employeeView.mappedStatus, employee.lifecycleStatus)}`}
-                  >
-                    {statusLabel(
-                      employeeView.mappedStatus,
-                      employee.lifecycleStatus,
-                    )}
-                  </span>
-                  <span
-                    className={`hb-pill ${ownershipClass(employeeView.ownership)}`}
-                  >
-                    {ownershipLabel(employeeView.ownership)}
-                  </span>
-                </div>
-                <p className="max-w-[720px] text-sm leading-6 text-[#737373]">
-                  这里是你的实例站内对话。消息会直接发送到当前分身，不会进入雇佣流程。
-                </p>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#9ca3af]">
-                  <span>实例 ID {employee.employeeId}</span>
-                  <span>Owner {employee.ownerUserId}</span>
-                  <span>
-                    部门 {employee.departmentId || employee.owningTeam}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="hb-btn-ghost"
-                onClick={handleClear}
-                disabled={clearing || messages.length === 0}
-              >
-                <Trash2 size={14} />
-                {clearing ? "清空中" : "清空对话"}
-              </button>
-              <button
-                type="button"
-                className="hb-btn-primary"
-                onClick={() => navigate(`/instances/${employee.employeeId}`)}
-              >
-                <MessageCircle size={14} />
-                查看详情
-              </button>
-            </div>
-          </div>
-
-          <div className="hb-chat-history">
-            {messages.length === 0 ? (
-              <div className="hb-chat-empty">
-                <MessageCircle size={16} />
-                还没有消息，先给分身发一句话吧
-              </div>
-            ) : (
-              messages.map((message) => (
+        <div className="flex gap-4">
+          {gatewayEndpointRef.current && sessionListVisible && (
+            <SessionListPanel
+              gatewayEndpoint={gatewayEndpointRef.current}
+              currentSessionId={selectedSessionId}
+              onSelectSession={(sessionId) =>
+                void handleSelectSession(sessionId)
+              }
+              onNewChat={() => void handleNewChat()}
+              refreshTrigger={sessionListRefreshKey}
+            />
+          )}
+          <div className="hb-chat-shell hb-card flex-1">
+            <div className="hb-chat-head">
+              <div className="flex min-w-0 items-start gap-4">
                 <div
-                  key={message.messageId}
-                  className={`hb-chat-message ${message.role === "assistant" ? "is-assistant" : "is-user"}`}
+                  className={`hb-user-avatar hb-chat-avatar shrink-0 ${ownershipClass(employeeView.ownership)}`}
                 >
+                  {firstCharacter(employee.nickname)}
+                </div>
+                <div className="min-w-0 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="truncate text-[22px] font-semibold tracking-[-0.02em] text-[#0a0a0a]">
+                      {employee.nickname}
+                    </h1>
+                    <span
+                      className={`hb-pill shrink-0 ${statusClass(employeeView.mappedStatus, employee.lifecycleStatus)}`}
+                    >
+                      {statusLabel(
+                        employeeView.mappedStatus,
+                        employee.lifecycleStatus,
+                      )}
+                    </span>
+                    <span
+                      className={`hb-pill shrink-0 ${ownershipClass(employeeView.ownership)}`}
+                    >
+                      {ownershipLabel(employeeView.ownership)}
+                    </span>
+                  </div>
+                  <p className="truncate text-sm leading-6 text-[#737373]">
+                    这里是你的实例站内对话。消息会直接发送到当前分身。
+                  </p>
+                  {/* <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-[#9ca3af]">
+                    <span className="shrink-0">ID {employee.employeeId}</span>
+                    <span className="shrink-0">Owner {employee.ownerUserId}</span>
+                    <span className="truncate">
+                      {employee.departmentId || employee.owningTeam}
+                    </span>
+                  </div> */}
+                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  className="hb-btn-ghost"
+                  onClick={handleClear}
+                  disabled={clearing || messages.length === 0}
+                >
+                  <Trash2 size={14} />
+                  {clearing ? "清空中" : "清空对话"}
+                </button>
+                <button
+                  type="button"
+                  className="hb-btn-primary"
+                  onClick={() => navigate(`/instances/${employee.employeeId}`)}
+                >
+                  <MessageCircle size={14} />
+                  查看详情
+                </button>
+              </div>
+            </div>
+
+            {viewingOtherSession && (
+              <div className="flex items-center justify-between rounded-lg bg-[#e8f0fe] px-4 py-2 text-sm text-[#1967d2]">
+                <span>
+                  正在查看历史会话:{" "}
+                  <span className="font-medium">{selectedSessionId}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void handleSelectSession(sessionIdRef.current!)
+                  }
+                  disabled={sessionSwitching}
+                  className="rounded px-2 py-0.5 text-xs font-medium text-[#1967d2] hover:bg-[#d2e3fc]"
+                >
+                  返回当前会话
+                </button>
+              </div>
+            )}
+
+            <div className="hb-chat-history">
+              {messages.length === 0 ? (
+                <div className="hb-chat-empty">
+                  <MessageCircle size={16} />
+                  还没有消息，先给分身发一句话吧
+                </div>
+              ) : (
+                messages.map((message) => (
+                  <div
+                    key={message.messageId}
+                    className={`hb-chat-message ${message.role === "assistant" ? "is-assistant" : "is-user"}`}
+                  >
+                    <div className="hb-chat-meta">
+                      {message.role === "assistant" ? employee.nickname : "我"}{" "}
+                      · {formatTime(message.createdAt)}
+                    </div>
+                    <div
+                      className={`hb-chat-bubble ${message.role === "assistant" ? "is-assistant" : "is-user"}`}
+                      dangerouslySetInnerHTML={{ __html: message.content }}
+                    />
+                  </div>
+                ))
+              )}
+
+              {typing && streamingContent !== null && (
+                <div className="hb-chat-message is-assistant">
                   <div className="hb-chat-meta">
-                    {message.role === "assistant" ? employee.nickname : "我"} ·{" "}
-                    {formatTime(message.createdAt)}
+                    {employee.nickname} · 正在回复
                   </div>
                   <div
-                    className={`hb-chat-bubble ${message.role === "assistant" ? "is-assistant" : "is-user"}`}
-                    dangerouslySetInnerHTML={{ __html: message.content }}
+                    className="hb-chat-bubble is-assistant"
+                    dangerouslySetInnerHTML={{
+                      __html:
+                        streamingContent.length > 0 ? streamingContent : "...",
+                    }}
                   />
                 </div>
-              ))
-            )}
+              )}
 
-            {typing && streamingContent !== null && (
-              <div className="hb-chat-message is-assistant">
-                <div className="hb-chat-meta">
-                  {employee.nickname} · 正在回复
-                </div>
-                <div
-                  className="hb-chat-bubble is-assistant"
-                  dangerouslySetInnerHTML={{
-                    __html:
-                      streamingContent.length > 0 ? streamingContent : "...",
-                  }}
-                />
-              </div>
-            )}
-
-            {typing && streamingContent === null && (
-              <div className="hb-chat-message is-assistant">
-                <div className="hb-chat-meta">
-                  {employee.nickname} · 正在回复
-                </div>
-                <div className="hb-chat-bubble is-assistant hb-chat-typing">
-                  正在思考中...
-                </div>
-              </div>
-            )}
-
-            <div ref={bottomRef} />
-          </div>
-
-          <div className="hb-chat-compose">
-            {/* 待上传文件列表 */}
-            {pendingFiles.length > 0 && (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {pendingFiles.map((file) => (
-                  <div
-                    key={file.id}
-                    className="flex items-center gap-2 rounded-full border border-[#ececec] bg-[#fafafa] px-3 py-1.5 text-sm text-[#404040]"
-                  >
-                    <Upload size={12} className="text-[#9ca3af]" />
-                    <span className="max-w-[200px] truncate">{file.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemovePendingFile(file.id)}
-                      className="ml-1 text-[#9ca3af] hover:text-[#525252]"
-                    >
-                      ×
-                    </button>
+              {typing && streamingContent === null && (
+                <div className="hb-chat-message is-assistant">
+                  <div className="hb-chat-meta">
+                    {employee.nickname} · 正在回复
                   </div>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              className="hb-btn-ghost mb-3 inline-flex self-start"
-              onClick={triggerFileUpload}
-              disabled={sending || !isLive}
-              title="上传文件"
-            >
-              <Upload size={14} />
-              上传文件
-            </button>
-            <div className="flex items-end gap-3">
-              <textarea
-                value={draft.content}
-                onChange={(event) => setDraft({ content: event.target.value })}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void handleSend();
-                  }
-                }}
-                placeholder={
-                  isLive
-                    ? "输入消息，Enter 发送，Shift+Enter 换行"
-                    : "当前实例未上岗，不能对话"
-                }
-                disabled={sending || !isLive}
-              />
+                  <div className="hb-chat-bubble is-assistant hb-chat-typing">
+                    正在思考中...
+                  </div>
+                </div>
+              )}
 
+              <div ref={bottomRef} />
+            </div>
+
+            <div className="hb-chat-compose">
+              {/* 待上传文件列表 */}
+              {pendingFiles.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {pendingFiles.map((file) => (
+                    <div
+                      key={file.id}
+                      className="flex items-center gap-2 rounded-full border border-[#ececec] bg-[#fafafa] px-3 py-1.5 text-sm text-[#404040]"
+                    >
+                      <Upload size={12} className="text-[#9ca3af]" />
+                      <span className="max-w-[200px] truncate">
+                        {file.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePendingFile(file.id)}
+                        className="ml-1 text-[#9ca3af] hover:text-[#525252]"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <button
                 type="button"
-                className="hb-btn-primary"
-                onClick={() => void handleSend()}
-                disabled={
-                  sending ||
-                  !isLive ||
-                  (draft.content.trim().length === 0 &&
-                    pendingFiles.length === 0)
-                }
+                className="hb-btn-ghost mb-3 inline-flex self-start"
+                onClick={triggerFileUpload}
+                disabled={sending || !isLive || viewingOtherSession}
+                title="上传文件"
               >
-                <Send size={14} />
-                发送
+                <Upload size={14} />
+                上传文件
               </button>
+              <div className="flex items-end gap-3">
+                <textarea
+                  value={draft.content}
+                  onChange={(event) =>
+                    setDraft({ content: event.target.value })
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void handleSend();
+                    }
+                  }}
+                  placeholder={
+                    viewingOtherSession
+                      ? "正在查看历史会话，不可回复"
+                      : isLive
+                        ? "输入消息，Enter 发送，Shift+Enter 换行"
+                        : "当前实例未上岗，不能对话"
+                  }
+                  disabled={sending || !isLive || viewingOtherSession}
+                />
+
+                <button
+                  type="button"
+                  className="hb-btn-primary"
+                  onClick={() => void handleSend()}
+                  disabled={
+                    sending ||
+                    sessionSwitching ||
+                    !isLive ||
+                    viewingOtherSession ||
+                    !sandboxConnected ||
+                    (draft.content.trim().length === 0 &&
+                      pendingFiles.length === 0)
+                  }
+                >
+                  <Send size={14} />
+                  {/* 发送 */}
+                </button>
+              </div>
+              {!isLive && (
+                <p className="mt-3 text-xs text-[#9ca3af]">
+                  只有 `live` 状态的分身和私有分支才能进入站内对话。
+                </p>
+              )}
+              {/* 隐藏的文件选择 input */}
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                onChange={handleFileInputChange}
+                className="hidden"
+                disabled={sending || !isLive || viewingOtherSession}
+              />
             </div>
-            {!isLive && (
-              <p className="mt-3 text-xs text-[#9ca3af]">
-                只有 `live` 状态的分身和私有分支才能进入站内对话。
-              </p>
-            )}
-            {/* 隐藏的文件选择 input */}
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              onChange={handleFileInputChange}
-              className="hidden"
-              disabled={sending || !isLive}
-            />
           </div>
         </div>
       )}

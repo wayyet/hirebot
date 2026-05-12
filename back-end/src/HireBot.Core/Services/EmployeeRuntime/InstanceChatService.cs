@@ -398,6 +398,157 @@ public sealed class InstanceChatService(
     #endregion
 
 
+    #region 企业微信
+
+    private const string WeComChannelUpdatePath = "/admin/channels/wecom/update";
+    private const string WeComChannelOverrideDeletePath = "/admin/channels/wecom/override";
+
+    /// <summary>
+    /// 获取企业微信频道当前生效配置。
+    /// </summary>
+    public async Task<ApiResponse<WeComChannelEffectiveConfigDto>> GetWeComChannelEffectiveConfigAsync(
+        string instanceId,
+        CancellationToken cancellationToken = default)
+    {
+        var access = await ResolveChannelConfigTargetAsync(instanceId, "wecom", cancellationToken);
+        if (!access.Success)
+        {
+            return ApiResponse<WeComChannelEffectiveConfigDto>.ErrorResponse(access.Code, access.Message);
+        }
+
+        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var remoteResult = await kingCrabHttpClient.SendForJsonAsync<WeComChannelEffectiveConfigDto>(
+            HttpMethod.Get,
+            "/admin/channels/wecom",
+            body: null,
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false);
+
+        if (!remoteResult.Success || remoteResult.Data is null)
+        {
+            return ApiResponse<WeComChannelEffectiveConfigDto>.ErrorResponse(
+                remoteResult.StatusCode,
+                string.IsNullOrWhiteSpace(remoteResult.Message) ? "获取企业微信当前配置失败" : remoteResult.Message);
+        }
+
+        return ApiResponse<WeComChannelEffectiveConfigDto>.SuccessResponse(remoteResult.Data);
+    }
+
+    /// <summary>
+    /// 更新企业微信频道配置（KingCrab 网关入口）。
+    /// </summary>
+    public async Task<ApiResponse<ImConfigResultDto>> UpdateWeComChannelConfigAsync(
+        string instanceId,
+        ImConfigRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request is null)
+        {
+            return ApiResponse<ImConfigResultDto>.ErrorResponse(400, "配置不能为空");
+        }
+
+        var access = await ResolveChannelConfigTargetAsync(instanceId, "wecom", cancellationToken);
+        if (!access.Success)
+        {
+            return ApiResponse<ImConfigResultDto>.ErrorResponse(access.Code, access.Message);
+        }
+
+        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var remoteResult = await SendWeComChannelConfigAsync(
+            new WeComChannelConfig
+            {
+                Enabled = true,
+                BotId = request.BotId,
+                BotSecret = request.BotSecret
+            },
+            ownerSubject,
+            cancellationToken);
+
+        if (!remoteResult.Success || remoteResult.Data is null)
+        {
+            var message = remoteResult.Data?.Message ?? remoteResult.Message;
+            return ApiResponse<ImConfigResultDto>.ErrorResponse(remoteResult.StatusCode, string.IsNullOrWhiteSpace(message) ? "企业微信配置更新失败" : message);
+        }
+
+        if (!remoteResult.Data.Success)
+        {
+            return ApiResponse<ImConfigResultDto>.ErrorResponse(
+                remoteResult.StatusCode,
+                string.IsNullOrWhiteSpace(remoteResult.Data.Error) ? "企业微信配置更新失败" : remoteResult.Data.Error);
+        }
+
+        return ApiResponse<ImConfigResultDto>.SuccessResponse(
+            new ImConfigResultDto("wecom", "url_callback", "active", remoteResult.Data.Message ?? "企业微信配置已更新", DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>
+    /// 清除企业微信频道的运行时覆盖配置，恢复 appsettings 生效。
+    /// </summary>
+    public async Task<ApiResponse<bool>> ClearWeComChannelOverrideAsync(
+        string instanceId,
+        CancellationToken cancellationToken = default)
+    {
+        var access = await ResolveChannelConfigTargetAsync(instanceId, "wecom", cancellationToken);
+        if (!access.Success)
+        {
+            return ApiResponse<bool>.ErrorResponse(access.Code, access.Message);
+        }
+
+        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var remoteResult = await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
+            HttpMethod.Delete,
+            WeComChannelOverrideDeletePath,
+            body: null,
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false);
+
+        if (!remoteResult.Success || remoteResult.Data is null)
+        {
+            var message = remoteResult.Data?.Message ?? remoteResult.Message;
+            return ApiResponse<bool>.ErrorResponse(
+                remoteResult.StatusCode,
+                string.IsNullOrWhiteSpace(message) ? "企业微信覆盖配置清除失败" : message);
+        }
+
+        if (!remoteResult.Data.Success)
+        {
+            var message = remoteResult.Data.Error ?? remoteResult.Data.Message;
+            return ApiResponse<bool>.ErrorResponse(
+                remoteResult.StatusCode,
+                string.IsNullOrWhiteSpace(message) ? "企业微信覆盖配置清除失败" : message);
+        }
+
+        return ApiResponse<bool>.SuccessResponse(
+            true,
+            string.IsNullOrWhiteSpace(remoteResult.Data.Message)
+                ? "企业微信覆盖配置已清除，已恢复 appsettings 生效"
+                : remoteResult.Data.Message);
+    }
+
+    private async Task<RemoteCallResult<KingCrabOperationStatusResult>> SendWeComChannelConfigAsync(
+        WeComChannelConfig config,
+        string ownerSubject,
+        CancellationToken cancellationToken = default)
+    {
+        if (config is null)
+        {
+            return RemoteCallResult<KingCrabOperationStatusResult>.Failure(400, "配置不能为空");
+        }
+
+        return await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
+            HttpMethod.Post,
+            WeComChannelUpdatePath,
+            config,
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false);
+    }
+
+    #endregion
+
+
     #region 公用
     /// <summary>
     /// 前置检查

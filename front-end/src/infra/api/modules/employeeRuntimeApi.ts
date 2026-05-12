@@ -119,6 +119,8 @@ export interface ImConfigRequest {
   corpId?: string
   agentId?: string
   agentSecret?: string
+  botId?: string
+  botSecret?: string
   robotCode?: string
   robotCodeRef?: string
   groupPolicy?: string
@@ -130,48 +132,12 @@ export interface ImConfigRequest {
   streamPollIntervalMs?: string
 }
 
-export interface ImWebhookUrl {
-  platform: string
-  webhookUrl: string
-}
-
 export interface ImConfigResult {
   platform: string
   connectionMode: ImConnectionMode
   status: string
   message: string
   configuredAt?: string | null
-}
-
-export interface ImConfigItem {
-  platform: ImPlatformId | string
-  status: string
-  connectionMode?: ImConnectionMode | null
-  webhookPath?: string | null
-  configuredAt?: string | null
-  lastError?: string | null
-  appId?: string | null
-  appSecret?: string | null
-  encryptKey?: string | null
-  token?: string | null
-  aesKey?: string | null
-  verificationToken?: string | null
-  corpId?: string | null
-  agentId?: string | null
-  agentSecret?: string | null
-  appKey?: string | null
-  appIdRef?: string | null
-  appKeyRef?: string | null
-  appSecretRef?: string | null
-  robotCode?: string | null
-  robotCodeRef?: string | null
-  groupPolicy?: string | null
-  allowedFromUserIds?: string[] | null
-  allowedGroupIds?: string[] | null
-  maxInboundChars?: number | null
-  requireMentionInGroup?: boolean | null
-  exposeInboundMediaUrls?: boolean | null
-  streamPollIntervalMs?: number | null
 }
 
 export interface FeishuChannelEffectiveConfig {
@@ -205,6 +171,14 @@ export interface DingTalkChannelEffectiveConfig {
   streamPollIntervalMs?: number | null
 }
 
+export interface WeComChannelEffectiveConfig {
+  enabled?: boolean
+  botId?: string | null
+  botIdRef?: string | null
+  botSecret?: string | null
+  botSecretRef?: string | null
+}
+
 export interface DingTalkChannelConfigRequest {
   enabled: boolean
   appId?: string | null
@@ -222,10 +196,6 @@ export interface DingTalkChannelConfigRequest {
   requireMentionInGroup?: boolean | null
   exposeInboundMediaUrls?: boolean | null
   streamPollIntervalMs?: number | null
-}
-
-export interface ImConfigStatus {
-  configs: ImConfigItem[]
 }
 
 export interface TrainingCheckpoint {
@@ -461,16 +431,16 @@ export const employeeRuntimeApi = {
     )
   },
 
-  getImWebhookUrl(instanceId: string, platform: ImPlatformId) {
-    return httpClient.get<ImWebhookUrl>(`/api/v1/instances/${instanceId}/im-webhook-url`, { platform })
-  },
-
   getFeishuEffectiveImConfig(instanceId: string) {
     return httpClient.get<FeishuChannelEffectiveConfig>(`/api/v1/instances/${instanceId}/im-config/feishu/effective`)
   },
 
   getDingTalkEffectiveImConfig(instanceId: string) {
     return httpClient.get<DingTalkChannelEffectiveConfig>(`/api/v1/instances/${instanceId}/im-config/dingtalk/effective`)
+  },
+
+  getWeComEffectiveImConfig(instanceId: string) {
+    return httpClient.get<WeComChannelEffectiveConfig>(`/api/v1/instances/${instanceId}/im-config/wecom/effective`)
   },
 
   updateDingTalkImConfig(instanceId: string, payload: DingTalkChannelConfigRequest) {
@@ -485,10 +455,6 @@ export const employeeRuntimeApi = {
       `/api/v1/instances/${instanceId}/im-config/${platform}`,
       payload,
     )
-  },
-
-  getImConfigs(instanceId: string) {
-    return httpClient.get<ImConfigStatus>(`/api/v1/instances/${instanceId}/im-config`)
   },
 
   deleteImConfig(instanceId: string, platform: ImPlatformId) {

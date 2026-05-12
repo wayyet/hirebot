@@ -21,7 +21,6 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
     public DbSet<InstanceEntity> Instances { get; set; }
     public DbSet<ConversationEntity> Conversations { get; set; }
     public DbSet<MessageEntity> Messages { get; set; }
-    public DbSet<ImConfigEntity> ImConfigs { get; set; }
     public DbSet<SandboxInstanceEntity> SandboxInstances { get; set; }
     public DbSet<SandboxSessionEntity> SandboxSessions { get; set; }
     public DbSet<SandboxAssetEntity> SandboxAssets { get; set; }
@@ -242,37 +241,6 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.HasIndex(e => new { e.InstanceId, e.CreatedAt });
             entity.HasIndex(e => new { e.Channel, e.ExternalMessageId }).IsUnique();
             entity.HasIndex(e => new { e.InstanceId, e.Channel, e.CreatedAt });
-        });
-
-        modelBuilder.Entity<ImConfigEntity>(entity =>
-        {
-            entity.ToTable("ImConfigs");
-            entity.HasKey(e => e.ConfigId);
-            entity.Property(e => e.ConfigId).HasColumnName("config_id").IsRequired().HasMaxLength(120);
-            entity.Property(e => e.InstanceId).HasColumnName("instance_id").IsRequired().HasMaxLength(120);
-            entity.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
-            entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id").IsRequired().HasMaxLength(256);
-            entity.Property(e => e.Platform).HasColumnName("platform").IsRequired().HasMaxLength(40);
-            entity.Property(e => e.ConnectionMode).HasColumnName("connection_mode").IsRequired().HasMaxLength(40);
-            entity.Property(e => e.WebhookPath).HasColumnName("webhook_path").HasMaxLength(256);
-            entity.Property(e => e.AppId).HasColumnName("app_id");
-            entity.Property(e => e.AppSecret).HasColumnName("app_secret");
-            entity.Property(e => e.EncryptKey).HasColumnName("encrypt_key");
-            entity.Property(e => e.Token).HasColumnName("token");
-            entity.Property(e => e.AesKey).HasColumnName("aes_key");
-            entity.Property(e => e.VerificationToken).HasColumnName("verification_token");
-            entity.Property(e => e.CorpId).HasColumnName("corp_id");
-            entity.Property(e => e.AgentId).HasColumnName("agent_id");
-            entity.Property(e => e.AgentSecret).HasColumnName("agent_secret");
-            entity.Property(e => e.Status).HasColumnName("status").IsRequired().HasMaxLength(40);
-            entity.Property(e => e.LastError).HasColumnName("last_error").HasMaxLength(1024);
-            entity.Property(e => e.ConfiguredAt).HasColumnName("configured_at");
-            entity.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
-            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
-
-            entity.HasIndex(e => new { e.InstanceId, e.Platform }).IsUnique();
-            entity.HasIndex(e => new { e.TenantId, e.OwnerUserId });
-            entity.HasIndex(e => new { e.Platform, e.Status });
         });
 
         modelBuilder.Entity<SandboxInstanceEntity>(entity =>
