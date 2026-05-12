@@ -17,6 +17,9 @@ interface SessionDetail {
 }
 
 interface SessionDetailResponse {
+  success?: boolean
+  error?: string
+  message?: string
   session: SessionDetail | null
   isActive: boolean
 }
@@ -214,26 +217,38 @@ export async function fetchSandboxSessionMessages(
   sessionId: string,
 ): Promise<SandboxMessage[]> {
   const encoded = encodeURIComponent(sessionId)
-  const resp = await sandboxGet<SessionDetailResponse>(
-    endpoint,
-    `/api/integration/sessions/${encoded}`,
-  )
+  let resp: SessionDetailResponse
+  try {
+    resp = await sandboxGet<SessionDetailResponse>(
+      endpoint,
+      `/api/integration/sessions/${encoded}`,
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/session not found/i.test(message) || /GET .*: 404/i.test(message)) {
+      return []
+    }
+    throw error
+  }
+
+  if (
+    resp.success === false &&
+    /session not found/i.test(resp.error ?? resp.message ?? '')
+  ) {
+    return []
+  }
+
   if (!resp.session) return []
 
   const messages: SandboxMessage[] = []
-  let assistantStarted = false
   for (const turn of resp.session.history) {
     if (turn.role === 'assistant') {
-      assistantStarted = true
       // 工具调用条目跳过，只显示文字内容
       const rawContent = turn.content ?? ''
       if (rawContent && rawContent !== '[tool_use]') {
         messages.push({ type: 'assistant_message', content: rawContent, _historical: true })
       }
     } else if (turn.role === 'user') {
-      // 第一个 assistant 回复之前的 user 消息是后端内部注入的冷启动 system prompt，
-      // 不是用户真实输入，跳过不显示
-      if (!assistantStarted) continue
       messages.push({ type: 'user_message', text: turn.content, _historical: true })
     }
   }

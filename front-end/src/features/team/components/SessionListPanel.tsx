@@ -10,7 +10,9 @@ import {
 } from "lucide-react";
 import {
   fetchAdminSessions,
+  fetchSandboxSessionMessages,
   type SessionSummary,
+  type SandboxMessage,
 } from "@/infra/sandbox/sandbox-api";
 
 export interface SessionListPanelProps {
@@ -41,6 +43,23 @@ function formatLastActive(value: string): string {
   });
 }
 
+function getMessageText(message?: SandboxMessage): string {
+  const value =
+    typeof message?.text === "string" ? message.text : message?.content;
+  if (typeof value !== "string") return "";
+  return value.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+}
+
+function buildSessionPreview(messages: SandboxMessage[]): string {
+  const firstUserMessage = messages.find(
+    (message) => message.type === "user_message",
+  );
+  const fallbackMessage = messages.find(
+    (message) => message.type === "assistant_message",
+  );
+  return getMessageText(firstUserMessage ?? fallbackMessage);
+}
+
 export default function SessionListPanel({
   gatewayEndpoint,
   currentSessionId,
@@ -55,6 +74,9 @@ export default function SessionListPanel({
   const [hasMore, setHasMore] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [loadMoreLoading, setLoadMoreLoading] = useState(false);
+  const [sessionPreviews, setSessionPreviews] = useState<
+    Record<string, string>
+  >({});
 
   const loadSessions = useCallback(
     async (pageNum: number, searchTerm: string, append: boolean) => {
@@ -84,6 +106,48 @@ export default function SessionListPanel({
   useEffect(() => {
     void loadSessions(1, search, false);
   }, [loadSessions, search, refreshTrigger]);
+
+  useEffect(() => {
+    if (sessions.length === 0) {
+      setSessionPreviews({});
+      return;
+    }
+
+    const missingSessions = sessions.filter(
+      (session) => sessionPreviews[session.id] === undefined,
+    );
+    if (missingSessions.length === 0) return;
+
+    let cancelled = false;
+    void Promise.allSettled(
+      missingSessions.map(async (session) => {
+        const messages = await fetchSandboxSessionMessages(
+          gatewayEndpoint,
+          session.id,
+        );
+        return [session.id, buildSessionPreview(messages)] as const;
+      }),
+    ).then((results) => {
+      if (cancelled) return;
+      setSessionPreviews((prev) => {
+        const next = { ...prev };
+        for (const session of missingSessions) {
+          next[session.id] = "";
+        }
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            const [sessionId, preview] = result.value;
+            next[sessionId] = preview;
+          }
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [gatewayEndpoint, sessions, sessionPreviews]);
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -181,7 +245,9 @@ export default function SessionListPanel({
                     <div className="flex items-center gap-1.5">
                       <MessageCircle size={11} className="flex-shrink-0" />
                       <span className="truncate text-xs font-medium">
-                        {session.senderId || session.id}
+                        {sessionPreviews[session.id] ||
+                          session.senderId ||
+                          session.id}
                       </span>
                     </div>
                     <div className="mt-0.5 flex items-center gap-2 text-[10px] text-[#9ca3af]">

@@ -153,8 +153,10 @@ export default function InstanceChatPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null,
   );
-  const [sessionListVisible, setSessionListVisible] = useState(true);
+  const [sessionListVisible] = useState(true);
   const [sessionListRefreshKey, setSessionListRefreshKey] = useState(0);
+  const [sandboxConnected, setSandboxConnected] = useState(false);
+  const [sessionSwitching, setSessionSwitching] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<GatewayWs | null>(null);
@@ -238,11 +240,42 @@ export default function InstanceChatPage() {
 
   async function connectSandboxWs(endpoint: string) {
     wsRef.current?.disconnect();
+    setSandboxConnected(false);
 
     const token = await tokenService.ensureFresh();
-    if (!token) return;
+    if (!token) {
+      throw new Error("Token not available for sandbox connection");
+    }
 
     const ws = new GatewayWs(endpoint, token);
+    let resolveOpen: (() => void) | null = null;
+    let rejectOpen: ((error: Error) => void) | null = null;
+    let settled = false;
+    let timeoutId: ReturnType<typeof window.setTimeout> | null = null;
+
+    const waitForOpen = new Promise<void>((resolve, reject) => {
+      resolveOpen = resolve;
+      rejectOpen = reject;
+      timeoutId = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error("沙箱连接超时，请稍后重试"));
+      }, 8000);
+    });
+
+    const settleOpen = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (error) {
+        rejectOpen?.(error);
+      } else {
+        resolveOpen?.();
+      }
+    };
 
     ws.onMessage = (msg) => {
       const type = String(msg.type ?? "");
@@ -332,7 +365,12 @@ export default function InstanceChatPage() {
     };
 
     ws.onStateChange = (state) => {
+      setSandboxConnected(state === "open");
+      if (state === "open") {
+        settleOpen();
+      }
       if (state === "closed" || state === "error") {
+        settleOpen(new Error("沙箱连接未建立，无法发送消息"));
         setTyping(false);
         setStreamingContent(null);
         rawStreamingContentRef.current = "";
@@ -341,6 +379,7 @@ export default function InstanceChatPage() {
 
     ws.connect();
     wsRef.current = ws;
+    await waitForOpen;
   }
 
   async function loadChat(instanceId: string) {
@@ -393,43 +432,41 @@ export default function InstanceChatPage() {
     selectedSessionId !== sessionIdRef.current;
 
   async function handleSelectSession(sessionId: string) {
-    if (sessionId === selectedSessionId) return;
+    if (sessionSwitching || sessionId === selectedSessionId) return;
+    const previousSelectedSessionId = selectedSessionId;
+    const previousActiveSessionId = sessionIdRef.current;
     setSelectedSessionId(sessionId);
-
-    const endpoint = gatewayEndpointRef.current;
-    if (!endpoint) return;
-
-    // 切回当前实例的 session 时重连 WebSocket
-    if (sessionId === sessionIdRef.current) {
-      setError("");
-      try {
-        await syncSandboxHistory(endpoint, sessionId);
-        await connectSandboxWs(endpoint);
-      } catch (sessionError: unknown) {
-        setError(normalizeErrorMessage(sessionError));
-      }
-      return;
-    }
-
-    // 切换到其他 session 时断开 WS，只拉历史
-    wsRef.current?.disconnect();
-    wsRef.current = null;
+    setSessionSwitching(true);
     setStreamingContent(null);
     setTyping(false);
     setError("");
 
+    const endpoint = gatewayEndpointRef.current;
+    if (!endpoint) {
+      setSelectedSessionId(previousSelectedSessionId);
+      setSessionSwitching(false);
+      return;
+    }
+
+    // Treat the selected history session as the active writable chat.
     try {
       const sandboxMessages = await fetchSandboxSessionMessages(
         endpoint,
         sessionId,
       );
-      console.log('[handleSelectSession] sandboxMessages:', sandboxMessages.length, sandboxMessages);
       const mapped = mapSandboxMessages(sandboxMessages);
-      console.log('[handleSelectSession] mapped:', mapped.length, mapped);
       setMessages(mapped);
+      sessionIdRef.current = sessionId;
+      await connectSandboxWs(endpoint);
     } catch (sessionError: unknown) {
-      console.error('[handleSelectSession] error:', sessionError);
       setError(normalizeErrorMessage(sessionError));
+      setSelectedSessionId(previousSelectedSessionId);
+      sessionIdRef.current = previousActiveSessionId;
+      if (previousActiveSessionId) {
+        void connectSandboxWs(endpoint);
+      }
+    } finally {
+      setSessionSwitching(false);
     }
   }
 
@@ -495,9 +532,22 @@ export default function InstanceChatPage() {
     const sandboxWs = wsRef.current;
 
     // 必须通过 WebSocket 发送消息，沙箱实时流式回复
-    if (!sandboxGatewayEndpoint || !sandboxSessionId || !sandboxWs) {
+    if (
+      !sandboxGatewayEndpoint ||
+      !sandboxSessionId ||
+      !sandboxWs ||
+      !sandboxWs.isOpen()
+    ) {
       setError("沙箱连接未建立，无法发送消息");
+      setMessages((prev) =>
+        prev.filter((message) => message.messageId !== optimistic.messageId),
+      );
+      setDraft({ content });
+      setPendingFiles(incoming);
       setSending(false);
+      if (sandboxGatewayEndpoint) {
+        void connectSandboxWs(sandboxGatewayEndpoint);
+      }
       return;
     }
 
@@ -530,11 +580,14 @@ export default function InstanceChatPage() {
         }
       }
 
-      sandboxWs.send({
+      const sent = sandboxWs.send({
         type: "user_message",
         text: messageText,
         sessionId: sandboxSessionId,
       });
+      if (!sent) {
+        throw new Error("沙箱连接尚未就绪，请稍后重试");
+      }
       setTyping(true);
       setTimeout(() => setSessionListRefreshKey((k) => k + 1), 1500);
     } catch (requestError: unknown) {
@@ -708,6 +761,7 @@ export default function InstanceChatPage() {
                   onClick={() =>
                     void handleSelectSession(sessionIdRef.current!)
                   }
+                  disabled={sessionSwitching}
                   className="rounded px-2 py-0.5 text-xs font-medium text-[#1967d2] hover:bg-[#d2e3fc]"
                 >
                   返回当前会话
@@ -830,14 +884,16 @@ export default function InstanceChatPage() {
                   onClick={() => void handleSend()}
                   disabled={
                     sending ||
+                    sessionSwitching ||
                     !isLive ||
                     viewingOtherSession ||
+                    !sandboxConnected ||
                     (draft.content.trim().length === 0 &&
                       pendingFiles.length === 0)
                   }
                 >
                   <Send size={14} />
-                  发送
+                  {/* 发送 */}
                 </button>
               </div>
               {!isLive && (
