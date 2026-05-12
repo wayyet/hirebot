@@ -80,6 +80,38 @@ metadata:
 - `kind` 固定为 `data`
 - `label` 用对用户可读的一句话描述当前进度或成果
 
+### 正确调用示例（资料阶段完成）
+
+```json
+{
+  "name": "emit_artifact",
+  "parameters": {
+    "kind": "data",
+    "artifactType": "material_handoff_summary",
+    "label": "5 份业务资料整理完毕，可进入技能定义阶段",
+    "skillName": "employment-coach-conversation",
+    "stage": "stage1_material",
+    "isTerminal": true,
+    "displayHint": "tree",
+    "data": {
+      "total_items": 5,
+      "items": [
+        {
+          "title": "历史销量数据",
+          "source_hint": "用户上传：historical_sales.csv（75 行）",
+          "category": "数据字段",
+          "objective": "抽取 SKU、渠道、日期三个维度的销量字段定义",
+          "status": "ready"
+        }
+      ],
+      "summary": "共整理 5 份业务资料，抽取方向已确认，准备进入技能定义阶段"
+    }
+  }
+}
+```
+
+> ⛔ **禁止在 data 中写入**：`status: "ready_to_dispatch"`、`capabilities`、`materials`（顶层）、`scene_hint`、`dispatch_payload`、`handoff_todos` 等任何不在上方示例中的字段。也禁止在对话中使用"dispatch 闭环"、"handoff 工单"、"dispatch 给下游"等旧词语。
+
 > 节奏与口吻、真实场景优先、情绪信号识别、反馈风格、初始化与开场示例 → 进入会话第一轮 / 拿不准对话节奏时，读 [references/interaction-quality.md](references/interaction-quality.md)。
 
 ## 阶段引导通用套路

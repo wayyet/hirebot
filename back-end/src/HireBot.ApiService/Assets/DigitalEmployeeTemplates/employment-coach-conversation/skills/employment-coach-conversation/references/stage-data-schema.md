@@ -4,6 +4,26 @@
 
 ---
 
+## ⛔ 禁止字段与禁止模式
+
+以下内容**绝对不能**出现在任何 `data` 字段中：
+
+| 禁止的字段名 / 值 | 来源说明 | 应改用 |
+|-----------------|---------|-------|
+| 顶层 `status` 字段 | 旧 handoff 状态机残留 | 不需要顶层 status；各 item 内部有自己的 `status: pending/ready` |
+| `status: "ready_to_dispatch"` | 旧 dispatch 协议 | 用 `isTerminal: true` 表示阶段完成 |
+| `status: "dispatched"` / `"confirmed"` / `"needs_review"` / `"dirty"` | 旧 handoff 状态机 | 同上 |
+| `capabilities` 字段 | 旧格式 | 改用 `items[]` |
+| `materials` 字段（顶层） | 旧格式 | 改用 `items[]` |
+| `scene_hint` 字段 | 旧格式 | 不需要，schema 中无此字段 |
+| `dispatch_payload` / `handoff_todos` / `dispatch_target` | 旧 dispatch 协议 | 全部删除 |
+
+**data 字段的合法顶层 key 只有下方各 artifactType 示例中明确列出的字段。任何不在示例中的 key 均视为错误。**
+
+**对话回复中同样禁止出现以下词语**：`dispatch 闭环`、`dispatch 信号`、`handoff 工单`、`ready_to_dispatch`、`dispatch 给下游`。
+
+---
+
 ## 阶段 1：资料（stage1_material）
 
 ### material_collection_progress（进度更新，isTerminal: false）

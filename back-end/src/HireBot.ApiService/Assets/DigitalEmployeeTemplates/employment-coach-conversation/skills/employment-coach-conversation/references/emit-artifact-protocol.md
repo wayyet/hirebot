@@ -72,6 +72,9 @@ stage 与前端胶囊的对应关系：
 ## 调用约束
 
 - **调用优先于对话输出**：同一轮次识别到可推送的阶段事件时，先调用 `emit_artifact`，再给用户一句简短的业务反馈
+- **data 字段必须严格遵循 schema**：`data` 内容必须完全符合 [stage-data-schema.md](stage-data-schema.md) 中对应 `artifactType` 的示例结构；不得添加任何 schema 中未列出的字段（如 `capabilities`、`materials`、`scene_hint`、顶层 `status` 等）
+- **禁止旧 dispatch 字段**：`data` 中绝不出现 `status: "ready_to_dispatch"`、`dispatch_payload`、`handoff_todos` 等旧状态机字段；阶段完成用 `isTerminal: true` 表达，不用任何 status 字段
 - **不暴露字段值**：不在对话中展示 `artifactType`、`stage`、`isTerminal`、`data` 的原始 JSON 内容
 - **凭据禁入 data**：`data` 字段中绝不写入 token / 密钥 / 密码 / API Key / 连接串；凭据形式（OAuth / Bearer / 长期 Key）可以写，凭据值不能写
 - **label 必须是业务语言**：例如"已记录 3 份业务资料，等待你确认"，而不是技术字段名
+- **对话文案禁用旧词**：对话回复中禁止出现"dispatch 闭环"、"dispatch 信号"、"handoff 工单"、"ready_to_dispatch"、"dispatch 给下游"等词语
