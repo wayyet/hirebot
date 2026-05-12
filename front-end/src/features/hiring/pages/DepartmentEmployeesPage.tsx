@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, BarChart2, CheckCircle2, CopyPlus, Loader2, Search, Sparkles, Users } from 'lucide-react'
+import { ArrowRight, BarChart2, Bot, CheckCircle2, CopyPlus, Loader2, Search, Sparkles, UserCheck, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useUserRole } from '@/app/context/UserRoleContext'
 import { api, type EmployeeSummary } from '@/infra/api'
@@ -111,6 +111,24 @@ export default function DepartmentEmployeesPage() {
 
   function openDetail(employeeId: string) {
     navigate(`/instances/${employeeId}`)
+  }
+
+  function openAiEvaluation(employeeId: string) {
+    navigate(`/instances/${employeeId}/evaluation`)
+  }
+
+  function openHumanEvaluation(employeeId: string) {
+    navigate(`/instances/${employeeId}/human-evaluation`)
+  }
+
+  function openCard(employee: { employeeId: string; mappedStatus: string }) {
+    if (employee.mappedStatus === 'interning_ai') {
+      navigate(`/instances/${employee.employeeId}/evaluation`)
+    } else if (employee.mappedStatus === 'interning_human') {
+      navigate(`/instances/${employee.employeeId}/human-evaluation`)
+    } else {
+      navigate(`/instances/${employee.employeeId}`)
+    }
   }
 
   return (
@@ -241,6 +259,9 @@ export default function DepartmentEmployeesPage() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {visibleEmployees.map((employee) => {
               const canClone = employee.ownership === 'department' && employee.mappedStatus === 'live'
+              const isInterningAi = employee.mappedStatus === 'interning_ai'
+              const isInterningHuman = employee.mappedStatus === 'interning_human'
+              const isInterning = isInterningAi || isInterningHuman
               return (
                 <article
                   key={employee.employeeId}
@@ -248,7 +269,7 @@ export default function DepartmentEmployeesPage() {
                 >
                   <button
                     type="button"
-                    onClick={() => openDetail(employee.employeeId)}
+                    onClick={() => openCard(employee)}
                     className="block w-full text-left"
                   >
                     <div className="mb-3 flex items-start gap-3">
@@ -273,26 +294,70 @@ export default function DepartmentEmployeesPage() {
                     <div className="flex items-center justify-between gap-2 text-xs text-[var(--hb-soft)]">
                       <span>创建于 {employee.createdAt}</span>
                       {canClone ? <span className="text-emerald-600 dark:text-emerald-400">可复制</span> : null}
+                      {isInterningAi ? <span className="text-violet-600 dark:text-violet-400">AI 评估中</span> : null}
+                      {isInterningHuman ? <span className="text-indigo-600 dark:text-indigo-400">人工评估中</span> : null}
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {canClone && role === 'member' ? (
-                        <button
-                          type="button"
-                          className="hb-btn-primary"
-                          onClick={() => openClone(employee.employeeId)}
-                        >
-                          <CopyPlus size={14} />
-                          创建分身
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className={canClone ? 'hb-btn-ghost' : 'hb-btn-primary'}
-                        onClick={() => openDetail(employee.employeeId)}
-                      >
-                        查看详情
-                        <ArrowRight size={14} />
-                      </button>
+                      {isInterningAi ? (
+                        <>
+                          <button
+                            type="button"
+                            className="hb-btn-primary"
+                            onClick={() => openAiEvaluation(employee.employeeId)}
+                          >
+                            <Bot size={14} />
+                            进入 AI 评估
+                          </button>
+                          <button
+                            type="button"
+                            className="hb-btn-ghost"
+                            onClick={() => openDetail(employee.employeeId)}
+                          >
+                            查看详情
+                            <ArrowRight size={14} />
+                          </button>
+                        </>
+                      ) : isInterningHuman ? (
+                        <>
+                          <button
+                            type="button"
+                            className="hb-btn-primary"
+                            onClick={() => openHumanEvaluation(employee.employeeId)}
+                          >
+                            <UserCheck size={14} />
+                            进入人工评估
+                          </button>
+                          <button
+                            type="button"
+                            className="hb-btn-ghost"
+                            onClick={() => openDetail(employee.employeeId)}
+                          >
+                            查看详情
+                            <ArrowRight size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          {canClone && role === 'member' ? (
+                            <button
+                              type="button"
+                              className="hb-btn-primary"
+                              onClick={() => openClone(employee.employeeId)}
+                            >
+                              <CopyPlus size={14} />
+                              创建分身
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className={canClone ? 'hb-btn-ghost' : 'hb-btn-primary'}
+                            onClick={() => openDetail(employee.employeeId)}
+                          >
+                            查看详情
+                            <ArrowRight size={14} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </article>
