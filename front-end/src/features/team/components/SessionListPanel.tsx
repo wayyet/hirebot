@@ -164,7 +164,7 @@ export default function SessionListPanel({
 
   return (
     <div
-      className="flex-shrink-0 border-r border-[#ececec] bg-[#fafafa] transition-all duration-200"
+      className="flex-shrink-0 rounded-2xl border border-[#ececec] bg-white shadow-sm transition-all duration-200"
       style={{ width: panelWidth }}
     >
       {/* 折叠按钮 */}
@@ -183,7 +183,7 @@ export default function SessionListPanel({
 
       {/* 新对话按钮 */}
       {!collapsed && (
-        <div className="px-3 pb-2">
+        <div className="px-3 pb-3">
           <button
             type="button"
             onClick={onNewChat}
@@ -202,7 +202,7 @@ export default function SessionListPanel({
       ) : (
         <>
           {/* 搜索框 */}
-          <div className="px-3 pb-2">
+          <div className="px-3 pb-3">
             <div className="flex items-center gap-1.5 rounded-md border border-[#ececec] bg-white px-2 py-1">
               <Search size={12} className="text-[#9ca3af]" />
               <input
@@ -217,7 +217,7 @@ export default function SessionListPanel({
 
           {/* 会话列表 */}
           <div
-            className="overflow-y-auto px-2"
+            className="overflow-y-auto px-2 pb-3"
             style={{ maxHeight: "calc(100vh - 200px)" }}
           >
             {loading ? (
@@ -236,7 +236,7 @@ export default function SessionListPanel({
                     key={session.id}
                     type="button"
                     onClick={() => onSelectSession(session.id)}
-                    className={`mb-1 w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
+                    className={`mb-1.5 w-full rounded-xl px-2.5 py-2 text-left transition-colors ${
                       session.id === currentSessionId
                         ? "bg-[#e8f0fe] text-[#1967d2]"
                         : "hover:bg-[#ececec] text-[#404040]"

@@ -677,7 +677,7 @@ export default function InstanceChatPage() {
           当前实例不是分身类型，不能进入站内对话。
         </div>
       ) : (
-        <div className="flex gap-0">
+        <div className="flex gap-4">
           {gatewayEndpointRef.current && sessionListVisible && (
             <SessionListPanel
               gatewayEndpoint={gatewayEndpointRef.current}
