@@ -24,26 +24,6 @@ interface SessionDetailResponse {
   isActive: boolean
 }
 
-export interface SessionSummary {
-  id: string
-  channelId: string
-  createdAt: string
-  lastActiveAt: string
-  state: string
-  historyTurns: number
-  isActive: boolean
-}
-
-interface PagedSessionList {
-  items: SessionSummary[]
-  hasMore: boolean
-}
-
-interface IntegrationSessionsResponse {
-  active: SessionSummary[]
-  persisted: PagedSessionList
-}
-
 export interface SandboxMessage {
   type: string
   content?: string
@@ -235,7 +215,7 @@ async function sandboxDelete<T>(endpoint: string, path: string): Promise<T> {
  */
 export async function fetchLatestGatewaySession(endpoint: string): Promise<string | null> {
   try {
-    const resp = await sandboxGet<IntegrationSessionsResponse>(
+    const resp = await sandboxGet<AdminSessionsResponse>(
       endpoint,
       '/api/integration/sessions?channelId=websocket&pageSize=5',
     )
