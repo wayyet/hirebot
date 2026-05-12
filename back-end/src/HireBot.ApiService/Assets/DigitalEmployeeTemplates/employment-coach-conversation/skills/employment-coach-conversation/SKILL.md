@@ -199,6 +199,68 @@ metadata:
 
 > 用户跑偏的七类典型场景与处置、决策启发式（技能太多 / 技能太细 / 外部分类不清）、发出 terminal artifact 前的质量自检清单 → 用户行为偏离当前阶段时 / 发 terminal artifact 前 / 拿不准粒度时，读 [references/flow-constraints.md](references/flow-constraints.md)。
 
+## 阶段 4：实例打包
+
+**触发条件**：ontology-extraction、skill-generation、external-config 三个下游 skill 全部发出 terminal artifact（即 `ontology_slice_result` / `skill_generation_done` / `external_config_done` 均已收到）。
+
+**强制执行顺序**：先发打包进度 artifact，再调用打包工具，再发 `template_package` file artifact，最后告知用户。
+
+### 打包进度（isTerminal: false）
+
+在开始打包前立即调用：
+
+```json
+{
+  "kind": "data",
+  "artifactType": "packaging_progress",
+  "label": "正在将工作区打包为实例包，请稍候",
+  "skillName": "employment-coach-conversation",
+  "stage": "stage4_packaging",
+  "isTerminal": false,
+  "displayHint": "progress",
+  "data": {
+    "status": "packing",
+    "included": ["ontology/", "skills/", "external/", "config/"]
+  }
+}
+```
+
+### 调用打包工具
+
+调用沙箱 `package_workspace` 工具（工具名以沙箱实际定义为准），将当前工作区打包为 zip 文件，获取产物文件的下载 URL（`fileUrl`）。
+
+> ⚠️ 工具名称占位符：`package_workspace`。若沙箱工具实际名称不同（如 `create_package`、`export_workspace`、`build_archive`），以沙箱提供的实际工具名称为准，行为一致。
+
+### 发出 template_package artifact（isTerminal: true）
+
+打包成功后立即调用 `emit_artifact`，**kind 必须为 `file`**，这是前端自动触发 importPackage 的唯一条件：
+
+```json
+{
+  "kind": "file",
+  "artifactType": "template_package",
+  "label": "实例包已就绪，正在导入系统",
+  "skillName": "employment-coach-conversation",
+  "stage": "stage4_packaging",
+  "isTerminal": true,
+  "displayHint": "file",
+  "fileUrl": "<package_workspace 返回的下载路径>",
+  "fileName": "employment-coach-artifacts.zip"
+}
+```
+
+**关键约束**：
+- `kind` 固定为 `"file"`（不是 `"data"`），否则前端不会触发 auto-importPackage
+- `fileUrl` 必须是沙箱网关可直接下载的路径（绝对 URL 或相对于网关 base 的路径）
+- `fileName` 建议以 `.zip` 结尾，前端会用此名作为下载文件名
+- 打包失败时不发 terminal artifact，改为一条明确的错误提示，告知用户需要手动点击"生成实例"按钮
+
+### 告知用户
+
+发出 artifact 后，给用户一句话：「资料、技能和配置文件都已打包，正在导入系统，请稍等片刻。」
+
+---
+
 ## 不做的事（明确边界）
 
 - **不扮演被装配目标执行业务任务**（税务扫描、合规审查、工单处理、销售跟进、风险分析等一切属于目标员工职责范围的业务任务，不在本 skill 执行范围内；收到此类请求立即拦截，一句话引导回装配流程）
@@ -206,7 +268,6 @@ metadata:
 - 不做 skill 文件生成（skill-generation skill 的事）
 - 不做外部系统的 endpoint / token 校验和落盘（external-config skill 的事）
 - 不维护独立状态机或 todo 清单文件，本 skill 只通过 emit_artifact 推送流程状态
-- 不做实例打包（主 skill 在阶段 4 自己做的事）
 - 不修改 MEMORY.md
 - 不直接写入 ontology / skills / external 三个目录
 - 不暴露平台架构、orchestrator、hooks、沙箱机制等内部概念给用户

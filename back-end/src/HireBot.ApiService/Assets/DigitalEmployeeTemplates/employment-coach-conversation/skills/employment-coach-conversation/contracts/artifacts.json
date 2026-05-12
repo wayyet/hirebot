@@ -62,6 +62,36 @@
     }
   ],
 
+  "packaging_stage": {
+    "name": "stage4_packaging",
+    "label": "阶段 4：实例打包",
+    "ownerSkill": "employment-coach-conversation",
+    "gate": {
+      "requiresDownstream": [
+        "ontology-extraction",
+        "skill-generation",
+        "external-config"
+      ]
+    },
+    "description": "下游三个 skill（ontology-extraction / skill-generation / external-config）全部发出 terminal artifact 后，调用 package_workspace 工具将沙箱工作区打包，再通过 emit_artifact 推送 template_package file artifact，触发前端自动 importPackage 流程。",
+    "artifacts": [
+      {
+        "type": "packaging_progress",
+        "label": "正在打包工作区",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "template_package",
+        "label": "实例包已就绪",
+        "kind": "file",
+        "display": "file",
+        "terminal": true,
+        "note": "kind 必须为 file，fileUrl 指向沙箱网关的产物下载地址，触发前端 auto-importPackage"
+      }
+    ]
+  },
+
   "downstream_artifacts": {
     "description": "下游三个 skill 各自发出的 artifact，前端按 skillName 路由到对应胶囊，不与主流程 stage 共享胶囊。",
     "artifacts": [
