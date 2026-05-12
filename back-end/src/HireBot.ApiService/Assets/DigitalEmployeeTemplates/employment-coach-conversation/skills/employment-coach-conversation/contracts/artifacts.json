@@ -4,6 +4,7 @@
     {
       "name": "stage1_material",
       "label": "阶段 1：资料收集",
+      "ownerSkill": "employment-coach-conversation",
       "artifacts": [
         {
           "type": "material_collection_progress",
@@ -22,6 +23,7 @@
     {
       "name": "stage2_skill",
       "label": "阶段 2：技能定义",
+      "ownerSkill": "employment-coach-conversation",
       "gate": { "requiresStage": "stage1_material" },
       "artifacts": [
         {
@@ -41,6 +43,7 @@
     {
       "name": "stage3_external",
       "label": "阶段 3：外部能力",
+      "ownerSkill": "employment-coach-conversation",
       "gate": { "requiresStage": "stage2_skill" },
       "artifacts": [
         {
@@ -57,5 +60,53 @@
         }
       ]
     }
-  ]
+  ],
+
+  "downstream_artifacts": {
+    "description": "下游三个 skill 各自发出的 artifact，前端按 skillName 路由到对应胶囊，不与主流程 stage 共享胶囊。",
+    "artifacts": [
+      {
+        "type": "ontology_extraction_progress",
+        "ownerSkill": "ontology-extraction",
+        "label": "本体抽取进度",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "ontology_extraction_done",
+        "ownerSkill": "ontology-extraction",
+        "label": "本体抽取完成",
+        "display": "tree",
+        "terminal": true
+      },
+      {
+        "type": "skill_generation_progress",
+        "ownerSkill": "skill-generation",
+        "label": "技能包生成进度",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "skill_generation_done",
+        "ownerSkill": "skill-generation",
+        "label": "技能包生成完成",
+        "display": "tree",
+        "terminal": true
+      },
+      {
+        "type": "external_config_progress",
+        "ownerSkill": "external-config",
+        "label": "外部配置生成进度",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "external_config_done",
+        "ownerSkill": "external-config",
+        "label": "外部配置生成完成",
+        "display": "tree",
+        "terminal": true
+      }
+    ]
+  }
 }

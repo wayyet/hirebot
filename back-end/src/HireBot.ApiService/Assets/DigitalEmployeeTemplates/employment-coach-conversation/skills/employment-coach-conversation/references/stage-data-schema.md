@@ -35,6 +35,7 @@
     {
       "title": "退货处理规则",
       "source_hint": "用户上传：非标退货处理规则.docx",
+      "source_path": "uploads/非标退货处理规则.docx",
       "category": "决策规则",
       "objective": "抽取退货判定条件与处置路径",
       "status": "pending"
@@ -42,6 +43,7 @@
     {
       "title": "客服话术风格",
       "source_hint": "用户描述",
+      "source_path": null,
       "category": "话术风格",
       "objective": "抽取标准化服务语言特征",
       "status": "pending"
@@ -58,7 +60,8 @@
 | `collected_count` | 是 | 当前已收集的资料条目数 |
 | `items[]` | 是 | 已整理的资料清单 |
 | `items[].title` | 是 | 资料标题，对用户可读 |
-| `items[].source_hint` | 是 | 来源描述（上传文件名或描述来源） |
+| `items[].source_hint` | 是 | 来源描述（对用户可读，如"用户上传：sales.csv"或"用户描述"） |
+| `items[].source_path` | 否 | 工作区相对路径（上传文件填 `uploads/<文件名>`；纯描述来源填 `null`）；下游 `ontology-extraction` skill 用此字段定位实际文件，路径约定见 `config/workspace.json` |
 | `items[].category` | 是 | 资料分类：决策规则 / 话术风格 / 业务流程 / 数据字段 / 其他 |
 | `items[].objective` | 是 | 本条资料要抽取的目标 |
 | `items[].status` | 是 | `pending`（待处理）/ `ready`（已就绪） |
@@ -75,6 +78,7 @@
     {
       "title": "退货处理规则",
       "source_hint": "用户上传：非标退货处理规则.docx",
+      "source_path": "uploads/非标退货处理规则.docx",
       "category": "决策规则",
       "objective": "抽取退货判定条件、处置档位和人工分流触发节点",
       "status": "ready"
@@ -84,7 +88,7 @@
 }
 ```
 
-字段说明：与 `material_collection_progress` 相同，`status` 应全部为 `ready`，并补充 `summary` 字段。
+字段说明：与 `material_collection_progress` 相同；terminal 时 `status` 全部为 `ready`，`source_path` 必须尽可能补全（有上传文件的条目**必填**），并补充 `summary` 字段。`ontology-extraction` skill 将以 `source_path` 为准定位工作区内的实际文件，`source_hint` 仅供人工阅读。
 
 ---
 

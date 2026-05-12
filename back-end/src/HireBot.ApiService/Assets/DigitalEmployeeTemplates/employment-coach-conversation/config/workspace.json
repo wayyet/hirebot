@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "description": "定义沙箱工作区的目录结构约定。所有 skill 在写入产物或读取上传文件时，必须以本文件中定义的路径为准，不得自行选择目录。路径均为相对于工作区根目录（沙箱 working directory）的相对路径。",
+
+  "workspace_root": ".",
+
+  "directories": {
+    "config":   "config/",
+    "uploads":  "uploads/",
+    "ontology": "ontology/",
+    "skills":   "skills/",
+    "external": "external/"
+  },
+
+  "upload_extraction": {
+    "target_directory": "uploads/",
+    "note": "用户上传的 ZIP 包解压到 uploads/ 目录下，保留 ZIP 内的原始目录结构。解压后各文件的工作区路径格式为 uploads/<ZIP内相对路径>，例如 uploads/docs/sales.csv。",
+    "path_format": "uploads/<zip_entry_relative_path>"
+  },
+
+  "output_paths": {
+    "ontology_slices": {
+      "directory": "ontology/",
+      "file_naming": "<domain-slug>.slice.json / <domain-slug>.slice.md",
+      "owner_skill": "ontology-extraction"
+    },
+    "skill_packages": {
+      "directory": "skills/<skill-slug>/",
+      "file_naming": "SKILL.md, metadata.json, references/, contracts/（可选）",
+      "owner_skill": "skill-generation"
+    },
+    "external_configs": {
+      "directory": "external/",
+      "file_naming": "<capability-slug>.config.json",
+      "owner_skill": "external-config"
+    }
+  },
+
+  "read_only_directories": ["config/"],
+
+  "constraints": [
+    "employment-coach-conversation 只通过 emit_artifact 推送状态，不写入任何目录",
+    "ontology-extraction 只写入 ontology/，不写入 skills/ 或 external/",
+    "skill-generation 只写入 skills/，不写入 ontology/ 或 external/",
+    "external-config 只写入 external/，不写入 ontology/ 或 skills/",
+    "config/ 目录只有 employment-coach-conversation 通过 config_governance_patch 机制修改，其他 skill 不得写入",
+    "uploads/ 目录只读，任何 skill 不得写入"
+  ]
+}

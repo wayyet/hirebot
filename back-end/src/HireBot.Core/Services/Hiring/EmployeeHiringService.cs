@@ -1252,13 +1252,7 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(409, "本地雇佣上下文不存在，请重新发起雇佣流程");
         }
 
-        if (!string.Equals(runtimeContext.LatestDiagnosticReport?.Status, HiringDiagnosticStatus.Pass, StringComparison.OrdinalIgnoreCase) ||
-            runtimeContext.LatestDiagnosticReport?.ReadyForPackaging != true)
-        {
-            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
-                409,
-                runtimeContext.LatestDiagnosticReport?.UserSummary ?? "当前尚未通过诊断校验，不能执行打包。");
-        }
+        // Handoff 诊断门控已停用：不再要求 diagnostic Pass / ReadyForPackaging 才能执行打包。
 
         var call = await SendForJsonAsync<HiringFinalizeResultDto>(
             HttpMethod.Post,

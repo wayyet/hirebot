@@ -241,48 +241,14 @@ internal sealed partial class EmployeeHiringService
 
     private HiringRuntimeContext ApplyWorkflowProgress(HiringRuntimeContext runtimeContext)
     {
-        var normalizedStructuredData = NormalizeStructuredData(runtimeContext.StructuredData);
-        logger.LogInformation(
-            "ApplyWorkflowProgress diagnostics. HireId={HireId}, HandoffCount={HandoffCount}, CredentialSlotCount={CredentialSlotCount}, MessageCount={MessageCount}",
-            runtimeContext.HireId,
-            runtimeContext.HandoffItems.Count,
-            runtimeContext.CredentialSlots.Count,
-            runtimeContext.Messages.Count);
-        var normalizedContext = runtimeContext with
+        // Handoff 驱动的阶段评估已停用：新方案由沙箱 skill 直接向前端传递业务数据，
+        // CollectionPhase / CurrentStage 由外部显式设置，不再基于 HandoffItems 自动推进。
+        return runtimeContext with
         {
-            StructuredData = normalizedStructuredData,
-            HandoffItems = runtimeContext.HandoffItems
-                .OrderBy(item => item.CreatedAtUtc)
-                .ThenBy(item => item.HandoffId, StringComparer.OrdinalIgnoreCase)
-                .ToArray(),
+            StructuredData = NormalizeStructuredData(runtimeContext.StructuredData),
             CredentialSlots = runtimeContext.CredentialSlots
                 .OrderBy(item => item.CredentialSlot, StringComparer.OrdinalIgnoreCase)
                 .ToArray()
-        };
-
-        var evaluatedDiagnostic = HiringWorkflowSupport.EvaluateDiagnosis(normalizedContext);
-        var diagnostic = HiringWorkflowSupport.MergeDiagnosticReports(
-            evaluatedDiagnostic,
-            normalizedContext.LatestDiagnosticReport);
-        var stageCompletion = HiringWorkflowSupport.BuildStageCompletion(normalizedContext.DiscoverySkill.StageRules, diagnostic);
-        var collectionPhase = string.Equals(normalizedContext.CollectionPhase, HiringCollectionPhase.Finalized, StringComparison.OrdinalIgnoreCase)
-            ? HiringCollectionPhase.Finalized
-            : normalizedStructuredData.Count == 0 &&
-              normalizedContext.Messages.Count == 0 &&
-              normalizedContext.HandoffItems.Count == 0 &&
-              normalizedContext.CredentialSlots.Count == 0
-                ? HiringCollectionPhase.NotStarted
-                : diagnostic.ReadyForPackaging
-                    ? HiringCollectionPhase.ReadyForFinalize
-                    : HiringCollectionPhase.InProgress;
-
-        return normalizedContext with
-        {
-            CurrentStage = diagnostic.CurrentStage,
-            CollectionPhase = collectionPhase,
-            LatestDiagnosticReport = diagnostic,
-            StageReadiness = diagnostic.StageReadiness,
-            StageCompletion = stageCompletion
         };
     }
 
@@ -482,24 +448,7 @@ internal sealed partial class EmployeeHiringService
             throw new InvalidOperationException("stage_transition 不允许携带 handoff_ids");
         }
 
-        var diagnostic = runtimeContext.LatestDiagnosticReport ?? HiringWorkflowSupport.EvaluateDiagnosis(runtimeContext);
-        if (!diagnostic.ReadyForPackaging)
-        {
-            throw new InvalidOperationException("当前尚未满足 stage_transition 的出口条件");
-        }
-
-        var unresolvedHandoffIds = runtimeContext.HandoffItems
-            .Where(item =>
-                !string.Equals(item.Status, HiringHandoffStatus.Confirmed, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(item.Status, HiringHandoffStatus.Dismissed, StringComparison.OrdinalIgnoreCase))
-            .Select(item => item.HandoffId)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        if (unresolvedHandoffIds.Length > 0)
-        {
-            throw new InvalidOperationException(
-                $"仍存在未闭环的 Handoff，不能进入 instance_packaging: {string.Join(", ", unresolvedHandoffIds)}");
-        }
+        // Handoff 就绪性检查已停用：不再通过 HandoffItems 校验阶段出口条件。
 
         var now = DateTimeOffset.UtcNow;
         return runtimeContext with

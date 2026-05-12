@@ -372,47 +372,13 @@ internal sealed partial class EmployeeHiringService
                 true));
     }
 
-    private async Task<HiringRuntimeContext> RefreshHandoffStateFromSandboxAsync(
+    private Task<HiringRuntimeContext> RefreshHandoffStateFromSandboxAsync(
         HiringRuntimeContext runtimeContext,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(runtimeContext.SessionId))
-        {
-            return runtimeContext;
-        }
-
-        var sessionDetailResult = await sandboxService.GetSessionDetailAsync(
-            new SandboxSessionDetailRequestDto
-            {
-                ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = runtimeContext.HireId,
-                SandboxRole = ResolveSandboxRole(runtimeContext.HireId),
-                OwnerSubject = runtimeContext.OwnerSubject,
-                TenantId = runtimeContext.TenantId,
-                OperatorId = runtimeContext.OperatorId,
-                SessionKey = "default",
-                SandboxId = runtimeContext.SandboxId
-            },
-            cancellationToken);
-        if (!sessionDetailResult.Success || sessionDetailResult.Data is null)
-        {
-            logger.LogWarning("无法刷新会话 {SessionId} 的 handoff 元数据: {Message}", runtimeContext.SessionId, sessionDetailResult.Message);
-            return runtimeContext;
-        }
-
-        var sandboxHandoffCount = sessionDetailResult.Data.HandoffItems.Count;
-        var projectedHandoffItems = ProjectHandoffItems(sessionDetailResult.Data.HandoffItems);
-        logger.LogInformation(
-            "RefreshHandoffStateFromSandbox: SessionId={SessionId}, SandboxHandoffCount={SandboxCount}, ProjectedCount={ProjectedCount}",
-            runtimeContext.SessionId,
-            sandboxHandoffCount,
-            projectedHandoffItems.Count);
-
-        return runtimeContext with
-        {
-            SessionId = sessionDetailResult.Data.SessionId,
-            HandoffItems = projectedHandoffItems
-        };
+        // Handoff 同步已停用：新方案由沙箱 skill 直接向前端传递业务数据，
+        // 不再从后端拉取 handoff_items 来驱动 Todo 列表和阶段状态。
+        return Task.FromResult(runtimeContext);
     }
 
     private static IReadOnlyList<HiringWorkflowHandoffDto> ProjectHandoffItems(
