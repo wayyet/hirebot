@@ -57,11 +57,12 @@ function SandboxRow({ item, onDelete, deletingId }: SandboxRowProps) {
         <td>
           <span className={`hb-pill ${statePillClass(item.state)}`}>{item.state}</span>
           {item.lastError && (
-            <AlertCircle
-              size={13}
-              style={{ marginLeft: 6, color: 'var(--hb-danger)', verticalAlign: 'middle' }}
-              title={item.lastError}
-            />
+            <span title={item.lastError}>
+              <AlertCircle
+                size={13}
+                style={{ marginLeft: 6, color: 'var(--hb-danger)', verticalAlign: 'middle' }}
+              />
+            </span>
           )}
         </td>
         <td className="muted">{formatDate(item.createdAtUtc)}</td>

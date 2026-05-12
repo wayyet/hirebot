@@ -261,7 +261,6 @@ export default function DepartmentEmployeesPage() {
               const canClone = employee.ownership === 'department' && employee.mappedStatus === 'live'
               const isInterningAi = employee.mappedStatus === 'interning_ai'
               const isInterningHuman = employee.mappedStatus === 'interning_human'
-              const isInterning = isInterningAi || isInterningHuman
               return (
                 <article
                   key={employee.employeeId}

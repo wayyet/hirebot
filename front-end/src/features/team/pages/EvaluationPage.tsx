@@ -14,7 +14,7 @@ import {
   SendHorizontal,
   Zap,
 } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import {
   api,
@@ -103,7 +103,6 @@ function progressStepByState(params: {
 
 export default function EvaluationPage() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null)
   const [evaluation, setEvaluation] = useState<EvaluationState | null>(null)
   const [loading, setLoading] = useState(true)
