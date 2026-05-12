@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "stages": [
+    {
+      "name": "ontology_extraction",
+      "label": "本体抽取",
+      "artifacts": [
+        {
+          "type": "extraction_progress",
+          "label": "抽取进度",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "ontology_slice_result",
+          "label": "本体切片结果",
+          "display": "code",
+          "terminal": true
+        }
+      ]
+    }
+  ]
+}

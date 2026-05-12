@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, type EmployeeTemplateDetail } from '@/infra/api'
+import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 export default function TemplateDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -11,7 +12,6 @@ export default function TemplateDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [template, setTemplate] = useState<EmployeeTemplateDetail | null>(null)
-  const [fixtureHiring, setFixtureHiring] = useState(false)
 
   useEffect(() => {
     if (!id) {
@@ -47,26 +47,6 @@ export default function TemplateDetailPage() {
     }
   }, [id])
 
-  async function hireByFixture() {
-    if (!template || fixtureHiring) return
-
-    setFixtureHiring(true)
-    setError('')
-    try {
-      const result = await api.employeeTemplate.fixtureHire(template.templateId)
-      if (result.status === 'interning_ai' || result.status === 'interning_human') {
-        navigate(`/instances/${result.employeeId}/evaluation`)
-        return
-      }
-
-      navigate(`/instances/${result.employeeId}`)
-    } catch (requestError: unknown) {
-      setError(requestError instanceof Error ? requestError.message : '使用 Fixture 承接实例失败')
-    } finally {
-      setFixtureHiring(false)
-    }
-  }
-
   if (loading) {
     return (
       <div className="hb-page">
@@ -81,10 +61,7 @@ export default function TemplateDetailPage() {
   if (error || !template) {
     return (
       <div className="hb-page space-y-4">
-        <button type="button" onClick={() => navigate('/template-pool')} className="hb-btn-ghost">
-          <ArrowLeft size={14} />
-          返回模板池
-        </button>
+        <Breadcrumb items={[{ label: '模板池', to: '/template-pool' }, { label: '模板详情' }]} />
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-400">
           {error || '模板不存在'}
         </div>
@@ -94,10 +71,7 @@ export default function TemplateDetailPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <button type="button" onClick={() => navigate('/template-pool')} className="hb-btn-ghost">
-        <ArrowLeft size={14} />
-        返回模板池
-      </button>
+      <Breadcrumb items={[{ label: '模板池', to: '/template-pool' }, { label: template.name }]} />
 
       <div className="hb-card p-6">
         <div className="flex flex-wrap items-start gap-4">
@@ -112,9 +86,6 @@ export default function TemplateDetailPage() {
           <div className="flex flex-col gap-2">
             <button type="button" className="hb-btn-primary" onClick={() => navigate(`/hiring/${template.templateId}`)}>
               {template.cta.label || '发起标准雇佣'}
-            </button>
-            <button type="button" className="hb-btn-ghost" onClick={() => void hireByFixture()} disabled={fixtureHiring}>
-              {fixtureHiring ? '承接中...' : '使用 Fixture 数据'}
             </button>
           </div>
         </div>

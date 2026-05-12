@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { AlertCircle, Loader2 } from 'lucide-react'
+import { useParams } from 'react-router-dom'
 import { api, type SkillDetail } from '@/infra/api'
+import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 function toneForStatus(status: string) {
   if (status.includes('上架')) return 'green'
@@ -17,7 +18,6 @@ function toneForLevel(level: string) {
 
 export default function SkillDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
 
   const [skill, setSkill] = useState<SkillDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -56,14 +56,7 @@ export default function SkillDetailPage() {
 
   return (
     <div className="hb-page">
-      <button
-        type="button"
-        onClick={() => navigate('/skill')}
-        className="hb-btn-ghost"
-      >
-        <ArrowLeft size={14} />
-        返回 Skill 列表
-      </button>
+      <Breadcrumb items={[{ label: 'Skill 列表', to: '/skill' }, { label: skill?.name ?? '技能详情' }]} />
 
       {error ? (
         <div className="hb-alert hb-alert-error mt-5">

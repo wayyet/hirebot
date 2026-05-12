@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
-  ArrowLeft,
   Bot,
   Check,
   Clock3,
@@ -17,6 +16,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useUserRole } from "@/app/context/UserRoleContext";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeDetail } from "@/infra/api";
+import { Breadcrumb } from "@/shared/components/Breadcrumb";
 import {
   firstCharacter,
   ownershipClass,
@@ -238,17 +238,15 @@ export default function InstanceDetailPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <button
-        type="button"
-        onClick={() => navigate(backTarget)}
-        className="hb-detail-crumb"
-      >
-        <ArrowLeft size={14} />
-        返回
-        {employeeView?.ownership === "department"
-          ? "部门数字员工"
-          : "我的数字员工"}
-      </button>
+      <Breadcrumb
+        items={[
+          {
+            label: employeeView?.ownership === "department" ? '部门数字员工' : '我的数字员工',
+            to: backTarget,
+          },
+          { label: '员工详情' },
+        ]}
+      />
 
       {error && (
         <div className="hb-alert hb-alert-error">

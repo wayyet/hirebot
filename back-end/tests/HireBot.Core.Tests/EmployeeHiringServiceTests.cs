@@ -165,7 +165,7 @@ public class EmployeeHiringServiceTests
                 SkillId: "employment-coach-conversation",
                 SkillVersion: "1.0.0",
                 SkillHash: "hash",
-                SkillRootPath: "Assets/SystemSkills/employment-coach-conversation",
+                SkillRootPath: "Assets/DigitalEmployeeTemplates/employment-coach-conversation",
                 SkillContent: "# discovery",
                 Files: [],
                 StageRules: []),

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   AlertCircle,
-  ArrowLeft,
   Loader2,
   MessageCircle,
   Send,
@@ -9,6 +8,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Breadcrumb } from "@/shared/components/Breadcrumb";
 
 import {
   api,
@@ -646,17 +646,15 @@ export default function InstanceChatPage() {
 
   return (
     <div className="hb-page hb-page-wide">
-      <button
-        type="button"
-        onClick={() => navigate(backTarget)}
-        className="hb-detail-crumb"
-      >
-        <ArrowLeft size={14} />
-        返回
-        {employeeView?.ownership === "department"
-          ? "部门数字员工"
-          : "我的数字员工"}
-      </button>
+      <Breadcrumb
+        items={[
+          {
+            label: employeeView?.ownership === "department" ? '部门数字员工' : '我的数字员工',
+            to: backTarget,
+          },
+          { label: '实例对话' },
+        ]}
+      />
 
       {error && (
         <div className="hb-alert hb-alert-error">

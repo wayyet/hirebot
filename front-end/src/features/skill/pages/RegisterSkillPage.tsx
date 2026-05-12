@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
-import { AlertCircle, ArrowLeft, Upload } from 'lucide-react'
+import { AlertCircle, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 export default function RegisterSkillPage() {
   const navigate = useNavigate()
@@ -34,14 +35,7 @@ export default function RegisterSkillPage() {
 
   return (
     <div className="hb-page">
-      <button
-        type="button"
-        onClick={() => navigate('/skill')}
-        className="hb-btn-ghost"
-      >
-        <ArrowLeft size={14} />
-        返回 Skill 列表
-      </button>
+      <Breadcrumb items={[{ label: 'Skill 列表', to: '/skill' }, { label: '注册新技能' }]} />
 
       <div className="hb-page-head mt-5">
         <div>

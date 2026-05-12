@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "stages": [
+    {
+      "name": "stage1_material",
+      "label": "阶段 1：资料收集",
+      "ownerSkill": "employment-coach-conversation",
+      "artifacts": [
+        {
+          "type": "material_collection_progress",
+          "label": "资料收集进度",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "material_handoff_summary",
+          "label": "资料工单摘要",
+          "display": "tree",
+          "terminal": true
+        }
+      ]
+    },
+    {
+      "name": "stage2_skill",
+      "label": "阶段 2：技能定义",
+      "ownerSkill": "employment-coach-conversation",
+      "gate": { "requiresStage": "stage1_material" },
+      "artifacts": [
+        {
+          "type": "skill_workorder_progress",
+          "label": "技能工单进度",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "skill_workorder_summary",
+          "label": "技能工单摘要",
+          "display": "tree",
+          "terminal": true
+        }
+      ]
+    },
+    {
+      "name": "stage3_external",
+      "label": "阶段 3：外部能力",
+      "ownerSkill": "employment-coach-conversation",
+      "gate": { "requiresStage": "stage2_skill" },
+      "artifacts": [
+        {
+          "type": "external_workorder_progress",
+          "label": "外部能力工单进度",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "external_workorder_summary",
+          "label": "外部能力工单摘要",
+          "display": "tree",
+          "terminal": true
+        }
+      ]
+    }
+  ],
+
+  "packaging_stage": {
+    "name": "stage4_packaging",
+    "label": "阶段 4：实例打包",
+    "ownerSkill": "employment-coach-conversation",
+    "gate": {
+      "requiresDownstream": [
+        "ontology-extraction",
+        "skill-generation",
+        "external-config"
+      ]
+    },
+    "description": "下游三个 skill（ontology-extraction / skill-generation / external-config）全部发出 terminal artifact 后，调用 package_workspace 工具将沙箱工作区打包，再通过 emit_artifact 推送 template_package file artifact，触发前端自动 importPackage 流程。",
+    "artifacts": [
+      {
+        "type": "packaging_progress",
+        "label": "正在打包工作区",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "template_package",
+        "label": "实例包已就绪",
+        "kind": "file",
+        "display": "file",
+        "terminal": true,
+        "note": "kind 必须为 file，fileUrl 指向沙箱网关的产物下载地址，触发前端 auto-importPackage"
+      }
+    ]
+  },
+
+  "downstream_artifacts": {
+    "description": "下游三个 skill 各自发出的 artifact，前端按 skillName 路由到对应胶囊，不与主流程 stage 共享胶囊。",
+    "artifacts": [
+      {
+        "type": "ontology_extraction_progress",
+        "ownerSkill": "ontology-extraction",
+        "label": "本体抽取进度",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "ontology_extraction_done",
+        "ownerSkill": "ontology-extraction",
+        "label": "本体抽取完成",
+        "display": "tree",
+        "terminal": true
+      },
+      {
+        "type": "skill_generation_progress",
+        "ownerSkill": "skill-generation",
+        "label": "技能包生成进度",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "skill_generation_done",
+        "ownerSkill": "skill-generation",
+        "label": "技能包生成完成",
+        "display": "tree",
+        "terminal": true
+      },
+      {
+        "type": "external_config_progress",
+        "ownerSkill": "external-config",
+        "label": "外部配置生成进度",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "external_config_done",
+        "ownerSkill": "external-config",
+        "label": "外部配置生成完成",
+        "display": "tree",
+        "terminal": true
+      }
+    ]
+  }
+}

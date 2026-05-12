@@ -1,11 +1,77 @@
 import type { ReactNode, RefObject } from 'react'
+import { useState, useCallback } from 'react'
 
-import { FileText, Paperclip, Package, X } from 'lucide-react'
+import { Check, Copy, FileText, Paperclip, Package, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import type { ChatFile, ChatMessage } from '../hiringPageTypes'
 import type { HiringGuideVm } from '../hiringWorkflowViewModel'
+import { ArtifactMessageCard } from './ArtifactMessageCard'
+import { StageGateCard } from './StageGateCard'
+
+/** 将对话消息列表转换为 Markdown 字符串，便于粘贴给其他 LLM 分析 */
+function chatToMarkdown(messages: ChatMessage[], botName: string): string {
+  const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+  const lines: string[] = [
+    `# 雇佣对话记录`,
+    ``,
+    `**AI 角色**: ${botName}`,
+    `**导出时间**: ${now}`,
+    ``,
+    `---`,
+    ``,
+  ]
+
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      lines.push(`### 👤 用户`)
+      lines.push(``)
+      lines.push(msg.content)
+      if (msg.files && msg.files.length > 0) {
+        lines.push(``)
+        lines.push(`*附件: ${msg.files.map((f) => f.name).join(', ')}*`)
+      }
+      lines.push(``)
+      lines.push(`---`)
+      lines.push(``)
+    } else if (msg.role === 'bot') {
+      lines.push(`### 🤖 ${botName}`)
+      lines.push(``)
+      lines.push(msg.content)
+      lines.push(``)
+      lines.push(`---`)
+      lines.push(``)
+    } else if (msg.role === 'artifact' && msg.artifact) {
+      const a = msg.artifact
+      lines.push(`### 📦 产物 · ${a.label ?? a.artifactType}`)
+      lines.push(``)
+      if (a.kind === 'file') {
+        lines.push(`- 文件名: ${a.fileName ?? '未知'}`)
+        if (a.sizeLabel) lines.push(`- 大小: ${a.sizeLabel}`)
+      } else if (a.kind === 'data') {
+        lines.push(`\`\`\`json`)
+        lines.push(JSON.stringify(a.data, null, 2))
+        lines.push(`\`\`\``)
+      }
+      lines.push(``)
+      lines.push(`---`)
+      lines.push(``)
+    } else if (msg.role === 'stage_gate' && msg.stageGate) {
+      const sg = msg.stageGate
+      lines.push(`### 🚦 阶段推进 · ${sg.completedStage} → ${sg.nextStage}`)
+      lines.push(``)
+      if (!sg.canProceed && sg.blockedReason) {
+        lines.push(`> ⚠️ 阻塞原因: ${sg.blockedReason}`)
+      }
+      lines.push(``)
+      lines.push(`---`)
+      lines.push(``)
+    }
+  }
+
+  return lines.join('\n')
+}
 
 type HiringConversationPanelProps = {
   introName: string
@@ -30,6 +96,8 @@ type HiringConversationPanelProps = {
   onOpenSkillUpload: () => void
   onRemovePendingFile: (fileId: string) => void
   formatFileSize: (bytes: number) => string
+  /** 带 token 的 gateway 文件下载回调 */
+  onArtifactFileDownload?: (url: string, fileName: string) => void
 }
 
 export function HiringConversationPanel({
@@ -54,19 +122,21 @@ export function HiringConversationPanel({
   onOpenSkillUpload,
   onRemovePendingFile,
   formatFileSize,
+  onArtifactFileDownload,
 }: HiringConversationPanelProps) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopyAsMarkdown = useCallback(() => {
+    if (messages.length === 0) return
+    const md = chatToMarkdown(messages, introName)
+    void navigator.clipboard.writeText(md).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [messages, introName])
+
   return (
     <div className="hb-hiring-chat">
-      <div className="hb-hiring-panel-head">
-        <div className="hb-hiring-employee-chip">
-          <div className="hb-hiring-employee-avatar">{introName.slice(0, 1).toUpperCase()}</div>
-          <div>
-            <strong>{introName}</strong>
-            <span>模板新雇佣</span>
-          </div>
-        </div>
-      </div>
-
       <div className="hb-hiring-chat-body">
         <InfoCard
           title={`我是${introName}`}
@@ -109,7 +179,32 @@ export function HiringConversationPanel({
           />
         )}
 
-        {messages.map((message) => (
+        {messages.map((message) => {
+          // artifact 产物卡片：不受 role 方向影响，居左展示
+          if (message.role === 'artifact' && message.artifact) {
+            return (
+              <div key={message.id} className="hb-hiring-msg">
+                <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
+                <div className="hb-hiring-msg-stack">
+                  <ArtifactMessageCard artifact={message.artifact} formatFileSize={formatFileSize} onFileDownload={onArtifactFileDownload} />
+                </div>
+              </div>
+            )
+          }
+
+          // stage_gate 阶段推进卡片：居左展示
+          if (message.role === 'stage_gate' && message.stageGate) {
+            return (
+              <div key={message.id} className="hb-hiring-msg">
+                <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
+                <div className="hb-hiring-msg-stack">
+                  <StageGateCard stageGate={message.stageGate} />
+                </div>
+              </div>
+            )
+          }
+
+          return (
           <div key={message.id} className={`hb-hiring-msg ${message.role === 'user' ? 'is-user' : ''}`}>
             <div className={`hb-hiring-avatar ${message.role === 'user' ? 'is-user' : ''}`}>
               {message.role === 'user' ? '你' : introName.slice(0, 1).toUpperCase()}
@@ -131,7 +226,8 @@ export function HiringConversationPanel({
               ))}
             </div>
           </div>
-        ))}
+          )
+        })}
 
         {/* WS 流式回复：有内容时展示逐字气泡，否则显示 typing 动画 */}
         {streamingContent !== null && streamingContent !== undefined ? (
@@ -223,6 +319,16 @@ export function HiringConversationPanel({
                 >
                   <Package size={15} />
                   skill
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyAsMarkdown}
+                  disabled={messages.length === 0}
+                  className="hb-hiring-tool-btn"
+                  title="将对话记录复制为 Markdown，便于粘贴给其他 AI 分析"
+                >
+                  {copied ? <Check size={15} /> : <Copy size={15} />}
+                  {copied ? '已复制' : '复制对话'}
                 </button>
               </div>
               <button

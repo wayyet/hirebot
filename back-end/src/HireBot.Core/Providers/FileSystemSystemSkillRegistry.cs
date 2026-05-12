@@ -13,7 +13,7 @@ internal sealed class FileSystemSystemSkillRegistry(
     IHostEnvironment hostEnvironment,
     IConfiguration configuration) : ISystemSkillRegistry, ISkillCatalogProvider
 {
-    private const string SystemSkillsRootKey = "HireBot:SystemSkillsRoot";
+    private const string SystemSkillsRootKey = "HireBot:DigitalEmployeeTemplatesRoot";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -24,7 +24,7 @@ internal sealed class FileSystemSystemSkillRegistry(
         var rootPath = HiringAssetFileSystem.ResolveDirectory(
             hostEnvironment.ContentRootPath,
             configuration[SystemSkillsRootKey],
-            Path.Combine("Assets", "SystemSkills"));
+            Path.Combine("Assets", "DigitalEmployeeTemplates"));
         if (!Directory.Exists(rootPath))
         {
             throw new InvalidOperationException($"System skills root not found: {rootPath}");
@@ -75,7 +75,7 @@ internal sealed class FileSystemSystemSkillRegistry(
             var resolvedPath = HiringAssetFileSystem.ResolveDirectory(
                 hostEnvironment.ContentRootPath,
                 configuredPath,
-                Path.Combine("Assets", "SystemSkills"));
+                Path.Combine("Assets", "DigitalEmployeeTemplates"));
             if (!Directory.Exists(resolvedPath))
             {
                 throw new InvalidOperationException($"Configured system skill path not found: {resolvedPath}");

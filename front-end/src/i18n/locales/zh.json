@@ -19,8 +19,40 @@
   "user": {
     "loading": "加载中...",
     "defaultName": "用户",
+    "settings": "设置",
     "logout": "退出登录",
     "logoutFailed": "退出登录失败，请稍后重试"
+  },
+  "settings": {
+    "title": "设置",
+    "sandboxes": {
+      "title": "我的雇佣沙箱",
+      "description": "管理当前账户启动的所有雇佣沙箱，可删除不再需要的测试数据。",
+      "refresh": "刷新",
+      "empty": "暂无活跃的雇佣沙箱",
+      "loadError": "加载沙箱列表失败",
+      "deleteConfirm": "确认删除此沙箱？此操作不可逆。",
+      "deleteSuccess": "沙箱已删除",
+      "deleteFailed": "删除失败",
+      "state": {
+        "running": "运行中",
+        "creating": "创建中",
+        "initializing": "初始化中",
+        "deleting": "删除中",
+        "deleted": "已删除",
+        "expired": "已过期",
+        "error": "异常"
+      },
+      "col": {
+        "sandboxId": "沙箱 ID",
+        "scope": "作用域",
+        "state": "状态",
+        "createdAt": "创建时间",
+        "expiresAt": "过期时间",
+        "actions": "操作"
+      },
+      "delete": "删除"
+    }
   },
   "common": {
     "loading": "加载中...",

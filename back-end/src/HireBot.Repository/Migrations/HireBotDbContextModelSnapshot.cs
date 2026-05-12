@@ -579,6 +579,11 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("ConversationCacheJson")
+                        .IsRequired()
+                        .HasDefaultValue("{}")
+                        .HasColumnType("text");
+
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 

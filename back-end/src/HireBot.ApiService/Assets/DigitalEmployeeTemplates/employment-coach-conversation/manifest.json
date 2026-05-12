@@ -1,0 +1,58 @@
+{
+  "name": "employment-coach-conversation",
+  "display_name": "雇佣教练对话包",
+  "positioning": "数字员工雇佣流程的 AI 对话导航中枢，通过「资料 → 技能 → 外部 → 打包」四阶段引导把业务需求转化为可部署的工单集",
+  "description": "以雇佣教练身份引导业务用户完成「资料 → 技能 → 外部」三阶段对话装配，收集阶段完成后驱动 ontology-extraction / skill-generation / external-config 三个下游 skill 并行执行，全部完成后自动调用打包工具将工作区打包为 zip，发出 template_package（kind: file）artifact 触发前端 auto-importPackage，完成实例入库全流程。每个阶段在关键节点通过 emit_artifact 推送进度和完成信号，驱动前端雇佣阶段胶囊更新。",
+  "version": "v1.0.0",
+  "entry_skill": "skills/employment-coach-conversation",
+  "ontology_slices": [
+    {
+      "name": "hiring-discovery-ontology",
+      "path": "ontology/ontology-slice.md",
+      "type": "digital_employee_slice",
+      "required": true
+    }
+  ],
+  "skills": [
+    {
+      "name": "employment-coach-conversation",
+      "path": "skills/employment-coach-conversation/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "ontology-extraction",
+      "path": "skills/ontology-extraction/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "skill-generation",
+      "path": "skills/skill-generation/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "external-config",
+      "path": "skills/external-config/SKILL.md",
+      "required": true
+    }
+  ],
+  "stage_rules": [
+    {
+      "stage": "material",
+      "skill_name": "employment-coach-conversation",
+      "description": "引导用户归类业务资料并写清抽取目标；至少 1 份资料完成分类且标注抽取目标后，通过 emit_artifact（material_handoff_summary, isTerminal: true）完成阶段",
+      "required_fields": ["source_files", "category", "objective"]
+    },
+    {
+      "stage": "skill",
+      "skill_name": "employment-coach-conversation",
+      "description": "确认模板基线技能并为本轮新增技能写清 name + description + trigger + expected_output；用户确认技能清单后，通过 emit_artifact（skill_workorder_summary, isTerminal: true）完成阶段",
+      "required_fields": ["skill_name", "skill_description", "trigger", "expected_output", "generation_action"]
+    },
+    {
+      "stage": "external",
+      "skill_name": "employment-coach-conversation",
+      "description": "收集外部系统对接需求，明确 category、target_system、objective 和关联 skill；用户确认（或明确跳过）后，通过 emit_artifact（external_workorder_summary, isTerminal: true）完成阶段",
+      "required_fields": ["category", "target_system", "objective", "linked_skills"]
+    }
+  ]
+}

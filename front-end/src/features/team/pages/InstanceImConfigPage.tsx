@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
+import { Breadcrumb } from "@/shared/components/Breadcrumb";
 import {
   api,
   type EmployeeDetail,
@@ -416,9 +417,7 @@ export default function InstanceImConfigPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <button type="button" onClick={() => navigate(`/instances/${employee.employeeId}`)} className="hb-btn-ghost">
-        <ArrowLeft size={14} /> 返回实例
-      </button>
+      <Breadcrumb items={[{ label: '员工详情', to: `/instances/${employee.employeeId}` }, { label: 'IM 配置' }]} />
 
       {error ? <div className="hb-alert hb-alert-error"><AlertCircle size={14} /><span>{error}</span></div> : null}
       {notice ? <div className="hb-alert hb-alert-success"><CheckCircle2 size={14} /><span>{notice}</span></div> : null}

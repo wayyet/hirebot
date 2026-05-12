@@ -74,12 +74,11 @@ export class GatewayWs {
   }
 
   send(msg: GatewayMessage) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg))
-      return true
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      return false
     }
-
-    return false
+    this.ws.send(JSON.stringify(msg))
+    return true
   }
 
   disconnect() {

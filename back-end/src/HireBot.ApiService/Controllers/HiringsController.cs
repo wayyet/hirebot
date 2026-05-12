@@ -2,6 +2,7 @@ using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Services.Hiring;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace HireBot.ApiService.Controllers;
 
@@ -123,43 +124,24 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
         return StatusCode(response.Code, response);
     }
 
-    [HttpGet("{hireId}/workflow")]
-    public async Task<IActionResult> GetWorkflowState(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.GetWorkflowStateAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/credential-bindings")]
-    public async Task<IActionResult> UpsertCredentialBinding(
+    /// <summary>
+    /// 前端从沙箱网关直接下载产物包后上传至此接口，跳过后端对 KingCrab 的依赖，完成数字员工创建。
+    /// </summary>
+    [HttpPost("{hireId}/import-package")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> ImportPackage(
         string hireId,
-        [FromBody] HiringCredentialBindingRequestDto request,
+        IFormFile? packageFile,
         CancellationToken cancellationToken = default)
     {
-        var invalidResponse = BuildModelValidationError<HiringWorkflowStateDto>();
-        if (invalidResponse is not null)
+        if (packageFile is null || packageFile.Length == 0)
         {
-            return invalidResponse;
+            var badReq = ApiResponse<object>.ErrorResponse(400, "必须上传产物包文件");
+            return BadRequest(badReq);
         }
 
-        var response = await employeeHiringService.UpsertCredentialBindingAsync(hireId, request, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPut("{hireId}/config-files/{configKey}")]
-    public async Task<IActionResult> UpdateConfigFile(
-        string hireId,
-        string configKey,
-        [FromBody] HiringConfigFileUpdateRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<HiringWorkflowStateDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await employeeHiringService.UpdateConfigFileAsync(hireId, configKey, request, cancellationToken);
+        await using var stream = packageFile.OpenReadStream();
+        var response = await employeeHiringService.ImportPackageAsync(hireId, stream, packageFile.FileName, cancellationToken);
         return StatusCode(response.Code, response);
     }
 
@@ -178,6 +160,25 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
     {
         var result = await employeeHiringService.BuildArtifactFileDownloadAsync(hireId, artifactName, cancellationToken);
         return BuildDownloadResponse(result);
+    }
+
+    /// <summary>获取前端对话状态缓存（刷新页面后用于恢复对话历史）。</summary>
+    [HttpGet("{hireId}/conversation/cache")]
+    public async Task<IActionResult> GetConversationCache(string hireId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.GetConversationCacheAsync(hireId, cancellationToken);
+        return Ok(response);
+    }
+
+    /// <summary>保存前端对话状态缓存（messages + stageOverrides）。</summary>
+    [HttpPut("{hireId}/conversation/cache")]
+    public async Task<IActionResult> SaveConversationCache(
+        string hireId,
+        [FromBody] JsonElement cache,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.SaveConversationCacheAsync(hireId, cache, cancellationToken);
+        return Ok(response);
     }
 
     private IActionResult BuildDownloadResponse(HiringArtifactDownloadResult result)

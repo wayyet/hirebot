@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type EmployeeDetail } from "@/infra/api";
 import { firstCharacter } from "./employeeView";
+import { Breadcrumb } from "@/shared/components/Breadcrumb";
 
 type Step = 0 | 1 | 2;
 
@@ -131,14 +132,8 @@ export default function CloneEmployeePage() {
   if (!employee) {
     return (
       <div className="hb-page space-y-4">
-        <button
-          type="button"
-          onClick={() => navigate("/department-employees")}
-          className="hb-btn-ghost"
-        >
-          <ArrowLeft size={14} />
-          返回部门数字员工
-        </button>
+        <Breadcrumb items={[{ label: '部门数字员工', to: '/department-employees' }, { label: '复制员工' }]} />
+
         <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">
           {error || "未找到实例数据"}
         </div>
@@ -150,14 +145,7 @@ export default function CloneEmployeePage() {
 
   return (
     <div className="hb-page space-y-5">
-      <button
-        type="button"
-        onClick={() => navigate("/department-employees")}
-        className="hb-btn-ghost"
-      >
-        <ArrowLeft size={14} />
-        返回部门数字员工
-      </button>
+      <Breadcrumb items={[{ label: '部门数字员工', to: '/department-employees' }, { label: `复制分身 · ${employee.nickname}` }]} />
 
       <div className="hb-hero">
         <div className="hb-hero-grid">

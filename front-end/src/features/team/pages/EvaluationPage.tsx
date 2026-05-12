@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
-  ArrowLeft,
   BarChart2,
   CheckCircle2,
   ChevronDown,
@@ -15,7 +14,7 @@ import {
   SendHorizontal,
   Zap,
 } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import {
   api,
@@ -27,6 +26,7 @@ import {
   type EvaluationVerdictPayload,
   type HiringConversationMessage,
 } from '@/infra/api'
+import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 type ArtifactTab = 'testcase' | 'trace' | 'report'
 
@@ -103,7 +103,6 @@ function progressStepByState(params: {
 
 export default function EvaluationPage() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null)
   const [evaluation, setEvaluation] = useState<EvaluationState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -493,17 +492,10 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
 
   return (
     <div className="hb-page">
+      <Breadcrumb items={[{ label: '员工详情', to: id ? `/instances/${id}` : '/department-employees' }, { label: 'AI 评估' }]} />
       <div className="flex h-[calc(100vh-132px)] min-h-[680px] flex-col gap-4">
         <section className="hb-card p-4">
           <div className="flex flex-wrap items-start gap-3">
-            <button
-              type="button"
-              onClick={() => navigate(id ? `/instances/${id}` : '/department-employees')}
-              className="hb-btn-ghost !px-3 !py-1.5 !text-xs"
-            >
-              <ArrowLeft size={12} />
-              返回
-            </button>
             <div className="h-6 w-px bg-[#ececec]" />
             <div className="min-w-0 flex-1">
               <h1 className="text-[18px] font-semibold text-[#0a0a0a]">AI 评估训练</h1>

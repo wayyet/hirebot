@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 2,
+  "description": "定义沙箱工作区的目录结构约定。所有 skill 在写入产物或读取上传文件时，必须以本文件中定义的路径为准，不得自行选择目录。workspace_root 由雇佣教练在会话开始时从上传模板中解析出 template_slug，并以绝对路径 /workspace/<template-slug>/ 确定；此后所有目录均以该路径为前缀。",
+
+  "workspace_root": "/workspace/<template-slug>",
+  "workspace_root_note": "template_slug 由雇佣教练在收到用户上传后从 ZIP 包名或包内 manifest.json 的 slug 字段解析得出，只保留小写字母、数字和连字符。例如上传 sales-assistant-v2.zip 则 template_slug = sales-assistant-v2，工作区根目录为 /workspace/sales-assistant-v2/。",
+
+  "directories": {
+    "config":   "/workspace/<template-slug>/config/",
+    "uploads":  "/workspace/<template-slug>/uploads/",
+    "ontology": "/workspace/<template-slug>/ontology/",
+    "skills":   "/workspace/<template-slug>/skills/",
+    "external": "/workspace/<template-slug>/external/"
+  },
+
+  "upload_extraction": {
+    "target_directory": "/workspace/<template-slug>/uploads/",
+    "note": "用户上传的 ZIP 包解压到 /workspace/<template-slug>/uploads/ 目录下，保留 ZIP 内的原始目录结构。解压后各文件的绝对路径格式为 /workspace/<template-slug>/uploads/<ZIP内相对路径>，例如 /workspace/sales-assistant-v2/uploads/docs/sales.csv。",
+    "path_format": "/workspace/<template-slug>/uploads/<zip_entry_relative_path>"
+  },
+
+  "output_paths": {
+    "ontology_slices": {
+      "directory": "/workspace/<template-slug>/ontology/",
+      "file_naming": "<domain-slug>.slice.json / <domain-slug>.slice.md",
+      "owner_skill": "ontology-extraction"
+    },
+    "skill_packages": {
+      "directory": "/workspace/<template-slug>/skills/<skill-slug>/",
+      "file_naming": "SKILL.md, metadata.json, references/, contracts/（可选）",
+      "owner_skill": "skill-generation"
+    },
+    "external_configs": {
+      "directory": "/workspace/<template-slug>/external/",
+      "file_naming": "<capability-slug>.config.json",
+      "owner_skill": "external-config"
+    }
+  },
+
+  "read_only_directories": ["/workspace/<template-slug>/config/"],
+
+  "constraints": [
+    "employment-coach-conversation 只通过 emit_artifact 推送状态，不直接写入任何目录；但负责在会话开始时确定 template_slug 并通知各下游 skill",
+    "ontology-extraction 只写入 /workspace/<template-slug>/ontology/，不写入 skills/ 或 external/",
+    "skill-generation 只写入 /workspace/<template-slug>/skills/，不写入 ontology/ 或 external/",
+    "external-config 只写入 /workspace/<template-slug>/external/，不写入 ontology/ 或 skills/",
+    "config/ 目录只有 employment-coach-conversation 通过 config_governance_patch 机制修改，其他 skill 不得写入",
+    "/workspace/<template-slug>/uploads/ 目录只读，任何 skill 不得写入"
+  ]
+}

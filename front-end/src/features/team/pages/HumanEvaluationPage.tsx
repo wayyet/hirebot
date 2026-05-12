@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, type EmployeeDetail, type EvaluationState } from '@/infra/api'
+import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 function verdictLabel(verdict?: string | null) {
   if (verdict === 'passed') return '通过'
@@ -80,14 +81,7 @@ export default function HumanEvaluationPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <button
-        type="button"
-        onClick={() => navigate(id ? `/instances/${id}` : '/department-employees')}
-        className="hb-btn-ghost"
-      >
-        <ArrowLeft size={14} />
-        返回实例
-      </button>
+      <Breadcrumb items={[{ label: '员工详情', to: id ? `/instances/${id}` : '/department-employees' }, { label: '人工评估' }]} />
 
       {error && (
         <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">

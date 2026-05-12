@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, type EmployeeDetail } from '@/infra/api'
 import { firstCharacter } from './employeeView'
+import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 type StationKey = 'persona' | 'knowledge' | 'ability' | 'external'
 
@@ -108,10 +109,7 @@ export default function PrivateBranchPage() {
   if (!employee) {
     return (
       <div className="hb-page space-y-4">
-        <button type="button" onClick={() => navigate('/my-employees')} className="hb-btn-ghost">
-          <ArrowLeft size={14} />
-          返回我的数字员工
-        </button>
+        <Breadcrumb items={[{ label: '我的数字员工', to: '/my-employees' }, { label: '私有分支' }]} />
         <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">
           {error || '未找到实例数据'}
         </div>
@@ -121,10 +119,7 @@ export default function PrivateBranchPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <button type="button" onClick={() => navigate('/my-employees')} className="hb-btn-ghost">
-        <ArrowLeft size={14} />
-        返回我的数字员工
-      </button>
+      <Breadcrumb items={[{ label: '我的数字员工', to: '/my-employees' }, { label: `私人定制 · ${employee.nickname}` }]} />
 
       <div className="hb-hero">
         <div className="hb-hero-grid">

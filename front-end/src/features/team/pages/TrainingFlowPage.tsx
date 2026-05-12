@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, ArrowLeft, BadgeCheck, Loader2, Sparkles, XCircle } from 'lucide-react'
+import { AlertCircle, BadgeCheck, Loader2, Sparkles, XCircle } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, type EmployeeDetail, type TrainingCheckpoint, type TrainingState } from '@/infra/api'
+import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 function checkpointClass(checkpoint: TrainingCheckpoint) {
   const normalized = checkpoint.status.toLowerCase()
@@ -89,14 +90,7 @@ export default function TrainingFlowPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <button
-        type="button"
-        onClick={() => navigate(id ? `/instances/${id}` : '/department-employees')}
-        className="hb-btn-ghost"
-      >
-        <ArrowLeft size={14} />
-        返回实例
-      </button>
+      <Breadcrumb items={[{ label: '员工详情', to: id ? `/instances/${id}` : '/department-employees' }, { label: '训练流程' }]} />
 
       {error && (
         <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">

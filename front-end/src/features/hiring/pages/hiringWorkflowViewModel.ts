@@ -8,6 +8,7 @@ import {
 import type {
   CredentialSlot,
   DiagnosticTodo,
+  DispatchCallback,
   HandoffItem,
   HiringCollectionPhaseType,
   HiringCollectionStageType,
@@ -28,6 +29,10 @@ export interface HiringStageStepVm {
   status: HiringStepStatus
   isClickable: boolean
   blockedReason: string
+  /** 当前阶段最近一次 dispatch 的执行状态 */
+  dispatchStatus: 'running' | 'completed' | 'failed' | null
+  /** 最近 dispatch 的用户摘要（completed 时展示） */
+  dispatchSummary: string | null
 }
 
 export interface HiringStageCardVm {
@@ -77,7 +82,6 @@ export interface HiringWorkflowVm {
   blockedReason: string
   overallProgress: number
   promptPlaceholder: string
-  workflowMeta: string[]
   currentStageReason: string
 }
 
@@ -113,9 +117,9 @@ const STAGE_CONFIG: Record<HiringUiStage, StageConfig> = {
   [HiringCollectionStage.Skill]: {
     title: '技能补齐',
     description: '默认基线与补充能力',
-    panelTitle: '确认技能阶段',
-    panelDescription: '默认技能基线不再作为待办展示，只补充真正缺失的能力项。',
-    subtask: '技能确认',
+    panelTitle: '确认技能工单',
+    panelDescription: '确认模板默认技能基线，为本轮需要新增或调整的能力项给出明确名称与描述。',
+    subtask: '技能工单',
     pendingLabel: '待补齐',
     completeLabel: '已确认',
     placeholder: '继续描述还缺哪些技能；如果默认基线已经够用，也可以直接确认推进第三阶段。',
@@ -140,13 +144,6 @@ const STAGE_CONFIG: Record<HiringUiStage, StageConfig> = {
     completeLabel: '可打包',
     placeholder: '如果还有诊断或复核阻塞项，会在这里继续提示你处理。',
   },
-}
-
-const PHASE_LABELS: Record<HiringCollectionPhaseType, string> = {
-  [HiringCollectionPhase.NotStarted]: '未开始',
-  [HiringCollectionPhase.InProgress]: '进行中',
-  [HiringCollectionPhase.ReadyForFinalize]: '可打包',
-  [HiringCollectionPhase.Finalized]: '已完成',
 }
 
 const EMPTY_RUNTIME_FACTS: WorkflowRuntimeFacts = {
@@ -182,6 +179,40 @@ function getDiagnosticTodos(
 
 function isFallbackTodoSource(source: string | null | undefined) {
   return typeof source === 'string' && source.startsWith('system:fallback:')
+}
+
+/** 取当前阶段最近一次 dispatch（通过 todoIds 与 handoffItems / workflowTodos 关联） */
+function getStageLatestDispatch(
+  workflowState: HiringWorkflowState | null,
+  stage: HiringUiStage,
+): DispatchCallback | null {
+  const dispatches = workflowState?.latestDispatches
+  if (!dispatches?.length) return null
+
+  const stageHandoffIds = new Set(
+    (workflowState?.handoffItems ?? [])
+      .filter(item => item.stage === stage)
+      .map(item => item.handoff_id),
+  )
+  const stageTodoIds = new Set(
+    (workflowState?.workflowTodos ?? [])
+      .filter(todo => todo.stage === stage)
+      .map(todo => todo.id),
+  )
+
+  const stageDispatches = dispatches.filter(dispatch =>
+    dispatch.todoIds.some(id => stageHandoffIds.has(id) || stageTodoIds.has(id)),
+  )
+  return stageDispatches[stageDispatches.length - 1] ?? null
+}
+
+function resolveDispatchStatus(
+  dispatch: DispatchCallback | null,
+): 'running' | 'completed' | 'failed' | null {
+  if (!dispatch) return null
+  if (dispatch.status === 'completed') return 'completed'
+  if (dispatch.status === 'failed' || (dispatch.errors?.length ?? 0) > 0) return 'failed'
+  return 'running'
 }
 
 function mapHandoffToWorkflowTodo(handoff: HandoffItem): WorkflowTodo {
@@ -545,28 +576,6 @@ export function getBlockedReasonForStage(
   return diagnostic?.question ?? `「${STAGE_CONFIG[stage].title}」尚未解锁，请先完成前序阶段。`
 }
 
-function buildWorkflowMeta(
-  workflowState: HiringWorkflowState | null,
-  currentStageReason: string,
-) {
-  if (!workflowState) {
-    return ['等待初始化']
-  }
-
-  const collectionPhase = (workflowState.collectionPhase as HiringCollectionPhaseType) || HiringCollectionPhase.NotStarted
-  const activeSkill = workflowState.stageSkills.find(item => item.stage === workflowState.currentStage)
-  const runtimeFacts = getRuntimeFacts(workflowState)
-
-  return [
-    `收集阶段：${PHASE_LABELS[collectionPhase] ?? collectionPhase}`,
-    `当前步骤：${STAGE_CONFIG[(workflowState.currentStage as HiringUiStage) || HiringCollectionStage.Material].title}`,
-    activeSkill ? `当前 Skill：${activeSkill.skillName}` : '',
-    runtimeFacts.materialReady ? '资料阶段已就绪' : '',
-    runtimeFacts.skillBaselineConfirmed ? '技能基线已确认' : '',
-    currentStageReason,
-  ].filter(Boolean)
-}
-
 export function buildHiringWorkflowViewModel(
   workflowState: HiringWorkflowState | null,
   focusedStage: HiringUiStage | null,
@@ -617,6 +626,7 @@ export function buildHiringWorkflowViewModel(
     const readiness = getStageReadiness(workflowState?.stageReadiness, stage)
     const status = getStageStatus(stage, uiCurrentStage, collectionPhase, readiness?.status)
     const isClickable = status !== 'pending' || stage === uiCurrentStage
+    const latestDispatch = getStageLatestDispatch(workflowState, stage)
     return {
       stage,
       index,
@@ -625,6 +635,8 @@ export function buildHiringWorkflowViewModel(
       status,
       isClickable,
       blockedReason: isClickable ? '' : getBlockedReasonForStage(workflowState, stage),
+      dispatchStatus: resolveDispatchStatus(latestDispatch),
+      dispatchSummary: latestDispatch?.userSummary ?? null,
     } satisfies HiringStageStepVm
   })
 
@@ -643,7 +655,6 @@ export function buildHiringWorkflowViewModel(
     blockedReason: completedCount === STAGE_ORDER.length ? '' : blockedReason,
     overallProgress: completedCount,
     promptPlaceholder: STAGE_CONFIG[uiCurrentStage].placeholder,
-    workflowMeta: buildWorkflowMeta(workflowState, currentStageReason),
     currentStageReason,
   }
 }

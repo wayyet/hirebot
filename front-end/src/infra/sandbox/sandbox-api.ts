@@ -209,6 +209,31 @@ async function sandboxDelete<T>(endpoint: string, path: string): Promise<T> {
 // ── 公开 API ─────────────────────────────────────────────────────────────
 
 /**
+ * 查询沙箱网关最新的 WebSocket 会话 ID。
+ * 优先返回活跃会话，其次按最近活跃时间排序返回持久化会话中的最新一条。
+ * 用于进入页面时判断是否有已有会话可恢复，而非每次都重新引导。
+ */
+export async function fetchLatestGatewaySession(endpoint: string): Promise<string | null> {
+  try {
+    const resp = await sandboxGet<AdminSessionsResponse>(
+      endpoint,
+      '/api/integration/sessions?channelId=websocket&pageSize=5',
+    )
+    if (resp.active.length > 0) return resp.active[0].id
+    const items = resp.persisted?.items ?? []
+    if (items.length > 0) {
+      const sorted = [...items].sort(
+        (a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime(),
+      )
+      return sorted[0].id
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
  * 从沙箱直接获取指定会话的历史消息，映射为对话气泡格式。
  * 替代后端代理的 getConversationTimeline，减少多余的一跳。
  */
