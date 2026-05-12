@@ -15,7 +15,6 @@ namespace HireBot.ApiService.Controllers;
 [Authorize]
 public sealed class InstancesController(
     IInstanceChatService instanceChatService,
-    IInstanceImConfigService instanceImConfigService,
     IEmployeeRuntimeService employeeRuntimeService) : ControllerBase
 {
     /// <summary>
@@ -73,23 +72,6 @@ public sealed class InstancesController(
     }
 
     /// <summary>
-    /// 获取实例的 IM Webhook 地址
-    /// </summary>
-    /// <param name="instanceId">员工实例 ID</param>
-    /// <param name="platform">IM 平台名称（如: wechat, dingtalk, feishu）</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>Webhook 地址</returns>
-    [HttpGet("{instanceId}/im-webhook-url")]
-    public async Task<IActionResult> GetImWebhookUrl(
-        string instanceId,
-        [FromQuery] string platform,
-        CancellationToken cancellationToken = default)
-    {
-        var response = await instanceImConfigService.GetWebhookUrlAsync(instanceId, platform, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    /// <summary>
     /// 更新或创建实例的 IM 配置
     /// </summary>
     /// <param name="instanceId">员工实例 ID</param>
@@ -117,9 +99,13 @@ public sealed class InstancesController(
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
 
-        // 更新其他平台的配置，继续走原来的实例 IM 配置服务
-        var response = await instanceImConfigService.UpsertConfigAsync(instanceId, platform, request, cancellationToken);
-        return StatusCode(response.Code, response);
+        if (string.Equals(platform, "wecom", StringComparison.OrdinalIgnoreCase))
+        {
+            var wecomResponse = await instanceChatService.UpdateWeComChannelConfigAsync(instanceId, request, cancellationToken);
+            return StatusCode(wecomResponse.Code, wecomResponse);
+        }
+
+        return BadRequest(ApiResponse<ImConfigResultDto>.ErrorResponse(400, $"不支持的平台 '{platform}'，仅支持 feishu / dingtalk / wecom"));
     }
 
     /// <summary>
@@ -167,16 +153,16 @@ public sealed class InstancesController(
             var feishuResponse = await instanceChatService.GetDingTalkChannelEffectiveConfigAsync(instanceId, cancellationToken);
             return StatusCode(feishuResponse.Code, feishuResponse);
         }
+
+        if (string.Equals(platform, "wecom", StringComparison.OrdinalIgnoreCase))
+        {
+            var wecomResponse = await instanceChatService.GetWeComChannelEffectiveConfigAsync(instanceId, cancellationToken);
+            return StatusCode(wecomResponse.Code, wecomResponse);
+        }
+
         var response = ApiResponse<FeishuChannelEffectiveConfigDto>.ErrorResponse(
             404,
             $"Unknown or unsupported platform '{platform}'.");
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpGet("{instanceId}/im-config")]
-    public async Task<IActionResult> GetImConfigs(string instanceId, CancellationToken cancellationToken = default)
-    {
-        var response = await instanceImConfigService.GetConfigsAsync(instanceId, cancellationToken);
         return StatusCode(response.Code, response);
     }
 
@@ -201,12 +187,17 @@ public sealed class InstancesController(
 
         if (string.Equals(platform, "dingtalk", StringComparison.OrdinalIgnoreCase))
         {
-            var feishuResponse = await instanceChatService.ClearDingTalkChannelOverrideAsync(instanceId, cancellationToken);
-            return StatusCode(feishuResponse.Code, feishuResponse);
+            var dingtalkResponse = await instanceChatService.ClearDingTalkChannelOverrideAsync(instanceId, cancellationToken);
+            return StatusCode(dingtalkResponse.Code, dingtalkResponse);
         }
 
-        var response = await instanceImConfigService.DeleteConfigAsync(instanceId, platform, cancellationToken);
-        return StatusCode(response.Code, response);
+        if (string.Equals(platform, "wecom", StringComparison.OrdinalIgnoreCase))
+        {
+            var wecomResponse = await instanceChatService.ClearWeComChannelOverrideAsync(instanceId, cancellationToken);
+            return StatusCode(wecomResponse.Code, wecomResponse);
+        }
+
+        return BadRequest(ApiResponse<bool>.ErrorResponse(400, $"不支持的平台 '{platform}'，仅支持 feishu / dingtalk / wecom"));
     }
 
     /// <summary>

@@ -870,11 +870,16 @@ public sealed class EmployeeRuntimeService(
         string owner,
         CancellationToken cancellationToken)
     {
+        var gatewayEndpoint = await TryResolveRuntimeSandboxGatewayAsync(branchId, cancellationToken);
+        if (gatewayEndpoint is null)
+        {
+            return;
+        }
+
         foreach (var platform in new[] { "feishu", "dingtalk", "wecom" })
         {
             try
             {
-                // Clear branch's channel override
                 var clearPath = platform switch
                 {
                     "feishu" => "/admin/channels/feishu/override",
@@ -890,7 +895,8 @@ public sealed class EmployeeRuntimeService(
                         body: null,
                         owner,
                         cancellationToken,
-                        useHireBotApiPrefix: false);
+                        useHireBotApiPrefix: false,
+                        absoluteBaseUrl: gatewayEndpoint);
                 }
             }
             catch
@@ -1910,8 +1916,9 @@ public sealed class EmployeeRuntimeService(
         string instanceId,
         CancellationToken cancellationToken)
     {
-        await TryDeleteRuntimeSandboxAsync(ownerSubject, instanceId, cancellationToken);
+        // Clear IM overrides before deleting the sandbox, so the sandbox gateway is still reachable.
         await RemoveInstanceImConfigsAsync(instanceId, cancellationToken);
+        await TryDeleteRuntimeSandboxAsync(ownerSubject, instanceId, cancellationToken);
     }
 
     /// <summary>
@@ -1945,16 +1952,22 @@ public sealed class EmployeeRuntimeService(
     /// </summary>
     private async Task RemoveInstanceImConfigsAsync(string instanceId, CancellationToken cancellationToken)
     {
+        var gatewayEndpoint = await TryResolveRuntimeSandboxGatewayAsync(instanceId, cancellationToken);
+        if (gatewayEndpoint is null)
+        {
+            return;
+        }
+
         foreach (var platform in new[] { "feishu", "dingtalk", "wecom" })
         {
-            await TryDeleteChannelOverrideAsync(platform, cancellationToken);
+            await TryDeleteChannelOverrideAsync(platform, gatewayEndpoint, cancellationToken);
         }
     }
 
     /// <summary>
     /// 删除沙箱内指定频道的运行时覆盖配置。
     /// </summary>
-    private async Task TryDeleteChannelOverrideAsync(string platform, CancellationToken cancellationToken)
+    private async Task TryDeleteChannelOverrideAsync(string platform, string gatewayEndpoint, CancellationToken cancellationToken)
     {
         var normalizedPlatform = platform.Trim().ToLowerInvariant();
         var path = normalizedPlatform switch
@@ -1979,11 +1992,52 @@ public sealed class EmployeeRuntimeService(
                 body: null,
                 ownerSubject,
                 cancellationToken,
-                useHireBotApiPrefix: false);
+                useHireBotApiPrefix: false,
+                absoluteBaseUrl: gatewayEndpoint);
         }
         catch
         {
             // Best-effort cleanup only.
+        }
+    }
+
+    /// <summary>
+    /// 尝试解析运行时沙箱的网关端点，沙箱不存在时返回 null（best-effort 模式）。
+    /// </summary>
+    private async Task<string?> TryResolveRuntimeSandboxGatewayAsync(string instanceId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var scopeKey = BuildRuntimeScopeKey(instanceId);
+            var sandbox = await dbContext.SandboxInstances
+                .AsNoTracking()
+                .Where(item =>
+                    item.ScopeType == SandboxScopeTypes.Hire &&
+                    item.ScopeKey == scopeKey &&
+                    item.SandboxRole == RuntimeSandboxRole &&
+                    item.State != "Deleted")
+                .OrderByDescending(item => item.UpdatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (sandbox is null || string.IsNullOrWhiteSpace(sandbox.SandboxId))
+            {
+                return null;
+            }
+
+            var refreshResult = await sandboxService.RefreshAsync(
+                new SandboxInstanceLookupRequestDto { SandboxId = sandbox.SandboxId },
+                cancellationToken);
+
+            if (!refreshResult.Success || refreshResult.Data is null || string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint))
+            {
+                return null;
+            }
+
+            return refreshResult.Data.GatewayEndpoint.Trim();
+        }
+        catch
+        {
+            return null;
         }
     }
 
