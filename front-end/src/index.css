@@ -87,6 +87,18 @@
   --hb-login-bg: #f0f5ff;
   --hb-login-orb-left: radial-gradient(ellipse at center, rgba(74, 108, 247, 0.22) 0%, transparent 70%);
   --hb-login-orb-right: radial-gradient(ellipse at center, rgba(139, 92, 246, 0.18) 0%, transparent 70%);
+
+  /* Hub Panel / Search / Pills (matches ncrew-builder reference) */
+  --hb-hub-panel-bg: linear-gradient(180deg, rgba(255,255,255,0.72) 0%, rgba(248,250,252,0.60) 100%);
+  --hb-hub-panel-border: rgba(15,23,42,0.06);
+  --hb-hub-panel-shadow: 0 10px 24px rgba(15,23,42,0.04);
+  --hb-hub-search-bg: rgba(255,255,255,0.78);
+  --hb-hub-search-border: rgba(15,23,42,0.08);
+  --hb-hub-search-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+  --hb-hub-pill-bg: rgba(255,255,255,0.56);
+  --hb-hub-pill-shadow-active: 0 8px 18px rgba(59,130,246,0.10);
+  --hb-card-shadow: 0 10px 28px rgba(15,23,42,0.06), inset 0 1px 0 rgba(255,255,255,0.80);
+  --hb-card-hover-shadow: 0 18px 42px rgba(15,23,42,0.10), 0 0 0 1px rgba(59,130,246,0.14);
 }
 
 /* ── Design Tokens: Dark Theme ── */
@@ -161,6 +173,18 @@
   --hb-login-bg: #060d1a;
   --hb-login-orb-left: radial-gradient(ellipse at center, rgba(79, 142, 247, 0.28) 0%, transparent 70%);
   --hb-login-orb-right: radial-gradient(ellipse at center, rgba(123, 94, 255, 0.24) 0%, transparent 70%);
+
+  /* Hub Panel / Search / Pills (dark mode) */
+  --hb-hub-panel-bg: linear-gradient(180deg, rgba(15,23,42,0.64) 0%, rgba(9,16,32,0.58) 100%);
+  --hb-hub-panel-border: rgba(148,163,184,0.12);
+  --hb-hub-panel-shadow: 0 14px 30px rgba(2,6,23,0.22);
+  --hb-hub-search-bg: rgba(15,23,42,0.72);
+  --hb-hub-search-border: rgba(148,163,184,0.16);
+  --hb-hub-search-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  --hb-hub-pill-bg: rgba(148,163,184,0.08);
+  --hb-hub-pill-shadow-active: 0 10px 22px rgba(79,142,247,0.18);
+  --hb-card-shadow: 0 18px 38px rgba(2,6,23,0.26), inset 0 1px 0 rgba(125,149,192,0.08);
+  --hb-card-hover-shadow: 0 24px 48px rgba(2,6,23,0.34), 0 0 0 1px rgba(95,131,214,0.14);
 }
 
 body {
@@ -854,13 +878,32 @@ body {
 .hb-card {
   border: 1px solid var(--hb-border);
   border-radius: 20px;
-  background: var(--hb-surface-card);
-  box-shadow: var(--hb-shadow-card);
-  transition: box-shadow 0.18s ease;
+  background: linear-gradient(145deg, rgba(255,255,255,0.88), var(--hb-surface-soft));
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: var(--hb-card-shadow);
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .hb-card:hover {
-  box-shadow: var(--hb-shadow-lift);
+  box-shadow: var(--hb-card-hover-shadow);
+  transform: translateY(-2px);
+}
+
+/* Dark mode overrides for glassmorphic cards */
+.dark .hb-card {
+  background: linear-gradient(145deg, rgba(24,32,52,0.88), rgba(20,27,45,0.96));
+  border-color: rgba(96,118,158,0.24);
+}
+
+.dark .hb-stat-card {
+  background: linear-gradient(145deg, rgba(24,32,52,0.90), rgba(20,27,45,0.96));
+  border-color: rgba(96,118,158,0.24);
+  box-shadow: 0 18px 38px rgba(2,6,23,0.26), inset 0 1px 0 rgba(125,149,192,0.08);
+}
+
+.dark .hb-stat-card:hover {
+  box-shadow: 0 22px 44px rgba(2,6,23,0.32), inset 0 1px 0 rgba(125,149,192,0.10);
 }
 
 .hb-btn-primary {
@@ -1463,8 +1506,17 @@ body {
 .hb-stat-card {
   border: 1px solid var(--hb-border);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.78);
+  background: linear-gradient(145deg, rgba(255,255,255,0.88), var(--hb-surface-soft));
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: 0 10px 28px rgba(15,23,42,0.06), inset 0 1px 0 rgba(255,255,255,0.90);
   padding: 16px;
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.hb-stat-card:hover {
+  box-shadow: 0 16px 36px rgba(15,23,42,0.10), inset 0 1px 0 rgba(255,255,255,0.90);
+  transform: translateY(-2px);
 }
 
 .hb-stat-label {
@@ -1495,12 +1547,13 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  max-width: 860px;
-  border: 1px solid var(--hb-border);
-  border-radius: 999px;
-  background: var(--hb-surface-card);
-  box-shadow: var(--hb-shadow-card);
-  padding: 5px 6px 5px 16px;
+  border: 1px solid var(--hb-hub-panel-border);
+  border-radius: 14px;
+  background: var(--hb-hub-panel-bg);
+  box-shadow: var(--hb-hub-panel-shadow);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  padding: 12px 16px;
 }
 
 .hb-search-shell svg {
@@ -1509,12 +1562,12 @@ body {
 }
 
 .hb-search-shell .hb-search-input {
-  flex: 1 1 240px;
-  min-width: 160px;
+  flex: 1 1 200px;
+  min-width: 140px;
   border: none;
   background: transparent;
   color: var(--hb-near-black);
-  padding: 11px 0;
+  padding: 4px 0;
   font-size: 14px;
   outline: none;
   color-scheme: inherit;
@@ -1621,9 +1674,10 @@ body {
 }
 
 .hb-chip.is-active {
-  border-color: var(--hb-near-black);
-  background: var(--hb-near-black);
-  color: #fff;
+  border-color: var(--hb-blue);
+  background: rgba(74, 108, 247, 0.10);
+  color: var(--hb-blue);
+  box-shadow: var(--hb-hub-pill-shadow-active);
 }
 
 .hb-tab-row {
@@ -4217,7 +4271,7 @@ body.hb-body-hiring-prototype {
   }
 
   .hb-search-shell {
-    border-radius: 20px;
+    border-radius: 12px;
     padding: 10px 12px;
   }
 
