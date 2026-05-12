@@ -7,9 +7,9 @@ metadata:
     emoji: "🧠"
   category: generation
   autonomy: 90
-  trigger: dispatch-ontology-extraction, material-handoff-dispatched
-  input: material-handoff-todos, uploaded-files, source-documents
-  output: ontology-slices, dispatch-callback
+  trigger: hiring-session-ontology, material-stage-completed
+  input: uploaded-files, source-documents, material-summary
+  output: ontology-slices, emit-artifact
 ---
 
 # ontology-extraction
@@ -64,86 +64,59 @@ meta: 生成信息
 
 Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落到 JSON；如果先生成 JSON，也必须补齐对应 Markdown 人读版。
 
-## Employment Coach Handoff Contract
+## emit_artifact 使用规范
 
-当本 skill 由 `employment-coach-conversation` 通过 `<dispatch target=ontology-extraction>` 调起时，输入是一组阶段一 material Handoff todo。优先按 Handoff todo 合约处理，不要把它当普通会话描述重新追问或重新归类。
+本 skill 执行期间须在两个关键节点调用 `emit_artifact`，推动前端技能阶段（Skill 胶囊）更新。
 
-输入形态：
+### 进度节点（isTerminal: false）
 
-```yaml
-dispatch:
-  target: ontology-extraction
-  handoff_ids: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
-  mode: incremental
+在开始处理第一份资料、产出第一个 ontology slice 之前调用：
 
-handoff_todos:
-  - session_id: session_20260508_001
-    handoff_id: m_cs_nonstandard_rules_001
-    kind: handoff_todo
-    stage: material
-    target_skill: ontology-extraction
-    intent: 抽出非标退货场景的判定规则与处置路径
-    category: 决策规则
-    payload:
-      objective: 抽取《非标退货处理规则》里的判定条件、处置档位、分流到经理的触发条件
-      source_files: [非标退货处理规则.docx]
-      scene_hint: customer_service
-      mode: incremental
-    source: 用户上传《非标退货处理规则.docx》并说明先处理这批资料
-    acceptance: ontology 中包含退货判定条件、处置档位和人工分流触发节点，并给出 slice 文件
-    status: ready_to_dispatch
+```json
+{
+  "kind": "data",
+  "artifactType": "ontology_extraction_progress",
+  "label": "正在从资料中抽取本体切片，共 {N} 条资料待处理",
+  "skillName": "ontology-extraction",
+  "stage": "ontology-extraction",
+  "isTerminal": false,
+  "displayHint": "progress",
+  "data": {
+    "total_sources": 2,
+    "completed_slices": 0,
+    "status": "running"
+  }
+}
 ```
 
-处理规则：
+### 完成节点（isTerminal: true）
 
-1. 入口先校验 dispatch target 与 Handoff 范围：只处理本次 `dispatch.handoff_ids` 中存在、且 `kind: handoff_todo`、`stage: material`、`target_skill: ontology-extraction`、`status: ready_to_dispatch | dirty` 的 Handoff todo。
-2. `drafting`、`dispatched`、`confirmed`、`needs_review`、`dismissed` 或 stage / target_skill 不匹配的 Handoff todo 不得落盘正式 slice；必须在 `todo_results` 中标为 `skipped` 或 `failed`，并给出可读原因。
-3. 每条 Handoff todo 的完整结构只作为输入使用，不写入 slice 产物；上游确认关系由 `dispatch_callback` 的 `handoff_ids` 和 `todo_results` 承载。
-4. 按 Handoff todo 的 `payload.source_files` 收集上传资料；文件路径可能来自沙箱上传通道，也可能是系统解析后的可读路径。
-5. 直接读取 `payload.source_files` 指向的资料，并围绕 Handoff todo 的 `objective`、`category`、`scene_hint`、`source` 和 `acceptance` 构造最小可验证 slice；不要调用不存在的中间接入 skill 或工具。
-6. `payload.mode` 优先，缺失时使用 dispatch `mode`，仍缺失时默认为 `incremental`。`incremental` 表示在现有同主题 slice 上增量合并；`full_replace` 表示替换同主题 slice 的内容。两种模式都只作用于本 skill 产出的 slice，不删除人工维护的其他 ontology 文件。
-7. 每条 todo 产出的 slice 必须同时落盘 `.md` 与 `.json`，并在 `sources` 中回指本轮资料或其他权威来源。
-8. 如果多个 Handoff todo 属于同一业务主题，可以合并为一份 slice，但必须在 `meta.notes`、人读版和回传 `todo_results[].artifacts` 中列出覆盖的 Handoff id，避免回传时无法逐条确认。
+所有 ontology slice 产出并校验通过后调用：
 
-回传给主 skill 时输出 `dispatch_callback` 兼容结构化摘要，必须支持批量 todo 的部分成功 / 部分失败：
-
-```yaml
-dispatch_callback:
-  source_dispatch_target: ontology-extraction
-  handoff_ids: [m_cs_nonstandard_rules_001, m_cs_dialogue_style_001]
-  user_summary: 已从这批资料中抽出退货判定条件、处置档位和话术风格特征；结果已写入 ontology，并标出仍需确认的边界。
-  technical_artifact:
-    ontology_dir: ontology
-    extraction_summary: 本轮资料解析、切片范围和更新模式摘要
-    validation: PASS | WARNING | FAIL
-  artifacts:
-    - path: ontology/return-policy.slice.json
-      kind: ontology_slice_json
-    - path: ontology/return-policy.slice.md
-      kind: ontology_slice_markdown
-  todo_results:
-    - handoff_id: m_cs_nonstandard_rules_001
-      status: success | warning | failed | skipped
-      validation: PASS | WARNING | FAIL
-      artifacts:
-        - path: ontology/return-policy.slice.json
-          kind: ontology_slice_json
-        - path: ontology/return-policy.slice.md
-          kind: ontology_slice_markdown
-      extraction_summary: 本轮资料解析、切片范围和更新模式摘要
-      errors: []
-    - handoff_id: m_cs_dialogue_style_001
-      status: failed
-      validation: FAIL
-      artifacts: []
-      extraction_summary: 无
-      errors:
-        - 来源文件无法读取，或资料不足以支撑该 todo 的 acceptance
-  status: success | partial | failed
-  errors: []
+```json
+{
+  "kind": "data",
+  "artifactType": "ontology_extraction_done",
+  "label": "本体切片已完成，共产出 {N} 份 slice，准备进入技能定义阶段",
+  "skillName": "ontology-extraction",
+  "stage": "ontology-extraction",
+  "isTerminal": true,
+  "displayHint": "tree",
+  "data": {
+    "total_sources": 2,
+    "completed_slices": 2,
+    "slice_paths": ["ontology/return-policy.slice.json", "ontology/dialogue-style.slice.json"],
+    "validation": "PASS",
+    "status": "done"
+  }
+}
 ```
 
-`user_summary` 必须能被雇佣教练用一两句话复述给业务用户；不要只返回文件列表。`todo_results` 必须覆盖本次 dispatch 的每个 Handoff id，让主 skill 能单独确认成功项、重发 dirty / failed 项，或跳过不合法项。若 schema 校验失败、来源不足以支撑结论，或某条 Handoff todo 的 `acceptance` 未达成，对应 `todo_results[].validation` 标为 `FAIL` 或 `WARNING`，并在 `todo_results[].errors` 与 `user_summary` 中说明需要补什么。整体 `status` 规则：全部成功为 `success`，成功与失败 / warning 混合为 `partial`，全部失败为 `failed`。
+### 约束
+
+- **先调用后输出**：识别到可推送事件时，先调用 `emit_artifact`，再继续后续对话或文件输出
+- **data 禁止凭据**：data 字段中不得写入 token / 密钥 / 密码 / API Key
+- **label 用业务语言**：描述对用户有意义的进度，不暴露内部字段名
 
 ## Workflow
 
@@ -157,16 +130,16 @@ dispatch_callback:
 - 约束条件
 - 下游用途
 
-如果用户要求“整份 ontology”，先收缩到当前任务直接相关的子图。
+如果用户要求"整份 ontology"，先收缩到当前任务直接相关的子图。
 
 ### 2. Read source files and write ontology slices
 
 如果用户给的是上传文件，而不是已经整理好的 slice JSON，本 skill 自己读取资料并产出 slice：
 
-- 从 Handoff todo 的 `payload.source_files` 收集资料路径。
-- 支持 Markdown、文本、JSON、YAML 等可读资料；无法读取的文件必须写入 `todo_results[].errors`。
+- 从输入资料摘要或用户上传文件中收集资料路径。
+- 支持 Markdown、文本、JSON、YAML 等可读资料；无法读取的文件必须在摘要中说明。
 - 如果遇到 zip 或二进制文档，只有在运行时已经提供可读文本或解析后路径时才处理；不要假设存在额外解析工具。
-- 默认使用 `incremental` 模式更新当前主题 slice；用户明确要求“全量替换”时使用 `full_replace` 替换当前主题 slice。
+- 默认使用 `incremental` 模式更新当前主题 slice；用户明确要求"全量替换"时使用 `full_replace` 替换当前主题 slice。
 - 返回给用户的摘要必须说明资料解析情况、切片范围、更新模式和产物路径，而不是只给一个文件列表。
 
 这一阶段的目标就是产出可审阅、可校验的 ontology slice；不存在额外的资料入库中间产物。
@@ -192,7 +165,7 @@ dispatch_callback:
 - 说明是缺切片文件，还是只有零散术语
 - 不要臆造 ontology 内容
 
-如果当前请求已经明确要求“解析上传文件并写入沙箱”，则本 skill 应直接基于资料生成或更新 `ontology/*.slice.json` 与 `ontology/*.slice.md`，并把这些 slice 作为后续 projection 的输入。
+如果当前请求已经明确要求"解析上传文件并写入沙箱"，则本 skill 应直接基于资料生成或更新 `ontology/*.slice.json` 与 `ontology/*.slice.md`，并把这些 slice 作为后续 projection 的输入。
 
 ### 4. Build the minimal semantic closure
 
@@ -258,7 +231,7 @@ dispatch_callback:
 - 把未验证的常识当作正式本体定义
 - 把示例数据误当作概念层
 - 省略关键约束后直接给出结论
-- 在没有来源的情况下声称“这是标准 ontology 结构”
+- 在没有来源的情况下声称"这是标准 ontology 结构"
 
 ## References
 
