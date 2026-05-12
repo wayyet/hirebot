@@ -146,6 +146,7 @@ internal sealed record SandboxProvisioningSettings(
             ["OpenClaw__Tooling__WorkspaceRoot"] = "/workspace",
             ["OpenClaw__Tooling__WorkspaceOnly"] = "false",
             ["OpenClaw__Tooling__AllowBrowserEvaluate"] = "true",
+            ["OpenClaw__Tooling__EnablePublishFile"] = "false",
             ["OpenClaw__Tooling__ToolTimeoutSeconds"] = ToolTimeoutSeconds,
             ["OpenClaw__Tooling__ToolApprovalTimeoutSeconds"] = "300",
             ["OpenClaw__Tooling__AllowedReadRoots__0"] = "*",
