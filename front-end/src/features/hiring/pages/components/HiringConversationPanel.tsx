@@ -1,6 +1,7 @@
 import type { ReactNode, RefObject } from 'react'
+import { useState, useCallback } from 'react'
 
-import { FileText, Paperclip, Package, X } from 'lucide-react'
+import { Check, Copy, FileText, Paperclip, Package, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -8,6 +9,69 @@ import type { ChatFile, ChatMessage } from '../hiringPageTypes'
 import type { HiringGuideVm } from '../hiringWorkflowViewModel'
 import { ArtifactMessageCard } from './ArtifactMessageCard'
 import { StageGateCard } from './StageGateCard'
+
+/** 将对话消息列表转换为 Markdown 字符串，便于粘贴给其他 LLM 分析 */
+function chatToMarkdown(messages: ChatMessage[], botName: string): string {
+  const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+  const lines: string[] = [
+    `# 雇佣对话记录`,
+    ``,
+    `**AI 角色**: ${botName}`,
+    `**导出时间**: ${now}`,
+    ``,
+    `---`,
+    ``,
+  ]
+
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      lines.push(`### 👤 用户`)
+      lines.push(``)
+      lines.push(msg.content)
+      if (msg.files && msg.files.length > 0) {
+        lines.push(``)
+        lines.push(`*附件: ${msg.files.map((f) => f.name).join(', ')}*`)
+      }
+      lines.push(``)
+      lines.push(`---`)
+      lines.push(``)
+    } else if (msg.role === 'bot') {
+      lines.push(`### 🤖 ${botName}`)
+      lines.push(``)
+      lines.push(msg.content)
+      lines.push(``)
+      lines.push(`---`)
+      lines.push(``)
+    } else if (msg.role === 'artifact' && msg.artifact) {
+      const a = msg.artifact
+      lines.push(`### 📦 产物 · ${a.label ?? a.artifactType}`)
+      lines.push(``)
+      if (a.kind === 'file') {
+        lines.push(`- 文件名: ${a.fileName ?? '未知'}`)
+        if (a.sizeLabel) lines.push(`- 大小: ${a.sizeLabel}`)
+      } else if (a.kind === 'data') {
+        lines.push(`\`\`\`json`)
+        lines.push(JSON.stringify(a.data, null, 2))
+        lines.push(`\`\`\``)
+      }
+      lines.push(``)
+      lines.push(`---`)
+      lines.push(``)
+    } else if (msg.role === 'stage_gate' && msg.stageGate) {
+      const sg = msg.stageGate
+      lines.push(`### 🚦 阶段推进 · ${sg.completedStage} → ${sg.nextStage}`)
+      lines.push(``)
+      if (!sg.canProceed && sg.blockedReason) {
+        lines.push(`> ⚠️ 阻塞原因: ${sg.blockedReason}`)
+      }
+      lines.push(``)
+      lines.push(`---`)
+      lines.push(``)
+    }
+  }
+
+  return lines.join('\n')
+}
 
 type HiringConversationPanelProps = {
   introName: string
@@ -60,6 +124,17 @@ export function HiringConversationPanel({
   formatFileSize,
   onArtifactFileDownload,
 }: HiringConversationPanelProps) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopyAsMarkdown = useCallback(() => {
+    if (messages.length === 0) return
+    const md = chatToMarkdown(messages, introName)
+    void navigator.clipboard.writeText(md).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [messages, introName])
+
   return (
     <div className="hb-hiring-chat">
       <div className="hb-hiring-chat-body">
@@ -244,6 +319,16 @@ export function HiringConversationPanel({
                 >
                   <Package size={15} />
                   skill
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyAsMarkdown}
+                  disabled={messages.length === 0}
+                  className="hb-hiring-tool-btn"
+                  title="将对话记录复制为 Markdown，便于粘贴给其他 AI 分析"
+                >
+                  {copied ? <Check size={15} /> : <Copy size={15} />}
+                  {copied ? '已复制' : '复制对话'}
                 </button>
               </div>
               <button
