@@ -213,6 +213,15 @@ export default function HiringPage() {
     if (!wsStatus) return pill
     return { ...pill, dispatchStatus: wsStatus }
   })
+  // 三个收集阶段全部通过 WS 标记为 completed 时，允许触发打包（不依赖后端 workflowState 轮询）
+  const wsCanFinalize = (
+    wsStageOverrides.get(HiringCollectionStage.Material) === 'completed' &&
+    wsStageOverrides.get(HiringCollectionStage.Skill) === 'completed' &&
+    wsStageOverrides.get(HiringCollectionStage.External) === 'completed'
+  )
+  const mergedActionState = wsCanFinalize
+    ? { ...viewModel.actionState, canFinalize: true }
+    : viewModel.actionState
   const canCreate = Boolean(workflowHireId) && !instanceCreated
   const isInteractionLocked = typing || workflowBooting || submittingMessage || resetting
 
@@ -1159,7 +1168,7 @@ export default function HiringPage() {
           <HiringProgressLedger
             stageCards={viewModel.stageCards}
             overallProgress={viewModel.overallProgress}
-            actionState={viewModel.actionState}
+            actionState={mergedActionState}
             instanceCreated={instanceCreated}
             createdId={createdId}
             summaryItems={[{ label: '已上传文件', value: String(allFiles.length) }]}
