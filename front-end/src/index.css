@@ -2651,33 +2651,60 @@ body.hb-body-hiring-prototype {
   color: var(--hb-soft);
 }
 
+/* ── 阶段步骤进度条（水平紧凑，参考 ncrew-builder 向导设计） ── */
 .hb-hiring-step-pills {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  align-items: flex-start;
+  width: 100%;
+  gap: 0;
 }
 
 .hb-hiring-step-pill {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 7px 11px;
+  flex: 1;
+  min-width: 0;
+  gap: 5px;
+  padding: 2px 4px 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  position: relative;
+  cursor: pointer;
+  text-align: center;
+}
+
+/* 连接线：从上一个圆圈右边缘 → 当前圆圈左边缘 */
+.hb-hiring-step-pill:not(:first-child)::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: calc(-50% + 11px);
+  right: calc(50% + 11px);
+  height: 2px;
   border-radius: 999px;
-  border: 1px solid var(--hb-border);
-  background: var(--hb-surface-card);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-  text-align: left;
+  background: var(--hb-border);
+  transition: background 300ms ease;
+  z-index: 0;
+}
+
+.hb-hiring-step-pill.is-complete:not(:first-child)::before,
+.hb-hiring-step-pill.is-active:not(:first-child)::before {
+  background: #10b981;
 }
 
 .hb-hiring-step-pill.is-active {
-  border-color: #d8e1ff;
-  box-shadow: 0 2px 10px rgba(74, 108, 247, 0.08);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .hb-hiring-step-pill.is-complete {
-  border-color: #d1fae5;
+  border-color: transparent;
 }
 
+/* 圆形序号 */
 .hb-hiring-step-index {
   width: 22px;
   height: 22px;
@@ -2689,48 +2716,65 @@ body.hb-body-hiring-prototype {
   color: var(--hb-soft);
   font-size: 11px;
   font-weight: 700;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  transition: all 200ms ease;
 }
 
 .hb-hiring-step-pill.is-active .hb-hiring-step-index {
   border-color: #4a6cf7;
-  background: #e8edff;
-  color: #3654d4;
+  background: #4a6cf7;
+  color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.15);
 }
 
 .hb-hiring-step-pill.is-complete .hb-hiring-step-index {
   border-color: #10b981;
-  background: #ecfdf5;
-  color: #15803d;
+  background: #10b981;
+  color: #ffffff;
 }
 
+/* 文字区域：居中，紧凑 */
 .hb-hiring-step-copy {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 1px;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .hb-hiring-step-copy strong {
-  font-size: 13px;
-  line-height: 1.15;
+  font-size: 11.5px;
+  line-height: 1.2;
   color: var(--hb-near-black);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .hb-hiring-step-copy span {
-  font-size: 11.5px;
-  line-height: 1.35;
+  font-size: 10.5px;
+  line-height: 1.3;
   color: var(--hb-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
-/* dispatch 状态徽标：显示在阶段胶囊的副标题下方 */
+/* dispatch 状态徽标 */
 .hb-hiring-step-dispatch {
   display: inline-block;
-  margin-top: 3px;
-  padding: 1px 6px;
+  margin-top: 2px;
+  padding: 1px 5px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   line-height: 1.5;
-  max-width: 160px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3773,20 +3817,12 @@ body.hb-body-hiring-prototype {
   }
 
   .hb-hiring-step-pill {
-    padding: 7px 12px;
+    padding: 2px 4px 0;
   }
 
   .hb-hiring-step-index {
-    width: 24px;
-    height: 24px;
-    font-size: 12px;
-  }
-
-  .hb-hiring-step-copy strong {
-    font-size: 13px;
-  }
-
-  .hb-hiring-step-copy span {
+    width: 22px;
+    height: 22px;
     font-size: 11px;
   }
 
@@ -3829,7 +3865,6 @@ body.hb-body-hiring-prototype {
   }
 
   .hb-hiring-step-pills {
-    flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;
   }
@@ -3840,13 +3875,13 @@ body.hb-body-hiring-prototype {
 
   .hb-hiring-step-pill {
     flex-shrink: 0;
-    padding: 6px 10px;
+    padding: 2px 4px 0;
   }
 
   .hb-hiring-step-index {
-    width: 22px;
-    height: 22px;
-    font-size: 11px;
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
   }
 
   .hb-hiring-chat-body {
@@ -3886,7 +3921,7 @@ body.hb-body-hiring-prototype {
   }
 
   .hb-hiring-step-pill {
-    padding: 8px 13px;
+    padding: 2px 6px 0;
   }
 
   .hb-hiring-step-index {
@@ -3896,7 +3931,7 @@ body.hb-body-hiring-prototype {
   }
 
   .hb-hiring-step-copy strong {
-    font-size: 13.5px;
+    font-size: 12px;
   }
 
   .hb-hiring-panel-head {
@@ -3942,7 +3977,7 @@ body.hb-body-hiring-prototype {
   }
 
   .hb-hiring-step-pill {
-    padding: 9px 14px;
+    padding: 2px 6px 0;
   }
 
   .hb-hiring-step-index {
@@ -3952,11 +3987,11 @@ body.hb-body-hiring-prototype {
   }
 
   .hb-hiring-step-copy strong {
-    font-size: 14px;
+    font-size: 12.5px;
   }
 
   .hb-hiring-step-copy span {
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .hb-hiring-panel-head {
@@ -4045,13 +4080,11 @@ body.hb-body-hiring-prototype {
     padding: 18px 14px 28px;
   }
 
-  .hb-hiring-step-pills,
   .hb-hiring-hero-actions,
   .hb-hiring-composer-tools {
     width: 100%;
   }
 
-  .hb-hiring-step-pill,
   .hb-hiring-send {
     width: 100%;
   }
@@ -5447,30 +5480,41 @@ body.hb-body-hiring-prototype {
   color: #7bb8ff;
 }
 
-/* ── 步骤胶囊 ── */
+/* ── 步骤进度条（dark） ── */
 .dark .hb-hiring-step-pill.is-active {
-  border-color: rgba(74, 108, 247, 0.30);
-  box-shadow: 0 2px 10px rgba(74, 108, 247, 0.12);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .dark .hb-hiring-step-pill.is-complete {
-  border-color: rgba(16, 185, 129, 0.25);
+  border-color: transparent;
 }
 
 .dark .hb-hiring-step-index {
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--hb-surface-card);
+}
+
+.dark .hb-hiring-step-pill:not(:first-child)::before {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.dark .hb-hiring-step-pill.is-complete:not(:first-child)::before,
+.dark .hb-hiring-step-pill.is-active:not(:first-child)::before {
+  background: #10b981;
 }
 
 .dark .hb-hiring-step-pill.is-active .hb-hiring-step-index {
-  border-color: rgba(74, 108, 247, 0.50);
-  background: rgba(74, 108, 247, 0.15);
-  color: #7bb8ff;
+  border-color: #4a6cf7;
+  background: #4a6cf7;
+  color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.25);
 }
 
 .dark .hb-hiring-step-pill.is-complete .hb-hiring-step-index {
-  border-color: rgba(16, 185, 129, 0.40);
-  background: rgba(16, 185, 129, 0.12);
-  color: #4ade80;
+  border-color: #10b981;
+  background: #10b981;
+  color: #ffffff;
 }
 
 /* ── 任务派发徽标 ── */

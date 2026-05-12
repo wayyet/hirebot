@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react'
 import clsx from 'clsx'
 
 import type { HiringUiStage, HiringStageStepVm } from '../hiringWorkflowViewModel'
@@ -28,7 +29,9 @@ export function HiringStagePills({
             )}
             onClick={() => onSelectStage(item.stage, item.blockedReason)}
           >
-            <span className="hb-hiring-step-index">{item.index + 1}</span>
+            <span className="hb-hiring-step-index">
+              {item.status === 'complete' ? <Check size={12} strokeWidth={2.5} /> : item.index + 1}
+            </span>
             <span className="hb-hiring-step-copy">
               <strong>{item.title}</strong>
               <span>{item.description}</span>
