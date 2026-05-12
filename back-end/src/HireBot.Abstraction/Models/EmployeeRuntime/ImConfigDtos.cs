@@ -1,9 +1,5 @@
 namespace HireBot.Abstraction.Models.EmployeeRuntime;
 
-public sealed record ImWebhookUrlDto(
-    string Platform,
-    string WebhookUrl);
-
 public sealed record ImConfigRequestDto(
     string ConnectionMode,
     string? AppId,
@@ -14,7 +10,9 @@ public sealed record ImConfigRequestDto(
     string? VerificationToken,
     string? CorpId,
     string? AgentId,
-    string? AgentSecret);
+    string? AgentSecret,
+    string? BotId,
+    string? BotSecret);
 
 public sealed record ImConfigResultDto(
     string Platform,
@@ -96,27 +94,26 @@ public sealed class FeishuChannelConfig
 
 
 
-public sealed record ImConfigItemDto(
-    string Platform,
-    string Status,
-    string? ConnectionMode,
-    string? WebhookPath,
-    DateTimeOffset? ConfiguredAt,
-    string? LastError,
-    string? AppId = null,
-    string? AppSecret = null,
-    string? EncryptKey = null,
-    string? Token = null,
-    string? AesKey = null,
-    string? VerificationToken = null,
-    string? CorpId = null,
-    string? AgentId = null,
-    string? AgentSecret = null);
+/// <summary>
+/// 企业微信频道配置类（发送给 KingCrab 网关）。
+/// </summary>
+public sealed class WeComChannelConfig
+{
+    public bool Enabled { get; set; } = false;
+    public string? BotId { get; set; }
+    public string BotIdRef { get; set; } = "env:WECOM_BOT_ID";
+    public string? BotSecret { get; set; }
+    public string BotSecretRef { get; set; } = "env:WECOM_BOT_SECRET";
+}
 
-public sealed record ImConfigStatusDto(
-    IReadOnlyList<ImConfigItemDto> Configs);
+/// <summary>
+/// 企业微信频道当前生效配置（从 KingCrab 网关获取）。
+/// </summary>
+public sealed record WeComChannelEffectiveConfigDto(
+    bool Enabled,
+    string? BotId,
+    string BotIdRef,
+    string? BotSecret,
+    string BotSecretRef);
 
-public sealed record ImWebhookHandleResultDto(
-    string Status,
-    string? Reply);
 

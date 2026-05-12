@@ -29,6 +29,56 @@ export interface SandboxMessage {
   [key: string]: unknown
 }
 
+// ── Admin Sessions ────────────────────────────────────────────────────────
+
+export interface SessionSummary {
+  id: string
+  channelId: string
+  senderId: string
+  createdAt: string
+  lastActiveAt: string
+  state: 'Active' | 'Paused' | 'Expired'
+  historyTurns: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  isActive: boolean
+}
+
+export interface PagedSessionList {
+  page: number
+  pageSize: number
+  hasMore: boolean
+  items: SessionSummary[]
+}
+
+export interface AdminSessionsResponse {
+  filters: Record<string, unknown>
+  active: SessionSummary[]
+  persisted: PagedSessionList
+}
+
+export interface AdminSessionsParams {
+  page?: number
+  pageSize?: number
+  search?: string
+  channelId?: string
+}
+
+export async function fetchAdminSessions(
+  endpoint: string,
+  params: AdminSessionsParams = {},
+): Promise<AdminSessionsResponse> {
+  const searchParams = new URLSearchParams()
+  if (params.page !== undefined) searchParams.set('page', String(params.page))
+  if (params.pageSize !== undefined) searchParams.set('pageSize', String(params.pageSize))
+  if (params.search) searchParams.set('search', params.search)
+  if (params.channelId) searchParams.set('channelId', params.channelId)
+
+  const qs = searchParams.toString()
+  const path = qs ? `/admin/sessions?${qs}` : '/admin/sessions'
+  return sandboxGet<AdminSessionsResponse>(endpoint, path)
+}
+
 // ── 内部工具函数 ───────────────────────────────────────────────────────────
 
 function buildUrl(endpoint: string, path: string): string {
@@ -106,7 +156,50 @@ export async function uploadMediaToGateway(
 
 async function sandboxGet<T>(endpoint: string, path: string): Promise<T> {
   const res = await fetch(buildUrl(endpoint, path), { headers: await authHeaders() })
-  if (!res.ok) throw new Error(`GET ${path}: ${res.status}`)
+  if (!res.ok) {
+    let errorMsg = `GET ${path}: ${res.status}`
+    try {
+      const body = await res.json() as { error?: string; message?: string }
+      if (body.error) errorMsg = body.error
+      else if (body.message) errorMsg = body.message
+    } catch { /* ignore */ }
+    throw new Error(errorMsg)
+  }
+  return res.json() as Promise<T>
+}
+
+async function sandboxPost<T>(endpoint: string, path: string, body: unknown): Promise<T> {
+  const res = await fetch(buildUrl(endpoint, path), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    let errorMsg = `POST ${path}: ${res.status}`
+    try {
+      const err = await res.json() as { error?: string; message?: string }
+      if (err.error) errorMsg = err.error
+      else if (err.message) errorMsg = err.message
+    } catch { /* ignore */ }
+    throw new Error(errorMsg)
+  }
+  return res.json() as Promise<T>
+}
+
+async function sandboxDelete<T>(endpoint: string, path: string): Promise<T> {
+  const res = await fetch(buildUrl(endpoint, path), {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  })
+  if (!res.ok) {
+    let errorMsg = `DELETE ${path}: ${res.status}`
+    try {
+      const err = await res.json() as { error?: string; message?: string }
+      if (err.error) errorMsg = err.error
+      else if (err.message) errorMsg = err.message
+    } catch { /* ignore */ }
+    throw new Error(errorMsg)
+  }
   return res.json() as Promise<T>
 }
 
@@ -120,33 +213,201 @@ export async function fetchSandboxSessionMessages(
   endpoint: string,
   sessionId: string,
 ): Promise<SandboxMessage[]> {
-  try {
-    const encoded = encodeURIComponent(sessionId)
-    const resp = await sandboxGet<SessionDetailResponse>(
-      endpoint,
-      `/api/integration/sessions/${encoded}`,
-    )
-    if (!resp.session) return []
+  const encoded = encodeURIComponent(sessionId)
+  const resp = await sandboxGet<SessionDetailResponse>(
+    endpoint,
+    `/api/integration/sessions/${encoded}`,
+  )
+  if (!resp.session) return []
 
-    const messages: SandboxMessage[] = []
-    let assistantStarted = false
-    for (const turn of resp.session.history) {
-      if (turn.role === 'assistant') {
-        assistantStarted = true
-        // 工具调用条目跳过，只显示文字内容
-        const rawContent = turn.content ?? ''
-        if (rawContent && rawContent !== '[tool_use]') {
-          messages.push({ type: 'assistant_message', content: rawContent, _historical: true })
-        }
-      } else if (turn.role === 'user') {
-        // 第一个 assistant 回复之前的 user 消息是后端内部注入的冷启动 system prompt，
-        // 不是用户真实输入，跳过不显示
-        if (!assistantStarted) continue
-        messages.push({ type: 'user_message', text: turn.content, _historical: true })
+  const messages: SandboxMessage[] = []
+  let assistantStarted = false
+  for (const turn of resp.session.history) {
+    if (turn.role === 'assistant') {
+      assistantStarted = true
+      // 工具调用条目跳过，只显示文字内容
+      const rawContent = turn.content ?? ''
+      if (rawContent && rawContent !== '[tool_use]') {
+        messages.push({ type: 'assistant_message', content: rawContent, _historical: true })
       }
+    } else if (turn.role === 'user') {
+      // 第一个 assistant 回复之前的 user 消息是后端内部注入的冷启动 system prompt，
+      // 不是用户真实输入，跳过不显示
+      if (!assistantStarted) continue
+      messages.push({ type: 'user_message', text: turn.content, _historical: true })
     }
-    return messages
-  } catch {
-    return []
   }
+  return messages
+}
+
+// ── IM 频道配置 ────────────────────────────────────────────────────────────
+
+export interface GatewayFeishuChannelConfig {
+  status?: string | null
+  connectionMode?: string | null
+  webhookPath?: string | null
+  configuredAt?: string | null
+  lastError?: string | null
+  appId?: string | null
+  appSecret?: string | null
+  appIdRef?: string | null
+  appSecretRef?: string | null
+}
+
+export interface GatewayDingTalkChannelConfig {
+  enabled?: boolean
+  appId?: string | null
+  appIdRef?: string | null
+  appKey?: string | null
+  appKeyRef?: string | null
+  appSecret?: string | null
+  appSecretRef?: string | null
+  robotCode?: string | null
+  robotCodeRef?: string | null
+  groupPolicy?: string | null
+  allowedFromUserIds?: string[] | null
+  allowedGroupIds?: string[] | null
+  maxInboundChars?: number | null
+  requireMentionInGroup?: boolean | null
+  exposeInboundMediaUrls?: boolean | null
+  streamPollIntervalMs?: number | null
+}
+
+export interface GatewayWeComChannelConfig {
+  enabled?: boolean
+  botId?: string | null
+  botIdRef?: string | null
+  botSecret?: string | null
+  botSecretRef?: string | null
+}
+
+export interface GatewayOperationResult {
+  success: boolean
+  message?: string | null
+  error?: string | null
+  mode?: string | null
+}
+
+export interface FeishuChannelConfigPayload {
+  enabled: boolean
+  appId?: string | null
+  appIdRef?: string | null
+  appSecret?: string | null
+  appSecretRef?: string | null
+  groupPolicy?: string | null
+  allowedFromUserIds?: string[] | null
+}
+
+export interface DingTalkChannelConfigPayload {
+  enabled: boolean
+  appId?: string | null
+  appIdRef?: string | null
+  appKey?: string | null
+  appKeyRef?: string | null
+  appSecret?: string | null
+  appSecretRef?: string | null
+  robotCode?: string | null
+  robotCodeRef?: string | null
+  groupPolicy?: string | null
+  allowedFromUserIds?: string[] | null
+  allowedGroupIds?: string[] | null
+  maxInboundChars?: number | null
+  requireMentionInGroup?: boolean | null
+  exposeInboundMediaUrls?: boolean | null
+  streamPollIntervalMs?: number | null
+}
+
+export interface WeComChannelConfigPayload {
+  enabled: boolean
+  botId?: string | null
+  botIdRef?: string | null
+  botSecret?: string | null
+  botSecretRef?: string | null
+}
+
+export async function fetchFeishuChannelConfig(
+  endpoint: string,
+): Promise<GatewayFeishuChannelConfig> {
+  return sandboxGet<GatewayFeishuChannelConfig>(
+    endpoint,
+    '/admin/channels/feishu',
+  )
+}
+
+export async function fetchDingTalkChannelConfig(
+  endpoint: string,
+): Promise<GatewayDingTalkChannelConfig> {
+  return sandboxGet<GatewayDingTalkChannelConfig>(
+    endpoint,
+    '/admin/channels/dingtalk',
+  )
+}
+
+export async function fetchWeComChannelConfig(
+  endpoint: string,
+): Promise<GatewayWeComChannelConfig> {
+  return sandboxGet<GatewayWeComChannelConfig>(
+    endpoint,
+    '/admin/channels/wecom',
+  )
+}
+
+export async function updateFeishuChannelConfig(
+  endpoint: string,
+  payload: FeishuChannelConfigPayload,
+): Promise<GatewayOperationResult> {
+  return sandboxPost<GatewayOperationResult>(
+    endpoint,
+    '/admin/channels/feishu/update',
+    payload,
+  )
+}
+
+export async function updateDingTalkChannelConfig(
+  endpoint: string,
+  payload: DingTalkChannelConfigPayload,
+): Promise<GatewayOperationResult> {
+  return sandboxPost<GatewayOperationResult>(
+    endpoint,
+    '/admin/channels/dingtalk/update',
+    payload,
+  )
+}
+
+export async function updateWeComChannelConfig(
+  endpoint: string,
+  payload: WeComChannelConfigPayload,
+): Promise<GatewayOperationResult> {
+  return sandboxPost<GatewayOperationResult>(
+    endpoint,
+    '/admin/channels/wecom/update',
+    payload,
+  )
+}
+
+export async function deleteFeishuChannelOverride(
+  endpoint: string,
+): Promise<GatewayOperationResult> {
+  return sandboxDelete<GatewayOperationResult>(
+    endpoint,
+    '/admin/channels/feishu/override',
+  )
+}
+
+export async function deleteDingTalkChannelOverride(
+  endpoint: string,
+): Promise<GatewayOperationResult> {
+  return sandboxDelete<GatewayOperationResult>(
+    endpoint,
+    '/admin/channels/dingtalk/override',
+  )
+}
+
+export async function deleteWeComChannelOverride(
+  endpoint: string,
+): Promise<GatewayOperationResult> {
+  return sandboxDelete<GatewayOperationResult>(
+    endpoint,
+    '/admin/channels/wecom/override',
+  )
 }

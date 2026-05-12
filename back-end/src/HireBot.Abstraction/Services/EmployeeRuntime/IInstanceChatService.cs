@@ -43,4 +43,17 @@ public interface IInstanceChatService
         string instanceId,
         CancellationToken cancellationToken = default);
 
+    Task<ApiResponse<ImConfigResultDto>> UpdateWeComChannelConfigAsync(
+        string instanceId,
+        ImConfigRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<WeComChannelEffectiveConfigDto>> GetWeComChannelEffectiveConfigAsync(
+        string instanceId,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<bool>> ClearWeComChannelOverrideAsync(
+        string instanceId,
+        CancellationToken cancellationToken = default);
+
 }
