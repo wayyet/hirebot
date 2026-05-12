@@ -338,11 +338,31 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, "雇佣会话初始化持久化失败");
         }
 
-        // 前端通过 WS 直连上传模板包并触发引导，后端不再执行 priming；直接标记沙箱已初始化
+        // 上传 employment-coach-conversation 角色模板包到沙箱，安装数字员工引导角色；
+        // 模板包 ZIP 内已包含 skills/ 子目录，Gateway 上传后会自动装载技能，无需单独上传 skill archive；
+        // 前端后续会把目标雇佣模板包作为媒体附件上传，触发 coach 解析引导流程
+        var roleTemplateUploadResult = await UploadTemplatePackageAsync(
+            call.Data.HireId,
+            roleTemplatePackage,
+            ownerSubject,
+            cancellationToken);
+        if (!roleTemplateUploadResult.Success)
+        {
+            logger.LogWarning(
+                "Role template package upload failed. HireId={HireId}, PackageId={PackageId}, StatusCode={StatusCode}, Message={Message}",
+                call.Data.HireId,
+                roleTemplatePackage.PackageId,
+                roleTemplateUploadResult.StatusCode,
+                roleTemplateUploadResult.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                roleTemplateUploadResult.StatusCode <= 0 ? 502 : roleTemplateUploadResult.StatusCode,
+                string.IsNullOrWhiteSpace(roleTemplateUploadResult.Message) ? "雇佣角色模板包上传失败" : roleTemplateUploadResult.Message);
+        }
+
         await SetSandboxInitializedAsync(provisionResult.Data.SandboxId, cancellationToken);
 
         logger.LogInformation(
-            "Template hire setup completed, awaiting frontend-driven bootstrap. HireId={HireId}, TemplateId={TemplateId}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
+            "Template hire setup completed. HireId={HireId}, TemplateId={TemplateId}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
             call.Data.HireId,
             normalizedTemplateId,
             roleTemplatePackage.PackageId,

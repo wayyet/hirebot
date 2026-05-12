@@ -355,7 +355,9 @@ export default function HiringPage() {
 
         // 前端直连链路：自动下载模板包并上传到当前会话，触发模板分析与引导
         await autoBootstrapTemplateConversation(templateId).catch((error: unknown) => {
-          console.warn('[HiringPage] auto template bootstrap skipped:', normalizeErrorMessage(error))
+          const bootstrapError = normalizeErrorMessage(error)
+          console.warn('[HiringPage] auto template bootstrap skipped:', bootstrapError)
+          setWorkflowNotice(`模板自动导入失败：${bootstrapError}，请手动上传模板包后继续。`)
         })
 
         return hired.hireId
@@ -454,7 +456,7 @@ export default function HiringPage() {
     const storeDetail = await api.employeeTemplate.getStoreDetail(currentTemplateId)
     const versionId = storeDetail.latestVersion?.id
     if (!versionId) {
-      return
+      throw new Error(`模板 ${currentTemplateId} 暂无已发布版本，无法自动导入模板包`)
     }
 
     const packageData = await api.employeeTemplate.downloadTemplatePackage(currentTemplateId, versionId)
