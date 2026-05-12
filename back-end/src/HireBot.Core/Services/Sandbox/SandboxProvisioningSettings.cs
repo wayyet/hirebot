@@ -156,7 +156,12 @@ internal sealed record SandboxProvisioningSettings(
             ["OpenClaw__Memory__CompactionThreshold"] = "60",
             ["MODEL_PROVIDER_KEY"] = LlmApiKey,
             ["MODEL_PROVIDER_MODEL"] = LlmModel,
-            ["MODEL_PROVIDER_ENDPOINT"] = LlmEndpoint
+            ["MODEL_PROVIDER_ENDPOINT"] = LlmEndpoint,
+            // 通过 ASP.NET Core 配置覆盖沙箱容器内置的 appsettings.Production.json LLM 配置
+            ["OpenClaw__Llm__Provider"] = "openai",
+            ["OpenClaw__Llm__Model"] = LlmModel,
+            ["OpenClaw__Llm__ApiKey"] = LlmApiKey,
+            ["OpenClaw__Llm__Endpoint"] = LlmEndpoint
         };
 
         for (var i = 0; i < AllowedOrigins.Count; i++)

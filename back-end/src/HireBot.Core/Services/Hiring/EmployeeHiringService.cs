@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.IO;
 using System.Net.Http.Headers;
@@ -46,7 +46,6 @@ internal sealed partial class EmployeeHiringService(
     IHiringRuntimeStore hiringRuntimeStore,
     IKingCrabHttpClient kingCrabHttpClient,
     ISandboxService sandboxService,
-    IConfiguration configuration,
     IDataProtectionProvider dataProtectionProvider,
     IHttpContextAccessor httpContextAccessor,
     IServiceScopeFactory serviceScopeFactory,
@@ -54,8 +53,7 @@ internal sealed partial class EmployeeHiringService(
     IHiringFileStore hiringFileStore,
     IInstanceArtifactCloneService instanceArtifactCloneService,
     IHiringArtifactPackageService artifactPackageService,
-    ILogger<EmployeeHiringService> logger,
-    IHostEnvironment hostEnvironment) : IEmployeeHiringService
+    ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
     private const string EvaluationSkillId = "evaluation-expert";
@@ -67,24 +65,6 @@ internal sealed partial class EmployeeHiringService(
     {
         PropertyNameCaseInsensitive = true
     };
-
-    private string LoadReferenceTemplatePrimingPrompt()
-    {
-        var configuredPath = configuration["HireBot:CoachSystemPromptPath"];
-        string filePath;
-        if (!string.IsNullOrWhiteSpace(configuredPath))
-        {
-            filePath = Path.IsPathRooted(configuredPath)
-                ? configuredPath.Trim()
-                : Path.GetFullPath(configuredPath.Trim(), hostEnvironment.ContentRootPath);
-        }
-        else
-        {
-            filePath = Path.Combine(hostEnvironment.ContentRootPath, "Assets", "md", "coach-system-prompt.md");
-        }
-
-        return File.ReadAllText(filePath);
-    }
 
     private readonly ConcurrentDictionary<string, HireOwnerContext> hireOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> conversationInFlight = new(StringComparer.OrdinalIgnoreCase);
@@ -336,10 +316,9 @@ internal sealed partial class EmployeeHiringService(
                 StageCompletion = initialStageCompletion
             });
 
-        PersistedSourceZipInfo? referenceSourceZip;
         try
         {
-            referenceSourceZip = await PersistSessionAndSourceZipAsync(
+            await PersistSessionAndSourceZipAsync(
                 call.Data.HireId,
                 conversationStartResponse.Data.SessionId,
                 normalizedTemplateId,
@@ -359,94 +338,15 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, "雇佣会话初始化持久化失败");
         }
 
-        var templatePackageCall = await UploadTemplatePackageAsync(
-            call.Data.HireId,
-            roleTemplatePackage,
-            ownerSubject,
-            cancellationToken);
-        if (!templatePackageCall.Success || templatePackageCall.Data is null)
-        {
-            logger.LogWarning(
-                "Role template package upload failed. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
-                call.Data.HireId,
-                normalizedTemplateId,
-                templatePackageCall.StatusCode,
-                templatePackageCall.Message);
-            if (hiringRuntimeStore.Get(call.Data.HireId) is { } runtimeWithSession)
-            {
-                hiringRuntimeStore.Upsert(runtimeWithSession with
-                {
-                    IsTemplateUploadPending = false,
-                    TemplateUploadRetryCount = 0,
-                    TemplateUploadLastError = templatePackageCall.Message,
-                    TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
-                });
-            }
-
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
-                templatePackageCall.StatusCode <= 0 ? 502 : templatePackageCall.StatusCode,
-                templatePackageCall.Message);
-        }
-
-        if (hiringRuntimeStore.Get(call.Data.HireId) is not { } primingRuntimeContext)
-        {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(409, "闆囦剑涓婁笅鏂囦笉瀛樺湪锛岃閲嶆柊鍙戣捣娴佺▼");
-        }
-
-        var primingContent = BuildReferenceTemplatePrimingContent(
-            template, referenceTemplatePackage, LoadReferenceTemplatePrimingPrompt());
-        var primingMaterials = BuildReferenceTemplatePrimingMaterials(referenceSourceZip);
-        var primingResponse = await SendInternalPrimingMessageAsync(
-            primingRuntimeContext,
-            primingContent,
-            primingMaterials,
-            cancellationToken);
-        if (!primingResponse.Success || primingResponse.Data is null)
-        {
-            logger.LogWarning(
-                "Reference template priming failed. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
-                call.Data.HireId,
-                normalizedTemplateId,
-                primingResponse.Code,
-                primingResponse.Message);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
-                primingResponse.Code <= 0 ? 502 : primingResponse.Code,
-                primingResponse.Message);
-        }
-
-        if (hiringRuntimeStore.Get(call.Data.HireId) is { } uploadedRuntime)
-        {
-            hiringRuntimeStore.Upsert(uploadedRuntime with
-            {
-                IsTemplateUploadPending = false,
-                TemplateUploadRetryCount = 0,
-                TemplateUploadLastError = null,
-                TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
-            });
-        }
-
-        if (hiringRuntimeStore.Get(call.Data.HireId) is { } readyRuntime)
-        {
-            hiringRuntimeStore.Upsert(readyRuntime with
-            {
-                IsTemplateUploadPending = false,
-                TemplateUploadRetryCount = 0,
-                TemplateUploadLastError = null,
-                TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
-            });
-        }
-
-        // 角色模板包已上传完成，标记沙箱初始化；冷启动引导消息由前端通过 WS 驱动发送
+        // 前端通过 WS 直连上传模板包并触发引导，后端不再执行 priming；直接标记沙箱已初始化
         await SetSandboxInitializedAsync(provisionResult.Data.SandboxId, cancellationToken);
 
-        var uploadedPackageId = templatePackageCall.Data?.PackageId ?? roleTemplatePackage.PackageId;
-        var uploadedPackageVersion = templatePackageCall.Data?.PackageVersion ?? roleTemplatePackage.PackageVersion;
         logger.LogInformation(
-            "Template hire setup completed, awaiting frontend-driven priming. HireId={HireId}, TemplateId={TemplateId}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
+            "Template hire setup completed, awaiting frontend-driven bootstrap. HireId={HireId}, TemplateId={TemplateId}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
             call.Data.HireId,
             normalizedTemplateId,
-            uploadedPackageId,
-            uploadedPackageVersion,
+            roleTemplatePackage.PackageId,
+            roleTemplatePackage.PackageVersion,
             ownerSubject);
 
         return ApiResponse<HireTemplateResultDto>.SuccessResponse(

@@ -124,125 +124,22 @@ internal sealed partial class EmployeeHiringService
             return runtimeContext;
         }
 
-        if (refreshResult.Data.IsInitialized)
+        // 同步 SandboxId（沙箱可能被基础设施重建后 ID 更新）
+        if (!string.Equals(runtimeContext.SandboxId, refreshResult.Data.SandboxId, StringComparison.Ordinal))
         {
-            if (!string.Equals(runtimeContext.SandboxId, refreshResult.Data.SandboxId, StringComparison.Ordinal))
-            {
-                runtimeContext = runtimeContext with { SandboxId = refreshResult.Data.SandboxId };
-                hiringRuntimeStore.Upsert(runtimeContext);
-            }
-
-            return runtimeContext;
+            runtimeContext = runtimeContext with { SandboxId = refreshResult.Data.SandboxId };
+            hiringRuntimeStore.Upsert(runtimeContext);
         }
 
-        logger.LogInformation(
-            "Sandbox re-initialization started. HireId={HireId}, SandboxId={SandboxId}",
-            runtimeContext.HireId,
-            refreshResult.Data.SandboxId);
-
-        runtimeContext = runtimeContext with { SandboxId = refreshResult.Data.SandboxId };
-        hiringRuntimeStore.Upsert(runtimeContext);
-
-        var templatePackageCall = await UploadTemplatePackageAsync(
-            runtimeContext.HireId,
-            runtimeContext.RoleTemplatePackage,
-            runtimeContext.OwnerSubject,
-            cancellationToken);
-        if (!templatePackageCall.Success || templatePackageCall.Data is null)
+        // 前端通过 WS 直连负责模板上传与引导，后端不再执行 priming；若未标记已初始化则补标
+        if (!refreshResult.Data.IsInitialized)
         {
-            logger.LogWarning(
-                "Sandbox re-initialization: template upload failed. HireId={HireId}, Error={Error}",
+            logger.LogInformation(
+                "Sandbox not yet initialized, marking as initialized (frontend-driven bootstrap). HireId={HireId}, SandboxId={SandboxId}",
                 runtimeContext.HireId,
-                templatePackageCall.Message);
-            return runtimeContext;
+                refreshResult.Data.SandboxId);
+            await SetSandboxInitializedAsync(refreshResult.Data.SandboxId, cancellationToken);
         }
-
-        EmployeeTemplateDefinition template;
-        try
-        {
-            template = await templateDataProvider.GetByIdAsync(runtimeContext.TemplateId, cancellationToken)
-                ?? new EmployeeTemplateDefinition(
-                    TemplateId: runtimeContext.TemplateId,
-                    IconUrl: string.Empty,
-                    Name: runtimeContext.TemplateName,
-                    Tagline: string.Empty,
-                    Description: string.Empty,
-                    DetailDoc: string.Empty,
-                    CoreAbilityTags: [],
-                    HiredCount: 0,
-                    SuccessRate: 0m,
-                    AvgRating: 0m,
-                    IsAvailable: true,
-                    CoreAbilities: [],
-                    InScope: [],
-                    OutOfScope: [],
-                    Prerequisites: [],
-                    SuccessCases: []);
-        }
-        catch
-        {
-            template = new EmployeeTemplateDefinition(
-                TemplateId: runtimeContext.TemplateId,
-                IconUrl: string.Empty,
-                Name: runtimeContext.TemplateName,
-                Tagline: string.Empty,
-                Description: string.Empty,
-                DetailDoc: string.Empty,
-                CoreAbilityTags: [],
-                HiredCount: 0,
-                SuccessRate: 0m,
-                AvgRating: 0m,
-                IsAvailable: true,
-                CoreAbilities: [],
-                InScope: [],
-                OutOfScope: [],
-                Prerequisites: [],
-                SuccessCases: []);
-        }
-
-        var primingContent = BuildReferenceTemplatePrimingContent(
-            template,
-            runtimeContext.ReferenceTemplatePackage,
-            LoadReferenceTemplatePrimingPrompt());
-
-        var existingSession = await dbContext.HiringSessions
-            .AsNoTracking()
-            .FirstOrDefaultAsync(item => item.HireId == runtimeContext.HireId, cancellationToken);
-        PersistedSourceZipInfo? referenceSourceZip = null;
-        if (existingSession is not null
-            && !string.IsNullOrWhiteSpace(existingSession.SourceZipStoragePath)
-            && !string.IsNullOrWhiteSpace(existingSession.SourceZipSha256))
-        {
-            referenceSourceZip = new PersistedSourceZipInfo(
-                existingSession.SourceZipStoragePath
-                    .Split('/', StringSplitOptions.RemoveEmptyEntries)
-                    .LastOrDefault() ?? "source.zip",
-                existingSession.SourceZipStoragePath,
-                existingSession.SourceZipSha256,
-                existingSession.SourceZipSizeBytes ?? 0);
-        }
-
-        var primingMaterials = BuildReferenceTemplatePrimingMaterials(referenceSourceZip);
-        var primingResponse = await SendInternalPrimingMessageAsync(
-            runtimeContext,
-            primingContent,
-            primingMaterials,
-            cancellationToken);
-        if (!primingResponse.Success || primingResponse.Data is null)
-        {
-            logger.LogWarning(
-                "Sandbox re-initialization: priming failed. HireId={HireId}, Error={Error}",
-                runtimeContext.HireId,
-                primingResponse.Message);
-            return runtimeContext;
-        }
-
-        await SetSandboxInitializedAsync(refreshResult.Data.SandboxId, cancellationToken);
-
-        logger.LogInformation(
-            "Sandbox re-initialization completed. HireId={HireId}, SandboxId={SandboxId}",
-            runtimeContext.HireId,
-            runtimeContext.SandboxId);
 
         return runtimeContext;
     }
