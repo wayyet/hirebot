@@ -38,11 +38,14 @@ env:
   AllowedOrigins__0: https://hire.ai4c.cn
   AllowedOrigins__1: https://ncrew.ai4c.cn
   AllowedOrigins__2: https://ncrew-hire.ai4c.cn
+  AllowedOrigins__3: http://ncrew-hire.ai4c.cn
+  AllowedOrigins__4: http://ncrew-builder.ai4c.cn
+  AllowedOrigins__5: http://opensandbox-gateway.ai4c.cn
   # ---- OpenSandbox 沙箱服务地址（SaaS 集群内地址）----
   OpenSandbox__Domain: opensandbox-server.opensandbox-system:80
   OpenSandbox__Protocol: Http
   OpenSandbox__UseServerProxy: "false"
-  OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605081001
+  OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605121605
   OpenSandbox__Resource__cpu: 500m
   OpenSandbox__Resource__memory: 1Gi
   OpenSandbox__TimeoutSeconds: "43200"
