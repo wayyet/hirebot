@@ -33,6 +33,7 @@ env:
   ConsoleAuth__Realm: ai4c-saas
   ConsoleAuth__ClientId: ncrew-client
   ConsoleAuth__BypassAuth: "false"
+  ConsoleAuth__TemplateApiBase: http://ncrew-builder.ai4c.cn
   # ---- 跨域 ----
   AllowedOrigins__0: https://hire.ai4c.cn
   AllowedOrigins__1: https://ncrew.ai4c.cn
