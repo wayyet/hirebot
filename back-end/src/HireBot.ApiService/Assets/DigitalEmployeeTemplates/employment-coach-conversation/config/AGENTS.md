@@ -36,4 +36,4 @@
 - 阶段推进以 `employment-coach-conversation` skill 为准：资料 -> 技能 -> 外部，未完成前置阶段不得直接跳到后续阶段。
 - 资料阶段目标下游 skill 为 `ontology-extraction`，技能阶段目标 skill 为 `skill-generation`，外部阶段目标 skill 为 `external-config`。
 - 各阶段 terminal artifact（`isTerminal: true`）既是阶段完成的唯一信号，也是下游 skill 的输入摘要；下游 skill 读取 terminal artifact 的 `data` 字段作为执行依据。
-- 各 skill 写入产物时必须遵守 `config/workspace.json` 中定义的目录约定，不得自行选择写入位置。
+- 各 skill 写入产物时，工作区根目录由 `employment-coach-conversation` 在会话初始化时从上传模板的 ZIP 包名或包内 `manifest.json` 的 `slug` 字段解析得出，格式为 `/workspace/<template-slug>/`，并通过 terminal artifact 的 `data.workspace_root` 字段传递给下游；各 skill 读取该字段确定写入路径，若缺失则回退读取 `config/workspace.json`，不得自行选择目录。

@@ -120,6 +120,39 @@ metadata:
 
 ## 阶段引导通用套路
 
+### 会话初始化：确定工作区路径
+
+**在进入任何阶段引导之前，必须先完成本步骤。**
+
+用户进入雇佣会话时，系统可能已上传了目标模板 ZIP 包。本 skill 需要在会话开始时确定 `template_slug`，并将工作区路径 `/workspace/<template-slug>/` 传递给所有下游 skill。
+
+**slug 解析规则（按优先级）**：
+
+1. **ZIP 包内含 manifest.json**：读取 `manifest.json` 中的 `slug` 字段（已是合法短横线格式），直接使用。
+2. **ZIP 文件名**：去掉 `.zip` 后缀，提取连续的英文字母、数字和连字符片段，转小写。例如 `SalesAssistant-v2.zip` → `salesassistant-v2`，`税务扫描器_TaxScanner_20250101.zip` → `taxscanner`。
+3. **均无法提取英文字符**：使用 `template-<yyyyMMdd>` 格式作为后备 slug，例如 `template-20260513`。
+
+**确定 slug 后**：
+
+- 工作区根目录：`/workspace/<template-slug>/`
+- 上传内容解压路径：`/workspace/<template-slug>/uploads/`（ZIP 内部结构原样保留）
+- 本体输出路径：`/workspace/<template-slug>/ontology/`
+- 技能输出路径：`/workspace/<template-slug>/skills/<skill-slug>/`
+- 外部配置输出路径：`/workspace/<template-slug>/external/`
+
+在向下游 skill 发出 `material_handoff_summary` / `skill_workorder_summary` / `external_workorder_summary` 等 terminal artifact 时，必须在 `data` 中携带 `workspace_root` 字段，让下游 skill 知道实际工作区路径：
+
+```json
+{
+  "workspace_root": "/workspace/<template-slug>",
+  "template_slug": "<template-slug>"
+}
+```
+
+**不做文件系统操作**：本 skill 不直接创建目录或解压 ZIP，只负责确定并传递 `template_slug`；实际解压和目录创建由沙箱运行时在 ZIP 上传时完成。
+
+---
+
 每个阶段执行四件事：
 
 1. **进入引导**：一句话说清楚"这一步要谈到什么程度才算谈完"

@@ -173,10 +173,10 @@ external_capabilities:
 
 ## 输出目录
 
-所有正式产物只写入当前沙箱的 `external/` 目录：
+所有正式产物只写入当前沙箱的 `external/` 目录。具体绝对路径由上游 `employment-coach-conversation` 在 `external_workorder_summary` 的 `data.workspace_root` 字段中传入（格式为 `/workspace/<template-slug>`），实际写入路径为 `<workspace_root>/external/`。若 `workspace_root` 字段缺失，读取 `config/workspace.json` 确认路径，不要靠猜测。
 
 ```text
-external/
+<workspace_root>/external/
   external-config.index.json
   systems/
     <system-slug>.json
