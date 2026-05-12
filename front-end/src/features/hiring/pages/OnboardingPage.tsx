@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useUxOverlay } from '@/app/context/UxOverlayContext'
 import { api, type EmployeeDetail } from '@/infra/api'
 import { firstCharacter } from './employeeView'
+import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 type OnboardPhase = 'form' | 'progress' | 'done'
 
@@ -146,10 +147,7 @@ export default function OnboardingPage() {
   if (!employee) {
     return (
       <div className="hb-page space-y-4">
-        <button type="button" onClick={() => navigate('/department-employees')} className="hb-btn-ghost">
-          <ArrowLeft size={14} />
-          返回部门数字员工
-        </button>
+        <Breadcrumb items={[{ label: '部门数字员工', to: '/department-employees' }, { label: '上岗配置' }]} />
         <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">
           {error || '未找到实例数据'}
         </div>
@@ -159,10 +157,7 @@ export default function OnboardingPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <button type="button" onClick={() => navigate(`/instances/${employee.employeeId}`)} className="hb-btn-ghost">
-        <ArrowLeft size={14} />
-        返回实例详情
-      </button>
+<Breadcrumb items={[{ label: '实例详情', to: `/instances/${employee.employeeId}` }, { label: '上岗配置' }]} />
 
       <div className="hb-card p-6">
         <h1 className="text-[28px] font-semibold leading-tight text-[#0a0a0a]">飞书身份配置与上岗</h1>

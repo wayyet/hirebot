@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, type EmployeeDetail } from '@/infra/api'
 import { ownershipLabel, toEmployeeDetailSummary, withEmployeeView } from './employeeView'
+import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 export default function ReviewPage() {
   const { id } = useParams<{ id: string }>()
@@ -110,10 +111,7 @@ export default function ReviewPage() {
   if (!employee || !employeeView) {
     return (
       <div className="hb-page space-y-4">
-        <button type="button" onClick={() => navigate('/department-employees')} className="hb-btn-ghost">
-          <ArrowLeft size={14} />
-          返回部门数字员工
-        </button>
+        <Breadcrumb items={[{ label: '部门数字员工', to: '/department-employees' }, { label: 'Review' }]} />
         <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">
           {error || '未找到实例数据'}
         </div>
@@ -123,10 +121,7 @@ export default function ReviewPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <button type="button" onClick={() => navigate(`/instances/${employee.employeeId}`)} className="hb-btn-ghost">
-        <ArrowLeft size={14} />
-        返回实例详情
-      </button>
+      <Breadcrumb items={[{ label: '实例详情', to: `/instances/${employee.employeeId}` }, { label: '回退与重试' }]} />
 
       <div className="hb-hero">
         <div className="hb-hero-grid">

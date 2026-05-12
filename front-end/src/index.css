@@ -7,6 +7,7 @@
   --hb-near-black: #0a0a0a;
   --hb-hover-black: #1a1a1a;
   --hb-blue: #4a6cf7;
+  --hb-blue-hover: #3a5be0;
 
   /* Text */
   --hb-body: #404040;
@@ -66,7 +67,7 @@
   /* Shadows */
   --hb-shadow-card: 0 4px 16px rgba(0, 0, 0, 0.04);
   --hb-shadow-lift: 0 8px 24px rgba(0, 0, 0, 0.06);
-  --hb-shadow-cta: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --hb-shadow-cta: 0 4px 12px rgba(74, 108, 247, 0.30);
   --hb-focus: 0 0 0 3px rgba(74, 108, 247, 0.2);
 
   /* Theme toggle button */
@@ -95,6 +96,7 @@
   --hb-near-black: #EEF2FF;
   --hb-hover-black: #ffffff;
   --hb-blue: #4F8EF7;
+  --hb-blue-hover: #3d7fd9;
 
   /* Text */
   --hb-body: #A8B5CC;
@@ -659,13 +661,7 @@ body {
 }
 
 .hb-page {
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 28px 24px 40px;
-}
-
-.hb-page.hb-page-wide {
-  max-width: 1440px;
+  padding: 28px 32px 40px;
 }
 
 .hb-kicker {
@@ -874,7 +870,7 @@ body {
   gap: 6px;
   border: none;
   border-radius: 999px;
-  background: var(--hb-black);
+  background: var(--hb-blue);
   color: #fff;
   font-size: 14px;
   font-weight: 500;
@@ -883,7 +879,7 @@ body {
 }
 
 .hb-btn-primary:hover {
-  background: var(--hb-hover-black);
+  background: var(--hb-blue-hover);
   box-shadow: var(--hb-shadow-cta);
 }
 
@@ -986,6 +982,39 @@ body {
 
 .hb-detail-crumb:hover {
   color: var(--hb-near-black);
+}
+
+/* 面包屑导航 */
+.hb-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--hb-soft);
+}
+
+.hb-breadcrumb a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--hb-blue);
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+}
+
+.hb-breadcrumb a:hover {
+  opacity: 0.75;
+}
+
+.hb-breadcrumb-sep {
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+.hb-breadcrumb-current {
+  color: var(--hb-near-black);
+  font-weight: 500;
 }
 
 .hb-detail-hero {
@@ -2061,13 +2090,11 @@ body {
 }
 
 .hb-hiring-page {
-  max-width: 1460px;
-  margin: 0 auto;
-  min-height: calc(100vh - 128px);
-  padding: 20px 24px 28px;
+  min-height: calc(100vh - 64px);
+  padding: 12px 32px 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .hb-hiring-header {
