@@ -11,7 +11,7 @@ import type {
   HiringConversationMaterial,
   HiringWorkflowState,
 } from '@/infra/api'
-import { GatewayWs } from '@/infra/sandbox/gateway-ws'
+import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import { fetchSandboxSessionMessages, uploadMediaToGateway } from '@/infra/sandbox/sandbox-api'
 import { tokenService } from '@/infra/auth/token-service'
 
@@ -258,6 +258,8 @@ export default function HiringPage() {
   const lastWsMaterialsRef = useRef<ReturnType<typeof toConversationMaterials> | undefined>(undefined)
   // 存储原始 File 对象，供 WS 路径上传到 Gateway 使用
   const rawFileMapRef = useRef<Map<string, File>>(new Map())
+  // 避免同一会话重复触发“自动上传模板并引导”
+  const autoTemplateBootstrapSessionRef = useRef<string | null>(null)
 
   const workflowReady = Boolean(workflowHireId && workflowState)
   const workflowCollectionPhase = normalizeCollectionPhase(workflowState?.collectionPhase ?? HiringCollectionPhase.NotStarted)
@@ -486,9 +488,13 @@ export default function HiringPage() {
           await connectSandboxWs(latestGatewayEndpoint)
         }
 
+        // 前端直连链路：自动下载模板包并上传到当前会话，触发模板分析与引导
+        await autoBootstrapTemplateConversation(templateId).catch((error: unknown) => {
+          console.warn('[HiringPage] auto template bootstrap skipped:', normalizeErrorMessage(error))
+        })
+
         // 异步加载工作流状态（todos、阶段信息等），不阻塞 WS 连接就绪
         void syncWorkflowState(hired.hireId).catch(() => { /* 忽略 */ })
-        setWorkflowNotice('')
         return hired.hireId
       } catch (error: unknown) {
         setWorkflowState(null)
@@ -501,6 +507,109 @@ export default function HiringPage() {
     })()
 
     return workflowInitRef.current
+  }
+
+  async function waitForWsReady(maxRetry = 12, intervalMs = 250) {
+    for (let i = 0; i < maxRetry; i += 1) {
+      if (wsRef.current?.isOpen()) {
+        return true
+      }
+      await sleep(intervalMs)
+    }
+    return Boolean(wsRef.current?.isOpen())
+  }
+
+  function buildTemplateBootstrapPrompt(
+    templateName: string,
+    useCases: string[],
+    marker: string,
+    uploadedFileName: string,
+  ) {
+    const topUseCases = useCases.slice(0, 5)
+    const useCaseSection = topUseCases.length > 0
+      ? `该模板典型场景：\n${topUseCases.map((item, index) => `${index + 1}. ${item}`).join('\n')}`
+      : '该模板未提供显式场景列表，请先从模板文档中抽取核心业务场景。'
+
+    return [
+      `${marker}`,
+      `Attached file: ${uploadedFileName}`,
+      '',
+      `请先解压并完整分析上面的模板包（模板名：${templateName}）。`,
+      useCaseSection,
+      '然后严格按以下顺序引导我完成雇佣配置：',
+      '1. 先给出材料收集清单（缺什么、为什么、如何提供）。',
+      '2. 再给出技能与知识结构抽取结果，并指出待确认项。',
+      '3. 再给出外部系统对接与凭据绑定清单（不要让我在聊天里直接贴敏感密钥）。',
+      '4. 每一步都输出可执行的下一步操作，不要一次性抛出过多任务。',
+      '5. 如果你发现信息不足，请先提问，不要自行假设关键业务参数。',
+    ].join('\n')
+  }
+
+  async function autoBootstrapTemplateConversation(currentTemplateId: string) {
+    const endpoint = gatewayEndpointRef.current
+    const sessionId = sessionIdRef.current
+    const ws = wsRef.current
+    if (!endpoint || !sessionId || !ws) {
+      return
+    }
+    if (autoTemplateBootstrapSessionRef.current === sessionId) {
+      return
+    }
+
+    const wsReady = await waitForWsReady()
+    if (!wsReady) {
+      return
+    }
+
+    const storeDetail = await api.employeeTemplate.getStoreDetail(currentTemplateId)
+    const versionId = storeDetail.latestVersion?.id
+    if (!versionId) {
+      return
+    }
+
+    const packageData = await api.employeeTemplate.downloadTemplatePackage(currentTemplateId, versionId)
+    const fileName = packageData.fileName || `${currentTemplateId}_${versionId}.zip`
+    const packageFile = new File([packageData.blob], fileName, {
+      type: packageData.blob.type || 'application/zip',
+    })
+
+    const token = await tokenService.ensureFresh()
+    if (!token) {
+      return
+    }
+
+    const uploadResult = await uploadMediaToGateway(endpoint, token, packageFile)
+    const prompt = buildTemplateBootstrapPrompt(
+      storeDetail.name || template?.name || '数字员工模板',
+      Array.isArray(storeDetail.useCases) ? storeDetail.useCases : [],
+      uploadResult.marker,
+      uploadResult.fileName,
+    )
+
+    lastWsUserMessageRef.current = prompt
+    lastWsMaterialsRef.current = [
+      {
+        type: 'file',
+        name: uploadResult.fileName,
+        size: uploadResult.sizeBytes,
+        mimeType: uploadResult.mimeType,
+        metadata: {
+          source: 'template_auto_bootstrap',
+          templateId: currentTemplateId,
+          templateVersionId: versionId,
+          mediaId: uploadResult.mediaId,
+        },
+      },
+    ]
+
+    const sent = ws.send({ type: 'user_message', text: prompt, sessionId })
+    if (!sent) {
+      return
+    }
+
+    autoTemplateBootstrapSessionRef.current = sessionId
+    setTyping(true)
+    setWorkflowNotice('已自动导入模板包并发送分析指令，正在由沙箱助手解析并引导下一步。')
   }
 
   /**
@@ -666,7 +775,7 @@ export default function HiringPage() {
 
     // 开发调试钩子：window.__injectWsMsg({ type, ... }) 可在浏览器 Console 模拟 WS 消息
     if (import.meta.env.DEV) {
-      ;(window as Record<string, unknown>).__injectWsMsg = (msg: Record<string, unknown>) => {
+      ;((window as unknown) as Record<string, unknown>).__injectWsMsg = (msg: GatewayMessage) => {
         ws.onMessage?.(msg)
       }
     }
@@ -968,6 +1077,7 @@ export default function HiringPage() {
 
         // 更新 session ref
         sessionIdRef.current = newSessionId
+        autoTemplateBootstrapSessionRef.current = null
 
         // 清空前端状态
         setMessages([])
@@ -989,6 +1099,11 @@ export default function HiringPage() {
         const endpoint = gatewayEndpointRef.current
         if (endpoint) {
           await connectSandboxWs(endpoint)
+        }
+
+        // 重置后自动重新注入模板包，直接重启引导流程
+        if (templateId) {
+          await autoBootstrapTemplateConversation(templateId)
         }
 
         setWorkflowNotice('会话已重置，可以开始新的雇佣流程。')

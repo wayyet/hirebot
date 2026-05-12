@@ -425,13 +425,24 @@ internal sealed partial class EmployeeHiringService(
             });
         }
 
-        // 标记沙箱已完成初始化（模板包上传 + 冷启动提示词）
+        if (hiringRuntimeStore.Get(call.Data.HireId) is { } readyRuntime)
+        {
+            hiringRuntimeStore.Upsert(readyRuntime with
+            {
+                IsTemplateUploadPending = false,
+                TemplateUploadRetryCount = 0,
+                TemplateUploadLastError = null,
+                TemplateUploadLastAttemptAt = DateTimeOffset.UtcNow
+            });
+        }
+
+        // 角色模板包已上传完成，标记沙箱初始化；冷启动引导消息由前端通过 WS 驱动发送
         await SetSandboxInitializedAsync(provisionResult.Data.SandboxId, cancellationToken);
 
         var uploadedPackageId = templatePackageCall.Data?.PackageId ?? roleTemplatePackage.PackageId;
         var uploadedPackageVersion = templatePackageCall.Data?.PackageVersion ?? roleTemplatePackage.PackageVersion;
         logger.LogInformation(
-            "Template hire submitted to KingCrew with default discovery role package and priming completed. HireId={HireId}, TemplateId={TemplateId}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
+            "Template hire setup completed, awaiting frontend-driven priming. HireId={HireId}, TemplateId={TemplateId}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
             call.Data.HireId,
             normalizedTemplateId,
             uploadedPackageId,
@@ -439,7 +450,7 @@ internal sealed partial class EmployeeHiringService(
             ownerSubject);
 
         return ApiResponse<HireTemplateResultDto>.SuccessResponse(
-            call.Data with { SessionId = conversationStartResponse.Data.SessionId },
+            call.Data with { SessionId = conversationStartResponse.Data.SessionId, TemplatePrimingRequired = true },
             "雇佣任务已创建");
     }
 

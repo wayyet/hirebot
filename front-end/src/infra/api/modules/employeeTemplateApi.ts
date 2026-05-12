@@ -1,4 +1,5 @@
 import { createRawHttpClient, httpClient } from '../httpClient'
+import { tokenService } from '@/infra/auth/token-service'
 
 // 从运行时配置读取模板池独立服务地址，未配置时回退到主服务（空字符串）
 const templateApiBase =
@@ -79,6 +80,51 @@ export interface EmployeeTemplateDetail {
   cta: TemplateCta
 }
 
+export interface StoreTemplateDetail {
+  id: string
+  name: string
+  currentVersion?: string
+  useCases?: string[]
+  hasPackage?: boolean
+  packageStatus?: string
+  latestVersion?: TemplateLatestVersion | null
+}
+
+export interface TemplatePackageDownloadData {
+  fileName: string
+  blob: Blob
+}
+
+function buildTemplateApiUrl(path: string): string {
+  const effectiveBase = templateApiBase.trim()
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const locationBase = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+  const base = effectiveBase || ''
+  return new URL(`${base}${normalizedPath}`, locationBase).toString()
+}
+
+function parseFileName(contentDisposition?: string | null): string | null {
+  if (!contentDisposition) {
+    return null
+  }
+
+  const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(contentDisposition)
+  if (!match) {
+    return null
+  }
+
+  const encoded = match[1] ?? match[2]
+  if (!encoded) {
+    return null
+  }
+
+  try {
+    return decodeURIComponent(encoded)
+  } catch {
+    return encoded
+  }
+}
+
 export interface HireTemplateRequest {
   tenantId?: string
   operatorId?: string
@@ -121,6 +167,34 @@ export const employeeTemplateApi = {
     pageSize?: number
   }) {
     return templateRawClient.get<EmployeeTemplateListData>('/api/store/templates', params)
+  },
+
+  getStoreDetail(templateId: string) {
+    return templateRawClient.get<StoreTemplateDetail>(`/api/store/templates/${templateId}`)
+  },
+
+  async downloadTemplatePackage(templateId: string, versionId: string): Promise<TemplatePackageDownloadData> {
+    const accessToken = await tokenService.ensureFresh()
+    const url = buildTemplateApiUrl(
+      `/api/store/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}/download`,
+    )
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: accessToken
+        ? {
+          Authorization: `Bearer ${accessToken}`,
+        }
+        : undefined,
+    })
+
+    if (!response.ok) {
+      throw new Error(`模板下载失败（HTTP ${response.status}）`)
+    }
+
+    const fallbackName = `template_${templateId}_${versionId}.zip`
+    const fileName = parseFileName(response.headers.get('content-disposition')) ?? fallbackName
+    const blob = await response.blob()
+    return { fileName, blob }
   },
 
   // --- 内部 HireBot API（带 envelope）---

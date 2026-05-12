@@ -15,6 +15,7 @@ export function HiringStagePills({
 }: HiringStagePillsProps) {
   return (
     <div className="hb-hiring-journey">
+      <p className="hb-hiring-journey-summary">{journeySummary}</p>
       <div className="hb-hiring-step-pills">
         {steps.map((item) => (
           <button
