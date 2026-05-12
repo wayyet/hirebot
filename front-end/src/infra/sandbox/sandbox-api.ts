@@ -21,6 +21,26 @@ interface SessionDetailResponse {
   isActive: boolean
 }
 
+export interface SessionSummary {
+  id: string
+  channelId: string
+  createdAt: string
+  lastActiveAt: string
+  state: string
+  historyTurns: number
+  isActive: boolean
+}
+
+interface PagedSessionList {
+  items: SessionSummary[]
+  hasMore: boolean
+}
+
+interface IntegrationSessionsResponse {
+  active: SessionSummary[]
+  persisted: PagedSessionList
+}
+
 export interface SandboxMessage {
   type: string
   content?: string
@@ -111,6 +131,31 @@ async function sandboxGet<T>(endpoint: string, path: string): Promise<T> {
 }
 
 // ── 公开 API ─────────────────────────────────────────────────────────────
+
+/**
+ * 查询沙箱网关最新的 WebSocket 会话 ID。
+ * 优先返回活跃会话，其次按最近活跃时间排序返回持久化会话中的最新一条。
+ * 用于进入页面时判断是否有已有会话可恢复，而非每次都重新引导。
+ */
+export async function fetchLatestGatewaySession(endpoint: string): Promise<string | null> {
+  try {
+    const resp = await sandboxGet<IntegrationSessionsResponse>(
+      endpoint,
+      '/api/integration/sessions?channelId=websocket&pageSize=5',
+    )
+    if (resp.active.length > 0) return resp.active[0].id
+    const items = resp.persisted?.items ?? []
+    if (items.length > 0) {
+      const sorted = [...items].sort(
+        (a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime(),
+      )
+      return sorted[0].id
+    }
+    return null
+  } catch {
+    return null
+  }
+}
 
 /**
  * 从沙箱直接获取指定会话的历史消息，映射为对话气泡格式。

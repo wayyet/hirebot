@@ -9,7 +9,7 @@ import type {
   HiringConversationMaterial,
 } from '@/infra/api'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
-import { fetchSandboxSessionMessages, uploadMediaToGateway } from '@/infra/sandbox/sandbox-api'
+import { fetchLatestGatewaySession, fetchSandboxSessionMessages, uploadMediaToGateway } from '@/infra/sandbox/sandbox-api'
 import { tokenService } from '@/infra/auth/token-service'
 
 import { HiringConversationPanel } from './components/HiringConversationPanel'
@@ -410,7 +410,7 @@ export default function HiringPage() {
 
   async function autoBootstrapTemplateConversation(currentTemplateId: string) {
     const endpoint = gatewayEndpointRef.current
-    const sessionId = sessionIdRef.current
+    let sessionId = sessionIdRef.current
     const ws = wsRef.current
     if (!endpoint || !sessionId || !ws) {
       return
@@ -424,6 +424,34 @@ export default function HiringPage() {
       return
     }
 
+    // 查询沙箱里最新的 WebSocket 会话，以便复用已有上下文
+    const latestSessionId = await fetchLatestGatewaySession(endpoint)
+    if (latestSessionId && latestSessionId !== sessionId) {
+      sessionIdRef.current = latestSessionId
+      sessionId = latestSessionId
+    }
+
+    // 检查当前会话是否已有历史消息——有消息说明模板之前已上传过，直接恢复历史，跳过引导上传
+    const existingMessages = await fetchSandboxSessionMessages(endpoint, sessionId)
+    if (existingMessages.length > 0) {
+      const mapped = existingMessages
+        .filter(m => m.type === 'user_message' || m.type === 'assistant_message')
+        .map<ChatMessage>(m => ({
+          id: mkId(),
+          role: m.type === 'user_message' ? 'user' : 'bot',
+          content: m.type === 'assistant_message'
+            ? normalizeAssistantReply(String(m.content ?? ''))
+            : String(m.text ?? ''),
+        }))
+        .filter(m => m.content.trim().length > 0)
+      if (mapped.length > 0) {
+        setMessages(mapped)
+      }
+      autoTemplateBootstrapSessionRef.current = sessionId
+      return
+    }
+
+    // 会话为空（首次进入），执行模板下载 → 上传 → 发送引导消息
     const storeDetail = await api.employeeTemplate.getStoreDetail(currentTemplateId)
     const versionId = storeDetail.latestVersion?.id
     if (!versionId) {
