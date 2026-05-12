@@ -4,19 +4,16 @@ import clsx from 'clsx'
 import type { HiringUiStage, HiringStageStepVm } from '../hiringWorkflowViewModel'
 
 type HiringStagePillsProps = {
-  journeySummary: string
   steps: HiringStageStepVm[]
   onSelectStage: (stage: HiringUiStage, blockedReason: string) => void
 }
 
 export function HiringStagePills({
-  journeySummary,
   steps,
   onSelectStage,
 }: HiringStagePillsProps) {
   return (
     <div className="hb-hiring-journey">
-      <p className="hb-hiring-journey-summary">{journeySummary}</p>
       <div className="hb-hiring-step-pills">
         {steps.map((item) => (
           <button

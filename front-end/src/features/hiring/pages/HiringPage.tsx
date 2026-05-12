@@ -292,7 +292,6 @@ export default function HiringPage() {
 
   const introName = template?.name ?? '数字员工'
   const introAbilities = template?.coreAbilities.slice(0, 3).join('、') || '业务理解、技能配置、外部系统连接'
-  const journeySummary = `当前模板为「${introName}」，完成资料、技能、系统与实例包四段闭环后即可进入后续培训与评估。`
 
   async function ensureWorkflowReady(): Promise<string | null> {
     if (!templateId) {
@@ -1103,7 +1102,8 @@ export default function HiringPage() {
   return (
     <div className="hb-hiring-page">
       <HiringJourneyHeader
-        onBack={() => navigate(`/templates/${template.templateId}`)}
+        templateName={introName}
+        templateId={template.templateId}
         onReset={handleResetConversation}
         onContinue={handlePrototypeContinue}
         resetting={resetting}
@@ -1111,7 +1111,6 @@ export default function HiringPage() {
 
       <div className="hb-hiring-shell">
         <HiringStagePills
-          journeySummary={journeySummary}
           steps={mergedStepPills}
           onSelectStage={handleSelectStage}
         />

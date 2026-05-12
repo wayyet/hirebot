@@ -1,14 +1,16 @@
-import { ArrowLeft } from 'lucide-react'
+import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 type HiringJourneyHeaderProps = {
-  onBack: () => void
+  templateName: string
+  templateId: string
   onReset: () => void
   onContinue: () => void
   resetting?: boolean
 }
 
 export function HiringJourneyHeader({
-  onBack,
+  templateName,
+  templateId,
   onReset,
   onContinue,
   resetting = false,
@@ -16,15 +18,16 @@ export function HiringJourneyHeader({
   return (
     <div className="hb-hiring-header">
       <div className="hb-hiring-hero-copy">
-        <div className="hb-hiring-header-top">
-          <button type="button" onClick={onBack} className="hb-hiring-back-link">
-            <ArrowLeft size={14} />
-            返回
-          </button>
-          <h1 className="hb-hiring-hero-title">
-            数字员工雇佣
-          </h1>
-        </div>
+        <Breadcrumb
+          items={[
+            { label: '模板池', to: '/template-pool' },
+            { label: templateName, to: `/templates/${templateId}` },
+            { label: '雇佣流程' },
+          ]}
+        />
+        <h1 className="hb-hiring-hero-title">
+          数字员工雇佣
+        </h1>
         <p className="hb-hiring-journey-summary hb-hiring-hero-summary">
           资料、技能、外部系统与交付包在同一条工作流里闭环
         </p>
