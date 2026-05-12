@@ -160,6 +160,8 @@ export default function HiringPage() {
   const [workflowInitAttempted, setWorkflowInitAttempted] = useState(false)
   const [artifactArchive, setArtifactArchive] = useState<{ fileName: string; blob: Blob } | null>(null)
   const [artifactFileNames, setArtifactFileNames] = useState<string[]>([])
+  // template_package artifact 到达时暂存，触发 triggerCreate() 后消费
+  const [pendingPackageArtifact, setPendingPackageArtifact] = useState<{ fileUrl: string; fileName: string } | null>(null)
   const [submittingMessage, setSubmittingMessage] = useState(false)
   // WS 流式内容：非 null 时表示 AI 正在逐字输出
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
@@ -238,6 +240,15 @@ export default function HiringPage() {
     void ensureWorkflowReady()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateLoading, templateError, templateId, workflowHireId, workflowBooting, workflowInitAttempted, messages.length])
+
+  // 沙箱推送 template_package artifact 后自动触发 import-package，将产物直接存入系统
+  useEffect(() => {
+    if (!pendingPackageArtifact || !workflowHireId || instanceCreated) return
+    const artifact = pendingPackageArtifact
+    setPendingPackageArtifact(null)
+    void triggerCreate(artifact)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPackageArtifact, workflowHireId, instanceCreated])
 
   useEffect(() => {
     if (journeyGuideVisible && !focusedStage) {
@@ -559,6 +570,10 @@ export default function HiringPage() {
               return next
             })
           }
+          // template_package artifact 表示沙箱已完成打包，暂存 fileUrl 后自动触发 import-package
+          if (artifactType === 'template_package' && kind === 'file' && artifactData.fileUrl) {
+            setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
+          }
         }
       } else if (type === 'skill_stage_gate') {
         // skill 内部阶段推进通知（对应 contracts/artifacts.json 的 gate 声明）
@@ -847,13 +862,50 @@ export default function HiringPage() {
     }
   }
 
-  async function triggerCreate() {
+  async function triggerCreate(packageArtifact?: { fileUrl: string; fileName: string }) {
     if (!canCreate || instanceCreated) return
     const hireId = await ensureWorkflowReady()
     if (!hireId) return
 
     try {
-      const finalizeResult = await api.hiringWorkflow.finalize(hireId)
+      let finalizeResult: import('@/infra/api/modules/hiringWorkflowApi').HiringFinalizeResult
+
+      if (packageArtifact && gatewayEndpointRef.current) {
+        // 前端直接从沙箱网关下载产物包，然后上传给后端，绕过 KingCrab 依赖
+        // gatewayEndpointRef 可能只是 "host:port" 格式（无协议），需补全为合法绝对 URL，
+        // 否则 fetch 会将其视为相对路径，导致请求打到 Vite 开发服务器而非沙箱网关。
+        const rawGateway = gatewayEndpointRef.current.trim()
+        const normalizedBase = /^https?:\/\//i.test(rawGateway)
+          ? rawGateway.replace(/\/$/, '')
+          : `http://${rawGateway.replace(/^\/+/, '').replace(/\/$/, '')}`
+        const fileUrlPath = packageArtifact.fileUrl.startsWith('/')
+          ? packageArtifact.fileUrl
+          : `/${packageArtifact.fileUrl}`
+        const fullUrl = `${normalizedBase}${fileUrlPath}`
+        const accessToken = await tokenService.ensureFresh()
+        const dlResp = await fetch(fullUrl, {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+        })
+        if (!dlResp.ok) {
+          throw new Error(`从沙箱网关下载产物包失败（HTTP ${dlResp.status}）`)
+        }
+        // 校验 Content-Type，防止网关返回 JSON / HTML 被误当 ZIP 上传
+        const contentType = dlResp.headers.get('content-type') ?? ''
+        if (contentType.includes('text/') || contentType.includes('application/json')) {
+          const preview = await dlResp.text()
+          throw new Error(`沙箱网关返回了非二进制响应（Content-Type: ${contentType}）：${preview.slice(0, 200)}`)
+        }
+        const packageBlob = await dlResp.blob()
+        if (packageBlob.size < 22) {
+          // ZIP 最小合法大小（End of Central Directory = 22 字节）
+          throw new Error(`从沙箱网关下载的产物包过小（${packageBlob.size} 字节），可能不是有效 ZIP 文件`)
+        }
+        finalizeResult = await api.hiringWorkflow.importPackage(hireId, packageBlob, packageArtifact.fileName)
+      } else {
+        // 回退：调用后端 finalize（依赖 KingCrab，开发环境可能 502）
+        finalizeResult = await api.hiringWorkflow.finalize(hireId)
+      }
+
       setArtifactFileNames(finalizeResult.generatedFiles)
       if (finalizeResult.employeeId) {
         setCreatedId(finalizeResult.employeeId)

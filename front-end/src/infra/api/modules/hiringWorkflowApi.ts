@@ -616,6 +616,45 @@ export const hiringWorkflowApi = {
       blob,
     }
   },
+
+  /**
+   * 前端从沙箱网关下载产物包后，直接上传至后端保存为数字员工，绕过 KingCrab 依赖。
+   * @param hireId 雇佣 ID
+   * @param packageBlob 从沙箱网关下载的 ZIP 包
+   * @param fileName 原始文件名（用于后端存储和日志）
+   */
+  async importPackage(hireId: string, packageBlob: Blob, fileName: string): Promise<HiringFinalizeResult> {
+    const url = `${API_BASE_URL}/api/v1/hirings/${encodeURIComponent(hireId)}/import-package`
+    const accessToken = await tokenService.ensureFresh()
+    const form = new FormData()
+    form.append('packageFile', packageBlob, fileName)
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: form,
+    })
+
+    if (!response.ok) {
+      const text = await response.text()
+      try {
+        const payload = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
+        throw new ApiClientError(
+          payload.message?.trim() || `请求失败（HTTP ${response.status}）`,
+          response.status,
+          payload.code,
+          payload,
+        )
+      } catch {
+        throw new ApiClientError(`请求失败（HTTP ${response.status}）`, response.status, undefined, text)
+      }
+    }
+
+    const envelope = await response.json() as ApiResponseEnvelope<HiringFinalizeResult>
+    if (!envelope.success || !envelope.data) {
+      throw new ApiClientError(envelope.message?.trim() || '导入产物包失败', envelope.code ?? response.status, envelope.code, envelope)
+    }
+    return envelope.data
+  },
 }
 
 

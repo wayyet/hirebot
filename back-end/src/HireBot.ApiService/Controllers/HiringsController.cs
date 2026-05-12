@@ -123,6 +123,27 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
         return StatusCode(response.Code, response);
     }
 
+    /// <summary>
+    /// 前端从沙箱网关直接下载产物包后上传至此接口，跳过后端对 KingCrab 的依赖，完成数字员工创建。
+    /// </summary>
+    [HttpPost("{hireId}/import-package")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> ImportPackage(
+        string hireId,
+        IFormFile? packageFile,
+        CancellationToken cancellationToken = default)
+    {
+        if (packageFile is null || packageFile.Length == 0)
+        {
+            var badReq = ApiResponse<object>.ErrorResponse(400, "必须上传产物包文件");
+            return BadRequest(badReq);
+        }
+
+        await using var stream = packageFile.OpenReadStream();
+        var response = await employeeHiringService.ImportPackageAsync(hireId, stream, packageFile.FileName, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpGet("{hireId}/artifacts/download")]
     public async Task<IActionResult> DownloadArtifacts(string hireId, CancellationToken cancellationToken = default)
     {

@@ -1280,6 +1280,140 @@ internal sealed partial class EmployeeHiringService(
         return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(finalizeResult, "交付物已生成");
     }
 
+    public async Task<ApiResponse<HiringFinalizeResultDto>> ImportPackageAsync(
+        string hireId,
+        Stream packageStream,
+        string fileName,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(400, error);
+        }
+
+        var runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken);
+        if (runtimeContext is null)
+        {
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(409, "本地雇佣上下文不存在，请重新发起雇佣流程");
+        }
+
+        // 将前端直传的产物包读取为字节数组
+        byte[] packageBytes;
+        using (var ms = new MemoryStream())
+        {
+            await packageStream.CopyToAsync(ms, cancellationToken);
+            packageBytes = ms.ToArray();
+        }
+
+        if (packageBytes.Length == 0)
+        {
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(400, "上传的产物包为空");
+        }
+
+        var extractedArtifacts = ExtractZipEntries(packageBytes);
+        if (extractedArtifacts.Count == 0)
+        {
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包为空或无法解析，请确认上传的是有效 ZIP 文件");
+        }
+
+        var mergedArtifacts = MergeTemplatePackageArtifacts(extractedArtifacts, runtimeContext.WorkingTemplatePackage);
+        if (mergedArtifacts.Count == 0)
+        {
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包合并后无有效文件");
+        }
+
+        var mergedArtifactArchive = BuildArtifactArchive(mergedArtifacts);
+
+        // 创建数字员工实例（首次调用时）
+        string? employeeId = null;
+        if (hireOwners.TryGetValue(normalizedHireId, out var ownerContext))
+        {
+            if (string.IsNullOrWhiteSpace(ownerContext.EmployeeId))
+            {
+                var capabilities = (await templateDataProvider.GetByIdAsync(ownerContext.TemplateId, cancellationToken))?.CoreAbilities ?? [];
+                using var scope = serviceScopeFactory.CreateScope();
+                var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
+                var createResponse = await employeeRuntimeService.CreateFromHireAsync(
+                    new CreateEmployeeFromHireRequestDto(
+                        HireId: normalizedHireId,
+                        TemplateId: ownerContext.TemplateId,
+                        TemplateName: ownerContext.TemplateName,
+                        OwnerSubject: ownerContext.OwnerSubject,
+                        TenantId: ownerContext.TenantId,
+                        OperatorId: ownerContext.OperatorId,
+                        Capabilities: capabilities),
+                    cancellationToken);
+
+                if (createResponse.Success && createResponse.Data is not null)
+                {
+                    ownerContext = ownerContext with { EmployeeId = createResponse.Data.EmployeeId };
+                    hireOwners[normalizedHireId] = ownerContext;
+                }
+            }
+
+            employeeId = ownerContext.EmployeeId;
+        }
+
+        // 存储数字员工 artifacts
+        if (!string.IsNullOrWhiteSpace(employeeId))
+        {
+            try
+            {
+                var storedArtifacts = await instanceArtifactCloneService.StoreDepartmentArtifactsAsync(
+                    employeeId,
+                    mergedArtifacts,
+                    cancellationToken);
+                var instance = await dbContext.Instances.FirstOrDefaultAsync(
+                    item => item.InstanceId == employeeId,
+                    cancellationToken);
+                if (instance is not null)
+                {
+                    instance.CurrentVersion = storedArtifacts.CurrentVersion;
+                    instance.UpdatedAt = DateTimeOffset.UtcNow;
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to persist imported instance artifacts. EmployeeId={EmployeeId}", employeeId);
+            }
+        }
+
+        if (ShouldPersistArtifactPackages(runtimeContext))
+        {
+            await artifactPackageService.PersistFinalPackageAsync(
+                new HiringArtifactPackagePersistRequestDto(
+                    runtimeContext.HireId,
+                    runtimeContext.SessionId,
+                    BuildFinalPackageFileName(normalizedHireId, fileName),
+                    mergedArtifacts),
+                cancellationToken);
+        }
+
+        var archiveFileName = string.IsNullOrWhiteSpace(fileName) ? $"{normalizedHireId}-artifacts.zip" : fileName;
+        runtimeContext = runtimeContext with
+        {
+            CurrentStage = HiringCollectionStage.ReadyForPackaging,
+            CollectionPhase = HiringCollectionPhase.Finalized,
+            EmployeeId = employeeId,
+            ArtifactFiles = mergedArtifacts,
+            ArtifactArchive = mergedArtifactArchive,
+            ArtifactArchiveFileName = archiveFileName
+        };
+        runtimeContext = ApplyWorkflowProgress(runtimeContext);
+        hiringRuntimeStore.Upsert(runtimeContext);
+
+        var result = new HiringFinalizeResultDto(
+            HireId: normalizedHireId,
+            CurrentStage: runtimeContext.CurrentStage,
+            CollectionPhase: runtimeContext.CollectionPhase,
+            GeneratedFiles: mergedArtifacts.Keys.ToArray(),
+            DownloadUrl: $"/api/v1/hirings/{normalizedHireId}/artifacts/download",
+            EmployeeId: employeeId);
+
+        return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(result, "交付物已导入");
+    }
+
     public async Task<ApiResponse<bool>> UploadEvaluationSkillAsync(
         string hireId,
         string? skillRootPath = null,
