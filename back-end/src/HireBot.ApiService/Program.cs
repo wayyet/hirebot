@@ -1,5 +1,7 @@
 using HireBot.ApiService.Authentication;
+using HireBot.ApiService.McpTools;
 using HireBot.Core.Extensions;
+using ModelContextProtocol.Protocol;
 using HireBot.Repository;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -100,6 +102,13 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddHireBotServices(builder.Configuration);
 
+// MCP Server：供 Kingcrab 等 Agent 调用的工具端点
+builder.Services.AddMcpServer(options =>
+{
+    options.ServerInfo = new Implementation { Name = "HireBot MCP Server", Version = "1.0.0" };
+}).WithHttpTransport(options => { options.Stateless = true; })
+  .WithTools<HiringTodoMcpTools>();
+
 var app = builder.Build();
 
 if (builder.Configuration.GetValue("Database:AutoMigrateOnStartup", false))
@@ -165,6 +174,7 @@ app.MapGet("/api/diagnostics/evaluation-root", () =>
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapMcp("/mcp");
 
 // 向前端 SPA 注入运行时配置（OIDC / API 地址），支持镜像内前后端合并部署
 app.MapGet("/runtime-config.js", (IConfiguration cfg) =>
@@ -187,6 +197,9 @@ app.MapGet("/runtime-config.js", (IConfiguration cfg) =>
 
 // 防止未匹配的 /api/* 路由被 SPA 回退捕获（应返回 404）
 app.Map("/api/{**path}", () => Results.NotFound()).ExcludeFromDescription();
+
+// MCP 端点不属于 SPA 路由，GET 请求返回 405（正确语义），POST 请求由 MapMcp 处理
+app.MapGet("/mcp", () => Results.StatusCode(405)).ExcludeFromDescription();
 
 // SPA 回退：前端路由（如 /jobs/123）由 index.html 接管
 app.MapFallbackToFile("index.html");

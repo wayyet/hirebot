@@ -9,6 +9,7 @@ import type {
   HiringConversationMaterial,
 } from '@/infra/api'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
+import { resolveGatewayEndpoint } from '@/infra/sandbox/sandbox-config'
 import { fetchLatestGatewaySession, fetchSandboxSessionMessages, uploadMediaToGateway } from '@/infra/sandbox/sandbox-api'
 import { tokenService } from '@/infra/auth/token-service'
 
@@ -356,7 +357,8 @@ export default function HiringPage() {
           latestGatewayEndpoint = statusResult.gatewayEndpoint ?? null
         }
 
-        // 保存网关端点，后续直连沙箱使用
+        // 保存网关端点，后续直连沙箱使用（VITE_SANDBOX_URL 有值时固定使用本地端点）
+        latestGatewayEndpoint = resolveGatewayEndpoint(latestGatewayEndpoint)
         if (latestGatewayEndpoint) {
           gatewayEndpointRef.current = latestGatewayEndpoint
         }
