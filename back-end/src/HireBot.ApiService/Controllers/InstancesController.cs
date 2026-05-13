@@ -220,7 +220,7 @@ public sealed class InstancesController(
     }
 
     /// <summary>
-    /// 废弃私有分支。若已上岗则恢复 IM 路由到原分身，否则直接清理资源。
+    /// 废弃私有分支。回滚五件套并原地恢复为个人分身。
     /// </summary>
     [HttpPost("{instanceId}/abandon-branch")]
     public async Task<IActionResult> AbandonPrivateBranch(

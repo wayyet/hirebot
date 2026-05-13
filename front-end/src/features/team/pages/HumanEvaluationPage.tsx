@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, type EmployeeDetail, type EvaluationState } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
+import { instanceBasePath } from '@/shared/utils/instancePath'
 
 function verdictLabel(verdict?: string | null) {
   if (verdict === 'passed') return '通过'
@@ -27,6 +28,8 @@ export default function HumanEvaluationPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const location = useLocation();
 
   async function loadData() {
     if (!id) return
@@ -67,11 +70,11 @@ export default function HumanEvaluationPage() {
       setEmployee(updated)
 
       if (decision === 'REJECT') {
-        navigate(`/instances/${id}/review`)
+        navigate(`${instanceBasePath(location.pathname, id!)}/review`)
         return
       }
 
-      navigate(`/instances/${id}`)
+      navigate(instanceBasePath(location.pathname, id!))
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '提交人工评估结论失败')
     } finally {
@@ -81,7 +84,7 @@ export default function HumanEvaluationPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <Breadcrumb items={[{ label: '员工详情', to: id ? `/instances/${id}` : '/department-employees' }, { label: '人工评估' }]} />
+      <Breadcrumb items={[{ label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' }, { label: '人工评估' }]} />
 
       {error && (
         <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">

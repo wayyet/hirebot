@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Clock, Search, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { api, type EmployeeTemplateCard, type EmployeeTemplateListData } from '@/infra/api'
 
 const PAGE_SIZE = 9
@@ -69,9 +70,6 @@ export default function MarketPage() {
   const [searchInput, setSearchInput] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [listData, setListData] = useState<EmployeeTemplateListData>(EMPTY_LIST)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -82,42 +80,16 @@ export default function MarketPage() {
     return () => window.clearTimeout(timer)
   }, [searchInput])
 
-  useEffect(() => {
-    let cancelled = false
+  const { data = EMPTY_LIST, isLoading, isPlaceholderData, error } = useQuery({
+    queryKey: ['templates', query, page],
+    queryFn: ({ signal }) =>
+      api.employeeTemplate.getList({ q: query, page, pageSize: PAGE_SIZE }, signal),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    placeholderData: keepPreviousData,
+  })
 
-    async function loadTemplates() {
-      setLoading(true)
-      setError('')
-
-      try {
-        const data = await api.employeeTemplate.getList({
-          q: query,
-          page,
-          pageSize: PAGE_SIZE,
-        })
-        if (!cancelled) {
-          setListData(data)
-        }
-      } catch (requestError: unknown) {
-        if (!cancelled) {
-          setListData(EMPTY_LIST)
-          setError(requestError instanceof Error ? requestError.message : t('common.loading'))
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      }
-    }
-
-    void loadTemplates()
-
-    return () => {
-      cancelled = true
-    }
-  }, [page, query])
-
-  const totalPages = Math.max(1, Math.ceil(listData.total / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE))
   const visiblePages = useMemo(() => getVisiblePages(page, totalPages), [page, totalPages])
 
   return (
@@ -125,16 +97,14 @@ export default function MarketPage() {
       <div className="hb-page-head">
         <div>
           <span className="hb-kicker">{t('market.kicker')}</span>
-          <h1 className="hb-page-title">
-            {t('market.title')} <span className="accent">{t('market.titleAccent')}</span> {t('market.titleEnd')}
-          </h1>
+          <h1 className="hb-page-title">{t('market.title')}</h1>
           <p className="hb-page-copy">
             {t('market.copy')}
           </p>
         </div>
       </div>
 
-      <div className="hb-search-shell">
+      <div className="hb-search-shell mx-auto">
         <Search size={16} />
         <input
           value={searchInput}
@@ -153,43 +123,41 @@ export default function MarketPage() {
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div className="hb-chip-row">
           <span className="hb-pill blue">{t('common.allTypes')}</span>
-          <span className="hb-pill gray">{t('common.globalGeneral')}</span>
-          <span className="hb-pill gray">{t('common.enterpriseSpecific')}</span>
         </div>
-        <span className="text-xs text-[var(--hb-soft)]">{t('market.templateCount', { count: listData.total })}</span>
+        <span className="text-xs text-[var(--hb-soft)]">{t('market.templateCount', { count: data.total })}</span>
       </div>
 
       {error ? (
         <div className="hb-alert hb-alert-error mt-5">
-          <span>{error}</span>
+          <span>{error.message}</span>
         </div>
       ) : null}
 
       <div className="mt-5">
-        {loading ? (
+        {isLoading ? (
           <div className="hb-card py-20 text-center text-sm text-[var(--hb-soft)]">
             {t('market.loading')}
           </div>
-        ) : listData.items.length === 0 ? (
+        ) : data.items.length === 0 ? (
           <div className="hb-empty">
             <div className="hb-empty-title">{t('market.empty')}</div>
             <div className="hb-empty-copy">{t('market.emptyCopy')}</div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {listData.items.map((template) => (
+          <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3${isPlaceholderData ? ' opacity-60 transition-opacity' : ''}`}>
+            {data.items.map((template) => (
               <TemplateCard
                 key={template.id}
                 template={template}
-                onClick={() => navigate(`/templates/${template.id}`)}
+                onClick={() => navigate(`/template-pool/templates/${template.id}`)}
               />
             ))}
           </div>
         )}
       </div>
 
-      {listData.items.length > 0 ? (
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+      {data.items.length > 0 ? (
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
             disabled={page <= 1}
@@ -222,7 +190,7 @@ export default function MarketPage() {
       ) : null}
 
       <p className="mt-8 text-center text-xs text-[var(--hb-caption)]">
-        📝 {t('market.copy')}
+        {t('market.footer')}
       </p>
     </div>
   )

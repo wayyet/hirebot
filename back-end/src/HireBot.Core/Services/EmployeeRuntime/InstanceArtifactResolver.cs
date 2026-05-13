@@ -41,7 +41,7 @@ public sealed class InstanceArtifactResolver(IConfiguration configuration) : IIn
             "private_branch" => Path.Combine(
                 ResolveRoot(),
                 "instances",
-                "private_branch",
+                "personal_clone",
                 Sanitize(instance.FromInstanceId ?? "unknown"),
                 Sanitize(instance.InstanceId),
                 "versions",

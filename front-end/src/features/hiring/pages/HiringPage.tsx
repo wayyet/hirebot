@@ -1217,7 +1217,7 @@ export default function HiringPage() {
             hasArtifactArchive={Boolean(artifactArchive)}
             onContinue={handlePrototypeContinue}
             onFinalize={() => { void triggerCreate() }}
-            onEnterTraining={(employeeId) => navigate(`/instances/${employeeId}/training`)}
+            onEnterTraining={(employeeId) => navigate(`/department-employees/instances/${employeeId}/training`)}
             onDownloadArtifact={(artifactName) => { void downloadBackendArtifact(artifactName) }}
             onDownloadArchive={() => {
               if (artifactArchive) {

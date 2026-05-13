@@ -86,8 +86,8 @@ export default function PrivateBranchPage() {
         displayDescription: goal.trim() || '基于当前分身创建的私有分支',
         selectedStations: selected,
       })
-      // After creation, go to evaluation page (status is "hired")
-      navigate(`/instances/${branch.branchId}/evaluation`)
+      // 私有分支是原地定制：后端返回的 branchId 仍是当前分身 id，创建后进入私有分支专用评估页。
+      navigate(`/my-employees/instances/${branch.branchId}/evaluation`)
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '创建私有分支失败')
     } finally {
@@ -205,7 +205,7 @@ export default function PrivateBranchPage() {
         <h2 className="text-base font-semibold text-[#0a0a0a]">继承说明</h2>
         <div className="mt-3 rounded-xl border border-[#d9e1ff] bg-[#eef2ff] px-4 py-3 text-sm text-[#2e3da9]">
           只对你勾选的 {pickedCount} 个工位做精简追问，其余继续沿用原分身。私有分支不能再创建二级分支。
-          创建后需通过 AI 评估 + 用户自评，上岗后将替换原分身的 IM 路由，不新增飞书联系人。
+          创建后会原地升级当前分身，不新建实例、不新建沙箱、不改变 IM 路由；对话和 IM 配置都会继续沿用。
         </div>
       </div>
 

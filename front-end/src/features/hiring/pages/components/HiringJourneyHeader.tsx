@@ -21,7 +21,7 @@ export function HiringJourneyHeader({
         <Breadcrumb
           items={[
             { label: '模板池', to: '/template-pool' },
-            { label: templateName, to: `/templates/${templateId}` },
+            { label: templateName, to: `/template-pool/templates/${templateId}` },
             { label: '雇佣流程' },
           ]}
         />
