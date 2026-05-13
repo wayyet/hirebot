@@ -107,14 +107,14 @@ function toDetailFallback(summary: EmployeeSummary): EmployeeDetail {
 
 function routeForEmployee(employee: TeamEmployee): string {
   if (employee.lifecycleStatus === '待人工评估') {
-    return `/instances/${employee.id}/human-evaluation`
+    return `/department-employees/instances/${employee.id}/human-evaluation`
   }
 
   if (employee.lifecycleStatus === '待AI评估') {
-    return `/instances/${employee.id}/evaluation`
+    return `/department-employees/instances/${employee.id}/evaluation`
   }
 
-  return `/instances/${employee.id}`
+  return `/department-employees/instances/${employee.id}`
 }
 
 function buildRequestId(): string {
@@ -198,7 +198,7 @@ export default function TeamPage() {
         signalLevel: 'warn',
       })
       await loadPageData()
-      navigate(`/instances/${id}/evaluation`)
+      navigate(`/department-employees/instances/${id}/evaluation`)
     } catch (err) {
       setError(err instanceof Error ? err.message : '发起评估失败')
     } finally {
@@ -525,7 +525,7 @@ export default function TeamPage() {
                                   )}
                                   {employee.lifecycleStatus === '待AI评估' && (
                                     <button
-                                      onClick={() => navigate(`/instances/${employee.id}/evaluation`)}
+                                      onClick={() => navigate(`/department-employees/instances/${employee.id}/evaluation`)}
                                       className="flex-1 px-2 py-1 bg-violet-600 text-white rounded text-[10px] font-medium hover:bg-violet-700 transition-colors"
                                     >
                                       进入AI评估
@@ -533,7 +533,7 @@ export default function TeamPage() {
                                   )}
                                   {employee.lifecycleStatus === '待人工评估' && (
                                     <button
-                                      onClick={() => navigate(`/instances/${employee.id}/human-evaluation`)}
+                                      onClick={() => navigate(`/department-employees/instances/${employee.id}/human-evaluation`)}
                                       className="flex-1 px-2 py-1 bg-indigo-600 text-white rounded text-[10px] font-medium hover:bg-indigo-700 transition-colors"
                                     >
                                       执行人工评估

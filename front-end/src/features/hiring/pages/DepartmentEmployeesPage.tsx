@@ -110,24 +110,24 @@ export default function DepartmentEmployeesPage() {
   }
 
   function openDetail(employeeId: string) {
-    navigate(`/instances/${employeeId}`)
+    navigate(`/department-employees/instances/${employeeId}`)
   }
 
   function openAiEvaluation(employeeId: string) {
-    navigate(`/instances/${employeeId}/evaluation`)
+    navigate(`/department-employees/instances/${employeeId}/evaluation`)
   }
 
   function openHumanEvaluation(employeeId: string) {
-    navigate(`/instances/${employeeId}/human-evaluation`)
+    navigate(`/department-employees/instances/${employeeId}/human-evaluation`)
   }
 
   function openCard(employee: { employeeId: string; mappedStatus: string }) {
     if (employee.mappedStatus === 'interning_ai') {
-      navigate(`/instances/${employee.employeeId}/evaluation`)
+      navigate(`/department-employees/instances/${employee.employeeId}/evaluation`)
     } else if (employee.mappedStatus === 'interning_human') {
-      navigate(`/instances/${employee.employeeId}/human-evaluation`)
+      navigate(`/department-employees/instances/${employee.employeeId}/human-evaluation`)
     } else {
-      navigate(`/instances/${employee.employeeId}`)
+      navigate(`/department-employees/instances/${employee.employeeId}`)
     }
   }
 

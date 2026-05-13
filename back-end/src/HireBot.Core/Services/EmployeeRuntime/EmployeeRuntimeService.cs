@@ -12,6 +12,7 @@ using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using System.IO.Compression;
 using System.Text.Json;
 
@@ -29,7 +30,8 @@ public sealed partial class EmployeeRuntimeService(
     IInstanceArtifactCloneService artifactCloneService,
     IInstanceArtifactResolver instanceArtifactResolver,
     ISandboxService sandboxService,
-    IKingCrabHttpClient kingCrabHttpClient) : IEmployeeRuntimeService
+    IKingCrabHttpClient kingCrabHttpClient,
+    IConfiguration configuration) : IEmployeeRuntimeService
 {
     /// <summary>
     /// 支持的员工状态列表。
@@ -76,6 +78,7 @@ public sealed partial class EmployeeRuntimeService(
         new(LoadFixtureTemplateBindings);
 
     private const string RuntimeSandboxRole = "runtime";
+    private const int DefaultMaxActivePersonalClonesPerOwner = 10;
 
     /// <summary>
     /// Fixture 模板绑定记录。
@@ -271,14 +274,6 @@ public sealed partial class EmployeeRuntimeService(
 
         await store.UpsertAsync(owner, updated, cancellationToken);
         await UpsertInstanceRecordAsync(updated, cancellationToken: cancellationToken);
-
-        // Private branch lifecycle hook: when going live, switch IM routing
-        if (string.Equals(targetStatus, "live", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(updated.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(updated.FromInstanceId))
-        {
-            await SwitchImRoutingToBranchAsync(updated, updated.FromInstanceId, owner, cancellationToken);
-        }
 
         if (string.Equals(targetStatus, "retired", StringComparison.OrdinalIgnoreCase))
         {
@@ -550,6 +545,18 @@ public sealed partial class EmployeeRuntimeService(
         var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(null, null);
         await EnsureSeedDataAsync(owner, cancellationToken);
 
+        var ownerEmployees = await store.ListAsync(owner, cancellationToken);
+        var activePersonalCloneCount = ownerEmployees.Count(item =>
+            string.Equals(item.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(item.Status, "retired", StringComparison.OrdinalIgnoreCase));
+        var maxActivePersonalClones = ResolveMaxActivePersonalClonesPerOwner();
+        if (activePersonalCloneCount >= maxActivePersonalClones)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(
+                409,
+                $"个人分身数量已达上限（最多 {maxActivePersonalClones} 个），请先归档不再使用的分身。");
+        }
+
         var source = await store.FindAsync(normalizedSourceId, cancellationToken);
         if (source is null)
         {
@@ -641,7 +648,7 @@ public sealed partial class EmployeeRuntimeService(
     }
 
     /// <summary>
-    /// 从个人分身创建私有分支。创建后状态为 hired，需经双阶段评估通过后才上岗并切换 IM 路由。
+    /// 从个人分身创建私有分支。私有分支原地更新原实例，不创建新实例、不创建新沙箱、不切换 IM 路由。
     /// </summary>
     public async Task<ApiResponse<PrivateBranchResultDto>> CreatePrivateBranchAsync(
         string sourceInstanceId,
@@ -656,7 +663,6 @@ public sealed partial class EmployeeRuntimeService(
         var normalizedSourceId = sourceInstanceId.Trim();
         var displayName = request.DisplayName.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
-        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(null, null);
         await EnsureSeedDataAsync(owner, cancellationToken);
 
         var source = await store.FindAsync(normalizedSourceId, cancellationToken);
@@ -680,37 +686,26 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<PrivateBranchResultDto>.ErrorResponse(403, "只能对自己的分身创建私有分支");
         }
 
-        if (await store.ExistsNameAsync(owner, displayName, cancellationToken))
+        var ownerEmployees = await store.ListAsync(owner, cancellationToken);
+        if (ownerEmployees.Any(item =>
+                !string.Equals(item.EmployeeId, normalizedSourceId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(item.Nickname, displayName, StringComparison.OrdinalIgnoreCase)))
         {
             return ApiResponse<PrivateBranchResultDto>.ErrorResponse(409, "你已经有同名的分身或私人定制");
         }
 
-        // Check for nested branch — source cannot itself be a private_branch
-        if (string.Equals(source.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase))
+        var sourceEntity = await dbContext.Instances
+            .FirstOrDefaultAsync(item => item.InstanceId == normalizedSourceId, cancellationToken);
+        if (sourceEntity is null)
         {
-            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(409, "不能在私有分支上再创建私有分支");
+            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(404, "源分身实例记录不存在");
         }
 
-        // Check source doesn't already have an active private branch
-        var existingBranch = await dbContext.Instances
-            .AnyAsync(item =>
-                item.FromInstanceId == normalizedSourceId &&
-                item.InstanceType == "private_branch" &&
-                item.Status != "retired" &&
-                item.OwnerUserId == owner,
-                cancellationToken);
-        if (existingBranch)
-        {
-            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(409, "该分身已存在活跃的私有分支，请先废弃旧分支再创建新分支");
-        }
-
-        var branchId = BuildInstanceId("pb");
-        InstanceArtifactCloneResult artifactResult;
         try
         {
-            artifactResult = await artifactCloneService.CloneArtifactsAsync(source, branchId, cancellationToken);
+            await SnapshotPrivateBranchArtifactsAsync(sourceEntity, cancellationToken);
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex) when (ex is InvalidOperationException or DirectoryNotFoundException or IOException)
         {
             return ApiResponse<PrivateBranchResultDto>.ErrorResponse(409, ex.Message);
         }
@@ -720,61 +715,33 @@ public sealed partial class EmployeeRuntimeService(
             : "all";
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
-        var branch = new EmployeeDetailDto(
-            EmployeeId: branchId,
-            Nickname: displayName,
-            RoleName: source.RoleName,
-            SourceTemplate: source.SourceTemplate,
-            SourceTemplateId: source.SourceTemplateId,
-            InstanceType: "private_branch",
-            Status: "hired",
-            BasedOnTemplateId: source.BasedOnTemplateId,
-            FromInstanceId: source.EmployeeId,
-            OwnerUserId: owner,
-            DepartmentId: source.DepartmentId,
-            LifecycleStatus: MapStatusToLifecycleLabel("hired"),
-            StageSummary: string.IsNullOrWhiteSpace(request.DisplayDescription)
-                ? $"私有分支已创建，待评估（工位：{stations}）"
-                : request.DisplayDescription.Trim(),
-            PrimarySignal: "待发起评估",
-            SignalLevel: "warn",
-            OwningTeam: source.OwningTeam,
-            CreatedAt: today,
-            InternshipStartAt: null,
-            GraduatedAt: null,
-            TasksDone: 0,
-            TasksTotal: 0,
-            SatisfactionScore: null,
-            PendingActions: ["发起 AI 评估", "完成用户自评"],
-            Capabilities: source.Capabilities.Select(item => item with { Ready = false }).ToArray(),
-            EvalPhase: null,
-            EvalIteration: null,
-            EvalMaxIterations: null,
-            IsConfigured: false);
-
-        var sandboxSetup = await InitializeRuntimeSandboxAsync(
-            branch,
-            artifactResult.TargetRootPath,
-            artifactResult.CurrentVersion,
-            owner,
-            tenantId,
-            operatorId,
-            cancellationToken);
-        if (!sandboxSetup.Success || sandboxSetup.Data is null)
+        var branch = source with
         {
-            return ApiResponse<PrivateBranchResultDto>.ErrorResponse(sandboxSetup.Code, sandboxSetup.Message);
-        }
+            Nickname = displayName,
+            InstanceType = "private_branch",
+            Status = "live",
+            LifecycleStatus = MapStatusToLifecycleLabel("live"),
+            StageSummary = string.IsNullOrWhiteSpace(request.DisplayDescription)
+                ? $"私有分支已创建，原地更新五件套（工位：{stations}）"
+                : request.DisplayDescription.Trim(),
+            PrimarySignal = "私人定制已启用，沙箱与 IM 继续沿用原分身",
+            SignalLevel = "warn",
+            InternshipStartAt = string.IsNullOrWhiteSpace(source.InternshipStartAt) ? today : source.InternshipStartAt,
+            GraduatedAt = string.IsNullOrWhiteSpace(source.GraduatedAt) ? today : source.GraduatedAt,
+            PendingActions = ["发起 AI 评估", "完成用户自评"],
+            IsConfigured = source.IsConfigured
+        };
 
         await store.UpsertAsync(owner, branch, cancellationToken);
-        await UpsertInstanceRecordAsync(branch, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
+        await UpsertInstanceRecordAsync(branch, currentVersion: sourceEntity.CurrentVersion, cancellationToken: cancellationToken);
 
         return ApiResponse<PrivateBranchResultDto>.SuccessResponse(
-            new PrivateBranchResultDto(branchId, displayName, "hired", source.EmployeeId, false),
-            "私有分支已创建，请进入评估流程");
+            new PrivateBranchResultDto(source.EmployeeId, displayName, "live", source.FromInstanceId ?? string.Empty, false),
+            "私有分支已原地启用，请进入评估流程");
     }
 
     /// <summary>
-    /// 废弃私有分支。若已上岗则恢复 IM 路由到原分身。
+    /// 废弃私有分支，回滚五件套并将原实例恢复为个人分身。
     /// </summary>
     public async Task<ApiResponse<EmployeeDetailDto>> AbandonPrivateBranchAsync(
         string branchId,
@@ -809,115 +776,37 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "该私有分支已经被废弃");
         }
 
-        var wasLive = string.Equals(branch.Status, "live", StringComparison.OrdinalIgnoreCase);
-        var sourceInstanceId = branch.FromInstanceId;
-
-        // If branch was live, restore IM routing to source clone
-        if (wasLive && !string.IsNullOrWhiteSpace(sourceInstanceId))
+        var branchEntity = await dbContext.Instances
+            .FirstOrDefaultAsync(item => item.InstanceId == normalizedBranchId, cancellationToken);
+        if (branchEntity is null)
         {
-            await RestoreImRoutingToSourceAsync(sourceInstanceId, normalizedBranchId, owner, cancellationToken);
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "私有分支实例记录不存在");
         }
 
-        // Clean up branch resources
-        await CleanupRetiredInstanceArtifactsAsync(owner, normalizedBranchId, cancellationToken);
-
-        // Clear ActiveBranchId on source clone
-        if (!string.IsNullOrWhiteSpace(sourceInstanceId))
+        try
         {
-            var sourceEntity = await dbContext.Instances
-                .FirstOrDefaultAsync(item => item.InstanceId == sourceInstanceId, cancellationToken);
-            if (sourceEntity is not null && string.Equals(sourceEntity.ActiveBranchId, normalizedBranchId, StringComparison.OrdinalIgnoreCase))
-            {
-                sourceEntity.ActiveBranchId = null;
-                sourceEntity.UpdatedAt = DateTimeOffset.UtcNow;
-            }
+            await RestorePrivateBranchArtifactsAsync(branchEntity, cancellationToken);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or DirectoryNotFoundException or IOException)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, ex.Message);
         }
 
-        // Mark branch as retired
-        var retired = branch with
+        var restored = branch with
         {
-            Status = "retired",
-            LifecycleStatus = MapStatusToLifecycleLabel("retired"),
-            StageSummary = "私有分支已废弃",
-            PrimarySignal = "已废弃",
+            InstanceType = "personal_clone",
+            Status = "live",
+            LifecycleStatus = MapStatusToLifecycleLabel("live"),
+            StageSummary = "私有分支已废弃，已恢复为原个人分身",
+            PrimarySignal = "已恢复原五件套",
             SignalLevel = "ok",
-            PendingActions = []
+            PendingActions = [],
+            IsConfigured = true
         };
-        await store.UpsertAsync(owner, retired, cancellationToken);
-        await UpsertInstanceRecordAsync(retired, cancellationToken: cancellationToken);
+        await store.UpsertAsync(owner, restored, cancellationToken);
+        await UpsertInstanceRecordAsync(restored, currentVersion: branchEntity.CurrentVersion, cancellationToken: cancellationToken);
 
-        // Return source clone detail if available
-        if (!string.IsNullOrWhiteSpace(sourceInstanceId))
-        {
-            var source = await store.FindAsync(sourceInstanceId, cancellationToken);
-            if (source is not null)
-            {
-                return ApiResponse<EmployeeDetailDto>.SuccessResponse(source, wasLive
-                    ? "私有分支已废弃，IM 路由已恢复到原分身"
-                    : "私有分支已废弃");
-            }
-        }
-
-        return ApiResponse<EmployeeDetailDto>.SuccessResponse(retired, "私有分支已废弃");
-    }
-
-    /// <summary>
-    /// 恢复 IM 路由从私有分支到源分身。
-    /// </summary>
-    private async Task RestoreImRoutingToSourceAsync(
-        string sourceInstanceId,
-        string branchId,
-        string owner,
-        CancellationToken cancellationToken)
-    {
-        foreach (var platform in new[] { "feishu", "dingtalk", "wecom" })
-        {
-            try
-            {
-                // Clear branch's channel override
-                var clearPath = platform switch
-                {
-                    "feishu" => "/admin/channels/feishu/override",
-                    "dingtalk" => "/admin/channels/dingtalk/override",
-                    "wecom" => "/admin/channels/wecom/override",
-                    _ => null
-                };
-                if (clearPath is not null)
-                {
-                    await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
-                        HttpMethod.Delete,
-                        clearPath,
-                        body: null,
-                        owner,
-                        cancellationToken,
-                        useHireBotApiPrefix: false);
-                }
-            }
-            catch
-            {
-                // Best-effort restoration
-            }
-        }
-    }
-
-    /// <summary>
-    /// 当私有分支上岗时，切换 IM 路由到分支沙箱。
-    /// </summary>
-    private async Task SwitchImRoutingToBranchAsync(
-        EmployeeDetailDto branch,
-        string sourceInstanceId,
-        string owner,
-        CancellationToken cancellationToken)
-    {
-        // Set ActiveBranchId on source clone to enable in-app chat routing
-        var sourceEntity = await dbContext.Instances
-            .FirstOrDefaultAsync(item => item.InstanceId == sourceInstanceId, cancellationToken);
-        if (sourceEntity is not null)
-        {
-            sourceEntity.ActiveBranchId = branch.EmployeeId;
-            sourceEntity.UpdatedAt = DateTimeOffset.UtcNow;
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
+        return ApiResponse<EmployeeDetailDto>.SuccessResponse(restored, "私有分支已废弃，已回滚五件套并恢复为个人分身");
     }
 
     /// <summary>

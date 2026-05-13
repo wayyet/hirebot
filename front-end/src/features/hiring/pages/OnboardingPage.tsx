@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useUxOverlay } from '@/app/context/UxOverlayContext'
 import { api, type EmployeeDetail } from '@/infra/api'
 import { firstCharacter } from './employeeView'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
+import { instanceBasePath } from '@/shared/utils/instancePath'
 
 type OnboardPhase = 'form' | 'progress' | 'done'
 
@@ -35,6 +36,8 @@ export default function OnboardingPage() {
   const [displayDescription, setDisplayDescription] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const intervalRef = useRef<number | null>(null)
+
+  const location = useLocation();
 
   useEffect(() => {
     if (!id) {
@@ -157,7 +160,7 @@ export default function OnboardingPage() {
 
   return (
     <div className="hb-page space-y-5">
-<Breadcrumb items={[{ label: '实例详情', to: `/instances/${employee.employeeId}` }, { label: '上岗配置' }]} />
+<Breadcrumb items={[{ label: '实例详情', to: instanceBasePath(location.pathname, employee.employeeId) }, { label: '上岗配置' }]} />
 
       <div className="hb-card p-6">
         <h1 className="text-[28px] font-semibold leading-tight text-[#0a0a0a]">飞书身份配置与上岗</h1>
@@ -218,7 +221,7 @@ export default function OnboardingPage() {
                 )}
 
                 <div className="flex justify-end gap-2">
-                  <button type="button" className="hb-btn-ghost" onClick={() => navigate(`/instances/${employee.employeeId}`)}>
+                  <button type="button" className="hb-btn-ghost" onClick={() => navigate(instanceBasePath(location.pathname, employee.employeeId))}>
                     取消
                   </button>
                   <button type="button" className="hb-btn-primary" onClick={startOnboarding} disabled={submitting}>
@@ -257,7 +260,7 @@ export default function OnboardingPage() {
                 {displayName} 已完成飞书注册，现在可以进入一对一会话使用。
               </div>
               <div className="mt-4 flex justify-end gap-2">
-                <button type="button" className="hb-btn-ghost" onClick={() => navigate(`/instances/${employee.employeeId}`)}>
+                <button type="button" className="hb-btn-ghost" onClick={() => navigate(instanceBasePath(location.pathname, employee.employeeId))}>
                   查看详情
                 </button>
                 <button

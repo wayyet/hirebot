@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, type EmployeeDetail } from '@/infra/api'
 import { ownershipLabel, toEmployeeDetailSummary, withEmployeeView } from './employeeView'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
+import { instanceBasePath } from '@/shared/utils/instancePath'
 
 export default function ReviewPage() {
   const { id } = useParams<{ id: string }>()
@@ -42,6 +43,8 @@ export default function ReviewPage() {
     employee ? withEmployeeView(toEmployeeDetailSummary(employee)) : null
   ), [employee])
 
+  const location = useLocation();
+
   async function rollbackToHired() {
     if (!id) return
     setSubmitting(true)
@@ -54,7 +57,7 @@ export default function ReviewPage() {
         signalLevel: 'warn',
       })
       setEmployee(updated)
-      navigate(`/instances/${id}/evaluation`)
+      navigate(`${instanceBasePath(location.pathname, id!)}/evaluation`)
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '回退到已雇佣失败')
     } finally {
@@ -69,7 +72,7 @@ export default function ReviewPage() {
     try {
       const updated = await api.employeeRuntime.submitAiEvaluationDecision(id, { decision: 'START' })
       setEmployee(updated)
-      navigate(`/instances/${id}/evaluation`)
+      navigate(`${instanceBasePath(location.pathname, id!)}/evaluation`)
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '回退到 AI 评估失败')
     } finally {
@@ -89,7 +92,7 @@ export default function ReviewPage() {
     setError('')
     try {
       const result = await api.employeeTemplate.fixtureHire(templateId)
-      navigate(`/instances/${result.employeeId}/evaluation`)
+      navigate(`${instanceBasePath(location.pathname, result.employeeId)}/evaluation`)
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '继续雇佣失败')
     } finally {
@@ -121,7 +124,7 @@ export default function ReviewPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <Breadcrumb items={[{ label: '实例详情', to: `/instances/${employee.employeeId}` }, { label: '回退与重试' }]} />
+      <Breadcrumb items={[{ label: '实例详情', to: instanceBasePath(location.pathname, employee.employeeId) }, { label: '回退与重试' }]} />
 
       <div className="hb-hero">
         <div className="hb-hero-grid">

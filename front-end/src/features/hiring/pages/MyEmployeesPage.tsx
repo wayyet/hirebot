@@ -1,36 +1,83 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Bot, Loader2, ShieldCheck, Sparkles, Users } from 'lucide-react'
+import { Bot, GitBranch, Loader2, MessageCircle, ShieldCheck, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useUxOverlay } from '@/app/context/UxOverlayContext'
 import { api, type EmployeeSummary } from '@/infra/api'
 import {
   firstCharacter,
-  isEvaluating,
   ownershipClass,
   ownershipLabel,
   withEmployeeView,
 } from './employeeView'
 
-type FilterTab = 'all' | 'live' | 'evaluating' | 'branch' | 'failed'
+type FilterTab = 'all' | 'live' | 'branch' | 'retired'
 
 export default function MyEmployeesPage() {
   const navigate = useNavigate()
+  const { showToast } = useUxOverlay()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [employees, setEmployees] = useState<EmployeeSummary[]>([])
   const [filter, setFilter] = useState<FilterTab>('all')
   const [abandoningId, setAbandoningId] = useState<string | null>(null)
+  const [retiringId, setRetiringId] = useState<string | null>(null)
 
   async function abandonBranch(branchId: string, event: React.MouseEvent) {
     event.stopPropagation()
-    if (!window.confirm('废弃后，若已上岗则 IM 路由将恢复到原分身。此操作不可撤销，确定继续？')) return
+    if (!window.confirm('废弃后会回滚五件套并恢复为个人分身，沙箱、对话和 IM 配置都会继续沿用。此操作不可撤销，确定继续？')) return
     setAbandoningId(branchId)
     try {
-      await api.employeeRuntime.abandonPrivateBranch(branchId)
-      setEmployees((prev) => prev.map((e) => e.employeeId === branchId ? { ...e, lifecycleStatus: '已废弃', primarySignal: '已废弃', status: 'retired' } : e))
+      const restored = await api.employeeRuntime.abandonPrivateBranch(branchId)
+      setEmployees((prev) =>
+        prev.map((employee) =>
+          employee.employeeId === branchId
+            ? {
+                ...employee,
+                ...restored,
+                instanceType: 'personal_clone',
+                status: 'live',
+              }
+            : employee,
+        ),
+      )
+      showToast('私有分支已废弃，已恢复为个人分身', 'success')
     } catch {
       // Silently handle — user can retry from detail page
     } finally {
       setAbandoningId(null)
+    }
+  }
+
+  async function retireEmployee(employeeId: string, event: React.MouseEvent) {
+    event.stopPropagation()
+    if (!window.confirm('确定要将此实例退役吗？退役后仅保留历史信息。')) return
+    setRetiringId(employeeId)
+    try {
+      await api.employeeRuntime.updateLifecycle(employeeId, {
+        status: 'retired',
+        stageSummary: '实例已退役',
+        primarySignal: '仅保留历史信息',
+        signalLevel: 'warn',
+      })
+      setEmployees((prev) =>
+        prev.map((e) =>
+          e.employeeId === employeeId
+            ? {
+                ...e,
+                status: 'retired',
+                lifecycleStatus: '已退役',
+                stageSummary: '实例已退役',
+                primarySignal: '仅保留历史信息',
+                signalLevel: 'warn',
+              }
+            : e,
+        ),
+      )
+      showToast('实例已退役', 'success')
+    } catch {
+      // Silently handle — user can retry
+    } finally {
+      setRetiringId(null)
     }
   }
 
@@ -75,18 +122,16 @@ export default function MyEmployeesPage() {
     return {
       all: myEmployees.length,
       live: myEmployees.filter((item) => item.mappedStatus === 'live').length,
-      evaluating: myEmployees.filter((item) => isEvaluating(item.mappedStatus)).length,
       branch: myEmployees.filter((item) => item.ownership === 'private_branch').length,
-      failed: myEmployees.filter((item) => item.mappedStatus === 'failed').length,
+      retired: myEmployees.filter((item) => item.mappedStatus === 'retired').length,
     }
   }, [myEmployees])
 
   const visibleEmployees = useMemo(() => {
     if (filter === 'all') return myEmployees
     if (filter === 'live') return myEmployees.filter((item) => item.mappedStatus === 'live')
-    if (filter === 'evaluating') return myEmployees.filter((item) => isEvaluating(item.mappedStatus))
     if (filter === 'branch') return myEmployees.filter((item) => item.ownership === 'private_branch')
-    return myEmployees.filter((item) => item.mappedStatus === 'failed')
+    return myEmployees.filter((item) => item.mappedStatus === 'retired')
   }, [filter, myEmployees])
 
   return (
@@ -116,13 +161,12 @@ export default function MyEmployeesPage() {
           <div className="hb-stat-value">{counts.live}</div>
         </div>
         <div className="hb-stat-card">
-          <div className="hb-stat-label"><Sparkles size={14} /> 评估中</div>
-          <div className="hb-stat-value">{counts.evaluating}</div>
-        </div>
-        <div className="hb-stat-card">
           <div className="hb-stat-label"><ShieldCheck size={14} /> 私有分支</div>
           <div className="hb-stat-value">{counts.branch}</div>
-          <div className="hb-stat-note">失败实例 {counts.failed}</div>
+        </div>
+        <div className="hb-stat-card">
+          <div className="hb-stat-label"><GitBranch size={14} /> 已退役</div>
+          <div className="hb-stat-value">{counts.retired}</div>
         </div>
       </div>
 
@@ -130,9 +174,8 @@ export default function MyEmployeesPage() {
         {[
           { id: 'all' as const, label: '全部', count: counts.all },
           { id: 'live' as const, label: '已上岗', count: counts.live },
-          { id: 'evaluating' as const, label: '评估中', count: counts.evaluating },
           { id: 'branch' as const, label: '私有分支', count: counts.branch },
-          { id: 'failed' as const, label: '待回退', count: counts.failed },
+          { id: 'retired' as const, label: '已退役', count: counts.retired },
         ].map((item) => (
           <button
             key={item.id}
@@ -168,10 +211,17 @@ export default function MyEmployeesPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {visibleEmployees.map((employee) => (
-              <button
+              <div
                 key={employee.employeeId}
-                type="button"
-                onClick={() => navigate(`/instances/${employee.employeeId}`)}
+                role="button"
+                tabIndex={0}
+                onClick={() => navigate(`/my-employees/instances/${employee.employeeId}`)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    navigate(`/my-employees/instances/${employee.employeeId}`)
+                  }
+                }}
                 className="hb-card cursor-pointer p-5 text-left transition-transform duration-150 hover:-translate-y-0.5"
               >
                 <div className="mb-3 flex items-start gap-3">
@@ -189,6 +239,65 @@ export default function MyEmployeesPage() {
                 <p className="line-clamp-2 min-h-10 text-sm leading-relaxed text-[var(--hb-body)]">
                   {employee.primarySignal || employee.stageSummary}
                 </p>
+                <div
+                  className="mt-3 flex flex-wrap gap-1.5"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {employee.mappedStatus === 'live' ? (
+                    <button
+                      type="button"
+                      className="hb-btn-primary text-xs"
+                      style={{ padding: '6px 12px' }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        navigate(`/my-employees/instances/${employee.employeeId}/chat`)
+                      }}
+                    >
+                      <MessageCircle size={12} />
+                      开始对话
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="hb-btn-ghost text-xs"
+                    style={{ padding: '6px 12px' }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(
+                        employee.mappedStatus === 'retired'
+                          ? `/my-employees/instances/${employee.employeeId}/evaluation`
+                          : `/my-employees/instances/${employee.employeeId}/im-config`,
+                      )
+                    }}
+                  >
+                    <Bot size={12} />
+                    {employee.mappedStatus === 'retired' ? '查看评估报告' : '配置 IM'}
+                  </button>
+                  {employee.ownership === 'personal_clone' && employee.mappedStatus === 'live' ? (
+                    <button
+                      type="button"
+                      className="hb-btn-ghost text-xs"
+                      style={{ padding: '6px 12px' }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        navigate(`/private-branch/${employee.employeeId}`)
+                      }}
+                    >
+                      <GitBranch size={12} />
+                      创建私有分支
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="hb-btn-ghost text-xs"
+                    style={{ padding: '6px 12px' }}
+                    disabled={employee.mappedStatus === 'retired' || retiringId === employee.employeeId}
+                    onClick={(e) => { void retireEmployee(employee.employeeId, e) }}
+                  >
+                    <ShieldCheck size={12} />
+                    {retiringId === employee.employeeId ? '退役中...' : '退役'}
+                  </button>
+                </div>
                 <div className="mt-4 flex items-center justify-between border-t border-[var(--hb-border)] pt-3 text-xs text-[var(--hb-soft)]">
                   <span>最近更新 {employee.createdAt}</span>
                   <div className="flex items-center gap-2">
@@ -203,7 +312,7 @@ export default function MyEmployeesPage() {
                     <span className="text-[var(--hb-blue)]">查看详情 →</span>
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}

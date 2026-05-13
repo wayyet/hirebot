@@ -151,7 +151,7 @@ export default function App() {
             element={<Navigate to="/template-pool" replace />}
           />
           <Route
-            path="/templates/:id"
+            path="/template-pool/templates/:id"
             element={
               <ProtectedLayout>
                 <TemplateDetailPage />
@@ -159,7 +159,7 @@ export default function App() {
             }
           />
           <Route
-            path="/hiring/:templateId"
+            path="/template-pool/hiring/:templateId"
             element={
               <ProtectedLayout>
                 <HiringPage />
@@ -202,8 +202,9 @@ export default function App() {
               </ProtectedLayout>
             }
           />
+          {/* 我的数字员工下的实例页面 — 复用相同组件 */}
           <Route
-            path="/instances/:id"
+            path="/my-employees/instances/:id"
             element={
               <ProtectedLayout>
                 <InstanceDetailPage />
@@ -211,7 +212,7 @@ export default function App() {
             }
           />
           <Route
-            path="/instances/:id/chat"
+            path="/my-employees/instances/:id/chat"
             element={
               <ProtectedLayout>
                 <InstanceChatPage />
@@ -219,7 +220,7 @@ export default function App() {
             }
           />
           <Route
-            path="/instances/:id/im-config"
+            path="/my-employees/instances/:id/im-config"
             element={
               <ProtectedLayout>
                 <InstanceImConfigPage />
@@ -227,7 +228,7 @@ export default function App() {
             }
           />
           <Route
-            path="/instances/:id/evaluation"
+            path="/my-employees/instances/:id/evaluation"
             element={
               <ProtectedLayout>
                 <EvaluationPage />
@@ -235,7 +236,7 @@ export default function App() {
             }
           />
           <Route
-            path="/instances/:id/human-evaluation"
+            path="/my-employees/instances/:id/human-evaluation"
             element={
               <ProtectedLayout>
                 <HumanEvaluationPage />
@@ -243,7 +244,7 @@ export default function App() {
             }
           />
           <Route
-            path="/instances/:id/training"
+            path="/my-employees/instances/:id/training"
             element={
               <ProtectedLayout>
                 <TrainingFlowPage />
@@ -251,7 +252,7 @@ export default function App() {
             }
           />
           <Route
-            path="/instances/:id/review"
+            path="/my-employees/instances/:id/review"
             element={
               <ProtectedLayout>
                 <ReviewPage />
@@ -259,13 +260,80 @@ export default function App() {
             }
           />
           <Route
-            path="/instances/:id/onboarding"
+            path="/my-employees/instances/:id/onboarding"
             element={
               <ProtectedLayout>
                 <OnboardingPage />
               </ProtectedLayout>
             }
           />
+
+          {/* 部门数字员工下的实例页面 — 复用相同组件 */}
+          <Route
+            path="/department-employees/instances/:id"
+            element={
+              <ProtectedLayout>
+                <InstanceDetailPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/department-employees/instances/:id/chat"
+            element={
+              <ProtectedLayout>
+                <InstanceChatPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/department-employees/instances/:id/im-config"
+            element={
+              <ProtectedLayout>
+                <InstanceImConfigPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/department-employees/instances/:id/evaluation"
+            element={
+              <ProtectedLayout>
+                <EvaluationPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/department-employees/instances/:id/human-evaluation"
+            element={
+              <ProtectedLayout>
+                <HumanEvaluationPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/department-employees/instances/:id/training"
+            element={
+              <ProtectedLayout>
+                <TrainingFlowPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/department-employees/instances/:id/review"
+            element={
+              <ProtectedLayout>
+                <ReviewPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/department-employees/instances/:id/onboarding"
+            element={
+              <ProtectedLayout>
+                <OnboardingPage />
+              </ProtectedLayout>
+            }
+          />
+
           <Route
             path="/collaboration"
             element={

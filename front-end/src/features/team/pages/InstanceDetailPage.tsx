@@ -5,17 +5,17 @@ import {
   Check,
   Clock3,
   CopyPlus,
-  GitBranch,
   Loader2,
   MessageCircle,
   RotateCcw,
   ShieldCheck,
   Users,
 } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useUserRole } from "@/app/context/UserRoleContext";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeDetail } from "@/infra/api";
+import { instanceBasePath } from "@/shared/utils/instancePath";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
 import {
   firstCharacter,
@@ -26,65 +26,6 @@ import {
   toEmployeeDetailSummary,
   withEmployeeView,
 } from "@/features/hiring/pages/employeeView";
-
-type StatusAction = {
-  label: string;
-  status:
-    | "hired"
-    | "interning_ai"
-    | "interning_human"
-    | "live"
-    | "failed"
-    | "retired";
-  stageSummary: string;
-  primarySignal: string;
-  signalLevel: "ok" | "warn" | "error";
-};
-
-const STATUS_ACTIONS: StatusAction[] = [
-  {
-    label: "重置为已雇佣",
-    status: "hired",
-    stageSummary: "实例已雇佣，等待发起评估",
-    primarySignal: "待操作：进入 AI 评估",
-    signalLevel: "warn",
-  },
-  {
-    label: "进入 AI 评估",
-    status: "interning_ai",
-    stageSummary: "已进入 AI 评估阶段",
-    primarySignal: "等待 AI 评估执行",
-    signalLevel: "warn",
-  },
-  {
-    label: "进入人工评估",
-    status: "interning_human",
-    stageSummary: "AI 评估通过，等待人工评估",
-    primarySignal: "待人工审核",
-    signalLevel: "warn",
-  },
-  {
-    label: "标记为已上岗",
-    status: "live",
-    stageSummary: "已上岗，运行中",
-    primarySignal: "运行稳定",
-    signalLevel: "ok",
-  },
-  {
-    label: "标记为失败",
-    status: "failed",
-    stageSummary: "评估未通过，等待 Review 回退",
-    primarySignal: "待回退处理",
-    signalLevel: "error",
-  },
-  {
-    label: "标记为已退役",
-    status: "retired",
-    stageSummary: "实例已退役",
-    primarySignal: "仅保留历史信息",
-    signalLevel: "warn",
-  },
-];
 
 const IM_CHANNELS = [
   { id: "feishu", label: "飞书", status: "可配置" },
@@ -144,30 +85,13 @@ export default function InstanceDetailPage() {
     }
   }
 
-  async function setLifecycle(action: StatusAction) {
-    if (!id) return;
-    setSubmitting(true);
-    setError("");
-    try {
-      const data = await api.employeeRuntime.updateLifecycle(id, {
-        status: action.status,
-        stageSummary: action.stageSummary,
-        primarySignal: action.primarySignal,
-        signalLevel: action.signalLevel,
-      });
-      setEmployee(data);
-      showToast(`状态已更新为 ${statusLabel(action.status)}`, "success");
-    } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error ? requestError.message : "状态更新失败",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   async function rehireEmployee() {
-    if (!id || !employeeView || !isPersonalAsset || employeeView.mappedStatus !== "retired") {
+    if (
+      !id ||
+      !employeeView ||
+      !isPersonalAsset ||
+      employeeView.mappedStatus !== "retired"
+    ) {
       return;
     }
 
@@ -188,17 +112,24 @@ export default function InstanceDetailPage() {
 
   async function abandonBranch() {
     if (!id || !employee) return;
-    if (!window.confirm("废弃后，若已上岗则 IM 路由将恢复到原分身。此操作不可撤销，确定继续？")) return;
+    if (
+      !window.confirm(
+        "废弃后会回滚五件套并恢复为个人分身，沙箱、对话和 IM 配置都会继续沿用。此操作不可撤销，确定继续？",
+      )
+    )
+      return;
     setSubmitting(true);
     setError("");
     try {
       const data = await api.employeeRuntime.abandonPrivateBranch(id);
-      showToast("私有分支已废弃", "success");
-      // Navigate to the source clone (or my-employees as fallback)
-      navigate(`/instances/${data.employeeId}`);
+      showToast("私有分支已废弃，已恢复为个人分身", "success");
+      // The private branch is restored in place, so the instance id is unchanged.
+      navigate(`${instanceBasePath(location.pathname, data.employeeId)}`);
     } catch (requestError: unknown) {
       setError(
-        requestError instanceof Error ? requestError.message : "废弃私有分支失败",
+        requestError instanceof Error
+          ? requestError.message
+          : "废弃私有分支失败",
       );
       setSubmitting(false);
     }
@@ -218,33 +149,27 @@ export default function InstanceDetailPage() {
     employeeView?.ownership === "department"
       ? "/department-employees"
       : "/my-employees";
+
+  const location = useLocation();
+
   const isPersonalAsset =
     employeeView?.ownership === "personal_clone" ||
     employeeView?.ownership === "private_branch";
   const canCreatePersonalClone =
     employeeView?.ownership === "department" &&
     employeeView.mappedStatus === "live";
-  const canCreatePrivateBranch =
-    employeeView?.ownership === "personal_clone" &&
-    employeeView.mappedStatus === "live";
-
-  function openHiringConversation() {
-    if (!id) {
-      return;
-    }
-
-    navigate(`/instances/${id}/chat`);
-  }
-
   return (
     <div className="hb-page space-y-5">
       <Breadcrumb
         items={[
           {
-            label: employeeView?.ownership === "department" ? '部门数字员工' : '我的数字员工',
+            label:
+              employeeView?.ownership === "department"
+                ? "部门数字员工"
+                : "我的数字员工",
             to: backTarget,
           },
-          { label: '员工详情' },
+          { label: "员工详情" },
         ]}
       />
 
@@ -322,36 +247,6 @@ export default function InstanceDetailPage() {
                   </button>
                 ) : null}
 
-                {isPersonalAsset && employeeView.mappedStatus === "live" ? (
-                  <button
-                    type="button"
-                    className="hb-btn-primary"
-                    onClick={openHiringConversation}
-                  >
-                    <MessageCircle size={14} />
-                    开始对话
-                  </button>
-                ) : null}
-
-                {isPersonalAsset ? (
-                  <button
-                    type="button"
-                    className="hb-btn-ghost"
-                    onClick={() =>
-                      navigate(
-                        employeeView.mappedStatus === "retired"
-                          ? `/instances/${employee.employeeId}/evaluation`
-                          : `/instances/${employee.employeeId}/im-config`,
-                      )
-                    }
-                  >
-                    <Bot size={14} />
-                    {employeeView.mappedStatus === "retired"
-                      ? "查看评估报告"
-                      : "配置 IM"}
-                  </button>
-                ) : null}
-
                 {isPersonalAsset && employeeView.mappedStatus === "retired" ? (
                   <button
                     type="button"
@@ -361,19 +256,6 @@ export default function InstanceDetailPage() {
                   >
                     <RotateCcw size={14} />
                     {submitting ? "重新雇佣中" : "重新雇佣"}
-                  </button>
-                ) : null}
-
-                {canCreatePrivateBranch ? (
-                  <button
-                    type="button"
-                    className="hb-btn-ghost"
-                    onClick={() =>
-                      navigate(`/private-branch/${employee.employeeId}`)
-                    }
-                  >
-                    <GitBranch size={14} />
-                    创建私有分支
                   </button>
                 ) : null}
 
@@ -388,23 +270,6 @@ export default function InstanceDetailPage() {
                     废弃私有分支
                   </button>
                 ) : null}
-
-                <button
-                  type="button"
-                  className="hb-btn-ghost"
-                  onClick={() => {
-                    const retireAction = STATUS_ACTIONS.find(
-                      (a) => a.status === "retired",
-                    );
-                    if (retireAction) {
-                      void setLifecycle(retireAction);
-                    }
-                  }}
-                  disabled={submitting || employeeView.mappedStatus === "retired"}
-                >
-                  <ShieldCheck size={14} />
-                  退役
-                </button>
               </div>
             </div>
           </section>
@@ -514,7 +379,7 @@ export default function InstanceDetailPage() {
                       type="button"
                       className="rounded-xl border border-[#ececec] bg-[#fafafa] px-3 py-2 text-left text-sm hover:bg-white"
                       onClick={() =>
-                        navigate(`/instances/${employee.employeeId}/im-config`)
+                        navigate(`${instanceBasePath(location.pathname, employee.employeeId)}/im-config`)
                       }
                     >
                       <div className="font-medium text-[#0a0a0a]">

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   List,
   MessageCircle,
@@ -77,6 +77,7 @@ export default function SessionListPanel({
   const [sessionPreviews, setSessionPreviews] = useState<
     Record<string, string>
   >({});
+  const sessionPreviewsRef = useRef<Record<string, string>>({});
 
   const loadSessions = useCallback(
     async (pageNum: number, searchTerm: string, append: boolean) => {
@@ -109,12 +110,17 @@ export default function SessionListPanel({
 
   useEffect(() => {
     if (sessions.length === 0) {
-      setSessionPreviews({});
+      setSessionPreviews((prev) => {
+        if (Object.keys(prev).length === 0) return prev;
+        sessionPreviewsRef.current = {};
+        return {};
+      });
       return;
     }
 
+    const currentPreviews = sessionPreviewsRef.current;
     const missingSessions = sessions.filter(
-      (session) => sessionPreviews[session.id] === undefined,
+      (session) => currentPreviews[session.id] === undefined,
     );
     if (missingSessions.length === 0) return;
 
@@ -140,6 +146,7 @@ export default function SessionListPanel({
             next[sessionId] = preview;
           }
         }
+        sessionPreviewsRef.current = next;
         return next;
       });
     });
@@ -147,7 +154,7 @@ export default function SessionListPanel({
     return () => {
       cancelled = true;
     };
-  }, [gatewayEndpoint, sessions, sessionPreviews]);
+  }, [gatewayEndpoint, sessions]);
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -84,7 +84,7 @@ export default function TemplateDetailPage() {
             <p className="mt-3 text-sm leading-relaxed text-[var(--hb-body)]">{template.description || '暂无模板说明'}</p>
           </div>
           <div className="flex flex-col gap-2">
-            <button type="button" className="hb-btn-primary" onClick={() => navigate(`/hiring/${template.templateId}`)}>
+            <button type="button" className="hb-btn-primary" onClick={() => navigate(`/template-pool/hiring/${template.templateId}`)}>
               {template.cta.label || '发起标准雇佣'}
             </button>
           </div>
