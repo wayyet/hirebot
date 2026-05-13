@@ -385,6 +385,7 @@ public sealed class RuntimeApiControllerTests
         public Task<ApiResponse<EmployeeDetailDto>> SubmitOnboardingDecisionAsync(string employeeId, EvaluationOnboardingDecisionRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EvaluationSandboxConnectionResultDto>> GetSandboxConnectionAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EvaluationVerdictSyncResultDto>> SyncVerdictAsync(string employeeId, EvaluationVerdictSyncRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<EvaluationWorkspaceStatusDto>> GetWorkspaceStatusAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
 

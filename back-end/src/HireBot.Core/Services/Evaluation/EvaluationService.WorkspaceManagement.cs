@@ -64,6 +64,11 @@ internal sealed partial class EvaluationService
         //
         // 非私有分支（雇佣员工/普通评估）必须保持原来的双沙箱评估流程：
         // evaluation-target + evaluation-evaluator，避免影响正式雇佣评估链路。
+        var stepStates = new Dictionary<string, WorkspaceStepState>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["target_sandbox"] = new("running", null)
+        };
+
         var targetResult = isPrivateBranch
             ? await ResolveTargetRuntimeSandboxAsync(owner, employeeId, cancellationToken)
             : await CreateEvaluationSandboxAsync(owner, employeeId, "evaluation-target", useStableRuntimeId: false, cancellationToken);

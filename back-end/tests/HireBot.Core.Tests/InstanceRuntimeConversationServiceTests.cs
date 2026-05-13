@@ -243,6 +243,8 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
 
         public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default)
             => Task.FromResult<SandboxInstanceDto?>(null);
+        public Task<ApiResponse<IReadOnlyList<SandboxInstanceDto>>> ListByOwnerAsync(string ownerSubject, CancellationToken cancellationToken = default) => Task.FromResult(ApiResponse<IReadOnlyList<SandboxInstanceDto>>.SuccessResponse([]));
+        public Task<ApiResponse<bool>> DeleteForOwnerAsync(string sandboxId, string ownerSubject, CancellationToken cancellationToken = default) => Task.FromResult(ApiResponse<bool>.SuccessResponse(true));
 
         private static SandboxInstanceDto BuildInstance(string sandboxId, string scopeType, string scopeKey, string sandboxRole, string ownerSubject, string tenantId, string operatorId)
             => new(Guid.NewGuid(), sandboxId, scopeType, scopeKey, sandboxRole, "managed", ownerSubject, tenantId, operatorId, "Running", "http://localhost:18789", null, null, null, null, false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);

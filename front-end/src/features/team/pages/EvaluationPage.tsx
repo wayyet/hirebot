@@ -8,7 +8,6 @@ import {
   FileText,
   Loader2,
   MessageSquare,
-  Package,
   PlayCircle,
   RefreshCw,
   SendHorizontal,
@@ -27,6 +26,7 @@ import {
   type HiringConversationMessage,
 } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
+import { EvaluationWorkspaceProgress } from '@/features/team/components/EvaluationWorkspaceProgress'
 import { instanceBasePath } from '@/shared/utils/instancePath'
 
 type ArtifactTab = 'testcase' | 'trace' | 'report'
