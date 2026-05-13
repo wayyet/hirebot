@@ -130,6 +130,13 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    [HttpGet("{employeeId}/evaluation/workspace-status")]
+    public async Task<IActionResult> GetEvaluationWorkspaceStatus(string employeeId, CancellationToken cancellationToken = default)
+    {
+        var response = await evaluationService.GetWorkspaceStatusAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpGet("{employeeId}/evaluation/state")]
     public async Task<IActionResult> GetEvaluationState(string employeeId, CancellationToken cancellationToken = default)
     {

@@ -14,9 +14,10 @@ using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Evaluation.Persistence;
+using HireBot.Core.Services.Hiring;
+using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Sandbox;
-using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -37,8 +38,9 @@ internal sealed partial class EvaluationService(
     IHostEnvironment hostEnvironment,
     IConfiguration configuration,
     ILogger<EvaluationService> logger,
-    ISystemSkillRegistry systemSkillRegistry,
-    KingCrabSandboxTokenProvider sandboxTokenProvider) : IEvaluationService
+    KingCrabSandboxTokenProvider sandboxTokenProvider,
+    ITemplatePackageProvider templatePackageProvider,
+    FileSystemTemplatePackageProvider fileSystemTemplatePackageProvider) : IEvaluationService
 {
     private static readonly string[] EvaluationSkillNames =
     [
@@ -48,7 +50,8 @@ internal sealed partial class EvaluationService(
         "evaluator",
         "training_advisor",
         "report_generator",
-        "live_evaluation_coordinator"
+        "live_evaluation_coordinator",
+        "live_evaluator"
     ];
 
     private static readonly ConcurrentDictionary<string, EvaluationWorkspaceContext> EvaluationWorkspaces =
@@ -81,6 +84,28 @@ internal sealed partial class EvaluationService(
 
     private readonly string evaluationResourceRoot =
         ResolveEvaluationResourceRoot(hostEnvironment.ContentRootPath, configuration["HireBot:EvaluationResourceRoot"]);
+
+    private readonly string evaluationTemplatePackageRoot =
+        ResolveEvaluationTemplatePackageRoot(hostEnvironment.ContentRootPath, configuration["HireBot:DigitalEmployeeTemplatesRoot"]);
+
+    private readonly bool _evaluationTemplatePackageRootValid = LogTemplatePackageRoot(
+        ResolveEvaluationTemplatePackageRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DigitalEmployeeTemplatesRoot"]),
+        logger);
+
+    private static bool LogTemplatePackageRoot(string templateRoot, ILogger logger)
+    {
+        var exists = Directory.Exists(templateRoot);
+        var manifestExists = exists && File.Exists(Path.Combine(templateRoot, "manifest.json"));
+        if (!exists)
+            logger.LogError("[Eval] CRITICAL: evaluation-expert template root not found: {Path}", templateRoot);
+        else if (!manifestExists)
+            logger.LogWarning("[Eval] evaluation-expert template root missing manifest.json: {Path}", templateRoot);
+        else
+            logger.LogInformation("[Eval] Template package root: {Path}, exists=True, manifest=True", templateRoot);
+        return exists && manifestExists;
+    }
 
     private Task<ApiResponse<StartHiringConversationResultDto>> EnsureSandboxConversationStartedAsync(
         string owner,
@@ -172,6 +197,69 @@ internal sealed partial class EvaluationService(
         }
 
         return (ownerSubject, ownerSubject);
+    }
+
+    public async Task<ApiResponse<EvaluationWorkspaceStatusDto>> GetWorkspaceStatusAsync(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId))
+            return ApiResponse<EvaluationWorkspaceStatusDto>.ErrorResponse(400, "employeeId cannot be empty");
+
+        var owner = requestContextService.ResolveOwnerSubject();
+        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        if (employee is null)
+            return ApiResponse<EvaluationWorkspaceStatusDto>.ErrorResponse(404, "employee not found");
+
+        var workspaceKey = BuildWorkspaceKey(owner, employee.EmployeeId);
+
+        if (!EvaluationWorkspaces.TryGetValue(workspaceKey, out var ctx) || ctx.StepStates.Count == 0)
+        {
+            return ApiResponse<EvaluationWorkspaceStatusDto>.SuccessResponse(
+                new EvaluationWorkspaceStatusDto(
+                    EmployeeId: employeeId.Trim(),
+                    OverallStatus: "not_started",
+                    TargetSandboxId: null,
+                    EvaluatorSandboxId: null,
+                    EvaluatorRuntimeId: null,
+                    TargetRuntimeId: null,
+                    Steps: [],
+                    ErrorMessage: null));
+        }
+
+        var steps = ctx.StepStates
+            .OrderBy(item => item.Key switch
+            {
+                "target_sandbox" => 0,
+                "evaluator_sandbox" => 1,
+                "upload_skill" => 2,
+                "upload_employee_template" => 3,
+                "upload_artifacts" => 4,
+                "materials" => 5,
+                _ => 99
+            })
+            .Select(item => new EvaluationWorkspaceStepDto(
+                Step: item.Key,
+                Status: item.Value.Status,
+                Detail: item.Value.Detail))
+            .ToArray();
+
+        var hasFailed = steps.Any(item => item.Status == "failed");
+        var allCompleted = steps.All(item => item.Status == "completed");
+        var overallStatus = hasFailed ? "failed"
+            : allCompleted && ctx.SkillLoadedAtUtc is not null ? "ready"
+            : "creating";
+
+        return ApiResponse<EvaluationWorkspaceStatusDto>.SuccessResponse(
+            new EvaluationWorkspaceStatusDto(
+                EmployeeId: employeeId.Trim(),
+                OverallStatus: overallStatus,
+                TargetSandboxId: string.IsNullOrWhiteSpace(ctx.TargetSandboxId) ? null : ctx.TargetSandboxId,
+                EvaluatorSandboxId: string.IsNullOrWhiteSpace(ctx.EvaluatorSandboxId) ? null : ctx.EvaluatorSandboxId,
+                EvaluatorRuntimeId: string.IsNullOrWhiteSpace(ctx.EvaluatorHireId) ? null : ctx.EvaluatorHireId,
+                TargetRuntimeId: string.IsNullOrWhiteSpace(ctx.TargetHireId) ? null : ctx.TargetHireId,
+                Steps: steps,
+                ErrorMessage: steps.FirstOrDefault(item => item.Status == "failed")?.Detail));
     }
 
     public async Task<ApiResponse<EvaluationStateDto>> GetEvaluationStateAsync(
@@ -516,7 +604,7 @@ internal sealed partial class EvaluationService(
 
                 var startWorkspaceContext = startWorkspaceResult.Data;
                 await StartNewEvaluationSessionAsync(owner, employee.EmployeeId, startWorkspaceContext, cancellationToken);
-                var startReadiness = await PrimeReadinessMaterialsAsync(employee.EmployeeId, cancellationToken);
+                var startReadiness = await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
                 var startMaterialsReady = startReadiness.TestcasesReady && startReadiness.OntologyReady;
 
                 var startCapabilities = MergeEvaluationCapabilities(employee.Capabilities, EvaluationSkillNames);
@@ -569,7 +657,7 @@ internal sealed partial class EvaluationService(
 
                 var workspaceContext = workspaceResult.Data;
                 await StartNewEvaluationSessionAsync(owner, employee.EmployeeId, workspaceContext, cancellationToken);
-                var readiness = await PrimeReadinessMaterialsAsync(employee.EmployeeId, cancellationToken);
+                var readiness = await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
                 var materialsReady = readiness.TestcasesReady && readiness.OntologyReady;
 
                 var capabilities = MergeEvaluationCapabilities(employee.Capabilities, EvaluationSkillNames);
@@ -621,19 +709,19 @@ internal sealed partial class EvaluationService(
                 }
 
                 // Prime readiness materials (ensure testcases/ontology are loaded in target sandbox)
-                await PrimeReadinessMaterialsAsync(employee.EmployeeId, cancellationToken);
+                await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
 
                 // Frontend will use WS to connect to evaluator sandbox for scoring.
                 // Scoring result comes back via sync-verdict endpoint.
                 updated = employee with
                 {
                     EvalPhase = "ai_running",
-                    StageSummary = "Evaluation workspace ready. Waiting for web client to connect via WebSocket for scoring.",
-                    PrimarySignal = "Awaiting frontend WebSocket evaluation",
+                    StageSummary = "Evaluation workspace ready. Waiting for web client to connect via WebSocket and trigger live_evaluator runtime-context flow.",
+                    PrimarySignal = "Awaiting frontend WebSocket bootstrap",
                     SignalLevel = "ok",
-                    PendingActions = ["Connect to evaluator sandbox via WebSocket and run evaluation"]
+                    PendingActions = ["Connect to evaluator sandbox via WebSocket and send runtime-context bootstrap payload"]
                 };
-                message = "AI evaluation workspace ready for WebSocket scoring";
+                message = "AI evaluation workspace ready for WebSocket live evaluation";
                 logger.LogInformation("[Eval] RUN workspace ready employeeId={EmployeeId} awaiting WS evaluation",
                     employee.EmployeeId);
                 break;
@@ -881,182 +969,6 @@ internal sealed partial class EvaluationService(
         return ApiResponse<EvaluationOntologyQueryResultDto>.SuccessResponse(result, "ontology loaded");
     }
 
-    private async Task<ApiResponse<EvaluationTargetExecuteResultDto>> ExecuteTargetAsync(
-        string employeeId,
-        EvaluationTargetExecuteRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(employeeId) ||
-            request is null ||
-            string.IsNullOrWhiteSpace(request.TestcaseId) ||
-            string.IsNullOrWhiteSpace(request.Input))
-        {
-            return ApiResponse<EvaluationTargetExecuteResultDto>.ErrorResponse(400, "employeeId, testcaseId and input are required");
-        }
-
-        var owner = requestContextService.ResolveOwnerSubject();
-        var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
-        if (employee is null)
-        {
-            return ApiResponse<EvaluationTargetExecuteResultDto>.ErrorResponse(404, "employee not found");
-        }
-
-        var workspaceResult = await EnsureWorkspaceReadyAsync(
-            owner,
-            employee,
-            null,
-            null,
-            allowTargetHireCreation: true,
-            forceTargetHireRecreate: false,
-            cancellationToken);
-        if (!workspaceResult.Success || workspaceResult.Data is null)
-        {
-            return ApiResponse<EvaluationTargetExecuteResultDto>.ErrorResponse(workspaceResult.Code, workspaceResult.Message);
-        }
-
-        var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, workspaceResult.Data, cancellationToken);
-        var testcaseId = request.TestcaseId.Trim();
-        var input = request.Input.Trim();
-        var startedAtUtc = DateTimeOffset.UtcNow;
-
-        var startConversationResult = await EnsureSandboxConversationStartedAsync(
-            owner,
-            workspaceResult.Data.TargetHireId,
-            workspaceResult.Data.TargetSandboxId,
-            "evaluation-target",
-            cancellationToken);
-        if (!startConversationResult.Success && startConversationResult.Code != 409)
-        {
-            logger.LogInformation(
-                "Target conversation start skipped. EmployeeId={EmployeeId}, TargetHireId={TargetHireId}, Code={Code}, Message={Message}",
-                normalizedEmployeeId,
-                workspaceResult.Data.TargetHireId,
-                startConversationResult.Code,
-                startConversationResult.Message);
-        }
-
-        var sendResult = await SendSandboxMessageAsync(
-            owner,
-            workspaceResult.Data.TargetHireId,
-            workspaceResult.Data.TargetSandboxId,
-            "evaluation-target",
-            new HiringConversationMessageRequestDto
-            {
-                Content = BuildTargetExecutionPrompt(testcaseId, input)
-            },
-            cancellationToken);
-        if (!sendResult.Success || sendResult.Data is null)
-        {
-            await UpdateSessionStatusAsync(sessionEntity, "execute_failed", sendResult.Message, cancellationToken);
-            return ApiResponse<EvaluationTargetExecuteResultDto>.ErrorResponse(sendResult.Code, sendResult.Message);
-        }
-
-        var timelineResult = await GetSandboxTimelineAsync(
-            owner,
-            workspaceResult.Data.TargetHireId,
-            workspaceResult.Data.TargetSandboxId,
-            "evaluation-target",
-            cancellationToken);
-        var completedAtUtc = DateTimeOffset.UtcNow;
-        var executionId = $"exec_{Guid.NewGuid():N}";
-
-        var tracePayload = new
-        {
-            executionId,
-            sessionId = sessionEntity.SessionId,
-            employeeId = normalizedEmployeeId,
-            targetHireId = workspaceResult.Data.TargetHireId,
-            targetSandboxId = workspaceResult.Data.TargetSandboxId,
-            testcaseId,
-            input,
-            startedAtUtc = startedAtUtc.ToString("o"),
-            completedAtUtc = completedAtUtc.ToString("o"),
-            assistantMessage = sendResult.Data.AssistantMessage,
-            timelineMessages = timelineResult.Success && timelineResult.Data is not null
-                ? timelineResult.Data.Messages
-                : Array.Empty<HiringConversationMessageDto>()
-        };
-        var traceJson = JsonSerializer.Serialize(tracePayload, JsonOptions);
-        await PersistTextAssetAsync(
-            sessionEntity,
-            assetType: "trace-json",
-            relatedKey: $"execution:{executionId}",
-            fileName: $"trace_{testcaseId}_{executionId}.json",
-            content: traceJson,
-            mimeType: "application/json",
-            sourceType: "target-sandbox",
-            cancellationToken);
-        await UpdateSessionStatusAsync(sessionEntity, "target_executed", null, cancellationToken);
-
-        var result = new EvaluationTargetExecuteResultDto(
-            SessionId: sessionEntity.SessionId,
-            ExecutionId: executionId,
-            TestcaseId: testcaseId,
-            Status: "completed",
-            StartedAtUtc: startedAtUtc.ToString("o"),
-            CompletedAtUtc: completedAtUtc.ToString("o"));
-
-        return ApiResponse<EvaluationTargetExecuteResultDto>.SuccessResponse(result, "target execution captured");
-    }
-
-    private async Task<ApiResponse<EvaluationTraceReadResultDto>> ReadTraceAsync(
-        string employeeId,
-        EvaluationTraceReadRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(employeeId) ||
-            request is null ||
-            string.IsNullOrWhiteSpace(request.ExecutionId) ||
-            string.IsNullOrWhiteSpace(request.TestcaseId))
-        {
-            return ApiResponse<EvaluationTraceReadResultDto>.ErrorResponse(400, "employeeId, executionId and testcaseId are required");
-        }
-
-        var owner = requestContextService.ResolveOwnerSubject();
-        var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
-        if (employee is null)
-        {
-            return ApiResponse<EvaluationTraceReadResultDto>.ErrorResponse(404, "employee not found");
-        }
-
-        var executionId = request.ExecutionId.Trim();
-        var traceRecord = await dbContext.EvaluationAssets
-            .AsNoTracking()
-            .Join(
-                dbContext.EvaluationSessions.AsNoTracking(),
-                asset => asset.SessionEntityId,
-                session => session.Id,
-                (asset, session) => new { Asset = asset, Session = session })
-            .Where(item =>
-                item.Session.OwnerSubject == owner &&
-                item.Session.EmployeeId == normalizedEmployeeId &&
-                item.Asset.AssetType == "trace-json" &&
-                item.Asset.RelatedKey == $"execution:{executionId}")
-            .OrderByDescending(item => item.Asset.CreatedAtUtc)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (traceRecord is null)
-        {
-            return ApiResponse<EvaluationTraceReadResultDto>.ErrorResponse(404, "trace asset not found");
-        }
-
-        var physicalPath = ResolvePhysicalAssetPath(traceRecord.Asset.RelativePath);
-        if (string.IsNullOrWhiteSpace(physicalPath) || !File.Exists(physicalPath))
-        {
-            return ApiResponse<EvaluationTraceReadResultDto>.ErrorResponse(404, "trace file missing on disk");
-        }
-
-        var traceJson = await File.ReadAllTextAsync(physicalPath, cancellationToken);
-        var result = new EvaluationTraceReadResultDto(
-            SessionId: traceRecord.Session.SessionId,
-            ExecutionId: executionId,
-            TestcaseId: request.TestcaseId.Trim(),
-            TraceJson: traceJson,
-            TraceAsset: ToAssetRef(traceRecord.Asset));
-        return ApiResponse<EvaluationTraceReadResultDto>.SuccessResponse(result);
-    }
-
     private async Task<ApiResponse<EvaluationReportUpsertResultDto>> UpsertReportAsync(
         string employeeId,
         EvaluationReportUpsertRequestDto request,
@@ -1196,97 +1108,25 @@ internal sealed partial class EvaluationService(
         var gatewayEndpoint = instance?.GatewayEndpoint?.Trim();
         if (string.IsNullOrWhiteSpace(gatewayEndpoint))
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(409, "evaluator sandbox gateway endpoint not ready");
+        var targetInstance = await dbContext.SandboxInstances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.SandboxId == ctx.TargetSandboxId, cancellationToken);
+        var targetGatewayEndpoint = targetInstance?.GatewayEndpoint?.Trim();
+        if (string.IsNullOrWhiteSpace(targetGatewayEndpoint))
+            return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(409, "target sandbox gateway endpoint not ready");
 
         var token = await sandboxTokenProvider.GetAccessTokenAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(token))
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(502, "unable to acquire sandbox access token");
 
         var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, ctx, cancellationToken);
-
-        // Build evaluation payload: fetch testcases, ontology, execute target, read traces.
-        // If full pipeline fails, fall back to a context-only payload so the evaluator
-        // agent at least knows what testcases and ontology are available.
-        string payloadJson;
-        try
-        {
-            var testcaseResult = await FetchTestcasesAsync(employeeId, cancellationToken);
-            var ontologyResult = await QueryOntologyAsync(employeeId, cancellationToken);
-
-            var testcasesOk = testcaseResult.Success && testcaseResult.Data is not null &&
-                              testcaseResult.Data.Testcases.Count > 0;
-            var ontologyOk = ontologyResult.Success && ontologyResult.Data is not null;
-
-            if (!testcasesOk || !ontologyOk)
-            {
-                // Build context-only payload so the evaluator agent knows what's missing
-                var contextPayload = new
-                {
-                    session_id = sessionEntity.SessionId,
-                    target_hire_id = ctx.TargetHireId,
-                    status = "materials_incomplete",
-                    testcases_available = testcasesOk,
-                    ontology_available = ontologyOk,
-                    instruction = "Evaluation materials are not yet complete. Ask the user to upload missing testcases or ontology files before running evaluation."
-                };
-                payloadJson = JsonSerializer.Serialize(contextPayload, JsonOptions);
-                logger.LogWarning("[Eval] Context-only payload employeeId={EmployeeId} testcasesOk={TC} ontologyOk={Ont}",
-                    employeeId, testcasesOk, ontologyOk);
-            }
-            else
-            {
-                var executionEvidences = new List<TraceExecutionEvidence>(testcaseResult.Data.Testcases.Count);
-                foreach (var testcase in testcaseResult.Data.Testcases)
-                {
-                    var executionInput = TryReadUserRequestFromRawTestcase(testcase.RawJson) ?? testcase.ScenarioName;
-                    var executeResult = await ExecuteTargetAsync(
-                        employeeId,
-                        new EvaluationTargetExecuteRequestDto
-                        {
-                            TestcaseId = testcase.TestcaseId,
-                            Input = executionInput
-                        },
-                        cancellationToken);
-                    if (!executeResult.Success || executeResult.Data is null) continue;
-
-                    var traceResult = await ReadTraceAsync(
-                        employeeId,
-                        new EvaluationTraceReadRequestDto
-                        {
-                            ExecutionId = executeResult.Data.ExecutionId,
-                            TestcaseId = testcase.TestcaseId
-                        },
-                        cancellationToken);
-                    if (!traceResult.Success || traceResult.Data is null) continue;
-
-                    executionEvidences.Add(new TraceExecutionEvidence(
-                        TestcaseId: testcase.TestcaseId,
-                        ScenarioName: testcase.ScenarioName,
-                        Input: executionInput,
-                        ExecutionId: executeResult.Data.ExecutionId,
-                        TraceJson: traceResult.Data.TraceJson,
-                        TraceAssetUrl: traceResult.Data.TraceAsset?.PublicUrl ?? string.Empty));
-                }
-
-                var payload = BuildEvaluatorPayload(
-                    sessionEntity.SessionId, testcaseResult.Data, ontologyResult.Data!, executionEvidences);
-                payloadJson = JsonSerializer.Serialize(payload, JsonOptions);
-                logger.LogInformation("[Eval] Full payload built employeeId={EmployeeId} testcases={Count} evidences={EvCount}",
-                    employeeId, testcaseResult.Data.Testcases.Count, executionEvidences.Count);
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "[Eval] Failed to build evaluation payload employeeId={EmployeeId}", employeeId);
-            var errorPayload = new
-            {
-                session_id = sessionEntity.SessionId,
-                target_hire_id = ctx.TargetHireId,
-                status = "payload_error",
-                error = ex.Message,
-                instruction = "Failed to build evaluation payload. Please retry or contact the administrator."
-            };
-            payloadJson = JsonSerializer.Serialize(errorPayload, JsonOptions);
-        }
+        var payloadJson = BuildLiveEvaluationBootstrapPayload(
+            owner,
+            employee,
+            ctx,
+            sessionEntity,
+            targetGatewayEndpoint,
+            token);
 
         await UpdateSessionStatusAsync(sessionEntity, "ws_connected", null, cancellationToken);
 

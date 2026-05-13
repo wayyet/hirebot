@@ -21,12 +21,13 @@ import {
   type EmployeeDetail,
   type EvaluationSandboxConnectionResult,
   type EvaluationSandboxConversationState,
-  type EvaluationScenario,
   type EvaluationState,
   type EvaluationVerdictPayload,
+  type EvaluationWorkspaceStatus,
   type HiringConversationMessage,
 } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
+import { EvaluationWorkspaceProgress } from '@/features/team/components/EvaluationWorkspaceProgress'
 
 type ArtifactTab = 'testcase' | 'trace' | 'report'
 
@@ -52,20 +53,6 @@ function verdictPillClass(verdict?: string | null) {
   if (verdict === 'failed') return 'hb-pill pink'
   if (verdict === 'warning') return 'hb-pill orange'
   return 'hb-pill gray'
-}
-
-function scenarioScore(verdict?: string | null) {
-  if (verdict === 'passed') return 90
-  if (verdict === 'warning') return 70
-  if (verdict === 'failed') return 45
-  return 0
-}
-
-function calcDerivedScore(scenarios: EvaluationScenario[]) {
-  const completed = scenarios.filter((item) => item.verdict === 'passed' || item.verdict === 'warning' || item.verdict === 'failed')
-  if (completed.length === 0) return 0
-  const total = completed.reduce((sum, item) => sum + scenarioScore(item.verdict), 0)
-  return Math.round(total / completed.length)
 }
 
 function formatTime(value?: string | null) {
@@ -109,9 +96,10 @@ export default function EvaluationPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const [artifactTab, setArtifactTab] = useState<ArtifactTab>('report')
   const [rightCollapsed, setRightCollapsed] = useState(false)
-  const [selectedRound, setSelectedRound] = useState(1)
+  const [artifactTab, setArtifactTab] = useState<ArtifactTab>('testcase')
+  const [workspaceStatus, setWorkspaceStatus] = useState<EvaluationWorkspaceStatus | null>(null)
+  const [workspacePolling, setWorkspacePolling] = useState(false)
 
   const [chatMessages, setChatMessages] = useState<HiringConversationMessage[]>([])
   const [chatInput, setChatInput] = useState('')
@@ -157,7 +145,7 @@ export default function EvaluationPage() {
     const passed = evaluation.scenarios.filter((scenario) => scenario.verdict === 'passed').length
     const failed = evaluation.scenarios.filter((scenario) => scenario.verdict === 'failed').length
     const pending = total - passed - failed
-    const score = evaluation.latestReport?.overallScore ?? calcDerivedScore(evaluation.scenarios)
+    const score = evaluation.latestReport?.overallScore ?? 0
     return { total, passed, failed, pending, score }
   }, [evaluation])
 
@@ -166,22 +154,44 @@ export default function EvaluationPage() {
   const isAiStage = employee?.status === 'interning_ai'
   const aiRunning = isAiStage && employee?.evalPhase === 'ai_running'
 
-  const currentRound = Math.max(1, employee?.evalIteration ?? 1)
-  const maxRounds = Math.max(currentRound, employee?.evalMaxIterations ?? 30)
-  const roundOptions = Array.from({ length: currentRound }, (_, index) => index + 1)
-
   const progressStep = progressStepByState({ canPrepare: canPrepare && !aiRunning, aiRunning })
 
   const evaluatorHireId = sandboxConversation?.evaluatorHireId ?? null
-  const evaluatorSandboxId = sandboxConversation?.evaluatorSandboxId ?? null
-
-  useEffect(() => {
-    setSelectedRound(currentRound)
-  }, [currentRound])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatLoading, chatMessages])
+
+  useEffect(() => {
+    if (!workspacePolling || !id) return
+
+    let cancelled = false
+    let timer: number
+
+    async function poll() {
+      if (cancelled) return
+      try {
+        const status = await api.employeeRuntime.getEvaluationWorkspaceStatus(id!)
+        if (cancelled) return
+        setWorkspaceStatus(status)
+        if (status.overallStatus === 'ready' || status.overallStatus === 'failed') {
+          setWorkspacePolling(false)
+          return
+        }
+      } catch {
+        // ignore polling errors
+      }
+      if (!cancelled) {
+        timer = window.setTimeout(poll, 3000)
+      }
+    }
+
+    poll()
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [workspacePolling, id])
 
   async function submitAiDecision(decision: 'START' | 'RUN') {
     if (!id) return
@@ -200,6 +210,7 @@ export default function EvaluationPage() {
       // START: prepare environment (sandboxes + skill + materials)
       const updated = await api.employeeRuntime.submitAiEvaluationDecision(id, { decision })
       setEmployee(updated)
+      setWorkspacePolling(true)
 
       const evaluationState = await api.employeeRuntime.getEvaluationState(id)
       setEvaluation(evaluationState)
@@ -489,6 +500,11 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
   const traceAssets = (evaluation.assetRefs ?? [])
     .filter((asset) => asset.assetType === 'trace-json')
     .slice(0, 8)
+  const questionCards = evaluation.questionCards ?? []
+  const materialsReady = evaluation.readiness?.status === 'ready'
+  const reportSummary = evaluation.latestReport ?? null
+  const reportJsonUrl = toAbsoluteApiUrl(reportSummary?.reportJsonUrl ?? null)
+  const reportHtmlUrl = toAbsoluteApiUrl(reportSummary?.reportHtmlUrl ?? null)
 
   return (
     <div className="hb-page">
@@ -535,10 +551,17 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
             </div>
           )}
 
+          {(workspacePolling || (workspaceStatus && workspaceStatus.overallStatus !== 'ready')) && (
+            <div className="mt-3">
+              <EvaluationWorkspaceProgress status={workspaceStatus} polling={workspacePolling} />
+            </div>
+          )}
+
+
           <div className="mt-3 rounded-xl border border-[#ececec] bg-[#fafafa] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-xs font-medium text-[#404040]">
-                第 {currentRound}/{maxRounds} 评训轮次
+                评估状态
               </div>
               <div className="text-xs text-[#737373]">evalPhase: {employee.evalPhase || '未设置'}</div>
             </div>
@@ -630,9 +653,19 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-[#404040]">
                   <MessageSquare size={12} />
                   评估沙箱对话窗口
+                  {workspaceStatus?.overallStatus === 'ready' && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#e6f5ec] px-2 py-0.5 text-[11px] font-medium text-[#15803d]">
+                      <CheckCircle2 size={10} />
+                      已连接
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="hb-pill blue">{evaluatorHireId ? `evalHireId=${evaluatorHireId}` : '评估沙箱初始化中'}</span>
+                  {evaluatorHireId ? (
+                    <span className="text-[11px] text-[#9ca3af]">evalHireId={evaluatorHireId}</span>
+                  ) : workspaceStatus?.overallStatus === 'ready' ? (
+                    <span className="text-[11px] text-[#9ca3af]">等待执行评估...</span>
+                  ) : null}
                   <button
                     type="button"
                     disabled={!aiRunning || chatLoading || chatSending}
@@ -655,7 +688,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
                 </div>
               ) : (
                 <div className="overflow-hidden rounded-xl border border-[#ececec] bg-white">
-                  <div className="max-h-44 space-y-2 overflow-y-auto px-3 py-2">
+                  <div className="max-h-[320px] space-y-2 overflow-y-auto px-3 py-2">
                     {chatLoading ? (
                       <div className="flex items-center gap-1.5 text-xs text-[#737373]">
                         <Loader2 size={12} className="animate-spin" />
@@ -715,8 +748,6 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
                 </div>
               )}
 
-              {evaluatorSandboxId && <div className="mt-2 text-[11px] text-[#9ca3af]">evalSandboxId: {evaluatorSandboxId}</div>}
-
               {chatError && (
                 <div className="mt-2 rounded-xl border border-[#ffd5da] bg-[#fff1f2] px-2.5 py-1.5 text-[11px] text-[#b3263c]">
                   {chatError}
@@ -739,30 +770,6 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               </button>
             ) : (
               <>
-                <div className="flex items-center justify-between border-b border-[#ececec] px-3 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-[#404040]">轮次</span>
-                    <select
-                      value={selectedRound}
-                      onChange={(event) => setSelectedRound(Number(event.target.value))}
-                      className="rounded border border-[#e5e5e5] bg-[#fafafa] px-2 py-1 text-xs outline-none focus:border-[#4a6cf7]"
-                    >
-                      {roundOptions.map((round) => (
-                        <option key={round} value={round}>
-                          第 {round} 轮 {round === currentRound ? `(评分 ${overview.score})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setRightCollapsed(true)}
-                    className="rounded p-1 text-[#9ca3af] transition-colors hover:bg-[#fafafa] hover:text-[#404040]"
-                  >
-                    <ChevronDown size={14} className="rotate-90" />
-                  </button>
-                </div>
-
                 <div className="flex border-b border-[#ececec]">
                   {[
                     { key: 'testcase' as ArtifactTab, label: '测试用例', icon: FileText },
@@ -781,137 +788,155 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
                       {tab.label}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => setRightCollapsed(true)}
+                    className="ml-auto px-2 py-2 text-[#9ca3af] transition-colors hover:text-[#404040]"
+                  >
+                    <ChevronDown size={14} className="rotate-90" />
+                  </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-3 text-xs">
                   {artifactTab === 'testcase' && (
-                    <div className="space-y-3">
-                      <div className="rounded-xl border border-[#ececec] bg-[#fafafa] p-2.5">
-                        <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-[#404040]">
-                          <Package size={11} />
-                          测试场景（{evaluation.scenarios.length}）
+                    <div className="space-y-2">
+                      {!materialsReady ? (
+                        <div className="rounded-xl border border-[#ececec] bg-white px-3 py-3 text-[11px] text-[#737373]">
+                          素材未就绪，等待完成"加载评估素材"。
                         </div>
-                        <div className="space-y-1.5">
-                          {evaluation.scenarios.map((scenario) => (
-                            <div key={scenario.scenarioId} className="rounded-xl border border-[#ececec] bg-white px-2.5 py-2">
-                              <div className="font-medium text-[#0a0a0a]">{scenario.scenarioName}</div>
-                              <div className="mt-1 text-[11px] text-[#737373]">
-                                状态：{scenario.status} · 消息数：{scenario.messageCount}
-                              </div>
+                      ) : questionCards.length === 0 ? (
+                        <div className="rounded-xl border border-[#ececec] bg-white px-3 py-3 text-[11px] text-[#737373]">
+                          暂无测试用例。
+                        </div>
+                      ) : (
+                        questionCards.map((card, index) => (
+                          <div key={`${card.testcaseId}_${index}`} className="rounded-xl border border-[#ececec] bg-white p-3">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <span className="text-[11px] text-[#9ca3af] font-mono">#{index + 1}</span>
+                              <span className="font-medium text-[#0a0a0a]">{card.title || card.testcaseId}</span>
                             </div>
-                          ))}
-                        </div>
-                      </div>
+                            <div className="text-[11px] text-[#737373]">ID: {card.testcaseId}</div>
+                            {card.prompt && (
+                              <div className="mt-1.5 text-[11px] leading-relaxed text-[#525252] line-clamp-3">{card.prompt}</div>
+                            )}
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                              {card.steps.length > 0 && (
+                                <span className="rounded-full border border-[#ececec] bg-[#fafafa] px-2 py-0.5 text-[#737373]">
+                                  {card.steps.length} 个步骤
+                                </span>
+                              )}
+                              {card.scoringHint && (
+                                <span className="rounded-full border border-[#ececec] bg-[#fafafa] px-2 py-0.5 text-[#737373]">
+                                  评分提示
+                                </span>
+                              )}
+                              {card.sourceFile && (
+                                <span className="text-[#9ca3af] truncate max-w-[140px]">{card.sourceFile}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   )}
 
                   {artifactTab === 'trace' && (
                     <div className="space-y-2">
-                      {traceAssets.map((asset, index) => {
-                        const traceLink = toAbsoluteApiUrl(asset.publicUrl)
-                        const relatedScenario = evaluation.scenarios.find(
-                          (item) => item.scenarioId === asset.relatedKey || item.scenarioName === asset.relatedKey,
-                        )
-                        return (
-                          <div key={asset.relativePath} className="rounded-xl border border-[#ececec] bg-[#fafafa] p-2.5">
-                            <div className="mb-1 flex items-center gap-1.5">
-                              <Zap size={10} className="text-[#4a6cf7]" />
-                              <span className="font-semibold text-[#404040]">
-                                轨迹 #{index + 1} {asset.relatedKey ? `· ${asset.relatedKey}` : ''}
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-[#737373]">创建时间：{formatDateTime(asset.createdAtUtc)}</div>
-                            {relatedScenario && (
-                              <div className="mt-1 text-[11px] text-[#737373]">
-                                场景：{relatedScenario.scenarioName} · 判定：{verdictLabel(relatedScenario.verdict)} · 消息数：
-                                {relatedScenario.messageCount}
-                              </div>
-                            )}
-                            <div className="mt-1 break-all text-[11px] text-[#9ca3af]">{asset.relativePath}</div>
-                            {traceLink && (
-                              <a
-                                href={traceLink}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="mt-2 inline-flex items-center gap-1 text-[11px] text-[#2563eb]"
-                              >
-                                <ExternalLink size={10} />
-                                查看原始 Trace JSON
-                              </a>
-                            )}
-                          </div>
-                        )
-                      })}
-                      {(traceAssets.length === 0 ? evaluation.scenarios : []).map((scenario, index) => (
-                        <div key={scenario.scenarioId} className="rounded-xl border border-[#ececec] bg-[#fafafa] p-2.5">
-                          <div className="mb-1 flex items-center gap-1.5">
-                            <Zap size={10} className="text-[#4a6cf7]" />
-                            <span className="font-semibold text-[#404040]">
-                              轨迹 #{index + 1} · {scenario.scenarioName}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-[#737373]">开始：{formatDateTime(scenario.startedAt)}</div>
-                          <div className="text-[11px] text-[#737373]">结束：{formatDateTime(scenario.completedAt)}</div>
-                          <div className="mt-1 text-[11px] text-[#737373]">
-                            消息数：{scenario.messageCount} · 判定：{verdictLabel(scenario.verdict)}
-                          </div>
+                      {traceAssets.length === 0 ? (
+                        <div className="rounded-xl border border-[#ececec] bg-white px-3 py-3 text-[11px] text-[#737373]">
+                          暂无执行轨迹，请先执行评估。
                         </div>
-                      ))}
+                      ) : (
+                        traceAssets.map((asset, index) => {
+                          const traceLink = toAbsoluteApiUrl(asset.publicUrl)
+                          const relatedScenario = evaluation.scenarios.find(
+                            (item) => item.scenarioId === asset.relatedKey || item.scenarioName === asset.relatedKey,
+                          )
+                          return (
+                            <div key={asset.relativePath} className="rounded-xl border border-[#ececec] bg-[#fafafa] p-2.5">
+                              <div className="mb-1 flex items-center gap-1.5">
+                                <Zap size={10} className="text-[#4a6cf7]" />
+                                <span className="font-semibold text-[#404040]">
+                                  轨迹 #{index + 1} {asset.relatedKey ? `· ${asset.relatedKey}` : ''}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-[#737373]">创建时间：{formatDateTime(asset.createdAtUtc)}</div>
+                              {relatedScenario && (
+                                <div className="mt-1 text-[11px] text-[#737373]">
+                                  场景：{relatedScenario.scenarioName} · 判定：{verdictLabel(relatedScenario.verdict)}
+                                </div>
+                              )}
+                              <div className="mt-1 break-all text-[11px] text-[#9ca3af]">{asset.relativePath}</div>
+                              {traceLink && (
+                                <a
+                                  href={traceLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="mt-2 inline-flex items-center gap-1 text-[11px] text-[#2563eb]"
+                                >
+                                  <ExternalLink size={10} />
+                                  查看原始 Trace JSON
+                                </a>
+                              )}
+                            </div>
+                          )
+                        })
+                      )}
                     </div>
                   )}
 
                   {artifactTab === 'report' && (
                     <div className="space-y-3">
-                      <div className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3 text-center">
-                        <div className="text-4xl font-bold text-[#0a0a0a] tabular-nums">{overview.score}</div>
-                        <div className="mt-1 text-xs text-[#737373]">综合评分（估算）</div>
-                        <div className="mt-2 inline-flex">
-                          <span className={overview.failed === 0 ? 'hb-pill green' : 'hb-pill pink'}>
-                            {overview.failed === 0 ? 'AI 判定：通过' : 'AI 判定：待修复'}
-                          </span>
+                      {!reportSummary ? (
+                        <div className="rounded-xl border border-[#ececec] bg-white p-3 text-[11px] text-[#737373]">
+                          暂无评估报告，请先执行评估。
                         </div>
-                      </div>
+                      ) : (
+                        <>
+                          <div className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3 text-center">
+                            <div className="text-4xl font-bold text-[#0a0a0a] tabular-nums">{reportSummary.overallScore}</div>
+                            <div className="mt-1 text-xs text-[#737373]">综合评分</div>
+                            <div className="mt-2 inline-flex">
+                              <span className={reportSummary.passed ? 'hb-pill green' : 'hb-pill pink'}>
+                                {reportSummary.passed ? 'AI 判定：通过' : 'AI 判定：未通过'}
+                              </span>
+                            </div>
+                          </div>
 
-                      <div className="rounded-xl border border-[#ececec] bg-white p-2.5">
-                        <div className="mb-2 flex items-center gap-1.5 font-semibold text-[#404040]">
-                          <BarChart2 size={11} />
-                          场景评分分布
-                        </div>
-                        <div className="space-y-2">
-                          {evaluation.scenarios.map((scenario) => {
-                            const score = scenarioScore(scenario.verdict)
-                            return (
-                              <div key={scenario.scenarioId} className="rounded-lg border border-[#f5f5f5] bg-[#fafafa] p-2">
-                                <div className="mb-1 flex items-center justify-between gap-2">
-                                  <span className="text-[11px] text-[#404040]">{scenario.scenarioName}</span>
-                                  <span className="tabular-nums text-[11px] font-semibold text-[#0a0a0a]">{score}</span>
-                                </div>
-                                <div className="h-1.5 rounded-full bg-[#efefef]">
-                                  <div
-                                    className={`h-1.5 rounded-full ${
-                                      scenario.verdict === 'passed'
-                                        ? 'bg-[#10b981]'
-                                        : scenario.verdict === 'failed'
-                                          ? 'bg-[#be185d]'
-                                          : 'bg-[#c47a26]'
-                                    }`}
-                                    style={{ width: `${score}%` }}
-                                  />
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
+                          <div className="rounded-xl border border-[#ececec] bg-white p-2.5 text-[11px] text-[#737373]">
+                            <div>生成时间：{formatDateTime(reportSummary.createdAtUtc)}</div>
+                            {reportJsonUrl && (
+                              <a
+                                href={reportJsonUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-1 inline-flex items-center gap-1 text-[#2563eb]"
+                              >
+                                <ExternalLink size={10} />
+                                查看报告 JSON
+                              </a>
+                            )}
+                            {reportHtmlUrl && (
+                              <a
+                                href={reportHtmlUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="ml-3 mt-1 inline-flex items-center gap-1 text-[#2563eb]"
+                              >
+                                <ExternalLink size={10} />
+                                查看报告 HTML
+                              </a>
+                            )}
+                          </div>
+                        </>
+                      )}
 
                       <div className="rounded-xl border border-[#ececec] bg-white p-2.5">
                         <div className="mb-1 flex items-center gap-1.5 font-semibold text-[#404040]">
                           <FileText size={11} />
                           评估建议
                         </div>
-                        <p className="text-[11px] leading-relaxed text-[#737373]">
-                          {evaluation.recommendation || '建议优先修复未通过场景，完成后继续执行下一轮 AI 评估。'}
-                        </p>
+                        <p className="text-[11px] leading-relaxed text-[#737373]">{evaluation.recommendation}</p>
                       </div>
                     </div>
                   )}

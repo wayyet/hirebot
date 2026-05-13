@@ -236,6 +236,7 @@ export interface EvaluationReadiness {
   ontologyReady: boolean
   status: string
   message?: string | null
+  recommendedAction?: string | null
 }
 
 export interface EvaluationQuestionCard {
@@ -282,12 +283,15 @@ export interface EvaluationSandboxConversationState {
   employeeId: string
   evalPhase: string
   targetHireId: string
+  targetRuntimeId: string
   targetSandboxId: string
   evaluatorHireId: string
+  evaluatorRuntimeId: string
   evaluatorSandboxId: string
   sessionId: string
   skillLoadedAtUtc?: string | null
   messages: HiringConversationMessage[]
+  questionCards?: EvaluationQuestionCard[] | null
 }
 
 export interface EvaluationSandboxMessageRequest {
@@ -342,6 +346,23 @@ export interface EvaluationVerdictSyncResult {
   summary: string
   status: string
   latestReport?: EvaluationReportSummary | null
+}
+
+export interface EvaluationWorkspaceStep {
+  step: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  detail?: string | null
+}
+
+export interface EvaluationWorkspaceStatus {
+  employeeId: string
+  overallStatus: 'not_started' | 'creating' | 'ready' | 'failed'
+  targetSandboxId?: string | null
+  evaluatorSandboxId?: string | null
+  evaluatorRuntimeId?: string | null
+  targetRuntimeId?: string | null
+  steps: EvaluationWorkspaceStep[]
+  errorMessage?: string | null
 }
 
 export interface ImportFixtureInstancesResult {
@@ -515,6 +536,12 @@ export const employeeRuntimeApi = {
     return httpClient.post<EmployeeDetail, EvaluationOnboardingDecisionRequest>(
       `/api/v1/employees/${employeeId}/evaluation/onboarding-decision`,
       payload,
+    )
+  },
+
+  getEvaluationWorkspaceStatus(employeeId: string) {
+    return httpClient.get<EvaluationWorkspaceStatus>(
+      `/api/v1/employees/${employeeId}/evaluation/workspace-status`,
     )
   },
 

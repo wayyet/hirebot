@@ -1,0 +1,7 @@
+{
+  "workspace_root": "/workspace",
+  "runtime_context_path": "/workspace/runtime/evaluation-context.json",
+  "skills_root": "/workspace/skills",
+  "default_testcases_path": "/workspace/testcases",
+  "default_ontology_path": "/workspace/ontology"
+}

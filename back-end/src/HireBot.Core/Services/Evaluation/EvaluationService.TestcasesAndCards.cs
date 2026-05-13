@@ -343,17 +343,17 @@ internal sealed partial class EvaluationService
 
         if (!readiness.TestcasesReady && !readiness.OntologyReady)
         {
-            return "Testcases and ontology are not ready. Place testcase JSON files under 'testcases/' and ontology files under 'ontology/' in the target sandbox artifact, then rerun LOAD_SKILL or START.";
+            return "Testcases and ontology are not ready in evaluator sandbox materials. Upload both under 'testcases/' and 'ontology/', then rerun LOAD_SKILL or START.";
         }
 
         if (!readiness.TestcasesReady)
         {
-            return "Testcases are not ready. Place testcase JSON files (with 'test_case' fields) under 'testcases/' in the target sandbox artifact, then rerun LOAD_SKILL or START.";
+            return "Testcases are not ready in evaluator sandbox materials. Upload testcase JSON files (with 'test_case' fields) under 'testcases/', then rerun LOAD_SKILL or START.";
         }
 
         if (!readiness.OntologyReady)
         {
-            return "Ontology is not ready. Place ontology .md/.txt/.json files (with dimension and rule definitions) under 'ontology/' in the target sandbox artifact, then rerun LOAD_SKILL or START.";
+            return "Ontology is not ready in evaluator sandbox materials. Upload ontology .md/.txt/.json files (with dimension and rule definitions) under 'ontology/', then rerun LOAD_SKILL or START.";
         }
 
         return sessionStatus switch
@@ -414,17 +414,6 @@ internal sealed partial class EvaluationService
             MessageCount: 0,
             StartedAt: sessionEntity.CreatedAtUtc.ToString("o"),
             CompletedAt: latestReport.CreatedAtUtc);
-    }
-
-    private static string BuildTargetExecutionPrompt(string testcaseId, string input)
-    {
-        return $"""
-                [EvaluationExecution]
-                testcase_id: {testcaseId}
-                execute the following scenario input as target employee:
-                {input}
-                return actionable response for evaluation trace capture.
-                """;
     }
 
 }

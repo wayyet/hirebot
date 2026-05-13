@@ -22,7 +22,6 @@ using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Sandbox;
-using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.AspNetCore.DataProtection;
@@ -41,7 +40,6 @@ internal sealed partial class EmployeeHiringService(
     IDiscoveryRoleTemplatePackageProvider discoveryRoleTemplatePackageProvider,
     IWorkingTemplatePackageProvider workingTemplatePackageProvider,
     IDiscoveryRuleProvider discoveryRuleProvider,
-    ISystemSkillRegistry systemSkillRegistry,
     HiringStageCompletionEvaluator stageCompletionEvaluator,
     IHiringRuntimeStore hiringRuntimeStore,
     IKingCrabHttpClient kingCrabHttpClient,
@@ -57,7 +55,7 @@ internal sealed partial class EmployeeHiringService(
 {
     private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
     private const string EvaluationSkillId = "evaluation-expert";
-    private const string EvaluationSkillVersion = "2.1.0";
+    private const string EvaluationSkillVersion = "2.2.0";
     private const string EvaluationWorkspaceTemplateId = "evaluation-expert";
     private const string EvaluationWorkspaceTemplateName = "Evaluation Expert";
 
@@ -1428,52 +1426,6 @@ internal sealed partial class EmployeeHiringService(
             EmployeeId: employeeId);
 
         return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(result, "交付物已导入");
-    }
-
-    public async Task<ApiResponse<bool>> UploadEvaluationSkillAsync(
-        string hireId,
-        string? skillRootPath = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
-        {
-            return ApiResponse<bool>.ErrorResponse(400, error);
-        }
-
-        var payloadResult = await BuildEvaluationSkillUploadPayloadAsync(skillRootPath, cancellationToken);
-        if (!payloadResult.Success || payloadResult.Data is null)
-        {
-            return ApiResponse<bool>.ErrorResponse(payloadResult.Code, payloadResult.Message);
-        }
-
-        var uploadCall = await UploadSystemSkillPackageAsync(
-            normalizedHireId,
-            ResolveOwnerByHireId(normalizedHireId),
-            payloadResult.Data,
-            cancellationToken);
-
-        if (!uploadCall.Success || uploadCall.Data is null)
-        {
-            return ApiResponse<bool>.ErrorResponse(uploadCall.StatusCode, uploadCall.Message);
-        }
-
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        if (runtimeContext is not null)
-        {
-            runtimeContext = ApplyWorkflowProgress(runtimeContext with
-            {
-                DiscoverySkill = BuildDiscoverySkillFromUploadPayload(payloadResult.Data)
-            });
-            hiringRuntimeStore.Upsert(runtimeContext);
-        }
-
-        logger.LogInformation(
-            "Uploaded evaluation skill package. EvalHireId={EvalHireId}, SkillId={SkillId}, SkillVersion={SkillVersion}",
-            normalizedHireId,
-            uploadCall.Data.SkillId,
-            uploadCall.Data.SkillVersion);
-
-        return ApiResponse<bool>.SuccessResponse(true, "evaluation skill uploaded");
     }
 
     public Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(

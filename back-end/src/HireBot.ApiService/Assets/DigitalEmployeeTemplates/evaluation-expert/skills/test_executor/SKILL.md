@@ -30,7 +30,7 @@ memory_access: read_write
 ## 统一入口
 
 ```bash
-python /workspace/skills/evaluation-expert/live_evaluator/evaluate.py \
+python /workspace/skills/live_evaluator/evaluate.py \
   --runtime-context /workspace/runtime/evaluation-context.json \
   --mode execute \
   --output /tmp/trace_result.json
