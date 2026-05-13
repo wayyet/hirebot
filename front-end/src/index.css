@@ -6493,3 +6493,200 @@ body.hb-body-hiring-prototype {
 .hb-config-input:focus {
   border-color: var(--accent);
 }
+
+/* ── TodoRow 内联交互区 ───────────────────────────────────────────────────────── */
+
+/* 行头：标题 + 类型标签横向对齐 */
+.hb-todo-row-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hb-todo-row-tags {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* kind 颜色区分 */
+.hb-todo-row-tag.is-kind-file_request    { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+.hb-todo-row-tag.is-kind-skill_upload   { background: rgba(168, 85, 247, 0.12); color: #a855f7; }
+.hb-todo-row-tag.is-kind-external_config { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+.hb-todo-row-tag.is-kind-handoff_todo   { background: var(--surface-2); color: var(--ink-3); }
+
+/* 验收条件小字 */
+.hb-todo-row-acceptance {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+/* 展开按钮激活态 */
+.hb-todo-row-btn.is-secondary.is-expanded {
+  background: rgba(74, 108, 247, 0.10);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 内联展开区容器 */
+.hb-todo-inline-body {
+  margin: 0 0 4px;
+  border-top: 1px solid var(--line);
+  animation: hb-todo-inline-open 0.18s ease;
+}
+
+@keyframes hb-todo-inline-open {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 内联区内容区 */
+.hb-todo-inline-section {
+  padding: 12px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 内联引导说明文字 */
+.hb-todo-inline-guide {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* 内联字段组：两列网格 */
+.hb-todo-inline-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.hb-todo-inline-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hb-todo-inline-field.is-full {
+  grid-column: 1 / -1;
+}
+
+.hb-todo-inline-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+/* textarea 变体 */
+.hb-config-input.is-textarea {
+  resize: vertical;
+  min-height: 56px;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+/* 内联拖拽上传区（compact） */
+.hb-todo-drop-zone {
+  border: 2px dashed var(--line);
+  border-radius: 8px;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  background: var(--surface-2);
+  text-align: center;
+}
+
+.hb-todo-drop-zone.is-over {
+  border-color: var(--accent);
+  background: rgba(74, 108, 247, 0.06);
+}
+
+.hb-todo-drop-zone.has-file {
+  border-style: solid;
+  border-color: var(--success);
+  background: rgba(34, 197, 94, 0.05);
+  cursor: default;
+}
+
+.hb-todo-drop-icon {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink-3);
+}
+
+.hb-todo-drop-hint {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-1);
+}
+
+.hb-todo-drop-types {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* 已选文件预览行 */
+.hb-todo-drop-selected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.hb-todo-drop-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  overflow: hidden;
+}
+
+.hb-todo-drop-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hb-todo-drop-size {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.hb-todo-drop-remove {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--ink-3);
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.1s, background 0.1s;
+}
+
+.hb-todo-drop-remove:hover {
+  background: var(--surface-2);
+  color: #ef4444;
+}
+
+/* 内联区底部按钮行 */
+.hb-todo-inline-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 2px;
+}

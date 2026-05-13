@@ -17,8 +17,12 @@ public static class HiringHandoffStatus
 public static class HiringHandoffKind
 {
     public const string HandoffTodo = "handoff_todo";
-    /// <summary>需要用户在前端上传文件的 handoff 工单，前端面板会显示上传按钮。</summary>
+    /// <summary>需要用户在前端上传文件材料（PDF/DOCX/XLSX/MD等）的 handoff 工单，前端面板会显示上传按钮。</summary>
     public const string FileRequest = "file_request";
+    /// <summary>需要用户在前端上传技能包（.zip）的 handoff 工单，前端面板会显示技能包上传表单。</summary>
+    public const string SkillUpload = "skill_upload";
+    /// <summary>需要用户在前端填写外部系统接入配置（API URL / 密钥 / 服务名等）的 handoff 工单。</summary>
+    public const string ExternalConfig = "external_config";
 }
 
 public static class HiringDiagnosticPriority

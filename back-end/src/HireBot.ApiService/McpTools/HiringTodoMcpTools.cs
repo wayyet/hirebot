@@ -120,6 +120,104 @@ internal sealed class HiringTodoMcpTools(IHiringTodoService todoService, ILogger
         return JsonSerializer.Serialize(response, JsonSerializerOptions.Web);
     }
 
+    [McpServerTool(Name = "hiring.request_skill_upload")]
+    [Description("创建一个「请用户上传技能包（.zip）」类型的 TODO 事项，引导用户在界面上传指定技能包文件。前端面板会自动显示技能包上传表单（含版本说明、描述字段）。会话上下文由 _meta.sessionId 和 _meta.userId 自动识别。")]
+    public async Task<string> RequestSkillUploadAsync(
+        RequestContext<CallToolRequestParams> requestContext,
+        [Description("TODO 的唯一语义化 ID，格式：skill_upload_{英文小写slug}，例如 skill_upload_material_ingestion。同一技能请求必须使用相同 ID，禁止使用随机 UUID。")] string handoffId,
+        [Description("技能包名称，如 material-ingestion")] string skillName,
+        [Description("上传说明：描述需要用户上传哪个技能包以及用途")] string description,
+        [Description("验收条件：描述上传后如何验证技能包合格（可选）")] string? acceptanceCriteria = null,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = ExtractUserId(requestContext);
+        var sessionId = ExtractSessionId(requestContext);
+        logger.LogInformation("[MCP] hiring.request_skill_upload 被调用 | handoffId={HandoffId} skillName={SkillName} userId={UserId} sessionId={SessionId}",
+            handoffId, skillName, userId ?? "<未传入>", sessionId ?? "<未传入>");
+
+        if (userId is null)
+            return """{"error":"_meta.userId 未传入，无法验证用户身份"}""";
+        if (sessionId is null)
+            return """{"error":"_meta.sessionId 未传入，无法定位雇佣会话"}""";
+
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            skill_name = skillName,
+            description,
+            upload_type = "skill"
+        });
+
+        var request = new UpsertHiringTodoRequest(
+            HandoffId: handoffId,
+            Title: $"上传 {skillName} 技能包",
+            Kind: HiringHandoffKind.SkillUpload,
+            Stage: "skill",
+            TargetSkill: skillName,
+            Status: HiringHandoffStatus.Drafting,
+            Intent: description,
+            Category: "skill_upload",
+            Source: "mcp_agent",
+            Acceptance: acceptanceCriteria,
+            Payload: payload);
+
+        var response = await todoService.UpsertTodoAsync(sessionId, userId, request, cancellationToken);
+        return JsonSerializer.Serialize(response, JsonSerializerOptions.Web);
+    }
+
+    [McpServerTool(Name = "hiring.request_external_config")]
+    [Description("创建一个「请用户填写外部系统接入配置」类型的 TODO 事项。AI 通过 form_fields 参数声明需要用户填写的字段（如 API URL、密钥、服务名等），前端面板会自动渲染对应的配置表单。会话上下文由 _meta.sessionId 和 _meta.userId 自动识别。")]
+    public async Task<string> RequestExternalConfigAsync(
+        RequestContext<CallToolRequestParams> requestContext,
+        [Description("TODO 的唯一语义化 ID，格式：external_{英文小写slug}，例如 external_slack_webhook。同一外部系统请求必须使用相同 ID，禁止使用随机 UUID。")] string handoffId,
+        [Description("外部系统名称，如 Slack Webhook、企业微信机器人")] string systemName,
+        [Description("配置说明：描述该外部系统的用途")] string description,
+        [Description("字段定义 JSON 数组，每项格式：{\"id\":\"field_id\",\"label\":\"显示名\",\"type\":\"text|password|number|select\",\"required\":true,\"placeholder\":\"...\",\"hint\":\"...\",\"options\":[\"...\"]}")] string formFieldsJson,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = ExtractUserId(requestContext);
+        var sessionId = ExtractSessionId(requestContext);
+        logger.LogInformation("[MCP] hiring.request_external_config 被调用 | handoffId={HandoffId} systemName={SystemName} userId={UserId} sessionId={SessionId}",
+            handoffId, systemName, userId ?? "<未传入>", sessionId ?? "<未传入>");
+
+        if (userId is null)
+            return """{"error":"_meta.userId 未传入，无法验证用户身份"}""";
+        if (sessionId is null)
+            return """{"error":"_meta.sessionId 未传入，无法定位雇佣会话"}""";
+
+        JsonElement formFields;
+        try
+        {
+            formFields = JsonSerializer.Deserialize<JsonElement>(formFieldsJson);
+        }
+        catch
+        {
+            formFields = JsonSerializer.SerializeToElement(Array.Empty<object>());
+        }
+
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            system_name = systemName,
+            description,
+            form_fields = formFields
+        });
+
+        var request = new UpsertHiringTodoRequest(
+            HandoffId: handoffId,
+            Title: $"配置 {systemName}",
+            Kind: HiringHandoffKind.ExternalConfig,
+            Stage: "external",
+            TargetSkill: "external-config",
+            Status: HiringHandoffStatus.Drafting,
+            Intent: description,
+            Category: "external_config",
+            Source: "mcp_agent",
+            Acceptance: null,
+            Payload: payload);
+
+        var response = await todoService.UpsertTodoAsync(sessionId, userId, request, cancellationToken);
+        return JsonSerializer.Serialize(response, JsonSerializerOptions.Web);
+    }
+
     /// <summary>从 MCP 请求上下文的 _meta 中提取 userId（Keycloak JWT sub）。</summary>
     private static string? ExtractUserId(RequestContext<CallToolRequestParams> requestContext)
         => ExtractMeta(requestContext, "userId");

@@ -381,6 +381,26 @@ export default function HiringPage() {
     if (item) void submitWorkflowMessage(`外部系统 ${item.title} 配置已完成，请继续`)
   }
 
+  async function handleUploadSkillTodo(
+    handoffId: string,
+    file: File,
+    meta: { name: string; releaseNote: string; description: string },
+  ) {
+    if (!workflowHireId) return
+    const item = handoffItems.find(i => i.handoff_id === handoffId)
+    await api.hiringWorkflow.uploadMaterialFile(workflowHireId, file, {
+      type: 'skill',
+      skillName: meta.name,
+      releaseNote: meta.releaseNote,
+      description: meta.description,
+      archiveFormat: 'zip',
+      handoffId,
+    })
+    await api.hiringWorkflow.updateTodoStatus(workflowHireId, handoffId, 'confirmed')
+    setHandoffItems(prev => prev.map(i => i.handoff_id === handoffId ? { ...i, status: 'confirmed' } : i))
+    if (item) void submitWorkflowMessage(`技能包 ${meta.name} 已上传（${item.title}），请继续`)
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   async function ensureWorkflowReady(): Promise<string | null> {
@@ -1337,6 +1357,7 @@ export default function HiringPage() {
             onConfirmTodo={handleConfirmTodo}
             onDismissTodo={handleDismissTodo}
             onUploadFile={handleUploadTodoFile}
+            onUploadSkill={handleUploadSkillTodo}
             onSaveExternalConfig={handleSaveExternalConfig}
             onGenerate={() => { void triggerCreate() }}
             generated={instanceCreated}
