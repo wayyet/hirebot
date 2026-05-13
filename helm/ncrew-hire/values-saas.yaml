@@ -45,7 +45,7 @@ env:
   OpenSandbox__Domain: opensandbox-server.opensandbox-system:80
   OpenSandbox__Protocol: Http
   OpenSandbox__UseServerProxy: "false"
-  OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605140025
+  OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605140121
   OpenSandbox__Resource__cpu: 500m
   OpenSandbox__Resource__memory: 1Gi
   OpenSandbox__TimeoutSeconds: "43200"
