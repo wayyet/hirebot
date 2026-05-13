@@ -227,7 +227,7 @@ internal sealed partial class EvaluationService
         EmployeeDetailDto employee,
         CancellationToken cancellationToken)
     {
-        var fromTarget = await LoadTestcaseSourcesFromTargetArtifactsAsync(workspaceContext.TargetHireId, cancellationToken);
+        var fromTarget = await LoadTestcaseSourcesFromTargetArtifactsAsync(employee.EmployeeId, cancellationToken);
         if (fromTarget.Count > 0)
         {
             return fromTarget;
@@ -375,168 +375,6 @@ internal sealed partial class EvaluationService
         return sources;
     }
 
-    private async Task<ApiResponse<TargetArtifactWarmupResult>> EnsureTargetArtifactBundleLoadedAsync(
-        string owner,
-        EmployeeDetailDto employee,
-        EvaluationWorkspaceContext workspaceContext,
-        EvaluationSessionEntity sessionEntity,
-        bool forceRefresh,
-        string? explicitArtifactPath,
-        CancellationToken cancellationToken)
-    {
-        var warmupKey = $"{BuildWorkspaceKey(owner, employee.EmployeeId)}::{workspaceContext.TargetHireId}";
-        if (!forceRefresh && TargetArtifactPrimed.ContainsKey(warmupKey))
-        {
-            return ApiResponse<TargetArtifactWarmupResult>.SuccessResponse(new TargetArtifactWarmupResult(
-                WorkspacePath: "hiring-conversation",
-                SourceArtifactPath: "already-primed"));
-        }
-
-        var bundleResult = await BuildTargetArtifactBundleAsync(
-            workspaceContext.TargetHireId,
-            employee,
-            explicitArtifactPath,
-            cancellationToken);
-        if (!bundleResult.Success || bundleResult.Data is null)
-        {
-            return ApiResponse<TargetArtifactWarmupResult>.ErrorResponse(bundleResult.Code, bundleResult.Message);
-        }
-
-        var bundle = bundleResult.Data;
-        var zipAsset = await PersistBinaryAssetAsync(
-            sessionEntity,
-            assetType: "target-artifact-zip",
-            relatedKey: $"target-artifact:{workspaceContext.TargetHireId}",
-            fileName: bundle.FileName,
-            content: bundle.Content,
-            mimeType: "application/zip",
-            sourceType: bundle.SourceType,
-            cancellationToken);
-
-        var startConversationResult = await EnsureSandboxConversationStartedAsync(
-            employee.OwnerUserId,
-            workspaceContext.TargetHireId,
-            workspaceContext.TargetSandboxId,
-            "evaluation-target",
-            cancellationToken);
-        if (!startConversationResult.Success && startConversationResult.Code != 409)
-        {
-            logger.LogInformation(
-                "Target conversation start for artifact warmup skipped. TargetHireId={TargetHireId}, Code={Code}, Message={Message}",
-                workspaceContext.TargetHireId,
-                startConversationResult.Code,
-                startConversationResult.Message);
-        }
-
-        var zipBase64 = Convert.ToBase64String(bundle.Content);
-        var warmupMessage = BuildTargetArtifactWarmupPrompt(bundle.FileName, zipAsset.PublicUrl);
-        var warmupSendResult = await SendSandboxMessageAsync(
-            employee.OwnerUserId,
-            workspaceContext.TargetHireId,
-            workspaceContext.TargetSandboxId,
-            "evaluation-target",
-            new HiringConversationMessageRequestDto
-            {
-                Content = warmupMessage,
-                StructuredAnswers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["artifact_bundle_name"] = bundle.FileName,
-                    ["artifact_bundle_sha256"] = bundle.Sha256,
-                    ["artifact_bundle_public_url"] = zipAsset.PublicUrl,
-                    ["artifact_bundle_source"] = bundle.SourceType
-                },
-                Materials =
-                [
-                    new HiringConversationMaterialDto
-                    {
-                        Type = "file",
-                        Name = bundle.FileName,
-                        Content = zipBase64,
-                        ContentHash = bundle.Sha256,
-                        Size = bundle.Content.LongLength,
-                        MimeType = "application/zip",
-                        Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            ["encoding"] = "base64",
-                            ["source_type"] = bundle.SourceType,
-                            ["source_path"] = bundle.SourcePath
-                        }
-                    }
-                ]
-            },
-            cancellationToken);
-
-        if (!warmupSendResult.Success)
-        {
-            return ApiResponse<TargetArtifactWarmupResult>.ErrorResponse(
-                warmupSendResult.Code,
-                $"failed to send target artifact attachment: {warmupSendResult.Message}");
-        }
-
-        TargetArtifactPrimed[warmupKey] = 0;
-        await UpdateSessionStatusAsync(sessionEntity, "target_artifact_primed", null, cancellationToken);
-
-        return ApiResponse<TargetArtifactWarmupResult>.SuccessResponse(new TargetArtifactWarmupResult(
-            WorkspacePath: "hiring-conversation",
-            SourceArtifactPath: bundle.SourcePath));
-    }
-
-    private async Task<ApiResponse<TargetArtifactBundle>> BuildTargetArtifactBundleAsync(
-        string targetHireId,
-        EmployeeDetailDto employee,
-        string? explicitArtifactPath,
-        CancellationToken cancellationToken)
-    {
-        if (!string.IsNullOrWhiteSpace(explicitArtifactPath))
-        {
-            var normalizedPath = explicitArtifactPath.Trim();
-            if (Directory.Exists(normalizedPath))
-            {
-                var explicitZip = await ZipDirectoryAsBundleAsync(
-                    normalizedPath,
-                    $"{Path.GetFileName(normalizedPath)}.zip",
-                    sourceType: "explicit-directory",
-                    cancellationToken);
-                return ApiResponse<TargetArtifactBundle>.SuccessResponse(explicitZip);
-            }
-
-            if (File.Exists(normalizedPath) &&
-                normalizedPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-            {
-                var bytes = await File.ReadAllBytesAsync(normalizedPath, cancellationToken);
-                if (bytes.Length > 0)
-                {
-                    var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
-                    return ApiResponse<TargetArtifactBundle>.SuccessResponse(new TargetArtifactBundle(
-                        FileName: Path.GetFileName(normalizedPath),
-                        Content: bytes,
-                        Sha256: hash,
-                        SourceType: "explicit-zip",
-                        SourcePath: normalizedPath));
-                }
-            }
-
-            return ApiResponse<TargetArtifactBundle>.ErrorResponse(404, $"explicit artifact path not found: {normalizedPath}");
-        }
-
-        var packageSnapshot = await artifactPackageService.GetLatestPackageAsync(targetHireId, cancellationToken);
-        if (packageSnapshot?.Content is { Length: > 0 })
-        {
-            var sourceName = string.IsNullOrWhiteSpace(packageSnapshot.FileName)
-                ? $"hiring_artifacts_{targetHireId}.zip"
-                : packageSnapshot.FileName;
-            var hash = Convert.ToHexStringLower(SHA256.HashData(packageSnapshot.Content));
-            return ApiResponse<TargetArtifactBundle>.SuccessResponse(new TargetArtifactBundle(
-                FileName: sourceName,
-                Content: packageSnapshot.Content,
-                Sha256: hash,
-                SourceType: packageSnapshot.Kind,
-                SourcePath: targetHireId));
-        }
-
-        return ApiResponse<TargetArtifactBundle>.ErrorResponse(404, "target artifact package not found");
-    }
-
     private static async Task<TargetArtifactBundle> ZipDirectoryAsBundleAsync(
         string sourceDirectory,
         string fileName,
@@ -609,17 +447,6 @@ internal sealed partial class EvaluationService
             .FirstOrDefault(path =>
                 Directory.Exists(path) &&
                 (File.Exists(Path.Combine(path, "instance.json")) || Directory.Exists(Path.Combine(path, "testcases"))));
-    }
-
-    private static string BuildTargetArtifactWarmupPrompt(string fileName, string publicUrl)
-    {
-        return $"""
-                [ArtifactWarmup]
-                你将收到一个压缩包附件：{fileName}
-                请先解压并完整学习其中的全部资料（config/skills/ontology/testcases 等），再执行后续测试场景。
-                附件的资源链接（如需校验）：{publicUrl}
-                学习完成后请回复：READY_FOR_EVALUATION
-                """;
     }
 
 }
