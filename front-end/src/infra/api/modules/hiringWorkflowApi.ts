@@ -665,6 +665,19 @@ export const hiringWorkflowApi = {
   async saveConversationCache(hireId: string, cache: unknown): Promise<void> {
     await httpClient.put<boolean>(`/api/v1/hirings/${encodeURIComponent(hireId)}/conversation/cache`, cache)
   },
+
+  /** 获取该雇佣流程的所有 TODO 事项（供 TODO 面板初始化及刷新）。*/
+  async getTodos(hireId: string): Promise<HandoffItem[]> {
+    return httpClient.get<HandoffItem[]>(`/api/v1/hirings/${encodeURIComponent(hireId)}/todos`)
+  },
+
+  /** 用户确认或撤销一个 TODO 事项。status: 'confirmed' | 'dismissed' | 'ready_to_dispatch' */
+  async updateTodoStatus(hireId: string, handoffId: string, status: string): Promise<HandoffItem> {
+    return httpClient.patch<HandoffItem>(
+      `/api/v1/hirings/${encodeURIComponent(hireId)}/todos/${encodeURIComponent(handoffId)}`,
+      { status },
+    )
+  },
 }
 
 

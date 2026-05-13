@@ -29,4 +29,20 @@ public interface IHiringTodoService
         string requestingUserId,
         UpsertHiringTodoRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 通过 hireId 获取该雇佣流程的所有 TODO 事项（供 REST 端点调用）。
+    /// </summary>
+    Task<ApiResponse<IReadOnlyList<HiringWorkflowHandoffDto>>> GetTodosByHireIdAsync(
+        string hireId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 更新指定 TODO 事项的状态（供用户在前端确认/撤销操作时调用）。
+    /// </summary>
+    Task<ApiResponse<HiringWorkflowHandoffDto>> UpdateTodoStatusAsync(
+        string hireId,
+        string handoffId,
+        string status,
+        CancellationToken cancellationToken = default);
 }

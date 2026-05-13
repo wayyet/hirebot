@@ -8,7 +8,9 @@ namespace HireBot.ApiService.Controllers;
 
 [Route("api/v1/hirings")]
 [ApiController]
-public sealed class HiringsController(IEmployeeHiringService employeeHiringService) : ControllerBase
+public sealed class HiringsController(
+    IEmployeeHiringService employeeHiringService,
+    IHiringTodoService hiringTodoService) : ControllerBase
 {
     [HttpGet("{hireId}")]
     public async Task<IActionResult> GetHiringStatus(string hireId, CancellationToken cancellationToken = default)
@@ -180,7 +182,25 @@ public sealed class HiringsController(IEmployeeHiringService employeeHiringServi
         var response = await employeeHiringService.SaveConversationCacheAsync(hireId, cache, cancellationToken);
         return Ok(response);
     }
+    /// <summary>获取该雇佣流程的所有 TODO 事项（供前端 TODO 面板初始化加载）。</summary>
+    [HttpGet("{hireId}/todos")]
+    public async Task<IActionResult> GetTodos(string hireId, CancellationToken cancellationToken = default)
+    {
+        var response = await hiringTodoService.GetTodosByHireIdAsync(hireId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
 
+    /// <summary>用户确认或撤销一个 TODO 事项。</summary>
+    [HttpPatch("{hireId}/todos/{handoffId}")]
+    public async Task<IActionResult> UpdateTodoStatus(
+        string hireId,
+        string handoffId,
+        [FromBody] UpdateTodoStatusRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await hiringTodoService.UpdateTodoStatusAsync(hireId, handoffId, request.Status, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
     private IActionResult BuildDownloadResponse(HiringArtifactDownloadResult result)
     {
         if (!result.Found)
