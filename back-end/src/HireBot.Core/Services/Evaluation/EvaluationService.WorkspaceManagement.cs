@@ -62,8 +62,6 @@ internal sealed partial class EvaluationService
 
         var (evaluatorRuntimeId, evaluatorSandboxId) = evaluatorResult.Data;
 
-        TargetHireBindings[workspaceKey] = targetRuntimeId;
-
         var workspaceContext = new EvaluationWorkspaceContext(
             TargetHireId: targetRuntimeId,
             TargetSandboxId: targetSandboxId,
@@ -72,10 +70,19 @@ internal sealed partial class EvaluationService
             SkillLoadedAtUtc: null,
             SessionId: null);
 
-        // Upload evaluation-expert skill to evaluator sandbox
+        // 上传评估专家技能包到评估者沙箱
         var uploadResult = await UploadSkillToSandboxAsync(evaluatorSandboxId, owner, cancellationToken);
         if (!uploadResult.Success)
             return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(uploadResult.Code, uploadResult.Message);
+
+        // 直接将员工产物包上传到目标沙箱（替代旧的消息注入方式）
+        var artifactUploadResult = await UploadArtifactToTargetSandboxAsync(
+            targetSandboxId, owner, employee, skillRootPath, cancellationToken);
+        if (!artifactUploadResult.Success)
+        {
+            logger.LogWarning("[Eval] Target artifact upload skipped sandboxId={SandboxId} Message={Message}",
+                targetSandboxId, artifactUploadResult.Message);
+        }
 
         workspaceContext = workspaceContext with { SkillLoadedAtUtc = DateTimeOffset.UtcNow };
         EvaluationWorkspaces[workspaceKey] = workspaceContext;
@@ -187,6 +194,99 @@ internal sealed partial class EvaluationService
             }
         }
         return stream.ToArray();
+    }
+
+    /// <summary>
+    /// 直接将员工产物包上传到目标沙箱的 /admin/digital-employee/upload 接口，
+    /// 替代旧的通过会话消息注入 Base64 附件的方式。
+    /// </summary>
+    private async Task<ApiResponse<bool>> UploadArtifactToTargetSandboxAsync(
+        string sandboxId,
+        string owner,
+        EmployeeDetailDto employee,
+        string? explicitArtifactPath,
+        CancellationToken cancellationToken)
+    {
+        byte[] archiveBytes;
+        string fileName;
+
+        // 优先使用显式指定的产物路径
+        if (!string.IsNullOrWhiteSpace(explicitArtifactPath))
+        {
+            var normalizedPath = explicitArtifactPath.Trim();
+            if (Directory.Exists(normalizedPath))
+            {
+                var bundle = await ZipDirectoryAsBundleAsync(
+                    normalizedPath,
+                    $"{Path.GetFileName(normalizedPath)}.zip",
+                    sourceType: "explicit-directory",
+                    cancellationToken);
+                archiveBytes = bundle.Content;
+                fileName = bundle.FileName;
+            }
+            else if (File.Exists(normalizedPath) && normalizedPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                archiveBytes = await File.ReadAllBytesAsync(normalizedPath, cancellationToken);
+                fileName = Path.GetFileName(normalizedPath);
+            }
+            else
+            {
+                return ApiResponse<bool>.ErrorResponse(404, $"explicit artifact path not found: {normalizedPath}");
+            }
+        }
+        else
+        {
+            // 从雇用产物包服务获取（以 EmployeeId 作为 hireId 查找）
+            var packageSnapshot = await artifactPackageService.GetLatestPackageAsync(employee.EmployeeId, cancellationToken);
+            if (packageSnapshot?.Content is { Length: > 0 })
+            {
+                archiveBytes = packageSnapshot.Content;
+                fileName = string.IsNullOrWhiteSpace(packageSnapshot.FileName)
+                    ? $"hiring_artifacts_{employee.EmployeeId}.zip"
+                    : packageSnapshot.FileName;
+            }
+            else
+            {
+                // 回退到本地 fixture 目录
+                var fixtureDir = ResolveFixtureArtifactDirectory(employee.EmployeeId, employee);
+                if (string.IsNullOrWhiteSpace(fixtureDir))
+                {
+                    return ApiResponse<bool>.ErrorResponse(404, $"no artifact package or fixture directory found for employee {employee.EmployeeId}");
+                }
+
+                var bundle = await ZipDirectoryAsBundleAsync(
+                    fixtureDir,
+                    $"fixture_{employee.EmployeeId}.zip",
+                    sourceType: "fixture",
+                    cancellationToken);
+                archiveBytes = bundle.Content;
+                fileName = bundle.FileName;
+            }
+        }
+
+        if (archiveBytes.Length == 0)
+        {
+            return ApiResponse<bool>.ErrorResponse(422, "artifact archive is empty");
+        }
+
+        var uploadResult = await sandboxService.UploadSkillPackageAsync(
+            new SkillPackageUploadRequestDto
+            {
+                SandboxId = sandboxId,
+                OwnerSubject = owner,
+                ArchiveBytes = archiveBytes,
+                FileName = fileName
+            },
+            cancellationToken);
+
+        if (!uploadResult.Success || uploadResult.Data is null)
+        {
+            return ApiResponse<bool>.ErrorResponse(uploadResult.Code, uploadResult.Message);
+        }
+
+        logger.LogInformation("[Eval] Target artifact uploaded sandboxId={SandboxId} fileName={FileName} installed={Count}",
+            sandboxId, fileName, uploadResult.Data.SkillsInstalled);
+        return ApiResponse<bool>.SuccessResponse(true, "target artifact uploaded");
     }
 
     private async Task<ApiResponse<EvaluationWorkspaceContext>> EnsureEvaluatorConversationStartedAsync(

@@ -60,7 +60,7 @@ internal sealed partial class EvaluationService
         EmployeeDetailDto employee,
         CancellationToken cancellationToken)
     {
-        var fromTarget = await LoadOntologySourcesFromTargetArtifactsAsync(workspaceContext.TargetHireId, cancellationToken);
+        var fromTarget = await LoadOntologySourcesFromTargetArtifactsAsync(employee.EmployeeId, cancellationToken);
         if (fromTarget.Count > 0)
         {
             return fromTarget;

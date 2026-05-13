@@ -46,14 +46,16 @@ internal sealed class SandboxPvcService
         kubernetes = new Kubernetes(kubeConfig);
     }
 
-    internal string WorkspacePvcName(string ownerSubject) => $"kc-ws-{SanitizeOwner(ownerSubject)}";
+    // PVC 按 scopeKey（hireId / instanceId 等会话唯一键）命名，确保每次会话隔离，
+    // 不同模板或重建后的新沙箱不会意外挂载旧数据。
+    internal string WorkspacePvcName(string scopeKey) => $"kc-ws-{SanitizeForPvc(scopeKey)}";
 
-    internal string MemoryPvcName(string ownerSubject) => $"kc-mem-{SanitizeOwner(ownerSubject)}";
+    internal string MemoryPvcName(string scopeKey) => $"kc-mem-{SanitizeForPvc(scopeKey)}";
 
-    internal IReadOnlyList<Volume> BuildVolumes(string ownerSubject)
+    internal IReadOnlyList<Volume> BuildVolumes(string scopeKey)
     {
-        var workspaceName = WorkspacePvcName(ownerSubject);
-        var memoryName = MemoryPvcName(ownerSubject);
+        var workspaceName = WorkspacePvcName(scopeKey);
+        var memoryName = MemoryPvcName(scopeKey);
 
         return
         [
@@ -72,7 +74,11 @@ internal sealed class SandboxPvcService
         ];
     }
 
-    public async Task<IReadOnlyList<Volume>> EnsureUserPvcsAsync(string ownerSubject, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// 确保会话 PVC 存在（按 scopeKey 隔离，每次新建沙箱时调用）。
+    /// </summary>
+    public async Task<IReadOnlyList<Volume>> EnsureSessionPvcsAsync(
+        string ownerSubject, string scopeKey, CancellationToken cancellationToken = default)
     {
         if (kubernetes is null)
         {
@@ -84,10 +90,43 @@ internal sealed class SandboxPvcService
         var workspaceSize = configuration["SandboxPvc:WorkspaceSize"] ?? "10Gi";
         var memorySize = configuration["SandboxPvc:MemorySize"] ?? "2Gi";
 
-        await EnsurePvcAsync(@namespace, WorkspacePvcName(ownerSubject), workspaceSize, accessMode, "workspace", ownerSubject, cancellationToken);
-        await EnsurePvcAsync(@namespace, MemoryPvcName(ownerSubject), memorySize, accessMode, "memory", ownerSubject, cancellationToken);
+        await EnsurePvcAsync(@namespace, WorkspacePvcName(scopeKey), workspaceSize, accessMode, "workspace", ownerSubject, cancellationToken);
+        await EnsurePvcAsync(@namespace, MemoryPvcName(scopeKey), memorySize, accessMode, "memory", ownerSubject, cancellationToken);
 
-        return BuildVolumes(ownerSubject);
+        return BuildVolumes(scopeKey);
+    }
+
+    /// <summary>
+    /// 删除会话 PVC（沙箱删除时调用，避免旧数据被新会话挂载）。
+    /// </summary>
+    public async Task DeletePvcsAsync(string scopeKey, CancellationToken cancellationToken = default)
+    {
+        if (kubernetes is null)
+        {
+            return;
+        }
+
+        var @namespace = configuration["SandboxPvc:Namespace"] ?? "opensandbox";
+        await TryDeletePvcAsync(@namespace, WorkspacePvcName(scopeKey), cancellationToken);
+        await TryDeletePvcAsync(@namespace, MemoryPvcName(scopeKey), cancellationToken);
+    }
+
+    private async Task TryDeletePvcAsync(string @namespace, string pvcName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await kubernetes!.CoreV1.DeleteNamespacedPersistentVolumeClaimAsync(pvcName, @namespace, cancellationToken: cancellationToken);
+            logger.LogInformation("PVC {PvcName} 已删除", pvcName);
+        }
+        catch (k8s.Autorest.HttpOperationException ex)
+            when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            logger.LogDebug("PVC {PvcName} 不存在，跳过删除", pvcName);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "删除 PVC {PvcName} 失败（不阻断流程）", pvcName);
+        }
     }
 
     private async Task EnsurePvcAsync(
@@ -100,7 +139,7 @@ internal sealed class SandboxPvcService
         CancellationToken cancellationToken)
     {
         var storageClassName = configuration["SandboxPvc:StorageClassName"];
-        var sanitizedOwner = SanitizeOwner(ownerSubject);
+        var sanitizedOwner = SanitizeForPvc(ownerSubject);
 
         var pvc = new V1PersistentVolumeClaim
         {
@@ -147,11 +186,14 @@ internal sealed class SandboxPvcService
         }
     }
 
-    private static string SanitizeOwner(string ownerSubject)
+    // PVC 名称最多 63 字符；前缀 "kc-ws-" 占 6 位，scopeKey 最多 50 位。
+    private static string SanitizeForPvc(string scopeKey)
     {
-        return ownerSubject
+        var sanitized = scopeKey
             .ToLowerInvariant()
             .Replace(':', '-')
-            .Replace('_', '-');
+            .Replace('_', '-')
+            .Replace('.', '-');
+        return sanitized.Length <= 50 ? sanitized : sanitized[..50];
     }
 }
