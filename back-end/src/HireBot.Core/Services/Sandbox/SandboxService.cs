@@ -68,7 +68,7 @@ internal sealed partial class SandboxService(
             return ApiResponse<SandboxInstanceDto>.ErrorResponse(400, "CreateAsync 仅支持 managed 模式");
         }
 
-        var provisioned = await provisioner.CreateAsync(request.OwnerSubject.Trim(), cancellationToken);
+        var provisioned = await provisioner.CreateAsync(request.OwnerSubject.Trim(), request.ScopeKey ?? string.Empty, cancellationToken);
         var instance = await FindInstanceByScopeAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, cancellationToken);
         if (instance is null)
         {
@@ -113,7 +113,7 @@ internal sealed partial class SandboxService(
             logger.LogWarning("Sandbox instance not found, auto-creating. ScopeType={ScopeType}, ScopeKey={ScopeKey}, SandboxRole={SandboxRole}, OwnerSubject={OwnerSubject}",
                 request.ScopeType, request.ScopeKey, request.SandboxRole, request.OwnerSubject);
 
-            var provisioned = await provisioner.CreateAsync(request.OwnerSubject.Trim(), cancellationToken);
+            var provisioned = await provisioner.CreateAsync(request.OwnerSubject.Trim(), request.ScopeKey ?? string.Empty, cancellationToken);
             instance = new SandboxInstanceEntity();
             dbContext.SandboxInstances.Add(instance);
             PopulateInstance(instance, new SandboxRegisterRequestDto
@@ -150,7 +150,7 @@ internal sealed partial class SandboxService(
             logger.LogWarning("Sandbox not found, recreating. OldSandboxId={OldSandboxId}, OwnerSubject={OwnerSubject}",
                 instance.SandboxId, instance.OwnerSubject);
 
-            var provisioned = await provisioner.CreateAsync(instance.OwnerSubject, cancellationToken);
+            var provisioned = await provisioner.CreateAsync(instance.OwnerSubject, instance.ScopeKey, cancellationToken);
             instance.SandboxId = provisioned.SandboxId;
             instance.State = provisioned.State;
             instance.GatewayEndpoint = provisioned.GatewayEndpoint;
@@ -193,7 +193,7 @@ internal sealed partial class SandboxService(
             return ApiResponse<SandboxInstanceDto>.ErrorResponse(409, "Current sandbox was not provisioned by HireBot and cannot be rebuilt.");
         }
 
-        var rebuilt = await provisioner.RebuildAsync(instance.OwnerSubject, instance.SandboxId, cancellationToken);
+        var rebuilt = await provisioner.RebuildAsync(instance.OwnerSubject, instance.SandboxId, instance.ScopeKey, cancellationToken);
         instance.SandboxId = rebuilt.SandboxId;
         instance.State = rebuilt.State;
         instance.GatewayEndpoint = rebuilt.GatewayEndpoint;
@@ -218,7 +218,7 @@ internal sealed partial class SandboxService(
 
         if (string.Equals(instance.ProvisioningMode, "managed", StringComparison.OrdinalIgnoreCase))
         {
-            await provisioner.DeleteAsync(instance.SandboxId, cancellationToken);
+            await provisioner.DeleteAsync(instance.SandboxId, instance.ScopeKey, cancellationToken);
         }
 
         instance.State = "Deleted";
@@ -272,7 +272,7 @@ internal sealed partial class SandboxService(
 
         if (string.Equals(instance.ProvisioningMode, "managed", StringComparison.OrdinalIgnoreCase))
         {
-            await provisioner.DeleteAsync(instance.SandboxId, cancellationToken);
+            await provisioner.DeleteAsync(instance.SandboxId, instance.ScopeKey, cancellationToken);
         }
 
         instance.State = "Deleted";

@@ -54,12 +54,6 @@ internal sealed partial class EvaluationService(
     private static readonly ConcurrentDictionary<string, EvaluationWorkspaceContext> EvaluationWorkspaces =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly ConcurrentDictionary<string, string> TargetHireBindings =
-        new(StringComparer.OrdinalIgnoreCase);
-
-    private static readonly ConcurrentDictionary<string, byte> TargetArtifactPrimed =
-        new(StringComparer.OrdinalIgnoreCase);
-
     private static readonly Lazy<IReadOnlyDictionary<string, FixtureTemplateBinding>> FixtureTemplateBindings =
         new(LoadFixtureTemplateBindings);
 
@@ -775,18 +769,6 @@ internal sealed partial class EvaluationService(
         }
 
         var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, workspaceResult.Data, cancellationToken);
-        var warmupResult = await EnsureTargetArtifactBundleLoadedAsync(
-            owner,
-            employee,
-            workspaceResult.Data,
-            sessionEntity,
-            forceRefresh: false,
-            explicitArtifactPath: null,
-            cancellationToken);
-        if (!warmupResult.Success)
-        {
-            logger.LogInformation("Artifact warmup skipped for testcase loading (no package). Code={Code}", warmupResult.Code);
-        }
 
         var sourceFiles = await LoadTestcaseSourcesAsync(workspaceResult.Data, employee, cancellationToken);
         if (sourceFiles.Count == 0)
@@ -877,18 +859,6 @@ internal sealed partial class EvaluationService(
         }
 
         var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, workspaceResult.Data, cancellationToken);
-        var warmupResult = await EnsureTargetArtifactBundleLoadedAsync(
-            owner,
-            employee,
-            workspaceResult.Data,
-            sessionEntity,
-            forceRefresh: false,
-            explicitArtifactPath: null,
-            cancellationToken);
-        if (!warmupResult.Success)
-        {
-            logger.LogInformation("Artifact warmup skipped for ontology loading (no package). Code={Code}", warmupResult.Code);
-        }
 
         var ontologyProfile = await BuildOntologyProfileAsync(workspaceResult.Data, employee, cancellationToken);
         var payload = new
@@ -966,19 +936,6 @@ internal sealed partial class EvaluationService(
         var testcaseId = request.TestcaseId.Trim();
         var input = request.Input.Trim();
         var startedAtUtc = DateTimeOffset.UtcNow;
-
-        var warmupResult = await EnsureTargetArtifactBundleLoadedAsync(
-            owner,
-            employee,
-            workspaceResult.Data,
-            sessionEntity,
-            forceRefresh: false,
-            explicitArtifactPath: null,
-            cancellationToken);
-        if (!warmupResult.Success)
-        {
-            logger.LogInformation("Artifact warmup skipped for target execute (no package). Code={Code}", warmupResult.Code);
-        }
 
         var startConversationResult = await EnsureSandboxConversationStartedAsync(
             owner,

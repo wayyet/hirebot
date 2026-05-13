@@ -68,9 +68,7 @@
     "edit": "编辑",
     "close": "关闭",
     "back": "返回",
-    "allTypes": "全部",
-    "globalGeneral": "全局通用",
-    "enterpriseSpecific": "企业专属"
+    "allTypes": "全部"
   },
   "theme": {
     "toggle": "切换主题",
@@ -121,11 +119,9 @@
     }
   },
   "market": {
-    "kicker": "部门长入口",
-    "title": "从模板池出发，完成一条完整的",
-    "titleAccent": "部门版雇佣",
-    "titleEnd": "流程",
-    "copy": "这里不生产模板，只负责选择已有模板并进入正式雇佣。页面动作收敛为搜索、查看详情、发起雇佣。",
+    "kicker": "部门长工作台",
+    "title": "企业模板池",
+    "copy": "浏览企业数字员工模板，选择合适模板即可快速发起部门雇佣流程。",
     "searchPlaceholder": "搜索模板名称、场景、能力关键词",
     "exploreAll": "探索全部模板",
     "templateCount": "共 {{count}} 个模板",
@@ -133,11 +129,14 @@
     "empty": "没有找到匹配模板",
     "emptyCopy": "尝试更换关键词，或等待更多模板被同步到模板池中。",
     "prevPage": "上一页",
-    "nextPage": "下一页"
+    "nextPage": "下一页",
+    "footer": "模板池持续更新中，更多模板即将上线。"
   },
   "hiring": {
     "title": "发起雇佣",
-    "steps": "雇佣流程步骤"
+    "steps": "雇佣流程步骤",
+    "fullscreenEnter": "放大显示",
+    "fullscreenExit": "退出放大"
   },
   "employees": {
     "department": {

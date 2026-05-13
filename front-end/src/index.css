@@ -1824,13 +1824,36 @@ body {
   margin-bottom: 0;
 }
 
-.hb-template-doc h1,
-.hb-template-doc h2,
-.hb-template-doc h3,
-.hb-template-doc h4 {
+.hb-template-doc h1 {
+  margin: 1.2em 0 0.5em;
+  color: var(--hb-near-black);
+  font-size: 1.5em;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.hb-template-doc h2 {
   margin: 1.1em 0 0.5em;
   color: var(--hb-near-black);
+  font-size: 1.25em;
+  font-weight: 600;
   line-height: 1.4;
+}
+
+.hb-template-doc h3 {
+  margin: 1em 0 0.4em;
+  color: var(--hb-near-black);
+  font-size: 1.1em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.hb-template-doc h4 {
+  margin: 0.9em 0 0.4em;
+  color: var(--hb-near-black);
+  font-size: 1em;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .hb-template-doc p,
@@ -1855,6 +1878,43 @@ body {
 .dark .hb-template-doc code {
   background: rgba(255, 255, 255, 0.08);
   color: var(--hb-body);
+}
+
+.hb-template-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.9em 0;
+  font-size: 13px;
+}
+
+.hb-template-doc th,
+.hb-template-doc td {
+  border: 1px solid var(--hb-border);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.hb-template-doc th {
+  background: var(--hb-surface-soft);
+  font-weight: 600;
+  color: var(--hb-near-black);
+}
+
+.hb-template-doc td {
+  color: var(--hb-body);
+}
+
+.hb-template-doc tr:nth-child(even) td {
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.dark .hb-template-doc th {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dark .hb-template-doc tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .hb-template-doc pre {
@@ -5870,5 +5930,17 @@ body.hb-body-hiring-prototype {
 .dark .hb-hiring-guide-item,
 .dark .hb-hiring-guide-item strong {
   color: var(--hb-soft);
+}
+
+/* ── 模板详情 dark ── */
+.dark .hb-detail-hero {
+  background:
+    radial-gradient(circle at top right, rgba(74, 108, 247, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(28, 30, 38, 0.98), rgba(24, 26, 34, 0.94));
+}
+
+.dark .hb-detail-avatar {
+  background: rgba(74, 108, 247, 0.18);
+  color: #93bbfc;
 }
 
