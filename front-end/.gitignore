@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
 
 # 测试产物（运行时生成，无需跟踪）
 test-results/

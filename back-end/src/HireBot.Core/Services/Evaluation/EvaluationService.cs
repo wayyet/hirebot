@@ -281,10 +281,15 @@ internal sealed partial class EvaluationService(
 
         var normalizedEmployeeStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
         var normalizedEvalPhase = employee.EvalPhase?.Trim().ToLowerInvariant();
+        var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
         var shouldHideHistoricalSessionState =
-            string.Equals(normalizedEmployeeStatus, "hired", StringComparison.OrdinalIgnoreCase) ||
-            string.IsNullOrWhiteSpace(normalizedEvalPhase) ||
-            string.Equals(normalizedEvalPhase, "pending_skill_upload", StringComparison.OrdinalIgnoreCase);
+            // 普通/雇佣评估沿用旧逻辑：尚未真正进入评估阶段时，不展示历史 EvaluationSession。
+            // 私有分支是特殊评估：实例始终保持 live，创建后 EvalPhase 可能为空，但仍需要继续读取
+            // EvaluationSession/Readiness，避免评估页一直停在 not_started。
+            !isPrivateBranch &&
+            (string.Equals(normalizedEmployeeStatus, "hired", StringComparison.OrdinalIgnoreCase) ||
+             string.IsNullOrWhiteSpace(normalizedEvalPhase) ||
+             string.Equals(normalizedEvalPhase, "pending_skill_upload", StringComparison.OrdinalIgnoreCase));
         if (shouldHideHistoricalSessionState)
         {
             var initialState = new EvaluationStateDto(
@@ -573,6 +578,7 @@ internal sealed partial class EvaluationService(
 
         var decision = request.Decision.Trim().ToUpperInvariant();
         var currentStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
+        var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
 
         EmployeeDetailDto? updated = null;
         var message = "AI evaluation decision submitted";
@@ -583,7 +589,11 @@ internal sealed partial class EvaluationService(
         {
             case "START":
             {
-                if (currentStatus is not ("hired" or "failed" or "interning_ai"))
+                // 私有分支评估是特殊流程：私有分支实例始终保持 live，只通过 EvalPhase 表示评估阶段。
+                // 所以这里允许 private_branch + live 发起 START。不要把这个放行扩展到普通员工，
+                // 普通/雇佣员工仍然只能从 hired/failed/interning_ai 进入 AI 评估。
+                if (currentStatus is not ("hired" or "failed" or "interning_ai") &&
+                    !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
                 {
                     return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, $"current status does not allow START: {currentStatus}");
                 }
@@ -612,14 +622,15 @@ internal sealed partial class EvaluationService(
 
                 updated = employee with
                 {
-                    Status = "interning_ai",
-                    LifecycleStatus = "AI evaluation",
+                    // 私有分支不改变 status，保持 live；普通/雇佣评估仍进入 interning_ai。
+                    Status = isPrivateBranch ? "live" : "interning_ai",
+                    LifecycleStatus = isPrivateBranch ? employee.LifecycleStatus : "AI evaluation",
                     EvalPhase = "ai_running",
                     StageSummary = startMaterialsReady
                         ? "Evaluation skill loaded and materials are ready for auto-run."
                         : "Evaluation skill loaded but materials are incomplete. Waiting for testcase/ontology supplements.",
                     PrimarySignal = startMaterialsReady
-                        ? "Double-sandbox evaluation environment is ready"
+                        ? "Evaluation environment is ready"
                         : "Testcase or ontology is missing, open supplement conversation to upload materials",
                     SignalLevel = startMaterialsReady ? "ok" : "warn",
                     PendingActions = startMaterialsReady
@@ -636,9 +647,12 @@ internal sealed partial class EvaluationService(
 
             case "LOAD_SKILL":
             {
-                if (currentStatus != "interning_ai")
+                // 同 START：private_branch 的状态机只改 EvalPhase，不改 live 状态；
+                // 非 private_branch 不允许绕过 interning_ai 状态。
+                if (currentStatus != "interning_ai" &&
+                    !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
                 {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "LOAD_SKILL is only allowed in interning_ai status");
+                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "LOAD_SKILL is only allowed in interning_ai status or live private_branch status");
                 }
 
                 var skillRootPath = ExtractPathFromComment(request.Comment);
@@ -665,14 +679,15 @@ internal sealed partial class EvaluationService(
 
                 updated = employee with
                 {
-                    Status = "interning_ai",
-                    LifecycleStatus = "AI evaluation",
+                    // 私有分支继续保持 live，避免破坏“原地定制、对话不中断”的产品语义。
+                    Status = isPrivateBranch ? "live" : "interning_ai",
+                    LifecycleStatus = isPrivateBranch ? employee.LifecycleStatus : "AI evaluation",
                     EvalPhase = "ai_running",
                     StageSummary = materialsReady
                         ? "Evaluation skill loaded and materials are ready for auto-run."
                         : "Evaluation skill loaded but materials are incomplete. Waiting for testcase/ontology supplements.",
                     PrimarySignal = materialsReady
-                        ? "Double-sandbox evaluation environment is ready"
+                        ? "Evaluation environment is ready"
                         : "Testcase or ontology is missing, open supplement conversation to upload materials",
                     SignalLevel = materialsReady ? "ok" : "warn",
                     PendingActions = materialsReady
@@ -689,9 +704,11 @@ internal sealed partial class EvaluationService(
 
             case "RUN":
             {
-                if (currentStatus != "interning_ai")
+                // 私有分支 RUN 也允许 live 状态执行；普通/雇佣评估仍必须处于 interning_ai。
+                if (currentStatus != "interning_ai" &&
+                    !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
                 {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "RUN is only allowed in interning_ai status");
+                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "RUN is only allowed in interning_ai status or live private_branch status");
                 }
 
                 // Ensure workspace is ready (sandboxes + skill upload)

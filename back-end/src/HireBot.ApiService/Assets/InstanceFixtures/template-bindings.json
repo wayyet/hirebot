@@ -12,23 +12,23 @@
     },
     {
       "templateId": "019dcfca-08a3-7a2a-bd14-09e790eab6f7",
-      "fixtureTemplateId": "NCrew-asset-guardian",
-      "fixtureEmployeeId": "e_dev_seed_401_asset-guardian"
+      "fixtureTemplateId": "019dcfca-08a3-7a2a-bd14-09e790eab6f7",
+      "fixtureEmployeeId": "e_dev_seed_406_asset-guardian-live"
     },
     {
       "templateId": "019ddd2a-4955-7acb-9930-67f88bf8ae8c",
-      "fixtureTemplateId": "NCrew-asset-guardian",
-      "fixtureEmployeeId": "e_dev_seed_401_asset-guardian"
+      "fixtureTemplateId": "019dcfca-08a3-7a2a-bd14-09e790eab6f7",
+      "fixtureEmployeeId": "e_dev_seed_406_asset-guardian-live"
     },
     {
       "templateId": "019ddd2a-4c5f-7266-b184-a69cc0698dee",
-      "fixtureTemplateId": "NCrew-asset-guardian",
-      "fixtureEmployeeId": "e_dev_seed_401_asset-guardian"
+      "fixtureTemplateId": "019dcfca-08a3-7a2a-bd14-09e790eab6f7",
+      "fixtureEmployeeId": "e_dev_seed_406_asset-guardian-live"
     },
     {
       "templateId": "default",
-      "fixtureTemplateId": "NCrew-asset-guardian",
-      "fixtureEmployeeId": "e_dev_seed_401_asset-guardian"
+      "fixtureTemplateId": "019dcfca-08a3-7a2a-bd14-09e790eab6f7",
+      "fixtureEmployeeId": "e_dev_seed_406_asset-guardian-live"
     }
   ]
 }

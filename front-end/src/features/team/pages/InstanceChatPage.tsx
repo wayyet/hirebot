@@ -7,8 +7,9 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
+import { instanceBasePath } from "@/shared/utils/instancePath";
 
 import {
   api,
@@ -17,7 +18,9 @@ import {
 } from "@/infra/api";
 import { tokenService } from "@/infra/auth/token-service";
 import { GatewayWs } from "@/infra/sandbox/gateway-ws";
+import { resolveGatewayEndpoint } from "@/infra/sandbox/sandbox-config";
 import {
+  fetchLatestGatewaySession,
   fetchSandboxSessionMessages,
   uploadMediaToGateway,
 } from "@/infra/sandbox/sandbox-api";
@@ -397,7 +400,8 @@ export default function InstanceChatPage() {
       setSelectedSessionId(sessionIdRef.current);
 
       // 调用新 API 获取 gateway endpoint（与 HiringPage 一致）
-      const gatewayEndpoint = gatewayEndpointResult ?? null;
+      // VITE_SANDBOX_URL 有值时固定使用本地端点，便于本地联调
+      const gatewayEndpoint = resolveGatewayEndpoint(gatewayEndpointResult);
       console.log(
         "[InstanceChatPage] gatewayEndpoint from API:",
         gatewayEndpoint,
@@ -406,7 +410,12 @@ export default function InstanceChatPage() {
       if (gatewayEndpoint) {
         gatewayEndpointRef.current = gatewayEndpoint;
         try {
-          await syncSandboxHistory(gatewayEndpoint, sessionIdRef.current!);
+          const latestSessionId = await fetchLatestGatewaySession(gatewayEndpoint);
+          if (latestSessionId) {
+            sessionIdRef.current = latestSessionId;
+            setSelectedSessionId(latestSessionId);
+            await syncSandboxHistory(gatewayEndpoint, latestSessionId);
+          }
           await connectSandboxWs(gatewayEndpoint);
         } catch (sandboxError: unknown) {
           setError(normalizeErrorMessage(sandboxError));
@@ -644,6 +653,8 @@ export default function InstanceChatPage() {
       ? "/department-employees"
       : "/my-employees";
 
+  const location = useLocation();
+
   return (
     <div className="hb-page hb-page-wide">
       <Breadcrumb
@@ -740,7 +751,7 @@ export default function InstanceChatPage() {
                 <button
                   type="button"
                   className="hb-btn-primary"
-                  onClick={() => navigate(`/instances/${employee.employeeId}`)}
+                  onClick={() => navigate(instanceBasePath(location.pathname, employee.employeeId))}
                 >
                   <MessageCircle size={14} />
                   查看详情

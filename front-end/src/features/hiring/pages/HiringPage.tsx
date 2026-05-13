@@ -5,16 +5,19 @@ import { Upload, X } from 'lucide-react'
 import { api, HiringAuditDecision, HiringCollectionStage } from '@/infra/api'
 import type {
   EmployeeTemplateDetail,
+  HandoffItem,
   HiringCollectionStageType,
   HiringConversationMaterial,
 } from '@/infra/api'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
+import { resolveGatewayEndpoint } from '@/infra/sandbox/sandbox-config'
 import { fetchLatestGatewaySession, fetchSandboxSessionMessages, uploadMediaToGateway } from '@/infra/sandbox/sandbox-api'
 import { tokenService } from '@/infra/auth/token-service'
 
 import { HiringConversationPanel } from './components/HiringConversationPanel'
 import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
+import { HiringTodoPanel } from './components/HiringTodoPanel'
 import { HiringStagePills } from './components/HiringStagePills'
 import type { ArtifactDisplayData, ChatFile, ChatMessage, SkillUploadPayload, StageGateData } from './hiringPageTypes'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
@@ -169,6 +172,10 @@ export default function HiringPage() {
   const resettingRef = useRef(false)
   /** WS 实时推送的阶段状态覆盖，优先级高于 REST 轮询的 dispatchStatus */
   const [wsStageOverrides, setWsStageOverrides] = useState<Map<HiringUiStage, 'running' | 'completed' | 'failed'>>(new Map())
+  /** MCP todo 面板：AI 通过 MCP 工具创建的 handoff 待办事项 */
+  const [handoffItems, setHandoffItems] = useState<HandoffItem[]>([])
+  /** 新到达的 handoffId，用于 flash 入场动画，约 800ms 后清除 */
+  const [newHandoffIds, setNewHandoffIds] = useState<Set<string>>(new Set())
 
   const fileRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -272,6 +279,13 @@ export default function HiringPage() {
     return () => clearTimeout(timer)
   }, [messages, wsStageOverrides, workflowHireId])
 
+  // hireId 就绪后拉取一次 todo 列表，后续由 WS tool_result / typing_stop 驱动增量刷新
+  useEffect(() => {
+    if (!workflowHireId) return
+    void refreshTodos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflowHireId])
+
   useEffect(() => {
     if (journeyGuideVisible && !focusedStage) {
       setFocusedStage(workflowCurrentStage)
@@ -315,6 +329,80 @@ export default function HiringPage() {
   const introName = template?.name ?? '数字员工'
   const introAbilities = template?.coreAbilities.slice(0, 3).join('、') || '业务理解、技能配置、外部系统连接'
 
+  // ── MCP TODO 面板操作 ───────────────────────────────────────────────────────
+
+  /** 拉取当前 hireId 对应的所有 handoff todo 并更新 state，检测新增 id 触发 flash */
+  async function refreshTodos() {
+    if (!workflowHireId) return
+    try {
+      const items = await api.hiringWorkflow.getTodos(workflowHireId)
+      setHandoffItems(prev => {
+        const prevIds = new Set(prev.map(i => i.handoff_id))
+        const freshIds = items.filter(i => !prevIds.has(i.handoff_id)).map(i => i.handoff_id)
+        if (freshIds.length > 0) {
+          setNewHandoffIds(new Set(freshIds))
+          setTimeout(() => setNewHandoffIds(new Set()), 800)
+        }
+        return items
+      })
+    } catch {
+      // 静默忽略：todo 面板加载失败不影响主聊天流程
+    }
+  }
+
+  async function handleConfirmTodo(handoffId: string) {
+    if (!workflowHireId) return
+    const item = handoffItems.find(i => i.handoff_id === handoffId)
+    await api.hiringWorkflow.updateTodoStatus(workflowHireId, handoffId, 'confirmed')
+    setHandoffItems(prev => prev.map(i => i.handoff_id === handoffId ? { ...i, status: 'confirmed' } : i))
+    if (item) void submitWorkflowMessage(`已确认：${item.title}，请继续下一步`)
+  }
+
+  async function handleDismissTodo(handoffId: string) {
+    if (!workflowHireId) return
+    await api.hiringWorkflow.updateTodoStatus(workflowHireId, handoffId, 'dismissed')
+    setHandoffItems(prev => prev.map(i => i.handoff_id === handoffId ? { ...i, status: 'dismissed' } : i))
+  }
+
+  async function handleUploadTodoFile(handoffId: string, file: File) {
+    if (!workflowHireId) return
+    const item = handoffItems.find(i => i.handoff_id === handoffId)
+    await api.hiringWorkflow.uploadMaterialFile(workflowHireId, file, { handoffId })
+    await api.hiringWorkflow.updateTodoStatus(workflowHireId, handoffId, 'confirmed')
+    setHandoffItems(prev => prev.map(i => i.handoff_id === handoffId ? { ...i, status: 'confirmed' } : i))
+    if (item) void submitWorkflowMessage(`已上传文件 ${file.name}（${item.title}），请继续`)
+  }
+
+  async function handleSaveExternalConfig(handoffId: string, _config: Record<string, string>) {
+    if (!workflowHireId) return
+    const item = handoffItems.find(i => i.handoff_id === handoffId)
+    await api.hiringWorkflow.updateTodoStatus(workflowHireId, handoffId, 'confirmed')
+    setHandoffItems(prev => prev.map(i => i.handoff_id === handoffId ? { ...i, status: 'confirmed' } : i))
+    if (item) void submitWorkflowMessage(`外部系统 ${item.title} 配置已完成，请继续`)
+  }
+
+  async function handleUploadSkillTodo(
+    handoffId: string,
+    file: File,
+    meta: { name: string; releaseNote: string; description: string },
+  ) {
+    if (!workflowHireId) return
+    const item = handoffItems.find(i => i.handoff_id === handoffId)
+    await api.hiringWorkflow.uploadMaterialFile(workflowHireId, file, {
+      type: 'skill',
+      skillName: meta.name,
+      releaseNote: meta.releaseNote,
+      description: meta.description,
+      archiveFormat: 'zip',
+      handoffId,
+    })
+    await api.hiringWorkflow.updateTodoStatus(workflowHireId, handoffId, 'confirmed')
+    setHandoffItems(prev => prev.map(i => i.handoff_id === handoffId ? { ...i, status: 'confirmed' } : i))
+    if (item) void submitWorkflowMessage(`技能包 ${meta.name} 已上传（${item.title}），请继续`)
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+
   async function ensureWorkflowReady(): Promise<string | null> {
     if (!templateId) {
       setWorkflowError('模板参数缺失，请从模板详情页重新进入')
@@ -356,7 +444,8 @@ export default function HiringPage() {
           latestGatewayEndpoint = statusResult.gatewayEndpoint ?? null
         }
 
-        // 保存网关端点，后续直连沙箱使用
+        // 保存网关端点，后续直连沙箱使用（VITE_SANDBOX_URL 有值时固定使用本地端点）
+        latestGatewayEndpoint = resolveGatewayEndpoint(latestGatewayEndpoint)
         if (latestGatewayEndpoint) {
           gatewayEndpointRef.current = latestGatewayEndpoint
         }
@@ -562,6 +651,11 @@ export default function HiringPage() {
 
     ws.onMessage = (msg) => {
       const type = msg.type as string
+      // 调试：打印每条 WS 事件（text 截断为 120 字符避免刷屏）
+      if (import.meta.env.DEV) {
+        const preview = String((msg as unknown as Record<string, unknown>).text ?? '').slice(0, 120)
+        console.log('[WS onMessage] type=%s text=%s', type, preview)
+      }
       if (type === 'typing_start') {
         // AI 开始思考，切换到流式展示
         rawStreamingContentRef.current = ''
@@ -601,6 +695,38 @@ export default function HiringPage() {
             assistantReply: rawReply,
             materials: materials ?? undefined,
           }).catch(() => { /* 忽略 */ })
+        }
+
+        // AI 回复结束后保底刷新 todo 面板（MCP 工具可能在本轮中创建了新 todo）
+        void refreshTodos()
+      } else if (type === 'tool_start') {
+        // MCP 工具开始调用：从 text 中提取工具名（去除 streaming. 前缀），若为 hiring. 工具立即乐观刷新
+        const rawName = String((msg as unknown as Record<string, unknown>).text ?? '')
+        const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
+        console.log('[WS tool_start] rawName=%s toolName=%s isHiring=%s', rawName, toolName, toolName.startsWith('hiring.'))
+        if (toolName.startsWith('hiring.')) {
+          void refreshTodos()
+        }
+      } else if (type === 'tool_result') {
+        // MCP 工具调用完成：优先从顶层字段取工具名（部分 Gateway 版本携带），
+        // 取不到时尝试解析 text JSON——若结果中含 data.handoff_id 则判定为 hiring todo 结果
+        const rawMsg = msg as unknown as Record<string, unknown>
+        const rawName = String(rawMsg.tool_name ?? rawMsg.name ?? '')
+        const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
+        const textStr = String(rawMsg.text ?? '')
+        console.log('[WS tool_result] rawName=%s toolName=%s textPreview=%s', rawName, toolName, textStr.slice(0, 120))
+        if (toolName.startsWith('hiring.')) {
+          void refreshTodos()
+        } else {
+          // 兜底：解析 text 字段，检测是否为 HandoffItem 结构
+          try {
+            const parsed = JSON.parse(textStr) as Record<string, unknown>
+            const data = parsed?.data as Record<string, unknown> | null | undefined
+            console.log('[WS tool_result fallback] data.handoff_id=%s', data?.handoff_id)
+            if (typeof data?.handoff_id === 'string') {
+              void refreshTodos()
+            }
+          } catch { /* text 不是 JSON，忽略 */ }
         }
       } else if (type === 'artifact') {
         // 下游 skill 通过 emit_artifact 工具推送产物（对应 contracts/artifacts.json 声明的类型）
@@ -1215,13 +1341,26 @@ export default function HiringPage() {
             hasArtifactArchive={Boolean(artifactArchive)}
             onContinue={handlePrototypeContinue}
             onFinalize={() => { void triggerCreate() }}
-            onEnterTraining={(employeeId) => navigate(`/instances/${employeeId}/training`)}
+            onEnterTraining={(employeeId) => navigate(`/department-employees/instances/${employeeId}/training`)}
             onDownloadArtifact={(artifactName) => { void downloadBackendArtifact(artifactName) }}
             onDownloadArchive={() => {
               if (artifactArchive) {
                 downloadBlob(artifactArchive.blob, artifactArchive.fileName)
               }
             }}
+          />
+
+          {/* MCP TODO 交互面板：AI 通过 tool_result/typing_stop 驱动实时刷新 */}
+          <HiringTodoPanel
+            handoffItems={handoffItems}
+            newHandoffIds={newHandoffIds}
+            onConfirmTodo={handleConfirmTodo}
+            onDismissTodo={handleDismissTodo}
+            onUploadFile={handleUploadTodoFile}
+            onUploadSkill={handleUploadSkillTodo}
+            onSaveExternalConfig={handleSaveExternalConfig}
+            onGenerate={() => { void triggerCreate() }}
+            generated={instanceCreated}
           />
         </div>
       </div>

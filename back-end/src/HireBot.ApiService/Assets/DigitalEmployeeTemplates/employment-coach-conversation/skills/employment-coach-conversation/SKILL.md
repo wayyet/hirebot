@@ -118,7 +118,62 @@ metadata:
 
 > 节奏与口吻、真实场景优先、情绪信号识别、反馈风格、初始化与开场示例 → 进入会话第一轮 / 拿不准对话节奏时，读 [references/interaction-quality.md](references/interaction-quality.md)。
 
-## 阶段引导通用套路
+## MCP TODO 工具调用规范
+
+本 skill 通过三个 MCP 工具实时更新前端 TODO 面板，**与 emit_artifact 并行调用**——两者职责不同：`emit_artifact` 驱动阶段胶囊状态，MCP TODO 工具驱动右侧待办面板。
+
+### 可用工具
+
+| 工具名 | 用途 |
+|--------|------|
+| `hiring.upsert_todo` | 新建或更新一条待办工单（相同 handoffId 则覆盖） |
+| `hiring.request_file_upload` | 创建"请用户上传文件"型工单，前端面板会显示上传按钮 |
+| `hiring.list_todos` | 列出当前会话所有工单（一般在会话恢复时调用一次） |
+
+### handoffId 命名规范
+
+**必须使用语义化稳定 ID，禁止使用随机 UUID。** 格式规则：
+- 资料工单：`material_<英文小写_slug>` — 例如 `material_sales_data`、`material_compliance_rules`
+- 文件上传请求：`upload_<英文小写_slug>` — 例如 `upload_tax_report`、`upload_history_csv`
+- 技能工单：`skill_<英文小写_slug>` — 例如 `skill_invoice_audit`、`skill_risk_alert`
+- 外部系统工单：`external_<英文小写_slug>` — 例如 `external_erp_read`、`external_crm_notify`
+
+同一概念每次对话都必须用**同一个 handoffId**，AI 用相同 ID 调用 upsert 就是更新而不是创建新条目。
+
+### 各阶段调用时机
+
+**阶段 1 资料**
+
+| 时机 | 工具 | 关键参数 |
+|------|------|---------|
+| 用户描述一份资料内容（哪怕还不完整） | `hiring.upsert_todo` | stage=`material`, targetSkill=`ontology-extraction`, status=`drafting` |
+| 需要用户上传具体文件 | `hiring.request_file_upload` | stage=`material`, targetSkill=`ontology-extraction` |
+| 资料达到足够明确度（抽取目标已清晰） | `hiring.upsert_todo` | status=`ready_to_dispatch`，同时更新 intent/acceptance |
+
+**阶段 2 技能**
+
+| 时机 | 工具 | 关键参数 |
+|------|------|---------|
+| 用户描述一个技能需求 | `hiring.upsert_todo` | stage=`skill`, targetSkill=`skill-generation`, status=`drafting` |
+| 技能定义明确（name + description + trigger + output 全齐） | `hiring.upsert_todo` | status=`ready_to_dispatch` |
+
+**阶段 3 外部系统**
+
+| 时机 | 工具 | 关键参数 |
+|------|------|---------|
+| 识别到一个外部系统连接需求 | `hiring.upsert_todo` | stage=`external`, targetSkill=`external-config`, status=`drafting` |
+| 外部系统信息明确（category + target_system + objective 全齐） | `hiring.upsert_todo` | status=`ready_to_dispatch` |
+| 用户表示不需要外部系统 | `hiring.upsert_todo` | title=`跳过外部系统`, category=`skip`, status=`ready_to_dispatch` |
+
+### 与 emit_artifact 的调用顺序
+
+收集到可推送信息时，**先调用对应 MCP TODO 工具**写入持久化状态，**再调用 emit_artifact** 更新阶段胶囊，最后给用户一句简短反馈。
+
+### 错误处理
+
+若 MCP 工具返回错误（如 `_meta.sessionId 未传入`），**不中断对话**，继续推进；该错误属于基础设施层问题，不要向用户暴露。
+
+
 
 ### 会话初始化：确定工作区路径
 

@@ -24,8 +24,7 @@ public sealed class InstanceEntity
     public string? FromInstanceId { get; set; }
 
     /// <summary>
-    /// 当此实例有活跃的私有分支时，指向该分支的 InstanceId。
-    /// IM 消息和站内对话路由到此分支。私有分支废弃时清空。
+    /// 历史兼容字段。私有分支现已改为原地更新，不再通过该字段做路由切换。
     /// </summary>
     [MaxLength(120)]
     public string? ActiveBranchId { get; set; }

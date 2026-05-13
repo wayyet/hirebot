@@ -1,0 +1,97 @@
+﻿{
+  "description": "Asset Guardian 评估测试用例（办公资产全生命周期）",
+  "role": "asset_guardian",
+  "industry": "enterprise_office_operations",
+  "test_cases": [
+    {
+      "test_case_id": "AG-001",
+      "scenario_name": "新采购笔记本入库与标签绑定",
+      "input": {
+        "user_request": "新增 30 台笔记本到上海办公室资产池，请完成入库登记并生成二维码标签。",
+        "context": {
+          "site": "Shanghai-HQ",
+          "asset_category": "Laptop",
+          "qty": 30,
+          "required_fields": ["model", "serial", "vendor", "purchase_date", "cost_center"]
+        }
+      },
+      "expected_behavior_sequence": [
+        { "step": 1, "action": "校验入库字段", "criteria": "识别缺失字段并要求补齐" },
+        { "step": 2, "action": "执行资产登记", "criteria": "生成唯一资产记录并写入位置/责任部门" },
+        { "step": 3, "action": "绑定标签", "criteria": "输出可追溯二维码/RFID 标签映射" }
+      ],
+      "expected_output": {
+        "resolution": "入库登记完成并生成标签清单",
+        "user_satisfaction": "用户满意",
+        "artifacts_created": ["资产台账记录", "标签映射清单"]
+      }
+    },
+    {
+      "test_case_id": "AG-002",
+      "scenario_name": "借用审批与 Custody Chain 更新",
+      "input": {
+        "user_request": "市场部临时借用 8 台投影设备两周，请走审批并更新 custody chain。",
+        "context": {
+          "request_department": "Marketing",
+          "asset_category": "Projector",
+          "qty": 8,
+          "borrow_period_days": 14
+        }
+      },
+      "expected_behavior_sequence": [
+        { "step": 1, "action": "校验借用规则", "criteria": "检查可借状态和审批级别" },
+        { "step": 2, "action": "生成审批流", "criteria": "形成可追踪审批节点" },
+        { "step": 3, "action": "更新 custody chain", "criteria": "记录借出人、接收人、期限与回收计划" }
+      ],
+      "expected_output": {
+        "resolution": "借用流程完成并生成 custody chain 记录",
+        "user_satisfaction": "用户满意",
+        "artifacts_created": ["借用审批记录", "custody chain 事件"]
+      }
+    },
+    {
+      "test_case_id": "AG-003",
+      "scenario_name": "季度盘点差异识别与闭环",
+      "input": {
+        "user_request": "请发起 Q2 全量盘点，识别账实差异并输出整改工单。",
+        "context": {
+          "inventory_scope": "All Offices",
+          "period": "2026-Q2",
+          "book_count": 4280
+        }
+      },
+      "expected_behavior_sequence": [
+        { "step": 1, "action": "生成盘点任务", "criteria": "按站点与资产类别拆分任务" },
+        { "step": 2, "action": "识别差异", "criteria": "给出缺失/错位/重复等差异分类" },
+        { "step": 3, "action": "创建整改闭环", "criteria": "为每条差异指定责任人、期限与复核标准" }
+      ],
+      "expected_output": {
+        "resolution": "盘点差异已分类并进入整改闭环",
+        "user_satisfaction": "用户基本满意",
+        "artifacts_created": ["盘点任务清单", "差异整改工单"]
+      }
+    },
+    {
+      "test_case_id": "AG-004",
+      "scenario_name": "使用年限预警与报废建议",
+      "input": {
+        "user_request": "筛选使用年限超过 5 年且维修频次高的 IT 设备，给出报废与替换建议。",
+        "context": {
+          "threshold_years": 5,
+          "maintenance_frequency": "high",
+          "asset_categories": ["Laptop", "Desktop", "Server"]
+        }
+      },
+      "expected_behavior_sequence": [
+        { "step": 1, "action": "筛选候选资产", "criteria": "按年限、故障率、维护成本过滤" },
+        { "step": 2, "action": "评估处置策略", "criteria": "区分继续使用、维修、报废替换" },
+        { "step": 3, "action": "输出建议清单", "criteria": "附风险说明、预算影响和合规要求" }
+      ],
+      "expected_output": {
+        "resolution": "形成可执行报废与替换建议",
+        "user_satisfaction": "用户满意",
+        "artifacts_created": ["报废建议清单", "预算影响评估"]
+      }
+    }
+  ]
+}

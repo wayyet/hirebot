@@ -149,7 +149,7 @@ export default function MarketPage() {
               <TemplateCard
                 key={template.id}
                 template={template}
-                onClick={() => navigate(`/templates/${template.id}`)}
+                onClick={() => navigate(`/template-pool/templates/${template.id}`)}
               />
             ))}
           </div>

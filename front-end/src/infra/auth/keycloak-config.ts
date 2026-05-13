@@ -6,6 +6,7 @@ interface RuntimeAuthConfig {
   ApiBase?: string
   SandboxGatewayEndpoint?: string
   TemplateApiBase?: string
+  MaxActivePersonalClonesPerOwner?: number
 }
 
 declare global {

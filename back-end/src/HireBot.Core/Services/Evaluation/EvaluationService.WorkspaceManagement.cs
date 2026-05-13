@@ -40,6 +40,7 @@ internal sealed partial class EvaluationService
     {
         var workspaceKey = BuildWorkspaceKey(owner, employee.EmployeeId);
         var employeeId = employee.EmployeeId;
+        var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
 
         if (!forceTargetHireRecreate &&
             EvaluationWorkspaces.TryGetValue(workspaceKey, out var cachedWorkspace) &&
@@ -57,34 +58,15 @@ internal sealed partial class EvaluationService
             return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(cachedWorkspace);
         }
 
-
-        // 濠电偞鍨堕幐鍝ョ矓閹绢啟鍥蓟閵夛箑浠洪梺闈涱焾閸庨亶宕甸幒妤佺厸闁割偅绻嶅Σ绋棵归崗鐓庡闁瑰嘲鎳庨…銊╁礃閵娾晜顔?闂?婵犳鍣徊鐣屾崲閹达富鏁冨┑鍌氭啞閸嬨劑鏌曟繝蹇曠暠闁绘挻娲熼弻锝夊箛椤旇棄娈岄梺?闂備礁鎲￠崹闈浳涘Δ鍚藉洭顢楅崒娑樼彴闂佸憡娲︽禍婊冾嚕閻戣姤鐓熸繝濠傞閻忕姵銇?闂傚倷绶￠崰鏇犲垝濞嗘挸闂柟闂寸濡﹢鏌℃径濠勪虎闁诲骏绱曢埀?
-
-        // 闂備礁鎲＄敮妤冩崲閸岀儑缍栭柟鐗堟緲缁€宀勬煛瀹ュ海鍘涢柛鏂垮铻栭柣姗嗗枛閳ь剚顨嗛幈銊╁箹娴ｅ摜鐣辨繛杈剧到閹芥粓骞楅悢鍏肩厱?闂?闂?EvaluationWorkspaces 濠电偞鍨堕幖鈺呭储閸婄喆浜瑰〒姘ｅ亾鐎规洘绮岄濂稿炊閳轰緡妲遍梺璇插缁嬫帡鏁冮銈嗩潟婵犻潧娲︽刊鎾煠閹颁礁鐏ｉ柡瀣€块幃褰掑炊閵夈儳浼勫銈呮禋閸撶喖骞冨▎鎾村仭闁哄鍎婚澶愭煟?
-        var stepStates = new Dictionary<string, WorkspaceStepState>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["target_sandbox"] = new("running", null),
-            ["evaluator_sandbox"] = new("pending", null),
-            ["upload_skill"] = new("pending", null),
-            ["upload_employee_template"] = new("pending", null),
-            ["upload_artifacts"] = new("pending", null),
-            ["materials"] = new("pending", null)
-        };
-
-        // 闂備礁婀辩划顖炲礉閺囩喐娅犻柣妯款嚙缁€鍐╃箾閸℃绠扮€殿喖纾槐鎾诲磼濞戞瑥纰嶉梺瀹︽澘濮傞柡浣哥Ф娴狅箓鎮℃惔妯荤€?workspace-status 闂佸搫顦遍崕鎰板窗濞戙埄鏁嬫俊銈呮噺閸ゅ嫰鏌﹀Ο渚▓婵＄虎鍠氱槐鎺楀棘濞嗘儳鍓伴梺绯曟杺閸ㄤ粙骞嗛崶鈹惧亾閿濆簼绨婚柣鎾冲€垮鍫曞煛閸屾壕妲堥柣?
-        var placeholder = new EvaluationWorkspaceContext(
-            TargetHireId: string.Empty,
-            TargetSandboxId: string.Empty,
-            EvaluatorHireId: string.Empty,
-            EvaluatorSandboxId: string.Empty,
-            SkillLoadedAtUtc: null,
-            SessionId: null,
-            EvaluatorTemplatePackageZipPath: null,
-            StepStates: stepStates);
-        EvaluationWorkspaces[workspaceKey] = placeholder;
-
-        // Create target sandbox directly via native sandbox API
-        var targetResult = await CreateEvaluationSandboxAsync(owner, employeeId, "evaluation-target", cancellationToken);
+        // 注意：评估有多种入口。私有分支是特殊模型：它不创建新实例、不创建新沙箱，
+        // 五件套直接原地更新到个人分身 runtime 沙箱里。因此私有分支评估的 target
+        // 必须复用当前实例的 runtime 沙箱，不能再创建 evaluation-target。
+        //
+        // 非私有分支（雇佣员工/普通评估）必须保持原来的双沙箱评估流程：
+        // evaluation-target + evaluation-evaluator，避免影响正式雇佣评估链路。
+        var targetResult = isPrivateBranch
+            ? await ResolveTargetRuntimeSandboxAsync(owner, employeeId, cancellationToken)
+            : await CreateEvaluationSandboxAsync(owner, employeeId, "evaluation-target", useStableRuntimeId: false, cancellationToken);
         if (!targetResult.Success || targetResult.Data.SandboxId is null)
         {
             stepStates["target_sandbox"] = new("failed", targetResult.Message);
@@ -96,7 +78,14 @@ internal sealed partial class EvaluationService
         stepStates["evaluator_sandbox"] = new("running", null);
 
         // Create evaluator sandbox directly via native sandbox API
-        var evaluatorResult = await CreateEvaluationSandboxAsync(owner, employeeId, "evaluation-evaluator", cancellationToken);
+        // 私有分支只定制当前用户自己的分身，评估 evaluator 可以稳定复用，避免反复启动沙箱。
+        // 普通/雇佣评估仍使用原有随机 runtimeId，保持原评估隔离语义不变。
+        var evaluatorResult = await CreateEvaluationSandboxAsync(
+            owner,
+            employeeId,
+            "evaluation-evaluator",
+            useStableRuntimeId: isPrivateBranch,
+            cancellationToken);
         if (!evaluatorResult.Success || evaluatorResult.Data.SandboxId is null)
         {
             stepStates["evaluator_sandbox"] = new("failed", evaluatorResult.Message);
@@ -184,13 +173,93 @@ internal sealed partial class EvaluationService
         return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(workspaceContext);
     }
 
+    private async Task<ApiResponse<(string RuntimeId, string SandboxId)>> ResolveTargetRuntimeSandboxAsync(
+        string owner,
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        // 私有分支 target 复用个人分身运行时沙箱。
+        // 如果这里找不到 runtime 沙箱，说明该分身还没初始化过站内对话/运行时，
+        // 需要先进入一次对话页触发 runtime 沙箱创建。
+        var runtimeScopeKey = $"instance:{employeeId.Trim()}";
+        var instance = await dbContext.SandboxInstances
+            .AsNoTracking()
+            .Where(item =>
+                item.OwnerSubject == owner &&
+                item.ScopeType == SandboxScopeTypes.Hire &&
+                item.ScopeKey == runtimeScopeKey &&
+                item.SandboxRole == "runtime" &&
+                item.State != "Deleted")
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (instance is null)
+        {
+            return ApiResponse<(string, string)>.ErrorResponse(
+                409,
+                "target runtime sandbox not found; open the employee chat once to initialize its runtime sandbox");
+        }
+
+        var refresh = await sandboxService.RefreshAsync(
+            new SandboxInstanceLookupRequestDto
+            {
+                SandboxId = instance.SandboxId,
+                OwnerSubject = owner
+            },
+            cancellationToken);
+        if (!refresh.Success || refresh.Data is null)
+        {
+            return ApiResponse<(string, string)>.ErrorResponse(refresh.Code, refresh.Message);
+        }
+
+        if (!string.Equals(refresh.Data.State, "Running", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(refresh.Data.GatewayEndpoint))
+        {
+            return ApiResponse<(string, string)>.ErrorResponse(
+                409,
+                "target runtime sandbox gateway endpoint not ready");
+        }
+
+        return ApiResponse<(string, string)>.SuccessResponse((employeeId.Trim(), refresh.Data.SandboxId));
+    }
+
     private async Task<ApiResponse<(string RuntimeId, string SandboxId)>> CreateEvaluationSandboxAsync(
         string owner,
         string employeeId,
         string sandboxRole,
+        bool useStableRuntimeId,
         CancellationToken cancellationToken)
     {
-        var runtimeId = $"eval-{sandboxRole}-{Guid.NewGuid():N}"[..Math.Min(40, 15 + sandboxRole.Length + 32)];
+        var runtimeId = useStableRuntimeId
+            ? BuildEvaluationRuntimeId(employeeId, sandboxRole)
+            : $"eval-{sandboxRole}-{Guid.NewGuid():N}"[..Math.Min(40, 15 + sandboxRole.Length + 32)];
+
+        if (useStableRuntimeId)
+        {
+            var existing = await dbContext.SandboxInstances
+                .AsNoTracking()
+                .Where(item =>
+                    item.OwnerSubject == owner &&
+                    item.ScopeType == SandboxScopeTypes.Managed &&
+                    item.ScopeKey == runtimeId &&
+                    item.SandboxRole == sandboxRole &&
+                    item.State != "Deleted")
+                .OrderByDescending(item => item.UpdatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (existing is not null)
+            {
+                var existingReady = await WaitForEvaluationSandboxReadyAsync(
+                    owner,
+                    runtimeId,
+                    existing.SandboxId,
+                    sandboxRole,
+                    cancellationToken);
+                if (existingReady.Success)
+                {
+                    return existingReady;
+                }
+            }
+        }
+
         var createResult = await sandboxService.CreateAsync(
             new SandboxCreateRequestDto
             {
@@ -212,6 +281,21 @@ internal sealed partial class EvaluationService
         logger.LogInformation("[Eval] Creating sandbox runtimeId={RuntimeId} sandboxId={SandboxId} role={Role}",
             runtimeId, sandboxId, sandboxRole);
 
+        return await WaitForEvaluationSandboxReadyAsync(
+            owner,
+            runtimeId,
+            sandboxId,
+            sandboxRole,
+            cancellationToken);
+    }
+
+    private async Task<ApiResponse<(string RuntimeId, string SandboxId)>> WaitForEvaluationSandboxReadyAsync(
+        string owner,
+        string runtimeId,
+        string sandboxId,
+        string sandboxRole,
+        CancellationToken cancellationToken)
+    {
         for (var i = 0; i < 36; i++)
         {
             await Task.Delay(5000, cancellationToken);
@@ -228,6 +312,17 @@ internal sealed partial class EvaluationService
         }
 
         return ApiResponse<(string, string)>.ErrorResponse(504, $"sandbox {sandboxRole} not ready within 180s");
+    }
+
+    private static string BuildEvaluationRuntimeId(string employeeId, string sandboxRole)
+    {
+        var raw = $"eval-{sandboxRole}-{employeeId}".Trim();
+        foreach (var c in Path.GetInvalidFileNameChars())
+        {
+            raw = raw.Replace(c, '_');
+        }
+
+        return raw.Length <= 100 ? raw : raw[..100];
     }
 
     private async Task<ApiResponse<bool>> UploadSkillToSandboxAsync(

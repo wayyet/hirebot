@@ -1,5 +1,7 @@
 using HireBot.ApiService.Authentication;
+using HireBot.ApiService.McpTools;
 using HireBot.Core.Extensions;
+using ModelContextProtocol.Protocol;
 using HireBot.Repository;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -100,6 +102,13 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddHireBotServices(builder.Configuration);
 
+// MCP Server：供 Kingcrab 等 Agent 调用的工具端点
+builder.Services.AddMcpServer(options =>
+{
+    options.ServerInfo = new Implementation { Name = "HireBot MCP Server", Version = "1.0.0" };
+}).WithHttpTransport(options => { options.Stateless = true; })
+  .WithTools<HiringTodoMcpTools>();
+
 var app = builder.Build();
 
 if (builder.Configuration.GetValue("Database:AutoMigrateOnStartup", false))
@@ -111,6 +120,8 @@ if (builder.Configuration.GetValue("Database:AutoMigrateOnStartup", false))
         await dbContext.Database.EnsureCreatedAsync();
     else
         await dbContext.Database.MigrateAsync();
+
+    await CleanupDeprecatedFixtureInstancesAsync(dbContext);
 }
 
 var evaluationResourceRoot = ResolveEvaluationResourceRoot(
@@ -163,6 +174,7 @@ app.MapGet("/api/diagnostics/evaluation-root", () =>
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapMcp("/mcp");
 
 // 向前端 SPA 注入运行时配置（OIDC / API 地址），支持镜像内前后端合并部署
 app.MapGet("/runtime-config.js", (IConfiguration cfg) =>
@@ -177,6 +189,7 @@ app.MapGet("/runtime-config.js", (IConfiguration cfg) =>
         BypassAuth = consoleCfg.GetValue("BypassAuth", false),
         ApiBase = string.Empty,
         TemplateApiBase = consoleCfg["TemplateApiBase"] ?? string.Empty,
+        MaxActivePersonalClonesPerOwner = ResolveMaxActivePersonalClonesPerOwner(cfg),
     };
     var json = System.Text.Json.JsonSerializer.Serialize(config);
     return Results.Content($"window.__AUTH_CONFIG__ = {json};", "application/javascript");
@@ -184,6 +197,9 @@ app.MapGet("/runtime-config.js", (IConfiguration cfg) =>
 
 // 防止未匹配的 /api/* 路由被 SPA 回退捕获（应返回 404）
 app.Map("/api/{**path}", () => Results.NotFound()).ExcludeFromDescription();
+
+// MCP 端点不属于 SPA 路由，GET 请求返回 405（正确语义），POST 请求由 MapMcp 处理
+app.MapGet("/mcp", () => Results.StatusCode(405)).ExcludeFromDescription();
 
 // SPA 回退：前端路由（如 /jobs/123）由 index.html 接管
 app.MapFallbackToFile("index.html");
@@ -200,6 +216,39 @@ static string ResolveEvaluationResourceRoot(string contentRootPath, string? conf
     return Path.IsPathRooted(configuredResourceRoot)
         ? Path.GetFullPath(configuredResourceRoot.Trim())
         : Path.GetFullPath(Path.Combine(contentRootPath, configuredResourceRoot.Trim()));
+}
+
+static int ResolveMaxActivePersonalClonesPerOwner(IConfiguration configuration)
+{
+    const int defaultLimit = 10;
+    var configured = configuration["HireBot:MaxActivePersonalClonesPerOwner"];
+    return int.TryParse(configured, out var value) && value > 0
+        ? value
+        : defaultLimit;
+}
+
+static async Task CleanupDeprecatedFixtureInstancesAsync(HireBotDbContext dbContext)
+{
+    var deprecatedFixtureInstanceIds = new[]
+    {
+        "e_dev_seed_402_sales-coach",
+        "e_dev_seed_403_product-ops",
+        "e_dev_seed_404_sales-coach-live",
+        "e_dev_seed_405_product-ops-live",
+        "e_clone_test_sales_live",
+        "e_clone_test_ops_live"
+    };
+
+    var deleted = await dbContext.Instances
+        .Where(item => deprecatedFixtureInstanceIds.Contains(item.InstanceId))
+        .ExecuteDeleteAsync();
+
+    if (deleted > 0)
+    {
+        Log.Information(
+            "Cleaned deprecated fixture instances from database. Count={Count}",
+            deleted);
+    }
 }
 
 static IReadOnlyCollection<string> BuildOidcValidationValues(params string?[] values)

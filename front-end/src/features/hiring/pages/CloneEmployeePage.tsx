@@ -7,6 +7,18 @@ import { Breadcrumb } from "@/shared/components/Breadcrumb";
 
 type Step = 0 | 1 | 2;
 
+const DEFAULT_MAX_PERSONAL_CLONES = 10;
+
+function resolveMaxPersonalClones() {
+  const configured =
+    typeof window !== "undefined"
+      ? window.__AUTH_CONFIG__?.MaxActivePersonalClonesPerOwner
+      : undefined;
+  return typeof configured === "number" && Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_MAX_PERSONAL_CLONES;
+}
+
 export default function CloneEmployeePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -14,12 +26,14 @@ export default function CloneEmployeePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
+  const [personalCloneCount, setPersonalCloneCount] = useState(0);
   const [step, setStep] = useState<Step>(0);
   const [displayName, setDisplayName] = useState("");
   const [displayDescription, setDisplayDescription] = useState("");
   const [bindProgress, setBindProgress] = useState(0);
   const [creatingClone, setCreatingClone] = useState(false);
   const progressRef = useRef<number | null>(null);
+  const maxPersonalClones = resolveMaxPersonalClones();
 
   useEffect(() => {
     if (!id) {
@@ -32,11 +46,20 @@ export default function CloneEmployeePage() {
     setLoading(true);
     setError("");
 
-    api.employeeRuntime
-      .getEmployee(id)
-      .then((detail) => {
+    Promise.all([
+      api.employeeRuntime.getEmployee(id),
+      api.employeeRuntime.getEmployees(),
+    ])
+      .then(([detail, employees]) => {
         if (!cancelled) {
           setEmployee(detail);
+          setPersonalCloneCount(
+            employees.filter(
+              (item) =>
+                item.instanceType === "personal_clone" &&
+                item.status !== "retired",
+            ).length,
+          );
           setDisplayName(`${detail.nickname} · 我的分身`);
           setDisplayDescription(
             `基于 ${detail.nickname} 创建的个人版本，记住我的工作偏好。`,
@@ -96,6 +119,13 @@ export default function CloneEmployeePage() {
 
   async function createClone() {
     if (!id || !employee || creatingClone) return;
+    if (personalCloneCount >= maxPersonalClones) {
+      setError(
+        `个人分身数量已达上限（最多 ${maxPersonalClones} 个），请先归档不再使用的分身。`,
+      );
+      setStep(0);
+      return;
+    }
 
     setCreatingClone(true);
     setError("");
@@ -105,7 +135,7 @@ export default function CloneEmployeePage() {
         displayName: displayName.trim(),
         displayDescription: displayDescription.trim(),
       });
-      navigate(`/instances/${cloned.employeeId}`);
+      navigate(`/my-employees/instances/${cloned.employeeId}`);
     } catch (requestError: unknown) {
       setError(
         requestError instanceof Error
@@ -132,7 +162,7 @@ export default function CloneEmployeePage() {
   if (!employee) {
     return (
       <div className="hb-page space-y-4">
-        <Breadcrumb items={[{ label: '部门数字员工', to: '/department-employees' }, { label: '复制员工' }]} />
+        <Breadcrumb items={[{ label: '我的数字员工', to: '/my-employees' }, { label: '复制员工' }]} />
 
         <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">
           {error || "未找到实例数据"}
@@ -143,9 +173,11 @@ export default function CloneEmployeePage() {
 
   const steps = ["确认复制", "配置个人身份", "绑定并上岗"];
 
+  const cloneLimitReached = personalCloneCount >= maxPersonalClones;
+
   return (
     <div className="hb-page space-y-5">
-      <Breadcrumb items={[{ label: '部门数字员工', to: '/department-employees' }, { label: `复制分身 · ${employee.nickname}` }]} />
+      <Breadcrumb items={[{ label: '我的数字员工', to: '/my-employees' }, { label: `复制分身 · ${employee.nickname}` }]} />
 
       <div className="hb-hero">
         <div className="hb-hero-grid">
@@ -219,11 +251,22 @@ export default function CloneEmployeePage() {
             <div className="rounded-xl border border-[#d9e1ff] bg-[#eef2ff] px-4 py-3 text-sm text-[#2e3da9]">
               复制后是独立实例，你的会话不会回流给部门版，他人也看不到你的会话明细。
             </div>
+            <div
+              className={`rounded-xl border px-4 py-3 text-sm ${
+                cloneLimitReached
+                  ? "border-[#ffd5da] bg-[#fff1f2] text-[#b3263c]"
+                  : "border-[#e5e7eb] bg-white text-[#525252]"
+              }`}
+            >
+              你当前已有 {personalCloneCount}/{maxPersonalClones} 个个人分身。最多只能创建{" "}
+              {maxPersonalClones} 个个人分身。
+              {cloneLimitReached ? " 请先归档不再使用的分身后再创建。" : ""}
+            </div>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 className="hb-btn-ghost"
-                onClick={() => navigate("/department-employees")}
+                onClick={() => navigate("/my-employees")}
               >
                 取消
               </button>
@@ -231,6 +274,7 @@ export default function CloneEmployeePage() {
                 type="button"
                 className="hb-btn-primary"
                 onClick={() => setStep(1)}
+                disabled={cloneLimitReached}
               >
                 开始复制 →
               </button>
@@ -278,7 +322,7 @@ export default function CloneEmployeePage() {
                 type="button"
                 className="hb-btn-primary"
                 onClick={beginBinding}
-                disabled={!displayName.trim()}
+                disabled={!displayName.trim() || cloneLimitReached}
               >
                 绑定并上岗 →
               </button>

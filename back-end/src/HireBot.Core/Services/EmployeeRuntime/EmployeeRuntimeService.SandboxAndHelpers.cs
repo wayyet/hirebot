@@ -49,6 +49,14 @@ public sealed partial class EmployeeRuntimeService
         }
     }
 
+    private int ResolveMaxActivePersonalClonesPerOwner()
+    {
+        var configured = configuration["HireBot:MaxActivePersonalClonesPerOwner"];
+        return int.TryParse(configured, out var value) && value > 0
+            ? value
+            : DefaultMaxActivePersonalClonesPerOwner;
+    }
+
     /// <summary>
     /// 插入或更新实例记录。
     /// </summary>
@@ -274,6 +282,101 @@ public sealed partial class EmployeeRuntimeService
 
         return ApiResponse<PersonalCloneSandboxSetupResult>.SuccessResponse(
             new PersonalCloneSandboxSetupResult(readyResponse.Data.SandboxId, readyResponse.Data.GatewayEndpoint));
+    }
+
+    /// <summary>
+    /// 创建私有分支前快照当前五件套。私有分支原地更新，因此快照只作为废弃回滚用途。
+    /// </summary>
+    private async Task SnapshotPrivateBranchArtifactsAsync(
+        InstanceEntity instance,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await instanceArtifactResolver.ResolveAsync(instance, cancellationToken);
+        var snapshotRoot = BuildPrivateBranchSnapshotRoot(instance);
+        ReplaceDirectory(resolution.ArtifactRoot, snapshotRoot, cancellationToken);
+    }
+
+    /// <summary>
+    /// 废弃私有分支时，从快照恢复原五件套并删除快照。
+    /// </summary>
+    private async Task RestorePrivateBranchArtifactsAsync(
+        InstanceEntity instance,
+        CancellationToken cancellationToken)
+    {
+        var snapshotRoot = BuildPrivateBranchSnapshotRoot(instance);
+        if (!Directory.Exists(snapshotRoot))
+        {
+            throw new DirectoryNotFoundException($"私有分支回滚快照不存在: {snapshotRoot}");
+        }
+
+        var resolution = await instanceArtifactResolver.ResolveAsync(instance, cancellationToken);
+        ReplaceDirectory(snapshotRoot, resolution.ArtifactRoot, cancellationToken);
+        Directory.Delete(snapshotRoot, recursive: true);
+    }
+
+    private string BuildPrivateBranchSnapshotRoot(InstanceEntity instance)
+    {
+        var parentInstanceId = string.IsNullOrWhiteSpace(instance.FromInstanceId)
+            ? "unknown"
+            : instance.FromInstanceId;
+        return Path.Combine(
+            ResolveArtifactStoreRoot(),
+            "instances",
+            "personal_clone",
+            SanitizePathSegment(parentInstanceId),
+            SanitizePathSegment(instance.InstanceId),
+            "snapshots",
+            "pre_private_branch");
+    }
+
+    private string ResolveArtifactStoreRoot()
+    {
+        var configured = configuration["HireBot:ArtifactStoreRoot"];
+        return string.IsNullOrWhiteSpace(configured)
+            ? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "hirebot-artifacts"))
+            : Path.GetFullPath(configured.Trim());
+    }
+
+    private static void ReplaceDirectory(
+        string sourceRoot,
+        string targetRoot,
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(sourceRoot))
+        {
+            throw new DirectoryNotFoundException($"源五件套目录不存在: {sourceRoot}");
+        }
+
+        if (Directory.Exists(targetRoot))
+        {
+            Directory.Delete(targetRoot, recursive: true);
+        }
+
+        Directory.CreateDirectory(targetRoot);
+        foreach (var sourcePath in Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var relativePath = Path.GetRelativePath(sourceRoot, sourcePath);
+            var targetPath = Path.Combine(targetRoot, relativePath);
+            var targetDirectory = Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrWhiteSpace(targetDirectory))
+            {
+                Directory.CreateDirectory(targetDirectory);
+            }
+
+            File.Copy(sourcePath, targetPath, overwrite: true);
+        }
+    }
+
+    private static string SanitizePathSegment(string value)
+    {
+        var trimmed = value.Trim();
+        foreach (var c in Path.GetInvalidFileNameChars())
+        {
+            trimmed = trimmed.Replace(c, '_');
+        }
+
+        return trimmed.Length == 0 ? "unknown" : trimmed;
     }
 
     /// <summary>

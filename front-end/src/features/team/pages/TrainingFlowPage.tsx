@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, BadgeCheck, Loader2, Sparkles, XCircle } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, type EmployeeDetail, type TrainingCheckpoint, type TrainingState } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
+import { instanceBasePath } from '@/shared/utils/instancePath'
 
 function checkpointClass(checkpoint: TrainingCheckpoint) {
   const normalized = checkpoint.status.toLowerCase()
@@ -35,6 +36,8 @@ export default function TrainingFlowPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const location = useLocation();
 
   async function loadData() {
     if (!id) return
@@ -90,7 +93,7 @@ export default function TrainingFlowPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <Breadcrumb items={[{ label: '员工详情', to: id ? `/instances/${id}` : '/department-employees' }, { label: '训练流程' }]} />
+      <Breadcrumb items={[{ label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' }, { label: '训练流程' }]} />
 
       {error && (
         <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">

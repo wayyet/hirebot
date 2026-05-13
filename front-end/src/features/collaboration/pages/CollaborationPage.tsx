@@ -403,7 +403,7 @@ export default function CollaborationPage() {
                         <button
                           type="button"
                           className="block truncate text-left text-sm font-semibold text-[#0a0a0a]"
-                          onClick={() => navigate(`/instances/${employee.id}`)}
+                          onClick={() => navigate(`/department-employees/instances/${employee.id}`)}
                         >
                           {employee.nickname}
                         </button>
@@ -436,7 +436,7 @@ export default function CollaborationPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => navigate(`/instances/${employee.id}`)}
+                        onClick={() => navigate(`/department-employees/instances/${employee.id}`)}
                         className="hb-btn-ghost !px-4 !py-2 !text-xs"
                       >
                         查看详情

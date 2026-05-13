@@ -10,8 +10,9 @@ import {
   Wifi,
   Link2,
 } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
+import { instanceBasePath } from "@/shared/utils/instancePath";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
 import {
   api,
@@ -33,6 +34,7 @@ import {
   type GatewayDingTalkChannelConfig,
   type GatewayWeComChannelConfig,
 } from "@/infra/sandbox/sandbox-api";
+import { resolveGatewayEndpoint } from "@/infra/sandbox/sandbox-config";
 import {
   firstCharacter,
   ownershipClass,
@@ -197,6 +199,7 @@ function isPersonalAssetOwnership(ownership?: string | null) {
 export default function InstanceImConfigPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { showToast } = useUxOverlay();
 
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
@@ -224,6 +227,7 @@ export default function InstanceImConfigPage() {
   const isPersonalAsset = employeeView
     ? isPersonalAssetOwnership(employeeView.ownership)
     : false;
+
   const currentSchema = PLATFORM_SCHEMAS[selectedPlatform];
   const currentModeSpec = currentSchema.mode;
   const isCurrentConfigured = configuredPlatforms[selectedPlatform];
@@ -236,12 +240,15 @@ export default function InstanceImConfigPage() {
     setError("");
     setNotice("");
     try {
-      const [detail, gatewayEndpoint] = await Promise.all([
+      const [detail, rawGatewayEndpoint] = await Promise.all([
         api.employeeRuntime.getEmployee(id),
         api.employeeRuntime.getSandboxGatewayEndpoint(id),
       ]);
 
       setEmployee(detail);
+
+      // VITE_SANDBOX_URL 有值时固定使用本地端点，便于本地联调
+      const gatewayEndpoint = resolveGatewayEndpoint(rawGatewayEndpoint);
 
       if (!gatewayEndpoint) {
         setError("沙箱网关端点未就绪");
@@ -417,7 +424,7 @@ export default function InstanceImConfigPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <Breadcrumb items={[{ label: '员工详情', to: `/instances/${employee.employeeId}` }, { label: 'IM 配置' }]} />
+      <Breadcrumb items={[{ label: '员工详情', to: instanceBasePath(location.pathname, employee.employeeId) }, { label: 'IM 配置' }]} />
 
       {error ? <div className="hb-alert hb-alert-error"><AlertCircle size={14} /><span>{error}</span></div> : null}
       {notice ? <div className="hb-alert hb-alert-success"><CheckCircle2 size={14} /><span>{notice}</span></div> : null}
@@ -544,7 +551,7 @@ export default function InstanceImConfigPage() {
               </div>
 
               <div className="mt-5 flex flex-wrap justify-end gap-2">
-                <button type="button" className="hb-btn-ghost" onClick={() => navigate(`/instances/${employee.employeeId}`)}>取消</button>
+                <button type="button" className="hb-btn-ghost" onClick={() => navigate(instanceBasePath(location.pathname, employee.employeeId))}>取消</button>
                 <button type="button" className="hb-btn-ghost" onClick={() => void deleteConfig()} disabled={saving || !isCurrentConfigured}>
                   <Trash2 size={14} /> 解绑
                 </button>

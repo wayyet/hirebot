@@ -178,6 +178,7 @@ public static class ServiceExtensions
       
         services.AddScoped<IInstanceRuntimeConversationService, InstanceRuntimeConversationService>();
         services.AddScoped<IHiringArtifactPackageService, HiringArtifactPackageService>();
+        services.AddScoped<IHiringTodoService, HiringTodoService>();
         services.AddScoped<IEmployeeRuntimeService, EmployeeRuntimeService>();
         services.AddScoped<IInstanceChatService, InstanceChatService>();
         services.AddScoped<ISecretProtector, DataProtectionSecretProtector>();

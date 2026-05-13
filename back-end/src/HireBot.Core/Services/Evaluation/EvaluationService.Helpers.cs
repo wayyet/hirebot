@@ -528,10 +528,13 @@ internal sealed partial class EvaluationService
 
     private static EmployeeDetailDto BuildAiPassResult(EmployeeDetailDto employee, string? sandboxSummary = null)
     {
+        var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
         return employee with
         {
-            Status = "interning_human",
-            LifecycleStatus = "pending human review",
+            // 私有分支是已上岗个人分身的原地定制版本，AI 评估通过后不进入 interning_human，
+            // 只通过 EvalPhase 标记“等待用户自评”。普通/雇佣员工仍走原来的 interning_human。
+            Status = isPrivateBranch ? "live" : "interning_human",
+            LifecycleStatus = isPrivateBranch ? employee.LifecycleStatus : "pending human review",
             EvalPhase = "pending_human_review",
             StageSummary = string.IsNullOrWhiteSpace(sandboxSummary)
                 ? "AI evaluation passed, waiting for human review"
@@ -544,10 +547,13 @@ internal sealed partial class EvaluationService
 
     private static EmployeeDetailDto BuildAiFailResult(EmployeeDetailDto employee, string? sandboxSummary = null)
     {
+        var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
         return employee with
         {
-            Status = "failed",
-            LifecycleStatus = "evaluation failed",
+            // 私有分支评估失败也不能把实例状态改成 failed，否则会中断已上岗分身的对话/IM 使用。
+            // 失败信息通过 EvalPhase=pending_review 和提示文案表达；普通/雇佣员工仍按原流程 failed。
+            Status = isPrivateBranch ? "live" : "failed",
+            LifecycleStatus = isPrivateBranch ? employee.LifecycleStatus : "evaluation failed",
             EvalPhase = "pending_review",
             StageSummary = string.IsNullOrWhiteSpace(sandboxSummary)
                 ? "AI evaluation failed, go to Review for rollback or continue hire"
