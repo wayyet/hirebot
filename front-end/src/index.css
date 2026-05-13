@@ -99,6 +99,16 @@
   --hb-hub-pill-shadow-active: 0 8px 18px rgba(59,130,246,0.10);
   --hb-card-shadow: 0 10px 28px rgba(15,23,42,0.06), inset 0 1px 0 rgba(255,255,255,0.80);
   --hb-card-hover-shadow: 0 18px 42px rgba(15,23,42,0.10), 0 0 0 1px rgba(59,130,246,0.14);
+
+  /* ── Todo Panel 别名（映射到 hb-* token）── */
+  --surface: #ffffff;
+  --surface-2: #f5f7fa;
+  --ink-1: #1a1a1a;
+  --ink-3: #737373;
+  --ink-4: #9ca3af;
+  --line: #ececec;
+  --accent: #4a6cf7;
+  --success: #22c55e;
 }
 
 /* ── Design Tokens: Dark Theme ── */
@@ -185,6 +195,16 @@
   --hb-hub-pill-shadow-active: 0 10px 22px rgba(79,142,247,0.18);
   --hb-card-shadow: 0 18px 38px rgba(2,6,23,0.26), inset 0 1px 0 rgba(125,149,192,0.08);
   --hb-card-hover-shadow: 0 24px 48px rgba(2,6,23,0.34), 0 0 0 1px rgba(95,131,214,0.14);
+
+  /* ── Todo Panel 别名（dark mode）── */
+  --surface: #0d1829;
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --ink-1: #e2e8f0;
+  --ink-3: #7a8fa8;
+  --ink-4: #4a5e78;
+  --line: rgba(255, 255, 255, 0.10);
+  --accent: #4f8ef7;
+  --success: #4ade80;
 }
 
 body {
@@ -5944,3 +5964,532 @@ body.hb-body-hiring-prototype {
   color: #93bbfc;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+   HiringTodoPanel — 雇佣 TODO 交互面板样式
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 面板容器 */
+.hb-todo-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.hb-todo-panel-head {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.hb-todo-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 12px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 阶段卡片 */
+.hb-todo-stage-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+  transition: border-color 0.2s;
+}
+
+.hb-todo-stage-card.is-active {
+  border-color: var(--accent);
+}
+
+.hb-todo-stage-card.is-complete {
+  border-color: var(--success, #22c55e);
+}
+
+.hb-todo-stage-card.is-locked {
+  opacity: 0.6;
+}
+
+/* 阶段卡片头部 */
+.hb-todo-stage-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+
+.hb-todo-stage-head:hover {
+  background: var(--surface-2);
+}
+
+.hb-todo-stage-num {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  width: 22px;
+  flex-shrink: 0;
+}
+
+.hb-todo-stage-title {
+  flex: 1;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.hb-todo-stage-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.hb-todo-stage-badge.is-active {
+  background: rgba(74, 108, 247, 0.12);
+  color: var(--accent);
+}
+
+.hb-todo-stage-badge.is-complete {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--success, #22c55e);
+}
+
+.hb-todo-stage-chevron {
+  font-size: 14px;
+  color: var(--ink-3);
+  transition: transform 0.15s;
+}
+
+.hb-todo-stage-chevron.is-open {
+  transform: rotate(0deg);
+}
+
+.hb-todo-stage-chevron:not(.is-open) {
+  transform: rotate(-90deg);
+}
+
+/* 阶段卡片内容区 */
+.hb-todo-stage-body {
+  border-top: 1px solid var(--line);
+  padding: 8px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hb-todo-stage-body.is-empty {
+  padding: 14px;
+}
+
+.hb-todo-stage-empty {
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: center;
+  padding: 6px 0;
+}
+
+/* ④ 生成实例包 */
+.hb-todo-final-body {
+  padding: 14px;
+}
+
+.hb-todo-final-stats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.hb-todo-final-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 0;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.hb-todo-final-stat.is-ok {
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.hb-todo-final-stat-num {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink-1);
+  line-height: 1;
+}
+
+.hb-todo-final-stat-num em {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3);
+  font-style: normal;
+}
+
+.hb-todo-final-stat-lbl {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.hb-todo-final-btn {
+  width: 100%;
+  padding: 11px 0;
+  border-radius: 8px;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  transition: opacity 0.15s;
+}
+
+.hb-todo-final-btn.is-disabled,
+.hb-todo-final-btn:disabled {
+  background: var(--surface-2);
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+
+.hb-todo-final-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.hb-todo-final-hint.is-success {
+  color: var(--success, #22c55e);
+  font-weight: 500;
+}
+
+/* TODO 行 */
+.hb-todo-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 8px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.hb-todo-row.is-confirmed {
+  background: rgba(34, 197, 94, 0.06);
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.hb-todo-row.is-dismissed {
+  opacity: 0.5;
+}
+
+/* 新 todo 入场 flash 动画 */
+@keyframes hb-todo-flash {
+  0%   { background: rgba(74, 108, 247, 0.18); }
+  100% { background: var(--surface-2); }
+}
+
+.hb-todo-row.is-new {
+  animation: hb-todo-flash 0.8s ease-out;
+}
+
+.hb-todo-row-main {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.hb-todo-row-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.hb-todo-row-dot.is-done {
+  background: var(--success, #22c55e);
+}
+
+.hb-todo-row-dot.is-open {
+  background: var(--accent);
+}
+
+.hb-todo-row-dot.is-dismissed {
+  background: var(--ink-4, #888);
+}
+
+.hb-todo-row-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.hb-todo-row-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-1);
+  line-height: 1.4;
+}
+
+.hb-todo-row-desc {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  margin: 2px 0 0;
+  line-height: 1.5;
+}
+
+.hb-todo-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.hb-todo-row-tag {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+}
+
+.hb-todo-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.hb-todo-row-confirmed-badge {
+  font-size: 11px;
+  color: var(--success, #22c55e);
+  font-weight: 600;
+}
+
+/* 操作按钮 */
+.hb-todo-row-btn {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  transition: opacity 0.15s;
+  line-height: 1.4;
+}
+
+.hb-todo-row-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hb-todo-row-btn.is-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.hb-todo-row-btn.is-primary:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.hb-todo-row-btn.is-secondary {
+  background: var(--surface);
+  color: var(--ink-1);
+  border: 1px solid var(--line);
+}
+
+.hb-todo-row-btn.is-ghost {
+  background: none;
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+}
+
+/* 弹窗通用 */
+.hb-modal-bg {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.hb-modal {
+  background: var(--surface);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.hb-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.hb-modal-head h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: var(--ink-1);
+}
+
+.hb-modal-head p {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 0;
+}
+
+.hb-modal-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-3);
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.hb-modal-close:hover {
+  background: var(--surface-2);
+  color: var(--ink-1);
+}
+
+.hb-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.hb-modal-foot {
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 上传区域 */
+.hb-upload-zone {
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  padding: 28px 16px;
+  text-align: center;
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.hb-upload-zone.is-drag-over {
+  border-color: var(--accent);
+  background: rgba(74, 108, 247, 0.06);
+}
+
+.hb-upload-icon {
+  font-size: 28px;
+  color: var(--ink-3);
+}
+
+.hb-upload-zone p {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.hb-upload-zone small {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.hb-upload-selected {
+  margin-top: 8px;
+  padding: 7px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--ink-1);
+}
+
+/* 外部系统配置表单 */
+.hb-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hb-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.hb-config-field.is-half {
+  width: 48%;
+}
+
+.hb-config-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2, #555);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hb-config-required {
+  color: #ef4444;
+}
+
+.hb-config-hint {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.hb-config-input {
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink-1);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.hb-config-input:focus {
+  border-color: var(--accent);
+}

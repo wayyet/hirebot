@@ -17,6 +17,8 @@ public static class HiringHandoffStatus
 public static class HiringHandoffKind
 {
     public const string HandoffTodo = "handoff_todo";
+    /// <summary>需要用户在前端上传文件的 handoff 工单，前端面板会显示上传按钮。</summary>
+    public const string FileRequest = "file_request";
 }
 
 public static class HiringDiagnosticPriority

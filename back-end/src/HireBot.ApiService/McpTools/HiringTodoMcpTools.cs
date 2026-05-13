@@ -39,7 +39,7 @@ internal sealed class HiringTodoMcpTools(IHiringTodoService todoService, ILogger
     [Description("新建或更新一个雇佣 TODO 事项（handoff item）。handoffId 相同则覆盖更新，否则新建。会话上下文由 _meta.sessionId 和 _meta.userId 自动识别。")]
     public async Task<string> UpsertTodoAsync(
         RequestContext<CallToolRequestParams> requestContext,
-        [Description("TODO 的唯一 ID，建议格式：todo_{uuid}")] string handoffId,
+        [Description("TODO 的唯一语义化 ID，格式：{阶段前缀}_{英文小写slug}。资料工单用 material_xxx，技能工单用 skill_xxx，外部系统工单用 external_xxx。同一概念必须每次使用相同 ID 以实现幂等更新，禁止使用随机 UUID。")] string handoffId,
         [Description("标题（简明描述任务内容）")] string title,
         [Description("所属阶段，如 material / skill / external")] string stage,
         [Description("目标 skill 名称")] string targetSkill,
@@ -76,10 +76,10 @@ internal sealed class HiringTodoMcpTools(IHiringTodoService todoService, ILogger
     }
 
     [McpServerTool(Name = "hiring.request_file_upload")]
-    [Description("创建一个「请用户上传文件材料」类型的 TODO 事项，引导用户在界面上传指定文件。会话上下文由 _meta.sessionId 和 _meta.userId 自动识别。")]
+    [Description("创建一个「请用户上传文件材料」类型的 TODO 事项，引导用户在界面上传指定文件。前端面板会自动显示上传按钮。会话上下文由 _meta.sessionId 和 _meta.userId 自动识别。")]
     public async Task<string> RequestFileUploadAsync(
         RequestContext<CallToolRequestParams> requestContext,
-        [Description("TODO 的唯一 ID，建议格式：upload_{uuid}")] string handoffId,
+        [Description("TODO 的唯一语义化 ID，格式：upload_{英文小写slug}，例如 upload_tax_report。同一文件请求必须使用相同 ID，禁止使用随机 UUID。")] string handoffId,
         [Description("请求上传的文件或材料名称")] string title,
         [Description("上传说明：描述需要用户上传什么文件以及用途")] string description,
         [Description("所属阶段，如 material / skill / external")] string stage,
@@ -106,7 +106,7 @@ internal sealed class HiringTodoMcpTools(IHiringTodoService todoService, ILogger
         var request = new UpsertHiringTodoRequest(
             HandoffId: handoffId,
             Title: title,
-            Kind: HiringHandoffKind.HandoffTodo,
+            Kind: HiringHandoffKind.FileRequest,
             Stage: stage,
             TargetSkill: targetSkill,
             Status: HiringHandoffStatus.Drafting,

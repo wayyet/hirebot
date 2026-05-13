@@ -92,4 +92,62 @@ internal sealed class HiringTodoService(IHiringRuntimeStore hiringRuntimeStore) 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
+
+    public Task<ApiResponse<IReadOnlyList<HiringWorkflowHandoffDto>>> GetTodosByHireIdAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(hireId))
+            return Task.FromResult(ApiResponse<IReadOnlyList<HiringWorkflowHandoffDto>>.ErrorResponse(400, "hireId 不能为空"));
+
+        var context = hiringRuntimeStore.Get(hireId);
+        if (context is null)
+            return Task.FromResult(ApiResponse<IReadOnlyList<HiringWorkflowHandoffDto>>.SuccessResponse([], "暂无数据（会话尚未初始化）"));
+
+        return Task.FromResult(ApiResponse<IReadOnlyList<HiringWorkflowHandoffDto>>.SuccessResponse(context.HandoffItems, "获取成功"));
+    }
+
+    public Task<ApiResponse<HiringWorkflowHandoffDto>> UpdateTodoStatusAsync(
+        string hireId,
+        string handoffId,
+        string status,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(hireId))
+            return Task.FromResult(ApiResponse<HiringWorkflowHandoffDto>.ErrorResponse(400, "hireId 不能为空"));
+
+        if (string.IsNullOrWhiteSpace(handoffId))
+            return Task.FromResult(ApiResponse<HiringWorkflowHandoffDto>.ErrorResponse(400, "handoffId 不能为空"));
+
+        // 只允许用户切换为 confirmed 或 dismissed
+        var allowedStatuses = new[] { HiringHandoffStatus.Confirmed, HiringHandoffStatus.Dismissed, HiringHandoffStatus.ReadyToDispatch };
+        if (!allowedStatuses.Contains(status, StringComparer.OrdinalIgnoreCase))
+            return Task.FromResult(ApiResponse<HiringWorkflowHandoffDto>.ErrorResponse(400, $"不支持的状态：{status}，允许：confirmed / dismissed / ready_to_dispatch"));
+
+        var context = hiringRuntimeStore.Get(hireId);
+        if (context is null)
+            return Task.FromResult(ApiResponse<HiringWorkflowHandoffDto>.ErrorResponse(404, $"找不到 hireId={hireId} 对应的雇佣上下文"));
+
+        var existing = context.HandoffItems.FirstOrDefault(h =>
+            string.Equals(h.HandoffId, handoffId, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+            return Task.FromResult(ApiResponse<HiringWorkflowHandoffDto>.ErrorResponse(404, $"找不到 handoffId={handoffId}"));
+
+        var now = DateTimeOffset.UtcNow;
+        var updated = existing with
+        {
+            Status = status,
+            Revision = existing.Revision + 1,
+            UpdatedAtUtc = now,
+        };
+
+        var updatedList = context.HandoffItems
+            .Where(h => !string.Equals(h.HandoffId, handoffId, StringComparison.OrdinalIgnoreCase))
+            .Append(updated)
+            .ToList();
+
+        hiringRuntimeStore.Upsert(context with { HandoffItems = updatedList });
+
+        return Task.FromResult(ApiResponse<HiringWorkflowHandoffDto>.SuccessResponse(updated, "状态已更新"));
+    }
 }
