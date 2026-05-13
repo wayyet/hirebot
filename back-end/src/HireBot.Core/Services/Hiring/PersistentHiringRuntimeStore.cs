@@ -16,6 +16,8 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
     };
 
     private readonly Dictionary<string, HiringRuntimeContext?> cache = new(StringComparer.OrdinalIgnoreCase);
+    // session_id 到 hireId 的快速索引（session 与 hire 是 1:1 关系）
+    private readonly Dictionary<string, string> sessionToHireIndex = new(StringComparer.OrdinalIgnoreCase);
 
     public HiringRuntimeContext? Get(string hireId)
     {
@@ -42,7 +44,25 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
 
         var context = snapshot.ToRuntimeContext();
         cache[hireId] = context;
+        if (!string.IsNullOrEmpty(context.SessionId))
+            sessionToHireIndex[context.SessionId] = hireId;
         return context;
+    }
+
+    public HiringRuntimeContext? GetBySessionId(string sessionId)
+    {
+        // 先查内存索引
+        if (sessionToHireIndex.TryGetValue(sessionId, out var cachedHireId))
+            return Get(cachedHireId);
+
+        // 索引未命中时回源查 DB
+        var entity = dbContext.HiringRuntimeStates
+            .AsNoTracking()
+            .FirstOrDefault(item => item.SessionId == sessionId);
+        if (entity is null)
+            return null;
+
+        return Get(entity.HireId);
     }
 
     public void Upsert(HiringRuntimeContext context)
