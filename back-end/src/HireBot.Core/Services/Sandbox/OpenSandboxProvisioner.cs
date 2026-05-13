@@ -19,15 +19,14 @@ internal sealed class OpenSandboxProvisioner(
 
     /// <summary>
     /// 创建一个新的 OpenSandbox 沙箱实例。
-    /// 会为 ownerSubject 确保 PVC 存储卷，并将 ownerSubject 作为 Kubernetes metadata 写入。
-    /// 注意：ownerSubject 中的特殊字符（如冒号）会通过 ToK8sLabelValue 转义，以满足 K8s label value 规范。
+    /// 会为该会话的 scopeKey 创建隔离的 PVC 存储卷，确保不同模板或重建后不会意外挂载旧数据。
     /// </summary>
-    /// <param name="ownerSubject">沙箱所有者标识，可能包含 "tenant:operator" 格式</param>
-    /// <returns>新创建的沙箱 ID、初始状态和网关地址</returns>
-    public async Task<ProvisionedSandboxResult> CreateAsync(string ownerSubject, CancellationToken cancellationToken = default)
+    /// <param name="ownerSubject">沙箱所有者标识，格式为 "tenant:operator" 或 JWT sub claim</param>
+    /// <param name="scopeKey">沙箱会话唯一键（hireId 或 instanceId 等）</param>
+    public async Task<ProvisionedSandboxResult> CreateAsync(string ownerSubject, string scopeKey, CancellationToken cancellationToken = default)
     {
         var settings = GetSettings();
-        var volumes = await pvcService.EnsureUserPvcsAsync(ownerSubject, cancellationToken);
+        var volumes = await pvcService.EnsureSessionPvcsAsync(ownerSubject, scopeKey, cancellationToken);
         var createOptions = BuildCreateOptions(settings, ownerSubject, volumes);
 
         logger.LogInformation(
@@ -165,15 +164,21 @@ internal sealed class OpenSandboxProvisioner(
         await SendLifecycleCommandAsync(settings.BuildConnection(), sandboxId, "resume", cancellationToken);
     }
 
-    public async Task DeleteAsync(string sandboxId, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(string sandboxId, string? scopeKey, CancellationToken cancellationToken = default)
     {
         var settings = GetSettings();
         var connection = settings.BuildConnection();
         var http = connection.GetHttpClient();
         await http.DeleteAsync($"{connection.GetBaseUrl().TrimEnd('/')}/sandboxes/{Uri.EscapeDataString(sandboxId)}", cancellationToken);
+
+        // 删除会话 PVC，避免旧数据被后续新沙箱挂载
+        if (!string.IsNullOrWhiteSpace(scopeKey))
+        {
+            await pvcService.DeletePvcsAsync(scopeKey, cancellationToken);
+        }
     }
 
-    public async Task<ProvisionedSandboxResult> RebuildAsync(string ownerSubject, string sandboxId, CancellationToken cancellationToken = default)
+    public async Task<ProvisionedSandboxResult> RebuildAsync(string ownerSubject, string sandboxId, string? scopeKey, CancellationToken cancellationToken = default)
     {
         var settings = GetSettings();
         var connection = settings.BuildConnection();
@@ -181,7 +186,7 @@ internal sealed class OpenSandboxProvisioner(
         var baseUrl = connection.GetBaseUrl().TrimEnd('/');
 
         await http.DeleteAsync($"{baseUrl}/sandboxes/{Uri.EscapeDataString(sandboxId)}", cancellationToken);
-        return await CreateAsync(ownerSubject, cancellationToken);
+        return await CreateAsync(ownerSubject, scopeKey ?? string.Empty, cancellationToken);
     }
 
     private async Task SendLifecycleCommandAsync(ConnectionConfig connection, string sandboxId, string action, CancellationToken cancellationToken)
