@@ -165,8 +165,8 @@ export const employeeTemplateApi = {
     q?: string
     page?: number
     pageSize?: number
-  }) {
-    return templateRawClient.get<EmployeeTemplateListData>('/api/store/templates', params)
+  }, signal?: AbortSignal) {
+    return templateRawClient.get<EmployeeTemplateListData>('/api/store/templates', params, signal)
   },
 
   getStoreDetail(templateId: string) {
@@ -198,8 +198,8 @@ export const employeeTemplateApi = {
   },
 
   // --- 内部 HireBot API（带 envelope）---
-  getDetail(templateId: string) {
-    return httpClient.get<EmployeeTemplateDetail>(`/api/v1/employee-templates/${templateId}`)
+  getDetail(templateId: string, signal?: AbortSignal) {
+    return httpClient.get<EmployeeTemplateDetail>(`/api/v1/employee-templates/${templateId}`, undefined, signal)
   },
 
   hire(templateId: string, payload: HireTemplateRequest) {
