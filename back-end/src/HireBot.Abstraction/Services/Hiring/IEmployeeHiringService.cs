@@ -23,7 +23,6 @@ public interface IEmployeeHiringService
     /// 前端从沙箱网关直接下载产物包后，调用此接口将包上传至后端，跳过 KingCrab 依赖。
     /// </summary>
     Task<ApiResponse<HiringFinalizeResultDto>> ImportPackageAsync(string hireId, Stream packageStream, string fileName, CancellationToken cancellationToken = default);
-    Task<ApiResponse<bool>> UploadEvaluationSkillAsync(string hireId, string? skillRootPath = null, CancellationToken cancellationToken = default);
     Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(string hireId, CancellationToken cancellationToken = default);
     Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(string hireId, string artifactName, CancellationToken cancellationToken = default);
 

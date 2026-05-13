@@ -88,7 +88,7 @@ python evaluate.py \
 }
 ```
 
-另附示例文件：[runtime_context.example.json](/E:/hirebot/back-end/src/HireBot.ApiService/Assets/DigitalEmployeeTemplates/evaluation-expert/live_evaluator/runtime_context.example.json:1)。
+另附示例文件：[runtime_context.example.json](/E:/hirebot/back-end/src/HireBot.ApiService/Assets/DigitalEmployeeTemplates/evaluation-expert/skills/live_evaluator/runtime_context.example.json:1)。
 
 ## 支持的鉴权模式
 

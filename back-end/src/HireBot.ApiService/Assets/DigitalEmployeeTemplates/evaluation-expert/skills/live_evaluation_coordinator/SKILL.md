@@ -47,7 +47,7 @@ memory_access: read_write
 先调用：
 
 ```bash
-python /workspace/skills/evaluation-expert/live_evaluator/evaluate.py \
+python /workspace/skills/live_evaluator/evaluate.py \
   --runtime-context /workspace/runtime/evaluation-context.json \
   --mode inspect \
   --output /tmp/materials_inspection.json
@@ -87,7 +87,7 @@ python /workspace/skills/evaluation-expert/live_evaluator/evaluate.py \
 调用：
 
 ```bash
-python /workspace/skills/evaluation-expert/live_evaluator/evaluate.py \
+python /workspace/skills/live_evaluator/evaluate.py \
   --runtime-context /workspace/runtime/evaluation-context.json \
   --mode execute \
   --output /tmp/trace_result.json

@@ -72,18 +72,18 @@ internal sealed partial class EvaluationService
 
         if (!testcaseReady && !ontologyReady)
         {
-            message = "No test cases or ontology files found. Place testcase JSON files under 'testcases/' and ontology files under 'ontology/' in the target hire artifact package.";
-            recommendedAction = "Upload testcase JSON files (containing 'test_case' fields and expected steps) under 'testcases/' directory, and ontology .md/.txt/.json files (defining scoring dimensions and rules) under 'ontology/' directory in the target sandbox artifact package, then rerun LOAD_SKILL or START.";
+            message = "No test cases or ontology files found in evaluator sandbox materials.";
+            recommendedAction = "Upload testcase JSON files (containing 'test_case' fields and expected steps) under 'testcases/' and ontology .md/.txt/.json files (defining scoring dimensions and rules) under 'ontology/' in evaluator sandbox materials, then rerun LOAD_SKILL or START.";
         }
         else if (!testcaseReady)
         {
-            message = "No test cases found. Place testcase JSON files under 'testcases/' in the target hire artifact package.";
-            recommendedAction = "Upload testcase JSON files (with 'test_case' identifiers and step definitions) under 'testcases/' in the target sandbox artifact package, then rerun LOAD_SKILL or START.";
+            message = "No test cases found in evaluator sandbox materials.";
+            recommendedAction = "Upload testcase JSON files (with 'test_case' identifiers and step definitions) under 'testcases/' in evaluator sandbox materials, then rerun LOAD_SKILL or START.";
         }
         else
         {
-            message = "No ontology found. Place ontology files under 'ontology/' in the target hire artifact package.";
-            recommendedAction = "Upload ontology .md, .txt, or .json files (defining evaluation dimensions, weights, and scoring rules) under 'ontology/' in the target sandbox artifact package, then rerun LOAD_SKILL or START.";
+            message = "No ontology found in evaluator sandbox materials.";
+            recommendedAction = "Upload ontology .md, .txt, or .json files (defining evaluation dimensions, weights, and scoring rules) under 'ontology/' in evaluator sandbox materials, then rerun LOAD_SKILL or START.";
         }
 
         return new EvaluationReadinessDto(
@@ -126,6 +126,17 @@ internal sealed partial class EvaluationService
         return Path.IsPathRooted(configuredResourceRoot)
             ? Path.GetFullPath(configuredResourceRoot.Trim())
             : Path.GetFullPath(Path.Combine(contentRootPath, configuredResourceRoot.Trim()));
+    }
+
+    private static string ResolveEvaluationTemplatePackageRoot(string contentRootPath, string? configuredTemplatesRoot)
+    {
+        var templatesRoot = string.IsNullOrWhiteSpace(configuredTemplatesRoot)
+            ? Path.GetFullPath(Path.Combine(contentRootPath, "Assets", "DigitalEmployeeTemplates"))
+            : Path.IsPathRooted(configuredTemplatesRoot)
+                ? Path.GetFullPath(configuredTemplatesRoot.Trim())
+                : Path.GetFullPath(Path.Combine(contentRootPath, configuredTemplatesRoot.Trim()));
+
+        return Path.GetFullPath(Path.Combine(templatesRoot, "evaluation-expert"));
     }
 
     private static string EnsureTrailingDirectorySeparator(string path)
@@ -699,7 +710,13 @@ internal sealed partial class EvaluationService
         string EvaluatorHireId,
         string EvaluatorSandboxId,
         DateTimeOffset? SkillLoadedAtUtc,
-        string? SessionId);
+        string? SessionId,
+        string? EvaluatorTemplatePackageZipPath,
+        Dictionary<string, WorkspaceStepState> StepStates);
+
+    private sealed record WorkspaceStepState(
+        string Status,
+        string? Detail);
 
     private sealed record TargetArtifactWarmupResult(
         string WorkspacePath,
@@ -724,14 +741,6 @@ internal sealed partial class EvaluationService
         string SourcePath,
         string RawJson,
         string SourceType);
-
-    private sealed record TraceExecutionEvidence(
-        string TestcaseId,
-        string ScenarioName,
-        string Input,
-        string ExecutionId,
-        string TraceJson,
-        string TraceAssetUrl);
 
     private sealed record OntologySourceFile(
         string FileName,

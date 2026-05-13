@@ -385,6 +385,7 @@ internal sealed partial class EvaluationService
         using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
         {
             var files = Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories)
+                .Where(file => ShouldIncludeBundleFile(sourceDirectory, file))
                 .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
@@ -407,6 +408,43 @@ internal sealed partial class EvaluationService
             Sha256: hash,
             SourceType: sourceType,
             SourcePath: sourceDirectory);
+    }
+
+    private static bool ShouldIncludeBundleFile(string sourceDirectory, string filePath)
+    {
+        var relativePath = Path.GetRelativePath(sourceDirectory, filePath);
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            return false;
+        }
+
+        var normalized = relativePath.Replace('\\', '/');
+
+        // Exclude Python/virtualenv artifacts
+        if (normalized.Contains("/.venv/", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith(".venv/", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("/__pycache__/", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith("__pycache__/", StringComparison.OrdinalIgnoreCase) ||
+            normalized.EndsWith(".pyc", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Exclude gitignore files
+        if (Path.GetFileName(normalized).Equals(".gitignore", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Exclude root-level test scripts and README (not template content)
+        var isRootFile = !normalized.Contains('/');
+        if (isRootFile && (normalized.EndsWith(".py", StringComparison.OrdinalIgnoreCase) ||
+                           normalized.Equals("README.md", StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private static string? ResolveFixtureArtifactDirectory(string targetHireId, EmployeeDetailDto employee)

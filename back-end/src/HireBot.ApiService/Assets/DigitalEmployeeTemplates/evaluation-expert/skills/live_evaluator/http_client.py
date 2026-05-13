@@ -99,21 +99,3 @@ class HttpCollector:
             "dashboard": self.collect_dashboard(),
         }
 
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="HTTP API 补充采集")
-    parser.add_argument("--endpoint", required=True, help="Gateway HOST:PORT")
-    parser.add_argument("--token", required=True, help="JWT Token")
-    parser.add_argument("--base-url", help="显式指定 HTTP Base URL")
-    parser.add_argument("--output", default="http_supplement.json", help="输出文件路径")
-    args = parser.parse_args()
-
-    collector = HttpCollector(args.endpoint, args.token, base_url=args.base_url)
-    data = collector.collect_all()
-
-    with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-    print(f"[http_client] 补充数据已写入 {args.output}")

@@ -22,7 +22,6 @@ using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Sandbox;
-using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.AspNetCore.DataProtection;
@@ -37,19 +36,6 @@ namespace HireBot.Core.Services.Hiring;
 
 internal sealed partial class EmployeeHiringService
 {
-    private Task<RemoteCallResult<SystemSkillUploadResult>> UploadDiscoverySystemSkillAsync(
-        string hireId,
-        DiscoverySkillDefinition discoverySkill,
-        string ownerSubject,
-        CancellationToken cancellationToken)
-    {
-        return UploadSystemSkillPackageAsync(
-            hireId,
-            ownerSubject,
-            BuildSystemSkillUploadPayload(discoverySkill),
-            cancellationToken);
-    }
-
     private Task<RemoteCallResult<TemplatePackageUploadResult>> UploadTemplatePackageAsync(
         string hireId,
         TemplatePackageDefinition templatePackage,
@@ -98,114 +84,15 @@ internal sealed partial class EmployeeHiringService
             InstalledPath: "workspace"));
     }
 
-    private static SystemSkillUploadPayload BuildSystemSkillUploadPayload(DiscoverySkillDefinition discoverySkill)
-    {
-        return new SystemSkillUploadPayload(
-            SkillId: discoverySkill.SkillId,
-            SkillVersion: discoverySkill.SkillVersion,
-            SkillHash: discoverySkill.SkillHash,
-            Files: discoverySkill.Files
-                .Select(file => new SystemSkillFileUploadPayload(
-                    RelativePath: file.RelativePath,
-                    ContentHash: file.ContentHash,
-                    Content: file.Content))
-                .ToArray(),
-            StageRules: discoverySkill.StageRules
-                .Select(rule => new SystemSkillStageRuleUploadPayload(
-                    Stage: rule.Stage,
-                    SkillName: rule.SkillName,
-                    Description: rule.Description,
-                    RequiredFields: rule.RequiredFields))
-                .ToArray());
-    }
-
-    private async Task<ApiResponse<SystemSkillUploadPayload>> BuildEvaluationSkillUploadPayloadAsync(
-        string? skillRootPath,
-        CancellationToken cancellationToken)
-    {
-        SystemSkillPackage package;
-        try
-        {
-            package = await systemSkillRegistry.LoadRequiredAsync(
-                EvaluationSkillId,
-                skillRootPath,
-                cancellationToken);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(422, ex.Message);
-        }
-
-        if (package.StageRules.Count == 0)
-        {
-            return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(422, "evaluation system skill must declare stage rules");
-        }
-
-        if (package.Files.Count == 0)
-        {
-            return ApiResponse<SystemSkillUploadPayload>.ErrorResponse(422, "evaluation skill payload is empty");
-        }
-
-        var orderedFiles = package.Files
-            .Select(file => new SystemSkillFileUploadPayload(
-                RelativePath: file.RelativePath,
-                ContentHash: file.ContentHash,
-                Content: file.Content))
-            .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        var payload = new SystemSkillUploadPayload(
-            SkillId: package.SkillId,
-            SkillVersion: package.Version,
-            SkillHash: package.SkillHash,
-            Files: orderedFiles,
-            StageRules: package.StageRules
-                .Select(rule => new SystemSkillStageRuleUploadPayload(
-                    Stage: rule.Stage,
-                    SkillName: rule.SkillName,
-                    Description: rule.Description,
-                    RequiredFields: rule.RequiredFields))
-                .ToArray());
-
-        return ApiResponse<SystemSkillUploadPayload>.SuccessResponse(payload);
-    }
-
-    private static DiscoverySkillDefinition BuildDiscoverySkillFromUploadPayload(SystemSkillUploadPayload payload)
-    {
-        var files = payload.Files
-            .Select(file => new DiscoverySkillFileAsset(
-                RelativePath: file.RelativePath,
-                Content: file.Content,
-                ContentHash: file.ContentHash))
-            .ToArray();
-        var stageRules = payload.StageRules
-            .Select(rule => new DiscoveryStageRule(
-                Stage: rule.Stage,
-                SkillName: rule.SkillName,
-                Description: rule.Description,
-                RequiredFields: rule.RequiredFields))
-            .ToArray();
-        var rootContent = files
-            .FirstOrDefault(file => file.RelativePath.Equals("SKILL.md", StringComparison.OrdinalIgnoreCase))
-            ?.Content
-            ?? $"# {payload.SkillId}";
-
-        return new DiscoverySkillDefinition(
-            SkillId: payload.SkillId,
-            SkillVersion: payload.SkillVersion,
-            SkillHash: payload.SkillHash,
-            SkillRootPath: payload.SkillId,
-            SkillContent: rootContent,
-            Files: files,
-            StageRules: stageRules);
-    }
-
     private static TemplatePackageDefinition BuildEvaluationWorkspaceTemplatePackage()
     {
         const string manifestJson = """
 {
-  "template_id": "evaluation-expert",
+  "name": "evaluation-expert",
   "display_name": "Evaluation Expert Workspace",
-  "description": "Workspace package for evaluator sandbox"
+  "description": "Template package metadata for evaluator sandbox",
+  "version": "v2.2.0",
+  "entry_skill": "skills/live_evaluation_coordinator"
 }
 """;
         var manifestBytes = Encoding.UTF8.GetBytes(manifestJson);
@@ -242,9 +129,9 @@ This is the bootstrap skill for evaluation sandbox orchestration.
 """;
         var stageRule = new DiscoveryStageRule(
             Stage: "evaluation",
-            SkillName: "evaluation_orchestrator",
-            Description: "Evaluate target sandbox and output PASS or FAIL.",
-            RequiredFields: ["evaluation_goal"]);
+            SkillName: "live_evaluation_coordinator",
+            Description: "Drive runtime-context-based live evaluation and output structured verdict.",
+            RequiredFields: ["runtime_context", "question_cards", "trace_result", "verdict"]);
 
         return new DiscoverySkillDefinition(
             SkillId: EvaluationSkillId,
@@ -384,46 +271,6 @@ This is the bootstrap skill for evaluation sandbox orchestration.
             : RemoteCallResult<DigitalEmployeeUploadResponse>.Failure(call.StatusCode, call.Message);
     }
 
-    private async Task<RemoteCallResult<SystemSkillUploadResult>> UploadSystemSkillPackageAsync(
-        string hireId,
-        string ownerSubject,
-        SystemSkillUploadPayload payload,
-        CancellationToken cancellationToken)
-    {
-        var archiveBytes = BuildSystemSkillArchive(payload);
-        var uploadCall = await UploadSandboxArchiveAsync(
-            hireId,
-            ownerSubject,
-            archiveBytes,
-            $"{payload.SkillId}-{payload.SkillVersion}.zip",
-            cancellationToken);
-        if (!uploadCall.Success || uploadCall.Data is null)
-        {
-            return RemoteCallResult<SystemSkillUploadResult>.Failure(uploadCall.StatusCode, uploadCall.Message);
-        }
-
-        if (!uploadCall.Data.Success)
-        {
-            return RemoteCallResult<SystemSkillUploadResult>.Failure(
-                502,
-                string.IsNullOrWhiteSpace(uploadCall.Data.Error) ? "system skill 上传失败" : uploadCall.Data.Error);
-        }
-
-        return RemoteCallResult<SystemSkillUploadResult>.Ok(new SystemSkillUploadResult(
-            HireId: hireId,
-            SandboxId: string.Empty,
-            SkillId: payload.SkillId,
-            SkillVersion: payload.SkillVersion,
-            SkillHash: payload.SkillHash,
-            InstalledPath: "workspace/skills",
-            LoadedStageSkills: payload.StageRules
-                .Select(rule => new StageSkillMappingDto(
-                    rule.Stage,
-                    rule.SkillName,
-                    rule.RequiredFields,
-                    rule.Description))
-                .ToArray()));
-    }
 
     private async Task SetSandboxInitializedAsync(string sandboxId, CancellationToken cancellationToken)
     {
@@ -474,32 +321,5 @@ This is the bootstrap skill for evaluation sandbox orchestration.
                 refreshResult.Data.GatewayEndpoint));
     }
 
-    private static byte[] BuildSystemSkillArchive(SystemSkillUploadPayload payload)
-    {
-        using var memoryStream = new MemoryStream();
-        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
-        {
-            foreach (var file in payload.Files)
-            {
-                if (string.IsNullOrWhiteSpace(file.RelativePath))
-                {
-                    continue;
-                }
-
-                var normalizedPath = "skills/" + payload.SkillId.Trim().Trim('/') + "/" + file.RelativePath.TrimStart('/', '\\').Replace('\\', '/');
-                if (!TryNormalizeArchiveEntryPath(normalizedPath, out normalizedPath))
-                {
-                    continue;
-                }
-
-                var contentBytes = Encoding.UTF8.GetBytes(file.Content ?? string.Empty);
-                var entry = archive.CreateEntry(normalizedPath, CompressionLevel.Fastest);
-                using var entryStream = entry.Open();
-                entryStream.Write(contentBytes, 0, contentBytes.Length);
-            }
-        }
-
-        return memoryStream.ToArray();
-    }
 
 }

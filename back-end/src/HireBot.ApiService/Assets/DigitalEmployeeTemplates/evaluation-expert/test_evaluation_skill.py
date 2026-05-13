@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-skills/evaluation-expert 本地测试脚本
+evaluation-expert/skills 本地测试脚本
 模拟 ncrew 平台加载和执行 SKILL.md 的逻辑
 
 使用方式：
@@ -386,9 +386,9 @@ class SkillExecutor:
 # ============================================
 
 def main():
-    parser = argparse.ArgumentParser(description="测试 skills/evaluation-expert")
+    parser = argparse.ArgumentParser(description="测试 evaluation-expert/skills")
     parser.add_argument("--mode", choices=["mock", "real"], default="mock", help="运行模式")
-    parser.add_argument("--skill-dir", default="skills/evaluation-expert", help="Skill目录路径")
+    parser.add_argument("--skill-dir", default="skills", help="Skill目录路径")
     parser.add_argument("--max-rounds", type=int, default=3, help="最大训练轮次（Mock模式默认3轮）")
     parser.add_argument("--export", help="导出结果JSON文件路径")
 

@@ -24,39 +24,6 @@ public sealed record EvaluationOntologyQueryResultDto(
     IReadOnlyList<string> DimensionRules,
     IReadOnlyList<EvaluationAssetRefDto> Assets);
 
-public sealed record EvaluationTargetExecuteRequestDto
-{
-    [Required]
-    public string TestcaseId { get; init; } = string.Empty;
-
-    [Required]
-    public string Input { get; init; } = string.Empty;
-}
-
-public sealed record EvaluationTargetExecuteResultDto(
-    string SessionId,
-    string ExecutionId,
-    string TestcaseId,
-    string Status,
-    string StartedAtUtc,
-    string CompletedAtUtc);
-
-public sealed record EvaluationTraceReadRequestDto
-{
-    [Required]
-    public string ExecutionId { get; init; } = string.Empty;
-
-    [Required]
-    public string TestcaseId { get; init; } = string.Empty;
-}
-
-public sealed record EvaluationTraceReadResultDto(
-    string SessionId,
-    string ExecutionId,
-    string TestcaseId,
-    string TraceJson,
-    EvaluationAssetRefDto TraceAsset);
-
 public sealed record EvaluationDimensionScoreDto(
     string Dimension,
     decimal Score,

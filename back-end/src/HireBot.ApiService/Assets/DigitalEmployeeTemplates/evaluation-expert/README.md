@@ -72,39 +72,50 @@
 
 ```text
 evaluation-expert/
+├── manifest.json
+├── config/
+│   ├── AGENTS.md
+│   ├── IDENTITY.md
+│   ├── MEMORY.md
+│   ├── SOUL.md
+│   └── workspace.json
+├── ontology/
+│   └── evaluation-baseline.md
+├── skills/
+│   ├── evaluation_orchestrator/
+│   │   └── SKILL.md
+│   ├── evaluator/
+│   │   └── SKILL.md
+│   ├── live_evaluation_coordinator/
+│   │   └── SKILL.md
+│   ├── live_evaluator/
+│   │   ├── SKILL.md
+│   │   ├── README.md
+│   │   ├── evaluate.py
+│   │   ├── auth_client.py
+│   │   ├── material_loader.py
+│   │   ├── ws_client.py
+│   │   ├── http_client.py
+│   │   ├── trace_builder.py
+│   │   ├── runtime_context.example.json
+│   │   └── test_cases/
+│   ├── report_generator/
+│   │   └── SKILL.md
+│   ├── scenario_parser/
+│   │   └── SKILL.md
+│   ├── test_executor/
+│   │   └── SKILL.md
+│   └── training_advisor/
+│       └── SKILL.md
 ├── README.md
-├── live_evaluation_coordinator/
-│   └── SKILL.md
-├── live_evaluator/
-│   ├── SKILL.md
-│   ├── README.md
-│   ├── evaluate.py
-│   ├── auth_client.py
-│   ├── material_loader.py
-│   ├── ws_client.py
-│   ├── http_client.py
-│   ├── trace_builder.py
-│   ├── runtime_context.example.json
-│   └── test_cases/
-├── evaluator/
-│   └── SKILL.md
-├── report_generator/
-│   └── SKILL.md
-├── training_advisor/
-│   └── SKILL.md
-├── evaluation_orchestrator/
-│   └── SKILL.md
-├── test_executor/
-│   └── SKILL.md
-└── scenario_parser/
-    └── SKILL.md
+└── test_evaluation_skill.py
 ```
 
 ## 主入口
 
 推荐入口：
 
-- [live_evaluation_coordinator/SKILL.md](/E:/hirebot/back-end/src/HireBot.ApiService/Assets/DigitalEmployeeTemplates/evaluation-expert/live_evaluation_coordinator/SKILL.md:1)
+- [skills/live_evaluation_coordinator/SKILL.md](/E:/hirebot/back-end/src/HireBot.ApiService/Assets/DigitalEmployeeTemplates/evaluation-expert/skills/live_evaluation_coordinator/SKILL.md:1)
 
 它代表“在评估沙箱里与用户交互并完成评估”的真实运行模式。
 
