@@ -33,6 +33,7 @@ import {
   type GatewayDingTalkChannelConfig,
   type GatewayWeComChannelConfig,
 } from "@/infra/sandbox/sandbox-api";
+import { resolveGatewayEndpoint } from "@/infra/sandbox/sandbox-config";
 import {
   firstCharacter,
   ownershipClass,
@@ -236,12 +237,15 @@ export default function InstanceImConfigPage() {
     setError("");
     setNotice("");
     try {
-      const [detail, gatewayEndpoint] = await Promise.all([
+      const [detail, rawGatewayEndpoint] = await Promise.all([
         api.employeeRuntime.getEmployee(id),
         api.employeeRuntime.getSandboxGatewayEndpoint(id),
       ]);
 
       setEmployee(detail);
+
+      // VITE_SANDBOX_URL 有值时固定使用本地端点，便于本地联调
+      const gatewayEndpoint = resolveGatewayEndpoint(rawGatewayEndpoint);
 
       if (!gatewayEndpoint) {
         setError("沙箱网关端点未就绪");

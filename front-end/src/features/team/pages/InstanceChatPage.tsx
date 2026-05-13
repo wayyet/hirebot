@@ -17,6 +17,7 @@ import {
 } from "@/infra/api";
 import { tokenService } from "@/infra/auth/token-service";
 import { GatewayWs } from "@/infra/sandbox/gateway-ws";
+import { resolveGatewayEndpoint } from "@/infra/sandbox/sandbox-config";
 import {
   fetchSandboxSessionMessages,
   uploadMediaToGateway,
@@ -397,7 +398,8 @@ export default function InstanceChatPage() {
       setSelectedSessionId(sessionIdRef.current);
 
       // 调用新 API 获取 gateway endpoint（与 HiringPage 一致）
-      const gatewayEndpoint = gatewayEndpointResult ?? null;
+      // VITE_SANDBOX_URL 有值时固定使用本地端点，便于本地联调
+      const gatewayEndpoint = resolveGatewayEndpoint(gatewayEndpointResult);
       console.log(
         "[InstanceChatPage] gatewayEndpoint from API:",
         gatewayEndpoint,
