@@ -14,7 +14,7 @@ import {
   SendHorizontal,
   Zap,
 } from 'lucide-react'
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import {
   api,
@@ -27,6 +27,7 @@ import {
   type HiringConversationMessage,
 } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
+import { instanceBasePath } from '@/shared/utils/instancePath'
 
 type ArtifactTab = 'testcase' | 'trace' | 'report'
 
@@ -113,6 +114,8 @@ export default function EvaluationPage() {
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const [selectedRound, setSelectedRound] = useState(1)
 
+  const location = useLocation();
+
   const [chatMessages, setChatMessages] = useState<HiringConversationMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
@@ -161,9 +164,17 @@ export default function EvaluationPage() {
     return { total, passed, failed, pending, score }
   }, [evaluation])
 
-  // canPrepare: hired/failed (first time) or interning_ai (re-prepare after failure)
-  const canPrepare = employee?.status === 'hired' || employee?.status === 'failed' || employee?.status === 'interning_ai'
-  const isAiStage = employee?.status === 'interning_ai'
+  const isPrivateBranchEvaluation = employee?.instanceType === 'private_branch'
+  // 私有分支评估是特殊流程：实例原地保持 live，不进入普通雇佣评估的 interning_ai 状态。
+  // 这里只给 private_branch + live 放行，避免影响雇佣员工原有的 hired/failed/interning_ai 评估链路。
+  const canPrepare =
+    employee?.status === 'hired' ||
+    employee?.status === 'failed' ||
+    employee?.status === 'interning_ai' ||
+    (isPrivateBranchEvaluation && employee?.status === 'live')
+  const isAiStage =
+    employee?.status === 'interning_ai' ||
+    (isPrivateBranchEvaluation && employee?.status === 'live' && employee?.evalPhase === 'ai_running')
   const aiRunning = isAiStage && employee?.evalPhase === 'ai_running'
 
   const currentRound = Math.max(1, employee?.evalIteration ?? 1)
@@ -492,7 +503,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
 
   return (
     <div className="hb-page">
-      <Breadcrumb items={[{ label: '员工详情', to: id ? `/instances/${id}` : '/department-employees' }, { label: 'AI 评估' }]} />
+      <Breadcrumb items={[{ label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' }, { label: 'AI 评估' }]} />
       <div className="flex h-[calc(100vh-132px)] min-h-[680px] flex-col gap-4">
         <section className="hb-card p-4">
           <div className="flex flex-wrap items-start gap-3">
@@ -562,7 +573,9 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               ))}
             </div>
             <div className="mt-2 text-[11px] text-[#737373]">
-              评估流程：准备环境（创建沙箱+上传Skill+加载考题）→ 执行评估（WS直连评估沙箱，Agent使用evaluation_score/evaluation_generate_report工具评分）→ 判定结果
+              {isPrivateBranchEvaluation
+                ? '私有分支评估流程：复用当前分身 runtime 沙箱作为 target，只准备 evaluator 沙箱与评估材料 → 执行评估（WS直连评估沙箱，Agent使用evaluation_score/evaluation_generate_report工具评分）→ 判定结果'
+                : '评估流程：准备环境（创建沙箱+上传Skill+加载考题）→ 执行评估（WS直连评估沙箱，Agent使用evaluation_score/evaluation_generate_report工具评分）→ 判定结果'}
             </div>
           </div>
         </section>

@@ -111,6 +111,8 @@ if (builder.Configuration.GetValue("Database:AutoMigrateOnStartup", false))
         await dbContext.Database.EnsureCreatedAsync();
     else
         await dbContext.Database.MigrateAsync();
+
+    await CleanupDeprecatedFixtureInstancesAsync(dbContext);
 }
 
 var evaluationResourceRoot = ResolveEvaluationResourceRoot(
@@ -177,6 +179,7 @@ app.MapGet("/runtime-config.js", (IConfiguration cfg) =>
         BypassAuth = consoleCfg.GetValue("BypassAuth", false),
         ApiBase = string.Empty,
         TemplateApiBase = consoleCfg["TemplateApiBase"] ?? string.Empty,
+        MaxActivePersonalClonesPerOwner = ResolveMaxActivePersonalClonesPerOwner(cfg),
     };
     var json = System.Text.Json.JsonSerializer.Serialize(config);
     return Results.Content($"window.__AUTH_CONFIG__ = {json};", "application/javascript");
@@ -200,6 +203,39 @@ static string ResolveEvaluationResourceRoot(string contentRootPath, string? conf
     return Path.IsPathRooted(configuredResourceRoot)
         ? Path.GetFullPath(configuredResourceRoot.Trim())
         : Path.GetFullPath(Path.Combine(contentRootPath, configuredResourceRoot.Trim()));
+}
+
+static int ResolveMaxActivePersonalClonesPerOwner(IConfiguration configuration)
+{
+    const int defaultLimit = 10;
+    var configured = configuration["HireBot:MaxActivePersonalClonesPerOwner"];
+    return int.TryParse(configured, out var value) && value > 0
+        ? value
+        : defaultLimit;
+}
+
+static async Task CleanupDeprecatedFixtureInstancesAsync(HireBotDbContext dbContext)
+{
+    var deprecatedFixtureInstanceIds = new[]
+    {
+        "e_dev_seed_402_sales-coach",
+        "e_dev_seed_403_product-ops",
+        "e_dev_seed_404_sales-coach-live",
+        "e_dev_seed_405_product-ops-live",
+        "e_clone_test_sales_live",
+        "e_clone_test_ops_live"
+    };
+
+    var deleted = await dbContext.Instances
+        .Where(item => deprecatedFixtureInstanceIds.Contains(item.InstanceId))
+        .ExecuteDeleteAsync();
+
+    if (deleted > 0)
+    {
+        Log.Information(
+            "Cleaned deprecated fixture instances from database. Count={Count}",
+            deleted);
+    }
 }
 
 static IReadOnlyCollection<string> BuildOidcValidationValues(params string?[] values)

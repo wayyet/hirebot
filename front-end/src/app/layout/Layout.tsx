@@ -43,16 +43,16 @@ function isNavItemActive(pathname: string, navPath: string) {
   if (pathname === navPath) return true;
   if (navPath === "/template-pool") {
     return (
-      pathname.startsWith("/templates/") || pathname.startsWith("/hiring/")
+      (pathname.startsWith("/template-pool/") && pathname !== "/template-pool")
     );
   }
   if (navPath === "/department-employees") {
     return (
-      pathname.startsWith("/department-employees") ||
-      pathname.startsWith("/instances/") ||
-      pathname.includes("/evaluation") ||
-      pathname.includes("/review") ||
-      pathname.includes("/onboarding")
+      !pathname.startsWith("/my-employees") &&
+      (pathname.startsWith("/department-employees") ||
+        pathname.includes("/evaluation") ||
+        pathname.includes("/review") ||
+        pathname.includes("/onboarding"))
     );
   }
   if (navPath === "/my-employees") {
@@ -60,7 +60,7 @@ function isNavItemActive(pathname: string, navPath: string) {
       pathname.startsWith("/my-employees") ||
       pathname.startsWith("/clone/") ||
       pathname.startsWith("/private-branch/") ||
-      pathname.includes("/chat")
+      (!pathname.startsWith("/department-employees") && pathname.includes("/chat"))
     );
   }
 

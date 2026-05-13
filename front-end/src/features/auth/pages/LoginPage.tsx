@@ -42,9 +42,9 @@ function resolveRedirectLabel(path: string, t: (key: string) => string) {
   if (path === '/template-pool') return t('auth.redirectLabels.templatePool')
   if (path === '/department-employees') return t('auth.redirectLabels.departmentEmployees')
   if (path === '/my-employees') return t('auth.redirectLabels.myEmployees')
-  if (path.startsWith('/templates/')) return t('auth.redirectLabels.templateDetail')
-  if (path.startsWith('/hiring/')) return t('auth.redirectLabels.hiringFlow')
-  if (path.startsWith('/instances/')) return t('auth.redirectLabels.instanceDetail')
+  if (path.startsWith('/template-pool/templates/')) return t('auth.redirectLabels.templateDetail')
+  if (path.startsWith('/template-pool/hiring/')) return t('auth.redirectLabels.hiringFlow')
+  if (path.includes('/instances/')) return t('auth.redirectLabels.instanceDetail')
   return path
 }
 

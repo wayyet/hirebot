@@ -92,9 +92,8 @@ export default function TemplateDetailPage() {
             <p className="hb-detail-meta">{template.tagline}</p>
             <p className="hb-detail-desc">{template.description || '暂无模板说明'}</p>
           </div>
-
-          <div className="hb-detail-actions">
-            <button type="button" className="hb-btn-primary" onClick={() => navigate(`/hiring/${template.templateId}`)}>
+          <div className="flex flex-col gap-2">
+            <button type="button" className="hb-btn-primary" onClick={() => navigate(`/template-pool/hiring/${template.templateId}`)}>
               {template.cta.label || '发起标准雇佣'}
             </button>
             <button type="button" className="hb-btn-ghost" onClick={() => void hireByFixture()} disabled={fixtureHiring}>

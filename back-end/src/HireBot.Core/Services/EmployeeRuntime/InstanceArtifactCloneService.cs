@@ -243,7 +243,7 @@ public sealed class InstanceArtifactCloneService(
         var typeSegment = instanceType switch
         {
             "personal_clone" => "personal_clone",
-            "private_branch" => "private_branch",
+            "private_branch" => "personal_clone",
             _ => "personal_clone"
         };
         return Path.Combine(

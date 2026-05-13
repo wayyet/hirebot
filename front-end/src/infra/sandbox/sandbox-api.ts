@@ -250,7 +250,7 @@ export async function fetchSandboxSessionMessages(
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (/session not found/i.test(message) || /GET .*: 404/i.test(message)) {
+    if (/session not found/i.test(message) || /(^|\D)404(\D|$)/i.test(message)) {
       return []
     }
     throw error
