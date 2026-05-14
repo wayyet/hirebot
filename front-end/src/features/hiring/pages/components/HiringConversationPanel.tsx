@@ -5,9 +5,10 @@ import { Check, Copy, FileText, Paperclip, Package, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import type { ChatFile, ChatMessage } from '../hiringPageTypes'
+import type { ChatFile, ChatMessage, ToolStep } from '../hiringPageTypes'
 import type { HiringGuideVm } from '../hiringWorkflowViewModel'
 import { ArtifactMessageCard } from './ArtifactMessageCard'
+import { HiringToolStepsBlock } from './HiringToolStepsBlock'
 import { StageGateCard } from './StageGateCard'
 
 /** 将对话消息列表转换为 Markdown 字符串，便于粘贴给其他 LLM 分析 */
@@ -82,6 +83,8 @@ type HiringConversationPanelProps = {
   typing: boolean
   /** WS 流式内容，非 null 时显示逐字输出气泡 */
   streamingContent?: string | null
+  /** 当前轮次正在累积/已完成的 MCP 工具调用步骤，伴随流式气泡展示 */
+  streamingToolSteps?: ToolStep[]
   pendingFiles: ChatFile[]
   input: string
   promptPlaceholder: string
@@ -108,6 +111,7 @@ export function HiringConversationPanel({
   messages,
   typing,
   streamingContent,
+  streamingToolSteps,
   pendingFiles,
   input,
   promptPlaceholder,
@@ -210,6 +214,9 @@ export function HiringConversationPanel({
               {message.role === 'user' ? '你' : introName.slice(0, 1).toUpperCase()}
             </div>
             <div className={`hb-hiring-msg-stack ${message.role === 'user' ? 'is-user' : ''}`}>
+              {message.role === 'bot' && message.toolSteps && message.toolSteps.length > 0 ? (
+                <HiringToolStepsBlock steps={message.toolSteps} />
+              ) : null}
               {message.content ? (
                 <div className={`hb-hiring-bubble ${message.role === 'user' ? 'is-user' : 'is-bot'}`}>
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -233,23 +240,33 @@ export function HiringConversationPanel({
         {streamingContent !== null && streamingContent !== undefined ? (
           <div className="hb-hiring-msg">
             <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
-            <div className="hb-hiring-bubble is-bot">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {streamingContent.length > 0 ? streamingContent : '…'}
-              </ReactMarkdown>
+            <div className="hb-hiring-msg-stack">
+              {streamingToolSteps && streamingToolSteps.length > 0 ? (
+                <HiringToolStepsBlock steps={streamingToolSteps} />
+              ) : null}
+              <div className="hb-hiring-bubble is-bot">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {streamingContent.length > 0 ? streamingContent : '…'}
+                </ReactMarkdown>
+              </div>
             </div>
           </div>
         ) : typing ? (
           <div className="hb-hiring-msg">
             <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
-            <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
-              {[0, 1, 2].map((index) => (
-                <span
-                  key={index}
-                  className="hb-hiring-typing-dot"
-                  style={{ animationDelay: `${index * 0.15}s` }}
-                />
-              ))}
+            <div className="hb-hiring-msg-stack">
+              {streamingToolSteps && streamingToolSteps.length > 0 ? (
+                <HiringToolStepsBlock steps={streamingToolSteps} />
+              ) : null}
+              <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
+                {[0, 1, 2].map((index) => (
+                  <span
+                    key={index}
+                    className="hb-hiring-typing-dot"
+                    style={{ animationDelay: `${index * 0.15}s` }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         ) : null}

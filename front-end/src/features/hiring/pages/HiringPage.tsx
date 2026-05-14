@@ -19,7 +19,7 @@ import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
 import { HiringTodoPanel } from './components/HiringTodoPanel'
 import { HiringStagePills } from './components/HiringStagePills'
-import type { ArtifactDisplayData, ChatFile, ChatMessage, SkillUploadPayload, StageGateData } from './hiringPageTypes'
+import type { ArtifactDisplayData, ChatFile, ChatMessage, SkillUploadPayload, StageGateData, ToolStep } from './hiringPageTypes'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 
 function mkId() {
@@ -168,6 +168,14 @@ export default function HiringPage() {
   const [submittingMessage, setSubmittingMessage] = useState(false)
   // WS 流式内容：非 null 时表示 AI 正在逐字输出
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
+  /**
+   * 当前轮次累积的 MCP 工具调甈步骤。
+   * - ref 作为权威数据源，避免 setState 异步造成 tool_result 丢失
+   * - streamingToolSteps 状态镜像仅用于驱动 React 重渲染
+   * - typing_stop 时将 ref 附到最终 bot 消息上，并同时清空
+   */
+  const pendingToolStepsRef = useRef<ToolStep[]>([])
+  const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([])
   const [resetting, setResetting] = useState(false)
   const resettingRef = useRef(false)
   /** WS 实时推送的阶段状态覆盖，优先级高于 REST 轮询的 dispatchStatus */
@@ -663,6 +671,9 @@ export default function HiringPage() {
         rawStreamingContentRef.current = ''
         setStreamingContent('')
         setTyping(true)
+        // 重置本轮工具步骤累积
+        pendingToolStepsRef.current = []
+        setStreamingToolSteps([])
       } else if (type === 'text_delta' || type === 'assistant_chunk') {
         // 逐字追加流式内容
         const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
@@ -683,9 +694,14 @@ export default function HiringPage() {
         if (rawReply && rawReply.trim().length > 0) {
           const cleaned = normalizeAssistantReply(rawReply)
           if (cleaned.length > 0) {
-            setMessages(msgs => [...msgs, { id: mkId(), role: 'bot', content: cleaned }])
+            // 将本轮累积的工具调甈步骤附到 bot 消息，与 Markdown 正文合并呈现
+            const steps = pendingToolStepsRef.current.length > 0 ? [...pendingToolStepsRef.current] : undefined
+            setMessages(msgs => [...msgs, { id: mkId(), role: 'bot', content: cleaned, toolSteps: steps }])
           }
         }
+        // 无论是否产生 bot 消息，本轮状态都需重置
+        pendingToolStepsRef.current = []
+        setStreamingToolSteps([])
         setStreamingContent(null)
         setTyping(false)
 
@@ -703,9 +719,17 @@ export default function HiringPage() {
         void refreshTodos()
       } else if (type === 'tool_start') {
         // MCP 工具开始调用：从 text 中提取工具名（去除 streaming. 前缀），若为 hiring. 工具立即乐观刷新
-        const rawName = String((msg as unknown as Record<string, unknown>).text ?? '')
+        const rawMsg = msg as unknown as Record<string, unknown>
+        const rawName = String(rawMsg.text ?? '')
         const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
         console.log('[WS tool_start] rawName=%s toolName=%s isHiring=%s', rawName, toolName, toolName.startsWith('hiring.'))
+        // 累积本轮的工具调用，驱动流式气泡上方的进度面板
+        const args = rawMsg.arguments != null
+          ? (typeof rawMsg.arguments === 'string' ? rawMsg.arguments : JSON.stringify(rawMsg.arguments))
+          : undefined
+        const step: ToolStep = { id: mkId(), name: toolName || 'tool', status: 'running', args }
+        pendingToolStepsRef.current = [...pendingToolStepsRef.current, step]
+        setStreamingToolSteps([...pendingToolStepsRef.current])
         if (toolName.startsWith('hiring.')) {
           void refreshTodos()
         }
@@ -717,6 +741,32 @@ export default function HiringPage() {
         const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
         const textStr = String(rawMsg.text ?? '')
         console.log('[WS tool_result] rawName=%s toolName=%s textPreview=%s', rawName, toolName, textStr.slice(0, 120))
+        // 将返回填回本轮步骤：同名优先匹配最后一个 running；缺失工具名时回退到最后一个 running
+        {
+          const list = pendingToolStepsRef.current
+          let targetIdx = -1
+          if (toolName) {
+            for (let i = list.length - 1; i >= 0; i--) {
+              if (list[i].status === 'running' && list[i].name === toolName) { targetIdx = i; break }
+            }
+          }
+          if (targetIdx < 0) {
+            for (let i = list.length - 1; i >= 0; i--) {
+              if (list[i].status === 'running') { targetIdx = i; break }
+            }
+          }
+          if (targetIdx >= 0) {
+            const isError = Boolean(rawMsg.is_error ?? rawMsg.isError)
+            const next = list.slice()
+            next[targetIdx] = {
+              ...next[targetIdx],
+              status: isError ? 'error' : 'done',
+              result: textStr || next[targetIdx].result,
+            }
+            pendingToolStepsRef.current = next
+            setStreamingToolSteps([...next])
+          }
+        }
         if (toolName.startsWith('hiring.')) {
           void refreshTodos()
         } else {
@@ -851,7 +901,17 @@ export default function HiringPage() {
     void ensureWorkflowReady()
   }
 
-  async function submitWorkflowMessage(text: string, incoming?: ChatFile[], autoApprove = true): Promise<boolean> {
+  async function submitWorkflowMessage(
+    text: string,
+    incoming?: ChatFile[],
+    autoApprove = true,
+    /**
+     * 是否把本条用户消息推入本地 `messages` 列表。
+     * - true（默认）：调用方未自行 setMessages，本函数负责上屏（TODO 卡回调、onAfterStageMessage 等模拟消息走这条路）
+     * - false：调用方已经 setMessages（handleSend / 技能上传弹窗），避免重复气泡
+     */
+    displayInChat = true,
+  ): Promise<boolean> {
     if (messageSubmitRef.current) {
       setWorkflowError('上一轮回复仍在生成中，请稍候')
       return false
@@ -859,6 +919,16 @@ export default function HiringPage() {
 
     const hireId = await ensureWorkflowReady()
     if (!hireId) return false
+
+    // 模拟消息上屏：在真正发送前先把用户气泡推入列表，避免 TODO/Stage 回调发的消息悄无声息
+    if (displayInChat && (text || (incoming && incoming.length > 0))) {
+      setMessages(prev => [...prev, {
+        id: mkId(),
+        role: 'user',
+        content: text || '',
+        files: incoming && incoming.length > 0 ? incoming : undefined,
+      }])
+    }
 
     messageSubmitRef.current = true
     setSubmittingMessage(true)
@@ -911,6 +981,9 @@ export default function HiringPage() {
         setTyping(false)
         setStreamingContent(null)
         rawStreamingContentRef.current = ''
+        // 错误回退时清理本轮工具步骤累积
+        pendingToolStepsRef.current = []
+        setStreamingToolSteps([])
         return false
       } finally {
         messageSubmitRef.current = false
@@ -979,6 +1052,8 @@ export default function HiringPage() {
       const submitted = await submitWorkflowMessage(
         text || `上传文件：${incoming.map(file => file.name).join('、')}`,
         incoming.length > 0 ? incoming : undefined,
+        true,
+        false, // handleSend 已经主动 setMessages，避免重复推用户气泡
       )
 
       if (!submitted && incoming.length > 0) {
@@ -1055,7 +1130,12 @@ export default function HiringPage() {
         files: [skillFile],
       }])
 
-      if (await submitWorkflowMessage(`已上传 Skill 包并提交信息\n${details.join('\n')}`, [skillFile], false)) {
+      if (await submitWorkflowMessage(
+        `已上传 Skill 包并提交信息\n${details.join('\n')}`,
+        [skillFile],
+        false, // autoApprove
+        false, // 调用方上面已经 setMessages，避免重复
+      )) {
         setShowSkillUploadModal(false)
       }
     } catch (error: unknown) {
@@ -1302,6 +1382,7 @@ export default function HiringPage() {
           messages={messages}
           typing={typing}
           streamingContent={streamingContent}
+          streamingToolSteps={streamingToolSteps}
           pendingFiles={pendingFiles}
           input={input}
           promptPlaceholder={viewModel.promptPlaceholder}

@@ -38,6 +38,22 @@ export interface StageGateData {
   blockedReason?: string
 }
 
+/** MCP 工具单次调用状态 */
+export type ToolStepStatus = 'running' | 'done' | 'error'
+
+/** 单次 MCP 工具调用的展示项，渲染于 bot 消息上方的折叠面板 */
+export interface ToolStep {
+  /** 本地生成的稳定 ID，用于 React key */
+  id: string
+  /** 工具名（已剥离 streaming. 前缀） */
+  name: string
+  /** 输入参数（JSON 字符串），可缺省 */
+  args?: string
+  /** 工具返回（截断/原文皆可），仅在完成时填充 */
+  result?: string
+  status: ToolStepStatus
+}
+
 export interface ChatMessage {
   id: string
   role: 'bot' | 'user' | 'artifact' | 'stage_gate'
@@ -45,6 +61,8 @@ export interface ChatMessage {
   files?: ChatFile[]
   artifact?: ArtifactDisplayData
   stageGate?: StageGateData
+  /** 本轮 AI 回复期间产生的 MCP 工具调用步骤（仅 role=bot 携带） */
+  toolSteps?: ToolStep[]
 }
 
 export interface SkillUploadPayload {

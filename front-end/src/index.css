@@ -2393,6 +2393,144 @@ body {
   align-items: flex-end;
 }
 
+/* ===== 工具调用步骤面板（MCP tool_start/tool_result 聚合展示） ===== */
+.hb-hiring-toolsteps {
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  border-radius: 14px;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.hb-hiring-toolsteps-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: #475569;
+  transition: background 0.15s;
+}
+
+.hb-hiring-toolsteps-head:hover {
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.hb-hiring-toolsteps-chevron {
+  display: inline-flex;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.hb-hiring-toolsteps-title {
+  flex: 1;
+  color: #64748b;
+}
+
+.hb-hiring-toolsteps-title.is-running {
+  color: #b45309;
+}
+
+.hb-hiring-toolsteps-count {
+  color: #94a3b8;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.hb-hiring-toolsteps-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.hb-hiring-toolstep-row {
+  border: 1px solid #eef2f7;
+  background: #ffffff;
+  border-radius: 10px;
+}
+
+.hb-hiring-toolstep-row-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.hb-hiring-toolstep-row-head:disabled {
+  cursor: default;
+}
+
+.hb-hiring-toolstep-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.hb-hiring-toolstep-spin {
+  color: #f59e0b;
+  animation: hb-hiring-toolstep-spin 1s linear infinite;
+}
+
+@keyframes hb-hiring-toolstep-spin {
+  to { transform: rotate(360deg); }
+}
+
+.hb-hiring-toolstep-name {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-hiring-toolstep-chevron {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.hb-hiring-toolstep-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px 8px;
+  border-top: 1px solid #eef2f7;
+}
+
+.hb-hiring-toolstep-label {
+  margin: 0 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.hb-hiring-toolstep-code {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #475569;
+}
+
 .hb-hiring-bubble {
   border: 1px solid transparent;
   border-radius: 22px;
