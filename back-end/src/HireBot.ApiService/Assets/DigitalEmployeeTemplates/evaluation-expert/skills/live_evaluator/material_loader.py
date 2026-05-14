@@ -330,6 +330,10 @@ def _read_from_explicit_path(path: str, material_type: str) -> list[MaterialDocu
     if target.is_dir():
         return _read_directory_documents(str(target), material_type)
 
+    zip_documents = _try_read_as_zip(str(target), material_type)
+    if zip_documents:
+        return zip_documents
+
     try:
         content = target.read_text(encoding="utf-8")
     except UnicodeDecodeError:
@@ -439,6 +443,7 @@ def _matches_material(path: Path, material_type: str) -> bool:
 
     if material_type == "testcases":
         return suffix == ".json" and (
+            normalized.startswith("testcases/") or
             "/testcases/" in normalized or
             file_name.startswith("testcase") or
             "testcase" in file_name or
@@ -450,6 +455,7 @@ def _matches_material(path: Path, material_type: str) -> bool:
         if "testcase" in file_name or "test-case" in file_name or "evaluation-test-cases" in file_name:
             return False
         return suffix in {".json", ".md", ".txt"} and (
+            normalized.startswith("ontology/") or
             "/ontology/" in normalized or
             "ontology" in file_name or
             "rubric" in file_name or

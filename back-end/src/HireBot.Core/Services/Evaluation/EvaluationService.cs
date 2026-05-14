@@ -1137,9 +1137,26 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(502, "unable to acquire sandbox access token");
 
         var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, ctx, cancellationToken);
+        var evaluatorMaterialsResult = await PrepareEvaluatorMaterialsArchiveAsync(
+            owner,
+            employee,
+            ctx,
+            sessionEntity,
+            cancellationToken);
+        if (!evaluatorMaterialsResult.Success || string.IsNullOrWhiteSpace(evaluatorMaterialsResult.Data))
+        {
+            return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(
+                evaluatorMaterialsResult.Code,
+                evaluatorMaterialsResult.Message);
+        }
 
         // Upload runtime_context JSON to evaluator sandbox so the AI doesn't need to write it
-        var runtimeContextJson = BuildRuntimeContextJson(employee, ctx, sessionEntity, targetGatewayEndpoint);
+        var runtimeContextJson = BuildRuntimeContextJson(
+            employee,
+            ctx,
+            sessionEntity,
+            targetGatewayEndpoint,
+            evaluatorMaterialsResult.Data);
         var runtimeContextBytes = System.Text.Encoding.UTF8.GetBytes(runtimeContextJson);
         var runtimeContextUploadResult = await sandboxService.UploadAttachmentAsync(
             new SandboxAttachmentUploadRequestDto

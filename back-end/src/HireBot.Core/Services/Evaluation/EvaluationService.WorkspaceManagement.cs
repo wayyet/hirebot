@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
@@ -867,7 +868,7 @@ internal sealed partial class EvaluationService
                 "evaluation-evaluator",
                 new HiringConversationMessageRequestDto
                 {
-                    Content = "Evaluation materials are ready. Continue with question cards, scoring rules, or start execution.",
+                    Content = "",
                     StructuredAnswers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                     {
                         ["evaluation_context_ready"] = "true",
@@ -992,11 +993,242 @@ internal sealed partial class EvaluationService
         return readiness;
     }
 
+    private async Task<ApiResponse<string>> PrepareEvaluatorMaterialsArchiveAsync(
+        string owner,
+        EmployeeDetailDto employee,
+        EvaluationWorkspaceContext workspaceContext,
+        EvaluationSessionEntity sessionEntity,
+        CancellationToken cancellationToken)
+    {
+        var testcaseAssets = await GetLatestSessionAssetsAsync(
+            sessionEntity.Id,
+            "testcases-json",
+            cancellationToken);
+        var ontologyAsset = await GetLatestSessionAssetAsync(
+            sessionEntity.Id,
+            "ontology-json",
+            cancellationToken);
+
+        if (testcaseAssets.Count == 0 || ontologyAsset is null)
+        {
+            var readiness = await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
+            if (!readiness.Status.Equals("ready", StringComparison.OrdinalIgnoreCase))
+            {
+                return ApiResponse<string>.ErrorResponse(
+                    422,
+                    string.IsNullOrWhiteSpace(readiness.Message)
+                        ? "evaluation materials are not ready"
+                        : readiness.Message);
+            }
+
+            testcaseAssets = await GetLatestSessionAssetsAsync(
+                sessionEntity.Id,
+                "testcases-json",
+                cancellationToken);
+            ontologyAsset = await GetLatestSessionAssetAsync(
+                sessionEntity.Id,
+                "ontology-json",
+                cancellationToken);
+        }
+
+        if (testcaseAssets.Count == 0)
+        {
+            return ApiResponse<string>.ErrorResponse(422, "no testcase assets found for auto evaluation");
+        }
+
+        if (ontologyAsset is null)
+        {
+            return ApiResponse<string>.ErrorResponse(422, "no ontology asset found for auto evaluation");
+        }
+
+        var testcaseFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var testcaseAsset in testcaseAssets)
+        {
+            var content = await ReadEvaluationAssetTextAsync(testcaseAsset, cancellationToken);
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                logger.LogWarning(
+                    "[Eval] Skip empty testcase asset when preparing evaluator materials. SessionId={SessionId}, RelativePath={RelativePath}",
+                    sessionEntity.SessionId,
+                    testcaseAsset.RelativePath);
+                continue;
+            }
+
+            var fileName = ExtractEvaluationAssetFileName(testcaseAsset.RelativePath, "evaluation-testcases.json");
+            testcaseFiles[fileName] = content;
+        }
+
+        if (testcaseFiles.Count == 0)
+        {
+            return ApiResponse<string>.ErrorResponse(422, "testcase assets exist but none could be read for auto evaluation");
+        }
+
+        var ontologyContent = await ReadEvaluationAssetTextAsync(ontologyAsset, cancellationToken);
+        if (string.IsNullOrWhiteSpace(ontologyContent))
+        {
+            return ApiResponse<string>.ErrorResponse(422, "ontology asset exists but could not be read for auto evaluation");
+        }
+
+        var archiveBytes = BuildEvaluatorMaterialsArchive(
+            testcaseFiles,
+            ExtractEvaluationAssetFileName(ontologyAsset.RelativePath, "evaluation-ontology.json"),
+            ontologyContent);
+
+        var uploadResult = await sandboxService.UploadAttachmentAsync(
+            new SandboxAttachmentUploadRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Managed,
+                ScopeKey = workspaceContext.EvaluatorHireId,
+                SandboxRole = "evaluation-evaluator",
+                OwnerSubject = owner,
+                TenantId = "tenant-default",
+                OperatorId = "operator-default",
+                SandboxId = workspaceContext.EvaluatorSandboxId,
+                Material = new HiringConversationMaterialDto
+                {
+                    Type = "evaluation-materials-zip",
+                    Name = "evaluation-materials.zip",
+                    Content = Convert.ToBase64String(archiveBytes),
+                    MimeType = "application/zip",
+                    Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["contentEncoding"] = "base64"
+                    }
+                }
+            },
+            cancellationToken);
+        if (!uploadResult.Success || uploadResult.Data is null)
+        {
+            return ApiResponse<string>.ErrorResponse(
+                uploadResult.Code,
+                $"failed to upload evaluator materials archive: {uploadResult.Message}");
+        }
+
+        return ApiResponse<string>.SuccessResponse(ResolveMediaCachePathFromAttachment(uploadResult.Data));
+    }
+
+    private async Task<IReadOnlyList<EvaluationAssetEntity>> GetLatestSessionAssetsAsync(
+        Guid sessionEntityId,
+        string assetType,
+        CancellationToken cancellationToken)
+    {
+        var candidates = await dbContext.EvaluationAssets
+            .AsNoTracking()
+            .Where(item =>
+                item.SessionEntityId == sessionEntityId &&
+                item.AssetType == assetType)
+            .OrderByDescending(item => item.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        return candidates
+            .GroupBy(
+                item => string.IsNullOrWhiteSpace(item.RelatedKey) ? item.RelativePath : item.RelatedKey,
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(item => item.CreatedAtUtc)
+                .First())
+            .OrderBy(item => item.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private async Task<EvaluationAssetEntity?> GetLatestSessionAssetAsync(
+        Guid sessionEntityId,
+        string assetType,
+        CancellationToken cancellationToken)
+    {
+        return await dbContext.EvaluationAssets
+            .AsNoTracking()
+            .Where(item =>
+                item.SessionEntityId == sessionEntityId &&
+                item.AssetType == assetType)
+            .OrderByDescending(item => item.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<string?> ReadEvaluationAssetTextAsync(
+        EvaluationAssetEntity asset,
+        CancellationToken cancellationToken)
+    {
+        var physicalPath = ResolvePhysicalAssetPath(asset.RelativePath);
+        if (string.IsNullOrWhiteSpace(physicalPath) || !File.Exists(physicalPath))
+        {
+            logger.LogWarning(
+                "[Eval] Evaluation asset file not found when preparing evaluator materials. RelativePath={RelativePath}",
+                asset.RelativePath);
+            return null;
+        }
+
+        return await File.ReadAllTextAsync(physicalPath, cancellationToken);
+    }
+
+    internal static byte[] BuildEvaluatorMaterialsArchive(
+        IReadOnlyDictionary<string, string> testcaseFiles,
+        string ontologyFileName,
+        string ontologyContent)
+    {
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var testcaseFile in testcaseFiles.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var entry = archive.CreateEntry(
+                    $"testcases/{BuildSafeArchiveFileName(testcaseFile.Key, "evaluation-testcases.json")}",
+                    CompressionLevel.Fastest);
+                using var entryStream = entry.Open();
+                var contentBytes = Encoding.UTF8.GetBytes(testcaseFile.Value);
+                entryStream.Write(contentBytes, 0, contentBytes.Length);
+            }
+
+            var ontologyEntry = archive.CreateEntry(
+                $"ontology/{BuildSafeArchiveFileName(ontologyFileName, "evaluation-ontology.json")}",
+                CompressionLevel.Fastest);
+            using var ontologyStream = ontologyEntry.Open();
+            var ontologyBytes = Encoding.UTF8.GetBytes(ontologyContent);
+            ontologyStream.Write(ontologyBytes, 0, ontologyBytes.Length);
+        }
+
+        return memoryStream.ToArray();
+    }
+
+    private static string ExtractEvaluationAssetFileName(string? relativePath, string fallbackFileName)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            return fallbackFileName;
+        }
+
+        var normalizedPath = relativePath.Replace('\\', '/').Trim();
+        var fileName = Path.GetFileName(normalizedPath);
+        return string.IsNullOrWhiteSpace(fileName)
+            ? fallbackFileName
+            : fileName;
+    }
+
+    private static string BuildSafeArchiveFileName(string? fileName, string fallbackFileName)
+    {
+        var candidate = string.IsNullOrWhiteSpace(fileName)
+            ? fallbackFileName
+            : Path.GetFileName(fileName.Trim());
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            candidate = fallbackFileName;
+        }
+
+        var safeChars = candidate
+            .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '_')
+            .ToArray();
+        var safeName = new string(safeChars).Trim('.');
+        return string.IsNullOrWhiteSpace(safeName)
+            ? fallbackFileName
+            : safeName;
+    }
+
     private string BuildRuntimeContextJson(
         EmployeeDetailDto employee,
         EvaluationWorkspaceContext workspaceContext,
         EvaluationSessionEntity sessionEntity,
-        string targetGatewayEndpoint)
+        string targetGatewayEndpoint,
+        string? explicitMaterialsPath)
     {
         var runtimeContext = new
         {
@@ -1012,8 +1244,8 @@ internal sealed partial class EvaluationService
                 workspace_root = "/workspace",
                 template_root = "/workspace",
                 template_package_zip = workspaceContext.EvaluatorTemplatePackageZipPath,
-                testcases_path = (string?)null,
-                ontology_path = (string?)null
+                testcases_path = explicitMaterialsPath,
+                ontology_path = explicitMaterialsPath
             },
             target_sandbox = new
             {
@@ -1061,7 +1293,34 @@ internal sealed partial class EvaluationService
 
                           4) python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode execute --output /tmp/trace_result.json
 
-                          5) Read trace_result.json. If "status" is not "completed" or "turns" is empty, output: {"verdict":"FAIL","overall_score":0,"summary":"execution error: <paste the actual status and error from trace_result.json>","dimension_scores":[]}
+                          5) Read /tmp/trace_result.json. If "status" is not "completed" or "turns" is empty, run the following command and output its stdout only, then STOP:
+                             python - <<'PY'
+                             import json
+                             from pathlib import Path
+
+                             trace = json.loads(Path('/tmp/trace_result.json').read_text(encoding='utf-8'))
+                             status = str(trace.get('status') or 'unknown').strip() or 'unknown'
+                             meta = trace.get('meta') or {}
+                             error = (
+                                 trace.get('error')
+                                 or trace.get('message')
+                                 or (meta.get('error') if isinstance(meta, dict) else None)
+                                 or ''
+                             )
+                             error_text = str(error).replace('\r', ' ').replace('\n', ' ').replace('{', '(').replace('}', ')').strip()
+                             if not trace.get('turns'):
+                                 error_text = f"{error_text}; turns empty".strip('; ')
+                             if not error_text:
+                                 error_text = 'unknown'
+
+                             summary = f"execution error: status={status}; error={error_text}"
+                             print(json.dumps({
+                                 "verdict": "FAIL",
+                                 "overall_score": 0,
+                                 "summary": summary,
+                                 "dimension_scores": []
+                             }, ensure_ascii=False))
+                             PY
 
                           6) Output the verdict. No braces in summary. Entire response must be ONLY:
                           {"verdict":"PASS|FAIL","overall_score":0-100,"summary":"...","dimension_scores":[{"dimension":"accuracy|completeness|compliance|communication","score":0-100,"comment":"...","evidence_refs":[]}]}
