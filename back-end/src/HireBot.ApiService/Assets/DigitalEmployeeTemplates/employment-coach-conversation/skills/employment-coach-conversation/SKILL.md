@@ -120,21 +120,22 @@ metadata:
 
 ## MCP TODO 工具调用规范
 
-本 skill 通过三个 MCP 工具实时更新前端 TODO 面板，**与 emit_artifact 并行调用**——两者职责不同：`emit_artifact` 驱动阶段胶囊状态，MCP TODO 工具驱动右侧待办面板。
+本 skill 通过 MCP 工具维护右侧 TODO 面板里的**文本型待办条目**，**与 emit_artifact 并行调用**——两者职责不同：`emit_artifact` 驱动阶段胶囊点亮与上传交互区显示（包括"上传业务资料"入口本身），MCP TODO 工具只负责把对话里识别到的具体待办（哪份资料、哪个 skill、哪个外部系统）记到面板上。
 
 ### 可用工具
 
 | 工具名 | 用途 |
 |--------|------|
-| `hiring.upsert_todo` | 新建或更新一条待办工单（相同 handoffId 则覆盖） |
-| `hiring.request_file_upload` | 创建"请用户上传文件"型工单，前端面板会显示上传按钮 |
+| `hiring.upsert_todo` | 新建或更新一条文本型待办工单（相同 handoffId 则覆盖） |
 | `hiring.list_todos` | 列出当前会话所有工单（一般在会话恢复时调用一次） |
+| `hiring.parse_uploaded_files` | 读取并解析当前会话用户已上传的 .md/.json 文件，供 AI 抽取本体或推断技能 |
+
+> ⚠️ 旧版的 `hiring.request_file_upload` / `hiring.request_skill_upload` / `hiring.request_external_config` **已下线**，文件上传入口现在由 artifact 阶段事件（`material_collection_progress` 等）直接控制：阶段一进入运行态，右侧面板对应阶段卡片就会自动展示上传/交互区，**不再需要也无法通过 MCP 工具触发**。
 
 ### handoffId 命名规范
 
 **必须使用语义化稳定 ID，禁止使用随机 UUID。** 格式规则：
 - 资料工单：`material_<英文小写_slug>` — 例如 `material_sales_data`、`material_compliance_rules`
-- 文件上传请求：`upload_<英文小写_slug>` — 例如 `upload_tax_report`、`upload_history_csv`
 - 技能工单：`skill_<英文小写_slug>` — 例如 `skill_invoice_audit`、`skill_risk_alert`
 - 外部系统工单：`external_<英文小写_slug>` — 例如 `external_erp_read`、`external_crm_notify`
 
@@ -146,8 +147,8 @@ metadata:
 
 | 时机 | 工具 | 关键参数 |
 |------|------|---------|
-| 用户描述一份资料内容（哪怕还不完整） | `hiring.upsert_todo` | stage=`material`, targetSkill=`ontology-extraction`, status=`drafting` |
-| 需要用户上传具体文件 | `hiring.request_file_upload` | stage=`material`, targetSkill=`ontology-extraction` |
+| 用户描述一份资料内容（哪怕还不完整） | `hiring.upsert_todo` | handoffId=`material_<slug>`, stage=`material`, targetSkill=`ontology-extraction`, status=`drafting` |
+| 用户上传过文件需要读取分析时 | `hiring.parse_uploaded_files` | 不传参或传 `maxBytes`；返回目录树 + .md/.json 全文 |
 | 资料达到足够明确度（抽取目标已清晰） | `hiring.upsert_todo` | status=`ready_to_dispatch`，同时更新 intent/acceptance |
 
 **阶段 2 技能**
@@ -247,7 +248,23 @@ ls -la "<workspace_root>/uploads/"
 
 #### 步骤 5：通知用户开场
 
-解压验证通过后，给用户一句简短开场："已读取模板包，进入资料阶段——"，然后按阶段 1 引导。**禁止**在开场里复述模板包详细内容（那是下游 ontology-extraction 的事，且未阅读前不得编造）。
+解压验证通过后，给用户一句简短开场："已读取模板包，进入资料阶段——"。**禁止**在开场里复述模板包详细内容（那是下游 ontology-extraction 的事，且未阅读前不得编造）。
+
+#### 步骤 6：进入阶段 1 的强制动作（开场后**立即**执行，不等用户开口）
+
+开场句一出，**必须依次完成**以下两件事，让右侧 TODO 面板和阶段胶囊同步亮起。**前端的资料上传入口完全由 artifact 事件控制**：只要 `material_collection_progress` 一发出，阶段卡片就会自动展开拖拽上传区，AI 不需要、也无法通过 MCP 工具去"创建上传按钮"。
+
+1. **调用 `emit_artifact`** 推送 stage1 进度（这一步等同于"开灯"）：
+   - `artifactType`: `material_collection_progress`
+   - `stage`: `stage1_material`
+   - `isTerminal`: `false`
+   - `displayHint`: `progress`
+   - `data`: `{ "workspace_root": <真实路径>, "template_slug": <真实 slug>, "summary": "已进入资料阶段，等待用户上传或描述业务资料" }`
+2. **再用一句话**邀请用户开始介绍业务场景或直接上传资料，简要点出本模板期望收集哪些类型资料（流程文档 / 规则 / 案例 / 字段定义 / 示例数据），按 [references/scene-types.md](references/scene-types.md) 的 story-driven 风格开口，不要罗列长清单。
+
+> 这两步是 stage1 的"亮灯仪式"——缺第 1 步，前端阶段胶囊一直停在"等待"、资料卡也不会展开上传区。
+
+> 用户上传文件后，调用 `hiring.parse_uploaded_files` 拉取内容做识别，然后用 `hiring.upsert_todo` 把识别到的具体资料条目写成 `material_<slug>` 待办，再追加一次 progress `emit_artifact` 把已整理的资料摘要带回 `data`。
 
 #### ⛔ 路径反伪造红线
 
@@ -255,7 +272,7 @@ ls -la "<workspace_root>/uploads/"
 - 禁止跳过步骤 4 的实际工具调用，凭文件名/上下文猜测路径
 - 禁止使用 `/workspace` 根目录本身作为 workspace_root（会污染其他会话）
 - 禁止用上一次会话的 workspace_root（每次会话都要重新建时间戳目录）
-- 步骤 4 未通过验证前，不得调用任何阶段 emit_artifact
+- 步骤 4 未通过验证前，不得调用任何阶段 emit_artifact；步骤 4 通过后，**必须**按步骤 6 立即推送 stage1 progress artifact 与上传入口工单
 
 #### 失败兜底
 
@@ -298,7 +315,9 @@ ls -la "<workspace_root>/uploads/"
 
 **最低门槛**：至少 1 份资料被指认归类，并且明确说出"要从中整理什么分类的规则或内容"。
 
-**收到资料时的强制动作**：用户描述业务场景、资料种类、字段、规则、流程、案例或上传文件后，立即发出进度 emit_artifact，将 `data` 字段填入当前已整理的资料条目摘要；再给用户一行简短反馈说已记下。
+**进入阶段时的强制动作**：步骤 4 验证通过后，按"步骤 6 进入阶段 1 的强制动作"立即推送 stage1 progress artifact 并创建 `upload_business_materials` 上传入口工单——这是"亮灯仪式"，不依赖用户输入。
+
+**收到用户输入时的强制动作**：用户描述业务场景、资料种类、字段、规则、流程、案例或上传文件后，立即追加进度 emit_artifact，将 `data` 字段更新为最新已整理的资料条目摘要；再给用户一行简短反馈说已记下。
 
 **禁止替下游执行**：本阶段不要直接输出"本体切片"、概念表、关系表或约束表；本 skill 只负责对话收集与进度推送，下游 skill 负责实际执行。
 

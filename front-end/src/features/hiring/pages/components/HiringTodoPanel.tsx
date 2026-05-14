@@ -102,9 +102,8 @@ export function HiringTodoPanel({
 
   return (
     <div className="hb-todo-panel">
-      <div className="hb-todo-panel-head">
-        <p className="hb-hiring-eyebrow">TODO PANEL</p>
-        <h3 className="hb-hiring-panel-title">待办事项</h3>
+      <div className="hb-todo-panel-head hb-todo-panel-head--compact">
+        <h3 className="hb-todo-panel-title">待办事项</h3>
       </div>
 
       <div className="hb-todo-panel-body">

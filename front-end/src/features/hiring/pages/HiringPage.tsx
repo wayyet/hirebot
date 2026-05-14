@@ -521,10 +521,13 @@ export default function HiringPage() {
       '',
       `请先解压并完整分析上面的模板包（模板名：${templateName}）。`,
       useCaseSection,
-      '然后严格按以下顺序引导我完成雇佣配置：',
-      '1. 先给出材料收集清单（缺什么、为什么、如何提供）。',
-      '2. 再给出技能与知识结构抽取结果，并指出待确认项。',
-      '3. 再给出外部系统对接与凭据绑定清单（不要让我在聊天里直接贴敏感密钥）。',
+      '解压验证通过后，请严格按 SKILL.md 的"步骤 6 进入阶段 1 的强制动作"执行（注意：旧的 hiring.request_file_upload 工具已下线，前端上传入口完全由 artifact 事件控制）：',
+      'A. 调用 `emit_artifact` 推送 stage1 progress（artifactType=material_collection_progress, stage=stage1_material, isTerminal=false），把阶段胶囊从"等待"切到"进行中"，右侧资料卡会自动展开拖拽上传区。',
+      'B. 然后用一句话邀请我上传或描述业务资料，按 story-driven 风格开口，不要罗列长清单。',
+      '随后再依次完成：',
+      '1. 阶段 1 资料收集：用户上传文件后调 `hiring.parse_uploaded_files` 读取内容，识别到具体资料用 `hiring.upsert_todo` 写成 `material_<slug>` 待办，并追加 progress emit_artifact。',
+      '2. 阶段 2 技能与知识结构抽取（先发 skill_workorder_progress 再引导）。',
+      '3. 阶段 3 外部系统对接与凭据绑定清单（不要让我在聊天里直接贴敏感密钥）。',
       '4. 每一步都输出可执行的下一步操作，不要一次性抛出过多任务。',
       '5. 如果你发现信息不足，请先提问，不要自行假设关键业务参数。',
     ].join('\n')
@@ -1373,6 +1376,13 @@ export default function HiringPage() {
         resetting={resetting}
       />
 
+      <div className="hb-hiring-steps-card">
+        <HiringStagePills
+          steps={mergedStepPills}
+          onSelectStage={handleSelectStage}
+        />
+      </div>
+
       <div className="hb-hiring-workspace">
         <HiringConversationPanel
           introName={introName}
@@ -1398,27 +1408,15 @@ export default function HiringPage() {
           onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
           formatFileSize={formatFileSize}
           onArtifactFileDownload={(url, fileName) => { void downloadGatewayFile(url, fileName) }}
+          workflowStatus={workflowStatusLabel ? {
+            label: workflowStatusLabel,
+            tone: workflowStatusTone,
+            onRetry: workflowError ? retryWorkflowInitialization : undefined,
+            retryDisabled: workflowBooting,
+          } : null}
         />
 
         <div className="hb-hiring-right-col">
-          {workflowStatusLabel ? (
-            <div className={`hb-hiring-proto-note is-${workflowStatusTone}`}>
-              <span>{workflowStatusLabel}</span>
-              {workflowError ? (
-                <button type="button" onClick={retryWorkflowInitialization} disabled={workflowBooting} className="hb-hiring-inline-btn">
-                  重试初始化
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="hb-hiring-steps-card">
-            <HiringStagePills
-              steps={mergedStepPills}
-              onSelectStage={handleSelectStage}
-            />
-          </div>
-
           <HiringProgressLedger
             stageCards={viewModel.stageCards}
             overallProgress={viewModel.overallProgress}
