@@ -4456,6 +4456,7 @@ body.hb-body-hiring-prototype {
   .hb-hiring-todo-head,
   .hb-hiring-stage-todo-row-head {
     flex-direction: column;
+    align-items: flex-start;
   }
 
   .hb-hiring-page {
@@ -4528,6 +4529,7 @@ body.hb-body-hiring-prototype {
   .hb-hiring-header,
   .hb-hiring-journey-head {
     flex-direction: column;
+    align-items: flex-start;
   }
 
   .hb-hiring-workspace {
