@@ -98,8 +98,7 @@ public sealed partial class EmployeeRuntimeService(
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default)
     {
         var owner = requestContextService.ResolveOwnerSubject();
-        await EnsureSeedDataAsync(owner, cancellationToken);
-        var employees = await store.ListAsync(owner, cancellationToken);
+        var employees = await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
         var summaries = employees.Select(ToSummary).ToArray();
 
         return ApiResponse<IReadOnlyList<EmployeeSummaryDto>>.SuccessResponse(summaries);
@@ -119,8 +118,17 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        await EnsureSeedDataAsync(owner, cancellationToken);
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var instance = await dbContext.Instances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.OwnerUserId == owner && item.InstanceId == employeeId.Trim(), cancellationToken);
+        if (instance is null)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
+        }
+
+        var employee = !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
+            ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
+            : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
@@ -145,7 +153,7 @@ public sealed partial class EmployeeRuntimeService(
 
         var importedEmployees = await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
         var importedImItems = await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
-        await TryUpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
+       // await TryUpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
 
         var result = new ImportFixtureInstancesResultDto(
             OwnerSubject: owner,
@@ -1164,7 +1172,7 @@ public sealed partial class EmployeeRuntimeService(
             ?? [];
 
         var imported = await store.UpsertManyAsync(owner, employees, cancellationToken);
-        await TryUpsertInstanceRecordsAsync(employees, cancellationToken);
+        //await TryUpsertInstanceRecordsAsync(employees, cancellationToken);
         var archivedGroups = request.ArchivedGroupIds?.Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
         var archived = await collaborationService.MarkArchivedAsync(archivedGroups, cancellationToken);
 

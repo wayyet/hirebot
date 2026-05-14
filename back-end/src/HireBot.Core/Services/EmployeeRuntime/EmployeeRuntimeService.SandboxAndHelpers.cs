@@ -19,36 +19,6 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 
 public sealed partial class EmployeeRuntimeService
 {
-    /// <summary>
-    /// 批量插入或更新实例记录。
-    /// </summary>
-    private async Task UpsertInstanceRecordsAsync(
-        IReadOnlyList<EmployeeDetailDto> employees,
-        CancellationToken cancellationToken)
-    {
-        foreach (var employee in employees)
-        {
-            await UpsertInstanceRecordAsync(employee, cancellationToken: cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// 尝试批量插入或更新实例记录。
-    /// </summary>
-    private async Task TryUpsertInstanceRecordsAsync(
-        IReadOnlyList<EmployeeDetailDto> employees,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await UpsertInstanceRecordsAsync(employees, cancellationToken);
-        }
-        catch
-        {
-            // Local demo seed should still succeed even when the instance table has not been migrated yet.
-        }
-    }
-
     private int ResolveMaxActivePersonalClonesPerOwner()
     {
         var configured = configuration["HireBot:MaxActivePersonalClonesPerOwner"];

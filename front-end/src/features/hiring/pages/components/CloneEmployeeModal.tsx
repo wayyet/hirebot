@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CopyPlus, Loader2, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { AlertTriangle, ArrowRight, CheckCircle2, CopyPlus, Loader2, X } from "lucide-react";
 import { api } from "@/infra/api";
 import { ApiClientError } from "@/infra/api/httpClient";
 
@@ -20,18 +21,23 @@ export default function CloneEmployeeModal({
   onClose,
   onSuccess,
 }: CloneEmployeeModalProps) {
+  const navigate = useNavigate();
   const [displayName, setDisplayName] = useState("");
   const [cloneCount, setCloneCount] = useState(0);
   const [maxClones, setMaxClones] = useState(10);
   const [loadingCount, setLoadingCount] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cloneSuccess, setCloneSuccess] = useState(false);
+  const [clonedId, setClonedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
 
     setDisplayName(`${sourceNickname} · 我的分身`);
     setError(null);
+    setCloneSuccess(false);
+    setClonedId(null);
 
     const max =
       (typeof window !== "undefined" &&
@@ -80,9 +86,11 @@ export default function CloneEmployeeModal({
     setError(null);
 
     try {
-      await api.employeeRuntime.createPersonalClone(employeeId, {
+      const result = await api.employeeRuntime.createPersonalClone(employeeId, {
         displayName: name,
       });
+      setClonedId(result.employeeId);
+      setCloneSuccess(true);
       onSuccess();
     } catch (err) {
       const message =
@@ -105,89 +113,128 @@ export default function CloneEmployeeModal({
           <X size={16} />
         </button>
 
-        <div className="hb-modal-head">
-          <h3 className="hb-modal-title">复制为我的分身</h3>
-          <p className="hb-modal-sub">
-            基于部门员工创建独立的个人副本，你的会话不会回流给部门版。
-          </p>
-        </div>
-
-        <div className="hb-modal-body space-y-4">
-          <div className="rounded-lg border border-[var(--hb-border)] bg-[var(--hb-surface-soft)] p-3">
-            <p className="text-xs text-[var(--hb-soft)]">源员工</p>
-            <p className="mt-0.5 truncate text-sm font-medium">
-              {sourceNickname}
-            </p>
-            <p className="text-xs text-[var(--hb-soft)]">{sourceRoleName}</p>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--hb-soft)]">
-              分身名称
-            </label>
-            <input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="hb-input w-full"
-              placeholder="输入分身名称"
-              disabled={creating}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreate();
-              }}
-            />
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-[var(--hb-soft)]">
-            {loadingCount ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : null}
-            <span>
-              当前已有 {cloneCount}/{maxClones} 个分身
-            </span>
-          </div>
-
-          {limitReached && (
-            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-              <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
-              <span>分身上限已达（{maxClones}个），请先清理不再使用的分身。</span>
+        {cloneSuccess ? (
+          <>
+            <div className="hb-modal-body text-center py-8">
+              <CheckCircle2
+                size={40}
+                className="mx-auto text-emerald-500"
+              />
+              <h3 className="mt-3 text-lg font-semibold text-[var(--hb-near-black)]">
+                分身创建成功
+              </h3>
+              <p className="mt-1 text-sm text-[var(--hb-soft)]">
+                「{displayName}」已添加到你的个人资产中
+              </p>
             </div>
-          )}
-
-          {error && (
-            <div className="hb-alert hb-alert-error">
-              <span>{error}</span>
+            <div className="hb-modal-foot">
+              <button
+                type="button"
+                className="hb-btn-ghost"
+                onClick={handleClose}
+              >
+                关闭
+              </button>
+              <button
+                type="button"
+                className="hb-btn-primary"
+                onClick={() => {
+                  handleClose();
+                  navigate("/my-employees");
+                }}
+              >
+                去我的数字员工
+                <ArrowRight size={14} />
+              </button>
             </div>
-          )}
-        </div>
+          </>
+        ) : (
+          <>
+            <div className="hb-modal-head">
+              <h3 className="hb-modal-title">复制为我的分身</h3>
+              <p className="hb-modal-sub">
+                基于部门员工创建独立的个人副本，你的会话不会回流给部门版。
+              </p>
+            </div>
 
-        <div className="hb-modal-foot">
-          <button
-            type="button"
-            className="hb-btn-ghost"
-            onClick={handleClose}
-            disabled={creating}
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            className="hb-btn-primary"
-            onClick={handleCreate}
-            disabled={limitReached || creating || !displayName.trim()}
-          >
-            {creating ? (
-              <>
-                <Loader2 size={14} className="animate-spin" />
-                创建中...
-              </>
-            ) : (
-              <>
-                <CopyPlus size={14} />
-                确认创建
-              </>
-            )}
-          </button>
-        </div>
+            <div className="hb-modal-body space-y-4">
+              <div className="rounded-lg border border-[var(--hb-border)] bg-[var(--hb-surface-soft)] p-3">
+                <p className="text-xs text-[var(--hb-soft)]">源员工</p>
+                <p className="mt-0.5 truncate text-sm font-medium">
+                  {sourceNickname}
+                </p>
+                <p className="text-xs text-[var(--hb-soft)]">{sourceRoleName}</p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--hb-soft)]">
+                  分身名称
+                </label>
+                <input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="hb-input w-full"
+                  placeholder="输入分身名称"
+                  disabled={creating}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreate();
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-[var(--hb-soft)]">
+                {loadingCount ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : null}
+                <span>
+                  当前已有 {cloneCount}/{maxClones} 个分身
+                </span>
+              </div>
+
+              {limitReached && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                  <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+                  <span>分身上限已达（{maxClones}个），请先清理不再使用的分身。</span>
+                </div>
+              )}
+
+              {error && (
+                <div className="hb-alert hb-alert-error">
+                  <span>{error}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="hb-modal-foot">
+              <button
+                type="button"
+                className="hb-btn-ghost"
+                onClick={handleClose}
+                disabled={creating}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="hb-btn-primary"
+                onClick={handleCreate}
+                disabled={limitReached || creating || !displayName.trim()}
+              >
+                {creating ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    创建中...
+                  </>
+                ) : (
+                  <>
+                    <CopyPlus size={14} />
+                    确认创建
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
