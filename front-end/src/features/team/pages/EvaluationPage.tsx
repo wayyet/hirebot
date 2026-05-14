@@ -7,9 +7,7 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  MessageSquare,
   PlayCircle,
-  RefreshCw,
   SendHorizontal,
   Zap,
 } from 'lucide-react'
@@ -43,27 +41,9 @@ function toAbsoluteApiUrl(path?: string | null): string | null {
 
 function verdictLabel(verdict?: string | null) {
   if (verdict === 'passed') return '通过'
-  if (verdict === 'failed') return '不通过'
+  if (verdict === 'failed') return '未通过'
   if (verdict === 'warning') return '待优化'
   return '待判定'
-}
-
-function verdictPillClass(verdict?: string | null) {
-  if (verdict === 'passed') return 'hb-pill green'
-  if (verdict === 'failed') return 'hb-pill pink'
-  if (verdict === 'warning') return 'hb-pill orange'
-  return 'hb-pill gray'
-}
-
-function formatTime(value?: string | null) {
-  if (!value) return '--'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleTimeString('zh-CN', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 function formatDateTime(value?: string | null) {
@@ -77,6 +57,12 @@ function formatDateTime(value?: string | null) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function shortSandboxId(value?: string | null) {
+  if (!value) return '--'
+  if (value.length <= 12) return value
+  return `${value.slice(0, 6)}...${value.slice(-4)}`
 }
 
 function progressStepByState(params: {
@@ -108,7 +94,7 @@ export default function EvaluationPage() {
   const [chatLoading, setChatLoading] = useState(false)
   const [chatSending, setChatSending] = useState(false)
   const [chatError, setChatError] = useState('')
-  const [sandboxConversation, setSandboxConversation] = useState<EvaluationSandboxConversationState | null>(null)
+  const [, setSandboxConversation] = useState<EvaluationSandboxConversationState | null>(null)
   const [wsEvaluating, setWsEvaluating] = useState(false)
   const [wsProgress, setWsProgress] = useState('')
   const chatEndRef = useRef<HTMLDivElement | null>(null)
@@ -152,8 +138,8 @@ export default function EvaluationPage() {
   }, [evaluation])
 
   const isPrivateBranchEvaluation = employee?.instanceType === 'private_branch'
-  // 私有分支评估是特殊流程：实例原地保持 live，不进入普通雇佣评估的 interning_ai 状态。
-  // 这里只给 private_branch + live 放行，避免影响雇佣员工原有的 hired/failed/interning_ai 评估链路。
+  // 私有分支评估是特殊流程：实例保持 live 状态，不进入普通雇佣评估的 interning_ai 状态。
+  // 这里仅允许 private_branch + live 放行，避免影响普通员工原有评估链路。
   const canPrepare =
     employee?.status === 'hired' ||
     employee?.status === 'failed' ||
@@ -166,11 +152,41 @@ export default function EvaluationPage() {
 
   const progressStep = progressStepByState({ canPrepare: canPrepare && !aiRunning, aiRunning })
 
-  const evaluatorHireId = sandboxConversation?.evaluatorHireId ?? null
+  const workspaceReady = workspaceStatus?.overallStatus === 'ready'
+  const showWorkspaceProgress =
+    workspacePolling || (!!workspaceStatus && workspaceStatus.overallStatus !== 'not_started' && workspaceStatus.overallStatus !== 'ready')
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatLoading, chatMessages])
+
+  useEffect(() => {
+    if (!id) return
+
+    let cancelled = false
+    async function loadWorkspaceStatusSnapshot() {
+      try {
+        const status = await api.employeeRuntime.getEvaluationWorkspaceStatus(id!)
+        if (cancelled) return
+        setWorkspaceStatus(status)
+        const shouldPoll =
+          status.overallStatus !== 'not_started' &&
+          status.overallStatus !== 'ready' &&
+          status.overallStatus !== 'failed'
+        setWorkspacePolling(shouldPoll)
+      } catch {
+        if (!cancelled) {
+          setWorkspaceStatus(null)
+          setWorkspacePolling(false)
+        }
+      }
+    }
+
+    void loadWorkspaceStatusSnapshot()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
 
   useEffect(() => {
     if (!workspacePolling || !id) return
@@ -218,13 +234,23 @@ export default function EvaluationPage() {
       }
 
       // START: prepare environment (sandboxes + skill + materials)
+      setWorkspaceStatus(null)
+      setWorkspacePolling(true)
       const updated = await api.employeeRuntime.submitAiEvaluationDecision(id, { decision })
       setEmployee(updated)
-      setWorkspacePolling(true)
+
+      const latestWorkspaceStatus = await api.employeeRuntime.getEvaluationWorkspaceStatus(id)
+      setWorkspaceStatus(latestWorkspaceStatus)
+      if (latestWorkspaceStatus.overallStatus === 'ready' || latestWorkspaceStatus.overallStatus === 'failed') {
+        setWorkspacePolling(false)
+      }
 
       const evaluationState = await api.employeeRuntime.getEvaluationState(id)
       setEvaluation(evaluationState)
     } catch (requestError: unknown) {
+      if (decision === 'START') {
+        setWorkspacePolling(false)
+      }
       setError(requestError instanceof Error ? requestError.message : '提交 AI 评估动作失败')
     } finally {
       if (decision !== 'RUN') setSubmitting(false)
@@ -294,24 +320,55 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
       const resultMsg = await verdictPromise
       setWsProgress('评估完成，正在保存结果...')
 
-      // Parse verdict
+      // Parse verdict — use brace counting to handle { } inside string values
       const rawText = (resultMsg.text as string) || ''
-      const jsonStart = rawText.indexOf('{')
-      const jsonEnd = rawText.lastIndexOf('}')
+
+      function extractJson(text: string): string | null {
+        // Try markdown code fence first: ```json ... ```
+        const fenceMatch = text.match(/```json\s*([\s\S]*?)```/)
+        if (fenceMatch) return fenceMatch[1].trim()
+
+        // Find the first { and count braces to find the matching }
+        const start = text.indexOf('{')
+        if (start < 0) return null
+        let depth = 0
+        let inString = false
+        let escape = false
+        for (let i = start; i < text.length; i++) {
+          const ch = text[i]
+          if (escape) { escape = false; continue }
+          if (ch === '\\') { escape = true; continue }
+          if (ch === '"') { inString = !inString; continue }
+          if (inString) continue
+          if (ch === '{') { depth++ }
+          else if (ch === '}') { depth--; if (depth === 0) return text.substring(start, i + 1) }
+        }
+        return null
+      }
+
       let verdict: EvaluationVerdictPayload
-      if (jsonStart >= 0 && jsonEnd > jsonStart) {
-        const json = rawText.substring(jsonStart, jsonEnd + 1)
-        const parsed = JSON.parse(json)
-        verdict = {
-          verdict: parsed.verdict || 'FAIL',
-          overallScore: parsed.overall_score ?? 0,
-          summary: parsed.summary || '',
-          dimensionScores: (parsed.dimension_scores || []).map((d: Record<string, unknown>) => ({
-            dimension: (d.dimension as string) || '',
-            score: (d.score as number) || 0,
-            comment: (d.comment as string) || '',
-            evidenceRefs: (d.evidence_refs as string[]) || [],
-          })),
+      const json = extractJson(rawText)
+      if (json) {
+        try {
+          const parsed = JSON.parse(json)
+          verdict = {
+            verdict: parsed.verdict || 'FAIL',
+            overallScore: parsed.overall_score ?? 0,
+            summary: parsed.summary || '',
+            dimensionScores: (parsed.dimension_scores || []).map((d: Record<string, unknown>) => ({
+              dimension: (d.dimension as string) || '',
+              score: (d.score as number) || 0,
+              comment: (d.comment as string) || '',
+              evidenceRefs: (d.evidence_refs as string[]) || [],
+            })),
+          }
+        } catch {
+          verdict = {
+            verdict: 'FAIL',
+            overallScore: 0,
+            summary: `JSON parse error: ${rawText.substring(0, 200)}`,
+            dimensionScores: [],
+          }
         }
       } else {
         verdict = {
@@ -339,26 +396,6 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
       setWsEvaluating(false)
       setWsProgress('')
       setSubmitting(false)
-    }
-  }
-
-  async function loadEvaluatorConversation() {
-    if (!id) {
-      setChatMessages([])
-      setSandboxConversation(null)
-      return
-    }
-
-    setChatLoading(true)
-    setChatError('')
-    try {
-      const conversation = await api.employeeRuntime.getEvaluationSandboxConversation(id)
-      setSandboxConversation(conversation)
-      setChatMessages(conversation.messages ?? [])
-    } catch (conversationError: unknown) {
-      setChatError(conversationError instanceof Error ? conversationError.message : '读取评估沙箱对话失败')
-    } finally {
-      setChatLoading(false)
     }
   }
 
@@ -434,7 +471,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
       try {
         const conversation = await api.employeeRuntime.getEvaluationSandboxConversation(id!, lastMessageId)
         if (pollingCancelledRef.current) return
-        // null means 304 Not Modified — no new messages, keep current state
+        // null means 304 Not Modified - no new messages, keep current state
         if (conversation === null) {
           noChangeCount++
           if (noChangeCount >= maxNoChangeBeforeStop) {
@@ -526,7 +563,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
             <div className="min-w-0 flex-1">
               <h1 className="text-[18px] font-semibold text-[#0a0a0a]">AI 评估训练</h1>
               <p className="mt-0.5 truncate text-xs text-[#737373]">
-                {employee.nickname} · {employee.roleName}
+                {employee.nickname} 路 {employee.roleName}
               </p>
               <p className="mt-1 text-xs text-[#737373]">当前阶段：{employee.stageSummary || '待发起 AI 评估'}</p>
             </div>
@@ -561,9 +598,18 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
             </div>
           )}
 
-          {(workspacePolling || (workspaceStatus && workspaceStatus.overallStatus !== 'ready')) && (
+          {showWorkspaceProgress && (
             <div className="mt-3">
               <EvaluationWorkspaceProgress status={workspaceStatus} polling={workspacePolling} />
+            </div>
+          )}
+
+          {workspaceReady && (
+            <div className="mt-3">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-3 py-1 text-xs font-medium text-[#1d4ed8]">
+                <CheckCircle2 size={12} />
+                目标沙箱（{shortSandboxId(workspaceStatus?.targetSandboxId)}）与评估沙箱（{shortSandboxId(workspaceStatus?.evaluatorSandboxId)}）已连接
+              </span>
             </div>
           )}
 
@@ -595,170 +641,132 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               ))}
             </div>
             <div className="mt-2 text-[11px] text-[#737373]">
-              {isPrivateBranchEvaluation
-                ? '私有分支评估流程：复用当前分身 runtime 沙箱作为 target，只准备 evaluator 沙箱与评估材料 → 执行评估（WS直连评估沙箱，Agent使用evaluation_score/evaluation_generate_report工具评分）→ 判定结果'
-                : '评估流程：准备环境（创建沙箱+上传Skill+加载考题）→ 执行评估（WS直连评估沙箱，Agent使用evaluation_score/evaluation_generate_report工具评分）→ 判定结果'}
+              {isPrivateBranchEvaluation ? '私有分支评估流程：复用当前分身 runtime 沙箱作为 target，仅准备 evaluator 沙箱与评估素材，然后执行 WS 评估并判定结果。' : '评估流程：准备环境（创建沙箱 + 上传 Skill + 加载考题）→ 执行评估（WS 直连评估沙箱）→ 判定结果'}
             </div>
           </div>
+
+          {workspaceReady && (
+            <div className="mt-3 rounded-xl border border-[#ececec] bg-[#fafafa] p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-[#404040]">
+                <BarChart2 size={12} />
+                评估概览
+              </div>
+              <div className="grid gap-2 text-xs sm:grid-cols-5">
+                <div className="rounded-xl border border-[#ececec] bg-white p-2">
+                  <div className="text-[#737373]">场景总数</div>
+                  <div className="mt-1 text-sm font-semibold text-[#0a0a0a] tabular-nums">{overview.total}</div>
+                </div>
+                <div className="rounded-xl border border-[#ececec] bg-white p-2">
+                  <div className="text-[#737373]">通过</div>
+                  <div className="mt-1 text-sm font-semibold text-[#15803d] tabular-nums">{overview.passed}</div>
+                </div>
+                <div className="rounded-xl border border-[#ececec] bg-white p-2">
+                  <div className="text-[#737373]">未通过</div>
+                  <div className="mt-1 text-sm font-semibold text-[#be185d] tabular-nums">{overview.failed}</div>
+                </div>
+                <div className="rounded-xl border border-[#ececec] bg-white p-2">
+                  <div className="text-[#737373]">待判定</div>
+                  <div className="mt-1 text-sm font-semibold text-[#c47a26] tabular-nums">{overview.pending}</div>
+                </div>
+                <div className="rounded-xl border border-[#ececec] bg-white p-2">
+                  <div className="text-[#737373]">综合评分</div>
+                  <div className="mt-1 text-sm font-semibold text-[#0a0a0a] tabular-nums">{overview.score}</div>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="flex min-h-0 flex-1 gap-4">
           <div className="hb-card flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="px-4 pt-4">
-              <div className="rounded-xl border border-[#ececec] bg-[#fafafa] p-3">
-                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-[#404040]">
-                  <BarChart2 size={12} />
-                  评估概览
-                </div>
-                <div className="grid gap-2 text-xs sm:grid-cols-5">
-                  <div className="rounded-xl border border-[#ececec] bg-white p-2">
-                    <div className="text-[#737373]">场景总数</div>
-                    <div className="mt-1 text-sm font-semibold text-[#0a0a0a] tabular-nums">{overview.total}</div>
-                  </div>
-                  <div className="rounded-xl border border-[#ececec] bg-white p-2">
-                    <div className="text-[#737373]">通过</div>
-                    <div className="mt-1 text-sm font-semibold text-[#15803d] tabular-nums">{overview.passed}</div>
-                  </div>
-                  <div className="rounded-xl border border-[#ececec] bg-white p-2">
-                    <div className="text-[#737373]">未通过</div>
-                    <div className="mt-1 text-sm font-semibold text-[#be185d] tabular-nums">{overview.failed}</div>
-                  </div>
-                  <div className="rounded-xl border border-[#ececec] bg-white p-2">
-                    <div className="text-[#737373]">待判定</div>
-                    <div className="mt-1 text-sm font-semibold text-[#c47a26] tabular-nums">{overview.pending}</div>
-                  </div>
-                  <div className="rounded-xl border border-[#ececec] bg-white p-2">
-                    <div className="text-[#737373]">综合评分</div>
-                    <div className="mt-1 text-sm font-semibold text-[#0a0a0a] tabular-nums">{overview.score}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto px-4 pb-3 pt-3">
-              <div className="my-2 flex justify-center">
-                <span className="rounded-full bg-[#fafafa] px-3 py-1 text-xs text-[#9ca3af]">
-                  {formatTime(employee.createdAt)} · {employee.stageSummary || '评估专家已就绪，等待评估动作。'}
+            <div className="border-b border-[#ececec] px-4 py-3">
+              <div className="flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded-full border border-[#e5e7eb] bg-[#f9fafb] px-2.5 py-1 text-[#4b5563]">
+                  场景总数：<span className="font-semibold tabular-nums text-[#0a0a0a]">{overview.total}</span>
+                </span>
+                <span className="rounded-full border border-[#dcfce7] bg-[#f0fdf4] px-2.5 py-1 text-[#166534]">
+                  通过：<span className="font-semibold tabular-nums">{overview.passed}</span>
+                </span>
+                <span className="rounded-full border border-[#fce7f3] bg-[#fdf2f8] px-2.5 py-1 text-[#9d174d]">
+                  未通过：<span className="font-semibold tabular-nums">{overview.failed}</span>
+                </span>
+                <span className="rounded-full border border-[#fef3c7] bg-[#fffbeb] px-2.5 py-1 text-[#92400e]">
+                  待判定：<span className="font-semibold tabular-nums">{overview.pending}</span>
+                </span>
+                <span className="rounded-full border border-[#e5e7eb] bg-white px-2.5 py-1 text-[#4b5563]">
+                  综合评分：<span className="font-semibold tabular-nums text-[#0a0a0a]">{overview.score}</span>
                 </span>
               </div>
-
-              {evaluation.scenarios.map((scenario) => (
-                <div key={scenario.scenarioId} className="my-2 rounded-2xl border border-[#ececec] bg-white p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-semibold text-[#0a0a0a]">{scenario.scenarioName}</div>
-                    <span className={verdictPillClass(scenario.verdict)}>{verdictLabel(scenario.verdict)}</span>
-                  </div>
-                  <div className="mt-1 text-xs text-[#737373]">
-                    状态：{scenario.status} · 消息数：{scenario.messageCount}
-                  </div>
-                  {scenario.verdictComment && (
-                    <div className="mt-2 rounded-xl border border-[#f3f4f6] bg-[#fafafa] px-2.5 py-2 text-xs text-[#404040]">
-                      备注：{scenario.verdictComment}
-                    </div>
-                  )}
-                </div>
-              ))}
-
             </div>
 
-            <div className="border-t border-[#ececec] bg-[#fafafa] px-4 py-3">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#404040]">
-                  <MessageSquare size={12} />
-                  评估沙箱对话窗口
-                  {workspaceStatus?.overallStatus === 'ready' && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#e6f5ec] px-2 py-0.5 text-[11px] font-medium text-[#15803d]">
-                      <CheckCircle2 size={10} />
-                      已连接
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {evaluatorHireId ? (
-                    <span className="text-[11px] text-[#9ca3af]">evalHireId={evaluatorHireId}</span>
-                  ) : workspaceStatus?.overallStatus === 'ready' ? (
-                    <span className="text-[11px] text-[#9ca3af]">等待执行评估...</span>
-                  ) : null}
-                  <button
-                    type="button"
-                    disabled={!aiRunning || chatLoading || chatSending}
-                    className="hb-btn-ghost !px-2.5 !py-1 !text-[11px]"
-                    onClick={() => void loadEvaluatorConversation()}
-                  >
-                    <RefreshCw size={11} />
-                    刷新
-                  </button>
-                </div>
-              </div>
-
-              {!aiRunning ? (
-                <div className="rounded-xl border border-[#ececec] bg-white px-3 py-2 text-xs text-[#737373]">
-                  请先点击“准备评估环境”，进入 ai_running 后可连接评估沙箱。
-                </div>
-              ) : (!evaluatorHireId && chatLoading) ? (
-                <div className="rounded-xl border border-[#ffd5da] bg-[#fff1f2] px-3 py-2 text-xs text-[#b3263c]">
-                  评估沙箱初始化中，请稍候...
-                </div>
-              ) : (
-                <div className="overflow-hidden rounded-xl border border-[#ececec] bg-white">
-                  <div className="max-h-[320px] space-y-2 overflow-y-auto px-3 py-2">
-                    {chatLoading ? (
-                      <div className="flex items-center gap-1.5 text-xs text-[#737373]">
-                        <Loader2 size={12} className="animate-spin" />
-                        正在加载评估沙箱对话...
-                      </div>
-                    ) : chatMessages.length === 0 ? (
-                      <div className="text-xs text-[#737373]">暂无对话，发送消息后将同步评估沙箱回复。</div>
-                    ) : (
-                      chatMessages.map((message) => {
-                        const isUser = message.role.toLowerCase() === 'user'
-                        return (
-                          <div key={message.messageId} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                            <div
-                              className={`max-w-[90%] rounded-xl px-2.5 py-2 text-xs leading-relaxed ${
-                                isUser
-                                  ? 'bg-[#000000] text-white'
-                                  : 'border border-[#ececec] bg-[#fafafa] text-[#404040]'
-                              }`}
-                            >
-                              <div className={`mb-1 text-[10px] ${isUser ? 'text-[#e5e5e5]' : 'text-[#9ca3af]'}`}>
-                                {isUser ? '你' : '评估沙箱'} · {formatDateTime(message.createdAt)}
+            <div className="flex-1 overflow-hidden bg-[#fafafa] px-4 py-3">
+              <div className="flex h-full flex-col overflow-hidden rounded-xl border border-[#ececec] bg-white">
+                {!aiRunning ? (
+                  <div className="m-3 rounded-xl border border-[#ececec] bg-[#fafafa] px-3 py-2 text-xs text-[#737373]">
+                    请先点击“准备评估环境”，进入 ai_running 后可连接评估沙箱。
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2">
+                      {chatLoading ? (
+                        <div className="flex items-center gap-1.5 text-xs text-[#737373]">
+                          <Loader2 size={12} className="animate-spin" />
+                          正在加载评估沙箱对话...
+                        </div>
+                      ) : chatMessages.length === 0 ? (
+                        <div className="text-xs text-[#737373]">暂无对话，发送消息后将同步评估沙箱回复。</div>
+                      ) : (
+                        chatMessages.map((message) => {
+                          const isUser = message.role.toLowerCase() === 'user'
+                          return (
+                            <div key={message.messageId} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                              <div
+                                className={`max-w-[90%] rounded-xl px-2.5 py-2 text-xs leading-relaxed ${
+                                  isUser
+                                    ? 'bg-[#000000] text-white'
+                                    : 'border border-[#ececec] bg-[#fafafa] text-[#404040]'
+                                }`}
+                              >
+                                <div className={`mb-1 text-[10px] ${isUser ? 'text-[#e5e5e5]' : 'text-[#9ca3af]'}`}>
+                                  {isUser ? '你' : '评估沙箱'} 路 {formatDateTime(message.createdAt)}
+                                </div>
+                                <div className="whitespace-pre-wrap break-words">{message.content}</div>
                               </div>
-                              <div className="whitespace-pre-wrap break-words">{message.content}</div>
                             </div>
-                          </div>
-                        )
-                      })
-                    )}
-                    <div ref={chatEndRef} />
-                  </div>
-                  <div className="border-t border-[#ececec] px-2.5 py-2">
-                    <div className="flex items-end gap-2">
-                      <textarea
-                        value={chatInput}
-                        onChange={(event) => setChatInput(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' && !event.shiftKey) {
-                            event.preventDefault()
-                            void sendEvaluatorMessage()
-                          }
-                        }}
-                        rows={2}
-                        disabled={chatSending}
-                        placeholder="向评估沙箱发送消息（Enter 发送，Shift+Enter 换行）"
-                        className="min-h-[44px] flex-1 resize-y rounded-xl border border-[#e5e5e5] bg-[#fafafa] px-3 py-2 text-xs outline-none focus:border-[#4a6cf7] disabled:opacity-60"
-                      />
-                      <button
-                        type="button"
-                        disabled={chatSending || !chatInput.trim()}
-                        className="hb-btn-primary !px-2.5 !py-2 disabled:!bg-[#d4d4d8]"
-                        onClick={() => void sendEvaluatorMessage()}
-                      >
-                        {chatSending ? <Loader2 size={12} className="animate-spin" /> : <SendHorizontal size={12} />}
-                      </button>
+                          )
+                        })
+                      )}
+                      <div ref={chatEndRef} />
                     </div>
-                  </div>
-                </div>
-              )}
+                    <div className="border-t border-[#ececec] px-2.5 py-2">
+                      <div className="flex items-end gap-2">
+                        <textarea
+                          value={chatInput}
+                          onChange={(event) => setChatInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' && !event.shiftKey) {
+                              event.preventDefault()
+                              void sendEvaluatorMessage()
+                            }
+                          }}
+                          rows={2}
+                          disabled={chatSending}
+                          placeholder="向评估沙箱发送消息（Enter 发送，Shift+Enter 换行）"
+                          className="min-h-[44px] flex-1 resize-y rounded-xl border border-[#e5e5e5] bg-[#fafafa] px-3 py-2 text-xs outline-none focus:border-[#4a6cf7] disabled:opacity-60"
+                        />
+                        <button
+                          type="button"
+                          disabled={chatSending || !chatInput.trim()}
+                          className="hb-btn-primary !px-2.5 !py-2 disabled:!bg-[#d4d4d8]"
+                          onClick={() => void sendEvaluatorMessage()}
+                        >
+                          {chatSending ? <Loader2 size={12} className="animate-spin" /> : <SendHorizontal size={12} />}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
 
               {chatError && (
                 <div className="mt-2 rounded-xl border border-[#ffd5da] bg-[#fff1f2] px-2.5 py-1.5 text-[11px] text-[#b3263c]">
@@ -812,9 +820,13 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
                 <div className="flex-1 overflow-y-auto p-3 text-xs">
                   {artifactTab === 'testcase' && (
                     <div className="space-y-2">
-                      {!materialsReady ? (
+                      {!workspaceReady ? (
                         <div className="rounded-xl border border-[#ececec] bg-white px-3 py-3 text-[11px] text-[#737373]">
-                          素材未就绪，等待完成"加载评估素材"。
+                          请先完成沙箱初始化流程，随后展示测试用例。
+                        </div>
+                      ) : !materialsReady ? (
+                        <div className="rounded-xl border border-[#ececec] bg-white px-3 py-3 text-[11px] text-[#737373]">
+                          素材未就绪，等待完成“加载评估素材”。
                         </div>
                       ) : questionCards.length === 0 ? (
                         <div className="rounded-xl border border-[#ececec] bg-white px-3 py-3 text-[11px] text-[#737373]">
@@ -869,13 +881,13 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
                               <div className="mb-1 flex items-center gap-1.5">
                                 <Zap size={10} className="text-[#4a6cf7]" />
                                 <span className="font-semibold text-[#404040]">
-                                  轨迹 #{index + 1} {asset.relatedKey ? `· ${asset.relatedKey}` : ''}
+                                  轨迹 #{index + 1} {asset.relatedKey ? `路 ${asset.relatedKey}` : ''}
                                 </span>
                               </div>
                               <div className="text-[11px] text-[#737373]">创建时间：{formatDateTime(asset.createdAtUtc)}</div>
                               {relatedScenario && (
                                 <div className="mt-1 text-[11px] text-[#737373]">
-                                  场景：{relatedScenario.scenarioName} · 判定：{verdictLabel(relatedScenario.verdict)}
+                                  场景：{relatedScenario.scenarioName} 路 判定：{verdictLabel(relatedScenario.verdict)}
                                 </div>
                               )}
                               <div className="mt-1 break-all text-[11px] text-[#9ca3af]">{asset.relativePath}</div>

@@ -2,7 +2,7 @@
   "name": "evaluation-expert",
   "display_name": "评估专家对话包",
   "positioning": "双沙箱评估流程的执行中枢，通过 runtime-context 驱动目标沙箱逐题执行并基于 trace 进行多维评分与报告生成。",
-  "description": "评估沙箱加载本模板包后，由 live_evaluation_coordinator 协调材料检查、题卡展示、目标沙箱执行采集、评分与报告输出。流程基于 runtime-context，与目标沙箱建立鉴权后的 WebSocket，逐题执行测试用例并生成结构化 verdict。",
+  "description": "评估沙箱加载本模板包后，由 live_evaluation_coordinator 协调材料检查、题卡展示、目标沙箱执行采集、评分与报告输出。与目标沙箱建立鉴权后的 WebSocket，逐题执行测试用例并生成结构化 verdict。",
   "version": "v2.2.0",
   "entry_skill": "skills/live_evaluation_coordinator",
   "ontology_slices": [

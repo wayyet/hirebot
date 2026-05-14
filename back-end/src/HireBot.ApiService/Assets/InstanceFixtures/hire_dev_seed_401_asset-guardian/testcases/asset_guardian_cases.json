@@ -7,7 +7,7 @@
       "test_case_id": "AG-001",
       "scenario_name": "新采购笔记本入库与标签绑定",
       "input": {
-        "user_request": "新增 30 台笔记本到上海办公室资产池，请完成入库登记并生成二维码标签。",
+        "user_request": "新增 40 台笔记本到上海办公室资产池，请完成入库登记并生成二维码标签。",
         "context": {
           "site": "Shanghai-HQ",
           "asset_category": "Laptop",

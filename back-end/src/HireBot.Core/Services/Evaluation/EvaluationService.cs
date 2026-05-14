@@ -605,7 +605,7 @@ internal sealed partial class EvaluationService(
                     startSkillRootPath,
                     request.Comment,
                     allowTargetHireCreation: true,
-                    forceTargetHireRecreate: false,
+                    forceTargetHireRecreate: true,
                     cancellationToken);
                 if (!startWorkspaceResult.Success || startWorkspaceResult.Data is null)
                 {
@@ -662,7 +662,7 @@ internal sealed partial class EvaluationService(
                     skillRootPath,
                     request.Comment,
                     allowTargetHireCreation: true,
-                    forceTargetHireRecreate: false,
+                    forceTargetHireRecreate: true,
                     cancellationToken);
                 if (!workspaceResult.Success || workspaceResult.Data is null)
                 {
@@ -718,7 +718,7 @@ internal sealed partial class EvaluationService(
                     null,
                     request.Comment,
                     allowTargetHireCreation: true,
-                    forceTargetHireRecreate: false,
+                    forceTargetHireRecreate: true,
                     cancellationToken);
                 if (!workspaceResult.Success || workspaceResult.Data is null)
                 {
@@ -1137,13 +1137,69 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(502, "unable to acquire sandbox access token");
 
         var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, ctx, cancellationToken);
+        var evaluatorMaterialsResult = await PrepareEvaluatorMaterialsArchiveAsync(
+            owner,
+            employee,
+            ctx,
+            sessionEntity,
+            cancellationToken);
+        if (!evaluatorMaterialsResult.Success || string.IsNullOrWhiteSpace(evaluatorMaterialsResult.Data))
+        {
+            return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(
+                evaluatorMaterialsResult.Code,
+                evaluatorMaterialsResult.Message);
+        }
+
+        // Upload runtime_context JSON to evaluator sandbox so the AI doesn't need to write it
+        var runtimeContextJson = BuildRuntimeContextJson(
+            employee,
+            ctx,
+            sessionEntity,
+            targetGatewayEndpoint,
+            evaluatorMaterialsResult.Data);
+        var runtimeContextBytes = System.Text.Encoding.UTF8.GetBytes(runtimeContextJson);
+        var runtimeContextUploadResult = await sandboxService.UploadAttachmentAsync(
+            new SandboxAttachmentUploadRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Managed,
+                ScopeKey = ctx.EvaluatorHireId,
+                SandboxRole = "evaluation-evaluator",
+                OwnerSubject = owner,
+                TenantId = "tenant-default",
+                OperatorId = "operator-default",
+                SandboxId = ctx.EvaluatorSandboxId,
+                Material = new HiringConversationMaterialDto
+                {
+                    Type = "runtime-context-json",
+                    Name = "evaluation-context.json",
+                    Content = Convert.ToBase64String(runtimeContextBytes),
+                    MimeType = "application/json",
+                    Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["contentEncoding"] = "base64"
+                    }
+                }
+            },
+            cancellationToken);
+
+        string runtimeContextPath;
+        if (runtimeContextUploadResult.Success && runtimeContextUploadResult.Data is not null)
+        {
+            runtimeContextPath = ResolveMediaCachePathFromAttachment(runtimeContextUploadResult.Data);
+        }
+        else
+        {
+            return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(502,
+                $"failed to upload runtime context to evaluator sandbox: {runtimeContextUploadResult.Message}");
+        }
+
         var payloadJson = BuildLiveEvaluationBootstrapPayload(
             owner,
             employee,
             ctx,
             sessionEntity,
             targetGatewayEndpoint,
-            token);
+            runtimeContextPath);
 
         await UpdateSessionStatusAsync(sessionEntity, "ws_connected", null, cancellationToken);
 
