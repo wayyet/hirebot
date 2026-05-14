@@ -161,7 +161,7 @@ skills/<skill_slug>/
 
 - 结构化工单：保留 `origin`、`generation_action`、`skill_name`、`skill_description`、`trigger`、`expected_output`，写入 `references/source-digest.md` 的 workorder source 区块。
 - 会话描述：保留用户原话，写入 `references/source-digest.md` 的 conversation source 区块。
-- 上传文件：解析 Markdown、文本、JSON、YAML；zip 递归读取候选 skill 文件；保留文件清单、解析结论和不可解析项。**当由上游 `employment-coach-conversation` 触发时，输入中包含 `material_handoff_summary`，其中每条物料的 `source_path` 字段即为沙箱内实际文件路径，直接按此路径读取，不要运行 `shell: ls` 探索文件系统。** `source_path` 为 `null` 的物料是纯文本描述，无对应文件。`material_handoff_summary` 的 `data` 中还包含 `workspace_root` 字段（格式为 `/workspace/<template-slug>`），本 skill 的所有产物必须写入 `<workspace_root>/skills/<skill-slug>/`；若 `workspace_root` 缺失，读取 `config/workspace.json` 确认路径。
+- 上传文件：解析 Markdown、文本、JSON、YAML；zip 递归读取候选 skill 文件；保留文件清单、解析结论和不可解析项。**当由上游 `employment-coach-conversation` 触发时，输入中包含 `material_handoff_summary`，其中每条物料的 `source_path` 字段即为沙箱内实际文件路径，直接按此路径读取，不要运行 `shell: ls` 探索文件系统。** `source_path` 为 `null` 的物料是纯文本描述，无对应文件。`material_handoff_summary` 的 `data.workspace_root` 是雇佣教练会话初始化时由沙箱解压工具创建并锁定的真实绝对路径（运行时确定，本 skill 当作不透明字符串使用），本 skill 的所有产物必须写入 `<workspace_root>/skills/<skill-slug>/`（用 artifact 收到的真实路径替换 `<workspace_root>`）；若 `workspace_root` 缺失，停下来报错，不要靠 `ls /workspace` 推断或自行拼接 `/workspace/<slug>`。
 - 混合输入：上传文件作为基线，会话描述作为增量补充，不用会话描述覆盖文件里更明确的能力定义。
 
 来源归档必须记录：来源类型、可信度、抽取到的能力、未决问题和被丢弃内容。不要把 token、密钥、密码、连接串写入归档。
