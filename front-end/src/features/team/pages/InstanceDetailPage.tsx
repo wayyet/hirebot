@@ -6,10 +6,8 @@ import {
   Clock3,
   CopyPlus,
   Loader2,
-  MessageCircle,
   RotateCcw,
   ShieldCheck,
-  Users,
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useUserRole } from "@/app/context/UserRoleContext";
@@ -17,6 +15,7 @@ import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeDetail } from "@/infra/api";
 import { instanceBasePath } from "@/shared/utils/instancePath";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
+import CloneEmployeeModal from "@/features/hiring/pages/components/CloneEmployeeModal";
 import {
   firstCharacter,
   ownershipClass,
@@ -26,12 +25,6 @@ import {
   toEmployeeDetailSummary,
   withEmployeeView,
 } from "@/features/hiring/pages/employeeView";
-
-const IM_CHANNELS = [
-  { id: "feishu", label: "飞书", status: "可配置" },
-  { id: "dingtalk", label: "钉钉", status: "待接入" },
-  { id: "wecom", label: "企微", status: "待接入" },
-];
 
 export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -43,6 +36,7 @@ export default function InstanceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [cloneModalOpen, setCloneModalOpen] = useState(false);
 
   async function loadEmployee() {
     if (!id) return;
@@ -63,27 +57,6 @@ export default function InstanceDetailPage() {
   useEffect(() => {
     void loadEmployee();
   }, [id]);
-
-  async function toggleCapability(name: string, ready: boolean) {
-    if (!employee || !id) return;
-    setSubmitting(true);
-    setError("");
-    try {
-      const data = await api.employeeRuntime.updateCapabilities(id, {
-        capabilities: employee.capabilities.map((cap) =>
-          cap.name === name ? { ...cap, ready } : cap,
-        ),
-      });
-      setEmployee(data);
-      showToast(`能力「${name}」已${ready ? "启用" : "停用"}`, "success");
-    } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error ? requestError.message : "更新能力失败",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   async function rehireEmployee() {
     if (
@@ -240,7 +213,7 @@ export default function InstanceDetailPage() {
                   <button
                     type="button"
                     className="hb-btn-primary"
-                    onClick={() => navigate(`/clone/${employee.employeeId}`)}
+                    onClick={() => setCloneModalOpen(true)}
                   >
                     <CopyPlus size={14} />
                     {role === "member" ? "创建分身" : "复制为我的分身"}
@@ -279,7 +252,7 @@ export default function InstanceDetailPage() {
               <h2 className="hb-section-heading">能力简介</h2>
               <div className="hb-cap-list">
                 {employee.capabilities.map((capability) => (
-                  <label
+                  <div
                     key={capability.name}
                     className={`hb-cap ${capability.ready ? "" : "is-muted"}`}
                   >
@@ -287,24 +260,13 @@ export default function InstanceDetailPage() {
                       {capability.ready ? <Check size={12} /> : "×"}
                     </span>
                     <span className="min-w-0 flex-1">{capability.name}</span>
-                    <input
-                      type="checkbox"
-                      checked={capability.ready}
-                      disabled={submitting}
-                      onChange={(event) =>
-                        void toggleCapability(
-                          capability.name,
-                          event.target.checked,
-                        )
-                      }
-                    />
-                  </label>
+                  </div>
                 ))}
               </div>
 
               <div className="hb-divider" />
               <div className="hb-callout info">
-                详情页只展示业务可读的能力和边界，能力开关会直接写回当前实例配置。
+                详情页展示当前实例已具备的业务能力。
               </div>
             </div>
 
@@ -312,16 +274,6 @@ export default function InstanceDetailPage() {
               <h2 className="hb-section-heading">运行状态</h2>
               {employeeView.mappedStatus === "live" ? (
                 <div className="hb-stat-strip">
-                  <div className="hb-stat-item">
-                    <MessageCircle size={16} />
-                    <strong>{employee.tasksDone || 0}</strong>
-                    <span>累计完成</span>
-                  </div>
-                  <div className="hb-stat-item">
-                    <Users size={16} />
-                    <strong>{employee.tasksTotal || 0}</strong>
-                    <span>任务总数</span>
-                  </div>
                   <div className="hb-stat-item">
                     <Clock3 size={16} />
                     <strong>{employee.graduatedAt || "—"}</strong>
@@ -367,35 +319,22 @@ export default function InstanceDetailPage() {
                   </div>
                 </div>
               </div>
-
-              <div className="mt-4">
-                <h3 className="mb-2 text-sm font-semibold text-[#0a0a0a]">
-                  IM 接入状态
-                </h3>
-                <div className="grid gap-2 md:grid-cols-3">
-                  {IM_CHANNELS.map((channel) => (
-                    <button
-                      key={channel.id}
-                      type="button"
-                      className="rounded-xl border border-[#ececec] bg-[#fafafa] px-3 py-2 text-left text-sm hover:bg-white"
-                      onClick={() =>
-                        navigate(`${instanceBasePath(location.pathname, employee.employeeId)}/im-config`)
-                      }
-                    >
-                      <div className="font-medium text-[#0a0a0a]">
-                        {channel.label}
-                      </div>
-                      <div className="mt-0.5 text-xs text-[#737373]">
-                        {channel.status}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           </section>
         </div>
       )}
+
+      <CloneEmployeeModal
+        open={cloneModalOpen}
+        employeeId={employee?.employeeId ?? ""}
+        sourceNickname={employee?.nickname ?? ""}
+        sourceRoleName={employee?.roleName ?? ""}
+        onClose={() => setCloneModalOpen(false)}
+        onSuccess={() => {
+          setCloneModalOpen(false);
+          void loadEmployee();
+        }}
+      />
     </div>
   );
 }

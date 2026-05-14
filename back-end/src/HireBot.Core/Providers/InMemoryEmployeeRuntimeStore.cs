@@ -96,4 +96,14 @@ public sealed class InMemoryEmployeeRuntimeStore : IEmployeeRuntimeStore
         byOwner[ownerSubject] = bucket;
         return Task.FromResult(bucket.Count);
     }
+
+    public Task<bool> DeleteAsync(string ownerSubject, string employeeId, CancellationToken cancellationToken = default)
+    {
+        if (!byOwner.TryGetValue(ownerSubject, out var employees))
+        {
+            return Task.FromResult(false);
+        }
+
+        return Task.FromResult(employees.TryRemove(employeeId, out _));
+    }
 }

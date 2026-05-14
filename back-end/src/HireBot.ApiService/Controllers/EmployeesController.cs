@@ -107,6 +107,46 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    /// <summary>
+    /// 上传模板包并直接从模板创建已上岗员工，跳过雇佣沟通、评估、实习等环节。
+    /// </summary>
+    [HttpPost("quick-create")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(250_000_000)]
+    public async Task<IActionResult> QuickCreateFromTemplate(
+        IFormFile? templatePackage,
+        CancellationToken cancellationToken = default)
+    {
+        if (templatePackage is null || templatePackage.Length == 0)
+        {
+            var badReq = ApiResponse<object>.ErrorResponse(400, "必须上传模板包文件");
+            return BadRequest(badReq);
+        }
+
+        var fileName = templatePackage.FileName ?? "template.zip";
+        if (!fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            var badReq = ApiResponse<object>.ErrorResponse(400, "仅支持 .zip 格式的模板包");
+            return BadRequest(badReq);
+        }
+
+        await using var stream = templatePackage.OpenReadStream();
+        var response = await employeeRuntimeService.QuickCreateFromTemplateAsync(stream, fileName, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    /// <summary>
+    /// 删除数字员工及其全部关联资源。
+    /// </summary>
+    [HttpDelete("{employeeId}")]
+    public async Task<IActionResult> DeleteEmployee(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await employeeRuntimeService.DeleteEmployeeAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpGet("{employeeId}/training/state")]
     public async Task<IActionResult> GetTrainingState(string employeeId, CancellationToken cancellationToken = default)
     {
