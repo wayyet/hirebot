@@ -13,6 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useUserRole } from "@/app/context/UserRoleContext";
 import { api, type EmployeeSummary } from "@/infra/api";
 import TemplateUploadModal from "./components/TemplateUploadModal";
@@ -32,6 +33,7 @@ const PAGE_SIZE = 9;
 
 export default function DepartmentEmployeesPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { role } = useUserRole();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -53,7 +55,7 @@ export default function DepartmentEmployeesPage() {
   async function handleDelete(employeeId: string, nickname: string) {
     if (
       !window.confirm(
-        `确认删除数字员工「${nickname}」？此操作不可撤销，将同时清理五件套文件。`,
+        t("employees.departmentPage.confirmDelete", { nickname }),
       )
     ) {
       return;
@@ -65,7 +67,9 @@ export default function DepartmentEmployeesPage() {
       setRefreshKey((k) => k + 1);
     } catch (deleteError: unknown) {
       const message =
-        deleteError instanceof Error ? deleteError.message : "删除失败";
+        deleteError instanceof Error
+          ? deleteError.message
+          : t("employees.departmentPage.deleteFailed");
       window.alert(message);
     } finally {
       setDeletingId(null);
@@ -90,7 +94,7 @@ export default function DepartmentEmployeesPage() {
           setError(
             requestError instanceof Error
               ? requestError.message
-              : "部门数字员工加载失败",
+                : t("employees.departmentPage.loadFailed"),
           );
         }
       } finally {
@@ -225,15 +229,19 @@ export default function DepartmentEmployeesPage() {
       <div className="hb-page-head">
         <div>
           <span className="hb-kicker">
-            {role === "manager" ? "团队资产总览" : "部门可复制员工"}
+            {role === "manager"
+              ? t("employees.departmentPage.kickerManager")
+              : t("employees.departmentPage.kickerMember")}
           </span>
-          <h1 className="hb-page-title">
-            部门数字员工 · <span className="accent">研发部</span>
-          </h1>
+          <h1 className="hb-page-title">{t("employees.departmentPage.title")}</h1>
           <p className="hb-page-copy">
             {role === "manager"
-              ? "部门长视角下统一管理已雇佣、评估中、已上岗三个阶段。所有卡片先进入详情，再从详情页分发下一步动作。"
-              : "普通成员只看到本部门已上岗结果集。进入详情后可以继续复制为自己的分身。"}
+              ? t("employees.departmentPage.copyManager", {
+                  department: t("employees.departmentPage.departmentName"),
+                })
+              : t("employees.departmentPage.copyMember", {
+                  department: t("employees.departmentPage.departmentName"),
+                })}
           </p>
         </div>
         {role === "manager" ? (
@@ -243,14 +251,14 @@ export default function DepartmentEmployeesPage() {
               className="hb-btn-primary hb-hub-btn-primary"
               onClick={() => setUploadModalOpen(true)}
             >
-              上传模版
+              {t("employees.departmentPage.actions.uploadTemplate")}
             </button>
             <button
               type="button"
               className="hb-btn-primary hb-hub-btn-primary"
               onClick={() => navigate("/template-pool")}
             >
-              从模板池雇佣
+              {t("employees.departmentPage.actions.hireFromPool")}
             </button>
           </div>
         ) : null}
@@ -259,31 +267,31 @@ export default function DepartmentEmployeesPage() {
       <div className="hb-stat-grid">
         <div className="hb-stat-card">
           <div className="hb-stat-label">
-            <Users size={14} /> 部门员工
+            <Users size={14} /> {t("employees.ownership.department")}
           </div>
           <div className="hb-stat-value">{viewedEmployees.length}</div>
-          <div className="hb-stat-note">可按状态筛选</div>
+          <div className="hb-stat-note">{t("employees.departmentPage.stats.totalNote")}</div>
         </div>
         <div className="hb-stat-card">
           <div className="hb-stat-label">
-            <CheckCircle2 size={14} /> 已上岗
+            <CheckCircle2 size={14} /> {t("employees.departmentPage.stats.liveLabel")}
           </div>
           <div className="hb-stat-value">{counts.live}</div>
-          <div className="hb-stat-note">可直接复制</div>
+          <div className="hb-stat-note">{t("employees.departmentPage.stats.liveNote")}</div>
         </div>
         <div className="hb-stat-card">
           <div className="hb-stat-label">
-            <Sparkles size={14} /> 评估中
+            <Sparkles size={14} /> {t("employees.departmentPage.stats.evaluatingLabel")}
           </div>
           <div className="hb-stat-value">{counts.intern}</div>
-          <div className="hb-stat-note">AI / 人工评估</div>
+          <div className="hb-stat-note">{t("employees.departmentPage.stats.evaluatingNote")}</div>
         </div>
         <div className="hb-stat-card">
           <div className="hb-stat-label">
-            <BarChart2 size={14} /> 雇佣中
+            <BarChart2 size={14} /> {t("employees.departmentPage.stats.hiredLabel")}
           </div>
           <div className="hb-stat-value">{counts.hired}</div>
-          <div className="hb-stat-note">等待进入评估</div>
+          <div className="hb-stat-note">{t("employees.departmentPage.stats.hiredNote")}</div>
         </div>
       </div>
 
@@ -293,7 +301,7 @@ export default function DepartmentEmployeesPage() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           className="hb-search-input"
-          placeholder="搜索员工名称、能力标签、所属场景"
+          placeholder={t("employees.departmentPage.searchPlaceholder")}
         />
         <div className="hb-search-controls">
           <button
@@ -301,7 +309,7 @@ export default function DepartmentEmployeesPage() {
             className="hb-btn-ghost hb-hub-btn-secondary"
             onClick={() => setQuery("")}
           >
-            清空筛选
+            {t("employees.departmentPage.clearFilters")}
           </button>
         </div>
       </div>
@@ -310,15 +318,15 @@ export default function DepartmentEmployeesPage() {
         <div className="hb-tab-row">
           {(role === "manager"
             ? [
-                { id: "hired" as const, label: "已雇佣", count: counts.hired },
+                { id: "hired" as const, label: t("employees.departmentPage.tabs.hired"), count: counts.hired },
                 {
                   id: "intern" as const,
-                  label: "待实习",
+                  label: t("employees.departmentPage.tabs.intern"),
                   count: counts.intern,
                 },
-                { id: "live" as const, label: "已上岗", count: counts.live },
+                { id: "live" as const, label: t("employees.departmentPage.tabs.live"), count: counts.live },
               ]
-            : [{ id: "live" as const, label: "已上岗", count: counts.live }]
+            : [{ id: "live" as const, label: t("employees.departmentPage.tabs.live"), count: counts.live }]
           ).map((item) => (
             <button
               key={item.id}
@@ -342,7 +350,7 @@ export default function DepartmentEmployeesPage() {
             className={`hb-chip ${internSubTab === "ai" ? "is-active" : ""}`}
             onClick={() => setInternSubTab("ai")}
           >
-            AI 评估
+            {t("employees.departmentPage.subtabs.ai")}
             <span>{counts.ai}</span>
           </button>
           <button
@@ -350,7 +358,7 @@ export default function DepartmentEmployeesPage() {
             className={`hb-chip ${internSubTab === "human" ? "is-active" : ""}`}
             onClick={() => setInternSubTab("human")}
           >
-            人工评估
+            {t("employees.departmentPage.subtabs.human")}
             <span>{counts.human}</span>
           </button>
         </div>
@@ -366,15 +374,15 @@ export default function DepartmentEmployeesPage() {
         {loading ? (
           <div className="hb-card flex min-h-52 items-center justify-center gap-2 p-8 text-sm text-[var(--hb-soft)]">
             <Loader2 size={16} className="animate-spin" />
-            正在加载部门数字员工...
+            {t("employees.departmentPage.loading")}
           </div>
         ) : visibleEmployees.length === 0 ? (
           <div className="hb-empty">
-            <div className="hb-empty-title">当前没有符合筛选条件的数字员工</div>
+            <div className="hb-empty-title">{t("employees.departmentPage.emptyTitle")}</div>
             <div className="hb-empty-copy">
               {role === "manager"
-                ? "去模板池开始一轮新雇佣，或切换到其他状态查看不同阶段的员工。"
-                : "等部门长完成上岗后，这里就会出现可以直接使用和复制的员工。"}
+                ? t("employees.departmentPage.emptyCopyManager")
+                : t("employees.departmentPage.emptyCopyMember")}
             </div>
           </div>
         ) : (
@@ -423,20 +431,20 @@ export default function DepartmentEmployeesPage() {
                   <div className="hb-employee-card-divider" />
                   <div>
                     <div className="hb-employee-card-footer">
-                      <span>创建于 {employee.createdAt}</span>
+                      <span>{t("employees.departmentPage.createdAt", { date: employee.createdAt })}</span>
                       {canClone ? (
                         <span className="text-emerald-600 dark:text-emerald-400">
-                          可复制
+                          {t("employees.departmentPage.cloneReady")}
                         </span>
                       ) : null}
                       {isInterningAi ? (
                         <span className="text-violet-600 dark:text-violet-400">
-                          AI 评估中
+                          {t("employees.status.interningAi")}
                         </span>
                       ) : null}
                       {isInterningHuman ? (
                         <span className="text-indigo-600 dark:text-indigo-400">
-                          人工评估中
+                          {t("employees.status.interningHuman")}
                         </span>
                       ) : null}
                     </div>
@@ -451,14 +459,14 @@ export default function DepartmentEmployeesPage() {
                             }
                           >
                             <Bot size={14} />
-                            进入 AI 评估
+                            {t("employees.departmentPage.actions.enterAiEvaluation")}
                           </button>
                           <button
                             type="button"
                             className="hb-btn-ghost hb-hub-btn-secondary"
                             onClick={() => setDetailEmployeeId(employee.employeeId)}
                           >
-                            查看详情
+                            {t("employees.departmentPage.actions.viewDetail")}
                             <ArrowRight size={14} />
                           </button>
                         </>
@@ -472,14 +480,14 @@ export default function DepartmentEmployeesPage() {
                             }
                           >
                             <UserCheck size={14} />
-                            进入人工评估
+                            {t("employees.departmentPage.actions.enterHumanEvaluation")}
                           </button>
                           <button
                             type="button"
                             className="hb-btn-ghost hb-hub-btn-secondary"
                             onClick={() => setDetailEmployeeId(employee.employeeId)}
                           >
-                            查看详情
+                            {t("employees.departmentPage.actions.viewDetail")}
                             <ArrowRight size={14} />
                           </button>
                         </>
@@ -500,7 +508,7 @@ export default function DepartmentEmployeesPage() {
                               }
                             >
                               <CopyPlus size={14} />
-                              创建分身
+                              {t("employees.departmentPage.actions.createClone")}
                             </button>
                           ) : null}
                           <button
@@ -512,7 +520,7 @@ export default function DepartmentEmployeesPage() {
                             }
                             onClick={() => setDetailEmployeeId(employee.employeeId)}
                           >
-                            查看详情
+                            {t("employees.departmentPage.actions.viewDetail")}
                             <ArrowRight size={14} />
                           </button>
                         </>
@@ -525,7 +533,7 @@ export default function DepartmentEmployeesPage() {
                           handleDelete(employee.employeeId, employee.nickname);
                         }}
                         disabled={deletingId === employee.employeeId}
-                        title="删除员工"
+                        title={t("employees.departmentPage.actions.deleteEmployee")}
                       >
                         {deletingId === employee.employeeId ? (
                           <Loader2 size={14} className="animate-spin" />

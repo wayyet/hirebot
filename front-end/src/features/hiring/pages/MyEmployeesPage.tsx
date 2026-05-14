@@ -8,6 +8,7 @@ import {
   Users,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeSummary } from "@/infra/api";
 import {
@@ -21,6 +22,7 @@ const PAGE_SIZE = 9;
 
 export default function MyEmployeesPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { showToast } = useUxOverlay();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -34,7 +36,7 @@ export default function MyEmployeesPage() {
     event.stopPropagation();
     if (
       !window.confirm(
-        "废弃后会回滚五件套并恢复为个人分身，沙箱、对话和 IM 配置都会继续沿用。此操作不可撤销，确定继续？",
+        t("employees.myPage.confirmAbandon"),
       )
     )
       return;
@@ -53,7 +55,7 @@ export default function MyEmployeesPage() {
             : employee,
         ),
       );
-      showToast("私有分身已废弃，已恢复为个人分身", "success");
+      showToast(t("employees.myPage.abandonSuccess"), "success");
     } catch {
       // Silently handle — user can retry from detail page
     } finally {
@@ -63,13 +65,13 @@ export default function MyEmployeesPage() {
 
   async function retireEmployee(employeeId: string, event: React.MouseEvent) {
     event.stopPropagation();
-    if (!window.confirm("确定要将此实例退役吗？退役后仅保留历史信息。")) return;
+    if (!window.confirm(t("employees.myPage.confirmRetire"))) return;
     setRetiringId(employeeId);
     try {
       await api.employeeRuntime.updateLifecycle(employeeId, {
         status: "retired",
-        stageSummary: "实例已退役",
-        primarySignal: "仅保留历史信息",
+        stageSummary: t("employees.myPage.retiredStageSummary"),
+        primarySignal: t("employees.myPage.retiredPrimarySignal"),
         signalLevel: "warn",
       });
       setEmployees((prev) =>
@@ -78,15 +80,15 @@ export default function MyEmployeesPage() {
             ? {
                 ...e,
                 status: "retired",
-                lifecycleStatus: "已退役",
-                stageSummary: "实例已退役",
-                primarySignal: "仅保留历史信息",
+                lifecycleStatus: t("employees.status.retired"),
+                stageSummary: t("employees.myPage.retiredStageSummary"),
+                primarySignal: t("employees.myPage.retiredPrimarySignal"),
                 signalLevel: "warn",
               }
             : e,
         ),
       );
-      showToast("实例已退役", "success");
+      showToast(t("employees.myPage.retireSuccess"), "success");
     } catch {
       // Silently handle — user can retry
     } finally {
@@ -112,7 +114,7 @@ export default function MyEmployeesPage() {
           setError(
             requestError instanceof Error
               ? requestError.message
-              : "我的数字员工加载失败",
+                : t("employees.myPage.loadFailed"),
           );
         }
       } finally {
@@ -185,10 +187,10 @@ export default function MyEmployeesPage() {
     <div className="hb-page">
       <div className="hb-page-head">
         <div>
-          <span className="hb-kicker">个人资产面板</span>
-          <h1 className="hb-page-title">我的数字员工</h1>
+          <span className="hb-kicker">{t("employees.myPage.kicker")}</span>
+          <h1 className="hb-page-title">{t("employees.myPage.title")}</h1>
           <p className="hb-page-copy">
-            这里仅展示你本人拥有的个人资产实例。已上岗后可继续进入详情、站内对话、IM 配置和私有化扩展。
+            {t("employees.myPage.copy")}
           </p>
         </div>
         <div className="hb-page-actions">
@@ -197,7 +199,7 @@ export default function MyEmployeesPage() {
             className="hb-btn-ghost hb-hub-btn-secondary"
             onClick={() => navigate("/department-employees")}
           >
-            去部门数字员工复制一个 →
+            {t("employees.myPage.backToDepartment")}
           </button>
         </div>
       </div>
@@ -205,25 +207,25 @@ export default function MyEmployeesPage() {
       <div className="hb-stat-grid">
         <div className="hb-stat-card">
           <div className="hb-stat-label">
-            <Users size={14} /> 实例总数
+            <Users size={14} /> {t("employees.myPage.stats.totalLabel")}
           </div>
           <div className="hb-stat-value">{counts.all}</div>
         </div>
         <div className="hb-stat-card">
           <div className="hb-stat-label">
-            <Bot size={14} /> 已上岗
+            <Bot size={14} /> {t("employees.myPage.stats.liveLabel")}
           </div>
           <div className="hb-stat-value">{counts.live}</div>
         </div>
         <div className="hb-stat-card">
           <div className="hb-stat-label">
-            <ShieldCheck size={14} /> 私有分身
+            <ShieldCheck size={14} /> {t("employees.myPage.stats.branchLabel")}
           </div>
           <div className="hb-stat-value">{counts.branch}</div>
         </div>
         <div className="hb-stat-card">
           <div className="hb-stat-label">
-            <GitBranch size={14} /> 已退役
+            <GitBranch size={14} /> {t("employees.myPage.stats.retiredLabel")}
           </div>
           <div className="hb-stat-value">{counts.retired}</div>
         </div>
@@ -231,10 +233,10 @@ export default function MyEmployeesPage() {
 
       <div className="mt-5 hb-chip-row">
         {[
-          { id: "all" as const, label: "全部", count: counts.all },
-          { id: "live" as const, label: "已上岗", count: counts.live },
-          { id: "branch" as const, label: "私有分身", count: counts.branch },
-          { id: "retired" as const, label: "已退役", count: counts.retired },
+          { id: "all" as const, label: t("employees.myPage.filters.all"), count: counts.all },
+          { id: "live" as const, label: t("employees.myPage.filters.live"), count: counts.live },
+          { id: "branch" as const, label: t("employees.myPage.filters.branch"), count: counts.branch },
+          { id: "retired" as const, label: t("employees.myPage.filters.retired"), count: counts.retired },
         ].map((item) => (
           <button
             key={item.id}
@@ -258,13 +260,13 @@ export default function MyEmployeesPage() {
         {loading ? (
           <div className="hb-card flex min-h-52 items-center justify-center gap-2 p-8 text-sm text-[var(--hb-soft)]">
             <Loader2 size={16} className="animate-spin" />
-            正在加载我的数字员工...
+            {t("employees.myPage.loading")}
           </div>
         ) : visibleEmployees.length === 0 ? (
           <div className="hb-empty">
-            <div className="hb-empty-title">当前筛选下还没有你的个人资产</div>
+            <div className="hb-empty-title">{t("employees.myPage.emptyTitle")}</div>
             <div className="hb-empty-copy">
-              先去「部门数字员工」复制一个已上岗员工给自己，再回来这里继续对话、评估或定制。
+              {t("employees.myPage.emptyCopy")}
             </div>
           </div>
         ) : (
@@ -314,7 +316,7 @@ export default function MyEmployeesPage() {
                       }}
                     >
                       <MessageCircle size={12} />
-                      开始对话
+                      {t("employees.myPage.actions.startChat")}
                     </button>
                   ) : null}
                   <button
@@ -331,8 +333,8 @@ export default function MyEmployeesPage() {
                   >
                     <Bot size={12} />
                     {employee.mappedStatus === "retired"
-                      ? "查看评估报告"
-                      : "配置 IM"}
+                      ? t("employees.myPage.actions.viewReport")
+                      : t("employees.myPage.actions.configureIm")}
                   </button>
                   {employee.ownership === "personal_clone" &&
                   employee.mappedStatus === "live" ? (
@@ -345,7 +347,7 @@ export default function MyEmployeesPage() {
                       }}
                     >
                       <GitBranch size={12} />
-                      创建私有分身
+                      {t("employees.myPage.actions.createPrivateBranch")}
                     </button>
                   ) : null}
                   <button
@@ -360,12 +362,14 @@ export default function MyEmployeesPage() {
                     }}
                   >
                     <ShieldCheck size={12} />
-                    {retiringId === employee.employeeId ? "退役中..." : "退役"}
+                    {retiringId === employee.employeeId
+                      ? t("employees.myPage.actions.retiring")
+                      : t("employees.myPage.actions.retire")}
                   </button>
                 </div>
                 <div className="hb-employee-card-divider" />
                 <div className="hb-employee-card-footer">
-                  <span>最近更新 {employee.createdAt}</span>
+                  <span>{t("employees.myPage.updatedAt", { date: employee.createdAt })}</span>
                   <div className="flex items-center gap-2">
                     {employee.ownership === "private_branch" &&
                     employee.mappedStatus !== "retired" ? (
@@ -376,11 +380,11 @@ export default function MyEmployeesPage() {
                         }}
                       >
                         {abandoningId === employee.employeeId
-                          ? "废弃中..."
-                          : "废弃"}
+                          ? t("employees.myPage.actions.abandoning")
+                          : t("employees.myPage.actions.abandon")}
                       </span>
                     ) : null}
-                    <span className="hb-employee-card-link">查看详情 →</span>
+                    <span className="hb-employee-card-link">{t("employees.myPage.actions.viewDetail")}</span>
                   </div>
                 </div>
               </div>

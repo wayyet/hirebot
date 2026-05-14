@@ -1,4 +1,5 @@
-﻿import type { EmployeeDetail, EmployeeSummary } from '@/infra/api'
+﻿import i18n from '@/i18n'
+import type { EmployeeDetail, EmployeeSummary } from '@/infra/api'
 
 export type HirebotLifecycle = 'hired' | 'interning_ai' | 'interning_human' | 'live' | 'failed' | 'retired'
 export type EmployeeOwnership = 'department' | 'personal_clone' | 'private_branch'
@@ -69,13 +70,13 @@ function isPendingOnboarding(lifecycleStatus?: string | null) {
 }
 
 export function statusLabel(status: HirebotLifecycle, lifecycleStatus?: string | null) {
-  if (status === 'live') return '已上岗'
-  if (status === 'interning_human' && isPendingOnboarding(lifecycleStatus)) return '待上岗'
-  if (status === 'interning_ai') return 'AI评估中'
-  if (status === 'interning_human') return '人工评估中'
-  if (status === 'failed') return '评估失败'
-  if (status === 'retired') return '已退役'
-  return '已雇佣'
+  if (status === 'live') return i18n.t('employees.status.live')
+  if (status === 'interning_human' && isPendingOnboarding(lifecycleStatus)) return i18n.t('employees.status.pendingOnboarding')
+  if (status === 'interning_ai') return i18n.t('employees.status.interningAi')
+  if (status === 'interning_human') return i18n.t('employees.status.interningHuman')
+  if (status === 'failed') return i18n.t('employees.status.failed')
+  if (status === 'retired') return i18n.t('employees.status.retired')
+  return i18n.t('employees.status.hired')
 }
 
 export function statusClass(status: HirebotLifecycle, lifecycleStatus?: string | null) {
@@ -88,9 +89,9 @@ export function statusClass(status: HirebotLifecycle, lifecycleStatus?: string |
 }
 
 export function ownershipLabel(ownership: EmployeeOwnership) {
-  if (ownership === 'private_branch') return '私有分支'
-  if (ownership === 'personal_clone') return '我的分身'
-  return '部门员工'
+  if (ownership === 'private_branch') return i18n.t('employees.ownership.privateBranch')
+  if (ownership === 'personal_clone') return i18n.t('employees.ownership.personalClone')
+  return i18n.t('employees.ownership.department')
 }
 
 export function ownershipClass(ownership: EmployeeOwnership) {

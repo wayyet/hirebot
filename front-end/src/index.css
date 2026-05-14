@@ -719,9 +719,9 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   color: var(--hb-caption);
 }
 
@@ -736,13 +736,17 @@ body {
 
 .hb-page-title {
   margin: 6px 0 0;
-  font-size: clamp(1.9rem, 3vw, 3rem);
-  line-height: 1.16;
-  letter-spacing: -0.04em;
+  font-size: clamp(1.45rem, 2vw, 1.95rem);
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  font-weight: 600;
   color: var(--hb-near-black);
 }
 
-.hb-page-title .accent,
+.hb-page-title .accent {
+  color: inherit;
+}
+
 .hb-link {
   color: var(--hb-blue);
 }
@@ -750,8 +754,8 @@ body {
 .hb-page-copy {
   max-width: 720px;
   margin: 10px 0 0;
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.65;
   color: var(--hb-soft);
 }
 
