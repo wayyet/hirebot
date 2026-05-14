@@ -418,3 +418,4 @@ appsettings.*.local.json
 # Local scratch build output (e.g. agent/CI isolated dotnet build -o)
 .ci-build/
 .build-out-test/
+/back-end/src/HireBot.ApiService/wwwroot/resources/DigitalWorkforce

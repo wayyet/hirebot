@@ -13,6 +13,7 @@ using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using System.IO.Compression;
 using System.Text.Json;
 
@@ -31,7 +32,8 @@ public sealed partial class EmployeeRuntimeService(
     IInstanceArtifactResolver instanceArtifactResolver,
     ISandboxService sandboxService,
     IKingCrabHttpClient kingCrabHttpClient,
-    IConfiguration configuration) : IEmployeeRuntimeService
+    IConfiguration configuration,
+    IHostEnvironment hostEnvironment) : IEmployeeRuntimeService
 {
     /// <summary>
     /// 支持的员工状态列表。
@@ -523,6 +525,307 @@ public sealed partial class EmployeeRuntimeService(
     }
 
     /// <summary>
+    /// 上传模板包并直接从模板创建已上岗员工，跳过雇佣沟通、评估、实习等环节。
+    /// </summary>
+    public async Task<ApiResponse<EmployeeDetailDto>> QuickCreateFromTemplateAsync(
+        Stream zipStream,
+        string fileName,
+        CancellationToken cancellationToken = default)
+    {
+        if (zipStream is null || zipStream.Length == 0)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "上传的模板包为空");
+        }
+
+        if (!fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "仅支持 .zip 格式的模板包");
+        }
+
+        
+        var owner = requestContextService.ResolveOwnerSubject();
+        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        await EnsureSeedDataAsync(owner, cancellationToken);
+
+        // 读取 zip 到内存
+        byte[] zipBytes;
+        using (var ms = new MemoryStream())
+        {
+            await zipStream.CopyToAsync(ms, cancellationToken);
+            zipBytes = ms.ToArray();
+        }
+
+        if (zipBytes.Length == 0)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "上传的模板包为空");
+        }
+
+        // 解析 manifest.json
+        string templateName;
+        string templateDisplayName;
+        IReadOnlyList<string> skillNames;
+        string manifestBasePath;
+        Dictionary<string, byte[]> artifactFiles;
+
+        using (var archive = new ZipArchive(new MemoryStream(zipBytes), ZipArchiveMode.Read))
+        {
+            var manifestEntry = archive.Entries.FirstOrDefault(entry =>
+                string.Equals(entry.Name, "manifest.json", StringComparison.OrdinalIgnoreCase) ||
+                entry.FullName.EndsWith("/manifest.json", StringComparison.OrdinalIgnoreCase));
+
+            if (manifestEntry is null)
+            {
+                return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "模板包中未找到 manifest.json");
+            }
+
+            // 解析 manifest 内容
+            using var manifestStream = manifestEntry.Open();
+            using var doc = await JsonDocument.ParseAsync(manifestStream, cancellationToken: cancellationToken);
+            var root = doc.RootElement;
+
+            templateName = "unknown-template";
+            templateDisplayName = "unknown-template";
+
+            if (root.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String)
+            {
+                var rawName = nameEl.GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(rawName))
+                {
+                    templateName = rawName;
+                    templateDisplayName = rawName;
+                }
+            }
+
+            if (root.TryGetProperty("display_name", out var displayNameEl) && displayNameEl.ValueKind == JsonValueKind.String)
+            {
+                var rawDisplay = displayNameEl.GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(rawDisplay))
+                {
+                    templateDisplayName = rawDisplay;
+                }
+            }
+
+            // 收集 required skills
+            var skills = new List<string>();
+            if (root.TryGetProperty("skills", out var skillsArr) && skillsArr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var skill in skillsArr.EnumerateArray())
+                {
+                    if (skill.ValueKind != JsonValueKind.Object) continue;
+
+                    var isRequired = true;
+                    if (skill.TryGetProperty("required", out var reqEl) && reqEl.ValueKind == JsonValueKind.False)
+                    {
+                        isRequired = false;
+                    }
+
+                    if (isRequired && skill.TryGetProperty("name", out var skillNameEl) && skillNameEl.ValueKind == JsonValueKind.String)
+                    {
+                        var skillName = skillNameEl.GetString()?.Trim();
+                        if (!string.IsNullOrWhiteSpace(skillName))
+                        {
+                            skills.Add(skillName);
+                        }
+                    }
+                }
+            }
+
+            skillNames = skills;
+
+            // 确定基础路径
+            manifestBasePath = "";
+            var manifestFullName = manifestEntry.FullName;
+            var lastSlash = manifestFullName.LastIndexOf('/');
+            if (lastSlash >= 0)
+            {
+                manifestBasePath = manifestFullName[..(lastSlash + 1)];
+            }
+
+            // 收集 artifact 文件（包含 manifest.json）
+            artifactFiles = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in archive.Entries)
+            {
+                if (string.IsNullOrEmpty(entry.Name)) continue; // 目录
+
+                // 跳过 macOS 元数据
+                if (entry.Name.StartsWith("._") || entry.Name == ".DS_Store") continue;
+                if (entry.FullName.Contains("__MACOSX/", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var relativePath = entry.FullName;
+                if (manifestBasePath.Length > 0 && relativePath.StartsWith(manifestBasePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    relativePath = relativePath[manifestBasePath.Length..];
+                }
+
+                relativePath = relativePath.TrimStart('/');
+                if (string.IsNullOrWhiteSpace(relativePath)) continue;
+
+                using var entryStream = entry.Open();
+                using var entryMs = new MemoryStream();
+                await entryStream.CopyToAsync(entryMs, cancellationToken);
+                artifactFiles[relativePath] = entryMs.ToArray();
+            }
+        }
+
+        // 生成 employeeId
+        var employeeId = BuildEmployeeId();
+
+        // 保存模板文件到 wwwroot/resources/DigitalWorkforce
+        var digitalWorkforceRoot = ResolveDigitalWorkforceRoot();
+        var digitalWorkforceDir = Path.Combine(digitalWorkforceRoot, employeeId);
+        try
+        {
+            Directory.CreateDirectory(digitalWorkforceDir);
+            foreach (var (path, content) in artifactFiles)
+            {
+                var fullPath = Path.Combine(digitalWorkforceDir, path);
+                var dir = Path.GetDirectoryName(fullPath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                await File.WriteAllBytesAsync(fullPath, content, cancellationToken);
+            }
+        }
+        catch
+        {
+            // 文件保存失败不影响员工创建
+        }
+
+        // 构造 EmployeeDetailDto — 直接上岗状态
+        var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        var capabilities = skillNames.Count > 0
+            ? skillNames.Select(skillName => new EmployeeCapabilityDto(skillName, true)).ToArray()
+            : [new EmployeeCapabilityDto("站内对话", true)];
+
+        var employeeDto = new EmployeeDetailDto(
+            EmployeeId: employeeId,
+            Nickname: templateDisplayName,
+            RoleName: templateDisplayName,
+            SourceTemplate: templateName,
+            SourceTemplateId: templateName,
+            InstanceType: "department",
+            Status: "live",
+            BasedOnTemplateId: templateName,
+            FromInstanceId: null,
+            OwnerUserId: owner,
+            DepartmentId: string.IsNullOrWhiteSpace(tenantId) ? "department-default" : tenantId,
+            LifecycleStatus: "已上岗",
+            StageSummary: "从模板包快速创建，已直接上岗",
+            PrimarySignal: "运行正常",
+            SignalLevel: "ok",
+            OwningTeam: tenantId,
+            CreatedAt: today,
+            InternshipStartAt: today,
+            GraduatedAt: today,
+            TasksDone: 0,
+            TasksTotal: 0,
+            SatisfactionScore: null,
+            PendingActions: [],
+            Capabilities: capabilities,
+            EvalPhase: null,
+            EvalIteration: null,
+            EvalMaxIterations: null,
+            IsConfigured: true);
+
+        // 数据隔离：按 owner 持久化
+        await store.UpsertAsync(owner, employeeDto, cancellationToken);
+
+        // 存储 artifacts（失败不影响员工记录）
+        var artifactVersion = "v_initial";
+        if (artifactFiles.Count > 0)
+        {
+            try
+            {
+                var storedArtifacts = await artifactCloneService.StoreDepartmentArtifactsAsync(employeeId, artifactFiles, cancellationToken);
+                artifactVersion = storedArtifacts.CurrentVersion;
+            }
+            catch
+            {
+                // artifact 存储失败不阻塞员工创建
+            }
+        }
+
+        await UpsertInstanceRecordAsync(employeeDto, currentVersion: artifactVersion, cancellationToken: cancellationToken);
+        return ApiResponse<EmployeeDetailDto>.SuccessResponse(employeeDto, "员工已从模板包创建并直接上岗");
+    }
+
+    private string ResolveDigitalWorkforceRoot()
+    {
+        var configuredRoot = configuration["HireBot:DigitalWorkforceRoot"];
+        if (string.IsNullOrWhiteSpace(configuredRoot))
+        {
+            return Path.GetFullPath(Path.Combine(hostEnvironment.ContentRootPath, "wwwroot", "resources", "DigitalWorkforce"));
+        }
+
+        return Path.IsPathRooted(configuredRoot)
+            ? Path.GetFullPath(configuredRoot.Trim())
+            : Path.GetFullPath(Path.Combine(hostEnvironment.ContentRootPath, configuredRoot.Trim()));
+    }
+
+    /// <summary>
+    /// 删除数字员工及其全部关联资源：内存记录、DB 实例、五件套 artifact 文件、DigitalWorkforce 上传文件。
+    /// </summary>
+    public async Task<ApiResponse<object>> DeleteEmployeeAsync(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId))
+        {
+            return ApiResponse<object>.ErrorResponse(400, "employeeId 不能为空");
+        }
+
+        var normalizedId = employeeId.Trim();
+        var owner = requestContextService.ResolveOwnerSubject();
+
+        var existing = await store.GetAsync(owner, normalizedId, cancellationToken);
+        if (existing is null)
+        {
+            return ApiResponse<object>.ErrorResponse(404, "员工不存在");
+        }
+
+        // 1. 从内存 store 移除
+        await store.DeleteAsync(owner, normalizedId, cancellationToken);
+
+        // 2. 删除 DB InstanceEntity
+        await dbContext.Instances
+            .Where(item => item.InstanceId == normalizedId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        // 3. 删除五件套 artifact 目录
+        var artifactStoreRoot = ResolveArtifactStoreRoot();
+        var artifactDir = Path.Combine(artifactStoreRoot, "instances", "department", normalizedId);
+        if (Directory.Exists(artifactDir))
+        {
+            try
+            {
+                Directory.Delete(artifactDir, recursive: true);
+            }
+            catch
+            {
+                // 文件删除失败不阻塞流程
+            }
+        }
+
+        // 4. 删除 DigitalWorkforce 目录
+        var digitalWorkforceDir = Path.Combine(ResolveDigitalWorkforceRoot(), normalizedId);
+        if (Directory.Exists(digitalWorkforceDir))
+        {
+            try
+            {
+                Directory.Delete(digitalWorkforceDir, recursive: true);
+            }
+            catch
+            {
+                // 文件删除失败不阻塞流程
+            }
+        }
+
+        return ApiResponse<object>.SuccessResponse(new { employeeId = normalizedId }, "员工已删除");
+    }
+
+    /// <summary>
     /// 创建个人分身。
     /// </summary>
     /// <param name="sourceEmployeeId">源员工ID</param>
@@ -554,7 +857,7 @@ public sealed partial class EmployeeRuntimeService(
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(
                 409,
-                $"个人分身数量已达上限（最多 {maxActivePersonalClones} 个），请先归档不再使用的分身。");
+                $"个人分身数量已达上限（最多 {maxActivePersonalClones} 个），请先废弃不再使用的分身。");
         }
 
         var source = await store.FindAsync(normalizedSourceId, cancellationToken);

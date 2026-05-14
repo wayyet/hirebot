@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
@@ -89,7 +90,7 @@ internal sealed partial class EvaluationService
             owner,
             employeeId,
             "evaluation-evaluator",
-            useStableRuntimeId: isPrivateBranch,
+            useStableRuntimeId: isPrivateBranch && !forceTargetHireRecreate,
             cancellationToken);
         if (!evaluatorResult.Success || evaluatorResult.Data.SandboxId is null)
         {
@@ -108,6 +109,7 @@ internal sealed partial class EvaluationService
             SkillLoadedAtUtc: null,
             SessionId: null,
             EvaluatorTemplatePackageZipPath: null,
+            UploadedTemplatePackageZipPath: null,
             StepStates: stepStates);
         EvaluationWorkspaces[workspaceKey] = workspaceContext;
 
@@ -134,7 +136,8 @@ internal sealed partial class EvaluationService
 
         workspaceContext = workspaceContext with
         {
-            EvaluatorTemplatePackageZipPath = employeeTemplateResult.Data
+            EvaluatorTemplatePackageZipPath = employeeTemplateResult.Data?.SandboxTemplatePackageZipPath,
+            UploadedTemplatePackageZipPath = employeeTemplateResult.Data?.UploadedTemplatePackageZipPath
         };
         EvaluationWorkspaces[workspaceKey] = workspaceContext;
         stepStates["upload_employee_template"] = new("completed", null);
@@ -478,7 +481,7 @@ internal sealed partial class EvaluationService
     /// 闂佽绻愮换鎰涘☉妯忕儤瀵奸弶鎴濆敤闂佹悶鍎滈崟顐ｇ€柣搴ゎ潐閹爼宕曢崘娴嬫灁闁硅揪绠戦弸渚€鏌℃径搴㈢《闁圭晫鍠栭弻娑樷槈濞咁収浜濈€靛ジ骞囬鈺冨枛閸╁嫰宕橀埡鍐ㄥ殥濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛顐ｆ礀缁€鍡涙煙濞堝灝鏋熺紒鎰殜閺屸€愁吋閸涱喖顦╅梺娲诲幗閻熝呭垝婵犳艾鐭楁俊顖濆亹閹插潡鏌ｉ悩鍙夋悙閻庢凹浜畷锝嗙節閸屾鐓㈠┑鐐叉閸╁牓宕幖浣圭厪?
     /// 闂備胶鍎甸弲鈺呭窗濡ゅ懏鍋夐柨婵嗘噳閺岋附绻涢崱妯虹劸闁哥偞鎮傚濠氬炊閿濆懍澹曢梺鑽ゅ枑濞叉垿鎮為敃浣告殲闂備礁鎼ˇ鎵偓绗涘喚鐒介柣銏㈩焾缁犮儳鎲搁幋锔衡偓渚€骞嬮悙纰樻灃濠殿喗锕╅崜娆擄綖閵堝鈷戞い鎰剁稻椤绱掓０婵嗕喊闁轰礁绉撮悾婵嬪礃椤忓拋娼犲┑鐐殿棎閸嬫劖鏅跺Δ鍛剹婵炲棙鍨规稉宥夋⒑椤掆偓缁夊灚绂掑鈧幃鐑藉即濮樺崬濡介柤鍨涙櫊閺屸剝寰勭€ｎ亶鍤嬪┑鐐靛帶閻忔氨绮嬪澶婂耿婵絾瀵х敮鈥崇暦閵娿儙鐔告姜閹殿喚鐓戦梻浣哄帶閻ゅ洤螞閸曨剚鍙忛煫鍥ㄧ☉杩?
     /// </summary>
-    private async Task<ApiResponse<string?>> UploadEmployeeTemplateToSandboxAsync(
+    private async Task<ApiResponse<TemplatePackageUploadResult>> UploadEmployeeTemplateToSandboxAsync(
         string targetSandboxId,
         string evaluatorSandboxId,
         string evaluatorRuntimeId,
@@ -490,7 +493,9 @@ internal sealed partial class EvaluationService
         if (string.IsNullOrWhiteSpace(templateId))
         {
             logger.LogWarning("[Eval] Employee {EmployeeId} has no SourceTemplateId, skipping template upload", employee.EmployeeId);
-            return ApiResponse<string?>.SuccessResponse(null, "employee template upload skipped: missing SourceTemplateId");
+            return ApiResponse<TemplatePackageUploadResult>.SuccessResponse(
+                new TemplatePackageUploadResult(null, null),
+                "employee template upload skipped: missing SourceTemplateId");
         }
 
         TemplatePackageDefinition templatePackage;
@@ -504,7 +509,9 @@ internal sealed partial class EvaluationService
                     "[Eval] Fixture template binding exists but local package root was not found templateId={TemplateId} employeeId={EmployeeId}",
                     templateId,
                     employee.EmployeeId);
-                return ApiResponse<string?>.ErrorResponse(404, $"fixture template package not found for templateId: {templateId}");
+                return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                    404,
+                    $"fixture template package not found for templateId: {templateId}");
             }
 
             try
@@ -525,7 +532,9 @@ internal sealed partial class EvaluationService
                     "[Eval] Failed to load bound fixture template package templateId={TemplateId} packageRoot={PackageRoot}",
                     templateId,
                     fixtureTemplateRoot);
-                return ApiResponse<string?>.ErrorResponse(422, $"failed to load fixture template package: {templateId}");
+                return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                    422,
+                    $"failed to load fixture template package: {templateId}");
             }
         }
         else
@@ -537,24 +546,32 @@ internal sealed partial class EvaluationService
             catch (Exception ex)
             {
                 logger.LogError(ex, "[Eval] Failed to load template package templateId={TemplateId}", templateId);
-                return ApiResponse<string?>.ErrorResponse(502, $"failed to load template package: {templateId}");
+                return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                    502,
+                    $"failed to load template package: {templateId}");
             }
         }
 
         if (templatePackage.PackageFiles.Count == 0)
         {
             logger.LogWarning("[Eval] Template package {TemplateId} has no files", templateId);
-            return ApiResponse<string?>.SuccessResponse(null, "employee template upload skipped: package has no files");
+            return ApiResponse<TemplatePackageUploadResult>.SuccessResponse(
+                new TemplatePackageUploadResult(null, null),
+                "employee template upload skipped: package has no files");
         }
 
         var archiveBytes = EmployeeHiringService.BuildDigitalEmployeeArchive(templatePackage);
         if (archiveBytes.Length == 0)
         {
             logger.LogError("[Eval] Template archive is empty for templateId={TemplateId}", templateId);
-            return ApiResponse<string?>.ErrorResponse(422, "employee template archive is empty");
+            return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(422, "employee template archive is empty");
         }
 
         var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
+        var uploadedTemplatePackageZipPath = await PersistUploadedTemplatePackageArchiveAsync(
+            fileName,
+            archiveBytes,
+            cancellationToken);
 
         // 濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛顐ｆ礀缁€鍡涙煙濞堝灝鏋熺紒鎰殜閺屸€愁吋閸涱喖顦╅梺娲诲幗閻熝呭垝?
         var targetUploadResult = await sandboxService.UploadSkillPackageAsync(
@@ -570,7 +587,9 @@ internal sealed partial class EvaluationService
         {
             logger.LogError("[Eval] Failed to upload employee template to target sandboxId={SandboxId} code={Code} msg={Message}",
                 targetSandboxId, targetUploadResult.Code, targetUploadResult.Message);
-            return ApiResponse<string?>.ErrorResponse(targetUploadResult.Code, $"failed to upload employee template to target sandbox: {targetUploadResult.Message}");
+            return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                targetUploadResult.Code,
+                $"failed to upload employee template to target sandbox: {targetUploadResult.Message}");
         }
 
         logger.LogInformation("[Eval] Employee template uploaded to target sandboxId={SandboxId} installed={Count}",
@@ -604,18 +623,23 @@ internal sealed partial class EvaluationService
         {
             logger.LogError("[Eval] Failed to upload employee template attachment to evaluator sandboxId={SandboxId} code={Code} msg={Message}",
                 evaluatorSandboxId, evaluatorUploadResult.Code, evaluatorUploadResult.Message);
-            return ApiResponse<string?>.ErrorResponse(evaluatorUploadResult.Code, $"failed to upload employee template attachment to evaluator sandbox: {evaluatorUploadResult.Message}");
+            return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                evaluatorUploadResult.Code,
+                $"failed to upload employee template attachment to evaluator sandbox: {evaluatorUploadResult.Message}");
         }
 
         var templatePackageZipPath = ResolveMediaCachePathFromAttachment(evaluatorUploadResult.Data);
         logger.LogInformation(
-            "[Eval] Employee template uploaded to evaluator sandbox attachment sandboxId={SandboxId} mediaId={MediaId} marker={Marker} templatePackageZipPath={TemplatePackageZipPath}",
+            "[Eval] Employee template uploaded to evaluator sandbox attachment sandboxId={SandboxId} mediaId={MediaId} marker={Marker} templatePackageZipPath={TemplatePackageZipPath} uploadedTemplatePackageZipPath={UploadedTemplatePackageZipPath}",
             evaluatorSandboxId,
             evaluatorUploadResult.Data.MediaId,
             evaluatorUploadResult.Data.Marker,
-            templatePackageZipPath);
+            templatePackageZipPath,
+            uploadedTemplatePackageZipPath);
 
-        return ApiResponse<string?>.SuccessResponse(templatePackageZipPath, "employee template uploaded");
+        return ApiResponse<TemplatePackageUploadResult>.SuccessResponse(
+            new TemplatePackageUploadResult(templatePackageZipPath, uploadedTemplatePackageZipPath),
+            "employee template uploaded");
     }
 
     private static string? ResolveBoundFixtureTemplatePackageRoot(
@@ -713,6 +737,42 @@ internal sealed partial class EvaluationService
         return false;
     }
 
+    private async Task<string?> PersistUploadedTemplatePackageArchiveAsync(
+        string fileName,
+        byte[] archiveBytes,
+        CancellationToken cancellationToken)
+    {
+        if (archiveBytes.Length == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var cacheRoot = Path.Combine(hostEnvironment.ContentRootPath, "App_Data", "evaluation", "template-package-cache");
+            Directory.CreateDirectory(cacheRoot);
+
+            var hash = Convert.ToHexStringLower(SHA256.HashData(archiveBytes));
+            var safeName = string.IsNullOrWhiteSpace(fileName)
+                ? "template-package"
+                : Path.GetFileNameWithoutExtension(fileName);
+            var extension = Path.GetExtension(fileName);
+            if (string.IsNullOrWhiteSpace(extension))
+            {
+                extension = ".zip";
+            }
+
+            var targetPath = Path.Combine(cacheRoot, $"{safeName}-{hash[..12]}{extension}");
+            await File.WriteAllBytesAsync(targetPath, archiveBytes, cancellationToken);
+            return targetPath;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[Eval] Failed to persist uploaded template package archive for testcase fallback.");
+            return null;
+        }
+    }
+
     private async Task<ApiResponse<EvaluationWorkspaceContext>> EnsureEvaluatorConversationStartedAsync(
         string owner,
         EvaluationWorkspaceContext workspaceContext,
@@ -808,7 +868,7 @@ internal sealed partial class EvaluationService
                 "evaluation-evaluator",
                 new HiringConversationMessageRequestDto
                 {
-                    Content = "Evaluation materials are ready. Continue with question cards, scoring rules, or start execution.",
+                    Content = "",
                     StructuredAnswers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                     {
                         ["evaluation_context_ready"] = "true",
@@ -933,13 +993,242 @@ internal sealed partial class EvaluationService
         return readiness;
     }
 
-    private string BuildLiveEvaluationBootstrapPayload(
+    private async Task<ApiResponse<string>> PrepareEvaluatorMaterialsArchiveAsync(
         string owner,
         EmployeeDetailDto employee,
         EvaluationWorkspaceContext workspaceContext,
         EvaluationSessionEntity sessionEntity,
+        CancellationToken cancellationToken)
+    {
+        var testcaseAssets = await GetLatestSessionAssetsAsync(
+            sessionEntity.Id,
+            "testcases-json",
+            cancellationToken);
+        var ontologyAsset = await GetLatestSessionAssetAsync(
+            sessionEntity.Id,
+            "ontology-json",
+            cancellationToken);
+
+        if (testcaseAssets.Count == 0 || ontologyAsset is null)
+        {
+            var readiness = await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
+            if (!readiness.Status.Equals("ready", StringComparison.OrdinalIgnoreCase))
+            {
+                return ApiResponse<string>.ErrorResponse(
+                    422,
+                    string.IsNullOrWhiteSpace(readiness.Message)
+                        ? "evaluation materials are not ready"
+                        : readiness.Message);
+            }
+
+            testcaseAssets = await GetLatestSessionAssetsAsync(
+                sessionEntity.Id,
+                "testcases-json",
+                cancellationToken);
+            ontologyAsset = await GetLatestSessionAssetAsync(
+                sessionEntity.Id,
+                "ontology-json",
+                cancellationToken);
+        }
+
+        if (testcaseAssets.Count == 0)
+        {
+            return ApiResponse<string>.ErrorResponse(422, "no testcase assets found for auto evaluation");
+        }
+
+        if (ontologyAsset is null)
+        {
+            return ApiResponse<string>.ErrorResponse(422, "no ontology asset found for auto evaluation");
+        }
+
+        var testcaseFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var testcaseAsset in testcaseAssets)
+        {
+            var content = await ReadEvaluationAssetTextAsync(testcaseAsset, cancellationToken);
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                logger.LogWarning(
+                    "[Eval] Skip empty testcase asset when preparing evaluator materials. SessionId={SessionId}, RelativePath={RelativePath}",
+                    sessionEntity.SessionId,
+                    testcaseAsset.RelativePath);
+                continue;
+            }
+
+            var fileName = ExtractEvaluationAssetFileName(testcaseAsset.RelativePath, "evaluation-testcases.json");
+            testcaseFiles[fileName] = content;
+        }
+
+        if (testcaseFiles.Count == 0)
+        {
+            return ApiResponse<string>.ErrorResponse(422, "testcase assets exist but none could be read for auto evaluation");
+        }
+
+        var ontologyContent = await ReadEvaluationAssetTextAsync(ontologyAsset, cancellationToken);
+        if (string.IsNullOrWhiteSpace(ontologyContent))
+        {
+            return ApiResponse<string>.ErrorResponse(422, "ontology asset exists but could not be read for auto evaluation");
+        }
+
+        var archiveBytes = BuildEvaluatorMaterialsArchive(
+            testcaseFiles,
+            ExtractEvaluationAssetFileName(ontologyAsset.RelativePath, "evaluation-ontology.json"),
+            ontologyContent);
+
+        var uploadResult = await sandboxService.UploadAttachmentAsync(
+            new SandboxAttachmentUploadRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Managed,
+                ScopeKey = workspaceContext.EvaluatorHireId,
+                SandboxRole = "evaluation-evaluator",
+                OwnerSubject = owner,
+                TenantId = "tenant-default",
+                OperatorId = "operator-default",
+                SandboxId = workspaceContext.EvaluatorSandboxId,
+                Material = new HiringConversationMaterialDto
+                {
+                    Type = "evaluation-materials-zip",
+                    Name = "evaluation-materials.zip",
+                    Content = Convert.ToBase64String(archiveBytes),
+                    MimeType = "application/zip",
+                    Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["contentEncoding"] = "base64"
+                    }
+                }
+            },
+            cancellationToken);
+        if (!uploadResult.Success || uploadResult.Data is null)
+        {
+            return ApiResponse<string>.ErrorResponse(
+                uploadResult.Code,
+                $"failed to upload evaluator materials archive: {uploadResult.Message}");
+        }
+
+        return ApiResponse<string>.SuccessResponse(ResolveMediaCachePathFromAttachment(uploadResult.Data));
+    }
+
+    private async Task<IReadOnlyList<EvaluationAssetEntity>> GetLatestSessionAssetsAsync(
+        Guid sessionEntityId,
+        string assetType,
+        CancellationToken cancellationToken)
+    {
+        var candidates = await dbContext.EvaluationAssets
+            .AsNoTracking()
+            .Where(item =>
+                item.SessionEntityId == sessionEntityId &&
+                item.AssetType == assetType)
+            .OrderByDescending(item => item.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        return candidates
+            .GroupBy(
+                item => string.IsNullOrWhiteSpace(item.RelatedKey) ? item.RelativePath : item.RelatedKey,
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(item => item.CreatedAtUtc)
+                .First())
+            .OrderBy(item => item.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private async Task<EvaluationAssetEntity?> GetLatestSessionAssetAsync(
+        Guid sessionEntityId,
+        string assetType,
+        CancellationToken cancellationToken)
+    {
+        return await dbContext.EvaluationAssets
+            .AsNoTracking()
+            .Where(item =>
+                item.SessionEntityId == sessionEntityId &&
+                item.AssetType == assetType)
+            .OrderByDescending(item => item.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<string?> ReadEvaluationAssetTextAsync(
+        EvaluationAssetEntity asset,
+        CancellationToken cancellationToken)
+    {
+        var physicalPath = ResolvePhysicalAssetPath(asset.RelativePath);
+        if (string.IsNullOrWhiteSpace(physicalPath) || !File.Exists(physicalPath))
+        {
+            logger.LogWarning(
+                "[Eval] Evaluation asset file not found when preparing evaluator materials. RelativePath={RelativePath}",
+                asset.RelativePath);
+            return null;
+        }
+
+        return await File.ReadAllTextAsync(physicalPath, cancellationToken);
+    }
+
+    internal static byte[] BuildEvaluatorMaterialsArchive(
+        IReadOnlyDictionary<string, string> testcaseFiles,
+        string ontologyFileName,
+        string ontologyContent)
+    {
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var testcaseFile in testcaseFiles.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var entry = archive.CreateEntry(
+                    $"testcases/{BuildSafeArchiveFileName(testcaseFile.Key, "evaluation-testcases.json")}",
+                    CompressionLevel.Fastest);
+                using var entryStream = entry.Open();
+                var contentBytes = Encoding.UTF8.GetBytes(testcaseFile.Value);
+                entryStream.Write(contentBytes, 0, contentBytes.Length);
+            }
+
+            var ontologyEntry = archive.CreateEntry(
+                $"ontology/{BuildSafeArchiveFileName(ontologyFileName, "evaluation-ontology.json")}",
+                CompressionLevel.Fastest);
+            using var ontologyStream = ontologyEntry.Open();
+            var ontologyBytes = Encoding.UTF8.GetBytes(ontologyContent);
+            ontologyStream.Write(ontologyBytes, 0, ontologyBytes.Length);
+        }
+
+        return memoryStream.ToArray();
+    }
+
+    private static string ExtractEvaluationAssetFileName(string? relativePath, string fallbackFileName)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            return fallbackFileName;
+        }
+
+        var normalizedPath = relativePath.Replace('\\', '/').Trim();
+        var fileName = Path.GetFileName(normalizedPath);
+        return string.IsNullOrWhiteSpace(fileName)
+            ? fallbackFileName
+            : fileName;
+    }
+
+    private static string BuildSafeArchiveFileName(string? fileName, string fallbackFileName)
+    {
+        var candidate = string.IsNullOrWhiteSpace(fileName)
+            ? fallbackFileName
+            : Path.GetFileName(fileName.Trim());
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            candidate = fallbackFileName;
+        }
+
+        var safeChars = candidate
+            .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '_')
+            .ToArray();
+        var safeName = new string(safeChars).Trim('.');
+        return string.IsNullOrWhiteSpace(safeName)
+            ? fallbackFileName
+            : safeName;
+    }
+
+    private string BuildRuntimeContextJson(
+        EmployeeDetailDto employee,
+        EvaluationWorkspaceContext workspaceContext,
+        EvaluationSessionEntity sessionEntity,
         string targetGatewayEndpoint,
-        string sandboxAccessToken)
+        string? explicitMaterialsPath)
     {
         var runtimeContext = new
         {
@@ -955,16 +1244,15 @@ internal sealed partial class EvaluationService
                 workspace_root = "/workspace",
                 template_root = "/workspace",
                 template_package_zip = workspaceContext.EvaluatorTemplatePackageZipPath,
-                testcases_path = (string?)null,
-                ontology_path = (string?)null
+                testcases_path = explicitMaterialsPath,
+                ontology_path = explicitMaterialsPath
             },
             target_sandbox = new
             {
                 sandbox_id = workspaceContext.TargetSandboxId,
                 ws_endpoint = targetGatewayEndpoint,
                 gateway_endpoint = targetGatewayEndpoint,
-                http_base_url = ResolveHttpBaseUrl(targetGatewayEndpoint),
-                auth = BuildTargetSandboxAuthContext(sandboxAccessToken)
+                http_base_url = ResolveHttpBaseUrl(targetGatewayEndpoint)
             },
             execution = new
             {
@@ -973,6 +1261,17 @@ internal sealed partial class EvaluationService
             }
         };
 
+        return JsonSerializer.Serialize(runtimeContext, JsonOptions);
+    }
+
+    private string BuildLiveEvaluationBootstrapPayload(
+        string owner,
+        EmployeeDetailDto employee,
+        EvaluationWorkspaceContext workspaceContext,
+        EvaluationSessionEntity sessionEntity,
+        string targetGatewayEndpoint,
+        string runtimeContextPath)
+    {
         var bootstrapPayload = new
         {
             workflow = "live_evaluation",
@@ -981,41 +1280,54 @@ internal sealed partial class EvaluationService
             evaluator_sandbox_id = workspaceContext.EvaluatorSandboxId,
             target_hire_id = workspaceContext.TargetHireId,
             target_sandbox_id = workspaceContext.TargetSandboxId,
-            instruction = """
-                          濠电偠鎻徊鎸庢叏閸撗勫床鐎广儱娲﹂崑姗€鎮橀悙璺盒撻棅顒夊墴閹綊宕惰椤徰囨煕濞嗗骏宸ラ柍鏄忔閳诲酣骞嬮鐐存毈闂備焦瀵х粙鎴︽儗娓氣偓椤㈡岸顢楅崟顐ゎ唶婵犮垼娉涢ˇ顔捐姳閺夊簱妲堥柟鐐墯閸庢棃鏌曢崱妤€顒㈤柟顖涙缁犳盯寮惔鎾村瘱闂佽崵鍋炵粙鎴︽儗婢跺本顫?
-                          1) 闂?runtime_context 闂備礁鎲￠…鍥窗閹扮増鍋嬮梺顒€绉寸粈鍐╃箾閸℃绠扮€?/workspace/runtime/evaluation-context.json闂備焦瀵х粙鎴濓耿缁傘€?8闂?
-                          2) 闂備礁婀遍悷鎶藉幢閳哄倹鏉?inspect闂?
-                             python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode inspect --output /tmp/materials_inspection.json
-                          3) 闂?inspect 闂佸搫顦弲婊堝蓟閵娿儍?materials_incomplete闂備焦瀵х粙鎴﹀嫉椤掆偓鍗遍柟瀵稿У閸忔粍銇勯弬鍨倯闁哥喓鍋ら弻锝夘敇濠婂啫濮㈤悗瑙勭摃妞寸顕ラ崟顖涚劶鐎广儱鍟犻崑鎾愁吋婢跺苯绁﹂柣鐘荤細濞咃絿绮氶崸妤佸€靛ù锝呭暙娴滃綊鏌℃担闈涒偓婵嬬嵁鐎ｎ喗鍋い鏍ゅ亾濠㈣埖鍔曠粈鍌炴煕濞戝崬鏋熺紓宥呯箻閺岋繝宕掑☉姘櫑闂佽鍠楅〃濠囧蓟鐏炵瓔鍚嬮柛顐犲灪绗?
-                          4) 闂備礁鍚嬮惇褰掑磿閹绘帩鐒芥俊銈呮噹濡ɑ绻涢崱妤冪闁汇劍鍨圭槐鎾寸瑹閸ワ附鍊ｇ紓浣介哺缁诲牆鐣峰Δ鍛唶婵犻潧鐗婄紞宀€绱撴担鎻掍壕?question_cards闂備焦瀵х粙鎴︽嚐椤栫偛鐤柍褜鍓熼弻鐔虹箔濞戞ɑ锛嶉柡鈧?execute闂?
-                             python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode execute --output /tmp/trace_result.json
-                          5) 闂備胶纭堕弲鐐差浖閵娧嗗С?trace 濠?ontology 闂佸搫顦弲婊呯矙閺嶎厹鈧線骞嬮悩鍐茬彴闂佸憡娲﹂崑鍕倵婵犳碍鐓ユ繛鎴烆焽閻掗绱掓０婵嗗籍鐎规洘鐟╅幃婊兾熺拋宕囧笡缂?verdict JSON闂備焦瀵х粙鎴︽偋閸℃瑦宕查柍褜鍓欓—鍐Χ閸偄娈悷婊勫鐏忔瑩骞夐幘顔芥櫜闁糕剝鐟㈤崑鎾寸鐎ｎ偅娅栨繝銏ｅ煐缁嬫挾绮?
-                             {
-                               "verdict": "PASS|FAIL",
-                               "overall_score": 0-100,
-                               "summary": "string",
-                               "dimension_scores": [
-                                 {"dimension":"accuracy|completeness|compliance|communication","score":0-100,"comment":"string","evidence_refs":["..."]}
-                               ]
-                             }
-                          """,
-            runtime_context = runtimeContext
+            runtime_context_path = runtimeContextPath,
+            instruction = $$"""
+                          BOOTSTRAP MODE. Execute all steps without outputting any text. Your entire response must be ONLY the final verdict JSON — no prefix, no suffix, no markdown fences, no explanation.
+
+                          1) cp "{{runtimeContextPath}}" /workspace/runtime/evaluation-context.json
+
+                          2) python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode inspect --output /tmp/materials_inspection.json
+
+                          3) If inspect status != ready, output exactly: {"verdict":"FAIL","overall_score":0,"summary":"materials incomplete","dimension_scores":[]}
+                             Then STOP.
+
+                          4) python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode execute --output /tmp/trace_result.json
+
+                          5) Read /tmp/trace_result.json. If "status" is not "completed" or "turns" is empty, run the following command and output its stdout only, then STOP:
+                             python - <<'PY'
+                             import json
+                             from pathlib import Path
+
+                             trace = json.loads(Path('/tmp/trace_result.json').read_text(encoding='utf-8'))
+                             status = str(trace.get('status') or 'unknown').strip() or 'unknown'
+                             meta = trace.get('meta') or {}
+                             error = (
+                                 trace.get('error')
+                                 or trace.get('message')
+                                 or (meta.get('error') if isinstance(meta, dict) else None)
+                                 or ''
+                             )
+                             error_text = str(error).replace('\r', ' ').replace('\n', ' ').replace('{', '(').replace('}', ')').strip()
+                             if not trace.get('turns'):
+                                 error_text = f"{error_text}; turns empty".strip('; ')
+                             if not error_text:
+                                 error_text = 'unknown'
+
+                             summary = f"execution error: status={status}; error={error_text}"
+                             print(json.dumps({
+                                 "verdict": "FAIL",
+                                 "overall_score": 0,
+                                 "summary": summary,
+                                 "dimension_scores": []
+                             }, ensure_ascii=False))
+                             PY
+
+                          6) Output the verdict. No braces in summary. Entire response must be ONLY:
+                          {"verdict":"PASS|FAIL","overall_score":0-100,"summary":"...","dimension_scores":[{"dimension":"accuracy|completeness|compliance|communication","score":0-100,"comment":"...","evidence_refs":[]}]}
+                          """
         };
 
         return JsonSerializer.Serialize(bootstrapPayload, JsonOptions);
-    }
-
-    private object BuildTargetSandboxAuthContext(string sandboxAccessToken)
-    {
-        return new
-        {
-            mode = "static_token",
-            access_token = sandboxAccessToken.Trim(),
-            ws_transport = "query",
-            ws_query_param = "token",
-            http_header_name = "Authorization",
-            http_scheme = "Bearer"
-        };
     }
 
     private static string ResolveHttpBaseUrl(string gatewayEndpoint)

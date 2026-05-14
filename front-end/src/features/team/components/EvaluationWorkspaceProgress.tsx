@@ -5,7 +5,7 @@ const STEP_LABELS: Record<string, string> = {
   target_sandbox: '创建目标沙箱',
   evaluator_sandbox: '创建评估沙箱',
   upload_skill: '上传评估技能包',
-  upload_employee_template: '上传员工模板',
+  upload_employee_template: '上传员工模板包',
   upload_artifacts: '上传员工产物包',
   materials: '加载评估素材',
 }
@@ -108,7 +108,7 @@ export function EvaluationWorkspaceProgress({ status, polling = false }: Props) 
         {steps.length === 0 ? (
           <div className="flex items-center gap-2 rounded-lg border border-[#f3f4f6] bg-white px-2.5 py-1.5 text-xs text-[#737373]">
             <Loader2 size={12} className="animate-spin" />
-            正在准备步骤详情...
+            正在准备阶段详情...
           </div>
         ) : (
           steps.map((step) => (

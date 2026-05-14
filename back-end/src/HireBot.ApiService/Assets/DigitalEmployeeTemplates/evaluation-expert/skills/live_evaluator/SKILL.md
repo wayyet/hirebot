@@ -58,7 +58,7 @@ python evaluate.py \
 执行步骤：
 
 1. 读取 inspect 阶段同一套本地材料
-2. 根据运行时上下文里的鉴权配置获取 token
+2. 通过 skill 内部鉴权模块获取 token
 3. 建立评估沙箱到目标沙箱的 WebSocket
 4. 按题卡顺序逐题驱动目标沙箱执行
 5. 等待 `assistant_done`
@@ -71,14 +71,20 @@ python evaluate.py \
 
 - `session`
 - `materials`
-- `target_sandbox`
+- `target_sandbox`（仅含连接元数据：sandbox_id / gateway_endpoint / http_base_url）
 - `execution`
 
-其中 `target_sandbox.auth.mode` 支持：
+## 鉴权配置
 
-- `static_token`
-- `password`
-- `client_credentials`
+鉴权由 skill 内部闭环完成，不依赖运行时上下文注入。
+
+`auth_client.py` 优先使用运行时上下文中的 `target_sandbox.auth`（如果存在），否则自动从同目录下的 `auth_config.json` 加载。当前 `auth_config.json` 默认配置为 `client_credentials` 模式。
+
+`auth_client.py` 支持的鉴权模式：
+
+- `client_credentials`（默认，client_id / client_secret / token_url）
+- `static_token`（静态 access_token）
+- `password`（用户名密码，兼容保留）
 
 ## 输出结构
 

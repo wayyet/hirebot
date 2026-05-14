@@ -37,10 +37,32 @@ memory_access: read_write
 
 1. **材料在评估沙箱本地**，不要去目标沙箱拉 testcase / ontology。
 2. **目标沙箱才是业务执行者**，评估沙箱只是驱动者与裁判。
-3. **鉴权信息来自运行时上下文**，除非缺失，不要向用户重复索要 endpoint/token。
+3. **鉴权由 skill 内部闭环完成**（`auth_config.json`），不要向用户索要 endpoint/token。
 4. **报告最终要持久化到数据库**，但通过 `evaluation_report` 或平台注入的后端接口完成。
 
 ## 执行流程
+
+### 运行模式
+
+本 Skill 有两种模式，由收到消息的 `workflow` 字段决定：
+
+**Bootstrap 模式** — 消息含 `"workflow": "live_evaluation"` 和 `runtime_context`：
+全自动管道执行。**不展示题卡，不等待用户交互，不输出 think/analysis。**
+顺序跑完：阶段 0→1→3→4→5→6，最终只输出 verdict JSON。
+
+**交互模式** — 普通对话消息：
+各阶段之间与用户交互，展示题卡，等待确认。
+
+### 阶段 0：写入运行时上下文
+
+**首先**，从当前会话的用户消息中提取 `runtime_context` JSON 对象，将其完整写入文件：
+
+```bash
+# 运行时上下文必须写入此路径，evaluate.py 从该路径读取
+/workspace/runtime/evaluation-context.json
+```
+
+确保目标目录存在：`mkdir -p /workspace/runtime`
 
 ### 阶段 1：检查本地材料
 
@@ -167,7 +189,7 @@ python /workspace/skills/live_evaluator/evaluate.py \
 |------|---------|
 | 运行时上下文缺失 | 提示平台未完成初始化，停止执行 |
 | testcase / ontology 缺失 | 引导上传到评估沙箱本地 |
-| 目标沙箱鉴权失败 | 提示检查上下文字段或凭据过期 |
+| 目标沙箱鉴权失败 | 提示检查 `auth_config.json` 配置或凭据过期 |
 | 目标沙箱执行超时 | 返回失败结果并保留已采集 trace |
 | 报告持久化失败 | 明确说明评分已完成，但后端落库失败 |
 
