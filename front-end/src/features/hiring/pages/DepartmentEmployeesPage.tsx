@@ -19,14 +19,16 @@ import TemplateUploadModal from "./components/TemplateUploadModal";
 import CloneEmployeeModal from "./components/CloneEmployeeModal";
 import EmployeeDetailModal from "./components/EmployeeDetailModal";
 import {
-  firstCharacter,
   statusClass,
   statusLabel,
   withEmployeeView,
 } from "./employeeView";
+import { Pagination } from "@/shared/components/Pagination";
 
 type StageTab = "hired" | "intern" | "live";
 type InternSubTab = "ai" | "human";
+
+const PAGE_SIZE = 9;
 
 export default function DepartmentEmployeesPage() {
   const navigate = useNavigate();
@@ -40,6 +42,7 @@ export default function DepartmentEmployeesPage() {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const [cloneTarget, setCloneTarget] = useState<{
     employeeId: string;
     nickname: string;
@@ -178,6 +181,23 @@ export default function DepartmentEmployeesPage() {
     });
   }, [internSubTab, query, role, tab, viewedEmployees]);
 
+  const totalPages = Math.max(1, Math.ceil(visibleEmployees.length / PAGE_SIZE));
+
+  const pagedEmployees = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return visibleEmployees.slice(start, start + PAGE_SIZE);
+  }, [page, visibleEmployees]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [internSubTab, query, role, tab]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
   function openAiEvaluation(employeeId: string) {
     navigate(`/department-employees/instances/${employeeId}/evaluation`);
   }
@@ -220,14 +240,14 @@ export default function DepartmentEmployeesPage() {
           <div className="hb-page-actions">
             <button
               type="button"
-              className="hb-btn-primary"
+              className="hb-btn-primary hb-hub-btn-primary"
               onClick={() => setUploadModalOpen(true)}
             >
               上传模版
             </button>
             <button
               type="button"
-              className="hb-btn-primary"
+              className="hb-btn-primary hb-hub-btn-primary"
               onClick={() => navigate("/template-pool")}
             >
               从模板池雇佣
@@ -278,7 +298,7 @@ export default function DepartmentEmployeesPage() {
         <div className="hb-search-controls">
           <button
             type="button"
-            className="hb-btn-primary"
+            className="hb-btn-ghost hb-hub-btn-secondary"
             onClick={() => setQuery("")}
           >
             清空筛选
@@ -358,8 +378,8 @@ export default function DepartmentEmployeesPage() {
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {visibleEmployees.map((employee) => {
+          <div className="hb-asset-grid">
+            {pagedEmployees.map((employee) => {
               const canClone =
                 employee.ownership === "department" &&
                 employee.mappedStatus === "live";
@@ -369,22 +389,19 @@ export default function DepartmentEmployeesPage() {
               return (
                 <article
                   key={employee.employeeId}
-                  className="hb-card p-5 transition-transform duration-150 hover:-translate-y-0.5"
+                  className="hb-card hb-employee-card"
                 >
                   <button
                     type="button"
                     onClick={() => openCard(employee)}
-                    className="block w-full text-left"
+                    className="block w-full flex-1 text-left"
                   >
-                    <div className="mb-3 flex items-start gap-3">
-                      <span className="hb-squircle h-11 w-11 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-                        {firstCharacter(employee.nickname)}
-                      </span>
+                    <div className="hb-employee-card-head">
                       <div className="min-w-0 flex-1">
-                        <h3 className="truncate text-[15px] font-semibold text-[var(--hb-near-black)]">
+                        <h3 className="hb-employee-card-title">
                           {employee.nickname}
                         </h3>
-                        <div className="mt-1 flex items-center gap-2">
+                        <div className="hb-employee-card-badges mt-1">
                           <span
                             className={`hb-pill flex-shrink-0 ${statusClass(employee.mappedStatus, employee.lifecycleStatus)}`}
                           >
@@ -393,18 +410,19 @@ export default function DepartmentEmployeesPage() {
                               employee.lifecycleStatus,
                             )}
                           </span>
-                          <p className="truncate text-xs text-[var(--hb-soft)]">
+                          <p className="hb-employee-card-subtitle">
                             {employee.roleName || employee.sourceTemplate}
                           </p>
                         </div>
                       </div>
                     </div>
-                    <p className="line-clamp-2 min-h-10 text-sm leading-relaxed text-[var(--hb-body)]">
+                    <p className="hb-employee-card-desc">
                       {employee.primarySignal || employee.stageSummary}
                     </p>
                   </button>
-                  <div className="mt-4 border-t border-[var(--hb-border)] pt-3">
-                    <div className="flex items-center justify-between gap-2 text-xs text-[var(--hb-soft)]">
+                  <div className="hb-employee-card-divider" />
+                  <div>
+                    <div className="hb-employee-card-footer">
                       <span>创建于 {employee.createdAt}</span>
                       {canClone ? (
                         <span className="text-emerald-600 dark:text-emerald-400">
@@ -422,12 +440,12 @@ export default function DepartmentEmployeesPage() {
                         </span>
                       ) : null}
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <div className="hb-employee-card-actions">
                       {isInterningAi ? (
                         <>
                           <button
                             type="button"
-                            className="hb-btn-primary"
+                            className="hb-btn-primary hb-hub-btn-primary"
                             onClick={() =>
                               openAiEvaluation(employee.employeeId)
                             }
@@ -437,7 +455,7 @@ export default function DepartmentEmployeesPage() {
                           </button>
                           <button
                             type="button"
-                            className="hb-btn-ghost"
+                            className="hb-btn-ghost hb-hub-btn-secondary"
                             onClick={() => setDetailEmployeeId(employee.employeeId)}
                           >
                             查看详情
@@ -448,7 +466,7 @@ export default function DepartmentEmployeesPage() {
                         <>
                           <button
                             type="button"
-                            className="hb-btn-primary"
+                            className="hb-btn-primary hb-hub-btn-primary"
                             onClick={() =>
                               openHumanEvaluation(employee.employeeId)
                             }
@@ -458,7 +476,7 @@ export default function DepartmentEmployeesPage() {
                           </button>
                           <button
                             type="button"
-                            className="hb-btn-ghost"
+                            className="hb-btn-ghost hb-hub-btn-secondary"
                             onClick={() => setDetailEmployeeId(employee.employeeId)}
                           >
                             查看详情
@@ -470,7 +488,7 @@ export default function DepartmentEmployeesPage() {
                           {canClone ? (
                             <button
                               type="button"
-                              className="hb-btn-primary"
+                              className="hb-btn-primary hb-hub-btn-primary"
                               onClick={() =>
                                 setCloneTarget({
                                   employeeId: employee.employeeId,
@@ -488,7 +506,9 @@ export default function DepartmentEmployeesPage() {
                           <button
                             type="button"
                             className={
-                              canClone ? "hb-btn-ghost" : "hb-btn-primary"
+                              canClone
+                                ? "hb-btn-ghost hb-hub-btn-secondary"
+                                : "hb-btn-primary hb-hub-btn-primary"
                             }
                             onClick={() => setDetailEmployeeId(employee.employeeId)}
                           >
@@ -499,7 +519,7 @@ export default function DepartmentEmployeesPage() {
                       )}
                       <button
                         type="button"
-                        className="hb-btn-ghost ml-auto text-[var(--hb-soft)] hover:text-red-500"
+                        className="hb-btn-ghost hb-hub-btn-secondary ml-auto text-[var(--hb-soft)] hover:text-red-500"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDelete(employee.employeeId, employee.nickname);
@@ -521,6 +541,10 @@ export default function DepartmentEmployeesPage() {
           </div>
         )}
       </div>
+
+      {visibleEmployees.length > 0 ? (
+        <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+      ) : null}
 
       <TemplateUploadModal
         open={uploadModalOpen}

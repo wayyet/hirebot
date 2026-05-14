@@ -11,13 +11,13 @@ import { useNavigate } from "react-router-dom";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeSummary } from "@/infra/api";
 import {
-  firstCharacter,
-  ownershipClass,
-  ownershipLabel,
   withEmployeeView,
 } from "./employeeView";
+import { Pagination } from "@/shared/components/Pagination";
 
 type FilterTab = "all" | "live" | "branch" | "retired";
+
+const PAGE_SIZE = 9;
 
 export default function MyEmployeesPage() {
   const navigate = useNavigate();
@@ -26,6 +26,7 @@ export default function MyEmployeesPage() {
   const [error, setError] = useState("");
   const [employees, setEmployees] = useState<EmployeeSummary[]>([]);
   const [filter, setFilter] = useState<FilterTab>("all");
+  const [page, setPage] = useState(1);
   const [abandoningId, setAbandoningId] = useState<string | null>(null);
   const [retiringId, setRetiringId] = useState<string | null>(null);
 
@@ -163,6 +164,23 @@ export default function MyEmployeesPage() {
     return myEmployees.filter((item) => item.mappedStatus === "retired");
   }, [filter, myEmployees]);
 
+  const totalPages = Math.max(1, Math.ceil(visibleEmployees.length / PAGE_SIZE));
+
+  const pagedEmployees = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return visibleEmployees.slice(start, start + PAGE_SIZE);
+  }, [page, visibleEmployees]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
   return (
     <div className="hb-page">
       <div className="hb-page-head">
@@ -170,13 +188,13 @@ export default function MyEmployeesPage() {
           <span className="hb-kicker">个人资产面板</span>
           <h1 className="hb-page-title">我的数字员工</h1>
           <p className="hb-page-copy">
-            这里仅展示你本人拥有的「我的分身」和「私有分身」。已上岗实例可继续进入详情、飞书上岗和私有化扩展。
+            这里仅展示你本人拥有的个人资产实例。已上岗后可继续进入详情、站内对话、IM 配置和私有化扩展。
           </p>
         </div>
         <div className="hb-page-actions">
           <button
             type="button"
-            className="hb-btn-ghost"
+            className="hb-btn-ghost hb-hub-btn-secondary"
             onClick={() => navigate("/department-employees")}
           >
             去部门数字员工复制一个 →
@@ -250,8 +268,8 @@ export default function MyEmployeesPage() {
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {visibleEmployees.map((employee) => (
+          <div className="hb-asset-grid">
+            {pagedEmployees.map((employee) => (
               <div
                 key={employee.employeeId}
                 role="button"
@@ -265,40 +283,29 @@ export default function MyEmployeesPage() {
                     navigate(`/my-employees/instances/${employee.employeeId}`);
                   }
                 }}
-                className="hb-card cursor-pointer p-5 text-left transition-transform duration-150 hover:-translate-y-0.5"
+                className="hb-card hb-employee-card cursor-pointer text-left"
               >
-                <div className="mb-3 flex items-start gap-3">
-                  <span className="hb-squircle h-11 w-11 bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400">
-                    {firstCharacter(employee.nickname)}
-                  </span>
+                <div className="hb-employee-card-head">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="truncate text-[15px] font-semibold text-[var(--hb-near-black)]">
-                        {employee.nickname}
-                      </h3>
-                      <span
-                        className={`hb-pill ${ownershipClass(employee.ownership)}`}
-                      >
-                        {ownershipLabel(employee.ownership)}
-                      </span>
-                    </div>
-                    <p className="mt-1 truncate text-xs text-[var(--hb-soft)]">
+                    <h3 className="hb-employee-card-title">
+                      {employee.nickname}
+                    </h3>
+                    <p className="hb-employee-card-subtitle mt-1">
                       {employee.roleName || employee.sourceTemplate}
                     </p>
                   </div>
                 </div>
-                <p className="line-clamp-2 min-h-10 text-sm leading-relaxed text-[var(--hb-body)]">
+                <p className="hb-employee-card-desc">
                   {employee.primarySignal || employee.stageSummary}
                 </p>
                 <div
-                  className="mt-3 flex flex-wrap gap-1.5"
+                  className="hb-employee-card-actions"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {employee.mappedStatus === "live" ? (
                     <button
                       type="button"
-                      className="hb-btn-primary text-xs"
-                      style={{ padding: "6px 12px" }}
+                      className="hb-btn-primary hb-hub-btn-primary text-xs"
                       onClick={(e) => {
                         e.stopPropagation();
                         navigate(
@@ -312,8 +319,7 @@ export default function MyEmployeesPage() {
                   ) : null}
                   <button
                     type="button"
-                    className="hb-btn-ghost text-xs"
-                    style={{ padding: "6px 12px" }}
+                    className="hb-btn-ghost hb-hub-btn-secondary text-xs"
                     onClick={(e) => {
                       e.stopPropagation();
                       navigate(
@@ -332,8 +338,7 @@ export default function MyEmployeesPage() {
                   employee.mappedStatus === "live" ? (
                     <button
                       type="button"
-                      className="hb-btn-ghost text-xs"
-                      style={{ padding: "6px 12px" }}
+                      className="hb-btn-ghost hb-hub-btn-secondary text-xs"
                       onClick={(e) => {
                         e.stopPropagation();
                         navigate(`/private-branch/${employee.employeeId}`);
@@ -345,8 +350,7 @@ export default function MyEmployeesPage() {
                   ) : null}
                   <button
                     type="button"
-                    className="hb-btn-ghost text-xs"
-                    style={{ padding: "6px 12px" }}
+                    className="hb-btn-ghost hb-hub-btn-secondary text-xs"
                     disabled={
                       employee.mappedStatus === "retired" ||
                       retiringId === employee.employeeId
@@ -359,7 +363,8 @@ export default function MyEmployeesPage() {
                     {retiringId === employee.employeeId ? "退役中..." : "退役"}
                   </button>
                 </div>
-                <div className="mt-4 flex items-center justify-between border-t border-[var(--hb-border)] pt-3 text-xs text-[var(--hb-soft)]">
+                <div className="hb-employee-card-divider" />
+                <div className="hb-employee-card-footer">
                   <span>最近更新 {employee.createdAt}</span>
                   <div className="flex items-center gap-2">
                     {employee.ownership === "private_branch" &&
@@ -375,7 +380,7 @@ export default function MyEmployeesPage() {
                           : "废弃"}
                       </span>
                     ) : null}
-                    <span className="text-[var(--hb-blue)]">查看详情 →</span>
+                    <span className="hb-employee-card-link">查看详情 →</span>
                   </div>
                 </div>
               </div>
@@ -383,6 +388,10 @@ export default function MyEmployeesPage() {
           </div>
         )}
       </div>
+
+      {visibleEmployees.length > 0 ? (
+        <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+      ) : null}
     </div>
   );
 }

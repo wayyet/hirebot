@@ -706,6 +706,13 @@ body {
 
 .hb-page {
   padding: 28px 32px 40px;
+  width: min(100%, 1440px);
+  margin: 0 auto;
+}
+
+.hb-page-wide {
+  width: 100%;
+  max-width: none;
 }
 
 .hb-kicker {
@@ -746,6 +753,12 @@ body {
   font-size: 14px;
   line-height: 1.7;
   color: var(--hb-soft);
+}
+
+.hb-page-copy-meta {
+  color: var(--hb-caption);
+  font-size: 13px;
+  margin-left: 8px;
 }
 
 .hb-page-actions {
@@ -976,6 +989,34 @@ body {
   cursor: not-allowed;
 }
 
+.hb-hub-btn-primary,
+.hb-hub-btn-secondary {
+  min-height: 32px;
+  padding: 8px 15px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 150ms ease;
+}
+
+.hb-hub-btn-primary {
+  box-shadow: 0 10px 22px rgba(74, 108, 247, 0.16);
+}
+
+.hb-hub-btn-primary:hover {
+  transform: translateY(-1px);
+}
+
+.hb-hub-btn-secondary {
+  border-color: var(--hb-hub-search-border);
+  background: var(--hb-hub-pill-bg);
+}
+
+.hb-hub-btn-secondary:hover {
+  border-color: rgba(74, 108, 247, 0.28);
+  background: rgba(74, 108, 247, 0.08);
+}
+
 .hb-pill {
   display: inline-flex;
   align-items: center;
@@ -1090,20 +1131,8 @@ body {
 .hb-detail-top {
   display: flex;
   align-items: flex-start;
-  gap: 18px;
-}
-
-.hb-detail-avatar {
-  width: 64px;
-  height: 64px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  border-radius: 18px;
-  background: #dde9ff;
-  color: #3d5cff;
-  font-size: 24px;
-  font-weight: 700;
+  gap: 24px;
+  justify-content: space-between;
 }
 
 .hb-detail-main {
@@ -1129,7 +1158,7 @@ body {
 .hb-detail-meta {
   margin-top: 8px;
   color: var(--hb-soft);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .hb-detail-desc {
@@ -1150,6 +1179,46 @@ body {
 .hb-detail-actions .hb-btn-primary,
 .hb-detail-actions .hb-btn-ghost {
   justify-content: center;
+}
+
+.hb-detail-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.hb-detail-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--hb-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.hb-detail-meta-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--hb-near-black);
+  font-size: 13px;
+}
+
+.hb-detail-meta-label {
+  font-size: 11px;
+  color: var(--hb-caption);
+  letter-spacing: 0.04em;
+}
+
+.hb-detail-panel-title {
+  margin: 0;
+  color: var(--hb-near-black);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .hb-divider {
@@ -1698,6 +1767,139 @@ body {
   background: rgba(74, 108, 247, 0.10);
   color: var(--hb-blue);
   box-shadow: var(--hb-hub-pill-shadow-active);
+}
+
+.hb-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+  gap: 18px;
+}
+
+.hb-employee-card {
+  min-height: 206px;
+  padding: 20px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hb-employee-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  margin-bottom: 12px;
+}
+
+.hb-employee-card-title {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--hb-near-black);
+}
+
+.hb-employee-card-subtitle {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--hb-soft);
+}
+
+.hb-employee-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.hb-employee-card-desc {
+  margin: 0;
+  min-height: 42px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--hb-soft);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.hb-employee-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.hb-employee-card-divider {
+  height: 1px;
+  margin-top: auto;
+  background: rgba(148, 163, 184, 0.22);
+}
+
+.hb-employee-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--hb-soft);
+}
+
+.hb-employee-card-link {
+  color: var(--hb-blue);
+  font-weight: 500;
+}
+
+.hb-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 28px;
+}
+
+.hb-pagination-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--hb-border-input);
+  background: transparent;
+  color: var(--hb-body);
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.hb-pagination-btn:hover:not(:disabled) {
+  border-color: rgba(74, 108, 247, 0.28);
+  background: rgba(74, 108, 247, 0.06);
+}
+
+.hb-pagination-btn.is-active {
+  border-color: var(--hb-blue);
+  background: var(--hb-blue);
+  color: #ffffff;
+}
+
+.hb-pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hb-pagination-ellipsis {
+  padding: 0 4px;
+  color: var(--hb-soft);
+  font-size: 13px;
 }
 
 .hb-tab-row {
@@ -4502,6 +4704,7 @@ body.hb-body-hiring-prototype {
 
   .hb-page {
     padding: 20px 16px 28px;
+    width: 100%;
   }
 
   .hb-page-head {
@@ -5691,6 +5894,10 @@ body.hb-body-hiring-prototype {
     padding-bottom: 48px;
   }
 
+  .hb-detail-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
   .hb-landing-hero-content {
     padding: 0 20px;
   }
@@ -6140,12 +6347,6 @@ body.hb-body-hiring-prototype {
     radial-gradient(circle at top right, rgba(74, 108, 247, 0.12), transparent 34%),
     linear-gradient(180deg, rgba(28, 30, 38, 0.98), rgba(24, 26, 34, 0.94));
 }
-
-.dark .hb-detail-avatar {
-  background: rgba(74, 108, 247, 0.18);
-  color: #93bbfc;
-}
-
 
 /* ═══════════════════════════════════════════════════════════════════════
    HiringTodoPanel — 雇佣 TODO 交互面板样式
