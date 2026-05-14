@@ -67,13 +67,27 @@
     "label": "阶段 4：实例打包",
     "ownerSkill": "employment-coach-conversation",
     "gate": {
-      "requiresDownstream": [
-        "ontology-extraction",
-        "skill-generation",
-        "external-config"
+      "anyOf": [
+        {
+          "kind": "downstream_terminal",
+          "requiresDownstream": [
+            "ontology-extraction",
+            "skill-generation",
+            "external-config"
+          ]
+        },
+        {
+          "kind": "user_explicit_request",
+          "requiresCoachSummaries": [
+            "material_handoff_summary",
+            "skill_workorder_summary",
+            "external_workorder_summary"
+          ],
+          "userIntentKeywords": ["生成产物包", "打包", "生成实例包", "导出", "打成 zip", "完成打包"]
+        }
       ]
     },
-    "description": "下游三个 skill（ontology-extraction / skill-generation / external-config）全部发出 terminal artifact 后，调用 package_workspace 工具将沙箱工作区打包，再通过 emit_artifact 推送 template_package file artifact，触发前端自动 importPackage 流程。",
+    "description": "进入条件二选一：(A) 下游三个 skill 全部发出 terminal artifact；(B) 本 coach 三个阶段 summary 已发出且用户在对话中显式请求打包。任一成立后，调用 package_workspace 工具将沙箱工作区打包，再通过 emit_artifact 推送 template_package file artifact，触发前端自动 importPackage 流程。严禁未真实调用打包工具就宣称已打包。",
     "artifacts": [
       {
         "type": "packaging_progress",

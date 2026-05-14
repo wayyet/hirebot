@@ -712,7 +712,12 @@ internal sealed partial class EvaluationService
         DateTimeOffset? SkillLoadedAtUtc,
         string? SessionId,
         string? EvaluatorTemplatePackageZipPath,
+        string? UploadedTemplatePackageZipPath,
         Dictionary<string, WorkspaceStepState> StepStates);
+
+    private sealed record TemplatePackageUploadResult(
+        string? SandboxTemplatePackageZipPath,
+        string? UploadedTemplatePackageZipPath);
 
     private sealed record WorkspaceStepState(
         string Status,

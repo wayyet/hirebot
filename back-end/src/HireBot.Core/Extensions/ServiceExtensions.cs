@@ -20,6 +20,7 @@ using HireBot.Core.Services.Hiring;
 using HireBot.Core.Services.Hiring.Artifacts;
 using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.Storage;
+using HireBot.Core.Services.Hiring.StoreSkills;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Security;
@@ -173,6 +174,7 @@ public static class ServiceExtensions
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
         services.AddScoped<IEmployeeHiringService, EmployeeHiringService>();
+        services.AddScoped<IStoreSkillPackageDownloader, StoreSkillPackageDownloader>();
         services.AddScoped<IInstanceArtifactCloneService, InstanceArtifactCloneService>();
         services.AddScoped<IInstanceArtifactResolver, InstanceArtifactResolver>();
       

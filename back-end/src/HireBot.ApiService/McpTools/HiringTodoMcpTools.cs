@@ -1,8 +1,7 @@
 using System.ComponentModel;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using HireBot.Abstraction.Models.Hiring;
-using HireBot.Abstraction.Services.Hiring;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -10,231 +9,131 @@ using ModelContextProtocol.Server;
 namespace HireBot.ApiService.McpTools;
 
 /// <summary>
-/// MCP 工具：提供雇佣界面的 TODO（Handoff）事项管理能力。
-/// userId 和 sessionId 均由 Kingcrab 通过 _meta 传入，无需调用方在参数中显式传递 hireId。
+/// MCP 工具：仅保留雇佣会话用户上传文件的解析能力。
+/// 新版右侧 TODO 面板由 artifact (material_collection_progress / skill_workorder_progress /
+/// external_workorder_progress 等) 事件驱动阶段亮灯与交互区显示，不再使用 handoff 文本工单，
+/// 因此 hiring.list_todos / hiring.upsert_todo / hiring.request_* 等旧工具全部下线。
+/// userId 和 sessionId 由 Kingcrab 通过 _meta 传入。
 /// </summary>
 [McpServerToolType]
-internal sealed class HiringTodoMcpTools(IHiringTodoService todoService, ILogger<HiringTodoMcpTools> logger)
+internal sealed class HiringTodoMcpTools(
+    IWebHostEnvironment env,
+    ILogger<HiringTodoMcpTools> logger)
 {
-    [McpServerTool(Name = "hiring.list_todos", ReadOnly = true)]
-    [Description("列出当前雇佣会话的所有 TODO 事项（handoff items）。会话上下文由 _meta.sessionId 和 _meta.userId 自动识别，无需传参。")]
-    public async Task<string> ListTodosAsync(
+    /// <summary>todo 上传文件的根目录，相对 wwwroot；由控制器和 MCP 工具共享。</summary>
+    public const string TodoFilesSubdir = "resources/todo-files";
+
+    /// <summary>
+    /// 解析当前雇佣会话用户已上传的 todo-files 目录，返回目录树和每个 md/json 文件的文本内容。
+    /// AI 可借此读取业务资料，进行本体抽取、能力推断等下游任务。
+    /// </summary>
+    [McpServerTool(Name = "hiring.parse_uploaded_files", ReadOnly = true)]
+    [Description("读取并解析当前雇佣会话用户已上传的所有文件（仅 .md / .json）。返回目录结构和每个文件的全文本内容，供大模型抽取本体、推断技能等。会话上下文由 _meta.sessionId 自动识别。")]
+    public async Task<string> ParseUploadedFilesAsync(
         RequestContext<CallToolRequestParams> requestContext,
-        CancellationToken cancellationToken)
-    {
-        var userId = ExtractUserId(requestContext);
-        var sessionId = ExtractSessionId(requestContext);
-        logger.LogInformation("[MCP] hiring.list_todos 被调用 | userId={UserId} sessionId={SessionId}", userId ?? "<未传入>", sessionId ?? "<未传入>");
-
-        if (userId is null)
-            return """{"error":"_meta.userId 未传入，无法验证用户身份"}""";
-        if (sessionId is null)
-            return """{"error":"_meta.sessionId 未传入，无法定位雇佣会话"}""";
-
-        var response = await todoService.GetTodosAsync(sessionId, userId, cancellationToken);
-        return JsonSerializer.Serialize(response, JsonSerializerOptions.Web);
-    }
-
-    [McpServerTool(Name = "hiring.upsert_todo")]
-    [Description("新建或更新一个雇佣 TODO 事项（handoff item）。handoffId 相同则覆盖更新，否则新建。会话上下文由 _meta.sessionId 和 _meta.userId 自动识别。")]
-    public async Task<string> UpsertTodoAsync(
-        RequestContext<CallToolRequestParams> requestContext,
-        [Description("TODO 的唯一语义化 ID，格式：{阶段前缀}_{英文小写slug}。资料工单用 material_xxx，技能工单用 skill_xxx，外部系统工单用 external_xxx。同一概念必须每次使用相同 ID 以实现幂等更新，禁止使用随机 UUID。")] string handoffId,
-        [Description("标题（简明描述任务内容）")] string title,
-        [Description("所属阶段，如 material / skill / external")] string stage,
-        [Description("目标 skill 名称")] string targetSkill,
-        [Description("当前状态：drafting / ready_to_dispatch / dispatched / confirmed / needs_review / dismissed")] string status,
-        [Description("任务意图或详细说明（可选）")] string? intent = null,
-        [Description("分类标签（可选）")] string? category = null,
-        [Description("来源说明（可选）")] string? source = null,
-        [Description("验收条件（可选）")] string? acceptance = null,
+        [Description("可选：限制最大返回字节数，默认 200000，避免上下文爆炸")] int maxBytes = 200_000,
         CancellationToken cancellationToken = default)
     {
-        var userId = ExtractUserId(requestContext);
         var sessionId = ExtractSessionId(requestContext);
-        logger.LogInformation("[MCP] hiring.upsert_todo 被调用 | handoffId={HandoffId} userId={UserId} sessionId={SessionId}", handoffId, userId ?? "<未传入>", sessionId ?? "<未传入>");
+        logger.LogInformation("[MCP] hiring.parse_uploaded_files | sessionId={SessionId} maxBytes={MaxBytes}", sessionId ?? "<未传入>", maxBytes);
 
-        if (userId is null)
-            return """{"error":"_meta.userId 未传入，无法验证用户身份"}""";
-        if (sessionId is null)
-            return """{"error":"_meta.sessionId 未传入，无法定位雇佣会话"}""";
+        if (sessionId is null) return ErrorPayload("_meta.sessionId 未传入，无法定位雇佣会话");
 
-        var request = new UpsertHiringTodoRequest(
-            HandoffId: handoffId,
-            Title: title,
-            Kind: HiringHandoffKind.HandoffTodo,
-            Stage: stage,
-            TargetSkill: targetSkill,
-            Status: status,
-            Intent: intent,
-            Category: category,
-            Source: source,
-            Acceptance: acceptance);
-
-        var response = await todoService.UpsertTodoAsync(sessionId, userId, request, cancellationToken);
-        return JsonSerializer.Serialize(response, JsonSerializerOptions.Web);
-    }
-
-    [McpServerTool(Name = "hiring.request_file_upload")]
-    [Description("创建一个「请用户上传文件材料」类型的 TODO 事项，引导用户在界面上传指定文件。前端面板会自动显示上传按钮。会话上下文由 _meta.sessionId 和 _meta.userId 自动识别。")]
-    public async Task<string> RequestFileUploadAsync(
-        RequestContext<CallToolRequestParams> requestContext,
-        [Description("TODO 的唯一语义化 ID，格式：upload_{英文小写slug}，例如 upload_tax_report。同一文件请求必须使用相同 ID，禁止使用随机 UUID。")] string handoffId,
-        [Description("请求上传的文件或材料名称")] string title,
-        [Description("上传说明：描述需要用户上传什么文件以及用途")] string description,
-        [Description("所属阶段，如 material / skill / external")] string stage,
-        [Description("目标 skill 名称")] string targetSkill,
-        [Description("验收条件：描述上传后如何验证文件合格（可选）")] string? acceptanceCriteria = null,
-        CancellationToken cancellationToken = default)
-    {
-        var userId = ExtractUserId(requestContext);
-        var sessionId = ExtractSessionId(requestContext);
-        logger.LogInformation("[MCP] hiring.request_file_upload 被调用 | handoffId={HandoffId} userId={UserId} sessionId={SessionId}", handoffId, userId ?? "<未传入>", sessionId ?? "<未传入>");
-
-        if (userId is null)
-            return """{"error":"_meta.userId 未传入，无法验证用户身份"}""";
-        if (sessionId is null)
-            return """{"error":"_meta.sessionId 未传入，无法定位雇佣会话"}""";
-
-        var payload = JsonSerializer.SerializeToElement(new
+        var root = ResolveSessionRoot(sessionId);
+        if (!Directory.Exists(root))
         {
-            upload_type = "file",
-            description,
-            guidance = $"请上传 {title} 文件。{description}"
-        });
-
-        var request = new UpsertHiringTodoRequest(
-            HandoffId: handoffId,
-            Title: title,
-            Kind: HiringHandoffKind.FileRequest,
-            Stage: stage,
-            TargetSkill: targetSkill,
-            Status: HiringHandoffStatus.Drafting,
-            Intent: description,
-            Category: "file_upload",
-            Source: "mcp_agent",
-            Acceptance: acceptanceCriteria,
-            Payload: payload);
-
-        var response = await todoService.UpsertTodoAsync(sessionId, userId, request, cancellationToken);
-        return JsonSerializer.Serialize(response, JsonSerializerOptions.Web);
-    }
-
-    [McpServerTool(Name = "hiring.request_skill_upload")]
-    [Description("创建一个「请用户上传技能包（.zip）」类型的 TODO 事项，引导用户在界面上传指定技能包文件。前端面板会自动显示技能包上传表单（含版本说明、描述字段）。会话上下文由 _meta.sessionId 和 _meta.userId 自动识别。")]
-    public async Task<string> RequestSkillUploadAsync(
-        RequestContext<CallToolRequestParams> requestContext,
-        [Description("TODO 的唯一语义化 ID，格式：skill_upload_{英文小写slug}，例如 skill_upload_material_ingestion。同一技能请求必须使用相同 ID，禁止使用随机 UUID。")] string handoffId,
-        [Description("技能包名称，如 material-ingestion")] string skillName,
-        [Description("上传说明：描述需要用户上传哪个技能包以及用途")] string description,
-        [Description("验收条件：描述上传后如何验证技能包合格（可选）")] string? acceptanceCriteria = null,
-        CancellationToken cancellationToken = default)
-    {
-        var userId = ExtractUserId(requestContext);
-        var sessionId = ExtractSessionId(requestContext);
-        logger.LogInformation("[MCP] hiring.request_skill_upload 被调用 | handoffId={HandoffId} skillName={SkillName} userId={UserId} sessionId={SessionId}",
-            handoffId, skillName, userId ?? "<未传入>", sessionId ?? "<未传入>");
-
-        if (userId is null)
-            return """{"error":"_meta.userId 未传入，无法验证用户身份"}""";
-        if (sessionId is null)
-            return """{"error":"_meta.sessionId 未传入，无法定位雇佣会话"}""";
-
-        var payload = JsonSerializer.SerializeToElement(new
-        {
-            skill_name = skillName,
-            description,
-            upload_type = "skill"
-        });
-
-        var request = new UpsertHiringTodoRequest(
-            HandoffId: handoffId,
-            Title: $"上传 {skillName} 技能包",
-            Kind: HiringHandoffKind.SkillUpload,
-            Stage: "skill",
-            TargetSkill: skillName,
-            Status: HiringHandoffStatus.Drafting,
-            Intent: description,
-            Category: "skill_upload",
-            Source: "mcp_agent",
-            Acceptance: acceptanceCriteria,
-            Payload: payload);
-
-        var response = await todoService.UpsertTodoAsync(sessionId, userId, request, cancellationToken);
-        return JsonSerializer.Serialize(response, JsonSerializerOptions.Web);
-    }
-
-    [McpServerTool(Name = "hiring.request_external_config")]
-    [Description("创建一个「请用户填写外部系统接入配置」类型的 TODO 事项。AI 通过 form_fields 参数声明需要用户填写的字段（如 API URL、密钥、服务名等），前端面板会自动渲染对应的配置表单。会话上下文由 _meta.sessionId 和 _meta.userId 自动识别。")]
-    public async Task<string> RequestExternalConfigAsync(
-        RequestContext<CallToolRequestParams> requestContext,
-        [Description("TODO 的唯一语义化 ID，格式：external_{英文小写slug}，例如 external_slack_webhook。同一外部系统请求必须使用相同 ID，禁止使用随机 UUID。")] string handoffId,
-        [Description("外部系统名称，如 Slack Webhook、企业微信机器人")] string systemName,
-        [Description("配置说明：描述该外部系统的用途")] string description,
-        [Description("字段定义 JSON 数组，每项格式：{\"id\":\"field_id\",\"label\":\"显示名\",\"type\":\"text|password|number|select\",\"required\":true,\"placeholder\":\"...\",\"hint\":\"...\",\"options\":[\"...\"]}")] string formFieldsJson,
-        CancellationToken cancellationToken = default)
-    {
-        var userId = ExtractUserId(requestContext);
-        var sessionId = ExtractSessionId(requestContext);
-        logger.LogInformation("[MCP] hiring.request_external_config 被调用 | handoffId={HandoffId} systemName={SystemName} userId={UserId} sessionId={SessionId}",
-            handoffId, systemName, userId ?? "<未传入>", sessionId ?? "<未传入>");
-
-        if (userId is null)
-            return """{"error":"_meta.userId 未传入，无法验证用户身份"}""";
-        if (sessionId is null)
-            return """{"error":"_meta.sessionId 未传入，无法定位雇佣会话"}""";
-
-        JsonElement formFields;
-        try
-        {
-            formFields = JsonSerializer.Deserialize<JsonElement>(formFieldsJson);
-        }
-        catch
-        {
-            formFields = JsonSerializer.SerializeToElement(Array.Empty<object>());
+            return JsonSerializer.Serialize(new
+            {
+                session_id = sessionId,
+                file_count = 0,
+                files = Array.Empty<object>(),
+                note = "尚未上传任何文件"
+            }, JsonSerializerOptions.Web);
         }
 
-        var payload = JsonSerializer.SerializeToElement(new
+        var files = new List<object>();
+        long totalBytes = 0;
+        var truncated = false;
+
+        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).OrderBy(p => p))
         {
-            system_name = systemName,
-            description,
-            form_fields = formFields
-        });
+            cancellationToken.ThrowIfCancellationRequested();
+            var ext = Path.GetExtension(path).ToLowerInvariant();
+            if (ext is not (".md" or ".json")) continue;
 
-        var request = new UpsertHiringTodoRequest(
-            HandoffId: handoffId,
-            Title: $"配置 {systemName}",
-            Kind: HiringHandoffKind.ExternalConfig,
-            Stage: "external",
-            TargetSkill: "external-config",
-            Status: HiringHandoffStatus.Drafting,
-            Intent: description,
-            Category: "external_config",
-            Source: "mcp_agent",
-            Acceptance: null,
-            Payload: payload);
+            var relative = Path.GetRelativePath(root, path).Replace('\\', '/');
+            var info = new FileInfo(path);
 
-        var response = await todoService.UpsertTodoAsync(sessionId, userId, request, cancellationToken);
-        return JsonSerializer.Serialize(response, JsonSerializerOptions.Web);
+            string content;
+            if (totalBytes >= maxBytes)
+            {
+                truncated = true;
+                content = "[truncated: 已达 maxBytes 上限，未读取此文件正文]";
+            }
+            else
+            {
+                var remain = maxBytes - totalBytes;
+                var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+                if (bytes.LongLength > remain)
+                {
+                    content = Encoding.UTF8.GetString(bytes, 0, (int)remain) + "\n[... truncated]";
+                    truncated = true;
+                    totalBytes += remain;
+                }
+                else
+                {
+                    content = Encoding.UTF8.GetString(bytes);
+                    totalBytes += bytes.LongLength;
+                }
+            }
+
+            files.Add(new
+            {
+                relative_path = relative,
+                size_bytes = info.Length,
+                format = ext.TrimStart('.'),
+                content
+            });
+        }
+
+        return JsonSerializer.Serialize(new
+        {
+            session_id = sessionId,
+            file_count = files.Count,
+            total_bytes_read = totalBytes,
+            truncated,
+            files
+        }, JsonSerializerOptions.Web);
     }
 
-    /// <summary>从 MCP 请求上下文的 _meta 中提取 userId（Keycloak JWT sub）。</summary>
-    private static string? ExtractUserId(RequestContext<CallToolRequestParams> requestContext)
-        => ExtractMeta(requestContext, "userId");
+    private string ResolveSessionRoot(string sessionId)
+    {
+        var safe = SanitizeSegment(sessionId);
+        var webRoot = env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot");
+        return Path.Combine(webRoot, TodoFilesSubdir.Replace('/', Path.DirectorySeparatorChar), safe);
+    }
 
-    /// <summary>从 MCP 请求上下文的 _meta 中提取 sessionId（Kingcrab 传入的会话 ID）。</summary>
+    private static string SanitizeSegment(string value)
+    {
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            if (char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.') sb.Append(ch);
+        }
+        return sb.Length == 0 ? "unknown" : sb.ToString();
+    }
+
+    private static string ErrorPayload(string message)
+        => JsonSerializer.Serialize(new { error = message }, JsonSerializerOptions.Web);
+
     private static string? ExtractSessionId(RequestContext<CallToolRequestParams> requestContext)
         => ExtractMeta(requestContext, "sessionId");
 
     private static string? ExtractMeta(RequestContext<CallToolRequestParams> requestContext, string key)
     {
         var meta = requestContext.Params?.Meta;
-        if (meta is null)
-            return null;
-
-        if (meta.TryGetPropertyValue(key, out JsonNode? node))
-            return node?.GetValue<string>();
-
+        if (meta is null) return null;
+        if (meta.TryGetPropertyValue(key, out JsonNode? node)) return node?.GetValue<string>();
         return null;
     }
 }

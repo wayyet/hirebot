@@ -118,56 +118,23 @@ metadata:
 
 > 节奏与口吻、真实场景优先、情绪信号识别、反馈风格、初始化与开场示例 → 进入会话第一轮 / 拿不准对话节奏时，读 [references/interaction-quality.md](references/interaction-quality.md)。
 
-## MCP TODO 工具调用规范
+## MCP 工具调用规范
 
-本 skill 通过三个 MCP 工具实时更新前端 TODO 面板，**与 emit_artifact 并行调用**——两者职责不同：`emit_artifact` 驱动阶段胶囊状态，MCP TODO 工具驱动右侧待办面板。
+本 skill 的右侧 TODO 面板**完全由 `emit_artifact` 事件驱动**：阶段胶囊亮灯、阶段卡片展开上传/搜索/外部表单交互区，全都依赖 `material_collection_progress` / `skill_workorder_progress` / `external_workorder_progress` 等 artifact 事件。**不存在文本型待办工单**，因此本 skill 只需调用极少的 MCP 工具。
 
-### 可用工具
+### 可用工具（仅一个）
 
 | 工具名 | 用途 |
 |--------|------|
-| `hiring.upsert_todo` | 新建或更新一条待办工单（相同 handoffId 则覆盖） |
-| `hiring.request_file_upload` | 创建"请用户上传文件"型工单，前端面板会显示上传按钮 |
-| `hiring.list_todos` | 列出当前会话所有工单（一般在会话恢复时调用一次） |
+| `hiring.parse_uploaded_files` | 读取并解析当前会话用户已上传的 .md/.json 文件，供 AI 抽取本体或推断技能 |
 
-### handoffId 命名规范
+> ⚠️ 旧版本曾提供的 `hiring.upsert_todo` / `hiring.list_todos` / `hiring.request_file_upload` / `hiring.request_skill_upload` / `hiring.request_external_config` 等 **全部已下线**。右侧面板的阶段卡片由 artifact 阶段事件直接控制，**不再需要、也无法通过 MCP 工具触发**。所有阶段推进信息都通过 `emit_artifact` 推送，所有用户输入（上传文件 / 选择技能 / 填写外部系统）通过前端表单回流为下一轮用户消息。
 
-**必须使用语义化稳定 ID，禁止使用随机 UUID。** 格式规则：
-- 资料工单：`material_<英文小写_slug>` — 例如 `material_sales_data`、`material_compliance_rules`
-- 文件上传请求：`upload_<英文小写_slug>` — 例如 `upload_tax_report`、`upload_history_csv`
-- 技能工单：`skill_<英文小写_slug>` — 例如 `skill_invoice_audit`、`skill_risk_alert`
-- 外部系统工单：`external_<英文小写_slug>` — 例如 `external_erp_read`、`external_crm_notify`
-
-同一概念每次对话都必须用**同一个 handoffId**，AI 用相同 ID 调用 upsert 就是更新而不是创建新条目。
-
-### 各阶段调用时机
-
-**阶段 1 资料**
+### 调用时机
 
 | 时机 | 工具 | 关键参数 |
 |------|------|---------|
-| 用户描述一份资料内容（哪怕还不完整） | `hiring.upsert_todo` | stage=`material`, targetSkill=`ontology-extraction`, status=`drafting` |
-| 需要用户上传具体文件 | `hiring.request_file_upload` | stage=`material`, targetSkill=`ontology-extraction` |
-| 资料达到足够明确度（抽取目标已清晰） | `hiring.upsert_todo` | status=`ready_to_dispatch`，同时更新 intent/acceptance |
-
-**阶段 2 技能**
-
-| 时机 | 工具 | 关键参数 |
-|------|------|---------|
-| 用户描述一个技能需求 | `hiring.upsert_todo` | stage=`skill`, targetSkill=`skill-generation`, status=`drafting` |
-| 技能定义明确（name + description + trigger + output 全齐） | `hiring.upsert_todo` | status=`ready_to_dispatch` |
-
-**阶段 3 外部系统**
-
-| 时机 | 工具 | 关键参数 |
-|------|------|---------|
-| 识别到一个外部系统连接需求 | `hiring.upsert_todo` | stage=`external`, targetSkill=`external-config`, status=`drafting` |
-| 外部系统信息明确（category + target_system + objective 全齐） | `hiring.upsert_todo` | status=`ready_to_dispatch` |
-| 用户表示不需要外部系统 | `hiring.upsert_todo` | title=`跳过外部系统`, category=`skip`, status=`ready_to_dispatch` |
-
-### 与 emit_artifact 的调用顺序
-
-收集到可推送信息时，**先调用对应 MCP TODO 工具**写入持久化状态，**再调用 emit_artifact** 更新阶段胶囊，最后给用户一句简短反馈。
+| 用户上传过文件需要读取分析时 | `hiring.parse_uploaded_files` | 不传参或传 `maxBytes`；返回目录树 + .md/.json 全文 |
 
 ### 错误处理
 
@@ -175,36 +142,129 @@ metadata:
 
 
 
-### 会话初始化：确定工作区路径
+### 会话初始化：解压上传包并锁定工作区路径
 
-**在进入任何阶段引导之前，必须先完成本步骤。**
+**这是会话第一件事，未完成不得进入任何阶段。**
 
-用户进入雇佣会话时，系统可能已上传了目标模板 ZIP 包。本 skill 需要在会话开始时确定 `template_slug`，并将工作区路径 `/workspace/<template-slug>/` 传递给所有下游 skill。
+#### 沙箱真实路径事实（必须记住）
 
-**slug 解析规则（按优先级）**：
+- `/workspace` 是**租户+用户级共享根目录**——同一个用户的所有会话都挂同一份 PVC，因此**绝不能直接把 `/workspace` 本身当作本次会话的工作目录**。
+- `/app/memory/media-cache/<media-id>` 是用户上传文件的**只读**存放路径，会话首轮消息中以 `[FILE_URL:/app/memory/media-cache/<media-id>]` 形式给出。
+- 沙箱**不会**自动把 ZIP 解压到 `/workspace`——这是雇佣教练在会话初始化时必须主动完成的动作。
 
-1. **ZIP 包内含 manifest.json**：读取 `manifest.json` 中的 `slug` 字段（已是合法短横线格式），直接使用。
-2. **ZIP 文件名**：去掉 `.zip` 后缀，提取连续的英文字母、数字和连字符片段，转小写。例如 `SalesAssistant-v2.zip` → `salesassistant-v2`，`税务扫描器_TaxScanner_20250101.zip` → `taxscanner`。
-3. **均无法提取英文字符**：使用 `template-<yyyyMMdd>` 格式作为后备 slug，例如 `template-20260513`。
+#### 步骤 1：识别本次会话的上传包
 
-**确定 slug 后**：
+从首轮用户消息中提取：
+- `FILE_URL`：形如 `/app/memory/media-cache/media_xxxxxxxx`，**ZIP 真实读取路径**
+- 原始文件名：形如 `template_<uuid>_<uuid>.zip` 或 `<语义化名称>.zip`，仅作 slug 提示来源
 
-- 工作区根目录：`/workspace/<template-slug>/`
-- 上传内容解压路径：`/workspace/<template-slug>/uploads/`（ZIP 内部结构原样保留）
-- 本体输出路径：`/workspace/<template-slug>/ontology/`
-- 技能输出路径：`/workspace/<template-slug>/skills/<skill-slug>/`
-- 外部配置输出路径：`/workspace/<template-slug>/external/`
+两者都要保留供后续使用。
 
-在向下游 skill 发出 `material_handoff_summary` / `skill_workorder_summary` / `external_workorder_summary` 等 terminal artifact 时，必须在 `data` 中携带 `workspace_root` 字段，让下游 skill 知道实际工作区路径：
+#### 步骤 2：先临时拆 manifest 拿语义化 slug（可选但推荐）
+
+为了让最终 workspace 目录名有语义，可先用沙箱 shell 工具临时解压 ZIP 里的 `manifest.json` 到 `/tmp`：
+
+```sh
+mkdir -p /tmp/_inspect && unzip -o -j "<FILE_URL>" manifest.json -d /tmp/_inspect 2>/dev/null && cat /tmp/_inspect/manifest.json
+```
+
+按以下优先级确定 `template_slug`：
+
+1. `manifest.json` 中的 `slug` 字段（已是合法格式直接用）
+2. `manifest.json` 中的 `name` 字段：转小写、空格转 `-`、去除非 `[a-z0-9-]`、合并连续 `-`
+3. 原始文件名提取连续 `[a-zA-Z0-9-]` 片段并转小写——**但若文件名形如 `template_<uuid>_<uuid>` 等明显为系统 ID 的，跳过本规则**
+4. 兜底：`template`（不带任何标识，配合下一步的时间戳即可唯一）
+
+#### 步骤 3：组装并创建本会话专属 workspace 目录
+
+**目录命名规则（强制）**：
+
+```
+/workspace/<template_slug>-<yyyymmddHHmmss>/
+```
+
+时间戳精确到秒，确保同租户多会话不会复用同一目录。**目录路径一旦确定，整个会话不变**——把这个完整字符串记为 `workspace_root`（末尾不带斜杠）。
+
+约定的子目录：
+
+```
+<workspace_root>/uploads/    # ZIP 解压目标（只读）
+<workspace_root>/ontology/   # 下游 ontology-extraction 写入
+<workspace_root>/skills/     # 下游 skill-generation 写入
+<workspace_root>/external/   # 下游 external-config 写入
+<workspace_root>/config/     # 配置文件治理目标
+```
+
+#### 步骤 4：调用沙箱工具完成解压并验证
+
+通过沙箱可用的 shell/unzip 工具执行（命令名以沙箱实际暴露为准）：
+
+```sh
+mkdir -p "<workspace_root>/uploads"
+unzip -o "<FILE_URL>" -d "<workspace_root>/uploads/"
+ls -la "<workspace_root>/uploads/"
+```
+
+**验证条件**（任一不满足就回失败兜底）：
+- `unzip` 命令退出码为 0
+- `ls` 至少能看到一个文件或一个子目录
+- 目标目录下确实能读到 `manifest.json`（或之前用 `name` 兜底的同位文件）
+
+验证通过后，把 `workspace_root` 和 `template_slug` **作为会话级常量**记住，所有后续 artifact data、TODO 工单、阶段总结里出现路径或 slug 的字段都使用这两个真实值。
+
+#### 步骤 5：通知用户开场
+
+解压验证通过后，给用户一句简短开场："已读取模板包，进入资料阶段——"。**禁止**在开场里复述模板包详细内容（那是下游 ontology-extraction 的事，且未阅读前不得编造）。
+
+#### 步骤 6：进入阶段 1 的强制动作（开场后**立即**执行，不等用户开口）
+
+开场句一出，**必须依次完成**以下两件事，让右侧 TODO 面板和阶段胶囊同步亮起。**前端的资料上传入口完全由 artifact 事件控制**：只要 `material_collection_progress` 一发出，阶段卡片就会自动展开拖拽上传区，AI 不需要、也无法通过 MCP 工具去"创建上传按钮"。
+
+1. **调用 `emit_artifact`** 推送 stage1 进度（这一步等同于"开灯"）：
+   - `artifactType`: `material_collection_progress`
+   - `stage`: `stage1_material`
+   - `isTerminal`: `false`
+   - `displayHint`: `progress`
+   - `data`: `{ "workspace_root": <真实路径>, "template_slug": <真实 slug>, "summary": "已进入资料阶段，等待用户上传或描述业务资料" }`
+2. **再用一句话**邀请用户开始介绍业务场景或直接上传资料，简要点出本模板期望收集哪些类型资料（流程文档 / 规则 / 案例 / 字段定义 / 示例数据），按 [references/scene-types.md](references/scene-types.md) 的 story-driven 风格开口，不要罗列长清单。
+
+> 这两步是 stage1 的"亮灯仪式"——缺第 1 步，前端阶段胶囊一直停在"等待"、资料卡也不会展开上传区。
+
+> 用户上传文件后，调用 `hiring.parse_uploaded_files` 拉取内容做识别，将已整理的资料摘要写入下一次 progress `emit_artifact` 的 `data` 字段（如 `data.items`），把"哪份资料、归到哪个分类、抽取什么"推送到前端阶段卡片。
+
+#### ⛔ 路径反伪造红线
+
+- 禁止把字面字符串 `<template-slug>`、`<workspace-root>`、`<workspace_root>` 等占位符写进任何 artifact data；必须是已确定的真实路径
+- 禁止跳过步骤 4 的实际工具调用，凭文件名/上下文猜测路径
+- 禁止使用 `/workspace` 根目录本身作为 workspace_root（会污染其他会话）
+- 禁止用上一次会话的 workspace_root（每次会话都要重新建时间戳目录）
+- 步骤 4 未通过验证前，不得调用任何阶段 emit_artifact；步骤 4 通过后，**必须**按步骤 6 立即推送 stage1 progress artifact 与上传入口工单
+
+#### 失败兜底
+
+满足以下任一情况：
+- 沙箱没有 unzip / shell / 任何可创建目录或解压文件的工具
+- 解压命令返回非零或目标目录依旧为空
+- 即使解压成功也读不到任何业务文件
+
+**正确做法**：
+1. 不进入阶段 1，不发任何 stage artifact
+2. 用一句话告知用户："我没能在沙箱里展开你上传的模板包，请稍后重发，或联系平台运维确认上传是否完成。"
+3. 绝不假装已读取，绝不复述模板包里没读到的内容
+
+#### 在 artifact data 中携带
+
+向下游 skill 发出 `material_handoff_summary` / `skill_workorder_summary` / `external_workorder_summary` 等 terminal artifact 时，`data` 中必须包含**已解析的真实值**：
 
 ```json
 {
-  "workspace_root": "/workspace/<template-slug>",
-  "template_slug": "<template-slug>"
+  "workspace_root": "/workspace/<真实 slug>-<真实时间戳>",
+  "template_slug": "<真实 slug>"
 }
 ```
 
-**不做文件系统操作**：本 skill 不直接创建目录或解压 ZIP，只负责确定并传递 `template_slug`；实际解压和目录创建由沙箱运行时在 ZIP 上传时完成。
+**不做的事**：本 skill 只负责"解压 + 锁定路径 + 传递路径"。`ontology/` `skills/` `external/` 三个子目录由各自的下游 skill 自行创建并写入；本 skill 不预先 `mkdir` 这些目录，也不写入其中任何文件。
+
 
 ---
 
@@ -221,7 +281,9 @@ metadata:
 
 **最低门槛**：至少 1 份资料被指认归类，并且明确说出"要从中整理什么分类的规则或内容"。
 
-**收到资料时的强制动作**：用户描述业务场景、资料种类、字段、规则、流程、案例或上传文件后，立即发出进度 emit_artifact，将 `data` 字段填入当前已整理的资料条目摘要；再给用户一行简短反馈说已记下。
+**进入阶段时的强制动作**：步骤 4 验证通过后，按"步骤 6 进入阶段 1 的强制动作"立即推送 stage1 progress artifact 并创建 `upload_business_materials` 上传入口工单——这是"亮灯仪式"，不依赖用户输入。
+
+**收到用户输入时的强制动作**：用户描述业务场景、资料种类、字段、规则、流程、案例或上传文件后，立即追加进度 emit_artifact，将 `data` 字段更新为最新已整理的资料条目摘要；再给用户一行简短反馈说已记下。
 
 **禁止替下游执行**：本阶段不要直接输出"本体切片"、概念表、关系表或约束表；本 skill 只负责对话收集与进度推送，下游 skill 负责实际执行。
 
@@ -289,11 +351,33 @@ metadata:
 
 ## 阶段 4：实例打包
 
-**触发条件**：ontology-extraction、skill-generation、external-config 三个下游 skill 全部发出 terminal artifact（即 `ontology_slice_result` / `skill_generation_done` / `external_config_done` 均已收到）。
+**触发条件（满足任一即进入）**：
 
-**强制执行顺序**：先发打包进度 artifact，再调用打包工具，再发 `template_package` file artifact，最后告知用户。
+A. **下游就绪触发**：ontology-extraction、skill-generation、external-config 三个下游 skill 全部发出 terminal artifact（`ontology_slice_result` / `skill_generation_done` / `external_config_done` 均已收到）。
 
-### 打包进度（isTerminal: false）
+B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 terminal summary（`material_handoff_summary` / `skill_workorder_summary` / `external_workorder_summary`，其中外部阶段允许是 skip 形态），**且**用户在对话中显式请求打包（关键词：「生成产物包」「打包」「生成实例包」「导出」「打成 zip」「完成打包」等），即使下游 terminal artifact 尚未全部到位，也必须进入阶段 4 并立即执行打包动作。
+
+> 任一触发条件成立时，立刻按"强制执行顺序"开始动作；**禁止只在对话里复述"已完成配置 / 请点击生成实例"而不进入实际打包**。
+
+### ⛔ 反伪造红线（最高优先级）
+
+未真实调用打包工具并拿到工具返回的 `fileUrl` 之前，**绝对禁止**出现以下任何一种回复：
+
+- 宣称"产物包已生成 / 已就绪 / 已打包完成"
+- 编造文件名、文件大小、文件路径（如 `/tmp/xxx.zip`、`207KB`、`203KB` 等）
+- 让用户"去点击导入实例包 / 上传 zip"
+- 用任何形式暗示打包已经发生
+
+违反此红线的回复属于严重幻觉。若打包工具不可用或调用失败，按下文"失败兜底"处理，**不得用伪造内容敷衍**。
+
+**强制执行顺序**（每一步都必须实际执行，不可省略、不可调换）：
+
+1. 发 `packaging_progress`（isTerminal: false）
+2. 调用沙箱打包工具，等待返回 `fileUrl`
+3. 发 `template_package`（kind: file, isTerminal: true），`fileUrl` 字段填写第 2 步真实返回值
+4. 给用户一句简短反馈
+
+### 1. 打包进度（isTerminal: false）
 
 在开始打包前立即调用：
 
@@ -308,20 +392,62 @@ metadata:
   "displayHint": "progress",
   "data": {
     "status": "packing",
-    "included": ["ontology/", "skills/", "external/", "config/"]
+    "included": ["ontology/", "skills/", "external/", "config/", "manifest.json"]
   }
 }
 ```
 
-### 调用打包工具
+### 2. 调用打包工具
 
 调用沙箱 `package_workspace` 工具（工具名以沙箱实际定义为准），将当前工作区打包为 zip 文件，获取产物文件的下载 URL（`fileUrl`）。
 
-> ⚠️ 工具名称占位符：`package_workspace`。若沙箱工具实际名称不同（如 `create_package`、`export_workspace`、`build_archive`），以沙箱提供的实际工具名称为准，行为一致。
+> ⚠️ 工具名称占位符：`package_workspace`。沙箱实际工具名可能为 `create_package`、`export_workspace`、`build_archive`、`zip_workspace` 等，以沙箱在当前会话中暴露的工具清单为准——**遇到不确定时，从工具清单中挑选语义最接近"将工作区打包为 zip 并返回下载链接"的工具调用**，不要因为名字不完全匹配就跳过这一步。
 
-### 发出 template_package artifact（isTerminal: true）
+> ⚠️ 若工具清单中确实没有任何打包能力，直接进入下文"失败兜底"，**不要伪造**。
 
-打包成功后立即调用 `emit_artifact`，**kind 必须为 `file`**，这是前端自动触发 importPackage 的唯一条件：
+#### 2.1 打包内容白名单与目录约束（强制）
+
+调用打包工具时，**必须**满足以下结构约束，否则后端导入会拒绝或产生错位目录：
+
+**白名单（zip 内只允许包含这些）**：
+- `manifest.json`（位于 zip 根）
+- `ontology/`（ontology-extraction 写入的全部内容）
+- `skills/`（skill-generation 写入的全部内容）
+- `external/`（external-config 写入的全部内容）
+- `config/`（配置文件治理目标）
+
+**黑名单（严禁打入 zip）**：
+- `uploads/`：这是原始模板包的临时解压区，仅供下游 skill 读取参考；原始模板内容由**后端独立合并**，绝不能再次塞入产物包
+- `.git/`、`.cache/`、`node_modules/`、`.venv/`、`__pycache__/`、任何 `.` 前缀的隐藏目录或文件
+- `*.tmp`、`*.log`、`*.swp`、`.DS_Store`、`Thumbs.db` 等临时/系统文件
+
+**层级约束（关键）**：
+- zip 内**根层级**必须**直接**看到上述白名单条目（如 `skills/<slug>/SKILL.md`）
+- **严禁**再嵌套一层 workspace 同名目录（如 `<workspace_slug>/skills/...` 或 `<workspace_slug>-artifacts/skills/...`）
+- 打包前 `cd "<workspace_root>"`，确保 zip 工具从工作区**内部**打包，而不是把工作区**作为顶层目录**纳入
+
+**正确示例（zip 内部结构）**：
+```
+manifest.json
+ontology/digital-employee/index.json
+skills/report-synthesis/SKILL.md
+external/connectors/erp.json
+config/soul.md
+```
+
+**错误示例（任一出现即视为打包失败，必须重新打包）**：
+```
+org-health-analyst-artifacts/manifest.json          ← 多了顶层包裹目录
+org-health-analyst-artifacts/skills/...
+uploads/digital-employee-template.zip                ← 临时输入混入产物
+.git/HEAD                                            ← 隐藏目录混入
+```
+
+> 后端 import 时会做一次"剥离公共顶层目录 + 黑名单过滤"的兜底，但**仅作为容错**，正确的提示词调用必须从源头满足上述约束。
+
+### 3. 发出 template_package artifact（isTerminal: true）
+
+打包工具成功返回后立即调用 `emit_artifact`，**`kind` 必须为 `file`**，这是前端自动触发 importPackage 的唯一条件：
 
 ```json
 {
@@ -332,20 +458,31 @@ metadata:
   "stage": "stage4_packaging",
   "isTerminal": true,
   "displayHint": "file",
-  "fileUrl": "<package_workspace 返回的下载路径>",
-  "fileName": "employment-coach-artifacts.zip"
+  "fileUrl": "<打包工具返回的下载路径，原样填入>",
+  "fileName": "<已解析的真实 template_slug>-artifacts.zip"
 }
 ```
 
 **关键约束**：
 - `kind` 固定为 `"file"`（不是 `"data"`），否则前端不会触发 auto-importPackage
-- `fileUrl` 必须是沙箱网关可直接下载的路径（绝对 URL 或相对于网关 base 的路径）
+- `fileUrl` 必须来自打包工具的真实返回，不得编造、不得拼接、不得使用历史会话的旧值
 - `fileName` 建议以 `.zip` 结尾，前端会用此名作为下载文件名
-- 打包失败时不发 terminal artifact，改为一条明确的错误提示，告知用户需要手动点击"生成实例"按钮
 
-### 告知用户
+### 4. 告知用户
 
-发出 artifact 后，给用户一句话：「资料、技能和配置文件都已打包，正在导入系统，请稍等片刻。」
+发出 artifact 后，**仅给用户一句话**：「资料、技能和配置文件都已打包，正在导入系统，请稍等片刻。」不要附加假的文件路径、大小或"请去点击导入"之类的引导。
+
+### 失败兜底
+
+满足以下任一情况：
+- 沙箱工具清单中找不到任何打包能力
+- 打包工具调用返回错误
+- 返回内容里没有可用的 `fileUrl`
+
+**正确做法**：
+1. 不发 `template_package` terminal artifact（前端按钮保持不可点状态）
+2. 给用户一句明确的错误提示，例如：「打包工具暂时不可用，请稍后再说一次"生成产物包"重试；若多次失败，请联系平台运维。」
+3. 不得伪造任何打包结果，不得让用户去做不存在的导入动作
 
 ---
 

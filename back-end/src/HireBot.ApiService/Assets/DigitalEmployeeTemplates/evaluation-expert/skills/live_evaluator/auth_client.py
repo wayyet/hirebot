@@ -2,7 +2,7 @@
 auth_client.py - 目标沙箱访问鉴权
 
 职责：
-  - 根据运行时上下文解析目标沙箱鉴权配置
+  - 解析目标沙箱鉴权配置（优先运行时上下文，否则从 auth_config.json 加载）
   - 支持 static_token / password / client_credentials 三种模式
   - 输出统一的访问令牌与 WebSocket / HTTP 传输配置
 
@@ -16,6 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -43,9 +44,26 @@ class ResolvedAuth:
         return {self.http_header_name: token_value}
 
 
-def resolve_auth(auth_config: dict[str, Any] | None) -> ResolvedAuth:
+def _load_skill_auth_config() -> dict[str, Any]:
+    """从本文件同目录下的 auth_config.json 加载鉴权配置。"""
+    config_path = Path(__file__).parent / "auth_config.json"
+    if not config_path.is_file():
+        raise FileNotFoundError(
+            f"auth_config.json not found at {config_path}; "
+            "place it next to auth_client.py or provide auth via runtime_context"
+        )
+    try:
+        with open(config_path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except json.JSONDecodeError as ex:
+        raise RuntimeError(f"auth_config.json is not valid json: {ex}") from ex
+
+
+def resolve_auth(auth_config: dict[str, Any] | None = None) -> ResolvedAuth:
     """
-    解析运行时上下文中的鉴权配置。
+    解析目标沙箱鉴权配置。
+
+    若未提供 auth_config 或为空，则自动从本文件同目录下的 auth_config.json 加载。
 
     支持：
       - static_token        直接使用 access_token / token
@@ -53,19 +71,21 @@ def resolve_auth(auth_config: dict[str, Any] | None) -> ResolvedAuth:
       - client_credentials  client_id/client_secret 换 token
     """
     config = auth_config or {}
+    if not config:
+        config = _load_skill_auth_config()
     mode = str(config.get("mode") or "static_token").strip().lower()
 
     common = {
-        "token_type": str(config.get("token_type") or "Bearer").strip() or "Bearer",
         "ws_transport": str(config.get("ws_transport") or "query").strip().lower() or "query",
         "ws_query_param": str(config.get("ws_query_param") or "token").strip() or "token",
         "http_header_name": str(config.get("http_header_name") or "Authorization").strip() or "Authorization",
         "http_scheme": str(config.get("http_scheme") or "Bearer").strip() or "Bearer",
     }
+    config_token_type = str(config.get("token_type") or "Bearer").strip() or "Bearer"
 
     if mode == "static_token":
         token = _require_non_empty(config.get("access_token") or config.get("token"), "auth.access_token")
-        return ResolvedAuth(access_token=token, source="static_token", **common)
+        return ResolvedAuth(access_token=token, token_type=config_token_type, source="static_token", **common)
 
     if mode == "password":
         token_url = _require_non_empty(config.get("token_url"), "auth.token_url")
@@ -81,9 +101,10 @@ def resolve_auth(auth_config: dict[str, Any] | None) -> ResolvedAuth:
         _append_optional(form, "scope", config.get("scope"))
         _append_extra_fields(form, config.get("extra_form_fields"))
         payload = _request_token(token_url, form, config.get("request_headers"))
+        payload_token_type = str(payload.get("token_type") or config_token_type).strip() or config_token_type
         return ResolvedAuth(
             access_token=_extract_access_token(payload),
-            token_type=str(payload.get("token_type") or common["token_type"]).strip() or common["token_type"],
+            token_type=payload_token_type,
             source="password",
             **common,
         )
@@ -100,9 +121,10 @@ def resolve_auth(auth_config: dict[str, Any] | None) -> ResolvedAuth:
         _append_optional(form, "scope", config.get("scope"))
         _append_extra_fields(form, config.get("extra_form_fields"))
         payload = _request_token(token_url, form, config.get("request_headers"))
+        payload_token_type = str(payload.get("token_type") or config_token_type).strip() or config_token_type
         return ResolvedAuth(
             access_token=_extract_access_token(payload),
-            token_type=str(payload.get("token_type") or common["token_type"]).strip() or common["token_type"],
+            token_type=payload_token_type,
             source="client_credentials",
             **common,
         )

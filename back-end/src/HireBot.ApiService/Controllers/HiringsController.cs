@@ -119,21 +119,19 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    [HttpPost("{hireId}/finalize")]
-    public async Task<IActionResult> FinalizeHiring(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.FinalizeAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
     /// <summary>
     /// 前端从沙箱网关直接下载产物包后上传至此接口，跳过后端对 KingCrab 的依赖，完成数字员工创建。
     /// </summary>
+    /// <param name="hireId">雇佣会话 ID。</param>
+    /// <param name="packageFile">沙箱生成的产物 zip（multipart 文件字段）。</param>
+    /// <param name="skillIds">可选：用户在 TODO 面板关联的 store skill UUID 列表（multipart 重复字段），后端会从 ncrew-builder 下载并合并。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
     [HttpPost("{hireId}/import-package")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> ImportPackage(
         string hireId,
         IFormFile? packageFile,
+        [FromForm(Name = "skillIds")] string[]? skillIds,
         CancellationToken cancellationToken = default)
     {
         if (packageFile is null || packageFile.Length == 0)
@@ -142,8 +140,21 @@ public sealed class HiringsController(
             return BadRequest(badReq);
         }
 
+        var linkedStoreSkillIds = skillIds is null
+            ? null
+            : skillIds
+                .Where(static id => !string.IsNullOrWhiteSpace(id))
+                .Select(static id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
         await using var stream = packageFile.OpenReadStream();
-        var response = await employeeHiringService.ImportPackageAsync(hireId, stream, packageFile.FileName, cancellationToken);
+        var response = await employeeHiringService.ImportPackageAsync(
+            hireId,
+            stream,
+            packageFile.FileName,
+            linkedStoreSkillIds,
+            cancellationToken);
         return StatusCode(response.Code, response);
     }
 
