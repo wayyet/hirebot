@@ -3,7 +3,7 @@
 `live_evaluator` 运行在**评估沙箱**内，负责两件事：
 
 1. 检查评估沙箱本地的 `testcases` / `ontology` 是否齐备。
-2. 使用运行时上下文中的鉴权信息连接**目标沙箱**，逐题驱动目标沙箱执行并采集 trace。
+2. 使用 skill 内部鉴权配置连接**目标沙箱**，逐题驱动目标沙箱执行并采集 trace。
 
 它**不负责评分**，也**不负责直接写数据库**。
 
@@ -37,7 +37,7 @@ python evaluate.py \
 执行流程：
 
 1. 读取评估沙箱本地材料
-2. 根据运行时上下文完成鉴权
+2. 通过 skill 内部鉴权模块完成鉴权
 3. 建立到目标沙箱的 WebSocket
 4. 逐题驱动目标沙箱执行
 5. 采集 WS 消息和 HTTP 补充数据
@@ -67,19 +67,7 @@ python evaluate.py \
   "target_sandbox": {
     "sandbox_id": "SB-TARGET-001",
     "gateway_endpoint": "ws://127.0.0.1:18789/ws",
-    "http_base_url": "http://127.0.0.1:18789",
-    "auth": {
-      "mode": "password",
-      "token_url": "https://keycloak.example.com/realms/demo/protocol/openid-connect/token",
-      "username": "sandbox-evaluator",
-      "password": "******",
-      "client_id": "gateway-client",
-      "client_secret": "******",
-      "ws_transport": "query",
-      "ws_query_param": "token",
-      "http_header_name": "Authorization",
-      "http_scheme": "Bearer"
-    }
+    "http_base_url": "http://127.0.0.1:18789"
   },
   "execution": {
     "timeout_seconds": 60,
@@ -90,11 +78,15 @@ python evaluate.py \
 
 另附示例文件：[runtime_context.example.json](/E:/hirebot/back-end/src/HireBot.ApiService/Assets/DigitalEmployeeTemplates/evaluation-expert/skills/live_evaluator/runtime_context.example.json:1)。
 
-## 支持的鉴权模式
+## 鉴权配置
 
-- `static_token`
-- `password`
-- `client_credentials`
+鉴权由 skill 内部闭环，`auth_client.py` 优先使用运行时上下文中的 `target_sandbox.auth`（若存在），否则自动从同目录 `auth_config.json` 加载。当前默认配置为 `client_credentials` 模式。
+
+支持的鉴权模式：
+
+- `client_credentials`（默认，client_id / client_secret / token_url）
+- `static_token`（静态 access_token）
+- `password`（用户名密码，兼容保留）
 
 ## 输出
 
@@ -158,6 +150,7 @@ python evaluate.py \
 |------|------|
 | `evaluate.py` | inspect / execute 入口 |
 | `auth_client.py` | 鉴权解析与 token 获取 |
+| `auth_config.json` | 鉴权配置文件（client_credentials 参数） |
 | `material_loader.py` | 本地材料发现、解析、题卡生成 |
 | `ws_client.py` | WebSocket 连接与消息采集 |
 | `http_client.py` | HTTP 补充采集 |

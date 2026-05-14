@@ -13,7 +13,7 @@
    - 运行时上下文 `evaluation-context.json`
 3. 评估沙箱先检查本地材料是否完整。
 4. 若材料完整，评估沙箱在对话窗口中展示题卡。
-5. 评估沙箱根据运行时上下文完成鉴权，与**目标沙箱**建立 WebSocket。
+5. 评估沙箱通过 skill 内部鉴权配置完成鉴权，与**目标沙箱**建立 WebSocket。
 6. 评估沙箱逐题驱动**目标沙箱**执行测试用例，并采集 trace。
 7. `evaluator` 根据 testcase、ontology、trace 做严格多维评分。
 8. `report_generator` 生成报告。
@@ -170,6 +170,6 @@ python evaluate.py \
 
 1. **材料本地化**：testcase / ontology 在评估沙箱本地。
 2. **执行远程化**：测试用例由目标沙箱执行，评估沙箱只负责驱动与采集。
-3. **鉴权显式化**：账号密码换 token、client credentials、静态 token 都通过运行时上下文声明。
+3. **鉴权显式化**：鉴权配置由 `auth_config.json` 声明，skill 内部闭环完成 token 交换。
 4. **评分证据化**：评分输入必须包含题卡、本体规则和真实 trace。
 5. **持久化平台化**：技能包不直接写库，最终由平台/后端持久化。

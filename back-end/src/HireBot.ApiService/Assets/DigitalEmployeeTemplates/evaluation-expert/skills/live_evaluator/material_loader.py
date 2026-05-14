@@ -127,6 +127,10 @@ def discover_testcase_documents(
     if template_package_zip:
         documents.extend(_read_zip_documents(template_package_zip, "testcases"))
 
+    # Fallback: scan media-cache for zip files (covers AI path extraction drift)
+    if not documents:
+        documents.extend(_scan_media_cache_zips("testcases"))
+
     return _deduplicate_documents(documents)
 
 
@@ -150,6 +154,10 @@ def discover_ontology_documents(
 
     if template_package_zip:
         documents.extend(_read_zip_documents(template_package_zip, "ontology"))
+
+    # Fallback: scan media-cache for zip files
+    if not documents:
+        documents.extend(_scan_media_cache_zips("ontology"))
 
     return _deduplicate_documents(documents)
 
@@ -369,7 +377,12 @@ def _read_zip_documents(zip_path: str, material_type: str) -> list[MaterialDocum
         return []
 
     documents: list[MaterialDocument] = []
-    with ZipFile(zip_file) as archive:
+    try:
+        archive = ZipFile(zip_file)
+    except Exception:
+        return []
+
+    with archive:
         for name in archive.namelist():
             if name.endswith("/"):
                 continue
@@ -388,6 +401,35 @@ def _read_zip_documents(zip_path: str, material_type: str) -> list[MaterialDocum
                 )
             )
     return documents
+
+
+def _scan_media_cache_zips(material_type: str) -> list[MaterialDocument]:
+    """扫描 media-cache 下的所有 zip 文件，作为材料发现的兜底路径。
+
+    media-cache 中的文件可能没有 .zip 后缀（以 MediaId 命名），
+    因此扫描所有文件并尝试作为 ZipFile 打开。
+    """
+    candidates = [
+        Path("/workspace/app/memory/media-cache"),
+        Path("/app/memory/media-cache"),
+    ]
+    documents: list[MaterialDocument] = []
+    for media_dir in candidates:
+        if not media_dir.is_dir():
+            continue
+        for entry in media_dir.iterdir():
+            if not entry.is_file():
+                continue
+            documents.extend(_try_read_as_zip(str(entry), material_type))
+    return documents
+
+
+def _try_read_as_zip(path: str, material_type: str) -> list[MaterialDocument]:
+    """尝试将文件作为 zip 打开，失败则返回空列表。"""
+    try:
+        return _read_zip_documents(path, material_type)
+    except Exception:
+        return []
 
 
 def _matches_material(path: Path, material_type: str) -> bool:

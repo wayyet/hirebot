@@ -1137,13 +1137,52 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(502, "unable to acquire sandbox access token");
 
         var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, ctx, cancellationToken);
+
+        // Upload runtime_context JSON to evaluator sandbox so the AI doesn't need to write it
+        var runtimeContextJson = BuildRuntimeContextJson(employee, ctx, sessionEntity, targetGatewayEndpoint);
+        var runtimeContextBytes = System.Text.Encoding.UTF8.GetBytes(runtimeContextJson);
+        var runtimeContextUploadResult = await sandboxService.UploadAttachmentAsync(
+            new SandboxAttachmentUploadRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Managed,
+                ScopeKey = ctx.EvaluatorHireId,
+                SandboxRole = "evaluation-evaluator",
+                OwnerSubject = owner,
+                TenantId = "tenant-default",
+                OperatorId = "operator-default",
+                SandboxId = ctx.EvaluatorSandboxId,
+                Material = new HiringConversationMaterialDto
+                {
+                    Type = "runtime-context-json",
+                    Name = "evaluation-context.json",
+                    Content = Convert.ToBase64String(runtimeContextBytes),
+                    MimeType = "application/json",
+                    Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["contentEncoding"] = "base64"
+                    }
+                }
+            },
+            cancellationToken);
+
+        string runtimeContextPath;
+        if (runtimeContextUploadResult.Success && runtimeContextUploadResult.Data is not null)
+        {
+            runtimeContextPath = ResolveMediaCachePathFromAttachment(runtimeContextUploadResult.Data);
+        }
+        else
+        {
+            return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(502,
+                $"failed to upload runtime context to evaluator sandbox: {runtimeContextUploadResult.Message}");
+        }
+
         var payloadJson = BuildLiveEvaluationBootstrapPayload(
             owner,
             employee,
             ctx,
             sessionEntity,
             targetGatewayEndpoint,
-            token);
+            runtimeContextPath);
 
         await UpdateSessionStatusAsync(sessionEntity, "ws_connected", null, cancellationToken);
 

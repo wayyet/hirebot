@@ -1,0 +1,10 @@
+{
+  "mode": "client_credentials",
+  "token_url": "https://passport.ai4c.cn/realms/ai4c-saas/protocol/openid-connect/token",
+  "client_id": "ncrew-builder-sandbox",
+  "client_secret": "0AvNRQqfPhKB2kFLWRUwofMtOf2wJ8qD",
+  "ws_transport": "query",
+  "ws_query_param": "token",
+  "http_header_name": "Authorization",
+  "http_scheme": "Bearer"
+}

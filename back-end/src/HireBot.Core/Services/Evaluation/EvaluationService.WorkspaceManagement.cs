@@ -992,13 +992,11 @@ internal sealed partial class EvaluationService
         return readiness;
     }
 
-    private string BuildLiveEvaluationBootstrapPayload(
-        string owner,
+    private string BuildRuntimeContextJson(
         EmployeeDetailDto employee,
         EvaluationWorkspaceContext workspaceContext,
         EvaluationSessionEntity sessionEntity,
-        string targetGatewayEndpoint,
-        string sandboxAccessToken)
+        string targetGatewayEndpoint)
     {
         var runtimeContext = new
         {
@@ -1022,8 +1020,7 @@ internal sealed partial class EvaluationService
                 sandbox_id = workspaceContext.TargetSandboxId,
                 ws_endpoint = targetGatewayEndpoint,
                 gateway_endpoint = targetGatewayEndpoint,
-                http_base_url = ResolveHttpBaseUrl(targetGatewayEndpoint),
-                auth = BuildTargetSandboxAuthContext(sandboxAccessToken)
+                http_base_url = ResolveHttpBaseUrl(targetGatewayEndpoint)
             },
             execution = new
             {
@@ -1032,6 +1029,17 @@ internal sealed partial class EvaluationService
             }
         };
 
+        return JsonSerializer.Serialize(runtimeContext, JsonOptions);
+    }
+
+    private string BuildLiveEvaluationBootstrapPayload(
+        string owner,
+        EmployeeDetailDto employee,
+        EvaluationWorkspaceContext workspaceContext,
+        EvaluationSessionEntity sessionEntity,
+        string targetGatewayEndpoint,
+        string runtimeContextPath)
+    {
         var bootstrapPayload = new
         {
             workflow = "live_evaluation",
@@ -1040,41 +1048,27 @@ internal sealed partial class EvaluationService
             evaluator_sandbox_id = workspaceContext.EvaluatorSandboxId,
             target_hire_id = workspaceContext.TargetHireId,
             target_sandbox_id = workspaceContext.TargetSandboxId,
-            instruction = """
-                          濠电偠鎻徊鎸庢叏閸撗勫床鐎广儱娲﹂崑姗€鎮橀悙璺盒撻棅顒夊墴閹綊宕惰椤徰囨煕濞嗗骏宸ラ柍鏄忔閳诲酣骞嬮鐐存毈闂備焦瀵х粙鎴︽儗娓氣偓椤㈡岸顢楅崟顐ゎ唶婵犮垼娉涢ˇ顔捐姳閺夊簱妲堥柟鐐墯閸庢棃鏌曢崱妤€顒㈤柟顖涙缁犳盯寮惔鎾村瘱闂佽崵鍋炵粙鎴︽儗婢跺本顫?
-                          1) 闂?runtime_context 闂備礁鎲￠…鍥窗閹扮増鍋嬮梺顒€绉寸粈鍐╃箾閸℃绠扮€?/workspace/runtime/evaluation-context.json闂備焦瀵х粙鎴濓耿缁傘€?8闂?
-                          2) 闂備礁婀遍悷鎶藉幢閳哄倹鏉?inspect闂?
-                             python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode inspect --output /tmp/materials_inspection.json
-                          3) 闂?inspect 闂佸搫顦弲婊堝蓟閵娿儍?materials_incomplete闂備焦瀵х粙鎴﹀嫉椤掆偓鍗遍柟瀵稿У閸忔粍銇勯弬鍨倯闁哥喓鍋ら弻锝夘敇濠婂啫濮㈤悗瑙勭摃妞寸顕ラ崟顖涚劶鐎广儱鍟犻崑鎾愁吋婢跺苯绁﹂柣鐘荤細濞咃絿绮氶崸妤佸€靛ù锝呭暙娴滃綊鏌℃担闈涒偓婵嬬嵁鐎ｎ喗鍋い鏍ゅ亾濠㈣埖鍔曠粈鍌炴煕濞戝崬鏋熺紓宥呯箻閺岋繝宕掑☉姘櫑闂佽鍠楅〃濠囧蓟鐏炵瓔鍚嬮柛顐犲灪绗?
-                          4) 闂備礁鍚嬮惇褰掑磿閹绘帩鐒芥俊銈呮噹濡ɑ绻涢崱妤冪闁汇劍鍨圭槐鎾寸瑹閸ワ附鍊ｇ紓浣介哺缁诲牆鐣峰Δ鍛唶婵犻潧鐗婄紞宀€绱撴担鎻掍壕?question_cards闂備焦瀵х粙鎴︽嚐椤栫偛鐤柍褜鍓熼弻鐔虹箔濞戞ɑ锛嶉柡鈧?execute闂?
-                             python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode execute --output /tmp/trace_result.json
-                          5) 闂備胶纭堕弲鐐差浖閵娧嗗С?trace 濠?ontology 闂佸搫顦弲婊呯矙閺嶎厹鈧線骞嬮悩鍐茬彴闂佸憡娲﹂崑鍕倵婵犳碍鐓ユ繛鎴烆焽閻掗绱掓０婵嗗籍鐎规洘鐟╅幃婊兾熺拋宕囧笡缂?verdict JSON闂備焦瀵х粙鎴︽偋閸℃瑦宕查柍褜鍓欓—鍐Χ閸偄娈悷婊勫鐏忔瑩骞夐幘顔芥櫜闁糕剝鐟㈤崑鎾寸鐎ｎ偅娅栨繝銏ｅ煐缁嬫挾绮?
-                             {
-                               "verdict": "PASS|FAIL",
-                               "overall_score": 0-100,
-                               "summary": "string",
-                               "dimension_scores": [
-                                 {"dimension":"accuracy|completeness|compliance|communication","score":0-100,"comment":"string","evidence_refs":["..."]}
-                               ]
-                             }
-                          """,
-            runtime_context = runtimeContext
+            runtime_context_path = runtimeContextPath,
+            instruction = $$"""
+                          BOOTSTRAP MODE. Execute all steps without outputting any text. Your entire response must be ONLY the final verdict JSON — no prefix, no suffix, no markdown fences, no explanation.
+
+                          1) cp "{{runtimeContextPath}}" /workspace/runtime/evaluation-context.json
+
+                          2) python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode inspect --output /tmp/materials_inspection.json
+
+                          3) If inspect status != ready, output exactly: {"verdict":"FAIL","overall_score":0,"summary":"materials incomplete","dimension_scores":[]}
+                             Then STOP.
+
+                          4) python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode execute --output /tmp/trace_result.json
+
+                          5) Read trace_result.json. If "status" is not "completed" or "turns" is empty, output: {"verdict":"FAIL","overall_score":0,"summary":"execution error: <paste the actual status and error from trace_result.json>","dimension_scores":[]}
+
+                          6) Output the verdict. No braces in summary. Entire response must be ONLY:
+                          {"verdict":"PASS|FAIL","overall_score":0-100,"summary":"...","dimension_scores":[{"dimension":"accuracy|completeness|compliance|communication","score":0-100,"comment":"...","evidence_refs":[]}]}
+                          """
         };
 
         return JsonSerializer.Serialize(bootstrapPayload, JsonOptions);
-    }
-
-    private object BuildTargetSandboxAuthContext(string sandboxAccessToken)
-    {
-        return new
-        {
-            mode = "static_token",
-            access_token = sandboxAccessToken.Trim(),
-            ws_transport = "query",
-            ws_query_param = "token",
-            http_header_name = "Authorization",
-            http_scheme = "Bearer"
-        };
     }
 
     private static string ResolveHttpBaseUrl(string gatewayEndpoint)

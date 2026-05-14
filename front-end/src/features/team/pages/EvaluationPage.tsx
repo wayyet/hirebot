@@ -320,24 +320,55 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
       const resultMsg = await verdictPromise
       setWsProgress('评估完成，正在保存结果...')
 
-      // Parse verdict
+      // Parse verdict — use brace counting to handle { } inside string values
       const rawText = (resultMsg.text as string) || ''
-      const jsonStart = rawText.indexOf('{')
-      const jsonEnd = rawText.lastIndexOf('}')
+
+      function extractJson(text: string): string | null {
+        // Try markdown code fence first: ```json ... ```
+        const fenceMatch = text.match(/```json\s*([\s\S]*?)```/)
+        if (fenceMatch) return fenceMatch[1].trim()
+
+        // Find the first { and count braces to find the matching }
+        const start = text.indexOf('{')
+        if (start < 0) return null
+        let depth = 0
+        let inString = false
+        let escape = false
+        for (let i = start; i < text.length; i++) {
+          const ch = text[i]
+          if (escape) { escape = false; continue }
+          if (ch === '\\') { escape = true; continue }
+          if (ch === '"') { inString = !inString; continue }
+          if (inString) continue
+          if (ch === '{') { depth++ }
+          else if (ch === '}') { depth--; if (depth === 0) return text.substring(start, i + 1) }
+        }
+        return null
+      }
+
       let verdict: EvaluationVerdictPayload
-      if (jsonStart >= 0 && jsonEnd > jsonStart) {
-        const json = rawText.substring(jsonStart, jsonEnd + 1)
-        const parsed = JSON.parse(json)
-        verdict = {
-          verdict: parsed.verdict || 'FAIL',
-          overallScore: parsed.overall_score ?? 0,
-          summary: parsed.summary || '',
-          dimensionScores: (parsed.dimension_scores || []).map((d: Record<string, unknown>) => ({
-            dimension: (d.dimension as string) || '',
-            score: (d.score as number) || 0,
-            comment: (d.comment as string) || '',
-            evidenceRefs: (d.evidence_refs as string[]) || [],
-          })),
+      const json = extractJson(rawText)
+      if (json) {
+        try {
+          const parsed = JSON.parse(json)
+          verdict = {
+            verdict: parsed.verdict || 'FAIL',
+            overallScore: parsed.overall_score ?? 0,
+            summary: parsed.summary || '',
+            dimensionScores: (parsed.dimension_scores || []).map((d: Record<string, unknown>) => ({
+              dimension: (d.dimension as string) || '',
+              score: (d.score as number) || 0,
+              comment: (d.comment as string) || '',
+              evidenceRefs: (d.evidence_refs as string[]) || [],
+            })),
+          }
+        } catch {
+          verdict = {
+            verdict: 'FAIL',
+            overallScore: 0,
+            summary: `JSON parse error: ${rawText.substring(0, 200)}`,
+            dimensionScores: [],
+          }
         }
       } else {
         verdict = {
