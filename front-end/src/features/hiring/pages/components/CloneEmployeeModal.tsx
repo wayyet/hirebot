@@ -91,7 +91,6 @@ export default function CloneEmployeeModal({
       });
       setClonedId(result.employeeId);
       setCloneSuccess(true);
-      onSuccess();
     } catch (err) {
       const message =
         err instanceof ApiClientError ? err.message : "创建分身失败，请重试";
@@ -131,7 +130,10 @@ export default function CloneEmployeeModal({
               <button
                 type="button"
                 className="hb-btn-ghost"
-                onClick={handleClose}
+                onClick={() => {
+                  onSuccess();
+                  handleClose();
+                }}
               >
                 关闭
               </button>
@@ -139,6 +141,7 @@ export default function CloneEmployeeModal({
                 type="button"
                 className="hb-btn-primary"
                 onClick={() => {
+                  onSuccess();
                   handleClose();
                   navigate("/my-employees");
                 }}
