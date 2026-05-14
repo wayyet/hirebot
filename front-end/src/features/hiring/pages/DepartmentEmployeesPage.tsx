@@ -386,7 +386,7 @@ export default function DepartmentEmployeesPage() {
                         </h3>
                         <div className="mt-1 flex items-center gap-2">
                           <span
-                            className={`hb-pill ${statusClass(employee.mappedStatus, employee.lifecycleStatus)}`}
+                            className={`hb-pill flex-shrink-0 ${statusClass(employee.mappedStatus, employee.lifecycleStatus)}`}
                           >
                             {statusLabel(
                               employee.mappedStatus,

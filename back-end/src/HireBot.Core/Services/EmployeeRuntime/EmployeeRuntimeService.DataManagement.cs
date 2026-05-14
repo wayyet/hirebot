@@ -35,7 +35,7 @@ public sealed partial class EmployeeRuntimeService
         {
             await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
             await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
-            await TryUpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
+          
         }
 
         var persisted = await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
@@ -65,6 +65,7 @@ public sealed partial class EmployeeRuntimeService
             var instances = await dbContext.Instances
                 .AsNoTracking()
                 .Where(item => item.OwnerUserId == owner)
+                .OrderByDescending(item => item.UpdatedAt)
                 .ToArrayAsync(cancellationToken);
 
             var employees = new List<EmployeeDetailDto>();

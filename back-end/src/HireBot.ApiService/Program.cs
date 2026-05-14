@@ -121,7 +121,7 @@ if (builder.Configuration.GetValue("Database:AutoMigrateOnStartup", false))
     else
         await dbContext.Database.MigrateAsync();
 
-    await CleanupDeprecatedFixtureInstancesAsync(dbContext);
+
 }
 
 var evaluationResourceRoot = ResolveEvaluationResourceRoot(
@@ -225,30 +225,6 @@ static int ResolveMaxActivePersonalClonesPerOwner(IConfiguration configuration)
     return int.TryParse(configured, out var value) && value > 0
         ? value
         : defaultLimit;
-}
-
-static async Task CleanupDeprecatedFixtureInstancesAsync(HireBotDbContext dbContext)
-{
-    var deprecatedFixtureInstanceIds = new[]
-    {
-        "e_dev_seed_402_sales-coach",
-        "e_dev_seed_403_product-ops",
-        "e_dev_seed_404_sales-coach-live",
-        "e_dev_seed_405_product-ops-live",
-        "e_clone_test_sales_live",
-        "e_clone_test_ops_live"
-    };
-
-    var deleted = await dbContext.Instances
-        .Where(item => deprecatedFixtureInstanceIds.Contains(item.InstanceId))
-        .ExecuteDeleteAsync();
-
-    if (deleted > 0)
-    {
-        Log.Information(
-            "Cleaned deprecated fixture instances from database. Count={Count}",
-            deleted);
-    }
 }
 
 static IReadOnlyCollection<string> BuildOidcValidationValues(params string?[] values)
