@@ -19,6 +19,8 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 
 public sealed partial class EmployeeRuntimeService
 {
+    private static readonly TimeSpan RetirementCleanupTimeout = TimeSpan.FromSeconds(2);
+
     private int ResolveMaxActivePersonalClonesPerOwner()
     {
         var configured = configuration["HireBot:MaxActivePersonalClonesPerOwner"];
@@ -436,6 +438,8 @@ public sealed partial class EmployeeRuntimeService
     {
         try
         {
+            using var cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cleanupCts.CancelAfter(RetirementCleanupTimeout);
             await sandboxService.DeleteAsync(
                 new SandboxInstanceLookupRequestDto
                 {
@@ -444,7 +448,7 @@ public sealed partial class EmployeeRuntimeService
                     SandboxRole = RuntimeSandboxRole,
                     OwnerSubject = ownerSubject
                 },
-                cancellationToken);
+                cleanupCts.Token);
         }
         catch
         {
@@ -485,12 +489,14 @@ public sealed partial class EmployeeRuntimeService
         try
         {
             var ownerSubject = requestContextService.ResolveOwnerSubject();
+            using var cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cleanupCts.CancelAfter(RetirementCleanupTimeout);
             await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
                 HttpMethod.Delete,
                 path,
                 body: null,
                 ownerSubject,
-                cancellationToken,
+                cleanupCts.Token,
                 useHireBotApiPrefix: false);
         }
         catch

@@ -92,6 +92,115 @@ public sealed partial class EmployeeRuntimeService
     }
 
     /// <summary>
+    /// 从持久化实例记录恢复单个员工。
+    /// </summary>
+    private async Task<EmployeeDetailDto?> LoadPersistedRuntimeEmployeeAsync(
+        string owner,
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var instance = await dbContext.Instances
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    item => item.OwnerUserId == owner && item.InstanceId == employeeId,
+                    cancellationToken);
+
+            if (instance is null)
+            {
+                return null;
+            }
+
+            var employee = !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
+                ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
+                : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
+
+            return employee is not null &&
+                   string.Equals(employee.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase)
+                ? employee
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 优先从内存读取员工，不存在时回退到实例表恢复并回填内存。
+    /// </summary>
+    private async Task<EmployeeDetailDto?> ResolveEmployeeForOwnerAsync(
+        string owner,
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedEmployeeId = employeeId.Trim();
+        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
+        if (employee is not null)
+        {
+            return employee;
+        }
+
+        employee = await LoadPersistedRuntimeEmployeeAsync(owner, normalizedEmployeeId, cancellationToken);
+        if (employee is null)
+        {
+            return null;
+        }
+
+        await store.UpsertAsync(owner, employee, cancellationToken);
+        return employee;
+    }
+
+    /// <summary>
+    /// 返回 owner 下的员工全集，并把实例表中的缺失项回填到内存。
+    /// </summary>
+    private async Task<IReadOnlyList<EmployeeDetailDto>> ResolveOwnerEmployeesAsync(
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        var inMemoryEmployees = await store.ListAsync(owner, cancellationToken);
+        var persistedEmployees = await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
+
+        if (persistedEmployees.Count == 0)
+        {
+            return inMemoryEmployees;
+        }
+
+        if (inMemoryEmployees.Count == 0)
+        {
+            await store.ReplaceOwnerAsync(owner, persistedEmployees, cancellationToken);
+            return persistedEmployees;
+        }
+
+        var merged = new Dictionary<string, EmployeeDetailDto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var employee in inMemoryEmployees)
+        {
+            merged[employee.EmployeeId] = employee;
+        }
+
+        var missingPersistedEmployees = new List<EmployeeDetailDto>();
+        foreach (var employee in persistedEmployees)
+        {
+            if (!merged.ContainsKey(employee.EmployeeId))
+            {
+                missingPersistedEmployees.Add(employee);
+            }
+
+            merged[employee.EmployeeId] = employee;
+        }
+
+        if (missingPersistedEmployees.Count > 0)
+        {
+            await store.UpsertManyAsync(owner, missingPersistedEmployees, cancellationToken);
+        }
+
+        return merged.Values
+            .OrderByDescending(item => item.CreatedAt, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
     /// 反序列化员工快照。
     /// </summary>
     private static EmployeeDetailDto? DeserializeEmployeeSnapshot(string snapshot)

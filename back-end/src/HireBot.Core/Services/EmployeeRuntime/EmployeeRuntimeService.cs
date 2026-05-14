@@ -98,7 +98,7 @@ public sealed partial class EmployeeRuntimeService(
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default)
     {
         var owner = requestContextService.ResolveOwnerSubject();
-        var employees = await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
+        var employees = await ResolveOwnerEmployeesAsync(owner, cancellationToken);
         var summaries = employees.Select(ToSummary).ToArray();
 
         return ApiResponse<IReadOnlyList<EmployeeSummaryDto>>.SuccessResponse(summaries);
@@ -118,17 +118,7 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var instance = await dbContext.Instances
-            .AsNoTracking()
-            .FirstOrDefaultAsync(item => item.OwnerUserId == owner && item.InstanceId == employeeId.Trim(), cancellationToken);
-        if (instance is null)
-        {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
-        }
-
-        var employee = !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
-            ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
-            : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
+        var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
@@ -243,7 +233,7 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
@@ -308,7 +298,7 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
@@ -400,7 +390,7 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
@@ -434,6 +424,7 @@ public sealed partial class EmployeeRuntimeService(
         };
 
         await store.UpsertAsync(owner, updated, cancellationToken);
+        await UpsertInstanceRecordAsync(updated, cancellationToken: cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "能力配置已更新");
     }
 
@@ -455,7 +446,7 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
@@ -479,6 +470,7 @@ public sealed partial class EmployeeRuntimeService(
         };
 
         await store.UpsertAsync(owner, updated, cancellationToken);
+        await UpsertInstanceRecordAsync(updated, cancellationToken: cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "待办已处理");
     }
 
@@ -781,9 +773,16 @@ public sealed partial class EmployeeRuntimeService(
 
         var normalizedId = employeeId.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
+        var artifactDir = Path.Combine(ResolveArtifactStoreRoot(), "instances", "department", normalizedId);
+        var digitalWorkforceDir = Path.Combine(ResolveDigitalWorkforceRoot(), normalizedId);
 
         var existing = await store.GetAsync(owner, normalizedId, cancellationToken);
-        if (existing is null)
+        var instanceExists = await dbContext.Instances
+            .AnyAsync(item => item.InstanceId == normalizedId, cancellationToken);
+        var artifactExists = Directory.Exists(artifactDir);
+        var digitalWorkforceExists = Directory.Exists(digitalWorkforceDir);
+
+        if (existing is null && !instanceExists && !artifactExists && !digitalWorkforceExists)
         {
             return ApiResponse<object>.ErrorResponse(404, "员工不存在");
         }
@@ -797,8 +796,6 @@ public sealed partial class EmployeeRuntimeService(
             .ExecuteDeleteAsync(cancellationToken);
 
         // 3. 删除五件套 artifact 目录
-        var artifactStoreRoot = ResolveArtifactStoreRoot();
-        var artifactDir = Path.Combine(artifactStoreRoot, "instances", "department", normalizedId);
         if (Directory.Exists(artifactDir))
         {
             try
@@ -812,7 +809,6 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         // 4. 删除 DigitalWorkforce 目录
-        var digitalWorkforceDir = Path.Combine(ResolveDigitalWorkforceRoot(), normalizedId);
         if (Directory.Exists(digitalWorkforceDir))
         {
             try
@@ -851,7 +847,7 @@ public sealed partial class EmployeeRuntimeService(
         var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(null, null);
         await EnsureSeedDataAsync(owner, cancellationToken);
 
-        var ownerEmployees = await store.ListAsync(owner, cancellationToken);
+        var ownerEmployees = await ResolveOwnerEmployeesAsync(owner, cancellationToken);
         var activePersonalCloneCount = ownerEmployees.Count(item =>
             string.Equals(item.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(item.Status, "retired", StringComparison.OrdinalIgnoreCase));
@@ -863,7 +859,7 @@ public sealed partial class EmployeeRuntimeService(
                 $"个人分身数量已达上限（最多 {maxActivePersonalClones} 个），请先废弃不再使用的分身。");
         }
 
-        var source = await store.FindAsync(normalizedSourceId, cancellationToken);
+            var source = await ResolveEmployeeForOwnerAsync(owner, normalizedSourceId, cancellationToken);
         if (source is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "源部门员工不存在");
@@ -971,7 +967,7 @@ public sealed partial class EmployeeRuntimeService(
         var owner = requestContextService.ResolveOwnerSubject();
         await EnsureSeedDataAsync(owner, cancellationToken);
 
-        var source = await store.FindAsync(normalizedSourceId, cancellationToken);
+        var source = await ResolveEmployeeForOwnerAsync(owner, normalizedSourceId, cancellationToken);
         if (source is null)
         {
             return ApiResponse<PrivateBranchResultDto>.ErrorResponse(404, "源分身不存在");
@@ -992,7 +988,7 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<PrivateBranchResultDto>.ErrorResponse(403, "只能对自己的分身创建私有分支");
         }
 
-        var ownerEmployees = await store.ListAsync(owner, cancellationToken);
+        var ownerEmployees = await ResolveOwnerEmployeesAsync(owner, cancellationToken);
         if (ownerEmployees.Any(item =>
                 !string.Equals(item.EmployeeId, normalizedSourceId, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(item.Nickname, displayName, StringComparison.OrdinalIgnoreCase)))
@@ -1061,7 +1057,7 @@ public sealed partial class EmployeeRuntimeService(
         var normalizedBranchId = branchId.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
 
-        var branch = await store.FindAsync(normalizedBranchId, cancellationToken);
+        var branch = await ResolveEmployeeForOwnerAsync(owner, normalizedBranchId, cancellationToken);
         if (branch is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "私有分支不存在");

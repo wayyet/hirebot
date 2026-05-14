@@ -24,7 +24,7 @@ export class ApiClientError extends Error {
   }
 }
 
-function buildUrl(path: string, query?: QueryParams): string {
+export function buildUrl(path: string, query?: QueryParams): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   // 支持空 base（相对路径）：new URL('/api/...', origin) 可正确解析相对 URL
   const locationBase = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
