@@ -11,4 +11,5 @@ public interface IEmployeeRuntimeStore
     Task<EmployeeDetailDto> UpsertAsync(string ownerSubject, EmployeeDetailDto employee, CancellationToken cancellationToken = default);
     Task<int> UpsertManyAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> employees, CancellationToken cancellationToken = default);
     Task<int> ReplaceOwnerAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> employees, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(string ownerSubject, string employeeId, CancellationToken cancellationToken = default);
 }

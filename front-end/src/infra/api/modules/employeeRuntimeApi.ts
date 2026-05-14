@@ -1,4 +1,6 @@
+import { ApiClientError } from '../httpClient'
 import { httpClient } from '../httpClient'
+import { tokenService } from '@/infra/auth/token-service'
 import type { HiringConversationMessage } from './hiringWorkflowApi'
 
 export interface EmployeeCapability {
@@ -378,6 +380,10 @@ export const employeeRuntimeApi = {
     return httpClient.get<EmployeeSummary[]>('/api/v1/employees')
   },
 
+  deleteEmployee(employeeId: string) {
+    return httpClient.delete<boolean>(`/api/v1/employees/${encodeURIComponent(employeeId)}`)
+  },
+
   getEmployee(employeeId: string) {
     return httpClient.get<EmployeeDetail>(`/api/v1/employees/${employeeId}`)
   },
@@ -556,6 +562,74 @@ export const employeeRuntimeApi = {
       `/api/v1/employees/${employeeId}/evaluation/sync-verdict`,
       payload,
     )
+  },
+
+  async quickCreateFromTemplate(file: File): Promise<EmployeeDetail> {
+    const path = '/api/v1/employees/quick-create'
+    const locationBase =
+      typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+    const baseUrl =
+      (typeof window !== 'undefined' && window.__AUTH_CONFIG__?.ApiBase !== undefined
+        ? window.__AUTH_CONFIG__.ApiBase
+        : undefined) ??
+      (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
+      'http://localhost:5280'
+    const url = new URL(`${baseUrl}${path}`, locationBase).toString()
+
+    const accessToken = await tokenService.ensureFresh()
+    const form = new FormData()
+    form.append('templatePackage', file)
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: accessToken
+        ? { Authorization: `Bearer ${accessToken}` }
+        : undefined,
+      body: form,
+    })
+
+    const text = await response.text()
+    if (!response.ok) {
+      try {
+        const payload = JSON.parse(text) as Partial<{
+          code: number
+          success: boolean
+          message: string
+          data: unknown
+        }>
+        throw new ApiClientError(
+          payload.message?.trim() || `请求失败（HTTP ${response.status}）`,
+          response.status,
+          payload.code,
+          payload,
+        )
+      } catch (err) {
+        if (err instanceof ApiClientError) throw err
+        throw new ApiClientError(
+          `请求失败（HTTP ${response.status}）`,
+          response.status,
+          undefined,
+          text,
+        )
+      }
+    }
+
+    const envelope = JSON.parse(text) as {
+      code: number
+      success: boolean
+      message: string
+      data: EmployeeDetail
+    }
+    if (!envelope?.data) {
+      throw new ApiClientError(
+        '上传返回数据为空',
+        response.status,
+        envelope?.code,
+        envelope,
+      )
+    }
+
+    return envelope.data
   },
 }
 
