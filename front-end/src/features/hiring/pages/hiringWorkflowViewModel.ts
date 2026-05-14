@@ -649,7 +649,7 @@ export function buildHiringWorkflowViewModel(
     guideCard: buildGuideCard(workflowState, guideStage),
     actionState: {
       canFinalize,
-      finalizeLabel: collectionPhase === HiringCollectionPhase.Finalized ? '已生成实例' : '生成实例',
+      finalizeLabel: collectionPhase === HiringCollectionPhase.Finalized ? '已生成实例' : '发起打包',
       blockedReason,
     },
     blockedReason: completedCount === STAGE_ORDER.length ? '' : blockedReason,

@@ -23,7 +23,7 @@ metadata:
 
 不要使用本 skill 当：
 - 还没选定模板、沙箱未初始化（属于系统层职责）
-- 用户已经进入实例打包阶段（阶段 4 不在本 skill 范围内）
+- 全部四个阶段均已完成且实例包已成功导入系统（装配流程已彻底结束）
 - 需要做一次性方案咨询而不是"装配数字员工"（请用 `digital-employee-discovery` 或 `ncrew-discovery`）
 
 ## 核心立场
@@ -188,27 +188,47 @@ mkdir -p /tmp/_inspect && unzip -o -j "<FILE_URL>" manifest.json -d /tmp/_inspec
 约定的子目录：
 
 ```
-<workspace_root>/uploads/    # ZIP 解压目标（只读）
-<workspace_root>/ontology/   # 下游 ontology-extraction 写入
-<workspace_root>/skills/     # 下游 skill-generation 写入
-<workspace_root>/external/   # 下游 external-config 写入
-<workspace_root>/config/     # 配置文件治理目标
+<workspace_root>/manifest.json  # 模板包根文件（解压后直接位于此处）
+<workspace_root>/config/        # 配置文件（从模板包解压，治理目标）
+<workspace_root>/ontology/      # 下游 ontology-extraction 写入
+<workspace_root>/skills/        # 下游 skill-generation 写入
+<workspace_root>/external/      # 下游 external-config 写入
 ```
+
+> 模板 ZIP 直接解压到 `<workspace_root>/`（无额外子目录包装），`manifest.json` 和 `config/` 解压后就在工作区根层级，下游 skill 和配置治理均直接读写这些路径。
 
 #### 步骤 4：调用沙箱工具完成解压并验证
 
 通过沙箱可用的 shell/unzip 工具执行（命令名以沙箱实际暴露为准）：
 
 ```sh
-mkdir -p "<workspace_root>/uploads"
-unzip -o "<FILE_URL>" -d "<workspace_root>/uploads/"
-ls -la "<workspace_root>/uploads/"
+mkdir -p "<workspace_root>"
+unzip -o "<FILE_URL>" -d "<workspace_root>/"
+ls -la "<workspace_root>/"
 ```
 
 **验证条件**（任一不满足就回失败兜底）：
 - `unzip` 命令退出码为 0
 - `ls` 至少能看到一个文件或一个子目录
-- 目标目录下确实能读到 `manifest.json`（或之前用 `name` 兜底的同位文件）
+- 工作区根目录下确实能读到 `manifest.json`（或之前用 `name` 兜底的同位文件）
+
+#### 步骤 4.5：工作区结构规范化（解压后无条件执行）
+
+解压完成后，**立即**执行以下命令，将配置文件统一整理到 `config/` 子目录。命令使用 `2>/dev/null || true` 使其幂等——若文件已在 `config/` 则 mv 静默跳过，若文件在根目录则移入：
+
+```sh
+mkdir -p "<workspace_root>/config"
+mv "<workspace_root>/SOUL.md"        "<workspace_root>/config/" 2>/dev/null || true
+mv "<workspace_root>/IDENTITY.md"    "<workspace_root>/config/" 2>/dev/null || true
+mv "<workspace_root>/AGENTS.md"      "<workspace_root>/config/" 2>/dev/null || true
+mv "<workspace_root>/MEMORY.md"      "<workspace_root>/config/" 2>/dev/null || true
+mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || true
+ls -la "<workspace_root>/config/"
+```
+
+`ls` 输出应能看到 `SOUL.md`、`IDENTITY.md`、`AGENTS.md`、`MEMORY.md`（至少前三个存在），否则进入失败兜底。
+
+> 此步骤兼容"扁平结构模板包"（配置文件直接位于 zip 根层级，无 `config/` 前缀）。规范化后配置治理路径 `config/SOUL.md` / `config/AGENTS.md` / `config/IDENTITY.md` 方可正常工作。
 
 验证通过后，把 `workspace_root` 和 `template_slug` **作为会话级常量**记住，所有后续 artifact data、TODO 工单、阶段总结里出现路径或 slug 的字段都使用这两个真实值。
 
@@ -327,6 +347,15 @@ ls -la "<workspace_root>/uploads/"
 - 如果用户声明不需要外部系统，需明确记录在 data 中作为 skip 项
 - 发出 `external_workorder_summary` terminal artifact
 
+**阶段 3 完成后的强制阶段门动作**：发出 `external_workorder_summary` 后，**必须**给用户一句主动询问，引导进入打包阶段：
+
+> 「三个阶段均已完成——资料、技能定义和外部能力都已梳理好了。现在可以生成产物包，把配置打包交付给系统。是否现在开始打包？」
+
+等待用户明确回应（肯定：「是」「好的」「开始」「打包」「生成」等；否定：「等一下」「先暂停」等）：
+- 用户**肯定**：立即进入阶段 4，按"强制执行顺序"开始打包动作。
+- 用户**否定或补充修改意见**：回到对应阶段补充，补充完后再次发出 terminal artifact，再重复本阶段门询问。
+- 前端点击了「发起打包」按钮（消息内含关键词"生成产物包"/"打包"/"发起打包"等）：视同用户肯定确认，**立即**进入阶段 4，不再重复询问。
+
 > 阶段 3 引导话术、紧扣已有 skills 的套路、跳过分支 → 进入阶段 3 之前，读 [references/flow-constraints.md](references/flow-constraints.md) 阶段 3 部分。
 
 ## 配置文件治理（横切，全程在线）
@@ -417,7 +446,6 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 - `config/`（配置文件治理目标）
 
 **黑名单（严禁打入 zip）**：
-- `uploads/`：这是原始模板包的临时解压区，仅供下游 skill 读取参考；原始模板内容由**后端独立合并**，绝不能再次塞入产物包
 - `.git/`、`.cache/`、`node_modules/`、`.venv/`、`__pycache__/`、任何 `.` 前缀的隐藏目录或文件
 - `*.tmp`、`*.log`、`*.swp`、`.DS_Store`、`Thumbs.db` 等临时/系统文件
 
@@ -439,7 +467,7 @@ config/soul.md
 ```
 org-health-analyst-artifacts/manifest.json          ← 多了顶层包裹目录
 org-health-analyst-artifacts/skills/...
-uploads/digital-employee-template.zip                ← 临时输入混入产物
+org-health-analyst-20260514094434/config/SOUL.md    ← workspace 目录名混入（解压时 -d 没有 cd 到内部）
 .git/HEAD                                            ← 隐藏目录混入
 ```
 
@@ -470,7 +498,13 @@ uploads/digital-employee-template.zip                ← 临时输入混入产�
 
 ### 4. 告知用户
 
-发出 artifact 后，**仅给用户一句话**：「资料、技能和配置文件都已打包，正在导入系统，请稍等片刻。」不要附加假的文件路径、大小或"请去点击导入"之类的引导。
+发出 artifact 后，**仅给用户一句话**：「好的，产物包已生成，系统正在自动导入，完成后就可以进入培训流程了。」
+
+**严格禁止**在此处：
+- 输出文件路径（如 `/workspace/xxx/yyy.zip`）
+- 输出文件大小（如 `约 13.5 KB`）
+- 引导用户"去点击导入"或"去下载"——前端会自动处理
+- 把文件名称作为主要内容复述给用户
 
 ### 失败兜底
 
