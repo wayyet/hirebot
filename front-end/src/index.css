@@ -1798,21 +1798,27 @@ body {
 .hb-employee-card-menu-btn {
   width: 32px;
   height: 32px;
-  border: 1px solid transparent;
+  border: 1px solid var(--hb-border-input);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--hb-nav-pill-bg);
   color: var(--hb-soft);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  box-shadow: var(--hb-nav-pill-shadow);
   transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
 }
 
 .hb-employee-card-menu-btn:hover {
   color: var(--hb-near-black);
-  border-color: var(--hb-border);
-  background: var(--hb-surface-card);
+  border-color: var(--hb-blue);
+  background: var(--hb-nav-pill-active);
+}
+
+.hb-employee-card-menu-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--hb-focus), var(--hb-nav-pill-shadow);
 }
 
 .hb-employee-card-menu {
@@ -1907,6 +1913,241 @@ body {
 
 .hb-employee-card-inline-action--danger {
   color: var(--hb-danger);
+}
+
+.hb-private-branch-section-title {
+  margin: 0;
+  color: var(--hb-near-black);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.hb-private-branch-hero {
+  padding: 24px;
+}
+
+.hb-private-branch-hero-grid {
+  position: relative;
+  display: grid;
+  gap: 18px;
+}
+
+@media (min-width: 1040px) {
+  .hb-private-branch-hero-grid {
+    grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+    align-items: start;
+  }
+}
+
+.hb-private-branch-hero-main {
+  min-width: 0;
+}
+
+.hb-private-branch-hero-title {
+  margin: 8px 0 0;
+  color: var(--hb-near-black);
+  font-size: clamp(1.55rem, 2.1vw, 1.9rem);
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.hb-private-branch-hero-copy {
+  max-width: 680px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--hb-soft);
+}
+
+.hb-private-branch-source-card,
+.hb-private-branch-summary-card {
+  border: 1px solid var(--hb-border);
+  border-radius: 20px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hb-surface-card) 90%, transparent), color-mix(in srgb, var(--hb-surface-soft) 86%, transparent));
+  box-shadow: var(--hb-card-shadow);
+}
+
+.hb-private-branch-source-card {
+  margin-top: 16px;
+  padding: 14px 16px;
+}
+
+.hb-private-branch-source-label,
+.hb-private-branch-summary-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hb-caption);
+}
+
+.hb-private-branch-source-name {
+  margin-top: 8px;
+  color: var(--hb-near-black);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.hb-private-branch-source-meta {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--hb-soft);
+}
+
+.hb-private-branch-summary-card {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+}
+
+.hb-private-branch-summary-item {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--hb-border);
+}
+
+.hb-private-branch-summary-item:last-child {
+  border-bottom: none;
+}
+
+.hb-private-branch-summary-value {
+  display: block;
+  margin-top: 8px;
+  color: var(--hb-near-black);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.hb-private-branch-summary-value.is-text {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.hb-private-branch-origin-card {
+  border: 1px solid var(--hb-border);
+  border-radius: 20px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hb-surface-card) 96%, transparent), color-mix(in srgb, var(--hb-surface-soft) 92%, transparent));
+  padding: 18px;
+}
+
+.hb-private-branch-origin-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hb-private-branch-origin-avatar {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+}
+
+.hb-private-branch-origin-avatar-accent {
+  background: color-mix(in srgb, var(--hb-blue) 14%, var(--hb-surface-soft));
+  color: var(--hb-blue);
+}
+
+.hb-private-branch-card-title {
+  color: var(--hb-near-black);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.hb-private-branch-copy,
+.hb-private-branch-meta,
+.hb-private-branch-note {
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.hb-private-branch-copy,
+.hb-private-branch-meta {
+  color: var(--hb-soft);
+}
+
+.hb-private-branch-note {
+  border: 1px solid color-mix(in srgb, var(--hb-blue) 24%, var(--hb-border));
+  background: color-mix(in srgb, var(--hb-blue) 10%, var(--hb-surface-soft));
+  color: color-mix(in srgb, var(--hb-blue) 72%, var(--hb-near-black));
+}
+
+.hb-private-branch-textarea {
+  min-height: 116px;
+  resize: vertical;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  line-height: 1.7;
+}
+
+.hb-private-branch-station-card {
+  min-height: 128px;
+  border-color: var(--hb-border);
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, transparent);
+}
+
+.hb-private-branch-station-card:hover {
+  border-color: color-mix(in srgb, var(--hb-blue) 32%, var(--hb-border));
+  background: color-mix(in srgb, var(--hb-surface-card) 92%, transparent);
+}
+
+.hb-private-branch-station-card.is-selected {
+  border-color: color-mix(in srgb, var(--hb-blue) 54%, var(--hb-border));
+  background: color-mix(in srgb, var(--hb-blue) 7%, var(--hb-surface-card));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--hb-blue) 16%, transparent);
+}
+
+.hb-private-branch-loading {
+  min-height: 13rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem;
+  font-size: 0.875rem;
+  color: var(--hb-soft);
+}
+
+.hb-private-branch-error-card {
+  border: 1px solid color-mix(in srgb, var(--hb-danger) 28%, var(--hb-border));
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--hb-danger) 10%, var(--hb-surface-card));
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--hb-danger);
+}
+
+.hb-private-branch-cancel-btn {
+  border: 1px solid color-mix(in srgb, var(--hb-danger) 24%, var(--hb-border));
+  border-radius: 999px;
+  background: var(--hb-surface-card);
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--hb-danger);
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.hb-private-branch-cancel-btn:hover {
+  background: var(--hb-danger-hover-bg);
+}
+
+@media (max-width: 720px) {
+  .hb-private-branch-origin-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 .hb-delete-confirm-modal {
@@ -2328,12 +2569,12 @@ body {
 }
 
 .hb-modal-close:hover {
-  background: #f5f5f5;
+  background: var(--hb-surface-soft);
   color: var(--hb-near-black);
 }
 
 .hb-modal-head {
-  padding: 20px 24px 0;
+  padding: 20px 64px 0 24px;
 }
 
 .hb-modal-title {
@@ -2347,6 +2588,11 @@ body {
   margin: 6px 0 0;
   font-size: 13px;
   color: var(--hb-soft);
+  overflow-wrap: anywhere;
+}
+
+.hb-modal-title {
+  overflow-wrap: anywhere;
 }
 
 .hb-modal-body {
@@ -6835,8 +7081,15 @@ body.hb-body-hiring-prototype {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
   padding: 20px 20px 16px;
   border-bottom: 1px solid var(--line);
+}
+
+.hb-modal-head > :first-child {
+  min-width: 0;
+  flex: 1;
+  padding-right: 8px;
 }
 
 .hb-modal-head h3 {
@@ -6850,6 +7103,7 @@ body.hb-body-hiring-prototype {
   font-size: 12px;
   color: var(--ink-3);
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .hb-modal-close {

@@ -5,6 +5,7 @@ import {
   Loader2,
   MessageCircle,
   ShieldCheck,
+  X,
   Users,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -17,6 +18,10 @@ import {
 import { Pagination } from "@/shared/components/Pagination";
 
 type FilterTab = "all" | "live" | "branch" | "retired";
+
+type ConfirmAction =
+  | { kind: "abandon"; employeeId: string }
+  | { kind: "retire"; employeeId: string };
 
 const PAGE_SIZE = 9;
 
@@ -31,15 +36,9 @@ export default function MyEmployeesPage() {
   const [page, setPage] = useState(1);
   const [abandoningId, setAbandoningId] = useState<string | null>(null);
   const [retiringId, setRetiringId] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
-  async function abandonBranch(branchId: string, event: React.MouseEvent) {
-    event.stopPropagation();
-    if (
-      !window.confirm(
-        t("employees.myPage.confirmAbandon"),
-      )
-    )
-      return;
+  async function abandonBranch(branchId: string) {
     setAbandoningId(branchId);
     try {
       const restored = await api.employeeRuntime.abandonPrivateBranch(branchId);
@@ -56,16 +55,20 @@ export default function MyEmployeesPage() {
         ),
       );
       showToast(t("employees.myPage.abandonSuccess"), "success");
-    } catch {
-      // Silently handle — user can retry from detail page
+      setConfirmAction(null);
+    } catch (requestError: unknown) {
+      showToast(
+        requestError instanceof Error
+          ? requestError.message
+          : t("employees.myPage.abandonFailed"),
+        "error",
+      );
     } finally {
       setAbandoningId(null);
     }
   }
 
-  async function retireEmployee(employeeId: string, event: React.MouseEvent) {
-    event.stopPropagation();
-    if (!window.confirm(t("employees.myPage.confirmRetire"))) return;
+  async function retireEmployee(employeeId: string) {
     setRetiringId(employeeId);
     try {
       await api.employeeRuntime.updateLifecycle(employeeId, {
@@ -89,8 +92,14 @@ export default function MyEmployeesPage() {
         ),
       );
       showToast(t("employees.myPage.retireSuccess"), "success");
-    } catch {
-      // Silently handle — user can retry
+      setConfirmAction(null);
+    } catch (requestError: unknown) {
+      showToast(
+        requestError instanceof Error
+          ? requestError.message
+          : t("employees.myPage.retireFailed"),
+        "error",
+      );
     } finally {
       setRetiringId(null);
     }
@@ -196,7 +205,7 @@ export default function MyEmployeesPage() {
         <div className="hb-page-actions">
           <button
             type="button"
-            className="hb-btn-ghost hb-hub-btn-secondary"
+            className="hb-btn-primary hb-hub-btn-primary"
             onClick={() => navigate("/department-employees")}
           >
             {t("employees.myPage.backToDepartment")}
@@ -343,7 +352,8 @@ export default function MyEmployeesPage() {
                       retiringId === employee.employeeId
                     }
                     onClick={(e) => {
-                      void retireEmployee(employee.employeeId, e);
+                        e.stopPropagation();
+                        setConfirmAction({ kind: "retire", employeeId: employee.employeeId });
                     }}
                   >
                     <ShieldCheck size={12} />
@@ -377,7 +387,8 @@ export default function MyEmployeesPage() {
                         type="button"
                         className="hb-employee-card-inline-action hb-employee-card-inline-action--danger"
                         onClick={(e) => {
-                          void abandonBranch(employee.employeeId, e);
+                          e.stopPropagation();
+                          setConfirmAction({ kind: "abandon", employeeId: employee.employeeId });
                         }}
                       >
                         {abandoningId === employee.employeeId
@@ -395,6 +406,68 @@ export default function MyEmployeesPage() {
 
       {visibleEmployees.length > 0 ? (
         <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+      ) : null}
+
+      {confirmAction ? (
+        <div
+          className="hb-modal-mask"
+          onClick={() =>
+            abandoningId || retiringId ? undefined : setConfirmAction(null)
+          }
+        >
+          <div className="hb-modal hb-delete-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              className="hb-modal-close"
+              onClick={() => setConfirmAction(null)}
+              disabled={Boolean(abandoningId || retiringId)}
+            >
+              <X size={16} />
+            </button>
+            <div className="hb-modal-head">
+              <h3 className="hb-modal-title">
+                {confirmAction.kind === "retire"
+                  ? t("employees.myPage.retireDialogTitle")
+                  : t("employees.myPage.abandonDialogTitle")}
+              </h3>
+              <p className="hb-modal-sub">
+                {confirmAction.kind === "retire"
+                  ? t("employees.myPage.confirmRetire")
+                  : t("employees.myPage.confirmAbandon")}
+              </p>
+            </div>
+            <div className="hb-modal-foot">
+              <button
+                type="button"
+                className="hb-btn-ghost hb-hub-btn-secondary"
+                onClick={() => setConfirmAction(null)}
+                disabled={Boolean(abandoningId || retiringId)}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                className="hb-btn-primary hb-hub-btn-primary hb-btn-danger"
+                disabled={Boolean(abandoningId || retiringId)}
+                onClick={() => {
+                  if (confirmAction.kind === "retire") {
+                    void retireEmployee(confirmAction.employeeId);
+                    return;
+                  }
+                  void abandonBranch(confirmAction.employeeId);
+                }}
+              >
+                {(confirmAction.kind === "retire" && retiringId === confirmAction.employeeId) ||
+                (confirmAction.kind === "abandon" && abandoningId === confirmAction.employeeId) ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : null}
+                {confirmAction.kind === "retire"
+                  ? t("employees.myPage.actions.retire")
+                  : t("employees.myPage.actions.abandon")}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

@@ -16,6 +16,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useUserRole } from "@/app/context/UserRoleContext";
+import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeSummary } from "@/infra/api";
 import TemplateUploadModal from "./components/TemplateUploadModal";
 import CloneEmployeeModal from "./components/CloneEmployeeModal";
@@ -35,6 +36,7 @@ const PAGE_SIZE = 9;
 export default function DepartmentEmployeesPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { showToast } = useUxOverlay();
   const { role } = useUserRole();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -69,7 +71,7 @@ export default function DepartmentEmployeesPage() {
         deleteError instanceof Error
           ? deleteError.message
           : t("employees.departmentPage.deleteFailed");
-      window.alert(message);
+      showToast(message, "error");
     } finally {
       setDeletingId(null);
     }
@@ -482,30 +484,13 @@ export default function DepartmentEmployeesPage() {
                     </p>
                   </button>
                   <div className="hb-employee-card-divider" />
-                  <div>
-                    <div className="hb-employee-card-footer">
-                      <span>{t("employees.departmentPage.createdAt", { date: employee.createdAt })}</span>
-                      {canClone ? (
-                        <span className="text-emerald-600 dark:text-emerald-400">
-                          {t("employees.departmentPage.cloneReady")}
-                        </span>
-                      ) : null}
-                      {isInterningAi ? (
-                        <span className="text-violet-600 dark:text-violet-400">
-                          {t("employees.status.interningAi")}
-                        </span>
-                      ) : null}
-                      {isInterningHuman ? (
-                        <span className="text-indigo-600 dark:text-indigo-400">
-                          {t("employees.status.interningHuman")}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="hb-employee-card-actions">
+                  <div className="hb-employee-card-footer">
+                    <span>{t("employees.departmentPage.createdAt", { date: employee.createdAt })}</span>
+                    <div className="hb-employee-card-footer-actions">
                       {isInterningAi ? (
                         <button
                           type="button"
-                          className="hb-btn-primary hb-hub-btn-primary"
+                          className="hb-btn-primary hb-hub-btn-primary text-xs"
                           onClick={() =>
                             openAiEvaluation(employee.employeeId)
                           }
@@ -516,7 +501,7 @@ export default function DepartmentEmployeesPage() {
                       ) : isInterningHuman ? (
                         <button
                           type="button"
-                          className="hb-btn-primary hb-hub-btn-primary"
+                          className="hb-btn-primary hb-hub-btn-primary text-xs"
                           onClick={() =>
                             openHumanEvaluation(employee.employeeId)
                           }
@@ -529,7 +514,7 @@ export default function DepartmentEmployeesPage() {
                           {canClone ? (
                             <button
                               type="button"
-                              className="hb-btn-primary hb-hub-btn-primary"
+                              className="hb-btn-primary hb-hub-btn-primary text-xs"
                               onClick={() =>
                                 setCloneTarget({
                                   employeeId: employee.employeeId,
