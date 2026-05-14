@@ -385,6 +385,11 @@ internal sealed partial class EmployeeHiringService
         IReadOnlyList<string>? InstalledFiles,
         int? TotalSkillsLoaded);
 
+    private sealed record SandboxMcpConfigResponse(
+        bool Success,
+        string? Message,
+        string? Error);
+
     private sealed record HireOwnerContext(
         string OwnerSubject,
         string TenantId,

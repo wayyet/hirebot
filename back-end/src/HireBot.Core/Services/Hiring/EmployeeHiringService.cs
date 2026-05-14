@@ -51,6 +51,7 @@ internal sealed partial class EmployeeHiringService(
     IHiringFileStore hiringFileStore,
     IInstanceArtifactCloneService instanceArtifactCloneService,
     IHiringArtifactPackageService artifactPackageService,
+    IConfiguration configuration,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
@@ -355,6 +356,23 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(
                 roleTemplateUploadResult.StatusCode <= 0 ? 502 : roleTemplateUploadResult.StatusCode,
                 string.IsNullOrWhiteSpace(roleTemplateUploadResult.Message) ? "雇佣角色模板包上传失败" : roleTemplateUploadResult.Message);
+        }
+
+        // 上传 MCP 配置到沙箱，让沙箱内的数字员工可以访问配置的 MCP 服务；
+        // 此步骤为非致命操作，失败时只记录警告，不阻断初始化流程
+        var mcpConfig = ReadMcpConfig();
+        if (mcpConfig is not null)
+        {
+            var mcpUploadResult = await UploadSandboxMcpConfigAsync(
+                call.Data.HireId, ownerSubject, mcpConfig, cancellationToken);
+            if (!mcpUploadResult.Success)
+            {
+                logger.LogWarning(
+                    "MCP config upload failed (non-fatal). HireId={HireId}, StatusCode={StatusCode}, Message={Message}",
+                    call.Data.HireId,
+                    mcpUploadResult.StatusCode,
+                    mcpUploadResult.Message);
+            }
         }
 
         await SetSandboxInitializedAsync(provisionResult.Data.SandboxId, cancellationToken);

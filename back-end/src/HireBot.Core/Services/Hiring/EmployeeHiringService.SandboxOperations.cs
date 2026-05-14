@@ -272,6 +272,46 @@ This is the bootstrap skill for evaluation sandbox orchestration.
     }
 
 
+    /// <summary>
+    /// 将 MCP 配置上传到沙箱 /admin/workspace/mcp 接口。
+    /// 配置从 OpenSandbox:McpConfig 读取；Enabled=false 或未配置时调用方应跳过。
+    /// 上传失败为非致命错误，不影响沙箱整体初始化流程。
+    /// </summary>
+    private async Task<RemoteCallResult<SandboxMcpConfigResponse>> UploadSandboxMcpConfigAsync(
+        string hireId,
+        string ownerSubject,
+        SandboxWorkspaceMcpConfig mcpConfig,
+        CancellationToken cancellationToken)
+    {
+        var gatewayTargetResult = await ResolveSandboxGatewayTargetAsync(hireId, ownerSubject, cancellationToken);
+        if (!gatewayTargetResult.Success || gatewayTargetResult.Data is null)
+        {
+            return RemoteCallResult<SandboxMcpConfigResponse>.Failure(gatewayTargetResult.Code, gatewayTargetResult.Message);
+        }
+
+        var call = await kingCrabHttpClient.SendForJsonAsync<SandboxMcpConfigResponse>(
+            HttpMethod.Put,
+            "/admin/workspace/mcp",
+            mcpConfig,
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false,
+            absoluteBaseUrl: gatewayTargetResult.Data.GatewayEndpoint);
+
+        return call.Success && call.Data is not null
+            ? RemoteCallResult<SandboxMcpConfigResponse>.Ok(call.Data)
+            : RemoteCallResult<SandboxMcpConfigResponse>.Failure(call.StatusCode, call.Message);
+    }
+
+    /// <summary>
+    /// 从配置中读取 MCP 设置。Enabled=false 或节不存在时返回 null，表示无需上传。
+    /// </summary>
+    private SandboxWorkspaceMcpConfig? ReadMcpConfig()
+    {
+        var config = configuration.GetSection("OpenSandbox:McpConfig").Get<SandboxWorkspaceMcpConfig>();
+        return config?.Enabled == true ? config : null;
+    }
+
     private async Task SetSandboxInitializedAsync(string sandboxId, CancellationToken cancellationToken)
     {
         var instance = await dbContext.SandboxInstances
