@@ -130,3 +130,12 @@ database:
 secrets:
   create: false
   stringData: {}
+
+# ncrew-hire-data PVC —— 挂载到 /app/ncrew-hire-data，持久化运行数据目录
+hireData:
+  persistence:
+    enabled: false
+    storageClassName: "nfs-csi"
+    accessMode: ReadWriteMany
+    size: 10Gi
+    mountPath: /app/ncrew-hire-data

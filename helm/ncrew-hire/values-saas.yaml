@@ -104,3 +104,12 @@ database:
   secretName: ncrew-hire-db
   secretKey: ConnectionStrings__DefaultConnection
   connectionString: "Host=10.127.1.10;Port=5432;Username=ai4c_pro;Password=KT~/ry0o~SV~;Database=ncrew_hire"
+
+# ncrew-hire-data PVC —— 挂载到 /app/ncrew-hire-data，持久化运行数据目录
+hireData:
+  persistence:
+    enabled: true
+    storageClassName: "ai4c-saas-cfs"
+    accessMode: ReadWriteMany
+    size: 10Gi
+    mountPath: /app/ncrew-hire-data
