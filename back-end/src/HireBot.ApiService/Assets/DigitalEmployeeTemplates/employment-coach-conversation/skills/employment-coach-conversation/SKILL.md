@@ -118,57 +118,23 @@ metadata:
 
 > 节奏与口吻、真实场景优先、情绪信号识别、反馈风格、初始化与开场示例 → 进入会话第一轮 / 拿不准对话节奏时，读 [references/interaction-quality.md](references/interaction-quality.md)。
 
-## MCP TODO 工具调用规范
+## MCP 工具调用规范
 
-本 skill 通过 MCP 工具维护右侧 TODO 面板里的**文本型待办条目**，**与 emit_artifact 并行调用**——两者职责不同：`emit_artifact` 驱动阶段胶囊点亮与上传交互区显示（包括"上传业务资料"入口本身），MCP TODO 工具只负责把对话里识别到的具体待办（哪份资料、哪个 skill、哪个外部系统）记到面板上。
+本 skill 的右侧 TODO 面板**完全由 `emit_artifact` 事件驱动**：阶段胶囊亮灯、阶段卡片展开上传/搜索/外部表单交互区，全都依赖 `material_collection_progress` / `skill_workorder_progress` / `external_workorder_progress` 等 artifact 事件。**不存在文本型待办工单**，因此本 skill 只需调用极少的 MCP 工具。
 
-### 可用工具
+### 可用工具（仅一个）
 
 | 工具名 | 用途 |
 |--------|------|
-| `hiring.upsert_todo` | 新建或更新一条文本型待办工单（相同 handoffId 则覆盖） |
-| `hiring.list_todos` | 列出当前会话所有工单（一般在会话恢复时调用一次） |
 | `hiring.parse_uploaded_files` | 读取并解析当前会话用户已上传的 .md/.json 文件，供 AI 抽取本体或推断技能 |
 
-> ⚠️ 旧版的 `hiring.request_file_upload` / `hiring.request_skill_upload` / `hiring.request_external_config` **已下线**，文件上传入口现在由 artifact 阶段事件（`material_collection_progress` 等）直接控制：阶段一进入运行态，右侧面板对应阶段卡片就会自动展示上传/交互区，**不再需要也无法通过 MCP 工具触发**。
+> ⚠️ 旧版本曾提供的 `hiring.upsert_todo` / `hiring.list_todos` / `hiring.request_file_upload` / `hiring.request_skill_upload` / `hiring.request_external_config` 等 **全部已下线**。右侧面板的阶段卡片由 artifact 阶段事件直接控制，**不再需要、也无法通过 MCP 工具触发**。所有阶段推进信息都通过 `emit_artifact` 推送，所有用户输入（上传文件 / 选择技能 / 填写外部系统）通过前端表单回流为下一轮用户消息。
 
-### handoffId 命名规范
-
-**必须使用语义化稳定 ID，禁止使用随机 UUID。** 格式规则：
-- 资料工单：`material_<英文小写_slug>` — 例如 `material_sales_data`、`material_compliance_rules`
-- 技能工单：`skill_<英文小写_slug>` — 例如 `skill_invoice_audit`、`skill_risk_alert`
-- 外部系统工单：`external_<英文小写_slug>` — 例如 `external_erp_read`、`external_crm_notify`
-
-同一概念每次对话都必须用**同一个 handoffId**，AI 用相同 ID 调用 upsert 就是更新而不是创建新条目。
-
-### 各阶段调用时机
-
-**阶段 1 资料**
+### 调用时机
 
 | 时机 | 工具 | 关键参数 |
 |------|------|---------|
-| 用户描述一份资料内容（哪怕还不完整） | `hiring.upsert_todo` | handoffId=`material_<slug>`, stage=`material`, targetSkill=`ontology-extraction`, status=`drafting` |
 | 用户上传过文件需要读取分析时 | `hiring.parse_uploaded_files` | 不传参或传 `maxBytes`；返回目录树 + .md/.json 全文 |
-| 资料达到足够明确度（抽取目标已清晰） | `hiring.upsert_todo` | status=`ready_to_dispatch`，同时更新 intent/acceptance |
-
-**阶段 2 技能**
-
-| 时机 | 工具 | 关键参数 |
-|------|------|---------|
-| 用户描述一个技能需求 | `hiring.upsert_todo` | stage=`skill`, targetSkill=`skill-generation`, status=`drafting` |
-| 技能定义明确（name + description + trigger + output 全齐） | `hiring.upsert_todo` | status=`ready_to_dispatch` |
-
-**阶段 3 外部系统**
-
-| 时机 | 工具 | 关键参数 |
-|------|------|---------|
-| 识别到一个外部系统连接需求 | `hiring.upsert_todo` | stage=`external`, targetSkill=`external-config`, status=`drafting` |
-| 外部系统信息明确（category + target_system + objective 全齐） | `hiring.upsert_todo` | status=`ready_to_dispatch` |
-| 用户表示不需要外部系统 | `hiring.upsert_todo` | title=`跳过外部系统`, category=`skip`, status=`ready_to_dispatch` |
-
-### 与 emit_artifact 的调用顺序
-
-收集到可推送信息时，**先调用对应 MCP TODO 工具**写入持久化状态，**再调用 emit_artifact** 更新阶段胶囊，最后给用户一句简短反馈。
 
 ### 错误处理
 
@@ -264,7 +230,7 @@ ls -la "<workspace_root>/uploads/"
 
 > 这两步是 stage1 的"亮灯仪式"——缺第 1 步，前端阶段胶囊一直停在"等待"、资料卡也不会展开上传区。
 
-> 用户上传文件后，调用 `hiring.parse_uploaded_files` 拉取内容做识别，然后用 `hiring.upsert_todo` 把识别到的具体资料条目写成 `material_<slug>` 待办，再追加一次 progress `emit_artifact` 把已整理的资料摘要带回 `data`。
+> 用户上传文件后，调用 `hiring.parse_uploaded_files` 拉取内容做识别，将已整理的资料摘要写入下一次 progress `emit_artifact` 的 `data` 字段（如 `data.items`），把"哪份资料、归到哪个分类、抽取什么"推送到前端阶段卡片。
 
 #### ⛔ 路径反伪造红线
 

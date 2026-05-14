@@ -3594,7 +3594,7 @@ body.hb-body-hiring-prototype {
 }
 
 .hb-hiring-composer {
-  padding: 8px 16px 10px;
+  padding: 6px 14px 8px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.98) 100%);
 }
 
@@ -3618,14 +3618,15 @@ body.hb-body-hiring-prototype {
 
 .hb-hiring-textarea {
   width: 100%;
-  min-height: 48px;
+  min-height: 36px;
+  max-height: 96px;
   resize: none;
   border: 0;
   border-radius: 0;
   background: transparent;
-  padding: 10px 14px 6px;
-  font-size: 15px;
-  line-height: 1.5;
+  padding: 6px 14px 4px;
+  font-size: 14px;
+  line-height: 1.45;
   color: var(--hb-near-black);
   outline: none;
 }
@@ -3639,7 +3640,7 @@ body.hb-body-hiring-prototype {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 10px 8px;
+  padding: 0 10px 6px;
 }
 
 .hb-hiring-composer-tools {
@@ -6195,6 +6196,21 @@ body.hb-body-hiring-prototype {
   overflow: hidden;
   background: var(--surface);
   transition: border-color 0.2s;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+/* 当前关注的阶段卡片：占据 TODO 面板剩余空间，里面的交互区域可滚动铺满 */
+.hb-todo-stage-card.is-focus {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.hb-todo-stage-card.is-focus .hb-todo-stage-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .hb-todo-stage-card.is-active {

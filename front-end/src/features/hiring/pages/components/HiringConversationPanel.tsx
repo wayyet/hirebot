@@ -303,7 +303,7 @@ export function HiringConversationPanel({
                   onSend()
                 }
               }}
-              rows={3}
+              rows={2}
               placeholder={promptPlaceholder}
               className="hb-hiring-textarea"
             />

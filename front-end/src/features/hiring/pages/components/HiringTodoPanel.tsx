@@ -90,15 +90,40 @@ export function HiringTodoPanel({
   onGenerate,
   generated = false,
 }: HiringTodoPanelProps) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    material: true, skill: true, external: true, final: true,
-  })
-  const toggle = (key: string) => setExpanded(prev => ({ ...prev, [key]: !prev[key] }))
+  // 用户是否手动覆盖了某张卡片的展开状态；未手动覆盖的走"活跃阶段自动展开"逻辑
+  const [userToggled, setUserToggled] = useState<Record<string, boolean>>({})
+  const [manualExpanded, setManualExpanded] = useState<Record<string, boolean>>({})
 
   const allDone = useMemo(
     () => STAGES.every(s => wsStageOverrides.get(s.key) === 'completed'),
     [wsStageOverrides],
   )
+
+  // 当前活跃阶段：优先取 running，没有 running 时取第一个未完成的阶段；全部完成则无活跃阶段
+  const activeStageKey = useMemo<StageKey | 'final' | null>(() => {
+    const running = STAGES.find(s => wsStageOverrides.get(s.key) === 'running')
+    if (running) return running.key
+    if (allDone) return 'final'
+    const pending = STAGES.find(s => wsStageOverrides.get(s.key) !== 'completed')
+    return pending?.key ?? null
+  }, [wsStageOverrides, allDone])
+
+  // 计算每张卡片的展开态：用户手动覆盖优先，否则只展开活跃阶段
+  const isExpanded = useCallback((key: string) => {
+    if (userToggled[key]) return manualExpanded[key]
+    return key === activeStageKey
+  }, [userToggled, manualExpanded, activeStageKey])
+
+  const toggle = (key: string) => {
+    setUserToggled(prev => ({ ...prev, [key]: true }))
+    setManualExpanded(prev => ({ ...prev, [key]: !isExpanded(key) }))
+  }
+
+  // 活跃阶段切换时清理掉旧的手动覆盖，让新阶段自动占满右侧空间
+  useEffect(() => {
+    setUserToggled({})
+    setManualExpanded({})
+  }, [activeStageKey])
 
   return (
     <div className="hb-todo-panel">
@@ -112,7 +137,8 @@ export function HiringTodoPanel({
             key={stage.key}
             stage={stage}
             status={wsStageOverrides.get(stage.key) ?? null}
-            expanded={expanded[stage.key]}
+            expanded={isExpanded(stage.key)}
+            isFocus={activeStageKey === stage.key}
             onToggle={() => toggle(stage.key)}
           >
             {stage.key === HiringCollectionStage.Material && (
@@ -137,7 +163,8 @@ export function HiringTodoPanel({
         <FinalCard
           canGenerate={allDone}
           generated={generated}
-          expanded={expanded['final']}
+          expanded={isExpanded('final')}
+          isFocus={activeStageKey === 'final'}
           onToggle={() => toggle('final')}
           onGenerate={onGenerate}
         />
@@ -149,11 +176,12 @@ export function HiringTodoPanel({
 // ── 阶段卡片外壳 ──────────────────────────────────────────────────────────────
 
 function StageCard({
-  stage, status, expanded, onToggle, children,
+  stage, status, expanded, isFocus, onToggle, children,
 }: {
   stage: StageConfig
   status: StageStatus | null
   expanded: boolean
+  isFocus: boolean
   onToggle: () => void
   children: React.ReactNode
 }) {
@@ -166,6 +194,8 @@ function StageCard({
       isComplete && 'is-complete',
       isActive && 'is-active',
       isFailed && 'is-failed',
+      // 当前关注的阶段卡片：占据右侧剩余高度，让里面的上传/搜索/表单区域尽量铺开
+      isFocus && expanded && 'is-focus',
     )}>
       <button type="button" className="hb-todo-stage-head" onClick={onToggle} aria-expanded={expanded}>
         <span className="hb-todo-stage-num">{stage.num}</span>
@@ -479,16 +509,22 @@ function ExternalCardBody({ onAfterSave }: { onAfterSave: (summary: string) => v
 // ── Final 卡片（生成实例包） ──────────────────────────────────────────────────
 
 function FinalCard({
-  canGenerate, generated, expanded, onToggle, onGenerate,
+  canGenerate, generated, expanded, isFocus, onToggle, onGenerate,
 }: {
   canGenerate: boolean
   generated: boolean
   expanded: boolean
+  isFocus: boolean
   onToggle: () => void
   onGenerate?: () => void
 }) {
   return (
-    <div className={clsx('hb-todo-stage-card', generated && 'is-complete', !generated && canGenerate && 'is-active')}>
+    <div className={clsx(
+      'hb-todo-stage-card',
+      generated && 'is-complete',
+      !generated && canGenerate && 'is-active',
+      isFocus && expanded && 'is-focus',
+    )}>
       <button type="button" className="hb-todo-stage-head" onClick={onToggle} aria-expanded={expanded}>
         <span className="hb-todo-stage-num">④</span>
         <span className="hb-todo-stage-title">生成实例包</span>
