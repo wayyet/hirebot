@@ -1,4 +1,4 @@
-﻿using HireBot.Abstraction;
+using HireBot.Abstraction;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
@@ -41,9 +41,7 @@ public static class ServiceExtensions
 {
     private const string KingCrabClientName = "KingCrab";
     private const string BuildServiceClientName = "BuildService";
-    private const string FeishuClientName = "Feishu";
-    private const string DingTalkClientName = "DingTalk";
-    private const string WeComClientName = "WeCom";
+
 
     public static IServiceCollection AddHireBotServices(this IServiceCollection services, IConfiguration configuration)
     {
@@ -108,35 +106,10 @@ public static class ServiceExtensions
                 "BuildService:HttpTimeoutSeconds");
         });
 
-        services.AddHttpClient(FeishuClientName, (_, client) =>
-        {
-            ConfigureHttpClient(
-                client,
-                configuration["Feishu:BaseUrl"] ?? "https://open.feishu.cn",
-                configuration.GetValue("Feishu:HttpTimeoutSeconds", 60),
-                "Feishu:BaseUrl",
-                "Feishu:HttpTimeoutSeconds");
-        });
+       
 
-        services.AddHttpClient(DingTalkClientName, (_, client) =>
-        {
-            ConfigureHttpClient(
-                client,
-                configuration["DingTalk:BaseUrl"] ?? "https://oapi.dingtalk.com",
-                configuration.GetValue("DingTalk:HttpTimeoutSeconds", 60),
-                "DingTalk:BaseUrl",
-                "DingTalk:HttpTimeoutSeconds");
-        });
+    
 
-        services.AddHttpClient(WeComClientName, (_, client) =>
-        {
-            ConfigureHttpClient(
-                client,
-                configuration["WeCom:BaseUrl"] ?? "https://qyapi.weixin.qq.com",
-                configuration.GetValue("WeCom:HttpTimeoutSeconds", 60),
-                "WeCom:BaseUrl",
-                "WeCom:HttpTimeoutSeconds");
-        });
     }
 
     private static void AddProviders(IServiceCollection services, IConfiguration configuration)
