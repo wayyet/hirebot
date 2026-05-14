@@ -19,6 +19,7 @@ using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Hiring.Artifacts;
 using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.Storage;
+using HireBot.Core.Services.Hiring.StoreSkills;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Sandbox;
@@ -51,6 +52,7 @@ internal sealed partial class EmployeeHiringService(
     IHiringFileStore hiringFileStore,
     IInstanceArtifactCloneService instanceArtifactCloneService,
     IHiringArtifactPackageService artifactPackageService,
+    IStoreSkillPackageDownloader storeSkillPackageDownloader,
     IConfiguration configuration,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
@@ -1177,6 +1179,7 @@ internal sealed partial class EmployeeHiringService(
         string hireId,
         Stream packageStream,
         string fileName,
+        IReadOnlyList<string>? linkedStoreSkillIds = null,
         CancellationToken cancellationToken = default)
     {
         if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
@@ -1209,7 +1212,25 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包为空或无法解析，请确认上传的是有效 ZIP 文件");
         }
 
-        var mergedArtifacts = MergeTemplatePackageArtifacts(extractedArtifacts, runtimeContext.WorkingTemplatePackage);
+        // 用户在前端 TODO 面板关联的 store skill：先从 ncrew-builder 拉取并解压，作为产物的"中层"基底。
+        // 优先级：沙箱产物（最高）> store skill > 原始模板包（最低），保证用户显式选择的技能不会被陈旧模板覆盖。
+        IReadOnlyDictionary<string, byte[]> storeSkillArtifacts;
+        try
+        {
+            storeSkillArtifacts = linkedStoreSkillIds is { Count: > 0 }
+                ? await storeSkillPackageDownloader.DownloadSkillsAsync(linkedStoreSkillIds, cancellationToken)
+                : new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Linked store skills download failed; proceeding without them. HireId={HireId}", normalizedHireId);
+            storeSkillArtifacts = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var mergedArtifacts = MergeTemplatePackageArtifacts(
+            extractedArtifacts,
+            storeSkillArtifacts,
+            runtimeContext.WorkingTemplatePackage);
         if (mergedArtifacts.Count == 0)
         {
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包合并后无有效文件");

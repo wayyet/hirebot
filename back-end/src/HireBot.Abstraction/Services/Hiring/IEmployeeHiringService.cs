@@ -21,7 +21,8 @@ public interface IEmployeeHiringService
     /// <summary>
     /// 前端从沙箱网关直接下载产物包后，调用此接口将包上传至后端，跳过 KingCrab 依赖。
     /// </summary>
-    Task<ApiResponse<HiringFinalizeResultDto>> ImportPackageAsync(string hireId, Stream packageStream, string fileName, CancellationToken cancellationToken = default);
+    /// <param name="linkedStoreSkillIds">用户在前端 TODO 面板关联的 store skill UUID 列表；后端会从 ncrew-builder 下载并合并到最终产物。</param>
+    Task<ApiResponse<HiringFinalizeResultDto>> ImportPackageAsync(string hireId, Stream packageStream, string fileName, IReadOnlyList<string>? linkedStoreSkillIds = null, CancellationToken cancellationToken = default);
     Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(string hireId, CancellationToken cancellationToken = default);
     Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(string hireId, string artifactName, CancellationToken cancellationToken = default);
 

@@ -618,12 +618,29 @@ export const hiringWorkflowApi = {
    * @param hireId 雇佣 ID
    * @param packageBlob 从沙箱网关下载的 ZIP 包
    * @param fileName 原始文件名（用于后端存储和日志）
+   * @param skillIds 用户在 TODO 面板关联的 store skill UUID 列表；后端会从 ncrew-builder 下载并合并到最终产物。
    */
-  async importPackage(hireId: string, packageBlob: Blob, fileName: string): Promise<HiringFinalizeResult> {
+  async importPackage(
+    hireId: string,
+    packageBlob: Blob,
+    fileName: string,
+    skillIds?: readonly string[],
+  ): Promise<HiringFinalizeResult> {
     const url = `${API_BASE_URL}/api/v1/hirings/${encodeURIComponent(hireId)}/import-package`
     const accessToken = await tokenService.ensureFresh()
     const form = new FormData()
     form.append('packageFile', packageBlob, fileName)
+    // multipart 重复字段：后端 [FromForm] string[]? skillIds 会聚合成数组
+    if (skillIds && skillIds.length > 0) {
+      const unique = new Set<string>()
+      for (const id of skillIds) {
+        const trimmed = id?.trim()
+        if (trimmed && !unique.has(trimmed)) {
+          unique.add(trimmed)
+          form.append('skillIds', trimmed)
+        }
+      }
+    }
     const response = await fetch(url, {
       method: 'POST',
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,

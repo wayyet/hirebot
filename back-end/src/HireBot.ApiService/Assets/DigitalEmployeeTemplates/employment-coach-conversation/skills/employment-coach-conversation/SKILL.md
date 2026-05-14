@@ -392,7 +392,7 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
   "displayHint": "progress",
   "data": {
     "status": "packing",
-    "included": ["ontology/", "skills/", "external/", "config/"]
+    "included": ["ontology/", "skills/", "external/", "config/", "manifest.json"]
   }
 }
 ```
@@ -404,6 +404,46 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 > ⚠️ 工具名称占位符：`package_workspace`。沙箱实际工具名可能为 `create_package`、`export_workspace`、`build_archive`、`zip_workspace` 等，以沙箱在当前会话中暴露的工具清单为准——**遇到不确定时，从工具清单中挑选语义最接近"将工作区打包为 zip 并返回下载链接"的工具调用**，不要因为名字不完全匹配就跳过这一步。
 
 > ⚠️ 若工具清单中确实没有任何打包能力，直接进入下文"失败兜底"，**不要伪造**。
+
+#### 2.1 打包内容白名单与目录约束（强制）
+
+调用打包工具时，**必须**满足以下结构约束，否则后端导入会拒绝或产生错位目录：
+
+**白名单（zip 内只允许包含这些）**：
+- `manifest.json`（位于 zip 根）
+- `ontology/`（ontology-extraction 写入的全部内容）
+- `skills/`（skill-generation 写入的全部内容）
+- `external/`（external-config 写入的全部内容）
+- `config/`（配置文件治理目标）
+
+**黑名单（严禁打入 zip）**：
+- `uploads/`：这是原始模板包的临时解压区，仅供下游 skill 读取参考；原始模板内容由**后端独立合并**，绝不能再次塞入产物包
+- `.git/`、`.cache/`、`node_modules/`、`.venv/`、`__pycache__/`、任何 `.` 前缀的隐藏目录或文件
+- `*.tmp`、`*.log`、`*.swp`、`.DS_Store`、`Thumbs.db` 等临时/系统文件
+
+**层级约束（关键）**：
+- zip 内**根层级**必须**直接**看到上述白名单条目（如 `skills/<slug>/SKILL.md`）
+- **严禁**再嵌套一层 workspace 同名目录（如 `<workspace_slug>/skills/...` 或 `<workspace_slug>-artifacts/skills/...`）
+- 打包前 `cd "<workspace_root>"`，确保 zip 工具从工作区**内部**打包，而不是把工作区**作为顶层目录**纳入
+
+**正确示例（zip 内部结构）**：
+```
+manifest.json
+ontology/digital-employee/index.json
+skills/report-synthesis/SKILL.md
+external/connectors/erp.json
+config/soul.md
+```
+
+**错误示例（任一出现即视为打包失败，必须重新打包）**：
+```
+org-health-analyst-artifacts/manifest.json          ← 多了顶层包裹目录
+org-health-analyst-artifacts/skills/...
+uploads/digital-employee-template.zip                ← 临时输入混入产物
+.git/HEAD                                            ← 隐藏目录混入
+```
+
+> 后端 import 时会做一次"剥离公共顶层目录 + 黑名单过滤"的兜底，但**仅作为容错**，正确的提示词调用必须从源头满足上述约束。
 
 ### 3. 发出 template_package artifact（isTerminal: true）
 

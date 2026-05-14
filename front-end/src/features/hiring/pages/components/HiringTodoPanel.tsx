@@ -42,6 +42,8 @@ export interface HiringTodoPanelProps {
   /** 触发生成实例包 */
   onGenerate?: () => void
   generated?: boolean
+  /** 用户关联的 store skill UUID 列表变化时回调；用于在导入产物包时一并提交给后端。 */
+  onLinkedSkillIdsChange?: (skillIds: string[]) => void
 }
 
 interface StageConfig {
@@ -89,6 +91,7 @@ export function HiringTodoPanel({
   onAfterStageMessage,
   onGenerate,
   generated = false,
+  onLinkedSkillIdsChange,
 }: HiringTodoPanelProps) {
   // 用户是否手动覆盖了某张卡片的展开状态；未手动覆盖的走"活跃阶段自动展开"逻辑
   const [userToggled, setUserToggled] = useState<Record<string, boolean>>({})
@@ -150,6 +153,7 @@ export function HiringTodoPanel({
             {stage.key === HiringCollectionStage.Skill && (
               <SkillCardBody
                 onAfterLink={summary => onAfterStageMessage?.(HiringCollectionStage.Skill, summary)}
+                onLinkedIdsChange={onLinkedSkillIdsChange}
               />
             )}
             {stage.key === HiringCollectionStage.External && (
@@ -349,13 +353,24 @@ function MaterialCardBody({
 
 // ── 技能卡（搜索 Skills Hub） ─────────────────────────────────────────────────
 
-function SkillCardBody({ onAfterLink }: { onAfterLink: (summary: string) => void }) {
+function SkillCardBody({
+  onAfterLink,
+  onLinkedIdsChange,
+}: {
+  onAfterLink: (summary: string) => void
+  onLinkedIdsChange?: (skillIds: string[]) => void
+}) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<StoreSkillItem[]>([])
   const [total, setTotal] = useState(0)
   const [linked, setLinked] = useState<LinkedSkill[]>([])
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
+
+  // 每次 linked 变更都向父组件同步 store skill UUID 列表，供 import-package 请求使用
+  useEffect(() => {
+    onLinkedIdsChange?.(linked.map(l => l.skillId))
+  }, [linked, onLinkedIdsChange])
 
   // 防抖搜索：对接模板池同源接口 /api/store/skills?page=1&pageSize=12&q=...
   useEffect(() => {

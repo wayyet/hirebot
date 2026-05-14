@@ -658,12 +658,19 @@ internal sealed partial class EmployeeHiringService
             : RemoteBinaryCallResult.Failure(call.StatusCode, call.Message);
     }
 
+    /// <summary>
+    /// 解压沙箱产物 zip 为相对路径到字节的字典；同时执行三类兜底清洗：
+    /// 1) 剥离所有 entry 共同的顶层目录（沙箱 package_workspace 可能多包一层 workspace 目录）；
+    /// 2) 过滤 uploads/ 临时区——原始模板包通过 WorkingTemplatePackage 单独合并，不应再次塞回产物；
+    /// 3) 过滤隐藏目录/文件（"."开头）以及常见临时文件后缀。
+    /// </summary>
     private static IReadOnlyDictionary<string, byte[]> ExtractZipEntries(byte[] archiveBytes)
     {
         using var memoryStream = new MemoryStream(archiveBytes, writable: false);
         using var archive = new ZipArchive(memoryStream, ZipArchiveMode.Read, leaveOpen: false);
-        var result = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
 
+        // 第一遍：收集所有有效 entry 的规范化路径
+        var rawEntries = new List<(string Path, ZipArchiveEntry Entry)>();
         foreach (var entry in archive.Entries)
         {
             if (string.IsNullOrWhiteSpace(entry.Name))
@@ -676,17 +683,125 @@ internal sealed partial class EmployeeHiringService
                 continue;
             }
 
+            rawEntries.Add((normalizedPath, entry));
+        }
+
+        // 第二遍：探测共同顶层目录前缀（仅当所有 entry 都以同一段开头时才剥离，避免误伤）
+        var commonRoot = DetectCommonTopLevelDirectory(rawEntries.Select(item => item.Path).ToList());
+
+        var result = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (path, entry) in rawEntries)
+        {
+            var stripped = !string.IsNullOrEmpty(commonRoot) && path.StartsWith(commonRoot + "/", StringComparison.OrdinalIgnoreCase)
+                ? path[(commonRoot.Length + 1)..]
+                : path;
+
+            if (string.IsNullOrWhiteSpace(stripped) || ShouldExcludeArtifactPath(stripped))
+            {
+                continue;
+            }
+
             using var entryStream = entry.Open();
             using var buffer = new MemoryStream();
             entryStream.CopyTo(buffer);
-            result[normalizedPath] = buffer.ToArray();
+            result[stripped] = buffer.ToArray();
         }
 
         return result;
     }
 
+    /// <summary>
+    /// 检测所有 entry 是否共享同一个顶层目录；若是则返回该目录名，否则返回 null。
+    /// 用于剥离沙箱 package_workspace 可能多包的一层 workspace 同名目录。
+    /// </summary>
+    private static string? DetectCommonTopLevelDirectory(IReadOnlyList<string> normalizedPaths)
+    {
+        if (normalizedPaths.Count == 0)
+        {
+            return null;
+        }
+
+        string? candidate = null;
+        foreach (var path in normalizedPaths)
+        {
+            var slashIndex = path.IndexOf('/');
+            if (slashIndex <= 0)
+            {
+                // 存在根级文件（如 manifest.json）则不剥离
+                return null;
+            }
+
+            var head = path[..slashIndex];
+            if (candidate is null)
+            {
+                candidate = head;
+                continue;
+            }
+
+            if (!string.Equals(candidate, head, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+        }
+
+        // 白名单顶层目录不剥离（例如所有 entry 都恰好在 skills/ 下）
+        if (candidate is not null && ArtifactRootWhitelist.Contains(candidate))
+        {
+            return null;
+        }
+
+        return candidate;
+    }
+
+    /// <summary>
+    /// 黑名单：以 uploads/ 起始的临时区、隐藏目录/文件、常见临时文件后缀均跳过。
+    /// </summary>
+    private static bool ShouldExcludeArtifactPath(string normalizedPath)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            return true;
+        }
+
+        var segments = normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var segment in segments)
+        {
+            if (segment.StartsWith('.'))
+            {
+                return true; // 任何 .开头隐藏段（.git/.cache/.DS_Store/.venv 等）
+            }
+        }
+
+        // uploads/ 是沙箱临时输入区，绝不允许混入最终产物
+        if (normalizedPath.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalizedPath, "uploads", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // 临时文件后缀
+        var lastSegment = segments.Length > 0 ? segments[^1] : normalizedPath;
+        if (lastSegment.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) ||
+            lastSegment.EndsWith(".swp", StringComparison.OrdinalIgnoreCase) ||
+            lastSegment.EndsWith(".log", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(lastSegment, "Thumbs.db", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static readonly HashSet<string> ArtifactRootWhitelist =
+        new(StringComparer.OrdinalIgnoreCase) { "ontology", "skills", "external", "config" };
+
+    /// <summary>
+    /// 按优先级合并三层产物：沙箱生成产物（最高） &gt; store skill 关联包（中层） &gt; 原始模板包（最低）。
+    /// 后写入者不能覆盖已存在键，从而保证用户在沙箱里的最终编辑、和用户主动选择的 store skill 都不会被旧模板回写。
+    /// </summary>
     private static IReadOnlyDictionary<string, byte[]> MergeTemplatePackageArtifacts(
         IReadOnlyDictionary<string, byte[]> generatedArtifacts,
+        IReadOnlyDictionary<string, byte[]> storeSkillArtifacts,
         TemplatePackageDefinition templatePackage)
     {
         var mergedArtifacts = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -699,6 +814,17 @@ internal sealed partial class EmployeeHiringService
             }
 
             mergedArtifacts[normalizedPath] = pair.Value;
+        }
+
+        foreach (var pair in storeSkillArtifacts)
+        {
+            if (!TryNormalizeArchiveEntryPath(pair.Key, out var normalizedPath) || pair.Value.Length == 0)
+            {
+                continue;
+            }
+
+            // 沙箱已有则尊重沙箱，否则补上 store skill 文件
+            mergedArtifacts.TryAdd(normalizedPath, pair.Value);
         }
 
         foreach (var packageFile in templatePackage.PackageFiles)

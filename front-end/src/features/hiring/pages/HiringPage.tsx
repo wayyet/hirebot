@@ -164,6 +164,8 @@ export default function HiringPage() {
   const [artifactFileNames, setArtifactFileNames] = useState<string[]>([])
   // template_package artifact 到达时暂存，触发 triggerCreate() 后消费
   const [pendingPackageArtifact, setPendingPackageArtifact] = useState<{ fileUrl: string; fileName: string } | null>(null)
+  // 用户在 TODO 面板关联的 store skill UUID 列表；导入产物包时一并提交给后端用于合并
+  const [linkedStoreSkillIds, setLinkedStoreSkillIds] = useState<string[]>([])
   const [submittingMessage, setSubmittingMessage] = useState(false)
   // WS 流式内容：非 null 时表示 AI 正在逐字输出
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
@@ -1098,7 +1100,12 @@ export default function HiringPage() {
         // ZIP 最小合法大小（End of Central Directory = 22 字节）
         throw new Error(`从沙箱网关下载的产物包过小（${packageBlob.size} 字节），可能不是有效 ZIP 文件`)
       }
-      const finalizeResult = await api.hiringWorkflow.importPackage(hireId, packageBlob, artifact.fileName)
+      const finalizeResult = await api.hiringWorkflow.importPackage(
+        hireId,
+        packageBlob,
+        artifact.fileName,
+        linkedStoreSkillIds,
+      )
 
       setArtifactFileNames(finalizeResult.generatedFiles)
       if (finalizeResult.employeeId) {
@@ -1341,6 +1348,7 @@ export default function HiringPage() {
             onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}
             onGenerate={() => { void triggerCreate() }}
             generated={instanceCreated}
+            onLinkedSkillIdsChange={setLinkedStoreSkillIds}
           />
         </div>
       </div>
