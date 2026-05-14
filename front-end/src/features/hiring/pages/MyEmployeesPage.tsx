@@ -37,6 +37,7 @@ export default function MyEmployeesPage() {
   const [page, setPage] = useState(1);
   const [abandoningId, setAbandoningId] = useState<string | null>(null);
   const [retiringId, setRetiringId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
   async function abandonBranch(branchId: string) {
