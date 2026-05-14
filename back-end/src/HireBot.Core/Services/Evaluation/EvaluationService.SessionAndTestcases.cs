@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
@@ -15,6 +16,7 @@ using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Evaluation.Persistence;
 using HireBot.Core.Services.Internal;
+using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Core.Services.SystemSkills;
 using HireBot.Repository;
@@ -227,152 +229,220 @@ internal sealed partial class EvaluationService
         EmployeeDetailDto employee,
         CancellationToken cancellationToken)
     {
-        var fromTarget = await LoadTestcaseSourcesFromTargetArtifactsAsync(employee.EmployeeId, cancellationToken);
-        if (fromTarget.Count > 0)
+        var fromEvaluatorTemplatePackage = await LoadTestcaseSourcesFromEvaluatorTemplatePackageAsync(
+            workspaceContext.EvaluatorTemplatePackageZipPath,
+            "evaluator-template-package",
+            cancellationToken);
+        if (fromEvaluatorTemplatePackage.Count > 0)
         {
-            return fromTarget;
+            return fromEvaluatorTemplatePackage;
         }
 
-        var templateHints = BuildTemplateHints(employee);
-
-        // Also include the original employee ID so fixture lookup can find
-        // the employee's own fixture directory (e.g. hire_dev_seed_401_asset-guardian).
-        var hintsWithEmployeeId = new List<string>(templateHints) { employee.EmployeeId };
-        if (employee.EmployeeId.StartsWith("e_", StringComparison.OrdinalIgnoreCase))
-            hintsWithEmployeeId.Add($"hire_{employee.EmployeeId[2..]}");
-
-        return await LoadTestcaseSourcesFromFixtureAsync(
-            workspaceContext.TargetHireId,
-            hintsWithEmployeeId,
+        var fromUploadedTemplatePackage = await LoadTestcaseSourcesFromEvaluatorTemplatePackageAsync(
+            workspaceContext.UploadedTemplatePackageZipPath,
+            "uploaded-template-package",
             cancellationToken);
+        if (fromUploadedTemplatePackage.Count > 0)
+        {
+            logger.LogInformation(
+                "[Eval] Fallback to uploaded template package testcase files. UploadedTemplatePackageZipPath={UploadedTemplatePackageZipPath}",
+                workspaceContext.UploadedTemplatePackageZipPath);
+            return fromUploadedTemplatePackage;
+        }
+
+        var fromTemplateDefinition = await LoadTestcaseSourcesFromTemplateDefinitionAsync(employee, cancellationToken);
+        if (fromTemplateDefinition.Count > 0)
+        {
+            logger.LogInformation(
+                "[Eval] Fallback to template definition testcase files. EmployeeId={EmployeeId}, TemplateId={TemplateId}",
+                employee.EmployeeId,
+                employee.SourceTemplateId);
+            return fromTemplateDefinition;
+        }
+
+        logger.LogWarning(
+            "[Eval] No testcase json found under testcases/ in evaluator template package. TemplatePackageZipPath={TemplatePackageZipPath}",
+            workspaceContext.EvaluatorTemplatePackageZipPath);
+        return [];
     }
 
-    private async Task<IReadOnlyList<TestcaseSourceFile>> LoadTestcaseSourcesFromTargetArtifactsAsync(
-        string targetHireId,
+    private async Task<IReadOnlyList<TestcaseSourceFile>> LoadTestcaseSourcesFromTemplateDefinitionAsync(
+        EmployeeDetailDto employee,
         CancellationToken cancellationToken)
     {
-        var packageSnapshot = await artifactPackageService.GetLatestPackageAsync(targetHireId, cancellationToken);
-        if (packageSnapshot?.Content is not { Length: > 0 })
+        var templateId = employee.SourceTemplateId?.Trim();
+        if (string.IsNullOrWhiteSpace(templateId))
         {
+            return [];
+        }
+
+        TemplatePackageDefinition templatePackage;
+        var fixtureBinding = ResolveFixtureTemplateBinding(templateId);
+        if (fixtureBinding is not null)
+        {
+            var fixtureTemplateRoot = ResolveBoundFixtureTemplatePackageRoot(templateId, employee, fixtureBinding);
+            if (string.IsNullOrWhiteSpace(fixtureTemplateRoot))
+            {
+                logger.LogWarning(
+                    "[Eval] Fixture template root not found when loading testcase sources. EmployeeId={EmployeeId}, TemplateId={TemplateId}",
+                    employee.EmployeeId,
+                    templateId);
+                return [];
+            }
+
+            try
+            {
+                templatePackage = await fileSystemTemplatePackageProvider.LoadFromDirectoryAsync(
+                    fixtureTemplateRoot,
+                    templateId,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "[Eval] Failed to load fixture-bound template package for testcase sources. EmployeeId={EmployeeId}, TemplateId={TemplateId}, PackageRoot={PackageRoot}",
+                    employee.EmployeeId,
+                    templateId,
+                    fixtureTemplateRoot);
+                return [];
+            }
+        }
+        else
+        {
+            try
+            {
+                templatePackage = await templatePackageProvider.LoadAsync(templateId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "[Eval] Failed to load template package for testcase sources. EmployeeId={EmployeeId}, TemplateId={TemplateId}",
+                    employee.EmployeeId,
+                    templateId);
+                return [];
+            }
+        }
+
+        if (templatePackage.PackageFiles.Count == 0)
+        {
+            return [];
+        }
+
+        var sources = new List<TestcaseSourceFile>(templatePackage.PackageFiles.Count);
+        foreach (var packageFile in templatePackage.PackageFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!IsTemplateTestcaseEntry(packageFile.RelativePath))
+            {
+                continue;
+            }
+
+            var json = Encoding.UTF8.GetString(packageFile.Content);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                continue;
+            }
+
+            var normalizedPath = NormalizeZipEntryPath(packageFile.RelativePath);
+            sources.Add(new TestcaseSourceFile(
+                FileName: Path.GetFileName(normalizedPath),
+                SourcePath: normalizedPath,
+                RawJson: json,
+                SourceType: "template-definition"));
+        }
+
+        return sources;
+    }
+
+    private async Task<IReadOnlyList<TestcaseSourceFile>> LoadTestcaseSourcesFromEvaluatorTemplatePackageAsync(
+        string? templatePackageZipPath,
+        string sourceType,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(templatePackageZipPath))
+        {
+            return [];
+        }
+
+        var normalizedZipPath = templatePackageZipPath.Trim();
+        if (!File.Exists(normalizedZipPath))
+        {
+            logger.LogWarning(
+                "[Eval] Template package zip does not exist. SourceType={SourceType}, TemplatePackageZipPath={TemplatePackageZipPath}",
+                sourceType,
+                normalizedZipPath);
             return [];
         }
 
         var sources = new List<TestcaseSourceFile>();
         try
         {
-            using var stream = new MemoryStream(packageSnapshot.Content, writable: false);
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+            await using var fileStream = new FileStream(normalizedZipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read, leaveOpen: false);
             foreach (var entry in archive.Entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (string.IsNullOrWhiteSpace(entry.Name) || !entry.FullName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                if (!IsTemplateTestcaseEntry(entry.FullName))
                 {
                     continue;
                 }
 
                 using var entryStream = entry.Open();
                 using var reader = new StreamReader(entryStream);
-                var json = await reader.ReadToEndAsync();
+                var json = await reader.ReadToEndAsync(cancellationToken);
                 if (string.IsNullOrWhiteSpace(json))
                 {
                     continue;
                 }
 
-                var normalizedPath = entry.FullName.Replace('\\', '/');
-                var isTestcaseFolderEntry = normalizedPath.StartsWith("testcases/", StringComparison.OrdinalIgnoreCase);
-                if (!isTestcaseFolderEntry &&
-                    !json.Contains("test_case", StringComparison.OrdinalIgnoreCase) &&
-                    !json.Contains("test_cases", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
+                var normalizedEntryPath = NormalizeZipEntryPath(entry.FullName);
                 sources.Add(new TestcaseSourceFile(
-                    FileName: Path.GetFileName(normalizedPath),
-                    SourcePath: normalizedPath,
+                    FileName: Path.GetFileName(normalizedEntryPath),
+                    SourcePath: normalizedEntryPath,
                     RawJson: json,
-                    SourceType: packageSnapshot.Kind));
+                    SourceType: sourceType));
             }
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to extract target artifact testcase files. TargetHireId={TargetHireId}", targetHireId);
+            logger.LogWarning(
+                ex,
+                "[Eval] Failed to extract testcase files from template package. SourceType={SourceType}, TemplatePackageZipPath={TemplatePackageZipPath}",
+                sourceType,
+                normalizedZipPath);
         }
 
         return sources;
     }
 
-    private static async Task<IReadOnlyList<TestcaseSourceFile>> LoadTestcaseSourcesFromFixtureAsync(
-        string targetHireId,
-        IReadOnlyList<string> templateHints,
-        CancellationToken cancellationToken)
+    private static bool IsTemplateTestcaseEntry(string entryPath)
     {
-        var fixtureRoot = ResolveFixtureRoot();
-        if (string.IsNullOrWhiteSpace(fixtureRoot) || !Directory.Exists(fixtureRoot))
+        if (string.IsNullOrWhiteSpace(entryPath))
         {
-            return [];
+            return false;
         }
 
-        // Prefer testcase bundle colocated with the target fixture package.
-        var scopedRoot = ResolveScopedFixtureTestcaseRoot(fixtureRoot, targetHireId);
-        var scopedSources = await LoadTestcaseSourcesFromDirectoryAsync(scopedRoot, "fixture-scoped", cancellationToken);
-        if (scopedSources.Count > 0)
+        var normalizedPath = NormalizeZipEntryPath(entryPath);
+        if (!normalizedPath.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
         {
-            return scopedSources;
+            return false;
         }
 
-        var templateScopedRoots = ResolveTemplateScopedFixtureTestcaseRoots(fixtureRoot, templateHints);
-        foreach (var templateScopedRoot in templateScopedRoots)
+        if (string.IsNullOrWhiteSpace(Path.GetFileName(normalizedPath)))
         {
-            var templateScopedSources = await LoadTestcaseSourcesFromDirectoryAsync(
-                templateScopedRoot,
-                "fixture-template-scoped",
-                cancellationToken);
-            if (templateScopedSources.Count > 0)
-            {
-                return templateScopedSources;
-            }
+            return false;
         }
 
-        return [];
+        // 只采集模板包 testcases/ 目录下的 json，避免混入其它来源。
+        return normalizedPath.StartsWith("testcases/", StringComparison.OrdinalIgnoreCase) ||
+               normalizedPath.Contains("/testcases/", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<IReadOnlyList<TestcaseSourceFile>> LoadTestcaseSourcesFromDirectoryAsync(
-        string? sourceDirectory,
-        string sourceType,
-        CancellationToken cancellationToken)
+    private static string NormalizeZipEntryPath(string value)
     {
-        if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
-        {
-            return [];
-        }
-
-        var files = Directory.GetFiles(sourceDirectory, "*.json", SearchOption.TopDirectoryOnly)
-            .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        if (files.Length == 0)
-        {
-            return [];
-        }
-
-        var sources = new List<TestcaseSourceFile>(files.Length);
-        foreach (var file in files)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var content = await File.ReadAllTextAsync(file, cancellationToken);
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                continue;
-            }
-
-            sources.Add(new TestcaseSourceFile(
-                FileName: Path.GetFileName(file),
-                SourcePath: file,
-                RawJson: content,
-                SourceType: sourceType));
-        }
-
-        return sources;
+        return value.Replace('\\', '/').TrimStart('/');
     }
 
     private static async Task<TargetArtifactBundle> ZipDirectoryAsBundleAsync(

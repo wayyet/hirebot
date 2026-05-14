@@ -605,7 +605,7 @@ internal sealed partial class EvaluationService(
                     startSkillRootPath,
                     request.Comment,
                     allowTargetHireCreation: true,
-                    forceTargetHireRecreate: false,
+                    forceTargetHireRecreate: true,
                     cancellationToken);
                 if (!startWorkspaceResult.Success || startWorkspaceResult.Data is null)
                 {
@@ -662,7 +662,7 @@ internal sealed partial class EvaluationService(
                     skillRootPath,
                     request.Comment,
                     allowTargetHireCreation: true,
-                    forceTargetHireRecreate: false,
+                    forceTargetHireRecreate: true,
                     cancellationToken);
                 if (!workspaceResult.Success || workspaceResult.Data is null)
                 {
@@ -718,7 +718,7 @@ internal sealed partial class EvaluationService(
                     null,
                     request.Comment,
                     allowTargetHireCreation: true,
-                    forceTargetHireRecreate: false,
+                    forceTargetHireRecreate: true,
                     cancellationToken);
                 if (!workspaceResult.Success || workspaceResult.Data is null)
                 {

@@ -89,7 +89,7 @@ internal sealed partial class EvaluationService
             owner,
             employeeId,
             "evaluation-evaluator",
-            useStableRuntimeId: isPrivateBranch,
+            useStableRuntimeId: isPrivateBranch && !forceTargetHireRecreate,
             cancellationToken);
         if (!evaluatorResult.Success || evaluatorResult.Data.SandboxId is null)
         {
@@ -108,6 +108,7 @@ internal sealed partial class EvaluationService
             SkillLoadedAtUtc: null,
             SessionId: null,
             EvaluatorTemplatePackageZipPath: null,
+            UploadedTemplatePackageZipPath: null,
             StepStates: stepStates);
         EvaluationWorkspaces[workspaceKey] = workspaceContext;
 
@@ -134,7 +135,8 @@ internal sealed partial class EvaluationService
 
         workspaceContext = workspaceContext with
         {
-            EvaluatorTemplatePackageZipPath = employeeTemplateResult.Data
+            EvaluatorTemplatePackageZipPath = employeeTemplateResult.Data?.SandboxTemplatePackageZipPath,
+            UploadedTemplatePackageZipPath = employeeTemplateResult.Data?.UploadedTemplatePackageZipPath
         };
         EvaluationWorkspaces[workspaceKey] = workspaceContext;
         stepStates["upload_employee_template"] = new("completed", null);
@@ -478,7 +480,7 @@ internal sealed partial class EvaluationService
     /// 闂佽绻愮换鎰涘☉妯忕儤瀵奸弶鎴濆敤闂佹悶鍎滈崟顐ｇ€柣搴ゎ潐閹爼宕曢崘娴嬫灁闁硅揪绠戦弸渚€鏌℃径搴㈢《闁圭晫鍠栭弻娑樷槈濞咁収浜濈€靛ジ骞囬鈺冨枛閸╁嫰宕橀埡鍐ㄥ殥濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛顐ｆ礀缁€鍡涙煙濞堝灝鏋熺紒鎰殜閺屸€愁吋閸涱喖顦╅梺娲诲幗閻熝呭垝婵犳艾鐭楁俊顖濆亹閹插潡鏌ｉ悩鍙夋悙閻庢凹浜畷锝嗙節閸屾鐓㈠┑鐐叉閸╁牓宕幖浣圭厪?
     /// 闂備胶鍎甸弲鈺呭窗濡ゅ懏鍋夐柨婵嗘噳閺岋附绻涢崱妯虹劸闁哥偞鎮傚濠氬炊閿濆懍澹曢梺鑽ゅ枑濞叉垿鎮為敃浣告殲闂備礁鎼ˇ鎵偓绗涘喚鐒介柣銏㈩焾缁犮儳鎲搁幋锔衡偓渚€骞嬮悙纰樻灃濠殿喗锕╅崜娆擄綖閵堝鈷戞い鎰剁稻椤绱掓０婵嗕喊闁轰礁绉撮悾婵嬪礃椤忓拋娼犲┑鐐殿棎閸嬫劖鏅跺Δ鍛剹婵炲棙鍨规稉宥夋⒑椤掆偓缁夊灚绂掑鈧幃鐑藉即濮樺崬濡介柤鍨涙櫊閺屸剝寰勭€ｎ亶鍤嬪┑鐐靛帶閻忔氨绮嬪澶婂耿婵絾瀵х敮鈥崇暦閵娿儙鐔告姜閹殿喚鐓戦梻浣哄帶閻ゅ洤螞閸曨剚鍙忛煫鍥ㄧ☉杩?
     /// </summary>
-    private async Task<ApiResponse<string?>> UploadEmployeeTemplateToSandboxAsync(
+    private async Task<ApiResponse<TemplatePackageUploadResult>> UploadEmployeeTemplateToSandboxAsync(
         string targetSandboxId,
         string evaluatorSandboxId,
         string evaluatorRuntimeId,
@@ -490,7 +492,9 @@ internal sealed partial class EvaluationService
         if (string.IsNullOrWhiteSpace(templateId))
         {
             logger.LogWarning("[Eval] Employee {EmployeeId} has no SourceTemplateId, skipping template upload", employee.EmployeeId);
-            return ApiResponse<string?>.SuccessResponse(null, "employee template upload skipped: missing SourceTemplateId");
+            return ApiResponse<TemplatePackageUploadResult>.SuccessResponse(
+                new TemplatePackageUploadResult(null, null),
+                "employee template upload skipped: missing SourceTemplateId");
         }
 
         TemplatePackageDefinition templatePackage;
@@ -504,7 +508,9 @@ internal sealed partial class EvaluationService
                     "[Eval] Fixture template binding exists but local package root was not found templateId={TemplateId} employeeId={EmployeeId}",
                     templateId,
                     employee.EmployeeId);
-                return ApiResponse<string?>.ErrorResponse(404, $"fixture template package not found for templateId: {templateId}");
+                return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                    404,
+                    $"fixture template package not found for templateId: {templateId}");
             }
 
             try
@@ -525,7 +531,9 @@ internal sealed partial class EvaluationService
                     "[Eval] Failed to load bound fixture template package templateId={TemplateId} packageRoot={PackageRoot}",
                     templateId,
                     fixtureTemplateRoot);
-                return ApiResponse<string?>.ErrorResponse(422, $"failed to load fixture template package: {templateId}");
+                return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                    422,
+                    $"failed to load fixture template package: {templateId}");
             }
         }
         else
@@ -537,24 +545,32 @@ internal sealed partial class EvaluationService
             catch (Exception ex)
             {
                 logger.LogError(ex, "[Eval] Failed to load template package templateId={TemplateId}", templateId);
-                return ApiResponse<string?>.ErrorResponse(502, $"failed to load template package: {templateId}");
+                return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                    502,
+                    $"failed to load template package: {templateId}");
             }
         }
 
         if (templatePackage.PackageFiles.Count == 0)
         {
             logger.LogWarning("[Eval] Template package {TemplateId} has no files", templateId);
-            return ApiResponse<string?>.SuccessResponse(null, "employee template upload skipped: package has no files");
+            return ApiResponse<TemplatePackageUploadResult>.SuccessResponse(
+                new TemplatePackageUploadResult(null, null),
+                "employee template upload skipped: package has no files");
         }
 
         var archiveBytes = EmployeeHiringService.BuildDigitalEmployeeArchive(templatePackage);
         if (archiveBytes.Length == 0)
         {
             logger.LogError("[Eval] Template archive is empty for templateId={TemplateId}", templateId);
-            return ApiResponse<string?>.ErrorResponse(422, "employee template archive is empty");
+            return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(422, "employee template archive is empty");
         }
 
         var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
+        var uploadedTemplatePackageZipPath = await PersistUploadedTemplatePackageArchiveAsync(
+            fileName,
+            archiveBytes,
+            cancellationToken);
 
         // 濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛顐ｆ礀缁€鍡涙煙濞堝灝鏋熺紒鎰殜閺屸€愁吋閸涱喖顦╅梺娲诲幗閻熝呭垝?
         var targetUploadResult = await sandboxService.UploadSkillPackageAsync(
@@ -570,7 +586,9 @@ internal sealed partial class EvaluationService
         {
             logger.LogError("[Eval] Failed to upload employee template to target sandboxId={SandboxId} code={Code} msg={Message}",
                 targetSandboxId, targetUploadResult.Code, targetUploadResult.Message);
-            return ApiResponse<string?>.ErrorResponse(targetUploadResult.Code, $"failed to upload employee template to target sandbox: {targetUploadResult.Message}");
+            return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                targetUploadResult.Code,
+                $"failed to upload employee template to target sandbox: {targetUploadResult.Message}");
         }
 
         logger.LogInformation("[Eval] Employee template uploaded to target sandboxId={SandboxId} installed={Count}",
@@ -604,18 +622,23 @@ internal sealed partial class EvaluationService
         {
             logger.LogError("[Eval] Failed to upload employee template attachment to evaluator sandboxId={SandboxId} code={Code} msg={Message}",
                 evaluatorSandboxId, evaluatorUploadResult.Code, evaluatorUploadResult.Message);
-            return ApiResponse<string?>.ErrorResponse(evaluatorUploadResult.Code, $"failed to upload employee template attachment to evaluator sandbox: {evaluatorUploadResult.Message}");
+            return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                evaluatorUploadResult.Code,
+                $"failed to upload employee template attachment to evaluator sandbox: {evaluatorUploadResult.Message}");
         }
 
         var templatePackageZipPath = ResolveMediaCachePathFromAttachment(evaluatorUploadResult.Data);
         logger.LogInformation(
-            "[Eval] Employee template uploaded to evaluator sandbox attachment sandboxId={SandboxId} mediaId={MediaId} marker={Marker} templatePackageZipPath={TemplatePackageZipPath}",
+            "[Eval] Employee template uploaded to evaluator sandbox attachment sandboxId={SandboxId} mediaId={MediaId} marker={Marker} templatePackageZipPath={TemplatePackageZipPath} uploadedTemplatePackageZipPath={UploadedTemplatePackageZipPath}",
             evaluatorSandboxId,
             evaluatorUploadResult.Data.MediaId,
             evaluatorUploadResult.Data.Marker,
-            templatePackageZipPath);
+            templatePackageZipPath,
+            uploadedTemplatePackageZipPath);
 
-        return ApiResponse<string?>.SuccessResponse(templatePackageZipPath, "employee template uploaded");
+        return ApiResponse<TemplatePackageUploadResult>.SuccessResponse(
+            new TemplatePackageUploadResult(templatePackageZipPath, uploadedTemplatePackageZipPath),
+            "employee template uploaded");
     }
 
     private static string? ResolveBoundFixtureTemplatePackageRoot(
@@ -711,6 +734,42 @@ internal sealed partial class EvaluationService
         }
 
         return false;
+    }
+
+    private async Task<string?> PersistUploadedTemplatePackageArchiveAsync(
+        string fileName,
+        byte[] archiveBytes,
+        CancellationToken cancellationToken)
+    {
+        if (archiveBytes.Length == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var cacheRoot = Path.Combine(hostEnvironment.ContentRootPath, "App_Data", "evaluation", "template-package-cache");
+            Directory.CreateDirectory(cacheRoot);
+
+            var hash = Convert.ToHexStringLower(SHA256.HashData(archiveBytes));
+            var safeName = string.IsNullOrWhiteSpace(fileName)
+                ? "template-package"
+                : Path.GetFileNameWithoutExtension(fileName);
+            var extension = Path.GetExtension(fileName);
+            if (string.IsNullOrWhiteSpace(extension))
+            {
+                extension = ".zip";
+            }
+
+            var targetPath = Path.Combine(cacheRoot, $"{safeName}-{hash[..12]}{extension}");
+            await File.WriteAllBytesAsync(targetPath, archiveBytes, cancellationToken);
+            return targetPath;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[Eval] Failed to persist uploaded template package archive for testcase fallback.");
+            return null;
+        }
     }
 
     private async Task<ApiResponse<EvaluationWorkspaceContext>> EnsureEvaluatorConversationStartedAsync(
