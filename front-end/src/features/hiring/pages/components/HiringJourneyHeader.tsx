@@ -11,9 +11,6 @@ type HiringJourneyHeaderProps = {
 export function HiringJourneyHeader({
   templateName,
   templateId,
-  onReset,
-  onContinue,
-  resetting = false,
 }: HiringJourneyHeaderProps) {
   return (
     <div className="hb-hiring-header">

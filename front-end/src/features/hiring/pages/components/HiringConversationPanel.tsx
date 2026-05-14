@@ -113,8 +113,6 @@ type HiringConversationPanelProps = {
 export function HiringConversationPanel({
   introName,
   introAbilities,
-  journeyGuideVisible,
-  guideCard,
   messages,
   typing,
   streamingContent,

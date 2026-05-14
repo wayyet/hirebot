@@ -4,6 +4,7 @@ import {
   GitBranch,
   Loader2,
   MessageCircle,
+  Trash2,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -28,6 +29,7 @@ export default function MyEmployeesPage() {
   const [filter, setFilter] = useState<FilterTab>("all");
   const [abandoningId, setAbandoningId] = useState<string | null>(null);
   const [retiringId, setRetiringId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function abandonBranch(branchId: string, event: React.MouseEvent) {
     event.stopPropagation();
@@ -90,6 +92,30 @@ export default function MyEmployeesPage() {
       // Silently handle — user can retry
     } finally {
       setRetiringId(null);
+    }
+  }
+
+  async function deleteEmployee(employeeId: string, nickname: string, event: React.MouseEvent) {
+    event.stopPropagation();
+    if (
+      !window.confirm(
+        `确定要永久删除「${nickname}」吗？删除后会清空沙箱、会话和数据库记录，且无法恢复。`,
+      )
+    ) {
+      return;
+    }
+
+    setDeletingId(employeeId);
+    try {
+      await api.employeeRuntime.deleteEmployee(employeeId);
+      setEmployees((prev) => prev.filter((employee) => employee.employeeId !== employeeId));
+      showToast("分身已删除", "success");
+    } catch (requestError: unknown) {
+      setError(
+        requestError instanceof Error ? requestError.message : "删除分身失败",
+      );
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -358,6 +384,20 @@ export default function MyEmployeesPage() {
                     <ShieldCheck size={12} />
                     {retiringId === employee.employeeId ? "退役中..." : "退役"}
                   </button>
+                  {employee.mappedStatus === "retired" ? (
+                    <button
+                      type="button"
+                      className="hb-btn-ghost text-xs"
+                      style={{ padding: "6px 12px", color: "#be3a4a" }}
+                      disabled={deletingId === employee.employeeId}
+                      onClick={(e) => {
+                        void deleteEmployee(employee.employeeId, employee.nickname, e);
+                      }}
+                    >
+                      <Trash2 size={12} />
+                      {deletingId === employee.employeeId ? "删除中..." : "删除分身"}
+                    </button>
+                  ) : null}
                 </div>
                 <div className="mt-4 flex items-center justify-between border-t border-[var(--hb-border)] pt-3 text-xs text-[var(--hb-soft)]">
                   <span>最近更新 {employee.createdAt}</span>

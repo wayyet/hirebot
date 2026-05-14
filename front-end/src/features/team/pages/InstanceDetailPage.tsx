@@ -7,6 +7,7 @@ import {
   CopyPlus,
   Loader2,
   RotateCcw,
+  Trash2,
   ShieldCheck,
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -37,6 +38,7 @@ export default function InstanceDetailPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function loadEmployee() {
     if (!id) return;
@@ -105,6 +107,40 @@ export default function InstanceDetailPage() {
           : "废弃私有分支失败",
       );
       setSubmitting(false);
+    }
+  }
+
+  async function deleteEmployee() {
+    if (
+      !id ||
+      !employeeView ||
+      !isPersonalAsset ||
+      employeeView.mappedStatus !== "retired"
+    ) {
+      return;
+    }
+
+    const employeeName = employee?.nickname ?? "该分身";
+    if (
+      !window.confirm(
+        `确定要永久删除「${employeeName}」吗？删除后会清空沙箱、会话和数据库记录，且无法恢复。`,
+      )
+    ) {
+      return;
+    }
+
+    setDeleting(true);
+    setError("");
+    try {
+      await api.employeeRuntime.deleteEmployee(id);
+      showToast("分身已删除", "success");
+      navigate("/my-employees");
+    } catch (requestError: unknown) {
+      setError(
+        requestError instanceof Error ? requestError.message : "删除分身失败",
+      );
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -229,6 +265,18 @@ export default function InstanceDetailPage() {
                   >
                     <RotateCcw size={14} />
                     {submitting ? "重新雇佣中" : "重新雇佣"}
+                  </button>
+                ) : null}
+
+                {isPersonalAsset && employeeView.mappedStatus === "retired" ? (
+                  <button
+                    type="button"
+                    className="rounded-full border border-[#fde2e2] bg-white px-4 py-2 text-sm font-medium text-[#be3a4a] hover:bg-[#fff5f5]"
+                    disabled={deleting}
+                    onClick={() => void deleteEmployee()}
+                  >
+                    <Trash2 size={14} />
+                    {deleting ? "删除中..." : "删除分身"}
                   </button>
                 ) : null}
 

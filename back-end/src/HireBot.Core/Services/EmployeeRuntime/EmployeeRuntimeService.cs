@@ -773,7 +773,8 @@ public sealed partial class EmployeeRuntimeService(
     }
 
     /// <summary>
-    /// 删除数字员工及其全部关联资源：内存记录、DB 实例、五件套 artifact 文件、DigitalWorkforce 上传文件。
+    /// 删除数字员工及其全部关联资源。
+    /// 部门员工保留现有删除行为；个人分身/私有分支要求先退役，再进行硬删除。
     /// </summary>
     public async Task<ApiResponse<object>> DeleteEmployeeAsync(
         string employeeId,
@@ -787,10 +788,34 @@ public sealed partial class EmployeeRuntimeService(
         var normalizedId = employeeId.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
 
-        var existing = await store.GetAsync(owner, normalizedId, cancellationToken);
+        var existing = await dbContext.Instances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.OwnerUserId == owner && item.InstanceId == normalizedId, cancellationToken);
         if (existing is null)
         {
             return ApiResponse<object>.ErrorResponse(404, "员工不存在");
+        }
+
+        var existingStatus = NormalizeStatus(existing.Status, null) ?? existing.Status;
+        var isDepartment = string.Equals(existing.InstanceType, "department", StringComparison.OrdinalIgnoreCase);
+        var isPersonalAsset =
+            string.Equals(existing.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(existing.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
+
+        if (isPersonalAsset && !string.Equals(existingStatus, "retired", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<object>.ErrorResponse(409, "请先退役后再删除分身");
+        }
+
+        if (!isDepartment && !isPersonalAsset)
+        {
+            return ApiResponse<object>.ErrorResponse(409, $"不支持删除该实例类型：{existing.InstanceType}");
+        }
+
+        if (isPersonalAsset)
+        {
+            await DeletePersonalAssetAsync(existing, owner, cancellationToken);
+            return ApiResponse<object>.SuccessResponse(new { employeeId = normalizedId }, "分身已删除");
         }
 
         // 1. 从内存 store 移除
@@ -831,6 +856,132 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         return ApiResponse<object>.SuccessResponse(new { employeeId = normalizedId }, "员工已删除");
+    }
+
+    /// <summary>
+    /// 删除个人分身或私有分支的全部运行时资源与持久化记录。
+    /// </summary>
+    private async Task DeletePersonalAssetAsync(
+        InstanceEntity existing,
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        var instanceId = existing.InstanceId.Trim();
+        var runtimeScopeKey = BuildRuntimeScopeKey(instanceId);
+
+        // 先清理运行时沙箱，失败也不阻断后续硬删。
+        await TryDeleteRuntimeSandboxAsync(owner, instanceId, cancellationToken);
+
+        var evaluationSessions = await dbContext.EvaluationSessions
+            .AsNoTracking()
+            .Where(item => item.EmployeeId == instanceId)
+            .Select(item => new
+            {
+                item.TargetSandboxId,
+                item.EvaluatorSandboxId
+            })
+            .ToListAsync(cancellationToken);
+
+        var sandboxIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var session in evaluationSessions)
+        {
+            if (!string.IsNullOrWhiteSpace(session.TargetSandboxId))
+            {
+                sandboxIds.Add(session.TargetSandboxId.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(session.EvaluatorSandboxId))
+            {
+                sandboxIds.Add(session.EvaluatorSandboxId.Trim());
+            }
+        }
+
+        var runtimeSandboxIds = await dbContext.SandboxInstances
+            .AsNoTracking()
+            .Where(item =>
+                item.OwnerSubject == owner &&
+                item.ScopeType == SandboxScopeTypes.Hire &&
+                item.ScopeKey == runtimeScopeKey &&
+                item.SandboxRole == RuntimeSandboxRole &&
+                item.State != "Deleted")
+            .Select(item => item.SandboxId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var sandboxId in runtimeSandboxIds)
+        {
+            if (!string.IsNullOrWhiteSpace(sandboxId))
+            {
+                sandboxIds.Add(sandboxId.Trim());
+            }
+        }
+
+        foreach (var sandboxId in sandboxIds)
+        {
+            await sandboxService.DeleteForOwnerAsync(sandboxId, owner, cancellationToken);
+        }
+
+        if (evaluationSessions.Count > 0)
+        {
+            await dbContext.EvaluationSessions
+                .Where(item => item.EmployeeId == instanceId)
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+
+        await dbContext.Messages
+            .Where(item => item.InstanceId == instanceId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await dbContext.Conversations
+            .Where(item => item.InstanceId == instanceId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $@"DELETE FROM ""ImConfigs"" WHERE instance_id = {instanceId}",
+            cancellationToken);
+
+        if (sandboxIds.Count > 0)
+        {
+            var sandboxRowIds = await dbContext.SandboxInstances
+                .AsNoTracking()
+                .Where(item => sandboxIds.Contains(item.SandboxId))
+                .Select(item => item.Id)
+                .ToListAsync(cancellationToken);
+
+            if (sandboxRowIds.Count > 0)
+            {
+                await dbContext.SandboxAssets
+                    .Where(item => item.SandboxInstanceEntityId.HasValue && sandboxRowIds.Contains(item.SandboxInstanceEntityId.Value))
+                    .ExecuteDeleteAsync(cancellationToken);
+
+                await dbContext.SandboxSessions
+                    .Where(item => item.SandboxInstanceEntityId.HasValue && sandboxRowIds.Contains(item.SandboxInstanceEntityId.Value))
+                    .ExecuteDeleteAsync(cancellationToken);
+
+                await dbContext.SandboxInstances
+                    .Where(item => sandboxIds.Contains(item.SandboxId))
+                    .ExecuteDeleteAsync(cancellationToken);
+            }
+        }
+
+        var artifactStoreRoot = ResolveArtifactStoreRoot();
+        var sourceId = string.IsNullOrWhiteSpace(existing.FromInstanceId) ? "unknown" : existing.FromInstanceId.Trim();
+        var artifactDir = Path.Combine(artifactStoreRoot, "instances", "personal_clone", sourceId, instanceId);
+        if (Directory.Exists(artifactDir))
+        {
+            try
+            {
+                Directory.Delete(artifactDir, recursive: true);
+            }
+            catch
+            {
+                // 文件删除失败不阻塞流程
+            }
+        }
+
+        await dbContext.Instances
+            .Where(item => item.InstanceId == instanceId)
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     /// <summary>
@@ -952,7 +1103,6 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(sandboxSetup.Code, sandboxSetup.Message);
         }
 
-        await store.UpsertAsync(owner, clone, cancellationToken);
         await UpsertInstanceRecordAsync(clone, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
 
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(clone, "个人分身已创建并上岗");
@@ -1043,7 +1193,6 @@ public sealed partial class EmployeeRuntimeService(
             IsConfigured = source.IsConfigured
         };
 
-        await store.UpsertAsync(owner, branch, cancellationToken);
         await UpsertInstanceRecordAsync(branch, currentVersion: sourceEntity.CurrentVersion, cancellationToken: cancellationToken);
 
         return ApiResponse<PrivateBranchResultDto>.SuccessResponse(
@@ -1114,7 +1263,6 @@ public sealed partial class EmployeeRuntimeService(
             PendingActions = [],
             IsConfigured = true
         };
-        await store.UpsertAsync(owner, restored, cancellationToken);
         await UpsertInstanceRecordAsync(restored, currentVersion: branchEntity.CurrentVersion, cancellationToken: cancellationToken);
 
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(restored, "私有分支已废弃，已回滚五件套并恢复为个人分身");

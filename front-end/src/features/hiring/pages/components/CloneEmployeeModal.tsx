@@ -29,7 +29,6 @@ export default function CloneEmployeeModal({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cloneSuccess, setCloneSuccess] = useState(false);
-  const [clonedId, setClonedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -37,7 +36,6 @@ export default function CloneEmployeeModal({
     setDisplayName(`${sourceNickname} · 我的分身`);
     setError(null);
     setCloneSuccess(false);
-    setClonedId(null);
 
     const max =
       (typeof window !== "undefined" &&
@@ -86,10 +84,9 @@ export default function CloneEmployeeModal({
     setError(null);
 
     try {
-      const result = await api.employeeRuntime.createPersonalClone(employeeId, {
+      await api.employeeRuntime.createPersonalClone(employeeId, {
         displayName: name,
       });
-      setClonedId(result.employeeId);
       setCloneSuccess(true);
     } catch (err) {
       const message =
