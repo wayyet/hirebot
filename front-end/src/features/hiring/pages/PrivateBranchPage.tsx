@@ -98,7 +98,7 @@ export default function PrivateBranchPage() {
   if (loading) {
     return (
       <div className="hb-page">
-        <div className="hb-card flex min-h-52 items-center justify-center gap-2 p-8 text-sm text-[#737373]">
+        <div className="hb-card hb-private-branch-loading">
           <Loader2 size={16} className="animate-spin" />
           正在加载私人定制...
         </div>
@@ -110,7 +110,7 @@ export default function PrivateBranchPage() {
     return (
       <div className="hb-page space-y-4">
         <Breadcrumb items={[{ label: '我的数字员工', to: '/my-employees' }, { label: '私有分支' }]} />
-        <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">
+        <div className="hb-private-branch-error-card">
           {error || '未找到实例数据'}
         </div>
       </div>
@@ -121,89 +121,114 @@ export default function PrivateBranchPage() {
     <div className="hb-page space-y-5">
       <Breadcrumb items={[{ label: '我的数字员工', to: '/my-employees' }, { label: `私人定制 · ${employee.nickname}` }]} />
 
-      <div className="hb-hero">
-        <div className="hb-hero-grid">
-          <div className="hb-toolbar">
-            <div>
-              <div className="hb-hero-eyebrow">私有分支向导</div>
-              <h1 className="hb-hero-title">私人定制 · 基于 {employee.nickname}</h1>
-              <p className="hb-hero-copy">
-                在不破坏原分身的前提下完成个性化定制。失败可放弃，不影响原分身。
-              </p>
+      <div className="hb-hero hb-private-branch-hero">
+        <div className="hb-private-branch-hero-grid">
+          <div className="hb-private-branch-hero-main">
+            <div className="hb-hero-eyebrow">私有分支向导</div>
+            <h1 className="hb-private-branch-hero-title">创建私有分支</h1>
+            <p className="hb-private-branch-hero-copy">
+              基于现有个人实例做定向定制，保留当前对话与运行上下文，只对你选中的工位继续调整。
+            </p>
+            <div className="hb-private-branch-source-card">
+              <div className="hb-private-branch-source-label">来源实例</div>
+              <div className="hb-private-branch-source-name" title={employee.nickname}>{employee.nickname}</div>
+              <div className="hb-private-branch-source-meta">
+                {employee.roleName || employee.sourceTemplate || '未命名角色'}
+              </div>
             </div>
           </div>
-          <div className="hb-hero-metrics">
-            <div className="hb-metric-card">
-              <div className="hb-metric-label">原分身</div>
-              <div className="hb-metric-value">{employee.nickname}</div>
+          <div className="hb-private-branch-summary-card">
+            <div className="hb-private-branch-summary-item">
+              <span className="hb-private-branch-summary-label">已选工位</span>
+              <strong className="hb-private-branch-summary-value">{pickedCount}</strong>
             </div>
-            <div className="hb-metric-card">
-              <div className="hb-metric-label">已选工位</div>
-              <div className="hb-metric-value">{pickedCount}</div>
+            <div className="hb-private-branch-summary-item">
+              <span className="hb-private-branch-summary-label">当前状态</span>
+              <strong className="hb-private-branch-summary-value is-text" title={employee.lifecycleStatus}>{employee.lifecycleStatus}</strong>
             </div>
-            <div className="hb-metric-card">
-              <div className="hb-metric-label">状态</div>
-              <div className="hb-metric-value">{employee.lifecycleStatus}</div>
+            <div className="hb-private-branch-summary-item">
+              <span className="hb-private-branch-summary-label">最近更新</span>
+              <strong className="hb-private-branch-summary-value is-text" title={employee.createdAt}>{employee.createdAt}</strong>
             </div>
           </div>
         </div>
       </div>
 
       <div className="hb-card p-6">
-        <h2 className="text-base font-semibold text-[#0a0a0a]">原分身信息</h2>
-        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-[#f3f4f6] bg-[#fafafa] p-4">
-          <span className="hb-squircle h-12 w-12 bg-[#ece7fb] text-[#6a5acd]">
-            {firstCharacter(employee.nickname)}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold text-[#0a0a0a]">{employee.nickname}</div>
-            <div className="mt-1 text-xs text-[#737373]">
-              最近更新 {employee.createdAt} · 任务完成 {employee.tasksDone}/{employee.tasksTotal}
+        <h2 className="hb-private-branch-section-title">原分身信息</h2>
+        <div className="hb-private-branch-origin-card mt-4">
+          <div className="hb-private-branch-origin-head">
+            <span className="hb-squircle hb-private-branch-origin-avatar hb-private-branch-origin-avatar-accent">
+              {firstCharacter(employee.nickname)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="hb-private-branch-card-title" title={employee.nickname}>{employee.nickname}</div>
+              <div className="hb-private-branch-meta mt-1">
+                {employee.roleName || employee.sourceTemplate || '未命名角色'}
+              </div>
+            </div>
+            <span className="hb-pill blue">{employee.lifecycleStatus}</span>
+          </div>
+          <div className="hb-detail-meta-grid mt-4">
+            <div className="hb-detail-meta-item">
+              <span className="hb-detail-meta-label">最近更新</span>
+              <strong title={employee.createdAt}>{employee.createdAt}</strong>
+            </div>
+            <div className="hb-detail-meta-item">
+              <span className="hb-detail-meta-label">任务进度</span>
+              <strong>{employee.tasksDone}/{employee.tasksTotal}</strong>
+            </div>
+            <div className="hb-detail-meta-item">
+              <span className="hb-detail-meta-label">实例 ID</span>
+              <strong title={employee.employeeId}>{employee.employeeId}</strong>
+            </div>
+            <div className="hb-detail-meta-item">
+              <span className="hb-detail-meta-label">来源模板</span>
+              <strong title={employee.sourceTemplate}>{employee.sourceTemplate || '未关联模板'}</strong>
             </div>
           </div>
-          <span className="hb-pill blue">{employee.lifecycleStatus}</span>
         </div>
       </div>
 
       <div className="hb-card p-6">
-        <h2 className="text-base font-semibold text-[#0a0a0a]">差异目标</h2>
-        <p className="mt-1 text-sm text-[#737373]">先说清楚你想改变什么，再选择要调整的工位。</p>
+        <h2 className="hb-private-branch-section-title">差异目标</h2>
+        <p className="hb-private-branch-copy mt-1">先说清楚你想改变什么，再选择要调整的工位。</p>
         <textarea
           rows={4}
           value={goal}
           onChange={(event) => setGoal(event.target.value)}
-          className="mt-4 w-full resize-none rounded-lg border border-[#e5e5e5] bg-white px-3 py-2 text-sm outline-none focus:border-[#4a6cf7] focus:shadow-[0_0_0_3px_rgba(74,108,247,0.2)]"
+          className="hb-input hb-private-branch-textarea mt-4"
         />
       </div>
 
       <div className="hb-card p-6">
-        <h2 className="text-base font-semibold text-[#0a0a0a]">选择要调整的工位</h2>
-        <p className="mt-1 text-sm text-[#737373]">未选工位继续沿用原分身，减少不必要的改动成本。</p>
+        <h2 className="hb-private-branch-section-title">选择要调整的工位</h2>
+        <p className="hb-private-branch-copy mt-1">未选工位继续沿用原分身，减少不必要的改动成本。</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {STATIONS.map((station) => (
             <button
               key={station.key}
               type="button"
               onClick={() => toggleStation(station.key)}
-              className={`rounded-2xl border p-4 text-left transition-colors ${
+              className={`hb-private-branch-station-card rounded-2xl border p-4 text-left transition-colors ${
                 stations[station.key]
-                  ? 'border-[#0a0a0a] bg-white'
-                  : 'border-[#ececec] bg-[#fafafa] hover:border-[#d4d4d8]'
+                  ? 'is-selected'
+                  : ''
               }`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-[#0a0a0a]">{station.title}</span>
+                <span className="hb-private-branch-card-title">{station.title}</span>
                 {stations[station.key] && <span className="hb-pill green">已选</span>}
               </div>
-              <p className="mt-2 text-xs text-[#737373]">{station.description}</p>
+              <p className="hb-private-branch-copy mt-2">{station.description}</p>
             </button>
           ))}
         </div>
       </div>
 
       <div className="hb-card p-6">
-        <h2 className="text-base font-semibold text-[#0a0a0a]">继承说明</h2>
-        <div className="mt-3 rounded-xl border border-[#d9e1ff] bg-[#eef2ff] px-4 py-3 text-sm text-[#2e3da9]">
+        <h2 className="hb-private-branch-section-title">继承说明</h2>
+        <div className="hb-private-branch-note mt-3 rounded-xl px-4 py-3">
           只对你勾选的 {pickedCount} 个工位做精简追问，其余继续沿用原分身。私有分支不能再创建二级分支。
           创建后会原地升级当前分身，不新建实例、不新建沙箱、不改变 IM 路由；对话和 IM 配置都会继续沿用。
         </div>
@@ -212,7 +237,7 @@ export default function PrivateBranchPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
-          className="rounded-full border border-[#fde2e2] bg-white px-4 py-2 text-sm font-medium text-[#be3a4a] hover:bg-[#fff5f5]"
+          className="hb-private-branch-cancel-btn"
           onClick={() => navigate('/my-employees')}
         >
           放弃定制

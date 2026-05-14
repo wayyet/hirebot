@@ -146,6 +146,113 @@
     "my": {
       "title": "My Digital Employees",
       "copy": "Manage digital employees you are directly responsible for"
+    },
+    "status": {
+      "live": "Live",
+      "pendingOnboarding": "Pending Onboarding",
+      "interningAi": "AI Evaluation",
+      "interningHuman": "Human Evaluation",
+      "failed": "Evaluation Failed",
+      "retired": "Retired",
+      "hired": "Hired"
+    },
+    "ownership": {
+      "privateBranch": "Private Branch",
+      "personalClone": "Personal Asset",
+      "department": "Department Employee"
+    },
+    "departmentPage": {
+      "departmentName": "R&D",
+      "kickerManager": "Team Asset Overview",
+      "kickerMember": "Department Assets",
+      "title": "Department Employees",
+      "copyManager": "Review hired, evaluating, and live instances for {{department}} from one place. All next-step actions continue from the detail view.",
+      "copyMember": "This page shows live department instances from {{department}} only. Open the detail view to continue copying them into your own assets.",
+      "deleteDialogTitle": "Delete employee",
+      "confirmDelete": "Delete digital employee \"{{nickname}}\"? This action cannot be undone and will also clean up the related five-piece files.",
+      "deleteFailed": "Delete failed",
+      "deleteErrorToast": "Delete failed, please try again later",
+      "loadFailed": "Failed to load department employees",
+      "stats": {
+        "liveLabel": "Live",
+        "liveNote": "Ready to clone",
+        "evaluatingLabel": "Evaluating",
+        "evaluatingNote": "AI / Human review",
+        "hiredLabel": "Hired",
+        "hiredNote": "Waiting for evaluation",
+        "totalNote": "Filter by status"
+      },
+      "searchPlaceholder": "Search by employee name, capability tag, or scenario",
+      "clearFilters": "Clear",
+      "tabs": {
+        "hired": "Hired",
+        "intern": "Evaluating",
+        "live": "Live"
+      },
+      "subtabs": {
+        "ai": "AI Review",
+        "human": "Human Review"
+      },
+      "loading": "Loading department employees...",
+      "emptyTitle": "No employees match the current filter",
+      "emptyCopyManager": "Start a new hiring round from the template pool, or switch status tabs to inspect another stage.",
+      "emptyCopyMember": "Once your manager completes onboarding, employees available for use and cloning will appear here.",
+      "createdAt": "Created {{date}}",
+      "cloneReady": "Clone Ready",
+      "actions": {
+        "uploadTemplate": "Upload Role Employee",
+        "hireFromPool": "Hire from Template Pool",
+        "more": "More actions",
+        "enterAiEvaluation": "Open AI Review",
+        "enterHumanEvaluation": "Open Human Review",
+        "createClone": "Create Clone",
+        "viewDetail": "View Details",
+        "deleteEmployee": "Delete employee"
+      }
+    },
+    "myPage": {
+      "kicker": "Personal Asset Panel",
+      "title": "My Employees",
+      "copy": "This page lists personal employee instances you own directly. Live instances can continue into detail, chat, IM setup, and private extension flows.",
+      "backToDepartment": "Create a personal instance from department employees",
+      "confirmAbandon": "Abandoning this branch will roll back the five-piece set and restore it as a personal clone. Sandbox, chat, and IM configuration will stay in place. Continue?",
+      "abandonDialogTitle": "Abandon private branch",
+      "abandonSuccess": "Private branch abandoned and restored as a personal clone",
+      "abandonFailed": "Failed to abandon branch, please try again later",
+      "confirmRetire": "Retire this instance? Only historical information will remain afterwards.",
+      "retireDialogTitle": "Retire instance",
+      "retireSuccess": "Instance retired",
+      "retireFailed": "Failed to retire instance, please try again later",
+      "retiredStageSummary": "Instance retired",
+      "retiredPrimarySignal": "History retained only",
+      "loadFailed": "Failed to load my employees",
+      "stats": {
+        "totalLabel": "Instances",
+        "liveLabel": "Live",
+        "branchLabel": "Private Branches",
+        "retiredLabel": "Retired"
+      },
+      "filters": {
+        "all": "All",
+        "live": "Live",
+        "branch": "Private Branches",
+        "retired": "Retired"
+      },
+      "loading": "Loading my employees...",
+      "emptyTitle": "No personal assets match the current filter",
+      "emptyCopy": "Copy a live employee from the department page first, then return here to continue chat, evaluation, or customization.",
+      "updatedAt": "Updated {{date}}",
+      "actions": {
+        "startChat": "Start Chat",
+        "viewReport": "View Report",
+        "configureIm": "Configure IM",
+        "createPrivateBranch": "Create Private Branch",
+        "retire": "Retire",
+        "retiring": "Retiring...",
+        "abandon": "Abandon",
+        "abandoning": "Abandoning...",
+        "viewDetail": "View Details →"
+      }
     }
   },
   "skills": {

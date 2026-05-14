@@ -11,6 +11,12 @@ interface ChatTurn {
   toolCalls?: { toolName: string; arguments?: string; result?: string }[]
 }
 
+export interface SandboxToolCall {
+  toolName: string
+  arguments?: string
+  result?: string
+}
+
 interface SessionDetail {
   id: string
   history: ChatTurn[]
@@ -28,6 +34,8 @@ export interface SandboxMessage {
   type: string
   content?: string
   text?: string
+  createdAt?: string
+  toolCalls?: SandboxToolCall[]
   _historical?: boolean
   [key: string]: unknown
 }
@@ -268,13 +276,33 @@ export async function fetchSandboxSessionMessages(
   const messages: SandboxMessage[] = []
   for (const turn of resp.session.history) {
     if (turn.role === 'assistant') {
-      // 工具调用条目跳过，只显示文字内容
       const rawContent = turn.content ?? ''
-      if (rawContent && rawContent !== '[tool_use]') {
-        messages.push({ type: 'assistant_message', content: rawContent, _historical: true })
+      const toolCalls = Array.isArray(turn.toolCalls)
+        ? turn.toolCalls
+            .filter((toolCall) => Boolean(toolCall.toolName))
+            .map<SandboxToolCall>((toolCall) => ({
+              toolName: toolCall.toolName,
+              arguments: toolCall.arguments,
+              result: toolCall.result,
+            }))
+        : undefined
+
+      if ((rawContent && rawContent !== '[tool_use]') || (toolCalls?.length ?? 0) > 0) {
+        messages.push({
+          type: 'assistant_message',
+          content: rawContent !== '[tool_use]' ? rawContent : '',
+          createdAt: turn.timestamp,
+          toolCalls,
+          _historical: true,
+        })
       }
     } else if (turn.role === 'user') {
-      messages.push({ type: 'user_message', text: turn.content, _historical: true })
+      messages.push({
+        type: 'user_message',
+        text: turn.content,
+        createdAt: turn.timestamp,
+        _historical: true,
+      })
     }
   }
   return messages

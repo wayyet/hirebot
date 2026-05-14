@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   AlertCircle,
+  FileText,
   Loader2,
+  Maximize2,
   MessageCircle,
+  Paperclip,
   Send,
+  Square,
   Trash2,
-  Upload,
+  Minimize2,
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
@@ -22,9 +26,13 @@ import { resolveGatewayEndpoint } from "@/infra/sandbox/sandbox-config";
 import {
   fetchLatestGatewaySession,
   fetchSandboxSessionMessages,
+  type SandboxToolCall,
   uploadMediaToGateway,
 } from "@/infra/sandbox/sandbox-api";
 import SessionListPanel from "@/features/team/components/SessionListPanel";
+import { InstanceChatMessageBody } from "@/features/team/components/InstanceChatMessageBody";
+import { HiringToolStepsBlock } from "@/features/hiring/pages/components/HiringToolStepsBlock";
+import type { ToolStep } from "@/features/hiring/pages/hiringPageTypes";
 import {
   firstCharacter,
   ownershipClass,
@@ -39,15 +47,12 @@ export interface ChatFile {
   id: string;
   name: string;
   size: number;
-  status: "解析中" | "已解析";
-  type?: "file" | "skill";
+  status: "上传中" | "已上传" | "上传失败";
   mimeType?: string;
-  content?: string;
-  metadata?: Record<string, string>;
-  rawFile?: File;
+  marker?: string;
+  url?: string;
+  uploadError?: string;
 }
-
-const MAX_MATERIAL_CHARS = 100000;
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -59,39 +64,27 @@ function mkId(): string {
   return Math.random().toString(36).substring(2, 15);
 }
 
-async function readFileText(file: File): Promise<string | undefined> {
-  if (file.size > MAX_MATERIAL_CHARS * 4) {
-    return `[文件过大，仅作为资料登记：${file.name}，${file.size} bytes]`;
-  }
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () =>
-      resolve(`[文件内容读取失败，仅作为资料登记：${file.name}]`);
-    reader.readAsText(file);
-  });
-}
-
-async function fileToChatFile(
-  file: File,
-  type: "file" | "skill" = "file",
-): Promise<ChatFile> {
-  const content = type === "file" ? await readFileText(file) : undefined;
-  return {
-    id: mkId(),
-    name: file.name,
-    size: file.size,
-    status: "已解析",
-    type,
-    mimeType: file.type || undefined,
-    content,
-    rawFile: file,
-  };
-}
-
 type ChatDraft = {
   content: string;
 };
+
+type DisplayChatMessage = InstanceChatMessage & {
+  toolSteps?: ToolStep[];
+};
+
+type SlashCommand = {
+  cmd: string;
+  args: string;
+  desc: string;
+};
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  { cmd: "/new", args: "", desc: "开始一个新会话" },
+  { cmd: "/clear", args: "", desc: "清空当前聊天记录" },
+  { cmd: "/stop", args: "", desc: "终止当前生成" },
+  { cmd: "/help", args: "", desc: "查看可用聊天命令" },
+  { cmd: "/think", args: "off | low | medium | high", desc: "调整思考强度并发送到分身" },
+];
 
 function formatTime(value: string) {
   const date = new Date(value);
@@ -112,23 +105,72 @@ function normalizeMessageContent(content: string) {
   return content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
 
+function mergeHistoryMessages(
+  previousMessages: DisplayChatMessage[],
+  historyMessages: DisplayChatMessage[],
+) {
+  return historyMessages.map((message) => {
+    const matched = [...previousMessages]
+      .reverse()
+      .find(
+        (item) =>
+          item.role === message.role &&
+          item.content === message.content &&
+          (item.toolSteps?.length ?? 0) > 0,
+      );
+
+    if (!matched?.toolSteps) {
+      return message;
+    }
+
+    return {
+      ...message,
+      toolSteps: matched.toolSteps,
+    };
+  });
+}
+
 function mapSandboxMessages(
-  messages: { type: string; content?: string; text?: string }[],
+  messages: {
+    type: string;
+    content?: string;
+    text?: string;
+    createdAt?: string;
+    toolCalls?: SandboxToolCall[];
+  }[],
 ) {
   return messages
     .filter(
       (message) =>
         message.type === "user_message" || message.type === "assistant_message",
     )
-    .map<InstanceChatMessage>((message, index) => ({
+    .map<DisplayChatMessage>((message, index) => ({
       messageId: `sandbox-${index}-${Date.now()}`,
       role: message.type === "user_message" ? "user" : "assistant",
       content: normalizeMessageContent(
         String(message.content ?? message.text ?? ""),
       ),
-      createdAt: new Date().toISOString(),
+      createdAt: message.createdAt ?? new Date().toISOString(),
+      toolSteps:
+        message.type === "assistant_message" &&
+        Array.isArray(message.toolCalls) &&
+        message.toolCalls.length > 0
+          ? message.toolCalls.map<ToolStep>((toolCall, toolIndex) => ({
+              id: `history-tool-${index}-${toolIndex}`,
+              name: toolCall.toolName.startsWith("streaming.")
+                ? toolCall.toolName.slice("streaming.".length)
+                : toolCall.toolName,
+              args: toolCall.arguments,
+              result: toolCall.result,
+              status: toolCall.result ? "done" : "running",
+            }))
+          : undefined,
     }))
-    .filter((message) => message.content.trim().length > 0);
+    .filter(
+      (message) =>
+        message.content.trim().length > 0 ||
+        (message.toolSteps?.length ?? 0) > 0,
+    );
 }
 
 function normalizeErrorMessage(error: unknown) {
@@ -144,7 +186,7 @@ export default function InstanceChatPage() {
   const navigate = useNavigate();
 
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
-  const [messages, setMessages] = useState<InstanceChatMessage[]>([]);
+  const [messages, setMessages] = useState<DisplayChatMessage[]>([]);
   const [draft, setDraft] = useState<ChatDraft>({ content: "" });
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -152,6 +194,7 @@ export default function InstanceChatPage() {
   const [error, setError] = useState("");
   const [clearing, setClearing] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null,
@@ -160,6 +203,8 @@ export default function InstanceChatPage() {
   const [sessionListRefreshKey, setSessionListRefreshKey] = useState(0);
   const [sandboxConnected, setSandboxConnected] = useState(false);
   const [sessionSwitching, setSessionSwitching] = useState(false);
+  const [expandOpen, setExpandOpen] = useState(false);
+  const [slashMenuIdx, setSlashMenuIdx] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<GatewayWs | null>(null);
@@ -167,10 +212,10 @@ export default function InstanceChatPage() {
   const sessionIdRef = useRef<string | null>(null);
   // 保存 WS 流式回复的原始内容（normalizeMessageContent 之前）
   const rawStreamingContentRef = useRef<string>("");
-  // 存储原始 File 对象，供 WS 路径上传到 Gateway 使用
-  const rawFileMapRef = useRef<Map<string, File>>(new Map());
+  const pendingToolStepsRef = useRef<ToolStep[]>([]);
   // 文件选择 input 的 ref
   const fileRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const employeeView = useMemo(() => {
     if (!employee) return null;
@@ -181,35 +226,85 @@ export default function InstanceChatPage() {
     employeeView?.ownership === "personal_clone" ||
     employeeView?.ownership === "private_branch";
   const isLive = employeeView?.mappedStatus === "live";
+  const isAiWorking =
+    typing || streamingContent !== null || streamingToolSteps.length > 0;
+  const slashCandidates = useMemo(() => {
+    if (!draft.content.startsWith("/")) {
+      return [];
+    }
+
+    const prefix = draft.content.toLowerCase();
+    return SLASH_COMMANDS.filter(({ cmd }) => cmd.startsWith(prefix));
+  }, [draft.content]);
+  const slashMenuOpen = slashCandidates.length > 0;
 
   const addPendingFiles = useCallback((fl: FileList | File[]) => {
     const files = Array.from(fl);
-    const placeholders: ChatFile[] = files.map((file) => {
-      const id = mkId();
-      rawFileMapRef.current.set(id, file);
-      return {
-        id,
+    const endpoint = gatewayEndpointRef.current;
+
+    files.forEach((file, index) => {
+      const fileId = `${file.name}-${file.lastModified}-${Date.now()}-${index}`;
+      const placeholder: ChatFile = {
+        id: fileId,
         name: file.name,
         size: file.size,
-        status: "解析中" as const,
-        type: "file" as const,
+        status: "上传中",
         mimeType: file.type || undefined,
       };
-    });
-    setPendingFiles((prev) => [...prev, ...placeholders]);
 
-    void Promise.all(files.map((file) => fileToChatFile(file, "file"))).then(
-      (parsedFiles) => {
+      setPendingFiles((prev) => [...prev, placeholder]);
+
+      if (!endpoint) {
         setPendingFiles((prev) =>
-          prev.map((item) => {
-            const parsed = parsedFiles.find(
-              (file) => file.name === item.name && file.size === item.size,
-            );
-            return parsed ?? item;
-          }),
+          prev.map((item) =>
+            item.id === fileId
+              ? {
+                  ...item,
+                  status: "上传失败",
+                  uploadError: "沙箱端点尚未就绪，无法上传附件",
+                }
+              : item,
+          ),
         );
-      },
-    );
+        return;
+      }
+
+      void (async () => {
+        try {
+          const token = await tokenService.ensureFresh();
+          if (!token) {
+            throw new Error("Token not available for file upload");
+          }
+
+          const result = await uploadMediaToGateway(endpoint, token, file);
+          setPendingFiles((prev) =>
+            prev.map((item) =>
+              item.id === fileId
+                ? {
+                    ...item,
+                    status: "已上传",
+                    marker: result.marker,
+                    url: result.url,
+                    size: result.sizeBytes,
+                  }
+                : item,
+            ),
+          );
+        } catch (requestError: unknown) {
+          setPendingFiles((prev) =>
+            prev.map((item) =>
+              item.id === fileId
+                ? {
+                    ...item,
+                    status: "上传失败",
+                    uploadError: normalizeErrorMessage(requestError),
+                  }
+                : item,
+            ),
+          );
+        }
+      })();
+    });
   }, []);
 
   const handleFileInputChange = useCallback(
@@ -225,7 +320,6 @@ export default function InstanceChatPage() {
 
   const handleRemovePendingFile = useCallback((fileId: string) => {
     setPendingFiles((prev) => prev.filter((file) => file.id !== fileId));
-    rawFileMapRef.current.delete(fileId);
   }, []);
 
   const triggerFileUpload = useCallback(() => {
@@ -238,7 +332,9 @@ export default function InstanceChatPage() {
       sessionId,
     );
     const mapped = mapSandboxMessages(sandboxMessages);
-    setMessages((prev) => (mapped.length >= prev.length ? mapped : prev));
+    setMessages((prev) =>
+      mapped.length >= prev.length ? mergeHistoryMessages(prev, mapped) : prev,
+    );
   }
 
   async function connectSandboxWs(endpoint: string) {
@@ -285,6 +381,8 @@ export default function InstanceChatPage() {
       if (type === "typing_start") {
         // AI 开始思考，初始化流式内容
         rawStreamingContentRef.current = "";
+        pendingToolStepsRef.current = [];
+        setStreamingToolSteps([]);
         setStreamingContent("");
         setTyping(true);
         return;
@@ -298,14 +396,78 @@ export default function InstanceChatPage() {
         setStreamingContent((prev) => {
           const nextRaw = prev === null ? chunk : prev + chunk;
           rawStreamingContentRef.current = nextRaw;
-          // 对流式内容也处理 <think> 标签
-          return nextRaw
-            .replace(
-              /<think>([\s\S]*?)<\/think>/gi,
-              '<span style="color: #9ca3af; font-style: italic;">$1</span>',
-            )
-            .trim();
+          return nextRaw;
         });
+        return;
+      }
+
+      if (type === "tool_call" || type === "tool_start") {
+        const rawMsg = msg as Record<string, unknown>;
+        const rawName = String(
+          rawMsg.tool_name ?? rawMsg.name ?? rawMsg.text ?? "tool",
+        );
+        const toolName = rawName.startsWith("streaming.")
+          ? rawName.slice("streaming.".length)
+          : rawName;
+        const args =
+          rawMsg.arguments != null
+            ? typeof rawMsg.arguments === "string"
+              ? rawMsg.arguments
+              : JSON.stringify(rawMsg.arguments)
+            : undefined;
+        const step: ToolStep = {
+          id: mkId(),
+          name: toolName || "tool",
+          status: "running",
+          args,
+        };
+        pendingToolStepsRef.current = [...pendingToolStepsRef.current, step];
+        setStreamingToolSteps([...pendingToolStepsRef.current]);
+        return;
+      }
+
+      if (type === "tool_result") {
+        const rawMsg = msg as Record<string, unknown>;
+        const rawName = String(rawMsg.tool_name ?? rawMsg.name ?? "");
+        const toolName = rawName.startsWith("streaming.")
+          ? rawName.slice("streaming.".length)
+          : rawName;
+        const resultText = String(rawMsg.text ?? rawMsg.result ?? "");
+        const next = pendingToolStepsRef.current.slice();
+        let targetIndex = -1;
+
+        if (toolName) {
+          for (let index = next.length - 1; index >= 0; index -= 1) {
+            if (
+              next[index].status === "running" &&
+              next[index].name === toolName
+            ) {
+              targetIndex = index;
+              break;
+            }
+          }
+        }
+
+        if (targetIndex < 0) {
+          for (let index = next.length - 1; index >= 0; index -= 1) {
+            if (next[index].status === "running") {
+              targetIndex = index;
+              break;
+            }
+          }
+        }
+
+        if (targetIndex >= 0) {
+          next[targetIndex] = {
+            ...next[targetIndex],
+            status: Boolean(rawMsg.is_error ?? rawMsg.isError)
+              ? "error"
+              : "done",
+            result: resultText || next[targetIndex].result,
+          };
+          pendingToolStepsRef.current = next;
+          setStreamingToolSteps([...next]);
+        }
         return;
       }
 
@@ -314,13 +476,17 @@ export default function InstanceChatPage() {
         const rawReply =
           rawStreamingContentRef.current ||
           String(msg.content ?? msg.text ?? "");
+        const toolSteps =
+          pendingToolStepsRef.current.length > 0
+            ? [...pendingToolStepsRef.current]
+            : undefined;
         rawStreamingContentRef.current = "";
 
         // 直接从 ref 取流式内容提交为正式消息（不放在 setStreamingContent 回调里，
         // 避免 React StrictMode 双重调用导致同一条 bot 消息被 add 两遍）
         if (rawReply && rawReply.trim().length > 0) {
           const cleaned = normalizeMessageContent(rawReply);
-          if (cleaned.length > 0) {
+          if (cleaned.length > 0 || toolSteps) {
             setMessages((current) => [
               ...current,
               {
@@ -328,10 +494,13 @@ export default function InstanceChatPage() {
                 role: "assistant",
                 content: cleaned,
                 createdAt: new Date().toISOString(),
+                toolSteps,
               },
             ]);
           }
         }
+        pendingToolStepsRef.current = [];
+        setStreamingToolSteps([]);
         setStreamingContent(null);
         setTyping(false);
 
@@ -376,6 +545,8 @@ export default function InstanceChatPage() {
         settleOpen(new Error("沙箱连接未建立，无法发送消息"));
         setTyping(false);
         setStreamingContent(null);
+        pendingToolStepsRef.current = [];
+        setStreamingToolSteps([]);
         rawStreamingContentRef.current = "";
       }
     };
@@ -435,11 +606,6 @@ export default function InstanceChatPage() {
     }
   }
 
-  const viewingOtherSession =
-    selectedSessionId !== null &&
-    sessionIdRef.current !== null &&
-    selectedSessionId !== sessionIdRef.current;
-
   async function handleSelectSession(sessionId: string) {
     if (sessionSwitching || sessionId === selectedSessionId) return;
     const previousSelectedSessionId = selectedSessionId;
@@ -447,6 +613,8 @@ export default function InstanceChatPage() {
     setSelectedSessionId(sessionId);
     setSessionSwitching(true);
     setStreamingContent(null);
+    pendingToolStepsRef.current = [];
+    setStreamingToolSteps([]);
     setTyping(false);
     setError("");
 
@@ -491,7 +659,28 @@ export default function InstanceChatPage() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, sending, typing]);
+  }, [messages, sending, typing, streamingContent, streamingToolSteps]);
+
+  useEffect(() => {
+    const element = textareaRef.current;
+    if (!element) {
+      return;
+    }
+
+    element.style.height = "auto";
+    const minHeight = expandOpen ? 180 : 96;
+    const maxHeight = expandOpen ? 420 : 220;
+    element.style.height = `${Math.min(
+      Math.max(element.scrollHeight, minHeight),
+      maxHeight,
+    )}px`;
+  }, [draft.content, expandOpen]);
+
+  useEffect(() => {
+    setSlashMenuIdx((current) =>
+      Math.min(current, Math.max(slashCandidates.length - 1, 0)),
+    );
+  }, [slashCandidates.length]);
 
   useEffect(() => {
     return () => {
@@ -506,7 +695,14 @@ export default function InstanceChatPage() {
     }
 
     const content = draft.content.trim();
-    if (!content && pendingFiles.length === 0) {
+    const readyFiles = pendingFiles.filter(
+      (file) => file.status === "已上传" && Boolean(file.marker),
+    );
+    if (!content && readyFiles.length === 0) {
+      return;
+    }
+
+    if (await handleLocalCommand(content)) {
       return;
     }
 
@@ -514,11 +710,22 @@ export default function InstanceChatPage() {
       return;
     }
 
+    if (pendingFiles.some((file) => file.status === "上传中")) {
+      setError("仍有附件在上传中，请稍候再发送");
+      return;
+    }
+
+    const erroredFiles = pendingFiles.filter((file) => file.status === "上传失败");
+    if (erroredFiles.length > 0) {
+      setError(`附件上传失败：${erroredFiles.map((file) => file.name).join("、")}`);
+      return;
+    }
+
     setSending(true);
     setError("");
 
     // 收集待发送的文件
-    const incoming = pendingFiles.length > 0 ? [...pendingFiles] : [];
+    const incoming = readyFiles.length > 0 ? [...readyFiles] : [];
 
     // 构建乐观消息内容
     let messageText = content || "补充信息";
@@ -561,29 +768,13 @@ export default function InstanceChatPage() {
     }
 
     try {
-      // 如果有附件，先上传到 Gateway 获取 [FILE_URL:...] 标记
       if (incoming.length > 0) {
-        const token = await tokenService.ensureFresh();
-        if (!token) {
-          throw new Error("Token not available for file upload");
-        }
-        const markers: string[] = [];
-        for (const file of incoming) {
-          const rawFile = rawFileMapRef.current.get(file.id) ?? file.rawFile;
-          if (!rawFile) {
-            throw new Error(`无法获取文件原始数据：${file.name}`);
-          }
-          const result = await uploadMediaToGateway(
-            sandboxGatewayEndpoint,
-            token,
-            rawFile,
+        const markers = incoming
+          .filter((file) => Boolean(file.marker))
+          .map(
+            (file) =>
+              `${file.marker}\nAttached file: ${file.name} (${formatFileSize(file.size)})`,
           );
-          markers.push(
-            `${result.marker}\nAttached file: ${result.fileName} (${formatFileSize(result.sizeBytes)})`,
-          );
-          // 清理已上传的文件引用
-          rawFileMapRef.current.delete(file.id);
-        }
         if (markers.length > 0) {
           messageText = `${markers.join("\n")}\n\n${messageText}`;
         }
@@ -618,7 +809,10 @@ export default function InstanceChatPage() {
     setSelectedSessionId(newSessionId);
     setMessages([]);
     setStreamingContent(null);
+    pendingToolStepsRef.current = [];
+    setStreamingToolSteps([]);
     setTyping(false);
+    setSessionListRefreshKey((current) => current + 1);
   }
 
   async function handleClear() {
@@ -632,6 +826,8 @@ export default function InstanceChatPage() {
       wsRef.current?.disconnect();
       wsRef.current = null;
       setStreamingContent(null);
+      pendingToolStepsRef.current = [];
+      setStreamingToolSteps([]);
       setTyping(false);
 
       await api.employeeRuntime.clearInstanceChatMessages(id);
@@ -654,6 +850,118 @@ export default function InstanceChatPage() {
       : "/my-employees";
 
   const location = useLocation();
+  const pageProtocol = window.location.protocol === "https:" ? "https" : "http";
+
+  const handleMediaLinkClick = useCallback(
+    async (url: string, fileName: string) => {
+      const endpoint = gatewayEndpointRef.current;
+      const fullUrl = /^https?:\/\//i.test(url)
+        ? url
+        : endpoint
+          ? `${pageProtocol}://${endpoint.replace(/^\/+/, "").replace(/\/$/, "")}/${url.replace(/^\/+/, "")}`
+          : url;
+
+      try {
+        const token = await tokenService.ensureFresh();
+        const headers: HeadersInit = token
+          ? { Authorization: `Bearer ${token}` }
+          : {};
+        const response = await fetch(fullUrl, { headers });
+        if (!response.ok) {
+          throw new Error(`下载文件失败: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      } catch (requestError: unknown) {
+        setError(normalizeErrorMessage(requestError));
+      }
+    },
+    [pageProtocol],
+  );
+
+  function selectSlashCommand(command: SlashCommand) {
+    setDraft({ content: command.args ? `${command.cmd} ` : command.cmd });
+    setSlashMenuIdx(0);
+  }
+
+  function pushAssistantNotice(content: string) {
+    setMessages((current) => [
+      ...current,
+      {
+        messageId: `local-assistant-${Date.now()}`,
+        role: "assistant",
+        content,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+  }
+
+  async function handleLocalCommand(command: string) {
+    const normalized = command.trim().toLowerCase();
+    if (normalized === "/new") {
+      setDraft({ content: "" });
+      setPendingFiles([]);
+      await handleNewChat();
+      return true;
+    }
+
+    if (normalized === "/clear") {
+      setDraft({ content: "" });
+      setPendingFiles([]);
+      await handleClear();
+      return true;
+    }
+
+    if (normalized === "/stop") {
+      setDraft({ content: "" });
+      handleStop();
+      return true;
+    }
+
+    if (normalized === "/help") {
+      setDraft({ content: "" });
+      pushAssistantNotice([
+        "### 聊天命令",
+        "",
+        "- `/new` 新建会话",
+        "- `/clear` 清空当前对话",
+        "- `/stop` 终止当前生成",
+        "- `/think low|medium|high` 调整思考强度",
+        "- `Shift+Enter` 换行，`Enter` 发送",
+      ].join("\n"));
+      return true;
+    }
+
+    return false;
+  }
+
+  function handleStop() {
+    const currentSessionId = sessionIdRef.current;
+    if (!currentSessionId) {
+      setError("当前会话尚未建立，暂时无法终止生成");
+      return;
+    }
+
+    if (!wsRef.current?.isOpen()) {
+      setError("沙箱连接未建立，无法终止当前生成");
+      return;
+    }
+
+    setError("");
+    wsRef.current.send({
+      type: "user_message",
+      text: "/stop",
+      sessionId: currentSessionId,
+    });
+  }
 
   return (
     <div className="hb-page hb-page-wide">
@@ -759,25 +1067,6 @@ export default function InstanceChatPage() {
               </div>
             </div>
 
-            {viewingOtherSession && (
-              <div className="flex items-center justify-between rounded-lg bg-[#e8f0fe] px-4 py-2 text-sm text-[#1967d2]">
-                <span>
-                  正在查看历史会话:{" "}
-                  <span className="font-medium">{selectedSessionId}</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void handleSelectSession(sessionIdRef.current!)
-                  }
-                  disabled={sessionSwitching}
-                  className="rounded px-2 py-0.5 text-xs font-medium text-[#1967d2] hover:bg-[#d2e3fc]"
-                >
-                  返回当前会话
-                </button>
-              </div>
-            )}
-
             <div className="hb-chat-history">
               {messages.length === 0 ? (
                 <div className="hb-chat-empty">
@@ -796,8 +1085,22 @@ export default function InstanceChatPage() {
                     </div>
                     <div
                       className={`hb-chat-bubble ${message.role === "assistant" ? "is-assistant" : "is-user"}`}
-                      dangerouslySetInnerHTML={{ __html: message.content }}
-                    />
+                    >
+                      {message.role === "assistant" &&
+                      message.toolSteps &&
+                      message.toolSteps.length > 0 ? (
+                        <div className="hb-chat-toolsteps">
+                          <HiringToolStepsBlock steps={message.toolSteps} />
+                        </div>
+                      ) : null}
+                      <InstanceChatMessageBody
+                        content={message.content}
+                        role={
+                          message.role === "assistant" ? "assistant" : "user"
+                        }
+                        onMediaLinkClick={handleMediaLinkClick}
+                      />
+                    </div>
                   </div>
                 ))
               )}
@@ -807,13 +1110,19 @@ export default function InstanceChatPage() {
                   <div className="hb-chat-meta">
                     {employee.nickname} · 正在回复
                   </div>
-                  <div
-                    className="hb-chat-bubble is-assistant"
-                    dangerouslySetInnerHTML={{
-                      __html:
-                        streamingContent.length > 0 ? streamingContent : "...",
-                    }}
-                  />
+                  <div className="hb-chat-bubble is-assistant">
+                    {streamingToolSteps.length > 0 ? (
+                      <div className="hb-chat-toolsteps">
+                        <HiringToolStepsBlock steps={streamingToolSteps} />
+                      </div>
+                    ) : null}
+                    <InstanceChatMessageBody
+                      content={streamingContent.length > 0 ? streamingContent : "..."}
+                      role="assistant"
+                      streaming
+                      onMediaLinkClick={handleMediaLinkClick}
+                    />
+                  </div>
                 </div>
               )}
 
@@ -823,6 +1132,11 @@ export default function InstanceChatPage() {
                     {employee.nickname} · 正在回复
                   </div>
                   <div className="hb-chat-bubble is-assistant hb-chat-typing">
+                    {streamingToolSteps.length > 0 ? (
+                      <div className="hb-chat-toolsteps">
+                        <HiringToolStepsBlock steps={streamingToolSteps} />
+                      </div>
+                    ) : null}
                     正在思考中...
                   </div>
                 </div>
@@ -838,11 +1152,28 @@ export default function InstanceChatPage() {
                   {pendingFiles.map((file) => (
                     <div
                       key={file.id}
-                      className="flex items-center gap-2 rounded-full border border-[#ececec] bg-[#fafafa] px-3 py-1.5 text-sm text-[#404040]"
+                      className={`hb-chat-file-chip is-${
+                        file.status === "上传失败"
+                          ? "error"
+                          : file.status === "上传中"
+                            ? "loading"
+                            : "ready"
+                      }`}
                     >
-                      <Upload size={12} className="text-[#9ca3af]" />
+                      {file.status === "上传中" ? (
+                        <Loader2 size={12} className="hb-chat-file-chip-spin" />
+                      ) : file.status === "上传失败" ? (
+                        <AlertCircle size={12} className="text-[#dc2626]" />
+                      ) : (
+                        <FileText size={12} className="text-[#9ca3af]" />
+                      )}
                       <span className="max-w-[200px] truncate">
                         {file.name}
+                      </span>
+                      <span className="hb-chat-file-chip-meta">
+                        {file.status === "上传失败"
+                          ? file.uploadError || file.status
+                          : file.status}
                       </span>
                       <button
                         type="button"
@@ -855,70 +1186,142 @@ export default function InstanceChatPage() {
                   ))}
                 </div>
               )}
-              <button
-                type="button"
-                className="hb-btn-ghost mb-3 inline-flex self-start"
-                onClick={triggerFileUpload}
-                disabled={sending || !isLive || viewingOtherSession}
-                title="上传文件"
-              >
-                <Upload size={14} />
-                上传文件
-              </button>
-              <div className="flex items-end gap-3">
-                <textarea
-                  value={draft.content}
-                  onChange={(event) =>
-                    setDraft({ content: event.target.value })
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      void handleSend();
-                    }
-                  }}
-                  placeholder={
-                    viewingOtherSession
-                      ? "正在查看历史会话，不可回复"
-                      : isLive
-                        ? "输入消息，Enter 发送，Shift+Enter 换行"
-                        : "当前实例未上岗，不能对话"
-                  }
-                  disabled={sending || !isLive || viewingOtherSession}
+              <div className="hb-chat-compose-main">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  multiple
+                  onChange={handleFileInputChange}
+                  className="hidden"
+                  disabled={sending || !isLive}
                 />
-
                 <button
                   type="button"
-                  className="hb-btn-primary"
-                  onClick={() => void handleSend()}
-                  disabled={
-                    sending ||
-                    sessionSwitching ||
-                    !isLive ||
-                    viewingOtherSession ||
-                    !sandboxConnected ||
-                    (draft.content.trim().length === 0 &&
-                      pendingFiles.length === 0)
-                  }
+                  className="hb-chat-attach-btn"
+                  onClick={triggerFileUpload}
+                  disabled={sending || !isLive}
+                  title="上传文件"
                 >
-                  <Send size={14} />
-                  {/* 发送 */}
+                  <Paperclip size={16} />
                 </button>
+                <div className={`hb-chat-input-wrap ${expandOpen ? "is-expanded" : ""}`}>
+                  {slashMenuOpen ? (
+                    <div className="hb-chat-slash-menu">
+                      {slashCandidates.map((command, index) => (
+                        <button
+                          key={command.cmd}
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            selectSlashCommand(command);
+                          }}
+                          onMouseEnter={() => setSlashMenuIdx(index)}
+                          className={`hb-chat-slash-item ${index === slashMenuIdx ? "is-active" : ""}`}
+                        >
+                          <span className="hb-chat-slash-cmd">{command.cmd}</span>
+                          {command.args ? (
+                            <span className="hb-chat-slash-args">{command.args}</span>
+                          ) : null}
+                          <span className="hb-chat-slash-desc">{command.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <textarea
+                    ref={textareaRef}
+                    rows={1}
+                    value={draft.content}
+                    onChange={(event) => {
+                      setDraft({ content: event.target.value });
+                      setSlashMenuIdx(0);
+                    }}
+                    onKeyDown={(event) => {
+                      if (slashMenuOpen) {
+                        if (event.key === "ArrowDown") {
+                          event.preventDefault();
+                          setSlashMenuIdx((current) =>
+                            Math.min(current + 1, slashCandidates.length - 1),
+                          );
+                          return;
+                        }
+
+                        if (event.key === "ArrowUp") {
+                          event.preventDefault();
+                          setSlashMenuIdx((current) => Math.max(current - 1, 0));
+                          return;
+                        }
+
+                        if (
+                          event.key === "Tab" ||
+                          (event.key === "Enter" && !event.shiftKey)
+                        ) {
+                          event.preventDefault();
+                          selectSlashCommand(slashCandidates[slashMenuIdx]);
+                          return;
+                        }
+
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setDraft({ content: "" });
+                          return;
+                        }
+                      }
+
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        void handleSend();
+                      }
+                    }}
+                    placeholder={
+                      isLive
+                        ? "输入消息，Enter 发送，Shift+Enter 换行，/stop 终止当前生成"
+                        : "当前实例未上岗，不能对话"
+                    }
+                    disabled={sending || !isLive}
+                  />
+                  <button
+                    type="button"
+                    className="hb-chat-expand-btn"
+                    onClick={() => setExpandOpen((current) => !current)}
+                    title={expandOpen ? "收起输入框" : "放大输入框"}
+                  >
+                    {expandOpen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  </button>
+                </div>
+
+                {isAiWorking ? (
+                  <button
+                    type="button"
+                    className="hb-btn-primary hb-chat-stop-btn"
+                    onClick={handleStop}
+                    disabled={!isLive || sessionSwitching || !selectedSessionId}
+                  >
+                    <Square size={14} />
+                    终止
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="hb-btn-primary hb-chat-send-btn"
+                    onClick={() => void handleSend()}
+                    disabled={
+                      sending ||
+                      sessionSwitching ||
+                      !isLive ||
+                      !sandboxConnected ||
+                      (draft.content.trim().length === 0 &&
+                        pendingFiles.length === 0)
+                    }
+                  >
+                    <Send size={14} />
+                  </button>
+                )}
               </div>
               {!isLive && (
                 <p className="mt-3 text-xs text-[#9ca3af]">
-                  只有 `live` 状态的分身和私有分支才能进入站内对话。
+                  只有 live 状态的分身和私有分支才能进入站内对话。
                 </p>
               )}
-              {/* 隐藏的文件选择 input */}
-              <input
-                ref={fileRef}
-                type="file"
-                multiple
-                onChange={handleFileInputChange}
-                className="hidden"
-                disabled={sending || !isLive || viewingOtherSession}
-              />
             </div>
           </div>
         </div>
