@@ -734,6 +734,13 @@ internal sealed partial class EvaluationService
         string SourceType,
         string SourcePath);
 
+    private sealed record ConversationRuntimeContextPayload(
+        string RuntimeContextJson,
+        string RuntimeContextDefaultPath,
+        string TargetGatewayEndpoint,
+        string TargetHttpBaseUrl,
+        bool MaterialsAttached);
+
     private sealed record EvaluatorVerdictResult(
         bool Passed,
         string Summary,

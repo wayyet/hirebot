@@ -520,6 +520,18 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(sessionResult.Code, sessionResult.Message);
         }
 
+        var conversationPreparedResult = await EnsureSupplementConversationPreparedAsync(
+            owner,
+            employee,
+            sessionResult.Data,
+            cancellationToken);
+        if (!conversationPreparedResult.Success || conversationPreparedResult.Data is null)
+        {
+            return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(
+                conversationPreparedResult.Code,
+                conversationPreparedResult.Message);
+        }
+
         var sendRequest = new HiringConversationMessageRequestDto
         {
             Content = request.Content.Trim(),
@@ -528,8 +540,8 @@ internal sealed partial class EvaluationService(
         };
         var sendResult = await SendSandboxMessageAsync(
             owner,
-            workspaceResult.Data.EvaluatorHireId,
-            workspaceResult.Data.EvaluatorSandboxId,
+            conversationPreparedResult.Data.EvaluatorHireId,
+            conversationPreparedResult.Data.EvaluatorSandboxId,
             "evaluation-evaluator",
             sendRequest,
             cancellationToken);
@@ -540,8 +552,8 @@ internal sealed partial class EvaluationService(
 
         var timelineResult = await GetSandboxTimelineAsync(
             owner,
-            workspaceResult.Data.EvaluatorHireId,
-            workspaceResult.Data.EvaluatorSandboxId,
+            conversationPreparedResult.Data.EvaluatorHireId,
+            conversationPreparedResult.Data.EvaluatorSandboxId,
             "evaluation-evaluator",
             cancellationToken);
         if (!timelineResult.Success || timelineResult.Data is null)
@@ -549,7 +561,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(timelineResult.Code, timelineResult.Message);
         }
 
-        var refreshedWorkspace = workspaceResult.Data with { SessionId = timelineResult.Data.SessionId };
+        var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
         EvaluationWorkspaces[BuildWorkspaceKey(owner, employee.EmployeeId)] = refreshedWorkspace;
 
         var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
