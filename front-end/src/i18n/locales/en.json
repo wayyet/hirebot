@@ -168,6 +168,7 @@
       "title": "Department Employees",
       "copyManager": "Review hired, evaluating, and live instances for {{department}} from one place. All next-step actions continue from the detail view.",
       "copyMember": "This page shows live department instances from {{department}} only. Open the detail view to continue copying them into your own assets.",
+      "deleteDialogTitle": "Delete employee",
       "confirmDelete": "Delete digital employee \"{{nickname}}\"? This action cannot be undone and will also clean up the related five-piece files.",
       "deleteFailed": "Delete failed",
       "loadFailed": "Failed to load department employees",
@@ -200,6 +201,7 @@
       "actions": {
         "uploadTemplate": "Upload Template",
         "hireFromPool": "Hire from Template Pool",
+        "more": "More actions",
         "enterAiEvaluation": "Open AI Review",
         "enterHumanEvaluation": "Open Human Review",
         "createClone": "Create Clone",

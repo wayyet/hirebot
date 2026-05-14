@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight,
   BarChart2,
   Bot,
   CheckCircle2,
   CopyPlus,
   Loader2,
+  MoreHorizontal,
   Search,
   Sparkles,
   Trash2,
+  X,
   UserCheck,
   Users,
 } from "lucide-react";
@@ -44,6 +45,11 @@ export default function DepartmentEmployeesPage() {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    employeeId: string;
+    nickname: string;
+  } | null>(null);
   const [page, setPage] = useState(1);
   const [cloneTarget, setCloneTarget] = useState<{
     employeeId: string;
@@ -52,19 +58,12 @@ export default function DepartmentEmployeesPage() {
   } | null>(null);
   const [detailEmployeeId, setDetailEmployeeId] = useState<string | null>(null);
 
-  async function handleDelete(employeeId: string, nickname: string) {
-    if (
-      !window.confirm(
-        t("employees.departmentPage.confirmDelete", { nickname }),
-      )
-    ) {
-      return;
-    }
-
+  async function handleDelete(employeeId: string) {
     setDeletingId(employeeId);
     try {
       await api.employeeRuntime.deleteEmployee(employeeId);
       setRefreshKey((k) => k + 1);
+      setDeleteTarget(null);
     } catch (deleteError: unknown) {
       const message =
         deleteError instanceof Error
@@ -201,6 +200,21 @@ export default function DepartmentEmployeesPage() {
       setPage(totalPages);
     }
   }, [page, totalPages]);
+
+  useEffect(() => {
+    if (!menuOpenId) {
+      return;
+    }
+
+    function closeMenu() {
+      setMenuOpenId(null);
+    }
+
+    window.addEventListener("click", closeMenu);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+    };
+  }, [menuOpenId]);
 
   function openAiEvaluation(employeeId: string) {
     navigate(`/department-employees/instances/${employeeId}/evaluation`);
@@ -399,10 +413,49 @@ export default function DepartmentEmployeesPage() {
                   key={employee.employeeId}
                   className="hb-card hb-employee-card"
                 >
+                  <div
+                    className="hb-employee-card-menu-anchor"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className="hb-employee-card-menu-btn"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setMenuOpenId((current) =>
+                          current === employee.employeeId
+                            ? null
+                            : employee.employeeId,
+                        );
+                      }}
+                      title={t("employees.departmentPage.actions.more")}
+                    >
+                      <MoreHorizontal size={16} />
+                    </button>
+                    {menuOpenId === employee.employeeId ? (
+                      <div className="hb-dropdown-menu hb-dropdown-menu--right hb-employee-card-menu">
+                        <button
+                          type="button"
+                          className="hb-dropdown-item hb-dropdown-item--danger"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setMenuOpenId(null);
+                            setDeleteTarget({
+                              employeeId: employee.employeeId,
+                              nickname: employee.nickname,
+                            });
+                          }}
+                        >
+                          <Trash2 size={14} />
+                          {t("common.delete")}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                   <button
                     type="button"
                     onClick={() => openCard(employee)}
-                    className="block w-full flex-1 text-left"
+                    className="block w-full flex-1 pr-10 text-left"
                   >
                     <div className="hb-employee-card-head">
                       <div className="min-w-0 flex-1">
@@ -450,47 +503,27 @@ export default function DepartmentEmployeesPage() {
                     </div>
                     <div className="hb-employee-card-actions">
                       {isInterningAi ? (
-                        <>
-                          <button
-                            type="button"
-                            className="hb-btn-primary hb-hub-btn-primary"
-                            onClick={() =>
-                              openAiEvaluation(employee.employeeId)
-                            }
-                          >
-                            <Bot size={14} />
-                            {t("employees.departmentPage.actions.enterAiEvaluation")}
-                          </button>
-                          <button
-                            type="button"
-                            className="hb-btn-ghost hb-hub-btn-secondary"
-                            onClick={() => setDetailEmployeeId(employee.employeeId)}
-                          >
-                            {t("employees.departmentPage.actions.viewDetail")}
-                            <ArrowRight size={14} />
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          className="hb-btn-primary hb-hub-btn-primary"
+                          onClick={() =>
+                            openAiEvaluation(employee.employeeId)
+                          }
+                        >
+                          <Bot size={14} />
+                          {t("employees.departmentPage.actions.enterAiEvaluation")}
+                        </button>
                       ) : isInterningHuman ? (
-                        <>
-                          <button
-                            type="button"
-                            className="hb-btn-primary hb-hub-btn-primary"
-                            onClick={() =>
-                              openHumanEvaluation(employee.employeeId)
-                            }
-                          >
-                            <UserCheck size={14} />
-                            {t("employees.departmentPage.actions.enterHumanEvaluation")}
-                          </button>
-                          <button
-                            type="button"
-                            className="hb-btn-ghost hb-hub-btn-secondary"
-                            onClick={() => setDetailEmployeeId(employee.employeeId)}
-                          >
-                            {t("employees.departmentPage.actions.viewDetail")}
-                            <ArrowRight size={14} />
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          className="hb-btn-primary hb-hub-btn-primary"
+                          onClick={() =>
+                            openHumanEvaluation(employee.employeeId)
+                          }
+                        >
+                          <UserCheck size={14} />
+                          {t("employees.departmentPage.actions.enterHumanEvaluation")}
+                        </button>
                       ) : (
                         <>
                           {canClone ? (
@@ -511,36 +544,8 @@ export default function DepartmentEmployeesPage() {
                               {t("employees.departmentPage.actions.createClone")}
                             </button>
                           ) : null}
-                          <button
-                            type="button"
-                            className={
-                              canClone
-                                ? "hb-btn-ghost hb-hub-btn-secondary"
-                                : "hb-btn-primary hb-hub-btn-primary"
-                            }
-                            onClick={() => setDetailEmployeeId(employee.employeeId)}
-                          >
-                            {t("employees.departmentPage.actions.viewDetail")}
-                            <ArrowRight size={14} />
-                          </button>
                         </>
                       )}
-                      <button
-                        type="button"
-                        className="hb-btn-ghost hb-hub-btn-secondary ml-auto text-[var(--hb-soft)] hover:text-red-500"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(employee.employeeId, employee.nickname);
-                        }}
-                        disabled={deletingId === employee.employeeId}
-                        title={t("employees.departmentPage.actions.deleteEmployee")}
-                      >
-                        {deletingId === employee.employeeId ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <Trash2 size={14} />
-                        )}
-                      </button>
                     </div>
                   </div>
                 </article>
@@ -552,6 +557,57 @@ export default function DepartmentEmployeesPage() {
 
       {visibleEmployees.length > 0 ? (
         <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+      ) : null}
+
+      {deleteTarget ? (
+        <div
+          className="hb-modal-mask"
+          onClick={() => (deletingId ? undefined : setDeleteTarget(null))}
+        >
+          <div className="hb-modal hb-delete-confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              className="hb-modal-close"
+              onClick={() => setDeleteTarget(null)}
+              disabled={Boolean(deletingId)}
+            >
+              <X size={16} />
+            </button>
+            <div className="hb-modal-head">
+              <h3 className="hb-modal-title">{t("employees.departmentPage.deleteDialogTitle")}</h3>
+              <p className="hb-modal-sub">
+                {t("employees.departmentPage.confirmDelete", {
+                  nickname: deleteTarget.nickname,
+                })}
+              </p>
+            </div>
+            <div className="hb-modal-foot">
+              <button
+                type="button"
+                className="hb-btn-ghost hb-hub-btn-secondary"
+                onClick={() => setDeleteTarget(null)}
+                disabled={Boolean(deletingId)}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                className="hb-btn-primary hb-hub-btn-primary hb-btn-danger"
+                onClick={() =>
+                  handleDelete(deleteTarget.employeeId)
+                }
+                disabled={Boolean(deletingId)}
+              >
+                {deletingId === deleteTarget.employeeId ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Trash2 size={14} />
+                )}
+                {t("common.delete")}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       <TemplateUploadModal

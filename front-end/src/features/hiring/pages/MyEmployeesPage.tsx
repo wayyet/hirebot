@@ -304,21 +304,6 @@ export default function MyEmployeesPage() {
                   className="hb-employee-card-actions"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {employee.mappedStatus === "live" ? (
-                    <button
-                      type="button"
-                      className="hb-btn-primary hb-hub-btn-primary text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(
-                          `/my-employees/instances/${employee.employeeId}/chat`,
-                        );
-                      }}
-                    >
-                      <MessageCircle size={12} />
-                      {t("employees.myPage.actions.startChat")}
-                    </button>
-                  ) : null}
                   <button
                     type="button"
                     className="hb-btn-ghost hb-hub-btn-secondary text-xs"
@@ -370,11 +355,27 @@ export default function MyEmployeesPage() {
                 <div className="hb-employee-card-divider" />
                 <div className="hb-employee-card-footer">
                   <span>{t("employees.myPage.updatedAt", { date: employee.createdAt })}</span>
-                  <div className="flex items-center gap-2">
+                  <div className="hb-employee-card-footer-actions">
+                    {employee.mappedStatus === "live" ? (
+                      <button
+                        type="button"
+                        className="hb-btn-primary hb-hub-btn-primary text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(
+                            `/my-employees/instances/${employee.employeeId}/chat`,
+                          );
+                        }}
+                      >
+                        <MessageCircle size={12} />
+                        {t("employees.myPage.actions.startChat")}
+                      </button>
+                    ) : null}
                     {employee.ownership === "private_branch" &&
                     employee.mappedStatus !== "retired" ? (
-                      <span
-                        className="cursor-pointer text-red-600 hover:underline dark:text-red-400"
+                      <button
+                        type="button"
+                        className="hb-employee-card-inline-action hb-employee-card-inline-action--danger"
                         onClick={(e) => {
                           void abandonBranch(employee.employeeId, e);
                         }}
@@ -382,9 +383,8 @@ export default function MyEmployeesPage() {
                         {abandoningId === employee.employeeId
                           ? t("employees.myPage.actions.abandoning")
                           : t("employees.myPage.actions.abandon")}
-                      </span>
+                      </button>
                     ) : null}
-                    <span className="hb-employee-card-link">{t("employees.myPage.actions.viewDetail")}</span>
                   </div>
                 </div>
               </div>
