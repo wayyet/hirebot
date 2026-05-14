@@ -205,7 +205,7 @@ export default function MyEmployeesPage() {
         <div className="hb-page-actions">
           <button
             type="button"
-            className="hb-btn-primary hb-hub-btn-primary"
+            className="hb-btn-primary hb-hub-btn-primary hb-page-head-cta"
             onClick={() => navigate("/department-employees")}
           >
             {t("employees.myPage.backToDepartment")}

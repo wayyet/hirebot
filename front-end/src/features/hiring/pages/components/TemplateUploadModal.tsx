@@ -127,6 +127,16 @@ export default function TemplateUploadModal({
         </div>
 
         <div className="hb-modal-body">
+          <div className="hb-upload-helper">
+            <div className="hb-upload-helper-copy">
+              <strong>示例模板下载入口</strong>
+              <p>如需标准示例包，可前往模板池模板详情页下载最新模板包后再上传。</p>
+            </div>
+            <a className="hb-upload-example-link" href="/template-pool">
+              去模板池下载
+            </a>
+          </div>
+
           {!file ? (
             <div
               className={`hb-upload-zone${dragOver ? " is-drag-over" : ""}`}

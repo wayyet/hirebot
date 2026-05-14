@@ -264,14 +264,14 @@ export default function DepartmentEmployeesPage() {
           <div className="hb-page-actions">
             <button
               type="button"
-              className="hb-btn-primary hb-hub-btn-primary"
+              className="hb-btn-primary hb-hub-btn-primary hb-page-head-cta"
               onClick={() => setUploadModalOpen(true)}
             >
               {t("employees.departmentPage.actions.uploadTemplate")}
             </button>
             <button
               type="button"
-              className="hb-btn-primary hb-hub-btn-primary"
+              className="hb-btn-primary hb-hub-btn-primary hb-page-head-cta"
               onClick={() => navigate("/template-pool")}
             >
               {t("employees.departmentPage.actions.hireFromPool")}
