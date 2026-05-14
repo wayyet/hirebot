@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Clock, Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -56,16 +56,47 @@ export default function MarketPage() {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
+  const [selectedTag, setSelectedTag] = useState('')
   const [page, setPage] = useState(1)
 
   const { data = EMPTY_LIST, isLoading, isPlaceholderData, error } = useQuery({
-    queryKey: ['store-templates', query, page],
+    queryKey: ['store-templates', query, selectedTag, page],
     queryFn: ({ signal }) =>
-      api.employeeTemplate.getList({ q: query, page, pageSize: PAGE_SIZE }, signal),
+      api.employeeTemplate.getList({ q: query, tag: selectedTag || undefined, page, pageSize: PAGE_SIZE }, signal),
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
   })
+
+  const { data: remoteTags = [] } = useQuery({
+    queryKey: ['store-template-tags'],
+    queryFn: async ({ signal }) => {
+      try {
+        return await api.employeeTemplate.getTags(signal)
+      } catch {
+        return []
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  })
+
+  const availableTags = useMemo(() => {
+    if (remoteTags.length > 0) {
+      return remoteTags
+    }
+
+    const tagSet = new Set<string>()
+    for (const template of data.items) {
+      for (const tag of template.tags ?? []) {
+        if (tag) {
+          tagSet.add(tag)
+        }
+      }
+    }
+
+    return Array.from(tagSet)
+  }, [data.items, remoteTags])
 
   const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE))
 
@@ -89,7 +120,7 @@ export default function MarketPage() {
         </div>
       </div>
 
-      <div className="hb-search-shell mx-auto">
+      <div className="hb-search-shell hb-market-search-shell">
         <Search size={16} />
         <input
           value={query}
@@ -110,7 +141,7 @@ export default function MarketPage() {
                 setPage(1)
               }}
             >
-              清空
+              {t('market.clearSearch')}
             </button>
           </div>
         ) : null}
@@ -118,7 +149,31 @@ export default function MarketPage() {
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div className="hb-chip-row">
-          <span className="hb-pill blue">{t('common.allTypes')}</span>
+          <button
+            type="button"
+            className={`hb-market-tag-button ${selectedTag ? '' : 'is-active'}`}
+            onClick={() => {
+              setSelectedTag('')
+              setPage(1)
+            }}
+            aria-pressed={!selectedTag}
+          >
+            {t('common.allTypes')}
+          </button>
+          {availableTags.map((tag, index) => (
+            <button
+              key={tag}
+              type="button"
+              className={`hb-market-tag-button ${selectedTag === tag ? 'is-active' : ''} is-tone-${tagColor(index)}`}
+              onClick={() => {
+                setSelectedTag((current) => current === tag ? '' : tag)
+                setPage(1)
+              }}
+              aria-pressed={selectedTag === tag}
+            >
+              {tag}
+            </button>
+          ))}
         </div>
         <span className="text-xs text-[var(--hb-soft)]">{t('market.templateCount', { count: data.total })}</span>
       </div>

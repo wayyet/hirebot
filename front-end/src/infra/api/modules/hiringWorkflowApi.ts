@@ -1,8 +1,6 @@
-﻿import { ApiClientError, httpClient } from '../httpClient'
+﻿import { ApiClientError, buildUrl, httpClient } from '../httpClient'
 import type { ApiResponseEnvelope } from '../types'
 import { tokenService } from '@/infra/auth/token-service'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5280'
 
 export const HiringCollectionPhase = {
   NotStarted: 'NOT_STARTED',
@@ -399,7 +397,7 @@ export interface HiringArtifactsDownloadData {
 
 function buildArtifactsDownloadUrl(hireId: string): string {
   const path = `/api/v1/hirings/${hireId}/artifacts/download`
-  return `${API_BASE_URL}${path}`
+  return buildUrl(path)
 }
 
 function buildArtifactFileDownloadUrl(hireId: string, artifactName: string): string {
@@ -408,7 +406,7 @@ function buildArtifactFileDownloadUrl(hireId: string, artifactName: string): str
     .map(segment => encodeURIComponent(segment))
     .join('/')
   const path = `/api/v1/hirings/${hireId}/artifacts/${safeArtifactPath}`
-  return `${API_BASE_URL}${path}`
+  return buildUrl(path)
 }
 
 function parseFileName(contentDisposition?: string | null): string | null {
@@ -470,7 +468,7 @@ export const hiringWorkflowApi = {
     metadata: Record<string, string>,
   ): Promise<UploadedMaterial> {
     const path = `/api/v1/hirings/${hireId}/materials/upload`
-    const url = `${API_BASE_URL}${path}`
+    const url = buildUrl(path)
     const accessToken = await tokenService.ensureFresh()
 
     const form = new FormData()
@@ -626,7 +624,7 @@ export const hiringWorkflowApi = {
     fileName: string,
     skillIds?: readonly string[],
   ): Promise<HiringFinalizeResult> {
-    const url = `${API_BASE_URL}/api/v1/hirings/${encodeURIComponent(hireId)}/import-package`
+    const url = buildUrl(`/api/v1/hirings/${encodeURIComponent(hireId)}/import-package`)
     const accessToken = await tokenService.ensureFresh()
     const form = new FormData()
     form.append('packageFile', packageBlob, fileName)
@@ -702,7 +700,7 @@ export const hiringWorkflowApi = {
     folder?: string,
   ): Promise<Array<{ relativePath: string; sizeBytes: number; format: string }>> {
     const path = `/api/v1/hiring-todos/${encodeURIComponent(sessionId)}/files/upload`
-    const url = `${API_BASE_URL}${path}`
+    const url = buildUrl(path)
     const accessToken = await tokenService.ensureFresh()
     const form = new FormData()
     if (folder && folder.trim()) form.append('folder', folder.trim())

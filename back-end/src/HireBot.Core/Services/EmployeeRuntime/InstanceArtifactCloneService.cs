@@ -1,7 +1,9 @@
 using HireBot.Abstraction.Models.EmployeeRuntime;
+using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
@@ -10,6 +12,7 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 /// </summary>
 public sealed class InstanceArtifactCloneService(
     IConfiguration configuration,
+    IHostEnvironment hostEnvironment,
     HireBotDbContext dbContext) : IInstanceArtifactCloneService
 {
     /// <summary>
@@ -197,13 +200,18 @@ public sealed class InstanceArtifactCloneService(
     /// </summary>
     private string? ResolveFixtureRoot(string employeeId)
     {
+        var configuredRoot = HireBotPathResolver.ResolveInstanceFixturesRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:InstanceFixturesRoot"]);
         var candidates = new[]
         {
-            Path.Combine(Directory.GetCurrentDirectory(), "Assets", "InstanceFixtures"),
-            Path.Combine(Directory.GetCurrentDirectory(), "src", "HireBot.ApiService", "Assets", "InstanceFixtures"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "InstanceFixtures")),
-            Path.Combine(AppContext.BaseDirectory, "Assets", "InstanceFixtures")
-        };
+            configuredRoot,
+            HireBotPathResolver.ResolveConventionalInstanceFixturesRoot()
+        }
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Cast<string>();
 
         foreach (var root in candidates.Where(Directory.Exists))
         {

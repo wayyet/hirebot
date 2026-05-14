@@ -1,18 +1,23 @@
 using System.Text;
 using HireBot.Abstraction;
 using HireBot.ApiService.McpTools;
+using HireBot.Core.Services.Internal;
+using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HireBot.ApiService.Controllers;
 
 /// <summary>
 /// 雇佣 TODO 资料文件管理：仅接受 .md / .json 格式，按 sessionId/folder 组织到
-/// wwwroot/resources/todo-files/{sessionId}/{folder?}/{fileName}。
+/// 运行数据目录下的 resources/todo-files/{sessionId}/{folder?}/{fileName}。
 /// 配合 MCP 工具 hiring.parse_uploaded_files 让大模型读取并解析。
 /// </summary>
 [Route("api/v1/hiring-todos/{sessionId}/files")]
 [ApiController]
-public sealed class HiringTodoFilesController(IWebHostEnvironment env, ILogger<HiringTodoFilesController> logger)
+public sealed class HiringTodoFilesController(
+    IWebHostEnvironment env,
+    IConfiguration configuration,
+    ILogger<HiringTodoFilesController> logger)
     : ControllerBase
 {
     /// <summary>上传响应：包含相对路径与字节数。</summary>
@@ -140,11 +145,15 @@ public sealed class HiringTodoFilesController(IWebHostEnvironment env, ILogger<H
 
     private string ResolveDir(string sessionId, string? folder)
     {
-        var webRoot = env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot");
+        var todoRoot = Path.Combine(
+            HireBotPathResolver.ResolveEvaluationResourceRoot(
+                env.ContentRootPath,
+                configuration["HireBot:DataRoot"],
+                configuration["HireBot:EvaluationResourceRoot"]),
+            HiringTodoMcpTools.TodoFilesSubdir.Replace('/', Path.DirectorySeparatorChar));
         var parts = new List<string>
         {
-            webRoot,
-            HiringTodoMcpTools.TodoFilesSubdir.Replace('/', Path.DirectorySeparatorChar),
+            todoRoot,
             SanitizeSegment(sessionId)
         };
         if (!string.IsNullOrWhiteSpace(folder))

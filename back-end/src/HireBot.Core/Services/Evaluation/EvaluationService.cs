@@ -83,7 +83,10 @@ internal sealed partial class EvaluationService(
     ];
 
     private readonly string evaluationResourceRoot =
-        ResolveEvaluationResourceRoot(hostEnvironment.ContentRootPath, configuration["HireBot:EvaluationResourceRoot"]);
+        ResolveEvaluationResourceRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:EvaluationResourceRoot"]);
 
     private readonly string evaluationTemplatePackageRoot =
         ResolveEvaluationTemplatePackageRoot(hostEnvironment.ContentRootPath, configuration["HireBot:DigitalEmployeeTemplatesRoot"]);

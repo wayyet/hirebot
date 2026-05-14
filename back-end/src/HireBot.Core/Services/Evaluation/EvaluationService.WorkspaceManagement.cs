@@ -909,7 +909,9 @@ internal sealed partial class EvaluationService
 
         try
         {
-            var cacheRoot = Path.Combine(hostEnvironment.ContentRootPath, "App_Data", "evaluation", "template-package-cache");
+            var cacheRoot = HireBotPathResolver.ResolveEvaluationTemplatePackageCacheRoot(
+                hostEnvironment.ContentRootPath,
+                configuration["HireBot:DataRoot"]);
             Directory.CreateDirectory(cacheRoot);
 
             var hash = Convert.ToHexStringLower(SHA256.HashData(archiveBytes));

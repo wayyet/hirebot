@@ -311,7 +311,7 @@ export default function DepartmentEmployeesPage() {
         </div>
       </div>
 
-      <div className="hb-search-shell mt-5">
+      <div className="hb-search-shell hb-department-search-shell mt-5">
         <Search size={16} />
         <input
           value={query}
@@ -319,15 +319,6 @@ export default function DepartmentEmployeesPage() {
           className="hb-search-input"
           placeholder={t("employees.departmentPage.searchPlaceholder")}
         />
-        <div className="hb-search-controls">
-          <button
-            type="button"
-            className="hb-btn-ghost hb-hub-btn-secondary"
-            onClick={() => setQuery("")}
-          >
-            {t("employees.departmentPage.clearFilters")}
-          </button>
-        </div>
       </div>
 
       <div className="mt-5">

@@ -60,6 +60,11 @@ spec:
                   name: {{ .secretName }}
                   key: {{ .secretKey }}
             {{- end }}
+          {{- if .Values.hireData.persistence.enabled }}
+          volumeMounts:
+            - name: hire-data
+              mountPath: {{ .Values.hireData.persistence.mountPath }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /health
@@ -87,4 +92,10 @@ spec:
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.hireData.persistence.enabled }}
+      volumes:
+        - name: hire-data
+          persistentVolumeClaim:
+            claimName: {{ include "ncrew-hire.fullname" . }}-data
       {{- end }}

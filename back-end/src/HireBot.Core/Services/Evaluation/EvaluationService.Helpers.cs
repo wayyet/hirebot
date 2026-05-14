@@ -116,16 +116,15 @@ internal sealed partial class EvaluationService
         return $"eval_{DateTimeOffset.UtcNow:yyyyMMddHHmmss}_{Guid.NewGuid():N}";
     }
 
-    private static string ResolveEvaluationResourceRoot(string contentRootPath, string? configuredResourceRoot)
+    private static string ResolveEvaluationResourceRoot(
+        string contentRootPath,
+        string? configuredDataRoot,
+        string? configuredResourceRoot)
     {
-        if (string.IsNullOrWhiteSpace(configuredResourceRoot))
-        {
-            return Path.GetFullPath(Path.Combine(contentRootPath, "wwwroot", "resources"));
-        }
-
-        return Path.IsPathRooted(configuredResourceRoot)
-            ? Path.GetFullPath(configuredResourceRoot.Trim())
-            : Path.GetFullPath(Path.Combine(contentRootPath, configuredResourceRoot.Trim()));
+        return HireBotPathResolver.ResolveEvaluationResourceRoot(
+            contentRootPath,
+            configuredDataRoot,
+            configuredResourceRoot);
     }
 
     private static string ResolveEvaluationTemplatePackageRoot(string contentRootPath, string? configuredTemplatesRoot)
@@ -148,15 +147,7 @@ internal sealed partial class EvaluationService
 
     private static string? ResolveFixtureRoot()
     {
-        var candidates = new[]
-        {
-            Path.Combine(Directory.GetCurrentDirectory(), "Assets", "InstanceFixtures"),
-            Path.Combine(Directory.GetCurrentDirectory(), "src", "HireBot.ApiService", "Assets", "InstanceFixtures"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "InstanceFixtures")),
-            Path.Combine(AppContext.BaseDirectory, "Assets", "InstanceFixtures")
-        };
-
-        return candidates.FirstOrDefault(Directory.Exists);
+        return HireBotPathResolver.ResolveConventionalInstanceFixturesRoot();
     }
 
     private static string? ResolveScopedFixtureTestcaseRoot(string fixtureRoot, string targetHireId)
