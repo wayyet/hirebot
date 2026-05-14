@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using HireBot.Core.Services.Internal;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -18,10 +20,11 @@ namespace HireBot.ApiService.McpTools;
 [McpServerToolType]
 internal sealed class HiringTodoMcpTools(
     IWebHostEnvironment env,
+    IConfiguration configuration,
     ILogger<HiringTodoMcpTools> logger)
 {
-    /// <summary>todo 上传文件的根目录，相对 wwwroot；由控制器和 MCP 工具共享。</summary>
-    public const string TodoFilesSubdir = "resources/todo-files";
+    /// <summary>todo 上传文件的子目录名；由控制器和 MCP 工具共享。</summary>
+    public const string TodoFilesSubdir = "todo-files";
 
     /// <summary>
     /// 解析当前雇佣会话用户已上传的 todo-files 目录，返回目录树和每个 md/json 文件的文本内容。
@@ -109,8 +112,13 @@ internal sealed class HiringTodoMcpTools(
     private string ResolveSessionRoot(string sessionId)
     {
         var safe = SanitizeSegment(sessionId);
-        var webRoot = env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot");
-        return Path.Combine(webRoot, TodoFilesSubdir.Replace('/', Path.DirectorySeparatorChar), safe);
+        var todoRoot = Path.Combine(
+            HireBotPathResolver.ResolveEvaluationResourceRoot(
+                env.ContentRootPath,
+                configuration["HireBot:DataRoot"],
+                configuration["HireBot:EvaluationResourceRoot"]),
+            TodoFilesSubdir.Replace('/', Path.DirectorySeparatorChar));
+        return Path.Combine(todoRoot, safe);
     }
 
     private static string SanitizeSegment(string value)

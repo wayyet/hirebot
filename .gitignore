@@ -41,6 +41,8 @@ bld/
 back-end/src/HireBot.ApiService/wwwroot/resources/evaluation/
 # HireBot TODO 阶段上传的运行时文件（按 sessionId 生成，不入库）
 back-end/src/HireBot.ApiService/wwwroot/resources/todo-files/
+# HireBot 统一运行数据根目录（resources / digital-workforce / instance-fixtures）
+back-end/src/HireBot.ApiService/ncrew-hire-data/
 
 # Visual Studio 2017 auto generated files
 Generated\ Files/

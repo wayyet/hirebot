@@ -761,15 +761,10 @@ public sealed partial class EmployeeRuntimeService(
 
     private string ResolveDigitalWorkforceRoot()
     {
-        var configuredRoot = configuration["HireBot:DigitalWorkforceRoot"];
-        if (string.IsNullOrWhiteSpace(configuredRoot))
-        {
-            return Path.GetFullPath(Path.Combine(hostEnvironment.ContentRootPath, "wwwroot", "resources", "DigitalWorkforce"));
-        }
-
-        return Path.IsPathRooted(configuredRoot)
-            ? Path.GetFullPath(configuredRoot.Trim())
-            : Path.GetFullPath(Path.Combine(hostEnvironment.ContentRootPath, configuredRoot.Trim()));
+        return HireBotPathResolver.ResolveDigitalWorkforceRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:DigitalWorkforceRoot"]);
     }
 
     /// <summary>

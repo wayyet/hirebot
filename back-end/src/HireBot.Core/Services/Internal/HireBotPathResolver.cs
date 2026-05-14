@@ -1,0 +1,125 @@
+namespace HireBot.Core.Services.Internal;
+
+public static class HireBotPathResolver
+{
+    public const string DefaultDataRoot = "ncrew-hire-data";
+    public const string DefaultEvaluationResourcesSubdir = "resources";
+    public const string DefaultEvaluationSubdir = "evaluation";
+    public const string DefaultDigitalWorkforceSubdir = "digital-workforce";
+    public const string DefaultInstanceFixturesSubdir = "instance-fixtures";
+    public const string DefaultTodoFilesSubdir = "todo-files";
+    public const string DefaultTemplatePackageCacheSubdir = "template-package-cache";
+
+    public static string ResolveDataRoot(string contentRootPath, string? configuredDataRoot)
+    {
+        var effectiveRoot = string.IsNullOrWhiteSpace(configuredDataRoot)
+            ? DefaultDataRoot
+            : configuredDataRoot.Trim();
+
+        return ResolvePath(contentRootPath, effectiveRoot);
+    }
+
+    public static string ResolveEvaluationResourceRoot(
+        string contentRootPath,
+        string? configuredDataRoot,
+        string? configuredResourceRoot)
+    {
+        return ResolveDataScopedPath(
+            contentRootPath,
+            configuredDataRoot,
+            configuredResourceRoot,
+            DefaultEvaluationResourcesSubdir);
+    }
+
+    public static string ResolveDigitalWorkforceRoot(
+        string contentRootPath,
+        string? configuredDataRoot,
+        string? configuredDigitalWorkforceRoot)
+    {
+        return ResolveDataScopedPath(
+            contentRootPath,
+            configuredDataRoot,
+            configuredDigitalWorkforceRoot,
+            DefaultDigitalWorkforceSubdir);
+    }
+
+    public static string ResolveInstanceFixturesRoot(
+        string contentRootPath,
+        string? configuredDataRoot,
+        string? configuredInstanceFixturesRoot)
+    {
+        return ResolveDataScopedPath(
+            contentRootPath,
+            configuredDataRoot,
+            configuredInstanceFixturesRoot,
+            DefaultInstanceFixturesSubdir);
+    }
+
+    public static string ResolveTodoFilesRoot(
+        string contentRootPath,
+        string? configuredDataRoot,
+        string? configuredResourceRoot)
+    {
+        return Path.Combine(
+            ResolveEvaluationResourceRoot(contentRootPath, configuredDataRoot, configuredResourceRoot),
+            DefaultTodoFilesSubdir);
+    }
+
+    public static string ResolveEvaluationTemplatePackageCacheRoot(
+        string contentRootPath,
+        string? configuredDataRoot)
+    {
+        return Path.Combine(
+            ResolveDataRoot(contentRootPath, configuredDataRoot),
+            DefaultEvaluationSubdir,
+            DefaultTemplatePackageCacheSubdir);
+    }
+
+    public static string? ResolveConventionalInstanceFixturesRoot()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(Directory.GetCurrentDirectory(), DefaultDataRoot, DefaultInstanceFixturesSubdir),
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "HireBot.ApiService", DefaultDataRoot, DefaultInstanceFixturesSubdir),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", DefaultDataRoot, DefaultInstanceFixturesSubdir)),
+            Path.Combine(AppContext.BaseDirectory, DefaultDataRoot, DefaultInstanceFixturesSubdir),
+            Path.Combine(Directory.GetCurrentDirectory(), "Assets", "InstanceFixtures"),
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "HireBot.ApiService", "Assets", "InstanceFixtures"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "InstanceFixtures")),
+            Path.Combine(AppContext.BaseDirectory, "Assets", "InstanceFixtures")
+        };
+
+        return candidates.FirstOrDefault(Directory.Exists);
+    }
+
+    private static string ResolveDataScopedPath(
+        string contentRootPath,
+        string? configuredDataRoot,
+        string? configuredPath,
+        string defaultSubdirectory)
+    {
+        if (string.IsNullOrWhiteSpace(configuredPath))
+        {
+            return Path.Combine(
+                ResolveDataRoot(contentRootPath, configuredDataRoot),
+                defaultSubdirectory);
+        }
+
+        var effectivePath = configuredPath.Trim();
+        if (Path.IsPathRooted(effectivePath))
+        {
+            return Path.GetFullPath(effectivePath);
+        }
+
+        return Path.GetFullPath(Path.Combine(
+            ResolveDataRoot(contentRootPath, configuredDataRoot),
+            effectivePath));
+    }
+
+    private static string ResolvePath(string contentRootPath, string path)
+    {
+        return Path.IsPathRooted(path)
+            ? Path.GetFullPath(path)
+            : Path.GetFullPath(Path.Combine(contentRootPath, path));
+    }
+}

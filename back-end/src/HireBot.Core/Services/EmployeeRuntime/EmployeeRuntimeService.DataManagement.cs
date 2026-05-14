@@ -299,15 +299,7 @@ public sealed partial class EmployeeRuntimeService
     /// </summary>
     private static string? ResolveFixtureRoot()
     {
-        var candidates = new[]
-        {
-            Path.Combine(Directory.GetCurrentDirectory(), "Assets", "InstanceFixtures"),
-            Path.Combine(Directory.GetCurrentDirectory(), "src", "HireBot.ApiService", "Assets", "InstanceFixtures"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "InstanceFixtures")),
-            Path.Combine(AppContext.BaseDirectory, "Assets", "InstanceFixtures")
-        };
-
-        return candidates.FirstOrDefault(Directory.Exists);
+        return HireBotPathResolver.ResolveConventionalInstanceFixturesRoot();
     }
 
     /// <summary>

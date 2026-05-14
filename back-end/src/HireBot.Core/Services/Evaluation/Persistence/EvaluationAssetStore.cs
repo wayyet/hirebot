@@ -1,5 +1,6 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
+using HireBot.Core.Services.Internal;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,6 +14,7 @@ internal sealed class EvaluationAssetStore(
 {
     private readonly string resourceRootPath = ResolveResourceRootPath(
         hostEnvironment.ContentRootPath,
+        configuration["HireBot:DataRoot"],
         configuration["HireBot:EvaluationResourceRoot"]);
 
     public async Task<StoredEvaluationAsset> SaveTextAsync(
@@ -77,16 +79,15 @@ internal sealed class EvaluationAssetStore(
             PhysicalPath: targetPath);
     }
 
-    internal static string ResolveResourceRootPath(string contentRootPath, string? configuredResourceRoot)
+    internal static string ResolveResourceRootPath(
+        string contentRootPath,
+        string? configuredDataRoot,
+        string? configuredResourceRoot)
     {
-        if (string.IsNullOrWhiteSpace(configuredResourceRoot))
-        {
-            return Path.GetFullPath(Path.Combine(contentRootPath, "wwwroot", "resources"));
-        }
-
-        return Path.IsPathRooted(configuredResourceRoot)
-            ? Path.GetFullPath(configuredResourceRoot.Trim())
-            : Path.GetFullPath(Path.Combine(contentRootPath, configuredResourceRoot.Trim()));
+        return HireBotPathResolver.ResolveEvaluationResourceRoot(
+            contentRootPath,
+            configuredDataRoot,
+            configuredResourceRoot);
     }
 
     private static string Sanitize(string value, string fallback)

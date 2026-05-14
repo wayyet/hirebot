@@ -1,6 +1,7 @@
 using HireBot.ApiService.Authentication;
 using HireBot.ApiService.McpTools;
 using HireBot.Core.Extensions;
+using HireBot.Core.Services.Internal;
 using ModelContextProtocol.Protocol;
 using HireBot.Repository;
 using Microsoft.AspNetCore.Authentication;
@@ -126,6 +127,7 @@ if (builder.Configuration.GetValue("Database:AutoMigrateOnStartup", false))
 
 var evaluationResourceRoot = ResolveEvaluationResourceRoot(
     app.Environment.ContentRootPath,
+    builder.Configuration["HireBot:DataRoot"],
     builder.Configuration["HireBot:EvaluationResourceRoot"]);
 Directory.CreateDirectory(evaluationResourceRoot);
 
@@ -147,6 +149,16 @@ app.UseDirectoryBrowser(new DirectoryBrowserOptions
 {
     FileProvider = new PhysicalFileProvider(evaluationResourceRoot),
     RequestPath = "/resources"
+});
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/resources", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    await next();
 });
 // 提供默认文件（index.html），使 ASP.NET Core 可作为前端宿主
 app.UseDefaultFiles();
@@ -206,16 +218,12 @@ app.MapFallbackToFile("index.html");
 
 await app.RunAsync();
 
-static string ResolveEvaluationResourceRoot(string contentRootPath, string? configuredResourceRoot)
+static string ResolveEvaluationResourceRoot(string contentRootPath, string? configuredDataRoot, string? configuredResourceRoot)
 {
-    if (string.IsNullOrWhiteSpace(configuredResourceRoot))
-    {
-        return Path.GetFullPath(Path.Combine(contentRootPath, "wwwroot", "resources"));
-    }
-
-    return Path.IsPathRooted(configuredResourceRoot)
-        ? Path.GetFullPath(configuredResourceRoot.Trim())
-        : Path.GetFullPath(Path.Combine(contentRootPath, configuredResourceRoot.Trim()));
+    return HireBotPathResolver.ResolveEvaluationResourceRoot(
+        contentRootPath,
+        configuredDataRoot,
+        configuredResourceRoot);
 }
 
 static int ResolveMaxActivePersonalClonesPerOwner(IConfiguration configuration)
