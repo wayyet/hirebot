@@ -119,13 +119,6 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    [HttpPost("{hireId}/finalize")]
-    public async Task<IActionResult> FinalizeHiring(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.FinalizeAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
     /// <summary>
     /// 前端从沙箱网关直接下载产物包后上传至此接口，跳过后端对 KingCrab 的依赖，完成数字员工创建。
     /// </summary>

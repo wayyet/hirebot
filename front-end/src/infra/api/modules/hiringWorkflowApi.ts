@@ -533,10 +533,6 @@ export const hiringWorkflowApi = {
     return httpClient.get<HiringAuditLog[]>(`/api/v1/hirings/${hireId}/audit-logs`)
   },
 
-  finalize(hireId: string) {
-    return httpClient.post<HiringFinalizeResult>(`/api/v1/hirings/${hireId}/finalize`)
-  },
-
   getArtifactsDownloadUrl(hireId: string) {
     return buildArtifactsDownloadUrl(hireId)
   },
