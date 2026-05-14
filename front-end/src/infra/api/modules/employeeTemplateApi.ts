@@ -163,10 +163,15 @@ export const employeeTemplateApi = {
   // --- BuildService 接口（裸响应）---
   getList(params: {
     q?: string
+    tag?: string
     page?: number
     pageSize?: number
   }, signal?: AbortSignal) {
     return templateRawClient.get<EmployeeTemplateListData>('/api/store/templates', params, signal)
+  },
+
+  getTags(signal?: AbortSignal) {
+    return templateRawClient.get<string[]>('/api/store/templates/tags', undefined, signal)
   },
 
   getStoreDetail(templateId: string) {

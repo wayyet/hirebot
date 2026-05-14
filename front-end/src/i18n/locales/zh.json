@@ -123,6 +123,7 @@
     "title": "企业模板池",
     "copy": "浏览企业数字员工模板，选择合适模板即可快速发起部门雇佣流程。",
     "searchPlaceholder": "搜索模板名称、场景、能力关键词",
+    "clearSearch": "清空",
     "exploreAll": "探索全部模板",
     "templateCount": "共 {{count}} 个模板",
     "loading": "模板加载中...",

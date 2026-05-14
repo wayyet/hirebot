@@ -123,6 +123,7 @@
     "title": "Enterprise Template Pool",
     "copy": "Browse enterprise digital employee templates and quickly initiate department hiring.",
     "searchPlaceholder": "Search templates by name, scenario, or capability",
+    "clearSearch": "Clear",
     "exploreAll": "Explore All Templates",
     "templateCount": "{{count}} templates",
     "loading": "Loading templates...",
