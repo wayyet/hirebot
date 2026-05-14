@@ -18,7 +18,6 @@ import { instanceBasePath } from "@/shared/utils/instancePath";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
 import CloneEmployeeModal from "@/features/hiring/pages/components/CloneEmployeeModal";
 import {
-  firstCharacter,
   ownershipClass,
   ownershipLabel,
   statusClass,
@@ -200,10 +199,6 @@ export default function InstanceDetailPage() {
         <div className="space-y-5">
           <section className="hb-card hb-detail-hero">
             <div className="hb-detail-top">
-              <span className="hb-detail-avatar">
-                {firstCharacter(employee.nickname)}
-              </span>
-
               <div className="hb-detail-main">
                 <div className="hb-detail-title-row">
                   <h1>{employee.nickname}</h1>
@@ -222,25 +217,42 @@ export default function InstanceDetailPage() {
                   </span>
                 </div>
                 <div className="hb-detail-meta">
-                  所属部门 {employee.departmentId || employee.owningTeam} ·
-                  Owner {employee.ownerUserId} · 创建于 {employee.createdAt}
+                  {employee.roleName || employee.sourceTemplate}
                 </div>
                 <p className="hb-detail-desc">
                   {employee.primarySignal || employee.stageSummary}
                 </p>
 
                 <div className="hb-divider" />
-                <h3 className="hb-section-heading muted-heading">来源关系</h3>
-                <div className="hb-lineage">
-                  <span>{employee.sourceTemplate || "模板"}</span>
-                  <span>→</span>
-                  <span>
-                    {employee.fromInstanceId
-                      ? `源实例 ${employee.fromInstanceId}`
-                      : "部门员工"}
-                  </span>
-                  <span>→</span>
-                  <span>{employee.employeeId}</span>
+                <div className="hb-detail-meta-grid">
+                  <div className="hb-detail-meta-item">
+                    <span className="hb-detail-meta-label">来源模板</span>
+                    <strong>{employee.sourceTemplate || "模板"}</strong>
+                  </div>
+                  <div className="hb-detail-meta-item">
+                    <span className="hb-detail-meta-label">所属部门</span>
+                    <strong>{employee.departmentId || employee.owningTeam || "-"}</strong>
+                  </div>
+                  <div className="hb-detail-meta-item">
+                    <span className="hb-detail-meta-label">Owner</span>
+                    <strong>{employee.ownerUserId || "-"}</strong>
+                  </div>
+                  <div className="hb-detail-meta-item">
+                    <span className="hb-detail-meta-label">创建时间</span>
+                    <strong>{employee.createdAt}</strong>
+                  </div>
+                  <div className="hb-detail-meta-item">
+                    <span className="hb-detail-meta-label">来源关系</span>
+                    <strong>
+                      {employee.fromInstanceId
+                        ? `源实例 ${employee.fromInstanceId}`
+                        : "部门员工"}
+                    </strong>
+                  </div>
+                  <div className="hb-detail-meta-item">
+                    <span className="hb-detail-meta-label">实例 ID</span>
+                    <strong>{employee.employeeId}</strong>
+                  </div>
                 </div>
               </div>
 

@@ -146,6 +146,113 @@
     "my": {
       "title": "我的数字员工",
       "copy": "管理你直接负责的数字员工"
+    },
+    "status": {
+      "live": "已上岗",
+      "pendingOnboarding": "待上岗",
+      "interningAi": "AI评估中",
+      "interningHuman": "人工评估中",
+      "failed": "评估失败",
+      "retired": "已退役",
+      "hired": "已雇佣"
+    },
+    "ownership": {
+      "privateBranch": "私有分支",
+      "personalClone": "个人资产",
+      "department": "部门员工"
+    },
+    "departmentPage": {
+      "departmentName": "研发部",
+      "kickerManager": "团队资产概览",
+      "kickerMember": "部门可用资产",
+      "title": "部门数字员工",
+      "copyManager": "从部门视角统一查看 {{department}} 的已雇佣、评估中和已上岗实例，所有后续动作都从详情页进入。",
+      "copyMember": "当前仅展示 {{department}} 已上岗的部门实例，你可以进入详情后继续复制为自己的资产。",
+      "deleteDialogTitle": "确认删除数字员工",
+      "confirmDelete": "确认删除数字员工「{{nickname}}」？此操作不可撤销，将同时清理五件套文件。",
+      "deleteFailed": "删除失败",
+      "deleteErrorToast": "删除失败，请稍后重试",
+      "loadFailed": "部门数字员工加载失败",
+      "stats": {
+        "liveLabel": "已上岗",
+        "liveNote": "可直接复制",
+        "evaluatingLabel": "评估中",
+        "evaluatingNote": "AI / 人工评估",
+        "hiredLabel": "雇佣中",
+        "hiredNote": "等待进入评估",
+        "totalNote": "支持按状态筛选"
+      },
+      "searchPlaceholder": "搜索员工名称、能力标签、所属场景",
+      "clearFilters": "清空筛选",
+      "tabs": {
+        "hired": "已雇佣",
+        "intern": "待实习",
+        "live": "已上岗"
+      },
+      "subtabs": {
+        "ai": "AI 评估",
+        "human": "人工评估"
+      },
+      "loading": "正在加载部门数字员工...",
+      "emptyTitle": "当前没有符合筛选条件的数字员工",
+      "emptyCopyManager": "去模板池开始一轮新雇佣，或切换到其他状态查看不同阶段的员工。",
+      "emptyCopyMember": "等部门长完成上岗后，这里就会出现可以直接使用和复制的员工。",
+      "createdAt": "创建于 {{date}}",
+      "cloneReady": "可复制",
+      "actions": {
+        "uploadTemplate": "上传岗位员工",
+        "hireFromPool": "从模板池雇佣",
+        "more": "更多操作",
+        "enterAiEvaluation": "进入 AI 评估",
+        "enterHumanEvaluation": "进入人工评估",
+        "createClone": "创建分身",
+        "viewDetail": "查看详情",
+        "deleteEmployee": "删除员工"
+      }
+    },
+    "myPage": {
+      "kicker": "个人资产面板",
+      "title": "我的数字员工",
+      "copy": "这里仅展示你本人拥有的个人资产实例。已上岗后可继续进入详情、站内对话、IM 配置和私有化扩展。",
+      "backToDepartment": "从部门员工库创建个人实例",
+      "confirmAbandon": "废弃后会回滚五件套并恢复为个人分身，沙箱、对话和 IM 配置都会继续沿用。此操作不可撤销，确定继续？",
+      "abandonDialogTitle": "确认废弃私有分支",
+      "abandonSuccess": "私有分身已废弃，已恢复为个人分身",
+      "abandonFailed": "废弃失败，请稍后重试",
+      "confirmRetire": "确定要将此实例退役吗？退役后仅保留历史信息。",
+      "retireDialogTitle": "确认退役实例",
+      "retireSuccess": "实例已退役",
+      "retireFailed": "退役失败，请稍后重试",
+      "retiredStageSummary": "实例已退役",
+      "retiredPrimarySignal": "仅保留历史信息",
+      "loadFailed": "我的数字员工加载失败",
+      "stats": {
+        "totalLabel": "实例总数",
+        "liveLabel": "已上岗",
+        "branchLabel": "私有分支",
+        "retiredLabel": "已退役"
+      },
+      "filters": {
+        "all": "全部",
+        "live": "已上岗",
+        "branch": "私有分支",
+        "retired": "已退役"
+      },
+      "loading": "正在加载我的数字员工...",
+      "emptyTitle": "当前筛选下还没有你的个人资产",
+      "emptyCopy": "先去部门数字员工复制一个已上岗员工给自己，再回来这里继续对话、评估或定制。",
+      "updatedAt": "最近更新 {{date}}",
+      "actions": {
+        "startChat": "开始对话",
+        "viewReport": "查看评估报告",
+        "configureIm": "配置 IM",
+        "createPrivateBranch": "创建私有分支",
+        "retire": "退役",
+        "retiring": "退役中...",
+        "abandon": "废弃",
+        "abandoning": "废弃中...",
+        "viewDetail": "查看详情 →"
+      }
     }
   },
   "skills": {

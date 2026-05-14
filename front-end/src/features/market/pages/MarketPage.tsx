@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Clock, Search, Sparkles } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Clock, Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { api, type EmployeeTemplateCard, type EmployeeTemplateListData } from '@/infra/api'
+import { Pagination } from '@/shared/components/Pagination'
 
 const PAGE_SIZE = 9
 
@@ -12,19 +13,6 @@ const EMPTY_LIST: EmployeeTemplateListData = {
   pageSize: PAGE_SIZE,
   total: 0,
   items: [],
-}
-
-function getVisiblePages(current: number, total: number): number[] {
-  const start = Math.max(1, current - 2)
-  const end = Math.min(total, start + 4)
-  const fixedStart = Math.max(1, end - 4)
-
-  const pages: number[] = []
-  for (let index = fixedStart; index <= end; index += 1) {
-    pages.push(index)
-  }
-
-  return pages
 }
 
 function formatDate(value?: string | null) {
@@ -67,21 +55,11 @@ function TemplateCard({ template, onClick }: { template: EmployeeTemplateCard; o
 export default function MarketPage() {
   const navigate = useNavigate()
   const { t } = useTranslation()
-  const [searchInput, setSearchInput] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setPage(1)
-      setQuery(searchInput.trim())
-    }, 300)
-
-    return () => window.clearTimeout(timer)
-  }, [searchInput])
-
   const { data = EMPTY_LIST, isLoading, isPlaceholderData, error } = useQuery({
-    queryKey: ['templates', query, page],
+    queryKey: ['store-templates', query, page],
     queryFn: ({ signal }) =>
       api.employeeTemplate.getList({ q: query, page, pageSize: PAGE_SIZE }, signal),
     staleTime: 5 * 60 * 1000,
@@ -90,16 +68,23 @@ export default function MarketPage() {
   })
 
   const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE))
-  const visiblePages = useMemo(() => getVisiblePages(page, totalPages), [page, totalPages])
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages)
+    }
+  }, [page, totalPages])
 
   return (
     <div className="hb-page">
       <div className="hb-page-head">
         <div>
-          <span className="hb-kicker">{t('market.kicker')}</span>
           <h1 className="hb-page-title">{t('market.title')}</h1>
           <p className="hb-page-copy">
             {t('market.copy')}
+            <span className="hb-page-copy-meta">
+              · {t('market.templateCount', { count: data.total })}
+            </span>
           </p>
         </div>
       </div>
@@ -107,17 +92,28 @@ export default function MarketPage() {
       <div className="hb-search-shell mx-auto">
         <Search size={16} />
         <input
-          value={searchInput}
-          onChange={(event) => setSearchInput(event.target.value)}
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setPage(1)
+          }}
           placeholder={t('market.searchPlaceholder')}
           className="hb-search-input"
         />
-        <div className="hb-search-controls">
-          <button type="button" className="hb-btn-primary">
-            <Sparkles size={14} />
-            {t('market.exploreAll')}
-          </button>
-        </div>
+        {query ? (
+          <div className="hb-search-controls">
+            <button
+              type="button"
+              className="hb-btn-ghost hb-hub-btn-secondary"
+              onClick={() => {
+                setQuery('')
+                setPage(1)
+              }}
+            >
+              清空
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
@@ -157,36 +153,7 @@ export default function MarketPage() {
       </div>
 
       {data.items.length > 0 ? (
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
-            className="hb-btn-ghost !px-4 !py-2 !text-sm"
-          >
-            {t('market.prevPage')}
-          </button>
-
-          {visiblePages.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setPage(item)}
-              className={`hb-chip ${item === page ? 'is-active' : ''}`}
-            >
-              {item}
-            </button>
-          ))}
-
-          <button
-            type="button"
-            disabled={page >= totalPages}
-            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-            className="hb-btn-ghost !px-4 !py-2 !text-sm"
-          >
-            {t('market.nextPage')}
-          </button>
-        </div>
+        <Pagination page={page} totalPages={totalPages} onChange={setPage} />
       ) : null}
 
       <p className="mt-8 text-center text-xs text-[var(--hb-caption)]">

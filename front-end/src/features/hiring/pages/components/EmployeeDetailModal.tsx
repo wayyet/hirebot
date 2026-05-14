@@ -3,7 +3,6 @@ import { Check, Clock3, CopyPlus, Loader2, ShieldCheck, X } from "lucide-react";
 import { api, type EmployeeDetail } from "@/infra/api";
 import CloneEmployeeModal from "./CloneEmployeeModal";
 import {
-  firstCharacter,
   toEmployeeDetailSummary,
   withEmployeeView,
 } from "../employeeView";
@@ -91,19 +90,13 @@ export default function EmployeeDetailModal({
               </div>
 
               <div className="hb-modal-body space-y-4">
-                {/* 头部信息 */}
-                <div className="flex items-start gap-3">
-                  <span className="hb-squircle h-11 w-11 bg-blue-100 text-blue-600">
-                    {firstCharacter(detail.nickname)}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-[15px] font-semibold">
-                      {detail.nickname}
-                    </h3>
-                    <p className="mt-1 text-xs text-[var(--hb-soft)]">
-                      {detail.roleName || detail.sourceTemplate}
-                    </p>
-                  </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="hb-detail-panel-title truncate">
+                    {detail.nickname}
+                  </h3>
+                  <p className="mt-1 text-sm text-[var(--hb-soft)]">
+                    {detail.roleName || detail.sourceTemplate}
+                  </p>
                 </div>
 
                 {/* 元信息 */}
