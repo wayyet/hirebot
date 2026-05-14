@@ -142,6 +142,8 @@ export type {
 export type {
   SkillSummary,
   SkillDetail,
+  StoreSkillItem,
+  StoreSkillListData,
 } from './modules/skillCatalogApi'
 
 export type {

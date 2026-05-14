@@ -1350,15 +1350,11 @@ export default function HiringPage() {
             }}
           />
 
-          {/* MCP TODO 交互面板：AI 通过 tool_result/typing_stop 驱动实时刷新 */}
+          {/* MCP TODO 交互面板：完全由 WS artifact 事件驱动阶段亮灯 */}
           <HiringTodoPanel
-            handoffItems={handoffItems}
-            newHandoffIds={newHandoffIds}
-            onConfirmTodo={handleConfirmTodo}
-            onDismissTodo={handleDismissTodo}
-            onUploadFile={handleUploadTodoFile}
-            onUploadSkill={handleUploadSkillTodo}
-            onSaveExternalConfig={handleSaveExternalConfig}
+            sessionId={sessionIdRef.current}
+            wsStageOverrides={wsStageOverrides}
+            onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}
             onGenerate={() => { void triggerCreate() }}
             generated={instanceCreated}
           />

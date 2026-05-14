@@ -6690,3 +6690,160 @@ body.hb-body-hiring-prototype {
   gap: 6px;
   padding-top: 2px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   HiringTodoPanel 重构版（artifact 驱动）补充样式
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.hb-todo-stage-card.is-failed { border-color: #ef4444; }
+.hb-todo-stage-badge.is-failed { background: rgba(239,68,68,0.12); color: #ef4444; }
+
+.hb-todo-stage-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 0 0 6px;
+  line-height: 1.5;
+}
+
+.hb-todo-hint-muted { font-size: 12px; color: var(--ink-3); margin: 0; }
+.hb-todo-error { font-size: 12px; color: #ef4444; margin: 4px 0 0; }
+
+/* 资料卡：拖拽区 */
+.hb-todo-dropzone {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 14px 12px;
+  text-align: center;
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.hb-todo-dropzone:hover { border-color: var(--accent); }
+.hb-todo-dropzone.is-busy { opacity: 0.6; pointer-events: none; }
+.hb-todo-dropzone-title { font-size: 13px; font-weight: 600; margin: 0; color: var(--ink-1); }
+.hb-todo-dropzone-hint  { font-size: 11.5px; color: var(--ink-3); margin: 0; }
+.hb-todo-dropzone-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+/* 资料卡：文件列表 */
+.hb-todo-file-list {
+  list-style: none; padding: 0; margin: 8px 0 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.hb-todo-file-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; padding: 4px 8px;
+  border-radius: 6px; background: var(--surface-2);
+}
+.hb-todo-file-item.is-more { justify-content: center; color: var(--ink-3); }
+.hb-todo-file-fmt {
+  font-size: 10px; font-weight: 700; padding: 1px 5px;
+  border-radius: 3px; text-transform: uppercase;
+  background: rgba(74,108,247,0.14); color: var(--accent);
+}
+.hb-todo-file-fmt.is-json { background: rgba(234,179,8,0.14); color: #b45309; }
+.hb-todo-file-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-1); }
+.hb-todo-file-size { color: var(--ink-3); flex-shrink: 0; }
+
+/* 技能卡 */
+.hb-todo-skill { display: flex; flex-direction: column; gap: 8px; }
+.hb-todo-input {
+  width: 100%; padding: 7px 10px; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface); color: var(--ink-1);
+}
+.hb-todo-input:focus { outline: none; border-color: var(--accent); }
+.hb-todo-skill-list {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 320px; overflow-y: auto;
+}
+.hb-todo-skill-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 6px;
+  background: var(--surface-2);
+}
+.hb-todo-skill-info { flex: 1; min-width: 0; }
+.hb-todo-skill-info strong { font-size: 13px; color: var(--ink-1); }
+.hb-todo-skill-meta { font-size: 11px; color: var(--ink-3); margin-left: 6px; }
+.hb-todo-skill-desc { font-size: 11.5px; color: var(--ink-2); margin: 2px 0 0; line-height: 1.4; }
+.hb-todo-skill-linked { margin-top: 4px; display: flex; flex-direction: column; gap: 4px; }
+.hb-todo-tag-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.hb-todo-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(74,108,247,0.12); color: var(--accent);
+}
+.hb-todo-tag-x { background: none; border: none; cursor: pointer; color: inherit; font-size: 13px; padding: 0; }
+
+/* 外部系统卡 */
+.hb-todo-external { display: flex; flex-direction: column; gap: 8px; }
+.hb-todo-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-2); }
+.hb-todo-field > span { font-size: 12px; color: var(--ink-2); }
+.hb-todo-actions-row { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+
+/* 200% 缩放 / Surface Pro 8 类窄屏适配（CSS 像素 <= 1100） */
+@media (max-width: 1100px) {
+  .hb-todo-panel-head { padding: 12px 14px 8px; }
+  .hb-todo-panel-body { padding: 8px 8px 14px; gap: 6px; }
+  .hb-todo-stage-head { padding: 8px 10px; gap: 6px; }
+  .hb-todo-stage-title { font-size: 12.5px; }
+  .hb-todo-stage-num { font-size: 13.5px; width: 18px; }
+  .hb-todo-stage-badge { font-size: 10.5px; padding: 1px 6px; }
+  .hb-todo-stage-body { padding: 6px 8px 8px; }
+  .hb-todo-stage-hint { font-size: 11.5px; }
+  .hb-todo-dropzone { padding: 10px 8px; }
+  .hb-todo-dropzone-title { font-size: 12px; }
+  .hb-todo-dropzone-hint  { font-size: 10.5px; }
+  .hb-todo-dropzone-actions { flex-direction: column; width: 100%; }
+  .hb-todo-dropzone-actions > button { width: 100%; }
+  .hb-todo-file-item { font-size: 11.5px; padding: 3px 6px; }
+  .hb-todo-skill-list { max-height: 240px; }
+  .hb-todo-skill-item { flex-direction: column; align-items: stretch; }
+  .hb-todo-skill-item > button { align-self: flex-end; }
+  .hb-todo-input { font-size: 12px; padding: 6px 8px; }
+}
+/* ═══════════════════════════════════════════════════════════════════════
+   HiringTodoPanel —— 展示优化（更大显示范围 + 滚动）
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 阶段卡内容区可滚动，避免被压扁；最大高度按视口比例约束 */
+.hb-todo-stage-body {
+  max-height: min(56vh, 520px);
+  overflow-y: auto;
+}
+
+/* 资料文件列表：更大可视范围 + 滚动 */
+.hb-todo-file-list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* 技能搜索结果：放大显示区域 */
+.hb-todo-skill-list {
+  max-height: 420px;
+}
+
+/* 小尺寸标签变体 */
+.hb-todo-tag.is-mini { font-size: 10.5px; padding: 1px 6px; }
+
+/* 列表滚动条美化（webkit） */
+.hb-todo-stage-body::-webkit-scrollbar,
+.hb-todo-file-list::-webkit-scrollbar,
+.hb-todo-skill-list::-webkit-scrollbar { width: 6px; }
+.hb-todo-stage-body::-webkit-scrollbar-thumb,
+.hb-todo-file-list::-webkit-scrollbar-thumb,
+.hb-todo-skill-list::-webkit-scrollbar-thumb {
+  background: var(--line); border-radius: 3px;
+}
+
+/* 200% 缩放下进一步收紧 */
+@media (max-width: 1100px) {
+  .hb-todo-stage-body { max-height: min(60vh, 420px); }
+  .hb-todo-file-list { max-height: 200px; }
+  .hb-todo-skill-list { max-height: 280px; }
+}

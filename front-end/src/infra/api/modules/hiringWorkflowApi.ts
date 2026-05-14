@@ -678,6 +678,46 @@ export const hiringWorkflowApi = {
       { status },
     )
   },
+
+  /**
+   * 上传 TODO 资料文件（仅支持 md / json）到 wwwroot/resources/todo-files/{sessionId}/{folder?}/
+   * 由 MCP 工具 hiring.parse_uploaded_files 读取并交给大模型解析。
+   */
+  async uploadTodoFiles(
+    sessionId: string,
+    files: File[],
+    folder?: string,
+  ): Promise<Array<{ relativePath: string; sizeBytes: number; format: string }>> {
+    const path = `/api/v1/hiring-todos/${encodeURIComponent(sessionId)}/files/upload`
+    const url = `${API_BASE_URL}${path}`
+    const accessToken = await tokenService.ensureFresh()
+    const form = new FormData()
+    if (folder && folder.trim()) form.append('folder', folder.trim())
+    for (const f of files) form.append('files', f, f.name)
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: form,
+    })
+    const text = await response.text()
+    if (!response.ok) {
+      try {
+        const p = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
+        throw new ApiClientError(p.message?.trim() || `上传失败（HTTP ${response.status}）`, response.status, p.code, p)
+      } catch {
+        throw new ApiClientError(`上传失败（HTTP ${response.status}）`, response.status, undefined, text)
+      }
+    }
+    const env = JSON.parse(text) as ApiResponseEnvelope<Array<{ relativePath: string; sizeBytes: number; format: string }>>
+    return env?.data ?? []
+  },
+
+  /** 列出已上传的 TODO 资料文件（仅元信息）。*/
+  async listTodoFiles(sessionId: string): Promise<Array<{ relativePath: string; sizeBytes: number; format: string }>> {
+    const path = `/api/v1/hiring-todos/${encodeURIComponent(sessionId)}/files`
+    return httpClient.get<Array<{ relativePath: string; sizeBytes: number; format: string }>>(path)
+  },
 }
 
 
