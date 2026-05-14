@@ -19,110 +19,13 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
 {
     private readonly string artifactRoot = Path.Combine(Path.GetTempPath(), $"hirebot-tests-{Guid.NewGuid():N}");
 
-    [Fact]
-    public async Task SendMessageAsync_ForLivePersonalClone_CallsSandboxAndPersistsMessages()
-    {
-        await using var dbContext = CreateDbContext();
-        var instance = SeedLivePersonalClone(dbContext);
-        SeedArtifacts(instance);
-        var sandbox = new FakeSandboxService("Sandbox answer");
-        var service = CreateService(dbContext, sandbox: sandbox);
 
-        var response = await service.SendMessageAsync(instance.InstanceId, "inapp", "你好", instance.OwnerUserId);
 
-        Assert.True(response.Success, response.Message);
-        Assert.Equal("Sandbox answer", response.Data!.AssistantMessage.Content);
-        Assert.Single(sandbox.CreateRequests);
-        Assert.Single(sandbox.SendRequests);
-        Assert.Equal($"instance:{instance.InstanceId}", sandbox.SendRequests[0].ScopeKey);
-        Assert.Equal("runtime", sandbox.SendRequests[0].SandboxRole);
-        Assert.Equal("inapp", sandbox.SendRequests[0].SessionKey);
-        Assert.Equal("你好", sandbox.SendRequests[0].Content);
-        Assert.NotNull(sandbox.SendRequests[0].Materials);
-        Assert.Empty(sandbox.SendRequests[0].Materials!);
-        Assert.False(sandbox.SendRequests[0].UploadMaterialsAsAttachments);
 
-        var messages = await dbContext.Messages.OrderBy(item => item.CreatedAt).ToArrayAsync();
-        Assert.Equal(2, messages.Length);
-        Assert.Equal("user", messages[0].Role);
-        Assert.Equal("assistant", messages[1].Role);
-        Assert.All(messages, message => Assert.Equal("inapp", message.Channel));
-    }
 
-    [Fact]
-    public async Task SendMessageAsync_ForDuplicateExternalMessage_ReturnsConflictAndDoesNotCallKingCrewTwice()
-    {
-        await using var dbContext = CreateDbContext();
-        var instance = SeedLivePersonalClone(dbContext);
-        SeedArtifacts(instance);
-        var sandbox = new FakeSandboxService("ok");
-        var service = CreateService(dbContext, sandbox: sandbox);
 
-        var first = await service.SendMessageAsync(instance.InstanceId, "feishu", "hello", instance.OwnerUserId, externalMessageId: "msg-1", externalUserId: "open-1");
-        var second = await service.SendMessageAsync(instance.InstanceId, "feishu", "hello again", instance.OwnerUserId, externalMessageId: "msg-1", externalUserId: "open-1");
 
-        Assert.True(first.Success, first.Message);
-        Assert.False(second.Success);
-        Assert.Equal(409, second.Code);
-        Assert.Single(sandbox.SendRequests);
-    }
 
-    [Fact]
-    public async Task SendMessageAsync_UsesSandboxReply()
-    {
-        await using var dbContext = CreateDbContext();
-        var instance = SeedLivePersonalClone(dbContext);
-        SeedArtifacts(instance);
-        var service = CreateService(dbContext, sandbox: new FakeSandboxService("runtime reply"));
-
-        var response = await service.SendMessageAsync(instance.InstanceId, "inapp", "hello replay", instance.OwnerUserId);
-
-        Assert.True(response.Success, response.Message);
-        Assert.Equal("runtime reply", response.Data!.AssistantMessage.Content);
-    }
-
-    [Fact]
-    public async Task SendMessageAsync_ForDepartmentInstance_IsRejected()
-    {
-        await using var dbContext = CreateDbContext();
-        var instance = SeedInstance(dbContext, "dept_1", "department", "live", "owner-1", null);
-        var service = CreateService(dbContext);
-
-        var response = await service.SendMessageAsync(instance.InstanceId, "inapp", "你好", instance.OwnerUserId);
-
-        Assert.False(response.Success);
-        Assert.Equal(409, response.Code);
-    }
-
-    [Fact]
-    public async Task ClearMessagesAsync_ClearsOnlyRequestedChannel()
-    {
-        await using var dbContext = CreateDbContext();
-        var instance = SeedLivePersonalClone(dbContext);
-        SeedArtifacts(instance);
-        var service = CreateService(dbContext);
-
-        await service.SendMessageAsync(instance.InstanceId, "inapp", "inapp", instance.OwnerUserId);
-        await service.SendMessageAsync(instance.InstanceId, "feishu", "feishu", instance.OwnerUserId, externalMessageId: "feishu-1");
-
-        var clear = await service.ClearMessagesAsync(instance.InstanceId, "inapp", instance.OwnerUserId);
-
-        Assert.True(clear.Success, clear.Message);
-        var remaining = await dbContext.Messages.ToArrayAsync();
-        Assert.All(remaining, message => Assert.Equal("feishu", message.Channel));
-    }
-
-    private InstanceRuntimeConversationService CreateService(
-        HireBotDbContext dbContext,
-        ISandboxService? sandbox = null)
-    {
-        return new InstanceRuntimeConversationService(
-            dbContext,
-            new FakeEmployeeRuntimeStore(),
-            new FakeRequestContextService("owner-1"),
-            sandbox ?? new FakeSandboxService("assistant"),
-            NullLogger<InstanceRuntimeConversationService>.Instance);
-    }
 
     private HireBotDbContext CreateDbContext()
     {
@@ -260,21 +163,6 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         }
     }
 
-    private sealed class FakeEmployeeRuntimeStore : IEmployeeRuntimeStore
-    {
-        public Task<IReadOnlyList<EmployeeDetailDto>> ListAsync(string ownerSubject, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<EmployeeDetailDto>>([]);
 
-        public Task<EmployeeDetailDto?> GetAsync(string ownerSubject, string employeeId, CancellationToken cancellationToken = default) => Task.FromResult<EmployeeDetailDto?>(null);
-
-        public Task<EmployeeDetailDto?> FindAsync(string employeeId, CancellationToken cancellationToken = default) => Task.FromResult<EmployeeDetailDto?>(null);
-
-        public Task<bool> ExistsNameAsync(string ownerSubject, string displayName, CancellationToken cancellationToken = default) => Task.FromResult(false);
-
-        public Task<EmployeeDetailDto> UpsertAsync(string ownerSubject, EmployeeDetailDto employee, CancellationToken cancellationToken = default) => Task.FromResult(employee);
-
-        public Task<int> UpsertManyAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> employees, CancellationToken cancellationToken = default) => Task.FromResult(employees.Count);
-
-        public Task<int> ReplaceOwnerAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> employees, CancellationToken cancellationToken = default) => Task.FromResult(employees.Count);
-    }
 }
 

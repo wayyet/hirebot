@@ -1,4 +1,4 @@
-﻿﻿using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
@@ -182,7 +182,7 @@ public static class ServiceExtensions
         services.AddScoped<IHiringArtifactPackageService, HiringArtifactPackageService>();
         services.AddScoped<IHiringTodoService, HiringTodoService>();
         services.AddScoped<IEmployeeRuntimeService, EmployeeRuntimeService>();
-        services.AddScoped<IInstanceChatService, InstanceChatService>();
+   
         services.AddScoped<ISecretProtector, DataProtectionSecretProtector>();
 
         services.AddScoped<ITrainingService, TrainingService>();
