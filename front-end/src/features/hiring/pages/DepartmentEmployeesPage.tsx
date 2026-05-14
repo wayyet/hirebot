@@ -16,6 +16,8 @@ import { useNavigate } from "react-router-dom";
 import { useUserRole } from "@/app/context/UserRoleContext";
 import { api, type EmployeeSummary } from "@/infra/api";
 import TemplateUploadModal from "./components/TemplateUploadModal";
+import CloneEmployeeModal from "./components/CloneEmployeeModal";
+import EmployeeDetailModal from "./components/EmployeeDetailModal";
 import {
   firstCharacter,
   statusClass,
@@ -38,9 +40,19 @@ export default function DepartmentEmployeesPage() {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [cloneTarget, setCloneTarget] = useState<{
+    employeeId: string;
+    nickname: string;
+    roleName: string;
+  } | null>(null);
+  const [detailEmployeeId, setDetailEmployeeId] = useState<string | null>(null);
 
   async function handleDelete(employeeId: string, nickname: string) {
-    if (!window.confirm(`确认删除数字员工「${nickname}」？此操作不可撤销，将同时清理五件套文件。`)) {
+    if (
+      !window.confirm(
+        `确认删除数字员工「${nickname}」？此操作不可撤销，将同时清理五件套文件。`,
+      )
+    ) {
       return;
     }
 
@@ -166,14 +178,6 @@ export default function DepartmentEmployeesPage() {
     });
   }, [internSubTab, query, role, tab, viewedEmployees]);
 
-  function openClone(employeeId: string) {
-    navigate(`/clone/${employeeId}`);
-  }
-
-  function openDetail(employeeId: string) {
-    navigate(`/department-employees/instances/${employeeId}`);
-  }
-
   function openAiEvaluation(employeeId: string) {
     navigate(`/department-employees/instances/${employeeId}/evaluation`);
   }
@@ -192,7 +196,7 @@ export default function DepartmentEmployeesPage() {
         `/department-employees/instances/${employee.employeeId}/human-evaluation`,
       );
     } else {
-      navigate(`/department-employees/instances/${employee.employeeId}`);
+      setDetailEmployeeId(employee.employeeId);
     }
   }
 
@@ -377,10 +381,10 @@ export default function DepartmentEmployeesPage() {
                         {firstCharacter(employee.nickname)}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <h3 className="truncate text-[15px] font-semibold text-[var(--hb-near-black)]">
-                            {employee.nickname}
-                          </h3>
+                        <h3 className="truncate text-[15px] font-semibold text-[var(--hb-near-black)]">
+                          {employee.nickname}
+                        </h3>
+                        <div className="mt-1 flex items-center gap-2">
                           <span
                             className={`hb-pill ${statusClass(employee.mappedStatus, employee.lifecycleStatus)}`}
                           >
@@ -389,10 +393,10 @@ export default function DepartmentEmployeesPage() {
                               employee.lifecycleStatus,
                             )}
                           </span>
+                          <p className="truncate text-xs text-[var(--hb-soft)]">
+                            {employee.roleName || employee.sourceTemplate}
+                          </p>
                         </div>
-                        <p className="mt-1 truncate text-xs text-[var(--hb-soft)]">
-                          {employee.roleName || employee.sourceTemplate}
-                        </p>
                       </div>
                     </div>
                     <p className="line-clamp-2 min-h-10 text-sm leading-relaxed text-[var(--hb-body)]">
@@ -434,7 +438,7 @@ export default function DepartmentEmployeesPage() {
                           <button
                             type="button"
                             className="hb-btn-ghost"
-                            onClick={() => openDetail(employee.employeeId)}
+                            onClick={() => setDetailEmployeeId(employee.employeeId)}
                           >
                             查看详情
                             <ArrowRight size={14} />
@@ -455,7 +459,7 @@ export default function DepartmentEmployeesPage() {
                           <button
                             type="button"
                             className="hb-btn-ghost"
-                            onClick={() => openDetail(employee.employeeId)}
+                            onClick={() => setDetailEmployeeId(employee.employeeId)}
                           >
                             查看详情
                             <ArrowRight size={14} />
@@ -463,11 +467,19 @@ export default function DepartmentEmployeesPage() {
                         </>
                       ) : (
                         <>
-                          {canClone && role === "member" ? (
+                          {canClone ? (
                             <button
                               type="button"
                               className="hb-btn-primary"
-                              onClick={() => openClone(employee.employeeId)}
+                              onClick={() =>
+                                setCloneTarget({
+                                  employeeId: employee.employeeId,
+                                  nickname: employee.nickname,
+                                  roleName:
+                                    employee.roleName ||
+                                    employee.sourceTemplate,
+                                })
+                              }
                             >
                               <CopyPlus size={14} />
                               创建分身
@@ -478,7 +490,7 @@ export default function DepartmentEmployeesPage() {
                             className={
                               canClone ? "hb-btn-ghost" : "hb-btn-primary"
                             }
-                            onClick={() => openDetail(employee.employeeId)}
+                            onClick={() => setDetailEmployeeId(employee.employeeId)}
                           >
                             查看详情
                             <ArrowRight size={14} />
@@ -515,6 +527,28 @@ export default function DepartmentEmployeesPage() {
         onClose={() => setUploadModalOpen(false)}
         onSuccess={() => {
           setUploadModalOpen(false);
+          setRefreshKey((k) => k + 1);
+        }}
+      />
+
+      <CloneEmployeeModal
+        open={cloneTarget !== null}
+        employeeId={cloneTarget?.employeeId ?? ""}
+        sourceNickname={cloneTarget?.nickname ?? ""}
+        sourceRoleName={cloneTarget?.roleName ?? ""}
+        onClose={() => setCloneTarget(null)}
+        onSuccess={() => {
+          setCloneTarget(null);
+          setRefreshKey((k) => k + 1);
+        }}
+      />
+
+      <EmployeeDetailModal
+        open={detailEmployeeId !== null}
+        employeeId={detailEmployeeId ?? ""}
+        onClose={() => setDetailEmployeeId(null)}
+        onCloneSuccess={() => {
+          setDetailEmployeeId(null);
           setRefreshKey((k) => k + 1);
         }}
       />

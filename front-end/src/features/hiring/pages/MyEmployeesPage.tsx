@@ -134,11 +134,13 @@ export default function MyEmployeesPage() {
   );
 
   const myEmployees = useMemo(() => {
-    return viewedEmployees.filter(
-      (item) =>
-        item.ownership === "personal_clone" ||
-        item.ownership === "private_branch",
-    );
+    return viewedEmployees
+      .filter(
+        (item) =>
+          item.ownership === "personal_clone" ||
+          item.ownership === "private_branch",
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [viewedEmployees]);
 
   const counts = useMemo(() => {

@@ -6,10 +6,8 @@ import {
   Clock3,
   CopyPlus,
   Loader2,
-  MessageCircle,
   RotateCcw,
   ShieldCheck,
-  Users,
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useUserRole } from "@/app/context/UserRoleContext";
@@ -17,6 +15,7 @@ import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeDetail } from "@/infra/api";
 import { instanceBasePath } from "@/shared/utils/instancePath";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
+import CloneEmployeeModal from "@/features/hiring/pages/components/CloneEmployeeModal";
 import {
   firstCharacter,
   ownershipClass,
@@ -37,6 +36,7 @@ export default function InstanceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [cloneModalOpen, setCloneModalOpen] = useState(false);
 
   async function loadEmployee() {
     if (!id) return;
@@ -213,7 +213,7 @@ export default function InstanceDetailPage() {
                   <button
                     type="button"
                     className="hb-btn-primary"
-                    onClick={() => navigate(`/clone/${employee.employeeId}`)}
+                    onClick={() => setCloneModalOpen(true)}
                   >
                     <CopyPlus size={14} />
                     {role === "member" ? "创建分身" : "复制为我的分身"}
@@ -323,6 +323,18 @@ export default function InstanceDetailPage() {
           </section>
         </div>
       )}
+
+      <CloneEmployeeModal
+        open={cloneModalOpen}
+        employeeId={employee?.employeeId ?? ""}
+        sourceNickname={employee?.nickname ?? ""}
+        sourceRoleName={employee?.roleName ?? ""}
+        onClose={() => setCloneModalOpen(false)}
+        onSuccess={() => {
+          setCloneModalOpen(false);
+          void loadEmployee();
+        }}
+      />
     </div>
   );
 }
