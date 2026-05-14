@@ -242,6 +242,19 @@ internal sealed partial class EvaluationService
              message.Content.Contains("你可以继续对话询问题卡细节、评分标准", StringComparison.OrdinalIgnoreCase)));
     }
 
+    private static bool HasTargetSandboxContextPrompt(IReadOnlyList<HiringConversationMessageDto> messages)
+    {
+        if (messages.Count == 0)
+        {
+            return false;
+        }
+
+        return messages.Any(message =>
+            string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(message.Content) &&
+            message.Content.Contains("目标沙箱连接上下文已就绪", StringComparison.Ordinal));
+    }
+
     private static string BuildQuestionCardsMarkdown(IReadOnlyList<EvaluationQuestionCardDto> cards)
     {
         if (cards.Count == 0)
