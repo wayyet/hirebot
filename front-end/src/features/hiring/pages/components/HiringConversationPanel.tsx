@@ -5,9 +5,10 @@ import { Check, Copy, FileText, Paperclip, Package, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import type { ChatFile, ChatMessage } from '../hiringPageTypes'
+import type { ChatFile, ChatMessage, ToolStep } from '../hiringPageTypes'
 import type { HiringGuideVm } from '../hiringWorkflowViewModel'
 import { ArtifactMessageCard } from './ArtifactMessageCard'
+import { HiringToolStepsBlock } from './HiringToolStepsBlock'
 import { StageGateCard } from './StageGateCard'
 
 /** 将对话消息列表转换为 Markdown 字符串，便于粘贴给其他 LLM 分析 */
@@ -82,6 +83,8 @@ type HiringConversationPanelProps = {
   typing: boolean
   /** WS 流式内容，非 null 时显示逐字输出气泡 */
   streamingContent?: string | null
+  /** 当前轮次正在累积/已完成的 MCP 工具调用步骤，伴随流式气泡展示 */
+  streamingToolSteps?: ToolStep[]
   pendingFiles: ChatFile[]
   input: string
   promptPlaceholder: string
@@ -98,6 +101,13 @@ type HiringConversationPanelProps = {
   formatFileSize: (bytes: number) => string
   /** 带 token 的 gateway 文件下载回调 */
   onArtifactFileDownload?: (url: string, fileName: string) => void
+  /** 工作流连接状态徽标：放在聊天面板顶部 */
+  workflowStatus?: {
+    label: string
+    tone: 'gray' | 'blue' | 'green' | 'pink'
+    onRetry?: () => void
+    retryDisabled?: boolean
+  } | null
 }
 
 export function HiringConversationPanel({
@@ -108,6 +118,7 @@ export function HiringConversationPanel({
   messages,
   typing,
   streamingContent,
+  streamingToolSteps,
   pendingFiles,
   input,
   promptPlaceholder,
@@ -115,7 +126,6 @@ export function HiringConversationPanel({
   fileInputRef,
   composerRef,
   chatEndRef,
-  onStartGuide,
   onInputChange,
   onSend,
   onFileChange,
@@ -123,6 +133,7 @@ export function HiringConversationPanel({
   onRemovePendingFile,
   formatFileSize,
   onArtifactFileDownload,
+  workflowStatus,
 }: HiringConversationPanelProps) {
   const [copied, setCopied] = useState(false)
 
@@ -137,6 +148,22 @@ export function HiringConversationPanel({
 
   return (
     <div className="hb-hiring-chat">
+      {workflowStatus ? (
+        <div className={`hb-hiring-chat-status is-${workflowStatus.tone}`}>
+          <span className="hb-hiring-chat-status-dot" />
+          <span className="hb-hiring-chat-status-label">{workflowStatus.label}</span>
+          {workflowStatus.onRetry ? (
+            <button
+              type="button"
+              className="hb-hiring-inline-btn"
+              onClick={workflowStatus.onRetry}
+              disabled={workflowStatus.retryDisabled}
+            >
+              重试初始化
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="hb-hiring-chat-body">
         <InfoCard
           title={`我是${introName}`}
@@ -145,39 +172,6 @@ export function HiringConversationPanel({
             <>你好，我是数字员工{introName}，本次会围绕 {introAbilities} 等能力完成资料发现、技能整理、外部系统确认和实例交付。</>
           }
         />
-        <InfoCard
-          title="这些是我要完成的入职事项"
-          body="资料、技能、系统和实例包会在同一条会话里逐步闭环。右侧会同步记录每一项进度。"
-          actions={!journeyGuideVisible ? (
-            <button type="button" className="hb-hiring-card-action primary" onClick={onStartGuide}>
-              开始第一步
-            </button>
-          ) : undefined}
-        />
-        {journeyGuideVisible && (
-          <InfoCard
-            title={guideCard.title}
-            body={guideCard.description}
-            detail={(
-              <div className="hb-hiring-guide-list">
-                <div className="hb-hiring-guide-item">
-                  <strong>{guideCard.bulletTitle}</strong>
-                  <span>{guideCard.bulletBody}</span>
-                </div>
-                <div className="hb-hiring-guide-item">
-                  <strong>当前状态</strong>
-                  <span>{guideCard.statusText}</span>
-                </div>
-                {guideCard.hints.map((hint) => (
-                  <div key={hint} className="hb-hiring-guide-item is-muted">
-                    <strong>提示</strong>
-                    <span>{hint}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          />
-        )}
 
         {messages.map((message) => {
           // artifact 产物卡片：不受 role 方向影响，居左展示
@@ -210,6 +204,9 @@ export function HiringConversationPanel({
               {message.role === 'user' ? '你' : introName.slice(0, 1).toUpperCase()}
             </div>
             <div className={`hb-hiring-msg-stack ${message.role === 'user' ? 'is-user' : ''}`}>
+              {message.role === 'bot' && message.toolSteps && message.toolSteps.length > 0 ? (
+                <HiringToolStepsBlock steps={message.toolSteps} />
+              ) : null}
               {message.content ? (
                 <div className={`hb-hiring-bubble ${message.role === 'user' ? 'is-user' : 'is-bot'}`}>
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -233,23 +230,33 @@ export function HiringConversationPanel({
         {streamingContent !== null && streamingContent !== undefined ? (
           <div className="hb-hiring-msg">
             <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
-            <div className="hb-hiring-bubble is-bot">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {streamingContent.length > 0 ? streamingContent : '…'}
-              </ReactMarkdown>
+            <div className="hb-hiring-msg-stack">
+              {streamingToolSteps && streamingToolSteps.length > 0 ? (
+                <HiringToolStepsBlock steps={streamingToolSteps} />
+              ) : null}
+              <div className="hb-hiring-bubble is-bot">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {streamingContent.length > 0 ? streamingContent : '…'}
+                </ReactMarkdown>
+              </div>
             </div>
           </div>
         ) : typing ? (
           <div className="hb-hiring-msg">
             <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
-            <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
-              {[0, 1, 2].map((index) => (
-                <span
-                  key={index}
-                  className="hb-hiring-typing-dot"
-                  style={{ animationDelay: `${index * 0.15}s` }}
-                />
-              ))}
+            <div className="hb-hiring-msg-stack">
+              {streamingToolSteps && streamingToolSteps.length > 0 ? (
+                <HiringToolStepsBlock steps={streamingToolSteps} />
+              ) : null}
+              <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
+                {[0, 1, 2].map((index) => (
+                  <span
+                    key={index}
+                    className="hb-hiring-typing-dot"
+                    style={{ animationDelay: `${index * 0.15}s` }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         ) : null}
@@ -296,7 +303,7 @@ export function HiringConversationPanel({
                   onSend()
                 }
               }}
-              rows={3}
+              rows={2}
               placeholder={promptPlaceholder}
               className="hb-hiring-textarea"
             />

@@ -1,50 +1,58 @@
 {
-  "schemaVersion": 2,
-  "description": "定义沙箱工作区的目录结构约定。所有 skill 在写入产物或读取上传文件时，必须以本文件中定义的路径为准，不得自行选择目录。workspace_root 由雇佣教练在会话开始时从上传模板中解析出 template_slug，并以绝对路径 /workspace/<template-slug>/ 确定；此后所有目录均以该路径为前缀。",
+  "schemaVersion": 3,
+  "description": "定义沙箱工作区的目录结构约定。所有 skill 在写入产物或读取上传文件时，必须以本文件中定义的路径为准，不得自行选择目录。本文件内所有以 <workspace_root> 形式出现的占位符，都代表雇佣教练在会话初始化时通过沙箱解压工具创建并锁定的会话级真实绝对路径，由 emit_artifact.data.workspace_root 透传给所有下游 skill；下游 skill 必须把它当作运行时变量替换后再使用，绝不能把字面字符串 <workspace_root> 写入任何产物。",
 
-  "workspace_root": "/workspace/<template-slug>",
-  "workspace_root_note": "template_slug 由雇佣教练在收到用户上传后从 ZIP 包名或包内 manifest.json 的 slug 字段解析得出，只保留小写字母、数字和连字符。例如上传 sales-assistant-v2.zip 则 template_slug = sales-assistant-v2，工作区根目录为 /workspace/sales-assistant-v2/。",
+  "workspace_root": "<workspace_root>",
+  "workspace_root_note": "运行时由 employment-coach-conversation 在会话初始化阶段确定：先用沙箱 shell/unzip 工具读取上传 ZIP 内的 manifest.json，按优先级（manifest.slug → manifest.name slug 化 → 兜底 template）解析出 template_slug，然后以 /workspace/<template_slug>-<yyyymmddHHmmss>/ 形态创建本会话独占目录（时间戳精确到秒，避免同租户多会话冲突）。该绝对路径即为 workspace_root，整个会话不变，且通过 emit_artifact.data.workspace_root 字段透传给所有下游 skill。",
+  "workspace_root_must_not": [
+    "不得直接用 /workspace 作为 workspace_root，/workspace 是租户+用户级共享 PVC",
+    "不得把字面字符串 <workspace_root> 或 <template-slug> 等占位符写入 artifact data、TODO 工单或产物文件",
+    "不得在不同会话之间复用同一个 workspace_root；每次新会话都必须重新生成带时间戳的目录"
+  ],
 
   "directories": {
-    "config":   "/workspace/<template-slug>/config/",
-    "uploads":  "/workspace/<template-slug>/uploads/",
-    "ontology": "/workspace/<template-slug>/ontology/",
-    "skills":   "/workspace/<template-slug>/skills/",
-    "external": "/workspace/<template-slug>/external/"
+    "config":   "<workspace_root>/config/",
+    "uploads":  "<workspace_root>/uploads/",
+    "ontology": "<workspace_root>/ontology/",
+    "skills":   "<workspace_root>/skills/",
+    "external": "<workspace_root>/external/"
   },
 
   "upload_extraction": {
-    "target_directory": "/workspace/<template-slug>/uploads/",
-    "note": "用户上传的 ZIP 包解压到 /workspace/<template-slug>/uploads/ 目录下，保留 ZIP 内的原始目录结构。解压后各文件的绝对路径格式为 /workspace/<template-slug>/uploads/<ZIP内相对路径>，例如 /workspace/sales-assistant-v2/uploads/docs/sales.csv。",
-    "path_format": "/workspace/<template-slug>/uploads/<zip_entry_relative_path>"
+    "source_file_url_pattern": "/app/memory/media-cache/<media_id>",
+    "source_file_url_note": "用户上传的模板 ZIP 的真实只读路径，会话首轮消息中以 [FILE_URL:/app/memory/media-cache/<media_id>] 形式提供；沙箱不会自动把 ZIP 解压到 /workspace。",
+    "target_directory": "<workspace_root>/uploads/",
+    "extraction_owner": "employment-coach-conversation",
+    "extraction_note": "雇佣教练负责通过沙箱 shell/unzip 工具，将 FILE_URL 指向的 ZIP 解压到 <workspace_root>/uploads/，并验证目标目录非空。解压完成后保留 ZIP 内的原始目录结构。",
+    "path_format": "<workspace_root>/uploads/<zip_entry_relative_path>"
   },
 
   "output_paths": {
     "ontology_slices": {
-      "directory": "/workspace/<template-slug>/ontology/",
+      "directory": "<workspace_root>/ontology/",
       "file_naming": "<domain-slug>.slice.json / <domain-slug>.slice.md",
       "owner_skill": "ontology-extraction"
     },
     "skill_packages": {
-      "directory": "/workspace/<template-slug>/skills/<skill-slug>/",
+      "directory": "<workspace_root>/skills/<skill-slug>/",
       "file_naming": "SKILL.md, metadata.json, references/, contracts/（可选）",
       "owner_skill": "skill-generation"
     },
     "external_configs": {
-      "directory": "/workspace/<template-slug>/external/",
+      "directory": "<workspace_root>/external/",
       "file_naming": "<capability-slug>.config.json",
       "owner_skill": "external-config"
     }
   },
 
-  "read_only_directories": ["/workspace/<template-slug>/config/"],
+  "read_only_directories": ["<workspace_root>/config/", "<workspace_root>/uploads/"],
 
   "constraints": [
-    "employment-coach-conversation 只通过 emit_artifact 推送状态，不直接写入任何目录；但负责在会话开始时确定 template_slug 并通知各下游 skill",
-    "ontology-extraction 只写入 /workspace/<template-slug>/ontology/，不写入 skills/ 或 external/",
-    "skill-generation 只写入 /workspace/<template-slug>/skills/，不写入 ontology/ 或 external/",
-    "external-config 只写入 /workspace/<template-slug>/external/，不写入 ontology/ 或 skills/",
+    "employment-coach-conversation 在会话初始化阶段负责：解析 template_slug、创建带时间戳的 workspace_root 目录、解压 ZIP 到 <workspace_root>/uploads/、通过 emit_artifact.data.workspace_root 将真实路径透传给下游 skill；除 uploads 解压外，本 skill 不主动写入其它目录",
+    "ontology-extraction 只写入 <workspace_root>/ontology/，不写入 skills/ 或 external/",
+    "skill-generation 只写入 <workspace_root>/skills/，不写入 ontology/ 或 external/",
+    "external-config 只写入 <workspace_root>/external/，不写入 ontology/ 或 skills/",
     "config/ 目录只有 employment-coach-conversation 通过 config_governance_patch 机制修改，其他 skill 不得写入",
-    "/workspace/<template-slug>/uploads/ 目录只读，任何 skill 不得写入"
+    "<workspace_root>/uploads/ 目录在解压完成后视为只读，任何 skill 不得改写其中文件"
   ]
 }

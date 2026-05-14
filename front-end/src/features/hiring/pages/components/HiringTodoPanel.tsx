@@ -1,73 +1,71 @@
 /**
- * HiringTodoPanel — 雇佣 TODO 交互面板（重构版）
+ * HiringTodoPanel — 雇佣 TODO 交互面板（artifact 驱动版）
  *
- * 按阶段（资料 / 技能 / 外部系统 / 生成实例包）展示 AI 通过 MCP 工具创建的 handoff 事项。
- * 每个 TodoRow 按 kind 内联展开对应交互区，无弹窗遮挡：
- *   - file_request    → 内联拖拽上传区（文档资料）
- *   - skill_upload    → 内联技能包上传区（.zip + 版本说明）
- *   - external_config → 内联配置表单（API URL / 密钥等）
- *   - handoff_todo    → 普通确认/忽略
+ * 设计要点：
+ * - 不再依赖 HandoffItem 列表，3 个阶段卡片始终常驻渲染。
+ * - 阶段亮灯/完成态完全由 `wsStageOverrides`（artifact / skill_stage_gate WS 事件聚合）控制。
+ * - 资料卡：仅接受 .md / .json 的文件夹/文件上传，落盘到 wwwroot/resources/todo-files/{sessionId}/{folder?}/。
+ * - 技能卡：调用内部 Skills Catalog 搜索并关联，外部系统配置作为可选项。
+ * - 上传完成后通过 onAfterStageMessage 回调，模拟用户消息驱动 AI 推进下一阶段。
+ * - 含 200% 缩放（Surface Pro 8 类窄屏）适配。
  */
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import type { HandoffItem } from '@/infra/api'
 
-// ── 阶段配置 ──────────────────────────────────────────────────────────────────
+import { api, HiringCollectionStage } from '@/infra/api'
+import type { HiringCollectionStageType, StoreSkillItem } from '@/infra/api'
+
+// ── 类型 ──────────────────────────────────────────────────────────────────────
+
+export type StageStatus = 'running' | 'completed' | 'failed'
+export type StageKey = HiringCollectionStageType
+
+interface UploadedFileMeta {
+  relativePath: string
+  sizeBytes: number
+  format: string
+}
+
+interface LinkedSkill {
+  skillId: string
+  name: string
+  version: string
+}
+
+export interface HiringTodoPanelProps {
+  /** 当前雇佣会话 ID（用于上传/解析 todo 文件） */
+  sessionId: string
+  /** WS 阶段覆盖状态：由 HiringPage 聚合 artifact / skill_stage_gate 事件得到 */
+  wsStageOverrides: Map<StageKey, StageStatus>
+  /** 上传完成后回调（模拟用户消息驱动 AI 进入下一阶段） */
+  onAfterStageMessage?: (stage: StageKey, summary: string) => void
+  /** 触发生成实例包 */
+  onGenerate?: () => void
+  generated?: boolean
+  /** 用户关联的 store skill UUID 列表变化时回调；用于在导入产物包时一并提交给后端。 */
+  onLinkedSkillIdsChange?: (skillIds: string[]) => void
+}
 
 interface StageConfig {
-  key: string
+  key: StageKey
   num: string
   title: string
-  emptyHint: string
+  hint: string
 }
 
 const STAGES: StageConfig[] = [
-  { key: 'material', num: '①', title: '资料',     emptyHint: '等待 AI 分析业务场景后生成…' },
-  { key: 'skill',    num: '②', title: '技能',     emptyHint: '等待资料阶段确认后推断…'      },
-  { key: 'external', num: '③', title: '外部系统', emptyHint: '等待 AI 识别外部系统依赖…'   },
+  { key: HiringCollectionStage.Material, num: '①', title: '资料', hint: '上传 .md / .json 资料，供 AI 解析作为雇佣依据' },
+  { key: HiringCollectionStage.Skill,    num: '②', title: '技能', hint: '从 Skills Hub 搜索并关联技能；外部系统配置为可选项' },
+  { key: HiringCollectionStage.External, num: '③', title: '外部系统', hint: '可选：配置外部 API / 系统对接信息' },
 ]
 
-// ── 辅助判断 ──────────────────────────────────────────────────────────────────
+// ── 工具方法 ─────────────────────────────────────────────────────────────────
 
-function isConfirmed(item: HandoffItem) { return item.status === 'confirmed' }
-function isDismissed(item: HandoffItem) { return item.status === 'dismissed' }
+const ALLOWED_EXTS = new Set(['.md', '.json'])
 
-function todoKind(item: HandoffItem): 'file_request' | 'skill_upload' | 'external_config' | 'handoff_todo' {
-  if (item.kind === 'file_request')    return 'file_request'
-  if (item.kind === 'skill_upload')    return 'skill_upload'
-  if (item.kind === 'external_config') return 'external_config'
-  // 兼容旧数据：category / payload 推断
-  if (item.category === 'material' || (item.payload?.['_upload'] as boolean | undefined) === true)
-    return 'file_request'
-  if (item.category === 'skill_upload') return 'skill_upload'
-  if (item.stage === 'external' && item.payload?.['form_fields']) return 'external_config'
-  return 'handoff_todo'
-}
-
-function stageLabelShort(stage: string) {
-  return ({ material: '资料', skill: '技能', external: '外部系统', ready_for_packaging: '打包' } as Record<string, string>)[stage] ?? stage
-}
-
-function kindLabel(kind: string) {
-  return (
-    { file_request: '文件上传', skill_upload: '技能包', external_config: '外部配置', handoff_todo: '待确认' } as Record<string, string>
-  )[kind] ?? kind
-}
-
-function actionLabel(kind: string) {
-  return (
-    { file_request: '上传文件 ▾', skill_upload: '上传技能包 ▾', external_config: '填写配置 ▾' } as Record<string, string>
-  )[kind] ?? '操作 ▾'
-}
-
-function doneTotalByStage(items: HandoffItem[], key: string) {
-  const s = items.filter(i => i.stage === key && !isDismissed(i))
-  return { done: s.filter(isConfirmed).length, total: s.length }
-}
-
-function allDone(items: HandoffItem[]) {
-  const active = items.filter(i => !isDismissed(i) && i.stage !== 'ready_for_packaging')
-  return active.length > 0 && active.every(isConfirmed)
+function fileExt(name: string): string {
+  const idx = name.lastIndexOf('.')
+  return idx < 0 ? '' : name.slice(idx).toLowerCase()
 }
 
 function formatSize(bytes: number): string {
@@ -76,105 +74,101 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`
 }
 
-// ── 表单字段类型（外部系统配置） ───────────────────────────────────────────────
-
-interface FormField {
-  id: string
-  label: string
-  type: 'text' | 'password' | 'number' | 'select'
-  required?: boolean
-  default?: string
-  placeholder?: string
-  hint?: string
-  options?: string[]
-}
-
-// ── Props ─────────────────────────────────────────────────────────────────────
-
-export interface HiringTodoPanelProps {
-  handoffItems: HandoffItem[]
-  /** 新到达的 handoffId 集合，用于入场 flash 动画（父组件维护，约 800ms 后清除） */
-  newHandoffIds?: Set<string>
-  onConfirmTodo: (handoffId: string) => Promise<void>
-  onDismissTodo: (handoffId: string) => Promise<void>
-  /** 文件上传（file_request）：handoffId + 文件 */
-  onUploadFile: (handoffId: string, file: File) => Promise<void>
-  /** 技能包上传（skill_upload）：handoffId + 文件 + 元数据 */
-  onUploadSkill: (handoffId: string, file: File, meta: { name: string; releaseNote: string; description: string }) => Promise<void>
-  /** 外部系统配置保存（external_config） */
-  onSaveExternalConfig: (handoffId: string, config: Record<string, string>) => Promise<void>
-  onGenerate?: () => void
-  generated?: boolean
+function deriveFolderFromWebkitPath(file: File): string | undefined {
+  // <input webkitdirectory> 上传时 webkitRelativePath 形如 "folder/sub/file.md"
+  const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath
+  if (!rel) return undefined
+  const segs = rel.split('/')
+  segs.pop()
+  return segs.length > 0 ? segs.join('/') : undefined
 }
 
 // ── 主组件 ────────────────────────────────────────────────────────────────────
 
 export function HiringTodoPanel({
-  handoffItems,
-  newHandoffIds = new Set(),
-  onConfirmTodo,
-  onDismissTodo,
-  onUploadFile,
-  onUploadSkill,
-  onSaveExternalConfig,
+  sessionId,
+  wsStageOverrides,
+  onAfterStageMessage,
   onGenerate,
   generated = false,
+  onLinkedSkillIdsChange,
 }: HiringTodoPanelProps) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    material: true, skill: true, external: true, final: true,
-  })
-  const toggle = (key: string) => setExpanded(prev => ({ ...prev, [key]: !prev[key] }))
+  // 用户是否手动覆盖了某张卡片的展开状态；未手动覆盖的走"活跃阶段自动展开"逻辑
+  const [userToggled, setUserToggled] = useState<Record<string, boolean>>({})
+  const [manualExpanded, setManualExpanded] = useState<Record<string, boolean>>({})
 
-  const stats = STAGES.map(s => doneTotalByStage(handoffItems, s.key))
-  const canGenerate = allDone(handoffItems)
+  const allDone = useMemo(
+    () => STAGES.every(s => wsStageOverrides.get(s.key) === 'completed'),
+    [wsStageOverrides],
+  )
+
+  // 当前活跃阶段：优先取 running，没有 running 时取第一个未完成的阶段；全部完成则无活跃阶段
+  const activeStageKey = useMemo<StageKey | 'final' | null>(() => {
+    const running = STAGES.find(s => wsStageOverrides.get(s.key) === 'running')
+    if (running) return running.key
+    if (allDone) return 'final'
+    const pending = STAGES.find(s => wsStageOverrides.get(s.key) !== 'completed')
+    return pending?.key ?? null
+  }, [wsStageOverrides, allDone])
+
+  // 计算每张卡片的展开态：用户手动覆盖优先，否则只展开活跃阶段
+  const isExpanded = useCallback((key: string) => {
+    if (userToggled[key]) return manualExpanded[key]
+    return key === activeStageKey
+  }, [userToggled, manualExpanded, activeStageKey])
+
+  const toggle = (key: string) => {
+    setUserToggled(prev => ({ ...prev, [key]: true }))
+    setManualExpanded(prev => ({ ...prev, [key]: !isExpanded(key) }))
+  }
+
+  // 活跃阶段切换时清理掉旧的手动覆盖，让新阶段自动占满右侧空间
+  useEffect(() => {
+    setUserToggled({})
+    setManualExpanded({})
+  }, [activeStageKey])
 
   return (
     <div className="hb-todo-panel">
-      <div className="hb-todo-panel-head">
-        <p className="hb-hiring-eyebrow">TODO PANEL</p>
-        <h3 className="hb-hiring-panel-title">待办事项</h3>
+      <div className="hb-todo-panel-head hb-todo-panel-head--compact">
+        <h3 className="hb-todo-panel-title">待办事项</h3>
       </div>
 
       <div className="hb-todo-panel-body">
-        {STAGES.map((stage, idx) => {
-          const items = handoffItems.filter(i => i.stage === stage.key)
-          const stat = stats[idx]
-          const locked = stage.key === 'external' ? stats[0].done === 0 && stats[1].done === 0 : false
-          const isComplete = stat.total > 0 && stat.done === stat.total
-
-          return (
-            <StageCard
-              key={stage.key}
-              num={stage.num}
-              title={stage.title}
-              stat={stat}
-              locked={locked}
-              isComplete={isComplete}
-              expanded={expanded[stage.key]}
-              onToggle={() => toggle(stage.key)}
-              emptyHint={stage.emptyHint}
-            >
-              {items.map(item => (
-                <TodoRow
-                  key={item.handoff_id}
-                  item={item}
-                  isNew={newHandoffIds.has(item.handoff_id)}
-                  onConfirm={() => onConfirmTodo(item.handoff_id)}
-                  onDismiss={() => onDismissTodo(item.handoff_id)}
-                  onUploadFile={file => onUploadFile(item.handoff_id, file)}
-                  onUploadSkill={(file, meta) => onUploadSkill(item.handoff_id, file, meta)}
-                  onSaveConfig={cfg => onSaveExternalConfig(item.handoff_id, cfg)}
-                />
-              ))}
-            </StageCard>
-          )
-        })}
+        {STAGES.map(stage => (
+          <StageCard
+            key={stage.key}
+            stage={stage}
+            status={wsStageOverrides.get(stage.key) ?? null}
+            expanded={isExpanded(stage.key)}
+            isFocus={activeStageKey === stage.key}
+            onToggle={() => toggle(stage.key)}
+          >
+            {stage.key === HiringCollectionStage.Material && (
+              <MaterialCardBody
+                sessionId={sessionId}
+                onAfterUpload={summary => onAfterStageMessage?.(HiringCollectionStage.Material, summary)}
+              />
+            )}
+            {stage.key === HiringCollectionStage.Skill && (
+              <SkillCardBody
+                onAfterLink={summary => onAfterStageMessage?.(HiringCollectionStage.Skill, summary)}
+                onLinkedIdsChange={onLinkedSkillIdsChange}
+              />
+            )}
+            {stage.key === HiringCollectionStage.External && (
+              <ExternalCardBody
+                onAfterSave={summary => onAfterStageMessage?.(HiringCollectionStage.External, summary)}
+              />
+            )}
+          </StageCard>
+        ))}
 
         <FinalCard
-          stats={stats}
-          canGenerate={canGenerate}
+          canGenerate={allDone}
           generated={generated}
-          expanded={expanded['final']}
+          expanded={isExpanded('final')}
+          isFocus={activeStageKey === 'final'}
           onToggle={() => toggle('final')}
           onGenerate={onGenerate}
         />
@@ -183,417 +177,388 @@ export function HiringTodoPanel({
   )
 }
 
-// ── 阶段卡片 ──────────────────────────────────────────────────────────────────
+// ── 阶段卡片外壳 ──────────────────────────────────────────────────────────────
 
 function StageCard({
-  num, title, stat, locked, isComplete, expanded, onToggle, emptyHint, children,
+  stage, status, expanded, isFocus, onToggle, children,
 }: {
-  num: string; title: string; stat: { done: number; total: number }
-  locked: boolean; isComplete: boolean; expanded: boolean
-  onToggle: () => void; emptyHint: string; children: React.ReactNode
+  stage: StageConfig
+  status: StageStatus | null
+  expanded: boolean
+  isFocus: boolean
+  onToggle: () => void
+  children: React.ReactNode
 }) {
-  const hasAny = stat.total > 0
+  const isComplete = status === 'completed'
+  const isActive = status === 'running'
+  const isFailed = status === 'failed'
   return (
-    <div className={clsx('hb-todo-stage-card', isComplete && 'is-complete', !isComplete && hasAny && 'is-active', locked && 'is-locked')}>
+    <div className={clsx(
+      'hb-todo-stage-card',
+      isComplete && 'is-complete',
+      isActive && 'is-active',
+      isFailed && 'is-failed',
+      // 当前关注的阶段卡片：占据右侧剩余高度，让里面的上传/搜索/表单区域尽量铺开
+      isFocus && expanded && 'is-focus',
+    )}>
       <button type="button" className="hb-todo-stage-head" onClick={onToggle} aria-expanded={expanded}>
-        <span className="hb-todo-stage-num">{num}</span>
-        <span className="hb-todo-stage-title">{title}</span>
-        <span className={clsx('hb-todo-stage-badge', isComplete ? 'is-complete' : hasAny ? 'is-active' : '')}>
-          {isComplete ? '已完成' : hasAny ? `${stat.done}/${stat.total}` : '等待'}
+        <span className="hb-todo-stage-num">{stage.num}</span>
+        <span className="hb-todo-stage-title">{stage.title}</span>
+        <span className={clsx('hb-todo-stage-badge', isComplete ? 'is-complete' : isActive ? 'is-active' : isFailed ? 'is-failed' : '')}>
+          {isComplete ? '已完成' : isActive ? '进行中' : isFailed ? '失败' : '等待'}
         </span>
         <span className={clsx('hb-todo-stage-chevron', expanded && 'is-open')}>▾</span>
       </button>
       {expanded && (
-        <div className={clsx('hb-todo-stage-body', !hasAny && 'is-empty')}>
-          {!hasAny
-            ? <p className="hb-todo-stage-empty">{locked ? '等待前序阶段确认后自动生成…' : emptyHint}</p>
-            : children}
+        <div className="hb-todo-stage-body">
+          <p className="hb-todo-stage-hint">{stage.hint}</p>
+          {children}
         </div>
       )}
     </div>
   )
 }
 
-// ── TodoRow：按 kind 路由到对应内联交互区 ────────────────────────────────────
+// ── 资料卡（文件夹上传 .md/.json） ─────────────────────────────────────────────
 
-interface TodoRowProps {
-  item: HandoffItem
-  isNew: boolean
-  onConfirm: () => Promise<void>
-  onDismiss: () => Promise<void>
-  onUploadFile: (file: File) => Promise<void>
-  onUploadSkill: (file: File, meta: { name: string; releaseNote: string; description: string }) => Promise<void>
-  onSaveConfig: (cfg: Record<string, string>) => Promise<void>
-}
-
-function TodoRow({ item, isNew, onConfirm, onDismiss, onUploadFile, onUploadSkill, onSaveConfig }: TodoRowProps) {
-  const [inlineOpen, setInlineOpen] = useState(false)
-  const confirmed = isConfirmed(item)
-  const dismissed = isDismissed(item)
-  const kind = todoKind(item)
-  const hasInline = kind !== 'handoff_todo'
-
-  return (
-    <div className={clsx('hb-todo-row', isNew && 'is-new', confirmed && 'is-confirmed', dismissed && 'is-dismissed')}>
-      {/* 行头 */}
-      <div className="hb-todo-row-main">
-        <span className={clsx('hb-todo-row-dot', confirmed ? 'is-done' : dismissed ? 'is-dismissed' : 'is-open')} />
-
-        <div className="hb-todo-row-content">
-          <div className="hb-todo-row-title-row">
-            <strong className="hb-todo-row-title">{item.title}</strong>
-            <div className="hb-todo-row-tags">
-              {item.stage && <span className="hb-todo-row-tag">{stageLabelShort(item.stage)}</span>}
-              <span className={clsx('hb-todo-row-tag', `is-kind-${kind}`)}>{kindLabel(kind)}</span>
-            </div>
-          </div>
-          {item.intent && <p className="hb-todo-row-desc">{item.intent}</p>}
-          {/* 验收条件 */}
-          {item.acceptance && !confirmed && (
-            <p className="hb-todo-row-acceptance">验收：{item.acceptance}</p>
-          )}
-        </div>
-
-        {/* 右侧操作按钮 */}
-        <div className="hb-todo-row-actions">
-          {confirmed ? (
-            <>
-              <span className="hb-todo-row-confirmed-badge">✓ 已完成</span>
-              <InlineBtn variant="ghost" onClick={onDismiss}>撤销</InlineBtn>
-            </>
-          ) : dismissed ? (
-            <InlineBtn variant="ghost" onClick={onConfirm}>重新确认</InlineBtn>
-          ) : kind === 'handoff_todo' ? (
-            <>
-              <InlineBtn variant="ghost" onClick={onDismiss}>忽略</InlineBtn>
-              <InlineBtn variant="primary" onClick={onConfirm}>确认可用</InlineBtn>
-            </>
-          ) : (
-            <>
-              <InlineBtn variant="ghost" onClick={onDismiss}>忽略</InlineBtn>
-              <button
-                type="button"
-                className={clsx('hb-todo-row-btn is-secondary', inlineOpen && 'is-expanded')}
-                onClick={() => setInlineOpen(v => !v)}
-              >
-                {inlineOpen ? '收起 ▴' : actionLabel(kind)}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* 内联交互区 */}
-      {hasInline && !confirmed && !dismissed && inlineOpen && (
-        <div className="hb-todo-inline-body">
-          {kind === 'file_request' && (
-            <FileUploadInline
-              item={item}
-              onSave={async file => { await onUploadFile(file); setInlineOpen(false) }}
-              onCancel={() => setInlineOpen(false)}
-            />
-          )}
-          {kind === 'skill_upload' && (
-            <SkillUploadInline
-              item={item}
-              onSave={async (file, meta) => { await onUploadSkill(file, meta); setInlineOpen(false) }}
-              onCancel={() => setInlineOpen(false)}
-            />
-          )}
-          {kind === 'external_config' && (
-            <ExternalConfigInline
-              item={item}
-              onSave={async cfg => { await onSaveConfig(cfg); setInlineOpen(false) }}
-              onCancel={() => setInlineOpen(false)}
-            />
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── InlineBtn：带 loading 状态的小按钮 ────────────────────────────────────────
-
-function InlineBtn({ variant, onClick, children, disabled }: {
-  variant: 'primary' | 'ghost' | 'secondary'
-  onClick: () => Promise<void>
-  children: React.ReactNode
-  disabled?: boolean
-}) {
+function MaterialCardBody({
+  sessionId, onAfterUpload,
+}: { sessionId: string; onAfterUpload: (summary: string) => void }) {
+  const folderInputRef = useRef<HTMLInputElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [uploaded, setUploaded] = useState<UploadedFileMeta[]>([])
+
+  const refresh = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      const items = await api.hiringWorkflow.listTodoFiles(sessionId)
+      setUploaded(items)
+    } catch {
+      // 忽略：列出失败不影响主流程
+    }
+  }, [sessionId])
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  const handleFiles = useCallback(async (files: FileList | File[]) => {
+    if (!sessionId) {
+      setError('会话尚未就绪，请稍后再试')
+      return
+    }
+    const arr = Array.from(files)
+    if (arr.length === 0) return
+
+    // 客户端校验：仅 .md / .json
+    const invalid = arr.filter(f => !ALLOWED_EXTS.has(fileExt(f.name)))
+    if (invalid.length > 0) {
+      setError(`仅支持 .md 和 .json：${invalid.slice(0, 3).map(f => f.name).join('，')}${invalid.length > 3 ? '…' : ''}`)
+      return
+    }
+
+    setError('')
+    setBusy(true)
+    try {
+      // 按 webkitRelativePath 推导子文件夹，分组上传以保留目录结构
+      const groups = new Map<string, File[]>()
+      for (const f of arr) {
+        const folder = deriveFolderFromWebkitPath(f) ?? ''
+        const list = groups.get(folder) ?? []
+        list.push(f)
+        groups.set(folder, list)
+      }
+
+      let total = 0
+      const names: string[] = []
+      for (const [folder, fs] of groups.entries()) {
+        const saved = await api.hiringWorkflow.uploadTodoFiles(sessionId, fs, folder || undefined)
+        total += saved.length
+        names.push(...saved.map(s => s.relativePath))
+      }
+
+      await refresh()
+      const preview = names.slice(0, 5).join('、') + (names.length > 5 ? `…（共 ${names.length} 份）` : '')
+      onAfterUpload(`已上传 ${total} 份资料：${preview}。请基于这些资料继续后续阶段。`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '上传失败')
+    } finally {
+      setBusy(false)
+    }
+  }, [sessionId, refresh, onAfterUpload])
+
   return (
-    <button
-      type="button"
-      className={clsx('hb-todo-row-btn', `is-${variant}`)}
-      disabled={busy || disabled}
-      onClick={async () => {
-        setBusy(true)
-        try { await onClick() } finally { setBusy(false) }
-      }}
-    >
-      {busy ? '…' : children}
-    </button>
-  )
-}
-
-// ── 内联文件上传（file_request） ──────────────────────────────────────────────
-
-function FileUploadInline({ item, onSave, onCancel }: {
-  item: HandoffItem
-  onSave: (file: File) => Promise<void>
-  onCancel: () => void
-}) {
-  const [file, setFile] = useState<File | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const guidance = (item.payload?.['guidance'] as string | undefined)
-    ?? (item.payload?.['description'] as string | undefined)
-
-  return (
-    <div className="hb-todo-inline-section">
-      {guidance && <p className="hb-todo-inline-guide">{guidance}</p>}
+    <div className="hb-todo-mat">
       <div
-        className={clsx('hb-todo-drop-zone', dragOver && 'is-over', file && 'has-file')}
-        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) setFile(f) }}
-        onClick={() => !file && inputRef.current?.click()}
+        className={clsx('hb-todo-dropzone', busy && 'is-busy')}
+        onDragOver={e => { e.preventDefault() }}
+        onDrop={e => {
+          e.preventDefault()
+          if (busy) return
+          if (e.dataTransfer.files?.length) void handleFiles(e.dataTransfer.files)
+        }}
       >
-        {file ? (
-          <div className="hb-todo-drop-selected">
-            <span className="hb-todo-drop-icon">📄</span>
-            <div className="hb-todo-drop-info">
-              <span className="hb-todo-drop-name">{file.name}</span>
-              <span className="hb-todo-drop-size">{formatSize(file.size)}</span>
-            </div>
-            <button type="button" className="hb-todo-drop-remove" onClick={e => { e.stopPropagation(); setFile(null) }}>✕</button>
-          </div>
-        ) : (
-          <>
-            <span className="hb-todo-drop-icon">⬆</span>
-            <span className="hb-todo-drop-hint">拖拽文件到此，或点击选择</span>
-            <span className="hb-todo-drop-types">PDF · DOCX · XLSX · MD · TXT · ≤ 50 MB</span>
-          </>
-        )}
-        <input ref={inputRef} type="file" style={{ display: 'none' }}
-          accept=".pdf,.docx,.doc,.xlsx,.xls,.md,.txt"
-          onChange={e => { const f = e.target.files?.[0]; if (f) setFile(f) }} />
-      </div>
-      <div className="hb-todo-inline-foot">
-        <button type="button" className="hb-todo-row-btn is-ghost" onClick={onCancel}>取消</button>
-        <button type="button" className="hb-todo-row-btn is-primary" disabled={!file || busy}
-          onClick={async () => {
-            if (!file) return
-            setBusy(true)
-            try { await onSave(file) } finally { setBusy(false) }
-          }}>
-          {busy ? '上传中…' : '确认入库'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── 内联技能包上传（skill_upload） ────────────────────────────────────────────
-
-function SkillUploadInline({ item, onSave, onCancel }: {
-  item: HandoffItem
-  onSave: (file: File, meta: { name: string; releaseNote: string; description: string }) => Promise<void>
-  onCancel: () => void
-}) {
-  const defaultName = (item.payload?.['skill_name'] as string | undefined) ?? item.target_skill ?? ''
-  const [file, setFile] = useState<File | null>(null)
-  const [name, setName] = useState(defaultName)
-  const [releaseNote, setReleaseNote] = useState('')
-  const [description, setDescription] = useState(
-    (item.payload?.['description'] as string | undefined) ?? item.intent ?? ''
-  )
-  const [busy, setBusy] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const canSubmit = file && name.trim()
-
-  return (
-    <div className="hb-todo-inline-section">
-      <div className="hb-todo-inline-fields">
-        <div className="hb-todo-inline-field">
-          <label className="hb-todo-inline-label">技能名称 <span className="hb-config-required">*</span></label>
-          <input className="hb-config-input" value={name} onChange={e => setName(e.target.value)} placeholder="如 material-ingestion" />
+        <p className="hb-todo-dropzone-title">将文件夹或文件拖到此处</p>
+        <p className="hb-todo-dropzone-hint">仅支持 .md / .json，单次最大 50MB</p>
+        <div className="hb-todo-dropzone-actions">
+          <button type="button" className="hb-todo-row-btn is-secondary" disabled={busy}
+            onClick={() => folderInputRef.current?.click()}>
+            选择文件夹
+          </button>
+          <button type="button" className="hb-todo-row-btn is-secondary" disabled={busy}
+            onClick={() => fileInputRef.current?.click()}>
+            选择文件
+          </button>
         </div>
-        <div className="hb-todo-inline-field">
-          <label className="hb-todo-inline-label">版本说明</label>
-          <input className="hb-config-input" value={releaseNote} onChange={e => setReleaseNote(e.target.value)} placeholder="如 v1.0 初始版本" />
-        </div>
-        <div className="hb-todo-inline-field is-full">
-          <label className="hb-todo-inline-label">技能描述</label>
-          <textarea className="hb-config-input is-textarea" rows={2} value={description}
-            onChange={e => setDescription(e.target.value)} placeholder="简要描述技能包的功能和用途" />
-        </div>
+        <input
+          ref={folderInputRef}
+          type="file"
+          hidden
+          multiple
+          // @ts-expect-error webkitdirectory 为浏览器扩展属性，React 类型未声明
+          webkitdirectory=""
+          directory=""
+          accept=".md,.json,application/json,text/markdown"
+          onChange={e => { if (e.target.files) void handleFiles(e.target.files); e.target.value = '' }}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          hidden
+          multiple
+          accept=".md,.json,application/json,text/markdown"
+          onChange={e => { if (e.target.files) void handleFiles(e.target.files); e.target.value = '' }}
+        />
       </div>
-      <div
-        className={clsx('hb-todo-drop-zone', dragOver && 'is-over', file && 'has-file')}
-        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) setFile(f) }}
-        onClick={() => !file && inputRef.current?.click()}
-      >
-        {file ? (
-          <div className="hb-todo-drop-selected">
-            <span className="hb-todo-drop-icon">📦</span>
-            <div className="hb-todo-drop-info">
-              <span className="hb-todo-drop-name">{file.name}</span>
-              <span className="hb-todo-drop-size">{formatSize(file.size)}</span>
-            </div>
-            <button type="button" className="hb-todo-drop-remove" onClick={e => { e.stopPropagation(); setFile(null) }}>✕</button>
-          </div>
-        ) : (
-          <>
-            <span className="hb-todo-drop-icon">📦</span>
-            <span className="hb-todo-drop-hint">拖拽 .zip 技能包到此，或点击选择</span>
-            <span className="hb-todo-drop-types">仅支持 .zip 格式 · ≤ 100 MB</span>
-          </>
-        )}
-        <input ref={inputRef} type="file" style={{ display: 'none' }} accept=".zip"
-          onChange={e => { const f = e.target.files?.[0]; if (f) setFile(f) }} />
-      </div>
-      <div className="hb-todo-inline-foot">
-        <button type="button" className="hb-todo-row-btn is-ghost" onClick={onCancel}>取消</button>
-        <button type="button" className="hb-todo-row-btn is-primary" disabled={!canSubmit || busy}
-          onClick={async () => {
-            if (!file) return
-            setBusy(true)
-            try { await onSave(file, { name: name.trim(), releaseNote: releaseNote.trim(), description: description.trim() }) }
-            finally { setBusy(false) }
-          }}>
-          {busy ? '上传中…' : '上传技能包'}
-        </button>
-      </div>
-    </div>
-  )
-}
 
-// ── 内联外部系统配置（external_config） ──────────────────────────────────────
+      {error && <p className="hb-todo-error">{error}</p>}
 
-function ExternalConfigInline({ item, onSave, onCancel }: {
-  item: HandoffItem
-  onSave: (cfg: Record<string, string>) => Promise<void>
-  onCancel: () => void
-}) {
-  const rawFields = item.payload?.['form_fields']
-  const formFields: FormField[] = Array.isArray(rawFields) ? (rawFields as FormField[]) : []
-
-  const [values, setValues] = useState<Record<string, string>>(() => {
-    const init: Record<string, string> = {}
-    formFields.forEach(f => { init[f.id] = f.default ?? '' })
-    return init
-  })
-  // 无 form_fields 时允许自由文本输入
-  const [freeText, setFreeText] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const isValid = formFields.length === 0
-    ? freeText.trim().length > 0
-    : formFields.filter(f => f.required).every(f => values[f.id]?.trim())
-
-  const systemName = (item.payload?.['system_name'] as string | undefined) ?? item.title
-
-  return (
-    <div className="hb-todo-inline-section">
-      {formFields.length === 0 ? (
-        <div className="hb-todo-inline-field is-full">
-          <label className="hb-todo-inline-label">
-            {systemName} 接入配置
-            <span className="hb-config-hint">（AI 未提供结构化字段，请填写关键配置信息）</span>
-          </label>
-          <textarea className="hb-config-input is-textarea" rows={3} value={freeText}
-            onChange={e => setFreeText(e.target.value)}
-            placeholder="如：API URL、密钥、服务名等配置信息" />
-        </div>
-      ) : (
-        <div className="hb-todo-inline-fields">
-          {formFields.map(field => (
-            <div key={field.id} className="hb-todo-inline-field">
-              <label className="hb-todo-inline-label">
-                {field.label}
-                {field.required && <span className="hb-config-required"> *</span>}
-                {field.hint && <span className="hb-config-hint"> {field.hint}</span>}
-              </label>
-              {field.type === 'select' ? (
-                <select className="hb-config-input" value={values[field.id] ?? ''}
-                  onChange={e => setValues(v => ({ ...v, [field.id]: e.target.value }))}>
-                  <option value="">请选择…</option>
-                  {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
-              ) : (
-                <input className="hb-config-input" type={field.type}
-                  placeholder={field.placeholder}
-                  value={values[field.id] ?? ''}
-                  onChange={e => setValues(v => ({ ...v, [field.id]: e.target.value }))} />
-              )}
-            </div>
+      {uploaded.length > 0 && (
+        <ul className="hb-todo-file-list">
+          {uploaded.slice(0, 20).map(f => (
+            <li key={f.relativePath} className="hb-todo-file-item">
+              <span className={clsx('hb-todo-file-fmt', `is-${f.format}`)}>{f.format}</span>
+              <span className="hb-todo-file-path" title={f.relativePath}>{f.relativePath}</span>
+              <span className="hb-todo-file-size">{formatSize(f.sizeBytes)}</span>
+            </li>
           ))}
+          {uploaded.length > 20 && (
+            <li className="hb-todo-file-item is-more">…共 {uploaded.length} 份</li>
+          )}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ── 技能卡（搜索 Skills Hub） ─────────────────────────────────────────────────
+
+function SkillCardBody({
+  onAfterLink,
+  onLinkedIdsChange,
+}: {
+  onAfterLink: (summary: string) => void
+  onLinkedIdsChange?: (skillIds: string[]) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<StoreSkillItem[]>([])
+  const [total, setTotal] = useState(0)
+  const [linked, setLinked] = useState<LinkedSkill[]>([])
+  const [searching, setSearching] = useState(false)
+  const [error, setError] = useState('')
+
+  // 每次 linked 变更都向父组件同步 store skill UUID 列表，供 import-package 请求使用
+  useEffect(() => {
+    onLinkedIdsChange?.(linked.map(l => l.skillId))
+  }, [linked, onLinkedIdsChange])
+
+  // 防抖搜索：对接模板池同源接口 /api/store/skills?page=1&pageSize=12&q=...
+  useEffect(() => {
+    const q = query.trim()
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      setSearching(true)
+      try {
+        const data = await api.skillCatalog.searchStoreSkills(
+          { q: q || undefined, page: 1, pageSize: 12 },
+          controller.signal,
+        )
+        setResults(data?.items ?? [])
+        setTotal(data?.total ?? data?.items?.length ?? 0)
+        setError('')
+      } catch (e) {
+        if ((e as { name?: string })?.name === 'AbortError') return
+        setError(e instanceof Error ? e.message : '搜索失败')
+      } finally {
+        setSearching(false)
+      }
+    }, 300)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [query])
+
+  const isLinked = useCallback((id: string) => linked.some(l => l.skillId === id), [linked])
+
+  function handleLink(s: StoreSkillItem) {
+    if (isLinked(s.id)) return
+    const next = [...linked, { skillId: s.id, name: s.displayName ?? s.name, version: s.currentVersion ?? '' }]
+    setLinked(next)
+    const names = next.map(l => l.name).join('、')
+    onAfterLink(`已关联技能：${names}。请继续。`)
+  }
+  function handleUnlink(id: string) {
+    setLinked(prev => prev.filter(l => l.skillId !== id))
+  }
+
+  return (
+    <div className="hb-todo-skill">
+      <input
+        type="text"
+        className="hb-todo-input"
+        placeholder="搜索技能名称 / 关键字（留空显示推荐技能）"
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+      />
+      {searching && <p className="hb-todo-hint-muted">搜索中…</p>}
+      {error && <p className="hb-todo-error">{error}</p>}
+      {!searching && !error && results.length === 0 && (
+        <p className="hb-todo-hint-muted">{query.trim() ? '未找到匹配的技能' : '暂无技能'}</p>
+      )}
+
+      {results.length > 0 && (
+        <>
+          {total > results.length && (
+            <p className="hb-todo-hint-muted">共 {total} 个结果，显示前 {results.length} 个</p>
+          )}
+          <ul className="hb-todo-skill-list">
+            {results.map(s => {
+              const displayName = s.displayName ?? s.name
+              return (
+                <li key={s.id} className="hb-todo-skill-item">
+                  <div className="hb-todo-skill-info">
+                    <strong>{displayName}</strong>
+                    <span className="hb-todo-skill-meta">
+                      {s.currentVersion ? `v${s.currentVersion}` : ''}{s.level ? ` · ${s.level}` : ''}
+                    </span>
+                    {s.description && <p className="hb-todo-skill-desc">{s.description}</p>}
+                    {s.tags && s.tags.length > 0 && (
+                      <ul className="hb-todo-tag-list">
+                        {s.tags.slice(0, 5).map(t => <li key={t} className="hb-todo-tag is-mini">{t}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className={clsx('hb-todo-row-btn', isLinked(s.id) ? 'is-ghost' : 'is-primary')}
+                    disabled={isLinked(s.id)}
+                    onClick={() => handleLink(s)}
+                  >
+                    {isLinked(s.id) ? '已关联' : '关联'}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
+
+      {linked.length > 0 && (
+        <div className="hb-todo-skill-linked">
+          <p className="hb-todo-hint-muted">已关联 {linked.length} 个技能</p>
+          <ul className="hb-todo-tag-list">
+            {linked.map(l => (
+              <li key={l.skillId} className="hb-todo-tag">
+                {l.name}
+                <button type="button" className="hb-todo-tag-x" onClick={() => handleUnlink(l.skillId)}>×</button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
-      <div className="hb-todo-inline-foot">
-        <button type="button" className="hb-todo-row-btn is-ghost" onClick={onCancel}>取消</button>
-        <button type="button" className="hb-todo-row-btn is-primary" disabled={!isValid || busy}
-          onClick={async () => {
-            setBusy(true)
-            try {
-              const cfg = formFields.length === 0 ? { _free_text: freeText.trim() } : values
-              await onSave(cfg)
-            } finally { setBusy(false) }
-          }}>
-          {busy ? '保存中…' : '保存配置'}
-        </button>
+    </div>
+  )
+}
+
+// ── 外部系统卡（可选配置） ────────────────────────────────────────────────────
+
+function ExternalCardBody({ onAfterSave }: { onAfterSave: (summary: string) => void }) {
+  const [systemName, setSystemName] = useState('')
+  const [apiUrl, setApiUrl] = useState('')
+  const [token, setToken] = useState('')
+
+  function handleSkip() {
+    onAfterSave('外部系统配置已跳过（无需对接外部系统）。请继续。')
+  }
+  function handleSave() {
+    const name = systemName.trim()
+    if (!name) return
+    onAfterSave(`已配置外部系统「${name}」，地址：${apiUrl || '(未填)'}。请继续。`)
+  }
+
+  return (
+    <div className="hb-todo-external">
+      <p className="hb-todo-hint-muted">外部系统对接为可选项，如无需对接可直接跳过。</p>
+      <label className="hb-todo-field">
+        <span>系统名称</span>
+        <input type="text" className="hb-todo-input" value={systemName}
+          onChange={e => setSystemName(e.target.value)} placeholder="例如：钉钉 / 飞书 / 内部 HR" />
+      </label>
+      <label className="hb-todo-field">
+        <span>API 地址</span>
+        <input type="text" className="hb-todo-input" value={apiUrl}
+          onChange={e => setApiUrl(e.target.value)} placeholder="https://..." />
+      </label>
+      <label className="hb-todo-field">
+        <span>访问凭证</span>
+        <input type="password" className="hb-todo-input" value={token}
+          onChange={e => setToken(e.target.value)} placeholder="可选" />
+      </label>
+      <div className="hb-todo-actions-row">
+        <button type="button" className="hb-todo-row-btn is-ghost" onClick={handleSkip}>跳过</button>
+        <button type="button" className="hb-todo-row-btn is-primary"
+          disabled={!systemName.trim()} onClick={handleSave}>保存并继续</button>
       </div>
     </div>
   )
 }
 
-// ── 生成实例包卡片 ─────────────────────────────────────────────────────────────
+// ── Final 卡片（生成实例包） ──────────────────────────────────────────────────
 
-function FinalCard({ stats, canGenerate, generated, expanded, onToggle, onGenerate }: {
-  stats: Array<{ done: number; total: number }>
-  canGenerate: boolean; generated: boolean; expanded: boolean
-  onToggle: () => void; onGenerate?: () => void
+function FinalCard({
+  canGenerate, generated, expanded, isFocus, onToggle, onGenerate,
+}: {
+  canGenerate: boolean
+  generated: boolean
+  expanded: boolean
+  isFocus: boolean
+  onToggle: () => void
+  onGenerate?: () => void
 }) {
   return (
-    <div className={clsx('hb-todo-stage-card', generated ? 'is-complete' : canGenerate ? 'is-active' : '')}>
+    <div className={clsx(
+      'hb-todo-stage-card',
+      generated && 'is-complete',
+      !generated && canGenerate && 'is-active',
+      isFocus && expanded && 'is-focus',
+    )}>
       <button type="button" className="hb-todo-stage-head" onClick={onToggle} aria-expanded={expanded}>
         <span className="hb-todo-stage-num">④</span>
         <span className="hb-todo-stage-title">生成实例包</span>
         <span className={clsx('hb-todo-stage-badge', generated ? 'is-complete' : canGenerate ? 'is-active' : '')}>
-          {generated ? '已生成' : canGenerate ? '可生成' : '等待前序'}
+          {generated ? '已生成' : canGenerate ? '可生成' : '等待'}
         </span>
         <span className={clsx('hb-todo-stage-chevron', expanded && 'is-open')}>▾</span>
       </button>
       {expanded && (
-        <div className="hb-todo-stage-body hb-todo-final-body">
-          <div className="hb-todo-final-stats">
-            {stats.map((stat, idx) => (
-              <div key={idx} className={clsx('hb-todo-final-stat', stat.total > 0 && stat.done === stat.total && 'is-ok')}>
-                <span className="hb-todo-final-stat-num">{stat.done}<em>/{stat.total || 0}</em></span>
-                <span className="hb-todo-final-stat-lbl">{['① 资料', '② 技能', '③ 外部'][idx]}</span>
-              </div>
-            ))}
-          </div>
-          {generated ? (
-            <div className="hb-todo-final-hint is-success">✓ 实例包已生成，可进入沙箱测试或部署生产</div>
-          ) : (
-            <button
-              type="button"
-              className={clsx('hb-todo-final-btn', !canGenerate && 'is-disabled')}
-              disabled={!canGenerate}
-              onClick={canGenerate ? onGenerate : undefined}
-            >
-              {canGenerate ? '生成实例包' : '完成前序待办后可用'}
-            </button>
-          )}
+        <div className="hb-todo-stage-body">
+          <p className="hb-todo-stage-hint">
+            前序阶段完成后，将整合资料、技能与可选配置，生成可下发到员工待上岗界面的实例模板包。
+          </p>
+          <button type="button"
+            className={clsx('hb-todo-row-btn', canGenerate && !generated ? 'is-primary' : 'is-ghost')}
+            disabled={!canGenerate || generated}
+            onClick={onGenerate}>
+            {generated ? '已生成' : '生成实例包'}
+          </button>
         </div>
       )}
     </div>

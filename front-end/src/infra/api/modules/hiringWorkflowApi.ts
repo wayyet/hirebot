@@ -533,10 +533,6 @@ export const hiringWorkflowApi = {
     return httpClient.get<HiringAuditLog[]>(`/api/v1/hirings/${hireId}/audit-logs`)
   },
 
-  finalize(hireId: string) {
-    return httpClient.post<HiringFinalizeResult>(`/api/v1/hirings/${hireId}/finalize`)
-  },
-
   getArtifactsDownloadUrl(hireId: string) {
     return buildArtifactsDownloadUrl(hireId)
   },
@@ -622,12 +618,29 @@ export const hiringWorkflowApi = {
    * @param hireId 雇佣 ID
    * @param packageBlob 从沙箱网关下载的 ZIP 包
    * @param fileName 原始文件名（用于后端存储和日志）
+   * @param skillIds 用户在 TODO 面板关联的 store skill UUID 列表；后端会从 ncrew-builder 下载并合并到最终产物。
    */
-  async importPackage(hireId: string, packageBlob: Blob, fileName: string): Promise<HiringFinalizeResult> {
+  async importPackage(
+    hireId: string,
+    packageBlob: Blob,
+    fileName: string,
+    skillIds?: readonly string[],
+  ): Promise<HiringFinalizeResult> {
     const url = `${API_BASE_URL}/api/v1/hirings/${encodeURIComponent(hireId)}/import-package`
     const accessToken = await tokenService.ensureFresh()
     const form = new FormData()
     form.append('packageFile', packageBlob, fileName)
+    // multipart 重复字段：后端 [FromForm] string[]? skillIds 会聚合成数组
+    if (skillIds && skillIds.length > 0) {
+      const unique = new Set<string>()
+      for (const id of skillIds) {
+        const trimmed = id?.trim()
+        if (trimmed && !unique.has(trimmed)) {
+          unique.add(trimmed)
+          form.append('skillIds', trimmed)
+        }
+      }
+    }
     const response = await fetch(url, {
       method: 'POST',
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
@@ -677,6 +690,46 @@ export const hiringWorkflowApi = {
       `/api/v1/hirings/${encodeURIComponent(hireId)}/todos/${encodeURIComponent(handoffId)}`,
       { status },
     )
+  },
+
+  /**
+   * 上传 TODO 资料文件（仅支持 md / json）到 wwwroot/resources/todo-files/{sessionId}/{folder?}/
+   * 由 MCP 工具 hiring.parse_uploaded_files 读取并交给大模型解析。
+   */
+  async uploadTodoFiles(
+    sessionId: string,
+    files: File[],
+    folder?: string,
+  ): Promise<Array<{ relativePath: string; sizeBytes: number; format: string }>> {
+    const path = `/api/v1/hiring-todos/${encodeURIComponent(sessionId)}/files/upload`
+    const url = `${API_BASE_URL}${path}`
+    const accessToken = await tokenService.ensureFresh()
+    const form = new FormData()
+    if (folder && folder.trim()) form.append('folder', folder.trim())
+    for (const f of files) form.append('files', f, f.name)
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: form,
+    })
+    const text = await response.text()
+    if (!response.ok) {
+      try {
+        const p = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
+        throw new ApiClientError(p.message?.trim() || `上传失败（HTTP ${response.status}）`, response.status, p.code, p)
+      } catch {
+        throw new ApiClientError(`上传失败（HTTP ${response.status}）`, response.status, undefined, text)
+      }
+    }
+    const env = JSON.parse(text) as ApiResponseEnvelope<Array<{ relativePath: string; sizeBytes: number; format: string }>>
+    return env?.data ?? []
+  },
+
+  /** 列出已上传的 TODO 资料文件（仅元信息）。*/
+  async listTodoFiles(sessionId: string): Promise<Array<{ relativePath: string; sizeBytes: number; format: string }>> {
+    const path = `/api/v1/hiring-todos/${encodeURIComponent(sessionId)}/files`
+    return httpClient.get<Array<{ relativePath: string; sizeBytes: number; format: string }>>(path)
   },
 }
 

@@ -52,6 +52,10 @@ internal sealed class FileSystemTemplatePackageProvider(
         string requestedTemplateId,
         CancellationToken cancellationToken)
     {
+        // 兼容历史目录：当 packageRoot 下没有 manifest.json，但只存在唯一一个子目录且该子目录是真正的包根时，
+        // 自动下沉一层，避免产物里多出 <wrapper>/ 顶层包裹目录。
+        packageRoot = ResolveEffectivePackageRoot(packageRoot);
+
         var manifestPath = Path.Combine(packageRoot, "manifest.json");
         if (!File.Exists(manifestPath))
         {
@@ -340,6 +344,45 @@ internal sealed class FileSystemTemplatePackageProvider(
     {
         var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return segments.Length >= 2 ? segments[1] : Path.GetFileNameWithoutExtension(relativePath);
+    }
+
+    // 当 packageRoot 下没有 manifest.json，但仅存在单个子目录且该子目录里有 manifest.json 或 skills/、ontology/、config/ 等约定子目录时，
+    // 视作包裹目录，自动下沉到该子目录。这样可以让 Assets/TemplatePackages/default/NCrewTemplate/ 也被识别为真正的包根。
+    private static string ResolveEffectivePackageRoot(string packageRoot)
+    {
+        if (!Directory.Exists(packageRoot))
+        {
+            return packageRoot;
+        }
+
+        // 根目录已经有 manifest 或常见包内容文件 → 不需要下沉。
+        if (File.Exists(Path.Combine(packageRoot, "manifest.json")))
+        {
+            return packageRoot;
+        }
+
+        var hasTopLevelFiles = Directory.EnumerateFiles(packageRoot, "*", SearchOption.TopDirectoryOnly)
+            .Any(path => !HiringAssetFileSystem.IsIgnoredPath(path));
+        if (hasTopLevelFiles)
+        {
+            return packageRoot;
+        }
+
+        var subDirectories = Directory.EnumerateDirectories(packageRoot, "*", SearchOption.TopDirectoryOnly)
+            .Where(path => !HiringAssetFileSystem.IsIgnoredPath(path))
+            .ToArray();
+        if (subDirectories.Length != 1)
+        {
+            return packageRoot;
+        }
+
+        var candidate = subDirectories[0];
+        var looksLikePackage = File.Exists(Path.Combine(candidate, "manifest.json"))
+            || Directory.Exists(Path.Combine(candidate, "skills"))
+            || Directory.Exists(Path.Combine(candidate, "ontology"))
+            || Directory.Exists(Path.Combine(candidate, "config"));
+
+        return looksLikePackage ? candidate : packageRoot;
     }
 
     private static async Task<TemplatePackageFileAsset[]> LoadPackageFilesAsync(

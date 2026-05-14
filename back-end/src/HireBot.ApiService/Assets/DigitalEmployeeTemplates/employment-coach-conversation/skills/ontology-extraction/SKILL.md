@@ -137,7 +137,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 如果用户给的是上传文件，而不是已经整理好的 slice JSON，本 skill 自己读取资料并产出 slice：
 
 - **定位上传文件（优先级最高）**：当由上游 `employment-coach-conversation` 触发时，输入中会包含 `material_handoff_summary` 数据，其中每条物料都有 `source_path` 字段。**直接使用 `source_path` 作为文件路径读取，不要运行 `shell: ls` 或 `shell: find` 来探索工作区**。`source_path` 为 `null` 的物料是纯文本描述，无对应文件。
-- **工作区根目录**：`material_handoff_summary` 的 `data` 中包含 `workspace_root` 字段（格式为 `/workspace/<template-slug>`），本 skill 的所有产物必须写入 `<workspace_root>/ontology/` 目录。若 `workspace_root` 字段缺失，读取 `config/workspace.json` 确认路径，不要靠猜测或 `ls` 推断。
+- **工作区根目录**：`material_handoff_summary` 的 `data.workspace_root` 是雇佣教练在会话初始化时由沙箱解压工具创建的真实绝对路径（运行时确定，本 skill 把它当作不透明字符串使用，不要解析或重组）。本 skill 的所有产物必须写入 `<workspace_root>/ontology/` 目录（用 artifact 里收到的真实路径替换 `<workspace_root>`）。若 `workspace_root` 字段缺失，停下来通过下游 fallback artifact 报错，**不要**靠 `ls /workspace` 推断或自行拼接 `/workspace/<slug>`。
 - 支持 Markdown、文本、JSON、YAML 等可读资料；无法读取的文件必须在摘要中说明。
 - 如果遇到 zip 或二进制文档，只有在运行时已经提供可读文本或解析后路径时才处理；不要假设存在额外解析工具。
 - 默认使用 `incremental` 模式更新当前主题 slice；用户明确要求"全量替换"时使用 `full_replace` 替换当前主题 slice。

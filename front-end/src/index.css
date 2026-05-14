@@ -2358,6 +2358,49 @@ body {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(250, 250, 250, 0.98) 100%);
 }
 
+/* 聊天面板顶部：工作流连接状态条 */
+.hb-hiring-chat-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--hb-soft);
+  background: rgba(250, 250, 250, 0.6);
+  flex-shrink: 0;
+}
+
+.hb-hiring-chat-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9ca3af;
+  flex-shrink: 0;
+}
+
+.hb-hiring-chat-status.is-blue .hb-hiring-chat-status-dot { background: #3b82f6; }
+.hb-hiring-chat-status.is-green .hb-hiring-chat-status-dot { background: #22c55e; }
+.hb-hiring-chat-status.is-pink .hb-hiring-chat-status-dot { background: #ec4899; }
+.hb-hiring-chat-status.is-gray .hb-hiring-chat-status-dot { background: #9ca3af; }
+
+.hb-hiring-chat-status.is-pink {
+  color: #be185d;
+  background: rgba(252, 231, 243, 0.5);
+}
+
+.hb-hiring-chat-status.is-green {
+  color: #15803d;
+}
+
+.hb-hiring-chat-status-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .hb-hiring-msg {
   display: flex;
   align-items: flex-start;
@@ -2391,6 +2434,144 @@ body {
 
 .hb-hiring-msg-stack.is-user {
   align-items: flex-end;
+}
+
+/* ===== 工具调用步骤面板（MCP tool_start/tool_result 聚合展示） ===== */
+.hb-hiring-toolsteps {
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  border-radius: 14px;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.hb-hiring-toolsteps-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: #475569;
+  transition: background 0.15s;
+}
+
+.hb-hiring-toolsteps-head:hover {
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.hb-hiring-toolsteps-chevron {
+  display: inline-flex;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.hb-hiring-toolsteps-title {
+  flex: 1;
+  color: #64748b;
+}
+
+.hb-hiring-toolsteps-title.is-running {
+  color: #b45309;
+}
+
+.hb-hiring-toolsteps-count {
+  color: #94a3b8;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.hb-hiring-toolsteps-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.hb-hiring-toolstep-row {
+  border: 1px solid #eef2f7;
+  background: #ffffff;
+  border-radius: 10px;
+}
+
+.hb-hiring-toolstep-row-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.hb-hiring-toolstep-row-head:disabled {
+  cursor: default;
+}
+
+.hb-hiring-toolstep-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.hb-hiring-toolstep-spin {
+  color: #f59e0b;
+  animation: hb-hiring-toolstep-spin 1s linear infinite;
+}
+
+@keyframes hb-hiring-toolstep-spin {
+  to { transform: rotate(360deg); }
+}
+
+.hb-hiring-toolstep-name {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-hiring-toolstep-chevron {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.hb-hiring-toolstep-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px 8px;
+  border-top: 1px solid #eef2f7;
+}
+
+.hb-hiring-toolstep-label {
+  margin: 0 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.hb-hiring-toolstep-code {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #475569;
 }
 
 .hb-hiring-bubble {
@@ -2676,14 +2857,12 @@ body.hb-body-hiring-prototype {
 }
 
 .hb-hiring-page {
-  max-width: 1240px;
-  margin: 0 auto;
-  height: calc(100vh - 128px);
-  height: calc(100dvh - 128px); /* dvh 渐进增强：修复平板/触屏因地址栏伸缩导致的布局抖动 */
-  padding: 12px 24px 14px;
+  height: calc(100vh - 64px);
+  height: calc(100dvh - 64px); /* dvh 渐进增强：修复平板/触屏因地址栏伸缩导致的布局抖动 */
+  padding: 8px 16px 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .hb-hiring-back-link {
@@ -3415,7 +3594,7 @@ body.hb-body-hiring-prototype {
 }
 
 .hb-hiring-composer {
-  padding: 14px 18px 18px;
+  padding: 6px 14px 8px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.98) 100%);
 }
 
@@ -3439,14 +3618,15 @@ body.hb-body-hiring-prototype {
 
 .hb-hiring-textarea {
   width: 100%;
-  min-height: 70px;
+  min-height: 36px;
+  max-height: 96px;
   resize: none;
   border: 0;
   border-radius: 0;
   background: transparent;
-  padding: 14px 16px 8px;
-  font-size: 15px;
-  line-height: 1.5;
+  padding: 6px 14px 4px;
+  font-size: 14px;
+  line-height: 1.45;
   color: var(--hb-near-black);
   outline: none;
 }
@@ -3460,7 +3640,7 @@ body.hb-body-hiring-prototype {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 12px 12px;
+  padding: 0 10px 6px;
 }
 
 .hb-hiring-composer-tools {
@@ -4277,6 +4457,7 @@ body.hb-body-hiring-prototype {
   .hb-hiring-todo-head,
   .hb-hiring-stage-todo-row-head {
     flex-direction: column;
+    align-items: flex-start;
   }
 
   .hb-hiring-page {
@@ -4349,6 +4530,7 @@ body.hb-body-hiring-prototype {
   .hb-hiring-header,
   .hb-hiring-journey-head {
     flex-direction: column;
+    align-items: flex-start;
   }
 
   .hb-hiring-workspace {
@@ -5983,6 +6165,21 @@ body.hb-body-hiring-prototype {
   flex-shrink: 0;
 }
 
+.hb-todo-panel-head--compact {
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hb-todo-panel-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
 .hb-todo-panel-body {
   flex: 1;
   overflow-y: auto;
@@ -5999,6 +6196,21 @@ body.hb-body-hiring-prototype {
   overflow: hidden;
   background: var(--surface);
   transition: border-color 0.2s;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+/* 当前关注的阶段卡片：占据 TODO 面板剩余空间，里面的交互区域可滚动铺满 */
+.hb-todo-stage-card.is-focus {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.hb-todo-stage-card.is-focus .hb-todo-stage-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .hb-todo-stage-card.is-active {
@@ -6689,4 +6901,161 @@ body.hb-body-hiring-prototype {
   justify-content: flex-end;
   gap: 6px;
   padding-top: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   HiringTodoPanel 重构版（artifact 驱动）补充样式
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.hb-todo-stage-card.is-failed { border-color: #ef4444; }
+.hb-todo-stage-badge.is-failed { background: rgba(239,68,68,0.12); color: #ef4444; }
+
+.hb-todo-stage-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 0 0 6px;
+  line-height: 1.5;
+}
+
+.hb-todo-hint-muted { font-size: 12px; color: var(--ink-3); margin: 0; }
+.hb-todo-error { font-size: 12px; color: #ef4444; margin: 4px 0 0; }
+
+/* 资料卡：拖拽区 */
+.hb-todo-dropzone {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 14px 12px;
+  text-align: center;
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.hb-todo-dropzone:hover { border-color: var(--accent); }
+.hb-todo-dropzone.is-busy { opacity: 0.6; pointer-events: none; }
+.hb-todo-dropzone-title { font-size: 13px; font-weight: 600; margin: 0; color: var(--ink-1); }
+.hb-todo-dropzone-hint  { font-size: 11.5px; color: var(--ink-3); margin: 0; }
+.hb-todo-dropzone-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+/* 资料卡：文件列表 */
+.hb-todo-file-list {
+  list-style: none; padding: 0; margin: 8px 0 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.hb-todo-file-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; padding: 4px 8px;
+  border-radius: 6px; background: var(--surface-2);
+}
+.hb-todo-file-item.is-more { justify-content: center; color: var(--ink-3); }
+.hb-todo-file-fmt {
+  font-size: 10px; font-weight: 700; padding: 1px 5px;
+  border-radius: 3px; text-transform: uppercase;
+  background: rgba(74,108,247,0.14); color: var(--accent);
+}
+.hb-todo-file-fmt.is-json { background: rgba(234,179,8,0.14); color: #b45309; }
+.hb-todo-file-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-1); }
+.hb-todo-file-size { color: var(--ink-3); flex-shrink: 0; }
+
+/* 技能卡 */
+.hb-todo-skill { display: flex; flex-direction: column; gap: 8px; }
+.hb-todo-input {
+  width: 100%; padding: 7px 10px; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface); color: var(--ink-1);
+}
+.hb-todo-input:focus { outline: none; border-color: var(--accent); }
+.hb-todo-skill-list {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 320px; overflow-y: auto;
+}
+.hb-todo-skill-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 6px;
+  background: var(--surface-2);
+}
+.hb-todo-skill-info { flex: 1; min-width: 0; }
+.hb-todo-skill-info strong { font-size: 13px; color: var(--ink-1); }
+.hb-todo-skill-meta { font-size: 11px; color: var(--ink-3); margin-left: 6px; }
+.hb-todo-skill-desc { font-size: 11.5px; color: var(--ink-2); margin: 2px 0 0; line-height: 1.4; }
+.hb-todo-skill-linked { margin-top: 4px; display: flex; flex-direction: column; gap: 4px; }
+.hb-todo-tag-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.hb-todo-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(74,108,247,0.12); color: var(--accent);
+}
+.hb-todo-tag-x { background: none; border: none; cursor: pointer; color: inherit; font-size: 13px; padding: 0; }
+
+/* 外部系统卡 */
+.hb-todo-external { display: flex; flex-direction: column; gap: 8px; }
+.hb-todo-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-2); }
+.hb-todo-field > span { font-size: 12px; color: var(--ink-2); }
+.hb-todo-actions-row { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+
+/* 200% 缩放 / Surface Pro 8 类窄屏适配（CSS 像素 <= 1100） */
+@media (max-width: 1100px) {
+  .hb-todo-panel-head { padding: 12px 14px 8px; }
+  .hb-todo-panel-body { padding: 8px 8px 14px; gap: 6px; }
+  .hb-todo-stage-head { padding: 8px 10px; gap: 6px; }
+  .hb-todo-stage-title { font-size: 12.5px; }
+  .hb-todo-stage-num { font-size: 13.5px; width: 18px; }
+  .hb-todo-stage-badge { font-size: 10.5px; padding: 1px 6px; }
+  .hb-todo-stage-body { padding: 6px 8px 8px; }
+  .hb-todo-stage-hint { font-size: 11.5px; }
+  .hb-todo-dropzone { padding: 10px 8px; }
+  .hb-todo-dropzone-title { font-size: 12px; }
+  .hb-todo-dropzone-hint  { font-size: 10.5px; }
+  .hb-todo-dropzone-actions { flex-direction: column; width: 100%; }
+  .hb-todo-dropzone-actions > button { width: 100%; }
+  .hb-todo-file-item { font-size: 11.5px; padding: 3px 6px; }
+  .hb-todo-skill-list { max-height: 240px; }
+  .hb-todo-skill-item { flex-direction: column; align-items: stretch; }
+  .hb-todo-skill-item > button { align-self: flex-end; }
+  .hb-todo-input { font-size: 12px; padding: 6px 8px; }
+}
+/* ═══════════════════════════════════════════════════════════════════════
+   HiringTodoPanel —— 展示优化（更大显示范围 + 滚动）
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 阶段卡内容区可滚动，避免被压扁；最大高度按视口比例约束 */
+.hb-todo-stage-body {
+  max-height: min(56vh, 520px);
+  overflow-y: auto;
+}
+
+/* 资料文件列表：更大可视范围 + 滚动 */
+.hb-todo-file-list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* 技能搜索结果：放大显示区域 */
+.hb-todo-skill-list {
+  max-height: 420px;
+}
+
+/* 小尺寸标签变体 */
+.hb-todo-tag.is-mini { font-size: 10.5px; padding: 1px 6px; }
+
+/* 列表滚动条美化（webkit） */
+.hb-todo-stage-body::-webkit-scrollbar,
+.hb-todo-file-list::-webkit-scrollbar,
+.hb-todo-skill-list::-webkit-scrollbar { width: 6px; }
+.hb-todo-stage-body::-webkit-scrollbar-thumb,
+.hb-todo-file-list::-webkit-scrollbar-thumb,
+.hb-todo-skill-list::-webkit-scrollbar-thumb {
+  background: var(--line); border-radius: 3px;
+}
+
+/* 200% 缩放下进一步收紧 */
+@media (max-width: 1100px) {
+  .hb-todo-stage-body { max-height: min(60vh, 420px); }
+  .hb-todo-file-list { max-height: 200px; }
+  .hb-todo-skill-list { max-height: 280px; }
 }
