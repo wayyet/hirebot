@@ -233,7 +233,7 @@ export default function HiringPage() {
     wsStageOverrides.get(HiringCollectionStage.Skill) === 'completed' &&
     wsStageOverrides.get(HiringCollectionStage.External) === 'completed'
   )
-  const wsCanFinalize = wsStagesAllCompleted && pendingPackageArtifact !== null
+  const wsCanFinalize = wsStagesAllCompleted
   const mergedActionState = wsCanFinalize
     ? { ...viewModel.actionState, canFinalize: true }
     : viewModel.actionState
@@ -1163,8 +1163,22 @@ export default function HiringPage() {
     }
   }
 
-  function handlePrototypeContinue() {
-    setJourneyGuideVisible(true)
+  /**
+   * 点击「发起打包」按钮时：
+   * - 若沙箱已推送过 template_package（pendingPackageArtifact 不为 null），直接复用产物触发导入
+   * - 否则模拟用户发送打包请求消息，由 AI 调用 package_workspace → 发出 template_package artifact
+   *   → useEffect 自动触发 triggerCreate()，形成闭环
+   */
+  async function handleRequestPackaging() {
+    if (isInteractionLocked) return
+    if (pendingPackageArtifact) {
+      void triggerCreate()
+      return
+    }
+    await submitWorkflowMessage('三个阶段均已确认完成，请开始生成产物包', undefined, true, true)
+  }
+
+  function handlePrototypeContinue() {    setJourneyGuideVisible(true)
     setFocusedStage(workflowCurrentStage)
     setWorkflowNotice('')
     composerRef.current?.focus()
@@ -1331,7 +1345,7 @@ export default function HiringPage() {
             artifactFileNames={artifactFileNames}
             hasArtifactArchive={Boolean(artifactArchive)}
             onContinue={handlePrototypeContinue}
-            onFinalize={() => { void triggerCreate() }}
+            onFinalize={() => { void handleRequestPackaging() }}
             onEnterTraining={(employeeId) => navigate(`/department-employees/instances/${employeeId}/training`)}
             onDownloadArtifact={(artifactName) => { void downloadBackendArtifact(artifactName) }}
             onDownloadArchive={() => {
@@ -1346,7 +1360,7 @@ export default function HiringPage() {
             sessionId={sessionIdRef.current ?? ''}
             wsStageOverrides={wsStageOverrides}
             onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}
-            onGenerate={() => { void triggerCreate() }}
+            onGenerate={() => { void handleRequestPackaging() }}
             generated={instanceCreated}
             onLinkedSkillIdsChange={setLinkedStoreSkillIds}
           />

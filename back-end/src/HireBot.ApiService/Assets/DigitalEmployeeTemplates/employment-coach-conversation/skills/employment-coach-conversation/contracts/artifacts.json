@@ -59,6 +59,28 @@
           "terminal": true
         }
       ]
+    },
+    {
+      "name": "stage4_packaging",
+      "label": "阶段 4：实例打包",
+      "ownerSkill": "employment-coach-conversation",
+      "gate": { "requiresStage": "stage3_external" },
+      "artifacts": [
+        {
+          "type": "packaging_progress",
+          "label": "正在打包工作区",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "template_package",
+          "label": "实例包已就绪",
+          "kind": "file",
+          "display": "file",
+          "terminal": true,
+          "note": "kind 必须为 file，fileUrl 指向沙箱网关的产物下载地址，触发前端 auto-importPackage"
+        }
+      ]
     }
   ],
 
