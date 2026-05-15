@@ -749,7 +749,8 @@ public sealed partial class EmployeeRuntimeService
             detail.TasksDone,
             detail.TasksTotal,
             detail.PendingActions,
-            detail.IsConfigured);
+            detail.IsConfigured,
+            detail.CardIntro);
     }
 
 }

@@ -35,6 +35,7 @@ public sealed partial class EmployeeRuntimeService
     private async Task UpsertInstanceRecordAsync(
         EmployeeDetailDto employee,
         string? currentVersion = null,
+        string? describeDocument = null,
         CancellationToken cancellationToken = default)
     {
         var now = DateTimeOffset.UtcNow;
@@ -60,6 +61,7 @@ public sealed partial class EmployeeRuntimeService
                 DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? "department-default" : employee.DepartmentId,
                 CurrentVersion = version,
                 RuntimeSnapshotJson = JsonSerializer.Serialize(employee),
+                DescribeDocument = describeDocument,
                 CreatedAt = ParseDate(employee.CreatedAt) ?? now,
                 UpdatedAt = now
             });
@@ -75,6 +77,10 @@ public sealed partial class EmployeeRuntimeService
             existing.DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? existing.DepartmentId : employee.DepartmentId;
             existing.CurrentVersion = version;
             existing.RuntimeSnapshotJson = JsonSerializer.Serialize(employee);
+            if (describeDocument != null)
+            {
+                existing.DescribeDocument = describeDocument;
+            }
             existing.UpdatedAt = now;
         }
 

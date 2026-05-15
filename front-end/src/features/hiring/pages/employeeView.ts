@@ -108,6 +108,20 @@ export function isEvaluating(status: HirebotLifecycle) {
   return status === 'interning_ai' || status === 'interning_human'
 }
 
+export function extractCardIntroHeadline(cardIntro: string | null | undefined): string | null {
+  if (!cardIntro) return null
+  const lines = cardIntro.split('\n')
+  for (const line of lines) {
+    const t = line.trim()
+    if (!t) continue
+    if (t.startsWith('#')) continue
+    if (t.startsWith('|')) continue
+    if (t === '---') continue
+    return t.replace(/\*\*/g, '')
+  }
+  return null
+}
+
 export function toEmployeeDetailSummary(detail: EmployeeDetail): EmployeeSummary {
   return {
     employeeId: detail.employeeId,
@@ -131,5 +145,6 @@ export function toEmployeeDetailSummary(detail: EmployeeDetail): EmployeeSummary
     tasksTotal: detail.tasksTotal,
     pendingActions: detail.pendingActions,
     isConfigured: detail.isConfigured,
+    cardIntro: detail.cardIntro,
   }
 }

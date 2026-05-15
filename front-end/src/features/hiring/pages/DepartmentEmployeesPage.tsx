@@ -21,7 +21,7 @@ import { api, type EmployeeSummary } from "@/infra/api";
 import TemplateUploadModal from "./components/TemplateUploadModal";
 import CloneEmployeeModal from "./components/CloneEmployeeModal";
 import EmployeeDetailModal from "./components/EmployeeDetailModal";
-import { statusClass, statusLabel, withEmployeeView } from "./employeeView";
+import { statusClass, statusLabel, withEmployeeView, extractCardIntroHeadline } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 
 type StageTab = "hired" | "intern" | "live";
@@ -528,7 +528,7 @@ export default function DepartmentEmployeesPage() {
                       </div>
                     </div>
                     <p className="hb-employee-card-desc">
-                      {employee.primarySignal || employee.stageSummary}
+                      {extractCardIntroHeadline(employee.cardIntro) || employee.primarySignal || employee.stageSummary}
                     </p>
                   </button>
                   <div className="hb-employee-card-divider" />

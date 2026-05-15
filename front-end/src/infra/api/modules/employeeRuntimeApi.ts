@@ -30,6 +30,7 @@ export interface EmployeeSummary {
   tasksTotal: number
   pendingActions: string[]
   isConfigured: boolean
+  cardIntro?: string | null
 }
 
 export interface EmployeeDetail extends EmployeeSummary {

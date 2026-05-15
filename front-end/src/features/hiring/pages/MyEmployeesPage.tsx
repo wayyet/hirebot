@@ -14,7 +14,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeSummary } from "@/infra/api";
-import { withEmployeeView } from "./employeeView";
+import { withEmployeeView, extractCardIntroHeadline } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 
 type FilterTab = "all" | "live" | "branch" | "retired";
@@ -459,7 +459,7 @@ export default function MyEmployeesPage() {
                   </div>
                 </div>
                 <p className="hb-employee-card-desc">
-                  {employee.primarySignal || employee.stageSummary}
+                  {extractCardIntroHeadline(employee.cardIntro) || employee.primarySignal || employee.stageSummary}
                 </p>
                 <div className="hb-employee-card-divider" />
                 <div className="hb-employee-card-footer">

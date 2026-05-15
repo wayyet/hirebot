@@ -21,4 +21,5 @@ public sealed record EmployeeSummaryDto(
     int TasksDone,
     int TasksTotal,
     IReadOnlyList<string> PendingActions,
-    bool IsConfigured);
+    bool IsConfigured,
+    string? CardIntro = null);

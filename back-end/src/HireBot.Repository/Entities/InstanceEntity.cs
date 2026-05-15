@@ -43,6 +43,11 @@ public sealed class InstanceEntity
 
     public string? RuntimeSnapshotJson { get; set; }
 
+    /// <summary>
+    /// describe.md 说明文档全文（Markdown），模板包上传时写入。
+    /// </summary>
+    public string? DescribeDocument { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
