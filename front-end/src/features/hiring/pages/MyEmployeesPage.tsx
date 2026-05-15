@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Bot,
   GitBranch,
   Loader2,
   MessageCircle,
@@ -469,19 +470,34 @@ export default function MyEmployeesPage() {
                   </span>
                   <div className="hb-employee-card-footer-actions">
                     {employee.mappedStatus === "live" ? (
-                      <button
-                        type="button"
-                        className="hb-btn-primary hb-hub-btn-primary text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(
-                            `/my-employees/instances/${employee.employeeId}/chat`,
-                          );
-                        }}
-                      >
-                        <MessageCircle size={12} />
-                        {t("employees.myPage.actions.startChat")}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          className="hb-btn-ghost hb-hub-btn-secondary text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(
+                              `/my-employees/instances/${employee.employeeId}/im-config`,
+                            );
+                          }}
+                        >
+                          <Bot size={12} />
+                          {t("employees.myPage.actions.configureIm")}
+                        </button>
+                        <button
+                          type="button"
+                          className="hb-btn-primary hb-hub-btn-primary text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(
+                              `/my-employees/instances/${employee.employeeId}/chat`,
+                            );
+                          }}
+                        >
+                          <MessageCircle size={12} />
+                          {t("employees.myPage.actions.startChat")}
+                        </button>
+                      </>
                     ) : null}
                     {employee.ownership === "private_branch" &&
                     employee.mappedStatus !== "retired" ? (
