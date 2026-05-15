@@ -6,6 +6,7 @@ public static class HireBotPathResolver
     public const string DefaultEvaluationResourcesSubdir = "resources";
     public const string DefaultEvaluationSubdir = "evaluation";
     public const string DefaultDigitalWorkforceSubdir = "digital-workforce";
+    public const string DefaultPersonalCloneArtifactsSubdir = "personal-clone-artifacts";
     public const string DefaultInstanceFixturesSubdir = "instance-fixtures";
     public const string DefaultTodoFilesSubdir = "todo-files";
     public const string DefaultTemplatePackageCacheSubdir = "template-package-cache";
@@ -41,6 +42,18 @@ public static class HireBotPathResolver
             configuredDataRoot,
             configuredDigitalWorkforceRoot,
             DefaultDigitalWorkforceSubdir);
+    }
+
+    public static string ResolvePersonalCloneArtifactsRoot(
+        string contentRootPath,
+        string? configuredDataRoot,
+        string? configuredPersonalCloneArtifactsRoot)
+    {
+        return ResolveDataScopedPath(
+            contentRootPath,
+            configuredDataRoot,
+            configuredPersonalCloneArtifactsRoot,
+            DefaultPersonalCloneArtifactsSubdir);
     }
 
     public static string ResolveInstanceFixturesRoot(

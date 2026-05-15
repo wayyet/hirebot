@@ -58,6 +58,7 @@ public sealed class InstanceArtifactResolver(
         {
             yield return Path.Combine(artifactRoot, "instances", "personal_clone", fromInstanceId, instanceId, "versions", currentVersion);
             yield return Path.Combine(artifactRoot, "instances", Sanitize(instanceType), fromInstanceId, instanceId, "versions", currentVersion);
+            yield return Path.Combine(ResolvePersonalCloneArtifactsRoot(), fromInstanceId, instanceId, "versions", currentVersion);
             yield return Path.Combine(ResolveDigitalWorkforceRoot(), instanceId);
 
             if (!string.Equals(fromInstanceId, "unknown", StringComparison.OrdinalIgnoreCase))
@@ -89,6 +90,14 @@ public sealed class InstanceArtifactResolver(
             hostEnvironment.ContentRootPath,
             configuration["HireBot:DataRoot"],
             configuration["HireBot:DigitalWorkforceRoot"]);
+    }
+
+    private string ResolvePersonalCloneArtifactsRoot()
+    {
+        return HireBotPathResolver.ResolvePersonalCloneArtifactsRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:PersonalCloneArtifactsRoot"]);
     }
 
     private static string Sanitize(string value)
