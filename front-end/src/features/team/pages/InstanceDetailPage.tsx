@@ -6,6 +6,7 @@ import {
   Clock3,
   CopyPlus,
   Loader2,
+  MessageCircle,
   RotateCcw,
   ShieldCheck,
 } from "lucide-react";
@@ -221,6 +222,17 @@ export default function InstanceDetailPage() {
               </div>
 
               <div className="hb-detail-actions">
+                {isPersonalAsset && employeeView.mappedStatus === "live" ? (
+                  <button
+                    type="button"
+                    className="hb-btn-primary"
+                    onClick={() => navigate(`/my-employees/instances/${employee.employeeId}/chat`)}
+                  >
+                    <MessageCircle size={14} />
+                    开始对话
+                  </button>
+                ) : null}
+
                 {canCreatePersonalClone ? (
                   <button
                     type="button"
