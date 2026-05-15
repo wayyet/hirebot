@@ -75,12 +75,6 @@ function shortSessionId(value?: string | null) {
   return `${value.slice(0, 8)}...${value.slice(-6)}`
 }
 
-function shortEndpoint(value?: string | null) {
-  if (!value) return '--'
-  const normalized = value.replace(/^https?:\/\//i, '')
-  return normalized.length <= 42 ? normalized : `${normalized.slice(0, 24)}...${normalized.slice(-14)}`
-}
-
 function resolveStageStatus(stepStatus?: string | null): WorkflowStageStatus {
   if (stepStatus === 'completed') return 'completed'
   if (stepStatus === 'running') return 'running'
@@ -205,19 +199,6 @@ export default function EvaluationPage() {
     void loadData()
   }, [id])
 
-  const overview = useMemo(() => {
-    if (!evaluation) {
-      return { total: 0, passed: 0, failed: 0, pending: 0, score: 0 }
-    }
-
-    const total = evaluation.scenarios.length
-    const passed = evaluation.scenarios.filter((scenario) => scenario.verdict === 'passed').length
-    const failed = evaluation.scenarios.filter((scenario) => scenario.verdict === 'failed').length
-    const pending = total - passed - failed
-    const score = evaluation.latestReport?.overallScore ?? 0
-    return { total, passed, failed, pending, score }
-  }, [evaluation])
-
   const isPrivateBranchEvaluation = employee?.instanceType === 'private_branch'
   // 私有分支评估是特殊流程：实例保持 live 状态，不进入普通雇佣评估的 interning_ai 状态。
   // 这里仅允许 private_branch + live 放行，避免影响普通员工原有评估链路。
@@ -248,7 +229,6 @@ export default function EvaluationPage() {
   const reportJsonUrl = toAbsoluteApiUrl(reportSummary?.reportJsonUrl ?? null)
   const reportHtmlUrl = toAbsoluteApiUrl(reportSummary?.reportHtmlUrl ?? null)
   const dimensionScores = reportSummary?.dimensionScores ?? []
-  const readinessMessage = evaluation?.readiness?.message ?? '等待评估材料检查'
   const testcaseReady = evaluation?.readiness?.testcasesReady ?? false
   const ontologyReady = evaluation?.readiness?.ontologyReady ?? false
 
@@ -300,25 +280,6 @@ export default function EvaluationPage() {
       },
     ]
   }, [aiRunning, chatMessages.length, materialsReady, questionCards.length, reportSummary, workspaceStatus, wsEvaluating, wsProgress])
-
-  const connectionCards = useMemo(() => ([
-    {
-      key: 'target',
-      title: '目标沙箱',
-      idLabel: shortSandboxId(workspaceStatus?.targetSandboxId),
-      runtimeLabel: shortSessionId(workspaceStatus?.targetRuntimeId),
-      endpoint: shortEndpoint(workspaceStatus?.targetGatewayEndpoint),
-      description: '先创建，用于拿到被评估数字人的通讯地址。',
-    },
-    {
-      key: 'evaluator',
-      title: '评估沙箱',
-      idLabel: shortSandboxId(workspaceStatus?.evaluatorSandboxId),
-      runtimeLabel: shortSessionId(workspaceStatus?.evaluatorRuntimeId),
-      endpoint: shortEndpoint(workspaceStatus?.evaluatorGatewayEndpoint),
-      description: '最终和用户聊天、展示题卡、生成报告的评估专家沙箱。',
-    },
-  ]), [workspaceStatus])
 
   const primaryQuestionCard = questionCards[0] ?? null
   const reportMetrics = useMemo(() => ([
@@ -1006,9 +967,6 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
                 <span className="rounded-full border border-[#e5e7eb] bg-[#f9fafb] px-2 py-0.5 text-[10px] text-[#4b5563]">
                   {employee.nickname} 路 {employee.roleName}
                 </span>
-                <span className="rounded-full border border-[#e5e7eb] bg-white px-2 py-0.5 text-[10px] text-[#6b7280]">
-                  {employee.stageSummary || '待发起 AI 评估'}
-                </span>
               </div>
               <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px]">
                 <span className={`rounded-full border px-2 py-0.5 ${testcaseReady ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c]'}`}>
@@ -1097,8 +1055,6 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               </span>
             ))}
           </div>
-
-          <div className="mt-1 text-[10px] leading-5 text-[#737373]">{readinessMessage}</div>
         </section>
 
         <section className="flex min-h-0 flex-1 gap-4">
@@ -1122,16 +1078,11 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
                     </div>
                     <div>
                       <div className="text-base font-semibold text-[#111827]">评估对话主视图</div>
-                      <div className="text-[12px] leading-5 text-[#6b7280]">以聊天驱动评估，右侧面板只负责补充题卡、轨迹和报告。</div>
+                      <div className="text-[12px] leading-5 text-[#6b7280]">以聊天为主，右侧只保留题卡、轨迹和报告。</div>
                     </div>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 text-[11px]">
-                  {connectionCards.map((card) => (
-                    <span key={card.key} className="rounded-full border border-[#e5e7eb] bg-white px-2.5 py-1 text-[#4b5563]">
-                      {card.title}：{card.idLabel}
-                    </span>
-                  ))}
                   <span className={`rounded-full border px-2.5 py-1 ${sandboxConnected ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#e5e7eb] bg-white text-[#737373]'}`}>
                     会话连接：{sandboxConnected ? '已连接' : '未连接'}
                   </span>
@@ -1141,23 +1092,6 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
                     </span>
                   )}
                 </div>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                <span className="rounded-full border border-[#e5e7eb] bg-[#f9fafb] px-2.5 py-1 text-[#4b5563]">
-                  场景总数：<span className="font-semibold tabular-nums text-[#0a0a0a]">{overview.total}</span>
-                </span>
-                <span className="rounded-full border border-[#dcfce7] bg-[#f0fdf4] px-2.5 py-1 text-[#166534]">
-                  通过：<span className="font-semibold tabular-nums">{overview.passed}</span>
-                </span>
-                <span className="rounded-full border border-[#fce7f3] bg-[#fdf2f8] px-2.5 py-1 text-[#9d174d]">
-                  未通过：<span className="font-semibold tabular-nums">{overview.failed}</span>
-                </span>
-                <span className="rounded-full border border-[#fef3c7] bg-[#fffbeb] px-2.5 py-1 text-[#92400e]">
-                  待判定：<span className="font-semibold tabular-nums">{overview.pending}</span>
-                </span>
-                <span className="rounded-full border border-[#e5e7eb] bg-white px-2.5 py-1 text-[#4b5563]">
-                  综合评分：<span className="font-semibold tabular-nums text-[#0a0a0a]">{overview.score}</span>
-                </span>
               </div>
             </div>
             <div className="flex-1 overflow-hidden bg-[#fafafa] px-5 py-4">
