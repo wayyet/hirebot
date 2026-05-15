@@ -170,8 +170,9 @@
       "copyManager": "从部门视角统一查看 {{department}} 的已雇佣、评估中和已上岗实例，所有后续动作都从详情页进入。",
       "copyMember": "当前仅展示 {{department}} 已上岗的部门实例，你可以进入详情后继续复制为自己的资产。",
       "deleteDialogTitle": "确认删除数字员工",
-      "confirmDelete": "确认删除数字员工「{{nickname}}」？此操作不可撤销，将同时清理五件套文件。",
+      "confirmDelete": "确认删除数字员工「{{nickname}}」？此操作不可撤销，将同时清理沙箱、IM配置和所有相关文件。",
       "deleteFailed": "删除失败",
+      "deleteSuccess": "数字员工已删除",
       "deleteErrorToast": "删除失败，请稍后重试",
       "loadFailed": "部门数字员工加载失败",
       "stats": {
@@ -252,8 +253,14 @@
         "retiring": "退役中...",
         "abandon": "废弃",
         "abandoning": "废弃中...",
+        "delete": "删除",
+        "deleting": "删除中...",
         "viewDetail": "查看详情 →"
-      }
+      },
+      "deleteDialogTitle": "确认删除数字员工",
+      "confirmDelete": "确认删除数字员工「{{nickname}}」？此操作不可撤销，将同时清理沙箱、IM配置和所有相关文件。",
+      "deleteSuccess": "数字员工已删除",
+      "deleteFailed": "删除失败，请稍后重试"
     }
   },
   "skills": {

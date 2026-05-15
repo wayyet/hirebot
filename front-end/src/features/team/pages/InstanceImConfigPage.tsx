@@ -4,11 +4,10 @@ import {
   ArrowLeft,
   Bot,
   CheckCircle2,
+  ExternalLink,
   Loader2,
   Settings2,
   Trash2,
-  Wifi,
-  Link2,
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
@@ -65,6 +64,11 @@ type PlatformSchema = {
   accent: "blue" | "orange" | "green";
   intro: string;
   mode: ModeSpec;
+  guide: {
+    steps: string[];
+    docLabel: string;
+    docUrl: string;
+  };
 };
 
 const PLATFORM_ORDER: ImPlatformId[] = ["feishu", "dingtalk", "wecom"];
@@ -82,8 +86,16 @@ const PLATFORM_SCHEMAS: Record<ImPlatformId, PlatformSchema> = {
         { key: "appSecret", label: "应用密钥", placeholder: "飞书 app_secret", required: true, type: "password" },
       ],
     },
-  },
-  dingtalk: {
+    guide: {
+      steps: [
+        "进入飞书开放平台，创建企业自建应用。",
+        "在应用详情页左侧导航中找到「凭证与基础信息」。",
+        "复制 App ID 和 App Secret 填入右侧表单。",
+      ],
+      docLabel: "飞书开放平台文档",
+      docUrl: "https://open.feishu.cn/document/home/index",
+    },
+  }, dingtalk: {
     label: "钉钉",
     accent: "orange",
     intro: "钉钉只需要App ID、App Key和App Secret。",
@@ -95,6 +107,15 @@ const PLATFORM_SCHEMAS: Record<ImPlatformId, PlatformSchema> = {
         { key: "appKey", label: "应用密钥", placeholder: "钉钉 App Key / Client ID", required: true },
         { key: "appSecret", label: "应用密钥", placeholder: "钉钉 App Secret", required: true, type: "password" },
       ],
+    },
+    guide: {
+      steps: [
+        "进入钉钉开放平台，创建企业内部应用。",
+        "在应用详情页的「凭证与基础信息」中查看。",
+        "复制 ClientID（即 AppKey）和 ClientSecret（即 AppSecret）填入右侧表单。",
+      ],
+      docLabel: "钉钉开放平台文档",
+      docUrl: "https://open-dev.dingtalk.com/document/orgapp/become-a-dingtalk-developer",
     },
   },
   wecom: {
@@ -108,6 +129,15 @@ const PLATFORM_SCHEMAS: Record<ImPlatformId, PlatformSchema> = {
         { key: "botId", label: "Bot ID", placeholder: "企业微信智能机器人 Bot ID", required: true },
         { key: "botSecret", label: "Bot Secret", placeholder: "企业微信智能机器人 Bot Secret", required: true, type: "password" },
       ],
+    },
+    guide: {
+      steps: [
+        "进入企业微信管理后台，在「应用管理」中创建智能机器人。",
+        "在机器人详情页获取 Bot ID 和 Bot Secret。",
+        "将 Bot ID 和 Bot Secret 填入右侧表单。",
+      ],
+      docLabel: "企业微信开发文档",
+      docUrl: "https://developer.work.weixin.qq.com/document/path/90664",
     },
   },
 };
@@ -231,7 +261,6 @@ export default function InstanceImConfigPage() {
   const currentSchema = PLATFORM_SCHEMAS[selectedPlatform];
   const currentModeSpec = currentSchema.mode;
   const isCurrentConfigured = configuredPlatforms[selectedPlatform];
-  const configuredCount = PLATFORM_ORDER.filter((p) => configuredPlatforms[p]).length;
   const gatewayEndpointRef = useRef<string | null>(null);
 
   async function loadPage() {
@@ -465,59 +494,49 @@ export default function InstanceImConfigPage() {
         </section>
       ) : (
         <>
-          <section className="hb-stat-grid">
-            <div className="hb-stat-card"><div className="hb-stat-label">已配置平台</div><div className="hb-stat-value">{configuredCount}</div></div>
-            <div className="hb-stat-card"><div className="hb-stat-label">Current platform</div><div className="hb-stat-value">{currentSchema.label}</div></div>
-            <div className="hb-stat-card"><div className="hb-stat-label">当前模式</div><div className="hb-stat-value">{currentModeSpec.label}</div></div>
-          </section>
+          <section className="hb-detail-split">
+            <div className="hb-card hb-detail-panel">
+              <h2 className="hb-section-heading">平台选择</h2>
+              <p className="hb-section-copy !mt-0">每个平台独立存储，不会互相覆盖。</p>
+              <div className="mt-4 space-y-2">
+                {PLATFORM_ORDER.map((platform) => {
+                  const schema = PLATFORM_SCHEMAS[platform];
+                  const configured = configuredPlatforms[platform];
+                  const active = selectedPlatform === platform;
+                  const tone = statusTone(configured);
 
-          <section className="hb-section">
-            <div className="hb-section-head">
-              <div>
-                <h2 className="hb-section-title">平台选择</h2>
-                <p className="hb-section-copy">每个平台独立存储，不会互相覆盖。</p>
+                  return (
+                    <button
+                      key={platform}
+                      type="button"
+                      onClick={() => selectPlatform(platform)}
+                      className={`w-full rounded-xl border p-4 text-left transition-all hover:bg-[#f8f9fc] ${
+                        active
+                          ? "border-[#4a6cf7]/30 bg-[#eef1ff] ring-1 ring-[#4a6cf7]/20"
+                          : "border-[#ececec] bg-white"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`hb-squircle h-8 w-8 text-xs font-semibold ${
+                          schema.accent === "blue" ? "bg-[#dde9ff] text-[#3d5cff]"
+                          : schema.accent === "orange" ? "bg-[#fff0df] text-[#b45309]"
+                          : "bg-[#e7f9ee] text-[#15803d]"
+                        }`}>{firstCharacter(schema.label)}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-[#0a0a0a]">{schema.label}</span>
+                            <span className="hb-pill gray text-[11px]">{schema.mode.label}</span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-[#737373]">{schema.intro}</p>
+                        </div>
+                        <span className={`hb-pill ${tone} shrink-0`}>{statusText(configured)}</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-3">
-              {PLATFORM_ORDER.map((platform) => {
-                const schema = PLATFORM_SCHEMAS[platform];
-                const configured = configuredPlatforms[platform];
-                const active = selectedPlatform === platform;
-                const tone = statusTone(configured);
-                const modeLabel = schema.mode.label;
-
-                return (
-                  <button
-                    key={platform}
-                    type="button"
-                    onClick={() => selectPlatform(platform)}
-                    className={`hb-card p-5 text-left transition-transform duration-150 hover:-translate-y-0.5 ${active ? "ring-2 ring-[#4a6cf7]/20" : ""}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2 text-base font-semibold text-[#0a0a0a]">
-                          <span className={`hb-squircle h-8 w-8 ${
-                            schema.accent === "blue" ? "bg-[#dde9ff] text-[#3d5cff]"
-                            : schema.accent === "orange" ? "bg-[#fff0df] text-[#b45309]"
-                            : "bg-[#e7f9ee] text-[#15803d]"
-                          }`}>{firstCharacter(schema.label)}</span>
-                          {schema.label}
-                        </div>
-                        <p className="mt-2 text-sm leading-relaxed text-[#737373]">{schema.intro}</p>
-                      </div>
-                      <span className={`hb-pill ${tone}`}>{statusText(configured)}</span>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <span className="hb-pill gray">{modeLabel}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="hb-detail-split">
             <div className="hb-card hb-detail-panel">
               <div className="hb-detail-section-head">
                 <div>
@@ -528,6 +547,24 @@ export default function InstanceImConfigPage() {
               </div>
 
               <div className="mt-4 hb-callout info">{currentModeSpec.help}</div>
+
+              <details className="mt-4 group">
+                <summary className="cursor-pointer select-none rounded-xl border border-[#ececec] bg-[#fafafa] px-4 py-3 text-sm font-medium text-[#0a0a0a] hover:bg-[#f0f0f0]">
+                  如何获取凭据？
+                </summary>
+                <div className="mt-3 space-y-2 rounded-xl border border-[#ececec] bg-[#fafafa] p-4">
+                  {currentSchema.guide.steps.map((step, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm text-[#404040]">
+                      <span className="mt-0.5 shrink-0 rounded-full bg-[#4a6cf7]/10 px-1.5 py-0.5 text-[11px] font-semibold text-[#4a6cf7]">{i + 1}</span>
+                      <span>{step}</span>
+                    </div>
+                  ))}
+                  <a href={currentSchema.guide.docUrl} target="_blank" rel="noopener noreferrer"
+                     className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-[#4a6cf7] hover:underline">
+                    {currentSchema.guide.docLabel} <ExternalLink size={12} />
+                  </a>
+                </div>
+              </details>
 
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 {currentModeSpec.fields.map((field) => (
@@ -559,38 +596,6 @@ export default function InstanceImConfigPage() {
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <Settings2 size={14} />}
                   {isCurrentConfigured ? "保存并刷新" : "保存配置"}
                 </button>
-              </div>
-            </div>
-
-            <div className="hb-card hb-detail-panel">
-              <h2 className="hb-section-heading">集成指南</h2>
-              <div className="space-y-3">
-                <div className="rounded-2xl border border-[#ececec] bg-[#fafafa] p-4">
-                  <div className="text-sm font-semibold text-[#0a0a0a]">1. 选择平台</div>
-                  <div className="mt-1 text-sm text-[#737373]">飞书、钉钉和企业微信独立存储，不会互相覆盖。</div>
-                </div>
-                <div className="rounded-2xl border border-[#ececec] bg-[#fafafa] p-4">
-                  <div className="text-sm font-semibold text-[#0a0a0a]">2. 填写凭证</div>
-                  <div className="mt-1 text-sm text-[#737373]">完成必填字段，后端将验证并加密它们。</div>
-                </div>
-              </div>
-
-              <div className="mt-5 hb-callout info">
-                <Wifi size={16} />
-                <div>
-                  <div className="font-semibold text-[#0a0a0a]">应用内聊天和IM是独立的</div>
-                  <div className="mt-1 text-sm text-[#404040]">此页面仅处理平台绑定。配置后，您仍然可以从实例详情页进入应用内聊天或直接使用IM频道。</div>
-                </div>
-              </div>
-
-              <div className="mt-5 rounded-2xl border border-[#ececec] bg-[#fafafa] p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-[#0a0a0a]"><Link2 size={14} />当前实例信息</div>
-                <div className="mt-3 grid gap-3 text-sm text-[#404040]">
-                  <div className="flex items-center justify-between gap-3"><span>实例名称</span><span className="font-medium text-[#0a0a0a]">{employee.nickname}</span></div>
-                  <div className="flex items-center justify-between gap-3"><span>实例ID</span><span className="font-medium text-[#0a0a0a]">{employee.employeeId}</span></div>
-                  <div className="flex items-center justify-between gap-3"><span>部门</span><span className="font-medium text-[#0a0a0a]">{employee.departmentId || employee.owningTeam}</span></div>
-                  <div className="flex items-center justify-between gap-3"><span>状态</span><span className="font-medium text-[#0a0a0a]">{statusLabel(employeeView.mappedStatus, employeeView.lifecycleStatus)}</span></div>
-                </div>
               </div>
             </div>
           </section>
