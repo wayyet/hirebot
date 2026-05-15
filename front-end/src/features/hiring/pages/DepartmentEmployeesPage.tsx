@@ -65,7 +65,6 @@ export default function DepartmentEmployeesPage() {
     try {
       await api.employeeRuntime.deleteEmployee(employeeId);
       setRefreshKey((k) => k + 1);
-      setDeleteTarget(null);
     } catch (deleteError: unknown) {
       const message =
         deleteError instanceof Error
@@ -74,6 +73,7 @@ export default function DepartmentEmployeesPage() {
       showToast(message, "error");
     } finally {
       setDeletingId(null);
+      setDeleteTarget(null);
     }
   }
 
@@ -85,7 +85,7 @@ export default function DepartmentEmployeesPage() {
       setError("");
 
       try {
-        const items = await api.employeeRuntime.getEmployees();
+        const items = await api.employeeRuntime.getDepartmentEmployees();
         if (!cancelled) {
           setEmployees(items);
         }
@@ -113,9 +113,7 @@ export default function DepartmentEmployeesPage() {
   }, [refreshKey]);
 
   const viewedEmployees = useMemo(() => {
-    return employees
-      .map(withEmployeeView)
-      .filter((item) => item.ownership === "department");
+    return employees.map(withEmployeeView);
   }, [employees]);
 
   const counts = useMemo(() => {

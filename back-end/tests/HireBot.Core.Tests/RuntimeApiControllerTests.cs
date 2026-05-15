@@ -356,6 +356,7 @@ public sealed class RuntimeApiControllerTests
         }
 
         public Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetDepartmentEmployeesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> GetEmployeeAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<string>> GetRuntimeSandboxGatewayEndpointAsync(string instanceId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<ImportFixtureInstancesResultDto>> ImportFixtureInstancesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -368,6 +369,8 @@ public sealed class RuntimeApiControllerTests
         public Task<ApiResponse<PrivateBranchResultDto>> CreatePrivateBranchAsync(string sourceInstanceId, CreatePrivateBranchRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> AbandonPrivateBranchAsync(string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<LocalStateMigrationResultDto>> MigrateLocalStateAsync(LocalStateMigrationRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<EmployeeDetailDto>> QuickCreateFromTemplateAsync(Stream zipStream, string fileName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<object>> DeleteEmployeeAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FakeTrainingService : ITrainingService

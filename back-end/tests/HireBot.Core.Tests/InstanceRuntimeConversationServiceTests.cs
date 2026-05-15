@@ -275,6 +275,7 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         public Task<int> UpsertManyAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> employees, CancellationToken cancellationToken = default) => Task.FromResult(employees.Count);
 
         public Task<int> ReplaceOwnerAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> employees, CancellationToken cancellationToken = default) => Task.FromResult(employees.Count);
+        public Task<bool> DeleteAsync(string ownerSubject, string employeeId, CancellationToken cancellationToken = default) => Task.FromResult(false);
     }
 }
 
