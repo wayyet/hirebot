@@ -27,7 +27,6 @@ import {
   type HiringConversationMessage,
 } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
-import { EvaluationWorkspaceProgress } from '@/features/team/components/EvaluationWorkspaceProgress'
 import SessionListPanel from '@/features/team/components/SessionListPanel'
 import { instanceBasePath } from '@/shared/utils/instancePath'
 
@@ -344,6 +343,40 @@ export default function EvaluationPage() {
       tone: materialsReady ? 'text-[#15803d]' : 'text-[#b91c1c]',
     },
   ]), [materialsReady, questionCards.length, reportSummary?.reportId, traceAssets.length, workspaceStatus?.sessionId])
+
+  const workspaceProgressSummary = useMemo(() => {
+    if (!workspaceStatus || workspaceStatus.overallStatus === 'not_started') {
+      return null
+    }
+
+    const steps = workspaceStatus.steps ?? []
+    const total = Math.max(steps.length, 1)
+    const completed = steps.filter((step) => step.status === 'completed').length
+    const runningStep = steps.find((step) => step.status === 'running')
+    const failedStep = steps.find((step) => step.status === 'failed')
+    const percent = workspaceStatus.overallStatus === 'ready'
+      ? 100
+      : workspaceStatus.overallStatus === 'failed'
+        ? 100
+        : Math.max(Math.round((completed / total) * 100), 8)
+
+    const label = workspaceStatus.overallStatus === 'ready'
+      ? '评估环境已就绪'
+      : workspaceStatus.overallStatus === 'failed'
+        ? '评估环境创建失败'
+        : runningStep
+          ? `进行中：${runningStep.detail || runningStep.step}`
+          : '正在创建评估环境'
+
+    return {
+      percent,
+      label,
+      completed,
+      total,
+      failed: workspaceStatus.overallStatus === 'failed',
+      errorMessage: failedStep?.detail || workspaceStatus.errorMessage || '',
+    }
+  }, [workspaceStatus])
 
   useEffect(() => {
     if (!workspaceStatus) return
@@ -1033,15 +1066,31 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
             </div>
           )}
 
-          {showWorkspaceProgress && (
-            <div className="mt-2">
-              <EvaluationWorkspaceProgress status={workspaceStatus} polling={workspacePolling} />
+          {showWorkspaceProgress && workspaceProgressSummary && (
+            <div className="mt-2 rounded-xl border border-[#ececec] bg-[#fafafa] px-2.5 py-2">
+              <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                <span className={`rounded-full px-2 py-0.5 font-medium ${workspaceProgressSummary.failed ? 'bg-[#fff1f2] text-[#b3263c]' : 'bg-[#e8edff] text-[#4a6cf7]'}`}>
+                  {workspaceProgressSummary.label}
+                </span>
+                <span className="text-[#737373]">
+                  {workspaceProgressSummary.completed}/{workspaceProgressSummary.total} 步
+                </span>
+                {workspaceProgressSummary.errorMessage && (
+                  <span className="truncate text-[#b3263c]">{workspaceProgressSummary.errorMessage}</span>
+                )}
+              </div>
+              <div className="mt-1.5 h-1 w-full rounded-full bg-[#efefef]">
+                <div
+                  className={`h-1 rounded-full transition-all duration-500 ${workspaceProgressSummary.failed ? 'bg-[#b3263c]' : 'bg-[#4a6cf7]'}`}
+                  style={{ width: `${workspaceProgressSummary.percent}%` }}
+                />
+              </div>
             </div>
           )}
 
-          <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+          <div className="mt-2 flex gap-1.5 overflow-x-auto whitespace-nowrap pb-0.5 text-[10px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {workflowStages.map((stage, index) => (
-              <span key={stage.key} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${workflowStageTone(stage.status)}`}>
+              <span key={stage.key} className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 ${workflowStageTone(stage.status)}`}>
                 <span className="font-semibold">0{index + 1}</span>
                 <span>{stage.title}</span>
                 <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px]">{workflowStagePill(stage.status)}</span>
