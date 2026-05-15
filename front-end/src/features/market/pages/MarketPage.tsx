@@ -210,10 +210,6 @@ export default function MarketPage() {
       {data.items.length > 0 ? (
         <Pagination page={page} totalPages={totalPages} onChange={setPage} />
       ) : null}
-
-      <p className="mt-8 text-center text-xs text-[var(--hb-caption)]">
-        {t('market.footer')}
-      </p>
     </div>
   )
 }
