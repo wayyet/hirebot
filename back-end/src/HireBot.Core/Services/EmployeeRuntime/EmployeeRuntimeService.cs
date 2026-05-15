@@ -775,7 +775,8 @@ public sealed partial class EmployeeRuntimeService(
     }
 
     /// <summary>
-    /// 删除数字员工及其全部关联资源：内存记录、DB 实例、五件套 artifact 文件、DigitalWorkforce 上传文件。
+    /// 删除数字员工及其全部关联资源：内存记录、DB 实例、沙箱、IM 配置、五件套 artifact 文件。
+    /// 仅允许删除自己创建的数字员工。分身类型（personal_clone / private_branch）要求已退役。
     /// </summary>
     public async Task<ApiResponse<object>> DeleteEmployeeAsync(
         string employeeId,
@@ -788,20 +789,31 @@ public sealed partial class EmployeeRuntimeService(
 
         var normalizedId = employeeId.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
-        var artifactDir = Path.Combine(ResolveArtifactStoreRoot(), "instances", "department", normalizedId);
-        var digitalWorkforceDir = Path.Combine(ResolveDigitalWorkforceRoot(), normalizedId);
 
         var existing = await store.GetAsync(owner, normalizedId, cancellationToken);
         var instance = await dbContext.Instances
             .AsNoTracking()
             .FirstOrDefaultAsync(item => item.InstanceId == normalizedId, cancellationToken);
         var instanceExists = instance is not null;
-     
-        var digitalWorkforceExists = Directory.Exists(digitalWorkforceDir);
 
-        if (existing is null && !instanceExists && !digitalWorkforceExists)
+        if (existing is null && !instanceExists)
         {
             return ApiResponse<object>.ErrorResponse(404, "员工不存在");
+        }
+
+        // 分身类型（personal_clone / private_branch）要求已退役，部门员工无此限制
+        var isCloneType = instance is not null &&
+            (string.Equals(instance.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(instance.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase));
+        if (isCloneType)
+        {
+            var resolvedStatus = instance?.Status
+                ?? NormalizeStatus(existing?.Status, existing?.LifecycleStatus);
+            if (resolvedStatus is not null &&
+                !string.Equals(resolvedStatus, "retired", StringComparison.OrdinalIgnoreCase))
+            {
+                return ApiResponse<object>.ErrorResponse(409, "只能删除已退役的数字员工分身");
+            }
         }
 
         if (instance is not null &&
@@ -809,6 +821,9 @@ public sealed partial class EmployeeRuntimeService(
         {
             return ApiResponse<object>.ErrorResponse(403, "只能删除自己创建的数字员工");
         }
+
+        // 最大努力清理：运行时沙箱 + IM 渠道配置
+        await CleanupRetiredInstanceArtifactsAsync(owner, normalizedId, cancellationToken);
 
         // 1. 从内存 store 移除
         await store.DeleteAsync(owner, normalizedId, cancellationToken);
@@ -818,13 +833,27 @@ public sealed partial class EmployeeRuntimeService(
             .Where(item => item.InstanceId == normalizedId)
             .ExecuteDeleteAsync(cancellationToken);
 
-  
-        // 3. 删除 DigitalWorkforce 目录
-        if (Directory.Exists(digitalWorkforceDir))
+        // 3. 删除五件套 artifact 目录
+        string artifactDir;
+        if (instance is not null &&
+            (string.Equals(instance.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(instance.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase)))
+        {
+            var fromId = string.IsNullOrWhiteSpace(instance.FromInstanceId) ? "unknown" : instance.FromInstanceId;
+            artifactDir = Path.Combine(
+                ResolveArtifactStoreRoot(), "instances", "personal_clone",
+                SanitizePathSegment(fromId), normalizedId);
+        }
+        else
+        {
+            artifactDir = Path.Combine(ResolveArtifactStoreRoot(), "instances", "department", normalizedId);
+        }
+
+        if (Directory.Exists(artifactDir))
         {
             try
             {
-                Directory.Delete(digitalWorkforceDir, recursive: true);
+                Directory.Delete(artifactDir, recursive: true);
             }
             catch
             {
@@ -870,7 +899,7 @@ public sealed partial class EmployeeRuntimeService(
                 $"个人分身数量已达上限（最多 {maxActivePersonalClones} 个），请先废弃不再使用的分身。");
         }
 
-            var source = await ResolveEmployeeForOwnerAsync(owner, normalizedSourceId, cancellationToken);
+        var source = await ResolveDepartmentEmployeeForTenantAsync(tenantId, normalizedSourceId, cancellationToken);
         if (source is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "源部门员工不存在");

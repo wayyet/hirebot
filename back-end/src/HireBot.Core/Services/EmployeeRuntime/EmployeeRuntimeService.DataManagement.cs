@@ -170,6 +170,32 @@ public sealed partial class EmployeeRuntimeService
     }
 
     /// <summary>
+    /// 按租户查找部门员工。
+    /// </summary>
+    private async Task<EmployeeDetailDto?> ResolveDepartmentEmployeeForTenantAsync(
+        string tenantId,
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedEmployeeId = employeeId.Trim();
+        var instance = await dbContext.Instances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                item => item.TenantId == tenantId
+                        && item.InstanceType == "department"
+                        && item.InstanceId == normalizedEmployeeId,
+                cancellationToken);
+        if (instance is null)
+        {
+            return null;
+        }
+
+        return !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
+            ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
+            : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
+    }
+
+    /// <summary>
     /// 返回 owner 下的员工全集，并把实例表中的缺失项回填到内存。
     /// </summary>
     private async Task<IReadOnlyList<EmployeeDetailDto>> ResolveOwnerEmployeesAsync(
