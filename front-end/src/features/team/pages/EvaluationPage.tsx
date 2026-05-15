@@ -178,6 +178,11 @@ export default function EvaluationPage() {
   const gatewayEndpointRef = useRef<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const streamingContentRef = useRef('')
+  const connectionStateRef = useRef<{ endpoint: string | null; sessionId: string | null }>({
+    endpoint: null,
+    sessionId: null,
+  })
+  const ensureChatReadyPromiseRef = useRef<Promise<boolean> | null>(null)
 
   async function loadData() {
     if (!id) return
@@ -430,6 +435,15 @@ export default function EvaluationPage() {
   }
 
   async function connectEvaluationWs(endpoint: string) {
+    if (
+      wsRef.current?.isOpen() &&
+      connectionStateRef.current.endpoint === endpoint &&
+      connectionStateRef.current.sessionId === sessionIdRef.current
+    ) {
+      setSandboxConnected(true)
+      return
+    }
+
     wsRef.current?.disconnect()
     wsRef.current = null
     setSandboxConnected(false)
@@ -517,47 +531,71 @@ export default function EvaluationPage() {
     ws.connect()
     wsRef.current = ws
     await waitForOpen
+    connectionStateRef.current = {
+      endpoint,
+      sessionId: sessionIdRef.current,
+    }
   }
 
   async function ensureEvaluationChatReady() {
     if (!id || !aiRunning) return
 
-    setChatLoading(true)
-    setChatError('')
-
-    try {
-      let endpoint = workspaceStatus?.evaluatorGatewayEndpoint?.trim() ?? gatewayEndpointRef.current ?? ''
-      let sessionId = workspaceStatus?.sessionId?.trim() ?? sessionIdRef.current ?? ''
-
-      if (!endpoint) {
-        const latestStatus = await api.employeeRuntime.getEvaluationWorkspaceStatus(id)
-        setWorkspaceStatus(latestStatus)
-        endpoint = latestStatus.evaluatorGatewayEndpoint?.trim() ?? ''
-        sessionId = sessionId || latestStatus.sessionId?.trim() || ''
-      }
-
-      if (!sessionId) {
-        const conversation = await api.employeeRuntime.getEvaluationSandboxConversation(id)
-        setSandboxConversation(conversation)
-        sessionId = conversation.sessionId?.trim() ?? ''
-        setWorkspaceStatus((prev) => prev ? { ...prev, sessionId } : prev)
-      }
-
-      if (!endpoint || !sessionId) {
-        throw new Error('评估会话尚未绑定完成，无法恢复沙箱会话')
-      }
-
-      gatewayEndpointRef.current = endpoint
-      sessionIdRef.current = sessionId
-      setSelectedSessionId(sessionId)
-      await syncSandboxHistory(endpoint, sessionId)
-      await connectEvaluationWs(endpoint)
-      logEvaluationDebug('evaluation chat ready', { employeeId: id, endpoint, sessionId })
-    } catch (readyError: unknown) {
-      setChatError(readyError instanceof Error ? readyError.message : '初始化评估聊天失败')
-    } finally {
-      setChatLoading(false)
+    if (ensureChatReadyPromiseRef.current) {
+      return ensureChatReadyPromiseRef.current
     }
+
+    ensureChatReadyPromiseRef.current = (async () => {
+      setChatLoading(true)
+      setChatError('')
+
+      try {
+        let endpoint = workspaceStatus?.evaluatorGatewayEndpoint?.trim() ?? gatewayEndpointRef.current ?? ''
+        let sessionId = workspaceStatus?.sessionId?.trim() ?? sessionIdRef.current ?? ''
+
+        if (!endpoint) {
+          const latestStatus = await api.employeeRuntime.getEvaluationWorkspaceStatus(id)
+          setWorkspaceStatus(latestStatus)
+          endpoint = latestStatus.evaluatorGatewayEndpoint?.trim() ?? ''
+          sessionId = sessionId || latestStatus.sessionId?.trim() || ''
+        }
+
+        if (!sessionId) {
+          const conversation = await api.employeeRuntime.getEvaluationSandboxConversation(id)
+          setSandboxConversation(conversation)
+          sessionId = conversation.sessionId?.trim() ?? ''
+          setWorkspaceStatus((prev) => prev ? { ...prev, sessionId } : prev)
+        }
+
+        if (!endpoint || !sessionId) {
+          throw new Error('评估会话尚未绑定完成，无法恢复沙箱会话')
+        }
+
+        gatewayEndpointRef.current = endpoint
+        sessionIdRef.current = sessionId
+        setSelectedSessionId(sessionId)
+
+        const alreadyReady =
+          wsRef.current?.isOpen() &&
+          connectionStateRef.current.endpoint === endpoint &&
+          connectionStateRef.current.sessionId === sessionId
+
+        if (!alreadyReady) {
+          await syncSandboxHistory(endpoint, sessionId)
+          await connectEvaluationWs(endpoint)
+        }
+
+        logEvaluationDebug('evaluation chat ready', { employeeId: id, endpoint, sessionId, reused: alreadyReady })
+        return true
+      } catch (readyError: unknown) {
+        setChatError(readyError instanceof Error ? readyError.message : '初始化评估聊天失败')
+        return false
+      } finally {
+        setChatLoading(false)
+        ensureChatReadyPromiseRef.current = null
+      }
+    })()
+
+    return ensureChatReadyPromiseRef.current
   }
 
   async function submitAiDecision(decision: 'START' | 'RUN') {
@@ -800,7 +838,10 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
 
     try {
       if (!wsRef.current?.isOpen() || !sessionIdRef.current) {
-        await ensureEvaluationChatReady()
+        const ready = await ensureEvaluationChatReady()
+        if (!ready) {
+          throw new Error(chatError || '评估沙箱连接尚未就绪，请稍后重试')
+        }
       }
 
       const activeWs = wsRef.current
@@ -840,6 +881,8 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
       setStreamingContent(null)
       gatewayEndpointRef.current = null
       sessionIdRef.current = null
+      connectionStateRef.current = { endpoint: null, sessionId: null }
+      ensureChatReadyPromiseRef.current = null
       wsRef.current?.disconnect()
       wsRef.current = null
       setSandboxConnected(false)
@@ -851,8 +894,9 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
     return () => {
       wsRef.current?.disconnect()
       wsRef.current = null
+      connectionStateRef.current = { endpoint: null, sessionId: null }
     }
-  }, [aiRunning, id, workspaceStatus?.sessionId, workspaceStatus?.evaluatorGatewayEndpoint])
+  }, [aiRunning, id])
 
   async function handleSelectSession(sessionId: string) {
     if (sessionSwitching || sessionId === selectedSessionId) return
@@ -920,41 +964,41 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
   return (
     <div className="hb-page hb-page-wide">
       <Breadcrumb items={[{ label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' }, { label: 'AI 评估' }]} />
-      <div className="flex h-[calc(100vh-120px)] min-h-[720px] flex-col gap-4">
-        <section className="hb-card p-3">
-          <div className="flex flex-wrap items-center gap-3">
+      <div className="flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
+        <section className="hb-card p-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-[18px] font-semibold text-[#0a0a0a]">AI 评估对话</h1>
-                <span className="rounded-full border border-[#e5e7eb] bg-[#f9fafb] px-2.5 py-1 text-[11px] text-[#4b5563]">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h1 className="text-[16px] font-semibold text-[#0a0a0a]">AI 评估对话</h1>
+                <span className="rounded-full border border-[#e5e7eb] bg-[#f9fafb] px-2 py-0.5 text-[10px] text-[#4b5563]">
                   {employee.nickname} 路 {employee.roleName}
                 </span>
-                <span className="rounded-full border border-[#e5e7eb] bg-white px-2.5 py-1 text-[11px] text-[#6b7280]">
+                <span className="rounded-full border border-[#e5e7eb] bg-white px-2 py-0.5 text-[10px] text-[#6b7280]">
                   {employee.stageSummary || '待发起 AI 评估'}
                 </span>
               </div>
-              <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                <span className={`rounded-full border px-2.5 py-1 ${testcaseReady ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c]'}`}>
+              <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px]">
+                <span className={`rounded-full border px-2 py-0.5 ${testcaseReady ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c]'}`}>
                   测试用例：{testcaseReady ? '已就绪' : '待补充'}
                 </span>
-                <span className={`rounded-full border px-2.5 py-1 ${ontologyReady ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c]'}`}>
+                <span className={`rounded-full border px-2 py-0.5 ${ontologyReady ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c]'}`}>
                   评估本体：{ontologyReady ? '已就绪' : '待补充'}
                 </span>
-                <span className="rounded-full border border-[#e5e7eb] bg-white px-2.5 py-1 text-[#4b5563]">
+                <span className="rounded-full border border-[#e5e7eb] bg-white px-2 py-0.5 text-[#4b5563]">
                   Session：{shortSessionId(workspaceStatus?.sessionId)}
                 </span>
                 {workspaceReady && (
-                  <span className="rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-2.5 py-1 text-[#1d4ed8]">
+                  <span className="rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-2 py-0.5 text-[#1d4ed8]">
                     双沙箱已连接
                   </span>
                 )}
               </div>
             </div>
-            <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 disabled={submitting || !canPrepare || aiRunning}
-                className="hb-btn-primary !px-3 !py-1.5 !text-xs"
+                className="hb-btn-primary !px-2.5 !py-1 !text-[11px]"
                 onClick={() => void submitAiDecision('START')}
               >
                 <PlayCircle size={12} />
@@ -963,7 +1007,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               <button
                 type="button"
                 disabled={submitting || wsEvaluating || !aiRunning}
-                className="hb-btn-ghost !px-3 !py-1.5 !text-xs"
+                className="hb-btn-ghost !px-2.5 !py-1 !text-[11px]"
                 onClick={() => void submitAiDecision('RUN')}
               >
                 {wsEvaluating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
@@ -972,7 +1016,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               <button
                 type="button"
                 onClick={() => setRightCollapsed((current) => !current)}
-                className="hb-btn-ghost !px-3 !py-1.5 !text-xs"
+                className="hb-btn-ghost !px-2.5 !py-1 !text-[11px]"
               >
                 <BarChart2 size={12} />
                 {rightCollapsed ? '展开辅助面板' : '收起辅助面板'}
@@ -990,14 +1034,14 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
           )}
 
           {showWorkspaceProgress && (
-            <div className="mt-3">
+            <div className="mt-2">
               <EvaluationWorkspaceProgress status={workspaceStatus} polling={workspacePolling} />
             </div>
           )}
 
-          <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+          <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
             {workflowStages.map((stage, index) => (
-              <span key={stage.key} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${workflowStageTone(stage.status)}`}>
+              <span key={stage.key} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${workflowStageTone(stage.status)}`}>
                 <span className="font-semibold">0{index + 1}</span>
                 <span>{stage.title}</span>
                 <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px]">{workflowStagePill(stage.status)}</span>
@@ -1005,7 +1049,7 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
             ))}
           </div>
 
-          <div className="mt-2 text-[11px] text-[#737373]">{readinessMessage}</div>
+          <div className="mt-1 text-[10px] leading-5 text-[#737373]">{readinessMessage}</div>
         </section>
 
         <section className="flex min-h-0 flex-1 gap-4">
