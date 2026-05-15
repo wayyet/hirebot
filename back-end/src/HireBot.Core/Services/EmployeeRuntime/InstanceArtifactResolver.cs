@@ -1,63 +1,28 @@
+using HireBot.Core.Services.Internal;
 using HireBot.Repository.Entities;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
 /// <summary>
-/// 实例产物解析器，根据实例类型解析产物路径和元数据。
+/// Resolves the artifact root used to package an instance into a runtime sandbox.
 /// </summary>
-public sealed class InstanceArtifactResolver(IConfiguration configuration) : IInstanceArtifactResolver
+public sealed class InstanceArtifactResolver(
+    IConfiguration configuration,
+    IHostEnvironment hostEnvironment) : IInstanceArtifactResolver
 {
-    /// <summary>
-    /// 解析实例的产物路径和元数据。
-    /// </summary>
-    /// <param name="instance">实例实体</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>产物解析结果</returns>
     public Task<InstanceArtifactResolution> ResolveAsync(
         InstanceEntity instance,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // 根据实例类型构建产物根路径
-        var root = instance.InstanceType switch
+        var candidates = BuildCandidateRoots(instance).ToArray();
+        var root = candidates.FirstOrDefault(Directory.Exists);
+        if (string.IsNullOrWhiteSpace(root))
         {
-            "department" => Path.Combine(
-                ResolveRoot(),
-                "instances",
-                "department",
-                Sanitize(instance.InstanceId),
-                "versions",
-                Sanitize(instance.CurrentVersion)),
-            "personal_clone" => Path.Combine(
-                ResolveRoot(),
-                "instances",
-                "personal_clone",
-                Sanitize(instance.FromInstanceId ?? "unknown"),
-                Sanitize(instance.InstanceId),
-                "versions",
-                Sanitize(instance.CurrentVersion)),
-            "private_branch" => Path.Combine(
-                ResolveRoot(),
-                "instances",
-                "personal_clone",
-                Sanitize(instance.FromInstanceId ?? "unknown"),
-                Sanitize(instance.InstanceId),
-                "versions",
-                Sanitize(instance.CurrentVersion)),
-            _ => Path.Combine(
-                ResolveRoot(),
-                "instances",
-                Sanitize(instance.InstanceType),
-                Sanitize(instance.InstanceId),
-                "versions",
-                Sanitize(instance.CurrentVersion))
-        };
-
-        if (!Directory.Exists(root))
-        {
-            throw new DirectoryNotFoundException($"实例产物目录不存在: {root}");
+            throw new DirectoryNotFoundException($"Instance artifact directory does not exist: {string.Join(" | ", candidates)}");
         }
 
         var metadata = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
@@ -71,9 +36,42 @@ public sealed class InstanceArtifactResolver(IConfiguration configuration) : IIn
         return Task.FromResult(new InstanceArtifactResolution(root, metadata));
     }
 
-    /// <summary>
-    /// 解析产物存储根目录。
-    /// </summary>
+    private IEnumerable<string> BuildCandidateRoots(InstanceEntity instance)
+    {
+        var artifactRoot = ResolveRoot();
+        var currentVersion = Sanitize(instance.CurrentVersion);
+        var instanceType = string.IsNullOrWhiteSpace(instance.InstanceType) ? "department" : instance.InstanceType;
+        var instanceId = Sanitize(instance.InstanceId);
+        var fromInstanceId = string.IsNullOrWhiteSpace(instance.FromInstanceId)
+            ? "unknown"
+            : Sanitize(instance.FromInstanceId);
+
+        if (string.Equals(instanceType, "department", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return Path.Combine(artifactRoot, "instances", "department", instanceId, "versions", currentVersion);
+            yield return Path.Combine(ResolveDigitalWorkforceRoot(), instanceId);
+            yield break;
+        }
+
+        if (string.Equals(instanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(instanceType, "private_branch", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return Path.Combine(artifactRoot, "instances", "personal_clone", fromInstanceId, instanceId, "versions", currentVersion);
+            yield return Path.Combine(artifactRoot, "instances", Sanitize(instanceType), fromInstanceId, instanceId, "versions", currentVersion);
+            yield return Path.Combine(ResolveDigitalWorkforceRoot(), instanceId);
+
+            if (!string.Equals(fromInstanceId, "unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return Path.Combine(ResolveDigitalWorkforceRoot(), fromInstanceId);
+            }
+
+            yield break;
+        }
+
+        yield return Path.Combine(artifactRoot, "instances", Sanitize(instanceType), instanceId, "versions", currentVersion);
+        yield return Path.Combine(ResolveDigitalWorkforceRoot(), instanceId);
+    }
+
     private string ResolveRoot()
     {
         var configured = configuration["HireBot:ArtifactStoreRoot"];
@@ -85,11 +83,14 @@ public sealed class InstanceArtifactResolver(IConfiguration configuration) : IIn
         return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "hirebot-artifacts"));
     }
 
-    /// <summary>
-    /// 清理路径中的非法字符。
-    /// </summary>
-    /// <param name="value">待清理的值</param>
-    /// <returns>清理后的值</returns>
+    private string ResolveDigitalWorkforceRoot()
+    {
+        return HireBotPathResolver.ResolveDigitalWorkforceRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:DigitalWorkforceRoot"]);
+    }
+
     private static string Sanitize(string value)
     {
         var trimmed = value.Trim();

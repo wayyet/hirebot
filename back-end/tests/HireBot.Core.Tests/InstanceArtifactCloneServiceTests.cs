@@ -80,6 +80,99 @@ public sealed class InstanceArtifactCloneServiceTests
         }
     }
 
+    [Fact]
+    public async Task ResolveAsync_ShouldFallbackToDigitalWorkforceRoot_WhenDepartmentArtifactsAreMissing()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "hirebot-artifact-resolver-tests", Guid.NewGuid().ToString("N"));
+        var digitalWorkforceRoot = Path.Combine(tempRoot, "data", "digital-workforce");
+        var departmentRoot = Path.Combine(digitalWorkforceRoot, "dept-001");
+        Directory.CreateDirectory(departmentRoot);
+        File.WriteAllText(Path.Combine(departmentRoot, "manifest.json"), "{\"name\":\"department\"}");
+
+        try
+        {
+            var resolver = CreateResolver(tempRoot);
+            var result = await resolver.ResolveAsync(new Repository.Entities.InstanceEntity
+            {
+                InstanceId = "dept-001",
+                TenantId = "tenant-a",
+                InstanceType = "department",
+                Status = "live",
+                OwnerUserId = "owner-a",
+                DepartmentId = "tenant-a",
+                CurrentVersion = "v_missing",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+
+            Assert.Equal(departmentRoot, result.ArtifactRoot);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ShouldFallbackToSourceDigitalWorkforceRoot_ForRetiredCloneRehire()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "hirebot-artifact-resolver-tests", Guid.NewGuid().ToString("N"));
+        var digitalWorkforceRoot = Path.Combine(tempRoot, "data", "digital-workforce");
+        var sourceRoot = Path.Combine(digitalWorkforceRoot, "dept-001");
+        Directory.CreateDirectory(sourceRoot);
+        File.WriteAllText(Path.Combine(sourceRoot, "manifest.json"), "{\"name\":\"source\"}");
+
+        try
+        {
+            var resolver = CreateResolver(tempRoot);
+            var result = await resolver.ResolveAsync(new Repository.Entities.InstanceEntity
+            {
+                InstanceId = "pc-001",
+                TenantId = "tenant-a",
+                InstanceType = "personal_clone",
+                Status = "retired",
+                BasedOnTemplateId = "sales-coach",
+                FromInstanceId = "dept-001",
+                OwnerUserId = "owner-a",
+                DepartmentId = "tenant-a",
+                CurrentVersion = "v_missing",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+
+            Assert.Equal(sourceRoot, result.ArtifactRoot);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    private static InstanceArtifactResolver CreateResolver(string contentRootPath)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+            [
+                new KeyValuePair<string, string?>("HireBot:DataRoot", "data"),
+                new KeyValuePair<string, string?>("HireBot:DigitalWorkforceRoot", "digital-workforce")
+            ])
+            .Build();
+
+        return new InstanceArtifactResolver(
+            configuration,
+            new TestHostingEnvironment
+            {
+                ContentRootPath = contentRootPath,
+                ContentRootFileProvider = new PhysicalFileProvider(contentRootPath)
+            });
+    }
+
     private static void CreateMetadataOnlySourcePackage(string artifactRoot)
     {
         var sourceRoot = Path.Combine(artifactRoot, "instances", "department", "source-001", "versions", "v_meta");
