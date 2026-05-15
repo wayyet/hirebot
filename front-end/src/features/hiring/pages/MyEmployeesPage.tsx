@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bot,
   GitBranch,
   Loader2,
   MessageCircle,
+  MoreHorizontal,
   ShieldCheck,
+  Trash2,
   X,
   Users,
 } from "lucide-react";
@@ -12,9 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeSummary } from "@/infra/api";
-import {
-  withEmployeeView,
-} from "./employeeView";
+import { withEmployeeView } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 
 type FilterTab = "all" | "live" | "branch" | "retired";
@@ -36,7 +35,17 @@ export default function MyEmployeesPage() {
   const [page, setPage] = useState(1);
   const [abandoningId, setAbandoningId] = useState<string | null>(null);
   const [retiringId, setRetiringId] = useState<string | null>(null);
-  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(
+    null,
+  );
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [lastInRowIds, setLastInRowIds] = useState<Set<string>>(new Set());
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    employeeId: string;
+    nickname: string;
+  } | null>(null);
 
   async function abandonBranch(branchId: string) {
     setAbandoningId(branchId);
@@ -105,6 +114,24 @@ export default function MyEmployeesPage() {
     }
   }
 
+  async function handleDelete(employeeId: string) {
+    setDeletingId(employeeId);
+    try {
+      await api.employeeRuntime.deleteEmployee(employeeId);
+      setEmployees((prev) => prev.filter((e) => e.employeeId !== employeeId));
+      showToast(t("employees.myPage.deleteSuccess"), "success");
+      setDeleteTarget(null);
+    } catch (deleteError: unknown) {
+      const message =
+        deleteError instanceof Error
+          ? deleteError.message
+          : t("employees.myPage.deleteFailed");
+      showToast(message, "error");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -123,7 +150,7 @@ export default function MyEmployeesPage() {
           setError(
             requestError instanceof Error
               ? requestError.message
-                : t("employees.myPage.loadFailed"),
+              : t("employees.myPage.loadFailed"),
           );
         }
       } finally {
@@ -175,7 +202,10 @@ export default function MyEmployeesPage() {
     return myEmployees.filter((item) => item.mappedStatus === "retired");
   }, [filter, myEmployees]);
 
-  const totalPages = Math.max(1, Math.ceil(visibleEmployees.length / PAGE_SIZE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(visibleEmployees.length / PAGE_SIZE),
+  );
 
   const pagedEmployees = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
@@ -192,15 +222,57 @@ export default function MyEmployeesPage() {
     }
   }, [page, totalPages]);
 
+  useEffect(() => {
+    if (!menuOpenId) return;
+    function closeMenu() {
+      setMenuOpenId(null);
+    }
+    window.addEventListener("click", closeMenu);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+    };
+  }, [menuOpenId]);
+
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+
+    const observer = new ResizeObserver(() => {
+      const cards = grid.querySelectorAll<HTMLElement>(".hb-employee-card");
+      const gridRect = grid.getBoundingClientRect();
+      const lastIds = new Set<string>();
+
+      cards.forEach((card) => {
+        const rect = card.getBoundingClientRect();
+        const id = card.dataset.employeeId;
+        if (!id) return;
+        if (gridRect.right - rect.right < 10) {
+          lastIds.add(id);
+        }
+      });
+
+      setLastInRowIds((prev) => {
+        if (
+          prev.size === lastIds.size &&
+          [...prev].every((id) => lastIds.has(id))
+        ) {
+          return prev;
+        }
+        return lastIds;
+      });
+    });
+
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [pagedEmployees]);
+
   return (
     <div className="hb-page">
       <div className="hb-page-head">
         <div>
           <span className="hb-kicker">{t("employees.myPage.kicker")}</span>
           <h1 className="hb-page-title">{t("employees.myPage.title")}</h1>
-          <p className="hb-page-copy">
-            {t("employees.myPage.copy")}
-          </p>
+          <p className="hb-page-copy">{t("employees.myPage.copy")}</p>
         </div>
         <div className="hb-page-actions">
           <button
@@ -212,7 +284,7 @@ export default function MyEmployeesPage() {
           </button>
         </div>
       </div>
-
+      {/* 
       <div className="hb-stat-grid">
         <div className="hb-stat-card">
           <div className="hb-stat-label">
@@ -238,14 +310,30 @@ export default function MyEmployeesPage() {
           </div>
           <div className="hb-stat-value">{counts.retired}</div>
         </div>
-      </div>
+      </div> */}
 
       <div className="mt-5 hb-chip-row">
         {[
-          { id: "all" as const, label: t("employees.myPage.filters.all"), count: counts.all },
-          { id: "live" as const, label: t("employees.myPage.filters.live"), count: counts.live },
-          { id: "branch" as const, label: t("employees.myPage.filters.branch"), count: counts.branch },
-          { id: "retired" as const, label: t("employees.myPage.filters.retired"), count: counts.retired },
+          {
+            id: "all" as const,
+            label: t("employees.myPage.filters.all"),
+            count: counts.all,
+          },
+          {
+            id: "live" as const,
+            label: t("employees.myPage.filters.live"),
+            count: counts.live,
+          },
+          {
+            id: "branch" as const,
+            label: t("employees.myPage.filters.branch"),
+            count: counts.branch,
+          },
+          {
+            id: "retired" as const,
+            label: t("employees.myPage.filters.retired"),
+            count: counts.retired,
+          },
         ].map((item) => (
           <button
             key={item.id}
@@ -273,18 +361,21 @@ export default function MyEmployeesPage() {
           </div>
         ) : visibleEmployees.length === 0 ? (
           <div className="hb-empty">
-            <div className="hb-empty-title">{t("employees.myPage.emptyTitle")}</div>
+            <div className="hb-empty-title">
+              {t("employees.myPage.emptyTitle")}
+            </div>
             <div className="hb-empty-copy">
               {t("employees.myPage.emptyCopy")}
             </div>
           </div>
         ) : (
-          <div className="hb-asset-grid">
+          <div className="hb-asset-grid" ref={gridRef}>
             {pagedEmployees.map((employee) => (
               <div
                 key={employee.employeeId}
                 role="button"
                 tabIndex={0}
+                data-employee-id={employee.employeeId}
                 onClick={() =>
                   navigate(`/my-employees/instances/${employee.employeeId}`)
                 }
@@ -295,8 +386,68 @@ export default function MyEmployeesPage() {
                   }
                 }}
                 className="hb-card hb-employee-card cursor-pointer text-left"
+                style={
+                  menuOpenId === employee.employeeId
+                    ? { zIndex: 10 }
+                    : undefined
+                }
               >
-                <div className="hb-employee-card-head">
+                <div className="hb-employee-card-menu-anchor" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="hb-employee-card-menu-btn"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setMenuOpenId((current) =>
+                        current === employee.employeeId
+                          ? null
+                          : employee.employeeId,
+                      );
+                    }}
+                  >
+                    <MoreHorizontal size={16} />
+                  </button>
+                  {menuOpenId === employee.employeeId ? (
+                    <div className={`hb-dropdown-menu hb-employee-card-menu${lastInRowIds.has(employee.employeeId) ? " hb-dropdown-menu--right" : ""}`}>
+                      {employee.ownership === "personal_clone" &&
+                      employee.mappedStatus === "live" ? (
+                        <button
+                          type="button"
+                          className="hb-dropdown-item"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setMenuOpenId(null);
+                            navigate(`/private-branch/${employee.employeeId}`);
+                          }}
+                        >
+                          <GitBranch size={14} />
+                          {t("employees.myPage.actions.createPrivateBranch")}
+                        </button>
+                      ) : null}
+                      {employee.mappedStatus !== "retired" ? (
+                        <button
+                          type="button"
+                          className="hb-dropdown-item hb-dropdown-item--danger"
+                          disabled={retiringId === employee.employeeId}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setMenuOpenId(null);
+                            setConfirmAction({
+                              kind: "retire",
+                              employeeId: employee.employeeId,
+                            });
+                          }}
+                        >
+                          <ShieldCheck size={14} />
+                          {retiringId === employee.employeeId
+                            ? t("employees.myPage.actions.retiring")
+                            : t("employees.myPage.actions.retire")}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="hb-employee-card-head pr-12">
                   <div className="min-w-0 flex-1">
                     <h3 className="hb-employee-card-title">
                       {employee.nickname}
@@ -309,62 +460,13 @@ export default function MyEmployeesPage() {
                 <p className="hb-employee-card-desc">
                   {employee.primarySignal || employee.stageSummary}
                 </p>
-                <div
-                  className="hb-employee-card-actions"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    type="button"
-                    className="hb-btn-ghost hb-hub-btn-secondary text-xs"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(
-                        employee.mappedStatus === "retired"
-                          ? `/my-employees/instances/${employee.employeeId}/evaluation`
-                          : `/my-employees/instances/${employee.employeeId}/im-config`,
-                      );
-                    }}
-                  >
-                    <Bot size={12} />
-                    {employee.mappedStatus === "retired"
-                      ? t("employees.myPage.actions.viewReport")
-                      : t("employees.myPage.actions.configureIm")}
-                  </button>
-                  {employee.ownership === "personal_clone" &&
-                  employee.mappedStatus === "live" ? (
-                    <button
-                      type="button"
-                      className="hb-btn-ghost hb-hub-btn-secondary text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/private-branch/${employee.employeeId}`);
-                      }}
-                    >
-                      <GitBranch size={12} />
-                      {t("employees.myPage.actions.createPrivateBranch")}
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="hb-btn-ghost hb-hub-btn-secondary text-xs"
-                    disabled={
-                      employee.mappedStatus === "retired" ||
-                      retiringId === employee.employeeId
-                    }
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmAction({ kind: "retire", employeeId: employee.employeeId });
-                    }}
-                  >
-                    <ShieldCheck size={12} />
-                    {retiringId === employee.employeeId
-                      ? t("employees.myPage.actions.retiring")
-                      : t("employees.myPage.actions.retire")}
-                  </button>
-                </div>
                 <div className="hb-employee-card-divider" />
                 <div className="hb-employee-card-footer">
-                  <span>{t("employees.myPage.updatedAt", { date: employee.createdAt })}</span>
+                  <span>
+                    {t("employees.myPage.updatedAt", {
+                      date: employee.createdAt,
+                    })}
+                  </span>
                   <div className="hb-employee-card-footer-actions">
                     {employee.mappedStatus === "live" ? (
                       <button
@@ -388,12 +490,34 @@ export default function MyEmployeesPage() {
                         className="hb-employee-card-inline-action hb-employee-card-inline-action--danger"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setConfirmAction({ kind: "abandon", employeeId: employee.employeeId });
+                          setConfirmAction({
+                            kind: "abandon",
+                            employeeId: employee.employeeId,
+                          });
                         }}
                       >
                         {abandoningId === employee.employeeId
                           ? t("employees.myPage.actions.abandoning")
                           : t("employees.myPage.actions.abandon")}
+                      </button>
+                    ) : null}
+                    {employee.mappedStatus === "retired" ? (
+                      <button
+                        type="button"
+                        className="hb-btn-primary hb-hub-btn-primary hb-btn-danger text-xs"
+                        disabled={deletingId === employee.employeeId}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteTarget({
+                            employeeId: employee.employeeId,
+                            nickname: employee.nickname,
+                          });
+                        }}
+                      >
+                        <Trash2 size={12} />
+                        {deletingId === employee.employeeId
+                          ? t("employees.myPage.actions.deleting")
+                          : t("employees.myPage.actions.delete")}
                       </button>
                     ) : null}
                   </div>
@@ -415,7 +539,10 @@ export default function MyEmployeesPage() {
             abandoningId || retiringId ? undefined : setConfirmAction(null)
           }
         >
-          <div className="hb-modal hb-delete-confirm-modal" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="hb-modal hb-delete-confirm-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
             <button
               type="button"
               className="hb-modal-close"
@@ -457,13 +584,69 @@ export default function MyEmployeesPage() {
                   void abandonBranch(confirmAction.employeeId);
                 }}
               >
-                {(confirmAction.kind === "retire" && retiringId === confirmAction.employeeId) ||
-                (confirmAction.kind === "abandon" && abandoningId === confirmAction.employeeId) ? (
+                {(confirmAction.kind === "retire" &&
+                  retiringId === confirmAction.employeeId) ||
+                (confirmAction.kind === "abandon" &&
+                  abandoningId === confirmAction.employeeId) ? (
                   <Loader2 size={14} className="animate-spin" />
                 ) : null}
                 {confirmAction.kind === "retire"
                   ? t("employees.myPage.actions.retire")
                   : t("employees.myPage.actions.abandon")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteTarget ? (
+        <div
+          className="hb-modal-mask"
+          onClick={() => (deletingId ? undefined : setDeleteTarget(null))}
+        >
+          <div
+            className="hb-modal hb-delete-confirm-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="hb-modal-close"
+              onClick={() => setDeleteTarget(null)}
+              disabled={Boolean(deletingId)}
+            >
+              <X size={16} />
+            </button>
+            <div className="hb-modal-head">
+              <h3 className="hb-modal-title">
+                {t("employees.myPage.deleteDialogTitle")}
+              </h3>
+              <p className="hb-modal-sub">
+                {t("employees.myPage.confirmDelete", {
+                  nickname: deleteTarget.nickname,
+                })}
+              </p>
+            </div>
+            <div className="hb-modal-foot">
+              <button
+                type="button"
+                className="hb-btn-ghost hb-hub-btn-secondary"
+                onClick={() => setDeleteTarget(null)}
+                disabled={Boolean(deletingId)}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                className="hb-btn-primary hb-hub-btn-primary hb-btn-danger"
+                onClick={() => handleDelete(deleteTarget.employeeId)}
+                disabled={Boolean(deletingId)}
+              >
+                {deletingId === deleteTarget.employeeId ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Trash2 size={14} />
+                )}
+                {t("common.delete")}
               </button>
             </div>
           </div>

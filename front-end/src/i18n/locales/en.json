@@ -170,8 +170,9 @@
       "copyManager": "Review hired, evaluating, and live instances for {{department}} from one place. All next-step actions continue from the detail view.",
       "copyMember": "This page shows live department instances from {{department}} only. Open the detail view to continue copying them into your own assets.",
       "deleteDialogTitle": "Delete employee",
-      "confirmDelete": "Delete digital employee \"{{nickname}}\"? This action cannot be undone and will also clean up the related five-piece files.",
+      "confirmDelete": "Delete digital employee \"{{nickname}}\"? This action cannot be undone. The sandbox, IM configuration, and all related files will also be cleaned up.",
       "deleteFailed": "Delete failed",
+      "deleteSuccess": "Digital employee deleted",
       "deleteErrorToast": "Delete failed, please try again later",
       "loadFailed": "Failed to load department employees",
       "stats": {
@@ -252,8 +253,14 @@
         "retiring": "Retiring...",
         "abandon": "Abandon",
         "abandoning": "Abandoning...",
+        "delete": "Delete",
+        "deleting": "Deleting...",
         "viewDetail": "View Details →"
-      }
+      },
+      "deleteDialogTitle": "Delete digital employee",
+      "confirmDelete": "Delete digital employee \"{{nickname}}\"? This action cannot be undone. The sandbox, IM configuration, and all related files will also be cleaned up.",
+      "deleteSuccess": "Digital employee deleted",
+      "deleteFailed": "Delete failed, please try again later"
     }
   },
   "skills": {

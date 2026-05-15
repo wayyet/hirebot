@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart2,
   Bot,
@@ -21,11 +21,7 @@ import { api, type EmployeeSummary } from "@/infra/api";
 import TemplateUploadModal from "./components/TemplateUploadModal";
 import CloneEmployeeModal from "./components/CloneEmployeeModal";
 import EmployeeDetailModal from "./components/EmployeeDetailModal";
-import {
-  statusClass,
-  statusLabel,
-  withEmployeeView,
-} from "./employeeView";
+import { statusClass, statusLabel, withEmployeeView } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 
 type StageTab = "hired" | "intern" | "live";
@@ -48,6 +44,8 @@ export default function DepartmentEmployeesPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [lastInRowIds, setLastInRowIds] = useState<Set<string>>(new Set());
+  const gridRef = useRef<HTMLDivElement>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
     employeeId: string;
     nickname: string;
@@ -64,6 +62,7 @@ export default function DepartmentEmployeesPage() {
     setDeletingId(employeeId);
     try {
       await api.employeeRuntime.deleteEmployee(employeeId);
+      showToast(t("employees.departmentPage.deleteSuccess"), "success");
       setRefreshKey((k) => k + 1);
     } catch (deleteError: unknown) {
       const message =
@@ -95,7 +94,7 @@ export default function DepartmentEmployeesPage() {
           setError(
             requestError instanceof Error
               ? requestError.message
-                : t("employees.departmentPage.loadFailed"),
+              : t("employees.departmentPage.loadFailed"),
           );
         }
       } finally {
@@ -184,7 +183,10 @@ export default function DepartmentEmployeesPage() {
     });
   }, [internSubTab, query, role, tab, viewedEmployees]);
 
-  const totalPages = Math.max(1, Math.ceil(visibleEmployees.length / PAGE_SIZE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(visibleEmployees.length / PAGE_SIZE),
+  );
 
   const pagedEmployees = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
@@ -215,6 +217,39 @@ export default function DepartmentEmployeesPage() {
       window.removeEventListener("click", closeMenu);
     };
   }, [menuOpenId]);
+
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+
+    const observer = new ResizeObserver(() => {
+      const cards = grid.querySelectorAll<HTMLElement>(".hb-employee-card");
+      const gridRect = grid.getBoundingClientRect();
+      const lastIds = new Set<string>();
+
+      cards.forEach((card) => {
+        const rect = card.getBoundingClientRect();
+        const id = card.dataset.employeeId;
+        if (!id) return;
+        if (gridRect.right - rect.right < 10) {
+          lastIds.add(id);
+        }
+      });
+
+      setLastInRowIds((prev) => {
+        if (
+          prev.size === lastIds.size &&
+          [...prev].every((id) => lastIds.has(id))
+        ) {
+          return prev;
+        }
+        return lastIds;
+      });
+    });
+
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [pagedEmployees]);
 
   function openAiEvaluation(employeeId: string) {
     navigate(`/department-employees/instances/${employeeId}/evaluation`);
@@ -247,7 +282,9 @@ export default function DepartmentEmployeesPage() {
               ? t("employees.departmentPage.kickerManager")
               : t("employees.departmentPage.kickerMember")}
           </span>
-          <h1 className="hb-page-title">{t("employees.departmentPage.title")}</h1>
+          <h1 className="hb-page-title">
+            {t("employees.departmentPage.title")}
+          </h1>
           <p className="hb-page-copy">
             {role === "manager"
               ? t("employees.departmentPage.copyManager", {
@@ -278,7 +315,7 @@ export default function DepartmentEmployeesPage() {
         ) : null}
       </div>
 
-      <div className="hb-stat-grid">
+      {/* <div className="hb-stat-grid">
         <div className="hb-stat-card">
           <div className="hb-stat-label">
             <Users size={14} /> {t("employees.ownership.department")}
@@ -307,7 +344,7 @@ export default function DepartmentEmployeesPage() {
           <div className="hb-stat-value">{counts.hired}</div>
           <div className="hb-stat-note">{t("employees.departmentPage.stats.hiredNote")}</div>
         </div>
-      </div>
+      </div> */}
 
       <div className="hb-search-shell hb-department-search-shell mt-5">
         <Search size={16} />
@@ -323,15 +360,29 @@ export default function DepartmentEmployeesPage() {
         <div className="hb-tab-row">
           {(role === "manager"
             ? [
-                { id: "hired" as const, label: t("employees.departmentPage.tabs.hired"), count: counts.hired },
+                {
+                  id: "hired" as const,
+                  label: t("employees.departmentPage.tabs.hired"),
+                  count: counts.hired,
+                },
                 {
                   id: "intern" as const,
                   label: t("employees.departmentPage.tabs.intern"),
                   count: counts.intern,
                 },
-                { id: "live" as const, label: t("employees.departmentPage.tabs.live"), count: counts.live },
+                {
+                  id: "live" as const,
+                  label: t("employees.departmentPage.tabs.live"),
+                  count: counts.live,
+                },
               ]
-            : [{ id: "live" as const, label: t("employees.departmentPage.tabs.live"), count: counts.live }]
+            : [
+                {
+                  id: "live" as const,
+                  label: t("employees.departmentPage.tabs.live"),
+                  count: counts.live,
+                },
+              ]
           ).map((item) => (
             <button
               key={item.id}
@@ -383,7 +434,9 @@ export default function DepartmentEmployeesPage() {
           </div>
         ) : visibleEmployees.length === 0 ? (
           <div className="hb-empty">
-            <div className="hb-empty-title">{t("employees.departmentPage.emptyTitle")}</div>
+            <div className="hb-empty-title">
+              {t("employees.departmentPage.emptyTitle")}
+            </div>
             <div className="hb-empty-copy">
               {role === "manager"
                 ? t("employees.departmentPage.emptyCopyManager")
@@ -391,7 +444,7 @@ export default function DepartmentEmployeesPage() {
             </div>
           </div>
         ) : (
-          <div className="hb-asset-grid">
+          <div className="hb-asset-grid" ref={gridRef}>
             {pagedEmployees.map((employee) => {
               const canClone =
                 employee.ownership === "department" &&
@@ -402,7 +455,13 @@ export default function DepartmentEmployeesPage() {
               return (
                 <article
                   key={employee.employeeId}
+                  data-employee-id={employee.employeeId}
                   className="hb-card hb-employee-card"
+                  style={
+                    menuOpenId === employee.employeeId
+                      ? { zIndex: 10 }
+                      : undefined
+                  }
                 >
                   <div
                     className="hb-employee-card-menu-anchor"
@@ -424,7 +483,7 @@ export default function DepartmentEmployeesPage() {
                       <MoreHorizontal size={16} />
                     </button>
                     {menuOpenId === employee.employeeId ? (
-                      <div className="hb-dropdown-menu hb-dropdown-menu--right hb-employee-card-menu">
+                      <div className={`hb-dropdown-menu hb-employee-card-menu${lastInRowIds.has(employee.employeeId) ? " hb-dropdown-menu--right" : ""}`}>
                         <button
                           type="button"
                           className="hb-dropdown-item hb-dropdown-item--danger"
@@ -474,18 +533,22 @@ export default function DepartmentEmployeesPage() {
                   </button>
                   <div className="hb-employee-card-divider" />
                   <div className="hb-employee-card-footer">
-                    <span>{t("employees.departmentPage.createdAt", { date: employee.createdAt })}</span>
+                    <span>
+                      {t("employees.departmentPage.createdAt", {
+                        date: employee.createdAt,
+                      })}
+                    </span>
                     <div className="hb-employee-card-footer-actions">
                       {isInterningAi ? (
                         <button
                           type="button"
                           className="hb-btn-primary hb-hub-btn-primary text-xs"
-                          onClick={() =>
-                            openAiEvaluation(employee.employeeId)
-                          }
+                          onClick={() => openAiEvaluation(employee.employeeId)}
                         >
                           <Bot size={14} />
-                          {t("employees.departmentPage.actions.enterAiEvaluation")}
+                          {t(
+                            "employees.departmentPage.actions.enterAiEvaluation",
+                          )}
                         </button>
                       ) : isInterningHuman ? (
                         <button
@@ -496,7 +559,9 @@ export default function DepartmentEmployeesPage() {
                           }
                         >
                           <UserCheck size={14} />
-                          {t("employees.departmentPage.actions.enterHumanEvaluation")}
+                          {t(
+                            "employees.departmentPage.actions.enterHumanEvaluation",
+                          )}
                         </button>
                       ) : (
                         <>
@@ -515,7 +580,9 @@ export default function DepartmentEmployeesPage() {
                               }
                             >
                               <CopyPlus size={14} />
-                              {t("employees.departmentPage.actions.createClone")}
+                              {t(
+                                "employees.departmentPage.actions.createClone",
+                              )}
                             </button>
                           ) : null}
                         </>
@@ -538,7 +605,10 @@ export default function DepartmentEmployeesPage() {
           className="hb-modal-mask"
           onClick={() => (deletingId ? undefined : setDeleteTarget(null))}
         >
-          <div className="hb-modal hb-delete-confirm-modal" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="hb-modal hb-delete-confirm-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
             <button
               type="button"
               className="hb-modal-close"
@@ -548,7 +618,9 @@ export default function DepartmentEmployeesPage() {
               <X size={16} />
             </button>
             <div className="hb-modal-head">
-              <h3 className="hb-modal-title">{t("employees.departmentPage.deleteDialogTitle")}</h3>
+              <h3 className="hb-modal-title">
+                {t("employees.departmentPage.deleteDialogTitle")}
+              </h3>
               <p className="hb-modal-sub">
                 {t("employees.departmentPage.confirmDelete", {
                   nickname: deleteTarget.nickname,
@@ -567,9 +639,7 @@ export default function DepartmentEmployeesPage() {
               <button
                 type="button"
                 className="hb-btn-primary hb-hub-btn-primary hb-btn-danger"
-                onClick={() =>
-                  handleDelete(deleteTarget.employeeId)
-                }
+                onClick={() => handleDelete(deleteTarget.employeeId)}
                 disabled={Boolean(deletingId)}
               >
                 {deletingId === deleteTarget.employeeId ? (
