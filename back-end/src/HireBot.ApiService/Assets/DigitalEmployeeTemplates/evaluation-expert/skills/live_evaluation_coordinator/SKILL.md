@@ -33,6 +33,29 @@ memory_access: read_write
 6. 调用 `report_generator` 生成报告
 7. 调用 `evaluation_report` 把报告持久化到后端
 
+## 阶段化产物约束
+
+评估会话需要像雇佣流程一样持续推送阶段产物，供前端渲染左侧阶段进度和右侧报告入口。
+
+阶段 data 结构见 [references/stage-data-schema.md](references/stage-data-schema.md)。
+artifact 生命周期与阶段门禁定义见 [contracts/artifacts.json](contracts/artifacts.json)。
+
+推荐的 artifact 发出节奏：
+
+| 阶段 | artifactType | 说明 |
+|------|-------------|------|
+| 双沙箱就绪 / 材料装载 | `evaluation_workspace_progress` | 目标沙箱先创建，拿到 `gateway_endpoint` 后再推进评估沙箱 |
+| 题卡展示 | `evaluation_question_cards` | 把已解析题卡摘要推给前端 |
+| 逐题执行中 | `evaluation_execution_progress` | 告知当前 testcase、完成数量、预估得分 |
+| 报告已生成 | `evaluation_report_ready` | 配合 HTML 文件 artifact 提供下载入口 |
+
+如果环境支持 `emit_artifact`：
+
+- 准备阶段发 `kind=data`
+- 报告阶段同时发 `kind=file` 的 HTML 报告和 `kind=data` 的 `evaluation_report_ready`
+
+如果环境暂不支持 `emit_artifact`，也必须按照上述字段结构组织内部状态和回复文本，保持前后端可对齐。
+
 ## 你必须遵守的边界
 
 1. **材料在评估沙箱本地**，不要去目标沙箱拉 testcase / ontology。
@@ -78,8 +101,10 @@ python /workspace/skills/live_evaluator/evaluate.py \
 检查结果：
 
 - 若 `status = ready`
+  - 推送一次 `evaluation_workspace_progress`，明确目标沙箱 `gateway_endpoint`、材料状态和题卡数量
   - 进入下一阶段
 - 若 `status = materials_incomplete`
+  - 推送一次 `evaluation_workspace_progress`，标记缺失 `testcases` / `ontology`
   - 告诉用户缺什么
   - 引导用户把模板包或缺失材料上传到评估沙箱
   - 必要时调用 `scenario_parser` 生成 testcase
@@ -88,6 +113,8 @@ python /workspace/skills/live_evaluator/evaluate.py \
 ### 阶段 2：展示题卡
 
 从 inspect 结果中读取 `question_cards`，在对话中展示。
+
+展示完成后，推送一次 `evaluation_question_cards`，让前端同步右侧题卡列表。
 
 展示目标：
 
@@ -121,6 +148,8 @@ python /workspace/skills/live_evaluator/evaluate.py \
 - 由目标沙箱真正执行业务逻辑
 - 评估沙箱采集返回的消息、工具调用、思考块、状态变化
 
+执行过程中按 testcase 粒度推送 `evaluation_execution_progress`。
+
 ### 阶段 4：调用评分 Skill
 
 把下面内容传给 `evaluator`：
@@ -138,6 +167,8 @@ python /workspace/skills/live_evaluator/evaluate.py \
 
 - `evaluation_result.json`
 - `evaluation_report.html`
+
+生成后需把 HTML 报告作为文件 artifact 推给前端，并再推送一次 `evaluation_report_ready` data artifact。
 
 ### 阶段 6：持久化
 

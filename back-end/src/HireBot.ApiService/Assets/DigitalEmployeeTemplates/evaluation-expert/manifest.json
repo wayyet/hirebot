@@ -54,18 +54,5 @@
       "path": "skills/evaluation_orchestrator/SKILL.md",
       "required": true
     }
-  ],
-  "stage_rules": [
-    {
-      "stage": "evaluation",
-      "skill_name": "live_evaluation_coordinator",
-      "description": "检查评估材料并驱动目标沙箱逐题执行，收集 trace 后完成评分与报告。",
-      "required_fields": [
-        "runtime_context",
-        "question_cards",
-        "trace_result",
-        "verdict"
-      ]
-    }
   ]
 }

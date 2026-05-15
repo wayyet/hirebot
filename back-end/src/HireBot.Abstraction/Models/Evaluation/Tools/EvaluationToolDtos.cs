@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using HireBot.Abstraction.Models.Evaluation;
 
 namespace HireBot.Abstraction.Models.Evaluation.Tools;
 
@@ -49,8 +50,10 @@ public sealed record EvaluationSandboxConnectionResultDto(
     string GatewayEndpoint,
     string SandboxToken,
     string EvaluatorSandboxId,
+    string TargetSandboxId,
     string SessionId,
     string TargetHireId,
+    string TargetGatewayEndpoint,
     string? EvaluationPayloadJson);
 
 public sealed record EvaluationVerdictSyncRequestDto

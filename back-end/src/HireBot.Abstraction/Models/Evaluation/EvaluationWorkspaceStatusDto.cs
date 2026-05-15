@@ -12,5 +12,8 @@ public sealed record EvaluationWorkspaceStatusDto(
     string? EvaluatorSandboxId,
     string? EvaluatorRuntimeId,
     string? TargetRuntimeId,
+    string? SessionId,
+    string? TargetGatewayEndpoint,
+    string? EvaluatorGatewayEndpoint,
     IReadOnlyList<EvaluationWorkspaceStepDto> Steps,
     string? ErrorMessage);
