@@ -870,7 +870,7 @@ public sealed partial class EmployeeRuntimeService(
                 $"个人分身数量已达上限（最多 {maxActivePersonalClones} 个），请先废弃不再使用的分身。");
         }
 
-            var source = await ResolveEmployeeForOwnerAsync(owner, normalizedSourceId, cancellationToken);
+        var source = await ResolveDepartmentEmployeeForTenantAsync(tenantId, normalizedSourceId, cancellationToken);
         if (source is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "源部门员工不存在");

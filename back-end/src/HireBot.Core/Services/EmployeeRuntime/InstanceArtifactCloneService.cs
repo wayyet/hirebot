@@ -148,6 +148,12 @@ public sealed class InstanceArtifactCloneService(
             return fixtureRoot;
         }
 
+        var digitalWorkforceRoot = Path.Combine(ResolveDigitalWorkforceRoot(), Sanitize(source.EmployeeId));
+        if (Directory.Exists(digitalWorkforceRoot))
+        {
+            return digitalWorkforceRoot;
+        }
+
         return null;
     }
 
@@ -270,13 +276,27 @@ public sealed class InstanceArtifactCloneService(
     private string BuildPersonalCloneVersionRoot(string sourceDepartmentInstanceId, string cloneInstanceId, string version)
     {
         return Path.Combine(
-            ResolveRoot(),
-            "instances",
-            "personal_clone",
+            ResolvePersonalCloneArtifactsRoot(),
             Sanitize(sourceDepartmentInstanceId),
             Sanitize(cloneInstanceId),
             "versions",
             Sanitize(version));
+    }
+
+    private string ResolvePersonalCloneArtifactsRoot()
+    {
+        return HireBotPathResolver.ResolvePersonalCloneArtifactsRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:PersonalCloneArtifactsRoot"]);
+    }
+
+    private string ResolveDigitalWorkforceRoot()
+    {
+        return HireBotPathResolver.ResolveDigitalWorkforceRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:DigitalWorkforceRoot"]);
     }
 
     /// <summary>
