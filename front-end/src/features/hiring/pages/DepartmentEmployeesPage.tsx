@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BarChart2,
   Bot,
-  CheckCircle2,
   CopyPlus,
   Loader2,
   MoreHorizontal,
   Search,
-  Sparkles,
   Trash2,
   X,
   UserCheck,
-  Users,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
