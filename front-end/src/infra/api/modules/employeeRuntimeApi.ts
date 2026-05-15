@@ -380,6 +380,10 @@ export const employeeRuntimeApi = {
     return httpClient.get<EmployeeSummary[]>('/api/v1/employees')
   },
 
+  getDepartmentEmployees() {
+    return httpClient.get<EmployeeSummary[]>('/api/v1/employees/department')
+  },
+
   deleteEmployee(employeeId: string) {
     return httpClient.delete<boolean>(`/api/v1/employees/${encodeURIComponent(employeeId)}`)
   },

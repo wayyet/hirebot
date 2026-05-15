@@ -3,11 +3,20 @@ using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 
 namespace HireBot.Core.Tests;
 
 public sealed class InstanceArtifactCloneServiceTests
 {
+    private sealed class TestHostingEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = "Development";
+        public string ApplicationName { get; set; } = "Test";
+        public string ContentRootPath { get; set; } = Directory.GetCurrentDirectory();
+        public IFileProvider ContentRootFileProvider { get; set; } = new PhysicalFileProvider(Directory.GetCurrentDirectory());
+    }
     [Fact]
     public async Task CloneArtifactsAsync_ShouldFallbackToTemplatePackage_WhenSourceHasOnlyMetadata()
     {
@@ -48,7 +57,7 @@ public sealed class InstanceArtifactCloneServiceTests
             });
             await dbContext.SaveChangesAsync();
 
-            var service = new InstanceArtifactCloneService(configuration, dbContext);
+            var service = new InstanceArtifactCloneService(configuration, new TestHostingEnvironment(), dbContext);
             var source = BuildEmployee("source-001", "sales-coach");
 
             var result = await service.CloneArtifactsAsync(source, "clone-001");

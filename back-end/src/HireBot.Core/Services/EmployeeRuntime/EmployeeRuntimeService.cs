@@ -105,6 +105,21 @@ public sealed partial class EmployeeRuntimeService(
     }
 
     /// <summary>
+    /// 获取当前租户下所有部门数字员工列表。
+    /// </summary>
+    public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetDepartmentEmployeesAsync(CancellationToken cancellationToken = default)
+    {
+        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        var query = dbContext.Instances
+            .AsNoTracking()
+            .Where(item => item.TenantId == tenantId && item.InstanceType == "department")
+            .OrderByDescending(item => item.UpdatedAt);
+        var employees = await LoadInstancesAsEmployeesAsync(query, cancellationToken: cancellationToken);
+        var summaries = employees.Select(ToSummary).ToArray();
+        return ApiResponse<IReadOnlyList<EmployeeSummaryDto>>.SuccessResponse(summaries);
+    }
+
+    /// <summary>
     /// 获取单个员工详情。
     /// </summary>
     /// <param name="employeeId">员工ID</param>
@@ -777,14 +792,22 @@ public sealed partial class EmployeeRuntimeService(
         var digitalWorkforceDir = Path.Combine(ResolveDigitalWorkforceRoot(), normalizedId);
 
         var existing = await store.GetAsync(owner, normalizedId, cancellationToken);
-        var instanceExists = await dbContext.Instances
-            .AnyAsync(item => item.InstanceId == normalizedId, cancellationToken);
-        var artifactExists = Directory.Exists(artifactDir);
+        var instance = await dbContext.Instances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.InstanceId == normalizedId, cancellationToken);
+        var instanceExists = instance is not null;
+     
         var digitalWorkforceExists = Directory.Exists(digitalWorkforceDir);
 
-        if (existing is null && !instanceExists && !artifactExists && !digitalWorkforceExists)
+        if (existing is null && !instanceExists && !digitalWorkforceExists)
         {
             return ApiResponse<object>.ErrorResponse(404, "员工不存在");
+        }
+
+        if (instance is not null &&
+            !string.Equals(instance.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<object>.ErrorResponse(403, "只能删除自己创建的数字员工");
         }
 
         // 1. 从内存 store 移除
@@ -795,20 +818,8 @@ public sealed partial class EmployeeRuntimeService(
             .Where(item => item.InstanceId == normalizedId)
             .ExecuteDeleteAsync(cancellationToken);
 
-        // 3. 删除五件套 artifact 目录
-        if (Directory.Exists(artifactDir))
-        {
-            try
-            {
-                Directory.Delete(artifactDir, recursive: true);
-            }
-            catch
-            {
-                // 文件删除失败不阻塞流程
-            }
-        }
-
-        // 4. 删除 DigitalWorkforce 目录
+  
+        // 3. 删除 DigitalWorkforce 目录
         if (Directory.Exists(digitalWorkforceDir))
         {
             try

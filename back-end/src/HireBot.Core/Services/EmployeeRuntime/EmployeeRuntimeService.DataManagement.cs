@@ -62,33 +62,50 @@ public sealed partial class EmployeeRuntimeService
     {
         try
         {
-            var instances = await dbContext.Instances
+            var query = dbContext.Instances
                 .AsNoTracking()
                 .Where(item => item.OwnerUserId == owner)
-                .OrderByDescending(item => item.UpdatedAt)
-                .ToArrayAsync(cancellationToken);
-
-            var employees = new List<EmployeeDetailDto>();
-            foreach (var instance in instances)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var employee = !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
-                    ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
-                    : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
-                if (employee is not null &&
-                    string.Equals(employee.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
-                {
-                    employees.Add(employee);
-                }
-            }
-
-            return employees;
+                .OrderByDescending(item => item.UpdatedAt);
+            return await LoadInstancesAsEmployeesAsync(query, owner, cancellationToken);
         }
         catch
         {
             // Runtime snapshots are a persistence enhancement. Existing local databases may not have the column until migrations run.
             return [];
         }
+    }
+
+    /// <summary>
+    /// 将 IQueryable 查询结果反序列化为员工列表。
+    /// </summary>
+    private async Task<IReadOnlyList<EmployeeDetailDto>> LoadInstancesAsEmployeesAsync(
+        IQueryable<InstanceEntity> query,
+        string? owner = null,
+        CancellationToken cancellationToken = default)
+    {
+        var instances = await query.ToArrayAsync(cancellationToken);
+        var employees = new List<EmployeeDetailDto>();
+        foreach (var instance in instances)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var employee = !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
+                ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
+                : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
+            if (employee is null)
+            {
+                continue;
+            }
+
+            if (owner is not null &&
+                !string.Equals(employee.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            employees.Add(employee);
+        }
+
+        return employees;
     }
 
     /// <summary>
