@@ -1,0 +1,206 @@
+/* ── Design Tokens: Light Theme (default) ── */
+:root {
+  /* Brand */
+  --hb-black: #000000;
+  --hb-near-black: #0a0a0a;
+  --hb-hover-black: #1a1a1a;
+  --hb-blue: #4a6cf7;
+  --hb-blue-hover: #3a5be0;
+
+  /* Text */
+  --hb-body: #404040;
+  --hb-soft: #737373;
+  --hb-caption: #9ca3af;
+
+  /* Surfaces */
+  --hb-border: #ececec;
+  --hb-border-input: #e5e5e5;
+  --hb-border-row: #e9e9e9;
+  --hb-surface: #ffffff;
+  --hb-surface-soft: #fafafa;
+  --hb-surface-card: #ffffff;
+
+  /* Nav */
+  --hb-nav-bg: rgba(255, 255, 255, 0.82);
+  --hb-nav-border: rgba(15, 23, 42, 0.07);
+  --hb-role-bg: #ffffff;
+  --hb-chip-bg: #ffffff;
+  --hb-user-chip-bg: #ffffff;
+
+  /* Nav pill shell */
+  --hb-nav-pill-bg: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(247,249,252,0.90) 100%);
+  --hb-nav-pill-hover: rgba(0, 0, 0, 0.04);
+  --hb-nav-pill-active: rgba(255, 255, 255, 0.95);
+  --hb-nav-pill-shadow: 0 12px 28px rgba(15,23,42,0.06), inset 0 1px 0 rgba(255,255,255,0.85);
+
+  /* User button */
+  --hb-user-btn-bg: rgba(74, 108, 247, 0.08);
+  --hb-user-btn-border: rgba(74, 108, 247, 0.15);
+  --hb-user-btn-color: #4a6cf7;
+
+  /* Background gradient */
+  --hb-grad:
+    radial-gradient(
+      ellipse 70% 45% at 18% 60%,
+      rgba(255, 255, 255, 0.95) 0%,
+      rgba(245, 250, 252, 0.75) 35%,
+      rgba(221, 239, 247, 0.35) 70%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 60% 45% at 88% 42%,
+      rgba(255, 255, 255, 0.75) 0%,
+      rgba(235, 247, 252, 0.45) 45%,
+      transparent 100%
+    ),
+    linear-gradient(
+      180deg,
+      #a9d4ea 0%,
+      #cfe8f4 28%,
+      #eef7fa 54%,
+      #f8fbfc 70%,
+      #d8eef7 100%
+    );
+
+  /* Shadows */
+  --hb-shadow-card: 0 4px 16px rgba(0, 0, 0, 0.04);
+  --hb-shadow-lift: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --hb-shadow-cta: 0 4px 12px rgba(74, 108, 247, 0.30);
+  --hb-focus: 0 0 0 3px rgba(74, 108, 247, 0.2);
+
+  /* Theme toggle button */
+  --hb-theme-btn-bg: rgba(0, 0, 0, 0.04);
+  --hb-theme-btn-border: rgba(0, 0, 0, 0.10);
+  --hb-lang-btn-bg: rgba(0, 0, 0, 0.04);
+  --hb-lang-btn-border: rgba(0, 0, 0, 0.10);
+  --hb-dropdown-bg: rgba(255, 255, 255, 0.98);
+  --hb-dropdown-border: #ececec;
+  --hb-dropdown-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  /* Danger / destructive actions */
+  --hb-danger: #dc2626;
+  --hb-danger-hover-bg: rgba(220, 38, 38, 0.08);
+
+  /* Login page */
+  --hb-login-bg: #f0f5ff;
+  --hb-login-orb-left: radial-gradient(ellipse at center, rgba(74, 108, 247, 0.22) 0%, transparent 70%);
+  --hb-login-orb-right: radial-gradient(ellipse at center, rgba(139, 92, 246, 0.18) 0%, transparent 70%);
+
+  /* Hub Panel / Search / Pills (matches ncrew-builder reference) */
+  --hb-hub-panel-bg: linear-gradient(180deg, rgba(255,255,255,0.72) 0%, rgba(248,250,252,0.60) 100%);
+  --hb-hub-panel-border: rgba(15,23,42,0.06);
+  --hb-hub-panel-shadow: 0 10px 24px rgba(15,23,42,0.04);
+  --hb-hub-search-bg: rgba(255,255,255,0.78);
+  --hb-hub-search-border: rgba(15,23,42,0.08);
+  --hb-hub-search-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+  --hb-hub-pill-bg: rgba(255,255,255,0.56);
+  --hb-hub-pill-shadow-active: 0 8px 18px rgba(59,130,246,0.10);
+  --hb-card-shadow: 0 10px 28px rgba(15,23,42,0.06), inset 0 1px 0 rgba(255,255,255,0.80);
+  --hb-card-hover-shadow: 0 18px 42px rgba(15,23,42,0.10), 0 0 0 1px rgba(59,130,246,0.14);
+
+  /* ── Todo Panel 别名（映射到 hb-* token）── */
+  --surface: #ffffff;
+  --surface-2: #f5f7fa;
+  --ink-1: #1a1a1a;
+  --ink-3: #737373;
+  --ink-4: #9ca3af;
+  --line: #ececec;
+  --accent: #4a6cf7;
+  --success: #22c55e;
+}
+
+/* ── Design Tokens: Dark Theme ── */
+.dark {
+  /* Brand */
+  --hb-black: #111827;
+  --hb-near-black: #EEF2FF;
+  --hb-hover-black: #ffffff;
+  --hb-blue: #4F8EF7;
+  --hb-blue-hover: #3d7fd9;
+
+  /* Text */
+  --hb-body: #A8B5CC;
+  --hb-soft: #7A8FA8;
+  --hb-caption: #4A5E78;
+
+  /* Surfaces */
+  --hb-border: rgba(255, 255, 255, 0.10);
+  --hb-border-input: rgba(255, 255, 255, 0.14);
+  --hb-border-row: rgba(255, 255, 255, 0.08);
+  --hb-surface: #0D1829;
+  --hb-surface-soft: #0A1220;
+  --hb-surface-card: rgba(255, 255, 255, 0.05);
+
+  /* Nav */
+  --hb-nav-bg: rgba(8, 14, 28, 0.88);
+  --hb-nav-border: rgba(148, 163, 184, 0.14);
+  --hb-role-bg: rgba(255, 255, 255, 0.06);
+  --hb-chip-bg: rgba(255, 255, 255, 0.06);
+  --hb-user-chip-bg: rgba(255, 255, 255, 0.06);
+
+  /* Nav pill shell */
+  --hb-nav-pill-bg: linear-gradient(180deg, rgba(17,24,39,0.90) 0%, rgba(11,18,32,0.94) 100%);
+  --hb-nav-pill-hover: rgba(148, 163, 184, 0.10);
+  --hb-nav-pill-active: rgba(15, 23, 42, 0.88);
+  --hb-nav-pill-shadow: 0 16px 36px rgba(2,6,23,0.28), inset 0 1px 0 rgba(255,255,255,0.06);
+
+  /* User button */
+  --hb-user-btn-bg: rgba(79, 142, 247, 0.12);
+  --hb-user-btn-border: rgba(79, 142, 247, 0.22);
+  --hb-user-btn-color: #4F8EF7;
+
+  /* Background gradient */
+  --hb-grad: linear-gradient(
+    135deg,
+    #060d1a 0%,
+    #080e1c 40%,
+    #0a1428 70%,
+    #060d1a 100%
+  );
+
+  /* Shadows */
+  --hb-shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --hb-shadow-lift: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --hb-shadow-cta: 0 4px 14px rgba(79, 142, 247, 0.40);
+  --hb-focus: 0 0 0 3px rgba(79, 142, 247, 0.25);
+
+  /* Theme toggle button */
+  --hb-theme-btn-bg: rgba(255, 255, 255, 0.06);
+  --hb-theme-btn-border: rgba(255, 255, 255, 0.10);
+  --hb-lang-btn-bg: rgba(255, 255, 255, 0.06);
+  --hb-lang-btn-border: rgba(255, 255, 255, 0.10);
+  --hb-dropdown-bg: rgba(12, 18, 38, 0.96);
+  --hb-dropdown-border: rgba(255, 255, 255, 0.10);
+  --hb-dropdown-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+
+  /* Danger / destructive actions */
+  --hb-danger: #f87171;
+  --hb-danger-hover-bg: rgba(248, 113, 113, 0.12);
+
+  /* Login page */
+  --hb-login-bg: #060d1a;
+  --hb-login-orb-left: radial-gradient(ellipse at center, rgba(79, 142, 247, 0.28) 0%, transparent 70%);
+  --hb-login-orb-right: radial-gradient(ellipse at center, rgba(123, 94, 255, 0.24) 0%, transparent 70%);
+
+  /* Hub Panel / Search / Pills (dark mode) */
+  --hb-hub-panel-bg: linear-gradient(180deg, rgba(15,23,42,0.64) 0%, rgba(9,16,32,0.58) 100%);
+  --hb-hub-panel-border: rgba(148,163,184,0.12);
+  --hb-hub-panel-shadow: 0 14px 30px rgba(2,6,23,0.22);
+  --hb-hub-search-bg: rgba(15,23,42,0.72);
+  --hb-hub-search-border: rgba(148,163,184,0.16);
+  --hb-hub-search-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  --hb-hub-pill-bg: rgba(148,163,184,0.08);
+  --hb-hub-pill-shadow-active: 0 10px 22px rgba(79,142,247,0.18);
+  --hb-card-shadow: 0 18px 38px rgba(2,6,23,0.26), inset 0 1px 0 rgba(125,149,192,0.08);
+  --hb-card-hover-shadow: 0 24px 48px rgba(2,6,23,0.34), 0 0 0 1px rgba(95,131,214,0.14);
+
+  /* ── Todo Panel 别名（dark mode）── */
+  --surface: #0d1829;
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --ink-1: #e2e8f0;
+  --ink-3: #7a8fa8;
+  --ink-4: #4a5e78;
+  --line: rgba(255, 255, 255, 0.10);
+  --accent: #4f8ef7;
+  --success: #4ade80;
+}
