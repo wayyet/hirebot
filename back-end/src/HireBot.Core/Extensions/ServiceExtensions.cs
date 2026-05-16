@@ -5,9 +5,7 @@ using HireBot.Abstraction.Services.EmployeeTemplate;
 using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
-using HireBot.Abstraction.Services.User;
 using HireBot.Core.Providers;
-using HireBot.Core.Services;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.EmployeeTemplate;
 using HireBot.Core.Services.Evaluation;
@@ -161,7 +159,6 @@ public static class ServiceExtensions
 
     private static void AddDomainServices(IServiceCollection services)
     {
-        services.AddScoped<IUserService, UserService>();
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
         services.AddScoped<IEmployeeHiringService, EmployeeHiringService>();
         services.AddScoped<IStoreSkillPackageDownloader, StoreSkillPackageDownloader>();

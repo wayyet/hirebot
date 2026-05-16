@@ -1,5 +1,4 @@
 using HireBot.Abstraction;
-using HireBot.Abstraction.Models.EmployeeTemplate;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeTemplate;
@@ -15,17 +14,6 @@ public sealed class EmployeeTemplatesController(
     IEmployeeHiringService employeeHiringService,
     IEmployeeRuntimeService employeeRuntimeService) : ControllerBase
 {
-    [HttpGet]
-    public async Task<IActionResult> GetTemplates(
-        [FromQuery] string? q,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
-        CancellationToken cancellationToken = default)
-    {
-        var response = await employeeTemplateService.GetTemplatesAsync(q, page, pageSize, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
     [HttpGet("{templateId}")]
     public async Task<IActionResult> GetTemplateDetail(
         string templateId,
