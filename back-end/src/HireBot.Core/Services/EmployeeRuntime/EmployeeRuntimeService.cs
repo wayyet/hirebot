@@ -13,6 +13,7 @@ using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using System.Text;
 using Microsoft.Extensions.Hosting;
 using System.IO.Compression;
 using System.Text.Json;
@@ -682,6 +683,12 @@ public sealed partial class EmployeeRuntimeService(
             }
         }
 
+        // 解析 describe.md
+        var describeDocument = ReadDescribeMdFromArtifacts(artifactFiles);
+        var cardIntro = describeDocument != null
+            ? ExtractCardIntro(describeDocument)
+            : null;
+
         // 生成 employeeId
         var employeeId = BuildEmployeeId();
 
@@ -727,7 +734,9 @@ public sealed partial class EmployeeRuntimeService(
             OwnerUserId: owner,
             DepartmentId: string.IsNullOrWhiteSpace(tenantId) ? "department-default" : tenantId,
             LifecycleStatus: "已上岗",
-            StageSummary: "从模板包快速创建，已直接上岗",
+            StageSummary: describeDocument != null
+                ? (ExtractBusinessPositioningOneLiner(describeDocument) ?? "从模板包快速创建，已直接上岗")
+                : "从模板包快速创建，已直接上岗",
             PrimarySignal: "运行正常",
             SignalLevel: "ok",
             OwningTeam: tenantId,
@@ -742,7 +751,8 @@ public sealed partial class EmployeeRuntimeService(
             EvalPhase: null,
             EvalIteration: null,
             EvalMaxIterations: null,
-            IsConfigured: true);
+            IsConfigured: true,
+            CardIntro: cardIntro);
 
         // 数据隔离：按 owner 持久化
         await store.UpsertAsync(owner, employeeDto, cancellationToken);
@@ -762,8 +772,89 @@ public sealed partial class EmployeeRuntimeService(
             }
         }
 
-        await UpsertInstanceRecordAsync(employeeDto, currentVersion: artifactVersion, cancellationToken: cancellationToken);
+        await UpsertInstanceRecordAsync(employeeDto, currentVersion: artifactVersion, describeDocument: describeDocument, cancellationToken: cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(employeeDto, "员工已从模板包创建并直接上岗");
+    }
+
+    private static string? ReadDescribeMdFromArtifacts(Dictionary<string, byte[]> artifactFiles)
+    {
+        var describeKey = artifactFiles.Keys.FirstOrDefault(k =>
+            string.Equals(k, "describe.md", StringComparison.OrdinalIgnoreCase) ||
+            k.EndsWith("/describe.md", StringComparison.OrdinalIgnoreCase));
+
+        if (describeKey is null)
+            return null;
+
+        try
+        {
+            return Encoding.UTF8.GetString(artifactFiles[describeKey]);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractCardIntro(string describeDocument)
+    {
+        try
+        {
+            var blocks = describeDocument.Split("\n---\n");
+            string? section1 = null;
+            string? section4 = null;
+
+            foreach (var block in blocks)
+            {
+                var trimmed = block.TrimStart();
+                if (trimmed.StartsWith("## 1. "))
+                    section1 = block.Trim();
+                else if (trimmed.StartsWith("## 4. "))
+                    section4 = block.Trim();
+            }
+
+            if (section1 is null && section4 is null)
+                return null;
+
+            var parts = new List<string>(2);
+            if (section1 is not null) parts.Add(section1);
+            if (section4 is not null) parts.Add(section4);
+
+            return string.Join("\n\n---\n\n", parts);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractBusinessPositioningOneLiner(string describeDocument)
+    {
+        try
+        {
+            var blocks = describeDocument.Split("\n---\n");
+            foreach (var block in blocks)
+            {
+                var trimmed = block.TrimStart();
+                if (!trimmed.StartsWith("## 1. "))
+                    continue;
+
+                var lines = block.Split('\n');
+                foreach (var line in lines)
+                {
+                    var t = line.Trim();
+                    if (string.IsNullOrWhiteSpace(t)) continue;
+                    if (t.StartsWith("##") || t.StartsWith("###")) continue;
+                    if (t.StartsWith('|') || t.StartsWith("---")) continue;
+                    return t.Replace("**", "");
+                }
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private string ResolveDigitalWorkforceRoot()

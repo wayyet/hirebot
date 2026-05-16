@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Bot,
   GitBranch,
   Loader2,
   MessageCircle,
@@ -13,7 +14,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeSummary } from "@/infra/api";
-import { withEmployeeView } from "./employeeView";
+import { withEmployeeView, extractCardIntroHeadline } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 
 type FilterTab = "all" | "live" | "branch" | "retired";
@@ -458,7 +459,7 @@ export default function MyEmployeesPage() {
                   </div>
                 </div>
                 <p className="hb-employee-card-desc">
-                  {employee.primarySignal || employee.stageSummary}
+                  {extractCardIntroHeadline(employee.cardIntro) || employee.primarySignal || employee.stageSummary}
                 </p>
                 <div className="hb-employee-card-divider" />
                 <div className="hb-employee-card-footer">
@@ -469,19 +470,34 @@ export default function MyEmployeesPage() {
                   </span>
                   <div className="hb-employee-card-footer-actions">
                     {employee.mappedStatus === "live" ? (
-                      <button
-                        type="button"
-                        className="hb-btn-primary hb-hub-btn-primary text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(
-                            `/my-employees/instances/${employee.employeeId}/chat`,
-                          );
-                        }}
-                      >
-                        <MessageCircle size={12} />
-                        {t("employees.myPage.actions.startChat")}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          className="hb-btn-ghost hb-hub-btn-secondary text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(
+                              `/my-employees/instances/${employee.employeeId}/im-config`,
+                            );
+                          }}
+                        >
+                          <Bot size={12} />
+                          {t("employees.myPage.actions.configureIm")}
+                        </button>
+                        <button
+                          type="button"
+                          className="hb-btn-primary hb-hub-btn-primary text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(
+                              `/my-employees/instances/${employee.employeeId}/chat`,
+                            );
+                          }}
+                        >
+                          <MessageCircle size={12} />
+                          {t("employees.myPage.actions.startChat")}
+                        </button>
+                      </>
                     ) : null}
                     {employee.ownership === "private_branch" &&
                     employee.mappedStatus !== "retired" ? (

@@ -6,10 +6,13 @@ import {
   Clock3,
   CopyPlus,
   Loader2,
+  MessageCircle,
   RotateCcw,
   ShieldCheck,
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useUserRole } from "@/app/context/UserRoleContext";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeDetail } from "@/infra/api";
@@ -183,9 +186,17 @@ export default function InstanceDetailPage() {
                 <div className="hb-detail-meta">
                   {employee.roleName || employee.sourceTemplate}
                 </div>
-                <p className="hb-detail-desc">
-                  {employee.primarySignal || employee.stageSummary}
-                </p>
+                {employee.cardIntro ? (
+                  <div className="hb-template-doc" style={{ marginBottom: '1rem' }}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {employee.cardIntro}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="hb-detail-desc">
+                    {employee.primarySignal || employee.stageSummary}
+                  </p>
+                )}
 
                 <div className="hb-divider" />
                 <div className="hb-detail-meta-grid">
@@ -221,6 +232,17 @@ export default function InstanceDetailPage() {
               </div>
 
               <div className="hb-detail-actions">
+                {isPersonalAsset && employeeView.mappedStatus === "live" ? (
+                  <button
+                    type="button"
+                    className="hb-btn-primary"
+                    onClick={() => navigate(`/my-employees/instances/${employee.employeeId}/chat`)}
+                  >
+                    <MessageCircle size={14} />
+                    开始对话
+                  </button>
+                ) : null}
+
                 {canCreatePersonalClone ? (
                   <button
                     type="button"

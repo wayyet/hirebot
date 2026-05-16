@@ -28,4 +28,5 @@ public sealed record EmployeeDetailDto(
     string? EvalPhase,
     int? EvalIteration,
     int? EvalMaxIterations,
-    bool IsConfigured);
+    bool IsConfigured,
+    string? CardIntro = null);
