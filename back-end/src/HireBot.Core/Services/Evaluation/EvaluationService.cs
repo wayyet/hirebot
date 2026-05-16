@@ -226,9 +226,27 @@ internal sealed partial class EvaluationService(
                     EvaluatorSandboxId: null,
                     EvaluatorRuntimeId: null,
                     TargetRuntimeId: null,
+                    SessionId: null,
+                    TargetGatewayEndpoint: null,
+                    EvaluatorGatewayEndpoint: null,
                     Steps: [],
                     ErrorMessage: null));
         }
+
+        var sandboxIds = new[] { ctx.TargetSandboxId, ctx.EvaluatorSandboxId }
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item!)
+            .ToArray();
+        var sandboxEndpoints = sandboxIds.Length == 0
+            ? new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+            : await dbContext.SandboxInstances
+                .AsNoTracking()
+                .Where(item => sandboxIds.Contains(item.SandboxId))
+                .ToDictionaryAsync(
+                    item => item.SandboxId,
+                    item => string.IsNullOrWhiteSpace(item.GatewayEndpoint) ? null : item.GatewayEndpoint.Trim(),
+                    StringComparer.OrdinalIgnoreCase,
+                    cancellationToken);
 
         var steps = ctx.StepStates
             .OrderBy(item => item.Key switch
@@ -261,6 +279,9 @@ internal sealed partial class EvaluationService(
                 EvaluatorSandboxId: string.IsNullOrWhiteSpace(ctx.EvaluatorSandboxId) ? null : ctx.EvaluatorSandboxId,
                 EvaluatorRuntimeId: string.IsNullOrWhiteSpace(ctx.EvaluatorHireId) ? null : ctx.EvaluatorHireId,
                 TargetRuntimeId: string.IsNullOrWhiteSpace(ctx.TargetHireId) ? null : ctx.TargetHireId,
+                SessionId: string.IsNullOrWhiteSpace(ctx.SessionId) ? null : ctx.SessionId,
+                TargetGatewayEndpoint: sandboxEndpoints.GetValueOrDefault(ctx.TargetSandboxId),
+                EvaluatorGatewayEndpoint: sandboxEndpoints.GetValueOrDefault(ctx.EvaluatorSandboxId),
                 Steps: steps,
                 ErrorMessage: steps.FirstOrDefault(item => item.Status == "failed")?.Detail));
     }
@@ -374,7 +395,8 @@ internal sealed partial class EvaluationService(
                     Passed: reportEntity.Passed,
                     ReportJsonUrl: reportJsonUrl,
                     ReportHtmlUrl: reportHtmlUrl,
-                    CreatedAtUtc: reportEntity.CreatedAtUtc.ToString("o"));
+                    CreatedAtUtc: reportEntity.CreatedAtUtc.ToString("o"),
+                    DimensionScores: DeserializeDimensionScores(reportEntity.DimensionScoresJson));
             }
 
             var normalizedSessionStatus = NormalizeEvaluationStatus(latestSession.Status);
@@ -1216,14 +1238,26 @@ internal sealed partial class EvaluationService(
             targetGatewayEndpoint,
             runtimeContextPath);
 
+        logger.LogInformation(
+            "[Eval] Sandbox connection ready employeeId={EmployeeId} sessionId={SessionId} targetSandboxId={TargetSandboxId} targetGatewayEndpoint={TargetGatewayEndpoint} evaluatorSandboxId={EvaluatorSandboxId} evaluatorGatewayEndpoint={EvaluatorGatewayEndpoint} runtimeContextPath={RuntimeContextPath}",
+            employee.EmployeeId,
+            sessionEntity.SessionId,
+            ctx.TargetSandboxId,
+            targetGatewayEndpoint,
+            ctx.EvaluatorSandboxId,
+            gatewayEndpoint,
+            runtimeContextPath);
+
         await UpdateSessionStatusAsync(sessionEntity, "ws_connected", null, cancellationToken);
 
         var result = new EvaluationSandboxConnectionResultDto(
             gatewayEndpoint,
             token,
             ctx.EvaluatorSandboxId,
+            ctx.TargetSandboxId,
             sessionEntity.SessionId,
             ctx.TargetHireId,
+            targetGatewayEndpoint,
             payloadJson);
         return ApiResponse<EvaluationSandboxConnectionResultDto>.SuccessResponse(result, "sandbox connection info ready");
     }
@@ -1300,9 +1334,27 @@ internal sealed partial class EvaluationService(
                 reportResult.Data.Passed,
                 reportResult.Data.ReportJsonUrl,
                 reportResult.Data.ReportHtmlUrl,
-                DateTimeOffset.UtcNow.ToString("o")));
+                DateTimeOffset.UtcNow.ToString("o"),
+                verdict.DimensionScores));
 
         return ApiResponse<EvaluationVerdictSyncResultDto>.SuccessResponse(resultDto, "verdict synced and report persisted");
+    }
+
+    private static IReadOnlyList<EvaluationDimensionScoreDto> DeserializeDimensionScores(string? dimensionScoresJson)
+    {
+        if (string.IsNullOrWhiteSpace(dimensionScoresJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<IReadOnlyList<EvaluationDimensionScoreDto>>(dimensionScoresJson, JsonOptions) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
     }
 
 }

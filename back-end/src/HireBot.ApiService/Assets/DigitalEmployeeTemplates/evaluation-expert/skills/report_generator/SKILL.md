@@ -51,6 +51,13 @@ memory_access: read
 - `evaluation_report.html`
 - `evaluation_result.json`
 
+如果运行环境支持 artifact 推送：
+
+- 将 `evaluation_report.html` 作为文件类 artifact 输出
+- 再发送一个 `evaluation_report_ready` 数据 artifact，至少包含 `report_id`、`overall_score`、`passed`、`report_file_name`
+
+这样前端可以直接在评估页顶部和右侧面板展示“下载评估报告”。
+
 ## 不负责的事情
 
 - 不负责去目标沙箱取材料

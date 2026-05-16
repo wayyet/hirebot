@@ -479,12 +479,13 @@ body {
 .hb-nav-pill-dot {
   position: absolute;
   left: 50%;
-  bottom: 4px;
+  bottom: 3px;
   transform: translateX(-50%);
-  width: 4px;
-  height: 4px;
+  width: 24px;
+  height: 2.5px;
   border-radius: 9999px;
-  background: var(--hb-blue);
+  background: linear-gradient(90deg, #60A5FA 0%, var(--hb-blue) 100%);
+  box-shadow: 0 4px 10px rgba(74, 108, 247, 0.24);
 }
 
 .hb-nav-flag {

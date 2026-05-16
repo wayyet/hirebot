@@ -80,6 +80,11 @@ internal sealed partial class EvaluationService
         }
 
         var (targetRuntimeId, targetSandboxId) = targetResult.Data;
+        logger.LogInformation(
+            "[Eval] Target sandbox ready employeeId={EmployeeId} runtimeId={RuntimeId} sandboxId={SandboxId}",
+            employeeId,
+            targetRuntimeId,
+            targetSandboxId);
         stepStates["target_sandbox"] = new("completed", targetSandboxId);
         stepStates["evaluator_sandbox"] = new("running", null);
 
@@ -99,6 +104,11 @@ internal sealed partial class EvaluationService
         }
 
         var (evaluatorRuntimeId, evaluatorSandboxId) = evaluatorResult.Data;
+        logger.LogInformation(
+            "[Eval] Evaluator sandbox ready employeeId={EmployeeId} runtimeId={RuntimeId} sandboxId={SandboxId}",
+            employeeId,
+            evaluatorRuntimeId,
+            evaluatorSandboxId);
         stepStates["evaluator_sandbox"] = new("completed", evaluatorSandboxId);
 
         var workspaceContext = new EvaluationWorkspaceContext(
@@ -1530,6 +1540,14 @@ internal sealed partial class EvaluationService
                 http_supplement = true
             }
         };
+
+        logger.LogInformation(
+            "[Eval] Runtime context built employeeId={EmployeeId} sessionId={SessionId} targetSandboxId={TargetSandboxId} targetGatewayEndpoint={TargetGatewayEndpoint} materialsPath={MaterialsPath}",
+            employee.EmployeeId,
+            sessionEntity.SessionId,
+            workspaceContext.TargetSandboxId,
+            targetGatewayEndpoint,
+            explicitMaterialsPath ?? string.Empty);
 
         return JsonSerializer.Serialize(runtimeContext, JsonOptions);
     }

@@ -259,6 +259,7 @@ export interface EvaluationReportSummary {
   reportJsonUrl: string
   reportHtmlUrl?: string | null
   createdAtUtc: string
+  dimensionScores?: EvaluationDimensionScore[] | null
 }
 
 export interface EvaluationAssetRef {
@@ -316,8 +317,10 @@ export interface EvaluationSandboxConnectionResult {
   gatewayEndpoint: string
   sandboxToken: string
   evaluatorSandboxId: string
+  targetSandboxId: string
   sessionId: string
   targetHireId: string
+  targetGatewayEndpoint: string
   evaluationPayloadJson?: string | null
 }
 
@@ -364,6 +367,9 @@ export interface EvaluationWorkspaceStatus {
   evaluatorSandboxId?: string | null
   evaluatorRuntimeId?: string | null
   targetRuntimeId?: string | null
+  sessionId?: string | null
+  targetGatewayEndpoint?: string | null
+  evaluatorGatewayEndpoint?: string | null
   steps: EvaluationWorkspaceStep[]
   errorMessage?: string | null
 }

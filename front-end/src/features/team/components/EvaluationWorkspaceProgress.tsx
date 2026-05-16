@@ -101,6 +101,28 @@ export function EvaluationWorkspaceProgress({ status, polling = false }: Props) 
               评估沙箱: <span className="font-mono text-[#404040]">{status.evaluatorSandboxId.slice(0, 12)}...</span>
             </span>
           )}
+          {status.sessionId && (
+            <span className="rounded-full border border-[#ececec] bg-white px-2 py-0.5">
+              会话: <span className="font-mono text-[#404040]">{status.sessionId.slice(0, 16)}...</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {(status.targetGatewayEndpoint || status.evaluatorGatewayEndpoint) && (
+        <div className="mt-2 grid gap-2 text-[11px] text-[#737373] sm:grid-cols-2">
+          {status.targetGatewayEndpoint && (
+            <div className="rounded-lg border border-[#ececec] bg-white px-2.5 py-2">
+              <div className="font-medium text-[#404040]">目标沙箱地址</div>
+              <div className="mt-1 break-all text-[#9ca3af]">{status.targetGatewayEndpoint}</div>
+            </div>
+          )}
+          {status.evaluatorGatewayEndpoint && (
+            <div className="rounded-lg border border-[#ececec] bg-white px-2.5 py-2">
+              <div className="font-medium text-[#404040]">评估沙箱地址</div>
+              <div className="mt-1 break-all text-[#9ca3af]">{status.evaluatorGatewayEndpoint}</div>
+            </div>
+          )}
         </div>
       )}
 

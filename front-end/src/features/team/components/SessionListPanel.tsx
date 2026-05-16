@@ -171,7 +171,7 @@ export default function SessionListPanel({
 
   return (
     <div
-      className="flex-shrink-0 rounded-2xl border border-[#ececec] bg-white shadow-sm transition-all duration-200"
+      className="flex h-full min-h-0 flex-shrink-0 flex-col rounded-2xl border border-[#ececec] bg-white shadow-sm transition-all duration-200"
       style={{ width: panelWidth }}
     >
       {/* 折叠按钮 */}
@@ -223,10 +223,7 @@ export default function SessionListPanel({
           </div>
 
           {/* 会话列表 */}
-          <div
-            className="overflow-y-auto px-2 pb-3"
-            style={{ maxHeight: "calc(100vh - 200px)" }}
-          >
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
             {loading ? (
               <div className="flex items-center justify-center gap-1.5 py-6 text-xs text-[#9ca3af]">
                 <Loader2 size={12} className="animate-spin" />

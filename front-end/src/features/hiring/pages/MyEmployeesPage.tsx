@@ -8,7 +8,6 @@ import {
   ShieldCheck,
   Trash2,
   X,
-  Users,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -445,6 +444,26 @@ export default function MyEmployeesPage() {
                             : t("employees.myPage.actions.retire")}
                         </button>
                       ) : null}
+                      {employee.mappedStatus === "retired" ? (
+                        <button
+                          type="button"
+                          className="hb-dropdown-item hb-dropdown-item--danger"
+                          disabled={deletingId === employee.employeeId}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setMenuOpenId(null);
+                            setDeleteTarget({
+                              employeeId: employee.employeeId,
+                              nickname: employee.nickname,
+                            });
+                          }}
+                        >
+                          <Trash2 size={14} />
+                          {deletingId === employee.employeeId
+                            ? t("employees.myPage.actions.deleting")
+                            : t("employees.myPage.actions.delete")}
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -515,25 +534,6 @@ export default function MyEmployeesPage() {
                         {abandoningId === employee.employeeId
                           ? t("employees.myPage.actions.abandoning")
                           : t("employees.myPage.actions.abandon")}
-                      </button>
-                    ) : null}
-                    {employee.mappedStatus === "retired" ? (
-                      <button
-                        type="button"
-                        className="hb-btn-primary hb-hub-btn-primary hb-btn-danger text-xs"
-                        disabled={deletingId === employee.employeeId}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteTarget({
-                            employeeId: employee.employeeId,
-                            nickname: employee.nickname,
-                          });
-                        }}
-                      >
-                        <Trash2 size={12} />
-                        {deletingId === employee.employeeId
-                          ? t("employees.myPage.actions.deleting")
-                          : t("employees.myPage.actions.delete")}
                       </button>
                     ) : null}
                   </div>

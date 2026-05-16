@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "stages": [
+    {
+      "name": "workspace_ready",
+      "label": "双沙箱准备",
+      "ownerSkill": "live_evaluation_coordinator",
+      "artifacts": [
+        {
+          "type": "evaluation_workspace_progress",
+          "label": "评估环境准备进度",
+          "display": "progress",
+          "terminal": false
+        }
+      ]
+    },
+    {
+      "name": "question_cards",
+      "label": "题卡展示",
+      "ownerSkill": "live_evaluation_coordinator",
+      "gate": { "requiresStage": "workspace_ready" },
+      "artifacts": [
+        {
+          "type": "evaluation_question_cards",
+          "label": "评估题卡摘要",
+          "display": "tree",
+          "terminal": true
+        }
+      ]
+    },
+    {
+      "name": "execution",
+      "label": "执行采集",
+      "ownerSkill": "live_evaluation_coordinator",
+      "gate": { "requiresStage": "question_cards" },
+      "artifacts": [
+        {
+          "type": "evaluation_execution_progress",
+          "label": "评估执行进度",
+          "display": "progress",
+          "terminal": false
+        }
+      ]
+    },
+    {
+      "name": "reporting",
+      "label": "报告生成",
+      "ownerSkill": "report_generator",
+      "gate": { "requiresStage": "execution" },
+      "artifacts": [
+        {
+          "type": "evaluation_report_ready",
+          "label": "评估报告就绪",
+          "display": "file",
+          "terminal": true,
+          "kind": "file",
+          "note": "HTML 报告产物生成后，需配合 data artifact 通知前端更新下载入口。"
+        }
+      ]
+    }
+  ]
+}

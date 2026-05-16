@@ -1,4 +1,6 @@
-﻿namespace HireBot.Abstraction.Models.Evaluation;
+﻿using HireBot.Abstraction.Models.Evaluation.Tools;
+
+namespace HireBot.Abstraction.Models.Evaluation;
 
 public sealed record EvaluationReportSummaryDto(
     string ReportId,
@@ -7,4 +9,5 @@ public sealed record EvaluationReportSummaryDto(
     bool Passed,
     string ReportJsonUrl,
     string? ReportHtmlUrl,
-    string CreatedAtUtc);
+    string CreatedAtUtc,
+    IReadOnlyList<EvaluationDimensionScoreDto>? DimensionScores = null);
