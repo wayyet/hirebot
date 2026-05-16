@@ -39,7 +39,7 @@ export interface StageGateData {
 }
 
 /** MCP 工具单次调用状态 */
-export type ToolStepStatus = 'running' | 'done' | 'error'
+type ToolStepStatus = 'running' | 'done' | 'error'
 
 /** 单次 MCP 工具调用的展示项，渲染于 bot 消息上方的折叠面板 */
 export interface ToolStep {
@@ -72,7 +72,3 @@ export interface SkillUploadPayload {
   description: string
 }
 
-export interface CredentialDraft {
-  secretValue: string
-  secretRef: string
-}

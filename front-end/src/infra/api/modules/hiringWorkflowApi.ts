@@ -25,12 +25,6 @@ export const HiringTodoStatus = {
   Resolved: 'resolved',
 } as const
 
-export const HiringDiagnosticStatus = {
-  Pass: 'pass',
-  Warning: 'warning',
-  Blocked: 'blocked',
-} as const
-
 export const HiringStageReadinessStatus = {
   Missing: 'missing',
   Partial: 'partial',
@@ -60,18 +54,6 @@ export type HiringCollectionStageType =
 
 export type HiringAuditDecisionType =
   typeof HiringAuditDecision[keyof typeof HiringAuditDecision]
-
-export type HiringTodoStatusType =
-  typeof HiringTodoStatus[keyof typeof HiringTodoStatus]
-
-export type HiringDiagnosticStatusType =
-  typeof HiringDiagnosticStatus[keyof typeof HiringDiagnosticStatus]
-
-export type HiringStageReadinessStatusType =
-  typeof HiringStageReadinessStatus[keyof typeof HiringStageReadinessStatus]
-
-export type HiringCredentialBindingStatusType =
-  typeof HiringCredentialBindingStatus[keyof typeof HiringCredentialBindingStatus]
 
 export interface StageSkillMapping {
   stage: string
@@ -310,24 +292,6 @@ export interface HiringConversationResult {
   isConversationResponding?: boolean
 }
 
-export interface HiringConversationControlResult {
-  hireId: string
-  currentStage: string
-  collectionPhase: string
-  isConversationPaused: boolean
-  isConversationResponding: boolean
-}
-
-export interface HiringConversationTimeline {
-  hireId: string
-  sessionId: string
-  currentStage: string
-  requiresAudit: boolean
-  collectionPhase: string
-  messages: HiringConversationMessage[]
-  stageSkills: StageSkillMapping[]
-}
-
 export interface HiringAuditDecisionRequest {
   stage: string
   decision: HiringAuditDecisionType | string
@@ -436,14 +400,6 @@ export const hiringWorkflowApi = {
     return httpClient.post<StartHiringConversationResult>(`/api/v1/hirings/${hireId}/conversation/start`)
   },
 
-  pauseConversation(hireId: string) {
-    return httpClient.post<HiringConversationControlResult>(`/api/v1/hirings/${hireId}/conversation/pause`)
-  },
-
-  resumeConversation(hireId: string) {
-    return httpClient.post<HiringConversationControlResult>(`/api/v1/hirings/${hireId}/conversation/resume`)
-  },
-
   resetConversation(hireId: string) {
     return httpClient.post<StartHiringConversationResult>(`/api/v1/hirings/${hireId}/conversation/reset`)
   },
@@ -512,31 +468,11 @@ export const hiringWorkflowApi = {
     return envelope.data
   },
 
-  getConversationTimeline(hireId: string) {
-    return httpClient.get<HiringConversationTimeline>(`/api/v1/hirings/${hireId}/conversation/messages`)
-  },
-
-  getStagePreview(hireId: string, stage?: string) {
-    return httpClient.get<HiringStagePreview>(`/api/v1/hirings/${hireId}/stage-preview`, { stage })
-  },
-
   submitAuditDecision(hireId: string, payload: HiringAuditDecisionRequest) {
     return httpClient.post<HiringAuditDecisionResult, HiringAuditDecisionRequest>(
       `/api/v1/hirings/${hireId}/audit-decisions`,
       payload,
     )
-  },
-
-  getAuditLogs(hireId: string) {
-    return httpClient.get<HiringAuditLog[]>(`/api/v1/hirings/${hireId}/audit-logs`)
-  },
-
-  getArtifactsDownloadUrl(hireId: string) {
-    return buildArtifactsDownloadUrl(hireId)
-  },
-
-  getArtifactFileDownloadUrl(hireId: string, artifactName: string) {
-    return buildArtifactFileDownloadUrl(hireId, artifactName)
   },
 
   async downloadArtifacts(hireId: string): Promise<HiringArtifactsDownloadData> {
@@ -675,19 +611,6 @@ export const hiringWorkflowApi = {
   /** 保存前端对话状态缓存（messages + stageOverrides）。*/
   async saveConversationCache(hireId: string, cache: unknown): Promise<void> {
     await httpClient.put<boolean>(`/api/v1/hirings/${encodeURIComponent(hireId)}/conversation/cache`, cache)
-  },
-
-  /** 获取该雇佣流程的所有 TODO 事项（供 TODO 面板初始化及刷新）。*/
-  async getTodos(hireId: string): Promise<HandoffItem[]> {
-    return httpClient.get<HandoffItem[]>(`/api/v1/hirings/${encodeURIComponent(hireId)}/todos`)
-  },
-
-  /** 用户确认或撤销一个 TODO 事项。status: 'confirmed' | 'dismissed' | 'ready_to_dispatch' */
-  async updateTodoStatus(hireId: string, handoffId: string, status: string): Promise<HandoffItem> {
-    return httpClient.patch<HandoffItem>(
-      `/api/v1/hirings/${encodeURIComponent(hireId)}/todos/${encodeURIComponent(handoffId)}`,
-      { status },
-    )
   },
 
   /**

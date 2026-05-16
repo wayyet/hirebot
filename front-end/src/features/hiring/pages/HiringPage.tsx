@@ -1305,8 +1305,6 @@ export default function HiringPage() {
         <HiringConversationPanel
           introName={introName}
           introAbilities={introAbilities}
-          journeyGuideVisible={journeyGuideVisible}
-          guideCard={viewModel.guideCard}
           messages={messages}
           typing={typing}
           streamingContent={streamingContent}
@@ -1318,7 +1316,6 @@ export default function HiringPage() {
           fileInputRef={fileRef}
           composerRef={composerRef}
           chatEndRef={chatEndRef}
-          onStartGuide={handlePrototypeContinue}
           onInputChange={setInput}
           onSend={() => { void handleSend() }}
           onFileChange={addPendingFiles}

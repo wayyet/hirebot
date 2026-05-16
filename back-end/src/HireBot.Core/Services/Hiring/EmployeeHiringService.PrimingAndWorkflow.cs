@@ -371,7 +371,6 @@ internal sealed partial class EmployeeHiringService
             {
                 SessionId = dispatchResponse.Data.SessionId
             };
-            updatedRuntimeContext = await RefreshHandoffStateFromSandboxAsync(updatedRuntimeContext, cancellationToken);
             updatedRuntimeContext = ApplyAssistantReply(updatedRuntimeContext, parsedReply);
             updatedRuntimeContext = ApplyDispatchCallbacks(
                 updatedRuntimeContext,

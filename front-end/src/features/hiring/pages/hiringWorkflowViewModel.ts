@@ -19,7 +19,7 @@ import type {
 } from '@/infra/api'
 
 export type HiringUiStage = HiringCollectionStageType
-export type HiringStepStatus = 'complete' | 'active' | 'pending'
+type HiringStepStatus = 'complete' | 'active' | 'pending'
 
 export interface HiringStageStepVm {
   stage: HiringUiStage
@@ -73,7 +73,7 @@ export interface HiringActionVm {
   blockedReason: string
 }
 
-export interface HiringWorkflowVm {
+interface HiringWorkflowVm {
   uiCurrentStage: HiringUiStage
   stepPills: HiringStageStepVm[]
   stageCards: HiringStageCardVm[]

@@ -57,10 +57,7 @@ internal sealed partial class EmployeeHiringService(
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
-    private const string EvaluationSkillId = "evaluation-expert";
-    private const string EvaluationSkillVersion = "2.2.0";
     private const string EvaluationWorkspaceTemplateId = "evaluation-expert";
-    private const string EvaluationWorkspaceTemplateName = "Evaluation Expert";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -494,76 +491,6 @@ internal sealed partial class EmployeeHiringService(
                 sourceStoragePath,
                 sourceSha,
                 sourceSize.Value);
-    }
-
-    public async Task<ApiResponse<HireTemplateResultDto>> CreateEvaluationWorkspaceAsync(
-        string targetHireId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryNormalizeHireId(targetHireId, out var normalizedTargetHireId, out var error))
-        {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(400, error);
-        }
-
-        var ownerContext = ResolveOwnerContextForEvaluation(normalizedTargetHireId);
-        var useCase = $"evaluation-workspace-for:{normalizedTargetHireId}";
-        var provisionResult = await ProvisionManagedHireSandboxAsync(
-            sandboxRole: "evaluation-evaluator",
-            ownerContext.OwnerSubject,
-            ownerContext.TenantId,
-            ownerContext.OperatorId,
-            templateId: null,
-            useCase,
-            cancellationToken);
-        if (!provisionResult.Success || provisionResult.Data is null)
-        {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(provisionResult.Code, provisionResult.Message);
-        }
-
-        var call = RemoteCallResult<HireTemplateResultDto>.Ok(new HireTemplateResultDto(
-            provisionResult.Data.HireId,
-            provisionResult.Data.SandboxId,
-            provisionResult.Data.State,
-            "start_conversation"));
-
-        if (hiringRuntimeStore.Get(provisionResult.Data.HireId) is null)
-        {
-            var discoverySkill = BuildEvaluationWorkspaceDiscoverySkill();
-            var stageCompletion = stageCompletionEvaluator.Evaluate(
-                discoverySkill.StageRules,
-                new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
-            var templatePackage = BuildEvaluationWorkspaceTemplatePackage();
-
-            hiringRuntimeStore.Upsert(new HiringRuntimeContext
-            {
-                HireId = provisionResult.Data.HireId,
-                TemplateId = EvaluationWorkspaceTemplateId,
-                TemplateName = EvaluationWorkspaceTemplateName,
-                OwnerSubject = ownerContext.OwnerSubject,
-                TenantId = ownerContext.TenantId,
-                OperatorId = ownerContext.OperatorId,
-                SandboxId = provisionResult.Data.SandboxId,
-                CurrentStage = "evaluation",
-                CollectionPhase = HiringCollectionPhase.NotStarted,
-                IsConversationPaused = false,
-                IsConversationResponding = false,
-                ReferenceTemplatePackage = templatePackage,
-                RoleTemplatePackage = templatePackage,
-                WorkingTemplatePackage = templatePackage,
-                DiscoverySkill = discoverySkill,
-                StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
-                Materials = [],
-                StageCompletion = stageCompletion
-            });
-        }
-
-        logger.LogInformation(
-            "Created evaluation workspace. TargetHireId={TargetHireId}, EvalHireId={EvalHireId}, EvalSandboxId={EvalSandboxId}",
-            normalizedTargetHireId,
-            provisionResult.Data.HireId,
-            provisionResult.Data.SandboxId);
-
-        return ApiResponse<HireTemplateResultDto>.SuccessResponse(call.Data, "evaluation workspace created");
     }
 
     /// <summary>

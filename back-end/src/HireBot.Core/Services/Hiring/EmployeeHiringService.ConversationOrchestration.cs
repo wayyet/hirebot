@@ -74,22 +74,21 @@ internal sealed partial class EmployeeHiringService
         return conversationInFlight.ContainsKey(hireId) || runtimeContext?.IsConversationResponding == true;
     }
 
-    private async Task<HiringRuntimeContext?> RefreshRuntimeProgressAsync(string hireId, CancellationToken cancellationToken)
+    private Task<HiringRuntimeContext?> RefreshRuntimeProgressAsync(string hireId, CancellationToken cancellationToken)
     {
         var runtimeContext = hiringRuntimeStore.Get(hireId);
         if (runtimeContext is null)
         {
-            return null;
+            return Task.FromResult<HiringRuntimeContext?>(null);
         }
 
-        runtimeContext = await RefreshHandoffStateFromSandboxAsync(runtimeContext, cancellationToken);
         runtimeContext = ApplyWorkflowProgress(runtimeContext with
         {
             StructuredData = NormalizeStructuredData(runtimeContext.StructuredData)
         });
         hiringRuntimeStore.Upsert(runtimeContext);
 
-        return runtimeContext;
+        return Task.FromResult<HiringRuntimeContext?>(runtimeContext);
     }
 
     private async Task<HiringRuntimeContext?> EnsureSandboxReinitializedAsync(
@@ -236,7 +235,6 @@ internal sealed partial class EmployeeHiringService
                 : runtimeContext.StructuredData
         };
 
-        runtimeContext = await RefreshHandoffStateFromSandboxAsync(runtimeContext, cancellationToken);
         runtimeContext = ApplyAssistantReply(runtimeContext, parsedReply);
         runtimeContext = ApplyDispatchCallbacks(runtimeContext, parsedReply.DispatchCallbacks);
         runtimeContext = await ExecuteDispatchCommandsAsync(runtimeContext, parsedReply.DispatchCommands, cancellationToken);
@@ -267,127 +265,6 @@ internal sealed partial class EmployeeHiringService
                 latestPreview,
                 runtimeContext.IsConversationPaused,
                 true));
-    }
-
-    private Task<HiringRuntimeContext> RefreshHandoffStateFromSandboxAsync(
-        HiringRuntimeContext runtimeContext,
-        CancellationToken cancellationToken)
-    {
-        // Handoff 同步已停用：新方案由沙箱 skill 直接向前端传递业务数据，
-        // 不再从后端拉取 handoff_items 来驱动 Todo 列表和阶段状态。
-        return Task.FromResult(runtimeContext);
-    }
-
-    private static IReadOnlyList<HiringWorkflowHandoffDto> ProjectHandoffItems(
-        IReadOnlyList<SandboxSessionHandoffItemDto> handoffItems)
-    {
-        if (handoffItems.Count == 0)
-        {
-            return [];
-        }
-
-        return handoffItems
-            .Select(ProjectHandoffItem)
-            .OrderBy(item => item.CreatedAtUtc)
-            .ThenBy(item => item.HandoffId, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
-    private static HiringWorkflowHandoffDto ProjectHandoffItem(SandboxSessionHandoffItemDto handoffItem)
-    {
-        var handoffId = RequireHandoffField(handoffItem.HandoffId, nameof(handoffItem.HandoffId), handoffItem.HandoffId);
-        var createdAtUtc = handoffItem.CreatedAtUtc == default ? DateTimeOffset.UtcNow : handoffItem.CreatedAtUtc;
-        var updatedAtUtc = handoffItem.UpdatedAtUtc == default ? createdAtUtc : handoffItem.UpdatedAtUtc;
-
-        return new HiringWorkflowHandoffDto(
-            SessionId: RequireHandoffField(handoffId, nameof(handoffItem.SessionId), handoffItem.SessionId),
-            WorkflowId: RequireHandoffField(handoffId, nameof(handoffItem.WorkflowId), handoffItem.WorkflowId),
-            HandoffId: handoffId,
-            Title: RequireHandoffField(handoffId, nameof(handoffItem.Title), handoffItem.Title),
-            Kind: NormalizeRequiredHandoffKind(handoffId, handoffItem.Kind),
-            Stage: NormalizeRequiredHandoffStage(handoffId, handoffItem.Stage),
-            TargetSkill: RequireHandoffField(handoffId, nameof(handoffItem.TargetSkill), handoffItem.TargetSkill),
-            Intent: TrimOrNull(handoffItem.Intent),
-            Category: TrimOrNull(handoffItem.Category),
-            Payload: CloneHandoffPayloadOrEmpty(handoffItem.Payload),
-            Source: TrimOrNull(handoffItem.Source),
-            Acceptance: TrimOrNull(handoffItem.Acceptance),
-            Status: NormalizeRequiredHandoffStatus(handoffId, handoffItem.Status),
-            Fingerprint: RequireHandoffField(handoffId, nameof(handoffItem.Fingerprint), handoffItem.Fingerprint),
-            RelatedHandoffIds: handoffItem.RelatedHandoffIds
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray(),
-            RelatedFiles: handoffItem.RelatedFiles
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray(),
-            Revision: Math.Max(1, handoffItem.Revision),
-            CreatedAtUtc: createdAtUtc,
-            UpdatedAtUtc: updatedAtUtc,
-            DispatchId: TrimOrNull(handoffItem.DispatchId),
-            CallbackSummary: TrimOrNull(handoffItem.CallbackSummary));
-    }
-
-    private static string? TrimOrNull(string? value)
-    {
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    }
-
-    private static string RequireHandoffField(string handoffId, string fieldName, string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            throw new InvalidOperationException($"Handoff {handoffId} 缺少必填字段 {fieldName}。");
-        }
-
-        return value.Trim();
-    }
-
-    private static string NormalizeRequiredHandoffKind(string handoffId, string? value)
-    {
-        return RequireHandoffField(handoffId, nameof(HiringWorkflowHandoffDto.Kind), value).Trim().ToLowerInvariant() switch
-        {
-            HiringHandoffKind.HandoffTodo => HiringHandoffKind.HandoffTodo,
-            _ => throw new InvalidOperationException($"Handoff {handoffId} 的 kind 非法: {value}")
-        };
-    }
-
-    private static string NormalizeRequiredHandoffStage(string handoffId, string? value)
-    {
-        return RequireHandoffField(handoffId, nameof(HiringWorkflowHandoffDto.Stage), value).Trim().ToLowerInvariant() switch
-        {
-            "material" => HiringCollectionStage.Material,
-            "skill" => HiringCollectionStage.Skill,
-            "external" => HiringCollectionStage.External,
-            "ready_for_packaging" => HiringCollectionStage.ReadyForPackaging,
-            "cross_stage" or "cross-stage" => "cross_stage",
-            _ => throw new InvalidOperationException($"Handoff {handoffId} 的 stage 非法: {value}")
-        };
-    }
-
-    private static string NormalizeRequiredHandoffStatus(string handoffId, string? value)
-    {
-        return RequireHandoffField(handoffId, nameof(HiringWorkflowHandoffDto.Status), value).Trim().ToLowerInvariant() switch
-        {
-            HiringHandoffStatus.Drafting => HiringHandoffStatus.Drafting,
-            HiringHandoffStatus.ReadyToDispatch => HiringHandoffStatus.ReadyToDispatch,
-            HiringHandoffStatus.Dispatched => HiringHandoffStatus.Dispatched,
-            HiringHandoffStatus.Dirty => HiringHandoffStatus.Dirty,
-            HiringHandoffStatus.Confirmed => HiringHandoffStatus.Confirmed,
-            HiringHandoffStatus.NeedsReview => HiringHandoffStatus.NeedsReview,
-            HiringHandoffStatus.Dismissed => HiringHandoffStatus.Dismissed,
-            _ => throw new InvalidOperationException($"Handoff {handoffId} 的 status 非法: {value}")
-        };
-    }
-
-    private static JsonElement CloneHandoffPayloadOrEmpty(JsonElement payload)
-    {
-        return payload.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined
-            ? JsonSerializer.SerializeToElement(new Dictionary<string, object?>())
-            : payload.Clone();
     }
 
 }
