@@ -3152,6 +3152,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-width: 1440px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .hb-hiring-header {
@@ -4294,6 +4297,11 @@ body.hb-body-hiring-prototype {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
+/* 右侧进度卡不显示卡片外边框，避免标题区出现上下两根线 */
+.hb-hiring-side {
+  border: none;
+}
+
 /* ── 右侧列容器：步骤进度 + 状态条 + 待办账本 ── */
 .hb-hiring-right-col {
   display: flex;
@@ -4327,7 +4335,6 @@ body.hb-body-hiring-prototype {
 
 .hb-hiring-panel-head {
   padding: 11px 16px 9px;
-  border-bottom: 1px solid var(--hb-border);
 }
 
 .hb-hiring-employee-chip {
@@ -7083,7 +7090,6 @@ body.hb-body-hiring-prototype {
 
 .hb-todo-panel-head {
   padding: 16px 20px 12px;
-  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 
