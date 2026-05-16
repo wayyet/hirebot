@@ -8,7 +8,6 @@ using HireBot.Abstraction.Models.Evaluation;
 using HireBot.Abstraction.Models.Evaluation.Tools;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
-using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
@@ -27,7 +26,6 @@ using Microsoft.Extensions.Logging;
 namespace HireBot.Core.Services.Evaluation;
 
 internal sealed partial class EvaluationService(
-    IEmployeeRuntimeStore store,
     IEmployeeHiringService employeeHiringService,
     IHiringArtifactPackageService artifactPackageService,
     ISandboxService sandboxService,
@@ -198,6 +196,36 @@ internal sealed partial class EvaluationService(
         return (ownerSubject, ownerSubject);
     }
 
+    private static readonly JsonSerializerOptions RuntimeSnapshotJsonOptions = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// 从 DB 按 owner + employeeId 查询员工快照（替代 store.GetAsync）。
+    /// </summary>
+    private async Task<EmployeeDetailDto?> GetEmployeeFromDbAsync(string owner, string employeeId, CancellationToken cancellationToken)
+    {
+        var instance = await dbContext.Instances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(i => i.OwnerUserId == owner && i.InstanceId == employeeId, cancellationToken);
+        if (instance is null || string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson))
+            return null;
+        try { return JsonSerializer.Deserialize<EmployeeDetailDto>(instance.RuntimeSnapshotJson, RuntimeSnapshotJsonOptions); }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// 将更新后的员工快照写回 DB（替代 store.UpsertAsync）。
+    /// </summary>
+    private async Task SaveEmployeeToDbAsync(EmployeeDetailDto employee, CancellationToken cancellationToken)
+    {
+        var instance = await dbContext.Instances
+            .FirstOrDefaultAsync(i => i.InstanceId == employee.EmployeeId, cancellationToken);
+        if (instance is null) return;
+        instance.Status = employee.Status ?? instance.Status;
+        instance.RuntimeSnapshotJson = JsonSerializer.Serialize(employee, RuntimeSnapshotJsonOptions);
+        instance.UpdatedAt = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<ApiResponse<EvaluationWorkspaceStatusDto>> GetWorkspaceStatusAsync(
         string employeeId,
         CancellationToken cancellationToken = default)
@@ -206,7 +234,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationWorkspaceStatusDto>.ErrorResponse(400, "employeeId cannot be empty");
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
             return ApiResponse<EvaluationWorkspaceStatusDto>.ErrorResponse(404, "employee not found");
 
@@ -294,7 +322,7 @@ internal sealed partial class EvaluationService(
 
         var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationStateDto>.ErrorResponse(404, "employee not found");
@@ -439,7 +467,7 @@ internal sealed partial class EvaluationService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(404, "employee not found");
@@ -517,7 +545,7 @@ internal sealed partial class EvaluationService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(404, "employee not found");
@@ -604,7 +632,7 @@ internal sealed partial class EvaluationService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "employee not found");
@@ -788,7 +816,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "decision only supports START, LOAD_SKILL, RUN, PASS, FAIL");
         }
 
-        await store.UpsertAsync(owner, updated, cancellationToken);
+        await SaveEmployeeToDbAsync(updated, cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, message);
     }
 
@@ -803,7 +831,7 @@ internal sealed partial class EvaluationService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "employee not found");
@@ -856,7 +884,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "decision only supports ONBOARD, REJECT, FORCE");
         }
 
-        await store.UpsertAsync(owner, updated, cancellationToken);
+        await SaveEmployeeToDbAsync(updated, cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "human evaluation decision submitted");
     }
 
@@ -871,7 +899,7 @@ internal sealed partial class EvaluationService(
 
         var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationFetchTestcasesResultDto>.ErrorResponse(404, "employee not found");
@@ -961,7 +989,7 @@ internal sealed partial class EvaluationService(
 
         var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationOntologyQueryResultDto>.ErrorResponse(404, "employee not found");
@@ -1034,7 +1062,7 @@ internal sealed partial class EvaluationService(
 
         var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationReportUpsertResultDto>.ErrorResponse(404, "employee not found");
@@ -1141,7 +1169,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(400, "employeeId cannot be empty");
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(404, "employee not found");
 
@@ -1268,7 +1296,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationVerdictSyncResultDto>.ErrorResponse(400, "employeeId, sessionId and verdict are required");
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
             return ApiResponse<EvaluationVerdictSyncResultDto>.ErrorResponse(404, "employee not found");
 
@@ -1315,7 +1343,7 @@ internal sealed partial class EvaluationService(
         var updated = passed
             ? BuildAiPassResult(employee, verdict.Summary)
             : BuildAiFailResult(employee, verdict.Summary);
-        await store.UpsertAsync(owner, updated, cancellationToken);
+        await SaveEmployeeToDbAsync(updated, cancellationToken);
 
         var resultDto = new EvaluationVerdictSyncResultDto(
             employeeId.Trim(),

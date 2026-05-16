@@ -3,10 +3,8 @@ using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Evaluation;
 using HireBot.Abstraction.Models.Evaluation.Tools;
 using HireBot.Abstraction.Models.Migration;
-using HireBot.Abstraction.Models.Training;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Evaluation;
-using HireBot.Abstraction.Services.Training;
 using HireBot.ApiService.Controllers;
 using Microsoft.AspNetCore.Mvc;
 
@@ -21,7 +19,7 @@ public sealed class RuntimeApiControllerTests
         {
             CreatePersonalCloneResponse = ApiResponse<EmployeeDetailDto>.SuccessResponse(BuildEmployee("pc_1", "personal_clone", "live", "dept_1"))
         };
-        var controller = new EmployeesController(employeeRuntime, new FakeTrainingService(), new FakeEvaluationService());
+        var controller = new EmployeesController(employeeRuntime, new FakeEvaluationService());
         var request = new CreatePersonalCloneRequestDto("我的销售分身", null, "desc");
 
         var result = await controller.CreatePersonalClone("dept_1", request);
@@ -39,7 +37,7 @@ public sealed class RuntimeApiControllerTests
     public async Task CreatePersonalClone_WhenModelStateInvalid_ReturnsBadRequestAndDoesNotCallService()
     {
         var employeeRuntime = new FakeEmployeeRuntimeService();
-        var controller = new EmployeesController(employeeRuntime, new FakeTrainingService(), new FakeEvaluationService());
+        var controller = new EmployeesController(employeeRuntime, new FakeEvaluationService());
         controller.ModelState.AddModelError("displayName", "displayName is required");
 
         var result = await controller.CreatePersonalClone("dept_1", new CreatePersonalCloneRequestDto("", null, null));
@@ -371,12 +369,6 @@ public sealed class RuntimeApiControllerTests
         public Task<ApiResponse<LocalStateMigrationResultDto>> MigrateLocalStateAsync(LocalStateMigrationRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> QuickCreateFromTemplateAsync(Stream zipStream, string fileName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<object>> DeleteEmployeeAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    }
-
-    private sealed class FakeTrainingService : ITrainingService
-    {
-        public Task<ApiResponse<TrainingStateDto>> GetTrainingStateAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<ApiResponse<EmployeeDetailDto>> SubmitTrainingDecisionAsync(string employeeId, TrainingDecisionRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FakeEvaluationService : IEvaluationService

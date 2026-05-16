@@ -1,17 +1,13 @@
 ﻿﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Providers;
-using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeTemplate;
 using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
-using HireBot.Abstraction.Services.Team;
-using HireBot.Abstraction.Services.Training;
 using HireBot.Abstraction.Services.User;
 using HireBot.Core.Providers;
 using HireBot.Core.Services;
-using HireBot.Core.Services.Collaboration;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.EmployeeTemplate;
 using HireBot.Core.Services.Evaluation;
@@ -26,8 +22,6 @@ using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Security;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Core.Services.SystemSkills;
-using HireBot.Core.Services.Team;
-using HireBot.Core.Services.Training;
 using HireBot.Abstraction.Services.Security;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
@@ -144,11 +138,7 @@ public static class ServiceExtensions
         services.AddScoped<IRequestContextService, RequestContextService>();
         services.AddDataProtection();
 
-        services.AddSingleton<IEmployeeRuntimeStore, InMemoryEmployeeRuntimeStore>();
         services.AddScoped<IHiringRuntimeStore, PersistentHiringRuntimeStore>();
-        services.AddSingleton<IEvaluationScenarioProvider, UnavailableEvaluationScenarioProvider>();
-        services.AddSingleton<ICollaborationProvider, UnavailableCollaborationProvider>();
-        services.AddSingleton<ITeamImProvider, InMemoryTeamImProvider>();
         services.AddSingleton<FileSystemSystemSkillRegistry>();
         services.AddSingleton<ISystemSkillRegistry>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
         services.AddSingleton<ISkillCatalogProvider>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
@@ -185,11 +175,8 @@ public static class ServiceExtensions
         services.AddScoped<IInstanceChatService, InstanceChatService>();
         services.AddScoped<ISecretProtector, DataProtectionSecretProtector>();
 
-        services.AddScoped<ITrainingService, TrainingService>();
         services.AddScoped<IEvaluationService, EvaluationService>();
         services.AddScoped<ISandboxService, SandboxService>();
-        services.AddScoped<ICollaborationService, CollaborationService>();
-        services.AddScoped<ITeamImService, TeamImService>();
     }
 
     private static void ConfigureHttpClient(

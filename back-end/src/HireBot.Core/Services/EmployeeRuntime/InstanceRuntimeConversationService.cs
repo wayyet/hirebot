@@ -2,7 +2,6 @@ using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
-using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Internal;
@@ -10,6 +9,7 @@ using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
@@ -18,7 +18,6 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 /// </summary>
 public sealed class InstanceRuntimeConversationService(
     HireBotDbContext dbContext,
-    IEmployeeRuntimeStore employeeStore,
     IRequestContextService requestContextService,
     ISandboxService sandboxService,
     ILogger<InstanceRuntimeConversationService> logger) : IInstanceRuntimeConversationService
@@ -371,7 +370,12 @@ public sealed class InstanceRuntimeConversationService(
             return AccessResult.Fail(403, "forbidden");
         }
 
-        var employee = await employeeStore.FindAsync(normalizedInstanceId, cancellationToken);
+        EmployeeDetailDto? employee = null;
+        if (!string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson))
+        {
+            try { employee = JsonSerializer.Deserialize<EmployeeDetailDto>(instance.RuntimeSnapshotJson, new JsonSerializerOptions(JsonSerializerDefaults.Web)); }
+            catch { /* ignore deserialize failure */ }
+        }
         return AccessResult.Ok(instance, employee, owner, normalizedChannel);
     }
 
