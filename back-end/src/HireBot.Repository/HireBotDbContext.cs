@@ -10,6 +10,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
     public DbSet<EvaluationSessionEntity> EvaluationSessions { get; set; }
     public DbSet<EvaluationAssetEntity> EvaluationAssets { get; set; }
     public DbSet<EvaluationReportEntity> EvaluationReports { get; set; }
+    public DbSet<EvaluationWorkspaceStateEntity> EvaluationWorkspaceStates { get; set; }
 
     public DbSet<HiringSessionEntity> HiringSessions { get; set; }
     public DbSet<HiringRuntimeStateEntity> HiringRuntimeStates { get; set; }
@@ -107,6 +108,18 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
                 .HasForeignKey(e => e.ReportHtmlAssetId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
+
+            modelBuilder.Entity<EvaluationWorkspaceStateEntity>(entity =>
+            {
+                entity.HasKey(e => new { e.OwnerSubject, e.EmployeeId });
+                entity.Property(e => e.OwnerSubject).IsRequired().HasMaxLength(120);
+                entity.Property(e => e.EmployeeId).IsRequired().HasMaxLength(120);
+                entity.Property(e => e.PayloadJson).IsRequired();
+                entity.Property(e => e.CreatedAtUtc).IsRequired();
+                entity.Property(e => e.UpdatedAtUtc).IsRequired();
+
+                entity.HasIndex(e => e.UpdatedAtUtc);
+            });
 
         modelBuilder.Entity<HiringSessionEntity>(entity =>
         {

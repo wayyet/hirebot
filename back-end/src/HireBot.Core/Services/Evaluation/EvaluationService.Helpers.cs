@@ -596,6 +596,57 @@ internal sealed partial class EvaluationService
         return $"{owner.Trim()}::{employeeId.Trim()}";
     }
 
+    private async Task<EvaluationWorkspaceContext?> LoadWorkspaceContextAsync(
+        string owner,
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.EvaluationWorkspaceStates
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                item => item.OwnerSubject == owner && item.EmployeeId == employeeId,
+                cancellationToken);
+        if (entity is null || string.IsNullOrWhiteSpace(entity.PayloadJson))
+        {
+            return null;
+        }
+
+        return JsonSerializer.Deserialize<EvaluationWorkspaceContext>(entity.PayloadJson, JsonOptions);
+    }
+
+    private async Task SaveWorkspaceContextAsync(
+        string owner,
+        string employeeId,
+        EvaluationWorkspaceContext workspaceContext,
+        CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.EvaluationWorkspaceStates
+            .FirstOrDefaultAsync(
+                item => item.OwnerSubject == owner && item.EmployeeId == employeeId,
+                cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var payloadJson = JsonSerializer.Serialize(workspaceContext, JsonOptions);
+
+        if (entity is null)
+        {
+            dbContext.EvaluationWorkspaceStates.Add(new EvaluationWorkspaceStateEntity
+            {
+                OwnerSubject = owner,
+                EmployeeId = employeeId,
+                PayloadJson = payloadJson,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            });
+        }
+        else
+        {
+            entity.PayloadJson = payloadJson;
+            entity.UpdatedAtUtc = now;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     private static string FirstNonEmpty(params string?[] candidates)
     {
         foreach (var candidate in candidates)

@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -53,9 +52,6 @@ internal sealed partial class EvaluationService(
         "live_evaluation_coordinator",
         "live_evaluator"
     ];
-
-    private static readonly ConcurrentDictionary<string, EvaluationWorkspaceContext> EvaluationWorkspaces =
-        new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly Lazy<IReadOnlyDictionary<string, FixtureTemplateBinding>> FixtureTemplateBindings =
         new(LoadFixtureTemplateBindings);
@@ -216,7 +212,8 @@ internal sealed partial class EvaluationService(
 
         var workspaceKey = BuildWorkspaceKey(owner, employee.EmployeeId);
 
-        if (!EvaluationWorkspaces.TryGetValue(workspaceKey, out var ctx) || ctx.StepStates.Count == 0)
+        var ctx = await LoadWorkspaceContextAsync(owner, employee.EmployeeId, cancellationToken);
+        if (ctx is null || ctx.StepStates.Count == 0)
         {
             return ApiResponse<EvaluationWorkspaceStatusDto>.SuccessResponse(
                 new EvaluationWorkspaceStatusDto(
@@ -501,7 +498,7 @@ internal sealed partial class EvaluationService(
         }
 
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
-        EvaluationWorkspaces[BuildWorkspaceKey(owner, employee.EmployeeId)] = refreshedWorkspace;
+        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, refreshedWorkspace, cancellationToken);
 
         var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
 
@@ -587,7 +584,7 @@ internal sealed partial class EvaluationService(
         }
 
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
-        EvaluationWorkspaces[BuildWorkspaceKey(owner, employee.EmployeeId)] = refreshedWorkspace;
+        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, refreshedWorkspace, cancellationToken);
 
         var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
 

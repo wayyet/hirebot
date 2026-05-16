@@ -42,9 +42,10 @@ internal sealed partial class EvaluationService
         var workspaceKey = BuildWorkspaceKey(owner, employee.EmployeeId);
         var employeeId = employee.EmployeeId;
         var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
+        var cachedWorkspace = await LoadWorkspaceContextAsync(owner, employee.EmployeeId, cancellationToken);
 
         if (!forceTargetHireRecreate &&
-            EvaluationWorkspaces.TryGetValue(workspaceKey, out var cachedWorkspace) &&
+            cachedWorkspace is not null &&
             cachedWorkspace.SkillLoadedAtUtc is not null &&
             !string.IsNullOrWhiteSpace(cachedWorkspace.TargetSandboxId) &&
             !string.IsNullOrWhiteSpace(cachedWorkspace.EvaluatorSandboxId) &&
@@ -121,7 +122,7 @@ internal sealed partial class EvaluationService
             EvaluatorTemplatePackageZipPath: null,
             UploadedTemplatePackageZipPath: null,
             StepStates: stepStates);
-        EvaluationWorkspaces[workspaceKey] = workspaceContext;
+        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, workspaceContext, cancellationToken);
 
         // 濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛鎾茬劍鐎氭岸鏌涢弴銊ょ盎鐎殿喖鍢查埥澶愬箻鐎涙ê纰嶅銈嗘煥缁夌鐏掗梺鏂ユ櫅閸燁垳娆㈤弻銉︾厱闁哄诞鍕闂佺硶鏅涢惉濂稿箯閻樿绀嬫い蹇撳閹搞倝姊洪崗鍏肩凡闁瑰啿绻橀幆灞解枎閹寸姳绗?
         stepStates["upload_skill"] = new("running", null);
@@ -149,7 +150,7 @@ internal sealed partial class EvaluationService
             EvaluatorTemplatePackageZipPath = employeeTemplateResult.Data?.SandboxTemplatePackageZipPath,
             UploadedTemplatePackageZipPath = employeeTemplateResult.Data?.UploadedTemplatePackageZipPath
         };
-        EvaluationWorkspaces[workspaceKey] = workspaceContext;
+        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, workspaceContext, cancellationToken);
         stepStates["upload_employee_template"] = new("completed", null);
 
         // 闂佽绻愮换鎰涘▎鎺戞殲闂備礁鎼ˇ顖炲Φ濡椿娈介柛銉墯閸嬪鏌嶇悰鈥充壕缂備焦顨呴崐鍦偓闈涖偢閹晠骞撻幒鏂垮笓闂備胶鍎甸弲鈺呭窗濡ゅ懏鍋夐柨婵嗘噳閺岋附绻涢崱妯虹劸闁哥偟顭堥埥澶愬箻閾忣偄鏀梺浼欑畱鐎涒晝鈧潧銈搁幃褔宕奸姀銏犲箚缂傚倷鑳舵慨鐢稿船閼姐倖顫曟繝闈涱儐閻掑ジ鏌涢…鎴濇灈閻㈩垱濞婇幃褰掑炊瑜嶉褔鏌涘▎蹇ユ敾缂佹鍠曢ˇ鏌ユ煕閻旀彃浜鹃梻浣烘嚀閸㈡煡藝椤栨縿浜归柛銉墮缁狙囨煙闁箑骞楅柣蹇斿姍閺?
@@ -184,7 +185,7 @@ internal sealed partial class EvaluationService
         stepStates["upload_artifacts"] = new("completed", null);
 
         workspaceContext = workspaceContext with { SkillLoadedAtUtc = DateTimeOffset.UtcNow };
-        EvaluationWorkspaces[workspaceKey] = workspaceContext;
+        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, workspaceContext, cancellationToken);
 
         logger.LogInformation("[Eval] Workspace ready employeeId={EmployeeId} target={TargetRuntime} evaluator={EvalRuntime}",
             employeeId, targetRuntimeId, evaluatorRuntimeId);
@@ -1220,13 +1221,14 @@ internal sealed partial class EvaluationService
         CancellationToken cancellationToken)
     {
         var workspaceKey = BuildWorkspaceKey(owner, employeeId);
-        if (EvaluationWorkspaces.TryGetValue(workspaceKey, out var workspaceContext))
+        var workspaceContext = await LoadWorkspaceContextAsync(owner, employeeId, cancellationToken);
+        if (workspaceContext is not null)
         {
             var stepStates = new Dictionary<string, WorkspaceStepState>(workspaceContext.StepStates, StringComparer.OrdinalIgnoreCase)
             {
                 ["materials"] = new("running", "Inspecting testcases and ontology materials")
             };
-            EvaluationWorkspaces[workspaceKey] = workspaceContext with { StepStates = stepStates };
+            await SaveWorkspaceContextAsync(owner, employeeId, workspaceContext with { StepStates = stepStates }, cancellationToken);
         }
 
         var testcaseResult = await FetchTestcasesAsync(employeeId, cancellationToken);
@@ -1258,7 +1260,8 @@ internal sealed partial class EvaluationService
 
         var readiness = BuildReadiness(testcaseReady, ontologyReady);
 
-        if (EvaluationWorkspaces.TryGetValue(workspaceKey, out workspaceContext))
+        workspaceContext = await LoadWorkspaceContextAsync(owner, employeeId, cancellationToken);
+        if (workspaceContext is not null)
         {
             var detail = readiness.Status.Equals("ready", StringComparison.OrdinalIgnoreCase)
                 ? "Testcases and ontology are ready"
@@ -1267,7 +1270,7 @@ internal sealed partial class EvaluationService
             {
                 ["materials"] = new("completed", detail)
             };
-            EvaluationWorkspaces[workspaceKey] = workspaceContext with { StepStates = stepStates };
+            await SaveWorkspaceContextAsync(owner, employeeId, workspaceContext with { StepStates = stepStates }, cancellationToken);
         }
 
         return readiness;

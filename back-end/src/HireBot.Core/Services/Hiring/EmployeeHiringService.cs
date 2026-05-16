@@ -67,7 +67,6 @@ internal sealed partial class EmployeeHiringService(
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly ConcurrentDictionary<string, HireOwnerContext> hireOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> conversationInFlight = new(StringComparer.OrdinalIgnoreCase);
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
         string templateId,
@@ -133,15 +132,7 @@ internal sealed partial class EmployeeHiringService(
             {
                 var existingHireId = existingInstance.ScopeKey;
 
-                hireOwners[existingHireId] = new HireOwnerContext(
-                    OwnerSubject: ownerSubject,
-                    TenantId: tenantId,
-                    OperatorId: operatorId,
-                    TemplateId: normalizedTemplateId,
-                    TemplateName: template.Name,
-                    EmployeeId: null);
-
-                // 优先从内存 store 获取 sessionId；服务重启后 store 为空则从 DB 补全
+                // 直接从持久化 runtime 读取 sessionId；缺失时再从 DB 会话表补全
                 var existingRuntime = hiringRuntimeStore.Get(existingHireId);
                 var existingSessionId = existingRuntime?.SessionId;
                 if (string.IsNullOrWhiteSpace(existingSessionId))
@@ -154,7 +145,7 @@ internal sealed partial class EmployeeHiringService(
                         .FirstOrDefaultAsync(cancellationToken);
                 }
 
-                // 若内存 store 中无运行时上下文，用 DB 补全的 sessionId 重建最小上下文，
+                // 若持久化 runtime 中无运行时上下文，用 DB 补全的 sessionId 重建最小上下文，
                 // 确保后续 syncConversationTurn 等调用能正常找到 HireId 对应的运行时
                 if (existingRuntime is null && !string.IsNullOrWhiteSpace(existingSessionId))
                 {
@@ -230,14 +221,6 @@ internal sealed partial class EmployeeHiringService(
         var initialStageCompletion = stageCompletionEvaluator.Evaluate(
             discoverySkill.StageRules,
             new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
-
-        hireOwners[provisionResult.Data.HireId] = new HireOwnerContext(
-            OwnerSubject: ownerSubject,
-            TenantId: tenantId,
-            OperatorId: operatorId,
-            TemplateId: normalizedTemplateId,
-            TemplateName: template.Name,
-            EmployeeId: null);
 
         hiringRuntimeStore.Upsert(new HiringRuntimeContext
         {
@@ -542,13 +525,6 @@ internal sealed partial class EmployeeHiringService(
             provisionResult.Data.SandboxId,
             provisionResult.Data.State,
             "start_conversation"));
-
-        hireOwners[provisionResult.Data.HireId] = ownerContext with
-        {
-            TemplateId = EvaluationWorkspaceTemplateId,
-            TemplateName = EvaluationWorkspaceTemplateName,
-            EmployeeId = null
-        };
 
         if (hiringRuntimeStore.Get(provisionResult.Data.HireId) is null)
         {
@@ -1239,7 +1215,6 @@ internal sealed partial class EmployeeHiringService(
         var mergedArtifactArchive = BuildArtifactArchive(mergedArtifacts);
 
         // 创建数字员工实例（首次调用时）
-        // hireOwners 是 Scoped（per-request）字典，无法在请求间共享状态；
         // 直接从 DB 持久化的 runtimeContext 读取所有者信息，保证重启后依然有效。
         string? employeeId = runtimeContext.EmployeeId;
         if (string.IsNullOrWhiteSpace(employeeId) && !string.IsNullOrWhiteSpace(runtimeContext.TemplateId))

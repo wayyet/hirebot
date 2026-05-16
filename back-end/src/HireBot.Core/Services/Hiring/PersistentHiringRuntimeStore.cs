@@ -15,54 +15,35 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly Dictionary<string, HiringRuntimeContext?> cache = new(StringComparer.OrdinalIgnoreCase);
-    // session_id 到 hireId 的快速索引（session 与 hire 是 1:1 关系）
-    private readonly Dictionary<string, string> sessionToHireIndex = new(StringComparer.OrdinalIgnoreCase);
-
     public HiringRuntimeContext? Get(string hireId)
     {
-        if (cache.TryGetValue(hireId, out var cachedContext))
-        {
-            return cachedContext;
-        }
-
         var entity = dbContext.HiringRuntimeStates
             .AsNoTracking()
             .FirstOrDefault(item => item.HireId == hireId);
         if (entity is null)
         {
-            cache[hireId] = null;
             return null;
         }
 
         var snapshot = JsonSerializer.Deserialize<PersistedHiringRuntimeState>(entity.PayloadJson, JsonOptions);
         if (snapshot is null)
         {
-            cache[hireId] = null;
             return null;
         }
 
-        var context = snapshot.ToRuntimeContext();
-        cache[hireId] = context;
-        if (!string.IsNullOrEmpty(context.SessionId))
-            sessionToHireIndex[context.SessionId] = hireId;
-        return context;
+        return snapshot.ToRuntimeContext();
     }
 
     public HiringRuntimeContext? GetBySessionId(string sessionId)
     {
-        // 先查内存索引
-        if (sessionToHireIndex.TryGetValue(sessionId, out var cachedHireId))
-            return Get(cachedHireId);
-
-        // 索引未命中时回源查 DB
         var entity = dbContext.HiringRuntimeStates
             .AsNoTracking()
             .FirstOrDefault(item => item.SessionId == sessionId);
         if (entity is null)
             return null;
 
-        return Get(entity.HireId);
+        var snapshot = JsonSerializer.Deserialize<PersistedHiringRuntimeState>(entity.PayloadJson, JsonOptions);
+        return snapshot?.ToRuntimeContext();
     }
 
     public void Upsert(HiringRuntimeContext context)
@@ -95,7 +76,6 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
         }
 
         dbContext.SaveChanges();
-        cache[context.HireId] = context;
     }
 
     private sealed record PersistedHiringRuntimeState(

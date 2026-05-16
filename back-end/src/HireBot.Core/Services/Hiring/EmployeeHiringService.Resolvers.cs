@@ -68,12 +68,6 @@ internal sealed partial class EmployeeHiringService
 
     private bool TryResolveOwnerContext(string hireId, out HireOwnerContext ownerContext)
     {
-        if (hireOwners.TryGetValue(hireId, out var cachedOwnerContext))
-        {
-            ownerContext = cachedOwnerContext;
-            return true;
-        }
-
         var runtimeContext = hiringRuntimeStore.Get(hireId);
         if (runtimeContext is null)
         {
@@ -84,7 +78,6 @@ internal sealed partial class EmployeeHiringService
                 return false;
             }
 
-            hireOwners[hireId] = persistedOwnerContext;
             ownerContext = persistedOwnerContext;
             return true;
         }
@@ -142,7 +135,7 @@ internal sealed partial class EmployeeHiringService
 
     private string ResolveSandboxRole(string hireId)
     {
-        if (hireOwners.TryGetValue(hireId, out var ownerContext) &&
+        if (TryResolveOwnerContext(hireId, out var ownerContext) &&
             string.Equals(ownerContext.TemplateId, EvaluationWorkspaceTemplateId, StringComparison.OrdinalIgnoreCase))
         {
             return "evaluation-evaluator";
