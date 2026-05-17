@@ -143,6 +143,7 @@ internal sealed record SandboxProvisioningSettings(
             ["OpenClaw__Security__AllowRawSecretRefsOnPublicBind"] = "true",
             ["OpenClaw__Plugins__Enabled"] = "true",
             ["OpenClaw__Tooling__AllowShell"] = "true",
+            ["OpenClaw__Tooling__SurfaceBindings__websocket"] = "full",
             ["OpenClaw__Tooling__WorkspaceRoot"] = "/workspace",
             ["OpenClaw__Tooling__WorkspaceOnly"] = "false",
             ["OpenClaw__Tooling__AllowBrowserEvaluate"] = "true",
