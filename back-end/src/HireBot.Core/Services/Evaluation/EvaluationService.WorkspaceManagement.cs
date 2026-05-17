@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -121,6 +121,7 @@ internal sealed partial class EvaluationService
             SessionId: null,
             EvaluatorTemplatePackageZipPath: null,
             UploadedTemplatePackageZipPath: null,
+            ArtifactWorkspaceDir: null,
             StepStates: stepStates);
         await SaveWorkspaceContextAsync(owner, employee.EmployeeId, workspaceContext, cancellationToken);
 
@@ -184,7 +185,11 @@ internal sealed partial class EvaluationService
 
         stepStates["upload_artifacts"] = new("completed", null);
 
-        workspaceContext = workspaceContext with { SkillLoadedAtUtc = DateTimeOffset.UtcNow };
+        workspaceContext = workspaceContext with
+        {
+            SkillLoadedAtUtc = DateTimeOffset.UtcNow,
+            ArtifactWorkspaceDir = evaluatorArtifactUploadResult.Data
+        };
         await SaveWorkspaceContextAsync(owner, employee.EmployeeId, workspaceContext, cancellationToken);
 
         logger.LogInformation("[Eval] Workspace ready employeeId={EmployeeId} target={TargetRuntime} evaluator={EvalRuntime}",
@@ -519,7 +524,7 @@ internal sealed partial class EvaluationService
         */
     }
 
-    private async Task<ApiResponse<bool>> UploadArtifactAttachmentToSandboxAsync(
+    private async Task<ApiResponse<string>> UploadArtifactAttachmentToSandboxAsync(
         string sandboxId,
         string scopeKey,
         string owner,
@@ -530,52 +535,32 @@ internal sealed partial class EvaluationService
     {
         var bundleResult = await BuildArtifactBundleAsync(employee, explicitArtifactPath, cancellationToken);
         if (!bundleResult.Success || bundleResult.Data is null)
-        {
-            return ApiResponse<bool>.ErrorResponse(bundleResult.Code, bundleResult.Message);
-        }
+            return ApiResponse<string>.ErrorResponse(bundleResult.Code, bundleResult.Message);
 
         var bundle = bundleResult.Data;
-        var (tenantId, operatorId) = ResolveTenantAndOperator(owner);
-        var uploadResult = await sandboxService.UploadAttachmentAsync(
-            new SandboxAttachmentUploadRequestDto
+        // 直接解压到 workspace/uploads/artifact/ 目录，evaluator skill 可通过文件系统路径读取
+        var uploadResult = await sandboxService.UploadWorkspaceFileAsync(
+            new SandboxWorkspaceUploadRequestDto
             {
                 ScopeType = SandboxScopeTypes.Managed,
                 ScopeKey = scopeKey,
                 SandboxRole = "evaluation-evaluator",
                 OwnerSubject = owner,
-                TenantId = tenantId,
-                OperatorId = operatorId,
                 SandboxId = sandboxId,
-                Material = new HiringConversationMaterialDto
-                {
-                    Type = "artifact-package-zip",
-                    Name = bundle.FileName,
-                    Content = Convert.ToBase64String(bundle.Content),
-                    MimeType = "application/zip",
-                    Size = bundle.Content.LongLength,
-                    ContentHash = bundle.Sha256,
-                    Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["contentEncoding"] = "base64",
-                        ["sourceType"] = bundle.SourceType,
-                        ["sourcePath"] = bundle.SourcePath
-                    }
-                }
+                TargetDir = "uploads/artifact",
+                FileName = bundle.FileName,
+                Content = bundle.Content,
+                ContentType = "application/zip"
             },
             cancellationToken);
 
         if (!uploadResult.Success || uploadResult.Data is null)
-        {
-            return ApiResponse<bool>.ErrorResponse(uploadResult.Code, uploadResult.Message);
-        }
+            return ApiResponse<string>.ErrorResponse(uploadResult.Code, uploadResult.Message);
 
         logger.LogInformation(
-            "[Eval] {SandboxSide} artifact attached sandboxId={SandboxId} mediaId={MediaId} fileName={FileName}",
-            sandboxSide,
-            sandboxId,
-            uploadResult.Data.MediaId,
-            bundle.FileName);
-        return ApiResponse<bool>.SuccessResponse(true, $"{sandboxSide} artifact attached");
+            "[Eval] {SandboxSide} artifact uploaded to workspace sandboxId={SandboxId} dir={WorkspaceDir} fileName={FileName} fileCount={Count}",
+            sandboxSide, sandboxId, uploadResult.Data.WorkspaceDir, bundle.FileName, uploadResult.Data.FileCount);
+        return ApiResponse<string>.SuccessResponse(uploadResult.Data.WorkspaceDir, $"{sandboxSide} artifact uploaded to workspace");
     }
 
     private async Task<ApiResponse<TargetArtifactBundle>> BuildArtifactBundleAsync(
@@ -766,46 +751,37 @@ internal sealed partial class EvaluationService
         logger.LogInformation("[Eval] Employee template uploaded to target sandboxId={SandboxId} installed={Count}",
             targetSandboxId, targetUploadResult.Data.SkillsInstalled);
 
-        // 濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛顐ｆ礀缁€鍡涙煙瀹勬壆鐏辨俊鍙夊灥闇夐柤娴嬫櫅椤ｅジ鏌ｉ鐔烘噮缂?闂備焦瀵х粙鎺楁儗椤旀儳鍨濋幖娣灪婵瓨绻濇繛鎯т壕闁荤姵鍔楅崰鏍ь潖娴犲绀嬫い蹇撴媼閸嬨劍绻涢幋鐐村碍闁挎洩绲垮Σ鎰板醇閺囩喐娅栭悗鍏夊亾闁告洦浜炵槐姘舵⒑缁嬭法绠扮紒澶屽厴閵嗗懘顢曢敂钘夊壆?workspace 闂備礁鎲￠崝鏇㈠箠鎼淬劌绀勯柨鐔哄Т鐎氬顭跨捄鐑樻拱闁伙綁浜堕幃褰掑炊瑜嶉褔鏌涘▎蹇ュ伐閾伙綁鏌嶉埡浣告殲缂?
-        var evaluatorUploadResult = await sandboxService.UploadAttachmentAsync(
-            new SandboxAttachmentUploadRequestDto
+        // 将员工模板直接解压到 evaluator workspace/uploads/template/ 目录，
+        // evaluator skill 可通过文件系统路径直接读取，无需经过媒体缓存中转。
+        var evaluatorUploadResult = await sandboxService.UploadWorkspaceFileAsync(
+            new SandboxWorkspaceUploadRequestDto
             {
                 ScopeType = SandboxScopeTypes.Managed,
                 ScopeKey = evaluatorRuntimeId,
                 SandboxRole = "evaluation-evaluator",
                 OwnerSubject = owner,
-                TenantId = "tenant-default",
-                OperatorId = "operator-default",
                 SandboxId = evaluatorSandboxId,
-                Material = new HiringConversationMaterialDto
-                {
-                    Type = "template-package-zip",
-                    Name = fileName,
-                    Content = Convert.ToBase64String(archiveBytes),
-                    MimeType = "application/zip",
-                    Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["contentEncoding"] = "base64"
-                    }
-                }
+                TargetDir = "uploads/template",
+                FileName = fileName,
+                Content = archiveBytes,
+                ContentType = "application/zip"
             },
             cancellationToken);
         if (!evaluatorUploadResult.Success || evaluatorUploadResult.Data is null)
         {
-            logger.LogError("[Eval] Failed to upload employee template attachment to evaluator sandboxId={SandboxId} code={Code} msg={Message}",
+            logger.LogError("[Eval] Failed to upload employee template to evaluator workspace sandboxId={SandboxId} code={Code} msg={Message}",
                 evaluatorSandboxId, evaluatorUploadResult.Code, evaluatorUploadResult.Message);
             return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
                 evaluatorUploadResult.Code,
-                $"failed to upload employee template attachment to evaluator sandbox: {evaluatorUploadResult.Message}");
+                $"failed to upload employee template to evaluator sandbox workspace: {evaluatorUploadResult.Message}");
         }
 
-        var templatePackageZipPath = ResolveMediaCachePathFromAttachment(evaluatorUploadResult.Data);
+        var templatePackageZipPath = evaluatorUploadResult.Data.WorkspaceDir;
         logger.LogInformation(
-            "[Eval] Employee template uploaded to evaluator sandbox attachment sandboxId={SandboxId} mediaId={MediaId} marker={Marker} templatePackageZipPath={TemplatePackageZipPath} uploadedTemplatePackageZipPath={UploadedTemplatePackageZipPath}",
+            "[Eval] Employee template uploaded to evaluator sandbox workspace sandboxId={SandboxId} workspaceDir={WorkspaceDir} fileCount={FileCount} uploadedTemplatePackageZipPath={UploadedTemplatePackageZipPath}",
             evaluatorSandboxId,
-            evaluatorUploadResult.Data.MediaId,
-            evaluatorUploadResult.Data.Marker,
             templatePackageZipPath,
+            evaluatorUploadResult.Data.FileCount,
             uploadedTemplatePackageZipPath);
 
         return ApiResponse<TemplatePackageUploadResult>.SuccessResponse(
@@ -813,996 +789,152 @@ internal sealed partial class EvaluationService
             "employee template uploaded");
     }
 
-    private static string? ResolveBoundFixtureTemplatePackageRoot(
-        string templateId,
-        EmployeeDetailDto employee,
-        FixtureTemplateBinding binding)
-    {
-        var fixtureRoot = ResolveFixtureRoot();
-        if (string.IsNullOrWhiteSpace(fixtureRoot) || !Directory.Exists(fixtureRoot))
-        {
-            return null;
-        }
-
-        var candidates = new List<string>();
-
-        static void AddCandidate(List<string> list, string? candidate)
-        {
-            if (string.IsNullOrWhiteSpace(candidate))
-            {
-                return;
-            }
-
-            list.Add(Path.GetFullPath(candidate.Trim()));
-        }
-
-        AddCandidate(candidates, Path.Combine(fixtureRoot, templateId));
-        AddCandidate(candidates, ResolveFixtureArtifactDirectory(employee.EmployeeId, employee));
-
-        if (!string.IsNullOrWhiteSpace(binding.FixtureEmployeeId))
-        {
-            var fixtureEmployeeId = binding.FixtureEmployeeId.Trim();
-            AddCandidate(candidates, Path.Combine(fixtureRoot, fixtureEmployeeId));
-            if (fixtureEmployeeId.StartsWith("e_", StringComparison.OrdinalIgnoreCase))
-            {
-                AddCandidate(candidates, Path.Combine(fixtureRoot, $"hire_{fixtureEmployeeId[2..]}"));
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(binding.FixtureTemplateId))
-        {
-            AddCandidate(candidates, Path.Combine(fixtureRoot, binding.FixtureTemplateId.Trim()));
-        }
-
-        return candidates
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault(path =>
-                Directory.Exists(path) &&
-                File.Exists(Path.Combine(path, "manifest.json")));
-    }
-
-    private static string ResolveMediaCachePathFromAttachment(SandboxAttachmentUploadResultDto attachment)
-    {
-        if (TryExtractMediaCachePath(attachment.Marker, out var markerPath))
-        {
-            return markerPath;
-        }
-
-        if (TryExtractMediaCachePath(attachment.Url, out var urlPath))
-        {
-            return urlPath;
-        }
-
-        return $"/app/memory/media-cache/{attachment.MediaId}";
-    }
-
-    private static bool TryExtractMediaCachePath(string? candidate, out string path)
-    {
-        path = string.Empty;
-        if (string.IsNullOrWhiteSpace(candidate))
-        {
-            return false;
-        }
-
-        var value = candidate.Trim();
-        const string markerPrefix = "[FILE_URL:";
-        if (value.StartsWith(markerPrefix, StringComparison.OrdinalIgnoreCase) &&
-            value.EndsWith(']'))
-        {
-            value = value[markerPrefix.Length..^1].Trim();
-        }
-
-        if (value.StartsWith("/app/memory/media-cache/", StringComparison.OrdinalIgnoreCase))
-        {
-            path = value;
-            return true;
-        }
-
-        if (Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-            uri.AbsolutePath.StartsWith("/app/memory/media-cache/", StringComparison.OrdinalIgnoreCase))
-        {
-            path = uri.AbsolutePath;
-            return true;
-        }
-
-        return false;
-    }
-
+    /// <summary>
+    /// 将员工模板包 ZIP 存入本地缓存目录，供后续读取测试用例等。
+    /// 返回缓存文件的本地绝对路径；若写入失败则返回 null。
+    /// </summary>
     private async Task<string?> PersistUploadedTemplatePackageArchiveAsync(
         string fileName,
         byte[] archiveBytes,
         CancellationToken cancellationToken)
     {
-        if (archiveBytes.Length == 0)
-        {
-            return null;
-        }
+        var cacheRoot = HireBotPathResolver.ResolveEvaluationTemplatePackageCacheRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"]);
 
         try
         {
-            var cacheRoot = HireBotPathResolver.ResolveEvaluationTemplatePackageCacheRoot(
-                hostEnvironment.ContentRootPath,
-                configuration["HireBot:DataRoot"]);
             Directory.CreateDirectory(cacheRoot);
+            var sanitizedName = HiringAssetFileSystem.SanitizePathSegment(
+                Path.GetFileNameWithoutExtension(fileName));
+            var cacheFilePath = Path.Combine(cacheRoot, $"{sanitizedName}.zip");
+            await File.WriteAllBytesAsync(cacheFilePath, archiveBytes, cancellationToken);
 
-            var hash = Convert.ToHexStringLower(SHA256.HashData(archiveBytes));
-            var safeName = string.IsNullOrWhiteSpace(fileName)
-                ? "template-package"
-                : Path.GetFileNameWithoutExtension(fileName);
-            var extension = Path.GetExtension(fileName);
-            if (string.IsNullOrWhiteSpace(extension))
-            {
-                extension = ".zip";
-            }
+            logger.LogInformation(
+                "[Eval] Template package archive cached path={CachePath} size={Size}",
+                cacheFilePath, archiveBytes.Length);
 
-            var targetPath = Path.Combine(cacheRoot, $"{safeName}-{hash[..12]}{extension}");
-            await File.WriteAllBytesAsync(targetPath, archiveBytes, cancellationToken);
-            return targetPath;
+            return cacheFilePath;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "[Eval] Failed to persist uploaded template package archive for testcase fallback.");
+            logger.LogWarning(ex, "[Eval] Failed to persist template package archive to cache. fileName={FileName}", fileName);
             return null;
         }
     }
 
-    private async Task<ApiResponse<EvaluationWorkspaceContext>> EnsureEvaluatorConversationStartedAsync(
-        string owner,
-        EvaluationWorkspaceContext workspaceContext,
-        CancellationToken cancellationToken)
-    {
-        if (!string.IsNullOrWhiteSpace(workspaceContext.SessionId))
-        {
-            return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(workspaceContext);
-        }
-
-        var startResult = await EnsureSandboxConversationStartedAsync(
-            owner,
-            workspaceContext.EvaluatorHireId,
-            workspaceContext.EvaluatorSandboxId,
-            "evaluation-evaluator",
-            cancellationToken);
-        if (!startResult.Success || startResult.Data is null)
-        {
-            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(
-                startResult.Code,
-                $"failed to start evaluator conversation: {startResult.Message}");
-        }
-
-        return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(workspaceContext with
-        {
-            SessionId = startResult.Data.SessionId
-        });
-    }
-
-    private async Task<ApiResponse<ConversationRuntimeContextPayload>> BuildConversationRuntimeContextPayloadAsync(
-        string owner,
+    /// <summary>
+    /// 根据 fixture 绑定关系解析员工模板包的本地目录路径。
+    /// 优先查找 TemplatePackages root 中的目录，回退到 InstanceFixtures 中 fixture 实例的 template 子目录。
+    /// </summary>
+    private string? ResolveBoundFixtureTemplatePackageRoot(
+        string templateId,
         EmployeeDetailDto employee,
-        EvaluationWorkspaceContext workspaceContext,
-        EvaluationSessionEntity sessionEntity,
-        bool includeMaterials,
-        CancellationToken cancellationToken)
+        FixtureTemplateBinding fixtureBinding)
     {
-        var targetGatewayEndpoint = await dbContext.SandboxInstances
-            .AsNoTracking()
-            .Where(item => item.SandboxId == workspaceContext.TargetSandboxId)
-            .Select(item => item.GatewayEndpoint)
-            .FirstOrDefaultAsync(cancellationToken);
-        targetGatewayEndpoint = targetGatewayEndpoint?.Trim();
-        if (string.IsNullOrWhiteSpace(targetGatewayEndpoint))
+        var effectiveTemplateId = fixtureBinding.FixtureTemplateId ?? templateId;
+        var configuredRoot = configuration["HireBot:TemplatePackagesRoot"];
+        var packagesRoot = HiringAssetFileSystem.ResolveDirectory(
+            hostEnvironment.ContentRootPath,
+            configuredRoot,
+            Path.Combine("Assets", "TemplatePackages"));
+
+        var candidatePath = Path.Combine(
+            packagesRoot,
+            HiringAssetFileSystem.SanitizePathSegment(effectiveTemplateId));
+        if (Directory.Exists(candidatePath))
+            return candidatePath;
+
+        // 回退：在 InstanceFixtures 中查找 fixture 实例自带的 template 子目录
+        var fixtureRoot = ResolveFixtureRoot();
+        if (fixtureRoot is not null && !string.IsNullOrWhiteSpace(fixtureBinding.FixtureEmployeeId))
         {
-            return ApiResponse<ConversationRuntimeContextPayload>.ErrorResponse(409, "target sandbox gateway endpoint not ready");
-        }
-
-        string? explicitMaterialsPath = null;
-        if (includeMaterials)
-        {
-            var materialsResult = await PrepareEvaluatorMaterialsArchiveAsync(
-                owner,
-                employee,
-                workspaceContext,
-                sessionEntity,
-                cancellationToken);
-            if (materialsResult.Success && !string.IsNullOrWhiteSpace(materialsResult.Data))
-            {
-                explicitMaterialsPath = materialsResult.Data;
-            }
-            else
-            {
-                logger.LogWarning(
-                    "[Eval] Conversation runtime context could not attach evaluator materials. EmployeeId={EmployeeId} SessionId={SessionId} Message={Message}",
-                    employee.EmployeeId,
-                    sessionEntity.SessionId,
-                    materialsResult.Message);
-            }
-        }
-
-        var runtimeContextJson = BuildRuntimeContextJson(
-            employee,
-            workspaceContext,
-            sessionEntity,
-            targetGatewayEndpoint,
-            explicitMaterialsPath);
-        return ApiResponse<ConversationRuntimeContextPayload>.SuccessResponse(
-            new ConversationRuntimeContextPayload(
-                RuntimeContextJson: runtimeContextJson,
-                RuntimeContextDefaultPath: "/workspace/runtime/evaluation-context.json",
-                TargetGatewayEndpoint: targetGatewayEndpoint,
-                TargetHttpBaseUrl: ResolveHttpBaseUrl(targetGatewayEndpoint),
-                MaterialsAttached: !string.IsNullOrWhiteSpace(explicitMaterialsPath)));
-    }
-
-    private async Task<ApiResponse<EvaluationWorkspaceContext>> EnsureSupplementConversationPreparedAsync(
-        string owner,
-        EmployeeDetailDto employee,
-        EvaluationWorkspaceContext workspaceContext,
-        CancellationToken cancellationToken)
-    {
-        var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, workspaceContext, cancellationToken);
-
-        var testcaseReady = await dbContext.EvaluationAssets
-            .AsNoTracking()
-            .AnyAsync(
-                item => item.SessionEntityId == sessionEntity.Id && item.AssetType == "testcases-json",
-                cancellationToken);
-        var ontologyReady = await dbContext.EvaluationAssets
-            .AsNoTracking()
-            .AnyAsync(
-                item => item.SessionEntityId == sessionEntity.Id && item.AssetType == "ontology-json",
-                cancellationToken);
-        var runtimeContextResult = await BuildConversationRuntimeContextPayloadAsync(
-            owner,
-            employee,
-            workspaceContext,
-            sessionEntity,
-            includeMaterials: testcaseReady && ontologyReady,
-            cancellationToken);
-        if (!runtimeContextResult.Success || runtimeContextResult.Data is null)
-        {
-            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(runtimeContextResult.Code, runtimeContextResult.Message);
-        }
-
-        var runtimeContext = runtimeContextResult.Data;
-        if (testcaseReady && ontologyReady)
-        {
-            var readyTimelineResult = await GetSandboxTimelineAsync(
-                owner,
-                workspaceContext.EvaluatorHireId,
-                workspaceContext.EvaluatorSandboxId,
-                "evaluation-evaluator",
-                cancellationToken);
-            if (!readyTimelineResult.Success || readyTimelineResult.Data is null)
-            {
-                return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(readyTimelineResult.Code, readyTimelineResult.Message);
-            }
-
-            if (HasEvaluationReadyPrompt(readyTimelineResult.Data.Messages) &&
-                HasTargetSandboxContextPrompt(readyTimelineResult.Data.Messages))
-            {
-                return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(workspaceContext with
-                {
-                    SessionId = readyTimelineResult.Data.SessionId
-                });
-            }
-
-            var testcaseAssetCandidates = await dbContext.EvaluationAssets
-                .AsNoTracking()
-                .Where(item =>
-                    item.SessionEntityId == sessionEntity.Id &&
-                    item.AssetType == "testcases-json")
-                .OrderByDescending(item => item.CreatedAtUtc)
-                .ToListAsync(cancellationToken);
-            var testcaseAssets = testcaseAssetCandidates
-                .GroupBy(
-                    item => string.IsNullOrWhiteSpace(item.RelatedKey) ? item.RelativePath : item.RelatedKey,
-                    StringComparer.OrdinalIgnoreCase)
-                .Select(group => group
-                    .OrderByDescending(item => item.CreatedAtUtc)
-                    .First())
-                .Take(5)
-                .ToArray();
-            var cards = await BuildQuestionCardsFromAssetsAsync(testcaseAssets, cancellationToken);
-            var questionCardsMarkdown = BuildQuestionCardsMarkdown(cards);
-            var ontologyRulesMarkdown = BuildOntologyRulesMarkdown();
-
-            var readySendResult = await SendSandboxMessageAsync(
-                owner,
-                workspaceContext.EvaluatorHireId,
-                workspaceContext.EvaluatorSandboxId,
-                "evaluation-evaluator",
-                new HiringConversationMessageRequestDto
-                {
-                    Content = "In your next response, first output exactly `目标沙箱连接上下文已就绪。` Then explain briefly that the target sandbox connection metadata is already available in this conversation and you can use the attached runtime_context.json plus internal auth logic to connect to the target sandbox without asking the user for endpoint or token. If a tool or script expects /workspace/runtime/evaluation-context.json, create /workspace/runtime and write the provided runtime context there first. After that, show the question cards and scoring hints.",
-                    StructuredAnswers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["evaluation_context_ready"] = "true",
-                        ["question_cards_markdown"] = questionCardsMarkdown,
-                        ["question_cards_announced"] = "false",
-                        ["ontology_rules_markdown"] = ontologyRulesMarkdown,
-                        ["target_context_ready"] = "true",
-                        ["runtime_context_json"] = runtimeContext.RuntimeContextJson,
-                        ["runtime_context_default_path"] = runtimeContext.RuntimeContextDefaultPath,
-                        ["target_sandbox_id"] = workspaceContext.TargetSandboxId,
-                        ["target_gateway_endpoint"] = runtimeContext.TargetGatewayEndpoint,
-                        ["target_http_base_url"] = runtimeContext.TargetHttpBaseUrl,
-                        ["runtime_context_copy_hint"] = $"mkdir -p /workspace/runtime && cp <attached-runtime-context> {runtimeContext.RuntimeContextDefaultPath}",
-                        ["materials_attached"] = runtimeContext.MaterialsAttached ? "true" : "false"
-                    },
-                    Materials =
-                    [
-                        new HiringConversationMaterialDto
-                        {
-                            Type = "runtime-context-json",
-                            Name = "evaluation-context.json",
-                            Content = runtimeContext.RuntimeContextJson,
-                            MimeType = "application/json"
-                        }
-                    ]
-                },
-                cancellationToken);
-            if (!readySendResult.Success || readySendResult.Data is null)
-            {
-                return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(readySendResult.Code, readySendResult.Message);
-            }
-
-            return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(workspaceContext with
-            {
-                SessionId = readySendResult.Data.SessionId
-            });
-        }
-
-        var timelineResult = await GetSandboxTimelineAsync(
-            owner,
-            workspaceContext.EvaluatorHireId,
-            workspaceContext.EvaluatorSandboxId,
-            "evaluation-evaluator",
-            cancellationToken);
-        if (!timelineResult.Success || timelineResult.Data is null)
-        {
-            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(timelineResult.Code, timelineResult.Message);
-        }
-
-        if (HasMaterialsSupplementPrompt(timelineResult.Data.Messages) &&
-            HasTargetSandboxContextPrompt(timelineResult.Data.Messages))
-        {
-            return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(workspaceContext with
-            {
-                SessionId = timelineResult.Data.SessionId
-            });
-        }
-
-        var sendResult = await SendSandboxMessageAsync(
-            owner,
-            workspaceContext.EvaluatorHireId,
-            workspaceContext.EvaluatorSandboxId,
-            "evaluation-evaluator",
-            new HiringConversationMessageRequestDto
-            {
-                Content = "In your next response, first output exactly `目标沙箱连接上下文已就绪。` Then explain that the target sandbox connection metadata is already available in this conversation and you can use the attached runtime_context.json plus internal auth logic to connect to the target sandbox without asking the user for endpoint or token. After that, tell the user which evaluation materials are missing and ask for testcase/ontology supplements before continuing.",
-                StructuredAnswers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["missing_materials"] = BuildMissingMaterialsSummary(testcaseReady, ontologyReady),
-                    ["next_step"] = "Ask the user to upload scenario materials or provide scenario description, then run scenario_parser and retry evaluation.",
-                    ["target_context_ready"] = "true",
-                    ["runtime_context_json"] = runtimeContext.RuntimeContextJson,
-                    ["runtime_context_default_path"] = runtimeContext.RuntimeContextDefaultPath,
-                    ["target_sandbox_id"] = workspaceContext.TargetSandboxId,
-                    ["target_gateway_endpoint"] = runtimeContext.TargetGatewayEndpoint,
-                    ["target_http_base_url"] = runtimeContext.TargetHttpBaseUrl,
-                    ["runtime_context_copy_hint"] = $"mkdir -p /workspace/runtime && cp <attached-runtime-context> {runtimeContext.RuntimeContextDefaultPath}",
-                    ["materials_attached"] = runtimeContext.MaterialsAttached ? "true" : "false"
-                },
-                Materials =
-                [
-                    new HiringConversationMaterialDto
-                    {
-                        Type = "runtime-context-json",
-                        Name = "evaluation-context.json",
-                        Content = runtimeContext.RuntimeContextJson,
-                        MimeType = "application/json"
-                    }
-                ]
-            },
-            cancellationToken);
-        if (!sendResult.Success || sendResult.Data is null)
-        {
-            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(sendResult.Code, sendResult.Message);
-        }
-
-        return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(workspaceContext with
-        {
-            SessionId = sendResult.Data.SessionId
-        });
-    }
-
-    private async Task<EvaluationReadinessDto> PrimeReadinessMaterialsAsync(
-        string owner,
-        string employeeId,
-        CancellationToken cancellationToken)
-    {
-        var workspaceKey = BuildWorkspaceKey(owner, employeeId);
-        var workspaceContext = await LoadWorkspaceContextAsync(owner, employeeId, cancellationToken);
-        if (workspaceContext is not null)
-        {
-            var stepStates = new Dictionary<string, WorkspaceStepState>(workspaceContext.StepStates, StringComparer.OrdinalIgnoreCase)
-            {
-                ["materials"] = new("running", "Inspecting testcases and ontology materials")
-            };
-            await SaveWorkspaceContextAsync(owner, employeeId, workspaceContext with { StepStates = stepStates }, cancellationToken);
-        }
-
-        var testcaseResult = await FetchTestcasesAsync(employeeId, cancellationToken);
-        if (!testcaseResult.Success)
-        {
-            logger.LogInformation(
-                "Testcase priming failed in LOAD_SKILL. EmployeeId={EmployeeId}, Code={Code}, Message={Message}",
-                employeeId,
-                testcaseResult.Code,
-                testcaseResult.Message);
-        }
-
-        var ontologyResult = await QueryOntologyAsync(employeeId, cancellationToken);
-        if (!ontologyResult.Success)
-        {
-            logger.LogInformation(
-                "Ontology priming failed in LOAD_SKILL. EmployeeId={EmployeeId}, Code={Code}, Message={Message}",
-                employeeId,
-                ontologyResult.Code,
-                ontologyResult.Message);
-        }
-
-        var testcaseReady = testcaseResult.Success &&
-            testcaseResult.Data is not null &&
-            testcaseResult.Data.Testcases.Count > 0;
-        var ontologyReady = ontologyResult.Success &&
-            ontologyResult.Data is not null &&
-            (ontologyResult.Data.DimensionRules.Count > 0 || ontologyResult.Data.DimensionWeights.Count > 0);
-
-        var readiness = BuildReadiness(testcaseReady, ontologyReady);
-
-        workspaceContext = await LoadWorkspaceContextAsync(owner, employeeId, cancellationToken);
-        if (workspaceContext is not null)
-        {
-            var detail = readiness.Status.Equals("ready", StringComparison.OrdinalIgnoreCase)
-                ? "Testcases and ontology are ready"
-                : readiness.Message;
-            var stepStates = new Dictionary<string, WorkspaceStepState>(workspaceContext.StepStates, StringComparer.OrdinalIgnoreCase)
-            {
-                ["materials"] = new("completed", detail)
-            };
-            await SaveWorkspaceContextAsync(owner, employeeId, workspaceContext with { StepStates = stepStates }, cancellationToken);
-        }
-
-        return readiness;
-    }
-
-    private async Task<ApiResponse<string>> PrepareEvaluatorMaterialsArchiveAsync(
-        string owner,
-        EmployeeDetailDto employee,
-        EvaluationWorkspaceContext workspaceContext,
-        EvaluationSessionEntity sessionEntity,
-        CancellationToken cancellationToken)
-    {
-        var testcaseAssets = await GetLatestSessionAssetsAsync(
-            sessionEntity.Id,
-            "testcases-json",
-            cancellationToken);
-        var ontologyAsset = await GetLatestSessionAssetAsync(
-            sessionEntity.Id,
-            "ontology-json",
-            cancellationToken);
-
-        if (testcaseAssets.Count == 0 || ontologyAsset is null)
-        {
-            var readiness = await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
-            if (!readiness.Status.Equals("ready", StringComparison.OrdinalIgnoreCase))
-            {
-                return ApiResponse<string>.ErrorResponse(
-                    422,
-                    string.IsNullOrWhiteSpace(readiness.Message)
-                        ? "evaluation materials are not ready"
-                        : readiness.Message);
-            }
-
-            testcaseAssets = await GetLatestSessionAssetsAsync(
-                sessionEntity.Id,
-                "testcases-json",
-                cancellationToken);
-            ontologyAsset = await GetLatestSessionAssetAsync(
-                sessionEntity.Id,
-                "ontology-json",
-                cancellationToken);
-        }
-
-        if (testcaseAssets.Count == 0)
-        {
-            return ApiResponse<string>.ErrorResponse(422, "no testcase assets found for auto evaluation");
-        }
-
-        if (ontologyAsset is null)
-        {
-            return ApiResponse<string>.ErrorResponse(422, "no ontology asset found for auto evaluation");
-        }
-
-        var testcaseFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var testcaseAsset in testcaseAssets)
-        {
-            var content = await ReadEvaluationAssetTextAsync(testcaseAsset, cancellationToken);
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                logger.LogWarning(
-                    "[Eval] Skip empty testcase asset when preparing evaluator materials. SessionId={SessionId}, RelativePath={RelativePath}",
-                    sessionEntity.SessionId,
-                    testcaseAsset.RelativePath);
-                continue;
-            }
-
-            var fileName = ExtractEvaluationAssetFileName(testcaseAsset.RelativePath, "evaluation-testcases.json");
-            testcaseFiles[fileName] = content;
-        }
-
-        if (testcaseFiles.Count == 0)
-        {
-            return ApiResponse<string>.ErrorResponse(422, "testcase assets exist but none could be read for auto evaluation");
-        }
-
-        var ontologyContent = await ReadEvaluationAssetTextAsync(ontologyAsset, cancellationToken);
-        if (string.IsNullOrWhiteSpace(ontologyContent))
-        {
-            return ApiResponse<string>.ErrorResponse(422, "ontology asset exists but could not be read for auto evaluation");
-        }
-
-        var archiveBytes = BuildEvaluatorMaterialsArchive(
-            testcaseFiles,
-            ExtractEvaluationAssetFileName(ontologyAsset.RelativePath, "evaluation-ontology.json"),
-            ontologyContent);
-
-        var uploadResult = await sandboxService.UploadAttachmentAsync(
-            new SandboxAttachmentUploadRequestDto
-            {
-                ScopeType = SandboxScopeTypes.Managed,
-                ScopeKey = workspaceContext.EvaluatorHireId,
-                SandboxRole = "evaluation-evaluator",
-                OwnerSubject = owner,
-                TenantId = "tenant-default",
-                OperatorId = "operator-default",
-                SandboxId = workspaceContext.EvaluatorSandboxId,
-                Material = new HiringConversationMaterialDto
-                {
-                    Type = "evaluation-materials-zip",
-                    Name = "evaluation-materials.zip",
-                    Content = Convert.ToBase64String(archiveBytes),
-                    MimeType = "application/zip",
-                    Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["contentEncoding"] = "base64"
-                    }
-                }
-            },
-            cancellationToken);
-        if (!uploadResult.Success || uploadResult.Data is null)
-        {
-            return ApiResponse<string>.ErrorResponse(
-                uploadResult.Code,
-                $"failed to upload evaluator materials archive: {uploadResult.Message}");
-        }
-
-        return ApiResponse<string>.SuccessResponse(ResolveMediaCachePathFromAttachment(uploadResult.Data));
-    }
-
-    private async Task<IReadOnlyList<EvaluationAssetEntity>> GetLatestSessionAssetsAsync(
-        Guid sessionEntityId,
-        string assetType,
-        CancellationToken cancellationToken)
-    {
-        var candidates = await dbContext.EvaluationAssets
-            .AsNoTracking()
-            .Where(item =>
-                item.SessionEntityId == sessionEntityId &&
-                item.AssetType == assetType)
-            .OrderByDescending(item => item.CreatedAtUtc)
-            .ToListAsync(cancellationToken);
-
-        return candidates
-            .GroupBy(
-                item => string.IsNullOrWhiteSpace(item.RelatedKey) ? item.RelativePath : item.RelatedKey,
-                StringComparer.OrdinalIgnoreCase)
-            .Select(group => group
-                .OrderByDescending(item => item.CreatedAtUtc)
-                .First())
-            .OrderBy(item => item.RelativePath, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
-    private async Task<EvaluationAssetEntity?> GetLatestSessionAssetAsync(
-        Guid sessionEntityId,
-        string assetType,
-        CancellationToken cancellationToken)
-    {
-        return await dbContext.EvaluationAssets
-            .AsNoTracking()
-            .Where(item =>
-                item.SessionEntityId == sessionEntityId &&
-                item.AssetType == assetType)
-            .OrderByDescending(item => item.CreatedAtUtc)
-            .FirstOrDefaultAsync(cancellationToken);
-    }
-
-    private async Task<string?> ReadEvaluationAssetTextAsync(
-        EvaluationAssetEntity asset,
-        CancellationToken cancellationToken)
-    {
-        var physicalPath = ResolvePhysicalAssetPath(asset.RelativePath);
-        if (string.IsNullOrWhiteSpace(physicalPath) || !File.Exists(physicalPath))
-        {
-            logger.LogWarning(
-                "[Eval] Evaluation asset file not found when preparing evaluator materials. RelativePath={RelativePath}",
-                asset.RelativePath);
-            return null;
-        }
-
-        return await File.ReadAllTextAsync(physicalPath, cancellationToken);
-    }
-
-    internal static byte[] BuildEvaluatorMaterialsArchive(
-        IReadOnlyDictionary<string, string> testcaseFiles,
-        string ontologyFileName,
-        string ontologyContent)
-    {
-        using var memoryStream = new MemoryStream();
-        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
-        {
-            foreach (var testcaseFile in testcaseFiles.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
-            {
-                var entry = archive.CreateEntry(
-                    $"testcases/{BuildSafeArchiveFileName(testcaseFile.Key, "evaluation-testcases.json")}",
-                    CompressionLevel.Fastest);
-                using var entryStream = entry.Open();
-                var contentBytes = Encoding.UTF8.GetBytes(testcaseFile.Value);
-                entryStream.Write(contentBytes, 0, contentBytes.Length);
-            }
-
-            var ontologyEntry = archive.CreateEntry(
-                $"ontology/{BuildSafeArchiveFileName(ontologyFileName, "evaluation-ontology.json")}",
-                CompressionLevel.Fastest);
-            using var ontologyStream = ontologyEntry.Open();
-            var ontologyBytes = Encoding.UTF8.GetBytes(ontologyContent);
-            ontologyStream.Write(ontologyBytes, 0, ontologyBytes.Length);
-        }
-
-        return memoryStream.ToArray();
-    }
-
-    private static string ExtractEvaluationAssetFileName(string? relativePath, string fallbackFileName)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath))
-        {
-            return fallbackFileName;
-        }
-
-        var normalizedPath = relativePath.Replace('\\', '/').Trim();
-        var fileName = Path.GetFileName(normalizedPath);
-        return string.IsNullOrWhiteSpace(fileName)
-            ? fallbackFileName
-            : fileName;
-    }
-
-    private static string BuildSafeArchiveFileName(string? fileName, string fallbackFileName)
-    {
-        var candidate = string.IsNullOrWhiteSpace(fileName)
-            ? fallbackFileName
-            : Path.GetFileName(fileName.Trim());
-        if (string.IsNullOrWhiteSpace(candidate))
-        {
-            candidate = fallbackFileName;
-        }
-
-        var safeChars = candidate
-            .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '_')
-            .ToArray();
-        var safeName = new string(safeChars).Trim('.');
-        return string.IsNullOrWhiteSpace(safeName)
-            ? fallbackFileName
-            : safeName;
-    }
-
-    private string BuildRuntimeContextJson(
-        EmployeeDetailDto employee,
-        EvaluationWorkspaceContext workspaceContext,
-        EvaluationSessionEntity sessionEntity,
-        string targetGatewayEndpoint,
-        string? explicitMaterialsPath)
-    {
-        var runtimeContext = new
-        {
-            session = new
-            {
-                session_id = sessionEntity.SessionId,
-                employee_id = employee.EmployeeId,
-                employee_name = employee.Nickname,
-                iteration = sessionEntity.Iteration
-            },
-            materials = new
-            {
-                workspace_root = "/workspace",
-                template_root = "/workspace",
-                template_package_zip = workspaceContext.EvaluatorTemplatePackageZipPath,
-                testcases_path = explicitMaterialsPath,
-                ontology_path = explicitMaterialsPath
-            },
-            target_sandbox = new
-            {
-                sandbox_id = workspaceContext.TargetSandboxId,
-                ws_endpoint = targetGatewayEndpoint,
-                gateway_endpoint = targetGatewayEndpoint,
-                http_base_url = ResolveHttpBaseUrl(targetGatewayEndpoint)
-            },
-            execution = new
-            {
-                timeout_seconds = 120,
-                http_supplement = true
-            }
-        };
-
-        logger.LogInformation(
-            "[Eval] Runtime context built employeeId={EmployeeId} sessionId={SessionId} targetSandboxId={TargetSandboxId} targetGatewayEndpoint={TargetGatewayEndpoint} materialsPath={MaterialsPath}",
-            employee.EmployeeId,
-            sessionEntity.SessionId,
-            workspaceContext.TargetSandboxId,
-            targetGatewayEndpoint,
-            explicitMaterialsPath ?? string.Empty);
-
-        return JsonSerializer.Serialize(runtimeContext, JsonOptions);
-    }
-
-    private string BuildLiveEvaluationBootstrapPayload(
-        string owner,
-        EmployeeDetailDto employee,
-        EvaluationWorkspaceContext workspaceContext,
-        EvaluationSessionEntity sessionEntity,
-        string targetGatewayEndpoint,
-        string runtimeContextPath)
-    {
-        var bootstrapPayload = new
-        {
-            workflow = "live_evaluation",
-            owner_subject = owner,
-            session_id = sessionEntity.SessionId,
-            evaluator_sandbox_id = workspaceContext.EvaluatorSandboxId,
-            target_hire_id = workspaceContext.TargetHireId,
-            target_sandbox_id = workspaceContext.TargetSandboxId,
-            runtime_context_path = runtimeContextPath,
-            instruction = $$"""
-                          BOOTSTRAP MODE. Execute all steps without outputting any text. Your entire response must be ONLY the final verdict JSON — no prefix, no suffix, no markdown fences, no explanation.
-
-                          1) cp "{{runtimeContextPath}}" /workspace/runtime/evaluation-context.json
-
-                          2) python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode inspect --output /tmp/materials_inspection.json
-
-                          3) If inspect status != ready, output exactly: {"verdict":"FAIL","overall_score":0,"summary":"materials incomplete","dimension_scores":[]}
-                             Then STOP.
-
-                          4) python /workspace/skills/live_evaluator/evaluate.py --runtime-context /workspace/runtime/evaluation-context.json --mode execute --output /tmp/trace_result.json
-
-                          5) Read /tmp/trace_result.json. If "status" is not "completed" or "turns" is empty, run the following command and output its stdout only, then STOP:
-                             python - <<'PY'
-                             import json
-                             from pathlib import Path
-
-                             trace = json.loads(Path('/tmp/trace_result.json').read_text(encoding='utf-8'))
-                             status = str(trace.get('status') or 'unknown').strip() or 'unknown'
-                             meta = trace.get('meta') or {}
-                             error = (
-                                 trace.get('error')
-                                 or trace.get('message')
-                                 or (meta.get('error') if isinstance(meta, dict) else None)
-                                 or ''
-                             )
-                             error_text = str(error).replace('\r', ' ').replace('\n', ' ').replace('{', '(').replace('}', ')').strip()
-                             if not trace.get('turns'):
-                                 error_text = f"{error_text}; turns empty".strip('; ')
-                             if not error_text:
-                                 error_text = 'unknown'
-
-                             summary = f"execution error: status={status}; error={error_text}"
-                             print(json.dumps({
-                                 "verdict": "FAIL",
-                                 "overall_score": 0,
-                                 "summary": summary,
-                                 "dimension_scores": []
-                             }, ensure_ascii=False))
-                             PY
-
-                          6) Output the verdict. No braces in summary. Entire response must be ONLY:
-                          {"verdict":"PASS|FAIL","overall_score":0-100,"summary":"...","dimension_scores":[{"dimension":"accuracy|completeness|compliance|communication","score":0-100,"comment":"...","evidence_refs":[]}]}
-                          """
-        };
-
-        return JsonSerializer.Serialize(bootstrapPayload, JsonOptions);
-    }
-
-    private static string ResolveHttpBaseUrl(string gatewayEndpoint)
-    {
-        if (string.IsNullOrWhiteSpace(gatewayEndpoint))
-        {
-            return string.Empty;
-        }
-
-        var endpoint = gatewayEndpoint.Trim();
-        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
-        {
-            return endpoint;
-        }
-
-        var scheme = uri.Scheme.Equals("wss", StringComparison.OrdinalIgnoreCase)
-            ? "https"
-            : uri.Scheme.Equals("ws", StringComparison.OrdinalIgnoreCase)
-                ? "http"
-                : uri.Scheme;
-
-        var builder = new UriBuilder(uri)
-        {
-            Scheme = scheme,
-            Path = string.Empty,
-            Query = string.Empty
-        };
-
-        return builder.Uri.GetLeftPart(UriPartial.Authority);
-    }
-
-    private static string StripThinkTags(string content)
-    {
-        var result = content;
-        while (true)
-        {
-            var start = result.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
-            if (start < 0) break;
-            var end = result.IndexOf("</think>", start + 7, StringComparison.OrdinalIgnoreCase);
-            if (end < 0) break;
-            result = result[..start] + result[(end + 8)..];
-        }
-        return result;
-    }
-
-    private static EvaluatorVerdictResult? ParseSandboxVerdict(string? assistantContent)
-    {
-        if (string.IsNullOrWhiteSpace(assistantContent))
-        {
-            return null;
-        }
-
-        var trimmed = StripThinkTags(assistantContent).Trim();
-        var jsonStart = trimmed.IndexOf('{');
-        var jsonEnd = trimmed.LastIndexOf('}');
-        if (jsonStart >= 0 && jsonEnd > jsonStart)
-        {
-            var json = trimmed.Substring(jsonStart, jsonEnd - jsonStart + 1);
-            try
-            {
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.ValueKind == JsonValueKind.Object &&
-                    doc.RootElement.TryGetProperty("verdict", out var verdictElement) &&
-                    verdictElement.ValueKind == JsonValueKind.String)
-                {
-                    var verdictValue = verdictElement.GetString()?.Trim().ToUpperInvariant();
-                    var passed = verdictValue is "PASS" or "PASSED" or "SUCCESS";
-                    var failed = verdictValue is "FAIL" or "FAILED" or "REJECT";
-                    if (passed || failed)
-                    {
-                        var summary = doc.RootElement.TryGetProperty("summary", out var summaryElement) &&
-                                      summaryElement.ValueKind == JsonValueKind.String
-                            ? summaryElement.GetString()
-                            : null;
-
-                        if (!doc.RootElement.TryGetProperty("overall_score", out var overallScoreElement) ||
-                            overallScoreElement.ValueKind is not JsonValueKind.Number ||
-                            !overallScoreElement.TryGetDecimal(out var overallScore))
-                        {
-                            return null;
-                        }
-
-                        if (!doc.RootElement.TryGetProperty("dimension_scores", out var dimensionScoresElement) ||
-                            dimensionScoresElement.ValueKind is not JsonValueKind.Array)
-                        {
-                            return null;
-                        }
-
-                        var dimensionScores = new List<EvaluationDimensionScoreDto>();
-                        foreach (var scoreElement in dimensionScoresElement.EnumerateArray())
-                        {
-                            if (scoreElement.ValueKind is not JsonValueKind.Object)
-                            {
-                                continue;
-                            }
-
-                            var dimension = scoreElement.TryGetProperty("dimension", out var dimensionElement) &&
-                                            dimensionElement.ValueKind == JsonValueKind.String
-                                ? dimensionElement.GetString()?.Trim()
-                                : null;
-                            var score = scoreElement.TryGetProperty("score", out var scoreValueElement) &&
-                                        scoreValueElement.ValueKind is JsonValueKind.Number &&
-                                        scoreValueElement.TryGetDecimal(out var decimalScore)
-                                ? decimalScore
-                                : -1m;
-                            var comment = scoreElement.TryGetProperty("comment", out var commentElement) &&
-                                          commentElement.ValueKind == JsonValueKind.String
-                                ? commentElement.GetString()?.Trim()
-                                : null;
-                            if (string.IsNullOrWhiteSpace(dimension) ||
-                                score < 0m || score > 100m ||
-                                string.IsNullOrWhiteSpace(comment))
-                            {
-                                continue;
-                            }
-
-                            var evidenceRefs = new List<string>();
-                            if (scoreElement.TryGetProperty("evidence_refs", out var evidenceElement) &&
-                                evidenceElement.ValueKind == JsonValueKind.Array)
-                            {
-                                foreach (var evidenceItem in evidenceElement.EnumerateArray())
-                                {
-                                    if (evidenceItem.ValueKind != JsonValueKind.String)
-                                    {
-                                        continue;
-                                    }
-
-                                    var value = evidenceItem.GetString();
-                                    if (!string.IsNullOrWhiteSpace(value))
-                                    {
-                                        evidenceRefs.Add(value.Trim());
-                                    }
-                                }
-                            }
-
-                            if (evidenceRefs.Count == 0)
-                            {
-                                continue;
-                            }
-
-                            dimensionScores.Add(new EvaluationDimensionScoreDto(
-                                Dimension: dimension,
-                                Score: Math.Round(Math.Clamp(score, 0m, 100m), 2),
-                                Comment: comment,
-                                EvidenceRefs: evidenceRefs));
-                        }
-
-                        var requiredDimensions = new HashSet<string>(
-                            ["accuracy", "completeness", "compliance", "communication"],
-                            StringComparer.OrdinalIgnoreCase);
-                        var coveredDimensions = dimensionScores
-                            .Select(item => item.Dimension)
-                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                        if (!requiredDimensions.SetEquals(coveredDimensions))
-                        {
-                            return null;
-                        }
-
-                        if (overallScore < 0m || overallScore > 100m)
-                        {
-                            return null;
-                        }
-
-                        var normalizedSummary = string.IsNullOrWhiteSpace(summary)
-                            ? (passed ? "Evaluator sandbox verdict: pass." : "Evaluator sandbox verdict: fail.")
-                            : summary.Trim();
-
-                        return new EvaluatorVerdictResult(
-                            Passed: passed,
-                            Summary: normalizedSummary,
-                            OverallScore: Math.Round(Math.Clamp(overallScore, 0m, 100m), 2),
-                            DimensionScores: dimensionScores,
-                            RawVerdictJson: json);
-                    }
-                }
-            }
-            catch
-            {
-                return null;
-            }
+            var fixtureInstanceTemplatePath = Path.Combine(
+                fixtureRoot,
+                fixtureBinding.FixtureEmployeeId.Trim(),
+                "template");
+            if (Directory.Exists(fixtureInstanceTemplatePath))
+                return fixtureInstanceTemplatePath;
         }
 
         return null;
     }
 
+    /// <summary>
+    /// 将测试用例和本体规则打包成 ZIP，上传到 evaluator sandbox workspace/uploads/materials/ 目录。
+    /// evaluator skill 通过文件系统路径直接读取，不再经过媒体缓存中转。
+    /// </summary>
+    private async Task<ApiResponse<string>> PrepareEvaluatorMaterialsArchiveAsync(
+        string owner,
+        EmployeeDetailDto employee,
+        EvaluationWorkspaceContext ctx,
+        EvaluationSessionEntity sessionEntity,
+        CancellationToken cancellationToken)
+    {
+        var testcaseSources = await LoadTestcaseSourcesAsync(ctx, employee, cancellationToken);
+        var ontologyProfile = await BuildOntologyProfileAsync(ctx, employee, cancellationToken);
+
+        // 将测试用例和本体打包为 ZIP，ZIP 发送后 gateway 会自动解压到 workspace 目录
+        using var ms = new MemoryStream();
+        using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            // testcases.json
+            var testcasesPayload = JsonSerializer.Serialize(
+                testcaseSources.Select(s => new
+                {
+                    file_name = s.FileName,
+                    source_path = s.SourcePath,
+                    raw_json = s.RawJson,
+                    source_type = s.SourceType
+                }),
+                JsonOptions);
+            var tcEntry = archive.CreateEntry("testcases.json");
+            await using var tcStream = tcEntry.Open();
+            await tcStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(testcasesPayload), cancellationToken);
+
+            // ontology.json
+            var ontologyPayload = JsonSerializer.Serialize(new
+            {
+                version = "ontology-v2",
+                generated_at_utc = DateTimeOffset.UtcNow.ToString("o"),
+                source_summary = ontologyProfile.SourceSummary,
+                dimension_weights = ontologyProfile.DimensionWeights,
+                rules = ontologyProfile.DimensionRules
+            }, JsonOptions);
+            var ontoEntry = archive.CreateEntry("ontology.json");
+            await using var ontoStream = ontoEntry.Open();
+            await ontoStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(ontologyPayload), cancellationToken);
+        }
+
+        var archiveBytes = ms.ToArray();
+        if (archiveBytes.Length == 0)
+            return ApiResponse<string>.ErrorResponse(422, "materials archive is empty");
+
+        var uploadResult = await sandboxService.UploadWorkspaceFileAsync(
+            new SandboxWorkspaceUploadRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Managed,
+                ScopeKey = ctx.EvaluatorHireId,
+                SandboxRole = "evaluation-evaluator",
+                OwnerSubject = owner,
+                SandboxId = ctx.EvaluatorSandboxId,
+                TargetDir = "uploads/materials",
+                FileName = "materials.zip",
+                Content = archiveBytes,
+                ContentType = "application/zip"
+            },
+            cancellationToken);
+
+        if (!uploadResult.Success || uploadResult.Data is null)
+            return ApiResponse<string>.ErrorResponse(uploadResult.Code, uploadResult.Message);
+
+        logger.LogInformation(
+            "[Eval] Materials archive uploaded to evaluator workspace sandboxId={SandboxId} dir={WorkspaceDir} testcases={TestcaseCount} fileCount={FileCount}",
+            ctx.EvaluatorSandboxId, uploadResult.Data.WorkspaceDir, testcaseSources.Count, uploadResult.Data.FileCount);
+
+        return ApiResponse<string>.SuccessResponse(
+            uploadResult.Data.WorkspaceDir,
+            "evaluator materials uploaded to workspace");
+    }
 }
 

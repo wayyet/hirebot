@@ -1212,7 +1212,9 @@ internal sealed partial class EvaluationService(
                 evaluatorMaterialsResult.Message);
         }
 
-        // Upload runtime_context JSON to evaluator sandbox so the AI doesn't need to write it
+        // 将 evaluation-context.json 直接上传到 evaluator workspace/runtime/ 目录，
+        // evaluator skill 可通过固定路径 workspace/runtime/evaluation-context.json 读取，
+        // 不再经过媒体缓存中转，路径更稳定可预测。
         var runtimeContextJson = BuildRuntimeContextJson(
             employee,
             ctx,
@@ -1220,39 +1222,31 @@ internal sealed partial class EvaluationService(
             targetGatewayEndpoint,
             evaluatorMaterialsResult.Data);
         var runtimeContextBytes = System.Text.Encoding.UTF8.GetBytes(runtimeContextJson);
-        var runtimeContextUploadResult = await sandboxService.UploadAttachmentAsync(
-            new SandboxAttachmentUploadRequestDto
+        var runtimeContextUploadResult = await sandboxService.UploadWorkspaceFileAsync(
+            new SandboxWorkspaceUploadRequestDto
             {
                 ScopeType = SandboxScopeTypes.Managed,
                 ScopeKey = ctx.EvaluatorHireId,
                 SandboxRole = "evaluation-evaluator",
                 OwnerSubject = owner,
-                TenantId = "tenant-default",
-                OperatorId = "operator-default",
                 SandboxId = ctx.EvaluatorSandboxId,
-                Material = new HiringConversationMaterialDto
-                {
-                    Type = "runtime-context-json",
-                    Name = "evaluation-context.json",
-                    Content = Convert.ToBase64String(runtimeContextBytes),
-                    MimeType = "application/json",
-                    Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["contentEncoding"] = "base64"
-                    }
-                }
+                TargetDir = "runtime",
+                FileName = "evaluation-context.json",
+                Content = runtimeContextBytes,
+                ContentType = "application/json"
             },
             cancellationToken);
 
         string runtimeContextPath;
         if (runtimeContextUploadResult.Success && runtimeContextUploadResult.Data is not null)
         {
-            runtimeContextPath = ResolveMediaCachePathFromAttachment(runtimeContextUploadResult.Data);
+            // WorkspaceDir 为上传后文件所在的 workspace 相对目录，拼接文件名得到完整路径
+            runtimeContextPath = $"{runtimeContextUploadResult.Data.WorkspaceDir}/evaluation-context.json";
         }
         else
         {
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(502,
-                $"failed to upload runtime context to evaluator sandbox: {runtimeContextUploadResult.Message}");
+                $"failed to upload runtime context to evaluator sandbox workspace: {runtimeContextUploadResult.Message}");
         }
 
         var payloadJson = BuildLiveEvaluationBootstrapPayload(
@@ -1380,6 +1374,71 @@ internal sealed partial class EvaluationService(
         {
             return [];
         }
+    }
+
+    /// <summary>
+    /// 确保 evaluator 沙箱会话已启动，为后续材料上传对话和 WebSocket 连接做准备。
+    /// </summary>
+    private async Task<ApiResponse<EvaluationWorkspaceContext>> EnsureEvaluatorConversationStartedAsync(
+        string owner,
+        EvaluationWorkspaceContext ctx,
+        CancellationToken cancellationToken)
+    {
+        var sessionResult = await EnsureSandboxConversationStartedAsync(
+            owner,
+            ctx.EvaluatorHireId,
+            ctx.EvaluatorSandboxId,
+            "evaluation-evaluator",
+            cancellationToken);
+
+        if (!sessionResult.Success)
+        {
+            logger.LogError(
+                "[Eval] Failed to start evaluator conversation sandboxId={SandboxId} code={Code} msg={Message}",
+                ctx.EvaluatorSandboxId, sessionResult.Code, sessionResult.Message);
+            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(sessionResult.Code, sessionResult.Message);
+        }
+
+        return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(ctx, "evaluator conversation started");
+    }
+
+    /// <summary>
+    /// 准备补充材料对话频道。材料上传已改为通过 API 直接写入 workspace，此方法作为兼容层直通返回 ctx。
+    /// </summary>
+    private Task<ApiResponse<EvaluationWorkspaceContext>> EnsureSupplementConversationPreparedAsync(
+        string owner,
+        EmployeeDetailDto employee,
+        EvaluationWorkspaceContext ctx,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(ctx, "supplement conversation prepared"));
+    }
+
+    /// <summary>
+    /// 检查 evaluator 当前是否具备完整的测试材料（testcases + ontology）。
+    /// 若能从 workspace context + template 加载材料，则直接返回已就绪状态；否则返回缺失状态。
+    /// </summary>
+    private async Task<EvaluationReadinessDto> PrimeReadinessMaterialsAsync(
+        string owner,
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        var ctx = await LoadWorkspaceContextAsync(owner, employeeId, cancellationToken);
+        if (ctx is null)
+            return BuildReadiness(false, false);
+
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId, cancellationToken);
+        if (employee is null)
+            return BuildReadiness(false, false);
+
+        var testcaseSources = await LoadTestcaseSourcesAsync(ctx, employee, cancellationToken);
+        var ontologyProfile = await BuildOntologyProfileAsync(ctx, employee, cancellationToken);
+
+        var testcaseReady = testcaseSources.Count > 0;
+        // 有明确维度权重或规则文件时认为 ontology 就绪
+        var ontologyReady = ontologyProfile.Sources.Count > 0 || ontologyProfile.DimensionWeights.Count > 0;
+
+        return BuildReadiness(testcaseReady, ontologyReady);
     }
 
 }
