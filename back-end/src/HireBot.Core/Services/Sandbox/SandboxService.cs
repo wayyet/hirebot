@@ -807,6 +807,45 @@ internal sealed partial class SandboxService(
             asset.CreatedAtUtc));
     }
 
+    public async Task<ApiResponse<SandboxWorkspaceUploadResultDto>> UploadWorkspaceFileAsync(
+        SandboxWorkspaceUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ValidateScope(request.ScopeType, request.ScopeKey, request.SandboxRole, request.OwnerSubject, out var validationMessage))
+            return ApiResponse<SandboxWorkspaceUploadResultDto>.ErrorResponse(400, validationMessage);
+
+        if (string.IsNullOrWhiteSpace(request.TargetDir))
+            return ApiResponse<SandboxWorkspaceUploadResultDto>.ErrorResponse(400, "targetDir 不能为空");
+
+        if (request.Content is not { Length: > 0 })
+            return ApiResponse<SandboxWorkspaceUploadResultDto>.ErrorResponse(400, "content 不能为空");
+
+        var targetBaseUrlResult = await ResolveGatewayEndpointResultAsync(
+            request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, request.SandboxId, cancellationToken);
+        if (!targetBaseUrlResult.Success || string.IsNullOrWhiteSpace(targetBaseUrlResult.Data))
+            return ApiResponse<SandboxWorkspaceUploadResultDto>.ErrorResponse(targetBaseUrlResult.StatusCode, targetBaseUrlResult.Message);
+
+        var uploadCall = await gatewayClient.UploadToWorkspaceAsync(
+            request.OwnerSubject,
+            request.FileName,
+            request.Content,
+            request.ContentType,
+            request.TargetDir,
+            cancellationToken,
+            targetBaseUrlResult.Data);
+
+        if (!uploadCall.Success || uploadCall.Data is null)
+            return ApiResponse<SandboxWorkspaceUploadResultDto>.ErrorResponse(uploadCall.StatusCode, uploadCall.Message);
+
+        var workspaceDir = $"/workspace/{request.TargetDir.Trim('/')}";
+        logger.LogInformation(
+            "Sandbox workspace upload completed. ScopeKey={ScopeKey}, TargetDir={TargetDir}, WorkspaceDir={WorkspaceDir}, FileCount={FileCount}",
+            request.ScopeKey, request.TargetDir, workspaceDir, uploadCall.Data.FileCount);
+
+        return ApiResponse<SandboxWorkspaceUploadResultDto>.SuccessResponse(
+            new SandboxWorkspaceUploadResultDto(uploadCall.Data.Files, uploadCall.Data.FileCount, workspaceDir));
+    }
+
     private async Task<ApiResponse<SandboxInstanceDto>> ChangeManagedStateAsync(
         SandboxInstanceLookupRequestDto request,
         string newState,

@@ -84,71 +84,6 @@ internal sealed partial class EmployeeHiringService
             InstalledPath: "workspace"));
     }
 
-    private static TemplatePackageDefinition BuildEvaluationWorkspaceTemplatePackage()
-    {
-        const string manifestJson = """
-{
-  "name": "evaluation-expert",
-  "display_name": "Evaluation Expert Workspace",
-  "description": "Template package metadata for evaluator sandbox",
-  "version": "v2.2.0",
-  "entry_skill": "skills/live_evaluation_coordinator"
-}
-""";
-        var manifestBytes = Encoding.UTF8.GetBytes(manifestJson);
-
-        return new TemplatePackageDefinition(
-            RequestedTemplateId: EvaluationWorkspaceTemplateId,
-            PackageId: EvaluationWorkspaceTemplateId,
-            PackageVersion: EvaluationSkillVersion,
-            PackageHash: ComputeContentHash(manifestJson),
-            SourceArchive: null,
-            PackageRootPath: "evaluation-workspace",
-            ManifestJson: manifestJson,
-            DisplayName: EvaluationWorkspaceTemplateName,
-            Description: "Evaluator sandbox template package",
-            PackageFiles:
-            [
-                new TemplatePackageFileAsset(
-                    RelativePath: "manifest.json",
-                    Content: manifestBytes,
-                    ContentHash: ComputeContentHash(manifestJson))
-            ],
-            OntologySlices: [],
-            RequiredSkills: [],
-            EntrySkill: null,
-            StageRules: []);
-    }
-
-    private static DiscoverySkillDefinition BuildEvaluationWorkspaceDiscoverySkill()
-    {
-        const string rootSkillContent = """
-# evaluation-expert
-
-This is the bootstrap skill for evaluation sandbox orchestration.
-""";
-        var stageRule = new DiscoveryStageRule(
-            Stage: "evaluation",
-            SkillName: "live_evaluation_coordinator",
-            Description: "Drive runtime-context-based live evaluation and output structured verdict.",
-            RequiredFields: ["runtime_context", "question_cards", "trace_result", "verdict"]);
-
-        return new DiscoverySkillDefinition(
-            SkillId: EvaluationSkillId,
-            SkillVersion: EvaluationSkillVersion,
-            SkillHash: ComputeContentHash(rootSkillContent),
-            SkillRootPath: "evaluation-expert",
-            SkillContent: rootSkillContent,
-            Files:
-            [
-                new DiscoverySkillFileAsset(
-                    RelativePath: "SKILL.md",
-                    Content: rootSkillContent,
-                    ContentHash: ComputeContentHash(rootSkillContent))
-            ],
-            StageRules: [stageRule]);
-    }
-
     /// <summary>
     /// 为雇佣流程创建托管沙箱，并同步等待沙箱就绪（最多 180 秒）。
     /// 此方法会阻塞直到沙箱状态变为 "Running" 且 GatewayEndpoint 可用。
@@ -361,5 +296,78 @@ This is the bootstrap skill for evaluation sandbox orchestration.
                 refreshResult.Data.GatewayEndpoint));
     }
 
+    /// <summary>
+    /// 接收前端直传的模板包 ZIP，上传到雇佣沙箱工作区的 uploads/template-packages 目录。
+    /// 返回沙箱内文件路径和可直接嵌入 WS 消息的 [FILE_URL:...] 标记，供前端在 WebSocket 引导消息中使用。
+    /// </summary>
+    public async Task<ApiResponse<HiringTemplatePackageUploadResultDto>> UploadTemplatePackageFromClientAsync(
+        string hireId,
+        Stream packageStream,
+        string fileName,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return ApiResponse<HiringTemplatePackageUploadResultDto>.ErrorResponse(400, error);
+        }
+
+        if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<HiringTemplatePackageUploadResultDto>.ErrorResponse(400, "仅支持 .zip 格式的模板包");
+        }
+
+        // 读取流内容
+        byte[] archiveBytes;
+        using (var ms = new MemoryStream())
+        {
+            await packageStream.CopyToAsync(ms, cancellationToken);
+            archiveBytes = ms.ToArray();
+        }
+
+        if (archiveBytes.Length == 0)
+        {
+            return ApiResponse<HiringTemplatePackageUploadResultDto>.ErrorResponse(400, "上传的模板包内容为空");
+        }
+
+        var ownerSubject = ResolveOwnerByHireId(normalizedHireId);
+        var sandboxRole = ResolveSandboxRole(normalizedHireId);
+
+        var uploadResult = await sandboxService.UploadWorkspaceFileAsync(
+            new SandboxWorkspaceUploadRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = normalizedHireId,
+                SandboxRole = sandboxRole,
+                OwnerSubject = ownerSubject,
+                TargetDir = "uploads/template-packages",
+                FileName = Path.GetFileName(fileName),
+                Content = archiveBytes,
+                ContentType = "application/zip"
+            },
+            cancellationToken);
+
+        if (!uploadResult.Success || uploadResult.Data is null)
+        {
+            return ApiResponse<HiringTemplatePackageUploadResultDto>.ErrorResponse(
+                uploadResult.Code,
+                uploadResult.Message);
+        }
+
+        var cleanFileName = Path.GetFileName(fileName);
+        var workspacePath = $"{uploadResult.Data.WorkspaceDir.TrimEnd('/')}/{cleanFileName}";
+        var fileMarker = $"[FILE_URL:{workspacePath}]";
+
+        logger.LogInformation(
+            "[Hiring] Template package uploaded to workspace. HireId={HireId} WorkspaceDir={WorkspaceDir} FileName={FileName} SizeBytes={SizeBytes}",
+            normalizedHireId, uploadResult.Data.WorkspaceDir, cleanFileName, archiveBytes.Length);
+
+        return ApiResponse<HiringTemplatePackageUploadResultDto>.SuccessResponse(
+            new HiringTemplatePackageUploadResultDto(
+                WorkspaceDir: uploadResult.Data.WorkspaceDir,
+                FileName: cleanFileName,
+                WorkspacePath: workspacePath,
+                FileMarker: fileMarker,
+                SizeBytes: archiveBytes.Length));
+    }
 
 }

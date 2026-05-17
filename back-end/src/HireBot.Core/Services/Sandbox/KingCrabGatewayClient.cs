@@ -70,4 +70,48 @@ internal sealed class KingCrabGatewayClient(IKingCrabHttpClient kingCrabHttpClie
         string FileName,
         string MimeType,
         long SizeBytes);
+
+    public async Task<RemoteCallResult<WorkspaceUploadResult>> UploadToWorkspaceAsync(
+        string ownerSubject,
+        string fileName,
+        byte[] content,
+        string contentType,
+        string targetDir,
+        CancellationToken cancellationToken,
+        string? absoluteBaseUrl = null)
+    {
+        var encodedDir = Uri.EscapeDataString(targetDir.Trim('/'));
+        var path = $"/admin/workspace/upload?dir={encodedDir}";
+
+        var uploadCall = await kingCrabHttpClient.SendMultipartForJsonAsync<WorkspaceUploadResponse>(
+            path,
+            "file",
+            fileName,
+            content,
+            contentType,
+            ownerSubject,
+            cancellationToken,
+            useHireBotApiPrefix: false,
+            absoluteBaseUrl: absoluteBaseUrl);
+
+        if (!uploadCall.Success || uploadCall.Data is null)
+            return RemoteCallResult<WorkspaceUploadResult>.Failure(uploadCall.StatusCode, uploadCall.Message);
+
+        var payload = uploadCall.Data;
+        if (!payload.Success)
+            return RemoteCallResult<WorkspaceUploadResult>.Failure(422, payload.Error ?? "workspace upload failed");
+
+        return RemoteCallResult<WorkspaceUploadResult>.Ok(
+            new WorkspaceUploadResult(payload.Files ?? [], payload.FileCount));
+    }
+
+    internal sealed record WorkspaceUploadResult(
+        IReadOnlyList<string> Files,
+        int FileCount);
+
+    private sealed record WorkspaceUploadResponse(
+        bool Success,
+        List<string>? Files,
+        int FileCount,
+        string? Error);
 }

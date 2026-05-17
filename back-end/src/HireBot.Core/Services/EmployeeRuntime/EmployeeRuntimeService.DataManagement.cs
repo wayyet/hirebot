@@ -1,10 +1,7 @@
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Migration;
-using HireBot.Abstraction.Models.Team;
 using HireBot.Abstraction.Models.Sandbox;
-using HireBot.Abstraction.Providers;
-using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Sandbox;
@@ -20,40 +17,23 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 public sealed partial class EmployeeRuntimeService
 {
     /// <summary>
-    /// 确保种子数据存在。
+    /// 批量 Upsert 员工到 DB。
     /// </summary>
-    private async Task EnsureSeedDataAsync(string owner, CancellationToken cancellationToken)
+    private async Task TryUpsertInstanceRecordsAsync(IReadOnlyList<EmployeeDetailDto> employees, CancellationToken cancellationToken)
     {
-        var existing = await store.ListAsync(owner, cancellationToken);
-        if (existing.Count > 0)
+        foreach (var employee in employees)
         {
-            return;
+            try
+            {
+                await UpsertInstanceRecordAsync(employee, cancellationToken: cancellationToken);
+            }
+            catch
+            {
+                // 单条失败不影响其他
+            }
         }
-
-        var fixtureBundle = await LoadFixtureBundleAsync(owner, cancellationToken);
-        if (fixtureBundle.Employees.Count > 0)
-        {
-            await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
-            await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
-          
-        }
-
-        var persisted = await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
-        if (persisted.Count == 0)
-        {
-            return;
-        }
-
-        if (fixtureBundle.Employees.Count == 0)
-        {
-            await store.ReplaceOwnerAsync(owner, persisted, cancellationToken);
-            return;
-        }
-
-        await store.UpsertManyAsync(owner, persisted, cancellationToken);
     }
 
-    /// <summary>
     /// 加载持久化的运行时员工数据。
     /// </summary>
     private async Task<IReadOnlyList<EmployeeDetailDto>> LoadPersistedRuntimeEmployeesAsync(
@@ -145,32 +125,25 @@ public sealed partial class EmployeeRuntimeService
     }
 
     /// <summary>
-    /// 优先从内存读取员工，不存在时回退到实例表恢复并回填内存。
+    /// 按 owner 和 employeeId 加载单个员工（直接从 DB）。
     /// </summary>
     private async Task<EmployeeDetailDto?> ResolveEmployeeForOwnerAsync(
         string owner,
         string employeeId,
         CancellationToken cancellationToken)
     {
-        var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
-        if (employee is not null)
-        {
-            return employee;
-        }
-
-        employee = await LoadPersistedRuntimeEmployeeAsync(owner, normalizedEmployeeId, cancellationToken);
-        if (employee is null)
-        {
-            return null;
-        }
-
-        await store.UpsertAsync(owner, employee, cancellationToken);
-        return employee;
+        return await LoadPersistedRuntimeEmployeeAsync(owner, employeeId.Trim(), cancellationToken);
     }
 
     /// <summary>
-    /// 按租户查找部门员工。
+    /// 返回 owner 下的员工全集（直接从 DB）。
+    /// </summary>
+    private async Task<IReadOnlyList<EmployeeDetailDto>> ResolveOwnerEmployeesAsync(
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        return await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
+    }
     /// </summary>
     private async Task<EmployeeDetailDto?> ResolveDepartmentEmployeeForTenantAsync(
         string tenantId,
@@ -193,54 +166,6 @@ public sealed partial class EmployeeRuntimeService
         return !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
             ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
             : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
-    }
-
-    /// <summary>
-    /// 返回 owner 下的员工全集，并把实例表中的缺失项回填到内存。
-    /// </summary>
-    private async Task<IReadOnlyList<EmployeeDetailDto>> ResolveOwnerEmployeesAsync(
-        string owner,
-        CancellationToken cancellationToken)
-    {
-        var inMemoryEmployees = await store.ListAsync(owner, cancellationToken);
-        var persistedEmployees = await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
-
-        if (persistedEmployees.Count == 0)
-        {
-            return inMemoryEmployees;
-        }
-
-        if (inMemoryEmployees.Count == 0)
-        {
-            await store.ReplaceOwnerAsync(owner, persistedEmployees, cancellationToken);
-            return persistedEmployees;
-        }
-
-        var merged = new Dictionary<string, EmployeeDetailDto>(StringComparer.OrdinalIgnoreCase);
-        foreach (var employee in inMemoryEmployees)
-        {
-            merged[employee.EmployeeId] = employee;
-        }
-
-        var missingPersistedEmployees = new List<EmployeeDetailDto>();
-        foreach (var employee in persistedEmployees)
-        {
-            if (!merged.ContainsKey(employee.EmployeeId))
-            {
-                missingPersistedEmployees.Add(employee);
-            }
-
-            merged[employee.EmployeeId] = employee;
-        }
-
-        if (missingPersistedEmployees.Count > 0)
-        {
-            await store.UpsertManyAsync(owner, missingPersistedEmployees, cancellationToken);
-        }
-
-        return merged.Values
-            .OrderByDescending(item => item.CreatedAt, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
     }
 
     /// <summary>
@@ -268,7 +193,14 @@ public sealed partial class EmployeeRuntimeService
         EmployeeDetailDto? source = null;
         if (!string.IsNullOrWhiteSpace(instance.FromInstanceId))
         {
-            source = await store.FindAsync(instance.FromInstanceId, cancellationToken);
+            // 从 DB 读取源实例快照（不依赖内存 store）
+            var fromInstance = await dbContext.Instances
+                .AsNoTracking()
+                .FirstOrDefaultAsync(i => i.InstanceId == instance.FromInstanceId, cancellationToken);
+            if (fromInstance is not null && !string.IsNullOrWhiteSpace(fromInstance.RuntimeSnapshotJson))
+            {
+                source = DeserializeEmployeeSnapshot(fromInstance.RuntimeSnapshotJson);
+            }
         }
 
         var status = NormalizeStatus(instance.Status, null) ?? "hired";
@@ -320,7 +252,7 @@ public sealed partial class EmployeeRuntimeService
         var fixtureRoot = ResolveFixtureRoot();
         if (string.IsNullOrWhiteSpace(fixtureRoot) || !Directory.Exists(fixtureRoot))
         {
-            return new FixtureBundle([], [], 0);
+            return new FixtureBundle([], 0);
         }
 
         var directories = Directory.GetDirectories(fixtureRoot)
@@ -442,7 +374,6 @@ public sealed partial class EmployeeRuntimeService
 
         return new FixtureBundle(
             Employees: employees,
-            TeamImItems: BuildFixtureImItems(employees),
             FixtureDirectories: directories.Length);
     }
 
@@ -646,60 +577,6 @@ public sealed partial class EmployeeRuntimeService
     }
 
     /// <summary>
-    /// 构建 Fixture IM 项。
-    /// </summary>
-    private static IReadOnlyList<TeamImItemDto> BuildFixtureImItems(IReadOnlyList<EmployeeDetailDto> employees)
-    {
-        var now = DateTime.UtcNow;
-        return employees
-            .Select((employee, index) => new TeamImItemDto(
-                ItemId: $"im_fixture_{employee.EmployeeId}",
-                EmployeeId: employee.EmployeeId,
-                EmployeeName: employee.Nickname,
-                Category: ResolveImCategory(employee.Status),
-                Content: BuildImContent(employee),
-                Source: $"系统导入 · {employee.OwningTeam}",
-                ReceivedAt: now.AddMinutes(-3 * (index + 1)).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-                Status: "pending",
-                ConfirmedAt: null))
-            .ToArray();
-    }
-
-    /// <summary>
-    /// 解析 IM 分类。
-    /// </summary>
-    private static string ResolveImCategory(string status)
-    {
-        return status switch
-        {
-            "hired" => "待办处理",
-            "interning_ai" => "评估准备",
-            "interning_human" => "人工复核",
-            "live" => "运行协作",
-            "failed" => "异常处理",
-            "retired" => "归档状态",
-            _ => "状态同步"
-        };
-    }
-
-    /// <summary>
-    /// 构建 IM 内容。
-    /// </summary>
-    private static string BuildImContent(EmployeeDetailDto employee)
-    {
-        return employee.Status switch
-        {
-            "hired" => $"实例 {employee.EmployeeId} 已导入，等待发起评估。",
-            "interning_ai" => $"{employee.Nickname} 已具备评估材料，请执行 AI 评估。",
-            "interning_human" => $"{employee.Nickname} AI 评估完成，请安排人工复核。",
-            "live" => $"{employee.Nickname} 已上岗，关注协作反馈与稳定性。",
-            "failed" => $"{employee.Nickname} 评估未通过，建议进入 Review 回退处理。",
-            "retired" => $"{employee.Nickname} 已退役，相关路由将逐步清理。",
-            _ => $"{employee.Nickname} 状态已更新，请确认团队协作安排。"
-        };
-    }
-
-    /// <summary>
     /// 尝试获取 JSON 字符串值。
     /// </summary>
     private static string TryGetString(JsonElement element, string propertyName, string fallback = "")
@@ -717,6 +594,36 @@ public sealed partial class EmployeeRuntimeService
             JsonValueKind.False => "false",
             _ => fallback
         };
+    }
+
+    /// <summary>
+    /// 检查 owner 下是否已存在同昵称的 personal_clone / private_branch。
+    /// 昵称存储在 RuntimeSnapshotJson 中，无专用列，需反序列化判断。
+    /// </summary>
+    private async Task<bool> NicknameExistsForOwnerAsync(string owner, string nickname, CancellationToken cancellationToken)
+    {
+        var instances = await dbContext.Instances
+            .AsNoTracking()
+            .Where(item => item.OwnerUserId == owner &&
+                           (item.InstanceType == "personal_clone" || item.InstanceType == "private_branch"))
+            .Select(item => item.RuntimeSnapshotJson)
+            .ToArrayAsync(cancellationToken);
+
+        foreach (var json in instances)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                continue;
+            }
+
+            var dto = DeserializeEmployeeSnapshot(json);
+            if (dto is not null && string.Equals(dto.Nickname, nickname, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

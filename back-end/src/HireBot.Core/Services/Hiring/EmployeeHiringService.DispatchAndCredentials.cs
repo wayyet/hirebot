@@ -37,52 +37,6 @@ namespace HireBot.Core.Services.Hiring;
 
 internal sealed partial class EmployeeHiringService
 {
-    private void UpsertCredentialBindingEntity(
-        HiringRuntimeContext runtimeContext,
-        HiringCredentialBindingRequestDto request)
-    {
-        var normalizedSlot = request.CredentialSlot.Trim();
-        var now = DateTimeOffset.UtcNow;
-        var protector = dataProtectionProvider.CreateProtector(CredentialProtectorPurpose);
-        var protectedSecret = protector.Protect(request.SecretValue.Trim());
-        var entity = dbContext.HiringCredentialBindings
-            .FirstOrDefault(item =>
-                item.HireId == runtimeContext.HireId &&
-                item.CredentialSlot == normalizedSlot);
-
-        if (entity is null)
-        {
-            dbContext.HiringCredentialBindings.Add(new HiringCredentialBindingEntity
-            {
-                BindingId = $"cred-{Guid.NewGuid():N}",
-                SessionId = runtimeContext.SessionId,
-                HireId = runtimeContext.HireId,
-                CredentialSlot = normalizedSlot,
-                SecretRef = string.IsNullOrWhiteSpace(request.SecretRef) ? BuildSecretRef(normalizedSlot) : request.SecretRef.Trim(),
-                AuthKind = request.AuthKind?.Trim(),
-                TargetSystem = request.TargetSystem?.Trim(),
-                HandoffId = request.HandoffId?.Trim(),
-                BindingStatus = HiringCredentialBindingStatus.Bound,
-                ProtectedSecret = protectedSecret,
-                CreatedAtUtc = now,
-                UpdatedAtUtc = now
-            });
-        }
-        else
-        {
-            entity.SessionId = runtimeContext.SessionId;
-            entity.SecretRef = string.IsNullOrWhiteSpace(request.SecretRef) ? entity.SecretRef ?? BuildSecretRef(normalizedSlot) : request.SecretRef.Trim();
-            entity.AuthKind = request.AuthKind?.Trim();
-            entity.TargetSystem = request.TargetSystem?.Trim();
-            entity.HandoffId = request.HandoffId?.Trim();
-            entity.BindingStatus = HiringCredentialBindingStatus.Bound;
-            entity.ProtectedSecret = protectedSecret;
-            entity.UpdatedAtUtc = now;
-        }
-
-        dbContext.SaveChanges();
-    }
-
     private static IReadOnlyList<HiringCredentialSlotDto> UpsertCredentialSlot(
         IReadOnlyList<HiringCredentialSlotDto> existing,
         HiringCredentialSlotDto incoming)
@@ -105,32 +59,6 @@ internal sealed partial class EmployeeHiringService
             .Replace(' ', '_')
             .ToUpperInvariant();
         return $"secret://hirebot/{normalized}";
-    }
-
-    private static bool TryResolveConfigFilePath(
-        string configKey,
-        out string normalizedConfigKey,
-        out string relativePath)
-    {
-        switch (configKey.Trim().ToLowerInvariant())
-        {
-            case HiringConfigFileKeys.Soul:
-                normalizedConfigKey = HiringConfigFileKeys.Soul;
-                relativePath = "config/SOUL.md";
-                return true;
-            case HiringConfigFileKeys.Identity:
-                normalizedConfigKey = HiringConfigFileKeys.Identity;
-                relativePath = "config/IDENTITY.md";
-                return true;
-            case HiringConfigFileKeys.Agents:
-                normalizedConfigKey = HiringConfigFileKeys.Agents;
-                relativePath = "config/AGENTS.md";
-                return true;
-            default:
-                normalizedConfigKey = string.Empty;
-                relativePath = string.Empty;
-                return false;
-        }
     }
 
     private HiringRuntimeContext UpsertConfigGovernanceFile(
@@ -402,10 +330,7 @@ internal sealed partial class EmployeeHiringService
             file => file.RelativePath,
             file => file,
             StringComparer.OrdinalIgnoreCase);
-        var artifactFiles = runtimeContext.ArtifactFiles.ToDictionary(
-            pair => pair.Key,
-            pair => pair.Value,
-            StringComparer.OrdinalIgnoreCase);
+        var artifactFiles = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var artifactDtos = new Dictionary<string, HiringDispatchArtifactDto>(StringComparer.OrdinalIgnoreCase);
 
         void MergeArtifact(HiringDispatchCallbackArtifactPayload artifactPayload)
@@ -544,7 +469,6 @@ internal sealed partial class EmployeeHiringService
             {
                 PackageFiles = packageFiles.Values.ToArray()
             },
-            ArtifactFiles = artifactFiles,
             CredentialSlots = updatedCredentialSlots,
             LatestDispatches = updatedDispatches
         };

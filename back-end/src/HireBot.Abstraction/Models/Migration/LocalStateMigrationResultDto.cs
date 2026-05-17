@@ -2,5 +2,4 @@
 
 public sealed record LocalStateMigrationResultDto(
     int ImportedEmployees,
-    int SkippedEmployees,
-    int ArchivedGroups);
+    int SkippedEmployees);

@@ -2,8 +2,6 @@ using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
-using HireBot.Abstraction.Providers;
-using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
@@ -118,7 +116,6 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
     {
         return new InstanceRuntimeConversationService(
             dbContext,
-            new FakeEmployeeRuntimeStore(),
             new FakeRequestContextService("owner-1"),
             sandbox ?? new FakeSandboxService("assistant"),
             NullLogger<InstanceRuntimeConversationService>.Instance);
@@ -238,6 +235,13 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<ApiResponse<SandboxWorkspaceUploadResultDto>> UploadWorkspaceFileAsync(SandboxWorkspaceUploadRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<SandboxWorkspaceUploadResultDto>.SuccessResponse(
+                new SandboxWorkspaceUploadResultDto(
+                    [request.FileName],
+                    1,
+                    $"/workspace/{request.TargetDir}")));
+
         public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<SkillPackageUploadResultDto>.SuccessResponse(new SkillPackageUploadResultDto(true, null, 1)));
 
@@ -260,22 +264,5 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         }
     }
 
-    private sealed class FakeEmployeeRuntimeStore : IEmployeeRuntimeStore
-    {
-        public Task<IReadOnlyList<EmployeeDetailDto>> ListAsync(string ownerSubject, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<EmployeeDetailDto>>([]);
-
-        public Task<EmployeeDetailDto?> GetAsync(string ownerSubject, string employeeId, CancellationToken cancellationToken = default) => Task.FromResult<EmployeeDetailDto?>(null);
-
-        public Task<EmployeeDetailDto?> FindAsync(string employeeId, CancellationToken cancellationToken = default) => Task.FromResult<EmployeeDetailDto?>(null);
-
-        public Task<bool> ExistsNameAsync(string ownerSubject, string displayName, CancellationToken cancellationToken = default) => Task.FromResult(false);
-
-        public Task<EmployeeDetailDto> UpsertAsync(string ownerSubject, EmployeeDetailDto employee, CancellationToken cancellationToken = default) => Task.FromResult(employee);
-
-        public Task<int> UpsertManyAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> employees, CancellationToken cancellationToken = default) => Task.FromResult(employees.Count);
-
-        public Task<int> ReplaceOwnerAsync(string ownerSubject, IReadOnlyList<EmployeeDetailDto> employees, CancellationToken cancellationToken = default) => Task.FromResult(employees.Count);
-        public Task<bool> DeleteAsync(string ownerSubject, string employeeId, CancellationToken cancellationToken = default) => Task.FromResult(false);
-    }
 }
 

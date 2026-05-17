@@ -126,3 +126,23 @@ public sealed record SkillPackageUploadResultDto(
     bool Success,
     string? Error,
     int SkillsInstalled);
+
+public sealed record SandboxWorkspaceUploadRequestDto
+{
+    public required string ScopeType { get; init; }
+    public required string ScopeKey { get; init; }
+    public required string SandboxRole { get; init; }
+    public required string OwnerSubject { get; init; }
+    public string? SandboxId { get; init; }
+    /// <summary>目标目录，相对于 workspace 根目录，例如 "uploads/materials"。ZIP 文件会被自动解压到此目录。</summary>
+    public required string TargetDir { get; init; }
+    public required string FileName { get; init; }
+    public required byte[] Content { get; init; }
+    public string ContentType { get; init; } = "application/zip";
+}
+
+public sealed record SandboxWorkspaceUploadResultDto(
+    IReadOnlyList<string> Files,
+    int FileCount,
+    /// <summary>沙箱内的绝对路径，例如 "/workspace/uploads/materials"</summary>
+    string WorkspaceDir);

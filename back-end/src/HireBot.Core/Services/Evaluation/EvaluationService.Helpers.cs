@@ -596,6 +596,57 @@ internal sealed partial class EvaluationService
         return $"{owner.Trim()}::{employeeId.Trim()}";
     }
 
+    private async Task<EvaluationWorkspaceContext?> LoadWorkspaceContextAsync(
+        string owner,
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.EvaluationWorkspaceStates
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                item => item.OwnerSubject == owner && item.EmployeeId == employeeId,
+                cancellationToken);
+        if (entity is null || string.IsNullOrWhiteSpace(entity.PayloadJson))
+        {
+            return null;
+        }
+
+        return JsonSerializer.Deserialize<EvaluationWorkspaceContext>(entity.PayloadJson, JsonOptions);
+    }
+
+    private async Task SaveWorkspaceContextAsync(
+        string owner,
+        string employeeId,
+        EvaluationWorkspaceContext workspaceContext,
+        CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.EvaluationWorkspaceStates
+            .FirstOrDefaultAsync(
+                item => item.OwnerSubject == owner && item.EmployeeId == employeeId,
+                cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var payloadJson = JsonSerializer.Serialize(workspaceContext, JsonOptions);
+
+        if (entity is null)
+        {
+            dbContext.EvaluationWorkspaceStates.Add(new EvaluationWorkspaceStateEntity
+            {
+                OwnerSubject = owner,
+                EmployeeId = employeeId,
+                PayloadJson = payloadJson,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            });
+        }
+        else
+        {
+            entity.PayloadJson = payloadJson;
+            entity.UpdatedAtUtc = now;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     private static string FirstNonEmpty(params string?[] candidates)
     {
         foreach (var candidate in candidates)
@@ -704,6 +755,7 @@ internal sealed partial class EvaluationService
         string? SessionId,
         string? EvaluatorTemplatePackageZipPath,
         string? UploadedTemplatePackageZipPath,
+        string? ArtifactWorkspaceDir,
         Dictionary<string, WorkspaceStepState> StepStates);
 
     private sealed record TemplatePackageUploadResult(
@@ -724,6 +776,85 @@ internal sealed partial class EvaluationService
         string Sha256,
         string SourceType,
         string SourcePath);
+
+    /// <summary>
+    /// 构建写入 /workspace/runtime/evaluation-context.json 的 JSON 内容。
+    /// evaluator skill 通过此文件获取会话、材料路径、目标沙箱连接信息。
+    /// </summary>
+    private string BuildRuntimeContextJson(
+        EmployeeDetailDto employee,
+        EvaluationWorkspaceContext ctx,
+        EvaluationSessionEntity sessionEntity,
+        string targetGatewayEndpoint,
+        string materialsWorkspaceDir)
+    {
+        // 将 ws:// / wss:// 网关地址转换为 http:// / https:// 用于 HTTP 补充请求
+        var httpBaseUrl = targetGatewayEndpoint
+            .Replace("wss://", "https://", StringComparison.OrdinalIgnoreCase)
+            .Replace("ws://", "http://", StringComparison.OrdinalIgnoreCase);
+
+        var context = new
+        {
+            session = new
+            {
+                session_id = sessionEntity.SessionId,
+                employee_id = employee.EmployeeId,
+                employee_name = employee.Nickname,
+                iteration = sessionEntity.Iteration
+            },
+            materials = new
+            {
+                workspace_root = "/workspace",
+                template_root = ctx.UploadedTemplatePackageZipPath ?? "/workspace/uploads/template",
+                testcases_path = materialsWorkspaceDir,
+                ontology_path = materialsWorkspaceDir,
+                artifact_path = ctx.ArtifactWorkspaceDir
+            },
+            target_sandbox = new
+            {
+                sandbox_id = ctx.TargetSandboxId,
+                gateway_endpoint = targetGatewayEndpoint,
+                http_base_url = httpBaseUrl
+            },
+            execution = new
+            {
+                timeout_seconds = 120,
+                http_supplement = true
+            }
+        };
+
+        return JsonSerializer.Serialize(context, JsonOptions);
+    }
+
+    /// <summary>
+    /// 构建发送给 evaluator 沙箱 WebSocket 的启动指令 JSON。
+    /// 前端将此字符串作为 user_message.text 发送，驱动 evaluator skill 开始执行。
+    /// </summary>
+    private static string BuildLiveEvaluationBootstrapPayload(
+        string owner,
+        EmployeeDetailDto employee,
+        EvaluationWorkspaceContext ctx,
+        EvaluationSessionEntity sessionEntity,
+        string targetGatewayEndpoint,
+        string runtimeContextPath)
+    {
+        var payload = new
+        {
+            session_id = sessionEntity.SessionId,
+            target_hire_id = ctx.TargetHireId,
+            evaluator_sandbox_id = ctx.EvaluatorSandboxId,
+            target_sandbox_id = ctx.TargetSandboxId,
+            runtime_context_path = runtimeContextPath,
+            instruction = $"You are the live_evaluator skill running in the evaluation sandbox. " +
+                          $"The runtime context has been pre-loaded at {runtimeContextPath}. " +
+                          $"Please read the runtime context, verify materials are ready (testcases and ontology under uploads/materials/), " +
+                          $"then execute the live evaluation against the target sandbox for employee {employee.EmployeeId} ({employee.Nickname}). " +
+                          $"Session ID: {sessionEntity.SessionId}. " +
+                          $"Use the live_evaluator skill (evaluate.py --mode execute) to drive test execution and collect traces."
+        };
+
+        return JsonSerializer.Serialize(payload, JsonOptions);
+    }
 
     private sealed record ConversationRuntimeContextPayload(
         string RuntimeContextJson,

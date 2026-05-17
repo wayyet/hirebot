@@ -1,10 +1,7 @@
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Migration;
-using HireBot.Abstraction.Models.Team;
 using HireBot.Abstraction.Models.Sandbox;
-using HireBot.Abstraction.Providers;
-using HireBot.Abstraction.Services.Collaboration;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Sandbox;
@@ -24,9 +21,6 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 /// 员工运行时服务，管理员工实例的生命周期、状态流转和配置。
 /// </summary>
 public sealed partial class EmployeeRuntimeService(
-    IEmployeeRuntimeStore store,
-    ITeamImProvider teamImProvider,
-    ICollaborationService collaborationService,
     IRequestContextService requestContextService,
     HireBotDbContext dbContext,
     IInstanceArtifactCloneService artifactCloneService,
@@ -157,15 +151,13 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<ImportFixtureInstancesResultDto>.ErrorResponse(404, "未找到可导入的示例实例产物");
         }
 
-        var importedEmployees = await store.ReplaceOwnerAsync(owner, fixtureBundle.Employees, cancellationToken);
-        var importedImItems = await teamImProvider.ReplaceItemsAsync(owner, fixtureBundle.TeamImItems, cancellationToken);
-       // await TryUpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
+        await TryUpsertInstanceRecordsAsync(fixtureBundle.Employees, cancellationToken);
 
         var result = new ImportFixtureInstancesResultDto(
             OwnerSubject: owner,
             FixtureDirectories: fixtureBundle.FixtureDirectories,
-            ImportedEmployees: importedEmployees,
-            ImportedImItems: importedImItems,
+            ImportedEmployees: fixtureBundle.Employees.Count,
+            ImportedImItems: 0,
             EmployeeIds: fixtureBundle.Employees.Select(item => item.EmployeeId).ToArray());
 
         return ApiResponse<ImportFixtureInstancesResultDto>.SuccessResponse(result, "示例实例产物导入完成");
@@ -188,10 +180,9 @@ public sealed partial class EmployeeRuntimeService(
 
         var normalizedTemplateId = templateId.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
-        await EnsureSeedDataAsync(owner, cancellationToken);
         var fixtureBinding = ResolveFixtureTemplateBinding(normalizedTemplateId);
 
-        var existingEmployees = await store.ListAsync(owner, cancellationToken);
+        var existingEmployees = await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
         var selected = existingEmployees
             .Where(item => string.Equals(item.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
             .Where(item => IsFixtureTemplateMatch(item, normalizedTemplateId, fixtureBinding))
@@ -288,7 +279,6 @@ public sealed partial class EmployeeRuntimeService(
                 : employee.GraduatedAt
         };
 
-        await store.UpsertAsync(owner, updated, cancellationToken);
         await UpsertInstanceRecordAsync(updated, cancellationToken: cancellationToken);
 
         if (string.Equals(targetStatus, "retired", StringComparison.OrdinalIgnoreCase))
@@ -382,7 +372,6 @@ public sealed partial class EmployeeRuntimeService(
             IsConfigured = true
         };
 
-        await store.UpsertAsync(owner, updated, cancellationToken);
         await UpsertInstanceRecordAsync(updated, currentVersion: instance.CurrentVersion, cancellationToken: cancellationToken);
 
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "重新雇佣已完成");
@@ -439,7 +428,6 @@ public sealed partial class EmployeeRuntimeService(
             PrimarySignal = isConfigured ? "配置已完成，等待启动实习" : $"还有 {merged.Count(item => !item.Ready)} 项能力待配置"
         };
 
-        await store.UpsertAsync(owner, updated, cancellationToken);
         await UpsertInstanceRecordAsync(updated, cancellationToken: cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "能力配置已更新");
     }
@@ -485,7 +473,6 @@ public sealed partial class EmployeeRuntimeService(
             PrimarySignal = pendingActions.Count > 0 ? $"还有 {pendingActions.Count} 项待处理" : "运行正常"
         };
 
-        await store.UpsertAsync(owner, updated, cancellationToken);
         await UpsertInstanceRecordAsync(updated, cancellationToken: cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "待办已处理");
     }
@@ -535,7 +522,6 @@ public sealed partial class EmployeeRuntimeService(
             EvalMaxIterations: 30,
             IsConfigured: false);
 
-        await store.UpsertAsync(request.OwnerSubject, employee, cancellationToken);
         await UpsertInstanceRecordAsync(employee, currentVersion: "v_initial", cancellationToken: cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(employee, "员工实例已创建");
     }
@@ -558,10 +544,8 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "仅支持 .zip 格式的模板包");
         }
 
-        
         var owner = requestContextService.ResolveOwnerSubject();
         var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
-        await EnsureSeedDataAsync(owner, cancellationToken);
 
         // 读取 zip 到内存
         byte[] zipBytes;
@@ -754,9 +738,6 @@ public sealed partial class EmployeeRuntimeService(
             IsConfigured: true,
             CardIntro: cardIntro);
 
-        // 数据隔离：按 owner 持久化
-        await store.UpsertAsync(owner, employeeDto, cancellationToken);
-
         // 存储 artifacts（失败不影响员工记录）
         var artifactVersion = "v_initial";
         if (artifactFiles.Count > 0)
@@ -881,34 +862,28 @@ public sealed partial class EmployeeRuntimeService(
         var normalizedId = employeeId.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
 
-        var existing = await store.GetAsync(owner, normalizedId, cancellationToken);
         var instance = await dbContext.Instances
             .AsNoTracking()
             .FirstOrDefaultAsync(item => item.InstanceId == normalizedId, cancellationToken);
-        var instanceExists = instance is not null;
 
-        if (existing is null && !instanceExists)
+        if (instance is null)
         {
             return ApiResponse<object>.ErrorResponse(404, "员工不存在");
         }
 
         // 分身类型（personal_clone / private_branch）要求已退役，部门员工无此限制
-        var isCloneType = instance is not null &&
-            (string.Equals(instance.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(instance.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase));
+        var isCloneType = string.Equals(instance.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
+                          string.Equals(instance.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
         if (isCloneType)
         {
-            var resolvedStatus = instance?.Status
-                ?? NormalizeStatus(existing?.Status, existing?.LifecycleStatus);
-            if (resolvedStatus is not null &&
-                !string.Equals(resolvedStatus, "retired", StringComparison.OrdinalIgnoreCase))
+            if (instance.Status is not null &&
+                !string.Equals(instance.Status, "retired", StringComparison.OrdinalIgnoreCase))
             {
                 return ApiResponse<object>.ErrorResponse(409, "只能删除已退役的数字员工分身");
             }
         }
 
-        if (instance is not null &&
-            !string.Equals(instance.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(instance.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
         {
             return ApiResponse<object>.ErrorResponse(403, "只能删除自己创建的数字员工");
         }
@@ -916,19 +891,15 @@ public sealed partial class EmployeeRuntimeService(
         // 最大努力清理：运行时沙箱 + IM 渠道配置
         await CleanupRetiredInstanceArtifactsAsync(owner, normalizedId, cancellationToken);
 
-        // 1. 从内存 store 移除
-        await store.DeleteAsync(owner, normalizedId, cancellationToken);
-
-        // 2. 删除 DB InstanceEntity
+        // 1. 删除 DB InstanceEntity
         await dbContext.Instances
             .Where(item => item.InstanceId == normalizedId)
             .ExecuteDeleteAsync(cancellationToken);
 
-        // 3. 删除五件套 artifact 目录
+        // 2. 删除五件套 artifact 目录
         string artifactDir;
-        if (instance is not null &&
-            (string.Equals(instance.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(instance.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase)))
+        if (string.Equals(instance.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(instance.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase))
         {
             var fromId = string.IsNullOrWhiteSpace(instance.FromInstanceId) ? "unknown" : instance.FromInstanceId;
             artifactDir = Path.Combine(
@@ -976,7 +947,7 @@ public sealed partial class EmployeeRuntimeService(
         var displayName = request.DisplayName.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
         var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(null, null);
-        await EnsureSeedDataAsync(owner, cancellationToken);
+
 
         var ownerEmployees = await ResolveOwnerEmployeesAsync(owner, cancellationToken);
         var activePersonalCloneCount = ownerEmployees.Count(item =>
@@ -1012,7 +983,7 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(403, "只能复制本部门的部门员工");
         }
 
-        if (await store.ExistsNameAsync(owner, displayName, cancellationToken))
+        if (await NicknameExistsForOwnerAsync(owner, displayName, cancellationToken))
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "你已经有同名的分身或私人定制");
         }
@@ -1074,7 +1045,6 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(sandboxSetup.Code, sandboxSetup.Message);
         }
 
-        await store.UpsertAsync(owner, clone, cancellationToken);
         await UpsertInstanceRecordAsync(clone, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
 
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(clone, "个人分身已创建并上岗");
@@ -1096,8 +1066,6 @@ public sealed partial class EmployeeRuntimeService(
         var normalizedSourceId = sourceInstanceId.Trim();
         var displayName = request.DisplayName.Trim();
         var owner = requestContextService.ResolveOwnerSubject();
-        await EnsureSeedDataAsync(owner, cancellationToken);
-
         var source = await ResolveEmployeeForOwnerAsync(owner, normalizedSourceId, cancellationToken);
         if (source is null)
         {
@@ -1165,7 +1133,6 @@ public sealed partial class EmployeeRuntimeService(
             IsConfigured = source.IsConfigured
         };
 
-        await store.UpsertAsync(owner, branch, cancellationToken);
         await UpsertInstanceRecordAsync(branch, currentVersion: sourceEntity.CurrentVersion, cancellationToken: cancellationToken);
 
         return ApiResponse<PrivateBranchResultDto>.SuccessResponse(
@@ -1236,7 +1203,6 @@ public sealed partial class EmployeeRuntimeService(
             PendingActions = [],
             IsConfigured = true
         };
-        await store.UpsertAsync(owner, restored, cancellationToken);
         await UpsertInstanceRecordAsync(restored, currentVersion: branchEntity.CurrentVersion, cancellationToken: cancellationToken);
 
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(restored, "私有分支已废弃，已回滚五件套并恢复为个人分身");
@@ -1293,15 +1259,12 @@ public sealed partial class EmployeeRuntimeService(
             .ToArray()
             ?? [];
 
-        var imported = await store.UpsertManyAsync(owner, employees, cancellationToken);
-        //await TryUpsertInstanceRecordsAsync(employees, cancellationToken);
-        var archivedGroups = request.ArchivedGroupIds?.Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
-        var archived = await collaborationService.MarkArchivedAsync(archivedGroups, cancellationToken);
+        await TryUpsertInstanceRecordsAsync(employees, cancellationToken);
+        var imported = employees.Length;
 
         var result = new LocalStateMigrationResultDto(
             ImportedEmployees: imported,
-            SkippedEmployees: Math.Max(0, (request.Employees?.Count ?? 0) - imported),
-            ArchivedGroups: archived);
+            SkippedEmployees: Math.Max(0, (request.Employees?.Count ?? 0) - imported));
 
         return ApiResponse<LocalStateMigrationResultDto>.SuccessResponse(result, "本地状态迁移完成");
     }
@@ -1311,7 +1274,6 @@ public sealed partial class EmployeeRuntimeService(
     /// </summary>
     private sealed record FixtureBundle(
         IReadOnlyList<EmployeeDetailDto> Employees,
-        IReadOnlyList<TeamImItemDto> TeamImItems,
         int FixtureDirectories);
 
 }

@@ -165,6 +165,56 @@ export async function uploadMediaToGateway(
   }
 }
 
+export interface GatewayWorkspaceUploadResult {
+  files: string[]
+  fileCount: number
+  workspaceDir: string
+  workspacePath: string
+  fileMarker: string
+}
+
+/**
+ * 将文件直接上传到沙箱 Gateway 的 /admin/workspace/upload 端点，
+ * 文件落盘到沙箱工作区（默认 /workspace/{dir}/{fileName}），
+ * 返回可嵌入 WS 消息的 [FILE_URL:...] 标记。
+ */
+export async function uploadWorkspaceFileToGateway(
+  endpoint: string,
+  token: string,
+  file: File,
+  dir: string,
+): Promise<GatewayWorkspaceUploadResult> {
+  // 对路径各段分别编码，但保留 / 作为目录分隔符（避免 uploads%2Ftemplate-packages 被服务端当平坦目录名）
+  const encodedDir = dir.split('/').map(s => encodeURIComponent(s)).join('/')
+  const url = buildUrl(endpoint, `/admin/workspace/upload?dir=${encodedDir}`)
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+  if (!res.ok) {
+    let errorMsg = `POST /admin/workspace/upload: ${res.status}`
+    try {
+      const body = await res.json() as { error?: string; message?: string }
+      if (body.error) errorMsg = body.error
+      else if (body.message) errorMsg = body.message
+    } catch { /* ignore */ }
+    throw new Error(errorMsg)
+  }
+  const data = await res.json() as { files: string[]; fileCount: number }
+  const workspaceDir = `/workspace/${dir.replace(/^\/+/, '')}`
+  const workspacePath = `${workspaceDir}/${file.name}`
+  return {
+    files: data.files ?? [],
+    fileCount: data.fileCount ?? 0,
+    workspaceDir,
+    workspacePath,
+    fileMarker: `[FILE_URL:${workspaceDir}]`,  // ZIP 已由 gateway 解压，标记指向解压后的目录根
+  }
+}
+
 async function sandboxGet<T>(endpoint: string, path: string): Promise<T> {
   const res = await fetch(buildUrl(endpoint, path), { headers: await authHeaders() })
   if (!res.ok) {

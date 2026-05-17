@@ -49,13 +49,13 @@ export function ArtifactMessageCard({ artifact, formatFileSize, onFileDownload }
           </a>
         )
       ) : (
-        <ArtifactDataView artifact={artifact} formatFileSize={formatFileSize} />
+        <ArtifactDataView artifact={artifact} />
       )}
     </div>
   )
 }
 
-function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData; formatFileSize: (bytes: number) => string }) {
+function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
   const hint = artifact.displayHint ?? 'text'
   if (hint === 'progress') return <ProgressView data={artifact.data} />
   if (hint === 'table') return <TableView data={artifact.data} />

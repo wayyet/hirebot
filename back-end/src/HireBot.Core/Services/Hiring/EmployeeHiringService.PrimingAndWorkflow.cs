@@ -256,10 +256,7 @@ internal sealed partial class EmployeeHiringService
         HiringRuntimeContext runtimeContext,
         ParsedHiringAssistantReply parsedReply)
     {
-        var updatedRuntimeContext = runtimeContext with
-        {
-            LatestDiagnosticReport = parsedReply.DiagnosticReport ?? runtimeContext.LatestDiagnosticReport
-        };
+        var updatedRuntimeContext = runtimeContext;
 
         foreach (var configFile in parsedReply.ConfigGovernanceFiles)
         {
@@ -371,7 +368,6 @@ internal sealed partial class EmployeeHiringService
             {
                 SessionId = dispatchResponse.Data.SessionId
             };
-            updatedRuntimeContext = await RefreshHandoffStateFromSandboxAsync(updatedRuntimeContext, cancellationToken);
             updatedRuntimeContext = ApplyAssistantReply(updatedRuntimeContext, parsedReply);
             updatedRuntimeContext = ApplyDispatchCallbacks(
                 updatedRuntimeContext,

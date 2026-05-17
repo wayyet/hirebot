@@ -158,7 +158,6 @@ public class EmployeeHiringServiceTests
             SandboxId = "sandbox",
             CurrentStage = "goal",
             CollectionPhase = "in_progress",
-            ReferenceTemplatePackage = templatePackage,
             RoleTemplatePackage = templatePackage,
             WorkingTemplatePackage = templatePackage,
             DiscoverySkill = new DiscoverySkillDefinition(

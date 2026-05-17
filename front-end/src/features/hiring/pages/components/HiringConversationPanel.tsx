@@ -6,7 +6,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import type { ChatFile, ChatMessage, ToolStep } from '../hiringPageTypes'
-import type { HiringGuideVm } from '../hiringWorkflowViewModel'
 import { ArtifactMessageCard } from './ArtifactMessageCard'
 import { HiringToolStepsBlock } from './HiringToolStepsBlock'
 import { StageGateCard } from './StageGateCard'
@@ -77,8 +76,6 @@ function chatToMarkdown(messages: ChatMessage[], botName: string): string {
 type HiringConversationPanelProps = {
   introName: string
   introAbilities: string
-  journeyGuideVisible: boolean
-  guideCard: HiringGuideVm
   messages: ChatMessage[]
   typing: boolean
   /** WS 流式内容，非 null 时显示逐字输出气泡 */
@@ -92,7 +89,6 @@ type HiringConversationPanelProps = {
   fileInputRef: RefObject<HTMLInputElement | null>
   composerRef: RefObject<HTMLTextAreaElement | null>
   chatEndRef: RefObject<HTMLDivElement | null>
-  onStartGuide: () => void
   onInputChange: (value: string) => void
   onSend: () => void
   onFileChange: (files: FileList) => void

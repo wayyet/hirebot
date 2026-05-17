@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -9,7 +8,6 @@ using HireBot.Abstraction.Models.Evaluation;
 using HireBot.Abstraction.Models.Evaluation.Tools;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
-using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
@@ -28,7 +26,6 @@ using Microsoft.Extensions.Logging;
 namespace HireBot.Core.Services.Evaluation;
 
 internal sealed partial class EvaluationService(
-    IEmployeeRuntimeStore store,
     IEmployeeHiringService employeeHiringService,
     IHiringArtifactPackageService artifactPackageService,
     ISandboxService sandboxService,
@@ -53,9 +50,6 @@ internal sealed partial class EvaluationService(
         "live_evaluation_coordinator",
         "live_evaluator"
     ];
-
-    private static readonly ConcurrentDictionary<string, EvaluationWorkspaceContext> EvaluationWorkspaces =
-        new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly Lazy<IReadOnlyDictionary<string, FixtureTemplateBinding>> FixtureTemplateBindings =
         new(LoadFixtureTemplateBindings);
@@ -202,6 +196,36 @@ internal sealed partial class EvaluationService(
         return (ownerSubject, ownerSubject);
     }
 
+    private static readonly JsonSerializerOptions RuntimeSnapshotJsonOptions = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// 从 DB 按 owner + employeeId 查询员工快照（替代 store.GetAsync）。
+    /// </summary>
+    private async Task<EmployeeDetailDto?> GetEmployeeFromDbAsync(string owner, string employeeId, CancellationToken cancellationToken)
+    {
+        var instance = await dbContext.Instances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(i => i.OwnerUserId == owner && i.InstanceId == employeeId, cancellationToken);
+        if (instance is null || string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson))
+            return null;
+        try { return JsonSerializer.Deserialize<EmployeeDetailDto>(instance.RuntimeSnapshotJson, RuntimeSnapshotJsonOptions); }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// 将更新后的员工快照写回 DB（替代 store.UpsertAsync）。
+    /// </summary>
+    private async Task SaveEmployeeToDbAsync(EmployeeDetailDto employee, CancellationToken cancellationToken)
+    {
+        var instance = await dbContext.Instances
+            .FirstOrDefaultAsync(i => i.InstanceId == employee.EmployeeId, cancellationToken);
+        if (instance is null) return;
+        instance.Status = employee.Status ?? instance.Status;
+        instance.RuntimeSnapshotJson = JsonSerializer.Serialize(employee, RuntimeSnapshotJsonOptions);
+        instance.UpdatedAt = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<ApiResponse<EvaluationWorkspaceStatusDto>> GetWorkspaceStatusAsync(
         string employeeId,
         CancellationToken cancellationToken = default)
@@ -210,13 +234,14 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationWorkspaceStatusDto>.ErrorResponse(400, "employeeId cannot be empty");
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
             return ApiResponse<EvaluationWorkspaceStatusDto>.ErrorResponse(404, "employee not found");
 
         var workspaceKey = BuildWorkspaceKey(owner, employee.EmployeeId);
 
-        if (!EvaluationWorkspaces.TryGetValue(workspaceKey, out var ctx) || ctx.StepStates.Count == 0)
+        var ctx = await LoadWorkspaceContextAsync(owner, employee.EmployeeId, cancellationToken);
+        if (ctx is null || ctx.StepStates.Count == 0)
         {
             return ApiResponse<EvaluationWorkspaceStatusDto>.SuccessResponse(
                 new EvaluationWorkspaceStatusDto(
@@ -297,7 +322,7 @@ internal sealed partial class EvaluationService(
 
         var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationStateDto>.ErrorResponse(404, "employee not found");
@@ -442,7 +467,7 @@ internal sealed partial class EvaluationService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(404, "employee not found");
@@ -501,7 +526,7 @@ internal sealed partial class EvaluationService(
         }
 
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
-        EvaluationWorkspaces[BuildWorkspaceKey(owner, employee.EmployeeId)] = refreshedWorkspace;
+        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, refreshedWorkspace, cancellationToken);
 
         var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
 
@@ -520,7 +545,7 @@ internal sealed partial class EvaluationService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(404, "employee not found");
@@ -587,7 +612,7 @@ internal sealed partial class EvaluationService(
         }
 
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
-        EvaluationWorkspaces[BuildWorkspaceKey(owner, employee.EmployeeId)] = refreshedWorkspace;
+        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, refreshedWorkspace, cancellationToken);
 
         var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
 
@@ -607,7 +632,7 @@ internal sealed partial class EvaluationService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "employee not found");
@@ -791,7 +816,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "decision only supports START, LOAD_SKILL, RUN, PASS, FAIL");
         }
 
-        await store.UpsertAsync(owner, updated, cancellationToken);
+        await SaveEmployeeToDbAsync(updated, cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, message);
     }
 
@@ -806,7 +831,7 @@ internal sealed partial class EvaluationService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "employee not found");
@@ -859,7 +884,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "decision only supports ONBOARD, REJECT, FORCE");
         }
 
-        await store.UpsertAsync(owner, updated, cancellationToken);
+        await SaveEmployeeToDbAsync(updated, cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "human evaluation decision submitted");
     }
 
@@ -874,7 +899,7 @@ internal sealed partial class EvaluationService(
 
         var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationFetchTestcasesResultDto>.ErrorResponse(404, "employee not found");
@@ -964,7 +989,7 @@ internal sealed partial class EvaluationService(
 
         var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationOntologyQueryResultDto>.ErrorResponse(404, "employee not found");
@@ -1037,7 +1062,7 @@ internal sealed partial class EvaluationService(
 
         var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await store.GetAsync(owner, normalizedEmployeeId, cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
         if (employee is null)
         {
             return ApiResponse<EvaluationReportUpsertResultDto>.ErrorResponse(404, "employee not found");
@@ -1144,7 +1169,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(400, "employeeId cannot be empty");
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(404, "employee not found");
 
@@ -1187,7 +1212,9 @@ internal sealed partial class EvaluationService(
                 evaluatorMaterialsResult.Message);
         }
 
-        // Upload runtime_context JSON to evaluator sandbox so the AI doesn't need to write it
+        // 将 evaluation-context.json 直接上传到 evaluator workspace/runtime/ 目录，
+        // evaluator skill 可通过固定路径 workspace/runtime/evaluation-context.json 读取，
+        // 不再经过媒体缓存中转，路径更稳定可预测。
         var runtimeContextJson = BuildRuntimeContextJson(
             employee,
             ctx,
@@ -1195,39 +1222,31 @@ internal sealed partial class EvaluationService(
             targetGatewayEndpoint,
             evaluatorMaterialsResult.Data);
         var runtimeContextBytes = System.Text.Encoding.UTF8.GetBytes(runtimeContextJson);
-        var runtimeContextUploadResult = await sandboxService.UploadAttachmentAsync(
-            new SandboxAttachmentUploadRequestDto
+        var runtimeContextUploadResult = await sandboxService.UploadWorkspaceFileAsync(
+            new SandboxWorkspaceUploadRequestDto
             {
                 ScopeType = SandboxScopeTypes.Managed,
                 ScopeKey = ctx.EvaluatorHireId,
                 SandboxRole = "evaluation-evaluator",
                 OwnerSubject = owner,
-                TenantId = "tenant-default",
-                OperatorId = "operator-default",
                 SandboxId = ctx.EvaluatorSandboxId,
-                Material = new HiringConversationMaterialDto
-                {
-                    Type = "runtime-context-json",
-                    Name = "evaluation-context.json",
-                    Content = Convert.ToBase64String(runtimeContextBytes),
-                    MimeType = "application/json",
-                    Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["contentEncoding"] = "base64"
-                    }
-                }
+                TargetDir = "runtime",
+                FileName = "evaluation-context.json",
+                Content = runtimeContextBytes,
+                ContentType = "application/json"
             },
             cancellationToken);
 
         string runtimeContextPath;
         if (runtimeContextUploadResult.Success && runtimeContextUploadResult.Data is not null)
         {
-            runtimeContextPath = ResolveMediaCachePathFromAttachment(runtimeContextUploadResult.Data);
+            // WorkspaceDir 为上传后文件所在的 workspace 相对目录，拼接文件名得到完整路径
+            runtimeContextPath = $"{runtimeContextUploadResult.Data.WorkspaceDir}/evaluation-context.json";
         }
         else
         {
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(502,
-                $"failed to upload runtime context to evaluator sandbox: {runtimeContextUploadResult.Message}");
+                $"failed to upload runtime context to evaluator sandbox workspace: {runtimeContextUploadResult.Message}");
         }
 
         var payloadJson = BuildLiveEvaluationBootstrapPayload(
@@ -1271,7 +1290,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationVerdictSyncResultDto>.ErrorResponse(400, "employeeId, sessionId and verdict are required");
 
         var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await store.GetAsync(owner, employeeId.Trim(), cancellationToken);
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
             return ApiResponse<EvaluationVerdictSyncResultDto>.ErrorResponse(404, "employee not found");
 
@@ -1318,7 +1337,7 @@ internal sealed partial class EvaluationService(
         var updated = passed
             ? BuildAiPassResult(employee, verdict.Summary)
             : BuildAiFailResult(employee, verdict.Summary);
-        await store.UpsertAsync(owner, updated, cancellationToken);
+        await SaveEmployeeToDbAsync(updated, cancellationToken);
 
         var resultDto = new EvaluationVerdictSyncResultDto(
             employeeId.Trim(),
@@ -1355,6 +1374,71 @@ internal sealed partial class EvaluationService(
         {
             return [];
         }
+    }
+
+    /// <summary>
+    /// 确保 evaluator 沙箱会话已启动，为后续材料上传对话和 WebSocket 连接做准备。
+    /// </summary>
+    private async Task<ApiResponse<EvaluationWorkspaceContext>> EnsureEvaluatorConversationStartedAsync(
+        string owner,
+        EvaluationWorkspaceContext ctx,
+        CancellationToken cancellationToken)
+    {
+        var sessionResult = await EnsureSandboxConversationStartedAsync(
+            owner,
+            ctx.EvaluatorHireId,
+            ctx.EvaluatorSandboxId,
+            "evaluation-evaluator",
+            cancellationToken);
+
+        if (!sessionResult.Success)
+        {
+            logger.LogError(
+                "[Eval] Failed to start evaluator conversation sandboxId={SandboxId} code={Code} msg={Message}",
+                ctx.EvaluatorSandboxId, sessionResult.Code, sessionResult.Message);
+            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(sessionResult.Code, sessionResult.Message);
+        }
+
+        return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(ctx, "evaluator conversation started");
+    }
+
+    /// <summary>
+    /// 准备补充材料对话频道。材料上传已改为通过 API 直接写入 workspace，此方法作为兼容层直通返回 ctx。
+    /// </summary>
+    private Task<ApiResponse<EvaluationWorkspaceContext>> EnsureSupplementConversationPreparedAsync(
+        string owner,
+        EmployeeDetailDto employee,
+        EvaluationWorkspaceContext ctx,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(ctx, "supplement conversation prepared"));
+    }
+
+    /// <summary>
+    /// 检查 evaluator 当前是否具备完整的测试材料（testcases + ontology）。
+    /// 若能从 workspace context + template 加载材料，则直接返回已就绪状态；否则返回缺失状态。
+    /// </summary>
+    private async Task<EvaluationReadinessDto> PrimeReadinessMaterialsAsync(
+        string owner,
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        var ctx = await LoadWorkspaceContextAsync(owner, employeeId, cancellationToken);
+        if (ctx is null)
+            return BuildReadiness(false, false);
+
+        var employee = await GetEmployeeFromDbAsync(owner, employeeId, cancellationToken);
+        if (employee is null)
+            return BuildReadiness(false, false);
+
+        var testcaseSources = await LoadTestcaseSourcesAsync(ctx, employee, cancellationToken);
+        var ontologyProfile = await BuildOntologyProfileAsync(ctx, employee, cancellationToken);
+
+        var testcaseReady = testcaseSources.Count > 0;
+        // 有明确维度权重或规则文件时认为 ontology 就绪
+        var ontologyReady = ontologyProfile.Sources.Count > 0 || ontologyProfile.DimensionWeights.Count > 0;
+
+        return BuildReadiness(testcaseReady, ontologyReady);
     }
 
 }

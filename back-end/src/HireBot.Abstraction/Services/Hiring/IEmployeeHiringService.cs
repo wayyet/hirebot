@@ -6,7 +6,6 @@ namespace HireBot.Abstraction.Services.Hiring;
 public interface IEmployeeHiringService
 {
     Task<ApiResponse<HireTemplateResultDto>> HireAsync(string templateId, HireTemplateRequestDto request, CancellationToken cancellationToken = default);
-    Task<ApiResponse<HireTemplateResultDto>> CreateEvaluationWorkspaceAsync(string targetHireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringStatusDto>> GetHiringStatusAsync(string hireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<StartHiringConversationResultDto>> StartConversationAsync(string hireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringConversationControlResultDto>> PauseConversationAsync(string hireId, CancellationToken cancellationToken = default);
@@ -25,6 +24,16 @@ public interface IEmployeeHiringService
     Task<ApiResponse<HiringFinalizeResultDto>> ImportPackageAsync(string hireId, Stream packageStream, string fileName, IReadOnlyList<string>? linkedStoreSkillIds = null, CancellationToken cancellationToken = default);
     Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(string hireId, CancellationToken cancellationToken = default);
     Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(string hireId, string artifactName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 前端将模板包 ZIP 直接上传到指定雇佣会话的沙箱工作区，
+    /// 返回沙箱内文件路径和可嵌入 WS 消息的 [FILE_URL:...] 标记。
+    /// </summary>
+    Task<ApiResponse<HiringTemplatePackageUploadResultDto>> UploadTemplatePackageFromClientAsync(
+        string hireId,
+        Stream packageStream,
+        string fileName,
+        CancellationToken cancellationToken = default);
 
     /// <summary>保存前端对话状态缓存（messages + stageOverrides），用于刷新页面后恢复。</summary>
     Task<ApiResponse<bool>> SaveConversationCacheAsync(string hireId, JsonElement cache, CancellationToken cancellationToken = default);

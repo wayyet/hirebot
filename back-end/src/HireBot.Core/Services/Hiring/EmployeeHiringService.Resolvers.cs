@@ -37,43 +37,8 @@ namespace HireBot.Core.Services.Hiring;
 
 internal sealed partial class EmployeeHiringService
 {
-    private HireOwnerContext ResolveOwnerContextForEvaluation(string targetHireId)
-    {
-        if (TryResolveOwnerContext(targetHireId, out var ownerContext))
-        {
-            return ownerContext;
-        }
-
-        var ownerSubject = ResolveOwnerSubject();
-        if (TryParseOwnerSubject(ownerSubject, out var parsedTenantId, out var parsedOperatorId))
-        {
-            return new HireOwnerContext(
-                OwnerSubject: ownerSubject,
-                TenantId: parsedTenantId,
-                OperatorId: parsedOperatorId,
-                TemplateId: EvaluationWorkspaceTemplateId,
-                TemplateName: EvaluationWorkspaceTemplateName,
-                EmployeeId: null);
-        }
-
-        var (tenantId, operatorId) = ResolveTenantAndOperator(null, null);
-        return new HireOwnerContext(
-            OwnerSubject: ownerSubject,
-            TenantId: tenantId,
-            OperatorId: operatorId,
-            TemplateId: EvaluationWorkspaceTemplateId,
-            TemplateName: EvaluationWorkspaceTemplateName,
-            EmployeeId: null);
-    }
-
     private bool TryResolveOwnerContext(string hireId, out HireOwnerContext ownerContext)
     {
-        if (hireOwners.TryGetValue(hireId, out var cachedOwnerContext))
-        {
-            ownerContext = cachedOwnerContext;
-            return true;
-        }
-
         var runtimeContext = hiringRuntimeStore.Get(hireId);
         if (runtimeContext is null)
         {
@@ -84,7 +49,6 @@ internal sealed partial class EmployeeHiringService
                 return false;
             }
 
-            hireOwners[hireId] = persistedOwnerContext;
             ownerContext = persistedOwnerContext;
             return true;
         }
@@ -142,7 +106,7 @@ internal sealed partial class EmployeeHiringService
 
     private string ResolveSandboxRole(string hireId)
     {
-        if (hireOwners.TryGetValue(hireId, out var ownerContext) &&
+        if (TryResolveOwnerContext(hireId, out var ownerContext) &&
             string.Equals(ownerContext.TemplateId, EvaluationWorkspaceTemplateId, StringComparison.OrdinalIgnoreCase))
         {
             return "evaluation-evaluator";
@@ -335,33 +299,6 @@ internal sealed partial class EmployeeHiringService
     private sealed record SandboxGatewayTarget(
         string SandboxId,
         string GatewayEndpoint);
-
-    private sealed record SystemSkillUploadPayload(
-        string SkillId,
-        string SkillVersion,
-        string SkillHash,
-        IReadOnlyList<SystemSkillFileUploadPayload> Files,
-        IReadOnlyList<SystemSkillStageRuleUploadPayload> StageRules);
-
-    private sealed record SystemSkillFileUploadPayload(
-        string RelativePath,
-        string ContentHash,
-        string Content);
-
-    private sealed record SystemSkillStageRuleUploadPayload(
-        string Stage,
-        string SkillName,
-        string Description,
-        IReadOnlyList<string> RequiredFields);
-
-    private sealed record SystemSkillUploadResult(
-        string HireId,
-        string SandboxId,
-        string SkillId,
-        string SkillVersion,
-        string SkillHash,
-        string InstalledPath,
-        IReadOnlyList<StageSkillMappingDto> LoadedStageSkills);
 
     private sealed record PersistedSourceZipInfo(
         string FileName,

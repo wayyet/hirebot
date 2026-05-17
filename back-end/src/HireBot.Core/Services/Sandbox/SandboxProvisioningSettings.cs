@@ -23,6 +23,7 @@ internal sealed record SandboxProvisioningSettings(
     string LlmModel,
     string LlmEndpoint,
     string LlmApiKey,
+    float LlmTemperature,
     IReadOnlyList<string> NetworkEgressAllowHosts)
 {
     public static SandboxProvisioningSettings FromConfiguration(IConfiguration configuration)
@@ -107,6 +108,7 @@ internal sealed record SandboxProvisioningSettings(
             configuration["OpenSandbox:KingCrab:LlmModel"] ?? string.Empty,
             configuration["OpenSandbox:KingCrab:LlmEndpoint"] ?? string.Empty,
             configuration["OpenSandbox:KingCrab:LlmApiKey"] ?? string.Empty,
+            configuration.GetValue("OpenSandbox:KingCrab:LlmTemperature", 0.7f),
             egressHosts);
     }
 
@@ -142,7 +144,10 @@ internal sealed record SandboxProvisioningSettings(
             ["OpenClaw__Security__AllowPluginBridgeOnPublicBind"] = "true",
             ["OpenClaw__Security__AllowRawSecretRefsOnPublicBind"] = "true",
             ["OpenClaw__Plugins__Enabled"] = "true",
+            ["OpenClaw__Plugins__Mcp__Enabled"] = "true",
             ["OpenClaw__Tooling__AllowShell"] = "true",
+            ["OpenClaw__Tooling__Presets__coding__Description"] = "sandbox-default",
+            ["OpenClaw__Tooling__SurfaceBindings__websocket"] = "full",
             ["OpenClaw__Tooling__WorkspaceRoot"] = "/workspace",
             ["OpenClaw__Tooling__WorkspaceOnly"] = "false",
             ["OpenClaw__Tooling__AllowBrowserEvaluate"] = "true",
@@ -162,7 +167,8 @@ internal sealed record SandboxProvisioningSettings(
             ["OpenClaw__Llm__Provider"] = "openai",
             ["OpenClaw__Llm__Model"] = LlmModel,
             ["OpenClaw__Llm__ApiKey"] = LlmApiKey,
-            ["OpenClaw__Llm__Endpoint"] = LlmEndpoint
+            ["OpenClaw__Llm__Endpoint"] = LlmEndpoint,
+            ["OpenClaw__Llm__Temperature"] = LlmTemperature.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
         };
 
         for (var i = 0; i < AllowedOrigins.Count; i++)

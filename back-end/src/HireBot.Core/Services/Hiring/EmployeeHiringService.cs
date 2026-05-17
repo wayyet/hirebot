@@ -57,17 +57,13 @@ internal sealed partial class EmployeeHiringService(
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
-    private const string EvaluationSkillId = "evaluation-expert";
-    private const string EvaluationSkillVersion = "2.2.0";
     private const string EvaluationWorkspaceTemplateId = "evaluation-expert";
-    private const string EvaluationWorkspaceTemplateName = "Evaluation Expert";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly ConcurrentDictionary<string, HireOwnerContext> hireOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> conversationInFlight = new(StringComparer.OrdinalIgnoreCase);
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
         string templateId,
@@ -133,15 +129,7 @@ internal sealed partial class EmployeeHiringService(
             {
                 var existingHireId = existingInstance.ScopeKey;
 
-                hireOwners[existingHireId] = new HireOwnerContext(
-                    OwnerSubject: ownerSubject,
-                    TenantId: tenantId,
-                    OperatorId: operatorId,
-                    TemplateId: normalizedTemplateId,
-                    TemplateName: template.Name,
-                    EmployeeId: null);
-
-                // 优先从内存 store 获取 sessionId；服务重启后 store 为空则从 DB 补全
+                // 直接从持久化 runtime 读取 sessionId；缺失时再从 DB 会话表补全
                 var existingRuntime = hiringRuntimeStore.Get(existingHireId);
                 var existingSessionId = existingRuntime?.SessionId;
                 if (string.IsNullOrWhiteSpace(existingSessionId))
@@ -154,7 +142,7 @@ internal sealed partial class EmployeeHiringService(
                         .FirstOrDefaultAsync(cancellationToken);
                 }
 
-                // 若内存 store 中无运行时上下文，用 DB 补全的 sessionId 重建最小上下文，
+                // 若持久化 runtime 中无运行时上下文，用 DB 补全的 sessionId 重建最小上下文，
                 // 确保后续 syncConversationTurn 等调用能正常找到 HireId 对应的运行时
                 if (existingRuntime is null && !string.IsNullOrWhiteSpace(existingSessionId))
                 {
@@ -175,8 +163,7 @@ internal sealed partial class EmployeeHiringService(
                         CollectionPhase = HiringCollectionPhase.NotStarted,
                         IsConversationPaused = false,
                         IsConversationResponding = false,
-                        ReferenceTemplatePackage = referenceTemplatePackage,
-                        RoleTemplatePackage = roleTemplatePackage,
+                            RoleTemplatePackage = roleTemplatePackage,
                         WorkingTemplatePackage = workingTemplatePackage,
                         DiscoverySkill = discoverySkill,
                         StageCompletion = restoredStageCompletion
@@ -231,14 +218,6 @@ internal sealed partial class EmployeeHiringService(
             discoverySkill.StageRules,
             new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
 
-        hireOwners[provisionResult.Data.HireId] = new HireOwnerContext(
-            OwnerSubject: ownerSubject,
-            TenantId: tenantId,
-            OperatorId: operatorId,
-            TemplateId: normalizedTemplateId,
-            TemplateName: template.Name,
-            EmployeeId: null);
-
         hiringRuntimeStore.Upsert(new HiringRuntimeContext
         {
             HireId = provisionResult.Data.HireId,
@@ -253,7 +232,6 @@ internal sealed partial class EmployeeHiringService(
             CollectionPhase = HiringCollectionPhase.NotStarted,
             IsConversationPaused = false,
             IsConversationResponding = false,
-            ReferenceTemplatePackage = referenceTemplatePackage,
             RoleTemplatePackage = roleTemplatePackage,
             WorkingTemplatePackage = workingTemplatePackage,
             DiscoverySkill = discoverySkill,
@@ -308,7 +286,6 @@ internal sealed partial class EmployeeHiringService(
                 CollectionPhase = HiringCollectionPhase.NotStarted,
                 IsConversationPaused = false,
                 IsConversationResponding = false,
-                ReferenceTemplatePackage = referenceTemplatePackage,
                 RoleTemplatePackage = roleTemplatePackage,
                 WorkingTemplatePackage = workingTemplatePackage,
                 DiscoverySkill = discoverySkill,
@@ -513,83 +490,6 @@ internal sealed partial class EmployeeHiringService(
                 sourceSize.Value);
     }
 
-    public async Task<ApiResponse<HireTemplateResultDto>> CreateEvaluationWorkspaceAsync(
-        string targetHireId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryNormalizeHireId(targetHireId, out var normalizedTargetHireId, out var error))
-        {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(400, error);
-        }
-
-        var ownerContext = ResolveOwnerContextForEvaluation(normalizedTargetHireId);
-        var useCase = $"evaluation-workspace-for:{normalizedTargetHireId}";
-        var provisionResult = await ProvisionManagedHireSandboxAsync(
-            sandboxRole: "evaluation-evaluator",
-            ownerContext.OwnerSubject,
-            ownerContext.TenantId,
-            ownerContext.OperatorId,
-            templateId: null,
-            useCase,
-            cancellationToken);
-        if (!provisionResult.Success || provisionResult.Data is null)
-        {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(provisionResult.Code, provisionResult.Message);
-        }
-
-        var call = RemoteCallResult<HireTemplateResultDto>.Ok(new HireTemplateResultDto(
-            provisionResult.Data.HireId,
-            provisionResult.Data.SandboxId,
-            provisionResult.Data.State,
-            "start_conversation"));
-
-        hireOwners[provisionResult.Data.HireId] = ownerContext with
-        {
-            TemplateId = EvaluationWorkspaceTemplateId,
-            TemplateName = EvaluationWorkspaceTemplateName,
-            EmployeeId = null
-        };
-
-        if (hiringRuntimeStore.Get(provisionResult.Data.HireId) is null)
-        {
-            var discoverySkill = BuildEvaluationWorkspaceDiscoverySkill();
-            var stageCompletion = stageCompletionEvaluator.Evaluate(
-                discoverySkill.StageRules,
-                new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
-            var templatePackage = BuildEvaluationWorkspaceTemplatePackage();
-
-            hiringRuntimeStore.Upsert(new HiringRuntimeContext
-            {
-                HireId = provisionResult.Data.HireId,
-                TemplateId = EvaluationWorkspaceTemplateId,
-                TemplateName = EvaluationWorkspaceTemplateName,
-                OwnerSubject = ownerContext.OwnerSubject,
-                TenantId = ownerContext.TenantId,
-                OperatorId = ownerContext.OperatorId,
-                SandboxId = provisionResult.Data.SandboxId,
-                CurrentStage = "evaluation",
-                CollectionPhase = HiringCollectionPhase.NotStarted,
-                IsConversationPaused = false,
-                IsConversationResponding = false,
-                ReferenceTemplatePackage = templatePackage,
-                RoleTemplatePackage = templatePackage,
-                WorkingTemplatePackage = templatePackage,
-                DiscoverySkill = discoverySkill,
-                StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
-                Materials = [],
-                StageCompletion = stageCompletion
-            });
-        }
-
-        logger.LogInformation(
-            "Created evaluation workspace. TargetHireId={TargetHireId}, EvalHireId={EvalHireId}, EvalSandboxId={EvalSandboxId}",
-            normalizedTargetHireId,
-            provisionResult.Data.HireId,
-            provisionResult.Data.SandboxId);
-
-        return ApiResponse<HireTemplateResultDto>.SuccessResponse(call.Data, "evaluation workspace created");
-    }
-
     /// <summary>
     /// 获取雇佣流程的沙箱状态。
     /// 前端通过轮询此接口等待沙箱就绪（status == "READY"）后再调用 StartConversation。
@@ -767,7 +667,6 @@ internal sealed partial class EmployeeHiringService(
             runtimeContext = runtimeContext with
             {
                 SessionId = sessionResult.Data.SessionId,
-                Messages = [],
                 HandoffItems = [],
                 Materials = [],
                 StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
@@ -775,7 +674,6 @@ internal sealed partial class EmployeeHiringService(
                 CollectionPhase = HiringCollectionPhase.InProgress,
                 IsConversationPaused = false,
                 LatestDispatches = [],
-                LatestDiagnosticReport = null,
                 ConfigGovernance = null
             };
             hiringRuntimeStore.Upsert(runtimeContext);
@@ -860,15 +758,7 @@ internal sealed partial class EmployeeHiringService(
 
                 runtimeContext = runtimeContext with
                 {
-                    Materials = MergeMaterials(runtimeContext.Materials, requestMaterials),
-                    Messages = AppendMessages(
-                        runtimeContext.Messages,
-                        new HiringConversationMessageDto(
-                            $"user-{Guid.NewGuid():N}",
-                            "user",
-                            "[已拦截敏感凭据输入]",
-                            now),
-                        assistantMessage)
+                    Materials = MergeMaterials(runtimeContext.Materials, requestMaterials)
                 };
                 runtimeContext = ApplyWorkflowProgress(runtimeContext);
                 runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
@@ -995,15 +885,7 @@ internal sealed partial class EmployeeHiringService(
 
                 runtimeContext = runtimeContext with
                 {
-                    Materials = MergeMaterials(runtimeContext.Materials, materials),
-                    Messages = AppendMessages(
-                        runtimeContext.Messages,
-                        new HiringConversationMessageDto(
-                            $"user-{Guid.NewGuid():N}",
-                            "user",
-                            "[已拦截敏感凭据输入]",
-                            now),
-                        assistantMessage)
+                    Materials = MergeMaterials(runtimeContext.Materials, materials)
                 };
                 runtimeContext = ApplyWorkflowProgress(runtimeContext);
                 runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
@@ -1085,7 +967,7 @@ internal sealed partial class EmployeeHiringService(
                 runtimeContext.CurrentStage,
                 timelinePreview.ReadyForAudit,
                 runtimeContext.CollectionPhase,
-                runtimeContext.Messages,
+                [],
                 BuildStageSkills(runtimeContext.DiscoverySkill)));
     }
 
@@ -1170,9 +1052,7 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.ErrorResponse(400, error);
         }
 
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        var logs = runtimeContext?.AuditLogs ?? [];
-        return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.SuccessResponse(logs);
+        return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.SuccessResponse([]);
     }
 
     public async Task<ApiResponse<HiringFinalizeResultDto>> ImportPackageAsync(
@@ -1236,10 +1116,7 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包合并后无有效文件");
         }
 
-        var mergedArtifactArchive = BuildArtifactArchive(mergedArtifacts);
-
         // 创建数字员工实例（首次调用时）
-        // hireOwners 是 Scoped（per-request）字典，无法在请求间共享状态；
         // 直接从 DB 持久化的 runtimeContext 读取所有者信息，保证重启后依然有效。
         string? employeeId = runtimeContext.EmployeeId;
         if (string.IsNullOrWhiteSpace(employeeId) && !string.IsNullOrWhiteSpace(runtimeContext.TemplateId))
@@ -1300,15 +1177,11 @@ internal sealed partial class EmployeeHiringService(
                 cancellationToken);
         }
 
-        var archiveFileName = string.IsNullOrWhiteSpace(fileName) ? $"{normalizedHireId}-artifacts.zip" : fileName;
         runtimeContext = runtimeContext with
         {
             CurrentStage = HiringCollectionStage.ReadyForPackaging,
             CollectionPhase = HiringCollectionPhase.Finalized,
-            EmployeeId = employeeId,
-            ArtifactFiles = mergedArtifacts,
-            ArtifactArchive = mergedArtifactArchive,
-            ArtifactArchiveFileName = archiveFileName
+            EmployeeId = employeeId
         };
         runtimeContext = ApplyWorkflowProgress(runtimeContext);
         hiringRuntimeStore.Upsert(runtimeContext);

@@ -2,10 +2,8 @@
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Evaluation;
 using HireBot.Abstraction.Models.Evaluation.Tools;
-using HireBot.Abstraction.Models.Training;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Evaluation;
-using HireBot.Abstraction.Services.Training;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,7 +14,6 @@ namespace HireBot.ApiService.Controllers;
 [Authorize]
 public sealed class EmployeesController(
     IEmployeeRuntimeService employeeRuntimeService,
-    ITrainingService trainingService,
     IEvaluationService evaluationService) : ControllerBase
 {
     [HttpGet]
@@ -151,29 +148,6 @@ public sealed class EmployeesController(
         CancellationToken cancellationToken = default)
     {
         var response = await employeeRuntimeService.DeleteEmployeeAsync(employeeId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpGet("{employeeId}/training/state")]
-    public async Task<IActionResult> GetTrainingState(string employeeId, CancellationToken cancellationToken = default)
-    {
-        var response = await trainingService.GetTrainingStateAsync(employeeId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{employeeId}/training/decision")]
-    public async Task<IActionResult> SubmitTrainingDecision(
-        string employeeId,
-        [FromBody] TrainingDecisionRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<EmployeeDetailDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await trainingService.SubmitTrainingDecisionAsync(employeeId, request, cancellationToken);
         return StatusCode(response.Code, response);
     }
 

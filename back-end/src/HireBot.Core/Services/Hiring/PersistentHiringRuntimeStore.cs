@@ -15,54 +15,22 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly Dictionary<string, HiringRuntimeContext?> cache = new(StringComparer.OrdinalIgnoreCase);
-    // session_id 到 hireId 的快速索引（session 与 hire 是 1:1 关系）
-    private readonly Dictionary<string, string> sessionToHireIndex = new(StringComparer.OrdinalIgnoreCase);
-
     public HiringRuntimeContext? Get(string hireId)
     {
-        if (cache.TryGetValue(hireId, out var cachedContext))
-        {
-            return cachedContext;
-        }
-
         var entity = dbContext.HiringRuntimeStates
             .AsNoTracking()
             .FirstOrDefault(item => item.HireId == hireId);
-        if (entity is null)
-        {
-            cache[hireId] = null;
-            return null;
-        }
 
-        var snapshot = JsonSerializer.Deserialize<PersistedHiringRuntimeState>(entity.PayloadJson, JsonOptions);
-        if (snapshot is null)
-        {
-            cache[hireId] = null;
-            return null;
-        }
-
-        var context = snapshot.ToRuntimeContext();
-        cache[hireId] = context;
-        if (!string.IsNullOrEmpty(context.SessionId))
-            sessionToHireIndex[context.SessionId] = hireId;
-        return context;
+        return entity is null ? null : BuildContext(entity);
     }
 
     public HiringRuntimeContext? GetBySessionId(string sessionId)
     {
-        // 先查内存索引
-        if (sessionToHireIndex.TryGetValue(sessionId, out var cachedHireId))
-            return Get(cachedHireId);
-
-        // 索引未命中时回源查 DB
         var entity = dbContext.HiringRuntimeStates
             .AsNoTracking()
             .FirstOrDefault(item => item.SessionId == sessionId);
-        if (entity is null)
-            return null;
 
-        return Get(entity.HireId);
+        return entity is null ? null : BuildContext(entity);
     }
 
     public void Upsert(HiringRuntimeContext context)
@@ -70,17 +38,22 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
         var entity = dbContext.HiringRuntimeStates
             .FirstOrDefault(item => item.HireId == context.HireId);
         var now = DateTimeOffset.UtcNow;
-        var payloadJson = JsonSerializer.Serialize(PersistedHiringRuntimeState.FromRuntimeContext(context), JsonOptions);
+
+        var metaJson = JsonSerializer.Serialize(PersistedHiringMeta.From(context), JsonOptions);
+        var packagesJson = JsonSerializer.Serialize(PersistedHiringPackages.From(context), JsonOptions);
+        var workflowStateJson = JsonSerializer.Serialize(PersistedHiringWorkflowState.From(context), JsonOptions);
 
         if (entity is null)
         {
             dbContext.HiringRuntimeStates.Add(new HiringRuntimeStateEntity
             {
-                SessionId = context.SessionId,
                 HireId = context.HireId,
+                SessionId = context.SessionId,
                 CurrentStage = context.CurrentStage,
                 CollectionPhase = context.CollectionPhase,
-                PayloadJson = payloadJson,
+                PayloadJson = metaJson,
+                PackagesJson = packagesJson,
+                WorkflowStateJson = workflowStateJson,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now
             });
@@ -90,131 +63,121 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
             entity.SessionId = context.SessionId;
             entity.CurrentStage = context.CurrentStage;
             entity.CollectionPhase = context.CollectionPhase;
-            entity.PayloadJson = payloadJson;
+            entity.PayloadJson = metaJson;
+            entity.PackagesJson = packagesJson;
+            entity.WorkflowStateJson = workflowStateJson;
             entity.UpdatedAtUtc = now;
         }
 
         dbContext.SaveChanges();
-        cache[context.HireId] = context;
     }
 
-    private sealed record PersistedHiringRuntimeState(
-        string HireId,
+    private HiringRuntimeContext? BuildContext(HiringRuntimeStateEntity entity)
+    {
+        var meta = JsonSerializer.Deserialize<PersistedHiringMeta>(entity.PayloadJson, JsonOptions);
+        if (meta is null)
+            return null;
+
+        // packages 和 workflowState 在旧行（SQL 迁移前）中可能为空对象 {}，运行 migrate-20260516-to-20260517.sql 后才有完整数据。
+        var packages = JsonSerializer.Deserialize<PersistedHiringPackages>(entity.PackagesJson, JsonOptions);
+        var workflowState = JsonSerializer.Deserialize<PersistedHiringWorkflowState>(entity.WorkflowStateJson, JsonOptions);
+
+        return new HiringRuntimeContext
+        {
+            HireId = entity.HireId,
+            SessionId = entity.SessionId,
+            CurrentStage = entity.CurrentStage,
+            CollectionPhase = entity.CollectionPhase,
+            TemplateId = meta.TemplateId,
+            TemplateName = meta.TemplateName,
+            OwnerSubject = meta.OwnerSubject,
+            TenantId = meta.TenantId,
+            OperatorId = meta.OperatorId,
+            SandboxId = meta.SandboxId,
+            EmployeeId = meta.EmployeeId,
+            IsConversationPaused = meta.IsConversationPaused,
+            IsConversationResponding = meta.IsConversationResponding,
+            IsTemplateUploadPending = meta.IsTemplateUploadPending,
+            TemplateUploadRetryCount = meta.TemplateUploadRetryCount,
+            TemplateUploadLastError = meta.TemplateUploadLastError,
+            TemplateUploadLastAttemptAt = meta.TemplateUploadLastAttemptAt,
+            RoleTemplatePackage = packages!.RoleTemplatePackage,
+            WorkingTemplatePackage = packages.WorkingTemplatePackage,
+            DiscoverySkill = packages.DiscoverySkill,
+            StructuredData = workflowState?.StructuredData ?? new Dictionary<string, string?>(),
+            Materials = workflowState?.Materials ?? [],
+            StageCompletion = workflowState?.StageCompletion ?? [],
+            HandoffItems = workflowState?.HandoffItems ?? [],
+            LatestDispatches = workflowState?.LatestDispatches ?? [],
+            CredentialSlots = workflowState?.CredentialSlots ?? [],
+            ConfigGovernance = workflowState?.ConfigGovernance,
+            StageReadiness = workflowState?.StageReadiness ?? []
+        };
+    }
+
+    // 身份元数据：TemplateId、OwnerSubject 等标量字段，几乎不变。
+    private sealed record PersistedHiringMeta(
         string TemplateId,
         string TemplateName,
         string OwnerSubject,
         string TenantId,
         string OperatorId,
         string SandboxId,
-        string SessionId,
-        string CurrentStage,
-        string CollectionPhase,
+        string? EmployeeId,
         bool IsConversationPaused,
         bool IsConversationResponding,
-        string? EmployeeId,
-        TemplatePackageDefinition ReferenceTemplatePackage,
-        TemplatePackageDefinition RoleTemplatePackage,
-        TemplatePackageDefinition WorkingTemplatePackage,
-        DiscoverySkillDefinition DiscoverySkill,
-        IReadOnlyDictionary<string, string?> StructuredData,
-        IReadOnlyList<HiringConversationMaterialDto> Materials,
-        IReadOnlyList<HiringConversationMessageDto> Messages,
-        IReadOnlyList<HiringAuditLogDto> AuditLogs,
-        IReadOnlyList<HiringStageCompletionDto> StageCompletion,
-        IReadOnlyList<HiringWorkflowHandoffDto> HandoffItems,
-        IReadOnlyList<HiringDispatchRecordDto> LatestDispatches,
-        HiringDiagnosticReportDto? LatestDiagnosticReport,
-        IReadOnlyList<HiringCredentialSlotDto> CredentialSlots,
-        HiringConfigGovernanceStateDto? ConfigGovernance,
-        IReadOnlyList<HiringStageReadinessDto> StageReadiness,
         bool IsTemplateUploadPending,
         int TemplateUploadRetryCount,
         string? TemplateUploadLastError,
-        DateTimeOffset? TemplateUploadLastAttemptAt,
-        IReadOnlyDictionary<string, byte[]> ArtifactFiles,
-        byte[]? ArtifactArchive,
-        string? ArtifactArchiveFileName)
+        DateTimeOffset? TemplateUploadLastAttemptAt)
     {
-        public static PersistedHiringRuntimeState FromRuntimeContext(HiringRuntimeContext context)
-        {
-            return new PersistedHiringRuntimeState(
-                context.HireId,
-                context.TemplateId,
-                context.TemplateName,
-                context.OwnerSubject,
-                context.TenantId,
-                context.OperatorId,
-                context.SandboxId,
-                context.SessionId,
-                context.CurrentStage,
-                context.CollectionPhase,
-                context.IsConversationPaused,
-                context.IsConversationResponding,
-                context.EmployeeId,
-                context.ReferenceTemplatePackage,
-                context.RoleTemplatePackage,
-                context.WorkingTemplatePackage,
-                context.DiscoverySkill,
-                context.StructuredData,
-                context.Materials,
-                context.Messages,
-                context.AuditLogs,
-                context.StageCompletion,
-                context.HandoffItems,
-                context.LatestDispatches,
-                context.LatestDiagnosticReport,
-                context.CredentialSlots,
-                context.ConfigGovernance,
-                context.StageReadiness,
-                context.IsTemplateUploadPending,
-                context.TemplateUploadRetryCount,
-                context.TemplateUploadLastError,
-                context.TemplateUploadLastAttemptAt,
-                context.ArtifactFiles,
-                context.ArtifactArchive,
-                context.ArtifactArchiveFileName);
-        }
+        public static PersistedHiringMeta From(HiringRuntimeContext context) => new(
+            context.TemplateId,
+            context.TemplateName,
+            context.OwnerSubject,
+            context.TenantId,
+            context.OperatorId,
+            context.SandboxId,
+            context.EmployeeId,
+            context.IsConversationPaused,
+            context.IsConversationResponding,
+            context.IsTemplateUploadPending,
+            context.TemplateUploadRetryCount,
+            context.TemplateUploadLastError,
+            context.TemplateUploadLastAttemptAt);
+    }
 
-        public HiringRuntimeContext ToRuntimeContext()
-        {
-            return new HiringRuntimeContext
-            {
-                HireId = HireId,
-                TemplateId = TemplateId,
-                TemplateName = TemplateName,
-                OwnerSubject = OwnerSubject,
-                TenantId = TenantId,
-                OperatorId = OperatorId,
-                SandboxId = SandboxId,
-                SessionId = SessionId,
-                CurrentStage = CurrentStage,
-                CollectionPhase = CollectionPhase,
-                IsConversationPaused = IsConversationPaused,
-                IsConversationResponding = IsConversationResponding,
-                EmployeeId = EmployeeId,
-                ReferenceTemplatePackage = ReferenceTemplatePackage,
-                RoleTemplatePackage = RoleTemplatePackage,
-                WorkingTemplatePackage = WorkingTemplatePackage,
-                DiscoverySkill = DiscoverySkill,
-                StructuredData = StructuredData,
-                Materials = Materials,
-                Messages = Messages,
-                AuditLogs = AuditLogs,
-                StageCompletion = StageCompletion,
-                HandoffItems = HandoffItems,
-                LatestDispatches = LatestDispatches,
-                LatestDiagnosticReport = LatestDiagnosticReport,
-                CredentialSlots = CredentialSlots,
-                ConfigGovernance = ConfigGovernance,
-                StageReadiness = StageReadiness,
-                IsTemplateUploadPending = IsTemplateUploadPending,
-                TemplateUploadRetryCount = TemplateUploadRetryCount,
-                TemplateUploadLastError = TemplateUploadLastError,
-                TemplateUploadLastAttemptAt = TemplateUploadLastAttemptAt,
-                ArtifactFiles = ArtifactFiles,
-                ArtifactArchive = ArtifactArchive,
-                ArtifactArchiveFileName = ArtifactArchiveFileName
-            };
-        }
+    // 模板包定义：体积较大（含 PackageFiles 文件内容），独立列便于按需加载。
+    private sealed record PersistedHiringPackages(
+        TemplatePackageDefinition RoleTemplatePackage,
+        TemplatePackageDefinition WorkingTemplatePackage,
+        DiscoverySkillDefinition DiscoverySkill)
+    {
+        public static PersistedHiringPackages From(HiringRuntimeContext context) => new(
+            context.RoleTemplatePackage,
+            context.WorkingTemplatePackage,
+            context.DiscoverySkill);
+    }
+
+    // 动态工作流数据：每轮对话都可能更新，独立列减少写入 payload 大小。
+    private sealed record PersistedHiringWorkflowState(
+        IReadOnlyDictionary<string, string?> StructuredData,
+        IReadOnlyList<HiringConversationMaterialDto> Materials,
+        IReadOnlyList<HiringStageCompletionDto> StageCompletion,
+        IReadOnlyList<HiringWorkflowHandoffDto> HandoffItems,
+        IReadOnlyList<HiringDispatchRecordDto> LatestDispatches,
+        IReadOnlyList<HiringCredentialSlotDto> CredentialSlots,
+        HiringConfigGovernanceStateDto? ConfigGovernance,
+        IReadOnlyList<HiringStageReadinessDto> StageReadiness)
+    {
+        public static PersistedHiringWorkflowState From(HiringRuntimeContext context) => new(
+            context.StructuredData,
+            context.Materials,
+            context.StageCompletion,
+            context.HandoffItems,
+            context.LatestDispatches,
+            context.CredentialSlots,
+            context.ConfigGovernance,
+            context.StageReadiness);
     }
 }

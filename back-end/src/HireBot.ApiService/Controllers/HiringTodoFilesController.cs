@@ -90,59 +90,6 @@ public sealed class HiringTodoFilesController(
         return Ok(ApiResponse<IReadOnlyList<UploadedFileDto>>.SuccessResponse(items));
     }
 
-    /// <summary>解析会话下所有 md/json 文件并返回正文，便于前端预览（与 MCP 工具同源逻辑）。</summary>
-    [HttpGet("parse")]
-    public async Task<IActionResult> ParseAsync(
-        string sessionId,
-        [FromQuery] int maxBytes = 200_000,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(sessionId))
-            return BadRequest(ApiResponse<object>.ErrorResponse(400, "sessionId 不能为空"));
-
-        var root = ResolveDir(sessionId, null);
-        if (!Directory.Exists(root))
-            return Ok(ApiResponse<object>.SuccessResponse(new { sessionId, files = Array.Empty<object>() }));
-
-        var files = new List<object>();
-        long totalBytes = 0;
-        var truncated = false;
-        foreach (var p in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).OrderBy(s => s))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var ext = Path.GetExtension(p).ToLowerInvariant();
-            if (ext is not (".md" or ".json")) continue;
-
-            var rel = Path.GetRelativePath(root, p).Replace('\\', '/');
-            string content;
-            if (totalBytes >= maxBytes)
-            {
-                truncated = true;
-                content = "[truncated]";
-            }
-            else
-            {
-                var bytes = await System.IO.File.ReadAllBytesAsync(p, cancellationToken);
-                var remain = maxBytes - totalBytes;
-                if (bytes.LongLength > remain)
-                {
-                    content = Encoding.UTF8.GetString(bytes, 0, (int)remain) + "\n[... truncated]";
-                    totalBytes += remain;
-                    truncated = true;
-                }
-                else
-                {
-                    content = Encoding.UTF8.GetString(bytes);
-                    totalBytes += bytes.LongLength;
-                }
-            }
-
-            files.Add(new { relativePath = rel, sizeBytes = new FileInfo(p).Length, format = ext.TrimStart('.'), content });
-        }
-
-        return Ok(ApiResponse<object>.SuccessResponse(new { sessionId, fileCount = files.Count, truncated, files }));
-    }
-
     private string ResolveDir(string sessionId, string? folder)
     {
         var todoRoot = Path.Combine(

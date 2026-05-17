@@ -10,7 +10,7 @@ import type {
 } from '@/infra/api'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import { resolveGatewayEndpoint } from '@/infra/sandbox/sandbox-config'
-import { fetchLatestGatewaySession, fetchSandboxSessionMessages, uploadMediaToGateway } from '@/infra/sandbox/sandbox-api'
+import { fetchLatestGatewaySession, fetchSandboxSessionMessages, uploadMediaToGateway, uploadWorkspaceFileToGateway } from '@/infra/sandbox/sandbox-api'
 import { tokenService } from '@/infra/auth/token-service'
 
 import { HiringConversationPanel } from './components/HiringConversationPanel'
@@ -435,19 +435,13 @@ export default function HiringPage() {
 
     return [
       `${marker}`,
-      `Attached file: ${uploadedFileName}`,
+      `模板包已解压到工作区目录（文件：${uploadedFileName}，模板名：${templateName}）。`,
       '',
-      `请先解压并完整分析上面的模板包（模板名：${templateName}）。`,
       useCaseSection,
-      '解压验证通过后，请严格按 SKILL.md 的"步骤 6 进入阶段 1 的强制动作"执行（注意：旧的 hiring.request_file_upload 工具已下线，前端上传入口完全由 artifact 事件控制）：',
-      'A. 调用 `emit_artifact` 推送 stage1 progress（artifactType=material_collection_progress, stage=stage1_material, isTerminal=false），把阶段胶囊从"等待"切到"进行中"，右侧资料卡会自动展开拖拽上传区。',
-      'B. 然后用一句话邀请我上传或描述业务资料，按 story-driven 风格开口，不要罗列长清单。',
-      '随后再依次完成：',
-      '1. 阶段 1 资料收集：用户上传文件后调 `hiring.parse_uploaded_files` 读取内容，再追加一次 progress emit_artifact 把已整理的资料摘要（如 data.items）带回前端；阶段收尾时发 material_handoff_summary terminal artifact。',
-      '2. 阶段 2 技能与知识结构抽取（先发 skill_workorder_progress 再引导）。',
-      '3. 阶段 3 外部系统对接与凭据绑定清单（不要让我在聊天里直接贴敏感密钥）。',
-      '4. 每一步都输出可执行的下一步操作，不要一次性抛出过多任务。',
-      '5. 如果你发现信息不足，请先提问，不要自行假设关键业务参数。',
+      '',
+      '请读取上述工作区目录中的 manifest.json，按照 SKILL.md 的"会话初始化"步骤完成初始化（文件已就绪，无需解压），然后严格按"步骤 4"执行阶段 1 强制动作：',
+      'A. 调用 `emit_artifact` 推送 stage1 progress（artifactType=material_collection_progress, stage=stage1_material, isTerminal=false），把阶段胶囊从"等待"切到"进行中"。',
+      'B. 用一句话邀请我上传或描述业务资料，按 story-driven 风格开口，不要罗列长清单。',
     ].join('\n')
   }
 
@@ -534,26 +528,43 @@ export default function HiringPage() {
       return
     }
 
-    const uploadResult = await uploadMediaToGateway(endpoint, token, packageFile)
+    // 生成本次会话专属工作区目录名，格式与 SKILL.md 约定一致：<template_slug>-<yyyymmddHHmmss>
+    const rawSlug = (storeDetail.name || currentTemplateId || 'template')
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'template'
+    const now = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+    const dir = `${rawSlug}-${timestamp}`
+
+    const uploadResult = await uploadWorkspaceFileToGateway(
+      endpoint,
+      token,
+      packageFile,
+      dir,
+    )
     const prompt = buildTemplateBootstrapPrompt(
       storeDetail.name || template?.name || '数字员工模板',
       Array.isArray(storeDetail.useCases) ? storeDetail.useCases : [],
-      uploadResult.marker,
-      uploadResult.fileName,
+      uploadResult.fileMarker,
+      packageFile.name,
     )
 
     lastWsUserMessageRef.current = prompt
     lastWsMaterialsRef.current = [
       {
         type: 'file',
-        name: uploadResult.fileName,
-        size: uploadResult.sizeBytes,
-        mimeType: uploadResult.mimeType,
+        name: packageFile.name,
+        size: packageFile.size,
+        mimeType: 'application/zip',
         metadata: {
           source: 'template_auto_bootstrap',
           templateId: currentTemplateId,
           templateVersionId: versionId,
-          mediaId: uploadResult.mediaId,
+          workspaceDir: uploadResult.workspaceDir,
         },
       },
     ]
@@ -1305,8 +1316,6 @@ export default function HiringPage() {
         <HiringConversationPanel
           introName={introName}
           introAbilities={introAbilities}
-          journeyGuideVisible={journeyGuideVisible}
-          guideCard={viewModel.guideCard}
           messages={messages}
           typing={typing}
           streamingContent={streamingContent}
@@ -1318,7 +1327,6 @@ export default function HiringPage() {
           fileInputRef={fileRef}
           composerRef={composerRef}
           chatEndRef={chatEndRef}
-          onStartGuide={handlePrototypeContinue}
           onInputChange={setInput}
           onSend={() => { void handleSend() }}
           onFileChange={addPendingFiles}

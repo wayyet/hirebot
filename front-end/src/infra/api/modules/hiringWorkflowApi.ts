@@ -25,12 +25,6 @@ export const HiringTodoStatus = {
   Resolved: 'resolved',
 } as const
 
-export const HiringDiagnosticStatus = {
-  Pass: 'pass',
-  Warning: 'warning',
-  Blocked: 'blocked',
-} as const
-
 export const HiringStageReadinessStatus = {
   Missing: 'missing',
   Partial: 'partial',
@@ -60,18 +54,6 @@ export type HiringCollectionStageType =
 
 export type HiringAuditDecisionType =
   typeof HiringAuditDecision[keyof typeof HiringAuditDecision]
-
-export type HiringTodoStatusType =
-  typeof HiringTodoStatus[keyof typeof HiringTodoStatus]
-
-export type HiringDiagnosticStatusType =
-  typeof HiringDiagnosticStatus[keyof typeof HiringDiagnosticStatus]
-
-export type HiringStageReadinessStatusType =
-  typeof HiringStageReadinessStatus[keyof typeof HiringStageReadinessStatus]
-
-export type HiringCredentialBindingStatusType =
-  typeof HiringCredentialBindingStatus[keyof typeof HiringCredentialBindingStatus]
 
 export interface StageSkillMapping {
   stage: string
@@ -310,24 +292,6 @@ export interface HiringConversationResult {
   isConversationResponding?: boolean
 }
 
-export interface HiringConversationControlResult {
-  hireId: string
-  currentStage: string
-  collectionPhase: string
-  isConversationPaused: boolean
-  isConversationResponding: boolean
-}
-
-export interface HiringConversationTimeline {
-  hireId: string
-  sessionId: string
-  currentStage: string
-  requiresAudit: boolean
-  collectionPhase: string
-  messages: HiringConversationMessage[]
-  stageSkills: StageSkillMapping[]
-}
-
 export interface HiringAuditDecisionRequest {
   stage: string
   decision: HiringAuditDecisionType | string
@@ -436,14 +400,6 @@ export const hiringWorkflowApi = {
     return httpClient.post<StartHiringConversationResult>(`/api/v1/hirings/${hireId}/conversation/start`)
   },
 
-  pauseConversation(hireId: string) {
-    return httpClient.post<HiringConversationControlResult>(`/api/v1/hirings/${hireId}/conversation/pause`)
-  },
-
-  resumeConversation(hireId: string) {
-    return httpClient.post<HiringConversationControlResult>(`/api/v1/hirings/${hireId}/conversation/resume`)
-  },
-
   resetConversation(hireId: string) {
     return httpClient.post<StartHiringConversationResult>(`/api/v1/hirings/${hireId}/conversation/reset`)
   },
@@ -512,31 +468,11 @@ export const hiringWorkflowApi = {
     return envelope.data
   },
 
-  getConversationTimeline(hireId: string) {
-    return httpClient.get<HiringConversationTimeline>(`/api/v1/hirings/${hireId}/conversation/messages`)
-  },
-
-  getStagePreview(hireId: string, stage?: string) {
-    return httpClient.get<HiringStagePreview>(`/api/v1/hirings/${hireId}/stage-preview`, { stage })
-  },
-
   submitAuditDecision(hireId: string, payload: HiringAuditDecisionRequest) {
     return httpClient.post<HiringAuditDecisionResult, HiringAuditDecisionRequest>(
       `/api/v1/hirings/${hireId}/audit-decisions`,
       payload,
     )
-  },
-
-  getAuditLogs(hireId: string) {
-    return httpClient.get<HiringAuditLog[]>(`/api/v1/hirings/${hireId}/audit-logs`)
-  },
-
-  getArtifactsDownloadUrl(hireId: string) {
-    return buildArtifactsDownloadUrl(hireId)
-  },
-
-  getArtifactFileDownloadUrl(hireId: string, artifactName: string) {
-    return buildArtifactFileDownloadUrl(hireId, artifactName)
   },
 
   async downloadArtifacts(hireId: string): Promise<HiringArtifactsDownloadData> {
@@ -677,19 +613,6 @@ export const hiringWorkflowApi = {
     await httpClient.put<boolean>(`/api/v1/hirings/${encodeURIComponent(hireId)}/conversation/cache`, cache)
   },
 
-  /** 获取该雇佣流程的所有 TODO 事项（供 TODO 面板初始化及刷新）。*/
-  async getTodos(hireId: string): Promise<HandoffItem[]> {
-    return httpClient.get<HandoffItem[]>(`/api/v1/hirings/${encodeURIComponent(hireId)}/todos`)
-  },
-
-  /** 用户确认或撤销一个 TODO 事项。status: 'confirmed' | 'dismissed' | 'ready_to_dispatch' */
-  async updateTodoStatus(hireId: string, handoffId: string, status: string): Promise<HandoffItem> {
-    return httpClient.patch<HandoffItem>(
-      `/api/v1/hirings/${encodeURIComponent(hireId)}/todos/${encodeURIComponent(handoffId)}`,
-      { status },
-    )
-  },
-
   /**
    * 上传 TODO 资料文件（仅支持 md / json）到 wwwroot/resources/todo-files/{sessionId}/{folder?}/
    * 由 MCP 工具 hiring.parse_uploaded_files 读取并交给大模型解析。
@@ -728,6 +651,51 @@ export const hiringWorkflowApi = {
   async listTodoFiles(sessionId: string): Promise<Array<{ relativePath: string; sizeBytes: number; format: string }>> {
     const path = `/api/v1/hiring-todos/${encodeURIComponent(sessionId)}/files`
     return httpClient.get<Array<{ relativePath: string; sizeBytes: number; format: string }>>(path)
+  },
+
+  /**
+   * 上传模板包 ZIP 到雇佣沙箱工作区（走后端中转，不直接访问 gateway）。
+   * 返回沙箱内文件路径和可嵌入 WS 消息的 [FILE_URL:...] 标记。
+   */
+  async uploadTemplatePackage(
+    hireId: string,
+    packageFile: File,
+  ): Promise<{
+    workspaceDir: string
+    fileName: string
+    workspacePath: string
+    fileMarker: string
+    sizeBytes: number
+  }> {
+    const url = buildUrl(`/api/v1/hirings/${encodeURIComponent(hireId)}/template-package`)
+    const accessToken = await tokenService.ensureFresh()
+    const form = new FormData()
+    form.append('templatePackage', packageFile, packageFile.name)
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: form,
+    })
+    const text = await response.text()
+    if (!response.ok) {
+      try {
+        const p = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
+        throw new ApiClientError(p.message?.trim() || `模板包上传失败（HTTP ${response.status}）`, response.status, p.code, p)
+      } catch {
+        throw new ApiClientError(`模板包上传失败（HTTP ${response.status}）`, response.status, undefined, text)
+      }
+    }
+    const env = JSON.parse(text) as ApiResponseEnvelope<{
+      workspaceDir: string
+      fileName: string
+      workspacePath: string
+      fileMarker: string
+      sizeBytes: number
+    }>
+    if (!env.data) {
+      throw new ApiClientError('模板包上传响应数据为空', response.status, env.code, env)
+    }
+    return env.data
   },
 }
 

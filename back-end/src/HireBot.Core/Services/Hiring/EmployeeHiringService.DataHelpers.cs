@@ -561,41 +561,6 @@ internal sealed partial class EmployeeHiringService
         return result;
     }
 
-    private static string ResolveCurrentStage(
-        IReadOnlyList<HiringStageCompletionDto> stageCompletion,
-        string fallbackStage)
-    {
-        var nextStage = stageCompletion.FirstOrDefault(item => !item.ReadyForNextStage);
-        if (nextStage is not null)
-        {
-            return NormalizeRequestedStage(nextStage.Stage);
-        }
-
-        return string.Equals(fallbackStage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase)
-            ? HiringCollectionStage.ReadyForPackaging
-            : HiringCollectionStage.ReadyForPackaging;
-    }
-
-    private static string ResolveCollectionPhase(
-        IReadOnlyList<HiringStageCompletionDto> stageCompletion,
-        IReadOnlyDictionary<string, string?> structuredData,
-        string fallbackPhase)
-    {
-        if (string.Equals(fallbackPhase, HiringCollectionPhase.Finalized, StringComparison.OrdinalIgnoreCase))
-        {
-            return HiringCollectionPhase.Finalized;
-        }
-
-        if (structuredData.Count == 0)
-        {
-            return HiringCollectionPhase.NotStarted;
-        }
-
-        return stageCompletion.All(item => item.ReadyForNextStage)
-            ? HiringCollectionPhase.ReadyForFinalize
-            : HiringCollectionPhase.InProgress;
-    }
-
     private async Task<RemoteCallResult<T>> SendForJsonAsync<T>(
         HttpMethod method,
         string path,
@@ -637,25 +602,6 @@ internal sealed partial class EmployeeHiringService
         return call.Success && call.Data is not null
             ? RemoteCallResult<T>.Ok(call.Data)
             : RemoteCallResult<T>.Failure(call.StatusCode, call.Message);
-    }
-
-    private async Task<RemoteBinaryCallResult> SendForBytesAsync(
-        HttpMethod method,
-        string path,
-        object? body,
-        string ownerSubject,
-        CancellationToken cancellationToken)
-    {
-        var call = await kingCrabHttpClient.SendForBinaryAsync(
-            method,
-            path,
-            body,
-            ownerSubject,
-            cancellationToken);
-
-        return call.Success && call.Data is not null
-            ? RemoteBinaryCallResult.Ok(call.FileName ?? "hirebot_artifacts.zip", call.ContentType ?? "application/octet-stream", call.Data)
-            : RemoteBinaryCallResult.Failure(call.StatusCode, call.Message);
     }
 
     /// <summary>
