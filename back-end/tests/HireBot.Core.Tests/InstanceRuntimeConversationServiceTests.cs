@@ -235,6 +235,13 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
         public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<ApiResponse<SandboxWorkspaceUploadResultDto>> UploadWorkspaceFileAsync(SandboxWorkspaceUploadRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<SandboxWorkspaceUploadResultDto>.SuccessResponse(
+                new SandboxWorkspaceUploadResultDto(
+                    [request.FileName],
+                    1,
+                    $"/workspace/{request.TargetDir}")));
+
         public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResponse<SkillPackageUploadResultDto>.SuccessResponse(new SkillPackageUploadResultDto(true, null, 1)));
 

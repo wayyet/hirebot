@@ -296,5 +296,78 @@ internal sealed partial class EmployeeHiringService
                 refreshResult.Data.GatewayEndpoint));
     }
 
+    /// <summary>
+    /// 接收前端直传的模板包 ZIP，上传到雇佣沙箱工作区的 uploads/template-packages 目录。
+    /// 返回沙箱内文件路径和可直接嵌入 WS 消息的 [FILE_URL:...] 标记，供前端在 WebSocket 引导消息中使用。
+    /// </summary>
+    public async Task<ApiResponse<HiringTemplatePackageUploadResultDto>> UploadTemplatePackageFromClientAsync(
+        string hireId,
+        Stream packageStream,
+        string fileName,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        {
+            return ApiResponse<HiringTemplatePackageUploadResultDto>.ErrorResponse(400, error);
+        }
+
+        if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<HiringTemplatePackageUploadResultDto>.ErrorResponse(400, "仅支持 .zip 格式的模板包");
+        }
+
+        // 读取流内容
+        byte[] archiveBytes;
+        using (var ms = new MemoryStream())
+        {
+            await packageStream.CopyToAsync(ms, cancellationToken);
+            archiveBytes = ms.ToArray();
+        }
+
+        if (archiveBytes.Length == 0)
+        {
+            return ApiResponse<HiringTemplatePackageUploadResultDto>.ErrorResponse(400, "上传的模板包内容为空");
+        }
+
+        var ownerSubject = ResolveOwnerByHireId(normalizedHireId);
+        var sandboxRole = ResolveSandboxRole(normalizedHireId);
+
+        var uploadResult = await sandboxService.UploadWorkspaceFileAsync(
+            new SandboxWorkspaceUploadRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = normalizedHireId,
+                SandboxRole = sandboxRole,
+                OwnerSubject = ownerSubject,
+                TargetDir = "uploads/template-packages",
+                FileName = Path.GetFileName(fileName),
+                Content = archiveBytes,
+                ContentType = "application/zip"
+            },
+            cancellationToken);
+
+        if (!uploadResult.Success || uploadResult.Data is null)
+        {
+            return ApiResponse<HiringTemplatePackageUploadResultDto>.ErrorResponse(
+                uploadResult.Code,
+                uploadResult.Message);
+        }
+
+        var cleanFileName = Path.GetFileName(fileName);
+        var workspacePath = $"{uploadResult.Data.WorkspaceDir.TrimEnd('/')}/{cleanFileName}";
+        var fileMarker = $"[FILE_URL:{workspacePath}]";
+
+        logger.LogInformation(
+            "[Hiring] Template package uploaded to workspace. HireId={HireId} WorkspaceDir={WorkspaceDir} FileName={FileName} SizeBytes={SizeBytes}",
+            normalizedHireId, uploadResult.Data.WorkspaceDir, cleanFileName, archiveBytes.Length);
+
+        return ApiResponse<HiringTemplatePackageUploadResultDto>.SuccessResponse(
+            new HiringTemplatePackageUploadResultDto(
+                WorkspaceDir: uploadResult.Data.WorkspaceDir,
+                FileName: cleanFileName,
+                WorkspacePath: workspacePath,
+                FileMarker: fileMarker,
+                SizeBytes: archiveBytes.Length));
+    }
 
 }

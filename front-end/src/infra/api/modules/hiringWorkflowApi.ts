@@ -652,6 +652,51 @@ export const hiringWorkflowApi = {
     const path = `/api/v1/hiring-todos/${encodeURIComponent(sessionId)}/files`
     return httpClient.get<Array<{ relativePath: string; sizeBytes: number; format: string }>>(path)
   },
+
+  /**
+   * 上传模板包 ZIP 到雇佣沙箱工作区（走后端中转，不直接访问 gateway）。
+   * 返回沙箱内文件路径和可嵌入 WS 消息的 [FILE_URL:...] 标记。
+   */
+  async uploadTemplatePackage(
+    hireId: string,
+    packageFile: File,
+  ): Promise<{
+    workspaceDir: string
+    fileName: string
+    workspacePath: string
+    fileMarker: string
+    sizeBytes: number
+  }> {
+    const url = buildUrl(`/api/v1/hirings/${encodeURIComponent(hireId)}/template-package`)
+    const accessToken = await tokenService.ensureFresh()
+    const form = new FormData()
+    form.append('templatePackage', packageFile, packageFile.name)
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: form,
+    })
+    const text = await response.text()
+    if (!response.ok) {
+      try {
+        const p = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
+        throw new ApiClientError(p.message?.trim() || `模板包上传失败（HTTP ${response.status}）`, response.status, p.code, p)
+      } catch {
+        throw new ApiClientError(`模板包上传失败（HTTP ${response.status}）`, response.status, undefined, text)
+      }
+    }
+    const env = JSON.parse(text) as ApiResponseEnvelope<{
+      workspaceDir: string
+      fileName: string
+      workspacePath: string
+      fileMarker: string
+      sizeBytes: number
+    }>
+    if (!env.data) {
+      throw new ApiClientError('模板包上传响应数据为空', response.status, env.code, env)
+    }
+    return env.data
+  },
 }
 
 

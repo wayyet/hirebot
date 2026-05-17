@@ -142,79 +142,35 @@ metadata:
 
 
 
-### 会话初始化：解压上传包并锁定工作区路径
+### 会话初始化：读取工作区并锁定路径
 
 **这是会话第一件事，未完成不得进入任何阶段。**
 
 #### 沙箱真实路径事实（必须记住）
 
 - `/workspace` 是**租户+用户级共享根目录**——同一个用户的所有会话都挂同一份 PVC，因此**绝不能直接把 `/workspace` 本身当作本次会话的工作目录**。
-- `/app/memory/media-cache/<media-id>` 是用户上传文件的**只读**存放路径，会话首轮消息中以 `[FILE_URL:/app/memory/media-cache/<media-id>]` 形式给出。
-- 沙箱**不会**自动把 ZIP 解压到 `/workspace`——这是雇佣教练在会话初始化时必须主动完成的动作。
+- 前端上传模板包时**已为本次会话预建了专属工作目录**，ZIP 由 gateway 自动解压到该目录，格式固定为 `/workspace/<template_slug>-<yyyymmddHHmmss>`。
+- 会话首轮消息以 `[FILE_URL:/workspace/<template_slug>-<yyyymmddHHmmss>]` 形式给出工作区根路径，**文件已就绪，无需解压**。
 
-#### 步骤 1：识别本次会话的上传包
+#### 步骤 1：从首轮消息读取 workspace_root
 
-从首轮用户消息中提取：
-- `FILE_URL`：形如 `/app/memory/media-cache/media_xxxxxxxx`，**ZIP 真实读取路径**
-- 原始文件名：形如 `template_<uuid>_<uuid>.zip` 或 `<语义化名称>.zip`，仅作 slug 提示来源
+从首轮用户消息中提取 `FILE_URL`，即 `workspace_root`，形如 `/workspace/<slug>-<timestamp>`。
 
-两者都要保留供后续使用。
+**立即记住此路径作为会话级常量——整个会话不可更改。**
 
-#### 步骤 2：先临时拆 manifest 拿语义化 slug（可选但推荐）
-
-为了让最终 workspace 目录名有语义，可先用沙箱 shell 工具临时解压 ZIP 里的 `manifest.json` 到 `/tmp`：
+#### 步骤 2：读取 manifest.json 并确定 template_slug
 
 ```sh
-mkdir -p /tmp/_inspect && unzip -o -j "<FILE_URL>" manifest.json -d /tmp/_inspect 2>/dev/null && cat /tmp/_inspect/manifest.json
+cat "<workspace_root>/manifest.json"
 ```
 
-按以下优先级确定 `template_slug`：
+- 确认 `workspace_root` 下存在 `manifest.json`（若不存在，进入失败兜底）。
+- 从 manifest 中读取 `slug` 字段作为 `template_slug`；若无 `slug` 则取 `name` 转小写、空格转 `-`、去除非 `[a-z0-9-]`、合并连续 `-`。
+- 把 `template_slug` 与 `workspace_root` 一同记为**会话级常量**，后续所有 artifact data 都使用这两个真实值。
 
-1. `manifest.json` 中的 `slug` 字段（已是合法格式直接用）
-2. `manifest.json` 中的 `name` 字段：转小写、空格转 `-`、去除非 `[a-z0-9-]`、合并连续 `-`
-3. 原始文件名提取连续 `[a-zA-Z0-9-]` 片段并转小写——**但若文件名形如 `template_<uuid>_<uuid>` 等明显为系统 ID 的，跳过本规则**
-4. 兜底：`template`（不带任何标识，配合下一步的时间戳即可唯一）
+#### 步骤 3：（可选）工作区结构规范化
 
-#### 步骤 3：组装并创建本会话专属 workspace 目录
-
-**目录命名规则（强制）**：
-
-```
-/workspace/<template_slug>-<yyyymmddHHmmss>/
-```
-
-时间戳精确到秒，确保同租户多会话不会复用同一目录。**目录路径一旦确定，整个会话不变**——把这个完整字符串记为 `workspace_root`（末尾不带斜杠）。
-
-约定的子目录：
-
-```
-<workspace_root>/manifest.json  # 模板包根文件（解压后直接位于此处）
-<workspace_root>/config/        # 配置文件（从模板包解压，治理目标）
-<workspace_root>/ontology/      # 下游 ontology-extraction 写入
-<workspace_root>/skills/        # 下游 skill-generation 写入
-<workspace_root>/external/      # 下游 external-config 写入
-```
-
-> 模板 ZIP 直接解压到 `<workspace_root>/`（无额外子目录包装），`manifest.json` 和 `config/` 解压后就在工作区根层级，下游 skill 和配置治理均直接读写这些路径。
-
-#### 步骤 4：调用沙箱工具完成解压并验证
-
-通过沙箱可用的 shell/unzip 工具执行（命令名以沙箱实际暴露为准）：
-
-```sh
-mkdir -p "<workspace_root>"
-unzip -o "<FILE_URL>" -d "<workspace_root>/"
-ls -la "<workspace_root>/"
-```
-
-**验证条件**（任一不满足就回失败兜底）：
-- `unzip` 命令退出码为 0
-- `ls` 至少能看到一个文件或一个子目录
-- 工作区根目录下确实能读到 `manifest.json`（或之前用 `name` 兜底的同位文件）
-
-#### 步骤 4.5：工作区结构规范化（解压后无条件执行）
-
-解压完成后，**立即**执行以下命令，将配置文件统一整理到 `config/` 子目录。命令使用 `2>/dev/null || true` 使其幂等——若文件已在 `config/` 则 mv 静默跳过，若文件在根目录则移入：
+若模板 ZIP 为扁平结构（`SOUL.md` 等配置文件直接位于 workspace_root 根层级），执行一次幂等规范化将其移入 `config/`：
 
 ```sh
 mkdir -p "<workspace_root>/config"
@@ -223,53 +179,44 @@ mv "<workspace_root>/IDENTITY.md"    "<workspace_root>/config/" 2>/dev/null || t
 mv "<workspace_root>/AGENTS.md"      "<workspace_root>/config/" 2>/dev/null || true
 mv "<workspace_root>/MEMORY.md"      "<workspace_root>/config/" 2>/dev/null || true
 mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || true
-ls -la "<workspace_root>/config/"
 ```
 
-`ls` 输出应能看到 `SOUL.md`、`IDENTITY.md`、`AGENTS.md`、`MEMORY.md`（至少前三个存在），否则进入失败兜底。
+> 若 ZIP 内已有 `config/` 子目录，此步骤静默跳过，幂等安全。验证 `<workspace_root>/config/` 下至少可见 `SOUL.md`、`IDENTITY.md`、`AGENTS.md` 中的至少两个，否则进入失败兜底。
 
-> 此步骤兼容"扁平结构模板包"（配置文件直接位于 zip 根层级，无 `config/` 前缀）。规范化后配置治理路径 `config/SOUL.md` / `config/AGENTS.md` / `config/IDENTITY.md` 方可正常工作。
+#### 步骤 4：通知用户开场 + 进入阶段 1
 
-验证通过后，把 `workspace_root` 和 `template_slug` **作为会话级常量**记住，所有后续 artifact data、TODO 工单、阶段总结里出现路径或 slug 的字段都使用这两个真实值。
+验证通过后，给用户一句简短开场："已读取模板包，进入资料阶段——"。**禁止**在开场里复述模板包详细内容。
 
-#### 步骤 5：通知用户开场
+开场句一出，**立即**依次完成以下两件事（"亮灯仪式"）：
 
-解压验证通过后，给用户一句简短开场："已读取模板包，进入资料阶段——"。**禁止**在开场里复述模板包详细内容（那是下游 ontology-extraction 的事，且未阅读前不得编造）。
-
-#### 步骤 6：进入阶段 1 的强制动作（开场后**立即**执行，不等用户开口）
-
-开场句一出，**必须依次完成**以下两件事，让右侧 TODO 面板和阶段胶囊同步亮起。**前端的资料上传入口完全由 artifact 事件控制**：只要 `material_collection_progress` 一发出，阶段卡片就会自动展开拖拽上传区，AI 不需要、也无法通过 MCP 工具去"创建上传按钮"。
-
-1. **调用 `emit_artifact`** 推送 stage1 进度（这一步等同于"开灯"）：
+1. **调用 `emit_artifact`** 推送 stage1 进度：
    - `artifactType`: `material_collection_progress`
    - `stage`: `stage1_material`
    - `isTerminal`: `false`
    - `displayHint`: `progress`
    - `data`: `{ "workspace_root": <真实路径>, "template_slug": <真实 slug>, "summary": "已进入资料阶段，等待用户上传或描述业务资料" }`
-2. **再用一句话**邀请用户开始介绍业务场景或直接上传资料，简要点出本模板期望收集哪些类型资料（流程文档 / 规则 / 案例 / 字段定义 / 示例数据），按 [references/scene-types.md](references/scene-types.md) 的 story-driven 风格开口，不要罗列长清单。
+2. **再用一句话**邀请用户开始介绍业务场景或直接上传资料，按 [references/scene-types.md](references/scene-types.md) 的 story-driven 风格开口，不要罗列长清单。
 
-> 这两步是 stage1 的"亮灯仪式"——缺第 1 步，前端阶段胶囊一直停在"等待"、资料卡也不会展开上传区。
+> 前端的资料上传入口完全由 artifact 事件控制：`material_collection_progress` 一发出，阶段卡片自动展开拖拽上传区，**无需也无法**通过 MCP 工具触发。
 
-> 用户上传文件后，调用 `hiring.parse_uploaded_files` 拉取内容做识别，将已整理的资料摘要写入下一次 progress `emit_artifact` 的 `data` 字段（如 `data.items`），把"哪份资料、归到哪个分类、抽取什么"推送到前端阶段卡片。
+> 用户上传文件后，调用 `hiring.parse_uploaded_files` 拉取内容做识别，将已整理的资料摘要写入下一次 progress `emit_artifact` 的 `data` 字段（如 `data.items`）。
 
 #### ⛔ 路径反伪造红线
 
 - 禁止把字面字符串 `<template-slug>`、`<workspace-root>`、`<workspace_root>` 等占位符写进任何 artifact data；必须是已确定的真实路径
-- 禁止跳过步骤 4 的实际工具调用，凭文件名/上下文猜测路径
 - 禁止使用 `/workspace` 根目录本身作为 workspace_root（会污染其他会话）
-- 禁止用上一次会话的 workspace_root（每次会话都要重新建时间戳目录）
-- 步骤 4 未通过验证前，不得调用任何阶段 emit_artifact；步骤 4 通过后，**必须**按步骤 6 立即推送 stage1 progress artifact 与上传入口工单
+- 禁止用上一次会话的 workspace_root（每次会话第一条消息中已给出当前会话专属路径）
+- 步骤 2 未通过验证前，不得调用任何阶段 emit_artifact；验证通过后，**必须**按步骤 4 立即推送 stage1 progress artifact
 
 #### 失败兜底
 
 满足以下任一情况：
-- 沙箱没有 unzip / shell / 任何可创建目录或解压文件的工具
-- 解压命令返回非零或目标目录依旧为空
-- 即使解压成功也读不到任何业务文件
+- `workspace_root` 下读不到 `manifest.json`
+- 工作区目录为空或不存在
 
 **正确做法**：
 1. 不进入阶段 1，不发任何 stage artifact
-2. 用一句话告知用户："我没能在沙箱里展开你上传的模板包，请稍后重发，或联系平台运维确认上传是否完成。"
+2. 用一句话告知用户："我没能在沙箱里找到你的模板包工作区，请稍后重试，或联系平台运维确认上传是否完成。"
 3. 绝不假装已读取，绝不复述模板包里没读到的内容
 
 #### 在 artifact data 中携带
@@ -283,7 +230,7 @@ ls -la "<workspace_root>/config/"
 }
 ```
 
-**不做的事**：本 skill 只负责"解压 + 锁定路径 + 传递路径"。`ontology/` `skills/` `external/` 三个子目录由各自的下游 skill 自行创建并写入；本 skill 不预先 `mkdir` 这些目录，也不写入其中任何文件。
+**不做的事**：本 skill 只负责"读取工作区路径 + 确认可用 + 传递路径"。`ontology/` `skills/` `external/` 三个子目录由各自的下游 skill 自行创建并写入；本 skill 不预先 `mkdir` 这些目录，也不写入其中任何文件。
 
 
 ---
@@ -301,7 +248,7 @@ ls -la "<workspace_root>/config/"
 
 **最低门槛**：至少 1 份资料被指认归类，并且明确说出"要从中整理什么分类的规则或内容"。
 
-**进入阶段时的强制动作**：步骤 4 验证通过后，按"步骤 6 进入阶段 1 的强制动作"立即推送 stage1 progress artifact 并创建 `upload_business_materials` 上传入口工单——这是"亮灯仪式"，不依赖用户输入。
+**进入阶段时的强制动作**：初始化完成后，按会话初始化"步骤 4"立即推送 stage1 progress artifact——这是"亮灯仪式"，不依赖用户输入。
 
 **收到用户输入时的强制动作**：用户描述业务场景、资料种类、字段、规则、流程、案例或上传文件后，立即追加进度 emit_artifact，将 `data` 字段更新为最新已整理的资料条目摘要；再给用户一行简短反馈说已记下。
 

@@ -212,6 +212,38 @@ public sealed class HiringsController(
         var response = await hiringTodoService.UpdateTodoStatusAsync(hireId, handoffId, request.Status, cancellationToken);
         return StatusCode(response.Code, response);
     }
+
+    /// <summary>
+    /// 接收前端直传的模板包 ZIP，上传到雇佣沙箱工作区。
+    /// 返回沙箱内文件路径和可嵌入 WebSocket 消息的 [FILE_URL:...] 标记。
+    /// </summary>
+    [HttpPost("{hireId}/template-package")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(250_000_000)]
+    public async Task<IActionResult> UploadTemplatePackage(
+        string hireId,
+        IFormFile? templatePackage,
+        CancellationToken cancellationToken = default)
+    {
+        if (templatePackage is null || templatePackage.Length == 0)
+        {
+            var badReq = ApiResponse<object>.ErrorResponse(400, "必须上传模板包文件");
+            return BadRequest(badReq);
+        }
+
+        var fileName = templatePackage.FileName ?? "template.zip";
+        if (!fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            var badReq = ApiResponse<object>.ErrorResponse(400, "仅支持 .zip 格式的模板包");
+            return BadRequest(badReq);
+        }
+
+        await using var stream = templatePackage.OpenReadStream();
+        var response = await employeeHiringService.UploadTemplatePackageFromClientAsync(
+            hireId, stream, fileName, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     private IActionResult BuildDownloadResponse(HiringArtifactDownloadResult result)
     {
         if (!result.Found)
