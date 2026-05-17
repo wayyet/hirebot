@@ -330,10 +330,7 @@ internal sealed partial class EmployeeHiringService
             file => file.RelativePath,
             file => file,
             StringComparer.OrdinalIgnoreCase);
-        var artifactFiles = runtimeContext.ArtifactFiles.ToDictionary(
-            pair => pair.Key,
-            pair => pair.Value,
-            StringComparer.OrdinalIgnoreCase);
+        var artifactFiles = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var artifactDtos = new Dictionary<string, HiringDispatchArtifactDto>(StringComparer.OrdinalIgnoreCase);
 
         void MergeArtifact(HiringDispatchCallbackArtifactPayload artifactPayload)
@@ -472,7 +469,6 @@ internal sealed partial class EmployeeHiringService
             {
                 PackageFiles = packageFiles.Values.ToArray()
             },
-            ArtifactFiles = artifactFiles,
             CredentialSlots = updatedCredentialSlots,
             LatestDispatches = updatedDispatches
         };

@@ -163,8 +163,7 @@ internal sealed partial class EmployeeHiringService(
                         CollectionPhase = HiringCollectionPhase.NotStarted,
                         IsConversationPaused = false,
                         IsConversationResponding = false,
-                        ReferenceTemplatePackage = referenceTemplatePackage,
-                        RoleTemplatePackage = roleTemplatePackage,
+                            RoleTemplatePackage = roleTemplatePackage,
                         WorkingTemplatePackage = workingTemplatePackage,
                         DiscoverySkill = discoverySkill,
                         StageCompletion = restoredStageCompletion
@@ -233,7 +232,6 @@ internal sealed partial class EmployeeHiringService(
             CollectionPhase = HiringCollectionPhase.NotStarted,
             IsConversationPaused = false,
             IsConversationResponding = false,
-            ReferenceTemplatePackage = referenceTemplatePackage,
             RoleTemplatePackage = roleTemplatePackage,
             WorkingTemplatePackage = workingTemplatePackage,
             DiscoverySkill = discoverySkill,
@@ -288,7 +286,6 @@ internal sealed partial class EmployeeHiringService(
                 CollectionPhase = HiringCollectionPhase.NotStarted,
                 IsConversationPaused = false,
                 IsConversationResponding = false,
-                ReferenceTemplatePackage = referenceTemplatePackage,
                 RoleTemplatePackage = roleTemplatePackage,
                 WorkingTemplatePackage = workingTemplatePackage,
                 DiscoverySkill = discoverySkill,
@@ -670,7 +667,6 @@ internal sealed partial class EmployeeHiringService(
             runtimeContext = runtimeContext with
             {
                 SessionId = sessionResult.Data.SessionId,
-                Messages = [],
                 HandoffItems = [],
                 Materials = [],
                 StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
@@ -678,7 +674,6 @@ internal sealed partial class EmployeeHiringService(
                 CollectionPhase = HiringCollectionPhase.InProgress,
                 IsConversationPaused = false,
                 LatestDispatches = [],
-                LatestDiagnosticReport = null,
                 ConfigGovernance = null
             };
             hiringRuntimeStore.Upsert(runtimeContext);
@@ -763,15 +758,7 @@ internal sealed partial class EmployeeHiringService(
 
                 runtimeContext = runtimeContext with
                 {
-                    Materials = MergeMaterials(runtimeContext.Materials, requestMaterials),
-                    Messages = AppendMessages(
-                        runtimeContext.Messages,
-                        new HiringConversationMessageDto(
-                            $"user-{Guid.NewGuid():N}",
-                            "user",
-                            "[已拦截敏感凭据输入]",
-                            now),
-                        assistantMessage)
+                    Materials = MergeMaterials(runtimeContext.Materials, requestMaterials)
                 };
                 runtimeContext = ApplyWorkflowProgress(runtimeContext);
                 runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
@@ -898,15 +885,7 @@ internal sealed partial class EmployeeHiringService(
 
                 runtimeContext = runtimeContext with
                 {
-                    Materials = MergeMaterials(runtimeContext.Materials, materials),
-                    Messages = AppendMessages(
-                        runtimeContext.Messages,
-                        new HiringConversationMessageDto(
-                            $"user-{Guid.NewGuid():N}",
-                            "user",
-                            "[已拦截敏感凭据输入]",
-                            now),
-                        assistantMessage)
+                    Materials = MergeMaterials(runtimeContext.Materials, materials)
                 };
                 runtimeContext = ApplyWorkflowProgress(runtimeContext);
                 runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
@@ -988,7 +967,7 @@ internal sealed partial class EmployeeHiringService(
                 runtimeContext.CurrentStage,
                 timelinePreview.ReadyForAudit,
                 runtimeContext.CollectionPhase,
-                runtimeContext.Messages,
+                [],
                 BuildStageSkills(runtimeContext.DiscoverySkill)));
     }
 
@@ -1073,9 +1052,7 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.ErrorResponse(400, error);
         }
 
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        var logs = runtimeContext?.AuditLogs ?? [];
-        return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.SuccessResponse(logs);
+        return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.SuccessResponse([]);
     }
 
     public async Task<ApiResponse<HiringFinalizeResultDto>> ImportPackageAsync(
@@ -1139,8 +1116,6 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包合并后无有效文件");
         }
 
-        var mergedArtifactArchive = BuildArtifactArchive(mergedArtifacts);
-
         // 创建数字员工实例（首次调用时）
         // 直接从 DB 持久化的 runtimeContext 读取所有者信息，保证重启后依然有效。
         string? employeeId = runtimeContext.EmployeeId;
@@ -1202,15 +1177,11 @@ internal sealed partial class EmployeeHiringService(
                 cancellationToken);
         }
 
-        var archiveFileName = string.IsNullOrWhiteSpace(fileName) ? $"{normalizedHireId}-artifacts.zip" : fileName;
         runtimeContext = runtimeContext with
         {
             CurrentStage = HiringCollectionStage.ReadyForPackaging,
             CollectionPhase = HiringCollectionPhase.Finalized,
-            EmployeeId = employeeId,
-            ArtifactFiles = mergedArtifacts,
-            ArtifactArchive = mergedArtifactArchive,
-            ArtifactArchiveFileName = archiveFileName
+            EmployeeId = employeeId
         };
         runtimeContext = ApplyWorkflowProgress(runtimeContext);
         hiringRuntimeStore.Upsert(runtimeContext);

@@ -213,23 +213,9 @@ internal sealed partial class EmployeeHiringService
             now);
         var visibleAssistantMessage = assistantMessage with { Content = parsedReply.VisibleContent };
 
-        var messages = runtimeContext.Messages;
-        if (!string.IsNullOrWhiteSpace(userMessageContent))
-        {
-            messages = AppendMessages(
-                messages,
-                new HiringConversationMessageDto(
-                    $"user-{Guid.NewGuid():N}",
-                    "user",
-                    userMessageContent.Trim(),
-                    now));
-        }
-        messages = AppendMessages(messages, visibleAssistantMessage);
-
         runtimeContext = runtimeContext with
         {
             Materials = MergeMaterials(runtimeContext.Materials, materials),
-            Messages = messages,
             StructuredData = structuredAnswers is not null
                 ? MergeStructuredData(runtimeContext.StructuredData, structuredAnswers)
                 : runtimeContext.StructuredData
