@@ -524,8 +524,6 @@ internal sealed partial class EvaluationService(
             owner,
             employee,
             null,
-            null,
-            allowTargetHireCreation: true,
             forceTargetHireRecreate: false,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)
@@ -605,8 +603,6 @@ internal sealed partial class EvaluationService(
             owner,
             employee,
             request.SkillRootPath,
-            null,
-            allowTargetHireCreation: true,
             forceTargetHireRecreate: false,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)
@@ -706,8 +702,6 @@ internal sealed partial class EvaluationService(
             owner,
             employee,
             null,
-            null,
-            allowTargetHireCreation: true,
             forceTargetHireRecreate: true,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)
@@ -819,8 +813,6 @@ internal sealed partial class EvaluationService(
             owner,
             employee,
             null,
-            null,
-            allowTargetHireCreation: true,
             forceTargetHireRecreate: false,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)
@@ -909,8 +901,6 @@ internal sealed partial class EvaluationService(
             owner,
             employee,
             null,
-            null,
-            allowTargetHireCreation: true,
             forceTargetHireRecreate: false,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)
@@ -1087,8 +1077,7 @@ internal sealed partial class EvaluationService(
         var employee = accessContext.Employee;
 
         var workspaceResult = await EnsureWorkspaceReadyAsync(
-            owner, employee, null, null,
-            allowTargetHireCreation: true,
+            owner, employee, null,
             forceTargetHireRecreate: false,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)

@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -34,12 +34,9 @@ internal sealed partial class EvaluationService
         string owner,
         EmployeeDetailDto employee,
         string? skillRootPath,
-        string? comment,
-        bool allowTargetHireCreation,
         bool forceTargetHireRecreate,
         CancellationToken cancellationToken)
     {
-        var workspaceKey = BuildWorkspaceKey(owner, employee.EmployeeId);
         var employeeId = employee.EmployeeId;
         var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
         var persistenceScope = ResolveEvaluationPersistenceScope(employee, owner);
@@ -322,6 +319,18 @@ internal sealed partial class EvaluationService
         string sandboxRole,
         CancellationToken cancellationToken)
     {
+        // 先检查是否已就绪，避免首次轮询前不必要的等待（与雇佣侧保持一致）
+        var initial = await sandboxService.RefreshAsync(
+            new SandboxInstanceLookupRequestDto { SandboxId = sandboxId, OwnerSubject = owner },
+            cancellationToken);
+        if (initial.Success && initial.Data is not null &&
+            string.Equals(initial.Data.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(initial.Data.GatewayEndpoint))
+        {
+            logger.LogInformation("[Eval] Sandbox already ready runtimeId={RuntimeId} sandboxId={SandboxId}", runtimeId, sandboxId);
+            return ApiResponse<(string, string)>.SuccessResponse((runtimeId, sandboxId));
+        }
+
         for (var i = 0; i < 36; i++)
         {
             await Task.Delay(5000, cancellationToken);
@@ -438,91 +447,6 @@ internal sealed partial class EvaluationService
             artifactBundle.FileName,
             uploadFromBundleResult.Data.SkillsInstalled);
         return ApiResponse<bool>.SuccessResponse(true, $"{sandboxSide} artifact uploaded");
-
-        /*
-
-        // 濠电偞娼欓崥瀣晪闂佸憡蓱缁嬫帡骞忛崨顖涘磯闁靛闄勫▓銏ゆ⒑閸濆嫬顏柛搴＄－濡叉劙鏁撻悩鑼唶闂佹悶鍎滈崨顔界槥闂備焦鐪归崝宀€鈧凹浜濋〃銉╁炊椤掍礁浜遍梺鍐叉惈鐎氼噣鎮㈤崨顖楀亾?
-        if (!string.IsNullOrWhiteSpace(explicitArtifactPath))
-        {
-            var normalizedPath = explicitArtifactPath.Trim();
-            if (Directory.Exists(normalizedPath))
-            {
-                var bundle = await ZipDirectoryAsBundleAsync(
-                    normalizedPath,
-                    $"{Path.GetFileName(normalizedPath)}.zip",
-                    sourceType: "explicit-directory",
-                    cancellationToken);
-                archiveBytes = bundle.Content;
-                fileName = bundle.FileName;
-            }
-            else if (File.Exists(normalizedPath) && normalizedPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-            {
-                archiveBytes = await File.ReadAllBytesAsync(normalizedPath, cancellationToken);
-                fileName = Path.GetFileName(normalizedPath);
-            }
-            else
-            {
-                return ApiResponse<bool>.ErrorResponse(404, $"explicit artifact path not found: {normalizedPath}");
-            }
-        }
-        else
-        {
-            // 濠电偛顕慨鎾煀閿濆應鏋栫憸鏃堝箖娴犲惟闁靛牆顦卞畷婊堟⒑缂佹ǜ浠滈柡鍛〒閳ь剙鐏氶敃銏狀嚕闂堟侗鍚嬮柛娑卞弾濞兼娊姊洪崗鐓庡姢闁搞垼灏妵鎰板炊椤掍焦娅栭梺鍓插亝缁牏鑺?EmployeeId 濠电偠鎻徊鍓у垝閸垺瀚?hireId 闂備礁鎼悮顐﹀磿閸欏鐝舵慨妞诲亾闁?
-            var packageSnapshot = await artifactPackageService.GetLatestPackageAsync(employee.EmployeeId, cancellationToken);
-            if (packageSnapshot?.Content is { Length: > 0 })
-            {
-                archiveBytes = packageSnapshot.Content;
-                fileName = string.IsNullOrWhiteSpace(packageSnapshot.FileName)
-                    ? $"hiring_artifacts_{employee.EmployeeId}.zip"
-                    : packageSnapshot.FileName;
-            }
-            else
-            {
-                // 闂備焦鎮堕崕鎶藉磻閵堝鐒垫い鎴ｆ娴滈箖姊洪崨濠傜濠⒀勵殔閿曘垺瀵奸弶鎴炲祶?fixture 闂備胶鍎甸弲鈺呭窗閺嶎偆绀?
-                var fixtureDir = ResolveFixtureArtifactDirectory(employee.EmployeeId, employee);
-                if (string.IsNullOrWhiteSpace(fixtureDir))
-                {
-                    return ApiResponse<bool>.ErrorResponse(404, $"no artifact package or fixture directory found for employee {employee.EmployeeId}");
-                }
-
-                var bundle = await ZipDirectoryAsBundleAsync(
-                    fixtureDir,
-                    $"fixture_{employee.EmployeeId}.zip",
-                    sourceType: "fixture",
-                    cancellationToken);
-                archiveBytes = bundle.Content;
-                fileName = bundle.FileName;
-            }
-        }
-
-        if (archiveBytes.Length == 0)
-        {
-            return ApiResponse<bool>.ErrorResponse(422, "artifact archive is empty");
-        }
-
-        var uploadResult = await sandboxService.UploadSkillPackageAsync(
-            new SkillPackageUploadRequestDto
-            {
-                SandboxId = sandboxId,
-                OwnerSubject = owner,
-                ArchiveBytes = archiveBytes,
-                FileName = fileName
-            },
-            cancellationToken);
-
-        if (!uploadResult.Success || uploadResult.Data is null)
-        {
-            return ApiResponse<bool>.ErrorResponse(uploadResult.Code, uploadResult.Message);
-        }
-
-        logger.LogInformation(
-            "[Eval] {SandboxSide} artifact uploaded sandboxId={SandboxId} fileName={FileName} installed={Count}",
-            sandboxSide,
-            sandboxId,
-            fileName,
-            uploadResult.Data.SkillsInstalled);
-        return ApiResponse<bool>.SuccessResponse(true, $"{sandboxSide} artifact uploaded");
-        */
     }
 
     private async Task<ApiResponse<string>> UploadArtifactAttachmentToSandboxAsync(
@@ -938,4 +862,3 @@ internal sealed partial class EvaluationService
             "evaluator materials uploaded to workspace");
     }
 }
-
