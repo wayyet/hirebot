@@ -319,11 +319,12 @@ internal sealed partial class EvaluationService(
             .OrderBy(item => item.Key switch
             {
                 "target_sandbox" => 0,
-                "evaluator_sandbox" => 1,
-                "upload_skill" => 2,
-                "upload_employee_template" => 3,
-                "upload_artifacts" => 4,
-                "materials" => 5,
+                "upload_target_template" => 1,
+                "evaluator_sandbox" => 2,
+                "upload_skill" => 3,
+                "upload_employee_template" => 4,
+                "upload_artifacts" => 5,
+                "materials" => 6,
                 _ => 99
             })
             .Select(item => new EvaluationWorkspaceStepDto(

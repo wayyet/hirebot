@@ -115,16 +115,19 @@ internal sealed partial class EvaluationService
         stepStates["upload_skill"] = new("completed", null);
 
         stepStates["upload_employee_template"] = new("running", null);
-        if (targetTemplateResult.Data is { } hiringArchive)
-        {
-            var evaluatorTemplateResult = await UploadHiringTemplateToEvaluatorSandboxAsync(
-                evaluatorSandboxId, owner, hiringArchive, cancellationToken);
-            if (!evaluatorTemplateResult.Success)
-            {
-                stepStates["upload_employee_template"] = new("failed", evaluatorTemplateResult.Message);
-                return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(evaluatorTemplateResult.Code, evaluatorTemplateResult.Message);
-            }
-        }
+        // TODO: 暂时禁用 hiring template 到 evaluator 沙箱的安装上传，
+        // 避免覆盖已安装的 evaluation-expert 技能（两次 UploadDigitalEmployeeTemplateAsync 到同一沙箱，后者会替换前者）。
+        // 待确认沙箱 /admin/digital-employee/upload 接口支持多技能共存，或改为 workspace 文件上传后再启用。
+        // if (targetTemplateResult.Data is { } hiringArchive)
+        // {
+        //     var evaluatorTemplateResult = await UploadHiringTemplateToEvaluatorSandboxAsync(
+        //         evaluatorSandboxId, owner, hiringArchive, cancellationToken);
+        //     if (!evaluatorTemplateResult.Success)
+        //     {
+        //         stepStates["upload_employee_template"] = new("failed", evaluatorTemplateResult.Message);
+        //         return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(evaluatorTemplateResult.Code, evaluatorTemplateResult.Message);
+        //     }
+        // }
 
         workspaceContext = workspaceContext with
         {
@@ -605,6 +608,7 @@ internal sealed partial class EvaluationService
             new HiringTemplateArchive(archiveBytes, fileName, localCachePath));
     }
 
+    /// <summary>
     /// <summary>
     /// 将雇佣端模板归档（由 <see cref="UploadHiringTemplateToTargetSandboxAsync"/> 已加载）
     /// 安装到 evaluator 沙箱，与 target 沙箱使用相同的上传通道，保证模板包格式一致。
