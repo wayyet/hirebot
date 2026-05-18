@@ -192,18 +192,11 @@ public sealed class EmployeesController(
     }
 
     [HttpPost("{employeeId}/evaluation/ai-decision")]
-    public async Task<IActionResult> SubmitAiEvaluationDecision(
+    public async Task<IActionResult> StartAiEvaluation(
         string employeeId,
-        [FromBody] AiEvaluationDecisionRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var invalidResponse = BuildModelValidationError<EmployeeDetailDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await evaluationService.SubmitAiEvaluationDecisionAsync(employeeId, request, cancellationToken);
+        var response = await evaluationService.StartAiEvaluationAsync(employeeId, cancellationToken);
         return StatusCode(response.Code, response);
     }
 

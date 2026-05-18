@@ -39,18 +39,6 @@ internal sealed partial class EvaluationService(
     ITemplatePackageProvider templatePackageProvider,
     FileSystemTemplatePackageProvider fileSystemTemplatePackageProvider) : IEvaluationService
 {
-    private static readonly string[] EvaluationSkillNames =
-    [
-        "evaluation_orchestrator",
-        "scenario_parser",
-        "test_executor",
-        "evaluator",
-        "training_advisor",
-        "report_generator",
-        "live_evaluation_coordinator",
-        "live_evaluator"
-    ];
-
     private static readonly Lazy<IReadOnlyDictionary<string, FixtureTemplateBinding>> FixtureTemplateBindings =
         new(LoadFixtureTemplateBindings);
 
@@ -683,14 +671,13 @@ internal sealed partial class EvaluationService(
             "evaluation sandbox replied");
     }
 
-    public async Task<ApiResponse<EmployeeDetailDto>> SubmitAiEvaluationDecisionAsync(
+    public async Task<ApiResponse<EmployeeDetailDto>> StartAiEvaluationAsync(
         string employeeId,
-        AiEvaluationDecisionRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(employeeId) || request is null || string.IsNullOrWhiteSpace(request.Decision))
+        if (string.IsNullOrWhiteSpace(employeeId))
         {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId and decision are required");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId is required");
         }
 
         var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
@@ -703,186 +690,44 @@ internal sealed partial class EvaluationService(
         var scope = accessContext.PersistenceScope;
         var employee = accessContext.Employee;
 
-        var decision = request.Decision.Trim().ToUpperInvariant();
         var currentStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
         var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
 
-        EmployeeDetailDto? updated = null;
-        var message = "AI evaluation decision submitted";
-        logger.LogInformation("[Eval] AiDecision employeeId={EmployeeId} decision={Decision} status={Status} phase={Phase}",
-            employee.EmployeeId, decision, currentStatus, employee.EvalPhase);
-
-        switch (decision)
+        // 私有分支始终保持 live，只通过 EvalPhase 表示评估阶段；
+        // 普通/雇佣员工只能从 hired/failed/interning_ai 发起 START。
+        if (currentStatus is not ("hired" or "failed" or "interning_ai") &&
+            !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
         {
-            case "START":
-            {
-                // 私有分支评估是特殊流程：私有分支实例始终保持 live，只通过 EvalPhase 表示评估阶段。
-                // 所以这里允许 private_branch + live 发起 START。不要把这个放行扩展到普通员工，
-                // 普通/雇佣员工仍然只能从 hired/failed/interning_ai 进入 AI 评估。
-                if (currentStatus is not ("hired" or "failed" or "interning_ai") &&
-                    !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, $"current status does not allow START: {currentStatus}");
-                }
-
-                var startSkillRootPath = ExtractPathFromComment(request.Comment);
-                var startWorkspaceResult = await EnsureWorkspaceReadyAsync(
-                    owner,
-                    employee,
-                    startSkillRootPath,
-                    request.Comment,
-                    allowTargetHireCreation: true,
-                    forceTargetHireRecreate: true,
-                    cancellationToken);
-                if (!startWorkspaceResult.Success || startWorkspaceResult.Data is null)
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(startWorkspaceResult.Code, startWorkspaceResult.Message);
-                }
-
-                var startWorkspaceContext = startWorkspaceResult.Data;
-                await StartNewEvaluationSessionAsync(scope, employee.EmployeeId, startWorkspaceContext, cancellationToken);
-                var startReadiness = await PrimeReadinessMaterialsAsync(scope, employee.EmployeeId, cancellationToken);
-                var startMaterialsReady = startReadiness.TestcasesReady && startReadiness.OntologyReady;
-
-                var startCapabilities = MergeEvaluationCapabilities(employee.Capabilities, EvaluationSkillNames);
-                var startConfigured = startCapabilities.Count > 0 && startCapabilities.All(item => item.Ready);
-
-                updated = employee with
-                {
-                    // 私有分支不改变 status，保持 live；普通/雇佣评估仍进入 interning_ai。
-                    Status = isPrivateBranch ? "live" : "interning_ai",
-                    LifecycleStatus = isPrivateBranch ? employee.LifecycleStatus : "AI evaluation",
-                    EvalPhase = "ai_running",
-                    StageSummary = startMaterialsReady
-                        ? "Evaluation skill loaded and materials are ready for auto-run."
-                        : "Evaluation skill loaded but materials are incomplete. Waiting for testcase/ontology supplements.",
-                    PrimarySignal = startMaterialsReady
-                        ? "Evaluation environment is ready"
-                        : "Testcase or ontology is missing, open supplement conversation to upload materials",
-                    SignalLevel = startMaterialsReady ? "ok" : "warn",
-                    PendingActions = startMaterialsReady
-                        ? ["Run evaluation scenarios in evaluator sandbox"]
-                        : ["Open supplement conversation and upload missing testcase/ontology materials"],
-                    Capabilities = startCapabilities,
-                    IsConfigured = startConfigured
-                };
-                message = "AI evaluation started, workspace and materials primed";
-                logger.LogInformation("[Eval] START completed employeeId={EmployeeId} materialsReady={Ready}",
-                    employee.EmployeeId, startMaterialsReady);
-                break;
-            }
-
-            case "LOAD_SKILL":
-            {
-                // 同 START：private_branch 的状态机只改 EvalPhase，不改 live 状态；
-                // 非 private_branch 不允许绕过 interning_ai 状态。
-                if (currentStatus != "interning_ai" &&
-                    !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "LOAD_SKILL is only allowed in interning_ai status or live private_branch status");
-                }
-
-                var skillRootPath = ExtractPathFromComment(request.Comment);
-                var workspaceResult = await EnsureWorkspaceReadyAsync(
-                    owner,
-                    employee,
-                    skillRootPath,
-                    request.Comment,
-                    allowTargetHireCreation: true,
-                    forceTargetHireRecreate: true,
-                    cancellationToken);
-                if (!workspaceResult.Success || workspaceResult.Data is null)
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(workspaceResult.Code, workspaceResult.Message);
-                }
-
-                var workspaceContext = workspaceResult.Data;
-                await StartNewEvaluationSessionAsync(scope, employee.EmployeeId, workspaceContext, cancellationToken);
-                var readiness = await PrimeReadinessMaterialsAsync(scope, employee.EmployeeId, cancellationToken);
-                var materialsReady = readiness.TestcasesReady && readiness.OntologyReady;
-
-                var capabilities = MergeEvaluationCapabilities(employee.Capabilities, EvaluationSkillNames);
-                var configured = capabilities.Count > 0 && capabilities.All(item => item.Ready);
-
-                updated = employee with
-                {
-                    // 私有分支继续保持 live，避免破坏“原地定制、对话不中断”的产品语义。
-                    Status = isPrivateBranch ? "live" : "interning_ai",
-                    LifecycleStatus = isPrivateBranch ? employee.LifecycleStatus : "AI evaluation",
-                    EvalPhase = "ai_running",
-                    StageSummary = materialsReady
-                        ? "Evaluation skill loaded and materials are ready for auto-run."
-                        : "Evaluation skill loaded but materials are incomplete. Waiting for testcase/ontology supplements.",
-                    PrimarySignal = materialsReady
-                        ? "Evaluation environment is ready"
-                        : "Testcase or ontology is missing, open supplement conversation to upload materials",
-                    SignalLevel = materialsReady ? "ok" : "warn",
-                    PendingActions = materialsReady
-                        ? ["Run evaluation scenarios in evaluator sandbox"]
-                        : ["Open supplement conversation and upload missing testcase/ontology materials"],
-                    Capabilities = capabilities,
-                    IsConfigured = configured
-                };
-                message = "Evaluation skill loaded and evaluator workspace is ready";
-                logger.LogInformation("[Eval] LOAD_SKILL completed employeeId={EmployeeId} materialsReady={Ready}",
-                    employee.EmployeeId, materialsReady);
-                break;
-            }
-
-            case "RUN":
-            {
-                // 私有分支 RUN 也允许 live 状态执行；普通/雇佣评估仍必须处于 interning_ai。
-                if (currentStatus != "interning_ai" &&
-                    !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "RUN is only allowed in interning_ai status or live private_branch status");
-                }
-
-                // Ensure workspace is ready (sandboxes + skill upload)
-                var workspaceResult = await EnsureWorkspaceReadyAsync(
-                    owner,
-                    employee,
-                    null,
-                    request.Comment,
-                    allowTargetHireCreation: true,
-                    forceTargetHireRecreate: true,
-                    cancellationToken);
-                if (!workspaceResult.Success || workspaceResult.Data is null)
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(workspaceResult.Code, workspaceResult.Message);
-                }
-
-                // Prime readiness materials (ensure testcases/ontology are loaded in target sandbox)
-                await PrimeReadinessMaterialsAsync(scope, employee.EmployeeId, cancellationToken);
-
-                // Frontend will use WS to connect to evaluator sandbox for scoring.
-                // Scoring result comes back via sync-verdict endpoint.
-                updated = employee with
-                {
-                    EvalPhase = "ai_running",
-                    StageSummary = "Evaluation workspace ready. Waiting for web client to connect via WebSocket and trigger live_evaluator runtime-context flow.",
-                    PrimarySignal = "Awaiting frontend WebSocket bootstrap",
-                    SignalLevel = "ok",
-                    PendingActions = ["Connect to evaluator sandbox via WebSocket and send runtime-context bootstrap payload"]
-                };
-                message = "AI evaluation workspace ready for WebSocket live evaluation";
-                logger.LogInformation("[Eval] RUN workspace ready employeeId={EmployeeId} awaiting WS evaluation",
-                    employee.EmployeeId);
-                break;
-            }
-
-            case "PASS":
-            case "FAIL":
-                return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "manual PASS/FAIL is disabled, use RUN to get sandbox verdict");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, $"current status does not allow START: {currentStatus}");
         }
 
-        if (updated is null)
+        // 启动两个评估沙箱并上传所需文件；文件传好后沙箱内部自行处理评估逻辑。
+        var workspaceResult = await EnsureWorkspaceReadyAsync(
+            owner,
+            employee,
+            null,
+            null,
+            allowTargetHireCreation: true,
+            forceTargetHireRecreate: true,
+            cancellationToken);
+        if (!workspaceResult.Success || workspaceResult.Data is null)
         {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "decision only supports START, LOAD_SKILL, RUN, PASS, FAIL");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(workspaceResult.Code, workspaceResult.Message);
         }
 
+        await StartNewEvaluationSessionAsync(scope, employee.EmployeeId, workspaceResult.Data, cancellationToken);
+
+        var updated = employee with
+        {
+            // 私有分支不改变 status，保持 live；普通/雇佣评估进入 interning_ai。
+            Status = isPrivateBranch ? "live" : "interning_ai",
+            LifecycleStatus = isPrivateBranch ? employee.LifecycleStatus : "AI evaluation",
+            EvalPhase = "ai_running",
+        };
+
+        logger.LogInformation("[Eval] START completed employeeId={EmployeeId}", employee.EmployeeId);
         await SaveEmployeeToDbAsync(updated, cancellationToken);
-        return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, message);
+        return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "Evaluation workspace ready");
     }
 
     public async Task<ApiResponse<EmployeeDetailDto>> SubmitOnboardingDecisionAsync(
