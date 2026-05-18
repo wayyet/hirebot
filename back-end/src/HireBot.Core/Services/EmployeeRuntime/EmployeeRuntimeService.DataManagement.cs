@@ -71,6 +71,11 @@ public sealed partial class EmployeeRuntimeService
             var employee = !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
                 ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
                 : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
+            if (!HasRequiredIdentity(employee))
+            {
+                employee = await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
+            }
+
             if (employee is null)
             {
                 continue;
@@ -181,6 +186,19 @@ public sealed partial class EmployeeRuntimeService
         {
             return null;
         }
+    }
+
+    private static bool HasRequiredIdentity(EmployeeDetailDto? employee)
+    {
+        if (employee is null)
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(employee.EmployeeId) &&
+               (!string.IsNullOrWhiteSpace(employee.SourceTemplateId) ||
+                !string.IsNullOrWhiteSpace(employee.BasedOnTemplateId) ||
+                !string.IsNullOrWhiteSpace(employee.RoleName));
     }
 
     /// <summary>
