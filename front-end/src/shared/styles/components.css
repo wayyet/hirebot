@@ -689,6 +689,10 @@
 }
 
 .hb-mini-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid #e5e7eb;
   border-radius: 999px;
   background: var(--hb-surface-card);

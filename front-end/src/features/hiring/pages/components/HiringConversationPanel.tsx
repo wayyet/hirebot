@@ -99,7 +99,8 @@ type HiringConversationPanelProps = {
   onArtifactFileDownload?: (url: string, fileName: string) => void
   /** 工作流连接状态徽标：放在聊天面板顶部 */
   workflowStatus?: {
-    label: string
+    title: string
+    detail?: string
     tone: 'gray' | 'blue' | 'green' | 'pink'
     onRetry?: () => void
     retryDisabled?: boolean
@@ -144,8 +145,11 @@ export function HiringConversationPanel({
     <div className="hb-hiring-chat">
       {workflowStatus ? (
         <div className={`hb-hiring-chat-status is-${workflowStatus.tone}`}>
-          <span className="hb-hiring-chat-status-dot" />
-          <span className="hb-hiring-chat-status-label">{workflowStatus.label}</span>
+          <span className="hb-hiring-chat-status-dot" aria-hidden="true" />
+          <span className="hb-hiring-chat-status-copy">
+            <strong>{workflowStatus.title}</strong>
+            {workflowStatus.detail ? <span>{workflowStatus.detail}</span> : null}
+          </span>
           {workflowStatus.onRetry ? (
             <button
               type="button"
@@ -174,7 +178,7 @@ export function HiringConversationPanel({
               <div key={message.id} className="hb-hiring-msg">
                 <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
                 <div className="hb-hiring-msg-stack">
-                  <ArtifactMessageCard artifact={message.artifact} formatFileSize={formatFileSize} onFileDownload={onArtifactFileDownload} />
+                  <ArtifactMessageCard artifact={message.artifact} onFileDownload={onArtifactFileDownload} />
                 </div>
               </div>
             )

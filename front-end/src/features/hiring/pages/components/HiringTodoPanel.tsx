@@ -74,6 +74,19 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`
 }
 
+function splitRelativePath(relativePath: string): { fileName: string; folderPath: string } {
+  const normalizedPath = relativePath.replaceAll('\\', '/')
+  const lastSlashIndex = normalizedPath.lastIndexOf('/')
+  if (lastSlashIndex < 0) {
+    return { fileName: normalizedPath, folderPath: '根目录' }
+  }
+
+  return {
+    fileName: normalizedPath.slice(lastSlashIndex + 1),
+    folderPath: normalizedPath.slice(0, lastSlashIndex) || '根目录',
+  }
+}
+
 function deriveFolderFromWebkitPath(file: File): string | undefined {
   // <input webkitdirectory> 上传时 webkitRelativePath 形如 "folder/sub/file.md"
   const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath
@@ -287,10 +300,13 @@ function MaterialCardBody({
     }
   }, [sessionId, refresh, onAfterUpload])
 
+  const uploadedTotalBytes = uploaded.reduce((sum, file) => sum + file.sizeBytes, 0)
+  const recentUploaded = uploaded.slice(-8).reverse()
+
   return (
     <div className="hb-todo-mat">
       <div
-        className={clsx('hb-todo-dropzone', busy && 'is-busy')}
+        className={clsx('hb-todo-dropzone', busy && 'is-busy', uploaded.length > 0 && 'is-filled')}
         onDragOver={e => { e.preventDefault() }}
         onDrop={e => {
           e.preventDefault()
@@ -298,10 +314,24 @@ function MaterialCardBody({
           if (e.dataTransfer.files?.length) void handleFiles(e.dataTransfer.files)
         }}
       >
-        <p className="hb-todo-dropzone-title">将文件夹或文件拖到此处</p>
-        <p className="hb-todo-dropzone-hint">仅支持 .md / .json，单次最大 50MB</p>
+        <div className="hb-todo-dropzone-copy">
+          <p className="hb-todo-dropzone-title">上传业务资料</p>
+          <p className="hb-todo-dropzone-hint">支持 .md / .json，可拖入文件夹并保留目录结构</p>
+        </div>
+        {uploaded.length > 0 ? (
+          <div className="hb-todo-upload-summary" aria-live="polite">
+            <strong>已接收 {uploaded.length} 份资料</strong>
+            <span>{formatSize(uploadedTotalBytes)}</span>
+          </div>
+        ) : null}
+        {busy ? (
+          <div className="hb-todo-upload-sync" aria-live="polite">
+            <span className="hb-todo-upload-sync-dot" />
+            正在上传并同步到沙箱工作区
+          </div>
+        ) : null}
         <div className="hb-todo-dropzone-actions">
-          <button type="button" className="hb-todo-row-btn is-secondary" disabled={busy}
+          <button type="button" className="hb-todo-row-btn is-primary" disabled={busy}
             onClick={() => folderInputRef.current?.click()}>
             选择文件夹
           </button>
@@ -331,22 +361,28 @@ function MaterialCardBody({
         />
       </div>
 
-      {error && <p className="hb-todo-error">{error}</p>}
-
       {uploaded.length > 0 && (
         <ul className="hb-todo-file-list">
-          {uploaded.slice(0, 20).map(f => (
+          {recentUploaded.map(f => {
+            const { fileName, folderPath } = splitRelativePath(f.relativePath)
+            return (
             <li key={f.relativePath} className="hb-todo-file-item">
               <span className={clsx('hb-todo-file-fmt', `is-${f.format}`)}>{f.format}</span>
-              <span className="hb-todo-file-path" title={f.relativePath}>{f.relativePath}</span>
+              <span className="hb-todo-file-main">
+                <strong title={fileName}>{fileName}</strong>
+                <small title={folderPath}>{folderPath}</small>
+              </span>
               <span className="hb-todo-file-size">{formatSize(f.sizeBytes)}</span>
             </li>
-          ))}
-          {uploaded.length > 20 && (
-            <li className="hb-todo-file-item is-more">…共 {uploaded.length} 份</li>
+            )
+          })}
+          {uploaded.length > recentUploaded.length && (
+            <li className="hb-todo-file-item is-more">还有 {uploaded.length - recentUploaded.length} 份资料已收起</li>
           )}
         </ul>
       )}
+
+      {error && <p className="hb-todo-error">{error}</p>}
     </div>
   )
 }

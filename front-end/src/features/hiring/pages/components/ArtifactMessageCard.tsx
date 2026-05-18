@@ -3,12 +3,11 @@ import type { ArtifactDisplayData } from '../hiringPageTypes'
 
 interface Props {
   artifact: ArtifactDisplayData
-  formatFileSize: (bytes: number) => string
   /** 带 token 的文件下载回调；未提供时退化为直接 <a href> */
   onFileDownload?: (url: string, fileName: string) => void
 }
 
-export function ArtifactMessageCard({ artifact, formatFileSize, onFileDownload }: Props) {
+export function ArtifactMessageCard({ artifact, onFileDownload }: Props) {
   const title = artifact.label ?? artifact.artifactType
 
   return (

@@ -53,6 +53,14 @@ env:
   OpenSandbox__RequestTimeoutSeconds: "180"
   OpenSandbox__GatewayPort: "18789"
   OpenSandbox__Entrypoint__0: /app/OpenClaw.Gateway
+  # ---- 沙箱 workspace MCP：提供 streaming.emit_artifact 等前端事件工具 ----
+  OpenSandbox__McpConfig__Enabled: "true"
+  OpenSandbox__McpConfig__Servers__streaming-vhk95z__Transport: streamable-http
+  OpenSandbox__McpConfig__Servers__streaming-vhk95z__Url: http://ncrew-hire:8080/mcp
+  OpenSandbox__McpConfig__Servers__streaming-vhk95z__Enabled: "true"
+  OpenSandbox__McpConfig__Servers__streaming-vhk95z__ToolNamePrefix: streaming.
+  OpenSandbox__McpConfig__Servers__streaming-vhk95z__StartupTimeoutSeconds: "15"
+  OpenSandbox__McpConfig__Servers__streaming-vhk95z__RequestTimeoutSeconds: "60"
   # ---- 沙箱 KingCrab 子配置 (SaaS OIDC) ----
   OpenSandbox__KingCrab__AuthToken: ncrew-hire-sandbox-token
   OpenSandbox__KingCrab__OidcAuthority: https://passport.ai4c.cn/realms/ai4c-saas

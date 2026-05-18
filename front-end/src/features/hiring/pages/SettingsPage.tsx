@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, RefreshCw, Trash2, AlertCircle, Server, Layers } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type HiringSandboxItem } from '@/infra/api'
@@ -18,13 +18,15 @@ function statePillClass(state: string): string {
 interface SandboxRowProps {
   item: HiringSandboxItem
   onDelete: (sandboxId: string) => void
-  deletingId: string | null
+  onSelectionChange: (sandboxId: string, selected: boolean) => void
+  deletingIds: ReadonlySet<string>
+  selected: boolean
 }
 
-function SandboxRow({ item, onDelete, deletingId }: SandboxRowProps) {
+function SandboxRow({ item, onDelete, onSelectionChange, deletingIds, selected }: SandboxRowProps) {
   const { t } = useTranslation()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const isDeleting = deletingId === item.sandboxId
+  const isDeleting = deletingIds.has(item.sandboxId)
 
   function formatDate(iso: string | null) {
     if (!iso) return '—'
@@ -39,6 +41,16 @@ function SandboxRow({ item, onDelete, deletingId }: SandboxRowProps) {
   return (
     <>
       <tr className={isDeleting ? 'is-deleting' : undefined}>
+        <td className="hb-selection-col">
+          <input
+            type="checkbox"
+            className="hb-row-checkbox"
+            checked={selected}
+            disabled={isDeleting}
+            aria-label={t('settings.sandboxes.selectRow', { sandboxId: item.sandboxId })}
+            onChange={(event) => onSelectionChange(item.sandboxId, event.target.checked)}
+          />
+        </td>
         <td>
           <div className="hb-dt-id">
             <Server size={13} />
@@ -86,7 +98,7 @@ function SandboxRow({ item, onDelete, deletingId }: SandboxRowProps) {
       {/* 内联确认行：点击删除后展开 */}
       {confirmOpen && (
         <tr className="hb-confirm-row">
-          <td colSpan={6}>
+          <td colSpan={7}>
             <div className="hb-confirm-bar">
               <AlertCircle size={14} />
               <span>{t('settings.sandboxes.deleteConfirm')}</span>
@@ -114,8 +126,17 @@ export default function SettingsPage() {
   const [sandboxes, setSandboxes] = useState<HiringSandboxItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [selectedSandboxIds, setSelectedSandboxIds] = useState<Set<string>>(() => new Set())
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set())
+  const [batchConfirmMode, setBatchConfirmMode] = useState<'selected' | 'all' | null>(null)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const selectAllRef = useRef<HTMLInputElement>(null)
+
+  const sandboxIds = useMemo(() => sandboxes.map(item => item.sandboxId), [sandboxes])
+  const selectedCount = selectedSandboxIds.size
+  const isBusyDeleting = deletingIds.size > 0
+  const allSelected = sandboxes.length > 0 && selectedCount === sandboxes.length
+  const batchTargetIds = batchConfirmMode === 'all' ? sandboxIds : [...selectedSandboxIds]
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -132,6 +153,22 @@ export default function SettingsPage() {
 
   useEffect(() => { void load() }, [load])
 
+  useEffect(() => {
+    if (!selectAllRef.current) return
+    selectAllRef.current.indeterminate = selectedCount > 0 && selectedCount < sandboxes.length
+  }, [sandboxes.length, selectedCount])
+
+  // 列表刷新或删除后，清理已经不存在的选中项，避免后续批量操作误带旧 ID。
+  useEffect(() => {
+    setSelectedSandboxIds(prev => {
+      if (prev.size === 0) return prev
+
+      const existingIds = new Set(sandboxIds)
+      const next = new Set([...prev].filter(sandboxId => existingIds.has(sandboxId)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [sandboxIds])
+
   // Toast 3 秒后自动关闭
   useEffect(() => {
     if (!toast) return
@@ -140,16 +177,81 @@ export default function SettingsPage() {
   }, [toast])
 
   async function handleDelete(sandboxId: string) {
-    setDeletingId(sandboxId)
+    setDeletingIds(new Set([sandboxId]))
     try {
       await api.settings.deleteSandbox(sandboxId)
       setSandboxes(prev => prev.filter(s => s.sandboxId !== sandboxId))
+      setSelectedSandboxIds(prev => {
+        if (!prev.has(sandboxId)) return prev
+        const next = new Set(prev)
+        next.delete(sandboxId)
+        return next
+      })
       setToast({ type: 'success', message: t('settings.sandboxes.deleteSuccess') })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('settings.sandboxes.deleteFailed')
       setToast({ type: 'error', message: msg })
     } finally {
-      setDeletingId(null)
+      setDeletingIds(new Set())
+    }
+  }
+
+  function handleSelectRow(sandboxId: string, selected: boolean) {
+    setSelectedSandboxIds(prev => {
+      const next = new Set(prev)
+      if (selected) {
+        next.add(sandboxId)
+      } else {
+        next.delete(sandboxId)
+      }
+      return next
+    })
+  }
+
+  function handleSelectAll(selected: boolean) {
+    setSelectedSandboxIds(selected ? new Set(sandboxIds) : new Set())
+  }
+
+  async function handleBatchDelete() {
+    const targetIds = batchTargetIds
+    if (targetIds.length === 0) {
+      setBatchConfirmMode(null)
+      return
+    }
+
+    setDeletingIds(new Set(targetIds))
+    try {
+      const results = await Promise.allSettled(targetIds.map(sandboxId => api.settings.deleteSandbox(sandboxId)))
+      const deletedIds = targetIds.filter((_, index) => results[index].status === 'fulfilled')
+      const deletedIdSet = new Set(deletedIds)
+      const failedCount = targetIds.length - deletedIds.length
+
+      if (deletedIds.length > 0) {
+        setSandboxes(prev => prev.filter(item => !deletedIdSet.has(item.sandboxId)))
+        setSelectedSandboxIds(prev => {
+          const next = new Set(prev)
+          deletedIds.forEach(sandboxId => next.delete(sandboxId))
+          return next
+        })
+      }
+
+      if (failedCount > 0) {
+        setToast({
+          type: 'error',
+          message: t('settings.sandboxes.batchDeletePartialFailed', {
+            deleted: deletedIds.length,
+            failed: failedCount,
+          }),
+        })
+      } else {
+        setToast({
+          type: 'success',
+          message: t('settings.sandboxes.batchDeleteSuccess', { count: deletedIds.length }),
+        })
+      }
+    } finally {
+      setDeletingIds(new Set())
+      setBatchConfirmMode(null)
     }
   }
 
@@ -171,16 +273,18 @@ export default function SettingsPage() {
             <h2 className="hb-section-title">{t('settings.sandboxes.title')}</h2>
             <p className="hb-section-copy">{t('settings.sandboxes.description')}</p>
           </div>
-          <button
-            type="button"
-            className="hb-btn-ghost"
-            style={{ gap: 6, padding: '8px 14px', fontSize: 13 }}
-            onClick={() => { void load() }}
-            disabled={loading}
-          >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-            {t('settings.sandboxes.refresh')}
-          </button>
+          <div className="hb-section-actions">
+            <button
+              type="button"
+              className="hb-btn-ghost"
+              style={{ gap: 6, padding: '8px 14px', fontSize: 13 }}
+              onClick={() => { void load() }}
+              disabled={loading || isBusyDeleting}
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+              {t('settings.sandboxes.refresh')}
+            </button>
+          </div>
         </div>
 
         {/* 错误提示 */}
@@ -210,30 +314,105 @@ export default function SettingsPage() {
 
         {/* 沙箱列表表格 */}
         {!loading && sandboxes.length > 0 && (
-          <div className="hb-data-table-wrap">
-            <table className="hb-data-table">
-              <thead>
-                <tr>
-                  <th>{t('settings.sandboxes.col.sandboxId')}</th>
-                  <th>{t('settings.sandboxes.col.scope')}</th>
-                  <th>{t('settings.sandboxes.col.state')}</th>
-                  <th>{t('settings.sandboxes.col.createdAt')}</th>
-                  <th>{t('settings.sandboxes.col.expiresAt')}</th>
-                  <th>{t('settings.sandboxes.col.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sandboxes.map(item => (
-                  <SandboxRow
-                    key={item.instanceId}
-                    item={item}
-                    onDelete={handleDelete}
-                    deletingId={deletingId}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="hb-table-toolbar">
+              <div className="hb-table-selection-summary">
+                {selectedCount > 0
+                  ? t('settings.sandboxes.selectedCount', { count: selectedCount })
+                  : t('settings.sandboxes.noSelection')}
+              </div>
+              <div className="hb-table-toolbar-actions">
+                <button
+                  type="button"
+                  className="hb-mini-action danger"
+                  onClick={() => setBatchConfirmMode('selected')}
+                  disabled={selectedCount === 0 || isBusyDeleting}
+                >
+                  {isBusyDeleting && batchConfirmMode === 'selected'
+                    ? <Loader2 size={12} className="animate-spin" />
+                    : <Trash2 size={12} />}
+                  {t('settings.sandboxes.deleteSelected')}
+                </button>
+                <button
+                  type="button"
+                  className="hb-mini-action danger"
+                  onClick={() => setBatchConfirmMode('all')}
+                  disabled={sandboxes.length === 0 || isBusyDeleting}
+                >
+                  {isBusyDeleting && batchConfirmMode === 'all'
+                    ? <Loader2 size={12} className="animate-spin" />
+                    : <Trash2 size={12} />}
+                  {t('settings.sandboxes.deleteAll')}
+                </button>
+              </div>
+            </div>
+
+            {batchConfirmMode && (
+              <div className="hb-confirm-bar hb-batch-confirm">
+                <AlertCircle size={14} />
+                <span>
+                  {batchConfirmMode === 'all'
+                    ? t('settings.sandboxes.allDeleteConfirm', { count: batchTargetIds.length })
+                    : t('settings.sandboxes.selectedDeleteConfirm', { count: batchTargetIds.length })}
+                </span>
+                <button
+                  type="button"
+                  className="hb-mini-action danger"
+                  onClick={() => { void handleBatchDelete() }}
+                  disabled={isBusyDeleting}
+                >
+                  {isBusyDeleting ? <Loader2 size={12} className="animate-spin" /> : null}
+                  {t('common.confirm')}
+                </button>
+                <button
+                  type="button"
+                  className="hb-mini-action"
+                  onClick={() => setBatchConfirmMode(null)}
+                  disabled={isBusyDeleting}
+                >
+                  {t('common.cancel')}
+                </button>
+              </div>
+            )}
+
+            <div className="hb-data-table-wrap">
+              <table className="hb-data-table">
+                <thead>
+                  <tr>
+                    <th className="hb-selection-col">
+                      <input
+                        ref={selectAllRef}
+                        type="checkbox"
+                        className="hb-row-checkbox"
+                        checked={allSelected}
+                        disabled={isBusyDeleting}
+                        aria-label={t('settings.sandboxes.selectAll')}
+                        onChange={(event) => handleSelectAll(event.target.checked)}
+                      />
+                    </th>
+                    <th>{t('settings.sandboxes.col.sandboxId')}</th>
+                    <th>{t('settings.sandboxes.col.scope')}</th>
+                    <th>{t('settings.sandboxes.col.state')}</th>
+                    <th>{t('settings.sandboxes.col.createdAt')}</th>
+                    <th>{t('settings.sandboxes.col.expiresAt')}</th>
+                    <th>{t('settings.sandboxes.col.actions')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sandboxes.map(item => (
+                    <SandboxRow
+                      key={item.instanceId}
+                      item={item}
+                      onDelete={handleDelete}
+                      onSelectionChange={handleSelectRow}
+                      deletingIds={deletingIds}
+                      selected={selectedSandboxIds.has(item.sandboxId)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

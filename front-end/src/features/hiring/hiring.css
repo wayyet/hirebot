@@ -1,157 +1,20 @@
-.hb-hiring-page {
-  min-height: calc(100vh - 64px);
-  padding: 12px 32px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-width: 1440px;
-  width: 100%;
-  margin: 0 auto;
-}
-
-.hb-hiring-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.hb-hiring-header .hb-page-copy {
-  max-width: 840px;
-}
-
-.hb-hiring-shell {
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(14px);
-  box-shadow: 0 18px 48px rgba(17, 24, 39, 0.08);
-}
-
-.hb-hiring-journey {
-  padding: 22px 24px 18px;
-  border-bottom: 1px solid var(--hb-border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.76) 100%);
-}
-
-.hb-hiring-journey-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.hb-hiring-journey-title {
-  margin: 4px 0 0;
-  font-size: 26px;
-  font-weight: 600;
-  line-height: 1.12;
-  letter-spacing: -0.03em;
-  color: var(--hb-near-black);
-}
-
-.hb-hiring-statusbar,
-.hb-hiring-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 16px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--hb-border);
-  font-size: 12px;
-}
-
-.hb-hiring-statusbar {
-  background: #eff6ff;
-  color: #2563eb;
-}
-
-.hb-hiring-statusbar.is-error {
-  background: #fff1f2;
-  color: #b3263c;
-}
-
-.hb-hiring-meta {
-  color: var(--hb-soft);
-  background: rgba(250, 250, 250, 0.88);
-}
-
-.hb-hiring-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
-  min-height: calc(100vh - 285px);
-}
-
-.hb-hiring-chat,
-.hb-hiring-side {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.hb-hiring-chat {
-  background: rgba(255, 255, 255, 0.96);
-  border-right: 1px solid var(--hb-border);
-}
-
-.hb-hiring-side {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(250, 250, 250, 0.9) 100%);
-}
-
-.hb-hiring-panel-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 18px 20px 14px;
-  border-bottom: 1px solid var(--hb-border);
-}
-
-.hb-hiring-panel-title {
-  margin: 6px 0 0;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.2;
-  color: var(--hb-near-black);
-}
-
-.hb-hiring-panel-copy {
-  margin: 6px 0 0;
-  max-width: 520px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--hb-soft);
-}
-
-.hb-hiring-chat-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(250, 250, 250, 0.98) 100%);
-}
-
 /* 聊天面板顶部：工作流连接状态条 */
 .hb-hiring-chat-status {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-bottom: 1px solid var(--line);
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hb-border-row);
   font-size: 12px;
   color: var(--hb-soft);
-  background: rgba(250, 250, 250, 0.6);
+  background: #f8fafc;
   flex-shrink: 0;
 }
 
 .hb-hiring-chat-status-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
   border-radius: 50%;
   background: #9ca3af;
   flex-shrink: 0;
@@ -159,24 +22,43 @@
 
 .hb-hiring-chat-status.is-blue .hb-hiring-chat-status-dot { background: #3b82f6; }
 .hb-hiring-chat-status.is-green .hb-hiring-chat-status-dot { background: #22c55e; }
-.hb-hiring-chat-status.is-pink .hb-hiring-chat-status-dot { background: #ec4899; }
+.hb-hiring-chat-status.is-pink .hb-hiring-chat-status-dot { background: #ef4444; }
 .hb-hiring-chat-status.is-gray .hb-hiring-chat-status-dot { background: #9ca3af; }
 
+.hb-hiring-chat-status.is-blue {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .hb-hiring-chat-status.is-pink {
-  color: #be185d;
-  background: rgba(252, 231, 243, 0.5);
+  color: #b91c1c;
+  background: #fff1f2;
 }
 
 .hb-hiring-chat-status.is-green {
   color: #15803d;
+  background: #ecfdf5;
 }
 
-.hb-hiring-chat-status-label {
+.hb-hiring-chat-status-copy {
+  display: flex;
   flex: 1;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hb-hiring-chat-status-copy strong {
+  color: var(--hb-near-black);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.hb-hiring-chat-status-copy span {
+  flex: 1;
+  min-width: 0;
+  color: currentColor;
+  line-height: 1.45;
 }
 
 .hb-hiring-msg {
@@ -641,6 +523,9 @@ body.hb-body-hiring-prototype {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
 }
 
 .hb-hiring-back-link {
@@ -1144,9 +1029,9 @@ body.hb-body-hiring-prototype {
   min-height: 0;
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 20px;
+  border-radius: 14px;
   background: var(--hb-surface-card);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 /* 右侧进度卡不显示卡片外边框，避免标题区出现上下两根线 */
@@ -2851,7 +2736,7 @@ body.hb-body-hiring-prototype {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--ink-1);
   line-height: 1.2;
 }
 
@@ -3434,7 +3319,7 @@ body.hb-body-hiring-prototype {
 .hb-config-label {
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--ink-2, #555);
+  color: var(--hb-body);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -3678,36 +3563,99 @@ body.hb-body-hiring-prototype {
 }
 
 .hb-todo-hint-muted { font-size: 12px; color: var(--ink-3); margin: 0; }
-.hb-todo-error { font-size: 12px; color: #ef4444; margin: 4px 0 0; }
+.hb-todo-error {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  border-radius: 8px;
+  background: #fff1f2;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.45;
+}
 
 /* 资料卡：拖拽区 */
 .hb-todo-dropzone {
   border: 1px dashed var(--line);
-  border-radius: 8px;
-  padding: 14px 12px;
-  text-align: center;
-  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 14px;
+  text-align: left;
+  background: #f8fafc;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  align-items: center;
+  gap: 10px;
+  align-items: stretch;
   transition: border-color 0.15s, background 0.15s;
 }
-.hb-todo-dropzone:hover { border-color: var(--accent); }
-.hb-todo-dropzone.is-busy { opacity: 0.6; pointer-events: none; }
-.hb-todo-dropzone-title { font-size: 13px; font-weight: 600; margin: 0; color: var(--ink-1); }
-.hb-todo-dropzone-hint  { font-size: 11.5px; color: var(--ink-3); margin: 0; }
-.hb-todo-dropzone-actions { display: flex; gap: 8px; margin-top: 4px; }
+.hb-todo-dropzone:hover { border-color: rgba(74,108,247,0.45); background: #f7f9ff; }
+.hb-todo-dropzone.is-filled { border-style: solid; background: #ffffff; }
+.hb-todo-dropzone.is-busy { border-color: rgba(74,108,247,0.45); background: #f7f9ff; }
+.hb-todo-dropzone-copy { display: flex; flex-direction: column; gap: 3px; }
+.hb-todo-dropzone-title { font-size: 14px; font-weight: 700; margin: 0; color: var(--ink-1); }
+.hb-todo-dropzone-hint  { font-size: 12px; color: var(--ink-3); margin: 0; line-height: 1.45; }
+.hb-todo-dropzone-actions { display: flex; gap: 8px; margin-top: 2px; }
+.hb-todo-upload-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(34, 197, 94, 0.18);
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #15803d;
+}
+.hb-todo-upload-summary strong {
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.hb-todo-upload-summary span {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: #166534;
+}
+.hb-todo-upload-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(74,108,247,0.10);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+.hb-todo-upload-sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: hb-todo-sync-pulse 0.9s ease-in-out infinite;
+}
+@keyframes hb-todo-sync-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
 
 /* 资料卡：文件列表 */
 .hb-todo-file-list {
-  list-style: none; padding: 0; margin: 8px 0 0;
-  display: flex; flex-direction: column; gap: 4px;
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 .hb-todo-file-item {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12px; padding: 4px 8px;
-  border-radius: 6px; background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
 }
 .hb-todo-file-item.is-more { justify-content: center; color: var(--ink-3); }
 .hb-todo-file-fmt {
@@ -3716,8 +3664,31 @@ body.hb-body-hiring-prototype {
   background: rgba(74,108,247,0.14); color: var(--accent);
 }
 .hb-todo-file-fmt.is-json { background: rgba(234,179,8,0.14); color: #b45309; }
+.hb-todo-file-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.hb-todo-file-main strong,
+.hb-todo-file-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hb-todo-file-main strong {
+  color: var(--ink-1);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.hb-todo-file-main small {
+  color: var(--ink-3);
+  font-size: 10.5px;
+  line-height: 1.3;
+}
 .hb-todo-file-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-1); }
-.hb-todo-file-size { color: var(--ink-3); flex-shrink: 0; }
+.hb-todo-file-size { color: var(--ink-3); flex-shrink: 0; font-size: 11px; }
 
 /* 技能卡 */
 .hb-todo-skill { display: flex; flex-direction: column; gap: 8px; }
@@ -3740,7 +3711,7 @@ body.hb-body-hiring-prototype {
 .hb-todo-skill-info { flex: 1; min-width: 0; }
 .hb-todo-skill-info strong { font-size: 13px; color: var(--ink-1); }
 .hb-todo-skill-meta { font-size: 11px; color: var(--ink-3); margin-left: 6px; }
-.hb-todo-skill-desc { font-size: 11.5px; color: var(--ink-2); margin: 2px 0 0; line-height: 1.4; }
+.hb-todo-skill-desc { font-size: 11.5px; color: var(--hb-body); margin: 2px 0 0; line-height: 1.4; }
 .hb-todo-skill-linked { margin-top: 4px; display: flex; flex-direction: column; gap: 4px; }
 .hb-todo-tag-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .hb-todo-tag {
@@ -3753,8 +3724,8 @@ body.hb-body-hiring-prototype {
 
 /* 外部系统卡 */
 .hb-todo-external { display: flex; flex-direction: column; gap: 8px; }
-.hb-todo-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-2); }
-.hb-todo-field > span { font-size: 12px; color: var(--ink-2); }
+.hb-todo-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--hb-body); }
+.hb-todo-field > span { font-size: 12px; color: var(--hb-body); }
 .hb-todo-actions-row { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
 
 /* 200% 缩放 / Surface Pro 8 类窄屏适配（CSS 像素 <= 1100） */

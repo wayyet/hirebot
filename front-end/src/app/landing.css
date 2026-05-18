@@ -191,6 +191,14 @@
   text-align: right;
 }
 
+.hb-data-table th.hb-selection-col,
+.hb-data-table td.hb-selection-col {
+  width: 42px;
+  min-width: 42px;
+  padding-right: 4px;
+  text-align: center;
+}
+
 .hb-data-table td {
   padding: 12px 14px;
   font-size: 13px;
@@ -281,6 +289,48 @@
   flex-wrap: wrap;
   font-size: 13px;
   color: #b45309;
+}
+
+.hb-batch-confirm {
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #fde8c6;
+  border-radius: 12px;
+  background: #fff7ed;
+}
+
+.hb-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.hb-table-selection-summary {
+  color: var(--hb-soft);
+  font-size: 13px;
+}
+
+.hb-table-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.hb-row-checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--hb-near-black);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.hb-row-checkbox:disabled {
+  cursor: not-allowed;
 }
 
 /* pill 红色变体（错误状态） */

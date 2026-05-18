@@ -585,11 +585,43 @@ export default function HiringPage() {
    */
   async function connectSandboxWs(endpoint: string) {
     wsRef.current?.disconnect()
+    wsRef.current = null
 
     const token = await tokenService.ensureFresh()
     if (!token) return
 
     const ws = new GatewayWs(endpoint, token)
+    let settled = false
+    let timeoutId: ReturnType<typeof window.setTimeout> | null = null
+
+    const waitForOpen = new Promise<void>((resolve, reject) => {
+      timeoutId = window.setTimeout(() => {
+        if (settled) return
+        settled = true
+        reject(new Error('沙箱 WebSocket 连接超时，请稍后重试'))
+      }, 8000)
+
+      ws.onStateChange = (state) => {
+        if (state === 'open' && !settled) {
+          settled = true
+          if (timeoutId !== null) {
+            window.clearTimeout(timeoutId)
+            timeoutId = null
+          }
+          resolve()
+          return
+        }
+
+        if ((state === 'closed' || state === 'error') && !settled) {
+          settled = true
+          if (timeoutId !== null) {
+            window.clearTimeout(timeoutId)
+            timeoutId = null
+          }
+          reject(new Error('沙箱 WebSocket 握手失败，请确认当前账号有权访问该沙箱后重试'))
+        }
+      }
+    })
 
     ws.onMessage = (msg) => {
       const type = msg.type as string
@@ -805,6 +837,16 @@ export default function HiringPage() {
         ws.onMessage?.(msg)
       }
     }
+
+    try {
+      await waitForOpen
+    } catch (error) {
+      ws.disconnect()
+      if (wsRef.current === ws) {
+        wsRef.current = null
+      }
+      throw error
+    }
   }
 
   function retryWorkflowInitialization() {
@@ -878,7 +920,13 @@ export default function HiringPage() {
         // 记录本次发送的用户消息和材料，供 WS typing_stop 事件中调用同步端点使用
         lastWsUserMessageRef.current = messageText
         lastWsMaterialsRef.current = toConversationMaterials(incoming)
-        ws.send({ type: 'user_message', text: messageText, sessionId })
+        if (!ws.isOpen()) {
+          throw new Error('沙箱 WebSocket 尚未连接，请稍后重试')
+        }
+        const sent = ws.send({ type: 'user_message', text: messageText, sessionId })
+        if (!sent) {
+          throw new Error('沙箱 WebSocket 消息发送失败，请稍后重试')
+        }
         setTyping(true)
         setWorkflowError('')
         setWorkflowNotice('')
@@ -1278,22 +1326,51 @@ export default function HiringPage() {
     return <CenterState message={templateError || '模板不存在'} />
   }
 
-  const workflowStatusTone = workflowError
-    ? 'pink'
-    : workflowBooting || workflowNotice
-      ? 'blue'
-      : workflowReady
-        ? 'green'
-        : 'gray'
-  const workflowStatusLabel = workflowError
-    ? workflowError
-    : workflowNotice
-      ? workflowNotice
-      : workflowBooting
-        ? '正在初始化后端工作流，请稍候...'
-        : workflowReady
-          ? '已连接'
-          : ''
+  const workflowStatus = (() => {
+    if (workflowError) {
+      return {
+        title: '工作流异常',
+        detail: workflowError,
+        tone: 'pink' as const,
+        onRetry: retryWorkflowInitialization,
+        retryDisabled: workflowBooting,
+      }
+    }
+
+    if (workflowNotice.includes('自动导入模板包')) {
+      return {
+        title: '模板包解析中',
+        detail: '已导入模板包并发送分析指令，沙箱助手正在整理下一步。',
+        tone: 'blue' as const,
+      }
+    }
+
+    if (workflowBooting) {
+      return {
+        title: '初始化工作流',
+        detail: '正在连接后端工作流和沙箱会话，请稍候。',
+        tone: 'blue' as const,
+      }
+    }
+
+    if (workflowNotice) {
+      return {
+        title: '需要处理',
+        detail: workflowNotice,
+        tone: 'blue' as const,
+      }
+    }
+
+    if (workflowReady) {
+      return {
+        title: '沙箱助手已连接',
+        detail: '可以继续发送资料、确认技能或推进当前阶段。',
+        tone: 'green' as const,
+      }
+    }
+
+    return null
+  })()
 
   return (
     <div className="hb-hiring-page">
@@ -1334,12 +1411,7 @@ export default function HiringPage() {
           onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
           formatFileSize={formatFileSize}
           onArtifactFileDownload={(url, fileName) => { void downloadGatewayFile(url, fileName) }}
-          workflowStatus={workflowStatusLabel ? {
-            label: workflowStatusLabel,
-            tone: workflowStatusTone,
-            onRetry: workflowError ? retryWorkflowInitialization : undefined,
-            retryDisabled: workflowBooting,
-          } : null}
+          workflowStatus={workflowStatus}
         />
 
         <div className="hb-hiring-right-col">
