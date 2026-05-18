@@ -1152,29 +1152,29 @@ public sealed class SandboxInfrastructureTests
                 {
                     handoffItems = new object[]
                     {
-                        new
+                        new Dictionary<string, object?>
                         {
-                            sessionId = "session-001",
-                            workflowId = "employment-coach",
-                            handoffId = "todo_material_001",
-                            title = "Material classification",
-                            kind = "handoff_todo",
-                            stage = HiringCollectionStage.Material,
-                            targetSkill = "ontology-extraction",
-                            intent = "Summarize refund flow material",
-                            category = "process_sop",
-                            payload = BuildHandoffPayloadElement("refund-flow.pdf", "Extract refund flow nodes"),
-                            source = "uploaded material",
-                            acceptance = "objective and source_files are present",
-                            status = HiringHandoffStatus.Confirmed,
-                            fingerprint = BuildTestHandoffFingerprint(HiringCollectionStage.Material, "ontology-extraction", "todo_material_001"),
-                            relatedTodos = Array.Empty<string>(),
-                            relatedFiles = new[] { "refund-flow.pdf" },
-                            revision = 1,
-                            createdAtUtc = DateTimeOffset.Parse("2026-05-06T10:00:00Z"),
-                            updatedAtUtc = DateTimeOffset.Parse("2026-05-06T10:05:00Z"),
-                            dispatchId = (string?)null,
-                            callbackSummary = (string?)null
+                            ["session_id"] = "session-001",
+                            ["workflow_id"] = "employment-coach",
+                            ["handoff_id"] = "todo_material_001",
+                            ["title"] = "Material classification",
+                            ["kind"] = "handoff_todo",
+                            ["stage"] = HiringCollectionStage.Material,
+                            ["target_skill"] = "ontology-extraction",
+                            ["intent"] = "Summarize refund flow material",
+                            ["category"] = "process_sop",
+                            ["payload"] = BuildHandoffPayloadElement("refund-flow.pdf", "Extract refund flow nodes"),
+                            ["source"] = "uploaded material",
+                            ["acceptance"] = "objective and source_files are present",
+                            ["status"] = HiringHandoffStatus.Confirmed,
+                            ["fingerprint"] = BuildTestHandoffFingerprint(HiringCollectionStage.Material, "ontology-extraction", "todo_material_001"),
+                            ["related_todos"] = Array.Empty<string>(),
+                            ["related_files"] = new[] { "refund-flow.pdf" },
+                            ["revision"] = 1,
+                            ["created_at"] = DateTimeOffset.Parse("2026-05-06T10:00:00Z"),
+                            ["updated_at"] = DateTimeOffset.Parse("2026-05-06T10:05:00Z"),
+                            ["dispatch_id"] = null,
+                            ["callback_summary"] = null
                         }
                     }
                 }

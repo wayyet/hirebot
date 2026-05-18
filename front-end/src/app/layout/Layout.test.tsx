@@ -36,7 +36,7 @@ describe('Layout', () => {
     vi.stubGlobal('sessionStorage', createStorageMock())
   })
 
-  it('renders a global logout action inside the top navigation', () => {
+  it('renders the top navigation and user entry', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter initialEntries={['/department-employees']}>
         <UxOverlayProvider>
@@ -47,6 +47,7 @@ describe('Layout', () => {
       </MemoryRouter>,
     )
 
-    expect(html).toContain('退出登录')
+    expect(html).toContain('NCrew Hire')
+    expect(html).toContain('加载中...')
   })
 })

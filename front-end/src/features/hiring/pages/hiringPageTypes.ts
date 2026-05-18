@@ -29,6 +29,12 @@ export interface ArtifactDisplayData {
   displayHint?: 'progress' | 'tree' | 'table' | 'code' | 'badge' | string
 }
 
+export interface MaterialRequestedCategory {
+  title: string
+  description?: string
+  examples?: string[]
+}
+
 /** 对应 WS type="skill_stage_gate" 消息 */
 export interface StageGateData {
   skillName: string

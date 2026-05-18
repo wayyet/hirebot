@@ -11,9 +11,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
+import { FileText, Upload } from 'lucide-react'
 
 import { api, HiringCollectionStage } from '@/infra/api'
 import type { HiringCollectionStageType, StoreSkillItem } from '@/infra/api'
+import type { MaterialRequestedCategory } from '../hiringPageTypes'
 
 // ── 类型 ──────────────────────────────────────────────────────────────────────
 
@@ -21,9 +23,12 @@ export type StageStatus = 'running' | 'completed' | 'failed'
 export type StageKey = HiringCollectionStageType
 
 interface UploadedFileMeta {
+  materialFileId?: string
   relativePath: string
+  originalFileName?: string
   sizeBytes: number
   format: string
+  requestedCategoryTitle?: string | null
 }
 
 interface LinkedSkill {
@@ -33,6 +38,7 @@ interface LinkedSkill {
 }
 
 export interface HiringTodoPanelProps {
+  hireId: string
   /** 当前雇佣会话 ID（用于上传/解析 todo 文件） */
   sessionId: string
   /** WS 阶段覆盖状态：由 HiringPage 聚合 artifact / skill_stage_gate 事件得到 */
@@ -44,6 +50,7 @@ export interface HiringTodoPanelProps {
   generated?: boolean
   /** 用户关联的 store skill UUID 列表变化时回调；用于在导入产物包时一并提交给后端。 */
   onLinkedSkillIdsChange?: (skillIds: string[]) => void
+  requestedMaterialCategories?: MaterialRequestedCategory[]
 }
 
 interface StageConfig {
@@ -51,6 +58,14 @@ interface StageConfig {
   num: string
   title: string
   hint: string
+}
+
+interface MaterialCategoryCard {
+  title: string
+  description: string
+  formatLabel: string
+  contextLabel?: string
+  examplesLabel?: string
 }
 
 const STAGES: StageConfig[] = [
@@ -62,6 +77,24 @@ const STAGES: StageConfig[] = [
 // ── 工具方法 ─────────────────────────────────────────────────────────────────
 
 const ALLOWED_EXTS = new Set(['.md', '.json'])
+const MATERIAL_FORMAT_HINTS: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'PDF', pattern: /\bpdf\b/i },
+  { label: 'DOCX', pattern: /\bdocx\b|\bdoc\b|\bword\b/i },
+  { label: 'XLSX', pattern: /\bxlsx\b|\bxls\b|\bexcel\b/i },
+  { label: 'JSON', pattern: /\bjson\b/i },
+  { label: 'MD', pattern: /\bmarkdown\b|\bmd\b/i },
+]
+const MATERIAL_CONTEXT_HINTS = [
+  '\u77e5\u8bc6\u5e93',
+  '\u653f\u7b56',
+  '\u5de5\u5355',
+  'FAQ',
+  '\u6d41\u7a0b',
+  '\u89c4\u8303',
+  '\u8bdd\u672f',
+  '\u8868\u5355',
+  '\u6a21\u677f',
+]
 
 function fileExt(name: string): string {
   const idx = name.lastIndexOf('.')
@@ -72,19 +105,6 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1048576).toFixed(1)} MB`
-}
-
-function splitRelativePath(relativePath: string): { fileName: string; folderPath: string } {
-  const normalizedPath = relativePath.replaceAll('\\', '/')
-  const lastSlashIndex = normalizedPath.lastIndexOf('/')
-  if (lastSlashIndex < 0) {
-    return { fileName: normalizedPath, folderPath: '根目录' }
-  }
-
-  return {
-    fileName: normalizedPath.slice(lastSlashIndex + 1),
-    folderPath: normalizedPath.slice(0, lastSlashIndex) || '根目录',
-  }
 }
 
 function deriveFolderFromWebkitPath(file: File): string | undefined {
@@ -98,13 +118,51 @@ function deriveFolderFromWebkitPath(file: File): string | undefined {
 
 // ── 主组件 ────────────────────────────────────────────────────────────────────
 
+function inferMaterialFormatLabel(category: MaterialRequestedCategory): string {
+  const haystack = [category.title, category.description, ...(category.examples ?? [])]
+    .filter(Boolean)
+    .join(' ')
+
+  for (const item of MATERIAL_FORMAT_HINTS) {
+    if (item.pattern.test(haystack)) return item.label
+  }
+
+  return '\u8d44\u6599'
+}
+
+function inferMaterialContextLabel(category: MaterialRequestedCategory): string | undefined {
+  const haystack = [category.title, category.description, ...(category.examples ?? [])]
+    .filter(Boolean)
+    .join(' ')
+
+  for (const keyword of MATERIAL_CONTEXT_HINTS) {
+    if (haystack.includes(keyword)) return keyword
+  }
+
+  return undefined
+}
+
+function buildMaterialCategoryCards(requestedCategories: MaterialRequestedCategory[]): MaterialCategoryCard[] {
+  return requestedCategories.map(category => ({
+    title: category.title,
+    description: category.description?.trim() || '\u5efa\u8bae\u4f18\u5148\u8865\u5145\u8fd9\u7c7b\u8d44\u6599\uff0c\u5e2e\u52a9 AI \u66f4\u5feb\u5efa\u7acb\u53ef\u6267\u884c\u4e0a\u4e0b\u6587\u3002',
+    formatLabel: inferMaterialFormatLabel(category),
+    contextLabel: inferMaterialContextLabel(category),
+    examplesLabel: category.examples && category.examples.length > 0
+      ? category.examples.slice(0, 2).join(' / ')
+      : undefined,
+  }))
+}
+
 export function HiringTodoPanel({
+  hireId,
   sessionId,
   wsStageOverrides,
   onAfterStageMessage,
   onGenerate,
   generated = false,
   onLinkedSkillIdsChange,
+  requestedMaterialCategories = [],
 }: HiringTodoPanelProps) {
   // 用户是否手动覆盖了某张卡片的展开状态；未手动覆盖的走"活跃阶段自动展开"逻辑
   const [userToggled, setUserToggled] = useState<Record<string, boolean>>({})
@@ -148,7 +206,16 @@ export function HiringTodoPanel({
       </div>
 
       <div className="hb-todo-panel-body">
-        {STAGES.map(stage => (
+        <div className="hb-todo-material-section">
+          <MaterialCardBody
+            hireId={hireId}
+            sessionId={sessionId}
+            requestedCategories={requestedMaterialCategories}
+            onAfterUpload={summary => onAfterStageMessage?.(HiringCollectionStage.Material, summary)}
+          />
+        </div>
+
+        {STAGES.filter(stage => stage.key !== HiringCollectionStage.Material).map(stage => (
           <StageCard
             key={stage.key}
             stage={stage}
@@ -157,12 +224,6 @@ export function HiringTodoPanel({
             isFocus={activeStageKey === stage.key}
             onToggle={() => toggle(stage.key)}
           >
-            {stage.key === HiringCollectionStage.Material && (
-              <MaterialCardBody
-                sessionId={sessionId}
-                onAfterUpload={summary => onAfterStageMessage?.(HiringCollectionStage.Material, summary)}
-              />
-            )}
             {stage.key === HiringCollectionStage.Skill && (
               <SkillCardBody
                 onAfterLink={summary => onAfterStageMessage?.(HiringCollectionStage.Skill, summary)}
@@ -235,121 +296,222 @@ function StageCard({
 // ── 资料卡（文件夹上传 .md/.json） ─────────────────────────────────────────────
 
 function MaterialCardBody({
-  sessionId, onAfterUpload,
-}: { sessionId: string; onAfterUpload: (summary: string) => void }) {
+  hireId, sessionId, requestedCategories, onAfterUpload,
+}: {
+  hireId: string
+  sessionId: string
+  requestedCategories: MaterialRequestedCategory[]
+  onAfterUpload: (summary: string) => void
+}) {
   const folderInputRef = useRef<HTMLInputElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const categoryUploadRef = useRef<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [uploaded, setUploaded] = useState<UploadedFileMeta[]>([])
+  const [uploadingCategoryTitle, setUploadingCategoryTitle] = useState<string | null>(null)
+  const [persistedCategories, setPersistedCategories] = useState<MaterialRequestedCategory[]>([])
 
   const refresh = useCallback(async () => {
-    if (!sessionId) return
+    if (!hireId || !sessionId) return
     try {
-      const items = await api.hiringWorkflow.listTodoFiles(sessionId)
+      const items = await api.hiringWorkflow.listMaterialFiles(hireId, sessionId)
       setUploaded(items)
     } catch {
-      // 忽略：列出失败不影响主流程
+      // 列表刷新失败不阻断资料上传主流程。
     }
-  }, [sessionId])
+  }, [hireId, sessionId])
 
   useEffect(() => { void refresh() }, [refresh])
 
-  const handleFiles = useCallback(async (files: FileList | File[]) => {
-    if (!sessionId) {
+  // 合并外部传入的分类到本地持久化列表，避免后续无 requested_categories 的 artifact 导致卡片消失
+  const displayCategories = useMemo(() => {
+    if (requestedCategories.length === 0) return persistedCategories
+    const existingKeys = new Set(persistedCategories.map(c => c.title))
+    const additions = requestedCategories.filter(c => !existingKeys.has(c.title))
+    if (additions.length === 0) return persistedCategories
+    return [...persistedCategories, ...additions]
+  }, [persistedCategories, requestedCategories])
+
+  useEffect(() => {
+    if (requestedCategories.length === 0) return
+    setPersistedCategories(prev => {
+      const existingKeys = new Set(prev.map(c => c.title))
+      const additions = requestedCategories.filter(c => !existingKeys.has(c.title))
+      return additions.length === 0 ? prev : [...prev, ...additions]
+    })
+  }, [requestedCategories])
+
+  const materialCards = useMemo(
+    () => buildMaterialCategoryCards(displayCategories),
+    [displayCategories],
+  )
+
+  const handleFiles = useCallback(async (files: FileList | File[], requestedCategoryTitle?: string | null) => {
+    if (!hireId || !sessionId) {
       setError('会话尚未就绪，请稍后再试')
       return
     }
+
     const arr = Array.from(files)
     if (arr.length === 0) return
 
-    // 客户端校验：仅 .md / .json
-    const invalid = arr.filter(f => !ALLOWED_EXTS.has(fileExt(f.name)))
+    const invalid = arr.filter(file => !ALLOWED_EXTS.has(fileExt(file.name)))
     if (invalid.length > 0) {
-      setError(`仅支持 .md 和 .json：${invalid.slice(0, 3).map(f => f.name).join('，')}${invalid.length > 3 ? '…' : ''}`)
+      const preview = invalid.slice(0, 3).map(file => file.name).join('、')
+      setError(`仅支持 .md 与 .json 文件：${preview}${invalid.length > 3 ? ' 等' : ''}`)
       return
     }
 
     setError('')
     setBusy(true)
+    setUploadingCategoryTitle(requestedCategoryTitle ?? null)
+
     try {
-      // 按 webkitRelativePath 推导子文件夹，分组上传以保留目录结构
       const groups = new Map<string, File[]>()
-      for (const f of arr) {
-        const folder = deriveFolderFromWebkitPath(f) ?? ''
+      for (const file of arr) {
+        const folder = deriveFolderFromWebkitPath(file) ?? ''
         const list = groups.get(folder) ?? []
-        list.push(f)
+        list.push(file)
         groups.set(folder, list)
       }
 
       let total = 0
       const names: string[] = []
-      for (const [folder, fs] of groups.entries()) {
-        const saved = await api.hiringWorkflow.uploadTodoFiles(sessionId, fs, folder || undefined)
+      for (const [folder, filesInFolder] of groups.entries()) {
+        const saved = await api.hiringWorkflow.uploadMaterialFiles(hireId, sessionId, filesInFolder, {
+          folder: folder || undefined,
+          requestedCategoryTitle: requestedCategoryTitle || undefined,
+        })
         total += saved.length
-        names.push(...saved.map(s => s.relativePath))
+        names.push(...saved.map(item => item.relativePath))
       }
 
       await refresh()
-      const preview = names.slice(0, 5).join('、') + (names.length > 5 ? `…（共 ${names.length} 份）` : '')
-      onAfterUpload(`已上传 ${total} 份资料：${preview}。请基于这些资料继续后续阶段。`)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '上传失败')
+      const preview = names.slice(0, 5).join('、')
+      const suffix = names.length > 5 ? ` 等 ${names.length} 份` : ''
+      const categoryPrefix = requestedCategoryTitle ? `“${requestedCategoryTitle}”分类下` : ''
+      onAfterUpload(`已上传${categoryPrefix}${total} 份资料：${preview}${suffix}。请基于这些资料继续后续阶段。`)
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : '上传失败')
     } finally {
       setBusy(false)
+      setUploadingCategoryTitle(null)
     }
-  }, [sessionId, refresh, onAfterUpload])
+  }, [hireId, sessionId, refresh, onAfterUpload])
 
-  const uploadedTotalBytes = uploaded.reduce((sum, file) => sum + file.sizeBytes, 0)
-  const recentUploaded = uploaded.slice(-8).reverse()
-
+  const uploadedCountByCategory = useMemo(() => {
+    const result = new Map<string, number>()
+    for (const item of uploaded) {
+      const key = item.requestedCategoryTitle?.trim()
+      if (!key) continue
+      result.set(key, (result.get(key) ?? 0) + 1)
+    }
+    return result
+  }, [uploaded])
+  const completedCardCount = materialCards.reduce(
+    (count, item) => count + ((uploadedCountByCategory.get(item.title) ?? 0) > 0 ? 1 : 0),
+    0,
+  )
+  const shellStatusLabel = materialCards.length > 0
+    ? completedCardCount >= materialCards.length
+      ? `已上传 ${completedCardCount}`
+      : `待上传 ${materialCards.length - completedCardCount}`
+    : uploaded.length > 0
+      ? `已上传 ${uploaded.length}`
+      : '待上传'
   return (
     <div className="hb-todo-mat">
       <div
-        className={clsx('hb-todo-dropzone', busy && 'is-busy', uploaded.length > 0 && 'is-filled')}
-        onDragOver={e => { e.preventDefault() }}
-        onDrop={e => {
-          e.preventDefault()
+        className={clsx('hb-todo-material-shell', busy && 'is-busy', uploaded.length > 0 && 'is-filled')}
+        onDragOver={event => { event.preventDefault() }}
+        onDrop={event => {
+          event.preventDefault()
           if (busy) return
-          if (e.dataTransfer.files?.length) void handleFiles(e.dataTransfer.files)
+          if (event.dataTransfer.files?.length) void handleFiles(event.dataTransfer.files)
         }}
       >
-        <div className="hb-todo-dropzone-copy">
-          <p className="hb-todo-dropzone-title">上传业务资料</p>
-          <p className="hb-todo-dropzone-hint">支持 .md / .json，可拖入文件夹并保留目录结构</p>
+        <div className="hb-todo-material-head">
+          <div className="hb-todo-material-head-copy">
+            <strong>上传资料</strong>
+            <p>
+              {materialCards.length > 0
+                ? '会话中描述业务场景、上传文件、提及资料需求时，每识别到一类资料都会生成一张上传卡片。'
+                : '会话识别到资料分类后，会在这里生成对应的上传卡片。'}
+            </p>
+          </div>
+          <span className="hb-todo-material-head-pill">{shellStatusLabel}</span>
         </div>
-        {uploaded.length > 0 ? (
-          <div className="hb-todo-upload-summary" aria-live="polite">
-            <strong>已接收 {uploaded.length} 份资料</strong>
-            <span>{formatSize(uploadedTotalBytes)}</span>
+
+        {materialCards.length > 0 ? (
+          <div className="hb-todo-category-list" aria-label="建议优先上传的资料分类">
+            {materialCards.map(card => {
+              const uploadedCount = uploadedCountByCategory.get(card.title) ?? 0
+              const isUploadingCurrentCard = busy && uploadingCategoryTitle === card.title
+
+              return (
+                <div key={card.title} className="hb-todo-category-item">
+                  <div className="hb-todo-category-icon" aria-hidden="true">
+                    <FileText size={18} strokeWidth={2.1} />
+                  </div>
+                  <div className="hb-todo-category-copy">
+                    <div className="hb-todo-category-title-row">
+                      <strong title={card.title}>{card.title}</strong>
+                      <div className="hb-todo-category-chips">
+                        <span className="hb-todo-category-chip is-format">{card.formatLabel}</span>
+                        {card.contextLabel ? <span className="hb-todo-category-chip">{card.contextLabel}</span> : null}
+                      </div>
+                    </div>
+                    <span title={card.description}>{card.description}</span>
+                    {card.examplesLabel ? <small title={card.examplesLabel}>{card.examplesLabel}</small> : null}
+                    <em className={clsx('hb-todo-category-status', uploadedCount > 0 && 'is-complete', isUploadingCurrentCard && 'is-busy')}>
+                      {isUploadingCurrentCard
+                        ? '正在上传…'
+                        : uploadedCount > 0
+                          ? `已上传 ${uploadedCount} 份`
+                          : '建议优先补充'}
+                    </em>
+                  </div>
+                  <div className="hb-todo-category-actions">
+                    <button
+                      type="button"
+                      className="hb-todo-row-btn is-primary"
+                      disabled={busy}
+                      onClick={() => {
+                        categoryUploadRef.current = card.title
+                        fileInputRef.current?.click()
+                      }}
+                    >
+                      <Upload size={14} strokeWidth={2.1} />
+                      上传
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         ) : null}
+
         {busy ? (
           <div className="hb-todo-upload-sync" aria-live="polite">
             <span className="hb-todo-upload-sync-dot" />
             正在上传并同步到沙箱工作区
           </div>
         ) : null}
-        <div className="hb-todo-dropzone-actions">
-          <button type="button" className="hb-todo-row-btn is-primary" disabled={busy}
-            onClick={() => folderInputRef.current?.click()}>
-            选择文件夹
-          </button>
-          <button type="button" className="hb-todo-row-btn is-secondary" disabled={busy}
-            onClick={() => fileInputRef.current?.click()}>
-            选择文件
-          </button>
-        </div>
+
         <input
           ref={folderInputRef}
           type="file"
           hidden
           multiple
-          // @ts-expect-error webkitdirectory 为浏览器扩展属性，React 类型未声明
+          // @ts-expect-error webkitdirectory 为浏览器扩展属性，React 类型未声明。
           webkitdirectory=""
           directory=""
           accept=".md,.json,application/json,text/markdown"
-          onChange={e => { if (e.target.files) void handleFiles(e.target.files); e.target.value = '' }}
+          onChange={event => {
+            if (event.target.files) void handleFiles(event.target.files)
+            event.target.value = ''
+          }}
         />
         <input
           ref={fileInputRef}
@@ -357,39 +519,21 @@ function MaterialCardBody({
           hidden
           multiple
           accept=".md,.json,application/json,text/markdown"
-          onChange={e => { if (e.target.files) void handleFiles(e.target.files); e.target.value = '' }}
+          onChange={event => {
+            if (event.target.files) void handleFiles(event.target.files, categoryUploadRef.current)
+            categoryUploadRef.current = null
+            event.target.value = ''
+          }}
         />
       </div>
-
-      {uploaded.length > 0 && (
-        <ul className="hb-todo-file-list">
-          {recentUploaded.map(f => {
-            const { fileName, folderPath } = splitRelativePath(f.relativePath)
-            return (
-            <li key={f.relativePath} className="hb-todo-file-item">
-              <span className={clsx('hb-todo-file-fmt', `is-${f.format}`)}>{f.format}</span>
-              <span className="hb-todo-file-main">
-                <strong title={fileName}>{fileName}</strong>
-                <small title={folderPath}>{folderPath}</small>
-              </span>
-              <span className="hb-todo-file-size">{formatSize(f.sizeBytes)}</span>
-            </li>
-            )
-          })}
-          {uploaded.length > recentUploaded.length && (
-            <li className="hb-todo-file-item is-more">还有 {uploaded.length - recentUploaded.length} 份资料已收起</li>
-          )}
-        </ul>
-      )}
 
       {error && <p className="hb-todo-error">{error}</p>}
     </div>
   )
 }
 
-// ── 技能卡（搜索 Skills Hub） ─────────────────────────────────────────────────
-
 function SkillCardBody({
+
   onAfterLink,
   onLinkedIdsChange,
 }: {

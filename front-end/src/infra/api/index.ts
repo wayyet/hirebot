@@ -70,6 +70,7 @@ export type {
   ConfigGovernanceFile,
   ConfigGovernanceState,
   HiringConversationMaterial,
+  HiringMaterialFile,
   StartHiringConversationResult,
   HiringConversationMessageRequest,
   HiringConversationMessage,

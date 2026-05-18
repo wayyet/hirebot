@@ -16,6 +16,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
     public DbSet<HiringRuntimeStateEntity> HiringRuntimeStates { get; set; }
     public DbSet<HiringCredentialBindingEntity> HiringCredentialBindings { get; set; }
     public DbSet<HiringArtifactEntity> HiringArtifacts { get; set; }
+    public DbSet<HiringMaterialFileEntity> HiringMaterialFiles { get; set; }
     public DbSet<HiringArtifactUploadEntity> HiringArtifactUploads { get; set; }
     public DbSet<HiringArtifactUploadPartEntity> HiringArtifactUploadParts { get; set; }
     public DbSet<HiringAuditLogEntity> HiringAuditLogs { get; set; }
@@ -136,6 +137,8 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.Property(e => e.CurrentStage).IsRequired().HasMaxLength(64);
             entity.Property(e => e.CollectionPhase).IsRequired().HasMaxLength(64);
             entity.Property(e => e.PayloadJson).IsRequired();
+            entity.Property(e => e.PackagesJson).IsRequired().HasDefaultValue("{}");
+            entity.Property(e => e.WorkflowStateJson).IsRequired().HasDefaultValue("{}");
             entity.Property(e => e.ConversationCacheJson).IsRequired().HasDefaultValue("{}");
             entity.Property(e => e.CreatedAtUtc).IsRequired();
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
@@ -169,6 +172,33 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.HasIndex(e => new { e.SessionId, e.Kind, e.LogicalPath }).IsUnique();
             entity.HasIndex(e => new { e.SessionId, e.IsFinal });
             entity.HasIndex(e => e.UploadedAtUtc);
+        });
+
+        modelBuilder.Entity<HiringMaterialFileEntity>(entity =>
+        {
+            entity.ToTable("hiring_material_files");
+            entity.HasKey(e => e.MaterialFileId);
+            entity.Property(e => e.MaterialFileId).HasColumnName("material_file_id");
+            entity.Property(e => e.HireId).HasColumnName("hire_id").IsRequired().HasMaxLength(64);
+            entity.Property(e => e.SessionId).HasColumnName("session_id").IsRequired().HasMaxLength(64);
+            entity.Property(e => e.RelativePath).HasColumnName("relative_path").IsRequired().HasMaxLength(1024);
+            entity.Property(e => e.OriginalFileName).HasColumnName("original_file_name").IsRequired().HasMaxLength(512);
+            entity.Property(e => e.StoragePath).HasColumnName("storage_path").IsRequired().HasMaxLength(1024);
+            entity.Property(e => e.Format).HasColumnName("format").IsRequired().HasMaxLength(32);
+            entity.Property(e => e.MimeType).HasColumnName("mime_type").HasMaxLength(120);
+            entity.Property(e => e.SizeBytes).HasColumnName("size_bytes").IsRequired();
+            entity.Property(e => e.Sha256).HasColumnName("sha256").IsRequired().HasMaxLength(64);
+            entity.Property(e => e.RequestedCategoryTitle).HasColumnName("requested_category_title").HasMaxLength(160);
+            entity.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
+            entity.Property(e => e.OperatorId).HasColumnName("operator_id").IsRequired().HasMaxLength(128);
+            entity.Property(e => e.UploadedBy).HasColumnName("uploaded_by").IsRequired().HasMaxLength(256);
+            entity.Property(e => e.UploadedAtUtc).HasColumnName("uploaded_at_utc").IsRequired();
+            entity.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            entity.Property(e => e.DeletedAtUtc).HasColumnName("deleted_at_utc");
+
+            entity.HasIndex(e => new { e.SessionId, e.RelativePath }).IsUnique();
+            entity.HasIndex(e => new { e.HireId, e.SessionId, e.UploadedAtUtc });
+            entity.HasIndex(e => e.Sha256);
         });
 
         modelBuilder.Entity<HiringArtifactUploadEntity>(entity =>
