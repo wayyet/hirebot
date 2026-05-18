@@ -194,14 +194,14 @@ internal sealed partial class EvaluationService
     }
 
     private async Task<IReadOnlyList<EvaluationQuestionCardDto>?> LoadQuestionCardsForLatestSessionAsync(
-        string owner,
+        string scope,
         string employeeId,
         CancellationToken cancellationToken)
     {
         var latestSession = await dbContext.EvaluationSessions
             .AsNoTracking()
             .Where(item =>
-                item.OwnerSubject == owner &&
+                item.OwnerSubject == scope &&
                 item.EmployeeId == employeeId.Trim())
             .OrderByDescending(item => item.UpdatedAtUtc)
             .FirstOrDefaultAsync(cancellationToken);

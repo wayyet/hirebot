@@ -31,7 +31,7 @@ namespace HireBot.Core.Services.Evaluation;
 internal sealed partial class EvaluationService
 {
     private async Task StartNewEvaluationSessionAsync(
-        string owner,
+        string scope,
         string employeeId,
         EvaluationWorkspaceContext workspaceContext,
         CancellationToken cancellationToken)
@@ -40,7 +40,7 @@ internal sealed partial class EvaluationService
         var latestIteration = await dbContext.EvaluationSessions
             .AsNoTracking()
             .Where(item =>
-                item.OwnerSubject == owner &&
+                item.OwnerSubject == scope &&
                 item.EmployeeId == employeeId)
             .Select(item => (int?)item.Iteration)
             .MaxAsync(cancellationToken) ?? 0;
@@ -49,7 +49,7 @@ internal sealed partial class EvaluationService
         {
             Id = Guid.NewGuid(),
             SessionId = BuildEvaluationSessionId(),
-            OwnerSubject = owner,
+            OwnerSubject = scope,
             EmployeeId = employeeId,
             TargetHireId = workspaceContext.TargetHireId,
             TargetSandboxId = workspaceContext.TargetSandboxId,
@@ -67,7 +67,7 @@ internal sealed partial class EvaluationService
     }
 
     private async Task<EvaluationSessionEntity> GetOrCreateSessionEntityAsync(
-        string owner,
+        string scope,
         EmployeeDetailDto employee,
         EvaluationWorkspaceContext workspaceContext,
         CancellationToken cancellationToken)
@@ -75,7 +75,7 @@ internal sealed partial class EvaluationService
         var now = DateTimeOffset.UtcNow;
         var latestSession = await dbContext.EvaluationSessions
             .Where(item =>
-                item.OwnerSubject == owner &&
+                item.OwnerSubject == scope &&
                 item.EmployeeId == employee.EmployeeId)
             .OrderByDescending(item => item.UpdatedAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
@@ -87,7 +87,7 @@ internal sealed partial class EvaluationService
             {
                 Id = Guid.NewGuid(),
                 SessionId = BuildEvaluationSessionId(),
-                OwnerSubject = owner,
+                OwnerSubject = scope,
                 EmployeeId = employee.EmployeeId,
                 TargetHireId = workspaceContext.TargetHireId,
                 TargetSandboxId = workspaceContext.TargetSandboxId,

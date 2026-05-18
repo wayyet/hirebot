@@ -131,6 +131,15 @@ public sealed partial class EmployeeRuntimeService(
         var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
+            var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+            if (!string.IsNullOrWhiteSpace(tenantId))
+            {
+                employee = await ResolveDepartmentEmployeeForTenantAsync(tenantId.Trim(), employeeId, cancellationToken);
+            }
+        }
+
+        if (employee is null)
+        {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
         }
 

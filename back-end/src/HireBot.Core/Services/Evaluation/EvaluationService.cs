@@ -198,18 +198,72 @@ internal sealed partial class EvaluationService(
 
     private static readonly JsonSerializerOptions RuntimeSnapshotJsonOptions = new(JsonSerializerDefaults.Web);
 
+    private sealed record EvaluationAccessContext(
+        EmployeeDetailDto Employee,
+        string RequestOwner,
+        string PersistenceScope);
+
     /// <summary>
     /// 从 DB 按 owner + employeeId 查询员工快照（替代 store.GetAsync）。
     /// </summary>
     private async Task<EmployeeDetailDto?> GetEmployeeFromDbAsync(string owner, string employeeId, CancellationToken cancellationToken)
     {
+        var normalizedScope = owner.Trim();
         var instance = await dbContext.Instances
             .AsNoTracking()
-            .FirstOrDefaultAsync(i => i.OwnerUserId == owner && i.InstanceId == employeeId, cancellationToken);
+            .FirstOrDefaultAsync(i =>
+                i.InstanceId == employeeId &&
+                (i.OwnerUserId == normalizedScope ||
+                 (i.InstanceType == "department" && i.TenantId == normalizedScope)),
+                cancellationToken);
         if (instance is null || string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson))
             return null;
         try { return JsonSerializer.Deserialize<EmployeeDetailDto>(instance.RuntimeSnapshotJson, RuntimeSnapshotJsonOptions); }
         catch { return null; }
+    }
+
+    private async Task<EvaluationAccessContext?> ResolveEvaluationAccessContextAsync(
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedEmployeeId = employeeId.Trim();
+        var requestOwner = requestContextService.ResolveOwnerSubject();
+        var employee = await GetEmployeeFromDbAsync(requestOwner, normalizedEmployeeId, cancellationToken);
+        if (employee is not null)
+        {
+            return new EvaluationAccessContext(
+                employee,
+                requestOwner,
+                ResolveEvaluationPersistenceScope(employee, requestOwner));
+        }
+
+        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        if (string.IsNullOrWhiteSpace(tenantId))
+        {
+            return null;
+        }
+
+        employee = await GetEmployeeFromDbAsync(tenantId.Trim(), normalizedEmployeeId, cancellationToken);
+        if (employee is null || !string.Equals(employee.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return new EvaluationAccessContext(
+            employee,
+            requestOwner,
+            ResolveEvaluationPersistenceScope(employee, requestOwner));
+    }
+
+    private string ResolveEvaluationPersistenceScope(EmployeeDetailDto employee, string requestOwner)
+    {
+        if (!string.Equals(employee.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
+        {
+            return requestOwner;
+        }
+
+        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        return string.IsNullOrWhiteSpace(tenantId) ? requestOwner : tenantId.Trim();
     }
 
     /// <summary>
@@ -233,14 +287,14 @@ internal sealed partial class EvaluationService(
         if (string.IsNullOrWhiteSpace(employeeId))
             return ApiResponse<EvaluationWorkspaceStatusDto>.ErrorResponse(400, "employeeId cannot be empty");
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
             return ApiResponse<EvaluationWorkspaceStatusDto>.ErrorResponse(404, "employee not found");
 
-        var workspaceKey = BuildWorkspaceKey(owner, employee.EmployeeId);
+        var employee = accessContext.Employee;
+        var scope = accessContext.PersistenceScope;
 
-        var ctx = await LoadWorkspaceContextAsync(owner, employee.EmployeeId, cancellationToken);
+        var ctx = await LoadWorkspaceContextAsync(scope, employee.EmployeeId, cancellationToken);
         if (ctx is null || ctx.StepStates.Count == 0)
         {
             return ApiResponse<EvaluationWorkspaceStatusDto>.SuccessResponse(
@@ -320,13 +374,15 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationStateDto>.ErrorResponse(400, "employeeId cannot be empty");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(normalizedEmployeeId, cancellationToken);
+        if (accessContext is null)
         {
             return ApiResponse<EvaluationStateDto>.ErrorResponse(404, "employee not found");
         }
+
+        var employee = accessContext.Employee;
+        var scope = accessContext.PersistenceScope;
 
         var normalizedEmployeeStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
         var normalizedEvalPhase = employee.EvalPhase?.Trim().ToLowerInvariant();
@@ -357,7 +413,7 @@ internal sealed partial class EvaluationService(
         var latestSession = await dbContext.EvaluationSessions
             .AsNoTracking()
             .Where(item =>
-                item.OwnerSubject == owner &&
+                item.OwnerSubject == scope &&
                 item.EmployeeId == normalizedEmployeeId)
             .OrderByDescending(item => item.UpdatedAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
@@ -466,12 +522,15 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(400, "employeeId cannot be empty");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(404, "employee not found");
         }
+
+        var owner = accessContext.RequestOwner;
+        var scope = accessContext.PersistenceScope;
+        var employee = accessContext.Employee;
 
         var workspaceResult = await EnsureWorkspaceReadyAsync(
             owner,
@@ -526,9 +585,9 @@ internal sealed partial class EvaluationService(
         }
 
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
-        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, refreshedWorkspace, cancellationToken);
+        await SaveWorkspaceContextAsync(scope, employee.EmployeeId, refreshedWorkspace, cancellationToken);
 
-        var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
+        var questionCards = await LoadQuestionCardsForLatestSessionAsync(scope, employee.EmployeeId, cancellationToken);
 
         return ApiResponse<EvaluationSandboxConversationStateDto>.SuccessResponse(
             BuildSandboxConversationState(employee, refreshedWorkspace, timelineResult.Data, questionCards));
@@ -544,12 +603,15 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(400, "employeeId and content are required");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(404, "employee not found");
         }
+
+        var owner = accessContext.RequestOwner;
+        var scope = accessContext.PersistenceScope;
+        var employee = accessContext.Employee;
 
         var workspaceResult = await EnsureWorkspaceReadyAsync(
             owner,
@@ -612,9 +674,9 @@ internal sealed partial class EvaluationService(
         }
 
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
-        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, refreshedWorkspace, cancellationToken);
+        await SaveWorkspaceContextAsync(scope, employee.EmployeeId, refreshedWorkspace, cancellationToken);
 
-        var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
+        var questionCards = await LoadQuestionCardsForLatestSessionAsync(scope, employee.EmployeeId, cancellationToken);
 
         return ApiResponse<EvaluationSandboxConversationStateDto>.SuccessResponse(
             BuildSandboxConversationState(employee, refreshedWorkspace, timelineResult.Data, questionCards),
@@ -631,12 +693,15 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId and decision are required");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "employee not found");
         }
+
+        var owner = accessContext.RequestOwner;
+        var scope = accessContext.PersistenceScope;
+        var employee = accessContext.Employee;
 
         var decision = request.Decision.Trim().ToUpperInvariant();
         var currentStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
@@ -675,8 +740,8 @@ internal sealed partial class EvaluationService(
                 }
 
                 var startWorkspaceContext = startWorkspaceResult.Data;
-                await StartNewEvaluationSessionAsync(owner, employee.EmployeeId, startWorkspaceContext, cancellationToken);
-                var startReadiness = await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
+                await StartNewEvaluationSessionAsync(scope, employee.EmployeeId, startWorkspaceContext, cancellationToken);
+                var startReadiness = await PrimeReadinessMaterialsAsync(scope, employee.EmployeeId, cancellationToken);
                 var startMaterialsReady = startReadiness.TestcasesReady && startReadiness.OntologyReady;
 
                 var startCapabilities = MergeEvaluationCapabilities(employee.Capabilities, EvaluationSkillNames);
@@ -732,8 +797,8 @@ internal sealed partial class EvaluationService(
                 }
 
                 var workspaceContext = workspaceResult.Data;
-                await StartNewEvaluationSessionAsync(owner, employee.EmployeeId, workspaceContext, cancellationToken);
-                var readiness = await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
+                await StartNewEvaluationSessionAsync(scope, employee.EmployeeId, workspaceContext, cancellationToken);
+                var readiness = await PrimeReadinessMaterialsAsync(scope, employee.EmployeeId, cancellationToken);
                 var materialsReady = readiness.TestcasesReady && readiness.OntologyReady;
 
                 var capabilities = MergeEvaluationCapabilities(employee.Capabilities, EvaluationSkillNames);
@@ -788,7 +853,7 @@ internal sealed partial class EvaluationService(
                 }
 
                 // Prime readiness materials (ensure testcases/ontology are loaded in target sandbox)
-                await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
+                await PrimeReadinessMaterialsAsync(scope, employee.EmployeeId, cancellationToken);
 
                 // Frontend will use WS to connect to evaluator sandbox for scoring.
                 // Scoring result comes back via sync-verdict endpoint.
@@ -1168,10 +1233,13 @@ internal sealed partial class EvaluationService(
         if (string.IsNullOrWhiteSpace(employeeId))
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(400, "employeeId cannot be empty");
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(404, "employee not found");
+
+        var owner = accessContext.RequestOwner;
+        var scope = accessContext.PersistenceScope;
+        var employee = accessContext.Employee;
 
         var workspaceResult = await EnsureWorkspaceReadyAsync(
             owner, employee, null, null,
@@ -1198,7 +1266,7 @@ internal sealed partial class EvaluationService(
         if (string.IsNullOrWhiteSpace(token))
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(502, "unable to acquire sandbox access token");
 
-        var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, ctx, cancellationToken);
+        var sessionEntity = await GetOrCreateSessionEntityAsync(scope, employee, ctx, cancellationToken);
         var evaluatorMaterialsResult = await PrepareEvaluatorMaterialsArchiveAsync(
             owner,
             employee,
@@ -1289,14 +1357,16 @@ internal sealed partial class EvaluationService(
         if (string.IsNullOrWhiteSpace(employeeId) || request is null || string.IsNullOrWhiteSpace(request.SessionId) || request.Verdict is null)
             return ApiResponse<EvaluationVerdictSyncResultDto>.ErrorResponse(400, "employeeId, sessionId and verdict are required");
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
             return ApiResponse<EvaluationVerdictSyncResultDto>.ErrorResponse(404, "employee not found");
+
+        var scope = accessContext.PersistenceScope;
+        var employee = accessContext.Employee;
 
         var sessionEntity = await dbContext.EvaluationSessions
             .FirstOrDefaultAsync(item =>
-                item.OwnerSubject == owner &&
+                item.OwnerSubject == scope &&
                 item.EmployeeId == employeeId.Trim() &&
                 item.SessionId == request.SessionId.Trim(),
                 cancellationToken);
