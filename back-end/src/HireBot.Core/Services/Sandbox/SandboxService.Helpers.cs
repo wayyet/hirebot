@@ -506,25 +506,25 @@ internal sealed partial class SandboxService
         string? Content,
         DateTimeOffset? Timestamp);
 
-    public async Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(
-        SkillPackageUploadRequestDto request,
+    public async Task<ApiResponse<DigitalEmployeeTemplateUploadResultDto>> UploadDigitalEmployeeTemplateAsync(
+        DigitalEmployeeTemplateUploadRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.SandboxId))
-            return ApiResponse<SkillPackageUploadResultDto>.ErrorResponse(400, "sandboxId 不能为空");
+            return ApiResponse<DigitalEmployeeTemplateUploadResultDto>.ErrorResponse(400, "sandboxId 不能为空");
         if (request.ArchiveBytes is null || request.ArchiveBytes.Length == 0)
-            return ApiResponse<SkillPackageUploadResultDto>.ErrorResponse(400, "archive bytes 不能为空");
+            return ApiResponse<DigitalEmployeeTemplateUploadResultDto>.ErrorResponse(400, "archive bytes 不能为空");
 
         var instance = await dbContext.SandboxInstances
             .FirstOrDefaultAsync(item => item.SandboxId == request.SandboxId, cancellationToken);
         if (instance is null)
-            return ApiResponse<SkillPackageUploadResultDto>.ErrorResponse(404, "sandbox instance not found");
+            return ApiResponse<DigitalEmployeeTemplateUploadResultDto>.ErrorResponse(404, "sandbox instance not found");
 
         var refreshResult = await provisioner.RefreshAsync(request.SandboxId, cancellationToken);
         if (refreshResult.State is not "Running")
-            return ApiResponse<SkillPackageUploadResultDto>.ErrorResponse(409, $"sandbox not ready (state={refreshResult.State})");
+            return ApiResponse<DigitalEmployeeTemplateUploadResultDto>.ErrorResponse(409, $"sandbox not ready (state={refreshResult.State})");
         if (string.IsNullOrWhiteSpace(refreshResult.GatewayEndpoint))
-            return ApiResponse<SkillPackageUploadResultDto>.ErrorResponse(409, "sandbox gateway endpoint missing");
+            return ApiResponse<DigitalEmployeeTemplateUploadResultDto>.ErrorResponse(409, "sandbox gateway endpoint missing");
 
         instance.State = refreshResult.State;
         instance.GatewayEndpoint = refreshResult.GatewayEndpoint;
@@ -542,10 +542,10 @@ internal sealed partial class SandboxService
             absoluteBaseUrl: refreshResult.GatewayEndpoint);
 
         if (!call.Success || call.Data is null)
-            return ApiResponse<SkillPackageUploadResultDto>.ErrorResponse(call.StatusCode, call.Message);
+            return ApiResponse<DigitalEmployeeTemplateUploadResultDto>.ErrorResponse(call.StatusCode, call.Message);
 
-        return ApiResponse<SkillPackageUploadResultDto>.SuccessResponse(
-            new SkillPackageUploadResultDto(
+        return ApiResponse<DigitalEmployeeTemplateUploadResultDto>.SuccessResponse(
+            new DigitalEmployeeTemplateUploadResultDto(
                 call.Data.Success,
                 call.Data.Error,
                 call.Data.SkillsInstalled),

@@ -1,30 +1,15 @@
-using System.Collections.Concurrent;
-using System.IO;
-using System.IO.Compression;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
-using HireBot.Abstraction.Models.Evaluation;
-using HireBot.Abstraction.Models.Evaluation.Tools;
-using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
-using HireBot.Abstraction.Providers;
-using HireBot.Abstraction.Services.Evaluation;
-using HireBot.Abstraction.Services.Hiring;
-using HireBot.Abstraction.Services.Sandbox;
-using HireBot.Core.Services.Evaluation.Persistence;
 using HireBot.Core.Services.Hiring;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Internal;
-using HireBot.Core.Services.Sandbox;
-using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace HireBot.Core.Services.Evaluation;
 
@@ -38,7 +23,6 @@ internal sealed partial class EvaluationService
         CancellationToken cancellationToken)
     {
         var employeeId = employee.EmployeeId;
-        var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
         var persistenceScope = ResolveEvaluationPersistenceScope(employee, owner);
         var cachedWorkspace = await LoadWorkspaceContextAsync(persistenceScope, employee.EmployeeId, cancellationToken);
 
@@ -58,20 +42,12 @@ internal sealed partial class EvaluationService
             return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(cachedWorkspace);
         }
 
-        // 注意：评估有多种入口。私有分支是特殊模型：它不创建新实例、不创建新沙箱，
-        // 五件套直接原地更新到个人分身 runtime 沙箱里。因此私有分支评估的 target
-        // 必须复用当前实例的 runtime 沙箱，不能再创建 evaluation-target。
-        //
-        // 非私有分支（雇佣员工/普通评估）必须保持原来的双沙箱评估流程：
-        // evaluation-target + evaluation-evaluator，避免影响正式雇佣评估链路。
         var stepStates = new Dictionary<string, WorkspaceStepState>(StringComparer.OrdinalIgnoreCase)
         {
             ["target_sandbox"] = new("running", null)
         };
 
-        var targetResult = isPrivateBranch
-            ? await ResolveTargetRuntimeSandboxAsync(owner, employeeId, cancellationToken)
-            : await CreateEvaluationSandboxAsync(owner, employeeId, "evaluation-target", useStableRuntimeId: false, cancellationToken);
+        var targetResult = await CreateEvaluationSandboxAsync(owner, employeeId, "evaluation-target", useStableRuntimeId: false, cancellationToken);
         if (!targetResult.Success || targetResult.Data.SandboxId is null)
         {
             stepStates["target_sandbox"] = new("failed", targetResult.Message);
@@ -87,14 +63,11 @@ internal sealed partial class EvaluationService
         stepStates["target_sandbox"] = new("completed", targetSandboxId);
         stepStates["evaluator_sandbox"] = new("running", null);
 
-        // Create evaluator sandbox directly via native sandbox API
-        // 私有分支只定制当前用户自己的分身，评估 evaluator 可以稳定复用，避免反复启动沙箱。
-        // 普通/雇佣评估仍使用原有随机 runtimeId，保持原评估隔离语义不变。
         var evaluatorResult = await CreateEvaluationSandboxAsync(
             owner,
             employeeId,
             "evaluation-evaluator",
-            useStableRuntimeId: isPrivateBranch && !forceTargetHireRecreate,
+            useStableRuntimeId: false,
             cancellationToken);
         if (!evaluatorResult.Success || evaluatorResult.Data.SandboxId is null)
         {
@@ -123,9 +96,8 @@ internal sealed partial class EvaluationService
             StepStates: stepStates);
         await SaveWorkspaceContextAsync(persistenceScope, employee.EmployeeId, workspaceContext, cancellationToken);
 
-        // 濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛鎾茬劍鐎氭岸鏌涢弴銊ょ盎鐎殿喖鍢查埥澶愬箻鐎涙ê纰嶅銈嗘煥缁夌鐏掗梺鏂ユ櫅閸燁垳娆㈤弻銉︾厱闁哄诞鍕闂佺硶鏅涢惉濂稿箯閻樿绀嬫い蹇撳閹搞倝姊洪崗鍏肩凡闁瑰啿绻橀幆灞解枎閹寸姳绗?
         stepStates["upload_skill"] = new("running", null);
-        var uploadResult = await UploadSkillToSandboxAsync(evaluatorSandboxId, owner, cancellationToken);
+        var uploadResult = await UploadEvaluationTemplateToSandboxAsync(evaluatorSandboxId, owner, cancellationToken);
         if (!uploadResult.Success)
         {
             stepStates["upload_skill"] = new("failed", uploadResult.Message);
@@ -134,7 +106,6 @@ internal sealed partial class EvaluationService
 
         stepStates["upload_skill"] = new("completed", null);
 
-        // 濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛顐ｆ礃閸庡孩銇勯弮鍌涙珪闁搞劌銈搁弻娑樷槈濞咁収浜濈€靛ジ骞囬鈺冨枛閸╁嫰宕橀埡鍐ㄥ殥闂備礁鎲＄敮妤佺珶閸℃鐑樺閺夋垵鍞ㄩ梺鎼炲劘閸斿酣鎮￠幘鍓佺＜闁绘ɑ褰冪紞浣虹磼濡も偓閻ジ骞忛悩璇茬妞ゅ繐瀚幐銈呪攽閻愬弶婀伴柣鐔濆浂鏁?
         stepStates["upload_employee_template"] = new("running", null);
         var employeeTemplateResult = await UploadEmployeeTemplateToSandboxAsync(
             targetSandboxId, evaluatorSandboxId, evaluatorRuntimeId, owner, employee, cancellationToken);
@@ -152,7 +123,6 @@ internal sealed partial class EvaluationService
         await SaveWorkspaceContextAsync(persistenceScope, employee.EmployeeId, workspaceContext, cancellationToken);
         stepStates["upload_employee_template"] = new("completed", null);
 
-        // 闂佽绻愮换鎰涘▎鎺戞殲闂備礁鎼ˇ顖炲Φ濡椿娈介柛銉墯閸嬪鏌嶇悰鈥充壕缂備焦顨呴崐鍦偓闈涖偢閹晠骞撻幒鏂垮笓闂備胶鍎甸弲鈺呭窗濡ゅ懏鍋夐柨婵嗘噳閺岋附绻涢崱妯虹劸闁哥偟顭堥埥澶愬箻閾忣偄鏀梺浼欑畱鐎涒晝鈧潧銈搁幃褔宕奸姀銏犲箚缂傚倷鑳舵慨鐢稿船閼姐倖顫曟繝闈涱儐閻掑ジ鏌涢…鎴濇灈閻㈩垱濞婇幃褰掑炊瑜嶉褔鏌涘▎蹇ユ敾缂佹鍠曢ˇ鏌ユ煕閻旀彃浜鹃梻浣烘嚀閸㈡煡藝椤栨縿浜归柛銉墮缁狙囨煙闁箑骞楅柣蹇斿姍閺?
         stepStates["upload_artifacts"] = new("running", null);
         var targetArtifactUploadResult = await UploadArtifactToSandboxAsync(
             targetSandboxId,
@@ -194,55 +164,6 @@ internal sealed partial class EvaluationService
             employeeId, targetRuntimeId, evaluatorRuntimeId);
 
         return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(workspaceContext);
-    }
-
-    private async Task<ApiResponse<(string RuntimeId, string SandboxId)>> ResolveTargetRuntimeSandboxAsync(
-        string owner,
-        string employeeId,
-        CancellationToken cancellationToken)
-    {
-        // 私有分支 target 复用个人分身运行时沙箱。
-        // 如果这里找不到 runtime 沙箱，说明该分身还没初始化过站内对话/运行时，
-        // 需要先进入一次对话页触发 runtime 沙箱创建。
-        var runtimeScopeKey = $"instance:{employeeId.Trim()}";
-        var instance = await dbContext.SandboxInstances
-            .AsNoTracking()
-            .Where(item =>
-                item.OwnerSubject == owner &&
-                item.ScopeType == SandboxScopeTypes.Hire &&
-                item.ScopeKey == runtimeScopeKey &&
-                item.SandboxRole == "runtime" &&
-                item.State != "Deleted")
-            .OrderByDescending(item => item.UpdatedAtUtc)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (instance is null)
-        {
-            return ApiResponse<(string, string)>.ErrorResponse(
-                409,
-                "target runtime sandbox not found; open the employee chat once to initialize its runtime sandbox");
-        }
-
-        var refresh = await sandboxService.RefreshAsync(
-            new SandboxInstanceLookupRequestDto
-            {
-                SandboxId = instance.SandboxId,
-                OwnerSubject = owner
-            },
-            cancellationToken);
-        if (!refresh.Success || refresh.Data is null)
-        {
-            return ApiResponse<(string, string)>.ErrorResponse(refresh.Code, refresh.Message);
-        }
-
-        if (!string.Equals(refresh.Data.State, "Running", StringComparison.OrdinalIgnoreCase) ||
-            string.IsNullOrWhiteSpace(refresh.Data.GatewayEndpoint))
-        {
-            return ApiResponse<(string, string)>.ErrorResponse(
-                409,
-                "target runtime sandbox gateway endpoint not ready");
-        }
-
-        return ApiResponse<(string, string)>.SuccessResponse((employeeId.Trim(), refresh.Data.SandboxId));
     }
 
     private async Task<ApiResponse<(string RuntimeId, string SandboxId)>> CreateEvaluationSandboxAsync(
@@ -360,7 +281,7 @@ internal sealed partial class EvaluationService
         return raw.Length <= 100 ? raw : raw[..100];
     }
 
-    private async Task<ApiResponse<bool>> UploadSkillToSandboxAsync(
+    private async Task<ApiResponse<bool>> UploadEvaluationTemplateToSandboxAsync(
         string sandboxId,
         string owner,
         CancellationToken cancellationToken)
@@ -372,29 +293,37 @@ internal sealed partial class EvaluationService
             return ApiResponse<bool>.ErrorResponse(404, $"evaluation template package root not found: {templateRoot}");
         }
 
-        var manifestPath = Path.Combine(templateRoot, "manifest.json");
-        if (!File.Exists(manifestPath))
+        TemplatePackageDefinition templatePackage;
+        try
         {
-            return ApiResponse<bool>.ErrorResponse(422, $"evaluation template package manifest missing: {manifestPath}");
+            templatePackage = await fileSystemTemplatePackageProvider.LoadFromDirectoryAsync(
+                templateRoot, templatePackageId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[Eval] Failed to load evaluation template package from {TemplateRoot}", templateRoot);
+            return ApiResponse<bool>.ErrorResponse(422, $"failed to load evaluation template package: {ex.Message}");
         }
 
-        var bundle = await ZipDirectoryAsBundleAsync(
-            templateRoot,
-            $"{templatePackageId}.zip",
-            sourceType: "evaluation-template-package",
-            cancellationToken);
-        if (bundle.Content.Length == 0)
+        if (templatePackage.PackageFiles.Count == 0)
+        {
+            return ApiResponse<bool>.ErrorResponse(422, "evaluation template package has no files");
+        }
+
+        var archiveBytes = EmployeeHiringService.BuildDigitalEmployeeArchive(templatePackage);
+        if (archiveBytes.Length == 0)
         {
             return ApiResponse<bool>.ErrorResponse(422, "evaluation template package archive is empty");
         }
 
-        var uploadResult = await sandboxService.UploadSkillPackageAsync(
-            new SkillPackageUploadRequestDto
+        var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
+        var uploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+            new DigitalEmployeeTemplateUploadRequestDto
             {
                 SandboxId = sandboxId,
                 OwnerSubject = owner,
-                ArchiveBytes = bundle.Content,
-                FileName = bundle.FileName
+                ArchiveBytes = archiveBytes,
+                FileName = fileName
             },
             cancellationToken);
 
@@ -406,10 +335,6 @@ internal sealed partial class EvaluationService
         return ApiResponse<bool>.SuccessResponse(true, "evaluation template package uploaded");
     }
 
-    /// <summary>
-    /// 闂佽绻愮换鎰涘Δ鍛疅闁告劕妯婇崯鍛存煏婢跺牆鈧繈鎮伴幘缁樼厽婵＄偟绮▍鍛存倵閸倖鎴犵矙婢跺绡€濞达綀娅ｉ崐鐐烘⒑閸涘﹤绗у褎顨堥埀顒€鐏氬銊╁焵椤掑喚娼愮痪鏉跨Ч閹苯鈻庨幋鐘辩瑝闁哄鐗冮弲婊堟偩?/admin/digital-employee/upload 闂備浇顫夋禍浠嬪磿鏉堫偁浜规繛鎴欏灪閺?
-    /// 闂備焦妞垮鍧楀礉鐎ｎ剝濮虫い鎺戝€规刊濂告煃閸濆嫬鏆炵紒鎰殜閺屸€愁吋閸涱喖顦╅梺娲诲幗閻熝呭垝婵犳艾鐭楁俊顖濆亹閹插潡鏌ｉ悩鍙夋悙閻庢凹浜畷锝嗙節閸屾鐓㈠┑鐐叉閸╁牓宕幖浣圭厵闂傗偓閹邦喖濡藉┑鐘亾濞撴埃鍋撶€规洏鍎虫禒锕傛嚃閳哄﹣绱樺┑鐐差嚟婵偓鎱ㄩ妶鍫濇殲闂備礁鎼ˇ鎵偓绗涘喚鐒芥俊銈呮噹濡ɑ绻涢崱妤冃滈柛?
-    /// </summary>
     private async Task<ApiResponse<bool>> UploadArtifactToSandboxAsync(
         string sandboxId,
         string owner,
@@ -425,8 +350,8 @@ internal sealed partial class EvaluationService
         }
 
         var artifactBundle = bundleResult.Data;
-        var uploadFromBundleResult = await sandboxService.UploadSkillPackageAsync(
-            new SkillPackageUploadRequestDto
+        var uploadFromBundleResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+            new DigitalEmployeeTemplateUploadRequestDto
             {
                 SandboxId = sandboxId,
                 OwnerSubject = owner,
@@ -558,10 +483,6 @@ internal sealed partial class EvaluationService
             : ApiResponse<TargetArtifactBundle>.SuccessResponse(fixtureBundle);
     }
 
-    /// <summary>
-    /// 闂佽绻愮换鎰涘☉妯忕儤瀵奸弶鎴濆敤闂佹悶鍎滈崟顐ｇ€柣搴ゎ潐閹爼宕曢崘娴嬫灁闁硅揪绠戦弸渚€鏌℃径搴㈢《闁圭晫鍠栭弻娑樷槈濞咁収浜濈€靛ジ骞囬鈺冨枛閸╁嫰宕橀埡鍐ㄥ殥濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛顐ｆ礀缁€鍡涙煙濞堝灝鏋熺紒鎰殜閺屸€愁吋閸涱喖顦╅梺娲诲幗閻熝呭垝婵犳艾鐭楁俊顖濆亹閹插潡鏌ｉ悩鍙夋悙閻庢凹浜畷锝嗙節閸屾鐓㈠┑鐐叉閸╁牓宕幖浣圭厪?
-    /// 闂備胶鍎甸弲鈺呭窗濡ゅ懏鍋夐柨婵嗘噳閺岋附绻涢崱妯虹劸闁哥偞鎮傚濠氬炊閿濆懍澹曢梺鑽ゅ枑濞叉垿鎮為敃浣告殲闂備礁鎼ˇ鎵偓绗涘喚鐒介柣銏㈩焾缁犮儳鎲搁幋锔衡偓渚€骞嬮悙纰樻灃濠殿喗锕╅崜娆擄綖閵堝鈷戞い鎰剁稻椤绱掓０婵嗕喊闁轰礁绉撮悾婵嬪礃椤忓拋娼犲┑鐐殿棎閸嬫劖鏅跺Δ鍛剹婵炲棙鍨规稉宥夋⒑椤掆偓缁夊灚绂掑鈧幃鐑藉即濮樺崬濡介柤鍨涙櫊閺屸剝寰勭€ｎ亶鍤嬪┑鐐靛帶閻忔氨绮嬪澶婂耿婵絾瀵х敮鈥崇暦閵娿儙鐔告姜閹殿喚鐓戦梻浣哄帶閻ゅ洤螞閸曨剚鍙忛煫鍥ㄧ☉杩?
-    /// </summary>
     private async Task<ApiResponse<TemplatePackageUploadResult>> UploadEmployeeTemplateToSandboxAsync(
         string targetSandboxId,
         string evaluatorSandboxId,
@@ -654,9 +575,8 @@ internal sealed partial class EvaluationService
             archiveBytes,
             cancellationToken);
 
-        // 濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛顐ｆ礀缁€鍡涙煙濞堝灝鏋熺紒鎰殜閺屸€愁吋閸涱喖顦╅梺娲诲幗閻熝呭垝?
-        var targetUploadResult = await sandboxService.UploadSkillPackageAsync(
-            new SkillPackageUploadRequestDto
+        var targetUploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+            new DigitalEmployeeTemplateUploadRequestDto
             {
                 SandboxId = targetSandboxId,
                 OwnerSubject = owner,

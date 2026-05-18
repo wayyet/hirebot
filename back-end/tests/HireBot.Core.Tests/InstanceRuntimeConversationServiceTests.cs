@@ -242,8 +242,8 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
                     1,
                     $"/workspace/{request.TargetDir}")));
 
-        public Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default)
-            => Task.FromResult(ApiResponse<SkillPackageUploadResultDto>.SuccessResponse(new SkillPackageUploadResultDto(true, null, 1)));
+        public Task<ApiResponse<DigitalEmployeeTemplateUploadResultDto>> UploadDigitalEmployeeTemplateAsync(DigitalEmployeeTemplateUploadRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResponse<DigitalEmployeeTemplateUploadResultDto>.SuccessResponse(new DigitalEmployeeTemplateUploadResultDto(true, null, 1)));
 
         public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default)
             => Task.FromResult<SandboxInstanceDto?>(null);

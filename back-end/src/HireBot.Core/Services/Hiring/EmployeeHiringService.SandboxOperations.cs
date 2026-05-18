@@ -65,7 +65,7 @@ internal sealed partial class EmployeeHiringService
             cancellationToken);
         if (!uploadCall.Success || uploadCall.Data is null)
         {
-            return RemoteCallResult<TemplatePackageUploadResult>.Failure(uploadCall.StatusCode, uploadCall.Message);
+            return RemoteCallResult<TemplatePackageUploadResult>.Failure(uploadCall.Code, uploadCall.Message);
         }
 
         if (!uploadCall.Data.Success)
@@ -177,7 +177,7 @@ internal sealed partial class EmployeeHiringService
         return ApiResponse<SandboxInstanceDto>.ErrorResponse(504, "sandbox 启动超时，网关 endpoint 尚未就绪");
     }
 
-    private async Task<RemoteCallResult<DigitalEmployeeUploadResponse>> UploadSandboxArchiveAsync(
+    private async Task<ApiResponse<DigitalEmployeeTemplateUploadResultDto>> UploadSandboxArchiveAsync(
         string hireId,
         string ownerSubject,
         byte[] archiveBytes,
@@ -187,23 +187,18 @@ internal sealed partial class EmployeeHiringService
         var gatewayTargetResult = await ResolveSandboxGatewayTargetAsync(hireId, ownerSubject, cancellationToken);
         if (!gatewayTargetResult.Success || gatewayTargetResult.Data is null)
         {
-            return RemoteCallResult<DigitalEmployeeUploadResponse>.Failure(gatewayTargetResult.Code, gatewayTargetResult.Message);
+            return ApiResponse<DigitalEmployeeTemplateUploadResultDto>.ErrorResponse(gatewayTargetResult.Code, gatewayTargetResult.Message);
         }
 
-        var call = await kingCrabHttpClient.SendMultipartForJsonAsync<DigitalEmployeeUploadResponse>(
-            "/admin/digital-employee/upload",
-            "file",
-            fileName,
-            archiveBytes,
-            "application/zip",
-            ownerSubject,
-            cancellationToken,
-            useHireBotApiPrefix: false,
-            absoluteBaseUrl: gatewayTargetResult.Data.GatewayEndpoint);
-
-        return call.Success && call.Data is not null
-            ? RemoteCallResult<DigitalEmployeeUploadResponse>.Ok(call.Data)
-            : RemoteCallResult<DigitalEmployeeUploadResponse>.Failure(call.StatusCode, call.Message);
+        return await sandboxService.UploadDigitalEmployeeTemplateAsync(
+            new DigitalEmployeeTemplateUploadRequestDto
+            {
+                SandboxId = gatewayTargetResult.Data.SandboxId,
+                OwnerSubject = ownerSubject,
+                ArchiveBytes = archiveBytes,
+                FileName = fileName
+            },
+            cancellationToken);
     }
 
 
