@@ -762,6 +762,16 @@ internal sealed partial class EvaluationService
         string? SandboxTemplatePackageZipPath,
         string? UploadedTemplatePackageZipPath);
 
+    /// <summary>
+    /// 从雇佣端加载的模板归档，包含字节内容、文件名及本地缓存路径。
+    /// 由 <see cref="EvaluationService.UploadHiringTemplateToTargetSandboxAsync"/> 生成，
+    /// 供后续 evaluator workspace 上传复用，避免二次加载。
+    /// </summary>
+    private sealed record HiringTemplateArchive(
+        byte[] ArchiveBytes,
+        string FileName,
+        string? LocalCachePath);
+
     private sealed record WorkspaceStepState(
         string Status,
         string? Detail);

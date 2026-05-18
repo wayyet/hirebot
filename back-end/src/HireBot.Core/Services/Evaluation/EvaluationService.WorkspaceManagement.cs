@@ -61,6 +61,14 @@ internal sealed partial class EvaluationService
             targetRuntimeId,
             targetSandboxId);
         stepStates["target_sandbox"] = new("completed", targetSandboxId);
+        stepStates["upload_target_template"] = new("running", null);
+        var targetTemplateResult = await UploadHiringTemplateToTargetSandboxAsync(targetSandboxId, owner, employee, cancellationToken);
+        if (!targetTemplateResult.Success)
+        {
+            stepStates["upload_target_template"] = new("failed", targetTemplateResult.Message);
+            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(targetTemplateResult.Code, targetTemplateResult.Message);
+        }
+        stepStates["upload_target_template"] = new("completed", null);
         stepStates["evaluator_sandbox"] = new("running", null);
 
         var evaluatorResult = await CreateEvaluationSandboxAsync(
@@ -107,18 +115,20 @@ internal sealed partial class EvaluationService
         stepStates["upload_skill"] = new("completed", null);
 
         stepStates["upload_employee_template"] = new("running", null);
-        var employeeTemplateResult = await UploadEmployeeTemplateToSandboxAsync(
-            targetSandboxId, evaluatorSandboxId, evaluatorRuntimeId, owner, employee, cancellationToken);
-        if (!employeeTemplateResult.Success)
+        if (targetTemplateResult.Data is { } hiringArchive)
         {
-            stepStates["upload_employee_template"] = new("failed", employeeTemplateResult.Message);
-            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(employeeTemplateResult.Code, employeeTemplateResult.Message);
+            var evaluatorTemplateResult = await UploadHiringTemplateToEvaluatorSandboxAsync(
+                evaluatorSandboxId, owner, hiringArchive, cancellationToken);
+            if (!evaluatorTemplateResult.Success)
+            {
+                stepStates["upload_employee_template"] = new("failed", evaluatorTemplateResult.Message);
+                return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(evaluatorTemplateResult.Code, evaluatorTemplateResult.Message);
+            }
         }
 
         workspaceContext = workspaceContext with
         {
-            EvaluatorTemplatePackageZipPath = employeeTemplateResult.Data?.SandboxTemplatePackageZipPath,
-            UploadedTemplatePackageZipPath = employeeTemplateResult.Data?.UploadedTemplatePackageZipPath
+            UploadedTemplatePackageZipPath = targetTemplateResult.Data?.LocalCachePath
         };
         await SaveWorkspaceContextAsync(persistenceScope, employee.EmployeeId, workspaceContext, cancellationToken);
         stepStates["upload_employee_template"] = new("completed", null);
@@ -483,10 +493,12 @@ internal sealed partial class EvaluationService
             : ApiResponse<TargetArtifactBundle>.SuccessResponse(fixtureBundle);
     }
 
-    private async Task<ApiResponse<TemplatePackageUploadResult>> UploadEmployeeTemplateToSandboxAsync(
+    /// <summary>
+    /// 加载雇佣端产生的数字员工模板，并将其上传到评估对象（target）沙箱。
+    /// 返回已加载的归档内容，供后续 evaluator workspace 上传复用（避免二次加载）。
+    /// </summary>
+    private async Task<ApiResponse<HiringTemplateArchive?>> UploadHiringTemplateToTargetSandboxAsync(
         string targetSandboxId,
-        string evaluatorSandboxId,
-        string evaluatorRuntimeId,
         string owner,
         EmployeeDetailDto employee,
         CancellationToken cancellationToken)
@@ -494,10 +506,8 @@ internal sealed partial class EvaluationService
         var templateId = employee.SourceTemplateId?.Trim();
         if (string.IsNullOrWhiteSpace(templateId))
         {
-            logger.LogWarning("[Eval] Employee {EmployeeId} has no SourceTemplateId, skipping template upload", employee.EmployeeId);
-            return ApiResponse<TemplatePackageUploadResult>.SuccessResponse(
-                new TemplatePackageUploadResult(null, null),
-                "employee template upload skipped: missing SourceTemplateId");
+            logger.LogWarning("[Eval] Employee {EmployeeId} has no SourceTemplateId, skipping target template upload", employee.EmployeeId);
+            return ApiResponse<HiringTemplateArchive?>.SuccessResponse(null, "target template upload skipped: missing SourceTemplateId");
         }
 
         TemplatePackageDefinition templatePackage;
@@ -511,7 +521,7 @@ internal sealed partial class EvaluationService
                     "[Eval] Fixture template binding exists but local package root was not found templateId={TemplateId} employeeId={EmployeeId}",
                     templateId,
                     employee.EmployeeId);
-                return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                return ApiResponse<HiringTemplateArchive?>.ErrorResponse(
                     404,
                     $"fixture template package not found for templateId: {templateId}");
             }
@@ -534,7 +544,7 @@ internal sealed partial class EvaluationService
                     "[Eval] Failed to load bound fixture template package templateId={TemplateId} packageRoot={PackageRoot}",
                     templateId,
                     fixtureTemplateRoot);
-                return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                return ApiResponse<HiringTemplateArchive?>.ErrorResponse(
                     422,
                     $"failed to load fixture template package: {templateId}");
             }
@@ -548,7 +558,7 @@ internal sealed partial class EvaluationService
             catch (Exception ex)
             {
                 logger.LogError(ex, "[Eval] Failed to load template package templateId={TemplateId}", templateId);
-                return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
+                return ApiResponse<HiringTemplateArchive?>.ErrorResponse(
                     502,
                     $"failed to load template package: {templateId}");
             }
@@ -557,25 +567,20 @@ internal sealed partial class EvaluationService
         if (templatePackage.PackageFiles.Count == 0)
         {
             logger.LogWarning("[Eval] Template package {TemplateId} has no files", templateId);
-            return ApiResponse<TemplatePackageUploadResult>.SuccessResponse(
-                new TemplatePackageUploadResult(null, null),
-                "employee template upload skipped: package has no files");
+            return ApiResponse<HiringTemplateArchive?>.SuccessResponse(null, "target template upload skipped: package has no files");
         }
 
         var archiveBytes = EmployeeHiringService.BuildDigitalEmployeeArchive(templatePackage);
         if (archiveBytes.Length == 0)
         {
             logger.LogError("[Eval] Template archive is empty for templateId={TemplateId}", templateId);
-            return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(422, "employee template archive is empty");
+            return ApiResponse<HiringTemplateArchive?>.ErrorResponse(422, "employee template archive is empty");
         }
 
         var fileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
-        var uploadedTemplatePackageZipPath = await PersistUploadedTemplatePackageArchiveAsync(
-            fileName,
-            archiveBytes,
-            cancellationToken);
+        var localCachePath = await PersistUploadedTemplatePackageArchiveAsync(fileName, archiveBytes, cancellationToken);
 
-        var targetUploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+        var uploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
             new DigitalEmployeeTemplateUploadRequestDto
             {
                 SandboxId = targetSandboxId,
@@ -584,54 +589,54 @@ internal sealed partial class EvaluationService
                 FileName = fileName
             },
             cancellationToken);
-        if (!targetUploadResult.Success || targetUploadResult.Data is null)
+        if (!uploadResult.Success || uploadResult.Data is null)
         {
-            logger.LogError("[Eval] Failed to upload employee template to target sandboxId={SandboxId} code={Code} msg={Message}",
-                targetSandboxId, targetUploadResult.Code, targetUploadResult.Message);
-            return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
-                targetUploadResult.Code,
-                $"failed to upload employee template to target sandbox: {targetUploadResult.Message}");
+            logger.LogError("[Eval] Failed to upload hiring template to target sandboxId={SandboxId} code={Code} msg={Message}",
+                targetSandboxId, uploadResult.Code, uploadResult.Message);
+            return ApiResponse<HiringTemplateArchive?>.ErrorResponse(
+                uploadResult.Code,
+                $"failed to upload hiring template to target sandbox: {uploadResult.Message}");
         }
 
-        logger.LogInformation("[Eval] Employee template uploaded to target sandboxId={SandboxId} installed={Count}",
-            targetSandboxId, targetUploadResult.Data.SkillsInstalled);
+        logger.LogInformation("[Eval] Hiring template uploaded to target sandboxId={SandboxId} installed={Count}",
+            targetSandboxId, uploadResult.Data.SkillsInstalled);
 
-        // 将员工模板直接解压到 evaluator workspace/uploads/template/ 目录，
-        // evaluator skill 可通过文件系统路径直接读取，无需经过媒体缓存中转。
-        var evaluatorUploadResult = await sandboxService.UploadWorkspaceFileAsync(
-            new SandboxWorkspaceUploadRequestDto
+        return ApiResponse<HiringTemplateArchive?>.SuccessResponse(
+            new HiringTemplateArchive(archiveBytes, fileName, localCachePath));
+    }
+
+    /// <summary>
+    /// 将雇佣端模板归档（由 <see cref="UploadHiringTemplateToTargetSandboxAsync"/> 已加载）
+    /// 安装到 evaluator 沙箱，与 target 沙箱使用相同的上传通道，保证模板包格式一致。
+    /// </summary>
+    private async Task<ApiResponse<bool>> UploadHiringTemplateToEvaluatorSandboxAsync(
+        string evaluatorSandboxId,
+        string owner,
+        HiringTemplateArchive archive,
+        CancellationToken cancellationToken)
+    {
+        var uploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+            new DigitalEmployeeTemplateUploadRequestDto
             {
-                ScopeType = SandboxScopeTypes.Managed,
-                ScopeKey = evaluatorRuntimeId,
-                SandboxRole = "evaluation-evaluator",
-                OwnerSubject = owner,
                 SandboxId = evaluatorSandboxId,
-                TargetDir = "uploads/template",
-                FileName = fileName,
-                Content = archiveBytes,
-                ContentType = "application/zip"
+                OwnerSubject = owner,
+                ArchiveBytes = archive.ArchiveBytes,
+                FileName = archive.FileName
             },
             cancellationToken);
-        if (!evaluatorUploadResult.Success || evaluatorUploadResult.Data is null)
+        if (!uploadResult.Success || uploadResult.Data is null)
         {
-            logger.LogError("[Eval] Failed to upload employee template to evaluator workspace sandboxId={SandboxId} code={Code} msg={Message}",
-                evaluatorSandboxId, evaluatorUploadResult.Code, evaluatorUploadResult.Message);
-            return ApiResponse<TemplatePackageUploadResult>.ErrorResponse(
-                evaluatorUploadResult.Code,
-                $"failed to upload employee template to evaluator sandbox workspace: {evaluatorUploadResult.Message}");
+            logger.LogError("[Eval] Failed to upload hiring template to evaluator sandboxId={SandboxId} code={Code} msg={Message}",
+                evaluatorSandboxId, uploadResult.Code, uploadResult.Message);
+            return ApiResponse<bool>.ErrorResponse(
+                uploadResult.Code,
+                $"failed to upload hiring template to evaluator sandbox: {uploadResult.Message}");
         }
 
-        var templatePackageZipPath = evaluatorUploadResult.Data.WorkspaceDir;
-        logger.LogInformation(
-            "[Eval] Employee template uploaded to evaluator sandbox workspace sandboxId={SandboxId} workspaceDir={WorkspaceDir} fileCount={FileCount} uploadedTemplatePackageZipPath={UploadedTemplatePackageZipPath}",
-            evaluatorSandboxId,
-            templatePackageZipPath,
-            evaluatorUploadResult.Data.FileCount,
-            uploadedTemplatePackageZipPath);
+        logger.LogInformation("[Eval] Hiring template uploaded to evaluator sandboxId={SandboxId} installed={Count}",
+            evaluatorSandboxId, uploadResult.Data.SkillsInstalled);
 
-        return ApiResponse<TemplatePackageUploadResult>.SuccessResponse(
-            new TemplatePackageUploadResult(templatePackageZipPath, uploadedTemplatePackageZipPath),
-            "employee template uploaded");
+        return ApiResponse<bool>.SuccessResponse(true);
     }
 
     /// <summary>
