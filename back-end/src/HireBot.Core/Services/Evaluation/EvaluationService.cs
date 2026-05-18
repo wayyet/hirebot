@@ -1346,4 +1346,89 @@ internal sealed partial class EvaluationService(
         return BuildReadiness(testcaseReady, ontologyReady);
     }
 
+    /// <summary>
+    /// 清理指定员工的所有评估数据（工作区状态、会话、资产、报告），供测试时重置评估流程使用。
+    /// </summary>
+    public async Task<ApiResponse<object>> ResetEvaluationDataAsync(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId))
+            return ApiResponse<object>.ErrorResponse(400, "employeeId cannot be empty");
+
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
+            return ApiResponse<object>.ErrorResponse(404, "employee not found");
+
+        var persistenceScope = accessContext.PersistenceScope;
+        // 沙箱创建时使用 RequestOwner，删除时需保持一致
+        var sandboxOwner = accessContext.RequestOwner;
+        var normalizedEmployeeId = employeeId.Trim();
+
+        // 先读取工作区状态，拿到需要删除的沙箱 ID
+        var workspaceState = await dbContext.EvaluationWorkspaceStates
+            .FirstOrDefaultAsync(
+                item => item.OwnerSubject == persistenceScope && item.EmployeeId == normalizedEmployeeId,
+                cancellationToken);
+
+        var workspaceCtx = workspaceState is not null && !string.IsNullOrWhiteSpace(workspaceState.PayloadJson)
+            ? JsonSerializer.Deserialize<EvaluationWorkspaceContext>(workspaceState.PayloadJson, JsonOptions)
+            : null;
+
+        // 删除评估沙箱（调用 provisioner + 标记 Deleted）；失败时仅记录警告，不阻断清理
+        var sandboxIdsToDelete = new[]
+        {
+            workspaceCtx?.TargetSandboxId,
+            workspaceCtx?.EvaluatorSandboxId,
+        }.Where(sandboxId => !string.IsNullOrWhiteSpace(sandboxId)).Select(sandboxId => sandboxId!).Distinct().ToArray();
+
+        int deletedSandboxCount = 0;
+        foreach (var sandboxId in sandboxIdsToDelete)
+        {
+            var deleteResult = await sandboxService.DeleteForOwnerAsync(sandboxId, sandboxOwner, cancellationToken);
+            if (deleteResult.Success)
+            {
+                deletedSandboxCount++;
+                logger.LogInformation("[Eval] Reset: deleted sandbox sandboxId={SandboxId}", sandboxId);
+            }
+            else
+            {
+                // 沙箱不存在或已删除，跳过，不中断整体清理
+                logger.LogWarning("[Eval] Reset: failed to delete sandbox sandboxId={SandboxId} reason={Reason}",
+                    sandboxId, deleteResult.Message);
+            }
+        }
+
+        // 删除工作区状态记录
+        if (workspaceState is not null)
+        {
+            dbContext.EvaluationWorkspaceStates.Remove(workspaceState);
+        }
+
+        // 删除所有评估会话（级联删除 Assets 和 Reports）
+        var sessions = await dbContext.EvaluationSessions
+            .Include(item => item.Assets)
+            .Include(item => item.Reports)
+            .Where(item => item.OwnerSubject == persistenceScope && item.EmployeeId == normalizedEmployeeId)
+            .ToListAsync(cancellationToken);
+        if (sessions.Count > 0)
+        {
+            dbContext.EvaluationSessions.RemoveRange(sessions);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "[Eval] Reset evaluation data for employeeId={EmployeeId} scope={Scope}: " +
+            "removedWorkspaceState={HasWorkspaceState}, deletedSandboxes={SandboxCount}, removedSessions={SessionCount}",
+            normalizedEmployeeId, persistenceScope, workspaceState is not null, deletedSandboxCount, sessions.Count);
+
+        return ApiResponse<object>.SuccessResponse(new
+        {
+            removedWorkspaceState = workspaceState is not null,
+            deletedSandboxes = deletedSandboxCount,
+            removedSessions = sessions.Count
+        }, "评估数据已清理");
+    }
+
 }

@@ -241,6 +241,13 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    [HttpDelete("{employeeId}/evaluation/data")]
+    public async Task<IActionResult> ResetEvaluationData(string employeeId, CancellationToken cancellationToken = default)
+    {
+        var response = await evaluationService.ResetEvaluationDataAsync(employeeId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     private IActionResult? BuildModelValidationError<T>()
     {
         if (ModelState.IsValid)
