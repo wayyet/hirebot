@@ -1,0 +1,44 @@
+{
+  "test_cases": [
+    {
+      "test_case_id": "DEFAULT-001",
+      "scenario_name": "基础连通性测试",
+      "input": {
+        "user_request": "你好",
+        "context": {}
+      },
+      "expected_behavior_sequence": [
+        {
+          "step": 1,
+          "action": "响应用户问候",
+          "criteria": "沙箱能够正常接收消息并返回回复"
+        }
+      ],
+      "expected_output": {
+        "resolution": "连接成功，数字员工响应正常",
+        "user_satisfaction": "基本满意",
+        "artifacts_created": []
+      }
+    },
+    {
+      "test_case_id": "DEFAULT-002",
+      "scenario_name": "能力询问测试",
+      "input": {
+        "user_request": "你能帮我做什么？",
+        "context": {}
+      },
+      "expected_behavior_sequence": [
+        {
+          "step": 1,
+          "action": "向用户说明自身能力范围",
+          "criteria": "能够描述自身的主要功能和应用场景"
+        }
+      ],
+      "expected_output": {
+        "resolution": "用户了解了数字员工的能力范围",
+        "user_satisfaction": "满意",
+        "artifacts_created": []
+      }
+    }
+  ]
+}

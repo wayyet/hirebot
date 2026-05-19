@@ -6,11 +6,7 @@
     "iteration": 1
   },
   "materials": {
-    "workspace_root": "/workspace",
-    "template_root": "/workspace/employee-template",
-    "template_package_zip": "/workspace/uploads/employee-template.zip",
-    "testcases_path": null,
-    "ontology_path": null
+    "workspace_root": "/workspace"
   },
   "target_sandbox": {
     "sandbox_id": "SB-TARGET-001",

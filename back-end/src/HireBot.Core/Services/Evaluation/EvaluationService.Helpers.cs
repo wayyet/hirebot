@@ -756,7 +756,8 @@ internal sealed partial class EvaluationService
         string? EvaluatorTemplatePackageZipPath,
         string? UploadedTemplatePackageZipPath,
         string? ArtifactWorkspaceDir,
-        Dictionary<string, WorkspaceStepState> StepStates);
+        Dictionary<string, WorkspaceStepState> StepStates,
+        IReadOnlyList<EvaluationTestcaseOutline>? TestcaseOutlines = null);
 
     private sealed record TemplatePackageUploadResult(
         string? SandboxTemplatePackageZipPath,
@@ -770,7 +771,24 @@ internal sealed partial class EvaluationService
     private sealed record HiringTemplateArchive(
         byte[] ArchiveBytes,
         string FileName,
-        string? LocalCachePath);
+        string? LocalCachePath,
+        IReadOnlyList<TemplateMaterialFile> MaterialFiles);
+
+    /// <summary>
+    /// 从模板包中提取的单个材料文件（testcase 或 ontology）。
+    /// </summary>
+    private sealed record TemplateMaterialFile(
+        string TargetDir,
+        string FileName,
+        byte[] Content);
+
+    /// <summary>
+    /// 评估用例大纲条目，供前端展示评估场景列表。
+    /// </summary>
+    private sealed record EvaluationTestcaseOutline(
+        string TestcaseId,
+        string Title,
+        string UserRequest);
 
     private sealed record WorkspaceStepState(
         string Status,
@@ -814,11 +832,7 @@ internal sealed partial class EvaluationService
             },
             materials = new
             {
-                workspace_root = "/workspace",
-                template_root = ctx.UploadedTemplatePackageZipPath ?? "/workspace/uploads/template",
-                testcases_path = materialsWorkspaceDir,
-                ontology_path = materialsWorkspaceDir,
-                artifact_path = ctx.ArtifactWorkspaceDir
+                workspace_root = "/workspace"
             },
             target_sandbox = new
             {

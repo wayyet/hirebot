@@ -166,10 +166,26 @@ internal sealed partial class EvaluationService
 
         stepStates["upload_artifacts"] = new("completed", null);
 
+        stepStates["upload_materials"] = new("running", null);
+        var materialFiles = targetTemplateResult.Data?.MaterialFiles ?? [];
+        var materialUploadResult = await UploadMaterialFilesToEvaluatorAsync(
+            evaluatorSandboxId,
+            evaluatorRuntimeId,
+            owner,
+            materialFiles,
+            cancellationToken);
+        if (!materialUploadResult.Success)
+        {
+            logger.LogWarning("[Eval] Material upload failed sandboxId={SandboxId} Message={Message}",
+                evaluatorSandboxId, materialUploadResult.Message);
+        }
+        stepStates["upload_materials"] = new("completed", $"{materialFiles.Count} files");
+
         workspaceContext = workspaceContext with
         {
             SkillLoadedAtUtc = DateTimeOffset.UtcNow,
-            ArtifactWorkspaceDir = evaluatorArtifactUploadResult.Data
+            ArtifactWorkspaceDir = evaluatorArtifactUploadResult.Data,
+            TestcaseOutlines = materialUploadResult.Data ?? []
         };
         await SaveWorkspaceContextAsync(persistenceScope, employee.EmployeeId, workspaceContext, cancellationToken);
 
@@ -604,8 +620,71 @@ internal sealed partial class EvaluationService
         logger.LogInformation("[Eval] Hiring template uploaded to target sandboxId={SandboxId} installed={Count}",
             targetSandboxId, uploadResult.Data.SkillsInstalled);
 
+        var materialFiles = ExtractMaterialFiles(templatePackage);
+        logger.LogInformation("[Eval] Extracted material files from template package count={Count}", materialFiles.Count);
+
         return ApiResponse<HiringTemplateArchive?>.SuccessResponse(
-            new HiringTemplateArchive(archiveBytes, fileName, localCachePath));
+            new HiringTemplateArchive(archiveBytes, fileName, localCachePath, materialFiles));
+    }
+
+    /// <summary>
+    /// 从模板包文件列表中提取 testcase / ontology 材料文件，
+    /// 与 Python material_loader.py 的 _matches_material 逻辑保持一致。
+    /// </summary>
+    private static IReadOnlyList<TemplateMaterialFile> ExtractMaterialFiles(TemplatePackageDefinition templatePackage)
+    {
+        var results = new List<TemplateMaterialFile>();
+
+        foreach (var file in templatePackage.PackageFiles)
+        {
+            var normalizedPath = file.RelativePath.Replace('\\', '/').ToLowerInvariant();
+            var fileName = Path.GetFileName(file.RelativePath);
+            var fileNameLower = fileName.ToLowerInvariant();
+            var extension = Path.GetExtension(fileNameLower);
+
+            if (extension == ".json" && (
+                normalizedPath.Contains("/testcases/") ||
+                normalizedPath.StartsWith("testcases/") ||
+                fileNameLower.Contains("testcase") ||
+                fileNameLower.Contains("test-case") ||
+                fileNameLower.Contains("evaluation-test")))
+            {
+                results.Add(new TemplateMaterialFile("testcases", fileName, file.Content));
+                continue;
+            }
+
+            if (extension is ".json" or ".md" or ".txt" &&
+                !fileNameLower.Contains("testcase") &&
+                !fileNameLower.Contains("test-case") &&
+                (normalizedPath.Contains("/ontology/") ||
+                 normalizedPath.StartsWith("ontology/") ||
+                 fileNameLower.Contains("ontology") ||
+                 fileNameLower.Contains("rubric") ||
+                 fileNameLower.Contains("evaluation")))
+            {
+                results.Add(new TemplateMaterialFile("ontology", fileName, file.Content));
+            }
+        }
+
+        // 从 OntologySlices 补充尚未被 PackageFiles 覆盖的 ontology 内容
+        var existingOntologyNames = results
+            .Where(f => f.TargetDir == "ontology")
+            .Select(f => f.FileName.ToLowerInvariant())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var slice in templatePackage.OntologySlices)
+        {
+            var sliceFileName = Path.GetFileName(slice.RelativePath);
+            if (!existingOntologyNames.Contains(sliceFileName.ToLowerInvariant()))
+            {
+                results.Add(new TemplateMaterialFile(
+                    "ontology",
+                    sliceFileName,
+                    System.Text.Encoding.UTF8.GetBytes(slice.Content)));
+            }
+        }
+
+        return results;
     }
 
     /// <summary>
@@ -641,6 +720,171 @@ internal sealed partial class EvaluationService
             evaluatorSandboxId, uploadResult.Data.SkillsInstalled);
 
         return ApiResponse<bool>.SuccessResponse(true);
+    }
+
+    /// <summary>
+    /// 将提取好的 testcase / ontology 文件逐一上传到 evaluator 沙箱的 workspace 目录，
+    /// Python material_loader.py 通过扫描 workspace_root 即可发现这些文件。
+    /// </summary>
+    private async Task<ApiResponse<IReadOnlyList<EvaluationTestcaseOutline>>> UploadMaterialFilesToEvaluatorAsync(
+        string evaluatorSandboxId,
+        string evaluatorScopeKey,
+        string owner,
+        IReadOnlyList<TemplateMaterialFile> materialFiles,
+        CancellationToken cancellationToken)
+    {
+        // 目标模板没有内置测试用例时，回落到内置默认连通性测试文件
+        if (materialFiles.Count == 0)
+        {
+            logger.LogWarning(
+                "[Eval] No material files found in template, loading default fallback testcases sandboxId={SandboxId}",
+                evaluatorSandboxId);
+            materialFiles = await LoadFallbackTestcaseFilesAsync(cancellationToken);
+            if (materialFiles.Count == 0)
+            {
+                logger.LogError("[Eval] Default fallback testcase file also missing, evaluation may fail sandboxId={SandboxId}", evaluatorSandboxId);
+                return ApiResponse<IReadOnlyList<EvaluationTestcaseOutline>>.SuccessResponse([], "no material files found");
+            }
+        }
+
+        var outlines = new List<EvaluationTestcaseOutline>();
+
+        foreach (var materialFile in materialFiles)
+        {
+            var uploadResult = await sandboxService.UploadWorkspaceFileAsync(
+                new SandboxWorkspaceUploadRequestDto
+                {
+                    ScopeType = SandboxScopeTypes.Managed,
+                    ScopeKey = evaluatorScopeKey,
+                    SandboxRole = "evaluation-evaluator",
+                    OwnerSubject = owner,
+                    SandboxId = evaluatorSandboxId,
+                    TargetDir = materialFile.TargetDir,
+                    FileName = materialFile.FileName,
+                    Content = materialFile.Content,
+                    ContentType = materialFile.TargetDir == "testcases" ? "application/json" : "text/plain"
+                },
+                cancellationToken);
+
+            if (!uploadResult.Success)
+            {
+                logger.LogWarning(
+                    "[Eval] Failed to upload material file sandboxId={SandboxId} dir={Dir} file={File} msg={Message}",
+                    evaluatorSandboxId, materialFile.TargetDir, materialFile.FileName, uploadResult.Message);
+                continue;
+            }
+
+            // 解析 testcase 文件提取轮廓，供前端展示评估场景列表
+            if (materialFile.TargetDir == "testcases")
+            {
+                outlines.AddRange(ParseTestcaseOutlines(materialFile.FileName, materialFile.Content));
+            }
+        }
+
+        logger.LogInformation(
+            "[Eval] Material files uploaded to evaluator sandboxId={SandboxId} files={Count} testcases={Outlines}",
+            evaluatorSandboxId, materialFiles.Count, outlines.Count);
+
+        return ApiResponse<IReadOnlyList<EvaluationTestcaseOutline>>.SuccessResponse(outlines);
+    }
+
+    /// <summary>
+    /// 解析 testcase JSON 文件，提取每个用例的 id / title / userRequest 三元组。
+    /// 支持顶层数组、{ "test_cases": [...] } 两种格式，与 Python parse_testcases 逻辑对齐。
+    /// </summary>
+    private static IEnumerable<EvaluationTestcaseOutline> ParseTestcaseOutlines(
+        string fileName,
+        byte[] content)
+    {
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(content);
+        }
+        catch (JsonException)
+        {
+            yield break;
+        }
+
+        using (doc)
+        {
+            IEnumerable<JsonElement> items = doc.RootElement.ValueKind switch
+            {
+                JsonValueKind.Array => doc.RootElement.EnumerateArray(),
+                JsonValueKind.Object when doc.RootElement.TryGetProperty("test_cases", out var nested)
+                    && nested.ValueKind == JsonValueKind.Array => nested.EnumerateArray(),
+                JsonValueKind.Object => [doc.RootElement],
+                _ => []
+            };
+
+            var index = 0;
+            foreach (var item in items)
+            {
+                index++;
+                if (item.ValueKind != JsonValueKind.Object) continue;
+
+                var id = GetStringProperty(item, "test_case_id", "testcase_id") ?? $"TC-{index:D3}";
+                var title = GetStringProperty(item, "scenario_name", "title") ?? $"场景 {index}";
+                var userRequest = item.TryGetProperty("input", out var inputEl) && inputEl.ValueKind == JsonValueKind.Object
+                    ? GetStringProperty(inputEl, "user_request") ?? string.Empty
+                    : string.Empty;
+
+                yield return new EvaluationTestcaseOutline(id, title, userRequest);
+            }
+        }
+    }
+
+    private static string? GetStringProperty(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (element.TryGetProperty(name, out var prop) &&
+                prop.ValueKind == JsonValueKind.String)
+            {
+                var value = prop.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value.Trim();
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 当目标模板没有内置测试用例时，从 DigitalEmployeeTemplates/_defaults/testcases/ 目录
+    /// 加载兜底连通性测试文件，确保评估流程不因材料缺失而中断。
+    /// </summary>
+    private async Task<IReadOnlyList<TemplateMaterialFile>> LoadFallbackTestcaseFilesAsync(
+        CancellationToken cancellationToken)
+    {
+        // evaluationTemplatePackageRoot 指向 .../DigitalEmployeeTemplates/evaluation-expert
+        // 上一级就是 DigitalEmployeeTemplates 根目录
+        var templatesRoot = Path.GetDirectoryName(evaluationTemplatePackageRoot);
+        if (string.IsNullOrWhiteSpace(templatesRoot))
+            return [];
+
+        var fallbackDir = Path.Combine(templatesRoot, "_defaults", "testcases");
+        if (!Directory.Exists(fallbackDir))
+        {
+            logger.LogWarning("[Eval] Fallback testcase directory not found: {Dir}", fallbackDir);
+            return [];
+        }
+
+        var result = new List<TemplateMaterialFile>();
+        foreach (var filePath in Directory.EnumerateFiles(fallbackDir, "*.json", SearchOption.TopDirectoryOnly))
+        {
+            try
+            {
+                var content = await File.ReadAllBytesAsync(filePath, cancellationToken);
+                result.Add(new TemplateMaterialFile("testcases", Path.GetFileName(filePath), content));
+                logger.LogInformation("[Eval] Loaded fallback testcase file: {File}", filePath);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "[Eval] Failed to read fallback testcase file: {File}", filePath);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
