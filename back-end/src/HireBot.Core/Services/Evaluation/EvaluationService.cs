@@ -1124,6 +1124,7 @@ internal sealed partial class EvaluationService(
 
         // 将 evaluation-context.json 直接上传到 evaluator workspace/runtime/ 目录，
         // evaluator skill 可通过固定路径 workspace/runtime/evaluation-context.json 读取。
+        // token 由 verdict_uploader.py 通过 auth_client.resolve_auth() 自行获取，无需此处注入。
         var runtimeContextJson = BuildRuntimeContextJson(
             employee,
             ctx,

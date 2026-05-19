@@ -13,6 +13,7 @@ skills_required:
 
 tools_required:
   - evaluate.py
+  - verdict_uploader.py
   - evaluation_report
 
 execution_mode: interactive
@@ -172,19 +173,33 @@ python /workspace/skills/live_evaluator/evaluate.py \
 
 ### 阶段 6：持久化
 
-调用 `evaluation_report`，把以下内容交给平台/后端：
+调用 `verdict_uploader.py` 把评估结果上传到 HireBot 后端：
 
-- 基本会话信息
-- 评分结果
-- trace_result
-- report json
-- report html
+```bash
+python /workspace/skills/live_evaluator/verdict_uploader.py \
+  --runtime-context /workspace/runtime/evaluation-context.json \
+  --evaluation-result /tmp/evaluation_result.json \
+  --output /tmp/verdict_upload_result.json
+```
 
-目标是让后端完成：
+脚本会自动从运行时上下文中读取以下配置：
 
-- 资产落盘
-- 数据库持久化
-- 轮次关联
+| 配置项 | 来源（优先级从高到低） |
+|--------|----------------------|
+| HireBot 后端地址 | `runtime_context.hirebot.base_url` → 环境变量 `HIREBOT_API_BASE_URL` |
+| API Token | `runtime_context.hirebot.token` → 环境变量 `HIREBOT_API_TOKEN` → `target_sandbox.auth.access_token` |
+
+上传成功后，后端将完成：
+
+- 评估报告落库（`EvaluationReports` 表）
+- 原始 verdict JSON 资产存储（`EvaluationAssets` 表）
+- 员工状态流转（AI 通过 → `interning_human`，AI 不通过 → `failed`）
+
+读取 `/tmp/verdict_upload_result.json`，确认 `status = "success"`。
+若上传失败，输出报错并告知用户，不阻塞报告展示。
+
+如果平台已注入 `evaluation_report` 工具，可同时调用以完成文件资产的上传；
+若未注入，仅用 `verdict_uploader.py` 完成核心状态同步即可。
 
 ## 对用户的交互要求
 

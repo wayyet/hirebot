@@ -16,5 +16,9 @@
   "execution": {
     "timeout_seconds": 60,
     "http_supplement": true
+  },
+  "ncrew_hire": {
+    "_comment": "由后端从 Evaluation:ApiBaseUrl 配置自动注入，verdict_uploader.py 据此上传评估结果",
+    "base_url": "http://localhost:5000"
   }
 }
