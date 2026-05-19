@@ -750,23 +750,6 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "employee not found");
         }
 
-        var normalizedEmployeeId = employeeId.Trim();
-        var latestReportExists = await dbContext.EvaluationSessions
-            .AsNoTracking()
-            .Where(session =>
-                session.OwnerSubject == owner &&
-                session.EmployeeId == normalizedEmployeeId)
-            .Join(
-                dbContext.EvaluationReports.AsNoTracking(),
-                session => session.Id,
-                report => report.SessionEntityId,
-                (session, report) => report.Id)
-            .AnyAsync(cancellationToken);
-        if (!latestReportExists)
-        {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "current employee has no persisted evaluation report");
-        }
-
         var decision = request.Decision.Trim().ToUpperInvariant();
         var updated = decision switch
         {
