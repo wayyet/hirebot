@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useLocation, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { tokenService } from '@/infra/auth/token-service'
 import { GatewayWs } from '@/infra/sandbox/gateway-ws'
 import { fetchSandboxSessionMessages, type SandboxMessage } from '@/infra/sandbox/sandbox-api'
@@ -168,7 +168,8 @@ export default function EvaluationPage() {
   const [workspaceStatus, setWorkspaceStatus] = useState<EvaluationWorkspaceStatus | null>(null)
   const [workspacePolling, setWorkspacePolling] = useState(false)
 
-  const location = useLocation();
+  const location = useLocation()
+  const navigate = useNavigate()
 
   const [chatMessages, setChatMessages] = useState<EvalChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
@@ -254,6 +255,14 @@ export default function EvaluationPage() {
   const dimensionScores = reportSummary?.dimensionScores ?? []
   const testcaseReady = evaluation?.readiness?.testcasesReady ?? false
   const ontologyReady = evaluation?.readiness?.ontologyReady ?? false
+
+  // AI 评估已通过 或 已进入人工复核阶段，可跳转到人工评估页
+  const canNavigateToHumanEval =
+    reportSummary?.passed === true ||
+    employee?.evalPhase === 'pending_human_review' ||
+    employee?.evalPhase === 'pending_onboarding' ||
+    employee?.evalPhase === 'pending_onboarding_force'
+  const humanEvalPath = id ? `${instanceBasePath(location.pathname, id)}/human-evaluation` : null
 
   const workflowStages = useMemo<Array<{ key: string; title: string; detail: string; status: WorkflowStageStatus }>>(() => {
     const stepMap = new Map((workspaceStatus?.steps ?? []).map((step) => [step.step, step.status]))
@@ -585,7 +594,7 @@ export default function EvaluationPage() {
         streamingToolStepsRef.current = []
         if (endpointValue && sessionIdValue) {
           void syncSandboxHistory(endpointValue, sessionIdValue)
-            .then(() => {
+            .then(async () => {
               // 把本轮工具步骤附加到最后一条 bot 消息
               if (completedToolSteps.length > 0) {
                 setChatMessages((prev) => {
@@ -598,6 +607,19 @@ export default function EvaluationPage() {
                 })
               }
               setSessionListRefreshKey((current) => current + 1)
+              // 每轮对话结束后刷新评估状态，检查是否有新报告产出
+              if (id) {
+                try {
+                  const [evalState, employeeState] = await Promise.all([
+                    api.employeeRuntime.getEvaluationState(id),
+                    api.employeeRuntime.getEmployee(id),
+                  ])
+                  setEvaluation(evalState)
+                  setEmployee(employeeState)
+                } catch {
+                  // 刷新失败不影响主流程
+                }
+              }
             })
             .catch((historyError: unknown) => {
               setChatError(historyError instanceof Error ? historyError.message : '同步评估沙箱历史失败')
@@ -1059,8 +1081,28 @@ export default function EvaluationPage() {
                 </div>
               </div>
             </div>
-            <div className="flex-1 overflow-hidden bg-[#fafafa] px-5 py-4">
-              <div className="flex h-full flex-col overflow-hidden rounded-[28px] border border-[#ececec] bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
+            <div className="flex flex-1 flex-col overflow-hidden bg-[#fafafa] px-5 py-4">
+              {/* AI 评估通过横幅：提示用户进入人工评估环节 */}
+              {canNavigateToHumanEval && humanEvalPath && (
+                <div className="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-[#bbf7d0] bg-[#f0fdf4] px-4 py-3 shadow-sm">
+                  <div className="flex items-center gap-2.5 text-sm font-medium text-[#166534]">
+                    <CheckCircle2 size={16} className="shrink-0 text-[#16a34a]" />
+                    <span>
+                      AI 评估已通过
+                      {reportSummary?.overallScore != null && `（综合评分 ${reportSummary.overallScore} 分）`}
+                      ，可进入人工评估环节
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="hb-btn-primary shrink-0 !px-3 !py-1.5 !text-[12px]"
+                    onClick={() => navigate(humanEvalPath)}
+                  >
+                    进入人工评估 →
+                  </button>
+                </div>
+              )}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-[#ececec] bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
                 {!aiRunning ? (
                   <div className="m-4 rounded-2xl border border-[#ececec] bg-[#fafafa] px-4 py-3 text-sm leading-6 text-[#737373]">
                     请先点击“准备评估环境”。环境就绪后，这里会成为主聊天入口，你可以直接和评估沙箱对话，再结合右侧题卡、轨迹和报告辅助判断。
@@ -1498,6 +1540,88 @@ export default function EvaluationPage() {
                       )}
                     </div>
                   )}
+
+                  {artifactTab === 'report' && (
+                    <div className="space-y-3">
+                      {!reportSummary ? (
+                        <div className="rounded-xl border border-[#ececec] bg-white px-3 py-3 text-[11px] text-[#737373]">
+                          暂无评估报告，请先执行评估。
+                        </div>
+                      ) : (
+                        <>
+                          {/* 整体结论 */}
+                          <div className={`rounded-2xl border p-4 ${reportSummary.passed ? 'border-[#bbf7d0] bg-[#f0fdf4]' : 'border-[#fecdd3] bg-[#fff1f2]'}`}>
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${reportSummary.passed ? 'text-[#16a34a]' : 'text-[#be123c]'}`}>
+                                  {reportSummary.passed ? '✓ 评估通过' : '✗ 评估未通过'}
+                                </div>
+                                <div className="mt-1 text-[11px] text-[#6b7280]">
+                                  第 {reportSummary.iteration} 轮 · {formatDateTime(reportSummary.createdAtUtc)}
+                                </div>
+                              </div>
+                              <div className="rounded-xl border border-[#e5e7eb] bg-white px-3 py-2 text-center shadow-sm">
+                                <div className="text-2xl font-bold tabular-nums text-[#111827]">{reportSummary.overallScore}</div>
+                                <div className="text-[10px] text-[#6b7280]">综合评分</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 维度评分 */}
+                          {dimensionScores.length > 0 && (
+                            <div className="rounded-xl border border-[#ececec] bg-white p-3">
+                              <div className="mb-2 text-[11px] font-semibold text-[#404040]">维度评分明细</div>
+                              <div className="space-y-2">
+                                {dimensionScores.map((item) => (
+                                  <div key={item.dimension} className="rounded-lg border border-[#f3f4f6] bg-[#fafafa] px-3 py-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[11px] font-medium text-[#111827]">{item.dimension}</span>
+                                      <span className="tabular-nums text-[11px] font-semibold text-[#4f46e5]">{item.score}</span>
+                                    </div>
+                                    {item.comment && (
+                                      <div className="mt-1 text-[10px] leading-relaxed text-[#6b7280]">{item.comment}</div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 报告文件链接 */}
+                          <div className="rounded-xl border border-[#ececec] bg-white p-3">
+                            <div className="mb-2 text-[11px] font-semibold text-[#404040]">报告文件</div>
+                            <div className="flex flex-col gap-2">
+                              {reportJsonUrl && (
+                                <a href={reportJsonUrl} target="_blank" rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-[11px] text-[#2563eb]">
+                                  <ExternalLink size={10} /> 查看报告 JSON
+                                </a>
+                              )}
+                              {reportHtmlUrl && (
+                                <a href={reportHtmlUrl} download={`evaluation-report-${reportSummary.reportId}.html`}
+                                  target="_blank" rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-[11px] text-[#2563eb]">
+                                  <ExternalLink size={10} /> 下载报告 HTML
+                                </a>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* 通过时显示跳转按钮 */}
+                          {reportSummary.passed && humanEvalPath && (
+                            <button
+                              type="button"
+                              className="hb-btn-primary w-full !py-2 !text-[12px]"
+                              onClick={() => navigate(humanEvalPath)}
+                            >
+                              <CheckCircle2 size={12} />
+                              进入人工评估环节 →
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -1507,5 +1631,4 @@ export default function EvaluationPage() {
     </div>
   )
 }
-
 

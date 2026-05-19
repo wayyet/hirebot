@@ -1256,10 +1256,24 @@ internal sealed partial class EvaluationService(
 
         await UpdateSessionStatusAsync(sessionEntity, passed ? "passed" : "failed", null, cancellationToken);
 
-        var updated = passed
-            ? BuildAiPassResult(employee, verdict.Summary)
-            : BuildAiFailResult(employee, verdict.Summary);
-        await SaveEmployeeToDbAsync(updated, cancellationToken);
+        // 仅在员工当前处于 ai_running 阶段时才更新生命周期状态。
+        // 若已推进到 pending_human_review / pending_onboarding 等后续阶段，
+        // 本次调用视为重复或延迟到达，只保存报告，不回退状态。
+        var isInAiRunningPhase = string.Equals(employee.EvalPhase?.Trim(), "ai_running", StringComparison.OrdinalIgnoreCase);
+        if (!isInAiRunningPhase)
+        {
+            logger.LogWarning(
+                "[Eval] SyncVerdict skipping lifecycle update: employee not in ai_running phase. employeeId={EmployeeId} currentEvalPhase={EvalPhase}",
+                employeeId, employee.EvalPhase);
+        }
+
+        var updated = isInAiRunningPhase
+            ? (passed ? BuildAiPassResult(employee, verdict.Summary) : BuildAiFailResult(employee, verdict.Summary))
+            : employee;
+        if (isInAiRunningPhase)
+        {
+            await SaveEmployeeToDbAsync(updated, cancellationToken);
+        }
 
         var resultDto = new EvaluationVerdictSyncResultDto(
             employeeId.Trim(),
