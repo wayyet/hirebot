@@ -3,7 +3,9 @@ import { initReactI18next } from 'react-i18next'
 import zh from './locales/zh.json'
 import en from './locales/en.json'
 
-const savedLang = localStorage.getItem('ncrew-hire-lang') ?? 'zh'
+const savedLang = typeof globalThis.localStorage === 'undefined'
+  ? 'zh'
+  : globalThis.localStorage.getItem('ncrew-hire-lang') ?? 'zh'
 
 i18n.use(initReactI18next).init({
   resources: {

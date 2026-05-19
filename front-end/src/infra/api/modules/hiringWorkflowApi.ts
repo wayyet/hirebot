@@ -250,6 +250,19 @@ export interface UploadedMaterial {
   metadata?: Record<string, string>
 }
 
+export interface HiringMaterialFile {
+  materialFileId: string
+  relativePath: string
+  originalFileName: string
+  sizeBytes: number
+  format: string
+  mimeType?: string | null
+  sha256: string
+  requestedCategoryTitle?: string | null
+  uploadedAtUtc: string
+  updatedAtUtc: string
+}
+
 export interface HiringConversationMessageRequest {
   content: string
   structuredAnswers?: Record<string, string>
@@ -651,6 +664,55 @@ export const hiringWorkflowApi = {
   async listTodoFiles(sessionId: string): Promise<Array<{ relativePath: string; sizeBytes: number; format: string }>> {
     const path = `/api/v1/hiring-todos/${encodeURIComponent(sessionId)}/files`
     return httpClient.get<Array<{ relativePath: string; sizeBytes: number; format: string }>>(path)
+  },
+
+  /**
+   * 上传资料阶段文件：文件内容落盘，元数据绑定 hireId + sessionId 入库。
+   */
+  async uploadMaterialFiles(
+    hireId: string,
+    sessionId: string,
+    files: File[],
+    options?: {
+      folder?: string
+      requestedCategoryTitle?: string
+    },
+  ): Promise<HiringMaterialFile[]> {
+    const url = buildUrl(`/api/v1/hirings/${encodeURIComponent(hireId)}/material-files/upload`)
+    const accessToken = await tokenService.ensureFresh()
+    const form = new FormData()
+    form.append('session_id', sessionId)
+    if (options?.folder?.trim()) form.append('folder', options.folder.trim())
+    if (options?.requestedCategoryTitle?.trim()) {
+      form.append('requested_category_title', options.requestedCategoryTitle.trim())
+    }
+    for (const f of files) form.append('files', f, f.name)
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: form,
+    })
+    const text = await response.text()
+    if (!response.ok) {
+      try {
+        const p = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
+        throw new ApiClientError(p.message?.trim() || `上传失败（HTTP ${response.status}）`, response.status, p.code, p)
+      } catch {
+        throw new ApiClientError(`上传失败（HTTP ${response.status}）`, response.status, undefined, text)
+      }
+    }
+
+    const env = JSON.parse(text) as ApiResponseEnvelope<HiringMaterialFile[]>
+    return env?.data ?? []
+  },
+
+  /** 从数据库列出当前雇佣会话已上传的资料阶段文件。*/
+  async listMaterialFiles(hireId: string, sessionId: string): Promise<HiringMaterialFile[]> {
+    const query = new URLSearchParams({ session_id: sessionId })
+    return httpClient.get<HiringMaterialFile[]>(
+      `/api/v1/hirings/${encodeURIComponent(hireId)}/material-files?${query.toString()}`,
+    )
   },
 
   /**

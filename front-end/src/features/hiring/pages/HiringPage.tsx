@@ -18,8 +18,9 @@ import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
 import { HiringTodoPanel } from './components/HiringTodoPanel'
 import { HiringStagePills } from './components/HiringStagePills'
-import type { ArtifactDisplayData, ChatFile, ChatMessage, SkillUploadPayload, StageGateData, ToolStep } from './hiringPageTypes'
+import type { ArtifactDisplayData, ChatFile, ChatMessage, MaterialRequestedCategory, SkillUploadPayload, StageGateData, ToolStep } from './hiringPageTypes'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
+import { extractLatestMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
 
 function mkId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -162,6 +163,7 @@ export default function HiringPage() {
   const [workflowInitAttempted, setWorkflowInitAttempted] = useState(false)
   const [artifactArchive, setArtifactArchive] = useState<{ fileName: string; blob: Blob } | null>(null)
   const [artifactFileNames, setArtifactFileNames] = useState<string[]>([])
+  const [materialRequestedCategories, setMaterialRequestedCategories] = useState<MaterialRequestedCategory[]>([])
   // template_package artifact 到达时暂存，触发 triggerCreate() 后消费
   const [pendingPackageArtifact, setPendingPackageArtifact] = useState<{ fileUrl: string; fileName: string } | null>(null)
   // 用户在 TODO 面板关联的 store skill UUID 列表；导入产物包时一并提交给后端用于合并
@@ -440,8 +442,8 @@ export default function HiringPage() {
       useCaseSection,
       '',
       '请读取上述工作区目录中的 manifest.json，按照 SKILL.md 的"会话初始化"步骤完成初始化（文件已就绪，无需解压），然后严格按"步骤 4"执行阶段 1 强制动作：',
-      'A. 调用 `emit_artifact` 推送 stage1 progress（artifactType=material_collection_progress, stage=stage1_material, isTerminal=false），把阶段胶囊从"等待"切到"进行中"。',
-      'B. 用一句话邀请我上传或描述业务资料，按 story-driven 风格开口，不要罗列长清单。',
+      'A. 调用 `emit_artifact` 推送 stage1 progress（artifactType=material_collection_progress, stage=stage1_material, isTerminal=false），data.requested_categories 必须包含 1-3 个开场白中提到的建议上传资料分类，把阶段胶囊从"等待"切到"进行中"。',
+      'B. 用一句话邀请我上传或描述业务资料，按 story-driven 风格开口，只提这 1-3 个建议分类，不要罗列长清单。',
     ].join('\n')
   }
 
@@ -481,6 +483,7 @@ export default function HiringPage() {
           } | null
           if (cached?.messages && cached.messages.length > 0) {
             setMessages(cached.messages)
+            setMaterialRequestedCategories(extractLatestMaterialRequestedCategories(cached.messages))
             if (cached.stageOverrides && cached.stageOverrides.length > 0) {
               setWsStageOverrides(new Map(cached.stageOverrides as [HiringUiStage, 'running' | 'completed' | 'failed'][]))
             }
@@ -506,6 +509,7 @@ export default function HiringPage() {
       if (mapped.length > 0) {
         setMessages(mapped)
       }
+      setMaterialRequestedCategories([])
       autoTemplateBootstrapSessionRef.current = sessionId
       return
     }
@@ -744,7 +748,13 @@ export default function HiringPage() {
             const sizeBytes = typeof raw.fileSizeBytes === 'number' ? raw.fileSizeBytes : typeof raw.file_size_bytes === 'number' ? raw.file_size_bytes : null
             artifactData.sizeLabel = sizeBytes !== null ? formatFileSize(sizeBytes) : ''
           } else {
-            artifactData.data = raw.data
+            artifactData.data = typeof raw.data === 'string' ? JSON.parse(raw.data as string) : raw.data
+          }
+          if (artifactType === 'material_collection_progress') {
+            const categories = normalizeMaterialRequestedCategories(artifactData.data)
+            if (categories.length > 0) {
+              setMaterialRequestedCategories(categories)
+            }
           }
           setMessages(msgs => [...msgs, {
             id: mkId(),
@@ -1279,6 +1289,7 @@ export default function HiringPage() {
         setWorkflowError('')
         setWorkflowNotice('')
         setWsStageOverrides(new Map())
+        setMaterialRequestedCategories([])
 
         // 清除后端对话缓存，确保重置后刷新页面不会恢复旧记录
         api.hiringWorkflow.saveConversationCache(hireId, {}).catch(() => {})
@@ -1437,8 +1448,10 @@ export default function HiringPage() {
 
           {/* MCP TODO 交互面板：完全由 WS artifact 事件驱动阶段亮灯 */}
           <HiringTodoPanel
+            hireId={workflowHireId}
             sessionId={sessionIdRef.current ?? ''}
             wsStageOverrides={wsStageOverrides}
+            requestedMaterialCategories={materialRequestedCategories}
             onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}
             onGenerate={() => { void handleRequestPackaging() }}
             generated={instanceCreated}

@@ -30,6 +30,16 @@
 
 ```json
 {
+  "workspace_root": "/workspace/refund-agent-20260518103000",
+  "template_slug": "refund-agent",
+  "summary": "已进入资料阶段，等待用户上传或描述业务资料",
+  "requested_categories": [
+    {
+      "title": "历史工单",
+      "description": "优先上传最近处理不顺的真实案例",
+      "examples": ["投诉工单", "售后记录"]
+    }
+  ],
   "collected_count": 2,
   "items": [
     {
@@ -57,8 +67,15 @@
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
-| `collected_count` | 是 | 当前已收集的资料条目数 |
-| `items[]` | 是 | 已整理的资料清单 |
+| `workspace_root` | 初始化时必填 | 当前会话工作区真实绝对路径，供下游 skill 读取上传文件与写入产物 |
+| `template_slug` | 初始化时必填 | 当前模板 slug |
+| `summary` | 否 | 当前进度摘要 |
+| `collected_count` | 已有资料后必填 | 当前已收集的资料条目数；开场亮灯但尚无资料时可省略 |
+| `requested_categories[]` | 否 | 开场阶段建议用户优先上传的资料分类，最多 3 项；仅用于右侧资料阶段展示，不代表已收集资料 |
+| `requested_categories[].title` | 是 | 资料分类名称，对用户可读，如"历史工单""SOP""产品手册" |
+| `requested_categories[].description` | 否 | 为什么需要这类资料，一句话即可 |
+| `requested_categories[].examples[]` | 否 | 该分类下的示例文件或来源，最多 2 个 |
+| `items[]` | 已有资料后必填 | 已整理的资料清单；开场亮灯但尚无资料时可省略 |
 | `items[].title` | 是 | 资料标题，对用户可读 |
 | `items[].source_hint` | 是 | 来源描述（对用户可读，如"用户上传：sales.csv"或"用户描述"） |
 | `items[].source_path` | 否 | 工作区相对路径（上传文件填 `uploads/<文件名>`；纯描述来源填 `null`）；下游 `ontology-extraction` skill 用此字段定位实际文件，路径约定见 `config/workspace.json` |

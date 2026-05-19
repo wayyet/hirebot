@@ -189,7 +189,7 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 1. **角色亮相**：用模板摘要中的模板名称替换 `{模板名称}`，输出：
    你好，我是你的数字员工培训专员，接下来我会带你完成{模板名称}的配置工作，整个过程分三步：补充业务资料、明确它要具备的能力、配置它能调用的系统资源。
-2. **阶段切入**：简短衔接"已读取模板包，进入资料阶段——"。
+2. **阶段切入**：简短衔接"已读取模板包，进入资料阶段——"，并按 `SOUL.md` / `IDENTITY.md` 与 [references/scene-types.md](references/scene-types.md) 推断 1-3 个最该先上传的资料分类，用业务话嵌入开场（例如"可以先从历史工单、FAQ、SOP 这几类开始"）。
 
 **禁止**在开场里复述模板包详细内容。
 
@@ -200,8 +200,10 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
    - `stage`: `stage1_material`
    - `isTerminal`: `false`
    - `displayHint`: `progress`
-   - `data`: `{ "workspace_root": <真实路径>, "template_slug": <真实 slug>, "summary": "已进入资料阶段，等待用户上传或描述业务资料" }`
+   - `data`: `{ "workspace_root": <真实路径>, "template_slug": <真实 slug>, "summary": "已进入资料阶段，等待用户上传或描述业务资料", "requested_categories": [{ "title": "历史工单", "description": "优先上传最近处理不顺的真实案例", "examples": ["投诉工单", "售后记录"] }] }`
 2. **再用一句话**邀请用户开始介绍业务场景或直接上传资料，按 [references/scene-types.md](references/scene-types.md) 的 story-driven 风格开口，不要罗列长清单。
+
+`requested_categories` 最多 3 项，必须与开场白提到的分类一致；它只用于右侧资料阶段提示"建议先上传"，不代表用户已经完成资料归类。
 
 > 前端的资料上传入口完全由 artifact 事件控制：`material_collection_progress` 一发出，阶段卡片自动展开拖拽上传区，**无需也无法**通过 MCP 工具触发。
 
