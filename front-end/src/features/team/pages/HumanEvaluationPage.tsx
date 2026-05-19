@@ -5,6 +5,8 @@ import { api, type EmployeeDetail, type EvaluationState } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
 import { instanceBasePath } from '@/shared/utils/instancePath'
 
+type HumanDecision = 'ONBOARD' | 'REJECT' | 'FORCE'
+
 function verdictLabel(verdict?: string | null) {
   if (verdict === 'passed') return '通过'
   if (verdict === 'failed') return '不通过'
@@ -61,8 +63,9 @@ export default function HumanEvaluationPage() {
     return evaluation?.scenarios.filter((scenario) => scenario.verdict === 'failed').length ?? 0
   }, [evaluation])
 
-  async function submitDecision(decision: 'ONBOARD' | 'REJECT' | 'FORCE') {
+  async function submitDecision(decision: HumanDecision) {
     if (!id) return
+
     setSubmitting(true)
     setError('')
     try {
@@ -77,6 +80,28 @@ export default function HumanEvaluationPage() {
       navigate(instanceBasePath(location.pathname, id!))
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '提交人工评估结论失败')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function submitDirectLive() {
+    if (!id) return
+
+    setSubmitting(true)
+    setError('')
+    try {
+      await api.employeeRuntime.submitOnboardingDecision(id, { decision: 'ONBOARD' })
+      const updated = await api.employeeRuntime.updateLifecycle(id, {
+        status: 'live',
+        stageSummary: '人工评估通过并直接上岗',
+        primarySignal: '运行稳定',
+        signalLevel: 'ok',
+      })
+      setEmployee(updated)
+      navigate(instanceBasePath(location.pathname, id))
+    } catch (requestError: unknown) {
+      setError(requestError instanceof Error ? requestError.message : '直接上岗失败')
     } finally {
       setSubmitting(false)
     }
@@ -114,8 +139,8 @@ export default function HumanEvaluationPage() {
                     场景通过：{passedCount}/{evaluation.scenarios.length} · AI 建议：{evaluation.recommendation}
                   </p>
                 </div>
-                <span className={`hb-pill ${failedCount > 0 ? 'orange' : 'green'}`}>
-                  {failedCount > 0 ? '存在未通过场景' : '可进入待上岗'}
+                <span className={`hb-pill ${failedCount > 0 ? 'orange' : evaluation.scenarios.length > 0 ? 'green' : 'gray'}`}>
+                  {failedCount > 0 ? '存在未通过场景' : evaluation.scenarios.length > 0 ? '可进入待上岗' : '未执行AI评估'}
                 </span>
               </div>
               <div className="hb-hero-metrics">
@@ -172,6 +197,15 @@ export default function HumanEvaluationPage() {
               <button
                 type="button"
                 disabled={submitting}
+                onClick={() => void submitDirectLive()}
+                className="hb-btn-ghost"
+              >
+                <CheckCircle2 size={14} />
+                直接设为已上岗
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
                 onClick={() => void submitDecision('REJECT')}
                 className="rounded-full border border-[#fde2e2] bg-white px-4 py-2 text-sm font-medium text-[#be3a4a] hover:bg-[#fff5f5] disabled:opacity-50"
               >
@@ -189,7 +223,7 @@ export default function HumanEvaluationPage() {
               </button>
             </div>
             <p className="mt-3 text-xs text-[#737373]">
-              通过后状态会进入“待上岗”，后续由飞书身份配置与上岗流程切换为 live。
+              "通过并置为待上岗"：人工审核通过，进入上岗准备阶段；"直接设为已上岗"：人工审核通过并立即上岗；"不通过并进入 Review"：驳回并进入人工复核流程。
             </p>
           </section>
         </>

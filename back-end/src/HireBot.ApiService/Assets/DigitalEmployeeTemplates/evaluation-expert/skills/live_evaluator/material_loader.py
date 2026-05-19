@@ -2,7 +2,7 @@
 material_loader.py - 评估材料加载与检查
 
 职责：
-  - 从评估沙箱本地目录或上传的模板 zip 中发现 testcases / ontology
+  - 从评估沙箱本地 workspace 目录发现 testcases / ontology
   - 解析测试用例，生成题卡
   - 汇总 ontology 权重与规则，输出就绪状态
 
@@ -15,7 +15,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
-from zipfile import ZipFile
+
+_DEFAULT_WORKSPACE_ROOT = "/workspace"
 
 
 @dataclass(frozen=True)
@@ -43,24 +44,10 @@ def load_runtime_context(path: str) -> dict[str, Any]:
 def inspect_materials(runtime_context: dict[str, Any]) -> dict[str, Any]:
     """检查评估沙箱本地材料是否齐备，并产出题卡与本体摘要。"""
     materials_cfg = runtime_context.get("materials") or {}
-    workspace_root = _clean_path(materials_cfg.get("workspace_root"))
-    template_root = _clean_path(materials_cfg.get("template_root"))
-    template_package_zip = _clean_path(materials_cfg.get("template_package_zip"))
-    explicit_testcases = _clean_path(materials_cfg.get("testcases_path"))
-    explicit_ontology = _clean_path(materials_cfg.get("ontology_path"))
+    workspace_root = _clean_path(materials_cfg.get("workspace_root")) or _DEFAULT_WORKSPACE_ROOT
 
-    testcase_docs = discover_testcase_documents(
-        workspace_root=workspace_root,
-        template_root=template_root,
-        template_package_zip=template_package_zip,
-        explicit_path=explicit_testcases,
-    )
-    ontology_docs = discover_ontology_documents(
-        workspace_root=workspace_root,
-        template_root=template_root,
-        template_package_zip=template_package_zip,
-        explicit_path=explicit_ontology,
-    )
+    testcase_docs = discover_testcase_documents(workspace_root=workspace_root)
+    ontology_docs = discover_ontology_documents(workspace_root=workspace_root)
 
     parsed_testcases = parse_testcases(testcase_docs)
     ontology_summary = build_ontology_summary(ontology_docs)
@@ -76,11 +63,7 @@ def inspect_materials(runtime_context: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": status,
         "missing": missing,
-        "template_source": {
-            "template_root": template_root,
-            "template_package_zip": template_package_zip,
-            "workspace_root": workspace_root,
-        },
+        "workspace_root": workspace_root,
         "testcases": {
             "ready": bool(parsed_testcases),
             "count": len(parsed_testcases),
@@ -106,60 +89,14 @@ def inspect_materials(runtime_context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def discover_testcase_documents(
-    *,
-    workspace_root: str | None,
-    template_root: str | None,
-    template_package_zip: str | None,
-    explicit_path: str | None,
-) -> list[MaterialDocument]:
+def discover_testcase_documents(*, workspace_root: str) -> list[MaterialDocument]:
     """发现测试用例文件。"""
-    documents: list[MaterialDocument] = []
-
-    if explicit_path:
-        documents.extend(_read_from_explicit_path(explicit_path, "testcases"))
-        if documents:
-            return _deduplicate_documents(documents)
-
-    for root in _candidate_roots(workspace_root, template_root):
-        documents.extend(_read_directory_documents(root, "testcases"))
-
-    if template_package_zip:
-        documents.extend(_read_zip_documents(template_package_zip, "testcases"))
-
-    # Fallback: scan media-cache for zip files (covers AI path extraction drift)
-    if not documents:
-        documents.extend(_scan_media_cache_zips("testcases"))
-
-    return _deduplicate_documents(documents)
+    return _deduplicate_documents(_read_directory_documents(workspace_root, "testcases"))
 
 
-def discover_ontology_documents(
-    *,
-    workspace_root: str | None,
-    template_root: str | None,
-    template_package_zip: str | None,
-    explicit_path: str | None,
-) -> list[MaterialDocument]:
+def discover_ontology_documents(*, workspace_root: str) -> list[MaterialDocument]:
     """发现 ontology 文件。"""
-    documents: list[MaterialDocument] = []
-
-    if explicit_path:
-        documents.extend(_read_from_explicit_path(explicit_path, "ontology"))
-        if documents:
-            return _deduplicate_documents(documents)
-
-    for root in _candidate_roots(workspace_root, template_root):
-        documents.extend(_read_directory_documents(root, "ontology"))
-
-    if template_package_zip:
-        documents.extend(_read_zip_documents(template_package_zip, "ontology"))
-
-    # Fallback: scan media-cache for zip files
-    if not documents:
-        documents.extend(_scan_media_cache_zips("ontology"))
-
-    return _deduplicate_documents(documents)
+    return _deduplicate_documents(_read_directory_documents(workspace_root, "ontology"))
 
 
 def parse_testcases(documents: Iterable[MaterialDocument]) -> list[dict[str, Any]]:
@@ -320,34 +257,6 @@ def _build_scoring_hint(ontology_summary: dict[str, Any]) -> str:
     return "评分时重点关注功能完整性、交互质量、流程合规、问题解决、工具调用正确性。"
 
 
-def _read_from_explicit_path(path: str, material_type: str) -> list[MaterialDocument]:
-    if path.lower().endswith(".zip"):
-        return _read_zip_documents(path, material_type)
-
-    target = Path(path)
-    if not target.exists():
-        return []
-    if target.is_dir():
-        return _read_directory_documents(str(target), material_type)
-
-    zip_documents = _try_read_as_zip(str(target), material_type)
-    if zip_documents:
-        return zip_documents
-
-    try:
-        content = target.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        return []
-    return [
-        MaterialDocument(
-            file_name=target.name,
-            source_path=str(target),
-            source_type="file",
-            content=content,
-        )
-    ]
-
-
 def _read_directory_documents(root: str, material_type: str) -> list[MaterialDocument]:
     root_path = Path(root)
     if not root_path.exists() or not root_path.is_dir():
@@ -373,67 +282,6 @@ def _read_directory_documents(root: str, material_type: str) -> list[MaterialDoc
             )
         )
     return documents
-
-
-def _read_zip_documents(zip_path: str, material_type: str) -> list[MaterialDocument]:
-    zip_file = Path(zip_path)
-    if not zip_file.exists() or not zip_file.is_file():
-        return []
-
-    documents: list[MaterialDocument] = []
-    try:
-        archive = ZipFile(zip_file)
-    except Exception:
-        return []
-
-    with archive:
-        for name in archive.namelist():
-            if name.endswith("/"):
-                continue
-            if not _matches_material(Path(name), material_type):
-                continue
-            try:
-                content = archive.read(name).decode("utf-8")
-            except UnicodeDecodeError:
-                continue
-            documents.append(
-                MaterialDocument(
-                    file_name=Path(name).name,
-                    source_path=f"{zip_path}!/{name}",
-                    source_type="zip",
-                    content=content,
-                )
-            )
-    return documents
-
-
-def _scan_media_cache_zips(material_type: str) -> list[MaterialDocument]:
-    """扫描 media-cache 下的所有 zip 文件，作为材料发现的兜底路径。
-
-    media-cache 中的文件可能没有 .zip 后缀（以 MediaId 命名），
-    因此扫描所有文件并尝试作为 ZipFile 打开。
-    """
-    candidates = [
-        Path("/workspace/app/memory/media-cache"),
-        Path("/app/memory/media-cache"),
-    ]
-    documents: list[MaterialDocument] = []
-    for media_dir in candidates:
-        if not media_dir.is_dir():
-            continue
-        for entry in media_dir.iterdir():
-            if not entry.is_file():
-                continue
-            documents.extend(_try_read_as_zip(str(entry), material_type))
-    return documents
-
-
-def _try_read_as_zip(path: str, material_type: str) -> list[MaterialDocument]:
-    """尝试将文件作为 zip 打开，失败则返回空列表。"""
-    try:
-        return _read_zip_documents(path, material_type)
-    except Exception:
-        return []
 
 
 def _matches_material(path: Path, material_type: str) -> bool:
@@ -480,15 +328,6 @@ def _deduplicate_documents(documents: Iterable[MaterialDocument]) -> list[Materi
         key = f"{document.source_type}:{document.source_path}".lower()
         deduplicated[key] = document
     return list(deduplicated.values())
-
-
-def _candidate_roots(workspace_root: str | None, template_root: str | None) -> list[str]:
-    roots: list[str] = []
-    for candidate in (template_root, workspace_root):
-        cleaned = _clean_path(candidate)
-        if cleaned and cleaned not in roots:
-            roots.append(cleaned)
-    return roots
 
 
 def _clean_path(value: Any) -> str | None:

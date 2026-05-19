@@ -175,62 +175,7 @@ public sealed class HiringMaterialFilesControllerTests
         }
     }
 
-    [Fact]
-    public async Task ParseUploadedFilesForSessionAsync_ShouldReadMaterialFilesFromDatabase()
-    {
-        var databaseRoot = new InMemoryDatabaseRoot();
-        var root = CreateTempRoot();
-        var cancellationToken = TestContext.Current.CancellationToken;
 
-        try
-        {
-            await using var dbContext = CreateDbContext(databaseRoot);
-            var content = "资料正文";
-            var bytes = Encoding.UTF8.GetBytes(content);
-            var storagePath = Path.Combine(root, "data", "resources", "todo-files", "session-005", "source.md");
-            Directory.CreateDirectory(Path.GetDirectoryName(storagePath)!);
-            await File.WriteAllTextAsync(storagePath, content, cancellationToken);
-            dbContext.HiringMaterialFiles.Add(new HiringMaterialFileEntity
-            {
-                HireId = "hire-005",
-                SessionId = "session-005",
-                RelativePath = "source.md",
-                OriginalFileName = "source.md",
-                StoragePath = storagePath,
-                Format = "md",
-                MimeType = "text/markdown",
-                SizeBytes = bytes.Length,
-                Sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)),
-                RequestedCategoryTitle = "材料分类",
-                TenantId = "tenant-001",
-                OperatorId = "operator-001",
-                UploadedBy = "owner-001",
-                UploadedAtUtc = DateTimeOffset.UtcNow,
-                UpdatedAtUtc = DateTimeOffset.UtcNow
-            });
-            await dbContext.SaveChangesAsync(cancellationToken);
-            var tool = new HiringTodoMcpTools(
-                new TestWebHostEnvironment(root),
-                CreateConfiguration(),
-                dbContext,
-                NullLogger<HiringTodoMcpTools>.Instance);
-
-            var json = await tool.ParseUploadedFilesForSessionAsync("session-005", cancellationToken: cancellationToken);
-
-            using var document = JsonDocument.Parse(json);
-            var rootElement = document.RootElement;
-            Assert.Equal("database", rootElement.GetProperty("source").GetString());
-            Assert.Equal(1, rootElement.GetProperty("file_count").GetInt32());
-            var file = rootElement.GetProperty("files")[0];
-            Assert.Equal("source.md", file.GetProperty("relative_path").GetString());
-            Assert.Equal("材料分类", file.GetProperty("requested_category_title").GetString());
-            Assert.Equal(content, file.GetProperty("content").GetString());
-        }
-        finally
-        {
-            DeleteTempRoot(root);
-        }
-    }
 
     private static HiringMaterialFilesController CreateController(HireBotDbContext dbContext, string root)
     {

@@ -12,7 +12,9 @@ import {
   SendHorizontal,
   Zap,
 } from 'lucide-react'
-import { useLocation, useParams } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { tokenService } from '@/infra/auth/token-service'
 import { GatewayWs } from '@/infra/sandbox/gateway-ws'
 import { fetchSandboxSessionMessages, type SandboxMessage } from '@/infra/sandbox/sandbox-api'
@@ -26,7 +28,12 @@ import {
 } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
 import SessionListPanel from '@/features/team/components/SessionListPanel'
+import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
+import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
 import { instanceBasePath } from '@/shared/utils/instancePath'
+
+/** 评估页面本地消息类型（在 HiringConversationMessage 基础上增加工具调用步骤） */
+type EvalChatMessage = HiringConversationMessage & { toolSteps?: ToolStep[] }
 
 type ArtifactTab = 'overview' | 'testcase' | 'trace' | 'report'
 type WorkflowStageStatus = 'pending' | 'running' | 'completed' | 'failed'
@@ -124,16 +131,28 @@ function logEvaluationDebug(label: string, payload?: unknown) {
   console.info(`[EvaluationPage] ${label}`, payload)
 }
 
-function mapSandboxMessages(messages: SandboxMessage[]): HiringConversationMessage[] {
+function mapSandboxMessages(messages: SandboxMessage[]): EvalChatMessage[] {
   return messages
     .filter((message) => message.type === 'user_message' || message.type === 'assistant_message')
-    .map((message, index) => ({
-      messageId: `${message.type}-${index}-${String(message.createdAt ?? Date.now())}`,
-      role: message.type === 'user_message' ? 'user' : 'assistant',
-      content: String(message.content ?? message.text ?? '').trim(),
-      createdAt: String(message.createdAt ?? new Date().toISOString()),
-    }))
-    .filter((message) => message.content.length > 0)
+    .map((message, index) => {
+      const toolSteps: ToolStep[] | undefined = (message.toolCalls?.length ?? 0) > 0
+        ? message.toolCalls!.map((tc, tcIdx) => ({
+            id: `${index}-${tcIdx}-${tc.toolName}`,
+            name: tc.toolName.startsWith('streaming.') ? tc.toolName.slice('streaming.'.length) : tc.toolName,
+            args: tc.arguments,
+            result: tc.result,
+            status: 'done' as const,
+          }))
+        : undefined
+      return {
+        messageId: `${message.type}-${index}-${String(message.createdAt ?? Date.now())}`,
+        role: message.type === 'user_message' ? 'user' : 'assistant',
+        content: String(message.content ?? message.text ?? '').trim(),
+        createdAt: String(message.createdAt ?? new Date().toISOString()),
+        toolSteps,
+      }
+    })
+    .filter((message) => message.content.length > 0 || (message.toolSteps?.length ?? 0) > 0)
 }
 
 export default function EvaluationPage() {
@@ -149,9 +168,10 @@ export default function EvaluationPage() {
   const [workspaceStatus, setWorkspaceStatus] = useState<EvaluationWorkspaceStatus | null>(null)
   const [workspacePolling, setWorkspacePolling] = useState(false)
 
-  const location = useLocation();
+  const location = useLocation()
+  const navigate = useNavigate()
 
-  const [chatMessages, setChatMessages] = useState<HiringConversationMessage[]>([])
+  const [chatMessages, setChatMessages] = useState<EvalChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [chatSending, setChatSending] = useState(false)
@@ -161,6 +181,8 @@ export default function EvaluationPage() {
   const [sandboxConnected, setSandboxConnected] = useState(false)
   const [sessionSwitching, setSessionSwitching] = useState(false)
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
+  const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([])
+  const [chatTyping, setChatTyping] = useState(false)
   const [, setSandboxConversation] = useState<EvaluationSandboxConversationState | null>(null)
   const wsEvaluating = false
   const wsProgress = ''
@@ -171,6 +193,7 @@ export default function EvaluationPage() {
   const gatewayEndpointRef = useRef<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const streamingContentRef = useRef('')
+  const streamingToolStepsRef = useRef<ToolStep[]>([])
   const connectionStateRef = useRef<{ endpoint: string | null; sessionId: string | null }>({
     endpoint: null,
     sessionId: null,
@@ -221,6 +244,7 @@ export default function EvaluationPage() {
   }, [chatLoading, chatMessages, streamingContent])
 
   const questionCards = evaluation?.questionCards ?? []
+  const testcaseOutlines = evaluation?.testcaseOutlines ?? []
   const traceAssets = (evaluation?.assetRefs ?? [])
     .filter((asset) => asset.assetType === 'trace-json')
     .slice(0, 8)
@@ -231,6 +255,27 @@ export default function EvaluationPage() {
   const dimensionScores = reportSummary?.dimensionScores ?? []
   const testcaseReady = evaluation?.readiness?.testcasesReady ?? false
   const ontologyReady = evaluation?.readiness?.ontologyReady ?? false
+
+  // 只要已有评估结果，或已进入人工复核/待上岗阶段，就允许进入人工评估页。
+  // AI 结果只负责展示，不替用户做最终业务决策。
+  const canNavigateToHumanEval =
+    reportSummary != null ||
+    employee?.evalPhase === 'pending_human_review' ||
+    employee?.evalPhase === 'pending_onboarding' ||
+    employee?.evalPhase === 'pending_onboarding_force'
+  const humanEvalPath = id ? `${instanceBasePath(location.pathname, id)}/human-evaluation` : null
+  const humanEvalBannerTone = reportSummary?.passed === false
+    ? 'border-[#fed7aa] bg-[#fff7ed]'
+    : 'border-[#bbf7d0] bg-[#f0fdf4]'
+  const humanEvalBannerTextTone = reportSummary?.passed === false ? 'text-[#c2410c]' : 'text-[#166534]'
+  const humanEvalBannerTitle = reportSummary == null
+    ? '已进入人工评估阶段'
+    : reportSummary.passed
+      ? 'AI 评估已通过'
+      : 'AI 评估未通过'
+  const humanEvalBannerDescription = reportSummary?.overallScore != null
+    ? `（综合评分 ${reportSummary.overallScore} 分），请进入人工评估决定后续流程`
+    : '，请进入人工评估决定后续流程'
 
   const workflowStages = useMemo<Array<{ key: string; title: string; detail: string; status: WorkflowStageStatus }>>(() => {
     const stepMap = new Map((workspaceStatus?.steps ?? []).map((step) => [step.step, step.status]))
@@ -479,9 +524,14 @@ export default function EvaluationPage() {
 
     ws.onMessage = (msg) => {
       const messageType = String(msg.type ?? '')
+
       if (messageType === 'typing_start') {
+        // 新轮次开始：重置流式内容和工具步骤
         streamingContentRef.current = ''
+        streamingToolStepsRef.current = []
         setStreamingContent('')
+        setStreamingToolSteps([])
+        setChatTyping(true)
         return
       }
 
@@ -489,17 +539,101 @@ export default function EvaluationPage() {
         const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
         streamingContentRef.current += chunk
         setStreamingContent(streamingContentRef.current)
+        setChatTyping(false)
+        return
+      }
+
+      // 工具调用开始：添加 running 状态条目
+      // tool_start: evaluator sandbox 格式，工具名在 msg.text
+      // tool_use_start / tool_call_start: Anthropic 格式，工具名在 msg.name
+      if (messageType === 'tool_start' || messageType === 'tool_use_start' || messageType === 'tool_call_start') {
+        const rawName = messageType === 'tool_start'
+          ? String((msg as unknown as Record<string, unknown>).text ?? '')
+          : String(msg.name ?? msg.tool_name ?? msg.tool ?? 'tool')
+        const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
+        const toolId = String(msg.id ?? msg.tool_use_id ?? `tool-${Date.now()}`)
+        const rawArgs = (msg as unknown as Record<string, unknown>).arguments
+        const newStep: ToolStep = {
+          id: toolId,
+          name: toolName || 'tool',
+          args: rawArgs != null
+            ? (typeof rawArgs === 'string' ? rawArgs : JSON.stringify(rawArgs))
+            : msg.input ? JSON.stringify(msg.input) : undefined,
+          status: 'running',
+        }
+        streamingToolStepsRef.current = [...streamingToolStepsRef.current, newStep]
+        setStreamingToolSteps([...streamingToolStepsRef.current])
+        return
+      }
+
+      // 工具调用完成：优先按名称匹配最后一个 running 步骤，回退到最后一个 running
+      if (messageType === 'tool_result' || messageType === 'tool_call_result') {
+        const rawMsg = msg as unknown as Record<string, unknown>
+        const rawName = String(rawMsg.tool_name ?? rawMsg.name ?? '')
+        const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
+        const result = msg.content
+          ? typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+          : String(rawMsg.text ?? rawMsg.result ?? '')
+        const isError = Boolean(rawMsg.is_error ?? rawMsg.isError)
+        const list = streamingToolStepsRef.current
+        let targetIdx = -1
+        if (toolName) {
+          for (let i = list.length - 1; i >= 0; i--) {
+            if (list[i].status === 'running' && list[i].name === toolName) { targetIdx = i; break }
+          }
+        }
+        if (targetIdx < 0) {
+          for (let i = list.length - 1; i >= 0; i--) {
+            if (list[i].status === 'running') { targetIdx = i; break }
+          }
+        }
+        if (targetIdx >= 0) {
+          const next = list.slice()
+          next[targetIdx] = { ...next[targetIdx], status: isError ? 'error' : 'done', result }
+          streamingToolStepsRef.current = next
+          setStreamingToolSteps([...next])
+        }
         return
       }
 
       if (messageType === 'typing_stop' || messageType === 'assistant_done') {
         const endpointValue = gatewayEndpointRef.current
         const sessionIdValue = sessionIdRef.current
+        const completedToolSteps = [...streamingToolStepsRef.current]
         setStreamingContent(null)
+        setStreamingToolSteps([])
+        setChatTyping(false)
         streamingContentRef.current = ''
+        streamingToolStepsRef.current = []
         if (endpointValue && sessionIdValue) {
           void syncSandboxHistory(endpointValue, sessionIdValue)
-            .then(() => setSessionListRefreshKey((current) => current + 1))
+            .then(async () => {
+              // 把本轮工具步骤附加到最后一条 bot 消息
+              if (completedToolSteps.length > 0) {
+                setChatMessages((prev) => {
+                  const lastBotIdx = [...prev].reverse().findIndex((m) => m.role !== 'user')
+                  if (lastBotIdx === -1) return prev
+                  const idx = prev.length - 1 - lastBotIdx
+                  const updated = [...prev]
+                  updated[idx] = { ...updated[idx], toolSteps: completedToolSteps }
+                  return updated
+                })
+              }
+              setSessionListRefreshKey((current) => current + 1)
+              // 每轮对话结束后刷新评估状态，检查是否有新报告产出
+              if (id) {
+                try {
+                  const [evalState, employeeState] = await Promise.all([
+                    api.employeeRuntime.getEvaluationState(id),
+                    api.employeeRuntime.getEmployee(id),
+                  ])
+                  setEvaluation(evalState)
+                  setEmployee(employeeState)
+                } catch {
+                  // 刷新失败不影响主流程
+                }
+              }
+            })
             .catch((historyError: unknown) => {
               setChatError(historyError instanceof Error ? historyError.message : '同步评估沙箱历史失败')
             })
@@ -543,21 +677,19 @@ export default function EvaluationPage() {
       setChatError('')
 
       try {
-        let endpoint = workspaceStatus?.evaluatorGatewayEndpoint?.trim() ?? gatewayEndpointRef.current ?? ''
-        let sessionId = workspaceStatus?.sessionId?.trim() ?? sessionIdRef.current ?? ''
+        // 调用 sandbox-connection：触发后端 session 创建、materials 上传、evaluation-context.json 上传，
+        // 并拿到 evaluator 沙箱的 gateway endpoint 和 eval session id。
+        const connection = await api.employeeRuntime.getSandboxConnection(id)
+        const endpoint = connection.gatewayEndpoint.trim()
+        // 把 eval session id 写回 workspaceStatus（右侧调试面板 Session 字段显示用）
+        setWorkspaceStatus((prev) => (prev ? { ...prev, sessionId: connection.sessionId } : prev))
 
-        if (!endpoint) {
-          const latestStatus = await api.employeeRuntime.getEvaluationWorkspaceStatus(id)
-          setWorkspaceStatus(latestStatus)
-          endpoint = latestStatus.evaluatorGatewayEndpoint?.trim() ?? ''
-          sessionId = sessionId || latestStatus.sessionId?.trim() || ''
-        }
-
+        // WS 会话 id 由沙箱侧分配，与 eval session id 不同；优先复用已有值，否则向沙箱查询
+        let sessionId = sessionIdRef.current ?? ''
         if (!sessionId) {
           const conversation = await api.employeeRuntime.getEvaluationSandboxConversation(id)
           setSandboxConversation(conversation)
           sessionId = conversation.sessionId?.trim() ?? ''
-          setWorkspaceStatus((prev) => prev ? { ...prev, sessionId } : prev)
         }
 
         if (!endpoint || !sessionId) {
@@ -725,6 +857,8 @@ export default function EvaluationPage() {
       setChatError('')
       setSelectedSessionId(null)
       setStreamingContent(null)
+      setStreamingToolSteps([])
+      setChatTyping(false)
       gatewayEndpointRef.current = null
       sessionIdRef.current = null
       connectionStateRef.current = { endpoint: null, sessionId: null }
@@ -757,6 +891,8 @@ export default function EvaluationPage() {
     setSessionSwitching(true)
     setSelectedSessionId(sessionId)
     setStreamingContent(null)
+    setStreamingToolSteps([])
+    setChatTyping(false)
 
     try {
       await syncSandboxHistory(endpoint, sessionId)
@@ -781,6 +917,8 @@ export default function EvaluationPage() {
     setSelectedSessionId(newSessionId)
     setChatMessages([])
     setStreamingContent(null)
+    setStreamingToolSteps([])
+    setChatTyping(false)
     setSessionListRefreshKey((current) => current + 1)
     const endpoint = gatewayEndpointRef.current
     if (endpoint) {
@@ -956,14 +1094,58 @@ export default function EvaluationPage() {
                 </div>
               </div>
             </div>
-            <div className="flex-1 overflow-hidden bg-[#fafafa] px-5 py-4">
-              <div className="flex h-full flex-col overflow-hidden rounded-[28px] border border-[#ececec] bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
+            <div className="flex flex-1 flex-col overflow-hidden bg-[#fafafa] px-5 py-4">
+              {/* 评估结果横幅：无论通过或未通过，都应允许人工评估接管决策 */}
+              {canNavigateToHumanEval && humanEvalPath && (
+                <div className={`mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-sm ${humanEvalBannerTone}`}>
+                  <div className={`flex items-center gap-2.5 text-sm font-medium ${humanEvalBannerTextTone}`}>
+                    <CheckCircle2 size={16} className="shrink-0 text-[#16a34a]" />
+                    <span>
+                      {humanEvalBannerTitle}
+                      {humanEvalBannerDescription}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="hb-btn-primary shrink-0 !px-3 !py-1.5 !text-[12px]"
+                    onClick={() => navigate(humanEvalPath)}
+                  >
+                    进入人工评估 →
+                  </button>
+                </div>
+              )}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-[#ececec] bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
                 {!aiRunning ? (
                   <div className="m-4 rounded-2xl border border-[#ececec] bg-[#fafafa] px-4 py-3 text-sm leading-6 text-[#737373]">
                     请先点击“准备评估环境”。环境就绪后，这里会成为主聊天入口，你可以直接和评估沙箱对话，再结合右侧题卡、轨迹和报告辅助判断。
                   </div>
                 ) : (
                   <>
+                    {testcaseOutlines.length > 0 && (
+                      <div className="shrink-0 border-b border-[#ececec] bg-white px-5 py-4">
+                        <div className="overflow-hidden rounded-2xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+                          <div className="px-4 pb-3 pt-4">
+                            <div className="mb-3 text-[13px] font-semibold text-[#111827]">
+                              测试场景（{testcaseOutlines.length} 个）
+                            </div>
+                            <div className="space-y-2.5">
+                              {testcaseOutlines.map((outline) => (
+                                <div key={outline.testcaseId} className="flex items-center justify-between gap-3">
+                                  <div className="flex min-w-0 items-center gap-2.5">
+                                    <span className="h-2 w-2 shrink-0 rounded-full bg-[#16a34a]" />
+                                    <span className="truncate text-[13px] text-[#374151]">{outline.title}</span>
+                                  </div>
+                                  <span className="shrink-0 text-[12px] font-medium text-[#16a34a]">✓ 1 用例</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="border-t border-[#f3f4f6] px-4 py-2.5">
+                            <span className="text-[12px] font-medium text-[#16a34a]">✓ 用例已就绪，可开始评估</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
                       {chatLoading ? (
                         <div className="flex items-center gap-2 text-sm text-[#737373]">
@@ -979,27 +1161,69 @@ export default function EvaluationPage() {
                           const isUser = message.role.toLowerCase() === 'user'
                           return (
                             <div key={message.messageId} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                              <div
-                                className={`max-w-[94%] rounded-2xl px-3 py-2.5 text-sm leading-6 ${
-                                  isUser
-                                    ? 'bg-[#000000] text-white'
-                                    : 'border border-[#ececec] bg-[#fafafa] text-[#404040]'
-                                }`}
-                              >
-                                <div className={`mb-1 text-[11px] ${isUser ? 'text-[#e5e5e5]' : 'text-[#9ca3af]'}`}>
-                                  {isUser ? '你' : '评估沙箱'} 路 {formatDateTime(message.createdAt)}
+                              {!isUser && (
+                                <div className="hb-hiring-avatar mr-2 mt-0.5 shrink-0">评</div>
+                              )}
+                              <div className={`flex min-w-0 max-w-[90%] flex-col gap-1.5 ${isUser ? 'items-end' : 'items-start'}`}>
+                                {!isUser && message.toolSteps && message.toolSteps.length > 0 && (
+                                  <HiringToolStepsBlock steps={message.toolSteps} />
+                                )}
+                                <div
+                                  className={`rounded-2xl px-3 py-2.5 text-sm leading-6 ${
+                                    isUser
+                                      ? 'bg-[#000000] text-white'
+                                      : 'border border-[#ececec] bg-[#fafafa] text-[#404040]'
+                                  }`}
+                                >
+                                  <div className={`mb-1 text-[11px] ${isUser ? 'text-[#e5e5e5]' : 'text-[#9ca3af]'}`}>
+                                    {isUser ? '你' : '评估沙箱'} · {formatDateTime(message.createdAt)}
+                                  </div>
+                                  {isUser ? (
+                                    <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                                  ) : (
+                                    <div className="hb-md prose prose-sm max-w-none break-words">
+                                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {message.content}
+                                      </ReactMarkdown>
+                                    </div>
+                                  )}
                                 </div>
-                                <div className="whitespace-pre-wrap break-words">{message.content}</div>
                               </div>
+                              {isUser && (
+                                <div className="hb-hiring-avatar is-user ml-2 mt-0.5 shrink-0">你</div>
+                              )}
                             </div>
                           )
                         })
                       )}
-                      {streamingContent !== null && (
+                      {/* 流式回复气泡：有工具步骤时先显示折叠面板，再显示流式文本或 typing 动画 */}
+                      {(streamingContent !== null || chatTyping) && (
                         <div className="flex justify-start">
-                          <div className="max-w-[94%] rounded-2xl border border-[#ececec] bg-[#fafafa] px-3 py-2.5 text-sm leading-6 text-[#404040]">
-                            <div className="mb-1 text-[11px] text-[#9ca3af]">评估沙箱 · 正在回复</div>
-                            <div className="whitespace-pre-wrap break-words">{streamingContent || '...'}</div>
+                          <div className="hb-hiring-avatar mr-2 mt-0.5 shrink-0">评</div>
+                          <div className="flex min-w-0 max-w-[90%] flex-col items-start gap-1.5">
+                            {streamingToolSteps.length > 0 && (
+                              <HiringToolStepsBlock steps={streamingToolSteps} />
+                            )}
+                            {chatTyping && streamingContent === '' ? (
+                              <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
+                                {[0, 1, 2].map((i) => (
+                                  <span
+                                    key={i}
+                                    className="hb-hiring-typing-dot"
+                                    style={{ animationDelay: `${i * 0.15}s` }}
+                                  />
+                                ))}
+                              </div>
+                            ) : streamingContent ? (
+                              <div className="rounded-2xl border border-[#ececec] bg-[#fafafa] px-3 py-2.5 text-sm leading-6 text-[#404040]">
+                                <div className="mb-1 text-[11px] text-[#9ca3af]">评估沙箱 · 正在回复</div>
+                                <div className="hb-md prose prose-sm max-w-none break-words">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {streamingContent}
+                                  </ReactMarkdown>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       )}
@@ -1328,6 +1552,88 @@ export default function EvaluationPage() {
                       )}
                     </div>
                   )}
+
+                  {artifactTab === 'report' && (
+                    <div className="space-y-3">
+                      {!reportSummary ? (
+                        <div className="rounded-xl border border-[#ececec] bg-white px-3 py-3 text-[11px] text-[#737373]">
+                          暂无评估报告，请先执行评估。
+                        </div>
+                      ) : (
+                        <>
+                          {/* 整体结论 */}
+                          <div className={`rounded-2xl border p-4 ${reportSummary.passed ? 'border-[#bbf7d0] bg-[#f0fdf4]' : 'border-[#fecdd3] bg-[#fff1f2]'}`}>
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${reportSummary.passed ? 'text-[#16a34a]' : 'text-[#be123c]'}`}>
+                                  {reportSummary.passed ? '✓ 评估通过' : '✗ 评估未通过'}
+                                </div>
+                                <div className="mt-1 text-[11px] text-[#6b7280]">
+                                  第 {reportSummary.iteration} 轮 · {formatDateTime(reportSummary.createdAtUtc)}
+                                </div>
+                              </div>
+                              <div className="rounded-xl border border-[#e5e7eb] bg-white px-3 py-2 text-center shadow-sm">
+                                <div className="text-2xl font-bold tabular-nums text-[#111827]">{reportSummary.overallScore}</div>
+                                <div className="text-[10px] text-[#6b7280]">综合评分</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 维度评分 */}
+                          {dimensionScores.length > 0 && (
+                            <div className="rounded-xl border border-[#ececec] bg-white p-3">
+                              <div className="mb-2 text-[11px] font-semibold text-[#404040]">维度评分明细</div>
+                              <div className="space-y-2">
+                                {dimensionScores.map((item) => (
+                                  <div key={item.dimension} className="rounded-lg border border-[#f3f4f6] bg-[#fafafa] px-3 py-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[11px] font-medium text-[#111827]">{item.dimension}</span>
+                                      <span className="tabular-nums text-[11px] font-semibold text-[#4f46e5]">{item.score}</span>
+                                    </div>
+                                    {item.comment && (
+                                      <div className="mt-1 text-[10px] leading-relaxed text-[#6b7280]">{item.comment}</div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 报告文件链接 */}
+                          <div className="rounded-xl border border-[#ececec] bg-white p-3">
+                            <div className="mb-2 text-[11px] font-semibold text-[#404040]">报告文件</div>
+                            <div className="flex flex-col gap-2">
+                              {reportJsonUrl && (
+                                <a href={reportJsonUrl} target="_blank" rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-[11px] text-[#2563eb]">
+                                  <ExternalLink size={10} /> 查看报告 JSON
+                                </a>
+                              )}
+                              {reportHtmlUrl && (
+                                <a href={reportHtmlUrl} download={`evaluation-report-${reportSummary.reportId}.html`}
+                                  target="_blank" rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-[11px] text-[#2563eb]">
+                                  <ExternalLink size={10} /> 下载报告 HTML
+                                </a>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* 有评估结果就允许进入人工评估，由用户做最终决策 */}
+                          {humanEvalPath && (
+                            <button
+                              type="button"
+                              className="hb-btn-primary w-full !py-2 !text-[12px]"
+                              onClick={() => navigate(humanEvalPath)}
+                            >
+                              <CheckCircle2 size={12} />
+                              进入人工评估环节 →
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -1337,5 +1643,4 @@ export default function EvaluationPage() {
     </div>
   )
 }
-
 

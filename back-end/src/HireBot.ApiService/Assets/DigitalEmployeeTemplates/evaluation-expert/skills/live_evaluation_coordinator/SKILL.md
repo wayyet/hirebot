@@ -13,6 +13,7 @@ skills_required:
 
 tools_required:
   - evaluate.py
+  - verdict_uploader.py
   - evaluation_report
 
 execution_mode: interactive
@@ -87,12 +88,24 @@ artifact 生命周期与阶段门禁定义见 [contracts/artifacts.json](contrac
 
 确保目标目录存在：`mkdir -p /workspace/runtime`
 
+### 阶段 0.5：安装 Python 依赖
+
+**在执行任何 Python 脚本前**，必须先确保 `websockets` 已安装，否则 `evaluate.py` 会在运行时报 `ModuleNotFoundError`。
+
+沙箱环境已自带 Python 和 pip，直接安装即可：
+
+```bash
+pip install --quiet websockets>=12.0
+```
+
+安装完成后，**后续所有 Python 脚本统一用 `python3` 或 `python` 执行**。
+
 ### 阶段 1：检查本地材料
 
 先调用：
 
 ```bash
-python /workspace/skills/live_evaluator/evaluate.py \
+python3 /workspace/skills/live_evaluator/evaluate.py \
   --runtime-context /workspace/runtime/evaluation-context.json \
   --mode inspect \
   --output /tmp/materials_inspection.json
@@ -136,7 +149,7 @@ python /workspace/skills/live_evaluator/evaluate.py \
 调用：
 
 ```bash
-python /workspace/skills/live_evaluator/evaluate.py \
+python3 /workspace/skills/live_evaluator/evaluate.py \
   --runtime-context /workspace/runtime/evaluation-context.json \
   --mode execute \
   --output /tmp/trace_result.json
@@ -150,16 +163,37 @@ python /workspace/skills/live_evaluator/evaluate.py \
 
 执行过程中按 testcase 粒度推送 `evaluation_execution_progress`。
 
-### 阶段 4：调用评分 Skill
+### 阶段 4：执行评分
 
-把下面内容传给 `evaluator`：
+**重要：这里没有可调用的评分脚本。评分由你自己作为 AI 完成，不要尝试执行任何 Python 文件，不要去 `/workspace/skills/evaluator/` 寻找脚本。**
 
-- 本地 testcase
-- 本地 ontology
-- question cards
-- `trace_result.json` 中的 turns
+执行步骤：
 
-你自己不要实现评分细则。
+1. 读取 `/workspace/skills/evaluator/SKILL.md`，获取红线原则、评分哲学和各维度评分规则
+2. 读取本地 testcase（`/workspace/uploads/materials/testcases/`）
+3. 读取本地 ontology（`/workspace/uploads/materials/ontology/`）
+4. 读取 `/tmp/trace_result.json` 中目标沙箱的真实执行 turns
+5. **你（AI）按照 evaluator SKILL.md 的规则，对每道题的 turns 逐条打分**，将结果写入 `/tmp/evaluation_result.json`：
+
+```json
+{
+  "session_id": "<session_id>",
+  "employee_id": "<employee_id>",
+  "verdict": "PASS",
+  "overall_score": 75.8,
+  "dimensions": {
+    "functional_completeness": { "score": 80, "evidence": "...", "issues": [] },
+    "tool_call_accuracy":      { "score": 70, "evidence": "...", "issues": [] },
+    "process_compliance":      { "score": 75, "evidence": "...", "issues": [] },
+    "interaction_quality":     { "score": 77, "evidence": "...", "issues": [] }
+  },
+  "red_line_triggered": false,
+  "red_line_details": [],
+  "per_question": []
+}
+```
+
+评分必须证据驱动，每个分数都要引用 trace 中的具体内容。
 
 ### 阶段 5：生成报告
 
@@ -172,19 +206,33 @@ python /workspace/skills/live_evaluator/evaluate.py \
 
 ### 阶段 6：持久化
 
-调用 `evaluation_report`，把以下内容交给平台/后端：
+调用 `verdict_uploader.py` 把评估结果上传到 HireBot 后端：
 
-- 基本会话信息
-- 评分结果
-- trace_result
-- report json
-- report html
+```bash
+python3 /workspace/skills/live_evaluator/verdict_uploader.py \
+  --runtime-context /workspace/runtime/evaluation-context.json \
+  --evaluation-result /tmp/evaluation_result.json \
+  --output /tmp/verdict_upload_result.json
+```
 
-目标是让后端完成：
+脚本会自动从运行时上下文中读取以下配置：
 
-- 资产落盘
-- 数据库持久化
-- 轮次关联
+| 配置项 | 来源 |
+|--------|------|
+| HireBot 后端地址 | `runtime_context.ncrew_hire.base_url` |
+| API Token | 由脚本内部通过 `auth_client.resolve_auth()` 从 `auth_config.json` 自动获取，无需手动传入 |
+
+上传成功后，后端将完成：
+
+- 评估报告落库（`EvaluationReports` 表）
+- 原始 verdict JSON 资产存储（`EvaluationAssets` 表）
+- 员工状态流转（AI 通过 → `interning_human`，AI 不通过 → `failed`）
+
+读取 `/tmp/verdict_upload_result.json`，确认 `status = "success"`。
+若上传失败，输出报错并告知用户，不阻塞报告展示。
+
+如果平台已注入 `evaluation_report` 工具，可同时调用以完成文件资产的上传；
+若未注入，仅用 `verdict_uploader.py` 完成核心状态同步即可。
 
 ## 对用户的交互要求
 

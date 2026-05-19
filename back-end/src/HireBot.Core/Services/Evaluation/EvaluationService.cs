@@ -373,6 +373,12 @@ internal sealed partial class EvaluationService(
         var employee = accessContext.Employee;
         var scope = accessContext.PersistenceScope;
 
+        // 无论评估处于哪个阶段，都尝试读取已保存的 workspace 上下文，以便返回测试案例大纲
+        var workspaceContext = await LoadWorkspaceContextAsync(scope, normalizedEmployeeId, cancellationToken);
+        var testcaseOutlines = workspaceContext?.TestcaseOutlines
+            ?.Select(o => new EvaluationTestcaseOutlineDto(o.TestcaseId, o.Title, o.UserRequest))
+            .ToArray();
+
         var normalizedEmployeeStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
         var normalizedEvalPhase = employee.EvalPhase?.Trim().ToLowerInvariant();
         var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
@@ -395,7 +401,8 @@ internal sealed partial class EvaluationService(
                 Readiness: null,
                 QuestionCards: null,
                 LatestReport: null,
-                AssetRefs: null);
+                AssetRefs: null,
+                TestcaseOutlines: testcaseOutlines);
             return ApiResponse<EvaluationStateDto>.SuccessResponse(initialState);
         }
 
@@ -496,7 +503,8 @@ internal sealed partial class EvaluationService(
             Readiness: readiness,
             QuestionCards: questionCards,
             LatestReport: latestReport,
-            AssetRefs: assetRefs);
+            AssetRefs: assetRefs,
+            TestcaseOutlines: testcaseOutlines);
 
         return ApiResponse<EvaluationStateDto>.SuccessResponse(state);
     }
@@ -742,12 +750,6 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "employee not found");
         }
 
-        var currentStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
-        if (currentStatus != "interning_human")
-        {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, $"current status does not allow onboarding decision: {currentStatus}");
-        }
-
         var decision = request.Decision.Trim().ToUpperInvariant();
         var updated = decision switch
         {
@@ -961,13 +963,14 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationReportUpsertResultDto>.ErrorResponse(400, "employeeId and sessionId are required");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
-        if (employee is null)
+        // 使用 ResolveEvaluationAccessContextAsync 解析 scope，兼容沙箱服务账号（sub 非员工 owner）调用的场景
+        var accessContext = await ResolveEvaluationAccessContextAsync(normalizedEmployeeId, cancellationToken);
+        if (accessContext is null)
         {
             return ApiResponse<EvaluationReportUpsertResultDto>.ErrorResponse(404, "employee not found");
         }
+        var owner = accessContext.PersistenceScope;
 
         var sessionEntity = await dbContext.EvaluationSessions
             .Where(item =>
@@ -1106,7 +1109,6 @@ internal sealed partial class EvaluationService(
             owner,
             employee,
             ctx,
-            sessionEntity,
             cancellationToken);
         if (!evaluatorMaterialsResult.Success || string.IsNullOrWhiteSpace(evaluatorMaterialsResult.Data))
         {
@@ -1116,8 +1118,8 @@ internal sealed partial class EvaluationService(
         }
 
         // 将 evaluation-context.json 直接上传到 evaluator workspace/runtime/ 目录，
-        // evaluator skill 可通过固定路径 workspace/runtime/evaluation-context.json 读取，
-        // 不再经过媒体缓存中转，路径更稳定可预测。
+        // evaluator skill 可通过固定路径 workspace/runtime/evaluation-context.json 读取。
+        // token 由 verdict_uploader.py 通过 auth_client.resolve_auth() 自行获取，无需此处注入。
         var runtimeContextJson = BuildRuntimeContextJson(
             employee,
             ctx,
@@ -1143,7 +1145,6 @@ internal sealed partial class EvaluationService(
         string runtimeContextPath;
         if (runtimeContextUploadResult.Success && runtimeContextUploadResult.Data is not null)
         {
-            // WorkspaceDir 为上传后文件所在的 workspace 相对目录，拼接文件名得到完整路径
             runtimeContextPath = $"{runtimeContextUploadResult.Data.WorkspaceDir}/evaluation-context.json";
         }
         else
@@ -1210,6 +1211,16 @@ internal sealed partial class EvaluationService(
 
         var verdict = request.Verdict;
         var verdictJson = JsonSerializer.Serialize(verdict, JsonOptions);
+
+        // 打印评估结果供调试，排查状态流转异常
+        logger.LogInformation(
+            "[Eval] SyncVerdict received. employeeId={EmployeeId} sessionId={SessionId} verdict={Verdict} overallScore={OverallScore} summary={Summary} dimensionScores={DimensionScores}",
+            employeeId,
+            request.SessionId,
+            verdict.Verdict,
+            verdict.OverallScore,
+            verdict.Summary,
+            verdictJson);
         await PersistTextAssetAsync(
             sessionEntity,
             assetType: "evaluator-verdict-json",
@@ -1239,10 +1250,13 @@ internal sealed partial class EvaluationService(
 
         await UpdateSessionStatusAsync(sessionEntity, passed ? "passed" : "failed", null, cancellationToken);
 
-        var updated = passed
-            ? BuildAiPassResult(employee, verdict.Summary)
-            : BuildAiFailResult(employee, verdict.Summary);
-        await SaveEmployeeToDbAsync(updated, cancellationToken);
+        logger.LogInformation(
+            "[Eval] SyncVerdict persisted only. employeeId={EmployeeId} sessionId={SessionId} passed={Passed} currentStatus={Status} currentEvalPhase={EvalPhase}",
+            employeeId,
+            request.SessionId,
+            passed,
+            employee.Status,
+            employee.EvalPhase);
 
         var resultDto = new EvaluationVerdictSyncResultDto(
             employeeId.Trim(),
@@ -1250,7 +1264,7 @@ internal sealed partial class EvaluationService(
             passed,
             verdict.OverallScore,
             verdict.Summary ?? "",
-            updated.Status ?? employee.Status ?? "interning_ai",
+            employee.Status ?? "interning_ai",
             new EvaluationReportSummaryDto(
                 reportResult.Data.ReportId,
                 reportResult.Data.Iteration,

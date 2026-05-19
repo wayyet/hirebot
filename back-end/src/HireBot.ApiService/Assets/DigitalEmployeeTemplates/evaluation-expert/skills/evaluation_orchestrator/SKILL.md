@@ -6,6 +6,7 @@ description: 评估流程主控编排器 — 面向双沙箱模型，管理材�
 
 tools_required:
   - evaluation_report
+  - verdict_uploader.py
 
 skills_required:
   - live_evaluation_coordinator
@@ -48,9 +49,18 @@ max_iterations: 30
 
 ### 阶段 3：评分与报告
 
-- 调用 `evaluator`
-- 调用 `report_generator`
-- 调用 `evaluation_report` 持久化
+- 调用 `evaluator`，输出 `/tmp/evaluation_result.json`
+- 调用 `report_generator`，生成 `evaluation_report.html` 与 `evaluation_report.json`
+- 调用 `verdict_uploader.py` 把评估结果上传到 HireBot 后端：
+
+```bash
+python3 /workspace/skills/live_evaluator/verdict_uploader.py \
+  --runtime-context /workspace/runtime/evaluation-context.json \
+  --evaluation-result /tmp/evaluation_result.json \
+  --output /tmp/verdict_upload_result.json
+```
+
+- 若平台已注入 `evaluation_report` 工具，可进一步上传 HTML/JSON 报告文件资产
 
 ### 阶段 4：训练循环（可选）
 

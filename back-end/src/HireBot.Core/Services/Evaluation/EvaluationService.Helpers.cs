@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Evaluation;
@@ -756,7 +757,8 @@ internal sealed partial class EvaluationService
         string? EvaluatorTemplatePackageZipPath,
         string? UploadedTemplatePackageZipPath,
         string? ArtifactWorkspaceDir,
-        Dictionary<string, WorkspaceStepState> StepStates);
+        Dictionary<string, WorkspaceStepState> StepStates,
+        IReadOnlyList<EvaluationTestcaseOutline>? TestcaseOutlines = null);
 
     private sealed record TemplatePackageUploadResult(
         string? SandboxTemplatePackageZipPath,
@@ -770,11 +772,64 @@ internal sealed partial class EvaluationService
     private sealed record HiringTemplateArchive(
         byte[] ArchiveBytes,
         string FileName,
-        string? LocalCachePath);
+        string? LocalCachePath,
+        IReadOnlyList<TemplateMaterialFile> MaterialFiles);
+
+    /// <summary>
+    /// 从模板包中提取的单个材料文件（testcase 或 ontology）。
+    /// </summary>
+    private sealed record TemplateMaterialFile(
+        string TargetDir,
+        string FileName,
+        byte[] Content);
+
+    /// <summary>
+    /// 评估用例大纲条目，供前端展示评估场景列表。
+    /// </summary>
+    private sealed record EvaluationTestcaseOutline(
+        string TestcaseId,
+        string Title,
+        string UserRequest);
 
     private sealed record WorkspaceStepState(
         string Status,
         string? Detail);
+
+    /// <summary>
+    /// /workspace/runtime/evaluation-context.json 的内容对应模型。
+    /// evaluate.py 通过 --runtime-context 读取此文件，结构必须与 runtime_context.example.json 一致。
+    /// </summary>
+    private sealed record EvaluationRuntimeContext(
+        [property: JsonPropertyName("session")] EvaluationRuntimeContextSession Session,
+        [property: JsonPropertyName("materials")] EvaluationRuntimeContextMaterials Materials,
+        [property: JsonPropertyName("target_sandbox")] EvaluationRuntimeContextTargetSandbox TargetSandbox,
+        [property: JsonPropertyName("execution")] EvaluationRuntimeContextExecution Execution,
+        [property: JsonPropertyName("ncrew_hire")] EvaluationRuntimeContextNcrewHire NcrewHire);
+
+    /// <summary>
+    /// NCrew Hire 业务后端连接配置，供 verdict_uploader.py 上传评估结果使用。
+    /// token 由 verdict_uploader.py 通过 auth_client.resolve_auth() 自行获取，无需此处注入。
+    /// </summary>
+    private sealed record EvaluationRuntimeContextNcrewHire(
+        [property: JsonPropertyName("base_url")] string BaseUrl);
+
+    private sealed record EvaluationRuntimeContextSession(
+        [property: JsonPropertyName("session_id")] string SessionId,
+        [property: JsonPropertyName("employee_id")] string EmployeeId,
+        [property: JsonPropertyName("employee_name")] string EmployeeName,
+        [property: JsonPropertyName("iteration")] int Iteration);
+
+    private sealed record EvaluationRuntimeContextMaterials(
+        [property: JsonPropertyName("workspace_root")] string WorkspaceRoot);
+
+    private sealed record EvaluationRuntimeContextTargetSandbox(
+        [property: JsonPropertyName("sandbox_id")] string SandboxId,
+        [property: JsonPropertyName("gateway_endpoint")] string GatewayEndpoint,
+        [property: JsonPropertyName("http_base_url")] string HttpBaseUrl);
+
+    private sealed record EvaluationRuntimeContextExecution(
+        [property: JsonPropertyName("timeout_seconds")] int TimeoutSeconds,
+        [property: JsonPropertyName("http_supplement")] bool HttpSupplement);
 
     private sealed record TargetArtifactWarmupResult(
         string WorkspacePath,
@@ -789,7 +844,7 @@ internal sealed partial class EvaluationService
 
     /// <summary>
     /// 构建写入 /workspace/runtime/evaluation-context.json 的 JSON 内容。
-    /// evaluator skill 通过此文件获取会话、材料路径、目标沙箱连接信息。
+    /// evaluator skill 通过此文件获取会话、材料路径、目标沙箱连接信息以及 HireBot API 配置。
     /// </summary>
     private string BuildRuntimeContextJson(
         EmployeeDetailDto employee,
@@ -798,42 +853,47 @@ internal sealed partial class EvaluationService
         string targetGatewayEndpoint,
         string materialsWorkspaceDir)
     {
-        // 将 ws:// / wss:// 网关地址转换为 http:// / https:// 用于 HTTP 补充请求
-        var httpBaseUrl = targetGatewayEndpoint
-            .Replace("wss://", "https://", StringComparison.OrdinalIgnoreCase)
-            .Replace("ws://", "http://", StringComparison.OrdinalIgnoreCase);
+        // Evaluation:GatewayUseTls 控制裸地址（无 scheme）的沙箱端点是否用 HTTPS/WSS。
+        // 已含显式 scheme 的端点（ws://、wss://、http://、https://）不受此配置影响。
+        var useTls = configuration.GetValue("Evaluation:GatewayUseTls", false);
 
-        var context = new
-        {
-            session = new
-            {
-                session_id = sessionEntity.SessionId,
-                employee_id = employee.EmployeeId,
-                employee_name = employee.Nickname,
-                iteration = sessionEntity.Iteration
-            },
-            materials = new
-            {
-                workspace_root = "/workspace",
-                template_root = ctx.UploadedTemplatePackageZipPath ?? "/workspace/uploads/template",
-                testcases_path = materialsWorkspaceDir,
-                ontology_path = materialsWorkspaceDir,
-                artifact_path = ctx.ArtifactWorkspaceDir
-            },
-            target_sandbox = new
-            {
-                sandbox_id = ctx.TargetSandboxId,
-                gateway_endpoint = targetGatewayEndpoint,
-                http_base_url = httpBaseUrl
-            },
-            execution = new
-            {
-                timeout_seconds = 120,
-                http_supplement = true
-            }
-        };
+        // Evaluation:ApiBaseUrl 是 NCrew Hire 业务 API 的根地址，供 verdict_uploader.py 上传评估结果。
+        // token 由 verdict_uploader.py 通过 auth_client.resolve_auth() 自行获取，无需此处注入。
+        var apiBaseUrl = configuration.GetValue("Evaluation:ApiBaseUrl", "http://localhost:5000")!;
+
+        var context = new EvaluationRuntimeContext(
+            Session: new(
+                SessionId: sessionEntity.SessionId,
+                EmployeeId: employee.EmployeeId,
+                EmployeeName: employee.Nickname,
+                Iteration: sessionEntity.Iteration),
+            Materials: new(WorkspaceRoot: "/workspace"),
+            TargetSandbox: new(
+                SandboxId: ctx.TargetSandboxId,
+                GatewayEndpoint: targetGatewayEndpoint,
+                HttpBaseUrl: NormalizeGatewayHttpBaseUrl(targetGatewayEndpoint, useTls)),
+            Execution: new(TimeoutSeconds: 120, HttpSupplement: true),
+            NcrewHire: new(BaseUrl: apiBaseUrl.TrimEnd('/')));
 
         return JsonSerializer.Serialize(context, JsonOptions);
+    }
+
+    /// <summary>
+    /// 将 Gateway 节点地址规范化为 HTTP/HTTPS 基础 URL，供 http_client.py 使用。
+    /// 支持裸地址、ws:// / wss://、http:// / https:// 四种输入格式。
+    /// <paramref name="useTls"/> 仅对裸地址（无 scheme）生效，已含 scheme 的端点保持原样。
+    /// </summary>
+    private static string NormalizeGatewayHttpBaseUrl(string endpoint, bool useTls)
+    {
+        var e = endpoint.Trim().TrimStart('/');
+        if (e.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+            return "https://" + e["wss://".Length..];
+        if (e.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+            return "http://" + e["ws://".Length..];
+        if (e.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || e.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            return e;
+        // 裸地址：由配置决定是否使用 TLS
+        return $"{(useTls ? "https" : "http")}://{e}";
     }
 
     /// <summary>

@@ -110,6 +110,7 @@ export type {
   EvaluationScenario,
   EvaluationReadiness,
   EvaluationQuestionCard,
+  EvaluationTestcaseOutline,
   EvaluationReportSummary,
   EvaluationAssetRef,
   EvaluationState,
