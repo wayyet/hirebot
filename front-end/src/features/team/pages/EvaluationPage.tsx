@@ -221,6 +221,7 @@ export default function EvaluationPage() {
   }, [chatLoading, chatMessages, streamingContent])
 
   const questionCards = evaluation?.questionCards ?? []
+  const testcaseOutlines = evaluation?.testcaseOutlines ?? []
   const traceAssets = (evaluation?.assetRefs ?? [])
     .filter((asset) => asset.assetType === 'trace-json')
     .slice(0, 8)
@@ -964,6 +965,31 @@ export default function EvaluationPage() {
                   </div>
                 ) : (
                   <>
+                    {testcaseOutlines.length > 0 && (
+                      <div className="shrink-0 border-b border-[#ececec] bg-white px-5 py-4">
+                        <div className="overflow-hidden rounded-2xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+                          <div className="px-4 pb-3 pt-4">
+                            <div className="mb-3 text-[13px] font-semibold text-[#111827]">
+                              测试场景（{testcaseOutlines.length} 个）
+                            </div>
+                            <div className="space-y-2.5">
+                              {testcaseOutlines.map((outline) => (
+                                <div key={outline.testcaseId} className="flex items-center justify-between gap-3">
+                                  <div className="flex min-w-0 items-center gap-2.5">
+                                    <span className="h-2 w-2 shrink-0 rounded-full bg-[#16a34a]" />
+                                    <span className="truncate text-[13px] text-[#374151]">{outline.title}</span>
+                                  </div>
+                                  <span className="shrink-0 text-[12px] font-medium text-[#16a34a]">✓ 1 用例</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="border-t border-[#f3f4f6] px-4 py-2.5">
+                            <span className="text-[12px] font-medium text-[#16a34a]">✓ 用例已就绪，可开始评估</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
                       {chatLoading ? (
                         <div className="flex items-center gap-2 text-sm text-[#737373]">

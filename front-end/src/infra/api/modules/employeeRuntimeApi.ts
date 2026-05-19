@@ -270,6 +270,12 @@ export interface EvaluationAssetRef {
   createdAtUtc: string
 }
 
+export interface EvaluationTestcaseOutline {
+  testcaseId: string
+  title: string
+  userRequest: string
+}
+
 export interface EvaluationState {
   employeeId: string
   overallStatus: string
@@ -280,6 +286,7 @@ export interface EvaluationState {
   questionCards?: EvaluationQuestionCard[] | null
   latestReport?: EvaluationReportSummary | null
   assetRefs?: EvaluationAssetRef[] | null
+  testcaseOutlines?: EvaluationTestcaseOutline[] | null
 }
 
 

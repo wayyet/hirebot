@@ -9,4 +9,5 @@ public sealed record EvaluationStateDto(
     EvaluationReadinessDto? Readiness = null,
     IReadOnlyList<EvaluationQuestionCardDto>? QuestionCards = null,
     EvaluationReportSummaryDto? LatestReport = null,
-    IReadOnlyList<EvaluationAssetRefDto>? AssetRefs = null);
+    IReadOnlyList<EvaluationAssetRefDto>? AssetRefs = null,
+    IReadOnlyList<EvaluationTestcaseOutlineDto>? TestcaseOutlines = null);

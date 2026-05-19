@@ -373,6 +373,12 @@ internal sealed partial class EvaluationService(
         var employee = accessContext.Employee;
         var scope = accessContext.PersistenceScope;
 
+        // 无论评估处于哪个阶段，都尝试读取已保存的 workspace 上下文，以便返回测试案例大纲
+        var workspaceContext = await LoadWorkspaceContextAsync(scope, normalizedEmployeeId, cancellationToken);
+        var testcaseOutlines = workspaceContext?.TestcaseOutlines
+            ?.Select(o => new EvaluationTestcaseOutlineDto(o.TestcaseId, o.Title, o.UserRequest))
+            .ToArray();
+
         var normalizedEmployeeStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
         var normalizedEvalPhase = employee.EvalPhase?.Trim().ToLowerInvariant();
         var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
@@ -395,7 +401,8 @@ internal sealed partial class EvaluationService(
                 Readiness: null,
                 QuestionCards: null,
                 LatestReport: null,
-                AssetRefs: null);
+                AssetRefs: null,
+                TestcaseOutlines: testcaseOutlines);
             return ApiResponse<EvaluationStateDto>.SuccessResponse(initialState);
         }
 
@@ -496,7 +503,8 @@ internal sealed partial class EvaluationService(
             Readiness: readiness,
             QuestionCards: questionCards,
             LatestReport: latestReport,
-            AssetRefs: assetRefs);
+            AssetRefs: assetRefs,
+            TestcaseOutlines: testcaseOutlines);
 
         return ApiResponse<EvaluationStateDto>.SuccessResponse(state);
     }
