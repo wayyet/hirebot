@@ -44,6 +44,8 @@ export interface EmployeeDetail extends EmployeeSummary {
   sandboxId?: string | null
   gatewayEndpoint?: string | null
   sandboxStatus?: string | null
+  /** 最新评估报告摘要，由详情接口实时查询，可用于直接展示评分或作为决策依据 */
+  latestReport?: EvaluationReportSummary | null
 }
 
 export interface UpdateEmployeeLifecycleRequest {

@@ -969,13 +969,14 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationReportUpsertResultDto>.ErrorResponse(400, "employeeId and sessionId are required");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
-        if (employee is null)
+        // 使用 ResolveEvaluationAccessContextAsync 解析 scope，兼容沙箱服务账号（sub 非员工 owner）调用的场景
+        var accessContext = await ResolveEvaluationAccessContextAsync(normalizedEmployeeId, cancellationToken);
+        if (accessContext is null)
         {
             return ApiResponse<EvaluationReportUpsertResultDto>.ErrorResponse(404, "employee not found");
         }
+        var owner = accessContext.PersistenceScope;
 
         var sessionEntity = await dbContext.EvaluationSessions
             .Where(item =>
@@ -1216,6 +1217,16 @@ internal sealed partial class EvaluationService(
 
         var verdict = request.Verdict;
         var verdictJson = JsonSerializer.Serialize(verdict, JsonOptions);
+
+        // 打印评估结果供调试，排查状态流转异常
+        logger.LogInformation(
+            "[Eval] SyncVerdict received. employeeId={EmployeeId} sessionId={SessionId} verdict={Verdict} overallScore={OverallScore} summary={Summary} dimensionScores={DimensionScores}",
+            employeeId,
+            request.SessionId,
+            verdict.Verdict,
+            verdict.OverallScore,
+            verdict.Summary,
+            verdictJson);
         await PersistTextAssetAsync(
             sessionEntity,
             assetType: "evaluator-verdict-json",

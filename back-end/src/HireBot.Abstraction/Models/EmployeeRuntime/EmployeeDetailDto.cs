@@ -1,4 +1,6 @@
-﻿namespace HireBot.Abstraction.Models.EmployeeRuntime;
+﻿using HireBot.Abstraction.Models.Evaluation;
+
+namespace HireBot.Abstraction.Models.EmployeeRuntime;
 
 public sealed record EmployeeDetailDto(
     string EmployeeId,
@@ -29,4 +31,8 @@ public sealed record EmployeeDetailDto(
     int? EvalIteration,
     int? EvalMaxIterations,
     bool IsConfigured,
-    string? CardIntro = null);
+    string? CardIntro = null,
+    /// <summary>
+    /// 最新一次评估报告摘要，仅在员工详情接口中实时查询并填充，不持久化到快照 JSON。
+    /// </summary>
+    EvaluationReportSummaryDto? LatestReport = null);

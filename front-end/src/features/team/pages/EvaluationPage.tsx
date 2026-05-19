@@ -131,16 +131,28 @@ function logEvaluationDebug(label: string, payload?: unknown) {
   console.info(`[EvaluationPage] ${label}`, payload)
 }
 
-function mapSandboxMessages(messages: SandboxMessage[]): HiringConversationMessage[] {
+function mapSandboxMessages(messages: SandboxMessage[]): EvalChatMessage[] {
   return messages
     .filter((message) => message.type === 'user_message' || message.type === 'assistant_message')
-    .map((message, index) => ({
-      messageId: `${message.type}-${index}-${String(message.createdAt ?? Date.now())}`,
-      role: message.type === 'user_message' ? 'user' : 'assistant',
-      content: String(message.content ?? message.text ?? '').trim(),
-      createdAt: String(message.createdAt ?? new Date().toISOString()),
-    }))
-    .filter((message) => message.content.length > 0)
+    .map((message, index) => {
+      const toolSteps: ToolStep[] | undefined = (message.toolCalls?.length ?? 0) > 0
+        ? message.toolCalls!.map((tc, tcIdx) => ({
+            id: `${index}-${tcIdx}-${tc.toolName}`,
+            name: tc.toolName.startsWith('streaming.') ? tc.toolName.slice('streaming.'.length) : tc.toolName,
+            args: tc.arguments,
+            result: tc.result,
+            status: 'done' as const,
+          }))
+        : undefined
+      return {
+        messageId: `${message.type}-${index}-${String(message.createdAt ?? Date.now())}`,
+        role: message.type === 'user_message' ? 'user' : 'assistant',
+        content: String(message.content ?? message.text ?? '').trim(),
+        createdAt: String(message.createdAt ?? new Date().toISOString()),
+        toolSteps,
+      }
+    })
+    .filter((message) => message.content.length > 0 || (message.toolSteps?.length ?? 0) > 0)
 }
 
 export default function EvaluationPage() {
@@ -510,13 +522,21 @@ export default function EvaluationPage() {
       }
 
       // 工具调用开始：添加 running 状态条目
-      if (messageType === 'tool_use_start' || messageType === 'tool_call_start') {
-        const toolName = String(msg.name ?? msg.tool_name ?? msg.tool ?? 'tool')
+      // tool_start: evaluator sandbox 格式，工具名在 msg.text
+      // tool_use_start / tool_call_start: Anthropic 格式，工具名在 msg.name
+      if (messageType === 'tool_start' || messageType === 'tool_use_start' || messageType === 'tool_call_start') {
+        const rawName = messageType === 'tool_start'
+          ? String((msg as unknown as Record<string, unknown>).text ?? '')
+          : String(msg.name ?? msg.tool_name ?? msg.tool ?? 'tool')
+        const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
         const toolId = String(msg.id ?? msg.tool_use_id ?? `tool-${Date.now()}`)
+        const rawArgs = (msg as unknown as Record<string, unknown>).arguments
         const newStep: ToolStep = {
           id: toolId,
-          name: toolName.replace(/^streaming\./, ''),
-          args: msg.input ? JSON.stringify(msg.input) : undefined,
+          name: toolName || 'tool',
+          args: rawArgs != null
+            ? (typeof rawArgs === 'string' ? rawArgs : JSON.stringify(rawArgs))
+            : msg.input ? JSON.stringify(msg.input) : undefined,
           status: 'running',
         }
         streamingToolStepsRef.current = [...streamingToolStepsRef.current, newStep]
@@ -524,20 +544,33 @@ export default function EvaluationPage() {
         return
       }
 
-      // 工具调用完成：更新对应条目为 done 并附上返回值
+      // 工具调用完成：优先按名称匹配最后一个 running 步骤，回退到最后一个 running
       if (messageType === 'tool_result' || messageType === 'tool_call_result') {
-        const toolId = String(msg.tool_use_id ?? msg.id ?? '')
+        const rawMsg = msg as unknown as Record<string, unknown>
+        const rawName = String(rawMsg.tool_name ?? rawMsg.name ?? '')
+        const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
         const result = msg.content
-          ? typeof msg.content === 'string'
-            ? msg.content
-            : JSON.stringify(msg.content)
-          : String(msg.result ?? '')
-        streamingToolStepsRef.current = streamingToolStepsRef.current.map((step) =>
-          step.id === toolId || (toolId === '' && step.status === 'running')
-            ? { ...step, status: 'done' as const, result }
-            : step
-        )
-        setStreamingToolSteps([...streamingToolStepsRef.current])
+          ? typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+          : String(rawMsg.text ?? rawMsg.result ?? '')
+        const isError = Boolean(rawMsg.is_error ?? rawMsg.isError)
+        const list = streamingToolStepsRef.current
+        let targetIdx = -1
+        if (toolName) {
+          for (let i = list.length - 1; i >= 0; i--) {
+            if (list[i].status === 'running' && list[i].name === toolName) { targetIdx = i; break }
+          }
+        }
+        if (targetIdx < 0) {
+          for (let i = list.length - 1; i >= 0; i--) {
+            if (list[i].status === 'running') { targetIdx = i; break }
+          }
+        }
+        if (targetIdx >= 0) {
+          const next = list.slice()
+          next[targetIdx] = { ...next[targetIdx], status: isError ? 'error' : 'done', result }
+          streamingToolStepsRef.current = next
+          setStreamingToolSteps([...next])
+        }
         return
       }
 

@@ -1,4 +1,6 @@
 using HireBot.Abstraction;
+using HireBot.Abstraction.Models.Evaluation;
+using HireBot.Abstraction.Models.Evaluation.Tools;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Migration;
 using HireBot.Abstraction.Models.Sandbox;
@@ -128,6 +130,7 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var owner = requestContextService.ResolveOwnerSubject();
+        var scope = owner;
         var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
@@ -135,6 +138,8 @@ public sealed partial class EmployeeRuntimeService(
             if (!string.IsNullOrWhiteSpace(tenantId))
             {
                 employee = await ResolveDepartmentEmployeeForTenantAsync(tenantId.Trim(), employeeId, cancellationToken);
+                if (employee is not null)
+                    scope = tenantId.Trim();
             }
         }
 
@@ -143,7 +148,69 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "员工不存在");
         }
 
-        return ApiResponse<EmployeeDetailDto>.SuccessResponse(employee);
+        var latestReport = await QueryLatestReportSummaryAsync(scope, employeeId.Trim(), cancellationToken);
+        return ApiResponse<EmployeeDetailDto>.SuccessResponse(employee with { LatestReport = latestReport });
+    }
+
+    /// <summary>
+    /// 按 scope+employeeId 查询最新评估报告摘要，用于内联到员工详情响应。
+    /// </summary>
+    private async Task<EvaluationReportSummaryDto?> QueryLatestReportSummaryAsync(
+        string scope,
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        var reportEntity = await dbContext.EvaluationReports
+            .AsNoTracking()
+            .Join(
+                dbContext.EvaluationSessions,
+                r => r.SessionEntityId,
+                s => s.Id,
+                (r, s) => new { Report = r, Session = s })
+            .Where(x => x.Session.OwnerSubject == scope && x.Session.EmployeeId == employeeId)
+            .OrderByDescending(x => x.Report.CreatedAtUtc)
+            .Select(x => x.Report)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (reportEntity is null)
+            return null;
+
+        // 查询报告关联的资产公开 URL
+        var assetIds = new[] { reportEntity.ReportJsonAssetId, reportEntity.ReportHtmlAssetId }
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToHashSet();
+        var assetUrls = assetIds.Count > 0
+            ? await dbContext.EvaluationAssets
+                .AsNoTracking()
+                .Where(a => assetIds.Contains(a.Id))
+                .ToDictionaryAsync(a => a.Id, a => (string?)a.PublicUrl, cancellationToken)
+            : new Dictionary<Guid, string?>();
+
+        return new EvaluationReportSummaryDto(
+            ReportId: reportEntity.Id.ToString("N"),
+            Iteration: reportEntity.Iteration,
+            OverallScore: reportEntity.OverallScore,
+            Passed: reportEntity.Passed,
+            ReportJsonUrl: assetUrls.GetValueOrDefault(reportEntity.ReportJsonAssetId ?? Guid.Empty) ?? string.Empty,
+            ReportHtmlUrl: assetUrls.GetValueOrDefault(reportEntity.ReportHtmlAssetId ?? Guid.Empty),
+            CreatedAtUtc: reportEntity.CreatedAtUtc.ToString("o"),
+            DimensionScores: DeserializeReportDimensionScores(reportEntity.DimensionScoresJson));
+    }
+
+    private static IReadOnlyList<EvaluationDimensionScoreDto> DeserializeReportDimensionScores(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return [];
+        try
+        {
+            return JsonSerializer.Deserialize<IReadOnlyList<EvaluationDimensionScoreDto>>(
+                json, new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     /// <summary>
