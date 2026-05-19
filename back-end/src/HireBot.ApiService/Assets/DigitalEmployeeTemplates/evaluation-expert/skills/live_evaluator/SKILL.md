@@ -32,7 +32,11 @@ memory_access: read_write
 必须通过运行时上下文文件驱动，统一入口如下：
 
 ```bash
-python evaluate.py \
+# 先安装依赖（每次进入新沙箱环境都要执行）
+pip install --quiet websockets>=12.0
+
+# 再运行脚本
+python3 /workspace/skills/live_evaluator/evaluate.py \
   --runtime-context /workspace/runtime/evaluation-context.json \
   --mode inspect|execute \
   --output /tmp/output.json

@@ -54,7 +54,7 @@ max_iterations: 30
 - 调用 `verdict_uploader.py` 把评估结果上传到 HireBot 后端：
 
 ```bash
-python /workspace/skills/live_evaluator/verdict_uploader.py \
+python3 /workspace/skills/live_evaluator/verdict_uploader.py \
   --runtime-context /workspace/runtime/evaluation-context.json \
   --evaluation-result /tmp/evaluation_result.json \
   --output /tmp/verdict_upload_result.json

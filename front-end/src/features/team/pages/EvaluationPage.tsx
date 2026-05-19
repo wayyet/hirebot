@@ -12,6 +12,8 @@ import {
   SendHorizontal,
   Zap,
 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useLocation, useParams } from 'react-router-dom'
 import { tokenService } from '@/infra/auth/token-service'
 import { GatewayWs } from '@/infra/sandbox/gateway-ws'
@@ -26,7 +28,12 @@ import {
 } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
 import SessionListPanel from '@/features/team/components/SessionListPanel'
+import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
+import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
 import { instanceBasePath } from '@/shared/utils/instancePath'
+
+/** 评估页面本地消息类型（在 HiringConversationMessage 基础上增加工具调用步骤） */
+type EvalChatMessage = HiringConversationMessage & { toolSteps?: ToolStep[] }
 
 type ArtifactTab = 'overview' | 'testcase' | 'trace' | 'report'
 type WorkflowStageStatus = 'pending' | 'running' | 'completed' | 'failed'
@@ -151,7 +158,7 @@ export default function EvaluationPage() {
 
   const location = useLocation();
 
-  const [chatMessages, setChatMessages] = useState<HiringConversationMessage[]>([])
+  const [chatMessages, setChatMessages] = useState<EvalChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [chatSending, setChatSending] = useState(false)
@@ -161,6 +168,8 @@ export default function EvaluationPage() {
   const [sandboxConnected, setSandboxConnected] = useState(false)
   const [sessionSwitching, setSessionSwitching] = useState(false)
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
+  const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([])
+  const [chatTyping, setChatTyping] = useState(false)
   const [, setSandboxConversation] = useState<EvaluationSandboxConversationState | null>(null)
   const wsEvaluating = false
   const wsProgress = ''
@@ -171,6 +180,7 @@ export default function EvaluationPage() {
   const gatewayEndpointRef = useRef<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const streamingContentRef = useRef('')
+  const streamingToolStepsRef = useRef<ToolStep[]>([])
   const connectionStateRef = useRef<{ endpoint: string | null; sessionId: string | null }>({
     endpoint: null,
     sessionId: null,
@@ -480,9 +490,14 @@ export default function EvaluationPage() {
 
     ws.onMessage = (msg) => {
       const messageType = String(msg.type ?? '')
+
       if (messageType === 'typing_start') {
+        // 新轮次开始：重置流式内容和工具步骤
         streamingContentRef.current = ''
+        streamingToolStepsRef.current = []
         setStreamingContent('')
+        setStreamingToolSteps([])
+        setChatTyping(true)
         return
       }
 
@@ -490,17 +505,67 @@ export default function EvaluationPage() {
         const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
         streamingContentRef.current += chunk
         setStreamingContent(streamingContentRef.current)
+        setChatTyping(false)
+        return
+      }
+
+      // 工具调用开始：添加 running 状态条目
+      if (messageType === 'tool_use_start' || messageType === 'tool_call_start') {
+        const toolName = String(msg.name ?? msg.tool_name ?? msg.tool ?? 'tool')
+        const toolId = String(msg.id ?? msg.tool_use_id ?? `tool-${Date.now()}`)
+        const newStep: ToolStep = {
+          id: toolId,
+          name: toolName.replace(/^streaming\./, ''),
+          args: msg.input ? JSON.stringify(msg.input) : undefined,
+          status: 'running',
+        }
+        streamingToolStepsRef.current = [...streamingToolStepsRef.current, newStep]
+        setStreamingToolSteps([...streamingToolStepsRef.current])
+        return
+      }
+
+      // 工具调用完成：更新对应条目为 done 并附上返回值
+      if (messageType === 'tool_result' || messageType === 'tool_call_result') {
+        const toolId = String(msg.tool_use_id ?? msg.id ?? '')
+        const result = msg.content
+          ? typeof msg.content === 'string'
+            ? msg.content
+            : JSON.stringify(msg.content)
+          : String(msg.result ?? '')
+        streamingToolStepsRef.current = streamingToolStepsRef.current.map((step) =>
+          step.id === toolId || (toolId === '' && step.status === 'running')
+            ? { ...step, status: 'done' as const, result }
+            : step
+        )
+        setStreamingToolSteps([...streamingToolStepsRef.current])
         return
       }
 
       if (messageType === 'typing_stop' || messageType === 'assistant_done') {
         const endpointValue = gatewayEndpointRef.current
         const sessionIdValue = sessionIdRef.current
+        const completedToolSteps = [...streamingToolStepsRef.current]
         setStreamingContent(null)
+        setStreamingToolSteps([])
+        setChatTyping(false)
         streamingContentRef.current = ''
+        streamingToolStepsRef.current = []
         if (endpointValue && sessionIdValue) {
           void syncSandboxHistory(endpointValue, sessionIdValue)
-            .then(() => setSessionListRefreshKey((current) => current + 1))
+            .then(() => {
+              // 把本轮工具步骤附加到最后一条 bot 消息
+              if (completedToolSteps.length > 0) {
+                setChatMessages((prev) => {
+                  const lastBotIdx = [...prev].reverse().findIndex((m) => m.role !== 'user')
+                  if (lastBotIdx === -1) return prev
+                  const idx = prev.length - 1 - lastBotIdx
+                  const updated = [...prev]
+                  updated[idx] = { ...updated[idx], toolSteps: completedToolSteps }
+                  return updated
+                })
+              }
+              setSessionListRefreshKey((current) => current + 1)
+            })
             .catch((historyError: unknown) => {
               setChatError(historyError instanceof Error ? historyError.message : '同步评估沙箱历史失败')
             })
@@ -724,6 +789,8 @@ export default function EvaluationPage() {
       setChatError('')
       setSelectedSessionId(null)
       setStreamingContent(null)
+      setStreamingToolSteps([])
+      setChatTyping(false)
       gatewayEndpointRef.current = null
       sessionIdRef.current = null
       connectionStateRef.current = { endpoint: null, sessionId: null }
@@ -756,6 +823,8 @@ export default function EvaluationPage() {
     setSessionSwitching(true)
     setSelectedSessionId(sessionId)
     setStreamingContent(null)
+    setStreamingToolSteps([])
+    setChatTyping(false)
 
     try {
       await syncSandboxHistory(endpoint, sessionId)
@@ -780,6 +849,8 @@ export default function EvaluationPage() {
     setSelectedSessionId(newSessionId)
     setChatMessages([])
     setStreamingContent(null)
+    setStreamingToolSteps([])
+    setChatTyping(false)
     setSessionListRefreshKey((current) => current + 1)
     const endpoint = gatewayEndpointRef.current
     if (endpoint) {
@@ -1003,27 +1074,69 @@ export default function EvaluationPage() {
                           const isUser = message.role.toLowerCase() === 'user'
                           return (
                             <div key={message.messageId} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                              <div
-                                className={`max-w-[94%] rounded-2xl px-3 py-2.5 text-sm leading-6 ${
-                                  isUser
-                                    ? 'bg-[#000000] text-white'
-                                    : 'border border-[#ececec] bg-[#fafafa] text-[#404040]'
-                                }`}
-                              >
-                                <div className={`mb-1 text-[11px] ${isUser ? 'text-[#e5e5e5]' : 'text-[#9ca3af]'}`}>
-                                  {isUser ? '你' : '评估沙箱'} 路 {formatDateTime(message.createdAt)}
+                              {!isUser && (
+                                <div className="hb-hiring-avatar mr-2 mt-0.5 shrink-0">评</div>
+                              )}
+                              <div className={`flex min-w-0 max-w-[90%] flex-col gap-1.5 ${isUser ? 'items-end' : 'items-start'}`}>
+                                {!isUser && message.toolSteps && message.toolSteps.length > 0 && (
+                                  <HiringToolStepsBlock steps={message.toolSteps} />
+                                )}
+                                <div
+                                  className={`rounded-2xl px-3 py-2.5 text-sm leading-6 ${
+                                    isUser
+                                      ? 'bg-[#000000] text-white'
+                                      : 'border border-[#ececec] bg-[#fafafa] text-[#404040]'
+                                  }`}
+                                >
+                                  <div className={`mb-1 text-[11px] ${isUser ? 'text-[#e5e5e5]' : 'text-[#9ca3af]'}`}>
+                                    {isUser ? '你' : '评估沙箱'} · {formatDateTime(message.createdAt)}
+                                  </div>
+                                  {isUser ? (
+                                    <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                                  ) : (
+                                    <div className="hb-md prose prose-sm max-w-none break-words">
+                                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {message.content}
+                                      </ReactMarkdown>
+                                    </div>
+                                  )}
                                 </div>
-                                <div className="whitespace-pre-wrap break-words">{message.content}</div>
                               </div>
+                              {isUser && (
+                                <div className="hb-hiring-avatar is-user ml-2 mt-0.5 shrink-0">你</div>
+                              )}
                             </div>
                           )
                         })
                       )}
-                      {streamingContent !== null && (
+                      {/* 流式回复气泡：有工具步骤时先显示折叠面板，再显示流式文本或 typing 动画 */}
+                      {(streamingContent !== null || chatTyping) && (
                         <div className="flex justify-start">
-                          <div className="max-w-[94%] rounded-2xl border border-[#ececec] bg-[#fafafa] px-3 py-2.5 text-sm leading-6 text-[#404040]">
-                            <div className="mb-1 text-[11px] text-[#9ca3af]">评估沙箱 · 正在回复</div>
-                            <div className="whitespace-pre-wrap break-words">{streamingContent || '...'}</div>
+                          <div className="hb-hiring-avatar mr-2 mt-0.5 shrink-0">评</div>
+                          <div className="flex min-w-0 max-w-[90%] flex-col items-start gap-1.5">
+                            {streamingToolSteps.length > 0 && (
+                              <HiringToolStepsBlock steps={streamingToolSteps} />
+                            )}
+                            {chatTyping && streamingContent === '' ? (
+                              <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
+                                {[0, 1, 2].map((i) => (
+                                  <span
+                                    key={i}
+                                    className="hb-hiring-typing-dot"
+                                    style={{ animationDelay: `${i * 0.15}s` }}
+                                  />
+                                ))}
+                              </div>
+                            ) : streamingContent ? (
+                              <div className="rounded-2xl border border-[#ececec] bg-[#fafafa] px-3 py-2.5 text-sm leading-6 text-[#404040]">
+                                <div className="mb-1 text-[11px] text-[#9ca3af]">评估沙箱 · 正在回复</div>
+                                <div className="hb-md prose prose-sm max-w-none break-words">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {streamingContent}
+                                  </ReactMarkdown>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       )}

@@ -88,12 +88,24 @@ artifact 生命周期与阶段门禁定义见 [contracts/artifacts.json](contrac
 
 确保目标目录存在：`mkdir -p /workspace/runtime`
 
+### 阶段 0.5：安装 Python 依赖
+
+**在执行任何 Python 脚本前**，必须先确保 `websockets` 已安装，否则 `evaluate.py` 会在运行时报 `ModuleNotFoundError`。
+
+沙箱环境已自带 Python 和 pip，直接安装即可：
+
+```bash
+pip install --quiet websockets>=12.0
+```
+
+安装完成后，**后续所有 Python 脚本统一用 `python3` 或 `python` 执行**。
+
 ### 阶段 1：检查本地材料
 
 先调用：
 
 ```bash
-python /workspace/skills/live_evaluator/evaluate.py \
+python3 /workspace/skills/live_evaluator/evaluate.py \
   --runtime-context /workspace/runtime/evaluation-context.json \
   --mode inspect \
   --output /tmp/materials_inspection.json
@@ -137,7 +149,7 @@ python /workspace/skills/live_evaluator/evaluate.py \
 调用：
 
 ```bash
-python /workspace/skills/live_evaluator/evaluate.py \
+python3 /workspace/skills/live_evaluator/evaluate.py \
   --runtime-context /workspace/runtime/evaluation-context.json \
   --mode execute \
   --output /tmp/trace_result.json
@@ -151,16 +163,37 @@ python /workspace/skills/live_evaluator/evaluate.py \
 
 执行过程中按 testcase 粒度推送 `evaluation_execution_progress`。
 
-### 阶段 4：调用评分 Skill
+### 阶段 4：执行评分
 
-把下面内容传给 `evaluator`：
+**重要：这里没有可调用的评分脚本。评分由你自己作为 AI 完成，不要尝试执行任何 Python 文件，不要去 `/workspace/skills/evaluator/` 寻找脚本。**
 
-- 本地 testcase
-- 本地 ontology
-- question cards
-- `trace_result.json` 中的 turns
+执行步骤：
 
-你自己不要实现评分细则。
+1. 读取 `/workspace/skills/evaluator/SKILL.md`，获取红线原则、评分哲学和各维度评分规则
+2. 读取本地 testcase（`/workspace/uploads/materials/testcases/`）
+3. 读取本地 ontology（`/workspace/uploads/materials/ontology/`）
+4. 读取 `/tmp/trace_result.json` 中目标沙箱的真实执行 turns
+5. **你（AI）按照 evaluator SKILL.md 的规则，对每道题的 turns 逐条打分**，将结果写入 `/tmp/evaluation_result.json`：
+
+```json
+{
+  "session_id": "<session_id>",
+  "employee_id": "<employee_id>",
+  "verdict": "PASS",
+  "overall_score": 75.8,
+  "dimensions": {
+    "functional_completeness": { "score": 80, "evidence": "...", "issues": [] },
+    "tool_call_accuracy":      { "score": 70, "evidence": "...", "issues": [] },
+    "process_compliance":      { "score": 75, "evidence": "...", "issues": [] },
+    "interaction_quality":     { "score": 77, "evidence": "...", "issues": [] }
+  },
+  "red_line_triggered": false,
+  "red_line_details": [],
+  "per_question": []
+}
+```
+
+评分必须证据驱动，每个分数都要引用 trace 中的具体内容。
 
 ### 阶段 5：生成报告
 
@@ -176,7 +209,7 @@ python /workspace/skills/live_evaluator/evaluate.py \
 调用 `verdict_uploader.py` 把评估结果上传到 HireBot 后端：
 
 ```bash
-python /workspace/skills/live_evaluator/verdict_uploader.py \
+python3 /workspace/skills/live_evaluator/verdict_uploader.py \
   --runtime-context /workspace/runtime/evaluation-context.json \
   --evaluation-result /tmp/evaluation_result.json \
   --output /tmp/verdict_upload_result.json
@@ -184,10 +217,10 @@ python /workspace/skills/live_evaluator/verdict_uploader.py \
 
 脚本会自动从运行时上下文中读取以下配置：
 
-| 配置项 | 来源（优先级从高到低） |
-|--------|----------------------|
-| HireBot 后端地址 | `runtime_context.hirebot.base_url` → 环境变量 `HIREBOT_API_BASE_URL` |
-| API Token | `runtime_context.hirebot.token` → 环境变量 `HIREBOT_API_TOKEN` → `target_sandbox.auth.access_token` |
+| 配置项 | 来源 |
+|--------|------|
+| HireBot 后端地址 | `runtime_context.ncrew_hire.base_url` |
+| API Token | 由脚本内部通过 `auth_client.resolve_auth()` 从 `auth_config.json` 自动获取，无需手动传入 |
 
 上传成功后，后端将完成：
 
