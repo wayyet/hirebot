@@ -985,9 +985,12 @@ internal sealed partial class EvaluationService
                     source_type = s.SourceType
                 }),
                 JsonOptions);
+            // 每个 entry 的 stream 必须在创建下一个 entry 之前关闭，否则 ZipArchive 会抛异常
             var tcEntry = archive.CreateEntry("testcases.json");
-            await using var tcStream = tcEntry.Open();
-            await tcStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(testcasesPayload), cancellationToken);
+            await using (var tcStream = tcEntry.Open())
+            {
+                await tcStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(testcasesPayload), cancellationToken);
+            }
 
             // ontology.json
             var ontologyPayload = JsonSerializer.Serialize(new
@@ -999,8 +1002,10 @@ internal sealed partial class EvaluationService
                 rules = ontologyProfile.DimensionRules
             }, JsonOptions);
             var ontoEntry = archive.CreateEntry("ontology.json");
-            await using var ontoStream = ontoEntry.Open();
-            await ontoStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(ontologyPayload), cancellationToken);
+            await using (var ontoStream = ontoEntry.Open())
+            {
+                await ontoStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(ontologyPayload), cancellationToken);
+            }
         }
 
         var archiveBytes = ms.ToArray();
