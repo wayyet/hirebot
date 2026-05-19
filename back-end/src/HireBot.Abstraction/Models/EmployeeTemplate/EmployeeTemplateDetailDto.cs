@@ -1,4 +1,9 @@
-﻿namespace HireBot.Abstraction.Models.EmployeeTemplate;
+namespace HireBot.Abstraction.Models.EmployeeTemplate;
+
+public sealed record EmployeeTemplatePackageSkillDto(
+    string Name,
+    string RelativePath,
+    bool Required);
 
 public sealed record EmployeeTemplateDetailDto(
     string TemplateId,
@@ -11,4 +16,5 @@ public sealed record EmployeeTemplateDetailDto(
     TemplateResponsibilityBoundaryDto ResponsibilityBoundary,
     IReadOnlyList<TemplatePrerequisiteDto> Prerequisites,
     IReadOnlyList<string> SuccessCases,
+    IReadOnlyList<EmployeeTemplatePackageSkillDto> PackageSkills,
     TemplateCtaDto Cta);

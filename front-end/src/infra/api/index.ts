@@ -36,6 +36,7 @@ export type {
   TemplateResponsibilityBoundary,
   TemplatePrerequisite,
   TemplateCta,
+  EmployeeTemplatePackageSkill,
   EmployeeTemplateDetail,
   HireTemplateRequest,
   HireTemplateResult,

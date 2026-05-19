@@ -91,14 +91,9 @@ internal sealed class FileSystemTemplatePackageProvider(
                 ContentHash: HiringAssetFileSystem.ComputeContentHash(content)));
         }
 
-        var requiredSkills = new List<TemplateSkillAsset>();
+        var skills = new List<TemplateSkillAsset>();
         foreach (var skill in manifest.Skills ?? [])
         {
-            if (skill.Required != true)
-            {
-                continue;
-            }
-
             var relativePath = skill.Path?.Trim();
             if (string.IsNullOrWhiteSpace(relativePath))
             {
@@ -112,13 +107,16 @@ internal sealed class FileSystemTemplatePackageProvider(
             }
 
             var content = await File.ReadAllTextAsync(fullPath, cancellationToken);
-            requiredSkills.Add(new TemplateSkillAsset(
-                Name: FirstNonEmpty(skill.Name, Path.GetFileNameWithoutExtension(fullPath)),
-                RelativePath: relativePath.Replace('\\', '/').TrimStart('/'),
-                Required: true,
+            var normalizedRelativePath = relativePath.Replace('\\', '/').TrimStart('/');
+            skills.Add(new TemplateSkillAsset(
+                // manifest 未声明 name 时，从 skills/<slug>/... 提取更稳妥。
+                Name: FirstNonEmpty(skill.Name, ExtractSkillName(normalizedRelativePath), Path.GetFileNameWithoutExtension(fullPath)),
+                RelativePath: normalizedRelativePath,
+                Required: skill.Required ?? false,
                 Content: content,
                 ContentHash: HiringAssetFileSystem.ComputeContentHash(content)));
         }
+        var requiredSkills = skills.Where(skill => skill.Required).ToArray();
 
         var stageRules = (manifest.StageRules ?? [])
             .Where(rule =>
@@ -152,6 +150,7 @@ internal sealed class FileSystemTemplatePackageProvider(
                 .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
             OntologySlices: ontologySlices,
+            Skills: skills,
             RequiredSkills: requiredSkills,
             EntrySkill: NormalizeEntrySkill(manifest.EntrySkill),
             StageRules: stageRules);
@@ -170,11 +169,11 @@ internal sealed class FileSystemTemplatePackageProvider(
 
         var packageId = ResolveConventionPackageId(packageRoot, requestedTemplateId);
         var ontologySlices = BuildConventionOntologySlices(packageFiles);
-        var requiredSkills = BuildConventionRequiredSkills(packageFiles);
-        var entrySkill = ResolveConventionEntrySkill(packageId, requiredSkills);
-        var stageRules = BuildConventionStageRules(requiredSkills);
+        var skills = BuildConventionSkills(packageFiles);
+        var entrySkill = ResolveConventionEntrySkill(packageId, skills);
+        var stageRules = BuildConventionStageRules(skills);
         var displayName = packageId.Replace('-', ' ');
-        var manifestJson = BuildConventionManifestJson(packageId, displayName, entrySkill, ontologySlices, requiredSkills, stageRules);
+        var manifestJson = BuildConventionManifestJson(packageId, displayName, entrySkill, ontologySlices, skills, stageRules);
         var packageHash = await HiringAssetFileSystem.ComputeDirectoryHashAsync(packageRoot, cancellationToken);
 
         return new TemplatePackageDefinition(
@@ -189,7 +188,8 @@ internal sealed class FileSystemTemplatePackageProvider(
             Description: "Convention-based template package",
             PackageFiles: packageFiles,
             OntologySlices: ontologySlices,
-            RequiredSkills: requiredSkills,
+            Skills: skills,
+            RequiredSkills: skills,
             EntrySkill: entrySkill,
             StageRules: stageRules);
     }
@@ -219,7 +219,7 @@ internal sealed class FileSystemTemplatePackageProvider(
             .ToArray();
     }
 
-    private static TemplateSkillAsset[] BuildConventionRequiredSkills(
+    private static TemplateSkillAsset[] BuildConventionSkills(
         IReadOnlyList<TemplatePackageFileAsset> packageFiles)
     {
         return packageFiles
@@ -305,7 +305,7 @@ internal sealed class FileSystemTemplatePackageProvider(
         string displayName,
         string? entrySkill,
         IReadOnlyList<TemplateOntologySliceAsset> ontologySlices,
-        IReadOnlyList<TemplateSkillAsset> requiredSkills,
+        IReadOnlyList<TemplateSkillAsset> skills,
         IReadOnlyList<TemplatePackageStageRule> stageRules)
     {
         var payload = new
@@ -322,7 +322,7 @@ internal sealed class FileSystemTemplatePackageProvider(
                 type = slice.Type,
                 required = slice.Required
             }),
-            skills = requiredSkills.Select(skill => new
+            skills = skills.Select(skill => new
             {
                 name = skill.Name,
                 path = skill.RelativePath,

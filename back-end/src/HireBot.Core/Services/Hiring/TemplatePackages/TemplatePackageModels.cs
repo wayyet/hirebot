@@ -12,6 +12,7 @@ internal sealed record TemplatePackageDefinition(
     string Description,
     IReadOnlyList<TemplatePackageFileAsset> PackageFiles,
     IReadOnlyList<TemplateOntologySliceAsset> OntologySlices,
+    IReadOnlyList<TemplateSkillAsset> Skills,
     IReadOnlyList<TemplateSkillAsset> RequiredSkills,
     string? EntrySkill,
     IReadOnlyList<TemplatePackageStageRule> StageRules);

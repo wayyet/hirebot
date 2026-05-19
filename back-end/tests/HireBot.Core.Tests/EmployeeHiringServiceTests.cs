@@ -189,6 +189,7 @@ public class EmployeeHiringServiceTests
             Description: "desc",
             PackageFiles: packageFiles ?? [],
             OntologySlices: [],
+            Skills: [],
             RequiredSkills: [],
             EntrySkill: null,
             StageRules: []);

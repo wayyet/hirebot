@@ -66,6 +66,12 @@ export interface TemplateCta {
   action: string
 }
 
+export interface EmployeeTemplatePackageSkill {
+  name: string
+  relativePath: string
+  required: boolean
+}
+
 export interface EmployeeTemplateDetail {
   templateId: string
   iconUrl: string
@@ -77,6 +83,7 @@ export interface EmployeeTemplateDetail {
   responsibilityBoundary: TemplateResponsibilityBoundary
   prerequisites: TemplatePrerequisite[]
   successCases: string[]
+  packageSkills: EmployeeTemplatePackageSkill[]
   cta: TemplateCta
 }
 

@@ -142,10 +142,10 @@ internal sealed class BuildServiceTemplatePackageProvider(
                 ContentHash: HiringAssetFileSystem.ComputeContentHash(content)));
         }
 
-        var requiredSkills = new List<TemplateSkillAsset>();
+        var skills = new List<TemplateSkillAsset>();
         foreach (var skill in manifest.Skills ?? [])
         {
-            if (skill.Required != true || string.IsNullOrWhiteSpace(skill.Path))
+            if (string.IsNullOrWhiteSpace(skill.Path))
             {
                 continue;
             }
@@ -153,18 +153,21 @@ internal sealed class BuildServiceTemplatePackageProvider(
             var entry = ResolveEntry(entryIndex, manifestDirectory, skill.Path);
             if (entry is null)
             {
-                logger.LogWarning("Template required skill missing in package. TemplateId={TemplateId}, Path={Path}", templateId, skill.Path);
+                logger.LogWarning("Template skill missing in package. TemplateId={TemplateId}, Path={Path}", templateId, skill.Path);
                 continue;
             }
 
             var content = ReadEntryText(entry);
-            requiredSkills.Add(new TemplateSkillAsset(
-                Name: FirstNonEmpty(skill.Name, Path.GetFileNameWithoutExtension(entry.FullName)),
-                RelativePath: NormalizeRelativePath(skill.Path),
-                Required: true,
+            var normalizedRelativePath = NormalizeRelativePath(skill.Path);
+            skills.Add(new TemplateSkillAsset(
+                // manifest 只给 skills/<slug>/SKILL.md 时，优先回退到 slug，避免 UI 显示成 “SKILL”。
+                Name: FirstNonEmpty(skill.Name, ExtractSkillName(normalizedRelativePath), Path.GetFileNameWithoutExtension(entry.FullName)),
+                RelativePath: normalizedRelativePath,
+                Required: skill.Required ?? false,
                 Content: content,
                 ContentHash: HiringAssetFileSystem.ComputeContentHash(content)));
         }
+        var requiredSkills = skills.Where(skill => skill.Required).ToArray();
 
         var stageRules = (manifest.StageRules ?? [])
             .Where(rule =>
@@ -195,6 +198,7 @@ internal sealed class BuildServiceTemplatePackageProvider(
                 .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
             OntologySlices: ontologySlices,
+            Skills: skills,
             RequiredSkills: requiredSkills,
             EntrySkill: string.IsNullOrWhiteSpace(manifest.EntrySkill) ? null : NormalizeRelativePath(manifest.EntrySkill),
             StageRules: stageRules);
@@ -381,6 +385,14 @@ internal sealed class BuildServiceTemplatePackageProvider(
         return zipPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             ? zipPath[prefix.Length..]
             : zipPath.TrimStart('/');
+    }
+
+    private static string ExtractSkillName(string relativePath)
+    {
+        var segments = relativePath
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return segments.Length >= 2 ? segments[1] : Path.GetFileNameWithoutExtension(relativePath);
     }
 
     private static bool TryNormalizeArchiveRelativePath(string path, out string normalizedPath)

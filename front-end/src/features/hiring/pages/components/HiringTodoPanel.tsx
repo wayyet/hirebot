@@ -12,9 +12,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { FileText, Upload } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 
 import { api, HiringCollectionStage } from '@/infra/api'
-import type { HiringCollectionStageType, StoreSkillItem } from '@/infra/api'
+import type { EmployeeTemplatePackageSkill, HiringCollectionStageType, StoreSkillItem } from '@/infra/api'
 import type { ChatFile, MaterialRequestedCategory } from '../hiringPageTypes'
 import {
   buildUploadedCountByCategory,
@@ -55,6 +56,7 @@ export interface HiringTodoPanelProps {
   generated?: boolean
   /** 用户关联的 store skill UUID 列表变化时回调；用于在导入产物包时一并提交给后端。 */
   onLinkedSkillIdsChange?: (skillIds: string[]) => void
+  templatePackageSkills?: EmployeeTemplatePackageSkill[]
   requestedMaterialCategories?: MaterialRequestedCategory[]
   uploadedConversationFiles?: ChatFile[]
 }
@@ -74,10 +76,17 @@ interface MaterialCategoryCard {
   examplesLabel?: string
 }
 
+const EMPTY_STORE_SKILL_LIST = {
+  page: 1,
+  pageSize: 3,
+  total: 0,
+  items: [] as StoreSkillItem[],
+}
+
 const STAGES: StageConfig[] = [
-  { key: HiringCollectionStage.Material, num: '①', title: '资料', hint: '上传 .md / .json 资料，供 AI 解析作为雇佣依据' },
-  { key: HiringCollectionStage.Skill,    num: '②', title: '技能', hint: '从 Skills Hub 搜索并关联技能；外部系统配置为可选项' },
-  { key: HiringCollectionStage.External, num: '③', title: '外部系统', hint: '可选：配置外部 API / 系统对接信息' },
+  { key: HiringCollectionStage.Material, num: '1', title: '资料', hint: '上传 .md / .json 资料，供 AI 解析作为雇佣依据' },
+  { key: HiringCollectionStage.Skill,    num: '2', title: '技能', hint: '' },
+  { key: HiringCollectionStage.External, num: '3', title: '外部系统', hint: '可选：配置外部 API / 系统对接信息' },
 ]
 
 // ── 工具方法 ─────────────────────────────────────────────────────────────────
@@ -169,6 +178,7 @@ export function HiringTodoPanel({
   onGenerate,
   generated = false,
   onLinkedSkillIdsChange,
+  templatePackageSkills = [],
   requestedMaterialCategories = [],
   uploadedConversationFiles = [],
 }: HiringTodoPanelProps) {
@@ -243,6 +253,7 @@ export function HiringTodoPanel({
           >
             {stage.key === HiringCollectionStage.Skill && (
               <SkillCardBody
+                templatePackageSkills={templatePackageSkills}
                 onAfterLink={summary => onAfterStageMessage?.(HiringCollectionStage.Skill, summary)}
                 onLinkedIdsChange={onLinkedSkillIdsChange}
               />
@@ -286,6 +297,7 @@ function StageCard({
   return (
     <div className={clsx(
       'hb-todo-stage-card',
+      (stage.key === HiringCollectionStage.Skill || stage.key === HiringCollectionStage.External) && 'is-accent-shell',
       isComplete && 'is-complete',
       isActive && 'is-active',
       isFailed && 'is-failed',
@@ -302,7 +314,7 @@ function StageCard({
       </button>
       {expanded && (
         <div className="hb-todo-stage-body">
-          <p className="hb-todo-stage-hint">{stage.hint}</p>
+          {stage.hint && <p className="hb-todo-stage-hint">{stage.hint}</p>}
           {children}
         </div>
       )}
@@ -465,7 +477,10 @@ function MaterialCardBody({
           onClick={() => setCollapsed(prev => !prev)}
         >
           <div className="hb-todo-material-head-copy">
-            <strong>上传资料</strong>
+            <div className="hb-todo-material-head-title-row">
+              <span className="hb-todo-stage-num">1</span>
+              <strong>上传资料</strong>
+            </div>
           </div>
           <div className="hb-todo-material-head-actions">
             <span className="hb-todo-material-head-pill">{shellStatusLabel}</span>
@@ -586,19 +601,33 @@ function MaterialCardBody({
 }
 
 function SkillCardBody({
-
+  templatePackageSkills,
   onAfterLink,
   onLinkedIdsChange,
 }: {
+  templatePackageSkills: EmployeeTemplatePackageSkill[]
   onAfterLink: (summary: string) => void
   onLinkedIdsChange?: (skillIds: string[]) => void
 }) {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<StoreSkillItem[]>([])
-  const [total, setTotal] = useState(0)
+  const [searchResults, setSearchResults] = useState<StoreSkillItem[]>([])
+  const [searchTotal, setSearchTotal] = useState(0)
   const [linked, setLinked] = useState<LinkedSkill[]>([])
   const [searching, setSearching] = useState(false)
-  const [error, setError] = useState('')
+  const [searchError, setSearchError] = useState('')
+  const trimmedQuery = query.trim()
+
+  const {
+    data: defaultSkillData = EMPTY_STORE_SKILL_LIST,
+    isLoading: isDefaultLoading,
+    error: defaultSkillError,
+  } = useQuery({
+    queryKey: ['hiring-default-store-skills'],
+    queryFn: ({ signal }) => api.skillCatalog.searchStoreSkills({ page: 1, pageSize: 3 }, signal),
+    enabled: trimmedQuery.length === 0,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  })
 
   // 每次 linked 变更都向父组件同步 store skill UUID 列表，供 import-package 请求使用
   useEffect(() => {
@@ -607,29 +636,56 @@ function SkillCardBody({
 
   // 防抖搜索：对接模板池同源接口 /api/store/skills?page=1&pageSize=12&q=...
   useEffect(() => {
-    const q = query.trim()
+    if (!trimmedQuery) {
+      setSearchResults([])
+      setSearchTotal(0)
+      setSearchError('')
+      setSearching(false)
+      return
+    }
+
     const controller = new AbortController()
     const timer = window.setTimeout(async () => {
       setSearching(true)
       try {
         const data = await api.skillCatalog.searchStoreSkills(
-          { q: q || undefined, page: 1, pageSize: 12 },
+          { q: trimmedQuery, page: 1, pageSize: 12 },
           controller.signal,
         )
-        setResults(data?.items ?? [])
-        setTotal(data?.total ?? data?.items?.length ?? 0)
-        setError('')
+        setSearchResults(data?.items ?? [])
+        setSearchTotal(data?.total ?? data?.items?.length ?? 0)
+        setSearchError('')
       } catch (e) {
         if ((e as { name?: string })?.name === 'AbortError') return
-        setError(e instanceof Error ? e.message : '搜索失败')
+        setSearchError(e instanceof Error ? e.message : '搜索失败')
       } finally {
         setSearching(false)
       }
     }, 300)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [query])
+  }, [trimmedQuery])
 
   const isLinked = useCallback((id: string) => linked.some(l => l.skillId === id), [linked])
+  const currentResults = trimmedQuery ? searchResults : defaultSkillData.items
+  const currentTotal = trimmedQuery ? searchTotal : (defaultSkillData.total ?? defaultSkillData.items.length)
+  const currentSearching = trimmedQuery ? searching : isDefaultLoading
+  const currentError = trimmedQuery
+    ? searchError
+    : defaultSkillError instanceof Error
+      ? defaultSkillError.message
+      : defaultSkillError
+        ? '搜索失败'
+        : ''
+
+  const searchStatusLabel = currentSearching
+    ? '搜索中'
+    : linked.length > 0
+      ? `已关联 ${linked.length}`
+      : !trimmedQuery
+        ? '默认 3 个'
+        : currentResults.length > 0
+          ? `${currentResults.length} 条`
+      : '待关联'
 
   function handleLink(s: StoreSkillItem) {
     if (isLinked(s.id)) return
@@ -644,68 +700,139 @@ function SkillCardBody({
 
   return (
     <div className="hb-todo-skill">
-      <input
-        type="text"
-        className="hb-todo-input"
-        placeholder="搜索技能名称 / 关键字（留空显示推荐技能）"
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-      />
-      {searching && <p className="hb-todo-hint-muted">搜索中…</p>}
-      {error && <p className="hb-todo-error">{error}</p>}
-      {!searching && !error && results.length === 0 && (
-        <p className="hb-todo-hint-muted">{query.trim() ? '未找到匹配的技能' : '暂无技能'}</p>
-      )}
-
-      {results.length > 0 && (
-        <>
-          {total > results.length && (
-            <p className="hb-todo-hint-muted">共 {total} 个结果，显示前 {results.length} 个</p>
+      <div className="hb-todo-skill-toolbar">
+        <label className="hb-todo-skill-search-field">
+          <input
+            type="text"
+            className="hb-todo-input"
+            placeholder="搜索技能名称 / 关键字（留空显示推荐技能）"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+        </label>
+        <span
+          className={clsx(
+            'hb-todo-skill-status-pill',
+            searching && 'is-searching',
+            !searching && linked.length > 0 && 'is-linked',
           )}
-          <ul className="hb-todo-skill-list">
-            {results.map(s => {
-              const displayName = s.displayName ?? s.name
-              return (
-                <li key={s.id} className="hb-todo-skill-item">
-                  <div className="hb-todo-skill-info">
-                    <strong>{displayName}</strong>
-                    <span className="hb-todo-skill-meta">
-                      {s.currentVersion ? `v${s.currentVersion}` : ''}{s.level ? ` · ${s.level}` : ''}
-                    </span>
-                    {s.description && <p className="hb-todo-skill-desc">{s.description}</p>}
-                    {s.tags && s.tags.length > 0 && (
-                      <ul className="hb-todo-tag-list">
-                        {s.tags.slice(0, 5).map(t => <li key={t} className="hb-todo-tag is-mini">{t}</li>)}
-                      </ul>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    className={clsx('hb-todo-row-btn', isLinked(s.id) ? 'is-ghost' : 'is-primary')}
-                    disabled={isLinked(s.id)}
-                    onClick={() => handleLink(s)}
-                  >
-                    {isLinked(s.id) ? '已关联' : '关联'}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        </>
-      )}
+        >
+          {searchStatusLabel}
+        </span>
+      </div>
+
+      <section className="hb-todo-skill-section is-search" aria-label="搜索与推荐技能">
+        {currentSearching && <p className="hb-todo-hint-muted">搜索中…</p>}
+        {currentError && <p className="hb-todo-error">{currentError}</p>}
+        {!currentSearching && !currentError && currentResults.length === 0 && (
+          <p className="hb-todo-skill-empty">{trimmedQuery ? '未找到匹配的技能' : '暂无推荐技能'}</p>
+        )}
+
+        {currentResults.length > 0 && (
+          <>
+            {trimmedQuery && currentTotal > currentResults.length && (
+              <p className="hb-todo-hint-muted">共 {currentTotal} 个结果，显示前 {currentResults.length} 个</p>
+            )}
+            <ul className="hb-todo-skill-list">
+              {currentResults.map(s => {
+                const displayName = s.displayName ?? s.name
+                const linkedNow = isLinked(s.id)
+
+                return (
+                  <li key={s.id} className="hb-todo-skill-item">
+                    <div className="hb-todo-skill-main">
+                      <div className="hb-todo-skill-title-row">
+                        <strong>{displayName}</strong>
+                        <div className="hb-todo-skill-chips">
+                          {s.currentVersion && <span className="hb-todo-skill-chip is-meta">{`v${s.currentVersion}`}</span>}
+                          {s.level && <span className="hb-todo-skill-chip is-meta">{s.level}</span>}
+                        </div>
+                      </div>
+                      {s.description && <p className="hb-todo-skill-desc">{s.description}</p>}
+                      {s.tags && s.tags.length > 0 && (
+                        <ul className="hb-todo-tag-list">
+                          {s.tags.slice(0, 5).map(t => <li key={t} className="hb-todo-tag is-mini">{t}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                    <div className="hb-todo-skill-actions">
+                      <button
+                        type="button"
+                        className={clsx('hb-todo-row-btn', linkedNow ? 'is-ghost' : 'is-primary')}
+                        disabled={linkedNow}
+                        onClick={() => handleLink(s)}
+                      >
+                        {linkedNow ? '已关联' : '关联'}
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
+      </section>
 
       {linked.length > 0 && (
-        <div className="hb-todo-skill-linked">
-          <p className="hb-todo-hint-muted">已关联 {linked.length} 个技能</p>
-          <ul className="hb-todo-tag-list">
+        <section className="hb-todo-skill-section is-linked-summary" aria-label="已关联技能">
+          <div className="hb-todo-skill-section-head">
+            <strong>已关联技能</strong>
+            <span className="hb-todo-skill-section-pill is-linked">{linked.length} 个</span>
+          </div>
+          <p className="hb-todo-hint-muted">这些技能会随当前雇佣流程一起进入后续产物包。</p>
+          <ul className="hb-todo-skill-linked-list">
             {linked.map(l => (
-              <li key={l.skillId} className="hb-todo-tag">
-                {l.name}
-                <button type="button" className="hb-todo-tag-x" onClick={() => handleUnlink(l.skillId)}>×</button>
+              <li key={l.skillId} className="hb-todo-skill-linked-item">
+                <div className="hb-todo-skill-main">
+                  <div className="hb-todo-skill-title-row">
+                    <strong>{l.name}</strong>
+                    <div className="hb-todo-skill-chips">
+                      {l.version && <span className="hb-todo-skill-chip is-meta">{`v${l.version}`}</span>}
+                    </div>
+                  </div>
+                </div>
+                <div className="hb-todo-skill-actions">
+                  <button
+                    type="button"
+                    className="hb-todo-row-btn is-ghost"
+                    onClick={() => handleUnlink(l.skillId)}
+                  >
+                    移除
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
-        </div>
+        </section>
+      )}
+
+      {templatePackageSkills.length > 0 && (
+        <section className="hb-todo-skill-section is-template" aria-label="模板内置技能">
+          <div className="hb-todo-skill-section-head">
+            <strong>模板内置技能</strong>
+            <span className="hb-todo-skill-section-pill">{templatePackageSkills.length} 个</span>
+          </div>
+          <p className="hb-todo-hint-muted">
+            当前目标员工模板包已内置 {templatePackageSkills.length} 个 skill，不包含雇佣教练角色包。
+          </p>
+          <ul className="hb-todo-skill-list is-template">
+            {templatePackageSkills.map(skill => (
+              <li key={skill.relativePath} className="hb-todo-skill-item is-static">
+                <div className="hb-todo-skill-main">
+                  <div className="hb-todo-skill-title-row">
+                    <strong>{skill.name}</strong>
+                    <div className="hb-todo-skill-chips">
+                      <span className={clsx('hb-todo-skill-chip', skill.required ? 'is-required' : 'is-optional')}>
+                        {skill.required ? '模板内置必选' : '模板内置可选'}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="hb-todo-skill-desc">{skill.relativePath}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </div>
   )
@@ -769,12 +896,13 @@ function FinalCard({
   return (
     <div className={clsx(
       'hb-todo-stage-card',
+      'is-accent-shell',
       generated && 'is-complete',
       !generated && canGenerate && 'is-active',
       isFocus && expanded && 'is-focus',
     )}>
       <button type="button" className="hb-todo-stage-head" onClick={onToggle} aria-expanded={expanded}>
-        <span className="hb-todo-stage-num">④</span>
+        <span className="hb-todo-stage-num">4</span>
         <span className="hb-todo-stage-title">生成实例包</span>
         <span className={clsx('hb-todo-stage-badge', generated ? 'is-complete' : canGenerate ? 'is-active' : '')}>
           {generated ? '已生成' : canGenerate ? '可生成' : '等待'}

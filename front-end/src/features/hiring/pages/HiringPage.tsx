@@ -1463,6 +1463,7 @@ export default function HiringPage() {
             hireId={workflowHireId}
             sessionId={sessionIdRef.current ?? ''}
             wsStageOverrides={wsStageOverrides}
+            templatePackageSkills={template?.packageSkills ?? []}
             requestedMaterialCategories={materialRequestedCategories}
             uploadedConversationFiles={uploadedConversationFiles}
             onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}
