@@ -15,7 +15,12 @@ import { FileText, Upload } from 'lucide-react'
 
 import { api, HiringCollectionStage } from '@/infra/api'
 import type { HiringCollectionStageType, StoreSkillItem } from '@/infra/api'
-import type { MaterialRequestedCategory } from '../hiringPageTypes'
+import type { ChatFile, MaterialRequestedCategory } from '../hiringPageTypes'
+import {
+  buildUploadedCountByCategory,
+  countDistinctMaterialUploads,
+  listUnmatchedMaterialUploads,
+} from '../materialUploadMatching'
 
 // ── 类型 ──────────────────────────────────────────────────────────────────────
 
@@ -51,6 +56,7 @@ export interface HiringTodoPanelProps {
   /** 用户关联的 store skill UUID 列表变化时回调；用于在导入产物包时一并提交给后端。 */
   onLinkedSkillIdsChange?: (skillIds: string[]) => void
   requestedMaterialCategories?: MaterialRequestedCategory[]
+  uploadedConversationFiles?: ChatFile[]
 }
 
 interface StageConfig {
@@ -101,7 +107,8 @@ function fileExt(name: string): string {
   return idx < 0 ? '' : name.slice(idx).toLowerCase()
 }
 
-function formatSize(bytes: number): string {
+function formatMaterialFileSize(bytes: number | null): string {
+  if (!bytes || bytes <= 0) return ''
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1048576).toFixed(1)} MB`
@@ -163,10 +170,12 @@ export function HiringTodoPanel({
   generated = false,
   onLinkedSkillIdsChange,
   requestedMaterialCategories = [],
+  uploadedConversationFiles = [],
 }: HiringTodoPanelProps) {
   // 用户是否手动覆盖了某张卡片的展开状态；未手动覆盖的走"活跃阶段自动展开"逻辑
   const [userToggled, setUserToggled] = useState<Record<string, boolean>>({})
   const [manualExpanded, setManualExpanded] = useState<Record<string, boolean>>({})
+  const [toggleScopeKey, setToggleScopeKey] = useState<StageKey | 'final' | null>(null)
 
   const allDone = useMemo(
     () => STAGES.every(s => wsStageOverrides.get(s.key) === 'completed'),
@@ -182,22 +191,29 @@ export function HiringTodoPanel({
     return pending?.key ?? null
   }, [wsStageOverrides, allDone])
 
+  const scopedUserToggled = useMemo(
+    () => (toggleScopeKey === activeStageKey ? userToggled : {}),
+    [toggleScopeKey, activeStageKey, userToggled],
+  )
+  const scopedManualExpanded = useMemo(
+    () => (toggleScopeKey === activeStageKey ? manualExpanded : {}),
+    [toggleScopeKey, activeStageKey, manualExpanded],
+  )
+
   // 计算每张卡片的展开态：用户手动覆盖优先，否则只展开活跃阶段
   const isExpanded = useCallback((key: string) => {
-    if (userToggled[key]) return manualExpanded[key]
+    if (scopedUserToggled[key]) return scopedManualExpanded[key]
     return key === activeStageKey
-  }, [userToggled, manualExpanded, activeStageKey])
+  }, [scopedUserToggled, scopedManualExpanded, activeStageKey])
 
   const toggle = (key: string) => {
-    setUserToggled(prev => ({ ...prev, [key]: true }))
-    setManualExpanded(prev => ({ ...prev, [key]: !isExpanded(key) }))
-  }
+    const shouldResetScope = toggleScopeKey !== activeStageKey
+    const nextExpanded = !isExpanded(key)
 
-  // 活跃阶段切换时清理掉旧的手动覆盖，让新阶段自动占满右侧空间
-  useEffect(() => {
-    setUserToggled({})
-    setManualExpanded({})
-  }, [activeStageKey])
+    setToggleScopeKey(activeStageKey)
+    setUserToggled(prev => shouldResetScope ? { [key]: true } : { ...prev, [key]: true })
+    setManualExpanded(prev => shouldResetScope ? { [key]: nextExpanded } : { ...prev, [key]: nextExpanded })
+  }
 
   return (
     <div className="hb-todo-panel">
@@ -211,6 +227,7 @@ export function HiringTodoPanel({
             hireId={hireId}
             sessionId={sessionId}
             requestedCategories={requestedMaterialCategories}
+            uploadedConversationFiles={uploadedConversationFiles}
             onAfterUpload={summary => onAfterStageMessage?.(HiringCollectionStage.Material, summary)}
           />
         </div>
@@ -296,16 +313,18 @@ function StageCard({
 // ── 资料卡（文件夹上传 .md/.json） ─────────────────────────────────────────────
 
 function MaterialCardBody({
-  hireId, sessionId, requestedCategories, onAfterUpload,
+  hireId, sessionId, requestedCategories, uploadedConversationFiles, onAfterUpload,
 }: {
   hireId: string
   sessionId: string
   requestedCategories: MaterialRequestedCategory[]
+  uploadedConversationFiles: ChatFile[]
   onAfterUpload: (summary: string) => void
 }) {
   const folderInputRef = useRef<HTMLInputElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const categoryUploadRef = useRef<string | null>(null)
+  const [collapsed, setCollapsed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [uploaded, setUploaded] = useState<UploadedFileMeta[]>([])
@@ -400,15 +419,18 @@ function MaterialCardBody({
     }
   }, [hireId, sessionId, refresh, onAfterUpload])
 
-  const uploadedCountByCategory = useMemo(() => {
-    const result = new Map<string, number>()
-    for (const item of uploaded) {
-      const key = item.requestedCategoryTitle?.trim()
-      if (!key) continue
-      result.set(key, (result.get(key) ?? 0) + 1)
-    }
-    return result
-  }, [uploaded])
+  const uploadedCountByCategory = useMemo(
+    () => buildUploadedCountByCategory(displayCategories, uploaded, uploadedConversationFiles),
+    [displayCategories, uploaded, uploadedConversationFiles],
+  )
+  const totalUploadedCount = useMemo(
+    () => countDistinctMaterialUploads(uploaded, uploadedConversationFiles),
+    [uploaded, uploadedConversationFiles],
+  )
+  const unmatchedUploads = useMemo(
+    () => listUnmatchedMaterialUploads(displayCategories, uploaded, uploadedConversationFiles),
+    [displayCategories, uploaded, uploadedConversationFiles],
+  )
   const completedCardCount = materialCards.reduce(
     (count, item) => count + ((uploadedCountByCategory.get(item.title) ?? 0) > 0 ? 1 : 0),
     0,
@@ -417,13 +439,18 @@ function MaterialCardBody({
     ? completedCardCount >= materialCards.length
       ? `已上传 ${completedCardCount}`
       : `待上传 ${materialCards.length - completedCardCount}`
-    : uploaded.length > 0
-      ? `已上传 ${uploaded.length}`
+    : totalUploadedCount > 0
+      ? `已上传 ${totalUploadedCount}`
       : '待上传'
   return (
     <div className="hb-todo-mat">
       <div
-        className={clsx('hb-todo-material-shell', busy && 'is-busy', uploaded.length > 0 && 'is-filled')}
+        className={clsx(
+          'hb-todo-material-shell',
+          busy && 'is-busy',
+          totalUploadedCount > 0 && 'is-filled',
+          collapsed && 'is-collapsed',
+        )}
         onDragOver={event => { event.preventDefault() }}
         onDrop={event => {
           event.preventDefault()
@@ -431,19 +458,24 @@ function MaterialCardBody({
           if (event.dataTransfer.files?.length) void handleFiles(event.dataTransfer.files)
         }}
       >
-        <div className="hb-todo-material-head">
+        <button
+          type="button"
+          className="hb-todo-material-head"
+          aria-expanded={!collapsed}
+          onClick={() => setCollapsed(prev => !prev)}
+        >
           <div className="hb-todo-material-head-copy">
             <strong>上传资料</strong>
-            <p>
-              {materialCards.length > 0
-                ? '会话中描述业务场景、上传文件、提及资料需求时，每识别到一类资料都会生成一张上传卡片。'
-                : '会话识别到资料分类后，会在这里生成对应的上传卡片。'}
-            </p>
           </div>
-          <span className="hb-todo-material-head-pill">{shellStatusLabel}</span>
-        </div>
+          <div className="hb-todo-material-head-actions">
+            <span className="hb-todo-material-head-pill">{shellStatusLabel}</span>
+            <span className={clsx('hb-todo-material-chevron', collapsed && 'is-collapsed')} aria-hidden="true">
+              ▾
+            </span>
+          </div>
+        </button>
 
-        {materialCards.length > 0 ? (
+        {!collapsed && materialCards.length > 0 ? (
           <div className="hb-todo-category-list" aria-label="建议优先上传的资料分类">
             {materialCards.map(card => {
               const uploadedCount = uploadedCountByCategory.get(card.title) ?? 0
@@ -459,18 +491,13 @@ function MaterialCardBody({
                       <strong title={card.title}>{card.title}</strong>
                       <div className="hb-todo-category-chips">
                         <span className="hb-todo-category-chip is-format">{card.formatLabel}</span>
-                        {card.contextLabel ? <span className="hb-todo-category-chip">{card.contextLabel}</span> : null}
                       </div>
                     </div>
-                    <span title={card.description}>{card.description}</span>
-                    {card.examplesLabel ? <small title={card.examplesLabel}>{card.examplesLabel}</small> : null}
-                    <em className={clsx('hb-todo-category-status', uploadedCount > 0 && 'is-complete', isUploadingCurrentCard && 'is-busy')}>
-                      {isUploadingCurrentCard
-                        ? '正在上传…'
-                        : uploadedCount > 0
-                          ? `已上传 ${uploadedCount} 份`
-                          : '建议优先补充'}
-                    </em>
+                    {(isUploadingCurrentCard || uploadedCount > 0) ? (
+                      <em className={clsx('hb-todo-category-status', uploadedCount > 0 && 'is-complete', isUploadingCurrentCard && 'is-busy')}>
+                        {isUploadingCurrentCard ? '正在上传…' : `已上传 ${uploadedCount} 份`}
+                      </em>
+                    ) : null}
                   </div>
                   <div className="hb-todo-category-actions">
                     <button
@@ -492,10 +519,36 @@ function MaterialCardBody({
           </div>
         ) : null}
 
-        {busy ? (
+        {!collapsed && busy ? (
           <div className="hb-todo-upload-sync" aria-live="polite">
             <span className="hb-todo-upload-sync-dot" />
             正在上传并同步到沙箱工作区
+          </div>
+        ) : null}
+
+        {!collapsed && unmatchedUploads.length > 0 ? (
+          <div className="hb-todo-category-list" aria-label="已上传但未匹配建议分类的资料">
+            <div className="hb-todo-category-item">
+              <div className="hb-todo-category-icon" aria-hidden="true">
+                <FileText size={18} strokeWidth={2.1} />
+              </div>
+              <div className="hb-todo-category-copy">
+                <div className="hb-todo-category-title-row">
+                  <strong>已上传文件</strong>
+                  <div className="hb-todo-category-chips">
+                    <span className="hb-todo-category-chip">{`未匹配 ${unmatchedUploads.length}`}</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {unmatchedUploads.map(file => (
+                    <span key={file.key} className="hb-todo-category-chip">
+                      {file.name}
+                      {file.sizeBytes ? ` · ${formatMaterialFileSize(file.sizeBytes)}` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         ) : null}
 

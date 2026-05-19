@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Upload, X } from 'lucide-react'
 
@@ -19,6 +19,7 @@ import { HiringProgressLedger } from './components/HiringProgressLedger'
 import { HiringTodoPanel } from './components/HiringTodoPanel'
 import { HiringStagePills } from './components/HiringStagePills'
 import type { ArtifactDisplayData, ChatFile, ChatMessage, MaterialRequestedCategory, SkillUploadPayload, StageGateData, ToolStep } from './hiringPageTypes'
+import { extractConversationMaterialFiles } from './materialUploadMatching'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 import { extractLatestMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
 
@@ -241,6 +242,11 @@ export default function HiringPage() {
     : viewModel.actionState
   const canCreate = Boolean(workflowHireId) && !instanceCreated
   const isInteractionLocked = typing || workflowBooting || submittingMessage || resetting
+  const uploadedConversationFiles = useMemo(
+    () => extractConversationMaterialFiles(messages),
+    [messages],
+  )
+  const uploadedFileCount = Math.max(allFiles.length, uploadedConversationFiles.length)
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -441,9 +447,14 @@ export default function HiringPage() {
       '',
       useCaseSection,
       '',
-      '请读取上述工作区目录中的 manifest.json，按照 SKILL.md 的"会话初始化"步骤完成初始化（文件已就绪，无需解压），然后严格按"步骤 4"执行阶段 1 强制动作：',
-      'A. 调用 `emit_artifact` 推送 stage1 progress（artifactType=material_collection_progress, stage=stage1_material, isTerminal=false），data.requested_categories 必须包含 1-3 个开场白中提到的建议上传资料分类，把阶段胶囊从"等待"切到"进行中"。',
-      'B. 用一句话邀请我上传或描述业务资料，按 story-driven 风格开口，只提这 1-3 个建议分类，不要罗列长清单。',
+      '请读取上述工作区目录中的 manifest.json，按照 SKILL.md 的"会话初始化"步骤完成初始化（文件已就绪，无需解压），然后执行以下动作：',
+      'A. 静默调用 `emit_artifact` 推送 stage1 progress（artifactType=material_collection_progress, stage=stage1_material, isTerminal=false），data.requested_categories 必须包含 1-3 个开场白中提到的建议上传资料分类。这是内部系统调用，不要在回复中提及。',
+      'B. 只用一句自然的话邀请我上传或描述业务资料，按 story-driven 风格开口，点到这 1-3 个分类即可。',
+      '',
+      '重要约束：',
+      '- 不要输出任何系统状态确认语句（如"已确认工作区可用""执行阶段 1""强制动作"等内部步骤名称）。',
+      '- emit_artifact 已将分类推送到右侧面板，你不需要在文字回复中再逐项罗列分类名称或"最需要的三类资料是"这类总结句。',
+      '- 你的回复就是一句简短自然的开场邀请，其他什么都不要加。',
     ].join('\n')
   }
 
@@ -1383,6 +1394,7 @@ export default function HiringPage() {
     return null
   })()
 
+  // @ts-ignore
   return (
     <div className="hb-hiring-page">
       <HiringJourneyHeader
@@ -1432,7 +1444,7 @@ export default function HiringPage() {
             actionState={mergedActionState}
             instanceCreated={instanceCreated}
             createdId={createdId}
-            summaryItems={[{ label: '已上传文件', value: String(allFiles.length) }]}
+            summaryItems={[{ label: '已上传文件', value: String(uploadedFileCount) }]}
             artifactFileNames={artifactFileNames}
             hasArtifactArchive={Boolean(artifactArchive)}
             onContinue={handlePrototypeContinue}
@@ -1452,6 +1464,7 @@ export default function HiringPage() {
             sessionId={sessionIdRef.current ?? ''}
             wsStageOverrides={wsStageOverrides}
             requestedMaterialCategories={materialRequestedCategories}
+            uploadedConversationFiles={uploadedConversationFiles}
             onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}
             onGenerate={() => { void handleRequestPackaging() }}
             generated={instanceCreated}

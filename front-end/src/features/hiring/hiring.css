@@ -3609,12 +3609,24 @@ body.hb-body-hiring-prototype {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
 .hb-todo-material-head-copy {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
+}
+.hb-todo-material-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .hb-todo-material-head-copy strong {
   color: var(--ink-1);
@@ -3637,10 +3649,28 @@ body.hb-body-hiring-prototype {
   font-weight: 700;
   line-height: 1.2;
 }
+.hb-todo-material-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 0.16s ease, color 0.16s ease;
+}
+.hb-todo-material-chevron.is-collapsed {
+  transform: rotate(90deg);
+}
+.hb-todo-material-head:hover .hb-todo-material-chevron {
+  color: #64748b;
+}
 .hb-todo-category-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
+  border-top: 1px solid rgba(226, 232, 240, 0.92);
 }
 .hb-todo-category-item {
   display: grid;
@@ -3648,27 +3678,20 @@ body.hb-body-hiring-prototype {
   align-items: center;
   gap: 12px;
   min-width: 0;
-  padding: 12px 14px;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
-  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+  padding: 14px 2px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.92);
+  background: transparent;
+  transition: background 0.16s ease;
 }
 .hb-todo-category-item:hover {
-  transform: translateY(-1px);
-  border-color: rgba(74, 108, 247, 0.28);
-  box-shadow: 0 8px 18px rgba(99, 102, 241, 0.08);
+  background: rgba(248, 250, 252, 0.72);
 }
 .hb-todo-category-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  border-radius: 12px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  width: 24px;
+  height: 24px;
   color: #94a3b8;
 }
 .hb-todo-category-copy {
@@ -3676,7 +3699,7 @@ body.hb-body-hiring-prototype {
   flex: 1;
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 .hb-todo-category-copy strong,
 .hb-todo-category-copy span,
@@ -3934,6 +3957,7 @@ body.hb-body-hiring-prototype {
   .hb-todo-category-item {
     grid-template-columns: auto minmax(0, 1fr);
     align-items: flex-start;
+    padding: 12px 0;
   }
   .hb-todo-category-actions {
     grid-column: 2;
