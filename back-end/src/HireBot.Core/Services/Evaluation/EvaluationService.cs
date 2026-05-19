@@ -750,10 +750,21 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "employee not found");
         }
 
-        var currentStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
-        if (currentStatus != "interning_human")
+        var normalizedEmployeeId = employeeId.Trim();
+        var latestReportExists = await dbContext.EvaluationSessions
+            .AsNoTracking()
+            .Where(session =>
+                session.OwnerSubject == owner &&
+                session.EmployeeId == normalizedEmployeeId)
+            .Join(
+                dbContext.EvaluationReports.AsNoTracking(),
+                session => session.Id,
+                report => report.SessionEntityId,
+                (session, report) => report.Id)
+            .AnyAsync(cancellationToken);
+        if (!latestReportExists)
         {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, $"current status does not allow onboarding decision: {currentStatus}");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "current employee has no persisted evaluation report");
         }
 
         var decision = request.Decision.Trim().ToUpperInvariant();
@@ -1256,24 +1267,13 @@ internal sealed partial class EvaluationService(
 
         await UpdateSessionStatusAsync(sessionEntity, passed ? "passed" : "failed", null, cancellationToken);
 
-        // 仅在员工当前处于 ai_running 阶段时才更新生命周期状态。
-        // 若已推进到 pending_human_review / pending_onboarding 等后续阶段，
-        // 本次调用视为重复或延迟到达，只保存报告，不回退状态。
-        var isInAiRunningPhase = string.Equals(employee.EvalPhase?.Trim(), "ai_running", StringComparison.OrdinalIgnoreCase);
-        if (!isInAiRunningPhase)
-        {
-            logger.LogWarning(
-                "[Eval] SyncVerdict skipping lifecycle update: employee not in ai_running phase. employeeId={EmployeeId} currentEvalPhase={EvalPhase}",
-                employeeId, employee.EvalPhase);
-        }
-
-        var updated = isInAiRunningPhase
-            ? (passed ? BuildAiPassResult(employee, verdict.Summary) : BuildAiFailResult(employee, verdict.Summary))
-            : employee;
-        if (isInAiRunningPhase)
-        {
-            await SaveEmployeeToDbAsync(updated, cancellationToken);
-        }
+        logger.LogInformation(
+            "[Eval] SyncVerdict persisted only. employeeId={EmployeeId} sessionId={SessionId} passed={Passed} currentStatus={Status} currentEvalPhase={EvalPhase}",
+            employeeId,
+            request.SessionId,
+            passed,
+            employee.Status,
+            employee.EvalPhase);
 
         var resultDto = new EvaluationVerdictSyncResultDto(
             employeeId.Trim(),
@@ -1281,7 +1281,7 @@ internal sealed partial class EvaluationService(
             passed,
             verdict.OverallScore,
             verdict.Summary ?? "",
-            updated.Status ?? employee.Status ?? "interning_ai",
+            employee.Status ?? "interning_ai",
             new EvaluationReportSummaryDto(
                 reportResult.Data.ReportId,
                 reportResult.Data.Iteration,

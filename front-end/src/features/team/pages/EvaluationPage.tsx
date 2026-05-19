@@ -256,13 +256,26 @@ export default function EvaluationPage() {
   const testcaseReady = evaluation?.readiness?.testcasesReady ?? false
   const ontologyReady = evaluation?.readiness?.ontologyReady ?? false
 
-  // AI 评估已通过 或 已进入人工复核阶段，可跳转到人工评估页
+  // 只要已有评估结果，或已进入人工复核/待上岗阶段，就允许进入人工评估页。
+  // AI 结果只负责展示，不替用户做最终业务决策。
   const canNavigateToHumanEval =
-    reportSummary?.passed === true ||
+    reportSummary != null ||
     employee?.evalPhase === 'pending_human_review' ||
     employee?.evalPhase === 'pending_onboarding' ||
     employee?.evalPhase === 'pending_onboarding_force'
   const humanEvalPath = id ? `${instanceBasePath(location.pathname, id)}/human-evaluation` : null
+  const humanEvalBannerTone = reportSummary?.passed === false
+    ? 'border-[#fed7aa] bg-[#fff7ed]'
+    : 'border-[#bbf7d0] bg-[#f0fdf4]'
+  const humanEvalBannerTextTone = reportSummary?.passed === false ? 'text-[#c2410c]' : 'text-[#166534]'
+  const humanEvalBannerTitle = reportSummary == null
+    ? '已进入人工评估阶段'
+    : reportSummary.passed
+      ? 'AI 评估已通过'
+      : 'AI 评估未通过'
+  const humanEvalBannerDescription = reportSummary?.overallScore != null
+    ? `（综合评分 ${reportSummary.overallScore} 分），请进入人工评估决定后续流程`
+    : '，请进入人工评估决定后续流程'
 
   const workflowStages = useMemo<Array<{ key: string; title: string; detail: string; status: WorkflowStageStatus }>>(() => {
     const stepMap = new Map((workspaceStatus?.steps ?? []).map((step) => [step.step, step.status]))
@@ -1082,15 +1095,14 @@ export default function EvaluationPage() {
               </div>
             </div>
             <div className="flex flex-1 flex-col overflow-hidden bg-[#fafafa] px-5 py-4">
-              {/* AI 评估通过横幅：提示用户进入人工评估环节 */}
+              {/* 评估结果横幅：无论通过或未通过，都应允许人工评估接管决策 */}
               {canNavigateToHumanEval && humanEvalPath && (
-                <div className="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-[#bbf7d0] bg-[#f0fdf4] px-4 py-3 shadow-sm">
-                  <div className="flex items-center gap-2.5 text-sm font-medium text-[#166534]">
+                <div className={`mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-sm ${humanEvalBannerTone}`}>
+                  <div className={`flex items-center gap-2.5 text-sm font-medium ${humanEvalBannerTextTone}`}>
                     <CheckCircle2 size={16} className="shrink-0 text-[#16a34a]" />
                     <span>
-                      AI 评估已通过
-                      {reportSummary?.overallScore != null && `（综合评分 ${reportSummary.overallScore} 分）`}
-                      ，可进入人工评估环节
+                      {humanEvalBannerTitle}
+                      {humanEvalBannerDescription}
                     </span>
                   </div>
                   <button
@@ -1607,8 +1619,8 @@ export default function EvaluationPage() {
                             </div>
                           </div>
 
-                          {/* 通过时显示跳转按钮 */}
-                          {reportSummary.passed && humanEvalPath && (
+                          {/* 有评估结果就允许进入人工评估，由用户做最终决策 */}
+                          {humanEvalPath && (
                             <button
                               type="button"
                               className="hb-btn-primary w-full !py-2 !text-[12px]"
