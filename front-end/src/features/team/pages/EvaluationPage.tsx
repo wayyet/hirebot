@@ -14,15 +14,13 @@ import {
 } from 'lucide-react'
 import { useLocation, useParams } from 'react-router-dom'
 import { tokenService } from '@/infra/auth/token-service'
-import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
+import { GatewayWs } from '@/infra/sandbox/gateway-ws'
 import { fetchSandboxSessionMessages, type SandboxMessage } from '@/infra/sandbox/sandbox-api'
 import {
   api,
   type EmployeeDetail,
-  type EvaluationSandboxConnectionResult,
   type EvaluationSandboxConversationState,
   type EvaluationState,
-  type EvaluationVerdictPayload,
   type EvaluationWorkspaceStatus,
   type HiringConversationMessage,
 } from '@/infra/api'
@@ -164,8 +162,8 @@ export default function EvaluationPage() {
   const [sessionSwitching, setSessionSwitching] = useState(false)
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
   const [, setSandboxConversation] = useState<EvaluationSandboxConversationState | null>(null)
-  const [wsEvaluating, setWsEvaluating] = useState(false)
-  const [wsProgress, setWsProgress] = useState('')
+  const wsEvaluating = false
+  const wsProgress = ''
   const [resetting, setResetting] = useState(false)
   const [resetConfirm, setResetConfirm] = useState(false)
   const chatEndRef = useRef<HTMLDivElement | null>(null)
@@ -626,19 +624,10 @@ export default function EvaluationPage() {
     logEvaluationDebug('submit ai decision', { employeeId: id, decision })
 
     try {
-      // RUN: WebSocket direct evaluation flow
+      // RUN: 沙箱环境已在 START 阶段就绪，直接通过聊天 WS 发送评估触发消息，不再重复调用后端接口
       if (decision === 'RUN') {
-        await api.employeeRuntime.submitAiEvaluationDecision(id, { decision })
-        const connection = await api.employeeRuntime.getSandboxConnection(id)
-        logEvaluationDebug('sandbox connection ready', {
-          employeeId: id,
-          sessionId: connection.sessionId,
-          targetSandboxId: connection.targetSandboxId,
-          targetGatewayEndpoint: connection.targetGatewayEndpoint,
-          evaluatorSandboxId: connection.evaluatorSandboxId,
-          evaluatorGatewayEndpoint: connection.gatewayEndpoint,
-        })
-        await runWsEvaluation(connection)
+        setSubmitting(false)
+        void sendEvaluatorMessage('评估材料已就绪，请开始执行 AI 评估。')
         return
       }
 
@@ -670,175 +659,9 @@ export default function EvaluationPage() {
     }
   }
 
-  async function runWsEvaluation(connection: EvaluationSandboxConnectionResult) {
-    if (!id) return
-    setWsEvaluating(true)
-    setWsProgress('正在连接评估沙箱...')
-    setError('')
-
-    const wsUrl = connection.gatewayEndpoint.trim()
-    const token = connection.sandboxToken
-    const ws = new GatewayWs(wsUrl, token)
-    logEvaluationDebug('run ws evaluation start', {
-      employeeId: id,
-      sessionId: connection.sessionId,
-      targetSandboxId: connection.targetSandboxId,
-      targetGatewayEndpoint: connection.targetGatewayEndpoint,
-      evaluatorSandboxId: connection.evaluatorSandboxId,
-      evaluatorGatewayEndpoint: wsUrl,
-    })
-
-    try {
-      // Connect and wait for open
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('WebSocket connection timeout')), 30000)
-        ws.onStateChange = (state) => {
-          if (state === 'open') { clearTimeout(timeout); resolve() }
-          if (state === 'error' || state === 'closed') { clearTimeout(timeout); reject(new Error(`WebSocket ${state}`)) }
-        }
-        ws.connect()
-      })
-
-      setWsProgress('已连接，正在发送评估数据...')
-      logEvaluationDebug('ws connected', {
-        employeeId: id,
-        sessionId: connection.sessionId,
-        evaluatorGatewayEndpoint: wsUrl,
-      })
-
-      // Build evaluation message
-      const payloadText = connection.evaluationPayloadJson ??
-        JSON.stringify({
-          session_id: connection.sessionId,
-          target_hire_id: connection.targetHireId,
-          instruction: `You are the AI evaluation expert (ai-evaluation skill). The evaluation payload data was not pre-built by the backend.
-Please use your available tools (evaluation_score and evaluation_generate_report) to help complete the evaluation.
-If evaluation data (testcases, traces, ontology) is missing, respond with a clear message indicating what specific data is needed.
-Otherwise, use the available evaluation tools to score based on whatever data has been provided in this conversation.`
-        })
-
-      // Send and wait for verdict
-      const verdictPromise = new Promise<GatewayMessage>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Evaluation timeout (5 min)')), 300000)
-        let accumulated = ''
-        ws.onMessage = (msg) => {
-          if (msg.type === 'assistant_chunk' && typeof msg.text === 'string') {
-            accumulated += msg.text
-            setWsProgress(`正在评估... 已接收 ${accumulated.length} 字符`)
-          }
-          if (msg.type === 'assistant_done') {
-            clearTimeout(timeout)
-            resolve({ ...msg, text: accumulated || (msg.text as string) })
-          }
-          if (msg.type === 'error') {
-            clearTimeout(timeout)
-            reject(new Error((msg.text as string) || 'Evaluator sandbox returned an error'))
-          }
-        }
-      })
-
-      ws.send({
-        type: 'user_message',
-        text: payloadText,
-        messageId: `eval-${crypto.randomUUID ? crypto.randomUUID() : Date.now()}`,
-      })
-
-      const resultMsg = await verdictPromise
-      setWsProgress('评估完成，正在保存结果...')
-
-      // Parse verdict — use brace counting to handle { } inside string values
-      const rawText = (resultMsg.text as string) || ''
-
-      function extractJson(text: string): string | null {
-        // Try markdown code fence first: ```json ... ```
-        const fenceMatch = text.match(/```json\s*([\s\S]*?)```/)
-        if (fenceMatch) return fenceMatch[1].trim()
-
-        // Find the first { and count braces to find the matching }
-        const start = text.indexOf('{')
-        if (start < 0) return null
-        let depth = 0
-        let inString = false
-        let escape = false
-        for (let i = start; i < text.length; i++) {
-          const ch = text[i]
-          if (escape) { escape = false; continue }
-          if (ch === '\\') { escape = true; continue }
-          if (ch === '"') { inString = !inString; continue }
-          if (inString) continue
-          if (ch === '{') { depth++ }
-          else if (ch === '}') { depth--; if (depth === 0) return text.substring(start, i + 1) }
-        }
-        return null
-      }
-
-      let verdict: EvaluationVerdictPayload
-      const json = extractJson(rawText)
-      if (json) {
-        try {
-          const parsed = JSON.parse(json)
-          verdict = {
-            verdict: parsed.verdict || 'FAIL',
-            overallScore: parsed.overall_score ?? 0,
-            summary: parsed.summary || '',
-            dimensionScores: (parsed.dimension_scores || []).map((d: Record<string, unknown>) => ({
-              dimension: (d.dimension as string) || '',
-              score: (d.score as number) || 0,
-              comment: (d.comment as string) || '',
-              evidenceRefs: (d.evidence_refs as string[]) || [],
-            })),
-          }
-        } catch {
-          verdict = {
-            verdict: 'FAIL',
-            overallScore: 0,
-            summary: `JSON parse error: ${rawText.substring(0, 200)}`,
-            dimensionScores: [],
-          }
-        }
-      } else {
-        verdict = {
-          verdict: 'FAIL',
-          overallScore: 0,
-          summary: `Failed to parse verdict: ${rawText.substring(0, 200)}`,
-          dimensionScores: [],
-        }
-      }
-
-      // Sync verdict back to backend
-      const syncResult = await api.employeeRuntime.syncVerdict(id, {
-        sessionId: connection.sessionId,
-        verdict,
-      })
-      logEvaluationDebug('verdict synced', {
-        employeeId: id,
-        sessionId: connection.sessionId,
-        verdict: verdict.verdict,
-        overallScore: verdict.overallScore,
-      })
-      setEmployee((prev) => prev ? { ...prev, status: syncResult.status as EmployeeDetail['status'] } : prev)
-      setError('')
-
-      const evaluationState = await api.employeeRuntime.getEvaluationState(id)
-      setEvaluation(evaluationState)
-    } catch (wsError: unknown) {
-      logEvaluationDebug('ws evaluation failed', wsError)
-      setError(wsError instanceof Error ? wsError.message : 'WebSocket evaluation failed')
-    } finally {
-      ws.disconnect()
-      logEvaluationDebug('ws disconnected', {
-        employeeId: id,
-        sessionId: connection.sessionId,
-      })
-      setWsEvaluating(false)
-      setWsProgress('')
-      setSubmitting(false)
-    }
-  }
-
-  async function sendEvaluatorMessage() {
+  async function sendEvaluatorMessage(overrideContent?: string) {
     if (!id || chatSending) return
-    const content = chatInput.trim()
+    const content = (overrideContent !== undefined ? overrideContent : chatInput).trim()
     if (!content) return
 
     const optimistic: HiringConversationMessage = {
@@ -848,7 +671,9 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
       createdAt: new Date().toISOString(),
     }
 
-    setChatInput('')
+    if (overrideContent === undefined) {
+      setChatInput('')
+    }
     setChatSending(true)
     setChatError('')
     setChatMessages((prev) => [...prev, optimistic])
