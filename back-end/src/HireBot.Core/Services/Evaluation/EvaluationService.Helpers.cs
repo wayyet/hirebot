@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Evaluation;
@@ -794,6 +795,34 @@ internal sealed partial class EvaluationService
         string Status,
         string? Detail);
 
+    /// <summary>
+    /// /workspace/runtime/evaluation-context.json 的内容对应模型。
+    /// evaluate.py 通过 --runtime-context 读取此文件，结构必须与 runtime_context.example.json 一致。
+    /// </summary>
+    private sealed record EvaluationRuntimeContext(
+        [property: JsonPropertyName("session")] EvaluationRuntimeContextSession Session,
+        [property: JsonPropertyName("materials")] EvaluationRuntimeContextMaterials Materials,
+        [property: JsonPropertyName("target_sandbox")] EvaluationRuntimeContextTargetSandbox TargetSandbox,
+        [property: JsonPropertyName("execution")] EvaluationRuntimeContextExecution Execution);
+
+    private sealed record EvaluationRuntimeContextSession(
+        [property: JsonPropertyName("session_id")] string SessionId,
+        [property: JsonPropertyName("employee_id")] string EmployeeId,
+        [property: JsonPropertyName("employee_name")] string EmployeeName,
+        [property: JsonPropertyName("iteration")] int Iteration);
+
+    private sealed record EvaluationRuntimeContextMaterials(
+        [property: JsonPropertyName("workspace_root")] string WorkspaceRoot);
+
+    private sealed record EvaluationRuntimeContextTargetSandbox(
+        [property: JsonPropertyName("sandbox_id")] string SandboxId,
+        [property: JsonPropertyName("gateway_endpoint")] string GatewayEndpoint,
+        [property: JsonPropertyName("http_base_url")] string HttpBaseUrl);
+
+    private sealed record EvaluationRuntimeContextExecution(
+        [property: JsonPropertyName("timeout_seconds")] int TimeoutSeconds,
+        [property: JsonPropertyName("http_supplement")] bool HttpSupplement);
+
     private sealed record TargetArtifactWarmupResult(
         string WorkspacePath,
         string SourceArtifactPath);
@@ -816,38 +845,41 @@ internal sealed partial class EvaluationService
         string targetGatewayEndpoint,
         string materialsWorkspaceDir)
     {
-        // 将 ws:// / wss:// 网关地址转换为 http:// / https:// 用于 HTTP 补充请求
-        var httpBaseUrl = targetGatewayEndpoint
-            .Replace("wss://", "https://", StringComparison.OrdinalIgnoreCase)
-            .Replace("ws://", "http://", StringComparison.OrdinalIgnoreCase);
-
-        var context = new
-        {
-            session = new
-            {
-                session_id = sessionEntity.SessionId,
-                employee_id = employee.EmployeeId,
-                employee_name = employee.Nickname,
-                iteration = sessionEntity.Iteration
-            },
-            materials = new
-            {
-                workspace_root = "/workspace"
-            },
-            target_sandbox = new
-            {
-                sandbox_id = ctx.TargetSandboxId,
-                gateway_endpoint = targetGatewayEndpoint,
-                http_base_url = httpBaseUrl
-            },
-            execution = new
-            {
-                timeout_seconds = 120,
-                http_supplement = true
-            }
-        };
+        // Evaluation:GatewayUseTls 控制裸地址（无 scheme）的沙箱端点是否用 HTTPS/WSS。
+        // 已含显式 scheme 的端点（ws://、wss://、http://、https://）不受此配置影响。
+        var useTls = configuration.GetValue("Evaluation:GatewayUseTls", false);
+        var context = new EvaluationRuntimeContext(
+            Session: new(
+                SessionId: sessionEntity.SessionId,
+                EmployeeId: employee.EmployeeId,
+                EmployeeName: employee.Nickname,
+                Iteration: sessionEntity.Iteration),
+            Materials: new(WorkspaceRoot: "/workspace"),
+            TargetSandbox: new(
+                SandboxId: ctx.TargetSandboxId,
+                GatewayEndpoint: targetGatewayEndpoint,
+                HttpBaseUrl: NormalizeGatewayHttpBaseUrl(targetGatewayEndpoint, useTls)),
+            Execution: new(TimeoutSeconds: 120, HttpSupplement: true));
 
         return JsonSerializer.Serialize(context, JsonOptions);
+    }
+
+    /// <summary>
+    /// 将 Gateway 节点地址规范化为 HTTP/HTTPS 基础 URL，供 http_client.py 使用。
+    /// 支持裸地址、ws:// / wss://、http:// / https:// 四种输入格式。
+    /// <paramref name="useTls"/> 仅对裸地址（无 scheme）生效，已含 scheme 的端点保持原样。
+    /// </summary>
+    private static string NormalizeGatewayHttpBaseUrl(string endpoint, bool useTls)
+    {
+        var e = endpoint.Trim().TrimStart('/');
+        if (e.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+            return "https://" + e["wss://".Length..];
+        if (e.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+            return "http://" + e["ws://".Length..];
+        if (e.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || e.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            return e;
+        // 裸地址：由配置决定是否使用 TLS
+        return $"{(useTls ? "https" : "http")}://{e}";
     }
 
     /// <summary>

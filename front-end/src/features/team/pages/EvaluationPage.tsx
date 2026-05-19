@@ -544,21 +544,19 @@ export default function EvaluationPage() {
       setChatError('')
 
       try {
-        let endpoint = workspaceStatus?.evaluatorGatewayEndpoint?.trim() ?? gatewayEndpointRef.current ?? ''
-        let sessionId = workspaceStatus?.sessionId?.trim() ?? sessionIdRef.current ?? ''
+        // 调用 sandbox-connection：触发后端 session 创建、materials 上传、evaluation-context.json 上传，
+        // 并拿到 evaluator 沙箱的 gateway endpoint 和 eval session id。
+        const connection = await api.employeeRuntime.getSandboxConnection(id)
+        const endpoint = connection.gatewayEndpoint.trim()
+        // 把 eval session id 写回 workspaceStatus（右侧调试面板 Session 字段显示用）
+        setWorkspaceStatus((prev) => (prev ? { ...prev, sessionId: connection.sessionId } : prev))
 
-        if (!endpoint) {
-          const latestStatus = await api.employeeRuntime.getEvaluationWorkspaceStatus(id)
-          setWorkspaceStatus(latestStatus)
-          endpoint = latestStatus.evaluatorGatewayEndpoint?.trim() ?? ''
-          sessionId = sessionId || latestStatus.sessionId?.trim() || ''
-        }
-
+        // WS 会话 id 由沙箱侧分配，与 eval session id 不同；优先复用已有值，否则向沙箱查询
+        let sessionId = sessionIdRef.current ?? ''
         if (!sessionId) {
           const conversation = await api.employeeRuntime.getEvaluationSandboxConversation(id)
           setSandboxConversation(conversation)
           sessionId = conversation.sessionId?.trim() ?? ''
-          setWorkspaceStatus((prev) => prev ? { ...prev, sessionId } : prev)
         }
 
         if (!endpoint || !sessionId) {

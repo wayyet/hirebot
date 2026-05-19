@@ -1114,7 +1114,6 @@ internal sealed partial class EvaluationService(
             owner,
             employee,
             ctx,
-            sessionEntity,
             cancellationToken);
         if (!evaluatorMaterialsResult.Success || string.IsNullOrWhiteSpace(evaluatorMaterialsResult.Data))
         {
@@ -1124,8 +1123,7 @@ internal sealed partial class EvaluationService(
         }
 
         // 将 evaluation-context.json 直接上传到 evaluator workspace/runtime/ 目录，
-        // evaluator skill 可通过固定路径 workspace/runtime/evaluation-context.json 读取，
-        // 不再经过媒体缓存中转，路径更稳定可预测。
+        // evaluator skill 可通过固定路径 workspace/runtime/evaluation-context.json 读取。
         var runtimeContextJson = BuildRuntimeContextJson(
             employee,
             ctx,
@@ -1151,7 +1149,6 @@ internal sealed partial class EvaluationService(
         string runtimeContextPath;
         if (runtimeContextUploadResult.Success && runtimeContextUploadResult.Data is not null)
         {
-            // WorkspaceDir 为上传后文件所在的 workspace 相对目录，拼接文件名得到完整路径
             runtimeContextPath = $"{runtimeContextUploadResult.Data.WorkspaceDir}/evaluation-context.json";
         }
         else

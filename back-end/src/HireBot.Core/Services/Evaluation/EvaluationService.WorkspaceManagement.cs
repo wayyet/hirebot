@@ -966,7 +966,6 @@ internal sealed partial class EvaluationService
         string owner,
         EmployeeDetailDto employee,
         EvaluationWorkspaceContext ctx,
-        EvaluationSessionEntity sessionEntity,
         CancellationToken cancellationToken)
     {
         var testcaseSources = await LoadTestcaseSourcesAsync(ctx, employee, cancellationToken);
