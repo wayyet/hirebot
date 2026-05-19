@@ -575,6 +575,10 @@ export const employeeRuntimeApi = {
     )
   },
 
+  resetEvaluationData(employeeId: string) {
+    return httpClient.delete<object>(`/api/v1/employees/${employeeId}/evaluation/data`)
+  },
+
   async quickCreateFromTemplate(file: File): Promise<EmployeeDetail> {
     const path = '/api/v1/employees/quick-create'
     const locationBase =

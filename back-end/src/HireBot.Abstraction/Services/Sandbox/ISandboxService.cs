@@ -20,6 +20,6 @@ public interface ISandboxService
     Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(SandboxSessionDetailRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<SandboxWorkspaceUploadResultDto>> UploadWorkspaceFileAsync(SandboxWorkspaceUploadRequestDto request, CancellationToken cancellationToken = default);
-    Task<ApiResponse<SkillPackageUploadResultDto>> UploadSkillPackageAsync(SkillPackageUploadRequestDto request, CancellationToken cancellationToken = default);
+    Task<ApiResponse<DigitalEmployeeTemplateUploadResultDto>> UploadDigitalEmployeeTemplateAsync(DigitalEmployeeTemplateUploadRequestDto request, CancellationToken cancellationToken = default);
     Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default);
 }

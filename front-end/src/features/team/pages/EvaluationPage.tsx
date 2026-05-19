@@ -166,6 +166,8 @@ export default function EvaluationPage() {
   const [, setSandboxConversation] = useState<EvaluationSandboxConversationState | null>(null)
   const [wsEvaluating, setWsEvaluating] = useState(false)
   const [wsProgress, setWsProgress] = useState('')
+  const [resetting, setResetting] = useState(false)
+  const [resetConfirm, setResetConfirm] = useState(false)
   const chatEndRef = useRef<HTMLDivElement | null>(null)
   const wsRef = useRef<GatewayWs | null>(null)
   const gatewayEndpointRef = useRef<string | null>(null)
@@ -592,6 +594,31 @@ export default function EvaluationPage() {
     return ensureChatReadyPromiseRef.current
   }
 
+  async function handleResetEvaluationData() {
+    if (!id) return
+    if (!resetConfirm) {
+      setResetConfirm(true)
+      // 3 秒后自动取消二次确认状态
+      setTimeout(() => setResetConfirm(false), 3000)
+      return
+    }
+    setResetConfirm(false)
+    setResetting(true)
+    setError('')
+    try {
+      await api.employeeRuntime.resetEvaluationData(id)
+      setWorkspaceStatus(null)
+      setWorkspacePolling(false)
+      setChatMessages([])
+      setEvaluation(null)
+      await loadData()
+    } catch (requestError: unknown) {
+      setError(requestError instanceof Error ? requestError.message : '清理评估数据失败')
+    } finally {
+      setResetting(false)
+    }
+  }
+
   async function submitAiDecision(decision: 'START' | 'RUN') {
     if (!id) return
     setSubmitting(true)
@@ -1003,6 +1030,16 @@ Otherwise, use the available evaluation tools to score based on whatever data ha
               >
                 {wsEvaluating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
                 {wsEvaluating ? (wsProgress || 'WS 评估中...') : '执行评估'}
+              </button>
+              <button
+                type="button"
+                disabled={resetting || submitting}
+                className={`!px-2.5 !py-1 !text-[11px] ${resetConfirm ? 'hb-btn-danger' : 'hb-btn-ghost'}`}
+                onClick={() => void handleResetEvaluationData()}
+                title="清理当前评估数据（工作区状态、会话记录、报告），便于重新走评估流程"
+              >
+                {resetting ? <Loader2 size={12} className="animate-spin" /> : <AlertCircle size={12} />}
+                {resetting ? '清理中...' : resetConfirm ? '确认清理？' : '清理评估数据'}
               </button>
               <button
                 type="button"

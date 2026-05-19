@@ -39,18 +39,6 @@ internal sealed partial class EvaluationService(
     ITemplatePackageProvider templatePackageProvider,
     FileSystemTemplatePackageProvider fileSystemTemplatePackageProvider) : IEvaluationService
 {
-    private static readonly string[] EvaluationSkillNames =
-    [
-        "evaluation_orchestrator",
-        "scenario_parser",
-        "test_executor",
-        "evaluator",
-        "training_advisor",
-        "report_generator",
-        "live_evaluation_coordinator",
-        "live_evaluator"
-    ];
-
     private static readonly Lazy<IReadOnlyDictionary<string, FixtureTemplateBinding>> FixtureTemplateBindings =
         new(LoadFixtureTemplateBindings);
 
@@ -198,18 +186,72 @@ internal sealed partial class EvaluationService(
 
     private static readonly JsonSerializerOptions RuntimeSnapshotJsonOptions = new(JsonSerializerDefaults.Web);
 
+    private sealed record EvaluationAccessContext(
+        EmployeeDetailDto Employee,
+        string RequestOwner,
+        string PersistenceScope);
+
     /// <summary>
     /// 从 DB 按 owner + employeeId 查询员工快照（替代 store.GetAsync）。
     /// </summary>
     private async Task<EmployeeDetailDto?> GetEmployeeFromDbAsync(string owner, string employeeId, CancellationToken cancellationToken)
     {
+        var normalizedScope = owner.Trim();
         var instance = await dbContext.Instances
             .AsNoTracking()
-            .FirstOrDefaultAsync(i => i.OwnerUserId == owner && i.InstanceId == employeeId, cancellationToken);
+            .FirstOrDefaultAsync(i =>
+                i.InstanceId == employeeId &&
+                (i.OwnerUserId == normalizedScope ||
+                 (i.InstanceType == "department" && i.TenantId == normalizedScope)),
+                cancellationToken);
         if (instance is null || string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson))
             return null;
         try { return JsonSerializer.Deserialize<EmployeeDetailDto>(instance.RuntimeSnapshotJson, RuntimeSnapshotJsonOptions); }
         catch { return null; }
+    }
+
+    private async Task<EvaluationAccessContext?> ResolveEvaluationAccessContextAsync(
+        string employeeId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedEmployeeId = employeeId.Trim();
+        var requestOwner = requestContextService.ResolveOwnerSubject();
+        var employee = await GetEmployeeFromDbAsync(requestOwner, normalizedEmployeeId, cancellationToken);
+        if (employee is not null)
+        {
+            return new EvaluationAccessContext(
+                employee,
+                requestOwner,
+                ResolveEvaluationPersistenceScope(employee, requestOwner));
+        }
+
+        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        if (string.IsNullOrWhiteSpace(tenantId))
+        {
+            return null;
+        }
+
+        employee = await GetEmployeeFromDbAsync(tenantId.Trim(), normalizedEmployeeId, cancellationToken);
+        if (employee is null || !string.Equals(employee.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return new EvaluationAccessContext(
+            employee,
+            requestOwner,
+            ResolveEvaluationPersistenceScope(employee, requestOwner));
+    }
+
+    private string ResolveEvaluationPersistenceScope(EmployeeDetailDto employee, string requestOwner)
+    {
+        if (!string.Equals(employee.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
+        {
+            return requestOwner;
+        }
+
+        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        return string.IsNullOrWhiteSpace(tenantId) ? requestOwner : tenantId.Trim();
     }
 
     /// <summary>
@@ -233,14 +275,14 @@ internal sealed partial class EvaluationService(
         if (string.IsNullOrWhiteSpace(employeeId))
             return ApiResponse<EvaluationWorkspaceStatusDto>.ErrorResponse(400, "employeeId cannot be empty");
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
             return ApiResponse<EvaluationWorkspaceStatusDto>.ErrorResponse(404, "employee not found");
 
-        var workspaceKey = BuildWorkspaceKey(owner, employee.EmployeeId);
+        var employee = accessContext.Employee;
+        var scope = accessContext.PersistenceScope;
 
-        var ctx = await LoadWorkspaceContextAsync(owner, employee.EmployeeId, cancellationToken);
+        var ctx = await LoadWorkspaceContextAsync(scope, employee.EmployeeId, cancellationToken);
         if (ctx is null || ctx.StepStates.Count == 0)
         {
             return ApiResponse<EvaluationWorkspaceStatusDto>.SuccessResponse(
@@ -277,11 +319,12 @@ internal sealed partial class EvaluationService(
             .OrderBy(item => item.Key switch
             {
                 "target_sandbox" => 0,
-                "evaluator_sandbox" => 1,
-                "upload_skill" => 2,
-                "upload_employee_template" => 3,
-                "upload_artifacts" => 4,
-                "materials" => 5,
+                "upload_target_template" => 1,
+                "evaluator_sandbox" => 2,
+                "upload_skill" => 3,
+                "upload_employee_template" => 4,
+                "upload_artifacts" => 5,
+                "materials" => 6,
                 _ => 99
             })
             .Select(item => new EvaluationWorkspaceStepDto(
@@ -320,13 +363,15 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationStateDto>.ErrorResponse(400, "employeeId cannot be empty");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
         var normalizedEmployeeId = employeeId.Trim();
-        var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(normalizedEmployeeId, cancellationToken);
+        if (accessContext is null)
         {
             return ApiResponse<EvaluationStateDto>.ErrorResponse(404, "employee not found");
         }
+
+        var employee = accessContext.Employee;
+        var scope = accessContext.PersistenceScope;
 
         var normalizedEmployeeStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
         var normalizedEvalPhase = employee.EvalPhase?.Trim().ToLowerInvariant();
@@ -357,7 +402,7 @@ internal sealed partial class EvaluationService(
         var latestSession = await dbContext.EvaluationSessions
             .AsNoTracking()
             .Where(item =>
-                item.OwnerSubject == owner &&
+                item.OwnerSubject == scope &&
                 item.EmployeeId == normalizedEmployeeId)
             .OrderByDescending(item => item.UpdatedAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
@@ -466,19 +511,20 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(400, "employeeId cannot be empty");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(404, "employee not found");
         }
+
+        var owner = accessContext.RequestOwner;
+        var scope = accessContext.PersistenceScope;
+        var employee = accessContext.Employee;
 
         var workspaceResult = await EnsureWorkspaceReadyAsync(
             owner,
             employee,
             null,
-            null,
-            allowTargetHireCreation: true,
             forceTargetHireRecreate: false,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)
@@ -526,9 +572,9 @@ internal sealed partial class EvaluationService(
         }
 
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
-        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, refreshedWorkspace, cancellationToken);
+        await SaveWorkspaceContextAsync(scope, employee.EmployeeId, refreshedWorkspace, cancellationToken);
 
-        var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
+        var questionCards = await LoadQuestionCardsForLatestSessionAsync(scope, employee.EmployeeId, cancellationToken);
 
         return ApiResponse<EvaluationSandboxConversationStateDto>.SuccessResponse(
             BuildSandboxConversationState(employee, refreshedWorkspace, timelineResult.Data, questionCards));
@@ -544,19 +590,20 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(400, "employeeId and content are required");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
         {
             return ApiResponse<EvaluationSandboxConversationStateDto>.ErrorResponse(404, "employee not found");
         }
+
+        var owner = accessContext.RequestOwner;
+        var scope = accessContext.PersistenceScope;
+        var employee = accessContext.Employee;
 
         var workspaceResult = await EnsureWorkspaceReadyAsync(
             owner,
             employee,
             request.SkillRootPath,
-            null,
-            allowTargetHireCreation: true,
             forceTargetHireRecreate: false,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)
@@ -612,212 +659,70 @@ internal sealed partial class EvaluationService(
         }
 
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
-        await SaveWorkspaceContextAsync(owner, employee.EmployeeId, refreshedWorkspace, cancellationToken);
+        await SaveWorkspaceContextAsync(scope, employee.EmployeeId, refreshedWorkspace, cancellationToken);
 
-        var questionCards = await LoadQuestionCardsForLatestSessionAsync(owner, employee.EmployeeId, cancellationToken);
+        var questionCards = await LoadQuestionCardsForLatestSessionAsync(scope, employee.EmployeeId, cancellationToken);
 
         return ApiResponse<EvaluationSandboxConversationStateDto>.SuccessResponse(
             BuildSandboxConversationState(employee, refreshedWorkspace, timelineResult.Data, questionCards),
             "evaluation sandbox replied");
     }
 
-    public async Task<ApiResponse<EmployeeDetailDto>> SubmitAiEvaluationDecisionAsync(
+    public async Task<ApiResponse<EmployeeDetailDto>> StartAiEvaluationAsync(
         string employeeId,
-        AiEvaluationDecisionRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(employeeId) || request is null || string.IsNullOrWhiteSpace(request.Decision))
+        if (string.IsNullOrWhiteSpace(employeeId))
         {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId and decision are required");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId is required");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "employee not found");
         }
 
-        var decision = request.Decision.Trim().ToUpperInvariant();
+        var owner = accessContext.RequestOwner;
+        var scope = accessContext.PersistenceScope;
+        var employee = accessContext.Employee;
+
         var currentStatus = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired";
         var isPrivateBranch = string.Equals(employee.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase);
 
-        EmployeeDetailDto? updated = null;
-        var message = "AI evaluation decision submitted";
-        logger.LogInformation("[Eval] AiDecision employeeId={EmployeeId} decision={Decision} status={Status} phase={Phase}",
-            employee.EmployeeId, decision, currentStatus, employee.EvalPhase);
-
-        switch (decision)
+        // 私有分支始终保持 live，只通过 EvalPhase 表示评估阶段；
+        // 普通/雇佣员工只能从 hired/failed/interning_ai 发起 START。
+        if (currentStatus is not ("hired" or "failed" or "interning_ai") &&
+            !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
         {
-            case "START":
-            {
-                // 私有分支评估是特殊流程：私有分支实例始终保持 live，只通过 EvalPhase 表示评估阶段。
-                // 所以这里允许 private_branch + live 发起 START。不要把这个放行扩展到普通员工，
-                // 普通/雇佣员工仍然只能从 hired/failed/interning_ai 进入 AI 评估。
-                if (currentStatus is not ("hired" or "failed" or "interning_ai") &&
-                    !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, $"current status does not allow START: {currentStatus}");
-                }
-
-                var startSkillRootPath = ExtractPathFromComment(request.Comment);
-                var startWorkspaceResult = await EnsureWorkspaceReadyAsync(
-                    owner,
-                    employee,
-                    startSkillRootPath,
-                    request.Comment,
-                    allowTargetHireCreation: true,
-                    forceTargetHireRecreate: true,
-                    cancellationToken);
-                if (!startWorkspaceResult.Success || startWorkspaceResult.Data is null)
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(startWorkspaceResult.Code, startWorkspaceResult.Message);
-                }
-
-                var startWorkspaceContext = startWorkspaceResult.Data;
-                await StartNewEvaluationSessionAsync(owner, employee.EmployeeId, startWorkspaceContext, cancellationToken);
-                var startReadiness = await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
-                var startMaterialsReady = startReadiness.TestcasesReady && startReadiness.OntologyReady;
-
-                var startCapabilities = MergeEvaluationCapabilities(employee.Capabilities, EvaluationSkillNames);
-                var startConfigured = startCapabilities.Count > 0 && startCapabilities.All(item => item.Ready);
-
-                updated = employee with
-                {
-                    // 私有分支不改变 status，保持 live；普通/雇佣评估仍进入 interning_ai。
-                    Status = isPrivateBranch ? "live" : "interning_ai",
-                    LifecycleStatus = isPrivateBranch ? employee.LifecycleStatus : "AI evaluation",
-                    EvalPhase = "ai_running",
-                    StageSummary = startMaterialsReady
-                        ? "Evaluation skill loaded and materials are ready for auto-run."
-                        : "Evaluation skill loaded but materials are incomplete. Waiting for testcase/ontology supplements.",
-                    PrimarySignal = startMaterialsReady
-                        ? "Evaluation environment is ready"
-                        : "Testcase or ontology is missing, open supplement conversation to upload materials",
-                    SignalLevel = startMaterialsReady ? "ok" : "warn",
-                    PendingActions = startMaterialsReady
-                        ? ["Run evaluation scenarios in evaluator sandbox"]
-                        : ["Open supplement conversation and upload missing testcase/ontology materials"],
-                    Capabilities = startCapabilities,
-                    IsConfigured = startConfigured
-                };
-                message = "AI evaluation started, workspace and materials primed";
-                logger.LogInformation("[Eval] START completed employeeId={EmployeeId} materialsReady={Ready}",
-                    employee.EmployeeId, startMaterialsReady);
-                break;
-            }
-
-            case "LOAD_SKILL":
-            {
-                // 同 START：private_branch 的状态机只改 EvalPhase，不改 live 状态；
-                // 非 private_branch 不允许绕过 interning_ai 状态。
-                if (currentStatus != "interning_ai" &&
-                    !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "LOAD_SKILL is only allowed in interning_ai status or live private_branch status");
-                }
-
-                var skillRootPath = ExtractPathFromComment(request.Comment);
-                var workspaceResult = await EnsureWorkspaceReadyAsync(
-                    owner,
-                    employee,
-                    skillRootPath,
-                    request.Comment,
-                    allowTargetHireCreation: true,
-                    forceTargetHireRecreate: true,
-                    cancellationToken);
-                if (!workspaceResult.Success || workspaceResult.Data is null)
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(workspaceResult.Code, workspaceResult.Message);
-                }
-
-                var workspaceContext = workspaceResult.Data;
-                await StartNewEvaluationSessionAsync(owner, employee.EmployeeId, workspaceContext, cancellationToken);
-                var readiness = await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
-                var materialsReady = readiness.TestcasesReady && readiness.OntologyReady;
-
-                var capabilities = MergeEvaluationCapabilities(employee.Capabilities, EvaluationSkillNames);
-                var configured = capabilities.Count > 0 && capabilities.All(item => item.Ready);
-
-                updated = employee with
-                {
-                    // 私有分支继续保持 live，避免破坏“原地定制、对话不中断”的产品语义。
-                    Status = isPrivateBranch ? "live" : "interning_ai",
-                    LifecycleStatus = isPrivateBranch ? employee.LifecycleStatus : "AI evaluation",
-                    EvalPhase = "ai_running",
-                    StageSummary = materialsReady
-                        ? "Evaluation skill loaded and materials are ready for auto-run."
-                        : "Evaluation skill loaded but materials are incomplete. Waiting for testcase/ontology supplements.",
-                    PrimarySignal = materialsReady
-                        ? "Evaluation environment is ready"
-                        : "Testcase or ontology is missing, open supplement conversation to upload materials",
-                    SignalLevel = materialsReady ? "ok" : "warn",
-                    PendingActions = materialsReady
-                        ? ["Run evaluation scenarios in evaluator sandbox"]
-                        : ["Open supplement conversation and upload missing testcase/ontology materials"],
-                    Capabilities = capabilities,
-                    IsConfigured = configured
-                };
-                message = "Evaluation skill loaded and evaluator workspace is ready";
-                logger.LogInformation("[Eval] LOAD_SKILL completed employeeId={EmployeeId} materialsReady={Ready}",
-                    employee.EmployeeId, materialsReady);
-                break;
-            }
-
-            case "RUN":
-            {
-                // 私有分支 RUN 也允许 live 状态执行；普通/雇佣评估仍必须处于 interning_ai。
-                if (currentStatus != "interning_ai" &&
-                    !(isPrivateBranch && string.Equals(currentStatus, "live", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "RUN is only allowed in interning_ai status or live private_branch status");
-                }
-
-                // Ensure workspace is ready (sandboxes + skill upload)
-                var workspaceResult = await EnsureWorkspaceReadyAsync(
-                    owner,
-                    employee,
-                    null,
-                    request.Comment,
-                    allowTargetHireCreation: true,
-                    forceTargetHireRecreate: true,
-                    cancellationToken);
-                if (!workspaceResult.Success || workspaceResult.Data is null)
-                {
-                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(workspaceResult.Code, workspaceResult.Message);
-                }
-
-                // Prime readiness materials (ensure testcases/ontology are loaded in target sandbox)
-                await PrimeReadinessMaterialsAsync(owner, employee.EmployeeId, cancellationToken);
-
-                // Frontend will use WS to connect to evaluator sandbox for scoring.
-                // Scoring result comes back via sync-verdict endpoint.
-                updated = employee with
-                {
-                    EvalPhase = "ai_running",
-                    StageSummary = "Evaluation workspace ready. Waiting for web client to connect via WebSocket and trigger live_evaluator runtime-context flow.",
-                    PrimarySignal = "Awaiting frontend WebSocket bootstrap",
-                    SignalLevel = "ok",
-                    PendingActions = ["Connect to evaluator sandbox via WebSocket and send runtime-context bootstrap payload"]
-                };
-                message = "AI evaluation workspace ready for WebSocket live evaluation";
-                logger.LogInformation("[Eval] RUN workspace ready employeeId={EmployeeId} awaiting WS evaluation",
-                    employee.EmployeeId);
-                break;
-            }
-
-            case "PASS":
-            case "FAIL":
-                return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "manual PASS/FAIL is disabled, use RUN to get sandbox verdict");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, $"current status does not allow START: {currentStatus}");
         }
 
-        if (updated is null)
+        // 启动两个评估沙箱并上传所需文件；文件传好后沙箱内部自行处理评估逻辑。
+        var workspaceResult = await EnsureWorkspaceReadyAsync(
+            owner,
+            employee,
+            null,
+            forceTargetHireRecreate: true,
+            cancellationToken);
+        if (!workspaceResult.Success || workspaceResult.Data is null)
         {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "decision only supports START, LOAD_SKILL, RUN, PASS, FAIL");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(workspaceResult.Code, workspaceResult.Message);
         }
 
+        await StartNewEvaluationSessionAsync(scope, employee.EmployeeId, workspaceResult.Data, cancellationToken);
+
+        var updated = employee with
+        {
+            // 私有分支不改变 status，保持 live；普通/雇佣评估进入 interning_ai。
+            Status = isPrivateBranch ? "live" : "interning_ai",
+            LifecycleStatus = isPrivateBranch ? employee.LifecycleStatus : "AI evaluation",
+            EvalPhase = "ai_running",
+        };
+
+        logger.LogInformation("[Eval] START completed employeeId={EmployeeId}", employee.EmployeeId);
         await SaveEmployeeToDbAsync(updated, cancellationToken);
-        return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, message);
+        return ApiResponse<EmployeeDetailDto>.SuccessResponse(updated, "Evaluation workspace ready");
     }
 
     public async Task<ApiResponse<EmployeeDetailDto>> SubmitOnboardingDecisionAsync(
@@ -909,8 +814,6 @@ internal sealed partial class EvaluationService(
             owner,
             employee,
             null,
-            null,
-            allowTargetHireCreation: true,
             forceTargetHireRecreate: false,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)
@@ -999,8 +902,6 @@ internal sealed partial class EvaluationService(
             owner,
             employee,
             null,
-            null,
-            allowTargetHireCreation: true,
             forceTargetHireRecreate: false,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)
@@ -1168,14 +1069,16 @@ internal sealed partial class EvaluationService(
         if (string.IsNullOrWhiteSpace(employeeId))
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(400, "employeeId cannot be empty");
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(404, "employee not found");
 
+        var owner = accessContext.RequestOwner;
+        var scope = accessContext.PersistenceScope;
+        var employee = accessContext.Employee;
+
         var workspaceResult = await EnsureWorkspaceReadyAsync(
-            owner, employee, null, null,
-            allowTargetHireCreation: true,
+            owner, employee, null,
             forceTargetHireRecreate: false,
             cancellationToken);
         if (!workspaceResult.Success || workspaceResult.Data is null)
@@ -1198,7 +1101,7 @@ internal sealed partial class EvaluationService(
         if (string.IsNullOrWhiteSpace(token))
             return ApiResponse<EvaluationSandboxConnectionResultDto>.ErrorResponse(502, "unable to acquire sandbox access token");
 
-        var sessionEntity = await GetOrCreateSessionEntityAsync(owner, employee, ctx, cancellationToken);
+        var sessionEntity = await GetOrCreateSessionEntityAsync(scope, employee, ctx, cancellationToken);
         var evaluatorMaterialsResult = await PrepareEvaluatorMaterialsArchiveAsync(
             owner,
             employee,
@@ -1289,14 +1192,16 @@ internal sealed partial class EvaluationService(
         if (string.IsNullOrWhiteSpace(employeeId) || request is null || string.IsNullOrWhiteSpace(request.SessionId) || request.Verdict is null)
             return ApiResponse<EvaluationVerdictSyncResultDto>.ErrorResponse(400, "employeeId, sessionId and verdict are required");
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
-        if (employee is null)
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
             return ApiResponse<EvaluationVerdictSyncResultDto>.ErrorResponse(404, "employee not found");
+
+        var scope = accessContext.PersistenceScope;
+        var employee = accessContext.Employee;
 
         var sessionEntity = await dbContext.EvaluationSessions
             .FirstOrDefaultAsync(item =>
-                item.OwnerSubject == owner &&
+                item.OwnerSubject == scope &&
                 item.EmployeeId == employeeId.Trim() &&
                 item.SessionId == request.SessionId.Trim(),
                 cancellationToken);
@@ -1439,6 +1344,91 @@ internal sealed partial class EvaluationService(
         var ontologyReady = ontologyProfile.Sources.Count > 0 || ontologyProfile.DimensionWeights.Count > 0;
 
         return BuildReadiness(testcaseReady, ontologyReady);
+    }
+
+    /// <summary>
+    /// 清理指定员工的所有评估数据（工作区状态、会话、资产、报告），供测试时重置评估流程使用。
+    /// </summary>
+    public async Task<ApiResponse<object>> ResetEvaluationDataAsync(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId))
+            return ApiResponse<object>.ErrorResponse(400, "employeeId cannot be empty");
+
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
+            return ApiResponse<object>.ErrorResponse(404, "employee not found");
+
+        var persistenceScope = accessContext.PersistenceScope;
+        // 沙箱创建时使用 RequestOwner，删除时需保持一致
+        var sandboxOwner = accessContext.RequestOwner;
+        var normalizedEmployeeId = employeeId.Trim();
+
+        // 先读取工作区状态，拿到需要删除的沙箱 ID
+        var workspaceState = await dbContext.EvaluationWorkspaceStates
+            .FirstOrDefaultAsync(
+                item => item.OwnerSubject == persistenceScope && item.EmployeeId == normalizedEmployeeId,
+                cancellationToken);
+
+        var workspaceCtx = workspaceState is not null && !string.IsNullOrWhiteSpace(workspaceState.PayloadJson)
+            ? JsonSerializer.Deserialize<EvaluationWorkspaceContext>(workspaceState.PayloadJson, JsonOptions)
+            : null;
+
+        // 删除评估沙箱（调用 provisioner + 标记 Deleted）；失败时仅记录警告，不阻断清理
+        var sandboxIdsToDelete = new[]
+        {
+            workspaceCtx?.TargetSandboxId,
+            workspaceCtx?.EvaluatorSandboxId,
+        }.Where(sandboxId => !string.IsNullOrWhiteSpace(sandboxId)).Select(sandboxId => sandboxId!).Distinct().ToArray();
+
+        int deletedSandboxCount = 0;
+        foreach (var sandboxId in sandboxIdsToDelete)
+        {
+            var deleteResult = await sandboxService.DeleteForOwnerAsync(sandboxId, sandboxOwner, cancellationToken);
+            if (deleteResult.Success)
+            {
+                deletedSandboxCount++;
+                logger.LogInformation("[Eval] Reset: deleted sandbox sandboxId={SandboxId}", sandboxId);
+            }
+            else
+            {
+                // 沙箱不存在或已删除，跳过，不中断整体清理
+                logger.LogWarning("[Eval] Reset: failed to delete sandbox sandboxId={SandboxId} reason={Reason}",
+                    sandboxId, deleteResult.Message);
+            }
+        }
+
+        // 删除工作区状态记录
+        if (workspaceState is not null)
+        {
+            dbContext.EvaluationWorkspaceStates.Remove(workspaceState);
+        }
+
+        // 删除所有评估会话（级联删除 Assets 和 Reports）
+        var sessions = await dbContext.EvaluationSessions
+            .Include(item => item.Assets)
+            .Include(item => item.Reports)
+            .Where(item => item.OwnerSubject == persistenceScope && item.EmployeeId == normalizedEmployeeId)
+            .ToListAsync(cancellationToken);
+        if (sessions.Count > 0)
+        {
+            dbContext.EvaluationSessions.RemoveRange(sessions);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "[Eval] Reset evaluation data for employeeId={EmployeeId} scope={Scope}: " +
+            "removedWorkspaceState={HasWorkspaceState}, deletedSandboxes={SandboxCount}, removedSessions={SessionCount}",
+            normalizedEmployeeId, persistenceScope, workspaceState is not null, deletedSandboxCount, sessions.Count);
+
+        return ApiResponse<object>.SuccessResponse(new
+        {
+            removedWorkspaceState = workspaceState is not null,
+            deletedSandboxes = deletedSandboxCount,
+            removedSessions = sessions.Count
+        }, "评估数据已清理");
     }
 
 }

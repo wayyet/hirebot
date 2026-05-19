@@ -233,25 +233,22 @@ public sealed partial class EmployeeRuntimeService
         }
 
         var archiveBytes = BuildArtifactArchiveBytes(artifactRoot);
-        var uploadResponse = await kingCrabHttpClient.SendMultipartForJsonAsync<DigitalEmployeeUploadResponse>(
-            "/admin/digital-employee/upload",
-            "file",
-            $"{employee.EmployeeId}-{artifactVersion}.zip",
-            archiveBytes,
-            "application/zip",
-            ownerSubject,
-            cancellationToken,
-            useHireBotApiPrefix: false,
-            absoluteBaseUrl: readyResponse.Data.GatewayEndpoint);
+        var uploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+            new DigitalEmployeeTemplateUploadRequestDto
+            {
+                SandboxId = readyResponse.Data.SandboxId,
+                OwnerSubject = ownerSubject,
+                ArchiveBytes = archiveBytes,
+                FileName = $"{employee.EmployeeId}-{artifactVersion}.zip"
+            },
+            cancellationToken);
 
-        if (!uploadResponse.Success || uploadResponse.Data is null || !uploadResponse.Data.Success)
+        if (!uploadResult.Success || uploadResult.Data is null || !uploadResult.Data.Success)
         {
             await TryDeleteSandboxAsync(ownerSubject, scopeKey, readyResponse.Data.SandboxId, cancellationToken);
-            var message = uploadResponse.Success && uploadResponse.Data is not null && !string.IsNullOrWhiteSpace(uploadResponse.Data.Error)
-                ? uploadResponse.Data.Error
-                : uploadResponse.Message;
+            var message = !string.IsNullOrWhiteSpace(uploadResult.Data?.Error) ? uploadResult.Data.Error : uploadResult.Message;
             return ApiResponse<PersonalCloneSandboxSetupResult>.ErrorResponse(
-                uploadResponse.StatusCode <= 0 ? 502 : uploadResponse.StatusCode,
+                uploadResult.Code <= 0 ? 502 : uploadResult.Code,
                 string.IsNullOrWhiteSpace(message) ? "个人分身沙箱初始化失败" : message);
         }
 
@@ -565,16 +562,6 @@ public sealed partial class EmployeeRuntimeService
     private sealed record PersonalCloneSandboxSetupResult(string SandboxId, string? GatewayEndpoint);
 
     /// <summary>
-    /// 数字员工上传响应。
-    /// </summary>
-    private sealed record DigitalEmployeeUploadResponse(
-        bool Success,
-        string? Error,
-        string? Name,
-        int SkillsInstalled,
-        IReadOnlyList<string>? InstalledFiles,
-        int? TotalSkillsLoaded);
-
     /// <summary>
     /// 获取第一个非空值。
     /// </summary>

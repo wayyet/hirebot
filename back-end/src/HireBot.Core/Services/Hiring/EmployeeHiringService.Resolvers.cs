@@ -314,14 +314,6 @@ internal sealed partial class EmployeeHiringService
         string PackageHash,
         string InstalledPath);
 
-    private sealed record DigitalEmployeeUploadResponse(
-        bool Success,
-        string? Error,
-        string? Name,
-        int SkillsInstalled,
-        IReadOnlyList<string>? InstalledFiles,
-        int? TotalSkillsLoaded);
-
     private sealed record SandboxMcpConfigResponse(
         bool Success,
         string? Message,

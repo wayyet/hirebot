@@ -192,18 +192,11 @@ public sealed class EmployeesController(
     }
 
     [HttpPost("{employeeId}/evaluation/ai-decision")]
-    public async Task<IActionResult> SubmitAiEvaluationDecision(
+    public async Task<IActionResult> StartAiEvaluation(
         string employeeId,
-        [FromBody] AiEvaluationDecisionRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var invalidResponse = BuildModelValidationError<EmployeeDetailDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await evaluationService.SubmitAiEvaluationDecisionAsync(employeeId, request, cancellationToken);
+        var response = await evaluationService.StartAiEvaluationAsync(employeeId, cancellationToken);
         return StatusCode(response.Code, response);
     }
 
@@ -245,6 +238,13 @@ public sealed class EmployeesController(
         }
 
         var response = await evaluationService.SyncVerdictAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpDelete("{employeeId}/evaluation/data")]
+    public async Task<IActionResult> ResetEvaluationData(string employeeId, CancellationToken cancellationToken = default)
+    {
+        var response = await evaluationService.ResetEvaluationDataAsync(employeeId, cancellationToken);
         return StatusCode(response.Code, response);
     }
 

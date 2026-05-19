@@ -118,10 +118,9 @@ public sealed partial class EmployeeRuntimeService
                 ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
                 : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
 
-            return employee is not null &&
-                   string.Equals(employee.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase)
-                ? employee
-                : null;
+            // DB 查询已保证 OwnerUserId == owner，此处无需再次校验快照内的 OwnerUserId，
+            // 避免快照序列化格式不一致时导致误判为 null。
+            return employee;
         }
         catch
         {
@@ -176,11 +175,16 @@ public sealed partial class EmployeeRuntimeService
     /// <summary>
     /// 反序列化员工快照。
     /// </summary>
+    private static readonly JsonSerializerOptions SnapshotDeserializeOptions =
+        new() { PropertyNameCaseInsensitive = true };
+
     private static EmployeeDetailDto? DeserializeEmployeeSnapshot(string snapshot)
     {
         try
         {
-            return JsonSerializer.Deserialize<EmployeeDetailDto>(snapshot);
+            // 快照可能由 ASP.NET Core（camelCase）或内部（PascalCase）序列化生成，
+            // 使用大小写不敏感选项确保两种格式都能正确反序列化。
+            return JsonSerializer.Deserialize<EmployeeDetailDto>(snapshot, SnapshotDeserializeOptions);
         }
         catch
         {

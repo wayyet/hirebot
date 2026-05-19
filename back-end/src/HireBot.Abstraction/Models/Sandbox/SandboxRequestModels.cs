@@ -114,7 +114,7 @@ public sealed record SandboxAttachmentUploadRequestDto
     public required HiringConversationMaterialDto Material { get; init; }
 }
 
-public sealed record SkillPackageUploadRequestDto
+public sealed record DigitalEmployeeTemplateUploadRequestDto
 {
     public required string SandboxId { get; init; }
     public required string OwnerSubject { get; init; }
@@ -122,7 +122,7 @@ public sealed record SkillPackageUploadRequestDto
     public required string FileName { get; init; }
 }
 
-public sealed record SkillPackageUploadResultDto(
+public sealed record DigitalEmployeeTemplateUploadResultDto(
     bool Success,
     string? Error,
     int SkillsInstalled);
