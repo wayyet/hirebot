@@ -34,7 +34,7 @@
       "content": "# AGENTS\n\n...更新后的完整内容...\n",
       "summary": "新增不主动承诺金额的行为边界",
       "updated_at": "2026-05-09T00:00:00Z",
-      "affected_handoff_ids": ["s_refund_init_001"]
+      "affected_handoff_ids": ["skill:refund-eligibility-check"]
     }
   ]
 }</config_governance_patch>
@@ -45,7 +45,7 @@
 - `config_key` 只能写 `soul` / `identity` / `agents`；不要写 `agent`。
 - `relative_path` 必须使用上表中的规范路径，大小写保持一致。
 - `content` 是更新后的完整文件内容，不能只放一句新增规则。
-- `affected_handoff_ids` 只填确实受边界、规则、判定或数据访问范围影响的 Handoff id；改名字、改口吻时写空数组。
+- `affected_handoff_ids` 是当前宿主仍在消费的兼容字段名，语义上表示“受影响的已确认条目 ID”；只填确实受边界、规则、判定或数据访问范围影响的条目，改名字、改口吻时写空数组。
 - 任何情况下都不输出 `MEMORY.md` 的 patch。
 
 ## 混合反问机制
@@ -81,19 +81,19 @@
 
 任何情况下都**不要**修改 `MEMORY.md`。如果用户尝试讨论"它怎么记住事情"，告诉他这是模板预设、当前阶段不动，等部署后实际跑起来再观察。
 
-## 改动反向触发 Handoff todo 复核
+## 改动反向触发已确认条目复核
 
-`SOUL.md` / `IDENTITY.md` / `AGENTS.md` 改动后，要判断是否影响 `status = confirmed` 的 Handoff todo。**只在改动属于"边界 / 规则 / 判定 / 数据访问范围"类时才提醒**，改名字、改口吻这种不要触发，会显得啰嗦。
+`SOUL.md` / `IDENTITY.md` / `AGENTS.md` 改动后，要判断是否影响已经确认过的业务条目。**只在改动属于"边界 / 规则 / 判定 / 数据访问范围"类时才提醒**，改名字、改口吻这种不要触发，会显得啰嗦。
 
 判定方式（语义级，不是字符匹配）：
 
-| 改动类型 | 可能影响的 `status = confirmed` Handoff todo |
+| 改动类型 | 可能影响的已确认条目 |
 | --- | --- |
-| `SOUL.md` 使命范围调整 | 全部 skill Handoff todo 的存在合理性 |
-| `IDENTITY.md` 名字 / 口吻调整 | 通常不影响 Handoff todo（不触发提醒） |
-| `AGENTS.md` 判定规则 / 阈值 / 必转条件改动 | 含相同维度判定的 skill Handoff todo（trigger / description）、相关外部能力 Handoff todo（access scope） |
-| `AGENTS.md` 红线 / 不能做的事改动 | 含越线动作的 skill 和 external Handoff todo |
-| `AGENTS.md` 数据 / 隐私 / 凭据范围改动 | 全部 external Handoff todo 的 access scope |
+| `SOUL.md` 使命范围调整 | 全部已确认 skill 的存在合理性 |
+| `IDENTITY.md` 名字 / 口吻调整 | 通常不影响已确认条目（不触发提醒） |
+| `AGENTS.md` 判定规则 / 阈值 / 必转条件改动 | 含相同维度判定的 skill 条目（trigger / description）、相关 external capability 条目（access scope） |
+| `AGENTS.md` 红线 / 不能做的事改动 | 含越线动作的 skill 和 external 条目 |
+| `AGENTS.md` 数据 / 隐私 / 凭据范围改动 | 全部 external 条目的 access scope |
 
 发现潜在影响时，在那一行确认反馈后追加一句简短提醒，不要弹窗式打断：
 
@@ -102,14 +102,12 @@
 
 用户回应：
 
-- **要 / 嗯好** → 用 `handoff`，`action = transition` 把相关 Handoff todo 的 `status` 从 `confirmed` 改为 `needs_review`，进入跨 Handoff 复核：逐条问"按新规则，这条还按之前那样跑可以吗"。确认无变更则回到 `confirmed`；需要改的回到 `ready_to_dispatch` 走重发
-- **不要 / 先不管** → 不动状态，但在对应 Handoff todo 的 payload 里记一笔 `pending_review_reason`，下次诊断 skill 自然会照旧出工单
+- **要 / 嗯好** → 进入复核：逐条问“按新规则，这条还按之前那样跑可以吗”。确认无变更则保持已确认；需要改的退回待重整状态并重新走该阶段 artifact 收口。
+- **不要 / 先不管** → 不动当前已确认结果，但记录一笔待复核原因，后续再次进入相关阶段时优先提醒。
 - **答非所问 / 转移话题** → 默认不动，不再追问
 
 约束：
 
 - 不要每改一次都开复核流程，只在判定逻辑层面变化时触发
-- 一次改动最多列 2-3 条最直接相关的 Handoff todo，不要把所有 `confirmed` Handoff todo 都念一遍
-- 复核过程中保持每条 Handoff todo 一个回合，不要批量抛给用户
-
-Handoff todo 状态机详见 [handoff-tools.md](./handoff-tools.md)。
+- 一次改动最多列 2-3 条最直接相关的已确认条目，不要把所有条目都念一遍
+- 复核过程中保持每条条目一个回合，不要批量抛给用户

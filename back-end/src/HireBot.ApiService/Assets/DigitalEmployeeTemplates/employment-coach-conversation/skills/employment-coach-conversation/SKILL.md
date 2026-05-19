@@ -282,6 +282,18 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 - 用户对"技能清单已经足够"给出明确确认
 - 发出 `skill_workorder_summary` terminal artifact
 
+**阶段 2 完成后的强制动作（技能实现确认门）**：
+- 若 `skill_workorder_summary.data.skills` 中存在至少 1 个 `generation_action = generate_new` 的条目，必须立刻发出 `skill_generation_ready` artifact，用于标记"技能定义已确认，等待用户确认是否开始生成技能实现"。这个 artifact **只驱动技能实现轨状态**，**不得**把主 `skill` 阶段改回未完成。
+- 紧接着必须主动询问用户：
+
+> 「技能定义已经确认完成。是否现在开始生成这些技能的实现内容？」
+
+- 等待用户明确回应：
+  - 用户**肯定**：立即把需要新增实现的条目交给下游 `skill-generation`，由下游先发 `skill_generation_progress`，再开始真正生成。
+  - 用户**否定 / 暂停**：保留 `skill_generation_ready` 状态，不启动 `skill-generation`，等用户后续明确同意后再开始。
+  - 用户**补充或修改技能定义**：回到阶段 2，更新 `skill_workorder_progress` / `skill_workorder_summary`，然后重新发出上述确认门询问。
+- 若技能清单全部为 `reuse_existing`，跳过本确认门，不要求启动 `skill-generation`。
+
 > 阶段 2 引导话术、story-driven 推进、字段明确度对照 → 进入阶段 2 之前，读 [references/flow-constraints.md](references/flow-constraints.md) 阶段 2 部分。
 
 ### 阶段 3：外部
@@ -302,14 +314,18 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 - 如果用户声明不需要外部系统，需明确记录在 data 中作为 skip 项
 - 发出 `external_workorder_summary` terminal artifact
 
-**阶段 3 完成后的强制阶段门动作**：发出 `external_workorder_summary` 后，**必须**给用户一句主动询问，引导进入打包阶段：
+**阶段 3 完成后的强制阶段门动作**：发出 `external_workorder_summary` 后，按以下顺序判断：
+
+- 若仍处于 `skill_generation_ready`（等待用户确认是否开始生成技能实现），**必须先复用阶段 2 的确认门询问**，不要直接进入打包询问。
+- 若 ontology-extraction、skill-generation、external-config 任一仍未发出 terminal artifact，先用一行简短状态同步告诉用户"下游生成仍在执行，完成后即可打包"，不要提前承诺已打包，也不要发 `template_package`。
+- 只有当下游三个 skill 全部发出 terminal artifact 后，才给用户一句主动询问，引导进入打包阶段：
 
 > 「三个阶段均已完成——资料、技能定义和外部能力都已梳理好了。现在可以生成产物包，把配置打包交付给系统。是否现在开始打包？」
 
 等待用户明确回应（肯定：「是」「好的」「开始」「打包」「生成」等；否定：「等一下」「先暂停」等）：
 - 用户**肯定**：立即进入阶段 4，按"强制执行顺序"开始打包动作。
 - 用户**否定或补充修改意见**：回到对应阶段补充，补充完后再次发出 terminal artifact，再重复本阶段门询问。
-- 前端点击了「发起打包」按钮（消息内含关键词"生成产物包"/"打包"/"发起打包"等）：视同用户肯定确认，**立即**进入阶段 4，不再重复询问。
+- 前端点击了「发起打包」按钮（消息内含关键词"生成产物包"/"打包"/"发起打包"等）：视同用户肯定确认。若下游已齐，则**立即**进入阶段 4；若下游未齐，则进入阶段 4 的等待分支，先发 `packaging_progress` 告知缺失项，不得抢先发最终包。
 
 > 阶段 3 引导话术、紧扣已有 skills 的套路、跳过分支 → 进入阶段 3 之前，读 [references/flow-constraints.md](references/flow-constraints.md) 阶段 3 部分。
 
@@ -339,9 +355,11 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 A. **下游就绪触发**：ontology-extraction、skill-generation、external-config 三个下游 skill 全部发出 terminal artifact（`ontology_slice_result` / `skill_generation_done` / `external_config_done` 均已收到）。
 
-B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 terminal summary（`material_handoff_summary` / `skill_workorder_summary` / `external_workorder_summary`，其中外部阶段允许是 skip 形态），**且**用户在对话中显式请求打包（关键词：「生成产物包」「打包」「生成实例包」「导出」「打成 zip」「完成打包」等），即使下游 terminal artifact 尚未全部到位，也必须进入阶段 4 并立即执行打包动作。
+B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 terminal summary（`material_handoff_summary` / `skill_workorder_summary` / `external_workorder_summary`，其中外部阶段允许是 skip 形态），**且**用户在对话中显式请求打包（关键词：「生成产物包」「打包」「生成实例包」「导出」「打成 zip」「完成打包」等），进入阶段 4 的等待 / 执行分支：
+- 若下游 terminal artifact 已全部到位，立即执行真实打包。
+- 若下游 terminal artifact 尚未全部到位，只允许发 `packaging_progress`（`status = "waiting_downstream"`）告知缺失项，等待缺失项补齐后再执行真实打包。
 
-> 任一触发条件成立时，立刻按"强制执行顺序"开始动作；**禁止只在对话里复述"已完成配置 / 请点击生成实例"而不进入实际打包**。
+> 任一触发条件成立时，立刻进入阶段 4；若下游已齐，按"强制执行顺序"开始真实打包；若下游未齐，进入等待分支。**禁止只在对话里复述"已完成配置 / 请点击生成实例"而不进入实际打包或明确等待状态**。
 
 ### ⛔ 反伪造红线（最高优先级）
 
@@ -356,14 +374,42 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 
 **强制执行顺序**（每一步都必须实际执行，不可省略、不可调换）：
 
-1. 发 `packaging_progress`（isTerminal: false）
+若下游**尚未全部就绪**，先执行等待分支：
+
+1. 发 `packaging_progress`（isTerminal: false, `data.status = "waiting_downstream"`）
+2. `data.pending_downstream_skills` 中写清仍缺失 terminal artifact 的 skill 名称
+3. 给用户一句简短反馈，明确说明"正在等待下游生成完成后再打包"
+4. **停止**，不得调用打包工具，也不得发 `template_package`
+
+若下游**已经全部就绪**，执行真实打包分支：
+
+1. 发 `packaging_progress`（isTerminal: false, `data.status = "packing"`）
 2. 调用沙箱打包工具，等待返回 `fileUrl`
 3. 发 `template_package`（kind: file, isTerminal: true），`fileUrl` 字段填写第 2 步真实返回值
 4. 给用户一句简短反馈
 
 ### 1. 打包进度（isTerminal: false）
 
-在开始打包前立即调用：
+若仍在等待下游就绪，先调用：
+
+```json
+{
+  "kind": "data",
+  "artifactType": "packaging_progress",
+  "label": "已收到打包请求，正在等待下游生成完成",
+  "skillName": "employment-coach-conversation",
+  "stage": "stage4_packaging",
+  "isTerminal": false,
+  "displayHint": "progress",
+  "data": {
+    "status": "waiting_downstream",
+    "pending_downstream_skills": ["skill-generation"],
+    "included": ["ontology/", "skills/", "external/", "config/", "manifest.json"]
+  }
+}
+```
+
+真正开始打包前再调用：
 
 ```json
 {

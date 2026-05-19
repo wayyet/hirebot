@@ -1,7 +1,7 @@
 {
   "name": "skill-generation",
   "display_name": "技能生成",
-  "description": "根据雇佣教练 todo、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并写入当前沙箱 skills/ 目录。",
+  "description": "根据雇佣教练发出的技能工单 artifact、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并写入当前沙箱 skills/ 目录。",
   "triggers": [
     "生成技能",
     "创建 skill",
@@ -9,36 +9,35 @@
     "技能包",
     "SkillSpec",
     "metadata.json",
-    "todo",
-    "dispatch skill-generation"
+    "技能工单",
+    "skill_workorder_summary"
   ],
   "capabilities": [
     {
-      "id": "consume_employment_coach_handoff",
-      "goal": "接收 employment-coach-conversation 阶段二 dispatch 的 Handoff todo，并按 Handoff id 生成或更新业务 skill",
+      "id": "consume_employment_coach_workorder",
+      "goal": "接收 employment-coach-conversation 阶段二发出的 `skill_workorder_summary` artifact，并按技能工单生成或更新业务 skill",
       "inputs": [
-        "handoff id",
-        "payload.skill_name",
-        "payload.skill_description",
-        "payload.trigger",
-        "payload.expected_output",
-        "payload.from_upload",
-        "source",
-        "acceptance"
+        "skill_name",
+        "skill_description",
+        "trigger",
+        "expected_output",
+        "generation_action",
+        "workspace_root",
+        "source"
       ],
       "outputs": [
-        "todo_results",
-        "按 Handoff id 分组的 artifacts",
-        "acceptance_result",
+        "skill_generation_progress",
+        "skill_generation_done",
+        "按 skill_slug 分组的 artifacts",
         "user_summary"
       ],
-      "fallback": "单条 Handoff 失败时只标记该 Handoff failed，不吞掉其他 Handoff 的成功结果"
+      "fallback": "单条技能生成失败时只标记该技能 failed，不吞掉其他技能的成功结果"
     },
     {
       "id": "parse_skill_input",
-      "goal": "入口分流并识别 todo、会话描述、上传文件、混合输入或更新请求",
+      "goal": "入口分流并识别技能工单、会话描述、上传文件、混合输入或更新请求",
       "inputs": [
-        "todo payload",
+        "artifact payload",
         "用户会话描述",
         "上传文件内容",
         "当前 skills 目录快照"
@@ -126,7 +125,7 @@
     "不吸收行为约束类信息，这类内容应交给主 skill 更新 agent.md",
     "不把 skill-generation 自身注册为 projection consumer，projection consumer 结构只写入生成出来的业务 skill",
     "projection contract 是条件增强：信息不足时写 draft/notes，不伪造 READY contract，也不阻断基础业务 skill 落盘",
-    "Handoff 路径必须按 Handoff id 输出 todo_results，支持批量部分成功和单条失败",
+    "工作单路径必须按每个 skill 条目输出结果，支持批量部分成功和单条失败",
     "生成目录必须自包含，复制整个 skills/<skill_slug>/ 后仍可审阅和加载"
   ],
   "examples": [
@@ -135,7 +134,7 @@
       "assistant": "已新增 1 个技能：退货与订单查询助手；现在能处理退货咨询、订单状态查询和进度追踪。"
     }
   ],
-  "source": "conversation|upload|todo",
+  "source": "conversation|upload|workorder",
   "version": "1.0.0",
   "quality_gates": {
     "required_fields": [
@@ -150,7 +149,7 @@
       "fallback"
     ],
     "secret_policy": "reject_or_redact_before_write",
-    "todo_result_policy": "every_dispatched_handoff_id_must_have_success_skipped_or_failed_result",
+    "workorder_result_policy": "every_requested_skill_must_have_success_skipped_or_failed_result",
     "projection_contract_policy": "generate_ready_contract_only_when_ontology_projection_information_is_sufficient_otherwise_write_draft_notes_without_blocking_base_skill",
     "self_contained_policy": "all_source_notes_templates_contracts_and_quality_reports_live_under_generated_skill_dir",
     "nuwa_inspired_review_policy": "phase_1_5_review_phase_4_validation_phase_5_dual_refinement"

@@ -73,9 +73,8 @@ function ProgressView({ data }: { data: unknown }) {
       <div style={progressTrackStyle}>
         <div style={{ ...progressFillStyle, width: `${percent}%` }} />
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--hb-text-muted, #6b7280)' }}>
+      <div style={{ fontSize: 11, color: 'var(--hb-text-muted, #6b7280)' }}>
         <span>{message}</span>
-        <span>{percent}%</span>
       </div>
     </div>
   )

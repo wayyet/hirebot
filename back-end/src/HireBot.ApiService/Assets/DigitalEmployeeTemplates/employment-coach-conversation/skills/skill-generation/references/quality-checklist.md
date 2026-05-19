@@ -4,9 +4,9 @@ Run these checks before writing a generated skill package.
 
 ## Input And Extraction
 
-- [ ] Input type is classified as todo, conversation, upload, or mixed.
-- [ ] In handoff mode, every dispatched Handoff id appears in `todo_results` with `success`, `skipped`, or `failed`.
-- [ ] In todo mode, `skill_name`, `skill_description`, `trigger`, `expected_output`, `source`, and `acceptance` are preserved in source or extraction notes.
+- [ ] Input type is classified as workorder, conversation, upload, or mixed.
+- [ ] In workorder mode, every incoming skill item appears in the final result with `success`, `skipped`, or `failed`.
+- [ ] In workorder mode, `skill_name`, `skill_description`, `trigger`, `expected_output`, `source`, and `generation_action` are preserved in source or extraction notes.
 - [ ] Source summary is recorded in `references/source-digest.md`.
 - [ ] Every capability has a source or extraction note.
 - [ ] Ambiguous capabilities are listed as pending instead of silently finalized.
@@ -40,5 +40,5 @@ Run these checks before writing a generated skill package.
 
 - [ ] `references/quality-report.md` records passed checks and any skipped checks.
 - [ ] `technical_artifact` lists all generated files.
-- [ ] `todo_results` maps each Handoff id to artifacts, acceptance result, or readable failure reason.
+- [ ] Final result maps each skill item to artifacts, acceptance result, or readable failure reason.
 - [ ] `user_summary` groups新增、更新、跳过、失败。

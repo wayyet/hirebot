@@ -18,7 +18,20 @@ import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
 import { HiringTodoPanel } from './components/HiringTodoPanel'
 import { HiringStagePills } from './components/HiringStagePills'
-import type { ArtifactDisplayData, ChatFile, ChatMessage, MaterialRequestedCategory, SkillUploadPayload, StageGateData, ToolStep } from './hiringPageTypes'
+import type {
+  ArtifactDisplayData,
+  ChatFile,
+  ChatMessage,
+  DefinedSkillItem,
+  DownstreamRunKey,
+  DownstreamRunsSnapshot,
+  DownstreamRunState,
+  DownstreamRunStatus,
+  MaterialRequestedCategory,
+  SkillUploadPayload,
+  StageGateData,
+  ToolStep,
+} from './hiringPageTypes'
 import { extractConversationMaterialFiles } from './materialUploadMatching'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 import { extractLatestMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
@@ -117,16 +130,20 @@ function formatFileSize(bytes: number) {
   return bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`
 }
 
-const SKILL_TO_HIRING_STAGE: Record<string, HiringUiStage> = {
-  'ontology-extraction': HiringCollectionStage.Skill,
-  'skill-generation': HiringCollectionStage.Skill,
-  'external-config': HiringCollectionStage.External,
+const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey; status: DownstreamRunStatus }> = {
+  ontology_extraction_progress: { key: 'ontology-extraction', status: 'running' },
+  ontology_extraction_done: { key: 'ontology-extraction', status: 'completed' },
+  skill_generation_ready: { key: 'skill-generation', status: 'waiting_confirm' },
+  skill_generation_progress: { key: 'skill-generation', status: 'running' },
+  skill_generation_done: { key: 'skill-generation', status: 'completed' },
+  external_config_progress: { key: 'external-config', status: 'running' },
+  external_config_done: { key: 'external-config', status: 'completed' },
 }
 
 /**
  * 从 WS artifact/stage_gate 消息里推导对应的雇佣阶段。
- * employment-coach-conversation 的阶段名自带语义（stage1_material / stage2_skill / stage3_external），
- * 其余技能按 SKILL_TO_HIRING_STAGE 映射。
+ * `employment-coach-conversation` 的主阶段 artifact 驱动主阶段胶囊；
+ * 下游 skill artifact 进入独立执行轨，不再复用主阶段状态。
  */
 function resolveHiringStageFromWs(
   skillName: string | undefined,
@@ -137,7 +154,220 @@ function resolveHiringStageFromWs(
     if (stageName.includes('skill')) return HiringCollectionStage.Skill
     if (stageName.includes('external')) return HiringCollectionStage.External
   }
-  return SKILL_TO_HIRING_STAGE[skillName ?? ''] ?? null
+  return null
+}
+
+function resolveDownstreamRunFromArtifact(artifactType: string): { key: DownstreamRunKey; status: DownstreamRunStatus } | null {
+  return DOWNSTREAM_ARTIFACT_TRACKS[artifactType] ?? null
+}
+
+function hasPendingDownstreamRuns(runs: DownstreamRunsSnapshot): boolean {
+  return Object.values(runs).some(run => run?.status === 'waiting_confirm' || run?.status === 'running')
+}
+
+function asPlainObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => typeof item === 'string' ? item.trim() : '')
+      .filter(item => item.length > 0)
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return [value.trim()]
+  }
+
+  return []
+}
+
+function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[] {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const artifact = messages[i].artifact
+    if (!artifact) continue
+    if (artifact.artifactType !== 'skill_workorder_summary' && artifact.artifactType !== 'skill_workorder_progress') {
+      continue
+    }
+    const payload = asPlainObject(artifact.data)
+    const rawSkills = Array.isArray(payload?.skills) ? payload.skills : null
+    if (!rawSkills) return []
+
+    return rawSkills
+      .map(item => {
+        const record = asPlainObject(item)
+        if (!record) return null
+
+        const skillName = typeof record.skill_name === 'string'
+          ? record.skill_name.trim()
+          : typeof record.skillName === 'string'
+            ? record.skillName.trim()
+            : ''
+        if (!skillName) return null
+
+        const capabilities = asStringArray(record.capabilities)
+        const capabilityText = typeof record.capability === 'string' && record.capability.trim().length > 0
+          ? record.capability.trim()
+          : ''
+        const description = typeof record.description === 'string' && record.description.trim().length > 0
+          ? record.description.trim()
+          : typeof record.capability_description === 'string' && record.capability_description.trim().length > 0
+            ? record.capability_description.trim()
+            : (capabilityText || capabilities[0] || '')
+
+        const skill: DefinedSkillItem = {
+          skillName,
+          generationAction: typeof record.generation_action === 'string'
+            ? record.generation_action
+            : typeof record.generationAction === 'string'
+              ? record.generationAction
+              : undefined,
+          description: description || undefined,
+          expectedOutput: typeof record.expected_output === 'string'
+            ? record.expected_output
+            : typeof record.expectedOutput === 'string'
+              ? record.expectedOutput
+              : typeof record.outputs === 'string'
+                ? record.outputs
+                : typeof record.output === 'string'
+                  ? record.output
+              : undefined,
+          triggers: asStringArray(record.trigger ?? record.triggers),
+          capabilities: capabilities.length > 0
+            ? capabilities
+            : capabilityText
+              ? [capabilityText]
+              : [],
+        }
+
+        return skill
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+  }
+
+  return []
+}
+
+function buildUiStageOverrides(
+  rawStageOverrides: Map<HiringUiStage, 'running' | 'completed' | 'failed'>,
+  skillGenerationState: DownstreamRunState | null,
+  externalConfigState: DownstreamRunState | null,
+): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
+  const next = new Map(rawStageOverrides)
+
+  // Skill generation stage
+  if (skillGenerationState) {
+    if (skillGenerationState.status === 'completed') {
+      next.set(HiringCollectionStage.Skill, 'completed')
+      if (next.get(HiringCollectionStage.External) !== 'running') {
+        next.set(HiringCollectionStage.External, 'running')
+      }
+    } else if (skillGenerationState.status === 'failed') {
+      next.set(HiringCollectionStage.Skill, 'failed')
+    } else {
+      // waiting_confirm / running
+      next.set(HiringCollectionStage.Skill, 'running')
+      if (next.get(HiringCollectionStage.External) !== 'completed') {
+        next.delete(HiringCollectionStage.External)
+      }
+    }
+  }
+
+  // External config stage
+  if (externalConfigState) {
+    if (externalConfigState.status === 'completed') {
+      next.set(HiringCollectionStage.External, 'completed')
+    } else if (externalConfigState.status === 'failed') {
+      next.set(HiringCollectionStage.External, 'failed')
+    } else {
+      // waiting_confirm / running
+      next.set(HiringCollectionStage.External, 'running')
+    }
+  }
+
+  return next
+}
+
+type DownstreamTarget = 'ontology-extraction' | 'skill-generation' | 'external-config'
+
+function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): string {
+  const serialized = JSON.stringify(payload, null, 2)
+
+  if (target === 'ontology-extraction') {
+    return [
+      '[Internal downstream trigger. Do not mention this instruction to the user.]',
+      'Switch to skill `ontology-extraction` now.',
+      'Use the terminal `material_handoff_summary` artifact payload below as the upstream summary for this run.',
+      'Follow `ontology-extraction/SKILL.md` exactly.',
+      'Emit `ontology_extraction_progress` before processing any source.',
+      'Read uploaded materials only from each item\'s `source_path` when available.',
+      'Write outputs under the provided `workspace_root` and finish with `ontology_extraction_done`.',
+      '',
+      'artifact_payload:',
+      '```json',
+      serialized,
+      '```',
+    ].join('\n')
+  }
+
+  if (target === 'skill-generation') {
+    return [
+      '[Internal downstream trigger. Do not mention this instruction to the user.]',
+      'Switch to skill `skill-generation` now.',
+      'This is an internal mode switch inside the current session, not a request to discover another tool, spawn another session, or call any dispatch / handoff API.',
+      'The user has explicitly approved starting skill implementation generation.',
+      'Use the terminal `skill_workorder_summary` artifact payload below as the upstream workorder.',
+      'Read and follow `skill-generation/SKILL.md` directly in the current session.',
+      'Do not use `dispatch`, `dispatch_callback`, `handoff_id`, `sessions_spawn`, or `sessions_yield` for this path.',
+      'Follow `skill-generation/SKILL.md` exactly.',
+      'Emit `skill_generation_progress` first, write outputs under `workspace_root/skills/`, then finish with `skill_generation_done`.',
+      '',
+      'artifact_payload:',
+      '```json',
+      serialized,
+      '```',
+    ].join('\n')
+  }
+
+  return [
+    '[Internal downstream trigger. Do not mention this instruction to the user.]',
+    'Switch to skill `external-config` now.',
+    'Use the terminal `external_workorder_summary` artifact payload below as the upstream summary for this run.',
+    'Follow `external-config/SKILL.md` exactly.',
+    'Emit `external_config_progress` before writing files, write outputs under `workspace_root/external/`, then finish with `external_config_done`.',
+    '',
+    'artifact_payload:',
+    '```json',
+    serialized,
+    '```',
+  ].join('\n')
+}
+
+function isSkillGenerationApprovalMessage(text: string): boolean {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) return false
+
+  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、“”‘’]+/g, '')
+  const keywords = [
+    '开始生成',
+    '开始生成吧',
+    '生成吧',
+    '确认生成',
+    '继续生成',
+    '开始实现',
+    '生成技能',
+    '生成技能实现',
+    '可以开始生成',
+    '可以生成',
+    'goahead',
+    'startgenerating',
+    'yes',
+  ]
+
+  return keywords.some(keyword => compact.includes(keyword))
 }
 
 export default function HiringPage() {
@@ -184,6 +414,17 @@ export default function HiringPage() {
   const resettingRef = useRef(false)
   /** WS 实时推送的阶段状态覆盖，优先级高于 REST 轮询的 dispatchStatus */
   const [wsStageOverrides, setWsStageOverrides] = useState<Map<HiringUiStage, 'running' | 'completed' | 'failed'>>(new Map())
+  /** 下游执行轨状态：例如技能实现生成、外部配置生成等，不再与主阶段状态复用。 */
+  const [downstreamRuns, setDownstreamRuns] = useState<DownstreamRunsSnapshot>({})
+  const downstreamRunsRef = useRef<DownstreamRunsSnapshot>({})
+  const latestMaterialSummaryRef = useRef<unknown>(null)
+  const latestSkillSummaryRef = useRef<unknown>(null)
+  const latestExternalSummaryRef = useRef<unknown>(null)
+  const materialSummarySignatureRef = useRef('')
+  const skillSummarySignatureRef = useRef('')
+  const externalSummarySignatureRef = useRef('')
+  const skillGenerationLaunchSignatureRef = useRef('')
+  const pendingInternalPromptsRef = useRef<string[]>([])
 
   const fileRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -205,6 +446,12 @@ export default function HiringPage() {
   const rawFileMapRef = useRef<Map<string, File>>(new Map())
   // 避免同一会话重复触发“自动上传模板并引导”
   const autoTemplateBootstrapSessionRef = useRef<string | null>(null)
+  const skillGenerationState = downstreamRuns['skill-generation'] ?? null
+  const externalConfigState = downstreamRuns['external-config'] ?? null
+  const uiStageOverrides = useMemo(
+    () => buildUiStageOverrides(wsStageOverrides, skillGenerationState, externalConfigState),
+    [wsStageOverrides, skillGenerationState, externalConfigState],
+  )
 
   const workflowReady = Boolean(workflowHireId)
   const workflowCurrentStage = normalizeCollectionStage(
@@ -216,15 +463,19 @@ export default function HiringPage() {
         HiringCollectionStage.ReadyForPackaging,
       ]
       for (const stage of stages) {
-        if (wsStageOverrides.get(stage) !== 'completed') return stage
+        if (uiStageOverrides.get(stage) !== 'completed') return stage
       }
       return HiringCollectionStage.ReadyForPackaging
     })(),
   )
+  const definedSkills = useMemo(
+    () => extractLatestDefinedSkills(messages),
+    [messages],
+  )
   const viewModel = buildHiringWorkflowViewModel(null, focusedStage)
   // 将 WS 实时推送的阶段状态合并到阶段胶囊
   const mergedStepPills = viewModel.stepPills.map(pill => {
-    const wsStatus = wsStageOverrides.get(pill.stage)
+    const wsStatus = uiStageOverrides.get(pill.stage)
     if (!wsStatus) return pill
     return { ...pill, dispatchStatus: wsStatus }
   })
@@ -232,9 +483,9 @@ export default function HiringPage() {
   // 仅当沙箱已推送 template_package artifact（pendingPackageArtifact 不为 null）才能点击生成实例，
   // 否则后端无可导入的产物包。
   const wsStagesAllCompleted = (
-    wsStageOverrides.get(HiringCollectionStage.Material) === 'completed' &&
-    wsStageOverrides.get(HiringCollectionStage.Skill) === 'completed' &&
-    wsStageOverrides.get(HiringCollectionStage.External) === 'completed'
+    uiStageOverrides.get(HiringCollectionStage.Material) === 'completed' &&
+    uiStageOverrides.get(HiringCollectionStage.Skill) === 'completed' &&
+    uiStageOverrides.get(HiringCollectionStage.External) === 'completed'
   )
   const wsCanFinalize = wsStagesAllCompleted
   const mergedActionState = wsCanFinalize
@@ -277,6 +528,7 @@ export default function HiringPage() {
   // 注：不在此清除 pendingPackageArtifact，以便【生成实例】按钮可依据它的状态作为手动兑现入口；instanceCreated 防重入
   useEffect(() => {
     if (!pendingPackageArtifact || !workflowHireId || instanceCreated) return
+    if (hasPendingDownstreamRuns(downstreamRunsRef.current)) return
     void triggerCreate(pendingPackageArtifact)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPackageArtifact, workflowHireId, instanceCreated])
@@ -288,11 +540,12 @@ export default function HiringPage() {
       const cache = {
         messages,
         stageOverrides: Array.from(wsStageOverrides.entries()),
+        downstreamRuns,
       }
       api.hiringWorkflow.saveConversationCache(workflowHireId, cache).catch(() => {})
     }, 2000)
     return () => clearTimeout(timer)
-  }, [messages, wsStageOverrides, workflowHireId])
+  }, [messages, wsStageOverrides, downstreamRuns, workflowHireId])
 
   useEffect(() => {
     if (journeyGuideVisible && !focusedStage) {
@@ -491,12 +744,17 @@ export default function HiringPage() {
           const cached = await api.hiringWorkflow.getConversationCache(hireIdForCache) as {
             messages?: ChatMessage[]
             stageOverrides?: [string, string][]
+            downstreamRuns?: DownstreamRunsSnapshot
           } | null
           if (cached?.messages && cached.messages.length > 0) {
             setMessages(cached.messages)
             setMaterialRequestedCategories(extractLatestMaterialRequestedCategories(cached.messages))
             if (cached.stageOverrides && cached.stageOverrides.length > 0) {
               setWsStageOverrides(new Map(cached.stageOverrides as [HiringUiStage, 'running' | 'completed' | 'failed'][]))
+            }
+            if (cached.downstreamRuns) {
+              downstreamRunsRef.current = cached.downstreamRuns
+              setDownstreamRuns(cached.downstreamRuns)
             }
             autoTemplateBootstrapSessionRef.current = sessionId
             return
@@ -693,6 +951,7 @@ export default function HiringPage() {
             materials: materials ?? undefined,
           }).catch(() => { /* 忽略 */ })
         }
+        void flushQueuedInternalPrompt()
       } else if (type === 'tool_start') {
         // MCP 工具开始调用：仅用于记录流式气泡上方的进度面板
         const rawMsg = msg as unknown as Record<string, unknown>
@@ -767,14 +1026,58 @@ export default function HiringPage() {
               setMaterialRequestedCategories(categories)
             }
           }
+          if (artifactType === 'material_handoff_summary' && kind === 'data' && isTerminal) {
+            latestMaterialSummaryRef.current = artifactData.data ?? null
+            const signature = JSON.stringify(artifactData.data ?? {})
+            if (materialSummarySignatureRef.current !== signature) {
+              materialSummarySignatureRef.current = signature
+              pendingInternalPromptsRef.current.push(
+                buildDownstreamPrompt('ontology-extraction', artifactData.data ?? {}),
+              )
+            }
+          }
+          if (artifactType === 'skill_workorder_summary' && kind === 'data' && isTerminal) {
+            latestSkillSummaryRef.current = artifactData.data ?? null
+            skillSummarySignatureRef.current = JSON.stringify(artifactData.data ?? {})
+            skillGenerationLaunchSignatureRef.current = ''
+          }
+          if (artifactType === 'external_workorder_summary' && kind === 'data' && isTerminal) {
+            latestExternalSummaryRef.current = artifactData.data ?? null
+            const signature = JSON.stringify(artifactData.data ?? {})
+            if (externalSummarySignatureRef.current !== signature) {
+              externalSummarySignatureRef.current = signature
+              pendingInternalPromptsRef.current.push(
+                buildDownstreamPrompt('external-config', artifactData.data ?? {}),
+              )
+            }
+          }
+          const downstreamRun = resolveDownstreamRunFromArtifact(artifactType)
           setMessages(msgs => [...msgs, {
             id: mkId(),
             role: 'artifact',
             content: label ?? artifactType,
             artifact: artifactData,
           }])
+          if (downstreamRun) {
+            setDownstreamRuns(prev => {
+              const next = {
+                ...prev,
+                [downstreamRun.key]: {
+                  key: downstreamRun.key,
+                  status: downstreamRun.status,
+                  artifactType,
+                  label,
+                  displayHint: artifactData.displayHint,
+                  updatedAt: new Date().toISOString(),
+                  data: artifactData.data,
+                } satisfies DownstreamRunState,
+              }
+              downstreamRunsRef.current = next
+              return next
+            })
+          }
           // 同步更新阶段胶囊状态（实时，不等 REST 轮询）
-          const hiringStage = resolveHiringStageFromWs(skillName, stage)
+          const hiringStage = downstreamRun ? null : resolveHiringStageFromWs(skillName, stage)
           if (hiringStage) {
             setWsStageOverrides(prev => {
               const next = new Map(prev)
@@ -789,7 +1092,11 @@ export default function HiringPage() {
           }
           // template_package artifact 表示沙箱已完成打包，暂存 fileUrl 后自动触发 import-package
           if (artifactType === 'template_package' && kind === 'file' && artifactData.fileUrl) {
-            setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
+            if (hasPendingDownstreamRuns(downstreamRunsRef.current)) {
+              setWorkflowNotice('已收到产物包，但下游生成尚未完成，当前不会自动导入。请在下游完成后重新触发打包。')
+            } else {
+              setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
+            }
           }
         }
       } else if (type === 'skill_stage_gate') {
@@ -875,6 +1182,77 @@ export default function HiringPage() {
     setWorkflowNotice('')
     setWorkflowInitAttempted(false)
     void ensureWorkflowReady()
+  }
+
+  async function flushQueuedInternalPrompt() {
+    if (typing || messageSubmitRef.current || pendingInternalPromptsRef.current.length === 0) {
+      return
+    }
+
+    const prompt = pendingInternalPromptsRef.current.shift()
+    if (!prompt) return
+
+    await submitWorkflowMessage(prompt, undefined, true, false)
+  }
+
+  function setOptimisticSkillGenerationRun(status: DownstreamRunStatus, label: string, artifactType: string) {
+    setDownstreamRuns(prev => {
+      const next = {
+        ...prev,
+        ['skill-generation']: {
+          key: 'skill-generation',
+          status,
+          artifactType,
+          label,
+          displayHint: 'progress',
+          updatedAt: new Date().toISOString(),
+          data: prev['skill-generation']?.data,
+        } satisfies DownstreamRunState,
+      }
+      downstreamRunsRef.current = next
+      return next
+    })
+  }
+
+  async function launchSkillGenerationFromApproval(): Promise<boolean> {
+    const summary = latestSkillSummaryRef.current
+    if (!summary) return false
+
+    const signature = skillSummarySignatureRef.current || JSON.stringify(summary)
+    if (signature && skillGenerationLaunchSignatureRef.current === signature) {
+      setWorkflowNotice('技能实现生成已启动，请等待进度更新。')
+      return true
+    }
+
+    if (signature) {
+      skillGenerationLaunchSignatureRef.current = signature
+    }
+
+    setOptimisticSkillGenerationRun(
+      'running',
+      '技能实现已启动，正在等待下游进度。',
+      'skill_generation_progress',
+    )
+
+    const submitted = await submitWorkflowMessage(
+      buildDownstreamPrompt('skill-generation', summary),
+      undefined,
+      true,
+      false,
+    )
+
+    if (submitted) {
+      setWorkflowNotice('已开始生成技能实现，等待进度更新。')
+      return true
+    }
+
+    skillGenerationLaunchSignatureRef.current = ''
+    setOptimisticSkillGenerationRun(
+      'waiting_confirm',
+      '技能实现尚未启动，请重新确认是否开始生成。',
+      'skill_generation_ready',
+    )
+    return false
   }
 
   async function submitWorkflowMessage(
@@ -1019,6 +1397,12 @@ export default function HiringPage() {
     handleSendRef.current = true
     try {
       const incoming = pendingFiles.length ? [...pendingFiles] : []
+      const shouldLaunchSkillGeneration =
+        incoming.length === 0 &&
+        skillGenerationState?.status === 'waiting_confirm' &&
+        isSkillGenerationApprovalMessage(text) &&
+        latestSkillSummaryRef.current !== null
+
       setMessages(prev => [...prev, {
         id: mkId(),
         role: 'user',
@@ -1031,12 +1415,15 @@ export default function HiringPage() {
         setAllFiles(prev => [...prev, ...incoming])
       }
 
-      const submitted = await submitWorkflowMessage(
-        text || `上传文件：${incoming.map(file => file.name).join('、')}`,
-        incoming.length > 0 ? incoming : undefined,
-        true,
-        false, // handleSend 已经主动 setMessages，避免重复推用户气泡
-      )
+      const fallbackText = text || `上传文件：${incoming.map(file => file.name).join('、')}`
+      const submitted = shouldLaunchSkillGeneration
+        ? await launchSkillGenerationFromApproval()
+        : await submitWorkflowMessage(
+            fallbackText,
+            incoming.length > 0 ? incoming : undefined,
+            true,
+            false, // handleSend 已经主动 setMessages，避免重复推用户气泡
+          )
 
       if (!submitted && incoming.length > 0) {
         setPendingFiles(prev => [...incoming, ...prev])
@@ -1300,7 +1687,19 @@ export default function HiringPage() {
         setWorkflowError('')
         setWorkflowNotice('')
         setWsStageOverrides(new Map())
+        setDownstreamRuns({})
         setMaterialRequestedCategories([])
+        setPendingPackageArtifact(null)
+        setLinkedStoreSkillIds([])
+        downstreamRunsRef.current = {}
+        latestMaterialSummaryRef.current = null
+        latestSkillSummaryRef.current = null
+        latestExternalSummaryRef.current = null
+        materialSummarySignatureRef.current = ''
+        skillSummarySignatureRef.current = ''
+        externalSummarySignatureRef.current = ''
+        skillGenerationLaunchSignatureRef.current = ''
+        pendingInternalPromptsRef.current = []
 
         // 清除后端对话缓存，确保重置后刷新页面不会恢复旧记录
         api.hiringWorkflow.saveConversationCache(hireId, {}).catch(() => {})
@@ -1462,10 +1861,13 @@ export default function HiringPage() {
           <HiringTodoPanel
             hireId={workflowHireId}
             sessionId={sessionIdRef.current ?? ''}
-            wsStageOverrides={wsStageOverrides}
+            wsStageOverrides={uiStageOverrides}
             templatePackageSkills={template?.packageSkills ?? []}
             requestedMaterialCategories={materialRequestedCategories}
             uploadedConversationFiles={uploadedConversationFiles}
+            skillDefinitionStageStatus={uiStageOverrides.get(HiringCollectionStage.Skill) ?? null}
+            skillGenerationState={skillGenerationState}
+            definedSkills={definedSkills}
             onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}
             onGenerate={() => { void handleRequestPackaging() }}
             generated={instanceCreated}

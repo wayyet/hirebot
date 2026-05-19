@@ -7,6 +7,7 @@
 - "现在它要会的事，咱们一件一件谈。先说最常做的那个。"
 - "这件事什么时候会发生？什么样的情况你希望它出手？"
 - "它做完这件事，你期望最后给到的是什么——回复、单据、邮件、还是只是一个判断？"
+- "你确认这份技能清单后，我会先锁定技能定义，再单独问你要不要开始生成技能实现。"
 
 ### Story-driven 推进
 
@@ -19,7 +20,7 @@
 
 把强弱差异、卡点、最容易判错的地方，全部转化进 `skill_description`，不要只写"它会处理 X"。
 
-字段明确度对照、Handoff todo 字段定义见 [handoff-tools.md](./handoff-tools.md) 阶段 2 部分。
+字段明确度对照以 `stage-data-schema.md` 中的 `skill_workorder_progress` / `skill_workorder_summary` 为准。阶段 2 收口后，若存在 `generation_action = generate_new` 的条目，必须继续走“技能实现确认门”，先问用户是否开始生成技能实现，不要直接切到阶段 3。
 
 ## 阶段 3 引导细则
 
@@ -31,11 +32,11 @@
 
 ### 紧扣已有 skills
 
-这阶段不是单独的"系统盘点"，而是回头看每条 skill 还差哪个外部连接：
+这阶段不是单独的"系统盘点"，而是回头看每条已确认 skill 还差哪个外部连接：
 
-- 一条 skill 一条 skill 过，每条 skill 拉出 0-N 个外部能力，写入 Handoff todo 的 `payload.external_capabilities[]`
-- 每个外部能力的 `linked_skills` 字段把它绑回对应 skill 阶段的 Handoff id
-- 多条 skill 用同一个外部能力（如都要查 CRM 订单），合并为 `payload.external_capabilities[]` 中的一项，`linked_skills` 列表带多个 id
+- 一条 skill 一条 skill 过，每条 skill 拉出 0-N 个外部能力，写入 `external_workorder_progress` / `external_workorder_summary.data.external_capabilities[]`
+- 每个外部能力的 `linked_skills` 字段直接绑定对应的 `skill_name`
+- 多条 skill 用同一个外部能力（如都要查 CRM 订单），合并为 `external_capabilities[]` 中的一项，`linked_skills` 列表带多个 `skill_name`
 
 引导措辞参考：
 
@@ -43,7 +44,7 @@
 - "这条和前面的『订单状态查询』都要去 CRM 拿东西，是同一个动作吗？"
 - "这件事做完后，要不要让谁知道？发到哪里？"
 
-如果用户说"我们没什么外部系统"或"先不接"——按"用户跳过分支"处理（见 [handoff-tools.md](./handoff-tools.md) 阶段 3）。
+如果用户说"我们没什么外部系统"或"先不接"——按"用户跳过分支"处理，在 `external_workorder_summary.data` 中明确写出 skip 原因。
 
 ## 流程约束（防偏差）
 
@@ -61,10 +62,10 @@
 
 ## 决策启发式
 
-**资料阶段下游 Handoff todo 太多怎么办**：
+**资料阶段整理项太多怎么办**：
 
-- 按"业务对象定义 → 决策规则 → 流程 SOP → 案例 → 边界 → 风格"的优先级，先把前两类确保各有 1 条 Handoff todo
-- 案例类资料按场景合并 Handoff todo，不要每份资料一条
+- 按"业务对象定义 → 决策规则 → 流程 SOP → 案例 → 边界 → 风格"的优先级，先把前两类确保各有 1 条清晰整理项
+- 案例类资料按场景合并，不要每份资料都单独追一个整理条目
 
 **技能拆得太细**：
 
@@ -77,17 +78,16 @@
 - "把结果写进系统" → write
 - "通知到 IM" → notify
 - "数据格式转换" → transform
-- 一条能力同时跨两类时，拆成两条 Handoff todo，`linked_skills` 都指向同一条 skill
+- 一条能力同时跨两类时，拆成两条 external capability，`linked_skills` 都指向同一条 skill
 
 ## 质量自检
 
-每次发 dispatch 前、和最终给出口信号前，对照检查：
+每次发 terminal artifact 前、和最终给出口信号前，对照检查：
 
-- [ ] 当前阶段所有 Handoff todo 是否都达到下游可消化的明确度
-- [ ] 当前阶段是否仍有活跃 `drafting` / `dispatched` / `needs_review` 项；如果有，不能因为另有条目 `ready_to_dispatch` 就发 dispatch 或进入下一阶段
-- [ ] 是否存在同一资料、同一来源文件或父子包含关系的重复 Handoff todo；如果有，先 patch 原条目或明确撤销旧范围
-- [ ] Handoff id 是否稳定（同一意图反复出现没有产生新 Handoff todo；`fingerprint` 是否复用）
-- [ ] 是否有 Handoff todo 被用户口头撤销但 `status` 还停在 `ready_to_dispatch`
-- [ ] 是否在配置文件治理的反问待确认状态中错误地发了 dispatch
+- [ ] 当前阶段要写入 artifact data 的条目是否都达到下游可消化的明确度
+- [ ] 当前阶段是否仍有用户未确认的关键项；如果有，不能抢先发 terminal artifact 或进入下一阶段
+- [ ] 是否存在同一资料、同一来源文件或父子包含关系的重复整理项；如果有，先合并或撤销旧范围
+- [ ] 是否在配置文件治理的反问待确认状态中错误地发了 terminal artifact
+- [ ] 阶段 2 若已有 `generate_new` 条目，是否已经在 `skill_workorder_summary` 后紧跟 `skill_generation_ready` 和“是否开始生成技能实现”的确认门询问
 - [ ] 是否在对话里收集了凭据值（如发现，立刻删除并指引到表单）
 - [ ] 给用户的反馈是否保持"一行确认"风格，没有变成大段汇报

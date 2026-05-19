@@ -18,6 +18,21 @@ metadata:
 
 本技能的职责是生成以 `SKILL.md` 为核心的业务技能包。核心思想是先把非结构化输入抽取为统一的 SkillSpec，再映射到固定模板，生成后通过最小质量校验，通过后才落盘。生成过程中严格区分输入来源、提炼说明、产物质量和消费契约，确保生成过程可审阅、可复盘、可迁移。
 
+## 启动前置条件
+
+只有在上游 `employment-coach-conversation` 已经：
+
+- 完成技能定义（已发 `skill_workorder_summary`）
+- 且用户明确确认"开始生成技能实现"
+
+之后，才允许执行本技能。
+
+硬约束：
+
+- **禁止**因为看到了 `skill_workorder_summary` 就自动开始生成。
+- 若上游只发出了 `skill_generation_ready`，表示仍在等待用户确认；此时本技能不得写入任何正式技能文件。
+- 若用户明确表示"先不生成"、"稍后再说"、"先继续别的阶段"，本技能保持不启动，直到上游再次给出明确开始信号。
+
 ## 输入类型
 
 支持四类输入：
@@ -31,7 +46,7 @@ metadata:
 
 ## emit_artifact 使用规范
 
-本 skill 执行期间须在两个关键节点调用 `emit_artifact`，推动前端技能阶段（Skill 胶囊）更新。
+本 skill 执行期间须在两个关键节点调用 `emit_artifact`，推动前端**技能实现轨**更新。它们**不回写**主流程中"技能定义阶段已完成"的语义。
 
 ### 进度节点（isTerminal: false）
 
@@ -62,7 +77,7 @@ metadata:
 {
   "kind": "data",
   "artifactType": "skill_generation_done",
-  "label": "技能包已生成完毕，共 {N} 个技能，准备进入外部能力配置阶段",
+  "label": "技能包已生成完毕，共 {N} 个技能，可继续后续外部配置或打包流程",
   "skillName": "skill-generation",
   "stage": "skill-generation",
   "isTerminal": true,
@@ -123,12 +138,13 @@ metadata:
 
 先判断请求路径：
 
+- 等待确认路径：上游尚未取得用户关于"是否开始生成技能实现"的明确肯定，此时不执行本技能，只等待。
 - 结构化工单路径：输入包含 `generation_action`、`skill_name`、`skill_description`、`trigger`、`expected_output` 字段的技能清单，至少 1 项。
 - 直接路径：用户已经给出明确业务域、触发词、能力或上传了候选 skill 文件。
 - 模糊路径：用户只说"帮我做个 skill""把这些能力整理成 skill"，但缺少业务域、能力边界或产物目标。
 - 更新路径：现有 `skills/<skill_slug>/` 已存在，需要同名覆盖、增量合并或跳过。
 
-结构化工单路径和直接路径继续 Phase 0.5。模糊路径先做需求诊断：列出最多 3 个候选业务域、每个候选域的触发词和预计能力，要求用户确认后再落盘。
+等待确认路径直接停止，不落盘任何技能文件。结构化工单路径和直接路径继续 Phase 0.5。模糊路径先做需求诊断：列出最多 3 个候选业务域、每个候选域的触发词和预计能力，要求用户确认后再落盘。
 
 ### Phase 0.5: 创建自包含技能目录
 
@@ -161,7 +177,7 @@ skills/<skill_slug>/
 
 - 结构化工单：保留 `origin`、`generation_action`、`skill_name`、`skill_description`、`trigger`、`expected_output`，写入 `references/source-digest.md` 的 workorder source 区块。
 - 会话描述：保留用户原话，写入 `references/source-digest.md` 的 conversation source 区块。
-- 上传文件：解析 Markdown、文本、JSON、YAML；zip 递归读取候选 skill 文件；保留文件清单、解析结论和不可解析项。**当由上游 `employment-coach-conversation` 触发时，输入中包含 `material_handoff_summary`，其中每条物料的 `source_path` 字段即为沙箱内实际文件路径，直接按此路径读取，不要运行 `shell: ls` 探索文件系统。** `source_path` 为 `null` 的物料是纯文本描述，无对应文件。`material_handoff_summary` 的 `data.workspace_root` 是雇佣教练会话初始化时由沙箱解压工具创建并锁定的真实绝对路径（运行时确定，本 skill 当作不透明字符串使用），本 skill 的所有产物必须写入 `<workspace_root>/skills/<skill-slug>/`（用 artifact 收到的真实路径替换 `<workspace_root>`）；若 `workspace_root` 缺失，停下来报错，不要靠 `ls /workspace` 推断或自行拼接 `/workspace/<slug>`。
+- 上传文件：解析 Markdown、文本、JSON、YAML；zip 递归读取候选 skill 文件；保留文件清单、解析结论和不可解析项。**当由上游 `employment-coach-conversation` 触发时，输入以 `skill_workorder_summary` 为主工单；若工单条目中附带 `source_path` 或来源文件提示，直接按这些真实路径读取，不要运行 `shell: ls` 探索文件系统。** `source_path` 为 `null` 的条目是纯文本描述，无对应文件。`skill_workorder_summary` 的 `data.workspace_root` 是雇佣教练会话初始化时由沙箱解压工具创建并锁定的真实绝对路径（运行时确定，本 skill 当作不透明字符串使用），本 skill 的所有产物必须写入 `<workspace_root>/skills/<skill-slug>/`（用 artifact 收到的真实路径替换 `<workspace_root>`）；若 `workspace_root` 缺失，停下来报错，不要靠 `ls /workspace` 推断或自行拼接 `/workspace/<slug>`。
 - 混合输入：上传文件作为基线，会话描述作为增量补充，不用会话描述覆盖文件里更明确的能力定义。
 
 来源归档必须记录：来源类型、可信度、抽取到的能力、未决问题和被丢弃内容。不要把 token、密钥、密码、连接串写入归档。

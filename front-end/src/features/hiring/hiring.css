@@ -3995,11 +3995,67 @@ body.hb-body-hiring-prototype {
   gap: 8px;
 }
 .hb-todo-skill-section.is-search,
-.hb-todo-skill-section.is-linked-summary {
+.hb-todo-skill-section.is-linked-summary,
+.hb-todo-skill-section.is-defined,
+.hb-todo-skill-section.is-progress {
   padding: 12px;
   border: 1px solid rgba(226, 232, 240, 0.95);
   border-radius: 14px;
   background: #ffffff;
+}
+.hb-todo-skill-state-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hb-todo-skill-state-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hb-todo-skill-state-label {
+  color: var(--hb-body);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.hb-todo-skill-state-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: #f8fafc;
+  color: #64748b;
+}
+.hb-todo-skill-state-pill.is-idle {
+  background: #f8fafc;
+  color: #64748b;
+}
+.hb-todo-skill-state-pill.is-waiting {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.18);
+  color: #b45309;
+}
+.hb-todo-skill-state-pill.is-running {
+  background: rgba(74, 108, 247, 0.12);
+  border-color: rgba(74, 108, 247, 0.16);
+  color: var(--accent);
+}
+.hb-todo-skill-state-pill.is-completed {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.16);
+  color: #15803d;
+}
+.hb-todo-skill-state-pill.is-failed {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.16);
+  color: #b91c1c;
 }
 .hb-todo-skill-section.is-template {
   padding: 12px;
@@ -4095,6 +4151,12 @@ body.hb-body-hiring-prototype {
   border-bottom: 0;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.78);
+}
+.hb-todo-skill-inline-meta {
+  margin: 0;
+  color: #64748b;
+  font-size: 11.5px;
+  line-height: 1.5;
 }
 .hb-todo-skill-main {
   display: flex;

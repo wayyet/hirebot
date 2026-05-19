@@ -16,7 +16,12 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api, HiringCollectionStage } from '@/infra/api'
 import type { EmployeeTemplatePackageSkill, HiringCollectionStageType, StoreSkillItem } from '@/infra/api'
-import type { ChatFile, MaterialRequestedCategory } from '../hiringPageTypes'
+import type {
+  ChatFile,
+  DefinedSkillItem,
+  DownstreamRunState,
+  MaterialRequestedCategory,
+} from '../hiringPageTypes'
 import {
   buildUploadedCountByCategory,
   countDistinctMaterialUploads,
@@ -59,6 +64,9 @@ export interface HiringTodoPanelProps {
   templatePackageSkills?: EmployeeTemplatePackageSkill[]
   requestedMaterialCategories?: MaterialRequestedCategory[]
   uploadedConversationFiles?: ChatFile[]
+  skillDefinitionStageStatus?: StageStatus | null
+  skillGenerationState?: DownstreamRunState | null
+  definedSkills?: DefinedSkillItem[]
 }
 
 interface StageConfig {
@@ -123,6 +131,98 @@ function formatMaterialFileSize(bytes: number | null): string {
   return `${(bytes / 1048576).toFixed(1)} MB`
 }
 
+function readArtifactNumber(data: unknown, key: string): number | null {
+  if (!data || typeof data !== 'object') return null
+  const value = (data as Record<string, unknown>)[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function getSkillDefinitionStatusMeta(status: StageStatus | null): { label: string; tone: string } {
+  if (status === 'completed') return { label: '已确认', tone: 'is-completed' }
+  if (status === 'running') return { label: '收集中', tone: 'is-running' }
+  if (status === 'failed') return { label: '失败', tone: 'is-failed' }
+  return { label: '等待', tone: 'is-idle' }
+}
+
+function getSkillImplementationMeta(run: DownstreamRunState | null): {
+  label: string
+  tone: string
+  description: string
+} {
+  if (!run) {
+    return {
+      label: '未开始',
+      tone: 'is-idle',
+      description: '技能定义确认后，系统会先询问是否开始生成技能实现。',
+    }
+  }
+
+  if (run.status === 'waiting_confirm') {
+    return {
+      label: '待确认',
+      tone: 'is-waiting',
+      description: '技能定义已确认，请在对话区确认是否开始生成技能实现。',
+    }
+  }
+
+  if (run.status === 'running') {
+    const total = readArtifactNumber(run.data, 'total_skills')
+    const completed = readArtifactNumber(run.data, 'completed_skills')
+    if (total !== null && completed !== null) {
+      return {
+        label: '生成中',
+        tone: 'is-running',
+        description: `正在生成技能实现，当前已完成 ${completed}/${total} 个技能。`,
+      }
+    }
+
+    return {
+      label: '生成中',
+      tone: 'is-running',
+      description: run.label ?? '技能实现正在生成中。',
+    }
+  }
+
+  if (run.status === 'completed') {
+    const total = readArtifactNumber(run.data, 'total_skills')
+    const generated = readArtifactNumber(run.data, 'generated_count')
+    if (total !== null && generated !== null) {
+      return {
+        label: '已完成',
+        tone: 'is-completed',
+        description: `技能实现已落盘，本轮共处理 ${total} 个技能，其中新增生成 ${generated} 个。`,
+      }
+    }
+
+    return {
+      label: '已完成',
+      tone: 'is-completed',
+      description: '技能实现已落盘，将随最终实例包一起导入。',
+    }
+  }
+
+  return {
+    label: '失败',
+    tone: 'is-failed',
+    description: run.label ?? '技能实现生成失败，请在对话区继续排查。',
+  }
+}
+
+function getDefinedSkillGenerationMeta(
+  skill: DefinedSkillItem,
+  run: DownstreamRunState | null,
+): { label: string; tone: string } {
+  if (skill.generationAction && skill.generationAction !== 'generate_new') {
+    return { label: '复用既有技能', tone: 'is-completed' }
+  }
+
+  if (!run) return { label: '未开始', tone: 'is-idle' }
+  if (run.status === 'waiting_confirm') return { label: '待确认', tone: 'is-waiting' }
+  if (run.status === 'running') return { label: '生成中', tone: 'is-running' }
+  if (run.status === 'completed') return { label: '已生成', tone: 'is-completed' }
+  return { label: '失败', tone: 'is-failed' }
+}
+
 function deriveFolderFromWebkitPath(file: File): string | undefined {
   // <input webkitdirectory> 上传时 webkitRelativePath 形如 "folder/sub/file.md"
   const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath
@@ -181,6 +281,9 @@ export function HiringTodoPanel({
   templatePackageSkills = [],
   requestedMaterialCategories = [],
   uploadedConversationFiles = [],
+  skillDefinitionStageStatus = null,
+  skillGenerationState = null,
+  definedSkills = [],
 }: HiringTodoPanelProps) {
   // 用户是否手动覆盖了某张卡片的展开状态；未手动覆盖的走"活跃阶段自动展开"逻辑
   const [userToggled, setUserToggled] = useState<Record<string, boolean>>({})
@@ -256,6 +359,9 @@ export function HiringTodoPanel({
                 templatePackageSkills={templatePackageSkills}
                 onAfterLink={summary => onAfterStageMessage?.(HiringCollectionStage.Skill, summary)}
                 onLinkedIdsChange={onLinkedSkillIdsChange}
+                definitionStageStatus={skillDefinitionStageStatus}
+                skillGenerationState={skillGenerationState}
+                definedSkills={definedSkills}
               />
             )}
             {stage.key === HiringCollectionStage.External && (
@@ -604,10 +710,16 @@ function SkillCardBody({
   templatePackageSkills,
   onAfterLink,
   onLinkedIdsChange,
+  definitionStageStatus,
+  skillGenerationState,
+  definedSkills,
 }: {
   templatePackageSkills: EmployeeTemplatePackageSkill[]
   onAfterLink: (summary: string) => void
   onLinkedIdsChange?: (skillIds: string[]) => void
+  definitionStageStatus: StageStatus | null
+  skillGenerationState: DownstreamRunState | null
+  definedSkills: DefinedSkillItem[]
 }) {
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<StoreSkillItem[]>([])
@@ -686,6 +798,14 @@ function SkillCardBody({
         : currentResults.length > 0
           ? `${currentResults.length} 条`
       : '待关联'
+  const definitionMeta = useMemo(
+    () => getSkillDefinitionStatusMeta(definitionStageStatus),
+    [definitionStageStatus],
+  )
+  const implementationMeta = useMemo(
+    () => getSkillImplementationMeta(skillGenerationState),
+    [skillGenerationState],
+  )
 
   function handleLink(s: StoreSkillItem) {
     if (isLinked(s.id)) return
@@ -700,6 +820,33 @@ function SkillCardBody({
 
   return (
     <div className="hb-todo-skill">
+      <section className="hb-todo-skill-section is-progress" aria-label="技能定义与实现状态">
+        <div className="hb-todo-skill-section-head">
+          <strong>当前状态</strong>
+        </div>
+        <div className="hb-todo-skill-linked-item">
+          <div className="hb-todo-skill-main">
+            <div className="hb-todo-skill-title-row">
+              <strong>定义状态</strong>
+              <div className="hb-todo-skill-chips">
+                <span className={clsx('hb-todo-skill-chip', definitionMeta.tone)}>{definitionMeta.label}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="hb-todo-skill-linked-item">
+          <div className="hb-todo-skill-main">
+            <div className="hb-todo-skill-title-row">
+              <strong>实现状态</strong>
+              <div className="hb-todo-skill-chips">
+                <span className={clsx('hb-todo-skill-chip', implementationMeta.tone)}>{implementationMeta.label}</span>
+              </div>
+            </div>
+            <p className="hb-todo-skill-desc">{implementationMeta.description}</p>
+          </div>
+        </div>
+      </section>
+
       <div className="hb-todo-skill-toolbar">
         <label className="hb-todo-skill-search-field">
           <input
@@ -720,6 +867,40 @@ function SkillCardBody({
           {searchStatusLabel}
         </span>
       </div>
+
+      {definedSkills.length > 0 && (
+        <section className="hb-todo-skill-section is-defined" aria-label="已定义技能">
+          <div className="hb-todo-skill-section-head">
+            <strong>已定义技能</strong>
+            <span className="hb-todo-skill-section-pill">{definedSkills.length} 个</span>
+          </div>
+          <ul className="hb-todo-skill-list is-template">
+            {definedSkills.map(skill => {
+              const generationMeta = getDefinedSkillGenerationMeta(skill, skillGenerationState)
+
+              return (
+                <li key={skill.skillName} className="hb-todo-skill-item is-static">
+                  <div className="hb-todo-skill-main">
+                    <div className="hb-todo-skill-title-row">
+                      <strong>{skill.skillName}</strong>
+                      <div className="hb-todo-skill-chips">
+                        <span className={clsx('hb-todo-skill-chip', generationMeta.tone)}>{generationMeta.label}</span>
+                      </div>
+                    </div>
+                    {skill.description && <p className="hb-todo-skill-desc">{skill.description}</p>}
+                    {skill.expectedOutput && (
+                      <p className="hb-todo-skill-inline-meta">期望输出：{skill.expectedOutput}</p>
+                    )}
+                    {skill.triggers.length > 0 && (
+                      <p className="hb-todo-skill-inline-meta">触发词：{skill.triggers.join('、')}</p>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
 
       <section className="hb-todo-skill-section is-search" aria-label="搜索与推荐技能">
         {currentSearching && <p className="hb-todo-hint-muted">搜索中…</p>}

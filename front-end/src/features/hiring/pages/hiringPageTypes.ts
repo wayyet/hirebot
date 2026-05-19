@@ -44,6 +44,31 @@ export interface StageGateData {
   blockedReason?: string
 }
 
+export type DownstreamRunKey = 'ontology-extraction' | 'skill-generation' | 'external-config'
+
+export type DownstreamRunStatus = 'idle' | 'waiting_confirm' | 'running' | 'completed' | 'failed'
+
+export interface DefinedSkillItem {
+  skillName: string
+  generationAction?: string
+  description?: string
+  expectedOutput?: string
+  triggers: string[]
+  capabilities: string[]
+}
+
+export interface DownstreamRunState {
+  key: DownstreamRunKey
+  status: DownstreamRunStatus
+  artifactType: string
+  label?: string
+  displayHint?: string
+  updatedAt: string
+  data?: unknown
+}
+
+export type DownstreamRunsSnapshot = Partial<Record<DownstreamRunKey, DownstreamRunState>>
+
 /** MCP 工具单次调用状态 */
 type ToolStepStatus = 'running' | 'done' | 'error'
 
@@ -77,4 +102,3 @@ export interface SkillUploadPayload {
   releaseNote: string
   description: string
 }
-
