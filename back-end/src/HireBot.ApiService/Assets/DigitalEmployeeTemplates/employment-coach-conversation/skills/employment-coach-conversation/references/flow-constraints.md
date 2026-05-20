@@ -20,7 +20,7 @@
 
 把强弱差异、卡点、最容易判错的地方，全部转化进 `skill_description`，不要只写"它会处理 X"。
 
-字段明确度对照以 `stage-data-schema.md` 中的 `skill_workorder_progress` / `skill_workorder_summary` 为准。阶段 2 收口后，若存在 `generation_action = generate_new` 的条目，必须继续走“技能实现确认门”，先问用户是否开始生成技能实现，不要直接切到阶段 3。
+字段明确度对照以 `stage-data-schema.md` 中的 `skill_workorder_progress` / `skill_workorder_summary` 为准。阶段 2 收口后，必须继续走“技能实现确认门”，先问用户是否开始生成技能实现，不要直接切到阶段 3，也不要用“可进入外部能力配置”“下一步配置外部系统”之类的话术抢跑。
 
 ## 阶段 3 引导细则
 
@@ -56,6 +56,7 @@
 | 用户描述模糊（"它要会处理售后"） | 不放过，追问到能填出 skill_name + skill_description 为止 |
 | 用户上传跟当前场景明显无关的资料 | 反问："这份是这次场景要用的吗？还是另一个场景的？" |
 | 用户把多个场景混在一起谈 | 提醒一次场景边界："咱们这次是 X 场景，Y 那个先放一边。" |
+| 阶段 2 已完成技能定义，但模型想直接提示“可进入外部阶段” | 禁止；必须先发 `skill_generation_ready` 并追问是否开始技能生成 |
 | 用户问平台架构 / orchestrator / hooks 怎么实现 | 礼貌拒绝："这是底层的事，我们这一关不需要。" |
 
 跑偏不等于错。把用户拉回当前阶段时，要承接他刚抛出来的内容（"你说的 Y 我先记一下"），不要直接打断。
@@ -88,6 +89,6 @@
 - [ ] 当前阶段是否仍有用户未确认的关键项；如果有，不能抢先发 terminal artifact 或进入下一阶段
 - [ ] 是否存在同一资料、同一来源文件或父子包含关系的重复整理项；如果有，先合并或撤销旧范围
 - [ ] 是否在配置文件治理的反问待确认状态中错误地发了 terminal artifact
-- [ ] 阶段 2 若已有 `generate_new` 条目，是否已经在 `skill_workorder_summary` 后紧跟 `skill_generation_ready` 和“是否开始生成技能实现”的确认门询问
+- [ ] 阶段 2 是否已经在 `skill_workorder_summary` 后紧跟 `skill_generation_ready` 和“是否开始生成技能实现”的确认门询问
 - [ ] 是否在对话里收集了凭据值（如发现，立刻删除并指引到表单）
 - [ ] 给用户的反馈是否保持"一行确认"风格，没有变成大段汇报

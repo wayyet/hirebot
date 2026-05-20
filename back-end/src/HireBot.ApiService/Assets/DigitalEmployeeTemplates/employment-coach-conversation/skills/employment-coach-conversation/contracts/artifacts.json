@@ -22,7 +22,7 @@
     },
     {
       "name": "stage2_skill",
-      "label": "阶段 2：技能定义",
+      "label": "阶段 2：技能",
       "ownerSkill": "employment-coach-conversation",
       "gate": { "requiresStage": "stage1_material" },
       "artifacts": [
@@ -43,7 +43,7 @@
           "label": "等待确认开始生成技能实现",
           "display": "badge",
           "terminal": false,
-          "note": "技能定义已确认完成后发送，只驱动技能实现轨为 waiting_confirm，不得回写主 skill 阶段未完成。"
+          "note": "技能定义已确认完成后发送，标记阶段 2 进入“技能生成确认/执行”子步骤；前端应将技能实现轨置为 waiting_confirm，并保留“技能定义已确认”子状态，但主 stage2_skill 在 skill-generation 完成前仍保持进行中。"
         }
       ]
     },
