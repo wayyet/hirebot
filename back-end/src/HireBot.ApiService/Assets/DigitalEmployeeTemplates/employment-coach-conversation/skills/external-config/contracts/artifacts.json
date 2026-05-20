@@ -2,19 +2,19 @@
   "schemaVersion": 1,
   "stages": [
     {
-      "name": "external_config_gen",
-      "label": "外部配置生成",
+      "name": "external-config",
+      "label": "外部配置",
       "artifacts": [
         {
-          "type": "config_gen_progress",
-          "label": "配置生成进度",
+          "type": "external_config_progress",
+          "label": "外部配置进度",
           "display": "progress",
           "terminal": false
         },
         {
-          "type": "capability_config_result",
-          "label": "外部能力配置草案",
-          "display": "table",
+          "type": "external_config_done",
+          "label": "外部配置结果",
+          "display": "tree",
           "terminal": true
         }
       ]
