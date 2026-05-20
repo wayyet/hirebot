@@ -264,6 +264,26 @@ export default function EvaluationPage() {
     employee?.evalPhase === 'pending_onboarding' ||
     employee?.evalPhase === 'pending_onboarding_force'
   const humanEvalPath = id ? `${instanceBasePath(location.pathname, id)}/human-evaluation` : null
+  const [enteringHumanEval, setEnteringHumanEval] = useState(false)
+
+  async function handleEnterHumanEval() {
+    if (!id || !humanEvalPath) return
+    setEnteringHumanEval(true)
+    try {
+      // 确认进入人工评估时把状态从 AI 评估改为人工评估
+      await api.employeeRuntime.updateLifecycle(id, {
+        status: 'interning_human',
+        stageSummary: '人工评估进行中',
+        primarySignal: '等待人工验证',
+        signalLevel: 'ok',
+      })
+    } catch {
+      // 状态转换失败不阻断导航，人工评估页面会二次检查并重试
+    } finally {
+      setEnteringHumanEval(false)
+      navigate(humanEvalPath)
+    }
+  }
   const humanEvalBannerTone = reportSummary?.passed === false
     ? 'border-[#fed7aa] bg-[#fff7ed]'
     : 'border-[#bbf7d0] bg-[#f0fdf4]'
@@ -1107,9 +1127,11 @@ export default function EvaluationPage() {
                   </div>
                   <button
                     type="button"
-                    className="hb-btn-primary shrink-0 !px-3 !py-1.5 !text-[12px]"
-                    onClick={() => navigate(humanEvalPath)}
+                    disabled={enteringHumanEval}
+                    className="hb-btn-primary shrink-0 !px-3 !py-1.5 !text-[12px] disabled:opacity-60"
+                    onClick={() => void handleEnterHumanEval()}
                   >
+                    {enteringHumanEval ? <Loader2 size={12} className="animate-spin" /> : null}
                     进入人工评估 →
                   </button>
                 </div>
