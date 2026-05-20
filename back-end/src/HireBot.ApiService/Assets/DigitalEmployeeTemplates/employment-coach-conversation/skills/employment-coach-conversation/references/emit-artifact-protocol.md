@@ -29,7 +29,7 @@
 | `label` | string | 前端胶囊显示的进度文本，用业务语言描述当前状态 |
 | `skillName` | string | 固定为 `employment-coach-conversation` |
 | `stage` | string | 当前阶段标识，决定前端哪个胶囊更新 |
-| `isTerminal` | bool | `false` = 进度更新（胶囊置为 running）；`true` = 阶段完成（胶囊置为 completed） |
+| `isTerminal` | bool | `false` = 进度更新（胶囊置为 running）；`true` = 当前 artifact 所属步骤收口。对阶段 1/3 可直接视为阶段完成；对阶段 2 的 `skill_workorder_summary` 仅表示“技能定义”子步骤完成 |
 | `displayHint` | string | 前端渲染提示：`progress` 用于进度条 / 列表，`tree` 用于最终树状摘要 |
 | `data` | object | 阶段产物的结构化内容，详见 stage-data-schema.md |
 
@@ -37,12 +37,17 @@
 
 前端监听 WebSocket `type: 'artifact'` 消息：
 - `isTerminal: false` → 将对应阶段胶囊置为 `running`（仅在尚未 completed 时生效）
-- `isTerminal: true` → 将对应阶段胶囊置为 `completed`
+- `isTerminal: true` → 默认将对应阶段胶囊置为 `completed`
+- `stage2_skill` 是特例：`skill_workorder_summary` 只表示技能定义子步骤收口，主技能阶段要等 `skill_generation_done` 后才置为 `completed`
 
 stage 与前端胶囊的对应关系：
 - `stage1_material` → 资料收集胶囊（skillName 含 'material' 时触发）
 - `stage2_skill` → 技能配置胶囊（skillName 含 'skill' 时触发）
 - `stage3_external` → 外部能力胶囊（skillName 含 'external' 时触发）
+
+补充说明：
+- `stage2_skill` 是“技能”主阶段，其中固定先完成技能定义，再进入技能生成确认/执行子步骤。
+- `skill_workorder_summary` 发出后，必须额外发出 `skill_generation_ready`；该 artifact 只驱动下游 `skill-generation` 轨为 `waiting_confirm`。前端应保留“技能定义已确认”子状态，但主 `stage2_skill` 胶囊在 `skill-generation` 完成前仍保持进行中。
 
 ## 各阶段发出时机
 
@@ -60,7 +65,12 @@ stage 与前端胶囊的对应关系：
 | 时机 | artifactType | isTerminal | displayHint |
 |------|-------------|------------|-------------|
 | 技能阶段开始，收到第一条技能描述 | `skill_workorder_progress` | `false` | `progress` |
-| 用户确认技能清单完整 | `skill_workorder_summary` | `true` | `tree` |
+| 用户确认技能清单完整，技能定义子步骤收口 | `skill_workorder_summary` | `true` | `tree` |
+| 技能定义已确认，等待用户确认是否开始技能生成 | `skill_generation_ready` | `false` | `badge` |
+
+补充约束：
+- `skill_workorder_summary` 只表示“技能定义”子步骤完成，不代表可以直接进入阶段 3。
+- 只有 `skill-generation` 已完成且用户明确同意继续时，才允许发出 `external_workorder_progress`。
 
 ### 阶段 3：外部（stage3_external）
 
@@ -68,6 +78,9 @@ stage 与前端胶囊的对应关系：
 |------|-------------|------------|-------------|
 | 外部阶段开始，收到第一条能力描述 | `external_workorder_progress` | `false` | `progress` |
 | 用户确认外部能力清单（或明确跳过） | `external_workorder_summary` | `true` | `tree` |
+
+进入前提：
+- 只有在 `skill_generation_done` 已到达后，才允许真正进入外部阶段。
 
 ## 调用约束
 

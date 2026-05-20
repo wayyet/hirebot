@@ -4,12 +4,14 @@ import { HiringCollectionStage } from '@/infra/api'
 import type { SandboxMessage } from '@/infra/sandbox/sandbox-api'
 
 import {
+  buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
   buildUiStageOverrides,
+  shouldHoldExternalStageUntilSkillImplementation,
 } from './hiringArtifactState'
 
 describe('buildUiStageOverrides', () => {
-  it('does not downgrade the main skill stage when skill generation is waiting for confirmation', () => {
+  it('does not change the main skill stage when no skill-stage hold is requested', () => {
     const overrides = buildUiStageOverrides(
       new Map([[HiringCollectionStage.Skill, 'completed' as const]]),
       {
@@ -19,9 +21,66 @@ describe('buildUiStageOverrides', () => {
         updatedAt: '2026-05-20T10:00:00Z',
       },
       null,
+      false,
     )
 
     expect(overrides.get(HiringCollectionStage.Skill)).toBe('completed')
+  })
+
+  it('holds the external stage when skill implementation is still pending', () => {
+    const overrides = buildUiStageOverrides(
+      new Map([
+        [HiringCollectionStage.Skill, 'completed' as const],
+        [HiringCollectionStage.External, 'running' as const],
+      ]),
+      {
+        key: 'skill-generation',
+        status: 'waiting_confirm',
+        artifactType: 'skill_generation_ready',
+        updatedAt: '2026-05-20T10:00:00Z',
+      },
+      null,
+      true,
+    )
+
+    expect(overrides.get(HiringCollectionStage.External)).toBeUndefined()
+  })
+
+  it('keeps the main skill stage running when skill definition is done but implementation is still pending', () => {
+    const overrides = buildUiStageOverrides(
+      new Map([[HiringCollectionStage.Skill, 'completed' as const]]),
+      {
+        key: 'skill-generation',
+        status: 'waiting_confirm',
+        artifactType: 'skill_generation_ready',
+        updatedAt: '2026-05-20T10:00:00Z',
+      },
+      null,
+      true,
+    )
+
+    expect(overrides.get(HiringCollectionStage.Skill)).toBe('running')
+  })
+})
+
+describe('shouldHoldExternalStageUntilSkillImplementation', () => {
+  it('returns true when skill generation still waits for confirmation', () => {
+    const hold = shouldHoldExternalStageUntilSkillImplementation(
+      {
+        skills: [
+          { skill_name: 'A', generation_action: 'reuse_existing' },
+          { skill_name: 'B', generation_action: 'reuse_existing' },
+        ],
+      },
+      {
+        key: 'skill-generation',
+        status: 'waiting_confirm',
+        artifactType: 'skill_generation_ready',
+        updatedAt: '2026-05-20T10:00:00Z',
+      },
+    )
+
+    expect(hold).toBe(true)
   })
 })
 
@@ -93,5 +152,18 @@ describe('buildHistoricalHiringConversationState', () => {
         },
       ],
     })
+  })
+})
+
+describe('buildCoachResumePrompt', () => {
+  it('builds a resume prompt that routes back to the coach after ontology extraction', () => {
+    const prompt = buildCoachResumePrompt('post-ontology-extraction', {
+      materialSummary: { total_items: 1 },
+      ontologyResult: { completed_slices: 1 },
+    })
+
+    expect(prompt).toContain('Switch back to skill `employment-coach-conversation` now.')
+    expect(prompt).toContain('ask whether to enter skill definition now')
+    expect(prompt).toContain('"completed_slices": 1')
   })
 })

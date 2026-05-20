@@ -37,8 +37,10 @@ import type {
   ToolStep,
 } from './hiringPageTypes'
 import {
+  buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
   buildUiStageOverrides,
+  shouldHoldExternalStageUntilSkillImplementation,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
 } from './hiringArtifactState'
@@ -363,6 +365,7 @@ export default function HiringPage() {
   const materialSummarySignatureRef = useRef('')
   const skillSummarySignatureRef = useRef('')
   const externalSummarySignatureRef = useRef('')
+  const ontologyExtractionDoneSignatureRef = useRef('')
   const skillGenerationLaunchSignatureRef = useRef('')
   const pendingInternalPromptsRef = useRef<string[]>([])
 
@@ -394,6 +397,7 @@ export default function HiringPage() {
     materialSummarySignatureRef.current = ''
     skillSummarySignatureRef.current = ''
     externalSummarySignatureRef.current = ''
+    ontologyExtractionDoneSignatureRef.current = ''
 
     for (const message of messagesToSync) {
       const artifact = message.artifact
@@ -411,6 +415,9 @@ export default function HiringPage() {
       if (artifact.artifactType === 'external_workorder_summary' && artifact.isTerminal) {
         latestExternalSummaryRef.current = artifact.data ?? null
         externalSummarySignatureRef.current = signature
+      }
+      if (artifact.artifactType === 'ontology_extraction_done' && artifact.isTerminal) {
+        ontologyExtractionDoneSignatureRef.current = signature
       }
     }
   }
@@ -442,13 +449,21 @@ export default function HiringPage() {
     materialSummarySignatureRef.current = restored.latestMaterialSummary ? JSON.stringify(restored.latestMaterialSummary) : ''
     skillSummarySignatureRef.current = restored.latestSkillSummary ? JSON.stringify(restored.latestSkillSummary) : ''
     externalSummarySignatureRef.current = restored.latestExternalSummary ? JSON.stringify(restored.latestExternalSummary) : ''
+    ontologyExtractionDoneSignatureRef.current = restored.messages
+      .filter(message => message.artifact?.artifactType === 'ontology_extraction_done' && message.artifact.isTerminal)
+      .map(message => JSON.stringify(message.artifact?.data ?? {}))
+      .at(-1) ?? ''
     return true
   }
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
   const externalConfigState = downstreamRuns['external-config'] ?? null
+  const holdExternalStage = shouldHoldExternalStageUntilSkillImplementation(
+    latestSkillSummaryRef.current,
+    skillGenerationState,
+  )
   const uiStageOverrides = useMemo(
-    () => buildUiStageOverrides(wsStageOverrides, skillGenerationState, externalConfigState),
-    [wsStageOverrides, skillGenerationState, externalConfigState],
+    () => buildUiStageOverrides(wsStageOverrides, skillGenerationState, externalConfigState, holdExternalStage),
+    [wsStageOverrides, skillGenerationState, externalConfigState, holdExternalStage],
   )
 
   const workflowReady = Boolean(workflowHireId)
@@ -1025,6 +1040,18 @@ export default function HiringPage() {
               )
             }
           }
+          if (artifactType === 'ontology_extraction_done' && kind === 'data' && isTerminal) {
+            const signature = JSON.stringify(artifactData.data ?? {})
+            if (ontologyExtractionDoneSignatureRef.current !== signature) {
+              ontologyExtractionDoneSignatureRef.current = signature
+              pendingInternalPromptsRef.current.push(
+                buildCoachResumePrompt('post-ontology-extraction', {
+                  materialSummary: latestMaterialSummaryRef.current,
+                  ontologyResult: artifactData.data ?? {},
+                }),
+              )
+            }
+          }
           if (artifactType === 'skill_workorder_summary' && kind === 'data' && isTerminal) {
             latestSkillSummaryRef.current = artifactData.data ?? null
             skillSummarySignatureRef.current = JSON.stringify(artifactData.data ?? {})
@@ -1098,6 +1125,17 @@ export default function HiringPage() {
             nextStage: String(gate.nextStage ?? gate.next_stage ?? ''),
             canProceed: Boolean(gate.canProceed ?? gate.can_proceed),
             blockedReason: gate.blockedReason != null ? String(gate.blockedReason) : gate.blocked_reason != null ? String(gate.blocked_reason) : undefined,
+          }
+          const shouldSuppressStageGate =
+            stageGate.canProceed &&
+            resolveHiringStageFromWs(stageGate.skillName, stageGate.completedStage) === HiringCollectionStage.Skill &&
+            resolveHiringStageFromWs(stageGate.skillName, stageGate.nextStage) === HiringCollectionStage.External &&
+            shouldHoldExternalStageUntilSkillImplementation(
+              latestSkillSummaryRef.current,
+              downstreamRunsRef.current['skill-generation'] ?? null,
+            )
+          if (shouldSuppressStageGate) {
+            return
           }
           setMessages(msgs => [...msgs, {
             id: mkId(),
@@ -1682,6 +1720,7 @@ export default function HiringPage() {
         skillSummarySignatureRef.current = ''
         externalSummarySignatureRef.current = ''
         skillGenerationLaunchSignatureRef.current = ''
+        ontologyExtractionDoneSignatureRef.current = ''
         pendingInternalPromptsRef.current = []
 
         // 清除后端对话缓存，确保重置后刷新页面不会恢复旧记录
@@ -1848,7 +1887,7 @@ export default function HiringPage() {
             templatePackageSkills={template?.packageSkills ?? []}
             requestedMaterialCategories={materialRequestedCategories}
             uploadedConversationFiles={uploadedConversationFiles}
-            skillDefinitionStageStatus={uiStageOverrides.get(HiringCollectionStage.Skill) ?? null}
+            skillDefinitionStageStatus={wsStageOverrides.get(HiringCollectionStage.Skill) ?? null}
             skillGenerationState={skillGenerationState}
             definedSkills={definedSkills}
             onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}

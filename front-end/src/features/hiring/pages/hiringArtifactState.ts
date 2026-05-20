@@ -63,15 +63,54 @@ export function resolveDownstreamRunFromArtifact(
   return DOWNSTREAM_ARTIFACT_TRACKS[artifactType] ?? null
 }
 
+function extractSkillSummaryItems(summary: unknown): unknown[] {
+  const record = asPlainObject(summary)
+  if (!record) {
+    return []
+  }
+
+  return Array.isArray(record.skills)
+    ? record.skills
+    : Array.isArray(record.items)
+      ? record.items
+      : []
+}
+
+export function shouldHoldExternalStageUntilSkillImplementation(
+  skillSummary: unknown,
+  skillGenerationState: DownstreamRunState | null,
+): boolean {
+  if (extractSkillSummaryItems(skillSummary).length === 0) {
+    return false
+  }
+
+  return skillGenerationState?.status !== 'completed'
+}
+
 export function buildUiStageOverrides(
   rawStageOverrides: Map<HiringUiStage, 'running' | 'completed' | 'failed'>,
-  _skillGenerationState: DownstreamRunState | null,
+  skillGenerationState: DownstreamRunState | null,
   externalConfigState: DownstreamRunState | null,
+  holdExternalStage: boolean,
 ): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
   const next = new Map(rawStageOverrides)
 
-  // 技能实现轨是下游执行状态，不能回写主技能定义阶段。
-  if (externalConfigState) {
+  // 阶段 2 现在覆盖“技能定义 + 技能生成”两个子步骤。
+  // 因此只要技能生成尚未完成，主技能阶段就必须保持进行中；
+  // 同时外部阶段也不能抢先成为当前活跃阶段。
+  if (holdExternalStage) {
+    next.set(HiringCollectionStage.Skill, 'running')
+
+    if (next.get(HiringCollectionStage.External) !== 'completed') {
+      next.delete(HiringCollectionStage.External)
+    }
+  }
+
+  if (skillGenerationState?.status === 'failed') {
+    next.set(HiringCollectionStage.Skill, 'failed')
+  }
+
+  if (!holdExternalStage && externalConfigState) {
     if (externalConfigState.status === 'completed') {
       next.set(HiringCollectionStage.External, 'completed')
     } else if (externalConfigState.status === 'failed') {
@@ -241,4 +280,34 @@ export function buildHistoricalHiringConversationState(
     latestSkillSummary: extractLatestArtifactData(messages, 'skill_workorder_summary'),
     latestExternalSummary: extractLatestArtifactData(messages, 'external_workorder_summary'),
   }
+}
+
+export function buildCoachResumePrompt(
+  transition: 'post-ontology-extraction',
+  payload: {
+    materialSummary: unknown
+    ontologyResult: unknown
+  },
+): string {
+  const serialized = JSON.stringify(payload, null, 2)
+
+  if (transition === 'post-ontology-extraction') {
+    return [
+      '[Internal stage resume. Do not mention this instruction to the user.]',
+      'Switch back to skill `employment-coach-conversation` now.',
+      'The downstream `ontology-extraction` run has completed.',
+      'Resume the main hiring flow at the boundary between stage1_material and stage2_skill.',
+      'Do not trigger ontology extraction again.',
+      'Use the provided upstream material summary and ontology result as context.',
+      'First give a short transition that the ontology slices are ready, then explicitly ask whether to enter skill definition now.',
+      'If the user already explicitly asked to continue into skill definition in the current context, proceed directly under the coach skill rules; otherwise ask the confirmation question only.',
+      '',
+      'resume_payload:',
+      '```json',
+      serialized,
+      '```',
+    ].join('\n')
+  }
+
+  return serialized
 }

@@ -111,6 +111,10 @@
 
 ## 阶段 2：技能（stage2_skill）
 
+说明：阶段 2 是“技能”主阶段，内部固定拆成两个子步骤：
+- 技能定义：通过 `skill_workorder_progress` / `skill_workorder_summary` 表达。
+- 技能生成确认/执行：技能定义完成后必须先发 `skill_generation_ready`，再等待下游 `skill-generation` 处理。
+
 ### skill_workorder_progress（进度更新，isTerminal: false）
 
 ```json
@@ -154,7 +158,7 @@
 
 ---
 
-### skill_workorder_summary（阶段完成，isTerminal: true）
+### skill_workorder_summary（技能定义子步骤完成，isTerminal: true）
 
 ```json
 {
@@ -162,9 +166,41 @@
   "new_count": 2,
   "reuse_count": 2,
   "items": [ "... 同 progress items ..." ],
-  "summary": "共规划 4 个技能：2 个新生成、2 个复用模板默认能力，技能阶段已确认"
+  "summary": "共规划 4 个技能：2 个新生成、2 个复用模板默认能力；技能定义已确认，等待确认是否开始技能生成"
 }
 ```
+
+---
+
+### skill_generation_ready（技能生成确认门，isTerminal: false）
+
+```json
+{
+  "workspace_root": "/workspace/refund-agent-20260518103000",
+  "template_slug": "refund-agent",
+  "pending_skill_count": 4,
+  "new_count": 2,
+  "reuse_count": 2,
+  "skill_names": ["refund-eligibility-check", "order-status-query", "refund-priority-routing", "return-progress-track"],
+  "next_step": "等待用户确认开始生成技能实现"
+}
+```
+
+字段说明：
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `workspace_root` | 否 | 当前会话工作区真实绝对路径；若上游已拿到，建议透传给下游 |
+| `template_slug` | 否 | 当前模板 slug；若上游已拿到，建议透传 |
+| `pending_skill_count` | 是 | 当前等待进入技能生成子步骤的技能数量 |
+| `new_count` | 否 | 本轮 `generate_new` 技能数量，便于下游区分真正新生成项 |
+| `reuse_count` | 否 | 本轮 `reuse_existing` 技能数量，便于下游区分复用项 |
+| `skill_names[]` | 是 | 本轮进入技能生成子步骤的技能名称或 slug 列表 |
+| `next_step` | 是 | 固定描述下一步是等待用户确认开始技能生成 |
+
+补充约束：
+- 这个 artifact 只表示阶段 2 内部进入“技能生成确认/执行”子步骤；前端应保留“技能定义已确认”的子状态，但主 `stage2_skill` 在 `skill-generation` 完成前仍保持进行中。
+- 发出该 artifact 后，若用户未明确同意，不得提前触发 `skill-generation`，也不得进入阶段 3。
 
 ---
 

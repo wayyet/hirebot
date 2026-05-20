@@ -1,6 +1,6 @@
 ---
 name: employment-coach-conversation
-description: "雇佣教练的阶段化对话引导核心。用于业务用户在沙箱内雇佣 / 装配数字员工时，按『资料 → 技能 → 外部』三阶段引导对话，通过 emit_artifact 工具在关键节点推送流程产物（进度与阶段完成），驱动前端阶段胶囊实时更新；同时承担 soul / identity / agent 三份配置文件的对话监听与混合反问治理。当用户已选定模板进入会话窗口、需要按阶段引导对话、需要为本体提取 / 技能生成 / 外部配置准备可执行输入时，必须使用本 skill。不要用于一次性方案咨询（请用专用咨询 skill 或 ncrew-discovery）、还没初始化沙箱的场景、或需要直接执行诊断 / 打包的场景。"
+description: "雇佣教练的阶段化对话引导核心。用于业务用户在沙箱内雇佣 / 装配数字员工时，按『资料 → 技能（先定义，再生成）→ 外部』顺序引导对话，通过 emit_artifact 工具在关键节点推送流程产物（进度与阶段完成），驱动前端阶段胶囊实时更新；同时承担 soul / identity / agent 三份配置文件的对话监听与混合反问治理。当用户已选定模板进入会话窗口、需要按阶段引导对话、需要为本体提取 / 技能生成 / 外部配置准备可执行输入时，必须使用本 skill。不要用于一次性方案咨询（请用专用咨询 skill 或 ncrew-discovery）、还没初始化沙箱的场景、或需要直接执行诊断 / 打包的场景。"
 compatibility: HireBot employment-coach-conversation v1.0
 license: Proprietary. NCrew employment-coach internal flow.
 metadata:
@@ -17,7 +17,7 @@ metadata:
 
 使用本 skill 当：
 - 业务用户已经在某个雇佣任务的会话窗口中
-- 需要按"资料 → 技能 → 外部"的阶段顺序引导用户对话
+- 需要按"资料 → 技能（先定义，再完成技能生成）→ 外部"的阶段顺序引导用户对话
 - 需要在关键节点调用 emit_artifact 工具推送阶段进度与完成产物
 - 需要监听用户对 soul / identity / agent 三份配置文件的修改意图
 
@@ -44,7 +44,7 @@ metadata:
 
 ## 全局原则
 
-1. **阶段硬卡点**：未走过的阶段严格按"资料 → 技能 → 外部"顺序解锁；走过的阶段（产生过有效产出）由系统提供跳转入口
+1. **阶段硬卡点**：未走过的阶段严格按"资料 → 技能（先定义，再完成技能生成）→ 外部"顺序解锁；走过的阶段（产生过有效产出）由系统提供跳转入口
    - 用户提前描述后续阶段内容时，只用一句话承接并拉回当前阶段；等当前阶段闭环后再继续
 2. **不偷工**：每个阶段必须达到足够明确度，不替用户决定"差不多就行"
 3. **emit_artifact 先行**：当对话收集到可推送的进度信息时，先调用 `emit_artifact` 工具更新前端阶段胶囊状态，再给用户一句反馈；不能只在对话里复述结果而不推送产物
@@ -70,7 +70,8 @@ metadata:
 | 时机 | artifactType | stage | isTerminal | displayHint |
 |------|-------------|-------|------------|-------------|
 | 收到第一批技能描述后 | `skill_workorder_progress` | `stage2_skill` | `false` | `progress` |
-| 用户确认技能清单，技能阶段收尾 | `skill_workorder_summary` | `stage2_skill` | `true` | `tree` |
+| 用户确认技能清单，技能定义子步骤收尾 | `skill_workorder_summary` | `stage2_skill` | `true` | `tree` |
+| 技能定义已确认，等待用户确认是否开始技能生成 | `skill_generation_ready` | `stage2_skill` | `false` | `badge` |
 
 **阶段 3 外部 — 发出时机与参数**
 
@@ -283,16 +284,17 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 - 发出 `skill_workorder_summary` terminal artifact
 
 **阶段 2 完成后的强制动作（技能实现确认门）**：
-- 若 `skill_workorder_summary.data.skills` 中存在至少 1 个 `generation_action = generate_new` 的条目，必须立刻发出 `skill_generation_ready` artifact，用于标记"技能定义已确认，等待用户确认是否开始生成技能实现"。这个 artifact **只驱动技能实现轨状态**，**不得**把主 `skill` 阶段改回未完成。
+- 发出 `skill_workorder_summary` 后，必须立刻发出 `skill_generation_ready` artifact，用于标记"技能定义已确认，等待用户确认是否开始生成技能实现"。这个 artifact **只驱动技能实现轨状态**；前端仍应保留“技能定义已确认”的子步骤状态，但主 `stage2_skill` 在 `skill-generation` 完成前必须保持进行中。
 - 紧接着必须主动询问用户：
 
 > 「技能定义已经确认完成。是否现在开始生成这些技能的实现内容？」
 
 - 等待用户明确回应：
-  - 用户**肯定**：立即把需要新增实现的条目交给下游 `skill-generation`，由下游先发 `skill_generation_progress`，再开始真正生成。
+  - 用户**肯定**：立即把本轮技能清单交给下游 `skill-generation`，由下游先发 `skill_generation_progress`，再开始真正生成 / 复用落盘。
   - 用户**否定 / 暂停**：保留 `skill_generation_ready` 状态，不启动 `skill-generation`，等用户后续明确同意后再开始。
   - 用户**补充或修改技能定义**：回到阶段 2，更新 `skill_workorder_progress` / `skill_workorder_summary`，然后重新发出上述确认门询问。
-- 若技能清单全部为 `reuse_existing`，跳过本确认门，不要求启动 `skill-generation`。
+- **禁止话术**：只要 `skill-generation` 尚未完成，就**不得**对用户说"可进入外部能力配置"、"下一步是外部系统"或任何等价表述。
+- **进入阶段 3 的前置条件**：只有 `skill-generation` 已完成，且用户明确同意继续外部阶段时，才允许进入外部阶段。
 
 > 阶段 2 引导话术、story-driven 推进、字段明确度对照 → 进入阶段 2 之前，读 [references/flow-constraints.md](references/flow-constraints.md) 阶段 2 部分。
 
@@ -302,7 +304,7 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 **最低门槛**：每个外部能力都明确 `分类 + 目标 + 目标系统 + 鉴权方式 + 关联 skill`；或用户明确表达"不需要外部系统"。
 
-**进入阶段的强制动作**：技能阶段 terminal artifact 已发出，用户同意继续后，先发出外部阶段进度 emit_artifact（`external_workorder_progress`），再开始引导外部能力定义。
+**进入阶段的强制动作**：只有在 `skill-generation` 已完成且用户明确同意继续外部阶段的前提下，才允许发出外部阶段进度 emit_artifact（`external_workorder_progress`）并开始引导外部能力定义。
 
 **凭据红线（顶层强约束，安全相关，不下放到 reference）**：
 - token / 密钥 / 密码 / API Key 等**绝不在会话里收集**

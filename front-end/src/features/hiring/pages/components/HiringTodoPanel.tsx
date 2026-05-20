@@ -212,14 +212,17 @@ function getDefinedSkillGenerationMeta(
   skill: DefinedSkillItem,
   run: DownstreamRunState | null,
 ): { label: string; tone: string } {
-  if (skill.generationAction && skill.generationAction !== 'generate_new') {
-    return { label: '复用既有技能', tone: 'is-completed' }
-  }
-
   if (!run) return { label: '未开始', tone: 'is-idle' }
   if (run.status === 'waiting_confirm') return { label: '待确认', tone: 'is-waiting' }
   if (run.status === 'running') return { label: '生成中', tone: 'is-running' }
-  if (run.status === 'completed') return { label: '已生成', tone: 'is-completed' }
+  if (run.status === 'completed') {
+    if (skill.generationAction && skill.generationAction !== 'generate_new') {
+      return { label: '已复用', tone: 'is-completed' }
+    }
+
+    return { label: '已生成', tone: 'is-completed' }
+  }
+
   return { label: '失败', tone: 'is-failed' }
 }
 
