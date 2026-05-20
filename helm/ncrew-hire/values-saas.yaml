@@ -45,7 +45,7 @@ env:
   OpenSandbox__Domain: opensandbox-server.opensandbox-system:80
   OpenSandbox__Protocol: Http
   OpenSandbox__UseServerProxy: "false"
-  OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605172234
+  OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605181416
   OpenSandbox__Resource__cpu: 500m
   OpenSandbox__Resource__memory: 1Gi
   OpenSandbox__TimeoutSeconds: "43200"
@@ -58,8 +58,8 @@ env:
   OpenSandbox__KingCrab__OidcAuthority: https://passport.ai4c.cn/realms/ai4c-saas
   OpenSandbox__KingCrab__OidcAudience: account
   OpenSandbox__KingCrab__ToolTimeoutSeconds: "300"
-  OpenSandbox__KingCrab__LlmModel: MiniMax-M2.5
-  OpenSandbox__KingCrab__LlmEndpoint: https://api.minimaxi.com/v1
+  OpenSandbox__KingCrab__LlmModel: gpt-5.2
+  OpenSandbox__KingCrab__LlmEndpoint: https://new-api.ai4c.cn/v1
   # LlmApiKey 和 ClientSecret 通过 secretEnv 注入
   # KingCrabSandboxTokenProvider 优先用 ClientId/ClientSecret 向 Keycloak 换取 token；
   # 若两者未配置则回退到静态 AuthToken。
@@ -96,7 +96,7 @@ secretEnv:
 secrets:
   create: true
   stringData:
-    OpenSandboxKingCrabLlmApiKey: "sk-cp-cKAEvOlT0QxJacIbrmO0Ua-RA7S0AiDL__HCMF274d-bds9g4lgILdhBlUmLLjDv6biKZ9Acr6Y65HDuLgkYi-UOkwIYwTaRzVs87LKDJPEuc1j6aixpnhQ"
+    OpenSandboxKingCrabLlmApiKey: "sk-zd4vgCanFy62ZJoQpiJCdbKXE80JcRmFQWD9vdxJib2r5g44"
     OpenSandboxKingCrabClientSecret: "IZTY9YKEO1Qx4pgrKIYaOSfUdcyYag9z"
 
 database:
