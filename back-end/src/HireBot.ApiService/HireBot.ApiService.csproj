@@ -36,8 +36,13 @@
     <Content Update="appsettings.Development.local.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- Assets/ 下的 .md 文件默认不被 Web SDK 发布，需显式声明 -->
-    <Content Include="Assets\**\*.md">
+    <!-- .json 已被 Web SDK 默认收录，用 Update 补充发布配置；避免 NETSDK1022 重复错误 -->
+    <Content Update="Assets\**\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <!-- 其余类型 Web SDK 不默认收录，用 Include 显式添加（.md/.py/.txt/.ps1/.zip/.7z 等） -->
+    <Content Include="Assets\**\*.md;Assets\**\*.py;Assets\**\*.txt;Assets\**\*.ps1;Assets\**\*.zip;Assets\**\*.7z">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
