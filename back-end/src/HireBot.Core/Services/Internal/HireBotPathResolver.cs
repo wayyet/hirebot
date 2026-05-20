@@ -10,6 +10,7 @@ public static class HireBotPathResolver
     public const string DefaultInstanceFixturesSubdir = "instance-fixtures";
     public const string DefaultTodoFilesSubdir = "todo-files";
     public const string DefaultTemplatePackageCacheSubdir = "template-package-cache";
+    public const string DefaultArtifactStoreSubdir = "artifact-store";
 
     public static string ResolveDataRoot(string contentRootPath, string? configuredDataRoot)
     {
@@ -54,6 +55,18 @@ public static class HireBotPathResolver
             configuredDataRoot,
             configuredPersonalCloneArtifactsRoot,
             DefaultPersonalCloneArtifactsSubdir);
+    }
+
+    public static string ResolveArtifactStoreRoot(
+        string contentRootPath,
+        string? configuredDataRoot,
+        string? configuredArtifactStoreRoot)
+    {
+        return ResolveDataScopedPath(
+            contentRootPath,
+            configuredDataRoot,
+            configuredArtifactStoreRoot,
+            DefaultArtifactStoreSubdir);
     }
 
     public static string ResolveInstanceFixturesRoot(

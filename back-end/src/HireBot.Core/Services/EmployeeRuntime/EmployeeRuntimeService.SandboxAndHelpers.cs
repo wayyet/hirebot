@@ -303,10 +303,10 @@ public sealed partial class EmployeeRuntimeService
 
     private string ResolveArtifactStoreRoot()
     {
-        var configured = configuration["HireBot:ArtifactStoreRoot"];
-        return string.IsNullOrWhiteSpace(configured)
-            ? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "hirebot-artifacts"))
-            : Path.GetFullPath(configured.Trim());
+        return HireBotPathResolver.ResolveArtifactStoreRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:ArtifactStoreRoot"]);
     }
 
     private static void ReplaceDirectory(

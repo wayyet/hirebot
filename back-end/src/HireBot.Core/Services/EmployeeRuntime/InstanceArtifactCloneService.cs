@@ -304,13 +304,10 @@ public sealed class InstanceArtifactCloneService(
     /// </summary>
     private string ResolveRoot()
     {
-        var configured = configuration["HireBot:ArtifactStoreRoot"];
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            return Path.GetFullPath(configured.Trim());
-        }
-
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "hirebot-artifacts"));
+        return HireBotPathResolver.ResolveArtifactStoreRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:ArtifactStoreRoot"]);
     }
 
     /// <summary>

@@ -1,19 +1,20 @@
 using System.Security.Cryptography;
+using HireBot.Core.Services.Internal;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace HireBot.Core.Services.Hiring.Storage;
 
-public sealed class FileSystemHiringFileStore(IConfiguration configuration) : IHiringFileStore
+public sealed class FileSystemHiringFileStore(
+    IConfiguration configuration,
+    IHostEnvironment hostEnvironment) : IHiringFileStore
 {
     private string ResolveRoot()
     {
-        var configured = configuration["HireBot:ArtifactStoreRoot"];
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            return Path.GetFullPath(configured.Trim());
-        }
-
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "hirebot-artifacts"));
+        return HireBotPathResolver.ResolveArtifactStoreRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:ArtifactStoreRoot"]);
     }
 
     public async Task<string> SaveAsync(
