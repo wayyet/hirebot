@@ -207,7 +207,7 @@ export default function HumanEvaluationPage() {
     let settled = false
     let timeoutId: number | null = null
 
-    await new Promise<void>((resolve, reject) => {
+    const waitForOpen = new Promise<void>((resolve, reject) => {
       timeoutId = window.setTimeout(() => {
         if (settled) return
         settled = true
@@ -343,9 +343,11 @@ export default function HumanEvaluationPage() {
       }
     }
 
+    // connect() 必须在 await waitForOpen 之前调用，否则状态回调永远不会触发
     ws.connect()
     wsRef.current = ws
     connectionStateRef.current = { endpoint, sessionId: sessionIdRef.current }
+    await waitForOpen
   }
 
   async function initTargetChat(endpoint: string): Promise<boolean> {
