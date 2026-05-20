@@ -10,7 +10,12 @@ import type {
 } from '@/infra/api'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import { resolveGatewayEndpoint } from '@/infra/sandbox/sandbox-config'
-import { fetchLatestGatewaySession, fetchSandboxSessionMessages, uploadMediaToGateway, uploadWorkspaceFileToGateway } from '@/infra/sandbox/sandbox-api'
+import {
+  fetchLatestGatewaySession,
+  fetchSandboxSessionMessages,
+  uploadMediaToGateway,
+  uploadWorkspaceFileToGateway,
+} from '@/infra/sandbox/sandbox-api'
 import { tokenService } from '@/infra/auth/token-service'
 
 import { HiringConversationPanel } from './components/HiringConversationPanel'
@@ -23,7 +28,6 @@ import type {
   ChatFile,
   ChatMessage,
   DefinedSkillItem,
-  DownstreamRunKey,
   DownstreamRunsSnapshot,
   DownstreamRunState,
   DownstreamRunStatus,
@@ -32,6 +36,12 @@ import type {
   StageGateData,
   ToolStep,
 } from './hiringPageTypes'
+import {
+  buildHistoricalHiringConversationState,
+  buildUiStageOverrides,
+  resolveDownstreamRunFromArtifact,
+  resolveHiringStageFromWs,
+} from './hiringArtifactState'
 import { extractConversationMaterialFiles } from './materialUploadMatching'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 import { extractLatestMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
@@ -130,37 +140,6 @@ function formatFileSize(bytes: number) {
   return bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`
 }
 
-const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey; status: DownstreamRunStatus }> = {
-  ontology_extraction_progress: { key: 'ontology-extraction', status: 'running' },
-  ontology_extraction_done: { key: 'ontology-extraction', status: 'completed' },
-  skill_generation_ready: { key: 'skill-generation', status: 'waiting_confirm' },
-  skill_generation_progress: { key: 'skill-generation', status: 'running' },
-  skill_generation_done: { key: 'skill-generation', status: 'completed' },
-  external_config_progress: { key: 'external-config', status: 'running' },
-  external_config_done: { key: 'external-config', status: 'completed' },
-}
-
-/**
- * 从 WS artifact/stage_gate 消息里推导对应的雇佣阶段。
- * `employment-coach-conversation` 的主阶段 artifact 驱动主阶段胶囊；
- * 下游 skill artifact 进入独立执行轨，不再复用主阶段状态。
- */
-function resolveHiringStageFromWs(
-  skillName: string | undefined,
-  stageName: string | undefined,
-): HiringUiStage | null {
-  if (skillName === 'employment-coach-conversation' && stageName) {
-    if (stageName.includes('material')) return HiringCollectionStage.Material
-    if (stageName.includes('skill')) return HiringCollectionStage.Skill
-    if (stageName.includes('external')) return HiringCollectionStage.External
-  }
-  return null
-}
-
-function resolveDownstreamRunFromArtifact(artifactType: string): { key: DownstreamRunKey; status: DownstreamRunStatus } | null {
-  return DOWNSTREAM_ARTIFACT_TRACKS[artifactType] ?? null
-}
-
 function hasPendingDownstreamRuns(runs: DownstreamRunsSnapshot): boolean {
   return Object.values(runs).some(run => run?.status === 'waiting_confirm' || run?.status === 'running')
 }
@@ -251,46 +230,6 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
   return []
 }
 
-function buildUiStageOverrides(
-  rawStageOverrides: Map<HiringUiStage, 'running' | 'completed' | 'failed'>,
-  skillGenerationState: DownstreamRunState | null,
-  externalConfigState: DownstreamRunState | null,
-): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
-  const next = new Map(rawStageOverrides)
-
-  // Skill generation stage
-  if (skillGenerationState) {
-    if (skillGenerationState.status === 'completed') {
-      next.set(HiringCollectionStage.Skill, 'completed')
-      if (next.get(HiringCollectionStage.External) !== 'running') {
-        next.set(HiringCollectionStage.External, 'running')
-      }
-    } else if (skillGenerationState.status === 'failed') {
-      next.set(HiringCollectionStage.Skill, 'failed')
-    } else {
-      // waiting_confirm / running
-      next.set(HiringCollectionStage.Skill, 'running')
-      if (next.get(HiringCollectionStage.External) !== 'completed') {
-        next.delete(HiringCollectionStage.External)
-      }
-    }
-  }
-
-  // External config stage
-  if (externalConfigState) {
-    if (externalConfigState.status === 'completed') {
-      next.set(HiringCollectionStage.External, 'completed')
-    } else if (externalConfigState.status === 'failed') {
-      next.set(HiringCollectionStage.External, 'failed')
-    } else {
-      // waiting_confirm / running
-      next.set(HiringCollectionStage.External, 'running')
-    }
-  }
-
-  return next
-}
-
 type DownstreamTarget = 'ontology-extraction' | 'skill-generation' | 'external-config'
 
 function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): string {
@@ -378,6 +317,7 @@ export default function HiringPage() {
   const [templateLoading, setTemplateLoading] = useState(true)
   const [templateError, setTemplateError] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const messagesRef = useRef<ChatMessage[]>([])
   const [typing, setTyping] = useState(false)
   const [input, setInput] = useState('')
   const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([])
@@ -446,6 +386,64 @@ export default function HiringPage() {
   const rawFileMapRef = useRef<Map<string, File>>(new Map())
   // 避免同一会话重复触发“自动上传模板并引导”
   const autoTemplateBootstrapSessionRef = useRef<string | null>(null)
+
+  function syncArtifactDerivedRefs(messagesToSync: ChatMessage[]) {
+    latestMaterialSummaryRef.current = null
+    latestSkillSummaryRef.current = null
+    latestExternalSummaryRef.current = null
+    materialSummarySignatureRef.current = ''
+    skillSummarySignatureRef.current = ''
+    externalSummarySignatureRef.current = ''
+
+    for (const message of messagesToSync) {
+      const artifact = message.artifact
+      if (!artifact || artifact.kind !== 'data') continue
+
+      const signature = JSON.stringify(artifact.data ?? {})
+      if (artifact.artifactType === 'material_handoff_summary' && artifact.isTerminal) {
+        latestMaterialSummaryRef.current = artifact.data ?? null
+        materialSummarySignatureRef.current = signature
+      }
+      if (artifact.artifactType === 'skill_workorder_summary' && artifact.isTerminal) {
+        latestSkillSummaryRef.current = artifact.data ?? null
+        skillSummarySignatureRef.current = signature
+      }
+      if (artifact.artifactType === 'external_workorder_summary' && artifact.isTerminal) {
+        latestExternalSummaryRef.current = artifact.data ?? null
+        externalSummarySignatureRef.current = signature
+      }
+    }
+  }
+
+  async function restoreConversationFromSandboxHistory(
+    endpoint: string,
+    sessionId: string,
+    mode: 'always' | 'if-longer' = 'always',
+  ): Promise<boolean> {
+    const sandboxMessages = await fetchSandboxSessionMessages(endpoint, sessionId)
+    if (sandboxMessages.length === 0) {
+      return false
+    }
+
+    const restored = buildHistoricalHiringConversationState(sandboxMessages, normalizeAssistantReply)
+    const shouldReplace = mode === 'always' || restored.messages.length >= messagesRef.current.length
+    if (!shouldReplace) {
+      return false
+    }
+
+    setMessages(restored.messages)
+    setMaterialRequestedCategories(restored.materialRequestedCategories)
+    setWsStageOverrides(restored.wsStageOverrides)
+    downstreamRunsRef.current = restored.downstreamRuns
+    setDownstreamRuns(restored.downstreamRuns)
+    latestMaterialSummaryRef.current = restored.latestMaterialSummary
+    latestSkillSummaryRef.current = restored.latestSkillSummary
+    latestExternalSummaryRef.current = restored.latestExternalSummary
+    materialSummarySignatureRef.current = restored.latestMaterialSummary ? JSON.stringify(restored.latestMaterialSummary) : ''
+    skillSummarySignatureRef.current = restored.latestSkillSummary ? JSON.stringify(restored.latestSkillSummary) : ''
+    externalSummarySignatureRef.current = restored.latestExternalSummary ? JSON.stringify(restored.latestExternalSummary) : ''
+    return true
+  }
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
   const externalConfigState = downstreamRuns['external-config'] ?? null
   const uiStageOverrides = useMemo(
@@ -534,6 +532,10 @@ export default function HiringPage() {
   }, [pendingPackageArtifact, workflowHireId, instanceCreated])
 
   // 对话状态变化时防抖保存到后端（messages 或 wsStageOverrides 变化时触发）
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
   useEffect(() => {
     if (!workflowHireId || messages.length === 0) return
     const timer = setTimeout(() => {
@@ -756,6 +758,7 @@ export default function HiringPage() {
               downstreamRunsRef.current = cached.downstreamRuns
               setDownstreamRuns(cached.downstreamRuns)
             }
+            syncArtifactDerivedRefs(cached.messages)
             autoTemplateBootstrapSessionRef.current = sessionId
             return
           }
@@ -764,21 +767,7 @@ export default function HiringPage() {
         }
       }
 
-      // 后端无缓存时，回退到仅恢复文字消息（沙箱历史）
-      const mapped = existingMessages
-        .filter(m => m.type === 'user_message' || m.type === 'assistant_message')
-        .map<ChatMessage>(m => ({
-          id: mkId(),
-          role: m.type === 'user_message' ? 'user' : 'bot',
-          content: m.type === 'assistant_message'
-            ? normalizeAssistantReply(String(m.content ?? ''))
-            : String(m.text ?? ''),
-        }))
-        .filter(m => m.content.trim().length > 0)
-      if (mapped.length > 0) {
-        setMessages(mapped)
-      }
-      setMaterialRequestedCategories([])
+      await restoreConversationFromSandboxHistory(endpoint, sessionId, 'always')
       autoTemplateBootstrapSessionRef.current = sessionId
       return
     }
@@ -1140,19 +1129,7 @@ export default function HiringPage() {
     ws.onReconnected = () => {
       const sid = sessionIdRef.current
       if (endpoint && sid) {
-        fetchSandboxSessionMessages(endpoint, sid).then(sandboxMessages => {
-          const mapped = sandboxMessages
-            .filter(m => m.type === 'user_message' || m.type === 'assistant_message')
-            .map<ChatMessage>(m => ({
-              id: mkId(),
-              role: m.type === 'user_message' ? 'user' : 'bot',
-              content: m.type === 'assistant_message'
-                ? normalizeAssistantReply(String(m.content ?? ''))
-                : String(m.text ?? ''),
-            }))
-            .filter(m => m.content.trim().length > 0)
-          setMessages(prev => mapped.length >= prev.length ? mapped : prev)
-        }).catch(() => { /* 忽略拉取失败 */ })
+        restoreConversationFromSandboxHistory(endpoint, sid, 'if-longer').catch(() => { /* 忽略拉取失败 */ })
       }
     }
 
@@ -1373,6 +1350,12 @@ export default function HiringPage() {
           role: 'bot',
           content: assistantContent,
         }])
+      }
+
+      const endpoint = gatewayEndpointRef.current
+      const sessionId = sessionIdRef.current
+      if (endpoint && sessionId) {
+        await restoreConversationFromSandboxHistory(endpoint, sessionId, 'always').catch(() => false)
       }
 
       setWorkflowError('')
