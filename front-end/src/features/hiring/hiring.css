@@ -1183,11 +1183,39 @@ body.hb-body-hiring-prototype {
   padding-left: 18px;
 }
 
+.hb-hiring-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .hb-hiring-info-title {
   margin: 0 0 4px;
   font-size: 13px;
   line-height: 1.4;
   font-weight: 700;
+}
+
+.hb-hiring-info-collapse-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--hb-body);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.hb-hiring-info-collapse-btn:hover {
+  background: var(--hb-bg-hover, #f3f4f6);
+  color: var(--hb-near-black);
 }
 
 .hb-hiring-info-body {
