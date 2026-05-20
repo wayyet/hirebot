@@ -8,6 +8,8 @@ using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HireBot.Core.Tests;
@@ -119,7 +121,7 @@ public sealed class HiringArtifactPackageServiceTests
 
         return new HiringArtifactPackageService(
             dbContext,
-            new FileSystemHiringFileStore(configuration),
+            new FileSystemHiringFileStore(configuration, new StubHostEnvironment(artifactRoot)),
             NullLogger<HiringArtifactPackageService>.Instance);
     }
 
@@ -160,4 +162,15 @@ public sealed class HiringArtifactPackageServiceTests
             Directory.Delete(artifactRoot, recursive: true);
         }
     }
+}
+
+/// <summary>
+/// 测试用的 IHostEnvironment 存根，ContentRootPath 指向指定目录。
+/// </summary>
+file sealed class StubHostEnvironment(string contentRootPath) : IHostEnvironment
+{
+    public string EnvironmentName { get; set; } = "Test";
+    public string ApplicationName { get; set; } = "Test";
+    public string ContentRootPath { get; set; } = contentRootPath;
+    public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
 }
