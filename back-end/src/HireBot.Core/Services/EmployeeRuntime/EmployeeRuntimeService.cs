@@ -924,7 +924,7 @@ public sealed partial class EmployeeRuntimeService(
 
     /// <summary>
     /// 删除数字员工及其全部关联资源：内存记录、DB 实例、沙箱、IM 配置、五件套 artifact 文件。
-    /// 仅允许删除自己创建的数字员工。分身类型（personal_clone / private_branch）要求已退役。
+    /// 分身类型（personal_clone / private_branch）要求已退役。创建人限制已移除，后续改造为基于权限的访问控制。
     /// </summary>
     public async Task<ApiResponse<object>> DeleteEmployeeAsync(
         string employeeId,
@@ -959,10 +959,7 @@ public sealed partial class EmployeeRuntimeService(
             }
         }
 
-        if (!string.Equals(instance.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
-        {
-            return ApiResponse<object>.ErrorResponse(403, "只能删除自己创建的数字员工");
-        }
+        // 创建人限制已移除，后续统一改造为基于权限的访问控制
 
         // 最大努力清理：运行时沙箱 + IM 渠道配置
         await CleanupRetiredInstanceArtifactsAsync(owner, normalizedId, cancellationToken);
