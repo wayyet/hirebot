@@ -1,7 +1,7 @@
 import type { ReactNode, RefObject } from 'react'
 import { useState, useCallback } from 'react'
 
-import { Check, Copy, FileText, Paperclip, Package, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Copy, FileText, Paperclip, Package, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -360,13 +360,28 @@ type InfoCardProps = {
 }
 
 function InfoCard({ title, body, detail, actions }: InfoCardProps) {
+  const [collapsed, setCollapsed] = useState(false)
   return (
     <article className="hb-hiring-info-card">
       <div className="hb-hiring-bubble is-bot is-panel">
-        <h3 className="hb-hiring-info-title">{title}</h3>
-        <p className="hb-hiring-info-body">{body}</p>
-        {detail ? <div className="hb-hiring-info-detail">{detail}</div> : null}
-        {actions ? <div className="hb-hiring-info-actions">{actions}</div> : null}
+        <div className="hb-hiring-info-header">
+          <h3 className="hb-hiring-info-title">{title}</h3>
+          <button
+            type="button"
+            className="hb-hiring-info-collapse-btn"
+            onClick={() => setCollapsed((v) => !v)}
+            title={collapsed ? '展开' : '收起'}
+          >
+            {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+          </button>
+        </div>
+        {collapsed ? null : (
+          <>
+            <p className="hb-hiring-info-body">{body}</p>
+            {detail ? <div className="hb-hiring-info-detail">{detail}</div> : null}
+            {actions ? <div className="hb-hiring-info-actions">{actions}</div> : null}
+          </>
+        )}
       </div>
     </article>
   )
