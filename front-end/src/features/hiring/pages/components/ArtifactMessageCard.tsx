@@ -63,6 +63,13 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
     return <OntologyExtractionView data={artifact.data} />
   }
   if (artifact.artifactType === 'skill_workorder_summary') return <SkillWorkorderSummaryView data={artifact.data} />
+  if (
+    artifact.artifactType === 'skill_generation_ready' ||
+    artifact.artifactType === 'skill_generation_progress' ||
+    artifact.artifactType === 'skill_generation_done'
+  ) {
+    return <SkillGenerationStatusView artifactType={artifact.artifactType} data={artifact.data} />
+  }
   const hint = artifact.displayHint ?? 'text'
   if (hint === 'progress') return <ProgressView data={artifact.data} />
   if (hint === 'table') return <TableView data={artifact.data} />
@@ -195,6 +202,59 @@ function OntologyExtractionView({ data }: { data: unknown }) {
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p}</span>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** skill_generation_ready / _progress / _done 轻量状态视图 */
+function SkillGenerationStatusView({
+  artifactType, data,
+}: { artifactType: string; data: unknown }) {
+  const rec = asRecord(data)
+  if (!rec) return <CodeView data={data} />
+
+  const summary = typeof rec.summary === 'string' ? rec.summary : ''
+  const totalSkills = typeof rec.total_skills === 'number' ? rec.total_skills : null
+
+  const statusConfig: Record<string, { label: string; bg: string; color: string; border: string }> = {
+    skill_generation_ready: {
+      label: '☕ 等待确认',
+      bg: 'rgba(245,158,11,0.10)', color: '#b45309',
+      border: 'rgba(245,158,11,0.30)',
+    },
+    skill_generation_progress: {
+      label: '⏳ 生成中',
+      bg: 'rgba(37,99,235,0.10)', color: '#1d4ed8',
+      border: 'rgba(37,99,235,0.25)',
+    },
+    skill_generation_done: {
+      label: '✓ 已完成',
+      bg: 'rgba(16,185,129,0.10)', color: '#047857',
+      border: 'rgba(16,185,129,0.30)',
+    },
+  }
+  const st = statusConfig[artifactType] ?? statusConfig.skill_generation_ready
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {totalSkills !== null && (
+          <span style={statChipStyle}>
+            {'🧩 技能数'} <b style={{ marginLeft: 3 }}>{totalSkills}</b>
+          </span>
+        )}
+        <span style={{
+          fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600,
+          background: st.bg, color: st.color, border: `1px solid ${st.border}`,
+        }}>
+          {st.label}
+        </span>
+      </div>
+      {summary && (
+        <div style={{ fontSize: 12, color: 'var(--hb-text, #374151)', lineHeight: 1.65 }}>
+          {summary}
         </div>
       )}
     </div>
@@ -503,6 +563,11 @@ function MaterialHandoffView({ data }: { data: unknown }) {
 function ArtifactIcon({ artifact }: { artifact: ArtifactDisplayData }) {
   if (artifact.kind === 'file') return <span className="hb-artifact-icon">📄</span>
   if (artifact.artifactType === 'skill_workorder_summary') return <span className="hb-artifact-icon">🧩</span>
+  if (
+    artifact.artifactType === 'skill_generation_ready' ||
+    artifact.artifactType === 'skill_generation_progress' ||
+    artifact.artifactType === 'skill_generation_done'
+  ) return <span className="hb-artifact-icon">⚙️</span>
   if (artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
   if (artifact.artifactType === 'ontology_extraction_done' || artifact.artifactType === 'ontology_extraction_progress') return <span className="hb-artifact-icon">🌿</span>
   const map: Record<string, string> = { table: '📊', code: '💻', tree: '🌿', badge: '✅', progress: '⏳' }
