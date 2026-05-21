@@ -3,7 +3,7 @@ import { tokenService } from '@/infra/auth/token-service'
 
 // 优先取后端注入的 ApiBase（镜像内部署时为 ""，即相对路径），
 // 其次 VITE 环境变量，最后回退到本地开发默认地址
-const API_BASE_URL = (() => {
+export const API_BASE_URL = (() => {
   if (typeof window !== 'undefined' && window.__AUTH_CONFIG__?.ApiBase !== undefined) {
     return window.__AUTH_CONFIG__.ApiBase
   }

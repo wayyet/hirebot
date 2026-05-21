@@ -127,9 +127,10 @@ function toArtifactDisplayData(raw: Record<string, unknown>): ArtifactDisplayDat
   const kind = (String(raw.kind ?? 'data')) as 'file' | 'data'
   const artifactType = String(raw.artifactType ?? raw.artifact_type ?? 'generic')
   const label = raw.label != null ? String(raw.label) : undefined
-  const skillName = raw.skillName != null ? String(raw.skillName) : undefined
+  const skillName = (raw.skillName ?? raw.skill_name) != null ? String(raw.skillName ?? raw.skill_name) : undefined
   const stage = raw.stage != null ? String(raw.stage) : undefined
-  const isTerminal = Boolean(raw.isTerminal ?? raw.is_terminal)
+  // 兼容三种字段名：isTerminal（WS 实时）、is_terminal（snake_case）、terminal（历史 tool call arguments）
+  const isTerminal = Boolean(raw.isTerminal ?? raw.is_terminal ?? raw.terminal)
   const displayHint = raw.displayHint != null
     ? String(raw.displayHint)
     : raw.display_hint != null
@@ -148,7 +149,8 @@ function toArtifactDisplayData(raw: Record<string, unknown>): ArtifactDisplayDat
 
   if (kind === 'file') {
     artifactData.fileUrl = String(raw.fileUrl ?? raw.file_url ?? '')
-    artifactData.fileName = String(raw.fileName ?? raw.file_name ?? label ?? 'file')
+    // 兼容历史 tool call 中的 display_name 字段（WS 实时用 fileName/file_name）
+    artifactData.fileName = String(raw.fileName ?? raw.file_name ?? raw.display_name ?? label ?? 'file')
     artifactData.mimeType = String(raw.mimeType ?? raw.mime_type ?? '')
   } else {
     artifactData.data = typeof raw.data === 'string' ? JSON.parse(raw.data) : raw.data
@@ -168,7 +170,15 @@ function extractArtifactFromToolCall(toolCall: SandboxToolCall): ArtifactDisplay
   }
 
   try {
-    return toArtifactDisplayData(payload)
+    const artifact = toArtifactDisplayData(payload)
+    // 历史 tool call 的 fileUrl 不在 arguments 里，而在 result 的 [FILE_URL:...] 标记中
+    if (artifact.kind === 'file' && !artifact.fileUrl && toolCall.result) {
+      const match = /\[FILE_URL:([^\]]+)\]/.exec(toolCall.result)
+      if (match?.[1]) {
+        artifact.fileUrl = match[1].trim()
+      }
+    }
+    return artifact
   } catch {
     return null
   }
@@ -207,7 +217,12 @@ export function buildHistoricalHiringConversationState(
   for (const message of sandboxMessages) {
     if (message.type === 'user_message') {
       const content = String(message.text ?? '').trim()
-      if (content.length > 0) {
+      // 过滤内部系统提示：模板引导（[FILE_URL:...）、内部指令（[Internal ...）、系统指令（[System ...）
+      const isInternalPrompt =
+        content.startsWith('[FILE_URL:') ||
+        content.startsWith('[Internal ') ||
+        content.startsWith('[System ')
+      if (content.length > 0 && !isInternalPrompt) {
         messages.push({
           id: mkHistoricalId('user', messages.length),
           role: 'user',
@@ -271,15 +286,72 @@ export function buildHistoricalHiringConversationState(
     }
   }
 
+  // skill_stage_gate 事件不存在于沙箱会话历史中，因此上方循环可能无法推断任何阶段状态。
+  // 兜底：从下游轨道运行状态反向推断阶段进度，避免刷新后阶段胶囊全部灰色。
+  const finalStageOverrides = wsStageOverrides.size > 0
+    ? wsStageOverrides
+    : deriveStageOverridesFromDownstreamRuns(downstreamRuns)
+
   return {
     messages,
     materialRequestedCategories: extractLatestMaterialRequestedCategories(messages),
-    wsStageOverrides,
+    wsStageOverrides: finalStageOverrides,
     downstreamRuns,
     latestMaterialSummary: extractLatestArtifactData(messages, 'material_handoff_summary'),
     latestSkillSummary: extractLatestArtifactData(messages, 'skill_workorder_summary'),
     latestExternalSummary: extractLatestArtifactData(messages, 'external_workorder_summary'),
   }
+}
+
+/**
+ * 从下游轨道运行状态推断主雇佣阶段状态。
+ * 用于 stageOverrides 未能从缓存或会话历史恢复时的兜底派生，保证阶段胶囊能正确反映进度。
+ *
+ * 因果链：
+ * - ontology-extraction 存在 → Material 阶段已完成（material_handoff_summary 已发出）
+ * - skill-generation 存在 → Skill 阶段已完成或进行中
+ * - external-config 存在 → External 阶段已完成或进行中
+ */
+export function deriveStageOverridesFromDownstreamRuns(
+  runs: DownstreamRunsSnapshot,
+): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
+  const overrides = new Map<HiringUiStage, 'running' | 'completed' | 'failed'>()
+
+  const ontologyRun = runs['ontology-extraction']
+  const skillGenRun = runs['skill-generation']
+  const externalConfigRun = runs['external-config']
+
+  // ontology extraction 仅在 Material 阶段完成后触发，因此只要它存在，Material 必然已完成
+  if (ontologyRun) {
+    overrides.set(HiringCollectionStage.Material, 'completed')
+  }
+
+  // skill generation 在 Skill 阶段完成后触发
+  if (skillGenRun) {
+    overrides.set(HiringCollectionStage.Material, 'completed')
+    if (skillGenRun.status === 'completed') {
+      overrides.set(HiringCollectionStage.Skill, 'completed')
+    } else if (skillGenRun.status === 'failed') {
+      overrides.set(HiringCollectionStage.Skill, 'failed')
+    } else {
+      overrides.set(HiringCollectionStage.Skill, 'running')
+    }
+  }
+
+  // external config 在 External 阶段进行中时触发
+  if (externalConfigRun) {
+    overrides.set(HiringCollectionStage.Material, 'completed')
+    overrides.set(HiringCollectionStage.Skill, 'completed')
+    if (externalConfigRun.status === 'completed') {
+      overrides.set(HiringCollectionStage.External, 'completed')
+    } else if (externalConfigRun.status === 'failed') {
+      overrides.set(HiringCollectionStage.External, 'failed')
+    } else {
+      overrides.set(HiringCollectionStage.External, 'running')
+    }
+  }
+
+  return overrides
 }
 
 export function buildCoachResumePrompt(

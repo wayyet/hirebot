@@ -72,7 +72,7 @@ export default function SessionListPanel({
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [loadMoreLoading, setLoadMoreLoading] = useState(false);
   const [sessionPreviews, setSessionPreviews] = useState<
     Record<string, string>
@@ -171,20 +171,20 @@ export default function SessionListPanel({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-shrink-0 flex-col rounded-2xl border border-[#ececec] bg-white shadow-sm transition-all duration-200"
+      className="flex h-full min-h-0 flex-shrink-0 flex-col rounded-2xl border border-[var(--hb-border)] bg-[var(--hb-surface-card)] shadow-sm transition-all duration-200"
       style={{ width: panelWidth }}
     >
       {/* 折叠按钮 */}
       <div className="flex items-center justify-between px-3 py-2">
         {!collapsed && (
-          <span className="text-xs font-medium text-[#737373]">会话列表</span>
+          <span className="text-xs font-medium text-[var(--hb-soft)]">会话列表</span>
         )}
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="rounded p-0.5 text-[#9ca3af] hover:bg-[#ececec] hover:text-[#525252]"
+          className="rounded p-0.5 text-[var(--hb-caption)] hover:bg-[var(--hb-surface-soft)] hover:text-[var(--hb-body)]"
         >
-          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          {collapsed ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
         </button>
       </div>
 
@@ -194,7 +194,7 @@ export default function SessionListPanel({
           <button
             type="button"
             onClick={onNewChat}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[#d2e3fc] bg-[#e8f0fe] px-2 py-1.5 text-xs font-medium text-[#1967d2] hover:bg-[#d2e3fc] transition-colors"
+            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--hb-blue)]/25 bg-[var(--hb-blue)]/10 px-2 py-1.5 text-xs font-medium text-[var(--hb-blue)] hover:bg-[var(--hb-blue)]/15 transition-colors"
           >
             <Plus size={13} />
             新对话
@@ -204,20 +204,20 @@ export default function SessionListPanel({
 
       {collapsed ? (
         <div className="flex justify-center py-2">
-          <List size={14} className="text-[#9ca3af]" />
+          <List size={14} className="text-[var(--hb-caption)]" />
         </div>
       ) : (
         <>
           {/* 搜索框 */}
           <div className="px-3 pb-3">
-            <div className="flex items-center gap-1.5 rounded-md border border-[#ececec] bg-white px-2 py-1">
-              <Search size={12} className="text-[#9ca3af]" />
+            <div className="flex items-center gap-1.5 rounded-md border border-[var(--hb-border)] bg-[var(--hb-surface-soft)] px-2 py-1">
+              <Search size={12} className="text-[var(--hb-caption)]" />
               <input
                 type="text"
                 value={search}
                 onChange={handleSearchChange}
                 placeholder="搜索 senderId..."
-                className="flex-1 border-none bg-transparent py-0.5 text-xs text-[#404040] outline-none placeholder:text-[#c4c4c4]"
+                className="flex-1 border-none bg-transparent py-0.5 text-xs text-[var(--hb-body)] outline-none placeholder:text-[var(--hb-caption)]"
               />
             </div>
           </div>
@@ -225,12 +225,12 @@ export default function SessionListPanel({
           {/* 会话列表 */}
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
             {loading ? (
-              <div className="flex items-center justify-center gap-1.5 py-6 text-xs text-[#9ca3af]">
+              <div className="flex items-center justify-center gap-1.5 py-6 text-xs text-[var(--hb-caption)]">
                 <Loader2 size={12} className="animate-spin" />
                 加载中...
               </div>
             ) : sessions.length === 0 ? (
-              <div className="py-6 text-center text-xs text-[#9ca3af]">
+              <div className="py-6 text-center text-xs text-[var(--hb-caption)]">
                 暂无会话记录
               </div>
             ) : (
@@ -242,8 +242,8 @@ export default function SessionListPanel({
                     onClick={() => onSelectSession(session.id)}
                     className={`mb-1.5 w-full rounded-xl px-2.5 py-2 text-left transition-colors ${
                       session.id === currentSessionId
-                        ? "bg-[#e8f0fe] text-[#1967d2]"
-                        : "hover:bg-[#ececec] text-[#404040]"
+                        ? "bg-[var(--hb-blue)]/10 text-[var(--hb-blue)]"
+                        : "text-[var(--hb-body)] hover:bg-[var(--hb-surface-soft)]"
                     }`}
                   >
                     <div className="flex items-center gap-1.5">
@@ -254,11 +254,11 @@ export default function SessionListPanel({
                           session.id}
                       </span>
                     </div>
-                    <div className="mt-0.5 flex items-center gap-2 text-[10px] text-[#9ca3af]">
+                    <div className="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--hb-caption)]">
                       <span>{formatLastActive(session.lastActiveAt)}</span>
                       <span>{session.historyTurns} 轮</span>
                       {session.isActive && (
-                        <span className="text-[#34a853]">● 活跃</span>
+                        <span className="text-[var(--hb-text-green)]">● 活跃</span>
                       )}
                     </div>
                   </button>
@@ -269,7 +269,7 @@ export default function SessionListPanel({
                     type="button"
                     onClick={handleLoadMore}
                     disabled={loadMoreLoading}
-                    className="mt-1 w-full rounded-lg px-2.5 py-1.5 text-center text-xs text-[#1967d2] hover:bg-[#ececec] disabled:text-[#9ca3af]"
+                    className="mt-1 w-full rounded-lg px-2.5 py-1.5 text-center text-xs text-[var(--hb-blue)] hover:bg-[var(--hb-surface-soft)] disabled:text-[var(--hb-caption)]"
                   >
                     {loadMoreLoading ? "加载中..." : "加载更多"}
                   </button>
