@@ -4,6 +4,8 @@ import { useState, useCallback } from 'react'
 import { Check, ChevronDown, ChevronUp, Copy, FileText, Paperclip, Package, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useTranslation } from 'react-i18next'
+import i18n from '@/i18n'
 
 import type { ChatFile, ChatMessage, ToolStep } from '../hiringPageTypes'
 import { ArtifactMessageCard } from './ArtifactMessageCard'
@@ -14,7 +16,7 @@ import { StageGateCard } from './StageGateCard'
 function chatToMarkdown(messages: ChatMessage[], botName: string): string {
   const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
   const lines: string[] = [
-    `# 雇佣对话记录`,
+    `# ${i18n.t('hiring.export.title')}`,
     ``,
     `**AI 角色**: ${botName}`,
     `**导出时间**: ${now}`,
@@ -25,18 +27,18 @@ function chatToMarkdown(messages: ChatMessage[], botName: string): string {
 
   for (const msg of messages) {
     if (msg.role === 'user') {
-      lines.push(`### 👤 用户`)
+      lines.push(i18n.t('hiring.export.userHeader'))
       lines.push(``)
       lines.push(msg.content)
       if (msg.files && msg.files.length > 0) {
         lines.push(``)
-        lines.push(`*附件: ${msg.files.map((f) => f.name).join(', ')}*`)
+        lines.push(i18n.t('hiring.export.attachments', { files: msg.files.map((f) => f.name).join(', ') }))
       }
       lines.push(``)
       lines.push(`---`)
       lines.push(``)
     } else if (msg.role === 'bot') {
-      lines.push(`### 🤖 ${botName}`)
+      lines.push(i18n.t('hiring.export.botHeader', { name: botName }))
       lines.push(``)
       lines.push(msg.content)
       lines.push(``)
@@ -44,11 +46,11 @@ function chatToMarkdown(messages: ChatMessage[], botName: string): string {
       lines.push(``)
     } else if (msg.role === 'artifact' && msg.artifact) {
       const a = msg.artifact
-      lines.push(`### 📦 产物 · ${a.label ?? a.artifactType}`)
+      lines.push(i18n.t('hiring.export.artifactHeader', { label: a.label ?? a.artifactType }))
       lines.push(``)
       if (a.kind === 'file') {
-        lines.push(`- 文件名: ${a.fileName ?? '未知'}`)
-        if (a.sizeLabel) lines.push(`- 大小: ${a.sizeLabel}`)
+        lines.push(i18n.t('hiring.export.fileName', { name: a.fileName ?? '未知' }))
+        if (a.sizeLabel) lines.push(i18n.t('hiring.export.fileSize', { size: a.sizeLabel }))
       } else if (a.kind === 'data') {
         lines.push(`\`\`\`json`)
         lines.push(JSON.stringify(a.data, null, 2))
@@ -59,10 +61,10 @@ function chatToMarkdown(messages: ChatMessage[], botName: string): string {
       lines.push(``)
     } else if (msg.role === 'stage_gate' && msg.stageGate) {
       const sg = msg.stageGate
-      lines.push(`### 🚦 阶段推进 · ${sg.completedStage} → ${sg.nextStage}`)
+      lines.push(i18n.t('hiring.export.stageGate', { from: sg.completedStage, to: sg.nextStage }))
       lines.push(``)
       if (!sg.canProceed && sg.blockedReason) {
-        lines.push(`> ⚠️ 阻塞原因: ${sg.blockedReason}`)
+        lines.push(i18n.t('hiring.export.blockedReason', { reason: sg.blockedReason }))
       }
       lines.push(``)
       lines.push(`---`)
@@ -130,6 +132,7 @@ export function HiringConversationPanel({
   onArtifactFileDownload,
   workflowStatus,
 }: HiringConversationPanelProps) {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
 
   const handleCopyAsMarkdown = useCallback(() => {
@@ -157,17 +160,17 @@ export function HiringConversationPanel({
               onClick={workflowStatus.onRetry}
               disabled={workflowStatus.retryDisabled}
             >
-              重试初始化
+              {t('hiring.button.retryInit')}
             </button>
           ) : null}
         </div>
       ) : null}
       <div className="hb-hiring-chat-body">
         <InfoCard
-          title={`我是${introName}`}
-          body={`我们会基于「${introName}」模板完成一条新的部门版雇佣流程。这次我会像一位即将上岗的新同事一样，主动告诉你我还缺什么。`}
+          title={t('hiring.intro.title', { name: introName })}
+          body={t('hiring.intro.subtitle', { name: introName })}
           detail={
-            <>你好，我是数字员工{introName}，本次会围绕 {introAbilities} 等能力完成资料发现、技能整理、外部系统确认和实例交付。</>
+            <>{t('hiring.intro.detail', { name: introName, abilities: introAbilities })}</>
           }
         />
 
@@ -199,7 +202,7 @@ export function HiringConversationPanel({
           return (
           <div key={message.id} className={`hb-hiring-msg ${message.role === 'user' ? 'is-user' : ''}`}>
             <div className={`hb-hiring-avatar ${message.role === 'user' ? 'is-user' : ''}`}>
-              {message.role === 'user' ? '你' : introName.slice(0, 1).toUpperCase()}
+              {message.role === 'user' ? t('hiring.intro.userAvatar') : introName.slice(0, 1).toUpperCase()}
             </div>
             <div className={`hb-hiring-msg-stack ${message.role === 'user' ? 'is-user' : ''}`}>
               {message.role === 'bot' && message.toolSteps && message.toolSteps.length > 0 ? (
@@ -314,7 +317,7 @@ export function HiringConversationPanel({
                   className="hb-hiring-tool-btn"
                 >
                   <Paperclip size={15} />
-                  文件上传
+                  {t('hiring.button.fileUpload')}
                 </button>
                 <button
                   type="button"
@@ -333,7 +336,7 @@ export function HiringConversationPanel({
                   title="将对话记录复制为 Markdown，便于粘贴给其他 AI 分析"
                 >
                   {copied ? <Check size={15} /> : <Copy size={15} />}
-                  {copied ? '已复制' : '复制对话'}
+                  {copied ? t('hiring.button.copied') : t('hiring.button.copyChat')}
                 </button>
               </div>
               <button
@@ -342,7 +345,7 @@ export function HiringConversationPanel({
                 disabled={disabled || (!input.trim() && pendingFiles.length === 0)}
                 className="hb-hiring-send"
               >
-                发送
+                {t('hiring.button.send')}
               </button>
             </div>
           </div>
@@ -360,6 +363,7 @@ type InfoCardProps = {
 }
 
 function InfoCard({ title, body, detail, actions }: InfoCardProps) {
+  const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
   return (
     <article className="hb-hiring-info-card">
@@ -370,7 +374,7 @@ function InfoCard({ title, body, detail, actions }: InfoCardProps) {
             type="button"
             className="hb-hiring-info-collapse-btn"
             onClick={() => setCollapsed((v) => !v)}
-            title={collapsed ? '展开' : '收起'}
+            title={collapsed ? t('hiring.button.expand') : t('hiring.button.collapse')}
           >
             {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
           </button>

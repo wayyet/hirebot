@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react'
 import clsx from 'clsx'
+import { useTranslation } from 'react-i18next'
 
 import type { HiringUiStage, HiringStageStepVm } from '../hiringWorkflowViewModel'
 
@@ -12,6 +13,8 @@ export function HiringStagePills({
   steps,
   onSelectStage,
 }: HiringStagePillsProps) {
+  const { t } = useTranslation()
+
   return (
     <div className="hb-hiring-journey">
       <div className="hb-hiring-step-pills">
@@ -33,15 +36,15 @@ export function HiringStagePills({
               <strong>{item.title}</strong>
               <span>{item.description}</span>
               {item.dispatchStatus === 'running' && (
-                <span className="hb-hiring-step-dispatch is-running">派发中</span>
+                <span className="hb-hiring-step-dispatch is-running">{t('hiring.dispatch.running')}</span>
               )}
               {item.dispatchStatus === 'completed' && (
                 <span className="hb-hiring-step-dispatch is-done">
-                  {item.dispatchSummary ?? '已产出'}
+                  {item.dispatchSummary ?? t('hiring.dispatch.completed')}
                 </span>
               )}
               {item.dispatchStatus === 'failed' && (
-                <span className="hb-hiring-step-dispatch is-failed">派发失败</span>
+                <span className="hb-hiring-step-dispatch is-failed">{t('hiring.dispatch.failed')}</span>
               )}
             </span>
           </button>

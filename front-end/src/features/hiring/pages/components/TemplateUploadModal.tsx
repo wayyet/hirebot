@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { FileArchive, Loader2, UploadCloud, X } from "lucide-react";
 import { api } from "@/infra/api";
 import { ApiClientError } from "@/infra/api/httpClient";
@@ -19,6 +20,7 @@ export default function TemplateUploadModal({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { t } = useTranslation();
 
   if (!open) return null;
 
@@ -54,7 +56,7 @@ export default function TemplateUploadModal({
     if (zipFile) {
       setFile(zipFile);
     } else {
-      setError("请拖入 .zip 格式的模板包文件");
+      setError(t('hiring.templateUpload.invalidFormat'));
     }
   }
 
@@ -64,7 +66,7 @@ export default function TemplateUploadModal({
       setFile(selected);
       setError(null);
     } else {
-      setError("仅支持 .zip 格式的模板包文件");
+      setError(t('hiring.templateUpload.zipOnly'));
     }
   }
 
@@ -80,7 +82,7 @@ export default function TemplateUploadModal({
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith(".zip")) {
-      setError("仅支持 .zip 格式的模板包文件");
+      setError(t('hiring.templateUpload.zipOnly'));
       return;
     }
 
@@ -96,7 +98,7 @@ export default function TemplateUploadModal({
       const message =
         err instanceof ApiClientError
           ? err.message
-          : "上传失败，请检查网络连接";
+          : t('hiring.templateUpload.uploadFailed');
       setError(message);
     } finally {
       setUploading(false);
@@ -114,26 +116,26 @@ export default function TemplateUploadModal({
           type="button"
           className="hb-modal-close"
           onClick={handleClose}
-          aria-label="关闭"
+          aria-label={t('hiring.button.close')}
         >
           <X size={16} />
         </button>
 
         <div className="hb-modal-head">
-          <h3 className="hb-modal-title">上传模板快速创建</h3>
+          <h3 className="hb-modal-title">{t('hiring.templateUpload.title')}</h3>
           <p className="hb-modal-sub">
-            上传标准模板包（.zip），系统将自动解析名称并直接创建已上岗员工。
+            {t('hiring.templateUpload.subtitle')}
           </p>
         </div>
 
         <div className="hb-modal-body">
           <div className="hb-upload-helper">
             <div className="hb-upload-helper-copy">
-              <strong>示例模板下载入口</strong>
-              <p>如需标准示例包，可前往模板池模板详情页下载最新模板包后再上传。</p>
+              <strong>{t('hiring.templateUpload.helperTitle')}</strong>
+              <p>{t('hiring.templateUpload.helperDesc')}</p>
             </div>
             <a className="hb-upload-example-link" href="/template-pool">
-              去模板池下载
+              {t('hiring.templateUpload.helperLink')}
             </a>
           </div>
 
@@ -153,8 +155,8 @@ export default function TemplateUploadModal({
               tabIndex={0}
             >
               <UploadCloud size={28} className="hb-upload-icon" />
-              <p>拖拽 .zip 模板包到此处</p>
-              <small>或点击选择文件</small>
+              <p>{t('hiring.templateUpload.dragHint')}</p>
+              <small>{t('hiring.templateUpload.clickHint')}</small>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -179,7 +181,7 @@ export default function TemplateUploadModal({
                     className="text-xs text-[var(--hb-soft)] hover:text-[var(--hb-near-black)]"
                     onClick={handleResetFile}
                   >
-                    重新选择
+                    {t('hiring.templateUpload.selectAgain')}
                   </button>
                 )}
               </div>
@@ -200,7 +202,7 @@ export default function TemplateUploadModal({
             onClick={handleClose}
             disabled={uploading}
           >
-            取消
+            {t('hiring.button.cancel')}
           </button>
           <button
             type="button"
@@ -211,10 +213,10 @@ export default function TemplateUploadModal({
             {uploading ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
-                上传中...
+                {t('hiring.templateUpload.uploading')}
               </>
             ) : (
-              "确认上传"
+              t('hiring.templateUpload.confirmUpload')
             )}
           </button>
         </div>

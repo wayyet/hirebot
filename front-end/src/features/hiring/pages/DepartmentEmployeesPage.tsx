@@ -256,17 +256,7 @@ export default function DepartmentEmployeesPage() {
   }
 
   function openCard(employee: { employeeId: string; mappedStatus: string }) {
-    if (employee.mappedStatus === "interning_ai") {
-      navigate(
-        `/department-employees/instances/${employee.employeeId}/evaluation`,
-      );
-    } else if (employee.mappedStatus === "interning_human") {
-      navigate(
-        `/department-employees/instances/${employee.employeeId}/human-evaluation`,
-      );
-    } else {
-      setDetailEmployeeId(employee.employeeId);
-    }
+    navigate(`/department-employees/instances/${employee.employeeId}`);
   }
 
   return (

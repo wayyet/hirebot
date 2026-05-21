@@ -10,8 +10,10 @@ import {
   MessageCircle,
   PlayCircle,
   SendHorizontal,
+  X,
   Zap,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
@@ -163,7 +165,7 @@ export default function EvaluationPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const [rightCollapsed, setRightCollapsed] = useState(true)
+  const [rightCollapsed, setRightCollapsed] = useState(false)
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('overview')
   const [workspaceStatus, setWorkspaceStatus] = useState<EvaluationWorkspaceStatus | null>(null)
   const [workspacePolling, setWorkspacePolling] = useState(false)
@@ -265,10 +267,17 @@ export default function EvaluationPage() {
     employee?.evalPhase === 'pending_onboarding_force'
   const humanEvalPath = id ? `${instanceBasePath(location.pathname, id)}/human-evaluation` : null
   const [enteringHumanEval, setEnteringHumanEval] = useState(false)
+  const [showHumanEvalConfirm, setShowHumanEvalConfirm] = useState(false)
+  const { t } = useTranslation()
 
-  async function handleEnterHumanEval() {
+  function handleEnterHumanEval() {
+    setShowHumanEvalConfirm(true)
+  }
+
+  async function confirmEnterHumanEval() {
     if (!id || !humanEvalPath) return
     setEnteringHumanEval(true)
+    setShowHumanEvalConfirm(false)
     try {
       // 确认进入人工评估时把状态从 AI 评估改为人工评估
       await api.employeeRuntime.updateLifecycle(id, {
@@ -979,20 +988,12 @@ export default function EvaluationPage() {
                 </span>
               </div>
               <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px]">
-                <span className={`rounded-full border px-2 py-0.5 ${testcaseReady ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c]'}`}>
+                <span className={`rounded-full border px-2 py-0.5 ${testcaseReady ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#e5e7eb] bg-[#f9fafb] text-[#6b7280]'}`}>
                   测试用例：{testcaseReady ? '已就绪' : '待补充'}
                 </span>
-                <span className={`rounded-full border px-2 py-0.5 ${ontologyReady ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c]'}`}>
+                <span className={`rounded-full border px-2 py-0.5 ${ontologyReady ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#e5e7eb] bg-[#f9fafb] text-[#6b7280]'}`}>
                   评估本体：{ontologyReady ? '已就绪' : '待补充'}
                 </span>
-                <span className="rounded-full border border-[#e5e7eb] bg-white px-2 py-0.5 text-[#4b5563]">
-                  Session：{shortSessionId(workspaceStatus?.sessionId)}
-                </span>
-                {workspaceReady && (
-                  <span className="rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-2 py-0.5 text-[#1d4ed8]">
-                    双沙箱已连接
-                  </span>
-                )}
               </div>
             </div>
             <div className="ml-auto flex flex-wrap items-center gap-1.5">
@@ -1074,6 +1075,16 @@ export default function EvaluationPage() {
                 <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px]">{workflowStagePill(stage.status)}</span>
               </span>
             ))}
+            {workspaceStatus?.sessionId && (
+              <span className="inline-flex shrink-0 items-center rounded-full border border-[#e5e7eb] bg-white px-2 py-0.5 text-[#4b5563]">
+                Session：{shortSessionId(workspaceStatus.sessionId)}
+              </span>
+            )}
+            {workspaceReady && (
+              <span className="inline-flex shrink-0 items-center rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-2 py-0.5 text-[#1d4ed8]">
+                双沙箱已连接
+              </span>
+            )}
           </div>
         </section>
 
@@ -1662,6 +1673,34 @@ export default function EvaluationPage() {
           </div>
         </section>
       </div>
+
+      {showHumanEvalConfirm && (
+        <div className="hb-modal-mask" onClick={() => setShowHumanEvalConfirm(false)}>
+          <div className="hb-modal hb-delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="hb-modal-close" onClick={() => setShowHumanEvalConfirm(false)}>
+              <X size={16} />
+            </button>
+            <div className="hb-modal-head">
+              <h3 className="hb-modal-title">{t('evaluationPage.confirmHumanEvalTitle')}</h3>
+              <p className="hb-modal-sub">{t('evaluationPage.confirmHumanEvalMessage')}</p>
+            </div>
+            <div className="hb-modal-foot">
+              <button type="button" className="hb-btn-ghost" onClick={() => setShowHumanEvalConfirm(false)}>
+                {t('evaluationPage.confirmHumanEvalCancel')}
+              </button>
+              <button
+                type="button"
+                className="hb-btn-primary"
+                onClick={() => void confirmEnterHumanEval()}
+                disabled={enteringHumanEval}
+              >
+                {enteringHumanEval ? <Loader2 size={12} className="animate-spin" /> : null}
+                {t('evaluationPage.confirmHumanEvalConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

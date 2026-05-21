@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, Clock3, CopyPlus, Loader2, ShieldCheck, X } from "lucide-react";
 import { api, type EmployeeDetail } from "@/infra/api";
 import CloneEmployeeModal from "./CloneEmployeeModal";
@@ -24,6 +25,7 @@ export default function EmployeeDetailModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!open || !employeeId) return;
@@ -37,7 +39,7 @@ export default function EmployeeDetailModal({
         const data = await api.employeeRuntime.getEmployee(employeeId);
         setDetail(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "加载详情失败");
+        setError(err instanceof Error ? err.message : t('hiring.employee.loadFailed'));
       } finally {
         setLoading(false);
       }
@@ -65,7 +67,7 @@ export default function EmployeeDetailModal({
             type="button"
             className="hb-modal-close"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={t('hiring.button.close')}
           >
             <X size={16} />
           </button>
@@ -73,7 +75,7 @@ export default function EmployeeDetailModal({
           {loading ? (
             <div className="flex items-center justify-center gap-2 p-10 text-sm text-[var(--hb-soft)]">
               <Loader2 size={16} className="animate-spin" />
-              加载中...
+              {t('hiring.employee.loading')}
             </div>
           ) : error ? (
             <div className="p-8">
@@ -81,12 +83,12 @@ export default function EmployeeDetailModal({
             </div>
           ) : !detail || !view ? (
             <div className="p-8 text-sm text-[var(--hb-soft)]">
-              实例不存在
+              {t('hiring.employee.notFound')}
             </div>
           ) : (
             <>
               <div className="hb-modal-head">
-                <h3 className="hb-modal-title">员工详情</h3>
+                <h3 className="hb-modal-title">{t('hiring.employee.modalTitle')}</h3>
               </div>
 
               <div className="hb-modal-body space-y-4">
@@ -103,12 +105,12 @@ export default function EmployeeDetailModal({
                 <div className="rounded-lg border border-[var(--hb-border)] bg-[var(--hb-surface-soft)] p-3 text-xs">
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
                     <span>
-                      来源模板：{detail.sourceTemplate || "—"}
+                      {t('hiring.employee.sourceTemplate', { template: detail.sourceTemplate || "—" })}
                     </span>
-                    <span>部门：{detail.owningTeam || detail.departmentId}</span>
-                    <span>创建于 {detail.createdAt}</span>
+                    <span>{t('hiring.employee.department', { dept: detail.owningTeam || detail.departmentId })}</span>
+                    <span>{t('hiring.employee.createdAt', { date: detail.createdAt })}</span>
                     {detail.graduatedAt && (
-                      <span>上岗时间：{detail.graduatedAt}</span>
+                      <span>{t('hiring.employee.graduatedAt', { date: detail.graduatedAt })}</span>
                     )}
                   </div>
                 </div>
@@ -116,7 +118,7 @@ export default function EmployeeDetailModal({
                 {/* 能力列表 */}
                 <div>
                   <h4 className="mb-2 text-xs font-medium text-[var(--hb-soft)]">
-                    能力简介
+                    {t('hiring.employee.capabilities')}
                   </h4>
                   <div className="space-y-1">
                     {detail.capabilities.map((cap) => (
@@ -143,17 +145,17 @@ export default function EmployeeDetailModal({
                     <div className="flex items-center gap-1">
                       <Clock3 size={12} />
                       <strong>{detail.graduatedAt || "—"}</strong>
-                      <span className="text-[var(--hb-soft)]">上岗</span>
+                      <span className="text-[var(--hb-soft)]">{t('hiring.employee.graduated')}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <ShieldCheck size={12} />
                       <strong>{readyCount}</strong>
-                      <span className="text-[var(--hb-soft)]">能力</span>
+                      <span className="text-[var(--hb-soft)]">{t('hiring.employee.capabilityCount')}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <span className="text-[var(--hb-soft)]">版本</span>
+                      <span className="text-[var(--hb-soft)]">{t('hiring.employee.version')}</span>
                       <strong>
-                        {detail.isConfigured ? "v1.0" : "待配置"}
+                        {detail.isConfigured ? "v1.0" : t('hiring.employee.notConfigured')}
                       </strong>
                     </div>
                   </div>
@@ -163,17 +165,17 @@ export default function EmployeeDetailModal({
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
                   {view.mappedStatus === "live"
                     ? view.ownership === "department"
-                      ? "已上岗的部门员工可以作为复制源，创建分身后拥有独立会话。"
-                      : "已上岗的个人资产可以站内对话，并按需配置飞书、钉钉或企微。"
+                      ? t('hiring.employee.descDepartmentGraduated')
+                      : t('hiring.employee.descPersonalGraduated')
                     : view.mappedStatus === "interning_ai"
-                      ? "AI 评估中，通过后才允许进入人工评估。"
+                      ? t('hiring.employee.descInterningAi')
                       : view.mappedStatus === "interning_human"
-                        ? "人工评估中，通过后才允许标记为已上岗。"
+                        ? t('hiring.employee.descInterningHuman')
                         : view.mappedStatus === "failed"
-                          ? "评估未通过，可重新雇佣或放弃。"
+                          ? t('hiring.employee.descFailed')
                           : view.mappedStatus === "retired"
-                            ? "该实例已退役，当前仅保留历史信息。"
-                            : "已雇佣，等待进入评估流程。"}
+                            ? t('hiring.employee.descRetired')
+                            : t('hiring.employee.descHired')}
                 </div>
               </div>
 
@@ -185,7 +187,7 @@ export default function EmployeeDetailModal({
                     onClick={() => setCloneModalOpen(true)}
                   >
                     <CopyPlus size={14} />
-                    创建分身
+                    {t('hiring.employee.createClone')}
                   </button>
                 )}
                 <button
@@ -193,7 +195,7 @@ export default function EmployeeDetailModal({
                   className="hb-btn-ghost"
                   onClick={onClose}
                 >
-                  关闭
+                  {t('hiring.button.close')}
                 </button>
               </div>
             </>

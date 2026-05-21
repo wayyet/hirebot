@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Upload, X } from 'lucide-react'
+import i18n from '@/i18n'
 
 import { api, HiringAuditDecision, HiringCollectionStage } from '@/infra/api'
 import type {
@@ -63,7 +65,7 @@ function normalizeErrorMessage(error: unknown) {
     return error.message
   }
 
-  return '请求失败，请稍后重试'
+  return i18n.t('hiring.error.networkFailure')
 }
 
 function normalizeAssistantReply(content: string) {
@@ -89,7 +91,7 @@ async function fileToChatFile(file: File, type: 'file' | 'skill' = 'file', metad
     id: mkId(),
     name: file.name,
     size: file.size,
-    status: '已解析',
+    status: i18n.t('hiring.file.parsed'),
     type,
     mimeType: file.type || undefined,
     content,
@@ -100,7 +102,7 @@ async function fileToChatFile(file: File, type: 'file' | 'skill' = 'file', metad
 
 function readFileText(file: File): Promise<string | undefined> {
   if (file.size > MAX_MATERIAL_CHARS * 4) {
-    return Promise.resolve(`[文件过大，仅作为资料登记：${file.name}，${file.size} bytes]`)
+    return Promise.resolve(i18n.t('hiring.file.tooLarge', { name: file.name, size: file.size }))
   }
 
   return new Promise(resolve => {
@@ -109,7 +111,7 @@ function readFileText(file: File): Promise<string | undefined> {
       const value = typeof reader.result === 'string' ? reader.result : undefined
       resolve(value && value.length > MAX_MATERIAL_CHARS ? `${value.slice(0, MAX_MATERIAL_CHARS)}\n...[truncated]` : value)
     }
-    reader.onerror = () => resolve(`[文件内容读取失败，仅作为资料登记：${file.name}]`)
+    reader.onerror = () => resolve(i18n.t('hiring.file.readFailed', { name: file.name }))
     reader.readAsText(file)
   })
 }
@@ -314,6 +316,7 @@ function isSkillGenerationApprovalMessage(text: string): boolean {
 export default function HiringPage() {
   const { templateId } = useParams()
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   const [template, setTemplate] = useState<EmployeeTemplateDetail | null>(null)
   const [templateLoading, setTemplateLoading] = useState(true)
@@ -574,7 +577,7 @@ export default function HiringPage() {
     if (!templateId) {
       setTemplate(null)
       setTemplateLoading(false)
-      setTemplateError('模板参数缺失')
+      setTemplateError(t('hiring.error.templateParamMissing'))
       return
     }
 
@@ -604,14 +607,14 @@ export default function HiringPage() {
     }
   }, [templateId])
 
-  const introName = template?.name ?? '数字员工'
-  const introAbilities = template?.coreAbilities.slice(0, 3).join('、') || '业务理解、技能配置、外部系统连接'
+  const introName = template?.name ?? t('hiring.intro.digitalEmployee')
+  const introAbilities = template?.coreAbilities.slice(0, 3).join('、') || t('hiring.intro.defaultAbilities')
 
   // ─────────────────────────────────────────────────────────────────────────────
 
   async function ensureWorkflowReady(): Promise<string | null> {
     if (!templateId) {
-      setWorkflowError('模板参数缺失，请从模板详情页重新进入')
+      setWorkflowError(t('hiring.error.templateParamMissingDetail'))
       return null
     }
     if (workflowHireId) {
@@ -674,7 +677,7 @@ export default function HiringPage() {
         await autoBootstrapTemplateConversation(templateId, hired.hireId).catch((error: unknown) => {
           const bootstrapError = normalizeErrorMessage(error)
           console.warn('[HiringPage] auto template bootstrap skipped:', bootstrapError)
-          setWorkflowNotice(`模板自动导入失败：${bootstrapError}，请手动上传模板包后继续。`)
+          setWorkflowNotice(t('hiring.notice.autoBootstrapFailed', { error: bootstrapError }))
         })
 
         return hired.hireId
@@ -853,7 +856,7 @@ export default function HiringPage() {
 
     autoTemplateBootstrapSessionRef.current = sessionId
     setTyping(true)
-    setWorkflowNotice('已自动导入模板包并发送分析指令，正在由沙箱助手解析并引导下一步。')
+    setWorkflowNotice(t('hiring.notice.autoBootstrapInProgress'))
   }
 
   /**
@@ -1282,7 +1285,7 @@ export default function HiringPage() {
     displayInChat = true,
   ): Promise<boolean> {
     if (messageSubmitRef.current) {
-      setWorkflowError('上一轮回复仍在生成中，请稍候')
+      setWorkflowError(t('hiring.error.generationInProgress'))
       return false
     }
 
@@ -1480,7 +1483,7 @@ export default function HiringPage() {
 
   async function handleSkillUploadSubmit(payload: SkillUploadPayload) {
     if (isInteractionLocked) {
-      setWorkflowError('当前对话处理中，请稍候后再上传 Skill')
+      setWorkflowError(t('hiring.error.conversationInProgress'))
       return
     }
     const hireId = await ensureWorkflowReady()
@@ -1504,7 +1507,7 @@ export default function HiringPage() {
         id: mkId(),
         name: uploaded.name,
         size: uploaded.size ?? payload.file.size,
-        status: '已解析',
+        status: i18n.t('hiring.file.parsed'),
         type: 'skill',
         mimeType: uploaded.mimeType ?? payload.file.type ?? undefined,
         content: undefined,
@@ -1542,11 +1545,11 @@ export default function HiringPage() {
     // 不明确传入 packageArtifact 时，尝试从状态中拿上次推送的产物事件。
     const effectiveArtifact = packageArtifact ?? pendingPackageArtifact
     if (!effectiveArtifact) {
-      setWorkflowError('请在聊天中告知助手“已完成全部确认，请生成产物包”，等沙箱推送打包完成后再点击生成实例。')
+      setWorkflowError(t('hiring.error.pleaseRequestPackaging'))
       return
     }
     if (!gatewayEndpointRef.current) {
-      setWorkflowError('未获取到沙箱网关地址，无法下载产物包，请刷新页面重试。')
+      setWorkflowError(t('hiring.error.noGatewayEndpoint'))
       return
     }
 
@@ -1677,7 +1680,7 @@ export default function HiringPage() {
     resettingRef.current = true
     setResetting(true)
     setWorkflowError('')
-    setWorkflowNotice('正在重置会话...')
+    setWorkflowNotice(t('hiring.notice.resetting'))
 
     void (async () => {
       try {
@@ -1737,7 +1740,7 @@ export default function HiringPage() {
           await autoBootstrapTemplateConversation(templateId, hireId)
         }
 
-        setWorkflowNotice('会话已重置，可以开始新的雇佣流程。')
+        setWorkflowNotice(t('hiring.notice.resetComplete'))
       } catch (error: unknown) {
         setWorkflowError(normalizeErrorMessage(error))
       } finally {
@@ -1760,19 +1763,19 @@ export default function HiringPage() {
   }
 
   if (!templateId) {
-    return <CenterState message="模板参数缺失" />
+    return <CenterState message={t('hiring.error.templateParamMissing')} />
   }
   if (templateLoading) {
-    return <CenterState message="模板加载中..." />
+    return <CenterState message={t('hiring.status.loadingTemplate')} />
   }
   if (!template) {
-    return <CenterState message={templateError || '模板不存在'} />
+    return <CenterState message={templateError || t('hiring.error.templateNotFound')} />
   }
 
   const workflowStatus = (() => {
     if (workflowError) {
       return {
-        title: '工作流异常',
+        title: t('hiring.status.workflowError'),
         detail: workflowError,
         tone: 'pink' as const,
         onRetry: retryWorkflowInitialization,
@@ -1782,23 +1785,23 @@ export default function HiringPage() {
 
     if (workflowNotice.includes('自动导入模板包')) {
       return {
-        title: '模板包解析中',
-        detail: '已导入模板包并发送分析指令，沙箱助手正在整理下一步。',
+        title: t('hiring.status.parsingTemplate'),
+        detail: t('hiring.status.parsingTemplateDetail'),
         tone: 'blue' as const,
       }
     }
 
     if (workflowBooting) {
       return {
-        title: '初始化工作流',
-        detail: '正在连接后端工作流和沙箱会话，请稍候。',
+        title: t('hiring.status.initializingWorkflow'),
+        detail: t('hiring.status.connectingWorkflow'),
         tone: 'blue' as const,
       }
     }
 
     if (workflowNotice) {
       return {
-        title: '需要处理',
+        title: t('hiring.status.needsAttention'),
         detail: workflowNotice,
         tone: 'blue' as const,
       }
@@ -1806,8 +1809,8 @@ export default function HiringPage() {
 
     if (workflowReady) {
       return {
-        title: '沙箱助手已连接',
-        detail: '可以继续发送资料、确认技能或推进当前阶段。',
+        title: t('hiring.status.sandboxConnected'),
+        detail: t('hiring.status.readyToContinue'),
         tone: 'green' as const,
       }
     }
@@ -1930,6 +1933,7 @@ function SkillUploadModal({
   onClose: () => void
   onSubmit: (payload: SkillUploadPayload) => void
 }) {
+  const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
   const [file, setFile] = useState<File | null>(null)
@@ -1959,17 +1963,17 @@ function SkillUploadModal({
       <div className="hb-modal hb-hiring-modal">
         <div className="hb-modal-head flex items-center justify-between gap-4 border-b border-[#f5f5f5] pb-4">
           <div>
-            <h2 className="hb-modal-title">上传 Skill</h2>
-            <p className="hb-modal-sub">上传技能包并补充技能元信息</p>
+            <h2 className="hb-modal-title">{t('hiring.skillUpload.title')}</h2>
+            <p className="hb-modal-sub">{t('hiring.skillUpload.desc')}</p>
           </div>
-          <button onClick={onClose} disabled={disabled} className="hb-modal-close" aria-label="关闭">
+          <button onClick={onClose} disabled={disabled} className="hb-modal-close" aria-label={t('hiring.skillUpload.title')}>
             <X size={16} />
           </button>
         </div>
 
         <div className="hb-modal-body space-y-5">
           <div className="hb-hiring-form-field">
-            <label className="hb-hiring-form-label">技能包 <span className="text-red-500">*</span></label>
+            <label className="hb-hiring-form-label">{t('hiring.skillUpload.package')} <span className="text-red-500">*</span></label>
             <div
               className={`hb-hiring-dropzone ${dragOver ? 'is-active' : file ? 'is-filled' : ''}`}
               onClick={() => { if (!disabled) fileInputRef.current?.click() }}
@@ -1981,12 +1985,12 @@ function SkillUploadModal({
               {file ? (
                 <>
                   <p className="text-sm font-medium text-[#4a6cf7]">{file.name}</p>
-                  <p className="mt-1 text-xs text-[#737373]">点击重新选择文件</p>
+                  <p className="mt-1 text-xs text-[#737373]">{t('hiring.skillUpload.selectAgain')}</p>
                 </>
               ) : (
                 <>
-                  <p className="text-sm text-[#404040]">拖拽技能包到此处，或点击上传</p>
-                  <p className="mt-1 text-xs text-[#737373]">支持 .zip、.tar.gz、.gz</p>
+                  <p className="text-sm text-[#404040]">{t('hiring.skillUpload.dragHint')}</p>
+                  <p className="mt-1 text-xs text-[#737373]">{t('hiring.skillUpload.supportedFormats')}</p>
                 </>
               )}
               <input
@@ -2004,39 +2008,39 @@ function SkillUploadModal({
           </div>
 
           <div className="hb-hiring-form-field">
-            <label className="hb-hiring-form-label">Skill 名称 <span className="text-red-500">*</span></label>
+            <label className="hb-hiring-form-label">{t('hiring.skillUpload.name')} <span className="text-red-500">*</span></label>
             <input
               type="text"
               disabled={disabled}
               value={form.name}
               onChange={(event) => setForm(prev => ({ ...prev, name: event.target.value }))}
-              placeholder="请输入 Skill 名称"
+              placeholder={t('hiring.skillUpload.namePlaceholder')}
               className="hb-hiring-form-input"
             />
           </div>
 
           <div className="hb-hiring-form-field">
             <label className="hb-hiring-form-label">
-              版本说明
-              <span className="ml-1 font-normal text-[#9ca3af]">(可选，最多 500 字)</span>
+              {t('hiring.skillUpload.releaseNote')}
+              <span className="ml-1 font-normal text-[#9ca3af]">{t('hiring.skillUpload.releaseNoteOptional')}</span>
             </label>
             <textarea
               disabled={disabled}
               value={form.releaseNote}
               onChange={(event) => setForm(prev => ({ ...prev, releaseNote: event.target.value.slice(0, 500) }))}
-              placeholder="描述本次版本更新内容"
+              placeholder={t('hiring.skillUpload.releaseNotePlaceholder')}
               rows={3}
               className="hb-hiring-form-textarea"
             />
           </div>
 
           <div className="hb-hiring-form-field">
-            <label className="hb-hiring-form-label">技能描述 <span className="text-red-500">*</span></label>
+            <label className="hb-hiring-form-label">{t('hiring.skillUpload.description')} <span className="text-red-500">*</span></label>
             <textarea
               disabled={disabled}
               value={form.description}
               onChange={(event) => setForm(prev => ({ ...prev, description: event.target.value.slice(0, 1000) }))}
-              placeholder="请输入技能适用场景、输入输出与注意事项"
+              placeholder={t('hiring.skillUpload.descriptionPlaceholder')}
               rows={4}
               className="hb-hiring-form-textarea"
             />
@@ -2044,7 +2048,7 @@ function SkillUploadModal({
         </div>
 
         <div className="hb-modal-foot">
-          <button onClick={onClose} disabled={disabled} className="hb-btn-ghost">取消</button>
+          <button onClick={onClose} disabled={disabled} className="hb-btn-ghost">{t('hiring.button.cancel')}</button>
           <button
             disabled={!canSubmit}
             onClick={() => {
@@ -2058,7 +2062,7 @@ function SkillUploadModal({
             }}
             className="hb-btn-primary"
           >
-            提交
+            {t('hiring.button.submit')}
           </button>
         </div>
       </div>

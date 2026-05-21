@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Loader2, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
 import type { ToolStep } from '../hiringPageTypes'
 
@@ -8,6 +9,7 @@ import type { ToolStep } from '../hiringPageTypes'
  * 参考自 kingcrab-console 的 ToolStepsBlock，样式贴合 HireBot 的 hb-* 体系
  */
 function ToolStepRow({ step }: { step: ToolStep }) {
+  const { t } = useTranslation()
   const [detailOpen, setDetailOpen] = useState(false)
   const hasDetail = Boolean(step.args || step.result)
 
@@ -39,7 +41,7 @@ function ToolStepRow({ step }: { step: ToolStep }) {
         <div className="hb-hiring-toolstep-detail">
           {step.args && (
             <div>
-              <p className="hb-hiring-toolstep-label">参数</p>
+              <p className="hb-hiring-toolstep-label">{t('hiring.tool.params')}</p>
               <pre className="hb-hiring-toolstep-code">
                 {(() => {
                   try {
@@ -53,7 +55,7 @@ function ToolStepRow({ step }: { step: ToolStep }) {
           )}
           {step.result && (
             <div>
-              <p className="hb-hiring-toolstep-label">返回</p>
+              <p className="hb-hiring-toolstep-label">{t('hiring.tool.result')}</p>
               <pre className="hb-hiring-toolstep-code">
                 {step.result.length > 800 ? `${step.result.slice(0, 800)}…` : step.result}
               </pre>
@@ -71,6 +73,7 @@ function ToolStepRow({ step }: { step: ToolStep }) {
  * - 展开后列出每条 ToolStepRow
  */
 export function HiringToolStepsBlock({ steps }: { steps: ToolStep[] }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const runningStep = steps.find((s) => s.status === 'running')
   const doneCount = steps.filter((s) => s.status !== 'running').length
@@ -89,7 +92,7 @@ export function HiringToolStepsBlock({ steps }: { steps: ToolStep[] }) {
           <>
             <Loader2 size={12} className="hb-hiring-toolstep-spin" />
             <span className="hb-hiring-toolsteps-title is-running">
-              正在调用 {runningStep.name}
+              {t('hiring.tool.calling', { name: runningStep.name })}
             </span>
             {doneCount > 0 && (
               <span className="hb-hiring-toolsteps-count">
@@ -99,7 +102,7 @@ export function HiringToolStepsBlock({ steps }: { steps: ToolStep[] }) {
           </>
         ) : (
           <span className="hb-hiring-toolsteps-title">
-            工具调用 ({steps.length})
+            {t('hiring.tool.stepsLabel', { count: steps.length })}
           </span>
         )}
       </button>

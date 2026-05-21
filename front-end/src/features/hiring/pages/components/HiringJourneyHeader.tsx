@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 type HiringJourneyHeaderProps = {
@@ -12,26 +13,28 @@ export function HiringJourneyHeader({
   templateName,
   templateId,
 }: HiringJourneyHeaderProps) {
+  const { t } = useTranslation()
+
   return (
     <div className="hb-hiring-header">
       <div className="hb-hiring-hero-copy">
         <Breadcrumb
           items={[
-            { label: '模板池', to: '/template-pool' },
+            { label: t('hiring.header.breadcrumbTemplatePool'), to: '/template-pool' },
             { label: templateName, to: `/template-pool/templates/${templateId}` },
-            { label: '雇佣流程' },
+            { label: t('hiring.header.breadcrumbProcess') },
           ]}
         />
         <p className="hb-hiring-journey-summary hb-hiring-hero-summary">
-          资料、技能、外部系统与交付包在同一条工作流里闭环
+          {t('hiring.header.summary')}
         </p>
       </div>
       {/* <div className="hb-hiring-hero-actions">
         <button type="button" className="hb-hiring-ghost-btn" onClick={onReset} disabled={resetting}>
-          {resetting ? '重置中...' : '重置流程'}
+          {resetting ? t('hiring.header.resetting') : t('hiring.header.resetProcess')}
         </button>
         <button type="button" className="hb-hiring-primary-btn" onClick={onContinue}>
-          从当前阶段继续
+          {t('hiring.header.continueCurrent')}
         </button>
       </div> */}
     </div>

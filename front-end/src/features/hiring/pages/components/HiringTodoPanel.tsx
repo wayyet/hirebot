@@ -13,6 +13,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { FileText, Upload } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import i18n from '@/i18n'
 
 import { api, HiringCollectionStage } from '@/infra/api'
 import type { EmployeeTemplatePackageSkill, HiringCollectionStageType, StoreSkillItem } from '@/infra/api'
@@ -92,9 +94,9 @@ const EMPTY_STORE_SKILL_LIST = {
 }
 
 const STAGES: StageConfig[] = [
-  { key: HiringCollectionStage.Material, num: '1', title: '资料', hint: '上传 .md / .json 资料，供 AI 解析作为雇佣依据' },
-  { key: HiringCollectionStage.Skill,    num: '2', title: '技能', hint: '' },
-  { key: HiringCollectionStage.External, num: '3', title: '外部系统', hint: '可选：配置外部 API / 系统对接信息' },
+  { key: HiringCollectionStage.Material, num: '1', title: i18n.t('hiring.todo.stage.material'), hint: i18n.t('hiring.todo.stage.materialHint') },
+  { key: HiringCollectionStage.Skill,    num: '2', title: i18n.t('hiring.todo.stage.skill'), hint: '' },
+  { key: HiringCollectionStage.External, num: '3', title: i18n.t('hiring.todo.stage.external'), hint: i18n.t('hiring.todo.stage.externalHint') },
 ]
 
 // ── 工具方法 ─────────────────────────────────────────────────────────────────
@@ -138,10 +140,10 @@ function readArtifactNumber(data: unknown, key: string): number | null {
 }
 
 function getSkillDefinitionStatusMeta(status: StageStatus | null): { label: string; tone: string } {
-  if (status === 'completed') return { label: '已确认', tone: 'is-completed' }
-  if (status === 'running') return { label: '收集中', tone: 'is-running' }
-  if (status === 'failed') return { label: '失败', tone: 'is-failed' }
-  return { label: '等待', tone: 'is-idle' }
+  if (status === 'completed') return { label: i18n.t('hiring.todo.status.confirmed'), tone: 'is-completed' }
+  if (status === 'running') return { label: i18n.t('hiring.todo.status.collecting'), tone: 'is-running' }
+  if (status === 'failed') return { label: i18n.t('hiring.todo.status.failed'), tone: 'is-failed' }
+  return { label: i18n.t('hiring.todo.status.waiting'), tone: 'is-idle' }
 }
 
 function getSkillImplementationMeta(run: DownstreamRunState | null): {
@@ -151,17 +153,17 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
 } {
   if (!run) {
     return {
-      label: '未开始',
+      label: i18n.t('hiring.todo.status.notStarted'),
       tone: 'is-idle',
-      description: '技能定义确认后，系统会先询问是否开始生成技能实现。',
+      description: i18n.t('hiring.todo.skill.notStartedDesc'),
     }
   }
 
   if (run.status === 'waiting_confirm') {
     return {
-      label: '待确认',
+      label: i18n.t('hiring.todo.status.pendingConfirm'),
       tone: 'is-waiting',
-      description: '技能定义已确认，请在对话区确认是否开始生成技能实现。',
+      description: i18n.t('hiring.todo.skill.pendingConfirmDesc'),
     }
   }
 
@@ -170,16 +172,16 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
     const completed = readArtifactNumber(run.data, 'completed_skills')
     if (total !== null && completed !== null) {
       return {
-        label: '生成中',
+        label: i18n.t('hiring.todo.status.generating'),
         tone: 'is-running',
-        description: `正在生成技能实现，当前已完成 ${completed}/${total} 个技能。`,
+        description: i18n.t('hiring.todo.skill.generationProgress', { completed, total }),
       }
     }
 
     return {
-      label: '生成中',
+      label: i18n.t('hiring.todo.status.generating'),
       tone: 'is-running',
-      description: run.label ?? '技能实现正在生成中。',
+      description: run.label ?? i18n.t('hiring.todo.skill.generatingDesc'),
     }
   }
 
@@ -188,23 +190,23 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
     const generated = readArtifactNumber(run.data, 'generated_count')
     if (total !== null && generated !== null) {
       return {
-        label: '已完成',
+        label: i18n.t('hiring.todo.status.completed'),
         tone: 'is-completed',
-        description: `技能实现已落盘，本轮共处理 ${total} 个技能，其中新增生成 ${generated} 个。`,
+        description: i18n.t('hiring.todo.skill.generationComplete', { total, generated }),
       }
     }
 
     return {
-      label: '已完成',
+      label: i18n.t('hiring.todo.status.completed'),
       tone: 'is-completed',
-      description: '技能实现已落盘，将随最终实例包一起导入。',
+      description: i18n.t('hiring.todo.skill.generationCompleteDesc'),
     }
   }
 
   return {
-    label: '失败',
+    label: i18n.t('hiring.todo.status.failed'),
     tone: 'is-failed',
-    description: run.label ?? '技能实现生成失败，请在对话区继续排查。',
+    description: run.label ?? i18n.t('hiring.todo.skill.generationFailed'),
   }
 }
 
@@ -212,18 +214,18 @@ function getDefinedSkillGenerationMeta(
   skill: DefinedSkillItem,
   run: DownstreamRunState | null,
 ): { label: string; tone: string } {
-  if (!run) return { label: '未开始', tone: 'is-idle' }
-  if (run.status === 'waiting_confirm') return { label: '待确认', tone: 'is-waiting' }
-  if (run.status === 'running') return { label: '生成中', tone: 'is-running' }
+  if (!run) return { label: i18n.t('hiring.todo.status.notStarted'), tone: 'is-idle' }
+  if (run.status === 'waiting_confirm') return { label: i18n.t('hiring.todo.status.pendingConfirm'), tone: 'is-waiting' }
+  if (run.status === 'running') return { label: i18n.t('hiring.todo.status.generating'), tone: 'is-running' }
   if (run.status === 'completed') {
     if (skill.generationAction && skill.generationAction !== 'generate_new') {
-      return { label: '已复用', tone: 'is-completed' }
+      return { label: i18n.t('hiring.todo.skill.reused'), tone: 'is-completed' }
     }
 
-    return { label: '已生成', tone: 'is-completed' }
+    return { label: i18n.t('hiring.todo.skill.generated'), tone: 'is-completed' }
   }
 
-  return { label: '失败', tone: 'is-failed' }
+  return { label: i18n.t('hiring.todo.status.failed'), tone: 'is-failed' }
 }
 
 function deriveFolderFromWebkitPath(file: File): string | undefined {
@@ -264,7 +266,7 @@ function inferMaterialContextLabel(category: MaterialRequestedCategory): string 
 function buildMaterialCategoryCards(requestedCategories: MaterialRequestedCategory[]): MaterialCategoryCard[] {
   return requestedCategories.map(category => ({
     title: category.title,
-    description: category.description?.trim() || '\u5efa\u8bae\u4f18\u5148\u8865\u5145\u8fd9\u7c7b\u8d44\u6599\uff0c\u5e2e\u52a9 AI \u66f4\u5feb\u5efa\u7acb\u53ef\u6267\u884c\u4e0a\u4e0b\u6587\u3002',
+    description: category.description?.trim() || i18n.t('hiring.todo.material.defaultDescription'),
     formatLabel: inferMaterialFormatLabel(category),
     contextLabel: inferMaterialContextLabel(category),
     examplesLabel: category.examples && category.examples.length > 0
@@ -272,7 +274,6 @@ function buildMaterialCategoryCards(requestedCategories: MaterialRequestedCatego
       : undefined,
   }))
 }
-
 export function HiringTodoPanel({
   hireId,
   sessionId,
@@ -288,6 +289,7 @@ export function HiringTodoPanel({
   skillGenerationState = null,
   definedSkills = [],
 }: HiringTodoPanelProps) {
+  const { t } = useTranslation()
   // 用户是否手动覆盖了某张卡片的展开状态；未手动覆盖的走"活跃阶段自动展开"逻辑
   const [userToggled, setUserToggled] = useState<Record<string, boolean>>({})
   const [manualExpanded, setManualExpanded] = useState<Record<string, boolean>>({})
@@ -334,7 +336,7 @@ export function HiringTodoPanel({
   return (
     <div className="hb-todo-panel">
       <div className="hb-todo-panel-head hb-todo-panel-head--compact">
-        <h3 className="hb-todo-panel-title">待办事项</h3>
+        <h3 className="hb-todo-panel-title">{t('hiring.todo.panelTitle')}</h3>
       </div>
 
       <div className="hb-todo-panel-body">
@@ -400,6 +402,7 @@ function StageCard({
   onToggle: () => void
   children: React.ReactNode
 }) {
+  const { t } = useTranslation()
   const isComplete = status === 'completed'
   const isActive = status === 'running'
   const isFailed = status === 'failed'
@@ -417,7 +420,7 @@ function StageCard({
         <span className="hb-todo-stage-num">{stage.num}</span>
         <span className="hb-todo-stage-title">{stage.title}</span>
         <span className={clsx('hb-todo-stage-badge', isComplete ? 'is-complete' : isActive ? 'is-active' : isFailed ? 'is-failed' : '')}>
-          {isComplete ? '已完成' : isActive ? '进行中' : isFailed ? '失败' : '等待'}
+          {isComplete ? t('hiring.todo.status.completed') : isActive ? t('hiring.todo.status.inProgress') : isFailed ? t('hiring.todo.status.failed') : t('hiring.todo.status.waiting')}
         </span>
         <span className={clsx('hb-todo-stage-chevron', expanded && 'is-open')}>▾</span>
       </button>
@@ -451,6 +454,7 @@ function MaterialCardBody({
   const [uploaded, setUploaded] = useState<UploadedFileMeta[]>([])
   const [uploadingCategoryTitle, setUploadingCategoryTitle] = useState<string | null>(null)
   const [persistedCategories, setPersistedCategories] = useState<MaterialRequestedCategory[]>([])
+  const { t } = useTranslation()
 
   const refresh = useCallback(async () => {
     if (!hireId || !sessionId) return
@@ -489,7 +493,7 @@ function MaterialCardBody({
 
   const handleFiles = useCallback(async (files: FileList | File[], requestedCategoryTitle?: string | null) => {
     if (!hireId || !sessionId) {
-      setError('会话尚未就绪，请稍后再试')
+      setError(t('hiring.todo.material.errorNotReady'))
       return
     }
 
@@ -499,7 +503,8 @@ function MaterialCardBody({
     const invalid = arr.filter(file => !ALLOWED_EXTS.has(fileExt(file.name)))
     if (invalid.length > 0) {
       const preview = invalid.slice(0, 3).map(file => file.name).join('、')
-      setError(`仅支持 .md 与 .json 文件：${preview}${invalid.length > 3 ? ' 等' : ''}`)
+      const more = invalid.length > 3 ? t('hiring.todo.material.errorInvalidExtMore') : ''
+      setError(t('hiring.todo.material.errorInvalidExt', { preview }) + more)
       return
     }
 
@@ -529,11 +534,11 @@ function MaterialCardBody({
 
       await refresh()
       const preview = names.slice(0, 5).join('、')
-      const suffix = names.length > 5 ? ` 等 ${names.length} 份` : ''
-      const categoryPrefix = requestedCategoryTitle ? `“${requestedCategoryTitle}”分类下` : ''
-      onAfterUpload(`已上传${categoryPrefix}${total} 份资料：${preview}${suffix}。请基于这些资料继续后续阶段。`)
+      const suffix = names.length > 5 ? t('hiring.todo.material.uploadSuffix', { count: names.length }) : ''
+      const categoryPrefix = requestedCategoryTitle ? t('hiring.todo.material.categoryPrefix', { category: requestedCategoryTitle }) : ''
+      onAfterUpload(t('hiring.todo.material.uploadSummary', { categoryPrefix, total, preview, suffix }))
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : '上传失败')
+      setError(uploadError instanceof Error ? uploadError.message : t('hiring.todo.material.errorUploadFailed'))
     } finally {
       setBusy(false)
       setUploadingCategoryTitle(null)
@@ -558,11 +563,11 @@ function MaterialCardBody({
   )
   const shellStatusLabel = materialCards.length > 0
     ? completedCardCount >= materialCards.length
-      ? `已上传 ${completedCardCount}`
-      : `待上传 ${materialCards.length - completedCardCount}`
+      ? t('hiring.todo.material.statusUploaded', { count: completedCardCount })
+      : t('hiring.todo.material.statusPendingCount', { count: materialCards.length - completedCardCount })
     : totalUploadedCount > 0
-      ? `已上传 ${totalUploadedCount}`
-      : '待上传'
+      ? t('hiring.todo.material.statusUploaded', { count: totalUploadedCount })
+    : t('hiring.todo.material.statusPending')
   return (
     <div className="hb-todo-mat">
       <div
@@ -588,7 +593,7 @@ function MaterialCardBody({
           <div className="hb-todo-material-head-copy">
             <div className="hb-todo-material-head-title-row">
               <span className="hb-todo-stage-num">1</span>
-              <strong>上传资料</strong>
+              {t('hiring.todo.material.title')}
             </div>
           </div>
           <div className="hb-todo-material-head-actions">
@@ -619,7 +624,7 @@ function MaterialCardBody({
                     </div>
                     {(isUploadingCurrentCard || uploadedCount > 0) ? (
                       <em className={clsx('hb-todo-category-status', uploadedCount > 0 && 'is-complete', isUploadingCurrentCard && 'is-busy')}>
-                        {isUploadingCurrentCard ? '正在上传…' : `已上传 ${uploadedCount} 份`}
+                        {isUploadingCurrentCard ? t('hiring.todo.material.uploading') : t('hiring.todo.material.uploadedCount', { count: uploadedCount })}
                       </em>
                     ) : null}
                   </div>
@@ -634,7 +639,7 @@ function MaterialCardBody({
                       }}
                     >
                       <Upload size={14} strokeWidth={2.1} />
-                      上传
+                      {t('hiring.todo.material.uploadBtn')}
                     </button>
                   </div>
                 </div>
@@ -646,7 +651,7 @@ function MaterialCardBody({
         {!collapsed && busy ? (
           <div className="hb-todo-upload-sync" aria-live="polite">
             <span className="hb-todo-upload-sync-dot" />
-            正在上传并同步到沙箱工作区
+            {t('hiring.todo.material.syncing')}
           </div>
         ) : null}
 
@@ -658,9 +663,9 @@ function MaterialCardBody({
               </div>
               <div className="hb-todo-category-copy">
                 <div className="hb-todo-category-title-row">
-                  <strong>已上传文件</strong>
+                  {t('hiring.todo.material.unmatchedTitle')}
                   <div className="hb-todo-category-chips">
-                    <span className="hb-todo-category-chip">{`未匹配 ${unmatchedUploads.length}`}</span>
+                    <span className="hb-todo-category-chip">{t('hiring.todo.material.unmatchedCount', { count: unmatchedUploads.length })}</span>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-2">
@@ -724,6 +729,7 @@ function SkillCardBody({
   skillGenerationState: DownstreamRunState | null
   definedSkills: DefinedSkillItem[]
 }) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<StoreSkillItem[]>([])
   const [searchTotal, setSearchTotal] = useState(0)
@@ -772,7 +778,7 @@ function SkillCardBody({
         setSearchError('')
       } catch (e) {
         if ((e as { name?: string })?.name === 'AbortError') return
-        setSearchError(e instanceof Error ? e.message : '搜索失败')
+        setSearchError(e instanceof Error ? e.message : t('hiring.todo.skill.errorSearchFailed'))
       } finally {
         setSearching(false)
       }
@@ -789,18 +795,18 @@ function SkillCardBody({
     : defaultSkillError instanceof Error
       ? defaultSkillError.message
       : defaultSkillError
-        ? '搜索失败'
+        ? t('hiring.todo.skill.errorSearchFailed')
         : ''
 
   const searchStatusLabel = currentSearching
-    ? '搜索中'
+    ? t('hiring.todo.skill.statusSearching')
     : linked.length > 0
-      ? `已关联 ${linked.length}`
+      ? t('hiring.todo.skill.statusLinkedCount', { count: linked.length })
       : !trimmedQuery
-        ? '默认 3 个'
+        ? t('hiring.todo.skill.statusDefaultCount')
         : currentResults.length > 0
-          ? `${currentResults.length} 条`
-      : '待关联'
+          ? t('hiring.todo.skill.statusResultCount', { count: currentResults.length })
+      : t('hiring.todo.skill.statusPending')
   const definitionMeta = useMemo(
     () => getSkillDefinitionStatusMeta(definitionStageStatus),
     [definitionStageStatus],
@@ -825,12 +831,12 @@ function SkillCardBody({
     <div className="hb-todo-skill">
       <section className="hb-todo-skill-section is-progress" aria-label="技能定义与实现状态">
         <div className="hb-todo-skill-section-head">
-          <strong>当前状态</strong>
+          {t('hiring.todo.skill.currentStatus')}
         </div>
         <div className="hb-todo-skill-linked-item">
           <div className="hb-todo-skill-main">
             <div className="hb-todo-skill-title-row">
-              <strong>定义状态</strong>
+              {t('hiring.todo.skill.definitionStatus')}
               <div className="hb-todo-skill-chips">
                 <span className={clsx('hb-todo-skill-chip', definitionMeta.tone)}>{definitionMeta.label}</span>
               </div>
@@ -840,7 +846,7 @@ function SkillCardBody({
         <div className="hb-todo-skill-linked-item">
           <div className="hb-todo-skill-main">
             <div className="hb-todo-skill-title-row">
-              <strong>实现状态</strong>
+              {t('hiring.todo.skill.implementationStatus')}
               <div className="hb-todo-skill-chips">
                 <span className={clsx('hb-todo-skill-chip', implementationMeta.tone)}>{implementationMeta.label}</span>
               </div>
@@ -855,7 +861,7 @@ function SkillCardBody({
           <input
             type="text"
             className="hb-todo-input"
-            placeholder="搜索技能名称 / 关键字（留空显示推荐技能）"
+            placeholder={t('hiring.todo.skill.searchPlaceholder')}
             value={query}
             onChange={e => setQuery(e.target.value)}
           />
@@ -874,8 +880,8 @@ function SkillCardBody({
       {definedSkills.length > 0 && (
         <section className="hb-todo-skill-section is-defined" aria-label="已定义技能">
           <div className="hb-todo-skill-section-head">
-            <strong>已定义技能</strong>
-            <span className="hb-todo-skill-section-pill">{definedSkills.length} 个</span>
+            {t('hiring.todo.skill.definedTitle')}
+            <span className="hb-todo-skill-section-pill">{t('hiring.todo.skill.countLabel', { count: definedSkills.length })}</span>
           </div>
           <ul className="hb-todo-skill-list is-template">
             {definedSkills.map(skill => {
@@ -892,10 +898,10 @@ function SkillCardBody({
                     </div>
                     {skill.description && <p className="hb-todo-skill-desc">{skill.description}</p>}
                     {skill.expectedOutput && (
-                      <p className="hb-todo-skill-inline-meta">期望输出：{skill.expectedOutput}</p>
+                      <p className="hb-todo-skill-inline-meta">{t('hiring.todo.skill.expectedOutput', { value: skill.expectedOutput })}</p>
                     )}
                     {skill.triggers.length > 0 && (
-                      <p className="hb-todo-skill-inline-meta">触发词：{skill.triggers.join('、')}</p>
+                      <p className="hb-todo-skill-inline-meta">{t('hiring.todo.skill.triggers', { value: skill.triggers.join('、') })}</p>
                     )}
                   </div>
                 </li>
@@ -906,16 +912,16 @@ function SkillCardBody({
       )}
 
       <section className="hb-todo-skill-section is-search" aria-label="搜索与推荐技能">
-        {currentSearching && <p className="hb-todo-hint-muted">搜索中…</p>}
+        {currentSearching && <p className="hb-todo-hint-muted">{t('hiring.todo.skill.searchingHint')}</p>}
         {currentError && <p className="hb-todo-error">{currentError}</p>}
         {!currentSearching && !currentError && currentResults.length === 0 && (
-          <p className="hb-todo-skill-empty">{trimmedQuery ? '未找到匹配的技能' : '暂无推荐技能'}</p>
+          <p className="hb-todo-skill-empty">{trimmedQuery ? t('hiring.todo.skill.noResults') : t('hiring.todo.skill.noRecommended')}</p>
         )}
 
         {currentResults.length > 0 && (
           <>
             {trimmedQuery && currentTotal > currentResults.length && (
-              <p className="hb-todo-hint-muted">共 {currentTotal} 个结果，显示前 {currentResults.length} 个</p>
+              <p className="hb-todo-hint-muted">{t('hiring.todo.skill.resultsSummary', { total: currentTotal, count: currentResults.length })}</p>
             )}
             <ul className="hb-todo-skill-list">
               {currentResults.map(s => {
@@ -946,7 +952,7 @@ function SkillCardBody({
                         disabled={linkedNow}
                         onClick={() => handleLink(s)}
                       >
-                        {linkedNow ? '已关联' : '关联'}
+                        {linkedNow ? t('hiring.todo.skill.linked') : t('hiring.todo.skill.link')}
                       </button>
                     </div>
                   </li>
@@ -960,10 +966,10 @@ function SkillCardBody({
       {linked.length > 0 && (
         <section className="hb-todo-skill-section is-linked-summary" aria-label="已关联技能">
           <div className="hb-todo-skill-section-head">
-            <strong>已关联技能</strong>
-            <span className="hb-todo-skill-section-pill is-linked">{linked.length} 个</span>
+            {t('hiring.todo.skill.linkedTitle')}
+            <span className="hb-todo-skill-section-pill is-linked">{t('hiring.todo.skill.countLabel', { count: linked.length })}</span>
           </div>
-          <p className="hb-todo-hint-muted">这些技能会随当前雇佣流程一起进入后续产物包。</p>
+          <p className="hb-todo-hint-muted">{t('hiring.todo.skill.linkedDesc')}</p>
           <ul className="hb-todo-skill-linked-list">
             {linked.map(l => (
               <li key={l.skillId} className="hb-todo-skill-linked-item">
@@ -981,7 +987,7 @@ function SkillCardBody({
                     className="hb-todo-row-btn is-ghost"
                     onClick={() => handleUnlink(l.skillId)}
                   >
-                    移除
+                    {t('hiring.todo.skill.unlink')}
                   </button>
                 </div>
               </li>
@@ -993,11 +999,11 @@ function SkillCardBody({
       {templatePackageSkills.length > 0 && (
         <section className="hb-todo-skill-section is-template" aria-label="模板内置技能">
           <div className="hb-todo-skill-section-head">
-            <strong>模板内置技能</strong>
-            <span className="hb-todo-skill-section-pill">{templatePackageSkills.length} 个</span>
+            {t('hiring.todo.skill.templateTitle')}
+            <span className="hb-todo-skill-section-pill">{t('hiring.todo.skill.countLabel', { count: templatePackageSkills.length })}</span>
           </div>
           <p className="hb-todo-hint-muted">
-            当前目标员工模板包已内置 {templatePackageSkills.length} 个 skill，不包含雇佣教练角色包。
+            {t('hiring.todo.skill.templateDesc', { count: templatePackageSkills.length })}
           </p>
           <ul className="hb-todo-skill-list is-template">
             {templatePackageSkills.map(skill => (
@@ -1007,7 +1013,7 @@ function SkillCardBody({
                     <strong>{skill.name}</strong>
                     <div className="hb-todo-skill-chips">
                       <span className={clsx('hb-todo-skill-chip', skill.required ? 'is-required' : 'is-optional')}>
-                        {skill.required ? '模板内置必选' : '模板内置可选'}
+                        {skill.required ? t('hiring.todo.skill.templateRequired') : t('hiring.todo.skill.templateOptional')}
                       </span>
                     </div>
                   </div>
@@ -1025,41 +1031,42 @@ function SkillCardBody({
 // ── 外部系统卡（可选配置） ────────────────────────────────────────────────────
 
 function ExternalCardBody({ onAfterSave }: { onAfterSave: (summary: string) => void }) {
+  const { t } = useTranslation()
   const [systemName, setSystemName] = useState('')
   const [apiUrl, setApiUrl] = useState('')
   const [token, setToken] = useState('')
 
   function handleSkip() {
-    onAfterSave('外部系统配置已跳过（无需对接外部系统）。请继续。')
+    onAfterSave(i18n.t('hiring.todo.external.skipMessage'))
   }
   function handleSave() {
     const name = systemName.trim()
     if (!name) return
-    onAfterSave(`已配置外部系统「${name}」，地址：${apiUrl || '(未填)'}。请继续。`)
+    onAfterSave(i18n.t('hiring.todo.external.saveMessage', { name, url: apiUrl || i18n.t('hiring.todo.external.apiUrlEmpty') }))
   }
 
   return (
     <div className="hb-todo-external">
-      <p className="hb-todo-hint-muted">外部系统对接为可选项，如无需对接可直接跳过。</p>
+      <p className="hb-todo-hint-muted">{t('hiring.todo.external.hint')}</p>
       <label className="hb-todo-field">
-        <span>系统名称</span>
+        {t('hiring.todo.external.systemName')}
         <input type="text" className="hb-todo-input" value={systemName}
-          onChange={e => setSystemName(e.target.value)} placeholder="例如：钉钉 / 飞书 / 内部 HR" />
+          onChange={e => setSystemName(e.target.value)} placeholder={t('hiring.todo.external.systemNamePlaceholder')} />
       </label>
       <label className="hb-todo-field">
-        <span>API 地址</span>
+        {t('hiring.todo.external.apiUrl')}
         <input type="text" className="hb-todo-input" value={apiUrl}
           onChange={e => setApiUrl(e.target.value)} placeholder="https://..." />
       </label>
       <label className="hb-todo-field">
-        <span>访问凭证</span>
+        {t('hiring.todo.external.token')}
         <input type="password" className="hb-todo-input" value={token}
-          onChange={e => setToken(e.target.value)} placeholder="可选" />
+          onChange={e => setToken(e.target.value)} placeholder={t('hiring.todo.external.tokenPlaceholder')} />
       </label>
       <div className="hb-todo-actions-row">
-        <button type="button" className="hb-todo-row-btn is-ghost" onClick={handleSkip}>跳过</button>
+        <button type="button" className="hb-todo-row-btn is-ghost" onClick={handleSkip}>{t('hiring.todo.external.skip')}</button>
         <button type="button" className="hb-todo-row-btn is-primary"
-          disabled={!systemName.trim()} onClick={handleSave}>保存并继续</button>
+          disabled={!systemName.trim()} onClick={handleSave}>{t('hiring.todo.external.save')}</button>
       </div>
     </div>
   )
@@ -1077,6 +1084,7 @@ function FinalCard({
   onToggle: () => void
   onGenerate?: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className={clsx(
       'hb-todo-stage-card',
@@ -1087,22 +1095,22 @@ function FinalCard({
     )}>
       <button type="button" className="hb-todo-stage-head" onClick={onToggle} aria-expanded={expanded}>
         <span className="hb-todo-stage-num">4</span>
-        <span className="hb-todo-stage-title">生成实例包</span>
+        <span className="hb-todo-stage-title">{t('hiring.todo.final.title')}</span>
         <span className={clsx('hb-todo-stage-badge', generated ? 'is-complete' : canGenerate ? 'is-active' : '')}>
-          {generated ? '已生成' : canGenerate ? '可生成' : '等待'}
+          {generated ? t('hiring.todo.final.generatedBadge') : canGenerate ? t('hiring.todo.final.canGenerateBadge') : t('hiring.todo.status.waiting')}
         </span>
         <span className={clsx('hb-todo-stage-chevron', expanded && 'is-open')}>▾</span>
       </button>
       {expanded && (
         <div className="hb-todo-stage-body">
           <p className="hb-todo-stage-hint">
-            前序阶段完成后，将整合资料、技能与可选配置，生成可下发到员工待上岗界面的实例模板包。
+            {t('hiring.todo.final.hint')}
           </p>
           <button type="button"
             className={clsx('hb-todo-row-btn', canGenerate && !generated ? 'is-primary' : 'is-ghost')}
             disabled={!canGenerate || generated}
             onClick={onGenerate}>
-            {generated ? '已生成' : '生成实例包'}
+            {generated ? t('hiring.todo.final.generatedBtn') : t('hiring.todo.final.generateBtn')}
           </button>
         </div>
       )}

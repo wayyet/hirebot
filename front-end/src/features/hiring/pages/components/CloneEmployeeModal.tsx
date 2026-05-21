@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, ArrowRight, CheckCircle2, CopyPlus, Loader2, X } from "lucide-react";
 import { api } from "@/infra/api";
@@ -22,6 +23,7 @@ export default function CloneEmployeeModal({
   onSuccess,
 }: CloneEmployeeModalProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [displayName, setDisplayName] = useState("");
   const [cloneCount, setCloneCount] = useState(0);
   const [maxClones, setMaxClones] = useState(10);
@@ -33,7 +35,7 @@ export default function CloneEmployeeModal({
   useEffect(() => {
     if (!open) return;
 
-    setDisplayName(`${sourceNickname} · 我的分身`);
+    setDisplayName(t('hiring.clone.defaultName', { sourceName: sourceNickname }));
     setError(null);
     setCloneSuccess(false);
 
@@ -74,7 +76,7 @@ export default function CloneEmployeeModal({
   async function handleCreate() {
     const name = displayName.trim();
     if (!name) {
-      setError("请输入分身名称");
+      setError(t('hiring.clone.nameMissing'));
       return;
     }
 
@@ -90,7 +92,7 @@ export default function CloneEmployeeModal({
       setCloneSuccess(true);
     } catch (err) {
       const message =
-        err instanceof ApiClientError ? err.message : "创建分身失败，请重试";
+        err instanceof ApiClientError ? err.message : t('hiring.clone.createFailed');
       setError(message);
     } finally {
       setCreating(false);
@@ -104,7 +106,7 @@ export default function CloneEmployeeModal({
           type="button"
           className="hb-modal-close"
           onClick={handleClose}
-          aria-label="关闭"
+          aria-label={t('hiring.button.close')}
         >
           <X size={16} />
         </button>
@@ -117,10 +119,10 @@ export default function CloneEmployeeModal({
                 className="mx-auto text-emerald-500"
               />
               <h3 className="mt-3 text-lg font-semibold text-[var(--hb-near-black)]">
-                分身创建成功
+                {t('hiring.clone.successTitle')}
               </h3>
               <p className="mt-1 text-sm text-[var(--hb-soft)]">
-                「{displayName}」已添加到你的个人资产中
+                {t('hiring.clone.successMessage', { name: displayName })}
               </p>
             </div>
             <div className="hb-modal-foot">
@@ -132,7 +134,7 @@ export default function CloneEmployeeModal({
                   handleClose();
                 }}
               >
-                关闭
+                {t('hiring.button.close')}
               </button>
               <button
                 type="button"
@@ -143,7 +145,7 @@ export default function CloneEmployeeModal({
                   navigate("/my-employees");
                 }}
               >
-                去我的数字员工
+                {t('hiring.clone.goToEmployees')}
                 <ArrowRight size={14} />
               </button>
             </div>
@@ -151,15 +153,15 @@ export default function CloneEmployeeModal({
         ) : (
           <>
             <div className="hb-modal-head">
-              <h3 className="hb-modal-title">复制为我的分身</h3>
+              <h3 className="hb-modal-title">{t('hiring.clone.title')}</h3>
               <p className="hb-modal-sub">
-                基于部门员工创建独立的个人副本，你的会话不会回流给部门版。
+                {t('hiring.clone.subtitle')}
               </p>
             </div>
 
             <div className="hb-modal-body space-y-4">
               <div className="rounded-lg border border-[var(--hb-border)] bg-[var(--hb-surface-soft)] p-3">
-                <p className="text-xs text-[var(--hb-soft)]">源员工</p>
+                <p className="text-xs text-[var(--hb-soft)]">{t('hiring.clone.sourceEmployee')}</p>
                 <p className="mt-0.5 truncate text-sm font-medium">
                   {sourceNickname}
                 </p>
@@ -168,13 +170,13 @@ export default function CloneEmployeeModal({
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-[var(--hb-soft)]">
-                  分身名称
+                  {t('hiring.clone.cloneName')}
                 </label>
                 <input
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   className="hb-input w-full"
-                  placeholder="输入分身名称"
+                  placeholder={t('hiring.clone.cloneNamePlaceholder')}
                   disabled={creating}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleCreate();
@@ -187,14 +189,14 @@ export default function CloneEmployeeModal({
                   <Loader2 size={12} className="animate-spin" />
                 ) : null}
                 <span>
-                  当前已有 {cloneCount}/{maxClones} 个分身
+                  {t('hiring.clone.cloneCountStatus', { count: cloneCount, max: maxClones })}
                 </span>
               </div>
 
               {limitReached && (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
                   <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
-                  <span>分身上限已达（{maxClones}个），请先清理不再使用的分身。</span>
+                  <span>{t('hiring.clone.limitReached', { max: maxClones })}</span>
                 </div>
               )}
 
@@ -212,7 +214,7 @@ export default function CloneEmployeeModal({
                 onClick={handleClose}
                 disabled={creating}
               >
-                取消
+                {t('hiring.button.cancel')}
               </button>
               <button
                 type="button"
@@ -223,12 +225,12 @@ export default function CloneEmployeeModal({
                 {creating ? (
                   <>
                     <Loader2 size={14} className="animate-spin" />
-                    创建中...
+                    {t('hiring.clone.creating')}
                   </>
                 ) : (
                   <>
                     <CopyPlus size={14} />
-                    确认创建
+                    {t('hiring.clone.confirmCreate')}
                   </>
                 )}
               </button>

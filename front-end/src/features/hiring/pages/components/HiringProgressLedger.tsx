@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-
+import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 
 import {
@@ -48,18 +48,19 @@ export function HiringProgressLedger({
   onDownloadArtifact,
   onDownloadArchive,
 }: HiringProgressLedgerProps) {
+  const { t } = useTranslation()
   const previewArtifactNames = artifactFileNames.slice(0, 6)
 
   return (
     <div className="hb-hiring-side">
       <div className="hb-hiring-panel-head is-ledger">
         <div>
-          <p className="hb-hiring-eyebrow">PROGRESS LEDGER</p>
-          <h3 className="hb-hiring-panel-title">待办事项</h3>
+          <p className="hb-hiring-eyebrow">{t('hiring.ledger.eyebrow')}</p>
+          <h3 className="hb-hiring-panel-title">{t('hiring.ledger.title')}</h3>
         </div>
         <div className="hb-hiring-score-card">
           <span>{overallProgress}/{stageCards.length}</span>
-          <small>阶段完成</small>
+          <small>{t('hiring.ledger.stageComplete')}</small>
         </div>
       </div>
 
@@ -81,7 +82,7 @@ export function HiringProgressLedger({
                 className={clsx('hb-hiring-card-action', actionState.canFinalize ? 'primary' : 'ghost')}
                 onClick={actionState.canFinalize ? onFinalize : onContinue}
               >
-                {actionState.canFinalize ? actionState.finalizeLabel : '继续补齐'}
+                {actionState.canFinalize ? actionState.finalizeLabel : t('hiring.ledger.continueFill')}
               </button>
             ) : null}
             {item.stage === HiringCollectionStage.ReadyForPackaging && instanceCreated && createdId ? (
@@ -90,7 +91,7 @@ export function HiringProgressLedger({
                 className="hb-hiring-card-action primary"
                 onClick={() => onEnterTraining(createdId)}
               >
-                进入培训流程
+                {t('hiring.ledger.enterTraining')}
               </button>
             ) : null}
           </TodoItem>
@@ -126,7 +127,7 @@ export function HiringProgressLedger({
                   className="hb-hiring-artifact-btn is-primary"
                   onClick={onDownloadArchive}
                 >
-                  下载后端交付包
+                  {t('hiring.ledger.downloadArchive')}
                 </button>
               ) : null}
             </div>
@@ -158,7 +159,8 @@ function TodoItem({
   todoItems,
   children,
 }: TodoItemProps) {
-  const statusLabel = status === 'complete' ? '已完成' : status === 'active' ? '进行中' : '待办'
+  const { t } = useTranslation()
+  const statusLabel = status === 'complete' ? t('hiring.ledger.todoStatus.completed') : status === 'active' ? t('hiring.ledger.todoStatus.active') : t('hiring.ledger.todoStatus.pending')
   const statusIcon = status === 'complete' ? '✓' : status === 'active' ? '●' : '○'
 
   return (
@@ -175,7 +177,7 @@ function TodoItem({
       </div>
       <div className={`hb-hiring-subtask-chip is-${status}`}>
         <span>{subtask}</span>
-        <strong>{status === 'complete' ? `✓ ${detail}` : `○ ${detail}`}</strong>
+        <strong>{status === 'complete' ? t('hiring.ledger.subtaskComplete', { detail }) : t('hiring.ledger.subtaskPending', { detail })}</strong>
       </div>
       {notes.length > 0 ? (
         <div className="hb-hiring-todo-notes">
@@ -197,13 +199,15 @@ function TodoItem({
 }
 
 function WorkflowTodoRow({ todo }: { todo: HiringStageTodoVm }) {
+  const { t } = useTranslation()
+
   return (
     <div className={clsx('hb-hiring-stage-todo-row', todo.isFallback && 'is-fallback')}>
       <div className="hb-hiring-stage-todo-row-head">
         <strong>{todo.title}</strong>
         <div className="hb-hiring-stage-todo-row-tags">
           <span className={clsx('hb-hiring-stage-todo-pill', `is-${statusTone(todo.status)}`)}>
-            {getWorkflowTodoStatusLabel(todo.status)}
+            {getWorkflowTodoStatusLabel(todo.status, t)}
           </span>
           <span className={clsx('hb-hiring-stage-todo-pill', todo.isFallback ? 'is-fallback' : 'is-structured')}>
             {todo.sourceLabel}
@@ -216,20 +220,20 @@ function WorkflowTodoRow({ todo }: { todo: HiringStageTodoVm }) {
   )
 }
 
-function getWorkflowTodoStatusLabel(status: string) {
+function getWorkflowTodoStatusLabel(status: string, t: (key: string) => string) {
   if (status === 'done' || status === 'resolved') {
-    return '已完成'
+    return t('hiring.ledger.todoStatus.workflowDone')
   }
 
   if (status === 'in_progress') {
-    return '进行中'
+    return t('hiring.ledger.todoStatus.workflowProgress')
   }
 
   if (status === 'needs_review') {
-    return '待复核'
+    return t('hiring.ledger.todoStatus.workflowNeedsReview')
   }
 
-  return '待处理'
+  return t('hiring.ledger.todoStatus.workflowPending')
 }
 
 function statusTone(status: string) {

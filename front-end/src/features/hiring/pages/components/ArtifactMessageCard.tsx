@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ArtifactDisplayData } from '../hiringPageTypes'
 
 interface Props {
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function ArtifactMessageCard({ artifact, onFileDownload }: Props) {
+  const { t } = useTranslation()
   const title = artifact.label ?? artifact.artifactType
 
   return (
@@ -18,7 +20,7 @@ export function ArtifactMessageCard({ artifact, onFileDownload }: Props) {
           <span className="hb-artifact-title">{title}</span>
           {(artifact.skillName || artifact.stage) && (
             <span className="hb-artifact-subtitle">
-              {[artifact.skillName, artifact.stage, artifact.isTerminal ? '终态' : null]
+              {[artifact.skillName, artifact.stage, artifact.isTerminal ? t('hiring.artifact.terminal') : null]
                 .filter(Boolean)
                 .join(' · ')}
             </span>

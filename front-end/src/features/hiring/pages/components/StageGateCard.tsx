@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { StageGateData } from '../hiringPageTypes'
 
 interface Props {
@@ -5,6 +6,7 @@ interface Props {
 }
 
 export function StageGateCard({ stageGate }: Props) {
+  const { t } = useTranslation()
   const { skillName, completedStage, nextStage, canProceed, blockedReason } = stageGate
   const stateClass = canProceed ? 'is-pass' : 'is-blocked'
 
@@ -12,9 +14,9 @@ export function StageGateCard({ stageGate }: Props) {
     <div className={`hb-stage-gate-card ${stateClass}`}>
       <div className="hb-stage-gate-header">
         <span className="hb-stage-gate-icon">🔀</span>
-        <span className="hb-stage-gate-skill">{skillName || '技能阶段'}</span>
+        <span className="hb-stage-gate-skill">{skillName || t('hiring.stageGate.defaultSkillName')}</span>
         <span className={`hb-stage-gate-badge ${stateClass}`}>
-          {canProceed ? '✓ 通过' : '✗ 阻塞'}
+          {canProceed ? t('hiring.stageGate.pass') : t('hiring.stageGate.blocked')}
         </span>
       </div>
 

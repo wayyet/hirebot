@@ -3,12 +3,14 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { api } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
 
 export default function TemplateDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   const { data: template, isLoading, error } = useQuery({
     queryKey: ['template', id],
@@ -23,7 +25,7 @@ export default function TemplateDetailPage() {
       <div className="hb-page">
         <div className="hb-card flex min-h-52 items-center justify-center gap-2 p-8 text-sm text-[var(--hb-soft)]">
           <Loader2 size={16} className="animate-spin" />
-          正在加载模板详情...
+          {t('templateDetail.loading')}
         </div>
       </div>
     )
@@ -32,9 +34,9 @@ export default function TemplateDetailPage() {
   if (error || !template) {
     return (
       <div className="hb-page space-y-4">
-        <Breadcrumb items={[{ label: '模板池', to: '/template-pool' }, { label: '模板详情' }]} />
+        <Breadcrumb items={[{ label: t('templateDetail.breadcrumb'), to: '/template-pool' }, { label: t('templateDetail.notFound') }]} />
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-400">
-          {error?.message || '模板不存在'}
+          {error?.message || t('templateDetail.notFound')}
         </div>
       </div>
     )
@@ -42,7 +44,7 @@ export default function TemplateDetailPage() {
 
   return (
     <div className="hb-page space-y-5">
-      <Breadcrumb items={[{ label: '模板池', to: '/template-pool' }, { label: template.name }]} />
+      <Breadcrumb items={[{ label: t('templateDetail.breadcrumb'), to: '/template-pool' }, { label: template.name }]} />
 
       <section className="hb-card hb-detail-hero">
         <div className="hb-detail-top">
@@ -53,7 +55,7 @@ export default function TemplateDetailPage() {
           </div>
           <div className="flex flex-col gap-2">
             <button type="button" className="hb-btn-primary" onClick={() => navigate(`/template-pool/hiring/${template.templateId}`)}>
-              {template.cta.label || '发起标准雇佣'}
+              {t('templateDetail.startHiring')}
             </button>
           </div>
         </div>
@@ -61,15 +63,15 @@ export default function TemplateDetailPage() {
 
       {template.prerequisites.length > 0 && (
         <div className="hb-card p-6">
-          <h2 className="hb-section-heading">前置准备</h2>
+          <h2 className="hb-section-heading">{t('templateDetail.prerequisites')}</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--hb-border)] text-left text-[var(--hb-soft)]">
-                  <th className="pb-2 pr-4 font-medium">系统</th>
-                  <th className="pb-2 pr-4 font-medium">权限</th>
-                  <th className="pb-2 pr-4 font-medium">级别</th>
-                  <th className="pb-2 font-medium">用途</th>
+                  <th className="pb-2 pr-4 font-medium">{t('templateDetail.table.system')}</th>
+                  <th className="pb-2 pr-4 font-medium">{t('templateDetail.table.permission')}</th>
+                  <th className="pb-2 pr-4 font-medium">{t('templateDetail.table.level')}</th>
+                  <th className="pb-2 font-medium">{t('templateDetail.table.purpose')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -89,7 +91,7 @@ export default function TemplateDetailPage() {
 
       {template.detailDoc.trim() ? (
         <div className="hb-card p-6">
-          <h2 className="hb-section-heading">详细说明</h2>
+          <h2 className="hb-section-heading">{t('templateDetail.details')}</h2>
           <div className="hb-divider" />
           <div className="hb-template-doc">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>

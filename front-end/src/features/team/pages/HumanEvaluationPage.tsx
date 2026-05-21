@@ -15,6 +15,7 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { tokenService } from '@/infra/auth/token-service'
 import { GatewayWs } from '@/infra/sandbox/gateway-ws'
 import {
@@ -91,6 +92,7 @@ export default function HumanEvaluationPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const { t } = useTranslation()
 
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null)
   const [evaluation, setEvaluation] = useState<EvaluationState | null>(null)
@@ -480,7 +482,7 @@ export default function HumanEvaluationPage() {
       <div className="hb-page">
         <div className="hb-card flex min-h-[220px] items-center justify-center gap-2 p-8 text-sm text-[#737373]">
           <Loader2 size={16} className="animate-spin" />
-          正在加载人工评估...
+          {t('humanEvaluation.loading')}
         </div>
       </div>
     )
@@ -489,7 +491,7 @@ export default function HumanEvaluationPage() {
   if (!employee || !evaluation) {
     return (
       <div className="hb-page">
-        <div className="hb-card p-8 text-sm text-[#737373]">人工评估数据不存在</div>
+        <div className="hb-card p-8 text-sm text-[#737373]">{t('humanEvaluation.notFound')}</div>
       </div>
     )
   }
@@ -503,7 +505,7 @@ export default function HumanEvaluationPage() {
       <Breadcrumb
         items={[
           { label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' },
-          { label: '人工评估' },
+          { label: t('humanEvaluation.breadcrumb') },
         ]}
       />
       <div className="flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
@@ -512,17 +514,17 @@ export default function HumanEvaluationPage() {
           <div className="flex flex-wrap items-center gap-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
-                <h1 className="text-[16px] font-semibold text-[#0a0a0a]">人工评估对话</h1>
+                <h1 className="text-[16px] font-semibold text-[#0a0a0a]">{t('humanEvaluation.title')}</h1>
                 <span className="rounded-full border border-[#e5e7eb] bg-[#f9fafb] px-2 py-0.5 text-[10px] text-[#4b5563]">
                   {employee.nickname} · {employee.roleName}
                 </span>
               </div>
               <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px]">
                 <span className="rounded-full border border-[#ddd6fe] bg-[#ede9fe] px-2 py-0.5 text-[#5b21b6]">
-                  人工评估进行中
+                  {t('humanEvaluation.statusInProgress')}
                 </span>
                 <span className={`rounded-full border px-2 py-0.5 ${sandboxConnected ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#e5e7eb] bg-white text-[#737373]'}`}>
-                  目标沙箱：{sandboxConnected ? '已连接' : '未连接'}
+                  {sandboxConnected ? t('humanEvaluation.sandboxConnected') : t('humanEvaluation.sandboxDisconnected')}
                 </span>
                 {selectedSessionId && (
                   <span className="rounded-full border border-[#e5e7eb] bg-white px-2 py-0.5 text-[#4b5563]">
@@ -538,7 +540,7 @@ export default function HumanEvaluationPage() {
                 className="hb-btn-ghost !px-2.5 !py-1 !text-[11px]"
               >
                 <BarChart2 size={12} />
-                {rightCollapsed ? '展开评估参考' : '收起评估参考'}
+                {rightCollapsed ? t('humanEvaluation.togglePanel') : t('humanEvaluation.collapsePanel')}
               </button>
             </div>
           </div>
@@ -576,7 +578,7 @@ export default function HumanEvaluationPage() {
                 <div className="mb-3 rounded-2xl border border-[#fecdd3] bg-[#fff1f2] px-4 py-3 text-sm text-[#be123c]">
                   <div className="flex items-center gap-2">
                     <AlertCircle size={14} />
-                    <span>评估沙箱尚未创建，请先完成 AI 评估流程以准备评估环境。</span>
+                    <span>{t('humanEvaluation.sandboxNotStarted')}</span>
                   </div>
                 </div>
               )}
@@ -584,7 +586,7 @@ export default function HumanEvaluationPage() {
                 <div className="mb-3 rounded-2xl border border-[#fecdd3] bg-[#fff1f2] px-4 py-3 text-sm text-[#be123c]">
                   <div className="flex items-center gap-2">
                     <AlertCircle size={14} />
-                    <span>评估环境创建失败，请返回 AI 评估页面重新准备。</span>
+                    <span>{t('humanEvaluation.sandboxFailed')}</span>
                   </div>
                 </div>
               )}
@@ -594,11 +596,11 @@ export default function HumanEvaluationPage() {
                 {chatLoading ? (
                   <div className="flex items-center gap-2 text-sm text-[#737373]">
                     <Loader2 size={14} className="animate-spin" />
-                    正在连接目标沙箱最新会话...
+                    {t('humanEvaluation.connectingSession')}
                   </div>
                 ) : !workspaceReady ? null : chatMessages.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-[#d1d5db] bg-[#fafafa] px-4 py-4 text-sm leading-6 text-[#737373]">
-                    暂无对话记录。请直接向数字员工发送消息开始人工评估。
+                  {t('humanEvaluation.noMessages')}
                   </div>
                 ) : (
                   chatMessages.map((message) => {
@@ -614,7 +616,7 @@ export default function HumanEvaluationPage() {
                           )}
                           <div className={`rounded-2xl px-3 py-2.5 text-sm leading-6 ${isUser ? 'bg-[#000000] text-white' : 'border border-[#ececec] bg-white text-[#404040]'}`}>
                             <div className={`mb-1 text-[11px] ${isUser ? 'text-[#e5e5e5]' : 'text-[#9ca3af]'}`}>
-                              {isUser ? '你' : '数字员工'} · {formatDateTime(message.createdAt)}
+                              {isUser ? t('humanEvaluation.messageYou') : t('humanEvaluation.messageEmployee')} · {formatDateTime(message.createdAt)}
                             </div>
                             {isUser ? (
                               <div className="whitespace-pre-wrap break-words">{message.content}</div>
@@ -651,7 +653,7 @@ export default function HumanEvaluationPage() {
                         </div>
                       ) : streamingContent ? (
                         <div className="rounded-2xl border border-[#ececec] bg-white px-3 py-2.5 text-sm leading-6 text-[#404040]">
-                          <div className="mb-1 text-[11px] text-[#9ca3af]">数字员工 · 正在回复</div>
+                          <div className="mb-1 text-[11px] text-[#9ca3af]">{t('humanEvaluation.messageEmployee')} · {t('humanEvaluation.streaming')}</div>
                           <div className="hb-md prose prose-sm max-w-none break-words">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
                           </div>
@@ -688,11 +690,7 @@ export default function HumanEvaluationPage() {
                   }}
                   rows={2}
                   disabled={chatSending || !workspaceReady}
-                  placeholder={
-                    !workspaceReady
-                      ? '沙箱未就绪，请先完成 AI 评估'
-                      : '向数字员工发送消息（Enter 发送，Shift+Enter 换行）'
-                  }
+                    placeholder={!workspaceReady ? t('humanEvaluation.inputPlaceholderDisabled') : t('humanEvaluation.inputPlaceholder')}
                   className="min-h-[72px] flex-1 resize-y rounded-2xl border border-[#e5e5e5] bg-[#fafafa] px-4 py-3.5 text-sm leading-6 outline-none focus:border-[#5b21b6] disabled:opacity-60"
                 />
                 <button
@@ -707,7 +705,7 @@ export default function HumanEvaluationPage() {
 
               {/* 评估结论操作区 */}
               <div className="mt-4 rounded-2xl border border-[#ececec] bg-[#fafafa] px-4 py-3">
-                <div className="mb-2.5 text-[11px] font-semibold text-[#374151]">人工评估结论</div>
+                <div className="mb-2.5 text-[11px] font-semibold text-[#374151]">{t('humanEvaluation.decisionTitle')}</div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -716,7 +714,7 @@ export default function HumanEvaluationPage() {
                     className="hb-btn-primary !px-3 !py-1.5 !text-[12px]"
                   >
                     <ShieldCheck size={13} />
-                    确认上岗
+                    {t('humanEvaluation.confirmOnboard')}
                   </button>
                   <button
                     type="button"
@@ -731,7 +729,7 @@ export default function HumanEvaluationPage() {
                     className="hb-btn-ghost !px-3 !py-1.5 !text-[12px]"
                   >
                     <Zap size={13} />
-                    {showForceConfirm ? '确认强制上岗？' : '强制上岗'}
+                    {showForceConfirm ? t('humanEvaluation.forceOnboardConfirm') : t('humanEvaluation.forceOnboard')}
                   </button>
                   <button
                     type="button"
@@ -743,7 +741,7 @@ export default function HumanEvaluationPage() {
                     className="rounded-full border border-[#fde2e2] bg-white px-3 py-1.5 text-[12px] font-medium text-[#be3a4a] hover:bg-[#fff5f5] disabled:opacity-50"
                   >
                     <ShieldAlert size={13} className="inline mr-1" />
-                    评估不通过
+                    {t('humanEvaluation.rejectEvaluation')}
                   </button>
                   {showForceConfirm && (
                     <button
@@ -751,12 +749,12 @@ export default function HumanEvaluationPage() {
                       onClick={() => setShowForceConfirm(false)}
                       className="rounded-full border border-[#e5e7eb] bg-white px-3 py-1.5 text-[12px] text-[#6b7280] hover:bg-[#f9fafb]"
                     >
-                      取消
+                      {t('humanEvaluation.cancelAction')}
                     </button>
                   )}
                 </div>
                 <p className="mt-2 text-[10px] text-[#9ca3af]">
-                  确认上岗：直接上岗；强制上岗：需二次确认后上岗（进入上岗配置流程）；评估不通过：进入 Review 流程
+                  {t('humanEvaluation.decisionNote')}
                 </p>
               </div>
             </div>
@@ -767,7 +765,7 @@ export default function HumanEvaluationPage() {
             <div className="hb-card flex w-[320px] shrink-0 flex-col overflow-hidden">
               <div className="border-b border-[#ececec] px-4 py-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-[13px] font-semibold text-[#111827]">AI 评估参考</div>
+                  <div className="text-[13px] font-semibold text-[#111827]">{t('humanEvaluation.aiReferencePanel')}</div>
                   <button
                     type="button"
                     onClick={() => setRightCollapsed(true)}
@@ -776,12 +774,12 @@ export default function HumanEvaluationPage() {
                     <ChevronUp size={14} />
                   </button>
                 </div>
-                <div className="mt-0.5 text-[11px] text-[#6b7280]">以下为 AI 评估的场景判定，仅供参考</div>
+                <div className="mt-0.5 text-[11px] text-[#6b7280]">{t('humanEvaluation.aiReferencePanelDesc')}</div>
               </div>
 
               <div className="flex-1 space-y-2 overflow-y-auto p-4">
                 {evaluation.scenarios.length === 0 ? (
-                  <div className="text-sm text-[#9ca3af]">暂无 AI 评估场景数据</div>
+                  <div className="text-sm text-[#9ca3af]">{t('humanEvaluation.noAiScenarios')}</div>
                 ) : (
                   evaluation.scenarios.map((scenario) => (
                     <div key={scenario.scenarioId} className="rounded-2xl border border-[#ececec] bg-white px-3 py-2.5">
@@ -804,7 +802,7 @@ export default function HumanEvaluationPage() {
 
                 {evaluation.latestReport && (
                   <div className="mt-3 rounded-2xl border border-[#e0e7ff] bg-[#eef2ff] px-3 py-2.5">
-                    <div className="text-[11px] font-semibold text-[#4338ca]">AI 综合评分</div>
+                    <div className="text-[11px] font-semibold text-[#4338ca]">{t('humanEvaluation.aiOverallScore')}</div>
                     <div className="mt-1 flex items-baseline gap-1">
                       <span className="text-2xl font-bold text-[#3730a3]">
                         {evaluation.latestReport.overallScore}
@@ -812,14 +810,14 @@ export default function HumanEvaluationPage() {
                       <span className="text-[11px] text-[#6366f1]">/ 100</span>
                     </div>
                     <div className="mt-1 text-[10px] text-[#6366f1]">
-                      {evaluation.latestReport.passed ? '✅ AI 评估通过' : '⚠️ AI 评估未通过'}
+                      {evaluation.latestReport.passed ? t('humanEvaluation.aiPassed') : t('humanEvaluation.aiFailed')}
                     </div>
                   </div>
                 )}
 
                 {evaluation.recommendation && (
                   <div className="rounded-2xl border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2.5">
-                    <div className="mb-1 text-[11px] font-semibold text-[#374151]">AI 建议</div>
+                    <div className="mb-1 text-[11px] font-semibold text-[#374151]">{t('humanEvaluation.aiSuggestion')}</div>
                     <div className="text-[11px] leading-relaxed text-[#6b7280]">
                       {evaluation.recommendation}
                     </div>
@@ -831,7 +829,7 @@ export default function HumanEvaluationPage() {
                 <div className="flex items-center gap-2">
                   <CheckCircle2 size={12} className="text-[#6b7280]" />
                   <span className="text-[10px] text-[#9ca3af]">
-                    通过率 {evaluation.scenarios.filter((s) => s.verdict === 'passed').length}/{evaluation.scenarios.length}
+                    {t('humanEvaluation.passRate', { passed: evaluation.scenarios.filter((s) => s.verdict === 'passed').length, total: evaluation.scenarios.length })}
                   </span>
                 </div>
               </div>

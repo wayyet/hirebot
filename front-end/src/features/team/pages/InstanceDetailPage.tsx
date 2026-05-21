@@ -277,6 +277,28 @@ export default function InstanceDetailPage() {
                     废弃私有分支
                   </button>
                 ) : null}
+
+                {employeeView.mappedStatus === "interning_ai" && id ? (
+                  <button
+                    type="button"
+                    className="hb-btn-primary"
+                    onClick={() => navigate(`${instanceBasePath(location.pathname, id)}/evaluation`)}
+                  >
+                    <ShieldCheck size={14} />
+                    进入 AI 评估
+                  </button>
+                ) : null}
+
+                {employeeView.mappedStatus === "interning_human" && id ? (
+                  <button
+                    type="button"
+                    className="hb-btn-primary"
+                    onClick={() => navigate(`${instanceBasePath(location.pathname, id)}/human-evaluation`)}
+                  >
+                    <ShieldCheck size={14} />
+                    进入人工评估
+                  </button>
+                ) : null}
               </div>
             </div>
           </section>
