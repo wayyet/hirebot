@@ -261,7 +261,9 @@
       "blocked": "✗ Blocked"
     },
     "artifact": {
-      "terminal": "Terminal"
+      "terminal": "Terminal",
+      "downloadFile": "Download Package",
+      "manualImport": "Import to System"
     },
     "dispatch": {
       "running": "Dispatching",

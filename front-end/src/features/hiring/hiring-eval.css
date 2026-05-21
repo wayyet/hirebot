@@ -841,6 +841,35 @@ body.hb-body-hiring-prototype {
   color: #6b7280;
 }
 
+.hb-artifact-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hb-artifact-file-row .hb-artifact-file-link {
+  flex: 1;
+  min-width: 0;
+}
+
+.hb-artifact-action-btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--hb-border);
+  background: var(--hb-surface-soft);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--hb-accent, #2563eb);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.hb-artifact-action-btn:hover {
+  background: var(--hb-surface-hover, #f0f4ff);
+}
+
 .hb-artifact-file-link {
   display: flex;
   align-items: center;

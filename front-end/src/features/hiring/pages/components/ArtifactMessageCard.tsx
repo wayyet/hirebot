@@ -6,11 +6,14 @@ interface Props {
   artifact: ArtifactDisplayData
   /** 带 token 的文件下载回调；未提供时退化为直接 <a href> */
   onFileDownload?: (url: string, fileName: string) => void
+  /** 手动触发上传到系统（仅 template_package 展示） */
+  onManualUpload?: (fileUrl: string, fileName: string) => void
 }
 
-export function ArtifactMessageCard({ artifact, onFileDownload }: Props) {
+export function ArtifactMessageCard({ artifact, onFileDownload, onManualUpload }: Props) {
   const { t } = useTranslation()
   const title = artifact.label ?? artifact.artifactType
+  const isPackage = artifact.artifactType === 'template_package'
 
   return (
     <div className="hb-artifact-card">
@@ -29,26 +32,37 @@ export function ArtifactMessageCard({ artifact, onFileDownload }: Props) {
       </div>
 
       {artifact.kind === 'file' ? (
-        onFileDownload && artifact.fileUrl ? (
-          // gateway 文件需要附带 token，通过回调触发认证下载
-          <button
-            type="button"
-            className="hb-artifact-file-link"
-            onClick={() => onFileDownload(artifact.fileUrl!, artifact.fileName ?? title)}
-          >
-            <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
-            {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
-          </button>
-        ) : (
-          <a
-            href={artifact.fileUrl ?? '#'}
-            download={artifact.fileName ?? title}
-            className="hb-artifact-file-link"
-          >
-            <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
-            {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
-          </a>
-        )
+        <div className="hb-artifact-file-row">
+          {onFileDownload && artifact.fileUrl ? (
+            // gateway 文件需要附带 token，通过回调触发认证下载
+            <button
+              type="button"
+              className="hb-artifact-file-link"
+              onClick={() => onFileDownload(artifact.fileUrl!, artifact.fileName ?? title)}
+            >
+              <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
+              {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
+            </button>
+          ) : (
+            <a
+              href={artifact.fileUrl ?? '#'}
+              download={artifact.fileName ?? title}
+              className="hb-artifact-file-link"
+            >
+              <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
+              {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
+            </a>
+          )}
+          {isPackage && onManualUpload && artifact.fileUrl && (
+            <button
+              type="button"
+              className="hb-artifact-action-btn"
+              onClick={() => onManualUpload(artifact.fileUrl!, artifact.fileName ?? title)}
+            >
+              {t('hiring.artifact.manualImport')}
+            </button>
+          )}
+        </div>
       ) : (
         <ArtifactDataView artifact={artifact} />
       )}

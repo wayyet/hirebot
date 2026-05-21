@@ -98,6 +98,8 @@ type HiringConversationPanelProps = {
   formatFileSize: (bytes: number) => string
   /** 带 token 的 gateway 文件下载回调 */
   onArtifactFileDownload?: (url: string, fileName: string) => void
+  /** 手动触发产物包上传到系统（template_package 卡片展示） */
+  onArtifactManualUpload?: (url: string, fileName: string) => void
   /** 工作流连接状态徽标：放在聊天面板顶部 */
   workflowStatus?: {
     title: string
@@ -129,6 +131,7 @@ export function HiringConversationPanel({
   onRemovePendingFile,
   formatFileSize,
   onArtifactFileDownload,
+  onArtifactManualUpload,
   workflowStatus,
 }: HiringConversationPanelProps) {
   const { t } = useTranslation()
@@ -180,7 +183,7 @@ export function HiringConversationPanel({
               <div key={message.id} className="hb-hiring-msg">
                 <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
                 <div className="hb-hiring-msg-stack">
-                  <ArtifactMessageCard artifact={message.artifact} onFileDownload={onArtifactFileDownload} />
+                  <ArtifactMessageCard artifact={message.artifact} onFileDownload={onArtifactFileDownload} onManualUpload={onArtifactManualUpload} />
                 </div>
               </div>
             )

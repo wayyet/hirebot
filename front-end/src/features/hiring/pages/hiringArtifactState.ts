@@ -127,9 +127,10 @@ function toArtifactDisplayData(raw: Record<string, unknown>): ArtifactDisplayDat
   const kind = (String(raw.kind ?? 'data')) as 'file' | 'data'
   const artifactType = String(raw.artifactType ?? raw.artifact_type ?? 'generic')
   const label = raw.label != null ? String(raw.label) : undefined
-  const skillName = raw.skillName != null ? String(raw.skillName) : undefined
+  const skillName = (raw.skillName ?? raw.skill_name) != null ? String(raw.skillName ?? raw.skill_name) : undefined
   const stage = raw.stage != null ? String(raw.stage) : undefined
-  const isTerminal = Boolean(raw.isTerminal ?? raw.is_terminal)
+  // 兼容三种字段名：isTerminal（WS 实时）、is_terminal（snake_case）、terminal（历史 tool call arguments）
+  const isTerminal = Boolean(raw.isTerminal ?? raw.is_terminal ?? raw.terminal)
   const displayHint = raw.displayHint != null
     ? String(raw.displayHint)
     : raw.display_hint != null
@@ -148,7 +149,8 @@ function toArtifactDisplayData(raw: Record<string, unknown>): ArtifactDisplayDat
 
   if (kind === 'file') {
     artifactData.fileUrl = String(raw.fileUrl ?? raw.file_url ?? '')
-    artifactData.fileName = String(raw.fileName ?? raw.file_name ?? label ?? 'file')
+    // 兼容历史 tool call 中的 display_name 字段（WS 实时用 fileName/file_name）
+    artifactData.fileName = String(raw.fileName ?? raw.file_name ?? raw.display_name ?? label ?? 'file')
     artifactData.mimeType = String(raw.mimeType ?? raw.mime_type ?? '')
   } else {
     artifactData.data = typeof raw.data === 'string' ? JSON.parse(raw.data) : raw.data
@@ -168,7 +170,15 @@ function extractArtifactFromToolCall(toolCall: SandboxToolCall): ArtifactDisplay
   }
 
   try {
-    return toArtifactDisplayData(payload)
+    const artifact = toArtifactDisplayData(payload)
+    // 历史 tool call 的 fileUrl 不在 arguments 里，而在 result 的 [FILE_URL:...] 标记中
+    if (artifact.kind === 'file' && !artifact.fileUrl && toolCall.result) {
+      const match = /\[FILE_URL:([^\]]+)\]/.exec(toolCall.result)
+      if (match?.[1]) {
+        artifact.fileUrl = match[1].trim()
+      }
+    }
+    return artifact
   } catch {
     return null
   }

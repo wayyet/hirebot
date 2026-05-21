@@ -547,12 +547,13 @@ export default function HiringPage() {
 
   // 沙箱推送 template_package artifact 后自动触发 import-package，将产物直接存入系统
   // 注：不在此清除 pendingPackageArtifact，以便【生成实例】按钮可依据它的状态作为手动兑现入口；instanceCreated 防重入
+  // downstreamRuns 加入依赖：下游任务完成后重新检查，确保延迟暂存的产物包也能自动导入
   useEffect(() => {
     if (!pendingPackageArtifact || !workflowHireId || instanceCreated) return
     if (hasPendingDownstreamRuns(downstreamRunsRef.current)) return
     void triggerCreate(pendingPackageArtifact)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingPackageArtifact, workflowHireId, instanceCreated])
+  }, [pendingPackageArtifact, workflowHireId, instanceCreated, downstreamRuns])
 
   // 对话状态变化时防抖保存到后端（messages 或 wsStageOverrides 变化时触发）
   useEffect(() => {
@@ -1132,10 +1133,11 @@ export default function HiringPage() {
           }
           // template_package artifact 表示沙箱已完成打包，暂存 fileUrl 后自动触发 import-package
           if (artifactType === 'template_package' && kind === 'file' && artifactData.fileUrl) {
+            // 无论是否有下游任务未完成，均暂存产物包信息；
+            // useEffect 会在 downstreamRuns 全部完成后自动触发 triggerCreate。
+            setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
             if (hasPendingDownstreamRuns(downstreamRunsRef.current)) {
-              setWorkflowNotice('已收到产物包，但下游生成尚未完成，当前不会自动导入。请在下游完成后重新触发打包。')
-            } else {
-              setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
+              setWorkflowNotice('已收到产物包，下游生成完成后将自动导入。')
             }
           }
         }
@@ -1879,6 +1881,7 @@ export default function HiringPage() {
           onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
           formatFileSize={formatFileSize}
           onArtifactFileDownload={(url, fileName) => { void downloadGatewayFile(url, fileName) }}
+          onArtifactManualUpload={(url, fileName) => { void triggerCreate({ fileUrl: url, fileName }) }}
           workflowStatus={workflowStatus}
         />
 

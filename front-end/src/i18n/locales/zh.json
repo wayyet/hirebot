@@ -261,7 +261,9 @@
       "blocked": "✗ 阻塞"
     },
     "artifact": {
-      "terminal": "终态"
+      "terminal": "终态",
+      "downloadFile": "下载产物包",
+      "manualImport": "手动导入系统"
     },
     "dispatch": {
       "running": "派发中",
