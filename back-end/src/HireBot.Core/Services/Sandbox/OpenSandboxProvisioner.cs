@@ -118,7 +118,7 @@ internal sealed class OpenSandboxProvisioner(
         // OpenSandbox endpoint lookup should return the sandbox gateway address itself.
         // The management-service proxy URL cannot be reused as the chat/upload base URL.
         var gatewayEndpoint = state == "Running"
-            ? await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, useServerProxy: false, cancellationToken)
+            ? await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, settings.Protocol, useServerProxy: false, cancellationToken)
             : null;
 
         return new ProvisionedSandboxResult(sandboxId, state, gatewayEndpoint, expiresAtUtc);
@@ -148,6 +148,7 @@ internal sealed class OpenSandboxProvisioner(
             baseUrl,
             sandboxId,
             settings.GatewayPort,
+            settings.Protocol,
             useServerProxy,
             cancellationToken);
     }
@@ -222,7 +223,7 @@ internal sealed class OpenSandboxProvisioner(
                 string? endpoint = null;
                 if (state == "Running")
                 {
-                    endpoint = await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, useServerProxy: false, cancellationToken);
+                    endpoint = await ResolveGatewayEndpointAsync(http, baseUrl, sandboxId, settings.GatewayPort, settings.Protocol, useServerProxy: false, cancellationToken);
                 }
 
                 DateTimeOffset? expiresAtUtc = null;
@@ -307,6 +308,7 @@ internal sealed class OpenSandboxProvisioner(
         string baseUrl,
         string sandboxId,
         int gatewayPort,
+        ConnectionProtocol protocol,
         bool useServerProxy,
         CancellationToken cancellationToken)
     {
@@ -315,6 +317,7 @@ internal sealed class OpenSandboxProvisioner(
             baseUrl,
             sandboxId,
             gatewayPort,
+            protocol,
             useServerProxy,
             cancellationToken);
 
@@ -326,6 +329,7 @@ internal sealed class OpenSandboxProvisioner(
         string baseUrl,
         string sandboxId,
         int gatewayPort,
+        ConnectionProtocol protocol,
         bool useServerProxy,
         CancellationToken cancellationToken)
     {
@@ -346,7 +350,17 @@ internal sealed class OpenSandboxProvisioner(
             return RemoteCallResult<string>.Failure(502, "OpenSandbox endpoint lookup returned an empty endpoint");
         }
 
-        return RemoteCallResult<string>.Ok(endpointElement.GetString()!.Trim());
+        var endpoint = endpointElement.GetString()!.Trim();
+
+        // 以 OpenSandbox:Protocol 为准规范化网关 endpoint 协议，
+        // 避免管理服务返回 http:// 格式而实际网关已启用 TLS 导致调用失败。
+        if (protocol == ConnectionProtocol.Https &&
+            endpoint.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            endpoint = string.Concat("https://", endpoint.AsSpan("http://".Length));
+        }
+
+        return RemoteCallResult<string>.Ok(endpoint);
     }
 
     /// <summary>

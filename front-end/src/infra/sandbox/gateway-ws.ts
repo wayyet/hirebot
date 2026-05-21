@@ -2,6 +2,8 @@
  * 直连沙箱 OpenSandbox Gateway 的 WebSocket 封装。
  * 无需经过 HireBot 后端代理，直接用当前 Keycloak token 鉴权。
  */
+import { inferGatewayProtocol } from '@/infra/sandbox/sandbox-utils'
+
 export type GatewayMessage = Record<string, unknown> & { type: string }
 
 function buildGatewayWsUrl(endpoint: string, token: string): string {
@@ -10,8 +12,8 @@ function buildGatewayWsUrl(endpoint: string, token: string): string {
   if (/^https?:\/\//i.test(base)) {
     base = base.replace(/^http/i, 'ws')
   } else if (!/^wss?:\/\//i.test(base)) {
-    // 无 scheme 时跟随页面协议：http:// → ws://，https:// → wss://
-    const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
+    // 无 scheme：localhost 走 ws，其他地址始终走 wss
+    const protocol = inferGatewayProtocol(base, 'wss', 'ws')
     base = `${protocol}://${base.replace(/^\/+/, '')}`
   }
   // 移除已有的 token 参数，避免重复

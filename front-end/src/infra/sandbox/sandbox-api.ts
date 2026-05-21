@@ -3,6 +3,7 @@
  * 无需经过 HireBot 后端代理，直接用当前 Keycloak token 鉴权。
  */
 import { tokenService } from '@/infra/auth/token-service'
+import { inferGatewayProtocol } from '@/infra/sandbox/sandbox-utils'
 
 interface ChatTurn {
   role: string
@@ -98,7 +99,8 @@ function buildUrl(endpoint: string, path: string): string {
   if (/^https?:\/\//i.test(trimmed)) {
     base = trimmed.replace(/\/$/, '')
   } else {
-    const protocol = location.protocol === 'https:' ? 'https' : 'http'
+    // 无 scheme：localhost 走 http，其他地址始终走 https
+    const protocol = inferGatewayProtocol(trimmed, 'https', 'http')
     base = `${protocol}://${trimmed.replace(/^\/+/, '')}`
   }
   return `${base}/${path.replace(/^\/+/, '')}`
