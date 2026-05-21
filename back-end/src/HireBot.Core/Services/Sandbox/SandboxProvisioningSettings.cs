@@ -8,6 +8,7 @@ internal sealed record SandboxProvisioningSettings(
     string Domain,
     ConnectionProtocol Protocol,
     bool UseServerProxy,
+    string ApiKey,
     string Image,
     IReadOnlyDictionary<string, string> ResourceLimits,
     int TimeoutSeconds,
@@ -89,10 +90,17 @@ internal sealed record SandboxProvisioningSettings(
         var entrypoint = configuration.GetSection("OpenSandbox:Entrypoint").Get<string[]>() ?? ["/app/OpenClaw.Gateway"];
         var egressHosts = configuration.GetSection("OpenSandbox:KingCrab:NetworkEgressAllowHosts").Get<string[]>() ?? [];
 
+        var apiKey = configuration["OpenSandbox:ApiKey"] ?? configuration["OPEN_SANDBOX_API_KEY"];
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("OpenSandbox API key not configured. Set OpenSandbox:ApiKey or OPEN_SANDBOX_API_KEY.");
+        }
+
         return new SandboxProvisioningSettings(
             domain.Trim(),
             protocol,
             useServerProxy,
+            apiKey,
             image.Trim(),
             resourceLimits,
             timeoutSeconds,
@@ -119,7 +127,8 @@ internal sealed record SandboxProvisioningSettings(
             Domain = Domain,
             Protocol = Protocol,
             UseServerProxy = UseServerProxy,
-            RequestTimeoutSeconds = RequestTimeoutSeconds
+            RequestTimeoutSeconds = RequestTimeoutSeconds,
+            ApiKey = ApiKey
         });
     }
 
