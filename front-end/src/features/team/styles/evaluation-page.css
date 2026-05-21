@@ -148,6 +148,29 @@
 /* ════════════════════════════════════════════════════════════════
    5. 工作流 badge pill（Sesion, 双沙箱已连接 等）
    ════════════════════════════════════════════════════════════════ */
+/* 人工评估阶段 badge（紫罗兰色） */
+.eval-pill-violet {
+  border-color: #ddd6fe;
+  background: #ede9fe;
+  color: #5b21b6;
+}
+.dark .eval-pill-violet {
+  border-color: rgba(167, 139, 250, 0.30);
+  background: rgba(167, 139, 250, 0.12);
+  color: #c4b5fd;
+}
+
+/* 决策操作区容器 */
+.eval-decision-panel {
+  border-color: #ececec;
+  background: #fafafa;
+}
+.dark .eval-decision-panel {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+
 .eval-pill-neutral {
   border-color: #e5e7eb;
   background: #ffffff;

@@ -501,7 +501,7 @@ export default function HumanEvaluationPage() {
   const workspaceFailed = workspaceStatus?.overallStatus === 'failed'
 
   return (
-    <div className="hb-page hb-page-wide">
+    <div className="hb-page">
       <Breadcrumb
         items={[
           { label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' },
@@ -509,25 +509,26 @@ export default function HumanEvaluationPage() {
         ]}
       />
       <div className="flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
+
         {/* 顶部状态栏 */}
         <section className="hb-card p-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
-                <h1 className="text-[16px] font-semibold text-[#0a0a0a]">{t('humanEvaluation.title')}</h1>
-                <span className="rounded-full border border-[#e5e7eb] bg-[#f9fafb] px-2 py-0.5 text-[10px] text-[#4b5563]">
+                <h1 className="text-[16px] font-semibold eval-text-strong">{t('humanEvaluation.title')}</h1>
+                <span className="rounded-full border eval-pill-neutral px-2 py-0.5 text-[10px]">
                   {employee.nickname} · {employee.roleName}
                 </span>
               </div>
               <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px]">
-                <span className="rounded-full border border-[#ddd6fe] bg-[#ede9fe] px-2 py-0.5 text-[#5b21b6]">
+                <span className="rounded-full border eval-pill-violet px-2 py-0.5">
                   {t('humanEvaluation.statusInProgress')}
                 </span>
-                <span className={`rounded-full border px-2 py-0.5 ${sandboxConnected ? 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]' : 'border-[#e5e7eb] bg-white text-[#737373]'}`}>
+                <span className={`rounded-full border px-2 py-0.5 ${sandboxConnected ? 'eval-badge-connected' : 'eval-badge-disconnected'}`}>
                   {sandboxConnected ? t('humanEvaluation.sandboxConnected') : t('humanEvaluation.sandboxDisconnected')}
                 </span>
                 {selectedSessionId && (
-                  <span className="rounded-full border border-[#e5e7eb] bg-white px-2 py-0.5 text-[#4b5563]">
+                  <span className="rounded-full border eval-pill-neutral px-2 py-0.5">
                     当前会话：{selectedSessionId.length > 18 ? `${selectedSessionId.slice(0, 8)}...${selectedSessionId.slice(-6)}` : selectedSessionId}
                   </span>
                 )}
@@ -546,7 +547,7 @@ export default function HumanEvaluationPage() {
           </div>
 
           {error && (
-            <div className="mt-3 rounded-xl border border-[#ffd5da] bg-[#fff1f2] px-3 py-2 text-xs text-[#b3263c]">
+            <div className="mt-3 rounded-xl border eval-bar-error px-3 py-2 text-xs">
               <span className="inline-flex items-center gap-1.5">
                 <AlertCircle size={12} />
                 {error}
@@ -558,24 +559,23 @@ export default function HumanEvaluationPage() {
         <section className="flex min-h-0 flex-1 gap-4">
           {/* 左侧：与目标沙箱的对话主区域 */}
           <div className="hb-card flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="border-b border-[#ececec] px-5 py-4">
+            <div className="border-b eval-chat-footer px-5 py-4">
               <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[#ede9fe] text-[#5b21b6]">
+                <div className="flex h-9 w-9 items-center justify-center rounded-2xl eval-icon-indigo">
                   <MessageCircle size={18} />
                 </div>
                 <div>
-                  <div className="text-base font-semibold text-[#111827]">与数字员工对话</div>
-                  <div className="text-[12px] leading-5 text-[#6b7280]">
+                  <div className="text-base font-semibold eval-text-title">与数字员工对话</div>
+                  <div className="text-[12px] leading-5 eval-text-secondary">
                     直接与目标员工沙箱交互，验证真实工作能力。自动接入最新会话。
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-1 flex-col overflow-hidden bg-[#fafafa] px-5 py-4">
-              {/* 工作区状态提示 */}
+            <div className="flex flex-1 flex-col overflow-hidden eval-chat-bg px-5 py-4">
               {workspaceNotStarted && (
-                <div className="mb-3 rounded-2xl border border-[#fecdd3] bg-[#fff1f2] px-4 py-3 text-sm text-[#be123c]">
+                <div className="mb-3 rounded-2xl border eval-bar-error px-4 py-3 text-sm">
                   <div className="flex items-center gap-2">
                     <AlertCircle size={14} />
                     <span>{t('humanEvaluation.sandboxNotStarted')}</span>
@@ -583,7 +583,7 @@ export default function HumanEvaluationPage() {
                 </div>
               )}
               {workspaceFailed && (
-                <div className="mb-3 rounded-2xl border border-[#fecdd3] bg-[#fff1f2] px-4 py-3 text-sm text-[#be123c]">
+                <div className="mb-3 rounded-2xl border eval-bar-error px-4 py-3 text-sm">
                   <div className="flex items-center gap-2">
                     <AlertCircle size={14} />
                     <span>{t('humanEvaluation.sandboxFailed')}</span>
@@ -591,16 +591,15 @@ export default function HumanEvaluationPage() {
                 </div>
               )}
 
-              {/* 消息列表 */}
               <div className="flex-1 space-y-3 overflow-y-auto">
                 {chatLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-[#737373]">
+                  <div className="flex items-center gap-2 text-sm eval-text-muted">
                     <Loader2 size={14} className="animate-spin" />
                     {t('humanEvaluation.connectingSession')}
                   </div>
                 ) : !workspaceReady ? null : chatMessages.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-[#d1d5db] bg-[#fafafa] px-4 py-4 text-sm leading-6 text-[#737373]">
-                  {t('humanEvaluation.noMessages')}
+                  <div className="rounded-2xl border border-dashed eval-empty-chat px-4 py-4 text-sm leading-6">
+                    {t('humanEvaluation.noMessages')}
                   </div>
                 ) : (
                   chatMessages.map((message) => {
@@ -614,8 +613,8 @@ export default function HumanEvaluationPage() {
                           {!isUser && message.toolSteps && message.toolSteps.length > 0 && (
                             <HiringToolStepsBlock steps={message.toolSteps} />
                           )}
-                          <div className={`rounded-2xl px-3 py-2.5 text-sm leading-6 ${isUser ? 'bg-[#000000] text-white' : 'border border-[#ececec] bg-white text-[#404040]'}`}>
-                            <div className={`mb-1 text-[11px] ${isUser ? 'text-[#e5e5e5]' : 'text-[#9ca3af]'}`}>
+                          <div className={`rounded-2xl px-3 py-2.5 text-sm leading-6 ${isUser ? 'eval-bubble-user' : 'border eval-bubble-bot'}`}>
+                            <div className={`mb-1 text-[11px] ${isUser ? 'eval-bubble-meta-user' : 'eval-bubble-meta-bot'}`}>
                               {isUser ? t('humanEvaluation.messageYou') : t('humanEvaluation.messageEmployee')} · {formatDateTime(message.createdAt)}
                             </div>
                             {isUser ? (
@@ -637,7 +636,6 @@ export default function HumanEvaluationPage() {
                   })
                 )}
 
-                {/* 流式回复 */}
                 {(streamingContent !== null || chatTyping) && (
                   <div className="flex justify-start">
                     <div className="hb-hiring-avatar mr-2 mt-0.5 shrink-0">员</div>
@@ -652,8 +650,8 @@ export default function HumanEvaluationPage() {
                           ))}
                         </div>
                       ) : streamingContent ? (
-                        <div className="rounded-2xl border border-[#ececec] bg-white px-3 py-2.5 text-sm leading-6 text-[#404040]">
-                          <div className="mb-1 text-[11px] text-[#9ca3af]">{t('humanEvaluation.messageEmployee')} · {t('humanEvaluation.streaming')}</div>
+                        <div className="border eval-bubble-bot rounded-2xl px-3 py-2.5 text-sm leading-6">
+                          <div className="mb-1 text-[11px] eval-bubble-meta-bot">{t('humanEvaluation.messageEmployee')} · {t('humanEvaluation.streaming')}</div>
                           <div className="hb-md prose prose-sm max-w-none break-words">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
                           </div>
@@ -665,9 +663,8 @@ export default function HumanEvaluationPage() {
                 <div ref={chatEndRef} />
               </div>
 
-              {/* chatError */}
               {chatError && (
-                <div className="mt-2 shrink-0 rounded-xl border border-[#ffd5da] bg-[#fff1f2] px-3 py-2 text-xs text-[#b3263c]">
+                <div className="mt-2 shrink-0 rounded-xl border eval-bar-error px-3 py-2 text-xs">
                   <span className="inline-flex items-center gap-1.5">
                     <AlertCircle size={12} />
                     {chatError}
@@ -677,7 +674,7 @@ export default function HumanEvaluationPage() {
             </div>
 
             {/* 输入区 */}
-            <div className="shrink-0 border-t border-[#ececec] bg-white px-4 py-4">
+            <div className="shrink-0 border-t eval-chat-footer px-4 py-4">
               <div className="flex items-end gap-2">
                 <textarea
                   value={chatInput}
@@ -690,8 +687,8 @@ export default function HumanEvaluationPage() {
                   }}
                   rows={2}
                   disabled={chatSending || !workspaceReady}
-                    placeholder={!workspaceReady ? t('humanEvaluation.inputPlaceholderDisabled') : t('humanEvaluation.inputPlaceholder')}
-                  className="min-h-[72px] flex-1 resize-y rounded-2xl border border-[#e5e5e5] bg-[#fafafa] px-4 py-3.5 text-sm leading-6 outline-none focus:border-[#5b21b6] disabled:opacity-60"
+                  placeholder={!workspaceReady ? t('humanEvaluation.inputPlaceholderDisabled') : t('humanEvaluation.inputPlaceholder')}
+                  className="eval-textarea min-h-[72px] flex-1 resize-y rounded-2xl border px-4 py-3.5 text-sm leading-6 disabled:opacity-60"
                 />
                 <button
                   type="button"
@@ -704,8 +701,8 @@ export default function HumanEvaluationPage() {
               </div>
 
               {/* 评估结论操作区 */}
-              <div className="mt-4 rounded-2xl border border-[#ececec] bg-[#fafafa] px-4 py-3">
-                <div className="mb-2.5 text-[11px] font-semibold text-[#374151]">{t('humanEvaluation.decisionTitle')}</div>
+              <div className="mt-4 rounded-2xl border eval-decision-panel px-4 py-3">
+                <div className="mb-2.5 text-[11px] font-semibold eval-text-body">{t('humanEvaluation.decisionTitle')}</div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -738,22 +735,22 @@ export default function HumanEvaluationPage() {
                       setShowForceConfirm(false)
                       void submitDecision('REJECT')
                     }}
-                    className="rounded-full border border-[#fde2e2] bg-white px-3 py-1.5 text-[12px] font-medium text-[#be3a4a] hover:bg-[#fff5f5] disabled:opacity-50"
+                    className="hb-btn-primary hb-btn-danger !px-3 !py-1.5 !text-[12px]"
                   >
-                    <ShieldAlert size={13} className="inline mr-1" />
+                    <ShieldAlert size={13} />
                     {t('humanEvaluation.rejectEvaluation')}
                   </button>
                   {showForceConfirm && (
                     <button
                       type="button"
                       onClick={() => setShowForceConfirm(false)}
-                      className="rounded-full border border-[#e5e7eb] bg-white px-3 py-1.5 text-[12px] text-[#6b7280] hover:bg-[#f9fafb]"
+                      className="hb-btn-ghost !px-3 !py-1.5 !text-[12px]"
                     >
                       {t('humanEvaluation.cancelAction')}
                     </button>
                   )}
                 </div>
-                <p className="mt-2 text-[10px] text-[#9ca3af]">
+                <p className="mt-2 text-[10px] eval-text-caption">
                   {t('humanEvaluation.decisionNote')}
                 </p>
               </div>
@@ -762,29 +759,29 @@ export default function HumanEvaluationPage() {
 
           {/* 右侧：AI 评估参考面板（可折叠） */}
           {!rightCollapsed && (
-            <div className="hb-card flex w-[320px] shrink-0 flex-col overflow-hidden">
-              <div className="border-b border-[#ececec] px-4 py-3">
+            <div className="hb-card flex w-[320px] xl:w-[360px] 2xl:w-[400px] shrink-0 flex-col overflow-hidden">
+              <div className="border-b eval-chat-footer px-4 py-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-[13px] font-semibold text-[#111827]">{t('humanEvaluation.aiReferencePanel')}</div>
+                  <div className="text-[13px] font-semibold eval-text-title">{t('humanEvaluation.aiReferencePanel')}</div>
                   <button
                     type="button"
                     onClick={() => setRightCollapsed(true)}
-                    className="text-[#9ca3af] hover:text-[#4b5563]"
+                    className="eval-text-caption hover:eval-text-secondary"
                   >
                     <ChevronUp size={14} />
                   </button>
                 </div>
-                <div className="mt-0.5 text-[11px] text-[#6b7280]">{t('humanEvaluation.aiReferencePanelDesc')}</div>
+                <div className="mt-0.5 text-[11px] eval-text-secondary">{t('humanEvaluation.aiReferencePanelDesc')}</div>
               </div>
 
               <div className="flex-1 space-y-2 overflow-y-auto p-4">
                 {evaluation.scenarios.length === 0 ? (
-                  <div className="text-sm text-[#9ca3af]">{t('humanEvaluation.noAiScenarios')}</div>
+                  <div className="text-sm eval-text-caption">{t('humanEvaluation.noAiScenarios')}</div>
                 ) : (
                   evaluation.scenarios.map((scenario) => (
-                    <div key={scenario.scenarioId} className="rounded-2xl border border-[#ececec] bg-white px-3 py-2.5">
+                    <div key={scenario.scenarioId} className="rounded-2xl border eval-question-card px-3 py-2.5">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0 truncate text-[12px] font-medium text-[#111827]">
+                        <div className="min-w-0 truncate text-[12px] font-medium eval-text-title">
                           {scenario.scenarioName}
                         </div>
                         <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${verdictPillClass(scenario.verdict)}`}>
@@ -792,7 +789,7 @@ export default function HumanEvaluationPage() {
                         </span>
                       </div>
                       {scenario.verdictComment && (
-                        <div className="mt-1.5 text-[11px] leading-relaxed text-[#6b7280]">
+                        <div className="mt-1.5 text-[11px] leading-relaxed eval-text-secondary">
                           {scenario.verdictComment}
                         </div>
                       )}
@@ -801,34 +798,34 @@ export default function HumanEvaluationPage() {
                 )}
 
                 {evaluation.latestReport && (
-                  <div className="mt-3 rounded-2xl border border-[#e0e7ff] bg-[#eef2ff] px-3 py-2.5">
-                    <div className="text-[11px] font-semibold text-[#4338ca]">{t('humanEvaluation.aiOverallScore')}</div>
+                  <div className="mt-3 rounded-2xl border eval-stats-badge-ontology px-3 py-2.5">
+                    <div className="text-[11px] font-semibold eval-text-indigo-label">{t('humanEvaluation.aiOverallScore')}</div>
                     <div className="mt-1 flex items-baseline gap-1">
-                      <span className="text-2xl font-bold text-[#3730a3]">
+                      <span className="text-2xl font-bold eval-text-indigo">
                         {evaluation.latestReport.overallScore}
                       </span>
-                      <span className="text-[11px] text-[#6366f1]">/ 100</span>
+                      <span className="text-[11px] eval-text-indigo">/ 100</span>
                     </div>
-                    <div className="mt-1 text-[10px] text-[#6366f1]">
+                    <div className="mt-1 text-[10px] eval-text-indigo">
                       {evaluation.latestReport.passed ? t('humanEvaluation.aiPassed') : t('humanEvaluation.aiFailed')}
                     </div>
                   </div>
                 )}
 
                 {evaluation.recommendation && (
-                  <div className="rounded-2xl border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2.5">
-                    <div className="mb-1 text-[11px] font-semibold text-[#374151]">{t('humanEvaluation.aiSuggestion')}</div>
-                    <div className="text-[11px] leading-relaxed text-[#6b7280]">
+                  <div className="rounded-2xl border eval-recommendation px-3 py-2.5">
+                    <div className="mb-1 text-[11px] font-semibold eval-text-body">{t('humanEvaluation.aiSuggestion')}</div>
+                    <div className="text-[11px] leading-relaxed eval-text-secondary">
                       {evaluation.recommendation}
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="shrink-0 border-t border-[#ececec] px-4 py-3">
+              <div className="shrink-0 border-t eval-chat-footer px-4 py-3">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 size={12} className="text-[#6b7280]" />
-                  <span className="text-[10px] text-[#9ca3af]">
+                  <CheckCircle2 size={12} className="eval-text-caption" />
+                  <span className="text-[10px] eval-text-caption">
                     {t('humanEvaluation.passRate', { passed: evaluation.scenarios.filter((s) => s.verdict === 'passed').length, total: evaluation.scenarios.length })}
                   </span>
                 </div>
@@ -840,7 +837,7 @@ export default function HumanEvaluationPage() {
             <button
               type="button"
               onClick={() => setRightCollapsed(false)}
-              className="hb-card flex w-8 shrink-0 items-center justify-center text-[#9ca3af] hover:text-[#4b5563]"
+              className="hb-card flex w-8 shrink-0 items-center justify-center eval-text-caption hover:eval-text-secondary"
             >
               <ChevronDown size={14} />
             </button>
@@ -850,3 +847,4 @@ export default function HumanEvaluationPage() {
     </div>
   )
 }
+
