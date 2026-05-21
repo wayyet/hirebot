@@ -49,7 +49,7 @@ import {
 } from './hiringArtifactState'
 import { extractConversationMaterialFiles } from './materialUploadMatching'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
-import { extractLatestMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
+import { normalizeMaterialRequestedCategories } from './materialRequestedCategories'
 
 function mkId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -92,7 +92,7 @@ async function fileToChatFile(file: File, type: 'file' | 'skill' = 'file', metad
     id: mkId(),
     name: file.name,
     size: file.size,
-    status: i18n.t('hiring.file.parsed'),
+    status: i18n.t('hiring.file.parsed') as '已解析',
     type,
     mimeType: file.type || undefined,
     content,
@@ -397,38 +397,6 @@ export default function HiringPage() {
   const rawFileMapRef = useRef<Map<string, File>>(new Map())
   // 避免同一会话重复触发“自动上传模板并引导”
   const autoTemplateBootstrapSessionRef = useRef<string | null>(null)
-
-  function syncArtifactDerivedRefs(messagesToSync: ChatMessage[]) {
-    latestMaterialSummaryRef.current = null
-    latestSkillSummaryRef.current = null
-    latestExternalSummaryRef.current = null
-    materialSummarySignatureRef.current = ''
-    skillSummarySignatureRef.current = ''
-    externalSummarySignatureRef.current = ''
-    ontologyExtractionDoneSignatureRef.current = ''
-
-    for (const message of messagesToSync) {
-      const artifact = message.artifact
-      if (!artifact || artifact.kind !== 'data') continue
-
-      const signature = JSON.stringify(artifact.data ?? {})
-      if (artifact.artifactType === 'material_handoff_summary' && artifact.isTerminal) {
-        latestMaterialSummaryRef.current = artifact.data ?? null
-        materialSummarySignatureRef.current = signature
-      }
-      if (artifact.artifactType === 'skill_workorder_summary' && artifact.isTerminal) {
-        latestSkillSummaryRef.current = artifact.data ?? null
-        skillSummarySignatureRef.current = signature
-      }
-      if (artifact.artifactType === 'external_workorder_summary' && artifact.isTerminal) {
-        latestExternalSummaryRef.current = artifact.data ?? null
-        externalSummarySignatureRef.current = signature
-      }
-      if (artifact.artifactType === 'ontology_extraction_done' && artifact.isTerminal) {
-        ontologyExtractionDoneSignatureRef.current = signature
-      }
-    }
-  }
 
   async function restoreConversationFromSandboxHistory(
     endpoint: string,
@@ -1530,7 +1498,7 @@ export default function HiringPage() {
         id: mkId(),
         name: uploaded.name,
         size: uploaded.size ?? payload.file.size,
-        status: i18n.t('hiring.file.parsed'),
+        status: i18n.t('hiring.file.parsed') as '已解析',
         type: 'skill',
         mimeType: uploaded.mimeType ?? payload.file.type ?? undefined,
         content: undefined,

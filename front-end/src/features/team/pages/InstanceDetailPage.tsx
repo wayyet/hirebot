@@ -13,7 +13,6 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useTranslation } from "react-i18next";
-import { useUserRole } from "@/app/context/UserRoleContext";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeDetail } from "@/infra/api";
 import { instanceBasePath } from "@/shared/utils/instancePath";
@@ -48,7 +47,6 @@ export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { role } = useUserRole();
   const { showToast } = useUxOverlay();
 
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
