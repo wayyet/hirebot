@@ -29,6 +29,7 @@ import {
   type EvaluationWorkspaceStatus,
   type HiringConversationMessage,
 } from '@/infra/api'
+import { API_BASE_URL } from '@/infra/api/httpClient'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
 import SessionListPanel from '@/features/team/components/SessionListPanel'
 import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
@@ -41,14 +42,15 @@ type EvalChatMessage = HiringConversationMessage & { toolSteps?: ToolStep[] }
 type ArtifactTab = 'overview' | 'testcase' | 'trace' | 'report'
 type WorkflowStageStatus = 'pending' | 'running' | 'completed' | 'failed'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5280'
-
 function toAbsoluteApiUrl(path?: string | null): string | null {
   if (!path) return null
   const trimmed = path.trim()
   if (!trimmed) return null
   if (/^https?:\/\//i.test(trimmed)) return trimmed
-  return new URL(trimmed.startsWith('/') ? trimmed : `/${trimmed}`, API_BASE_URL).toString()
+  const normalized = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  // API_BASE_URL 为空串时表示相对路径部署（镜像内），直接返回相对路径即可
+  if (!API_BASE_URL) return normalized
+  return new URL(normalized, API_BASE_URL).toString()
 }
 
 function verdictLabel(verdict?: string | null) {
@@ -810,8 +812,9 @@ export default function EvaluationPage() {
       setChatMessages([])
       setEvaluation(null)
       setWsStatusLoaded(false)
-      // 阻止 auto-init effect 重复触发，由下方直接调用 submitAiDecision 接管
+      // 阻止 auto-init effect 弹出倒计时遮罩，由下方直接调用 submitAiDecision 接管
       autoInitFiredRef.current = true
+      await loadData()  // 刷新 employee 状态，确保 submitAiDecision 基于最新数据
       resetOk = true
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '清理评估数据失败')
@@ -1118,25 +1121,29 @@ export default function EvaluationPage() {
                 {wsEvaluating ? (wsProgress || 'WS 评估中...') : '执行评估'}
               </button>
               {resetConfirm ? (
-                <>
+                <div className="flex items-center gap-1.5 rounded-lg border border-[var(--hb-danger)]/30 bg-[var(--hb-danger)]/5 px-2 py-1">
+                  <AlertCircle size={11} className="shrink-0 text-[var(--hb-danger)]" />
+                  <span className="whitespace-nowrap text-[11px] text-[var(--hb-danger)]">确认清理？</span>
                   <button
                     type="button"
                     disabled={resetting || submitting}
-                    className="hb-btn-danger !px-2.5 !py-1 !text-[11px]"
+                    className="text-[11px] font-semibold text-[var(--hb-danger)] underline-offset-2 hover:underline disabled:opacity-50"
                     onClick={() => void handleResetEvaluationData()}
                   >
-                    {resetting ? <Loader2 size={12} className="animate-spin" /> : <AlertCircle size={12} />}
-                    {resetting ? '清理中...' : '确认清理'}
+                    {resetting ? (
+                      <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" />清理中...</span>
+                    ) : '确认'}
                   </button>
+                  <span className="text-[11px] text-[var(--hb-border)]">/</span>
                   <button
                     type="button"
                     disabled={resetting}
-                    className="hb-btn-ghost !px-2.5 !py-1 !text-[11px]"
+                    className="text-[11px] text-[var(--hb-soft)] hover:text-[var(--hb-body)] disabled:opacity-50"
                     onClick={() => setResetConfirm(false)}
                   >
                     取消
                   </button>
-                </>
+                </div>
               ) : (
                 <button
                   type="button"
