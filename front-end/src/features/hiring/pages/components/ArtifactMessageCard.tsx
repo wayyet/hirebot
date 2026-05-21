@@ -76,6 +76,7 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
   ) {
     return <ExternalConfigView data={artifact.data} />
   }
+  if (artifact.artifactType === 'stage4_packaging') return <Stage4PackagingView data={artifact.data} />
   // 结构化兜底：未命中类型但数据具备对应特征时自动使用专用视图
   const _d = asRecord(artifact.data)
   if (_d && Array.isArray(_d.external_capabilities)) {
@@ -715,6 +716,77 @@ function ExternalConfigView({ data }: { data: unknown }) {
   )
 }
 
+/** stage4_packaging 专用状态视图 */
+function Stage4PackagingView({ data }: { data: unknown }) {
+  const rec = asRecord(data)
+  const status = typeof rec?.status === 'string' ? rec.status : ''
+  const pendingSkills = Array.isArray(rec?.pending_downstream_skills)
+    ? (rec!.pending_downstream_skills as unknown[]).filter((s): s is string => typeof s === 'string')
+    : []
+  const included = Array.isArray(rec?.included)
+    ? (rec!.included as unknown[]).filter((s): s is string => typeof s === 'string')
+    : []
+
+  const statusLabel: Record<string, string> = {
+    waiting_downstream: '等待下游完成',
+    packaging: '打包中',
+    done: '已完成',
+    failed: '失败',
+  }
+  const statusColor: Record<string, string> = {
+    waiting_downstream: 'var(--hb-text-amber, #b45309)',
+    packaging: 'var(--hb-text-blue, #1d4ed8)',
+    done: 'var(--hb-text-green, #059669)',
+    failed: 'var(--hb-danger, #dc2626)',
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {status && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            fontSize: 11, padding: '2px 10px', borderRadius: 99, fontWeight: 600,
+            background: 'color-mix(in srgb, currentColor 12%, transparent)',
+            color: statusColor[status] ?? 'var(--hb-text-muted, #6b7280)',
+            border: `1px solid color-mix(in srgb, currentColor 25%, transparent)`,
+          }}>
+            {statusLabel[status] ?? status}
+          </span>
+        </div>
+      )}
+      {pendingSkills.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ fontSize: 11, color: 'var(--hb-text-muted, #6b7280)', fontWeight: 600, letterSpacing: 0.3 }}>等待下游</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {pendingSkills.map((s, i) => (
+              <span key={i} style={{
+                fontSize: 11, padding: '2px 8px', borderRadius: 6,
+                background: 'color-mix(in srgb, var(--hb-text-amber, #b45309) 10%, transparent)',
+                color: 'var(--hb-text-amber, #b45309)',
+                border: '1px solid color-mix(in srgb, var(--hb-text-amber, #b45309) 25%, transparent)',
+              }}>{s}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      {included.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <div style={{ fontSize: 11, color: 'var(--hb-text-muted, #6b7280)', fontWeight: 600, letterSpacing: 0.3 }}>包含内容</div>
+          {included.map((path, i) => (
+            <div key={i} style={{
+              fontSize: 11, fontFamily: 'monospace',
+              padding: '3px 8px', borderRadius: 5,
+              background: 'var(--hb-surface-soft, #f9fafb)',
+              border: '1px solid var(--hb-border, #e5e7eb)',
+              color: 'var(--hb-text, #374151)',
+            }}>{path}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** material_handoff_summary 专用结构化视图 */
 function MaterialHandoffView({ data }: { data: unknown }) {
   const rec = asRecord(data)
@@ -790,6 +862,7 @@ function ArtifactIcon({ artifact }: { artifact: ArtifactDisplayData }) {
   if (artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
   if (artifact.artifactType === 'ontology_extraction_done' || artifact.artifactType === 'ontology_extraction_progress') return <span className="hb-artifact-icon">🌿</span>
   if (artifact.artifactType === 'external_config_done' || artifact.artifactType === 'external_config_progress') return <span className="hb-artifact-icon">🔌</span>
+  if (artifact.artifactType === 'stage4_packaging') return <span className="hb-artifact-icon">📦</span>
   const map: Record<string, string> = { table: '📊', code: '💻', tree: '🌿', badge: '✅', progress: '⏳' }
   return <span className="hb-artifact-icon">{map[artifact.displayHint ?? ''] ?? '📦'}</span>
 }

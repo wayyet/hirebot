@@ -493,7 +493,7 @@ export default function HiringPage() {
     () => extractLatestDefinedSkills(messages),
     [messages],
   )
-  const viewModel = buildHiringWorkflowViewModel(null, focusedStage)
+  const viewModel = buildHiringWorkflowViewModel(null, focusedStage, t)
   // 将 WS 实时推送的阶段状态合并到阶段胶囊
   const mergedStepPills = viewModel.stepPills.map(pill => {
     const wsStatus = uiStageOverrides.get(pill.stage)
@@ -1035,7 +1035,18 @@ export default function HiringPage() {
             const sizeBytes = typeof raw.fileSizeBytes === 'number' ? raw.fileSizeBytes : typeof raw.file_size_bytes === 'number' ? raw.file_size_bytes : null
             artifactData.sizeLabel = sizeBytes !== null ? formatFileSize(sizeBytes) : ''
           } else {
-            artifactData.data = typeof raw.data === 'string' ? JSON.parse(raw.data as string) : raw.data
+            if (raw.data != null) {
+              artifactData.data = typeof raw.data === 'string' ? JSON.parse(raw.data as string) : raw.data
+            } else {
+              // 兜底：Gateway 部分版本将 data 字段平铺在 artifact 顶层而非嵌套在 data 字段下
+              // 历史重建路径（tool call arguments）始终有嵌套 data 字段，WS 推送有时没有
+              const META_KEYS = new Set(['kind', 'artifactType', 'artifact_type', 'label', 'skillName', 'skill_name', 'stage', 'isTerminal', 'is_terminal', 'displayHint', 'display_hint'])
+              const fallback: Record<string, unknown> = {}
+              for (const [k, v] of Object.entries(raw)) {
+                if (!META_KEYS.has(k)) fallback[k] = v
+              }
+              artifactData.data = Object.keys(fallback).length > 0 ? fallback : undefined
+            }
           }
           if (artifactType === 'material_collection_progress') {
             const categories = normalizeMaterialRequestedCategories(artifactData.data)
