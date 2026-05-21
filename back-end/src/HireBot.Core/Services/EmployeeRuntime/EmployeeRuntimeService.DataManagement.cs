@@ -81,6 +81,9 @@ public sealed partial class EmployeeRuntimeService
                 continue;
             }
 
+            // 始终使用 DB 实体的 CreatedAt 覆盖快照中的值，避免历史快照缺少时间精度
+            employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+
             if (owner is not null &&
                 !string.Equals(employee.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
             {
@@ -117,6 +120,12 @@ public sealed partial class EmployeeRuntimeService
             var employee = !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
                 ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
                 : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
+
+            // 始终使用 DB 实体的 CreatedAt 覆盖快照中的值，避免历史快照缺少时间精度
+            if (employee is not null)
+            {
+                employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+            }
 
             // DB 查询已保证 OwnerUserId == owner，此处无需再次校验快照内的 OwnerUserId，
             // 避免快照序列化格式不一致时导致误判为 null。
@@ -167,9 +176,17 @@ public sealed partial class EmployeeRuntimeService
             return null;
         }
 
-        return !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
+        var employee = !string.IsNullOrWhiteSpace(instance.RuntimeSnapshotJson)
             ? DeserializeEmployeeSnapshot(instance.RuntimeSnapshotJson)
             : await BuildEmployeeFromInstanceRecordAsync(instance, cancellationToken);
+
+        // 始终使用 DB 实体的 CreatedAt 覆盖快照中的值，避免历史快照缺少时间精度
+        if (employee is not null)
+        {
+            employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+        }
+
+        return employee;
     }
 
     /// <summary>
@@ -252,7 +269,7 @@ public sealed partial class EmployeeRuntimeService
             PrimarySignal: BuildPrimarySignal(status),
             SignalLevel: status is "hired" or "interning_ai" ? "warn" : "ok",
             OwningTeam: instance.DepartmentId,
-            CreatedAt: DateOnly.FromDateTime(instance.CreatedAt.UtcDateTime).ToString("yyyy-MM-dd"),
+            CreatedAt: instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm"),
             InternshipStartAt: status is "live" ? DateOnly.FromDateTime(instance.CreatedAt.UtcDateTime).ToString("yyyy-MM-dd") : null,
             GraduatedAt: status is "live" ? DateOnly.FromDateTime(instance.UpdatedAt.UtcDateTime).ToString("yyyy-MM-dd") : null,
             TasksDone: 0,
@@ -543,10 +560,10 @@ public sealed partial class EmployeeRuntimeService
     {
         if (DateTime.TryParse(generatedAtUtc, out var parsed))
         {
-            return DateOnly.FromDateTime(parsed.ToLocalTime()).ToString("yyyy-MM-dd");
+            return parsed.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
         }
 
-        return DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-seedOffset)).ToString("yyyy-MM-dd");
+        return DateTime.UtcNow.AddDays(-seedOffset).ToString("yyyy-MM-dd HH:mm");
     }
 
     /// <summary>
