@@ -1,5 +1,6 @@
 using HireBot.ApiService.Authentication;
 using HireBot.ApiService.McpTools;
+using HireBot.ApiService.Serialization;
 using HireBot.Core.Extensions;
 using HireBot.Core.Services.Internal;
 using ModelContextProtocol.Protocol;
@@ -15,6 +16,7 @@ using Microsoft.OpenApi;
 using System.IdentityModel.Tokens.Jwt;
 using Serilog;
 using Serilog.Events;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,7 +45,11 @@ builder.Configuration.AddJsonFile(
     reloadOnChange: true);
 
 builder.AddServiceDefaults();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new DateTimeOffsetMinuteConverter());
+    });
 builder.Services.AddDirectoryBrowser();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>

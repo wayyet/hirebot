@@ -14,7 +14,7 @@ import { StageGateCard } from './StageGateCard'
 
 /** 将对话消息列表转换为 Markdown 字符串，便于粘贴给其他 LLM 分析 */
 function chatToMarkdown(messages: ChatMessage[], botName: string): string {
-  const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+  const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
   const lines: string[] = [
     `# ${i18n.t('hiring.export.title')}`,
     ``,
