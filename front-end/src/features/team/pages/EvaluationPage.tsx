@@ -797,13 +797,12 @@ export default function EvaluationPage() {
     if (!id) return
     if (!resetConfirm) {
       setResetConfirm(true)
-      // 3 秒后自动取消二次确认状态
-      setTimeout(() => setResetConfirm(false), 3000)
       return
     }
     setResetConfirm(false)
     setResetting(true)
     setError('')
+    let resetOk = false
     try {
       await api.employeeRuntime.resetEvaluationData(id)
       setWorkspaceStatus(null)
@@ -811,12 +810,17 @@ export default function EvaluationPage() {
       setChatMessages([])
       setEvaluation(null)
       setWsStatusLoaded(false)
-      autoInitFiredRef.current = false
-      await loadData()
+      // 阻止 auto-init effect 重复触发，由下方直接调用 submitAiDecision 接管
+      autoInitFiredRef.current = true
+      resetOk = true
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '清理评估数据失败')
     } finally {
       setResetting(false)
+    }
+    // 清理成功后直接进入带进度条的初始化流程，闭环整个流程
+    if (resetOk) {
+      await submitAiDecision('START')
     }
   }
 
@@ -1113,16 +1117,38 @@ export default function EvaluationPage() {
                 {wsEvaluating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
                 {wsEvaluating ? (wsProgress || 'WS 评估中...') : '执行评估'}
               </button>
-              <button
-                type="button"
-                disabled={resetting || submitting}
-                className={`!px-2.5 !py-1 !text-[11px] ${resetConfirm ? 'hb-btn-danger' : 'hb-btn-ghost'}`}
-                onClick={() => void handleResetEvaluationData()}
-                title="清理当前评估数据（工作区状态、会话记录、报告），便于重新走评估流程"
-              >
-                {resetting ? <Loader2 size={12} className="animate-spin" /> : <AlertCircle size={12} />}
-                {resetting ? '清理中...' : resetConfirm ? '确认清理？' : '清理评估数据'}
-              </button>
+              {resetConfirm ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={resetting || submitting}
+                    className="hb-btn-danger !px-2.5 !py-1 !text-[11px]"
+                    onClick={() => void handleResetEvaluationData()}
+                  >
+                    {resetting ? <Loader2 size={12} className="animate-spin" /> : <AlertCircle size={12} />}
+                    {resetting ? '清理中...' : '确认清理'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={resetting}
+                    className="hb-btn-ghost !px-2.5 !py-1 !text-[11px]"
+                    onClick={() => setResetConfirm(false)}
+                  >
+                    取消
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  disabled={resetting || submitting}
+                  className="hb-btn-ghost !px-2.5 !py-1 !text-[11px]"
+                  onClick={() => void handleResetEvaluationData()}
+                  title="清理当前评估数据（工作区状态、会话记录、报告），便于重新走评估流程"
+                >
+                  {resetting ? <Loader2 size={12} className="animate-spin" /> : <AlertCircle size={12} />}
+                  {resetting ? '清理中...' : '清理评估数据'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setRightCollapsed((current) => !current)}
