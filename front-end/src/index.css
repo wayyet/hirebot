@@ -14,6 +14,8 @@
 
 /* ── 招聘功能：EvaluationPage 样式 + 暗色模式覆盖 ── */
 @import "./features/hiring/hiring-eval.css";
+/* ── AI 评估页：多主题色 / 暗色模式语义化色彩 ── */
+@import "./features/team/styles/evaluation-page.css";
 /* ── 招聘功能：HiringTodoPanel 待办面板样式 + 暗色模式覆盖 ── */
 @import "./features/hiring/hiring-todo.css";
 

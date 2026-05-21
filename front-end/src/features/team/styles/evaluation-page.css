@@ -1,0 +1,676 @@
+/**
+ * EvaluationPage 专属样式 —— 统一管理亮色 / 暗色下的语义化色彩
+ * 通过 .dark 类切换（与 tokens.css 保持一致）
+ */
+
+/* ════════════════════════════════════════════════════════════════
+   1. 工作流阶段状态色（workflow stage tone）
+   ════════════════════════════════════════════════════════════════ */
+.eval-tone-completed {
+  border-color: #dcfce7;
+  background: #f0fdf4;
+  color: #166534;
+}
+.dark .eval-tone-completed {
+  border-color: rgba(74, 222, 128, 0.25);
+  background: rgba(74, 222, 128, 0.10);
+  color: #34d399;
+}
+
+.eval-tone-running {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.dark .eval-tone-running {
+  border-color: rgba(96, 165, 250, 0.30);
+  background: rgba(96, 165, 250, 0.10);
+  color: #60a5fa;
+}
+
+.eval-tone-failed {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #be123c;
+}
+.dark .eval-tone-failed {
+  border-color: rgba(248, 113, 113, 0.30);
+  background: rgba(248, 113, 113, 0.10);
+  color: #f87171;
+}
+
+.eval-tone-pending {
+  border-color: #ececec;
+  background: #ffffff;
+  color: #737373;
+}
+.dark .eval-tone-pending {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: transparent;
+  color: #7a8fa8;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   2. 人工评估横幅（human eval banner）
+   ════════════════════════════════════════════════════════════════ */
+.eval-banner-pass {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.dark .eval-banner-pass {
+  border-color: rgba(74, 222, 128, 0.25);
+  background: rgba(74, 222, 128, 0.08);
+}
+
+.eval-banner-fail {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+.dark .eval-banner-fail {
+  border-color: rgba(251, 191, 36, 0.30);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.eval-banner-pass .eval-banner-text  { color: #166534; }
+.dark .eval-banner-pass .eval-banner-text { color: #34d399; }
+
+.eval-banner-fail .eval-banner-text  { color: #c2410c; }
+.dark .eval-banner-fail .eval-banner-text { color: #fbbf24; }
+
+/* ════════════════════════════════════════════════════════════════
+   3. 错误栏 / 系统提示条
+   ════════════════════════════════════════════════════════════════ */
+.eval-bar-error {
+  border-color: #ffd5da;
+  background: #fff1f2;
+  color: #b3263c;
+}
+.dark .eval-bar-error {
+  border-color: rgba(248, 113, 113, 0.30);
+  background: rgba(248, 113, 113, 0.10);
+  color: #f87171;
+}
+
+.eval-bar-info {
+  border-color: #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.dark .eval-bar-info {
+  border-color: rgba(96, 165, 250, 0.25);
+  background: rgba(96, 165, 250, 0.08);
+  color: #60a5fa;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   4. 工作区进度条容器
+   ════════════════════════════════════════════════════════════════ */
+.eval-progress-wrap {
+  border-color: #ececec;
+  background: #fafafa;
+}
+.dark .eval-progress-wrap {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.eval-progress-label-ok {
+  background: #e8edff;
+  color: #4a6cf7;
+}
+.dark .eval-progress-label-ok {
+  background: rgba(74, 108, 247, 0.15);
+  color: #4f8ef7;
+}
+
+.eval-progress-label-fail {
+  background: #fff1f2;
+  color: #b3263c;
+}
+.dark .eval-progress-label-fail {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+}
+
+.eval-progress-track {
+  background: #efefef;
+}
+.dark .eval-progress-track {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.eval-progress-bar-ok { background: #4a6cf7; }
+.dark .eval-progress-bar-ok { background: #4f8ef7; }
+
+.eval-progress-bar-fail { background: #b3263c; }
+.dark .eval-progress-bar-fail { background: #f87171; }
+
+/* ════════════════════════════════════════════════════════════════
+   5. 工作流 badge pill（Sesion, 双沙箱已连接 等）
+   ════════════════════════════════════════════════════════════════ */
+.eval-pill-neutral {
+  border-color: #e5e7eb;
+  background: #ffffff;
+  color: #4b5563;
+}
+.dark .eval-pill-neutral {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: #a8b5cc;
+}
+
+.eval-pill-connected {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.dark .eval-pill-connected {
+  border-color: rgba(96, 165, 250, 0.30);
+  background: rgba(96, 165, 250, 0.10);
+  color: #60a5fa;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   6. 聊天主面板
+   ════════════════════════════════════════════════════════════════ */
+/* 聊天顶部标题区图标背景 */
+.eval-icon-indigo {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+.dark .eval-icon-indigo {
+  background: rgba(167, 139, 250, 0.15);
+  color: #a78bfa;
+}
+
+/* 沙箱连接状态 badge */
+.eval-badge-connected {
+  border-color: #dcfce7;
+  background: #f0fdf4;
+  color: #166534;
+}
+.dark .eval-badge-connected {
+  border-color: rgba(74, 222, 128, 0.25);
+  background: rgba(74, 222, 128, 0.10);
+  color: #34d399;
+}
+
+.eval-badge-disconnected {
+  border-color: #e5e7eb;
+  background: #ffffff;
+  color: #737373;
+}
+.dark .eval-badge-disconnected {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: transparent;
+  color: #7a8fa8;
+}
+
+/* 聊天区底色 */
+.eval-chat-bg {
+  background: #fafafa;
+}
+.dark .eval-chat-bg {
+  background: var(--hb-surface-soft);
+}
+
+/* 聊天气泡容器 */
+.eval-chat-wrapper {
+  border-color: #ececec;
+  background: #ffffff;
+}
+.dark .eval-chat-wrapper {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* 机器人气泡（bot bubble） */
+.eval-bubble-bot {
+  border-color: #ececec;
+  background: #fafafa;
+  color: #404040;
+}
+.dark .eval-bubble-bot {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--hb-body);
+}
+
+/* 用户气泡（user bubble） */
+.eval-bubble-user {
+  background: #000000;
+  color: #ffffff;
+}
+.dark .eval-bubble-user {
+  background: #EEF2FF;
+  color: #111827;
+}
+
+/* 气泡时间戳/发送者标签 */
+.eval-bubble-meta-bot  { color: #9ca3af; }
+.dark .eval-bubble-meta-bot  { color: #4a5e78; }
+
+.eval-bubble-meta-user { color: #e5e5e5; }
+.dark .eval-bubble-meta-user { color: rgba(0, 0, 0, 0.45); }
+
+/* 空聊天提示（dashed border） */
+.eval-empty-chat {
+  border-color: #d1d5db;
+  background: #fafafa;
+  color: #737373;
+}
+.dark .eval-empty-chat {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  color: #7a8fa8;
+}
+
+/* 聊天未激活提示框 */
+.eval-inactive-tip {
+  border-color: #ececec;
+  background: #fafafa;
+  color: #737373;
+}
+.dark .eval-inactive-tip {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: #7a8fa8;
+}
+
+/* 聊天输入框底部边框 */
+.eval-chat-footer {
+  border-color: #ececec;
+}
+.dark .eval-chat-footer {
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+/* 输入框 textarea */
+.eval-textarea {
+  border-color: #e5e5e5;
+  background: #fafafa;
+  color: var(--hb-near-black);
+}
+.dark .eval-textarea {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #EEF2FF;
+}
+.eval-textarea:focus {
+  border-color: #4a6cf7;
+  outline: none;
+}
+.dark .eval-textarea:focus {
+  border-color: #4f8ef7;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   7. 测试用例题卡（testcase cards）
+   ════════════════════════════════════════════════════════════════ */
+/* 统计头 / 各类 header 卡片 */
+.eval-stats-header {
+  border-color: #e5e7eb;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+.dark .eval-stats-header {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: linear-gradient(180deg, rgba(24, 32, 52, 0.95) 0%, rgba(15, 22, 40, 0.98) 100%);
+}
+
+/* 统计区 stats badge（白底）*/
+.eval-stats-badge {
+  border-color: #e2e8f0;
+  background: #ffffff;
+  color: #64748b;
+}
+.dark .eval-stats-badge {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #7a8fa8;
+}
+
+/* 用例就绪 badge */
+.eval-stats-badge-ready {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+.dark .eval-stats-badge-ready {
+  border-color: rgba(74, 222, 128, 0.25);
+  background: rgba(74, 222, 128, 0.10);
+  color: #34d399;
+}
+
+/* 用例等待 badge */
+.eval-stats-badge-pending {
+  border-color: #ececec;
+  background: #ffffff;
+  color: #737373;
+}
+.dark .eval-stats-badge-pending {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: transparent;
+  color: #7a8fa8;
+}
+
+/* 本体 badge */
+.eval-stats-badge-ontology {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.dark .eval-stats-badge-ontology {
+  border-color: rgba(96, 165, 250, 0.30);
+  background: rgba(96, 165, 250, 0.10);
+  color: #60a5fa;
+}
+
+/* 测试题卡卡片 */
+.eval-question-card {
+  border-color: #e5e7eb;
+  background: #ffffff;
+}
+.dark .eval-question-card {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* 题卡：序号圆圈 */
+.eval-seq-circle {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+.dark .eval-seq-circle {
+  background: rgba(167, 139, 250, 0.15);
+  color: #a78bfa;
+}
+
+/* 题卡：ID badge */
+.eval-id-badge {
+  border-color: #e5e7eb;
+  background: #f9fafb;
+  color: #6b7280;
+}
+.dark .eval-id-badge {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: #7a8fa8;
+}
+
+/* 题卡：prompt 区域 */
+.eval-prompt-box {
+  border-color: #ececec;
+  background: #fafafa;
+  color: #374151;
+}
+.dark .eval-prompt-box {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: #d1d5db;
+}
+
+/* 题卡：步骤行 */
+.eval-step-row {
+  border-color: #ececec;
+  background: #ffffff;
+}
+.dark .eval-step-row {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* 题卡：评分提示框（dashed） */
+.eval-scoring-hint {
+  border-color: #d1d5db;
+  background: #f9fafb;
+  color: #6b7280;
+}
+.dark .eval-scoring-hint {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  color: #7a8fa8;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   8. 空状态占位卡片
+   ════════════════════════════════════════════════════════════════ */
+.eval-empty-card {
+  border-color: #ececec;
+  background: #ffffff;
+  color: #737373;
+}
+.dark .eval-empty-card {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: #7a8fa8;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   9. 概览报告（overview tab）
+   ════════════════════════════════════════════════════════════════ */
+/* 通用 overview 面板容器 */
+.eval-overview-panel {
+  border-color: #ececec;
+  background: #ffffff;
+}
+.dark .eval-overview-panel {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* 评分数字卡片 */
+.eval-score-card {
+  border-color: #e5e7eb;
+  background: #ffffff;
+}
+.dark .eval-score-card {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* 表格行（维度评分） */
+.eval-table-header {
+  background: #f8fafc;
+  color: #6b7280;
+}
+.dark .eval-table-header {
+  background: rgba(255, 255, 255, 0.04);
+  color: #7a8fa8;
+}
+
+.eval-table-row-border {
+  border-color: #f3f4f6;
+}
+.dark .eval-table-row-border {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 维度评分 item（report tab 里） */
+.eval-dim-item {
+  border-color: #f3f4f6;
+  background: #fafafa;
+}
+.dark .eval-dim-item {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* 推荐建议框 */
+.eval-recommendation {
+  border-color: #f3f4f6;
+  background: #fafafa;
+  color: #6b7280;
+}
+.dark .eval-recommendation {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #7a8fa8;
+}
+
+/* 调试面板（dashed blue） */
+.eval-debug-panel {
+  border-color: #dbeafe;
+  background: #f8fbff;
+}
+.dark .eval-debug-panel {
+  border-color: rgba(96, 165, 250, 0.20);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   10. 轨迹 trace tab
+   ════════════════════════════════════════════════════════════════ */
+.eval-trace-card {
+  border-color: #ececec;
+  background: #fafafa;
+}
+.dark .eval-trace-card {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   11. 评估报告 report tab
+   ════════════════════════════════════════════════════════════════ */
+.eval-report-pass {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.dark .eval-report-pass {
+  border-color: rgba(74, 222, 128, 0.30);
+  background: rgba(74, 222, 128, 0.08);
+}
+
+.eval-report-fail {
+  border-color: #fecdd3;
+  background: #fff1f2;
+}
+.dark .eval-report-fail {
+  border-color: rgba(248, 113, 113, 0.30);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   12. 右侧面板 tab 按钮
+   ════════════════════════════════════════════════════════════════ */
+.eval-tab-bar {
+  border-color: #ececec;
+}
+.dark .eval-tab-bar {
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+.eval-tab-active {
+  border-bottom-color: #0a0a0a;
+  color: #0a0a0a;
+}
+.dark .eval-tab-active {
+  border-bottom-color: #EEF2FF;
+  color: #EEF2FF;
+}
+
+.eval-tab-inactive {
+  border-bottom-color: transparent;
+  color: #737373;
+}
+.dark .eval-tab-inactive {
+  border-bottom-color: transparent;
+  color: #7a8fa8;
+}
+
+/* 折叠按钮 chevron */
+.eval-collapse-btn:hover {
+  background: #fafafa;
+}
+.dark .eval-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   13. 测试场景列表（testcase outlines）
+   ════════════════════════════════════════════════════════════════ */
+.eval-scenario-list {
+  border-color: #e5e7eb;
+  background: #ffffff;
+}
+.dark .eval-scenario-list {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.eval-scenario-footer {
+  border-color: #f3f4f6;
+}
+.dark .eval-scenario-footer {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   14. 链接颜色
+   ════════════════════════════════════════════════════════════════ */
+.eval-link {
+  color: #2563eb;
+}
+.dark .eval-link {
+  color: #60a5fa;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   15. 文字语义色（text semantic tokens）
+   ════════════════════════════════════════════════════════════════ */
+.eval-text-title   { color: #111827; }
+.dark .eval-text-title   { color: #e2e8f0; }
+
+.eval-text-body    { color: #374151; }
+.dark .eval-text-body    { color: #d1d5db; }
+
+.eval-text-secondary { color: #6b7280; }
+.dark .eval-text-secondary { color: #7a8fa8; }
+
+.eval-text-caption   { color: #9ca3af; }
+.dark .eval-text-caption   { color: #4a5e78; }
+
+.eval-text-muted     { color: #64748b; }
+.dark .eval-text-muted     { color: #7a8fa8; }
+
+.eval-text-strong  { color: #0a0a0a; }
+.dark .eval-text-strong  { color: #EEF2FF; }
+
+.eval-text-body-2  { color: #4b5563; }
+.dark .eval-text-body-2  { color: #a8b5cc; }
+
+.eval-text-green   { color: #166534; }
+.dark .eval-text-green   { color: #34d399; }
+
+.eval-text-green-mid { color: #16a34a; }
+.dark .eval-text-green-mid { color: #4ade80; }
+
+.eval-text-green-bright { color: #15803d; }
+.dark .eval-text-green-bright { color: #34d399; }
+
+.eval-text-blue    { color: #1d4ed8; }
+.dark .eval-text-blue    { color: #60a5fa; }
+
+.eval-text-blue-link { color: #2563eb; }
+.dark .eval-text-blue-link { color: #60a5fa; }
+
+.eval-text-indigo  { color: #4f46e5; }
+.dark .eval-text-indigo  { color: #a78bfa; }
+
+.eval-text-indigo-label { color: #4f46e5; }
+.dark .eval-text-indigo-label { color: #a78bfa; }
+
+.eval-text-red     { color: #b3263c; }
+.dark .eval-text-red     { color: #f87171; }
+
+.eval-text-red-2   { color: #be123c; }
+.dark .eval-text-red-2   { color: #f87171; }
+
+.eval-text-amber   { color: #b45309; }
+.dark .eval-text-amber   { color: #fbbf24; }
+
+.eval-text-brand   { color: #4a6cf7; }
+.dark .eval-text-brand   { color: #4f8ef7; }
+
+.eval-text-teal    { color: #0f766e; }
+.dark .eval-text-teal    { color: #2dd4bf; }
