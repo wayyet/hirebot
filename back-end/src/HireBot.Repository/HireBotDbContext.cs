@@ -1,11 +1,43 @@
 using HireBot.Abstraction.Models.User;
 using HireBot.Repository.Entities;
+using HireBot.Repository.Extensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace HireBot.Repository;
 
 public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options) : DbContext(options)
 {
+    public override int SaveChanges()
+    {
+        TruncateTimestamps();
+        return base.SaveChanges();
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        TruncateTimestamps();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void TruncateTimestamps()
+    {
+        foreach (var entry in ChangeTracker.Entries())
+        {
+            if (entry.State != EntityState.Added && entry.State != EntityState.Modified)
+                continue;
+
+            foreach (var property in entry.Properties)
+            {
+                if (property.CurrentValue is DateTimeOffset dto
+                    && (property.Metadata.ClrType == typeof(DateTimeOffset)
+                        || property.Metadata.ClrType == typeof(DateTimeOffset?)))
+                {
+                    property.CurrentValue = dto.TruncateToMinute();
+                }
+            }
+        }
+    }
+
     public DbSet<User> Users { get; set; }
     public DbSet<EvaluationSessionEntity> EvaluationSessions { get; set; }
     public DbSet<EvaluationAssetEntity> EvaluationAssets { get; set; }

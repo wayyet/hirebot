@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
-  Bot,
   Check,
-  Clock3,
   CopyPlus,
   Loader2,
   MessageCircle,
   RotateCcw,
+  Settings,
   ShieldCheck,
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useTranslation } from "react-i18next";
 import { useUserRole } from "@/app/context/UserRoleContext";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeDetail } from "@/infra/api";
@@ -28,9 +28,26 @@ import {
   withEmployeeView,
 } from "@/features/hiring/pages/employeeView";
 
+function relativeTime(dateStr: string): string {
+  if (!dateStr) return "";
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
+  const now = Date.now();
+  const diff = now - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} 天前`;
+  return dateStr;
+}
+
 export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { role } = useUserRole();
   const { showToast } = useUxOverlay();
 
@@ -39,6 +56,10 @@ export default function InstanceDetailPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
+  const [templateDescription, setTemplateDescription] = useState("");
+  const [coreAbilities, setCoreAbilities] = useState<string[]>([]);
+  const [inScope, setInScope] = useState<string[]>([]);
+  const [outOfScope, setOutOfScope] = useState<string[]>([]);
 
   async function loadEmployee() {
     if (!id) return;
@@ -47,6 +68,20 @@ export default function InstanceDetailPage() {
     try {
       const data = await api.employeeRuntime.getEmployee(id);
       setEmployee(data);
+      if (data.sourceTemplateId) {
+        try {
+          const template = await api.employeeTemplate.getDetail(data.sourceTemplateId);
+          setTemplateDescription(template.description);
+          setCoreAbilities(template.coreAbilities);
+          setInScope(template.responsibilityBoundary.inScope);
+          setOutOfScope(template.responsibilityBoundary.outOfScope);
+        } catch {
+          setTemplateDescription("");
+          setCoreAbilities([]);
+          setInScope([]);
+          setOutOfScope([]);
+        }
+      }
     } catch (requestError: unknown) {
       setError(
         requestError instanceof Error ? requestError.message : "加载实例失败",
@@ -110,11 +145,6 @@ export default function InstanceDetailPage() {
     }
   }
 
-  const readyCount = useMemo(() => {
-    if (!employee) return 0;
-    return employee.capabilities.filter((cap) => cap.ready).length;
-  }, [employee]);
-
   const employeeView = useMemo(() => {
     if (!employee) return null;
     return withEmployeeView(toEmployeeDetailSummary(employee));
@@ -166,72 +196,66 @@ export default function InstanceDetailPage() {
         <div className="space-y-5">
           <section className="hb-card hb-detail-hero">
             <div className="hb-detail-top">
+              <div
+                className="hb-detail-avatar"
+                style={{
+                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                }}
+              >
+                {employee.nickname.slice(0, 2)}
+              </div>
               <div className="hb-detail-main">
                 <div className="hb-detail-title-row">
-                  <h1>{employee.nickname}</h1>
-                  <span
-                    className={`hb-pill ${statusClass(employeeView.mappedStatus, employee.lifecycleStatus)}`}
-                  >
-                    {statusLabel(
-                      employeeView.mappedStatus,
-                      employee.lifecycleStatus,
-                    )}
-                  </span>
-                  <span
-                    className={`hb-pill ${ownershipClass(employeeView.ownership)}`}
-                  >
-                    {ownershipLabel(employeeView.ownership)}
-                  </span>
+                  <div>
+                    <h1>{employee.nickname}</h1>
+                    {(employee.roleName || employee.sourceTemplate) ? (
+                      <p className="hb-detail-subtitle">
+                        {employee.roleName || employee.sourceTemplate}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="hb-detail-badges">
+                    <span
+                      className={`hb-pill hb-pill--solid ${statusClass(employeeView.mappedStatus, employee.lifecycleStatus)}`}
+                    >
+                      <span className="hb-pill-dot" />
+                      {statusLabel(
+                        employeeView.mappedStatus,
+                        employee.lifecycleStatus,
+                      )}
+                    </span>
+                    <span
+                      className={`hb-pill hb-pill--solid ${ownershipClass(employeeView.ownership)}`}
+                    >
+                      <span className="hb-pill-dot" />
+                      {ownershipLabel(employeeView.ownership)}
+                    </span>
+                  </div>
                 </div>
                 <div className="hb-detail-meta">
-                  {employee.roleName || employee.sourceTemplate}
+                  <span>{employee.owningTeam || employee.departmentId || "-"}</span>
+                  <span className="hb-detail-meta-sep">·</span>
+                  <span>Owner {employee.ownerUserId || "-"}</span>
+                  <span className="hb-detail-meta-sep">·</span>
+                  <span>最近更新 {relativeTime(employee.createdAt)}</span>
                 </div>
-                {employee.cardIntro ? (
-                  <div className="hb-template-doc" style={{ marginBottom: '1rem' }}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {employee.cardIntro}
-                    </ReactMarkdown>
-                  </div>
-                ) : (
-                  <p className="hb-detail-desc">
-                    {employee.primarySignal || employee.stageSummary}
-                  </p>
-                )}
-
-                <div className="hb-divider" />
-                <div className="hb-detail-meta-grid">
-                  <div className="hb-detail-meta-item">
-                    <span className="hb-detail-meta-label">来源模板</span>
-                    <strong>{employee.sourceTemplate || "模板"}</strong>
-                  </div>
-                  <div className="hb-detail-meta-item">
-                    <span className="hb-detail-meta-label">所属部门</span>
-                    <strong>{employee.departmentId || employee.owningTeam || "-"}</strong>
-                  </div>
-                  <div className="hb-detail-meta-item">
-                    <span className="hb-detail-meta-label">Owner</span>
-                    <strong>{employee.ownerUserId || "-"}</strong>
-                  </div>
-                  <div className="hb-detail-meta-item">
-                    <span className="hb-detail-meta-label">创建时间</span>
-                    <strong>{employee.createdAt}</strong>
-                  </div>
-                  <div className="hb-detail-meta-item">
-                    <span className="hb-detail-meta-label">来源关系</span>
-                    <strong>
-                      {employee.fromInstanceId
-                        ? `源实例 ${employee.fromInstanceId}`
-                        : "部门员工"}
-                    </strong>
-                  </div>
-                  <div className="hb-detail-meta-item">
-                    <span className="hb-detail-meta-label">实例 ID</span>
-                    <strong>{employee.employeeId}</strong>
-                  </div>
-                </div>
+                <p className="hb-detail-desc">
+                  {templateDescription || employee.primarySignal || employee.stageSummary}
+                </p>
               </div>
 
               <div className="hb-detail-actions">
+                {isPersonalAsset && employeeView.mappedStatus === "live" ? (
+                  <button
+                    type="button"
+                    className="hb-btn-outline-brand"
+                    onClick={() => navigate(`/my-employees/instances/${employee.employeeId}/im-config`)}
+                  >
+                    <Settings size={12} />
+                    {t("instanceDetail.actions.configureIm")}
+                  </button>
+                ) : null}
+
                 {isPersonalAsset && employeeView.mappedStatus === "live" ? (
                   <button
                     type="button"
@@ -250,7 +274,7 @@ export default function InstanceDetailPage() {
                     onClick={() => setCloneModalOpen(true)}
                   >
                     <CopyPlus size={14} />
-                    {role === "member" ? "创建分身" : "复制为我的分身"}
+                    创建我的分身
                   </button>
                 ) : null}
 
@@ -303,79 +327,57 @@ export default function InstanceDetailPage() {
             </div>
           </section>
 
-          <section className="hb-detail-split">
-            <div className="hb-card hb-detail-panel">
-              <h2 className="hb-section-heading">能力简介</h2>
+          <section className="hb-card" style={{ padding: 24 }}>
+            <h2 className="hb-section-heading">员工介绍</h2>
+            {coreAbilities.length > 0 || inScope.length > 0 || outOfScope.length > 0 ? (
               <div className="hb-cap-list">
-                {employee.capabilities.map((capability) => (
-                  <div
-                    key={capability.name}
-                    className={`hb-cap ${capability.ready ? "" : "is-muted"}`}
-                  >
+                {coreAbilities.length > 0 ? (
+                  <div className="hb-cap-section-label">核心能力</div>
+                ) : null}
+                {coreAbilities.map((item) => (
+                  <div key={item} className="hb-cap">
                     <span className="hb-cap-check">
-                      {capability.ready ? <Check size={12} /> : "×"}
+                      <Check size={12} />
                     </span>
-                    <span className="min-w-0 flex-1">{capability.name}</span>
+                    <span className="min-w-0 flex-1">{item}</span>
+                  </div>
+                ))}
+                {inScope.length > 0 ? (
+                  <div className="hb-cap-section-label">职责范围</div>
+                ) : null}
+                {inScope.map((item) => (
+                  <div key={item} className="hb-cap">
+                    <span className="hb-cap-check">
+                      <Check size={12} />
+                    </span>
+                    <span className="min-w-0 flex-1">{item}</span>
+                  </div>
+                ))}
+                {outOfScope.length > 0 ? (
+                  <div className="hb-cap-section-label">明确排除</div>
+                ) : null}
+                {outOfScope.map((item) => (
+                  <div key={item} className="hb-cap is-muted">
+                    <span className="hb-cap-check">×</span>
+                    <span className="min-w-0 flex-1">{item}</span>
                   </div>
                 ))}
               </div>
-
-              <div className="hb-divider" />
-              <div className="hb-callout info">
-                详情页展示当前实例已具备的业务能力。
+            ) : employee.cardIntro ? (
+              <div className="hb-template-doc">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {employee.cardIntro}
+                </ReactMarkdown>
               </div>
-            </div>
-
-            <div className="hb-card hb-detail-panel">
-              <h2 className="hb-section-heading">运行状态</h2>
-              {employeeView.mappedStatus === "live" ? (
-                <div className="hb-stat-strip">
-                  <div className="hb-stat-item">
-                    <Clock3 size={16} />
-                    <strong>{employee.graduatedAt || "—"}</strong>
-                    <span>上岗时间</span>
-                  </div>
-                  <div className="hb-stat-item">
-                    <ShieldCheck size={16} />
-                    <strong>{readyCount}</strong>
-                    <span>可用能力</span>
-                  </div>
-                  <div className="hb-stat-item">
-                    <Bot size={16} />
-                    <strong>{employee.isConfigured ? "v1.0" : "待配置"}</strong>
-                    <span>实例版本</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="hb-callout info">
-                  该实例尚未上岗，当前以元数据、流程状态和回退入口为主。
-                </div>
-              )}
-
-              <div className="mt-4 hb-callout success">
-                <ShieldCheck size={18} />
-                <div>
-                  <div className="font-semibold text-[#0a0a0a]">
-                    状态承接说明
-                  </div>
-                  <div className="mt-1">
-                    {employeeView.mappedStatus === "live"
-                      ? isPersonalAsset
-                        ? "已上岗的个人资产可以站内对话，并按需配置飞书、钉钉或企微。"
-                        : "已上岗的部门员工可以作为复制源，成员复制后拥有独立会话。"
-                      : employeeView.mappedStatus === "retired"
-                        ? isPersonalAsset
-                          ? "已退役的个人资产可以重新雇佣，系统会重新启动沙箱并恢复站内对话。"
-                          : "该实例已退役，当前仅保留历史信息。"
-                        : employeeView.mappedStatus === "interning_ai"
-                          ? "AI 评估通过后才允许进入人工评估。"
-                          : employeeView.mappedStatus === "interning_human"
-                            ? "人工评估通过后才允许标记为已上岗。"
-                            : "你可以通过评估、回退和上岗配置逐步调整该实例。"}
-                  </div>
-                </div>
-              </div>
-            </div>
+            ) : templateDescription ? (
+              <p style={{ color: "var(--hb-body)", fontSize: 14, lineHeight: 1.65 }}>
+                {templateDescription}
+              </p>
+            ) : (
+              <p style={{ color: "var(--hb-soft)", fontSize: 14 }}>
+                暂无员工介绍
+              </p>
+            )}
           </section>
         </div>
       )}

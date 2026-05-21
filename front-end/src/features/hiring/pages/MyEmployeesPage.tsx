@@ -492,7 +492,7 @@ export default function MyEmployeesPage() {
                       <>
                         <button
                           type="button"
-                          className="hb-btn-ghost hb-hub-btn-secondary text-xs"
+                          className="hb-btn-outline-brand"
                           onClick={(e) => {
                             e.stopPropagation();
                             navigate(

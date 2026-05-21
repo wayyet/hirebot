@@ -17,13 +17,36 @@ import { api, type EmployeeSummary } from "@/infra/api";
 import TemplateUploadModal from "./components/TemplateUploadModal";
 import CloneEmployeeModal from "./components/CloneEmployeeModal";
 import EmployeeDetailModal from "./components/EmployeeDetailModal";
-import { statusClass, statusLabel, withEmployeeView, extractCardIntroHeadline } from "./employeeView";
+import { withEmployeeView } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 
 type StageTab = "hired" | "intern" | "live";
 type InternSubTab = "ai" | "human";
 
 const PAGE_SIZE = 9;
+
+const AVATAR_COLORS = [
+  "hsl(200, 70%, 45%)",
+  "hsl(160, 60%, 40%)",
+  "hsl(280, 55%, 50%)",
+  "hsl(30, 80%, 45%)",
+  "hsl(340, 65%, 48%)",
+  "hsl(100, 50%, 42%)",
+  "hsl(220, 60%, 48%)",
+  "hsl(50, 70%, 40%)",
+  "hsl(180, 55%, 42%)",
+  "hsl(310, 50%, 46%)",
+  "hsl(15, 65%, 45%)",
+  "hsl(260, 55%, 48%)",
+];
+
+function getAvatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
 
 export default function DepartmentEmployeesPage() {
   const navigate = useNavigate();
@@ -53,6 +76,7 @@ export default function DepartmentEmployeesPage() {
     roleName: string;
   } | null>(null);
   const [detailEmployeeId, setDetailEmployeeId] = useState<string | null>(null);
+  const [templateDescriptions, setTemplateDescriptions] = useState<Record<string, string>>({});
 
   async function handleDelete(employeeId: string) {
     setDeletingId(employeeId);
@@ -106,6 +130,36 @@ export default function DepartmentEmployeesPage() {
       cancelled = true;
     };
   }, [refreshKey]);
+
+  useEffect(() => {
+    const uniqueIds = [...new Set(employees.map((e) => e.sourceTemplateId).filter(Boolean))];
+    if (uniqueIds.length === 0) return;
+
+    let cancelled = false;
+
+    async function loadDescriptions() {
+      const descriptions: Record<string, string> = {};
+      await Promise.all(
+        uniqueIds.map(async (id) => {
+          try {
+            const detail = await api.employeeTemplate.getDetail(id);
+            if (!cancelled) descriptions[id] = detail.description;
+          } catch {
+            // ignore
+          }
+        }),
+      );
+      if (!cancelled) {
+        setTemplateDescriptions((prev) => ({ ...prev, ...descriptions }));
+      }
+    }
+
+    void loadDescriptions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [employees]);
 
   const viewedEmployees = useMemo(() => {
     return employees.map(withEmployeeView);
@@ -494,27 +548,22 @@ export default function DepartmentEmployeesPage() {
                     className="block w-full flex-1 pr-10 text-left"
                   >
                     <div className="hb-employee-card-head">
+                      <div
+                        className="hb-employee-avatar"
+                        style={{
+                          backgroundColor: getAvatarColor(employee.nickname),
+                        }}
+                      >
+                        {employee.nickname.charAt(0)}
+                      </div>
                       <div className="min-w-0 flex-1">
                         <h3 className="hb-employee-card-title">
                           {employee.nickname}
                         </h3>
-                        <div className="hb-employee-card-badges mt-1">
-                          <span
-                            className={`hb-pill flex-shrink-0 ${statusClass(employee.mappedStatus, employee.lifecycleStatus)}`}
-                          >
-                            {statusLabel(
-                              employee.mappedStatus,
-                              employee.lifecycleStatus,
-                            )}
-                          </span>
-                          <p className="hb-employee-card-subtitle">
-                            {employee.roleName || employee.sourceTemplate}
-                          </p>
-                        </div>
                       </div>
                     </div>
                     <p className="hb-employee-card-desc">
-                      {extractCardIntroHeadline(employee.cardIntro) || employee.primarySignal || employee.stageSummary}
+                      {templateDescriptions[employee.sourceTemplateId] || ""}
                     </p>
                   </button>
                   <div className="hb-employee-card-divider" />
