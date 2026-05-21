@@ -555,17 +555,16 @@ export default function HiringPage() {
   }, [messages])
 
   useEffect(() => {
-    if (!workflowHireId || messages.length === 0) return
+    if (!workflowHireId) return
     const timer = setTimeout(() => {
       const cache = {
-        messages,
         stageOverrides: Array.from(wsStageOverrides.entries()),
         downstreamRuns,
       }
       api.hiringWorkflow.saveConversationCache(workflowHireId, cache).catch(() => {})
     }, 2000)
     return () => clearTimeout(timer)
-  }, [messages, wsStageOverrides, downstreamRuns, workflowHireId])
+  }, [wsStageOverrides, downstreamRuns, workflowHireId])
 
   useEffect(() => {
     if (journeyGuideVisible && !focusedStage) {
@@ -757,7 +756,7 @@ export default function HiringPage() {
     // 检查当前会话是否已有历史消息——有消息说明模板之前已上传过，直接恢复历史，跳过引导上传
     const existingMessages = await fetchSandboxSessionMessages(endpoint, sessionId)
     if (existingMessages.length > 0) {
-      // 优先从后端缓存恢复完整对话历史（含 artifact / stage_gate 消息和阶段状态）
+      // 从后端缓存恢复阶段状态（stageOverrides/downstreamRuns），消息列表始终从沙箱会话接口获取
       const hireIdForCache = currentHireId || workflowHireId
       if (hireIdForCache) {
         try {
@@ -766,25 +765,19 @@ export default function HiringPage() {
             stageOverrides?: [string, string][]
             downstreamRuns?: DownstreamRunsSnapshot
           } | null
-          if (cached?.messages && cached.messages.length > 0) {
-            setMessages(cached.messages)
-            setMaterialRequestedCategories(extractLatestMaterialRequestedCategories(cached.messages))
-            if (cached.stageOverrides && cached.stageOverrides.length > 0) {
-              setWsStageOverrides(new Map(cached.stageOverrides as [HiringUiStage, 'running' | 'completed' | 'failed'][]))
-            }
-            if (cached.downstreamRuns) {
-              downstreamRunsRef.current = cached.downstreamRuns
-              setDownstreamRuns(cached.downstreamRuns)
-            }
-            syncArtifactDerivedRefs(cached.messages)
-            autoTemplateBootstrapSessionRef.current = sessionId
-            return
+          if (cached?.stageOverrides && cached.stageOverrides.length > 0) {
+            setWsStageOverrides(new Map(cached.stageOverrides as [HiringUiStage, 'running' | 'completed' | 'failed'][]))
+          }
+          if (cached?.downstreamRuns) {
+            downstreamRunsRef.current = cached.downstreamRuns
+            setDownstreamRuns(cached.downstreamRuns)
           }
         } catch {
-          // 缓存读取失败时静默回退到沙箱消息恢复
+          // 缓存读取失败时静默忽略
         }
       }
 
+      // 消息列表始终从沙箱会话接口恢复，避免后端缓存中的内部提示消息被展示
       await restoreConversationFromSandboxHistory(endpoint, sessionId, 'always')
       autoTemplateBootstrapSessionRef.current = sessionId
       return

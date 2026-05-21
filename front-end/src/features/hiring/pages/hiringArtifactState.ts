@@ -207,7 +207,12 @@ export function buildHistoricalHiringConversationState(
   for (const message of sandboxMessages) {
     if (message.type === 'user_message') {
       const content = String(message.text ?? '').trim()
-      if (content.length > 0) {
+      // 过滤内部系统提示：模板引导（[FILE_URL:...）、内部指令（[Internal ...）、系统指令（[System ...）
+      const isInternalPrompt =
+        content.startsWith('[FILE_URL:') ||
+        content.startsWith('[Internal ') ||
+        content.startsWith('[System ')
+      if (content.length > 0 && !isInternalPrompt) {
         messages.push({
           id: mkHistoricalId('user', messages.length),
           role: 'user',
