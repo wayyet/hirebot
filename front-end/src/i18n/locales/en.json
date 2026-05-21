@@ -754,7 +754,15 @@
     "confirmHumanEvalTitle": "Confirm Enter Human Evaluation",
     "confirmHumanEvalMessage": "Entering human evaluation will change the instance status and advance to the next stage. This action cannot be undone. Continue?",
     "confirmHumanEvalCancel": "Cancel",
-    "confirmHumanEvalConfirm": "Confirm"
+    "confirmHumanEvalConfirm": "Confirm",
+    "autoInit": {
+      "title": "Auto-Initialize Evaluation Environment",
+      "desc": "Preparing the evaluation sandbox for {{name}} ({{role}}) automatically",
+      "hint": "The evaluation environment is initialized automatically on first entry, saving you the manual step. You can also choose to initialize later manually.",
+      "seconds": "sec",
+      "btnNow": "Initialize Now",
+      "btnCancel": "I'll Do It Manually"
+    }
   },
   "humanEvaluation": {
     "title": "Human Evaluation Chat",

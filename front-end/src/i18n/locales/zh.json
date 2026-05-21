@@ -755,7 +755,15 @@
     "confirmHumanEvalTitle": "确认进入人工评估",
     "confirmHumanEvalMessage": "进入人工评估将修改实例状态并进入下一阶段，此操作不可撤销。确认继续？",
     "confirmHumanEvalCancel": "取消",
-    "confirmHumanEvalConfirm": "确认进入"
+    "confirmHumanEvalConfirm": "确认进入",
+    "autoInit": {
+      "title": "自动初始化评估环境",
+      "desc": "将为 {{name}}（{{role}}）自动准备评估沙筱，无需手动操作",
+      "hint": "首次进入评估页面时自动初始化，节省您的起步时间。您也可以选择稿后手动操作。",
+      "seconds": "秒",
+      "btnNow": "立即初始化",
+      "btnCancel": "稿后手动操作"
+    }
   },
   "humanEvaluation": {
     "title": "人工评估对话",

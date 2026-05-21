@@ -9,6 +9,7 @@ import {
   Loader2,
   MessageCircle,
   PlayCircle,
+  Rocket,
   SendHorizontal,
   X,
   Zap,
@@ -197,6 +198,12 @@ export default function EvaluationPage() {
     sessionId: null,
   })
   const ensureChatReadyPromiseRef = useRef<Promise<boolean> | null>(null)
+
+  // ── 自动初始化状态 ──
+  const [wsStatusLoaded, setWsStatusLoaded] = useState(false)
+  const [autoInitVisible, setAutoInitVisible] = useState(false)
+  const [autoInitCountdown, setAutoInitCountdown] = useState(3)
+  const autoInitFiredRef = useRef(false)
 
   async function loadData() {
     if (!id) return
@@ -434,6 +441,7 @@ export default function EvaluationPage() {
     if (!id) return
 
     let cancelled = false
+    setWsStatusLoaded(false)
     async function loadWorkspaceStatusSnapshot() {
       try {
         const status = await api.employeeRuntime.getEvaluationWorkspaceStatus(id!)
@@ -449,6 +457,8 @@ export default function EvaluationPage() {
           setWorkspaceStatus(null)
           setWorkspacePolling(false)
         }
+      } finally {
+        if (!cancelled) setWsStatusLoaded(true)
       }
     }
 
@@ -488,6 +498,43 @@ export default function EvaluationPage() {
       window.clearTimeout(timer)
     }
   }, [workspacePolling, id])
+
+  // 两端数据均加载完成后，判断是否需要自动初始化
+  useEffect(() => {
+    if (loading || !wsStatusLoaded) return
+    if (!employee || !canPrepare || aiRunning) return
+    if (autoInitFiredRef.current) return
+    // 已有进行中 / 就绪 / 失败的工作区 → 无需自动初始化
+    if (workspaceStatus && workspaceStatus.overallStatus !== 'not_started') return
+
+    autoInitFiredRef.current = true
+    setAutoInitCountdown(3)
+    setAutoInitVisible(true)
+  }, [loading, wsStatusLoaded, employee, canPrepare, aiRunning, workspaceStatus])
+
+  // 倒计时：每秒 -1，到 0 时自动触发初始化
+  useEffect(() => {
+    if (!autoInitVisible) return
+    if (autoInitCountdown <= 0) {
+      setAutoInitVisible(false)
+      void submitAiDecision('START')
+      return
+    }
+    const timer = window.setTimeout(() => {
+      setAutoInitCountdown((c) => c - 1)
+    }, 1000)
+    return () => window.clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoInitVisible, autoInitCountdown])
+
+  function handleAutoInitNow() {
+    setAutoInitVisible(false)
+    void submitAiDecision('START')
+  }
+
+  function handleAutoInitCancel() {
+    setAutoInitVisible(false)
+  }
 
   async function syncSandboxHistory(endpoint: string, sessionId: string) {
     const sandboxMessages = await fetchSandboxSessionMessages(endpoint, sessionId)
@@ -763,6 +810,8 @@ export default function EvaluationPage() {
       setWorkspacePolling(false)
       setChatMessages([])
       setEvaluation(null)
+      setWsStatusLoaded(false)
+      autoInitFiredRef.current = false
       await loadData()
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : '清理评估数据失败')
@@ -968,8 +1017,71 @@ export default function EvaluationPage() {
   }
 
   return (
-    <div className="hb-page hb-page-wide">
+    <div className="hb-page">
       <Breadcrumb items={[{ label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' }, { label: 'AI 评估' }]} />
+
+      {/* \u81ea\u52a8\u521d\u59cb\u5316\u8fc7\u6e21\u5c4f */}
+      {autoInitVisible && (
+        <div className="flex h-[calc(100vh-116px)] min-h-[680px] items-center justify-center">
+          <div className="w-full max-w-[360px] rounded-3xl border eval-chat-wrapper p-8 text-center shadow-xl">
+            {/* Icon */}
+            <div className="mb-5 flex justify-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--hb-blue)]/10">
+                <Rocket size={26} className="text-[var(--hb-blue)]" />
+              </div>
+            </div>
+
+            {/* Title & description */}
+            <h2 className="mb-1 text-[17px] font-semibold eval-text-title">
+              {t('evaluationPage.autoInit.title')}
+            </h2>
+            <p className="mb-5 text-[13px] leading-relaxed eval-text-secondary">
+              {t('evaluationPage.autoInit.desc', { name: employee.nickname, role: employee.roleName })}
+            </p>
+
+            {/* Countdown ring */}
+            <div className="relative mx-auto mb-5 h-[88px] w-[88px]">
+              <svg className="h-[88px] w-[88px] -rotate-90" viewBox="0 0 100 100">
+                {/* Track */}
+                <circle cx="50" cy="50" r="40" fill="none" stroke="var(--hb-border)" strokeWidth="6" />
+                {/* Progress arc */}
+                <circle
+                  cx="50" cy="50" r="40"
+                  fill="none"
+                  stroke="var(--hb-blue)"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 40}`}
+                  strokeDashoffset={`${2 * Math.PI * 40 * (1 - autoInitCountdown / 3)}`}
+                  style={{ transition: 'stroke-dashoffset 0.9s linear' }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-[32px] font-bold leading-none eval-text-title">{autoInitCountdown}</span>
+                <span className="mt-0.5 text-[11px] eval-text-caption">{t('evaluationPage.autoInit.seconds')}</span>
+              </div>
+            </div>
+
+            {/* Hint */}
+            <p className="mb-6 text-[12px] leading-relaxed eval-text-secondary">
+              {t('evaluationPage.autoInit.hint')}
+            </p>
+
+            {/* Actions */}
+            <div className="flex flex-col gap-2">
+              <button type="button" className="hb-btn-primary w-full !py-2.5 gap-1.5" onClick={handleAutoInitNow}>
+                <Rocket size={13} />
+                {t('evaluationPage.autoInit.btnNow')}
+              </button>
+              <button type="button" className="hb-btn-ghost w-full !py-2 !text-[12px]" onClick={handleAutoInitCancel}>
+                {t('evaluationPage.autoInit.btnCancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!autoInitVisible && (
       <div className="flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
         <section className="hb-card p-2.5">
           <div className="flex flex-wrap items-center gap-2">
@@ -1141,27 +1253,29 @@ export default function EvaluationPage() {
                 ) : (
                   <>
                     {testcaseOutlines.length > 0 && (
-                      <div className="shrink-0 border-b eval-chat-footer bg-[var(--hb-surface)] px-5 py-4">
-                        <div className="overflow-hidden rounded-2xl border eval-scenario-list shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-                          <div className="px-4 pb-3 pt-4">
-                            <div className="mb-3 text-[13px] font-semibold eval-text-title">
-                              测试场景（{testcaseOutlines.length} 个）
-                            </div>
-                            <div className="space-y-2.5">
-                              {testcaseOutlines.map((outline) => (
-                                <div key={outline.testcaseId} className="flex items-center justify-between gap-3">
-                                  <div className="flex min-w-0 items-center gap-2.5">
-                                    <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--hb-text-green)]" />
-                                    <span className="truncate text-[13px] eval-text-body">{outline.title}</span>
-                                  </div>
-                                  <span className="shrink-0 text-[12px] font-medium eval-text-green-mid">✓ 1 用例</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="border-t eval-scenario-footer px-4 py-2.5">
-                            <span className="text-[12px] font-medium eval-text-green-mid">✓ 用例已就绪，可开始评估</span>
-                          </div>
+                      <div className="shrink-0 border-b eval-chat-footer px-5 py-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[12px] font-medium eval-text-green-mid">✓ 测试用例已就绪</span>
+                          <span className="rounded-full border eval-stats-badge px-2 py-0.5 text-[11px]">
+                            {testcaseOutlines.length} 个场景
+                          </span>
+                          {testcaseOutlines.slice(0, 3).map((outline) => (
+                            <span key={outline.testcaseId} className="rounded-full border eval-pill-neutral px-2 py-0.5 text-[11px] truncate max-w-[160px]">
+                              {outline.title}
+                            </span>
+                          ))}
+                          {testcaseOutlines.length > 3 && (
+                            <button
+                              type="button"
+                              className="rounded-full border eval-pill-neutral px-2 py-0.5 text-[11px] text-[var(--hb-blue)] hover:bg-[var(--hb-blue)]/10 transition-colors"
+                              onClick={() => {
+                                setRightCollapsed(false)
+                                setArtifactTab('testcase')
+                              }}
+                            >
+                              +{testcaseOutlines.length - 3} 查看全部 →
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1445,6 +1559,37 @@ export default function EvaluationPage() {
 
                   {artifactTab === 'testcase' && (
                     <div className="space-y-2">
+                      {/* 测试场景概览（与聊天区域上方一致） */}
+                      {testcaseOutlines.length > 0 && (
+                        <div className="overflow-hidden rounded-2xl border eval-scenario-list shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+                          <div className="px-3 pb-2.5 pt-3">
+                            <div className="mb-2 text-[11px] font-semibold eval-text-title">
+                              测试场景（{testcaseOutlines.length} 个）
+                            </div>
+                            <div className="space-y-1.5">
+                              {testcaseOutlines.map((outline) => (
+                                <div key={outline.testcaseId} className="rounded-lg border eval-step-row px-2.5 py-2">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex min-w-0 items-start gap-1.5">
+                                      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--hb-text-green)]" />
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] font-medium eval-text-body">{outline.title}</div>
+                                        {outline.userRequest && (
+                                          <div className="mt-0.5 text-[10px] leading-relaxed eval-text-secondary">{outline.userRequest}</div>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <span className="shrink-0 text-[10px] font-mono eval-text-caption">{outline.testcaseId}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="border-t eval-scenario-footer px-3 py-2">
+                            <span className="text-[10px] font-medium eval-text-green-mid">✓ 用例已就绪，可开始评估</span>
+                          </div>
+                        </div>
+                      )}
                       {!workspaceReady ? (
                         <div className="rounded-xl border eval-empty-card px-3 py-3 text-[11px]">
                           请先完成沙箱初始化流程，随后展示测试用例。
@@ -1642,26 +1787,6 @@ export default function EvaluationPage() {
                             </div>
                           )}
 
-                          {/* 报告文件链接 */}
-                          <div className="rounded-xl border eval-overview-panel p-3">
-                            <div className="mb-2 text-[11px] font-semibold text-[var(--hb-body)]">报告文件</div>
-                            <div className="flex flex-col gap-2">
-                              {reportJsonUrl && (
-                                <a href={reportJsonUrl} target="_blank" rel="noreferrer"
-                                  className="inline-flex items-center gap-1.5 text-[11px] eval-link">
-                                  <ExternalLink size={10} /> 查看报告 JSON
-                                </a>
-                              )}
-                              {reportHtmlUrl && (
-                                <a href={reportHtmlUrl} download={`evaluation-report-${reportSummary.reportId}.html`}
-                                  target="_blank" rel="noreferrer"
-                                  className="inline-flex items-center gap-1.5 text-[11px] eval-link">
-                                  <ExternalLink size={10} /> 下载报告 HTML
-                                </a>
-                              )}
-                            </div>
-                          </div>
-
                           {/* 有评估结果就允许进入人工评估，由用户做最终决策 */}
                           {humanEvalPath && (
                             <button
@@ -1683,6 +1808,7 @@ export default function EvaluationPage() {
           </div>
         </section>
       </div>
+      )}
 
       {showHumanEvalConfirm && (
         <div className="hb-modal-mask" onClick={() => setShowHumanEvalConfirm(false)}>
