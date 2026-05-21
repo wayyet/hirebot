@@ -45,7 +45,7 @@ env:
   AllowedOrigins__7: https://opensandbox-gateway.ai4c.cn
   
   # ---- OpenSandbox 沙箱服务地址（SaaS 集群内地址）----
-  OpenSandbox__Domain: opensandbox-server.opensandbox-system:80
+  OpenSandbox__Domain: opensandbox-server.ai4c.cn
   OpenSandbox__Protocol: Https
   OpenSandbox__UseServerProxy: "false"
   OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605181416
