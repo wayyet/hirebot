@@ -70,6 +70,20 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
   ) {
     return <SkillGenerationStatusView artifactType={artifact.artifactType} data={artifact.data} />
   }
+  if (
+    artifact.artifactType === 'external_config_done' ||
+    artifact.artifactType === 'external_config_progress'
+  ) {
+    return <ExternalConfigView data={artifact.data} />
+  }
+  // 结构化兜底：未命中类型但数据具备对应特征时自动使用专用视图
+  const _d = asRecord(artifact.data)
+  if (_d && Array.isArray(_d.external_capabilities)) {
+    return <ExternalConfigView data={artifact.data} />
+  }
+  if (_d && Array.isArray(_d.skills) && (_d.workspace_root != null || _d.template_slug != null)) {
+    return <SkillWorkorderSummaryView data={artifact.data} />
+  }
   const hint = artifact.displayHint ?? 'text'
   if (hint === 'progress') return <ProgressView data={artifact.data} />
   if (hint === 'table') return <TableView data={artifact.data} />
@@ -175,7 +189,7 @@ function OntologyExtractionView({ data }: { data: unknown }) {
             fontSize: 11, padding: '2px 8px', borderRadius: 99,
             fontWeight: 700, letterSpacing: 0.3,
             background: validationPass ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-            color: validationPass ? '#059669' : '#dc2626',
+            color: validationPass ? 'var(--hb-text-green, #059669)' : 'var(--hb-danger, #dc2626)',
             border: `1px solid ${validationPass ? 'rgba(16, 185, 129, 0.30)' : 'rgba(239, 68, 68, 0.30)'}`,
           }}>
             {validationPass ? '✓ PASS' : '✗ ' + validation}
@@ -221,17 +235,17 @@ function SkillGenerationStatusView({
   const statusConfig: Record<string, { label: string; bg: string; color: string; border: string }> = {
     skill_generation_ready: {
       label: '☕ 等待确认',
-      bg: 'rgba(245,158,11,0.10)', color: '#b45309',
+      bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
       border: 'rgba(245,158,11,0.30)',
     },
     skill_generation_progress: {
       label: '⏳ 生成中',
-      bg: 'rgba(37,99,235,0.10)', color: '#1d4ed8',
+      bg: 'rgba(37,99,235,0.10)', color: 'var(--hb-text-blue, #1d4ed8)',
       border: 'rgba(37,99,235,0.25)',
     },
     skill_generation_done: {
       label: '✓ 已完成',
-      bg: 'rgba(16,185,129,0.10)', color: '#047857',
+      bg: 'rgba(16,185,129,0.10)', color: 'var(--hb-text-green, #059669)',
       border: 'rgba(16,185,129,0.30)',
     },
   }
@@ -267,10 +281,23 @@ function SkillWorkorderSummaryView({ data }: { data: unknown }) {
   if (!rec) return <CodeView data={data} />
 
   const summary = typeof rec.summary === 'string' ? rec.summary : ''
+  const notes = typeof rec.notes === 'string' ? rec.notes : ''
   const skills = Array.isArray(rec.skills) ? rec.skills.filter(isRecord) : []
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* notes 优先展示（补充说明/变更说明） */}
+      {notes && (
+        <div style={{
+          display: 'flex', gap: 6, fontSize: 12,
+          padding: '6px 9px', borderRadius: 6, lineHeight: 1.55,
+          border: '1px solid rgba(37,99,235,0.22)',
+          background: 'rgba(37,99,235,0.06)', color: 'var(--hb-text-blue, #1d4ed8)',
+        }}>
+          <span style={{ flexShrink: 0 }}>📌</span>
+          <span>{notes}</span>
+        </div>
+      )}
       {summary && (
         <div style={{ fontSize: 12, color: 'var(--hb-text-muted, #6b7280)', lineHeight: 1.6 }}>
           {summary}
@@ -313,14 +340,28 @@ function SkillCard({ skill }: { skill: Record<string, unknown> }) {
     : []
   const actionLabel: Record<string, string> = {
     generate_new: '新生成', update: '更新', extend: '扩展',
+    generated: '已生成', tbd: '待确认', pending: '待决',
   }
+  // 按 action 类型选择 badge 颜色
+  const actionColor: Record<string, { bg: string; color: string; border: string }> = {
+    generated:  { bg: 'rgba(16,185,129,0.10)',  color: 'var(--hb-text-green, #059669)',  border: 'rgba(16,185,129,0.28)' },
+    tbd:        { bg: 'rgba(245,158,11,0.10)',  color: 'var(--hb-text-amber, #b45309)',  border: 'rgba(245,158,11,0.28)' },
+    pending:    { bg: 'rgba(245,158,11,0.10)',  color: 'var(--hb-text-amber, #b45309)',  border: 'rgba(245,158,11,0.28)' },
+    generate_new: { bg: 'rgba(37,99,235,0.10)', color: 'var(--hb-text-blue, #1d4ed8)',  border: 'rgba(37,99,235,0.25)' },
+    update:     { bg: 'rgba(37,99,235,0.10)',  color: 'var(--hb-text-blue, #1d4ed8)',   border: 'rgba(37,99,235,0.25)' },
+    extend:     { bg: 'rgba(37,99,235,0.10)',  color: 'var(--hb-text-blue, #1d4ed8)',   border: 'rgba(37,99,235,0.25)' },
+  }
+  const ac = actionColor[generationAction] ?? { bg: 'rgba(37,99,235,0.10)', color: 'var(--hb-text-blue, #1d4ed8)', border: 'rgba(37,99,235,0.25)' }
 
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', gap: 8,
       padding: '10px 12px', borderRadius: 8,
-      border: '1px solid var(--hb-border, #e5e7eb)',
+      border: generationAction === 'tbd'
+        ? '1px dashed rgba(245,158,11,0.45)'
+        : '1px solid var(--hb-border, #e5e7eb)',
       background: 'color-mix(in srgb, var(--hb-surface-soft, #f9fafb) 40%, transparent)',
+      opacity: generationAction === 'tbd' ? 0.82 : 1,
     }}>
       {/* 技能名称 + action badge */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -328,8 +369,8 @@ function SkillCard({ skill }: { skill: Record<string, unknown> }) {
         {generationAction && (
           <span style={{
             fontSize: 10, padding: '1px 7px', borderRadius: 99, fontWeight: 600,
-            background: 'rgba(37, 99, 235, 0.12)', color: '#2563eb',
-            border: '1px solid rgba(37, 99, 235, 0.25)',
+            background: ac.bg, color: ac.color,
+            border: `1px solid ${ac.border}`,
           }}>
             {actionLabel[generationAction] ?? generationAction}
           </span>
@@ -357,7 +398,7 @@ function SkillCard({ skill }: { skill: Record<string, unknown> }) {
           <div style={sectionLabelStyle}>限制条件</div>
           {boundaries.map((b, i) => (
             <div key={i} style={{ display: 'flex', gap: 6, fontSize: 12, lineHeight: 1.5 }}>
-              <span style={{ flexShrink: 0, color: '#f59e0b' }}>•</span>
+              <span style={{ flexShrink: 0, color: 'var(--hb-text-amber, #f59e0b)' }}>•</span>
               <span style={{ color: 'var(--hb-text-muted, #6b7280)' }}>{b}</span>
             </div>
           ))}
@@ -406,7 +447,7 @@ function SkillCard({ skill }: { skill: Record<string, unknown> }) {
                       <span style={{
                         padding: '1px 5px', borderRadius: 99, fontSize: 10, fontWeight: 600,
                         background: row.severity === 'warning' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
-                        color: row.severity === 'warning' ? '#dc2626' : '#d97706',
+                        color: row.severity === 'warning' ? 'var(--hb-danger, #dc2626)' : 'var(--hb-text-amber, #d97706)',
                       }}>
                         {stringify(row.severity)}
                       </span>
@@ -428,14 +469,14 @@ function SkillCard({ skill }: { skill: Record<string, unknown> }) {
               <span key={i} style={{
                 fontSize: 11, padding: '2px 7px', borderRadius: 6,
                 border: '1px solid rgba(16,185,129,0.25)',
-                background: 'rgba(16,185,129,0.08)', color: '#059669',
+                background: 'rgba(16,185,129,0.08)', color: 'var(--hb-text-green, #059669)',
               }}>📁 {m}</span>
             ))}
             {ontologySlices.map((s, i) => (
               <span key={i} style={{
                 fontSize: 11, padding: '2px 7px', borderRadius: 6, fontFamily: 'monospace',
                 border: '1px solid rgba(124,58,237,0.25)',
-                background: 'rgba(124,58,237,0.08)', color: '#7c3aed',
+                background: 'rgba(124,58,237,0.08)', color: 'var(--hb-text-purple, #7c3aed)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
               }}>🌿 {s}</span>
             ))}
@@ -452,7 +493,7 @@ function SkillCard({ skill }: { skill: Record<string, unknown> }) {
               display: 'flex', gap: 6, fontSize: 11,
               padding: '5px 8px', borderRadius: 6, lineHeight: 1.5,
               border: '1px solid rgba(245,158,11,0.30)',
-              background: 'rgba(245,158,11,0.08)', color: '#92400e',
+              background: 'rgba(245,158,11,0.08)', color: 'var(--hb-text-amber, #b45309)',
             }}>
               <span style={{ flexShrink: 0 }}>⚠</span>
               <span>{q}</span>
@@ -494,6 +535,184 @@ const statChipStyle: CSSProperties = {
   border: '1px solid var(--hb-border, #e5e7eb)',
   background: 'color-mix(in srgb, var(--hb-surface-soft, #f9fafb) 60%, transparent)',
   color: 'var(--hb-text-muted, #6b7280)',
+}
+
+/** external_config_done / _progress 外部系统接入配置视图 */
+function ExternalConfigView({ data }: { data: unknown }) {
+  const rec = asRecord(data)
+  if (!rec) return <CodeView data={data} />
+
+  const summary = typeof rec.summary === 'string' ? rec.summary : ''
+  const totalCapabilities = Number(rec.total_capabilities ?? 0)
+  const capabilities = Array.isArray(rec.external_capabilities)
+    ? rec.external_capabilities.filter(isRecord)
+    : []
+
+  const realCaps = capabilities.filter(c => c.kind !== 'skip' && c.category !== 'skip')
+  const allSkipped = capabilities.length > 0 && realCaps.length === 0
+
+  const kindIcon: Record<string, string> = {
+    skip: '⊘', read: '📖', write: '✏️', notify: '🔔',
+    search: '🔍', transform: '⚙️', webhook: '🔗', api: '🌐',
+  }
+  const kindColor: Record<string, { bg: string; color: string; border: string }> = {
+    skip:      { bg: 'rgba(107,114,128,0.07)', color: 'var(--hb-text-muted, #6b7280)',    border: 'rgba(107,114,128,0.20)' },
+    read:      { bg: 'rgba(16,185,129,0.08)',  color: 'var(--hb-text-green, #059669)',    border: 'rgba(16,185,129,0.22)'  },
+    write:     { bg: 'rgba(37,99,235,0.08)',   color: 'var(--hb-text-blue, #1d4ed8)',     border: 'rgba(37,99,235,0.22)'   },
+    notify:    { bg: 'rgba(245,158,11,0.08)',  color: 'var(--hb-text-amber, #b45309)',    border: 'rgba(245,158,11,0.22)'  },
+    search:    { bg: 'rgba(124,58,237,0.08)',  color: 'var(--hb-text-purple, #7c3aed)',   border: 'rgba(124,58,237,0.22)'  },
+    transform: { bg: 'rgba(79,70,229,0.08)',   color: 'var(--hb-text-blue, #1d4ed8)',     border: 'rgba(79,70,229,0.22)'   },
+  }
+
+  // 全部跳过 — 空状态展示
+  if (allSkipped) {
+    const skipCap = capabilities[0]
+    const linkedSkills = Array.isArray(skipCap?.linked_skills)
+      ? (skipCap!.linked_skills as unknown[]).filter((s): s is string => typeof s === 'string')
+      : []
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 9,
+          padding: '10px 12px', borderRadius: 8,
+          border: '1px dashed var(--hb-border, #e5e7eb)',
+          background: 'color-mix(in srgb, var(--hb-surface-soft, #f9fafb) 50%, transparent)',
+        }}>
+          <span style={{ fontSize: 20, lineHeight: 1, marginTop: 1 }}>⊘</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--hb-text, #374151)' }}>
+              未配置外部系统
+            </div>
+            {skipCap?.objective != null && (
+              <div style={{ fontSize: 11, color: 'var(--hb-text-muted, #6b7280)', marginTop: 2, lineHeight: 1.5 }}>
+                {String(skipCap.objective)}
+              </div>
+            )}
+          </div>
+          <span style={{
+            flexShrink: 0, fontSize: 10, padding: '2px 8px', borderRadius: 99, fontWeight: 600,
+            background: 'rgba(107,114,128,0.08)', color: 'var(--hb-text-muted, #6b7280)',
+            border: '1px solid rgba(107,114,128,0.20)',
+          }}>已跳过</span>
+        </div>
+        {linkedSkills.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4, paddingLeft: 2 }}>
+            <span style={{ ...sectionLabelStyle, marginRight: 2 }}>关联技能</span>
+            {linkedSkills.map((s, i) => (
+              <span key={i} style={{
+                fontSize: 11, padding: '1px 7px', borderRadius: 6,
+                border: '1px solid rgba(37,99,235,0.20)',
+                background: 'rgba(37,99,235,0.06)', color: 'var(--hb-text-blue, #1d4ed8)',
+              }}>🧩 {s}</span>
+            ))}
+          </div>
+        )}
+        {summary && (
+          <div style={{ fontSize: 11, color: 'var(--hb-text-muted, #6b7280)', lineHeight: 1.55, paddingLeft: 2 }}>
+            {summary}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // 有实际能力配置 — 逐条渲染
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {totalCapabilities > 0 && (
+          <span style={statChipStyle}>🔌 能力数 <b style={{ marginLeft: 3 }}>{totalCapabilities}</b></span>
+        )}
+        {summary && (
+          <div style={{ fontSize: 12, color: 'var(--hb-text-muted, #6b7280)', lineHeight: 1.5, flex: 1 }}>
+            {summary}
+          </div>
+        )}
+      </div>
+      {capabilities.map((cap, i) => {
+        const kind = String(cap.kind ?? 'api')
+        const kc = kindColor[kind] ?? kindColor.read
+        const objective = String(cap.objective ?? '')
+        const targetSystem = cap.target_system != null ? String(cap.target_system) : ''
+        const methods = Array.isArray(cap.integration_methods)
+          ? cap.integration_methods.filter((m): m is string => typeof m === 'string').filter(m => m !== 'none')
+          : []
+        const linkedSkills = Array.isArray(cap.linked_skills)
+          ? cap.linked_skills.filter((s): s is string => typeof s === 'string')
+          : []
+        const authKind = cap.auth_kind != null ? String(cap.auth_kind) : ''
+        const requiredFields = Array.isArray(cap.required_fields)
+          ? cap.required_fields.filter((f): f is string => typeof f === 'string')
+          : []
+        return (
+          <div key={i} style={{
+            display: 'flex', flexDirection: 'column', gap: 6,
+            padding: '9px 11px', borderRadius: 8,
+            border: `1px solid ${kc.border}`,
+            background: kc.bg,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 14 }}>{kindIcon[kind] ?? '🔌'}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--hb-text, #374151)', flex: 1, minWidth: 0 }}>
+                {targetSystem || objective || kind}
+              </span>
+              <span style={{
+                fontSize: 10, padding: '1px 7px', borderRadius: 99, fontWeight: 600,
+                background: kc.bg, color: kc.color, border: `1px solid ${kc.border}`,
+              }}>{kind}</span>
+              {authKind && authKind !== 'none' && (
+                <span style={{
+                  fontSize: 10, padding: '1px 6px', borderRadius: 99,
+                  border: '1px solid var(--hb-border, #e5e7eb)',
+                  color: 'var(--hb-text-muted, #6b7280)',
+                }}>🔑 {authKind}</span>
+              )}
+            </div>
+            {targetSystem && objective && (
+              <div style={{ fontSize: 12, color: 'var(--hb-text, #374151)', lineHeight: 1.55 }}>
+                {objective}
+              </div>
+            )}
+            {methods.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {methods.map((m, mi) => (
+                  <span key={mi} style={{
+                    fontSize: 10, padding: '1px 6px', borderRadius: 6,
+                    border: '1px solid var(--hb-border, #e5e7eb)',
+                    color: 'var(--hb-text-muted, #6b7280)',
+                    background: 'color-mix(in srgb, var(--hb-surface-soft, #f9fafb) 60%, transparent)',
+                  }}>{m}</span>
+                ))}
+              </div>
+            )}
+            {linkedSkills.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                <span style={{ ...sectionLabelStyle, marginRight: 2 }}>技能</span>
+                {linkedSkills.map((s, si) => (
+                  <span key={si} style={{
+                    fontSize: 11, padding: '1px 6px', borderRadius: 6,
+                    border: '1px solid rgba(37,99,235,0.20)',
+                    background: 'rgba(37,99,235,0.06)', color: 'var(--hb-text-blue, #1d4ed8)',
+                  }}>🧩 {s}</span>
+                ))}
+              </div>
+            )}
+            {requiredFields.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                {requiredFields.map((f, fi) => (
+                  <span key={fi} style={{
+                    fontSize: 10, padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace',
+                    border: '1px solid var(--hb-border, #e5e7eb)',
+                    color: 'var(--hb-text-muted, #6b7280)',
+                  }}>{f}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 /** material_handoff_summary 专用结构化视图 */
@@ -546,7 +765,7 @@ function MaterialHandoffView({ data }: { data: unknown }) {
                   fontSize: 10, flexShrink: 0, marginTop: 2,
                   padding: '1px 6px', borderRadius: 99,
                   background: hasContent ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                  color: hasContent ? '#059669' : '#d97706',
+                  color: hasContent ? 'var(--hb-text-green, #059669)' : 'var(--hb-text-amber, #d97706)',
                   border: `1px solid ${hasContent ? 'rgba(16, 185, 129, 0.30)' : 'rgba(245, 158, 11, 0.30)'}`,
                 }}>
                   {hasContent ? '已收集' : '待补充'}
@@ -570,6 +789,7 @@ function ArtifactIcon({ artifact }: { artifact: ArtifactDisplayData }) {
   ) return <span className="hb-artifact-icon">⚙️</span>
   if (artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
   if (artifact.artifactType === 'ontology_extraction_done' || artifact.artifactType === 'ontology_extraction_progress') return <span className="hb-artifact-icon">🌿</span>
+  if (artifact.artifactType === 'external_config_done' || artifact.artifactType === 'external_config_progress') return <span className="hb-artifact-icon">🔌</span>
   const map: Record<string, string> = { table: '📊', code: '💻', tree: '🌿', badge: '✅', progress: '⏳' }
   return <span className="hb-artifact-icon">{map[artifact.displayHint ?? ''] ?? '📦'}</span>
 }

@@ -77,6 +77,17 @@
   --hb-dropdown-border: #ececec;
   --hb-dropdown-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 
+  /* Alias: artifact card text (referenced in ArtifactMessageCard) */
+  --hb-text: #374151;
+  --hb-text-muted: #6b7280;
+
+  /* Semantic colored text */
+  --hb-text-green:  #059669;
+  --hb-text-amber:  #b45309;
+  --hb-text-blue:   #1d4ed8;
+  --hb-text-purple: #7c3aed;
+  --hb-text-red:    #dc2626;
+
   /* Danger / destructive actions */
   --hb-danger: #dc2626;
   --hb-danger-hover-bg: rgba(220, 38, 38, 0.08);
@@ -172,6 +183,17 @@
   --hb-dropdown-bg: rgba(12, 18, 38, 0.96);
   --hb-dropdown-border: rgba(255, 255, 255, 0.10);
   --hb-dropdown-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+
+  /* Alias: artifact card text */
+  --hb-text: #d1d5db;
+  --hb-text-muted: #9ca3af;
+
+  /* Semantic colored text (dark mode — lighter tones for contrast) */
+  --hb-text-green:  #34d399;
+  --hb-text-amber:  #fbbf24;
+  --hb-text-blue:   #60a5fa;
+  --hb-text-purple: #a78bfa;
+  --hb-text-red:    #f87171;
 
   /* Danger / destructive actions */
   --hb-danger: #f87171;
