@@ -690,7 +690,7 @@
     "finalCtaCopy": "立即登录，进入 NCrew Hire 工作台，为团队配置专属数字员工。"
   },
   "templateDetail": {
-    "startHiring": "发起标准雇佣",
+    "startHiring": "发起雇佣",
     "loading": "正在加载模板详情...",
     "breadcrumb": "模板池",
     "notFound": "模板不存在",
@@ -730,7 +730,8 @@
       "rehiring": "重新雇佣中",
       "abandonBranch": "废弃私有分支",
       "enterAiEvaluation": "进入 AI 评估",
-      "enterHumanEvaluation": "进入人工评估"
+      "enterHumanEvaluation": "进入人工评估",
+      "configureIm": "配置 IM"
     },
     "capabilities": "能力简介",
     "runStatus": "运行状态",

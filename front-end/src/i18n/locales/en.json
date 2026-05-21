@@ -689,7 +689,7 @@
     "finalCtaCopy": "Sign in to NCrew Hire and begin configuring your digital workforce."
   },
   "templateDetail": {
-    "startHiring": "Start Standard Hiring",
+    "startHiring": "Start Hiring",
     "loading": "Loading template details...",
     "breadcrumb": "Template Pool",
     "notFound": "Template not found",
@@ -729,7 +729,8 @@
       "rehiring": "Rehiring...",
       "abandonBranch": "Abandon Branch",
       "enterAiEvaluation": "Enter AI Evaluation",
-      "enterHumanEvaluation": "Enter Human Evaluation"
+      "enterHumanEvaluation": "Enter Human Evaluation",
+      "configureIm": "Configure IM"
     },
     "capabilities": "Capabilities",
     "runStatus": "Run Status",
