@@ -756,29 +756,33 @@ export default function HiringPage() {
     // 检查当前会话是否已有历史消息——有消息说明模板之前已上传过，直接恢复历史，跳过引导上传
     const existingMessages = await fetchSandboxSessionMessages(endpoint, sessionId)
     if (existingMessages.length > 0) {
-      // 从后端缓存恢复阶段状态（stageOverrides/downstreamRuns），消息列表始终从沙箱会话接口获取
+      // 1. 先从沙箱会话历史恢复消息，同时得到从 artifact tool call 派生的基础阶段状态
+      await restoreConversationFromSandboxHistory(endpoint, sessionId, 'always')
+
+      // 2. 再从后端缓存加载阶段状态，覆盖历史派生值
+      //    原因：wsStageOverrides 中 WS stage_update 事件不在沙箱消息历史里，无法从历史重建；
+      //          downstreamRuns 缓存保存了最新完整的 status/data，优先级高于历史派生值。
       const hireIdForCache = currentHireId || workflowHireId
       if (hireIdForCache) {
         try {
           const cached = await api.hiringWorkflow.getConversationCache(hireIdForCache) as {
-            messages?: ChatMessage[]
             stageOverrides?: [string, string][]
             downstreamRuns?: DownstreamRunsSnapshot
           } | null
           if (cached?.stageOverrides && cached.stageOverrides.length > 0) {
             setWsStageOverrides(new Map(cached.stageOverrides as [HiringUiStage, 'running' | 'completed' | 'failed'][]))
           }
-          if (cached?.downstreamRuns) {
-            downstreamRunsRef.current = cached.downstreamRuns
-            setDownstreamRuns(cached.downstreamRuns)
+          if (cached?.downstreamRuns && Object.keys(cached.downstreamRuns).length > 0) {
+            // 合并：缓存中的 run 优先，保留历史中有而缓存中没有的 run
+            const merged: DownstreamRunsSnapshot = { ...downstreamRunsRef.current, ...cached.downstreamRuns }
+            downstreamRunsRef.current = merged
+            setDownstreamRuns(merged)
           }
         } catch {
-          // 缓存读取失败时静默忽略
+          // 缓存读取失败时静默忽略，保留历史派生值
         }
       }
 
-      // 消息列表始终从沙箱会话接口恢复，避免后端缓存中的内部提示消息被展示
-      await restoreConversationFromSandboxHistory(endpoint, sessionId, 'always')
       autoTemplateBootstrapSessionRef.current = sessionId
       return
     }
