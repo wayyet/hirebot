@@ -42,6 +42,7 @@ import {
   buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
   buildUiStageOverrides,
+  deriveStageOverridesFromDownstreamRuns,
   shouldHoldExternalStageUntilSkillImplementation,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
@@ -376,6 +377,10 @@ export default function HiringPage() {
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const workflowInitRef = useRef<Promise<string | null> | null>(null)
+  // workflowHireId 的 ref 镜像：connectSandboxWs 内的 ws.onMessage 闭包在创建时捕获的
+  // workflowHireId state 仍是空字符串（React state 异步更新），后续通过 ref 获取最新值，
+  // 防止 ensureWorkflowReady / typing_stop 里误判未初始化而重新触发初始化流程。
+  const workflowHireIdRef = useRef<string>('')
   const messageSubmitRef = useRef(false)
   const handleSendRef = useRef(false)
   // 沙箱直连引用：WebSocket 实例、网关端点、会话 ID
@@ -616,8 +621,8 @@ export default function HiringPage() {
       setWorkflowError(t('hiring.error.templateParamMissingDetail'))
       return null
     }
-    if (workflowHireId) {
-      return workflowHireId
+    if (workflowHireIdRef.current) {
+      return workflowHireIdRef.current
     }
     if (workflowInitRef.current) {
       return workflowInitRef.current
@@ -630,6 +635,7 @@ export default function HiringPage() {
       try {
         const hired = await api.employeeTemplate.hire(templateId, {})
         setWorkflowHireId(hired.hireId)
+        workflowHireIdRef.current = hired.hireId
 
         // hire() 对复用的 Running+Initialized 沙箱会直接返回 READY + gatewayEndpoint，
         // 避免进入轮询循环；Paused/新建沙箱仍走轮询等待
@@ -781,6 +787,13 @@ export default function HiringPage() {
         } catch {
           // 缓存读取失败时静默忽略，保留历史派生值
         }
+
+        // 兜底：若 history 和 cache 均未能恢复 wsStageOverrides（stageOverrides 为空），
+        // 则从 downstreamRuns 因果链反向推断主阶段状态，避免阶段胶囊在已有进度的情况下全部灰色。
+        setWsStageOverrides(prev => {
+          if (prev.size > 0) return prev
+          return deriveStageOverridesFromDownstreamRuns(downstreamRunsRef.current)
+        })
       }
 
       autoTemplateBootstrapSessionRef.current = sessionId
@@ -947,7 +960,7 @@ export default function HiringPage() {
         setTyping(false)
 
         // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等
-        const hireId = workflowHireId
+        const hireId = workflowHireIdRef.current
         if (hireId && rawReply) {
           api.hiringWorkflow.syncConversationTurn(hireId, {
             userMessage: userMessage || '',

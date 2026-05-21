@@ -276,15 +276,72 @@ export function buildHistoricalHiringConversationState(
     }
   }
 
+  // skill_stage_gate 事件不存在于沙箱会话历史中，因此上方循环可能无法推断任何阶段状态。
+  // 兜底：从下游轨道运行状态反向推断阶段进度，避免刷新后阶段胶囊全部灰色。
+  const finalStageOverrides = wsStageOverrides.size > 0
+    ? wsStageOverrides
+    : deriveStageOverridesFromDownstreamRuns(downstreamRuns)
+
   return {
     messages,
     materialRequestedCategories: extractLatestMaterialRequestedCategories(messages),
-    wsStageOverrides,
+    wsStageOverrides: finalStageOverrides,
     downstreamRuns,
     latestMaterialSummary: extractLatestArtifactData(messages, 'material_handoff_summary'),
     latestSkillSummary: extractLatestArtifactData(messages, 'skill_workorder_summary'),
     latestExternalSummary: extractLatestArtifactData(messages, 'external_workorder_summary'),
   }
+}
+
+/**
+ * 从下游轨道运行状态推断主雇佣阶段状态。
+ * 用于 stageOverrides 未能从缓存或会话历史恢复时的兜底派生，保证阶段胶囊能正确反映进度。
+ *
+ * 因果链：
+ * - ontology-extraction 存在 → Material 阶段已完成（material_handoff_summary 已发出）
+ * - skill-generation 存在 → Skill 阶段已完成或进行中
+ * - external-config 存在 → External 阶段已完成或进行中
+ */
+export function deriveStageOverridesFromDownstreamRuns(
+  runs: DownstreamRunsSnapshot,
+): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
+  const overrides = new Map<HiringUiStage, 'running' | 'completed' | 'failed'>()
+
+  const ontologyRun = runs['ontology-extraction']
+  const skillGenRun = runs['skill-generation']
+  const externalConfigRun = runs['external-config']
+
+  // ontology extraction 仅在 Material 阶段完成后触发，因此只要它存在，Material 必然已完成
+  if (ontologyRun) {
+    overrides.set(HiringCollectionStage.Material, 'completed')
+  }
+
+  // skill generation 在 Skill 阶段完成后触发
+  if (skillGenRun) {
+    overrides.set(HiringCollectionStage.Material, 'completed')
+    if (skillGenRun.status === 'completed') {
+      overrides.set(HiringCollectionStage.Skill, 'completed')
+    } else if (skillGenRun.status === 'failed') {
+      overrides.set(HiringCollectionStage.Skill, 'failed')
+    } else {
+      overrides.set(HiringCollectionStage.Skill, 'running')
+    }
+  }
+
+  // external config 在 External 阶段进行中时触发
+  if (externalConfigRun) {
+    overrides.set(HiringCollectionStage.Material, 'completed')
+    overrides.set(HiringCollectionStage.Skill, 'completed')
+    if (externalConfigRun.status === 'completed') {
+      overrides.set(HiringCollectionStage.External, 'completed')
+    } else if (externalConfigRun.status === 'failed') {
+      overrides.set(HiringCollectionStage.External, 'failed')
+    } else {
+      overrides.set(HiringCollectionStage.External, 'running')
+    }
+  }
+
+  return overrides
 }
 
 export function buildCoachResumePrompt(
