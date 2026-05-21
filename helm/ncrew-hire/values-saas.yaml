@@ -5,7 +5,7 @@ replicaCount: 1
 
 image:
   repository: ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot
-  tag: dev-202605211749   # 部署时替换为实际镜像标签
+  tag: dev-202605220141   # 部署时替换为实际镜像标签
   pullPolicy: IfNotPresent
 
 resources:
@@ -41,9 +41,12 @@ env:
   AllowedOrigins__3: http://ncrew-hire.ai4c.cn
   AllowedOrigins__4: http://ncrew-builder.ai4c.cn
   AllowedOrigins__5: http://opensandbox-gateway.ai4c.cn
+  AllowedOrigins__6: https://ncrew-builder.ai4c.cn
+  AllowedOrigins__7: https://opensandbox-gateway.ai4c.cn
+  
   # ---- OpenSandbox 沙箱服务地址（SaaS 集群内地址）----
   OpenSandbox__Domain: opensandbox-server.opensandbox-system:80
-  OpenSandbox__Protocol: Http
+  OpenSandbox__Protocol: Https
   OpenSandbox__UseServerProxy: "false"
   OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605181416
   OpenSandbox__Resource__cpu: 500m
