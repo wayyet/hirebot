@@ -34,7 +34,6 @@ env:
   ConsoleAuth__ClientId: ncrew-client
   ConsoleAuth__BypassAuth: "false"
   ConsoleAuth__TemplateApiBase: https://ncrew-builder.ai4c.cn
-  BuildService__BaseUrl: https://ncrew-builder.ai4c.cn/
   # ---- 跨域 ----
   AllowedOrigins__0: https://hire.ai4c.cn
   AllowedOrigins__1: https://ncrew.ai4c.cn
@@ -82,7 +81,7 @@ env:
   KingCrab__HttpTimeoutSeconds: "120"
   KingCrab__HireBotApiPrefix: /api/integration/hirebot
   # ---- 构建服务 (ncrew-builder SaaS 地址) ----
-  BuildService__BaseUrl: http://ncrew-builder.ai4c.cn/
+  BuildService__BaseUrl: https://ncrew-builder.ai4c.cn/
   BuildService__ApiPrefix: /api/store
   BuildService__BearerToken: ""
   BuildService__HttpTimeoutSeconds: "60"
