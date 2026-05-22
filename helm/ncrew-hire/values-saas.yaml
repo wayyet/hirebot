@@ -81,7 +81,7 @@ env:
   KingCrab__HttpTimeoutSeconds: "120"
   KingCrab__HireBotApiPrefix: /api/integration/hirebot
   # ---- 构建服务 (ncrew-builder SaaS 地址) ----
-  BuildService__BaseUrl: http://ncrew-builder.ai4c.cn/
+  BuildService__BaseUrl: https://ncrew-builder.ai4c.cn/
   BuildService__ApiPrefix: /api/store
   BuildService__BearerToken: ""
   BuildService__HttpTimeoutSeconds: "60"
