@@ -72,6 +72,8 @@ metadata:
 | 收到第一批技能描述后 | `skill_workorder_progress` | `stage2_skill` | `false` | `progress` |
 | 用户确认技能清单，技能定义子步骤收尾 | `skill_workorder_summary` | `stage2_skill` | `true` | `tree` |
 | 技能定义已确认，等待用户确认是否开始技能生成 | `skill_generation_ready` | `stage2_skill` | `false` | `badge` |
+| 用户确认技能生成后，projection pass 启动 | `ontology_projection_progress` | `ontology-projection` | `false` | `progress` |
+| projection pass 完成，可触发技能生成 | `ontology_projection_done` | `ontology-projection` | `true` | `tree` |
 
 **阶段 3 外部 — 发出时机与参数**
 
@@ -268,6 +270,17 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 - 用户明确表达"先这些""这批资料先这样"或等价意思
 - 发出 `material_handoff_summary` terminal artifact
 
+**阶段 1 完成后的强制动作（本体抽取启动门，不可省略）**：
+
+发出 `material_handoff_summary` 后，**必须立即触发 `ontology-extraction` skill**，不得等待用户指令，也不得先进入阶段 2 引导：
+
+1. 将 `material_handoff_summary` 的完整 `data` 作为输入传给 `ontology-extraction`；
+2. `ontology-extraction` 先发 `ontology_extraction_progress`（isTerminal: false），再执行本体抽取，最终发 `ontology_extraction_done`（isTerminal: true）；
+3. 在 `ontology-extraction` **运行期间**，可以同步向用户发出阶段 2 的第一句引导（"接下来我们梳理它要会做什么……"），但**禁止**在 `ontology_extraction_done` 到达之前就发出 `skill_workorder_progress` 或进入技能定义收集；
+4. 收到 `ontology_extraction_done` 后，才正式进入阶段 2 的"进入阶段的强制动作"。
+
+> ⛔ 触发本体抽取不是可选项：资料阶段每一次 terminal artifact 之后都必须触发；已在进行中时不重复触发。
+
 > 第一批资料怎么按场景类型开口要、scene_hint 推断与静默修正、阶段 1 story-driven 推进 → 进入阶段 1 之前，读 [references/scene-types.md](references/scene-types.md)。
 
 ### 阶段 2：技能
@@ -276,7 +289,7 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 **最低门槛**：每个 skill 同时具备**明确的名称 + 明确的能力描述**，并且能说清触发条件和期望输出。
 
-**进入阶段的强制动作**：资料阶段 terminal artifact 已发出，用户同意继续后，先发出技能阶段进度 emit_artifact（`skill_workorder_progress`），再开始引导技能定义。
+**进入阶段的强制动作**：资料阶段 terminal artifact 已发出、`ontology-extraction` 已发出 `ontology_extraction_done` 后，先发出技能阶段进度 emit_artifact（`skill_workorder_progress`），再开始引导技能定义。若 `ontology-extraction` 仍在执行，可以向用户说一句"本体正在整理，稍后进入技能定义"，但不得发 `skill_workorder_progress`。
 
 **阶段完成条件**：
 - 默认技能基线已经盘清（哪些直接复用，哪些需要新增）
@@ -290,9 +303,13 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 > 「技能定义已经确认完成。是否现在开始生成这些技能的实现内容？」
 
 - 等待用户明确回应：
-  - 用户**肯定**：立即把本轮技能清单交给下游 `skill-generation`，由下游先发 `skill_generation_progress`，再开始真正生成 / 复用落盘。
-  - 用户**否定 / 暂停**：保留 `skill_generation_ready` 状态，不启动 `skill-generation`，等用户后续明确同意后再开始。
+  - 用户**肯定**：**先触发 `ontology-extraction` 的 Projection Pass 模式**（输入：`trigger_mode: "projection_pass"`、`workspace_root`、`skills` 列表来自 `skill_workorder_summary.data.items`），等待 `ontology_projection_done` 到达后，再把本轮技能清单交给下游 `skill-generation`，由下游先发 `skill_generation_progress`，再开始真正生成 / 复用落盘。
+  - 用户**否定 / 暂停**：保留 `skill_generation_ready` 状态，不启动 projection pass 也不启动 `skill-generation`，等用户后续明确同意后再开始。
   - 用户**补充或修改技能定义**：回到阶段 2，更新 `skill_workorder_progress` / `skill_workorder_summary`，然后重新发出上述确认门询问。
+- **Projection Pass 等待规则**：
+  - `ontology_projection_done` 到达之前，不得触发 `skill-generation`
+  - 若 `ontology_projection_done.data.projected_count === 0`（全部跳过），skill-generation 正常触发，无 projection 降级运行
+  - 若 projection pass 因异常未能发出 `ontology_projection_done`，超时后向用户提示异常，降级直接触发 skill-generation
 - **禁止话术**：只要 `skill-generation` 尚未完成，就**不得**对用户说"可进入外部能力配置"、"下一步是外部系统"或任何等价表述。
 - **进入阶段 3 的前置条件**：只有 `skill-generation` 已完成，且用户明确同意继续外部阶段时，才允许进入外部阶段。
 
@@ -355,7 +372,7 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 **触发条件（满足任一即进入）**：
 
-A. **下游就绪触发**：ontology-extraction、skill-generation、external-config 三个下游 skill 全部发出 terminal artifact（`ontology_slice_result` / `skill_generation_done` / `external_config_done` 均已收到）。
+A. **下游就绪触发**：ontology-extraction、skill-generation、external-config 三个下游 skill 全部发出 terminal artifact（`ontology_extraction_done` / `skill_generation_done` / `external_config_done` 均已收到）。
 
 B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 terminal summary（`material_handoff_summary` / `skill_workorder_summary` / `external_workorder_summary`，其中外部阶段允许是 skip 形态），**且**用户在对话中显式请求打包（关键词：「生成产物包」「打包」「生成实例包」「导出」「打成 zip」「完成打包」等），进入阶段 4 的等待 / 执行分支：
 - 若下游 terminal artifact 已全部到位，立即执行真实打包。
@@ -386,9 +403,10 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 若下游**已经全部就绪**，执行真实打包分支：
 
 1. 发 `packaging_progress`（isTerminal: false, `data.status = "packing"`）
-2. 调用沙箱打包工具，等待返回 `fileUrl`
-3. 发 `template_package`（kind: file, isTerminal: true），`fileUrl` 字段填写第 2 步真实返回值
-4. 给用户一句简短反馈
+2. **Manifest 同步（强制）**：调用打包工具前，必须先将运行时产出回写到 `manifest.json`（详见下文"Manifest 同步规则"）
+3. 调用沙箱打包工具，等待返回 `fileUrl`
+4. 发 `template_package`（kind: file, isTerminal: true），`fileUrl` 字段填写第 3 步真实返回值
+5. 给用户一句简短反馈
 
 ### 1. 打包进度（isTerminal: false）
 
@@ -429,7 +447,142 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 }
 ```
 
-### 2. 调用打包工具
+### 2. Manifest 同步（打包前强制）
+
+调用打包工具之前，**必须**将运行时产出回写到 `<workspace_root>/manifest.json`，确保最终产物包的 manifest 准确反映工作区实际内容。
+
+#### 同步目标
+
+| 字段 | 动作 | 来源 |
+|------|------|------|
+| `ontology_slices` | 追加运行时产出的 slice 条目 | 扫描 `<workspace_root>/ontology/*.slice.json` |
+| `skills` | 追加 skill-generation 产出的业务 skill 条目 | 扫描 `<workspace_root>/skills/*/SKILL.md`（排除模板内置 skill） |
+
+#### 执行步骤
+
+**步骤 A：读取当前 manifest.json**
+
+```bash
+cat "<workspace_root>/manifest.json"
+```
+
+解析为 JSON 对象，保留所有已有字段。
+
+**步骤 B：扫描 ontology slices**
+
+```bash
+ls <workspace_root>/ontology/*.slice.json
+```
+
+对每个发现的 `*.slice.json` 文件：
+1. 读取文件，提取 `slice_request.topic` 作为 `name`
+2. 计算相对路径（如 `ontology/emergency-response.slice.json`）
+3. 若 `manifest.ontology_slices` 中已有 `path` 完全匹配的条目，跳过
+4. 否则追加条目：
+
+```json
+{
+  "name": "<slice_request.topic>",
+  "path": "ontology/<filename>.slice.json",
+  "type": "runtime_generated_slice",
+  "required": false
+}
+```
+
+**步骤 C：扫描 generated skills**
+
+```bash
+ls <workspace_root>/skills/*/SKILL.md
+```
+
+对每个发现的 skill 目录（`skills/<slug>/SKILL.md` 存在）：
+1. 提取 `<slug>` 作为 skill name
+2. 若 `manifest.skills` 中已有 `name` 完全匹配的条目（模板内置 skill），跳过
+3. 否则追加条目：
+
+```json
+{
+  "name": "<slug>",
+  "path": "skills/<slug>/SKILL.md",
+  "required": true
+}
+```
+
+**步骤 D：回写 manifest.json**
+
+将更新后的完整 JSON 写回 `<workspace_root>/manifest.json`（覆盖写入，保持格式化缩进 2 空格）。
+
+#### 内置 skill 白名单（不追加、不删除）
+
+以下 skill 属于模板包自带，扫描时直接跳过：
+- `employment-coach-conversation`
+- `ontology-extraction`
+- `skill-generation`
+- `external-config`
+
+#### 同步约束
+
+- **只追加不删除**：不移除 manifest 中已有的条目（即使对应文件不存在，可能是被用户手动管理的）
+- **幂等安全**：多次执行 manifest 同步结果一致，不产生重复条目
+- **ontology-slice.md 保留**：模板原始的 `ontology-slice.md` 条目保持不变（它是约定文档，不是运行时 slice）
+- **不修改其他字段**：`name`、`display_name`、`positioning`、`description`、`version`、`config`、`stage_rules` 等字段原样保留
+- **失败不阻断打包**：若扫描目录为空或无新增条目，manifest 保持原样即可，不影响后续打包步骤
+
+#### 同步后 manifest 示例（部分）
+
+```json
+{
+  "name": "SalesDeliveryAgent",
+  "ontology_slices": [
+    {
+      "name": "hiring-discovery-ontology",
+      "path": "ontology/ontology-slice.md",
+      "type": "digital_employee_slice",
+      "required": true
+    },
+    {
+      "name": "emergency-response-and-incident-sop",
+      "path": "ontology/emergency-response.slice.json",
+      "type": "runtime_generated_slice",
+      "required": false
+    }
+  ],
+  "skills": [
+    {
+      "name": "employment-coach-conversation",
+      "path": "skills/employment-coach-conversation/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "ontology-extraction",
+      "path": "skills/ontology-extraction/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "skill-generation",
+      "path": "skills/skill-generation/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "external-config",
+      "path": "skills/external-config/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "document-generation",
+      "path": "skills/document-generation/SKILL.md",
+      "required": true
+    },
+    {
+      "name": "emergency-trigger-and-audit",
+      "path": "skills/emergency-trigger-and-audit/SKILL.md",
+      "required": true
+    }
+  ]
+}
+```
+
+### 3. 调用打包工具
 
 调用沙箱 `package_workspace` 工具（工具名以沙箱实际定义为准），将当前工作区打包为 zip 文件，获取产物文件的下载 URL（`fileUrl`）。
 
@@ -437,7 +590,7 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 
 > ⚠️ 若工具清单中确实没有任何打包能力，直接进入下文"失败兜底"，**不要伪造**。
 
-#### 2.1 打包内容白名单与目录约束（强制）
+#### 3.1 打包内容白名单与目录约束（强制）
 
 调用打包工具时，**必须**满足以下结构约束，否则后端导入会拒绝或产生错位目录：
 
@@ -476,7 +629,7 @@ org-health-analyst-20260514094434/config/SOUL.md    ← workspace 目录名混�
 
 > 后端 import 时会做一次"剥离公共顶层目录 + 黑名单过滤"的兜底，但**仅作为容错**，正确的提示词调用必须从源头满足上述约束。
 
-### 3. 发出 template_package artifact（isTerminal: true）
+### 4. 发出 template_package artifact（isTerminal: true）
 
 打包工具成功返回后立即调用 `emit_artifact`，**`kind` 必须为 `file`**，这是前端自动触发 importPackage 的唯一条件：
 
@@ -499,7 +652,7 @@ org-health-analyst-20260514094434/config/SOUL.md    ← workspace 目录名混�
 - `fileUrl` 必须来自打包工具的真实返回，不得编造、不得拼接、不得使用历史会话的旧值
 - `fileName` 建议以 `.zip` 结尾，前端会用此名作为下载文件名
 
-### 4. 告知用户
+### 5. 告知用户
 
 发出 artifact 后，**仅给用户一句话**：「好的，产物包已生成，系统正在自动导入，完成后就可以进入培训流程了。」
 

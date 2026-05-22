@@ -49,7 +49,7 @@ The goal is to remove unresolved placeholders, trim unsupported projection field
 
 - Keep the shared references to `../ontology-extraction/templates/CONSUMER_SKILL_PROJECTION_SECTION.md`, `../ontology-extraction/references/PROJECTION_CONSUMPTION_GUIDE.md`, and `../ontology-extraction/references/CONSUMER_PROJECTION_LAYOUT_GUIDE.md` if the new skill consumes projection contracts.
 - Delete unused references if the skill is not a projection consumer.
-- If the new skill will store local bound contracts, create the matching `contracts/projections/ontology-extraction/<domain-slug>/` layout.
+- If the new skill will store local bound contracts, create the flat `contracts/` layout with `projection-index.json` and `<domain-slug>.projection.json` files.
 
 ## 8. Final Review Before Commit
 

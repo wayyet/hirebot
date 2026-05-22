@@ -2,7 +2,7 @@
 
 本文档定义一套可直接落地的目录结构和文件命名规则，用于让其他 skill 稳定消费 `ontology-extraction` 生成的 projection 文件。
 
-它要解决的不是“projection 是什么”，而是另外两个更具体的问题：
+它要解决的不是"projection 是什么"，而是另外两个更具体的问题：
 
 - projection 文件应该放在哪里，团队最不容易混乱。
 - projection 文件应该怎么命名，才能一眼看出它服务谁、表达什么、属于哪类交付视图。
@@ -16,45 +16,69 @@
 - 让消费方 skill 一眼知道要读哪份 projection。
 - 让同一 skill 可以并存多份 projection，而不靠口头约定区分。
 - 让 projection 文件名本身表达主题和目标类型，而不是只叫 `sample-projection.json`。
-- 让后续 review、升级和替换时，不需要猜“哪个文件才是当前生效版本”。
+- 让后续 review、升级和替换时，不需要猜"哪个文件才是当前生效版本"。
 
 ---
 
-## 默认目录规范
+## 默认目录规范（扁平化）
 
-对“consumer skill 专用”的 projection，默认放在消费方 skill 自己目录下，而不是放回 `ontology-extraction` 的 examples 中。
+对"consumer skill 专用"的 projection，默认放在消费方 skill 自己目录下的 `contracts/` 目录，采用扁平结构。
 
 推荐结构：
 
 ```text
-src/OpenClaw.Gateway/skills/<consumer-skill>/
+skills/<consumer-skill>/
   contracts/
-    projections/
-      <producer-skill>/
-        <domain-slug>.
-          <domain-slug>.<projection-type>.projection.json
-          README.md
-          REVIEW.md
+    projection-index.json            # 投影元数据索引
+    <domain-slug>.projection.json    # 完整投影内容（每个主题一个文件）
 ```
 
 把这个结构展开成真实示例，建议长这样：
 
 ```text
-src/OpenClaw.Gateway/skills/daily-news-digest/
+skills/daily-news-digest/
   contracts/
-    projections/
-      ontology-extraction/
-        article-selection/
-          article-selection.prompt-constraint.projection.json
-          README.md
-          REVIEW.md
+    projection-index.json
+    article-selection.projection.json
 ```
 
 这里的含义是：
 
-- `contracts/projections/`：表明这里放的是被当前 skill 当作机器输入消费的 projection 契约。
-- `<producer-skill>/`：表明这份 projection 是由哪个上游 skill 产出的。当前场景通常是 `ontology-extraction/`。
-- `<domain-slug>/`：表明这组 projection 服务的是哪个任务域或主题，而不是哪个文件格式。
+- `contracts/`：表明这里放的是被当前 skill 当作机器输入消费的 projection 契约。
+- `projection-index.json`：索引文件，列出所有可用的投影及其元数据。
+- `<domain-slug>.projection.json`：完整的投影内容文件，每个主题一个。
+
+---
+
+## projection-index.json 结构
+
+索引文件的推荐 schema：
+
+```json
+{
+  "schema_version": "2.0",
+  "producer_skill": "ontology-extraction",
+  "consumer_skill": "<skill-slug>",
+  "status": "READY",
+  "generated_by": "projection-pass",
+  "topics": [
+    {
+      "domain_slug": "<domain-slug>",
+      "projection_type": "workflow-contract",
+      "file": "<domain-slug>.projection.json",
+      "status": "READY",
+      "open_questions": []
+    }
+  ]
+}
+```
+
+索引文件的职责：
+
+- 列出当前 skill 所消费的所有 projection 文件。
+- 标明每个 topic 的状态、投影类型和文件名。
+- 提供 producer/consumer 关系的元数据。
+- 作为 runtime 发现投影的唯一入口。
 
 ---
 
@@ -69,10 +93,10 @@ src/OpenClaw.Gateway/skills/daily-news-digest/
 
 因此，consumer skill 专用 projection 的默认落点是：
 
-- 首选：`contracts/projections/`
-- 仅文档型引用：`references/projections/`
+- 首选：`contracts/`
+- 仅文档型引用：`references/`
 
-不要把真正会被消费的 projection 放在 `examples/`。那会让“示例”和“生效契约”混在一起。
+不要把真正会被消费的 projection 放在 `examples/`。那会让"示例"和"生效契约"混在一起。
 
 ---
 
@@ -81,125 +105,43 @@ src/OpenClaw.Gateway/skills/daily-news-digest/
 推荐统一格式：
 
 ```text
-<domain-slug>.<projection-type-short>.projection.json
+<domain-slug>.projection.json
 ```
 
 例如：
 
-- `article-selection.prompt-constraint.projection.json`
-- `skill-loading.workflow-contract.projection.json`
-- `tool-capability.json-schema.projection.json`
-- `risk-routing.domain-model.projection.json`
+- `article-selection.projection.json`
+- `skill-loading.projection.json`
+- `risk-routing.projection.json`
+- `visitor-reservation-and-review.projection.json`
 
 命名规则说明：
 
 - `<domain-slug>`：表达业务主题、任务域或概念边界。
-- `<projection-type-short>`：表达目标视图类型。
-- 固定后缀 `projection.json`：表达这就是 projection contract，而不是普通 JSON。
+- 固定后缀 `.projection.json`：表达这就是 projection contract，而不是普通 JSON。
+- 投影类型（projection_type）记录在文件内部和 `projection-index.json` 中，不再编码到文件名里。
 
----
+这样做的好处：
 
-## projection-type-short 映射规范
-
-文件名里不要直接塞完整 schema 枚举名，推荐用短名，但要保持一一对应。
-
-建议映射如下：
-
-| projection_type | 文件名短名 |
-| --- | --- |
-| `domain_model_projection` | `domain-model` |
-| `json_schema_projection` | `json-schema` |
-| `prompt_constraint_projection` | `prompt-constraint` |
-| `workflow_contract_projection` | `workflow-contract` |
-
-这样做的原因很简单：
-
-- 文件名更短。
-- 人眼更容易扫。
-- 仍然能稳定回到 schema 中的正式类型。
-
-不建议把文件名直接写成：
-
-- `article-selection-projection.json`
-- `projection.json`
-- `sample-projection.json`
-
-这些名字都不表达 target type，也不表达主题边界。
-
----
-
-## 目录名与文件名的职责分工
-
-建议把“谁在消费”“谁生产”“投影的是什么”分散到不同层，而不是全堆进文件名。
-
-推荐分工：
-
-- skill 名：放在技能根目录路径里。
-- producer skill 名：放在 `contracts/projections/<producer-skill>/` 这一层。
-- domain/topic：放在 `<domain-slug>/` 目录和文件名前缀里。
-- projection type：放在文件名中间。
-
-这样可以避免出现这种又长又脆弱的名字：
-
-```text
-daily-news-digest-from-ontology-extraction-article-selection-prompt-constraint-projection.json
-```
-
-这个名字理论上信息全，但不利于维护。
+- 文件名更短，更易扫描。
+- 一个主题如果将来从 `workflow-contract` 切换到 `domain-model`，不需要重命名文件。
+- projection 类型信息在索引和文件内部都有记录，不会丢失。
 
 ---
 
 ## 一个 consumer skill 有多份 projection 时怎么放
 
-如果同一个 consumer skill 需要消费多个主题的 projection，继续按主题分目录，不要全堆一个文件夹。
-
-推荐：
+如果同一个 consumer skill 需要消费多个主题的 projection，直接在 `contracts/` 目录下并列放置：
 
 ```text
 contracts/
-  projections/
-    ontology-extraction/
-      article-selection/
-        article-selection.prompt-constraint.projection.json
-      source-ranking/
-        source-ranking.workflow-contract.projection.json
-      content-safety/
-        content-safety.domain-model.projection.json
+  projection-index.json
+  article-selection.projection.json
+  source-ranking.projection.json
+  content-safety.projection.json
 ```
 
-如果同一主题下存在多类交付视图，也放在同一主题目录里并列：
-
-```text
-contracts/
-  projections/
-    ontology-extraction/
-      skill-loading/
-        skill-loading.domain-model.projection.json
-        skill-loading.json-schema.projection.json
-        skill-loading.workflow-contract.projection.json
-```
-
-这样 review 时可以一眼看出：同一主题下有多个投影面，而不是多个不明来历的 JSON 文件。
-
----
-
-## README 与 REVIEW 文件怎么配
-
-每个 `<domain-slug>/` 目录下，建议至少带两个文档文件：
-
-- `README.md`
-- `REVIEW.md`
-
-推荐职责：
-
-- `README.md`：说明这组 projection 服务哪个 consumer skill 场景、当前有效文件是哪几个、应该由谁消费。
-- `REVIEW.md`：记录当前评审状态、已知风险、open questions、替换历史和升级注意事项。
-
-这样做的好处是：
-
-- JSON 保持机器输入干净。
-- 人类需要的治理说明不塞进文件名。
-- 后续替换 projection 时，有地方记录决策，而不是靠 PR 对话回忆。
+所有投影文件的元数据统一记录在 `projection-index.json` 的 `topics` 数组中。
 
 ---
 
@@ -211,17 +153,17 @@ contracts/
 
 - 文件名保持稳定。
 - 结构版本继续放在 JSON 内部的 `projection_version`。
-- 内容演进通过 Git 历史和 `REVIEW.md` 追踪。
+- 内容演进通过 Git 历史追踪。
 
 只有在同一目录下必须并存多个活跃版本时，才把版本号放进文件名末尾：
 
 ```text
-<domain-slug>.<projection-type-short>.v2.projection.json
+<domain-slug>.v2.projection.json
 ```
 
 例如：
 
-- `skill-loading.workflow-contract.v2.projection.json`
+- `skill-loading.v2.projection.json`
 
 但这应视为过渡状态，而不是长期默认。
 
@@ -231,18 +173,21 @@ contracts/
 
 下面这些方式容易出问题：
 
-### 1. 把所有 projection 都扔到一个目录
+### 1. 深层嵌套目录
 
 例如：
 
 ```text
-contracts/projections/
-  a.json
-  b.json
-  c.json
+contracts/
+  projections/
+    ontology-extraction/
+      article-selection/
+        article-selection.prompt-constraint.projection.json
+        README.md
+        REVIEW.md
 ```
 
-问题是无法从目录层看出主题、producer 和 target type。
+问题是层级太深，增加了导航和维护负担，且 `contract-index.json`、`README.md`、`REVIEW.md` 等配套文件使结构过重。
 
 ### 2. 用 sample、final、new、latest 之类的词命名
 
@@ -268,12 +213,12 @@ skill 名已经在路径里，重复写进文件名只会增加噪音。
 
 ## 对 consumer skill 的最小要求
 
-如果一个 skill 采用这套目录规范，建议它在自己的 `SKILL.md` 中只补稳定事实和消费边界，不要把 `contract-index.json` 里的 topic 评分、target view 评分、冲突规则或请求映射示例再手写一遍。
+如果一个 skill 采用这套目录规范，建议它在自己的 `SKILL.md` 中只补稳定事实和消费边界，不要把索引中的 topic 评分、target view 评分、冲突规则或请求映射示例再手写一遍。
 
 建议至少补上：
 
-1. projection contract 的发现入口或目录根路径。
-2. 人工评审时的读取顺序。
+1. projection contract 的发现入口：`contracts/projection-index.json`。
+2. 人工评审时的读取顺序：先读索引，再读对应的 `*.projection.json`。
 3. 当前 skill 实际消费的字段或 view 边界。
 4. blocked route、`open_questions` 和 `dropped_items` 的处理原则。
 
@@ -286,21 +231,17 @@ skill 名已经在路径里，重复写进文件名只会增加噪音。
 如果你现在要开始给 consumer skill 落 projection，直接用下面这套：
 
 ```text
-src/OpenClaw.Gateway/skills/<consumer-skill>/
+skills/<consumer-skill>/
   contracts/
-    projections/
-      ontology-extraction/
-        <domain-slug>/
-          <domain-slug>.<projection-type-short>.projection.json
-          README.md
-          REVIEW.md
+    projection-index.json
+    <domain-slug>.projection.json
 ```
 
 这是当前最稳的默认方案，因为它同时兼顾了：
 
-- 路径可发现性
-- 目标类型可识别性
-- 主题边界可分组性
-- review 和演进可治理性
+- 路径可发现性（只需找 `contracts/projection-index.json`）
+- 目标类型可识别性（索引文件中标注 `projection_type`）
+- 主题边界可分组性（每个主题一个文件，文件名即主题）
+- 结构轻量性（2 层目录，无配套 README/REVIEW 负担）
 
 如果没有特别强的例外需求，建议不要偏离这套默认结构。

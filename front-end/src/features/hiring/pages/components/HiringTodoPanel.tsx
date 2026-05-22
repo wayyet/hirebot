@@ -593,7 +593,7 @@ function MaterialCardBody({
           <div className="hb-todo-material-head-copy">
             <div className="hb-todo-material-head-title-row">
               <span className="hb-todo-stage-num">1</span>
-              {t('hiring.todo.material.title')}
+              <span className="hb-todo-stage-title">{t('hiring.todo.material.title')}</span>
             </div>
           </div>
           <div className="hb-todo-material-head-actions">

@@ -35,11 +35,11 @@ When asked to "write code", "fix a bug", "implement a feature", or act as a "dev
 
 ## Projection Contracts
 
-This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/projections/**/contract-index.json`.
+This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/projection-index.json`.
 
 - Use `../ontology-extraction/templates/CONSUMER_SKILL_PROJECTION_SECTION.md` as the shared minimal template for consumer skills.
 - Projection discovery, route selection, and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contract-index.json` first, then the selected topic's `README.md` and `REVIEW.md`, and then the chosen `*.projection.json` file.
+- For human review, read `contracts/projection-index.json` first, then the referenced `<domain-slug>.projection.json` files in the same directory.
 
 ### Projection Consumption
 

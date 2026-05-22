@@ -96,7 +96,7 @@
         "technical_artifact",
         "user_summary",
         "references/quality-report.md",
-        "可选 contract-index.json",
+        "可选 projection-index.json",
         "可选 *.projection.json"
       ],
       "fallback": "渲染或校验失败时不覆盖旧文件，返回失败原因和异常上下文"
@@ -119,7 +119,7 @@
     }
   ],
   "boundaries": [
-    "仅写入 skills/<skill_slug>/ 下的 SKILL.md、metadata.json、references/ 与可选 contracts/projections/ontology-extraction/ 契约文件",
+    "仅写入 skills/<skill_slug>/ 下的 SKILL.md、metadata.json、references/ 与可选 contracts/ 投影契约文件",
     "不修改 config/、ontology/、external/",
     "不把 token、密钥、密码或连接串明文写入产物",
     "不吸收行为约束类信息，这类内容应交给主 skill 更新 agent.md",

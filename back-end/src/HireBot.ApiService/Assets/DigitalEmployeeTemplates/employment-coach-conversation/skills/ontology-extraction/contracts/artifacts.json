@@ -18,6 +18,24 @@
           "terminal": true
         }
       ]
+    },
+    {
+      "name": "ontology-projection",
+      "label": "本体投影",
+      "artifacts": [
+        {
+          "type": "ontology_projection_progress",
+          "label": "本体投影进度",
+          "display": "progress",
+          "terminal": false
+        },
+        {
+          "type": "ontology_projection_done",
+          "label": "本体投影结果",
+          "display": "tree",
+          "terminal": true
+        }
+      ]
     }
   ]
 }

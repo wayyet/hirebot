@@ -23,7 +23,7 @@ Run these checks before writing a generated skill package.
 ## Projection Consumer Contract
 
 - [ ] If a READY projection contract is generated, generated `SKILL.md` includes the Projection Contracts section.
-- [ ] If a READY projection contract is generated, `contracts/projections/ontology-extraction/contract-index.json` exists.
+- [ ] If a READY projection contract is generated, `contracts/projection-index.json` exists.
 - [ ] If a READY projection contract is generated, the index `consumer_skill` matches generated skill `name`.
 - [ ] If a READY projection contract is generated, every READY view points to an existing projection file.
 - [ ] If a READY projection contract is generated, projection document contains `prompt_projection`, `delivery_artifacts`, `dropped_items`, and `open_questions`.
