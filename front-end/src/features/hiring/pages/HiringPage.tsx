@@ -18,6 +18,7 @@ import {
   uploadMediaToGateway,
   uploadWorkspaceFileToGateway,
 } from '@/infra/sandbox/sandbox-api'
+import { inferGatewayProtocol } from '@/infra/sandbox/sandbox-utils'
 import { tokenService } from '@/infra/auth/token-service'
 
 import { HiringConversationPanel } from './components/HiringConversationPanel'
@@ -1546,24 +1547,45 @@ export default function HiringPage() {
 
     try {
       const artifact = effectiveArtifact
+      const resolveGatewayFileUrl = (rawFileUrl: string): string => {
+        const trimmedFileUrl = rawFileUrl.trim()
+        if (/^https?:\/\//i.test(trimmedFileUrl)) {
+          const parsed = new URL(trimmedFileUrl)
+          const expectedProtocol = inferGatewayProtocol(parsed.host, 'https', 'http')
+          if (parsed.protocol === 'http:' && expectedProtocol === 'https') {
+            parsed.protocol = 'https:'
+          }
+          return parsed.toString()
+        }
+
+        const rawGateway = (gatewayEndpointRef.current ?? '').trim()
+        if (!rawGateway) {
+          throw new Error('网关地址为空，无法拼接附件下载 URL')
+        }
+
+        let normalizedBase: string
+        if (/^https?:\/\//i.test(rawGateway)) {
+          const parsedGateway = new URL(rawGateway)
+          const expectedProtocol = inferGatewayProtocol(parsedGateway.host, 'https', 'http')
+          if (parsedGateway.protocol === 'http:' && expectedProtocol === 'https') {
+            parsedGateway.protocol = 'https:'
+          }
+          normalizedBase = parsedGateway.toString().replace(/\/$/, '')
+        } else {
+          const protocol = inferGatewayProtocol(rawGateway, 'https', 'http')
+          normalizedBase = `${protocol}://${rawGateway.replace(/^\/+/, '').replace(/\/$/, '')}`
+        }
+
+        const fileUrlPath = trimmedFileUrl.startsWith('/')
+          ? trimmedFileUrl
+          : `/${trimmedFileUrl}`
+        return `${normalizedBase}${fileUrlPath}`
+      }
+
       // 前端从沙箱网关下载产物包后上传给后端 import-package，后端不再依赖 KingCrab finalize。
       // fileUrl 可能是绝对 URL（如 http://opensandbox-gateway.../media/xxx）或相对路径；
       // 绝对 URL 直接使用，相对路径则需拼接 gateway base。
-      let fullUrl: string
-      if (/^https?:\/\//i.test(artifact.fileUrl)) {
-        fullUrl = artifact.fileUrl
-      } else {
-        // gatewayEndpointRef 可能只是 "host:port" 格式（无协议），需补全为合法绝对 URL，
-        // 否则 fetch 会将其视为相对路径，导致请求打到 Vite 开发服务器而非沙箱网关。
-        const rawGateway = gatewayEndpointRef.current.trim()
-        const normalizedBase = /^https?:\/\//i.test(rawGateway)
-          ? rawGateway.replace(/\/$/, '')
-          : `http://${rawGateway.replace(/^\/+/, '').replace(/\/$/, '')}`
-        const fileUrlPath = artifact.fileUrl.startsWith('/')
-          ? artifact.fileUrl
-          : `/${artifact.fileUrl}`
-        fullUrl = `${normalizedBase}${fileUrlPath}`
-      }
+      const fullUrl = resolveGatewayFileUrl(artifact.fileUrl)
       const accessToken = await tokenService.ensureFresh()
       const dlResp = await fetch(fullUrl, {
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
@@ -1619,15 +1641,35 @@ export default function HiringPage() {
    */
   async function downloadGatewayFile(fileUrl: string, fileName: string) {
     try {
+      const trimmedFileUrl = fileUrl.trim()
       let fullUrl: string
-      if (/^https?:\/\//i.test(fileUrl)) {
-        fullUrl = fileUrl
+      if (/^https?:\/\//i.test(trimmedFileUrl)) {
+        const parsed = new URL(trimmedFileUrl)
+        const expectedProtocol = inferGatewayProtocol(parsed.host, 'https', 'http')
+        if (parsed.protocol === 'http:' && expectedProtocol === 'https') {
+          parsed.protocol = 'https:'
+        }
+        fullUrl = parsed.toString()
       } else {
         const rawGateway = (gatewayEndpointRef.current ?? '').trim()
-        const normalizedBase = /^https?:\/\//i.test(rawGateway)
-          ? rawGateway.replace(/\/$/, '')
-          : `http://${rawGateway.replace(/^\/+/, '').replace(/\/$/, '')}`
-        const urlPath = fileUrl.startsWith('/') ? fileUrl : `/${fileUrl}`
+        if (!rawGateway) {
+          throw new Error('网关地址为空，无法下载附件')
+        }
+
+        let normalizedBase: string
+        if (/^https?:\/\//i.test(rawGateway)) {
+          const parsedGateway = new URL(rawGateway)
+          const expectedProtocol = inferGatewayProtocol(parsedGateway.host, 'https', 'http')
+          if (parsedGateway.protocol === 'http:' && expectedProtocol === 'https') {
+            parsedGateway.protocol = 'https:'
+          }
+          normalizedBase = parsedGateway.toString().replace(/\/$/, '')
+        } else {
+          const protocol = inferGatewayProtocol(rawGateway, 'https', 'http')
+          normalizedBase = `${protocol}://${rawGateway.replace(/^\/+/, '').replace(/\/$/, '')}`
+        }
+
+        const urlPath = trimmedFileUrl.startsWith('/') ? trimmedFileUrl : `/${trimmedFileUrl}`
         fullUrl = `${normalizedBase}${urlPath}`
       }
       const accessToken = await tokenService.ensureFresh()
