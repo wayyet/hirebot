@@ -436,6 +436,7 @@ function getStageDetail(
   status: HiringStepStatus,
   readinessStatus: string | null | undefined,
   stageTodos: WorkflowTodo[],
+  t: (key: string) => string = (k) => k,
 ) {
   const config = STAGE_CONFIG[stage]
   if (status === 'active') {
@@ -463,10 +464,10 @@ function getStageDetail(
       return `${completedCount} 条已完成`
     }
 
-    return config.completeLabel
+    return t(config.completeLabel)
   }
 
-  return config.pendingLabel
+  return t(config.pendingLabel)
 }
 
 function buildGuideCard(
@@ -548,6 +549,7 @@ function buildGuideCard(
 export function getBlockedReasonForStage(
   workflowState: HiringWorkflowState | null,
   stage: HiringUiStage,
+  t: (key: string) => string = (k) => k,
 ) {
   if (!workflowState) {
     return '工作流尚未初始化，请稍后再试。'
@@ -563,7 +565,7 @@ export function getBlockedReasonForStage(
     const readiness = getStageReadiness(workflowState.stageReadiness, candidate)
     const isComplete = readiness?.status === HiringStageReadinessStatus.Complete || readiness?.status === HiringStageReadinessStatus.Skipped
     if (!isComplete) {
-      return `请先完成「${STAGE_CONFIG[candidate].title}」：${readiness?.reason ?? '前序阶段尚未满足推进条件。'}`
+      return `请先完成「${t(STAGE_CONFIG[candidate].title)}」：${readiness?.reason ?? '前序阶段尚未满足推进条件。'}`
     }
   }
 
@@ -573,12 +575,13 @@ export function getBlockedReasonForStage(
   }
 
   const diagnostic = getDiagnosticTodos(workflowState, stage)[0]
-  return diagnostic?.question ?? `「${STAGE_CONFIG[stage].title}」尚未解锁，请先完成前序阶段。`
+  return diagnostic?.question ?? `「${t(STAGE_CONFIG[stage].title)}」尚未解锁，请先完成前序阶段。`
 }
 
 export function buildHiringWorkflowViewModel(
   workflowState: HiringWorkflowState | null,
   focusedStage: HiringUiStage | null,
+  t: (key: string) => string = (k) => k,
 ): HiringWorkflowVm {
   const uiCurrentStage = (workflowState?.currentStage as HiringUiStage) || HiringCollectionStage.Material
   const collectionPhase = (workflowState?.collectionPhase as HiringCollectionPhaseType) || HiringCollectionPhase.NotStarted
@@ -596,11 +599,11 @@ export function buildHiringWorkflowViewModel(
 
     return {
       stage,
-      title: STAGE_CONFIG[stage].panelTitle,
-      description: STAGE_CONFIG[stage].panelDescription,
-      subtask: STAGE_CONFIG[stage].subtask,
+      title: t(STAGE_CONFIG[stage].panelTitle),
+      description: t(STAGE_CONFIG[stage].panelDescription),
+      subtask: t(STAGE_CONFIG[stage].subtask),
       status,
-      detail: getStageDetail(workflowState, stage, status, readiness?.status, stageTodos),
+      detail: getStageDetail(workflowState, stage, status, readiness?.status, stageTodos, t),
       notes,
       todoItems: buildStageTodoItems(stageTodos),
     } satisfies HiringStageCardVm
@@ -630,11 +633,11 @@ export function buildHiringWorkflowViewModel(
     return {
       stage,
       index,
-      title: STAGE_CONFIG[stage].title,
-      description: STAGE_CONFIG[stage].description,
+      title: t(STAGE_CONFIG[stage].title),
+      description: t(STAGE_CONFIG[stage].description),
       status,
       isClickable,
-      blockedReason: isClickable ? '' : getBlockedReasonForStage(workflowState, stage),
+      blockedReason: isClickable ? '' : getBlockedReasonForStage(workflowState, stage, t),
       dispatchStatus: resolveDispatchStatus(latestDispatch),
       dispatchSummary: latestDispatch?.userSummary ?? null,
     } satisfies HiringStageStepVm
@@ -654,7 +657,7 @@ export function buildHiringWorkflowViewModel(
     },
     blockedReason: completedCount === STAGE_ORDER.length ? '' : blockedReason,
     overallProgress: completedCount,
-    promptPlaceholder: STAGE_CONFIG[uiCurrentStage].placeholder,
+    promptPlaceholder: t(STAGE_CONFIG[uiCurrentStage].placeholder),
     currentStageReason,
   }
 }

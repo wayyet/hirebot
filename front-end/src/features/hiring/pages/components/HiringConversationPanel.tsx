@@ -2,11 +2,10 @@ import type { ReactNode, RefObject } from 'react'
 import { useState, useCallback } from 'react'
 
 import { Check, ChevronDown, ChevronUp, Copy, FileText, Paperclip, Package, X } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
 
+import { InstanceChatMessageBody } from '@/features/team/components/InstanceChatMessageBody'
 import type { ChatFile, ChatMessage, ToolStep } from '../hiringPageTypes'
 import { ArtifactMessageCard } from './ArtifactMessageCard'
 import { HiringToolStepsBlock } from './HiringToolStepsBlock'
@@ -99,6 +98,8 @@ type HiringConversationPanelProps = {
   formatFileSize: (bytes: number) => string
   /** 带 token 的 gateway 文件下载回调 */
   onArtifactFileDownload?: (url: string, fileName: string) => void
+  /** 手动触发产物包上传到系统（template_package 卡片展示） */
+  onArtifactManualUpload?: (url: string, fileName: string) => void
   /** 工作流连接状态徽标：放在聊天面板顶部 */
   workflowStatus?: {
     title: string
@@ -130,6 +131,7 @@ export function HiringConversationPanel({
   onRemovePendingFile,
   formatFileSize,
   onArtifactFileDownload,
+  onArtifactManualUpload,
   workflowStatus,
 }: HiringConversationPanelProps) {
   const { t } = useTranslation()
@@ -181,7 +183,7 @@ export function HiringConversationPanel({
               <div key={message.id} className="hb-hiring-msg">
                 <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
                 <div className="hb-hiring-msg-stack">
-                  <ArtifactMessageCard artifact={message.artifact} onFileDownload={onArtifactFileDownload} />
+                  <ArtifactMessageCard artifact={message.artifact} onFileDownload={onArtifactFileDownload} onManualUpload={onArtifactManualUpload} />
                 </div>
               </div>
             )
@@ -206,13 +208,16 @@ export function HiringConversationPanel({
             </div>
             <div className={`hb-hiring-msg-stack ${message.role === 'user' ? 'is-user' : ''}`}>
               {message.role === 'bot' && message.toolSteps && message.toolSteps.length > 0 ? (
-                <HiringToolStepsBlock steps={message.toolSteps} />
+                <div className="hb-chat-toolsteps">
+                  <HiringToolStepsBlock steps={message.toolSteps} />
+                </div>
               ) : null}
               {message.content ? (
                 <div className={`hb-hiring-bubble ${message.role === 'user' ? 'is-user' : 'is-bot'}`}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {message.content}
-                  </ReactMarkdown>
+                  <InstanceChatMessageBody
+                    content={message.content}
+                    role={message.role === 'user' ? 'user' : 'assistant'}
+                  />
                 </div>
               ) : null}
               {message.files?.map((file) => (
@@ -227,18 +232,22 @@ export function HiringConversationPanel({
           )
         })}
 
-        {/* WS 流式回复：有内容时展示逐字气泡，否则显示 typing 动画 */}
+        {/* WS 流式回复：有内容时展示逐字气泡（使用 streaming 模式避免不完整 Markdown 解析卡顿），否则显示 typing 动画 */}
         {streamingContent !== null && streamingContent !== undefined ? (
           <div className="hb-hiring-msg">
             <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
             <div className="hb-hiring-msg-stack">
               {streamingToolSteps && streamingToolSteps.length > 0 ? (
-                <HiringToolStepsBlock steps={streamingToolSteps} />
+                <div className="hb-chat-toolsteps">
+                  <HiringToolStepsBlock steps={streamingToolSteps} />
+                </div>
               ) : null}
               <div className="hb-hiring-bubble is-bot">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {streamingContent.length > 0 ? streamingContent : '…'}
-                </ReactMarkdown>
+                <InstanceChatMessageBody
+                  content={streamingContent.length > 0 ? streamingContent : '…'}
+                  role="assistant"
+                  streaming
+                />
               </div>
             </div>
           </div>
@@ -247,7 +256,9 @@ export function HiringConversationPanel({
             <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
             <div className="hb-hiring-msg-stack">
               {streamingToolSteps && streamingToolSteps.length > 0 ? (
-                <HiringToolStepsBlock steps={streamingToolSteps} />
+                <div className="hb-chat-toolsteps">
+                  <HiringToolStepsBlock steps={streamingToolSteps} />
+                </div>
               ) : null}
               <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
                 {[0, 1, 2].map((index) => (

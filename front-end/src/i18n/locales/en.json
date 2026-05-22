@@ -261,12 +261,56 @@
       "blocked": "✗ Blocked"
     },
     "artifact": {
-      "terminal": "Terminal"
+      "terminal": "Terminal",
+      "downloadFile": "Download Package",
+      "manualImport": "Import to System"
     },
     "dispatch": {
       "running": "Dispatching",
       "completed": "Produced",
       "failed": "Dispatch Failed"
+    },
+    "stage": {
+      "material": {
+        "title": "Business Materials",
+        "description": "Upload, classify & set targets",
+        "panelTitle": "Complete Business Materials",
+        "panelDescription": "Upload at least 1 document and specify what to extract from each.",
+        "subtask": "Material Classification",
+        "pendingLabel": "Pending Upload",
+        "completeLabel": "Ready",
+        "placeholder": "Start with the most representative business rules or case documents."
+      },
+      "skill": {
+        "title": "Skill Setup",
+        "description": "Baseline & supplemental abilities",
+        "panelTitle": "Confirm Skill Workorder",
+        "panelDescription": "Review the template skill baseline and specify any additional skills needed.",
+        "subtask": "Skill Workorder",
+        "pendingLabel": "Pending Review",
+        "completeLabel": "Confirmed",
+        "placeholder": "Describe any missing skills; or confirm the baseline is sufficient to proceed."
+      },
+      "external": {
+        "title": "External Connections",
+        "description": "Capability & credential binding",
+        "panelTitle": "Configure External Connections",
+        "panelDescription": "Specify system, operation, objective and auth method for each capability.",
+        "subtask": "Connection Config",
+        "pendingLabel": "Pending Config",
+        "completeLabel": "Configured",
+        "placeholder": "Describe external systems, targets and auth; use the credential panel for secrets."
+      },
+      "readyForPackaging": {
+        "title": "Package Ready",
+        "description": "Diagnostics & final review",
+        "panelTitle": "Prepare for Packaging",
+        "panelDescription": "After business stages complete, only diagnostic or review blockers remain here.",
+        "subtask": "Packaging Check",
+        "pendingLabel": "Locked",
+        "completeLabel": "Packageable",
+        "placeholder": "Any remaining diagnostic or review blockers will appear here."
+      }
     },
     "ledger": {
       "eyebrow": "PROGRESS LEDGER",
@@ -713,7 +757,15 @@
     "confirmHumanEvalTitle": "Confirm Enter Human Evaluation",
     "confirmHumanEvalMessage": "Entering human evaluation will change the instance status and advance to the next stage. This action cannot be undone. Continue?",
     "confirmHumanEvalCancel": "Cancel",
-    "confirmHumanEvalConfirm": "Confirm"
+    "confirmHumanEvalConfirm": "Confirm",
+    "autoInit": {
+      "title": "Auto-Initialize Evaluation Environment",
+      "desc": "Preparing the evaluation sandbox for {{name}} ({{role}}) automatically",
+      "hint": "The evaluation environment is initialized automatically on first entry, saving you the manual step. You can also choose to initialize later manually.",
+      "seconds": "sec",
+      "btnNow": "Initialize Now",
+      "btnCancel": "I'll Do It Manually"
+    }
   },
   "humanEvaluation": {
     "title": "Human Evaluation Chat",

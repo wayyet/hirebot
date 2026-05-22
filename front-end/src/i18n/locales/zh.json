@@ -261,12 +261,56 @@
       "blocked": "✗ 阻塞"
     },
     "artifact": {
-      "terminal": "终态"
+      "terminal": "终态",
+      "downloadFile": "下载产物包",
+      "manualImport": "手动导入系统"
     },
     "dispatch": {
       "running": "派发中",
       "completed": "已产出",
       "failed": "派发失败"
+    },
+    "stage": {
+      "material": {
+        "title": "业务资料",
+        "description": "上传、分类与抚取目标",
+        "panelTitle": "补齐业务资料",
+        "panelDescription": "至少上传 1 份资料，并为每份资料写清楚后续要抚取什么。",
+        "subtask": "资料分类",
+        "pendingLabel": "待上传",
+        "completeLabel": "已就绪",
+        "placeholder": "先发最能代表业务规则或真实案例的资料，我会继续追问分类和抚取目标。"
+      },
+      "skill": {
+        "title": "技能补齐",
+        "description": "默认基线与补充能力",
+        "panelTitle": "确认技能工单",
+        "panelDescription": "确认模板默认技能基线，为本轮需要新增或调整的能力项给出明确名称与描述。",
+        "subtask": "技能工单",
+        "pendingLabel": "待补齐",
+        "completeLabel": "已确认",
+        "placeholder": "继续描述还缺哪些技能；如果默认基线已经够用，也可以直接确认推进第三阶段。"
+      },
+      "external": {
+        "title": "外部连接",
+        "description": "连接能力与凭据绑定",
+        "panelTitle": "配置外部连接",
+        "panelDescription": "按连接能力逐条说明系统、操作、目标与认证方式。",
+        "subtask": "连接配置",
+        "pendingLabel": "待配置",
+        "completeLabel": "已完成",
+        "placeholder": "补充外部系统、操作目标和认证方式；敏感凭据请走右侧绑定区。"
+      },
+      "readyForPackaging": {
+        "title": "打包准备",
+        "description": "诊断与复核收口",
+        "panelTitle": "准备打包交付",
+        "panelDescription": "业务阶段完成后，这里只处理诊断或复核阻塞项。",
+        "subtask": "打包确认",
+        "pendingLabel": "待解锁",
+        "completeLabel": "可打包",
+        "placeholder": "如果还有诊断或复核阻塞项，会在这里继续提示你处理。"
+      }
     },
     "ledger": {
       "eyebrow": "PROGRESS LEDGER",
@@ -714,7 +758,15 @@
     "confirmHumanEvalTitle": "确认进入人工评估",
     "confirmHumanEvalMessage": "进入人工评估将修改实例状态并进入下一阶段，此操作不可撤销。确认继续？",
     "confirmHumanEvalCancel": "取消",
-    "confirmHumanEvalConfirm": "确认进入"
+    "confirmHumanEvalConfirm": "确认进入",
+    "autoInit": {
+      "title": "自动初始化评估环境",
+      "desc": "将为 {{name}}（{{role}}）自动准备评估沙筱，无需手动操作",
+      "hint": "首次进入评估页面时自动初始化，节省您的起步时间。您也可以选择稿后手动操作。",
+      "seconds": "秒",
+      "btnNow": "立即初始化",
+      "btnCancel": "稿后手动操作"
+    }
   },
   "humanEvaluation": {
     "title": "人工评估对话",

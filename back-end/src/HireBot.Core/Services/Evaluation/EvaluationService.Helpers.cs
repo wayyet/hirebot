@@ -853,9 +853,10 @@ internal sealed partial class EvaluationService
         string targetGatewayEndpoint,
         string materialsWorkspaceDir)
     {
-        // Evaluation:GatewayUseTls 控制裸地址（无 scheme）的沙箱端点是否用 HTTPS/WSS。
-        // 已含显式 scheme 的端点（ws://、wss://、http://、https://）不受此配置影响。
-        var useTls = configuration.GetValue("Evaluation:GatewayUseTls", false);
+        // useTls：只要 Evaluation:GatewayUseTls=true 或 OpenSandbox:Protocol=Https 任一成立，就使用 TLS。
+        // 这样生产环境只设置 OpenSandbox:Protocol=Https 也能让 evaluator 得到正确的 wss:// 端点。
+        var useTls = configuration.GetValue("Evaluation:GatewayUseTls", false) ||
+                     string.Equals(configuration["OpenSandbox:Protocol"], "Https", StringComparison.OrdinalIgnoreCase);
 
         // Evaluation:ApiBaseUrl 是 NCrew Hire 业务 API 的根地址，供 verdict_uploader.py 上传评估结果。
         // token 由 verdict_uploader.py 通过 auth_client.resolve_auth() 自行获取，无需此处注入。
@@ -870,7 +871,8 @@ internal sealed partial class EvaluationService
             Materials: new(WorkspaceRoot: "/workspace"),
             TargetSandbox: new(
                 SandboxId: ctx.TargetSandboxId,
-                GatewayEndpoint: targetGatewayEndpoint,
+                // WebSocket 入口：确保使用 ws:// 或 wss:// scheme，避免 http→https 308 重定向导致 websockets 库抛 InvalidURI。
+                GatewayEndpoint: NormalizeGatewayWsEndpoint(targetGatewayEndpoint, useTls),
                 HttpBaseUrl: NormalizeGatewayHttpBaseUrl(targetGatewayEndpoint, useTls)),
             Execution: new(TimeoutSeconds: 120, HttpSupplement: true),
             NcrewHire: new(BaseUrl: apiBaseUrl.TrimEnd('/')));
@@ -881,7 +883,7 @@ internal sealed partial class EvaluationService
     /// <summary>
     /// 将 Gateway 节点地址规范化为 HTTP/HTTPS 基础 URL，供 http_client.py 使用。
     /// 支持裸地址、ws:// / wss://、http:// / https:// 四种输入格式。
-    /// <paramref name="useTls"/> 仅对裸地址（无 scheme）生效，已含 scheme 的端点保持原样。
+    /// 当 <paramref name="useTls"/> 为 true 时，http:// 会升级为 https://（处理 DB 中存储的旧格式地址）。
     /// </summary>
     private static string NormalizeGatewayHttpBaseUrl(string endpoint, bool useTls)
     {
@@ -889,11 +891,34 @@ internal sealed partial class EvaluationService
         if (e.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
             return "https://" + e["wss://".Length..];
         if (e.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
-            return "http://" + e["ws://".Length..];
-        if (e.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || e.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            return (useTls ? "https" : "http") + "://" + e["ws://".Length..];
+        if (e.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             return e;
+        if (e.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            return useTls ? "https://" + e["http://".Length..] : e;
         // 裸地址：由配置决定是否使用 TLS
         return $"{(useTls ? "https" : "http")}://{e}";
+    }
+
+    /// <summary>
+    /// 将 Gateway 节点地址规范化为 WebSocket URL（ws:// 或 wss://），供 evaluate.py 的 websockets 库使用。
+    /// 支持裸地址、ws:// / wss://、http:// / https:// 四种输入格式。
+    /// 当 <paramref name="useTls"/> 为 true 或输入已含 https:///wss:// 时，强制使用 wss://。
+    /// </summary>
+    private static string NormalizeGatewayWsEndpoint(string endpoint, bool useTls)
+    {
+        var e = endpoint.Trim().TrimStart('/');
+        if (e.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+            return e;
+        if (e.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+            return useTls ? "wss://" + e["ws://".Length..] : e;
+        // https:// → 必须用 wss://（TLS 已确定）
+        if (e.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return "wss://" + e["https://".Length..];
+        if (e.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            return (useTls ? "wss" : "ws") + "://" + e["http://".Length..];
+        // 裸地址
+        return $"{(useTls ? "wss" : "ws")}://{e}";
     }
 
     /// <summary>

@@ -42,13 +42,14 @@ import {
   buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
   buildUiStageOverrides,
+  deriveStageOverridesFromDownstreamRuns,
   shouldHoldExternalStageUntilSkillImplementation,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
 } from './hiringArtifactState'
 import { extractConversationMaterialFiles } from './materialUploadMatching'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
-import { extractLatestMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
+import { normalizeMaterialRequestedCategories } from './materialRequestedCategories'
 
 function mkId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -91,7 +92,7 @@ async function fileToChatFile(file: File, type: 'file' | 'skill' = 'file', metad
     id: mkId(),
     name: file.name,
     size: file.size,
-    status: i18n.t('hiring.file.parsed'),
+    status: i18n.t('hiring.file.parsed') as '已解析',
     type,
     mimeType: file.type || undefined,
     content,
@@ -376,6 +377,10 @@ export default function HiringPage() {
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const workflowInitRef = useRef<Promise<string | null> | null>(null)
+  // workflowHireId 的 ref 镜像：connectSandboxWs 内的 ws.onMessage 闭包在创建时捕获的
+  // workflowHireId state 仍是空字符串（React state 异步更新），后续通过 ref 获取最新值，
+  // 防止 ensureWorkflowReady / typing_stop 里误判未初始化而重新触发初始化流程。
+  const workflowHireIdRef = useRef<string>('')
   const messageSubmitRef = useRef(false)
   const handleSendRef = useRef(false)
   // 沙箱直连引用：WebSocket 实例、网关端点、会话 ID
@@ -392,38 +397,6 @@ export default function HiringPage() {
   const rawFileMapRef = useRef<Map<string, File>>(new Map())
   // 避免同一会话重复触发“自动上传模板并引导”
   const autoTemplateBootstrapSessionRef = useRef<string | null>(null)
-
-  function syncArtifactDerivedRefs(messagesToSync: ChatMessage[]) {
-    latestMaterialSummaryRef.current = null
-    latestSkillSummaryRef.current = null
-    latestExternalSummaryRef.current = null
-    materialSummarySignatureRef.current = ''
-    skillSummarySignatureRef.current = ''
-    externalSummarySignatureRef.current = ''
-    ontologyExtractionDoneSignatureRef.current = ''
-
-    for (const message of messagesToSync) {
-      const artifact = message.artifact
-      if (!artifact || artifact.kind !== 'data') continue
-
-      const signature = JSON.stringify(artifact.data ?? {})
-      if (artifact.artifactType === 'material_handoff_summary' && artifact.isTerminal) {
-        latestMaterialSummaryRef.current = artifact.data ?? null
-        materialSummarySignatureRef.current = signature
-      }
-      if (artifact.artifactType === 'skill_workorder_summary' && artifact.isTerminal) {
-        latestSkillSummaryRef.current = artifact.data ?? null
-        skillSummarySignatureRef.current = signature
-      }
-      if (artifact.artifactType === 'external_workorder_summary' && artifact.isTerminal) {
-        latestExternalSummaryRef.current = artifact.data ?? null
-        externalSummarySignatureRef.current = signature
-      }
-      if (artifact.artifactType === 'ontology_extraction_done' && artifact.isTerminal) {
-        ontologyExtractionDoneSignatureRef.current = signature
-      }
-    }
-  }
 
   async function restoreConversationFromSandboxHistory(
     endpoint: string,
@@ -488,7 +461,7 @@ export default function HiringPage() {
     () => extractLatestDefinedSkills(messages),
     [messages],
   )
-  const viewModel = buildHiringWorkflowViewModel(null, focusedStage)
+  const viewModel = buildHiringWorkflowViewModel(null, focusedStage, t)
   // 将 WS 实时推送的阶段状态合并到阶段胶囊
   const mergedStepPills = viewModel.stepPills.map(pill => {
     const wsStatus = uiStageOverrides.get(pill.stage)
@@ -542,12 +515,13 @@ export default function HiringPage() {
 
   // 沙箱推送 template_package artifact 后自动触发 import-package，将产物直接存入系统
   // 注：不在此清除 pendingPackageArtifact，以便【生成实例】按钮可依据它的状态作为手动兑现入口；instanceCreated 防重入
+  // downstreamRuns 加入依赖：下游任务完成后重新检查，确保延迟暂存的产物包也能自动导入
   useEffect(() => {
     if (!pendingPackageArtifact || !workflowHireId || instanceCreated) return
     if (hasPendingDownstreamRuns(downstreamRunsRef.current)) return
     void triggerCreate(pendingPackageArtifact)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingPackageArtifact, workflowHireId, instanceCreated])
+  }, [pendingPackageArtifact, workflowHireId, instanceCreated, downstreamRuns])
 
   // 对话状态变化时防抖保存到后端（messages 或 wsStageOverrides 变化时触发）
   useEffect(() => {
@@ -555,17 +529,16 @@ export default function HiringPage() {
   }, [messages])
 
   useEffect(() => {
-    if (!workflowHireId || messages.length === 0) return
+    if (!workflowHireId) return
     const timer = setTimeout(() => {
       const cache = {
-        messages,
         stageOverrides: Array.from(wsStageOverrides.entries()),
         downstreamRuns,
       }
       api.hiringWorkflow.saveConversationCache(workflowHireId, cache).catch(() => {})
     }, 2000)
     return () => clearTimeout(timer)
-  }, [messages, wsStageOverrides, downstreamRuns, workflowHireId])
+  }, [wsStageOverrides, downstreamRuns, workflowHireId])
 
   useEffect(() => {
     if (journeyGuideVisible && !focusedStage) {
@@ -617,8 +590,8 @@ export default function HiringPage() {
       setWorkflowError(t('hiring.error.templateParamMissingDetail'))
       return null
     }
-    if (workflowHireId) {
-      return workflowHireId
+    if (workflowHireIdRef.current) {
+      return workflowHireIdRef.current
     }
     if (workflowInitRef.current) {
       return workflowInitRef.current
@@ -631,6 +604,7 @@ export default function HiringPage() {
       try {
         const hired = await api.employeeTemplate.hire(templateId, {})
         setWorkflowHireId(hired.hireId)
+        workflowHireIdRef.current = hired.hireId
 
         // hire() 对复用的 Running+Initialized 沙箱会直接返回 READY + gatewayEndpoint，
         // 避免进入轮询循环；Paused/新建沙箱仍走轮询等待
@@ -757,35 +731,40 @@ export default function HiringPage() {
     // 检查当前会话是否已有历史消息——有消息说明模板之前已上传过，直接恢复历史，跳过引导上传
     const existingMessages = await fetchSandboxSessionMessages(endpoint, sessionId)
     if (existingMessages.length > 0) {
-      // 优先从后端缓存恢复完整对话历史（含 artifact / stage_gate 消息和阶段状态）
+      // 1. 先从沙箱会话历史恢复消息，同时得到从 artifact tool call 派生的基础阶段状态
+      await restoreConversationFromSandboxHistory(endpoint, sessionId, 'always')
+
+      // 2. 再从后端缓存加载阶段状态，覆盖历史派生值
+      //    原因：wsStageOverrides 中 WS stage_update 事件不在沙箱消息历史里，无法从历史重建；
+      //          downstreamRuns 缓存保存了最新完整的 status/data，优先级高于历史派生值。
       const hireIdForCache = currentHireId || workflowHireId
       if (hireIdForCache) {
         try {
           const cached = await api.hiringWorkflow.getConversationCache(hireIdForCache) as {
-            messages?: ChatMessage[]
             stageOverrides?: [string, string][]
             downstreamRuns?: DownstreamRunsSnapshot
           } | null
-          if (cached?.messages && cached.messages.length > 0) {
-            setMessages(cached.messages)
-            setMaterialRequestedCategories(extractLatestMaterialRequestedCategories(cached.messages))
-            if (cached.stageOverrides && cached.stageOverrides.length > 0) {
-              setWsStageOverrides(new Map(cached.stageOverrides as [HiringUiStage, 'running' | 'completed' | 'failed'][]))
-            }
-            if (cached.downstreamRuns) {
-              downstreamRunsRef.current = cached.downstreamRuns
-              setDownstreamRuns(cached.downstreamRuns)
-            }
-            syncArtifactDerivedRefs(cached.messages)
-            autoTemplateBootstrapSessionRef.current = sessionId
-            return
+          if (cached?.stageOverrides && cached.stageOverrides.length > 0) {
+            setWsStageOverrides(new Map(cached.stageOverrides as [HiringUiStage, 'running' | 'completed' | 'failed'][]))
+          }
+          if (cached?.downstreamRuns && Object.keys(cached.downstreamRuns).length > 0) {
+            // 合并：缓存中的 run 优先，保留历史中有而缓存中没有的 run
+            const merged: DownstreamRunsSnapshot = { ...downstreamRunsRef.current, ...cached.downstreamRuns }
+            downstreamRunsRef.current = merged
+            setDownstreamRuns(merged)
           }
         } catch {
-          // 缓存读取失败时静默回退到沙箱消息恢复
+          // 缓存读取失败时静默忽略，保留历史派生值
         }
+
+        // 兜底：若 history 和 cache 均未能恢复 wsStageOverrides（stageOverrides 为空），
+        // 则从 downstreamRuns 因果链反向推断主阶段状态，避免阶段胶囊在已有进度的情况下全部灰色。
+        setWsStageOverrides(prev => {
+          if (prev.size > 0) return prev
+          return deriveStageOverridesFromDownstreamRuns(downstreamRunsRef.current)
+        })
       }
 
-      await restoreConversationFromSandboxHistory(endpoint, sessionId, 'always')
       autoTemplateBootstrapSessionRef.current = sessionId
       return
     }
@@ -950,7 +929,7 @@ export default function HiringPage() {
         setTyping(false)
 
         // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等
-        const hireId = workflowHireId
+        const hireId = workflowHireIdRef.current
         if (hireId && rawReply) {
           api.hiringWorkflow.syncConversationTurn(hireId, {
             userMessage: userMessage || '',
@@ -1025,7 +1004,18 @@ export default function HiringPage() {
             const sizeBytes = typeof raw.fileSizeBytes === 'number' ? raw.fileSizeBytes : typeof raw.file_size_bytes === 'number' ? raw.file_size_bytes : null
             artifactData.sizeLabel = sizeBytes !== null ? formatFileSize(sizeBytes) : ''
           } else {
-            artifactData.data = typeof raw.data === 'string' ? JSON.parse(raw.data as string) : raw.data
+            if (raw.data != null) {
+              artifactData.data = typeof raw.data === 'string' ? JSON.parse(raw.data as string) : raw.data
+            } else {
+              // 兜底：Gateway 部分版本将 data 字段平铺在 artifact 顶层而非嵌套在 data 字段下
+              // 历史重建路径（tool call arguments）始终有嵌套 data 字段，WS 推送有时没有
+              const META_KEYS = new Set(['kind', 'artifactType', 'artifact_type', 'label', 'skillName', 'skill_name', 'stage', 'isTerminal', 'is_terminal', 'displayHint', 'display_hint'])
+              const fallback: Record<string, unknown> = {}
+              for (const [k, v] of Object.entries(raw)) {
+                if (!META_KEYS.has(k)) fallback[k] = v
+              }
+              artifactData.data = Object.keys(fallback).length > 0 ? fallback : undefined
+            }
           }
           if (artifactType === 'material_collection_progress') {
             const categories = normalizeMaterialRequestedCategories(artifactData.data)
@@ -1111,10 +1101,11 @@ export default function HiringPage() {
           }
           // template_package artifact 表示沙箱已完成打包，暂存 fileUrl 后自动触发 import-package
           if (artifactType === 'template_package' && kind === 'file' && artifactData.fileUrl) {
+            // 无论是否有下游任务未完成，均暂存产物包信息；
+            // useEffect 会在 downstreamRuns 全部完成后自动触发 triggerCreate。
+            setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
             if (hasPendingDownstreamRuns(downstreamRunsRef.current)) {
-              setWorkflowNotice('已收到产物包，但下游生成尚未完成，当前不会自动导入。请在下游完成后重新触发打包。')
-            } else {
-              setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
+              setWorkflowNotice('已收到产物包，下游生成完成后将自动导入。')
             }
           }
         }
@@ -1507,7 +1498,7 @@ export default function HiringPage() {
         id: mkId(),
         name: uploaded.name,
         size: uploaded.size ?? payload.file.size,
-        status: i18n.t('hiring.file.parsed'),
+        status: i18n.t('hiring.file.parsed') as '已解析',
         type: 'skill',
         mimeType: uploaded.mimeType ?? payload.file.type ?? undefined,
         content: undefined,
@@ -1858,6 +1849,7 @@ export default function HiringPage() {
           onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
           formatFileSize={formatFileSize}
           onArtifactFileDownload={(url, fileName) => { void downloadGatewayFile(url, fileName) }}
+          onArtifactManualUpload={(url, fileName) => { void triggerCreate({ fileUrl: url, fileName }) }}
           workflowStatus={workflowStatus}
         />
 

@@ -273,7 +273,10 @@ internal sealed class KingCrabHttpClient(
         CancellationToken cancellationToken)
     {
         var requestPath = BuildRequestPath(path, useHireBotApiPrefix);
-        var requestUri = BuildRequestUri(requestPath, absoluteBaseUrl);
+        // 按配置的 OpenSandbox:Protocol 规范化网关地址的协议，
+        // 避免 DB 中存储的旧 http:// 地址在 https-only gateway 上跟随重定向后丢失 Authorization header 导致 401。
+        var normalizedBaseUrl = NormalizeGatewayScheme(absoluteBaseUrl);
+        var requestUri = BuildRequestUri(requestPath, normalizedBaseUrl);
         var request = new HttpRequestMessage(method, requestUri);
 
         var serviceToken = await sandboxTokenProvider.GetAccessTokenAsync(cancellationToken);
@@ -370,6 +373,29 @@ internal sealed class KingCrabHttpClient(
     {
         return value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                value.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 当 OpenSandbox:Protocol 配置为 Https 时，将网关地址的 http:// 升级为 https://，
+    /// 无 scheme 的地址也直接补 https://。防止 http→https 重定向导致 Authorization header 被 strip。
+    /// </summary>
+    private string? NormalizeGatewayScheme(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return url;
+
+        var protocol = configuration["OpenSandbox:Protocol"];
+        var forceHttps = string.Equals(protocol, "Https", StringComparison.OrdinalIgnoreCase);
+        if (!forceHttps) return url;
+
+        var trimmed = url.Trim();
+        if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            return string.Concat("https://", trimmed.AsSpan("http://".Length));
+
+        // 无 scheme：直接补 https://
+        if (!StartsWithHttpScheme(trimmed))
+            return $"https://{trimmed.TrimStart('/')}";
+
+        return trimmed;
     }
 
     private static bool IsHttpUri(Uri uri)

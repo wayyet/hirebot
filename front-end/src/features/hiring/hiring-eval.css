@@ -807,8 +807,8 @@ body.hb-body-hiring-prototype {
   max-width: 520px;
   padding: 11px 13px;
   border-radius: 10px;
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
+  border: 1px solid var(--hb-border);
+  background: var(--hb-surface-card);
 }
 
 .hb-artifact-header {
@@ -841,14 +841,43 @@ body.hb-body-hiring-prototype {
   color: #6b7280;
 }
 
+.hb-artifact-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hb-artifact-file-row .hb-artifact-file-link {
+  flex: 1;
+  min-width: 0;
+}
+
+.hb-artifact-action-btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--hb-border);
+  background: var(--hb-surface-soft);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--hb-accent, #2563eb);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.hb-artifact-action-btn:hover {
+  background: var(--hb-surface-hover, #f0f4ff);
+}
+
 .hb-artifact-file-link {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
-  background: #f9fafb;
+  border: 1px solid var(--hb-border);
+  background: var(--hb-surface-soft);
   text-decoration: none;
   color: inherit;
 }
@@ -2687,20 +2716,13 @@ body.hb-body-hiring-prototype {
   color: #86efac;
 }
 
-/* ── Artifact 产物卡片 ── */
-.dark .hb-artifact-card {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-}
-
+/* ── Artifact 产物卡片（背景/边框已由 token 变量统一，无需重复覆盖） ── */
 .dark .hb-artifact-subtitle,
 .dark .hb-artifact-file-size {
   color: var(--hb-soft);
 }
 
 .dark .hb-artifact-file-link {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.08);
   color: var(--hb-body);
 }
 
