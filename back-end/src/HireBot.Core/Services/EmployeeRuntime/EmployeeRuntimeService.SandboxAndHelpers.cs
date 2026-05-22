@@ -89,12 +89,18 @@ public sealed partial class EmployeeRuntimeService
     /// </summary>
     private static DateTimeOffset? ParseDate(string value)
     {
+        // 优先解析带时间的格式，保留完整精度
+        if (DateTime.TryParse(value, out var dt))
+        {
+            return new DateTimeOffset(dt, TimeSpan.Zero);
+        }
+
         if (DateOnly.TryParse(value, out var date))
         {
             return date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
         }
 
-        return DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
+        return null;
     }
 
     /// <summary>

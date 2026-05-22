@@ -92,3 +92,5 @@
 - [ ] 阶段 2 是否已经在 `skill_workorder_summary` 后紧跟 `skill_generation_ready` 和“是否开始生成技能实现”的确认门询问
 - [ ] 是否在对话里收集了凭据值（如发现，立刻删除并指引到表单）
 - [ ] 给用户的反馈是否保持"一行确认"风格，没有变成大段汇报
+- [ ] **资料阶段 terminal artifact 发出后，是否已立即触发 `ontology-extraction`**（不等用户输入，不先进入技能阶段；若已在执行则不重复触发）
+- [ ] **发 `skill_workorder_progress` 之前，`ontology_extraction_done` 是否已到达**；若未到达，禁止进入技能定义收集

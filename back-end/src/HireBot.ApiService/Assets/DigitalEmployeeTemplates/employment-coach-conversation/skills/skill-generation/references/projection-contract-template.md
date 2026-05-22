@@ -5,24 +5,19 @@ Generated skills may be projection consumers when enough ontology projection inf
 ```text
 skills/<skill_slug>/
   contracts/
-    projections/
-      ontology-extraction/
-        contract-index.json
-        README.md
-        <domain-slug>/
-          <domain-slug>.<projection-type-short>.projection.json
-          README.md
-          REVIEW.md
+    projection-index.json            # 投影元数据索引
+    <domain-slug>.projection.json    # 完整投影内容
 ```
 
-Minimum READY `contract-index.json` requirements:
+Minimum READY `projection-index.json` requirements:
 
-- `producer_skill`: `ontology-extraction`
+- `schema_version`: `"2.0"`
+- `producer_skill`: `"ontology-extraction"`
 - `consumer_skill`: generated skill `name`
-- `default_selection_policy.prefer_ready_only`: `true`
-- `default_selection_policy.block_on_open_questions`: `true`
+- `status`: `"READY"`
+- `generated_by`: `"projection-pass"`
 - At least one `topics[]` entry
-- Each READY view path points to an existing `*.projection.json`
+- Each READY topic's `file` points to an existing `<domain-slug>.projection.json`
 
 Minimum READY projection document requirements:
 

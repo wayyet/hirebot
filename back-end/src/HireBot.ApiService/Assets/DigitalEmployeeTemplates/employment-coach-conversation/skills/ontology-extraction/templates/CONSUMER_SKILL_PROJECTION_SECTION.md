@@ -9,10 +9,10 @@ If you need a full starter `SKILL.md` instead of only this section, use `CONSUME
 ```md
 ## Projection Contracts
 
-This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/projections/**/contract-index.json`.
+This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/projection-index.json`.
 
-- Projection discovery, route selection, and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contract-index.json` first, then the selected topic's `README.md` and `REVIEW.md`, and then the chosen `*.projection.json` file.
+- Projection discovery and prompt patching are handled by runtime rather than by manual rules in this file.
+- For human review, read `contracts/projection-index.json` first, then the referenced `*.projection.json` file in the same directory.
 
 ### Projection Consumption
 
@@ -29,7 +29,7 @@ This skill may be augmented by bound `ontology-extraction` projection contracts 
 
 ## Adaptation Rules
 
-- Keep the discovery sentence unless the consumer skill binds to a narrower local `contracts/projections/...` path.
+- Keep the discovery sentence unless the consumer skill binds to a narrower local path.
 - Narrow the supported fields list if the consumer skill only consumes a subset.
 - Keep blocking behavior aligned with `mapping_policy`, `open_questions`, and `dropped_items`.
 - Do not copy topic scoring, target-view scoring, request mapping examples, or topic-local routing hints into consumer `SKILL.md` files.

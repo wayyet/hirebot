@@ -178,7 +178,14 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
       continue
     }
     const payload = asPlainObject(artifact.data)
-    const rawSkills = Array.isArray(payload?.skills) ? payload.skills : null
+    // 兼容两种 schema：
+    // - 历史前端约定：data.skills[]
+    // - stage-data-schema 实际定义 + AI 真实输出：data.items[]
+    const rawSkills = Array.isArray(payload?.skills)
+      ? payload.skills
+      : Array.isArray(payload?.items)
+        ? payload.items
+        : null
     if (!rawSkills) return []
 
     return rawSkills
@@ -186,11 +193,20 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
         const record = asPlainObject(item)
         if (!record) return null
 
+        // 单条字段同时兼容：
+        // - 前端历史字段：skill_name / skillName
+        // - schema 字段：display_name（可读名）/ name（slug）
         const skillName = typeof record.skill_name === 'string'
           ? record.skill_name.trim()
           : typeof record.skillName === 'string'
             ? record.skillName.trim()
-            : ''
+            : typeof record.display_name === 'string'
+              ? record.display_name.trim()
+              : typeof record.displayName === 'string'
+                ? record.displayName.trim()
+                : typeof record.name === 'string'
+                  ? record.name.trim()
+                  : ''
         if (!skillName) return null
 
         const capabilities = asStringArray(record.capabilities)
@@ -898,6 +914,8 @@ export default function HiringPage() {
         // 重置本轮工具步骤累积
         pendingToolStepsRef.current = []
         setStreamingToolSteps([])
+        // 沙箱 AI 已开始回复，"模板包解析中"提示已完成其使命，清除以避免流程结束后残留
+        setWorkflowNotice(prev => prev.includes('自动导入模板包') ? '' : prev)
       } else if (type === 'text_delta' || type === 'assistant_chunk') {
         // 逐字追加流式内容
         const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
