@@ -34,12 +34,51 @@ internal sealed partial class EvaluationService
             !string.IsNullOrWhiteSpace(cachedWorkspace.TargetHireId) &&
             !string.IsNullOrWhiteSpace(cachedWorkspace.EvaluatorHireId))
         {
+            // 验证沙箱容器是否仍然存活；若已被删除，RefreshAsync 会以相同 ScopeKey 重建容器（PVC 数据保留）
+            var targetRefresh = await sandboxService.RefreshAsync(
+                new SandboxInstanceLookupRequestDto
+                {
+                    SandboxId = cachedWorkspace.TargetSandboxId,
+                    OwnerSubject = owner,
+                    ScopeType = SandboxScopeTypes.Managed,
+                    ScopeKey = cachedWorkspace.TargetHireId,
+                    SandboxRole = "evaluation-target"
+                },
+                cancellationToken);
+            var evaluatorRefresh = await sandboxService.RefreshAsync(
+                new SandboxInstanceLookupRequestDto
+                {
+                    SandboxId = cachedWorkspace.EvaluatorSandboxId,
+                    OwnerSubject = owner,
+                    ScopeType = SandboxScopeTypes.Managed,
+                    ScopeKey = cachedWorkspace.EvaluatorHireId,
+                    SandboxRole = "evaluation-evaluator"
+                },
+                cancellationToken);
+
+            var newTargetSandboxId = targetRefresh.Data?.SandboxId ?? cachedWorkspace.TargetSandboxId;
+            var newEvaluatorSandboxId = evaluatorRefresh.Data?.SandboxId ?? cachedWorkspace.EvaluatorSandboxId;
+            var sandboxRecreated =
+                !string.Equals(newTargetSandboxId, cachedWorkspace.TargetSandboxId, StringComparison.Ordinal) ||
+                !string.Equals(newEvaluatorSandboxId, cachedWorkspace.EvaluatorSandboxId, StringComparison.Ordinal);
+
+            if (!sandboxRecreated)
+            {
+                logger.LogInformation(
+                    "[Eval] Reusing cached workspace employeeId={EmployeeId} targetSandboxId={TargetSandboxId} evaluatorSandboxId={EvaluatorSandboxId}",
+                    employeeId,
+                    cachedWorkspace.TargetSandboxId,
+                    cachedWorkspace.EvaluatorSandboxId);
+                return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(cachedWorkspace);
+            }
+
+            // 沙箱已被删除并以相同 ScopeKey 重建（PVC 中的历史数据得以保留），需重新上传 skill/模板/素材
             logger.LogInformation(
-                "[Eval] Reusing cached workspace employeeId={EmployeeId} targetSandboxId={TargetSandboxId} evaluatorSandboxId={EvaluatorSandboxId}",
-                employeeId,
-                cachedWorkspace.TargetSandboxId,
-                cachedWorkspace.EvaluatorSandboxId);
-            return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(cachedWorkspace);
+                "[Eval] Sandboxes were recreated after deletion; restoring workspace. employeeId={EmployeeId} newTarget={NewTarget} newEvaluator={NewEval}",
+                employeeId, newTargetSandboxId, newEvaluatorSandboxId);
+            return await RestoreWorkspaceAfterRecreationAsync(
+                owner, employee, skillRootPath, persistenceScope,
+                cachedWorkspace, newTargetSandboxId, newEvaluatorSandboxId, cancellationToken);
         }
 
         var stepStates = new Dictionary<string, WorkspaceStepState>(StringComparer.OrdinalIgnoreCase)
@@ -303,6 +342,111 @@ internal sealed partial class EvaluationService
         }
 
         return ApiResponse<(string, string)>.ErrorResponse(504, $"sandbox {sandboxRole} not ready within 180s");
+    }
+
+    /// <summary>
+    /// 沙箱容器被删除后，以相同 ScopeKey（PVC 不变）重建完成，重新上传 skill/模板/素材，恢复可用状态。
+    /// </summary>
+    private async Task<ApiResponse<EvaluationWorkspaceContext>> RestoreWorkspaceAfterRecreationAsync(
+        string owner,
+        EmployeeDetailDto employee,
+        string? skillRootPath,
+        string persistenceScope,
+        EvaluationWorkspaceContext previousContext,
+        string newTargetSandboxId,
+        string newEvaluatorSandboxId,
+        CancellationToken cancellationToken)
+    {
+        var employeeId = employee.EmployeeId;
+
+        // 等待两个新容器就绪
+        var targetReady = await WaitForEvaluationSandboxReadyAsync(
+            owner, previousContext.TargetHireId, newTargetSandboxId, "evaluation-target", cancellationToken);
+        if (!targetReady.Success)
+            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(targetReady.Code, targetReady.Message);
+
+        var evaluatorReady = await WaitForEvaluationSandboxReadyAsync(
+            owner, previousContext.EvaluatorHireId, newEvaluatorSandboxId, "evaluation-evaluator", cancellationToken);
+        if (!evaluatorReady.Success)
+            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(evaluatorReady.Code, evaluatorReady.Message);
+
+        var stepStates = previousContext.StepStates is not null
+            ? new Dictionary<string, WorkspaceStepState>(previousContext.StepStates, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, WorkspaceStepState>(StringComparer.OrdinalIgnoreCase);
+
+        // 先以新 ID 覆盖缓存（SkillLoadedAtUtc=null），防止途中失败时缓存仍指向已删除的沙箱
+        var restoringContext = previousContext with
+        {
+            TargetSandboxId = newTargetSandboxId,
+            EvaluatorSandboxId = newEvaluatorSandboxId,
+            SkillLoadedAtUtc = null,
+            StepStates = stepStates
+        };
+        await SaveWorkspaceContextAsync(persistenceScope, employeeId, restoringContext, cancellationToken);
+
+        // 重新上传雇佣模板到 target 沙箱
+        stepStates["restore_target_template"] = new("running", null);
+        var targetTemplateResult = await UploadHiringTemplateToTargetSandboxAsync(
+            newTargetSandboxId, owner, employee, cancellationToken);
+        if (!targetTemplateResult.Success)
+        {
+            stepStates["restore_target_template"] = new("failed", targetTemplateResult.Message);
+            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(targetTemplateResult.Code, targetTemplateResult.Message);
+        }
+        stepStates["restore_target_template"] = new("completed", null);
+
+        // 重新上传评估 skill 模板到 evaluator 沙箱
+        stepStates["restore_eval_skill"] = new("running", null);
+        var evalSkillResult = await UploadEvaluationTemplateToSandboxAsync(
+            newEvaluatorSandboxId, owner, cancellationToken);
+        if (!evalSkillResult.Success)
+        {
+            stepStates["restore_eval_skill"] = new("failed", evalSkillResult.Message);
+            return ApiResponse<EvaluationWorkspaceContext>.ErrorResponse(evalSkillResult.Code, evalSkillResult.Message);
+        }
+        stepStates["restore_eval_skill"] = new("completed", null);
+
+        // 重新上传 artifact（失败不阻断主流程）
+        stepStates["restore_artifacts"] = new("running", null);
+        var targetArtifactResult = await UploadArtifactToSandboxAsync(
+            newTargetSandboxId, owner, employee, skillRootPath, "target", cancellationToken);
+        if (!targetArtifactResult.Success)
+            logger.LogWarning("[Eval] Target artifact restore skipped sandboxId={SandboxId} msg={Msg}",
+                newTargetSandboxId, targetArtifactResult.Message);
+
+        var evaluatorArtifactResult = await UploadArtifactAttachmentToSandboxAsync(
+            newEvaluatorSandboxId, previousContext.EvaluatorHireId, owner, employee, skillRootPath, "evaluator", cancellationToken);
+        if (!evaluatorArtifactResult.Success)
+            logger.LogWarning("[Eval] Evaluator artifact restore skipped sandboxId={SandboxId} msg={Msg}",
+                newEvaluatorSandboxId, evaluatorArtifactResult.Message);
+        stepStates["restore_artifacts"] = new("completed", null);
+
+        // 重新上传评测素材（失败不阻断）
+        stepStates["restore_materials"] = new("running", null);
+        var materialFiles = targetTemplateResult.Data?.MaterialFiles ?? [];
+        var materialResult = await UploadMaterialFilesToEvaluatorAsync(
+            newEvaluatorSandboxId, previousContext.EvaluatorHireId, owner, materialFiles, cancellationToken);
+        if (!materialResult.Success)
+            logger.LogWarning("[Eval] Materials restore skipped sandboxId={SandboxId} msg={Msg}",
+                newEvaluatorSandboxId, materialResult.Message);
+        stepStates["restore_materials"] = new("completed", $"{materialFiles.Count} files");
+
+        var restoredContext = restoringContext with
+        {
+            SkillLoadedAtUtc = DateTimeOffset.UtcNow,
+            UploadedTemplatePackageZipPath = targetTemplateResult.Data?.LocalCachePath,
+            ArtifactWorkspaceDir = evaluatorArtifactResult.Success
+                ? evaluatorArtifactResult.Data
+                : previousContext.ArtifactWorkspaceDir,
+            TestcaseOutlines = materialResult.Data ?? previousContext.TestcaseOutlines ?? [],
+            StepStates = stepStates
+        };
+        await SaveWorkspaceContextAsync(persistenceScope, employeeId, restoredContext, cancellationToken);
+
+        logger.LogInformation(
+            "[Eval] Workspace restored after sandbox recreation. employeeId={EmployeeId} targetSandboxId={TargetSandboxId} evaluatorSandboxId={EvaluatorSandboxId}",
+            employeeId, newTargetSandboxId, newEvaluatorSandboxId);
+        return ApiResponse<EvaluationWorkspaceContext>.SuccessResponse(restoredContext);
     }
 
     private static string BuildEvaluationRuntimeId(string employeeId, string sandboxRole)
