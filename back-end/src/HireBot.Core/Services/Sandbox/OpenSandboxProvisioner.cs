@@ -23,11 +23,12 @@ internal sealed class OpenSandboxProvisioner(
     /// </summary>
     /// <param name="ownerSubject">沙箱所有者标识，格式为 "tenant:operator" 或 JWT sub claim</param>
     /// <param name="scopeKey">沙箱会话唯一键（hireId 或 instanceId 等）</param>
-    public async Task<ProvisionedSandboxResult> CreateAsync(string ownerSubject, string scopeKey, CancellationToken cancellationToken = default)
+    /// <param name="sandboxRole">沙箱角色（如 "hiring" / "evaluation-target" / "evaluation-evaluator" / "runtime"），用于决定超时策略</param>
+    public async Task<ProvisionedSandboxResult> CreateAsync(string ownerSubject, string scopeKey, string sandboxRole = "", CancellationToken cancellationToken = default)
     {
         var settings = GetSettings();
         var volumes = await pvcService.EnsureSessionPvcsAsync(ownerSubject, scopeKey, cancellationToken);
-        var createOptions = BuildCreateOptions(settings, ownerSubject, volumes);
+        var createOptions = BuildCreateOptions(settings, ownerSubject, volumes, sandboxRole);
 
         logger.LogInformation(
             "创建 OpenSandbox 沙箱. Domain={Domain}, Image={Image}, GatewayPort={GatewayPort}, UseServerProxy={UseServerProxy}, Owner={OwnerSubject}",
@@ -49,26 +50,43 @@ internal sealed class OpenSandboxProvisioner(
     internal static SandboxCreateOptions BuildCreateOptions(
         SandboxProvisioningSettings settings,
         string ownerSubject,
-        IReadOnlyList<Volume> volumes)
+        IReadOnlyList<Volume> volumes,
+        string sandboxRole = "")
     {
         var connection = settings.BuildConnection();
         var env = settings.BuildRuntimeEnv();
+
+        // 按角色决定超时策略：
+        // - hiring / evaluation-* 等短生命周期角色：设置 TTL 并允许自动回收，节约集群资源。
+        // - runtime（数字员工）等长期角色：启用 ManualCleanup，由 HireBot 显式管理生命周期。
+        var roleTimeoutSeconds = settings.GetTimeoutSecondsForRole(sandboxRole);
+        var hasRoleTtl = roleTimeoutSeconds.HasValue;
+
+        var metadata = new Dictionary<string, string>
+        {
+            // Kubernetes label value 不允许冒号等特殊字符，且长度不超过 63 字符。
+            // ownerSubject 可能包含 "tenant:operator" 格式，需要规范化后再传入。
+            ["owner"] = ToK8sLabelValue(ownerSubject)
+        };
+        if (!string.IsNullOrWhiteSpace(sandboxRole))
+        {
+            metadata["role"] = sandboxRole;
+        }
 
         return new SandboxCreateOptions
         {
             ConnectionConfig = connection,
             Image = settings.Image,
             Resource = settings.ResourceLimits,
-            TimeoutSeconds = settings.TimeoutSeconds,
+            TimeoutSeconds = hasRoleTtl ? roleTimeoutSeconds!.Value : null,
             ReadyTimeoutSeconds = settings.ReadyTimeoutSeconds,
             Entrypoint = [.. settings.Entrypoint],
             Env = env,
             NetworkPolicy = settings.BuildNetworkPolicy(),
             Volumes = volumes.Count > 0 ? volumes : null,
-            // Kubernetes label value 不允许冒号等特殊字符，且长度不超过 63 字符。
-            // ownerSubject 可能包含 "tenant:operator" 格式，需要规范化后再传入。
-            Metadata = new Dictionary<string, string> { ["owner"] = ToK8sLabelValue(ownerSubject) },
-            ManualCleanup = true,
+            Metadata = metadata,
+            // 有角色 TTL 时依赖 OpenSandbox 自动回收，无需手动清理；否则（如 runtime）启用手动清理。
+            ManualCleanup = !hasRoleTtl,
             // HireBot 自己会在 CreateAsync 之后继续轮询 Running + GatewayEndpoint，
             // 这里跳过 SDK 的前置健康检查，避免 OpenClaw 网关慢启动时直接把创建阶段打成 502。
             SkipHealthCheck = true
@@ -179,7 +197,7 @@ internal sealed class OpenSandboxProvisioner(
         }
     }
 
-    public async Task<ProvisionedSandboxResult> RebuildAsync(string ownerSubject, string sandboxId, string? scopeKey, CancellationToken cancellationToken = default)
+    public async Task<ProvisionedSandboxResult> RebuildAsync(string ownerSubject, string sandboxId, string? scopeKey, string sandboxRole = "", CancellationToken cancellationToken = default)
     {
         var settings = GetSettings();
         var connection = settings.BuildConnection();
@@ -187,7 +205,7 @@ internal sealed class OpenSandboxProvisioner(
         var baseUrl = connection.GetBaseUrl().TrimEnd('/');
 
         await http.DeleteAsync($"{baseUrl}/sandboxes/{Uri.EscapeDataString(sandboxId)}", cancellationToken);
-        return await CreateAsync(ownerSubject, scopeKey ?? string.Empty, cancellationToken);
+        return await CreateAsync(ownerSubject, scopeKey ?? string.Empty, sandboxRole, cancellationToken);
     }
 
     private async Task SendLifecycleCommandAsync(ConnectionConfig connection, string sandboxId, string action, CancellationToken cancellationToken)

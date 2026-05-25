@@ -25,7 +25,8 @@ internal sealed record SandboxProvisioningSettings(
     string LlmEndpoint,
     string LlmApiKey,
     float LlmTemperature,
-    IReadOnlyList<string> NetworkEgressAllowHosts)
+    IReadOnlyList<string> NetworkEgressAllowHosts,
+    IReadOnlyDictionary<string, int> DefaultTimeoutSecondsByRole)
 {
     public static SandboxProvisioningSettings FromConfiguration(IConfiguration configuration)
     {
@@ -90,6 +91,16 @@ internal sealed record SandboxProvisioningSettings(
         var entrypoint = configuration.GetSection("OpenSandbox:Entrypoint").Get<string[]>() ?? ["/app/OpenClaw.Gateway"];
         var egressHosts = configuration.GetSection("OpenSandbox:KingCrab:NetworkEgressAllowHosts").Get<string[]>() ?? [];
 
+        // 按角色设置沙箱默认超时时间（秒）。hiring / evaluation 类角色应设置 TTL，runtime 角色不配置则保持手动清理。
+        var timeoutByRole = configuration.GetSection("OpenSandbox:DefaultTimeoutSecondsByRole")
+            .Get<Dictionary<string, int>>()
+            ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["hiring"] = 1800,
+                ["evaluation-target"] = 1800,
+                ["evaluation-evaluator"] = 1800
+            };
+
         var apiKey = configuration["OpenSandbox:ApiKey"] ?? configuration["OPEN_SANDBOX_API_KEY"];
         if (string.IsNullOrWhiteSpace(apiKey))
         {
@@ -117,7 +128,21 @@ internal sealed record SandboxProvisioningSettings(
             configuration["OpenSandbox:KingCrab:LlmEndpoint"] ?? string.Empty,
             configuration["OpenSandbox:KingCrab:LlmApiKey"] ?? string.Empty,
             configuration.GetValue("OpenSandbox:KingCrab:LlmTemperature", 0.7f),
-            egressHosts);
+            egressHosts,
+            timeoutByRole);
+    }
+
+    /// <summary>
+    /// 按沙箱角色返回配置的 TTL（秒）。角色未在字典中配置时返回 null，表示不设超时（由调用方决定启用 ManualCleanup）。
+    /// </summary>
+    public int? GetTimeoutSecondsForRole(string sandboxRole)
+    {
+        if (string.IsNullOrWhiteSpace(sandboxRole))
+        {
+            return null;
+        }
+
+        return DefaultTimeoutSecondsByRole.TryGetValue(sandboxRole, out var seconds) ? seconds : null;
     }
 
     public ConnectionConfig BuildConnection()

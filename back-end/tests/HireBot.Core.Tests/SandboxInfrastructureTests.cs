@@ -210,12 +210,81 @@ public sealed class SandboxInfrastructureTests
             }
         ];
 
-        var options = OpenSandboxProvisioner.BuildCreateOptions(settings, "tenant-1:operator-1", volumes);
+        // runtime 角色未配置 TTL，应保持 ManualCleanup=true、不设 TimeoutSeconds
+        var options = OpenSandboxProvisioner.BuildCreateOptions(settings, "tenant-1:operator-1", volumes, "runtime");
 
         Assert.True(options.SkipHealthCheck);
         Assert.True(options.ManualCleanup);
-        Assert.Equal("tenant-1-operator-1", options.Metadata["owner"]);
+        Assert.Null(options.TimeoutSeconds);
+        Assert.Equal("tenant-1-operator-1", options.Metadata!["owner"]);
+        Assert.Equal("runtime", options.Metadata["role"]);
         Assert.Equal("/workspace", Assert.Single(options.Volumes!).MountPath);
+    }
+
+    [Theory]
+    [InlineData("hiring", 1800)]
+    [InlineData("evaluation-target", 1800)]
+    [InlineData("evaluation-evaluator", 1800)]
+    public void OpenSandboxProvisioner_BuildCreateOptions_ShouldApplyRoleTtl_AndDisableManualCleanup(string sandboxRole, int expectedTtlSeconds)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+            [
+                new KeyValuePair<string, string?>("OpenSandbox:Domain", "sandbox.example.com"),
+                new KeyValuePair<string, string?>("OpenSandbox:Protocol", "Http"),
+                new KeyValuePair<string, string?>("OpenSandbox:UseServerProxy", "false"),
+                new KeyValuePair<string, string?>("OpenSandbox:Image", "registry.local/hirebot-sandbox:latest"),
+                new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
+                new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "43200"),
+                new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:DefaultTimeoutSecondsByRole:hiring", "1800"),
+                new KeyValuePair<string, string?>("OpenSandbox:DefaultTimeoutSecondsByRole:evaluation-target", "1800"),
+                new KeyValuePair<string, string?>("OpenSandbox:DefaultTimeoutSecondsByRole:evaluation-evaluator", "1800"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmModel", "MiniMax-M2.5"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmEndpoint", "https://api.minimaxi.com/v1"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmApiKey", "secret")
+            ])
+            .Build();
+
+        var settings = SandboxProvisioningSettings.FromConfiguration(configuration);
+        var options = OpenSandboxProvisioner.BuildCreateOptions(settings, "tenant-a:operator-b", [], sandboxRole);
+
+        // 有 TTL 的角色应关闭 ManualCleanup，让 OpenSandbox 自动回收
+        Assert.False(options.ManualCleanup);
+        Assert.Equal(expectedTtlSeconds, options.TimeoutSeconds);
+        Assert.True(options.SkipHealthCheck);
+        Assert.Equal("tenant-a-operator-b", options.Metadata!["owner"]);
+        Assert.Equal(sandboxRole, options.Metadata["role"]);
+    }
+
+    [Fact]
+    public void OpenSandboxProvisioner_BuildCreateOptions_RuntimeRole_ShouldKeepManualCleanup_WhenNotInTtlDict()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+            [
+                new KeyValuePair<string, string?>("OpenSandbox:Domain", "sandbox.example.com"),
+                new KeyValuePair<string, string?>("OpenSandbox:Protocol", "Http"),
+                new KeyValuePair<string, string?>("OpenSandbox:UseServerProxy", "false"),
+                new KeyValuePair<string, string?>("OpenSandbox:Image", "registry.local/hirebot-sandbox:latest"),
+                new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
+                new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "43200"),
+                new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:DefaultTimeoutSecondsByRole:hiring", "1800"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmModel", "MiniMax-M2.5"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmEndpoint", "https://api.minimaxi.com/v1"),
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmApiKey", "secret")
+            ])
+            .Build();
+
+        var settings = SandboxProvisioningSettings.FromConfiguration(configuration);
+        var options = OpenSandboxProvisioner.BuildCreateOptions(settings, "tenant-a:operator-b", [], "runtime");
+
+        // runtime 未在字典中配置，应保持 ManualCleanup=true 且不设 TTL
+        Assert.True(options.ManualCleanup);
+        Assert.Null(options.TimeoutSeconds);
     }
 
     [Fact]
