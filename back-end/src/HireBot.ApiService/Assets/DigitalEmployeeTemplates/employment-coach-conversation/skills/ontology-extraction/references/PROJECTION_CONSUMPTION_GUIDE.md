@@ -128,7 +128,7 @@
 
 ## 其他 Skill 的最小写法
 
-如果你要让另一个 skill 正式消费 projection，建议它在自己的 SKILL.md 里只写稳定的消费原则，不要重复抄写 topic 评分、target view 评分、冲突规则或请求示例。真正会变化的路由逻辑应留在 `projection-index.json` 和各 topic 自己的 `*.projection.json` 文件里。
+如果你要让另一个 skill 正式消费 projection，建议它在自己的 SKILL.md 里只写稳定的消费原则，不要重复抄写 topic 评分、target view 评分、冲突规则或请求示例。真正会变化的路由逻辑应留在 `contract-index.json` 和各 topic 自己的 `<domain-slug>.<target-view>.projection.json` 文件里。
 
 SKILL.md 至少应写清楚四件事：
 
@@ -145,7 +145,7 @@ SKILL.md 至少应写清楚四件事：
 
 有两种常见落法。
 
-如果你需要一套可直接执行的目录与命名规范，不要只看本节概要，直接看 [CONSUMER_PROJECTION_LAYOUT_GUIDE.md](./CONSUMER_PROJECTION_LAYOUT_GUIDE.md)。当前推荐采用扁平化的 `contracts/` 目录结构：`projection-index.json` + `<domain-slug>.projection.json`。
+如果你需要一套可直接执行的目录与命名规范，不要只看本节概要，直接看 [CONSUMER_PROJECTION_LAYOUT_GUIDE.md](./CONSUMER_PROJECTION_LAYOUT_GUIDE.md)。当前推荐采用 `contracts/` 目录结构：`contract-index.json` + `README.md` + `<domain-slug>/` 子文件夹（每文件夹内含 `<domain-slug>.<target-view>.projection.json`、`README.md`、`REVIEW.md`）。
 
 ### 方式 A：把 projection 当成外部输入文件
 
@@ -163,10 +163,11 @@ SKILL.md 至少应写清楚四件事：
 
 做法：
 
-- 在该 skill 目录下使用扁平的 `contracts/` 子目录。
-- 生成 `projection-index.json` 作为索引入口。
-- 将该 skill 实际消费的 projection 文件以 `<domain-slug>.projection.json` 格式放入。
-- 在 SKILL.md 的 References 段中明确引用 `contracts/projection-index.json`。
+- 在该 skill 目录下创建 `contracts/` 子目录。
+- 生成 `contract-index.json` 作为选择索引入口。
+- 为每个主题创建子文件夹，将该 skill 实际消费的 projection 文件以 `<domain-slug>.<target-view>.projection.json` 格式放入。
+- 每个主题文件夹内包含 `README.md` 和 `REVIEW.md`。
+- 在 SKILL.md 的 References 段中明确引用 `contracts/contract-index.json`。
 
 这种做法的好处是 skill 自包含，结构轻量，代价是需要处理版本同步。
 

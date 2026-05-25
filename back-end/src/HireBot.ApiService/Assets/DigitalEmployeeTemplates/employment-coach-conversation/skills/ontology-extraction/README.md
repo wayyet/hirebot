@@ -158,7 +158,7 @@
 3. 先决定本次只面向哪一种主交付视图：`domain-model`、`json-schema`、`prompt-constraint` 或 `workflow-contract`。
 4. 基于已通过校验的 slice，由 `ontology-extraction` 按映射规范填充 `PROJECTION_TEMPLATE.json`，把 `concepts`、`relations`、`constraints` 显式映射到 projection。
 5. 验证 projection 时按所在层级选择入口：在技能根目录使用 `validate-projection.py`，在仓库根目录使用 `validate-ontology-projection.py`，确保结构、关键字段和本地诊断全部通过。
-6. projection 验证通过后，再将产物放入 consumer skill 的 `contracts/` 目录，生成 `projection-index.json` 索引文件和对应的 `<domain-slug>.projection.json` 文件。
+6. projection 验证通过后，再将产物放入 consumer skill 的 `contracts/` 目录，生成 `contract-index.json` 选择索引文件、`README.md` 总览文件，以及按主题分组的 `<domain-slug>/` 子文件夹（每文件夹内含 `<domain-slug>.<target-view>.projection.json`、`README.md` 和 `REVIEW.md`）。
 
 ---
 

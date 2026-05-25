@@ -145,6 +145,239 @@
 .eval-progress-bar-fail { background: #b3263c; }
 .dark .eval-progress-bar-fail { background: #f87171; }
 
+.eval-flow-target {
+  border-color: #dbeafe;
+  background: #f8fbff;
+}
+.dark .eval-flow-target {
+  border-color: rgba(96, 165, 250, 0.26);
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.eval-flow-panel {
+  border-color: #e5e7eb;
+  background: #ffffff;
+}
+.dark .eval-flow-panel {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(15, 23, 42, 0.98);
+}
+
+.eval-flow-summary-chip {
+  border-color: #e2e8f0;
+  background: #ffffff;
+  color: #475569;
+}
+.dark .eval-flow-summary-chip {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+}
+
+.eval-flow-step-node {
+  display: flex;
+  height: 34px;
+  width: 34px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.9);
+}
+.dark .eval-flow-step-node {
+  box-shadow: 0 0 0 6px rgba(15, 23, 42, 0.96);
+}
+
+.eval-flow-step-line {
+  height: 2px;
+  min-width: 24px;
+  flex: 1 1 auto;
+  border-radius: 9999px;
+  margin-left: 10px;
+  margin-right: 12px;
+}
+
+.eval-flow-step-line-completed {
+  background: #22c55e;
+}
+.dark .eval-flow-step-line-completed {
+  background: #34d399;
+}
+
+.eval-flow-step-line-running {
+  background: #4a6cf7;
+}
+.dark .eval-flow-step-line-running {
+  background: #60a5fa;
+}
+
+.eval-flow-step-line-failed {
+  background: #f43f5e;
+}
+.dark .eval-flow-step-line-failed {
+  background: #f87171;
+}
+
+.eval-flow-step-line-pending {
+  background: #e5e7eb;
+}
+.dark .eval-flow-step-line-pending {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.eval-flow-step-text-completed {
+  color: #15803d;
+}
+.dark .eval-flow-step-text-completed {
+  color: #34d399;
+}
+
+.eval-flow-step-text-running {
+  color: #2563eb;
+}
+.dark .eval-flow-step-text-running {
+  color: #60a5fa;
+}
+
+.eval-flow-step-text-failed {
+  color: #e11d48;
+}
+.dark .eval-flow-step-text-failed {
+  color: #f87171;
+}
+
+.eval-flow-step-text-pending {
+  color: #94a3b8;
+}
+.dark .eval-flow-step-text-pending {
+  color: #7a8fa8;
+}
+
+.eval-flow-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  padding: 10px 18px;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18);
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+.eval-flow-primary-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.24);
+}
+.eval-flow-primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.eval-flow-ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 10px 14px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+.eval-flow-ghost-btn:hover:not(:disabled) {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #1f2937;
+}
+.eval-flow-ghost-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.dark .eval-flow-ghost-btn {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+}
+.dark .eval-flow-ghost-btn:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef2ff;
+}
+
+.eval-flow-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  line-height: 1;
+}
+.eval-flow-status-item + .eval-flow-status-item::before {
+  content: "";
+  width: 1px;
+  height: 12px;
+  margin: 0 12px;
+  background: #e5e7eb;
+}
+.dark .eval-flow-status-item + .eval-flow-status-item::before {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.eval-flow-status-item:first-child.eval-flow-status-ok::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+}
+
+.eval-flow-status-muted {
+  color: #94a3b8;
+}
+
+.eval-flow-status-connected {
+  color: #94a3b8;
+}
+
+.eval-flow-status-session {
+  gap: 10px;
+}
+
+.eval-flow-status-label {
+  color: #94a3b8;
+}
+
+.eval-flow-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  transition: background 160ms ease, color 160ms ease;
+}
+.eval-flow-copy-btn:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+.dark .eval-flow-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef2ff;
+}
+
+.eval-flow-status-error {
+  color: #dc2626;
+}
+
 /* ════════════════════════════════════════════════════════════════
    5. 工作流 badge pill（Sesion, 双沙箱已连接 等）
    ════════════════════════════════════════════════════════════════ */
