@@ -739,23 +739,29 @@ internal sealed partial class EvaluationService
         IReadOnlyList<TemplateMaterialFile> materialFiles,
         CancellationToken cancellationToken)
     {
+        // 按类型拆分：ontology 文件始终从模板上传；testcase 文件不存在时才 fallback
+        var testcaseFiles = materialFiles.Where(f => f.TargetDir == "testcases").ToList();
+        var otherFiles = materialFiles.Where(f => f.TargetDir != "testcases").ToList();
+
         // 目标模板没有内置测试用例时，回落到内置默认连通性测试文件
-        if (materialFiles.Count == 0)
+        if (testcaseFiles.Count == 0)
         {
             logger.LogWarning(
-                "[Eval] No material files found in template, loading default fallback testcases sandboxId={SandboxId}",
+                "[Eval] No testcase files found in template, loading default fallback testcases sandboxId={SandboxId}",
                 evaluatorSandboxId);
-            materialFiles = await LoadFallbackTestcaseFilesAsync(cancellationToken);
-            if (materialFiles.Count == 0)
+            var fallback = await LoadFallbackTestcaseFilesAsync(cancellationToken);
+            if (fallback.Count == 0)
             {
                 logger.LogError("[Eval] Default fallback testcase file also missing, evaluation may fail sandboxId={SandboxId}", evaluatorSandboxId);
-                return ApiResponse<IReadOnlyList<EvaluationTestcaseOutline>>.SuccessResponse([], "no material files found");
+                return ApiResponse<IReadOnlyList<EvaluationTestcaseOutline>>.SuccessResponse([], "no testcase files found");
             }
+            testcaseFiles = [.. fallback];
         }
 
+        var allFiles = testcaseFiles.Concat(otherFiles);
         var outlines = new List<EvaluationTestcaseOutline>();
 
-        foreach (var materialFile in materialFiles)
+        foreach (var materialFile in allFiles)
         {
             var uploadResult = await sandboxService.UploadWorkspaceFileAsync(
                 new SandboxWorkspaceUploadRequestDto
@@ -788,8 +794,8 @@ internal sealed partial class EvaluationService
         }
 
         logger.LogInformation(
-            "[Eval] Material files uploaded to evaluator sandboxId={SandboxId} files={Count} testcases={Outlines}",
-            evaluatorSandboxId, materialFiles.Count, outlines.Count);
+            "[Eval] Material files uploaded to evaluator sandboxId={SandboxId} testcases={TestcaseCount} other={OtherCount} outlines={Outlines}",
+            evaluatorSandboxId, testcaseFiles.Count, otherFiles.Count, outlines.Count);
 
         return ApiResponse<IReadOnlyList<EvaluationTestcaseOutline>>.SuccessResponse(outlines);
     }
