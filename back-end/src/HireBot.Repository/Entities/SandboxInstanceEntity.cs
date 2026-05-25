@@ -59,6 +59,12 @@ public sealed class SandboxInstanceEntity
 
     public bool IsInitialized { get; set; }
 
+    /// <summary>
+    /// 沙箱业务元数据，以 JSONB 存储的键值对，
+    /// 键常量见 <see cref="HireBot.Abstraction.Models.Sandbox.SandboxMetaKeys"/>。
+    /// </summary>
+    public Dictionary<string, string>? Metadata { get; set; }
+
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;

@@ -18,4 +18,5 @@ public sealed record SandboxInstanceDto(
     string? TemplateId,
     bool IsInitialized,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    IReadOnlyDictionary<string, string>? Metadata);

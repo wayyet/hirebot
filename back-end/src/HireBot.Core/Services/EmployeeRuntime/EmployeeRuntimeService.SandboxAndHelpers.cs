@@ -152,7 +152,49 @@ public sealed partial class EmployeeRuntimeService
         var sandbox = await ResolveRuntimeSandboxAsync(instanceId, cancellationToken);
         if (sandbox is null)
         {
-            return ApiResponse<string>.ErrorResponse(404, "runtime sandbox not found");
+            // DB 中无记录（沙箱从未创建或被标记删除），尝试自动重建。
+            // PVC 按 scopeKey 持久保留，重建容器后工作区数据自动恢复，无需重新上传技能包。
+            var instance = await dbContext.Instances
+                .AsNoTracking()
+                .FirstOrDefaultAsync(item => item.InstanceId == instanceId, cancellationToken);
+            if (instance is null)
+            {
+                return ApiResponse<string>.ErrorResponse(404, "instance not found");
+            }
+
+            var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(instance.TenantId, instance.OwnerUserId);
+            var ownerSubject = requestContextService.ResolveOwnerSubject();
+            var scopeKey = BuildRuntimeScopeKey(instanceId);
+
+            // runtime sandbox 记录缺失，自动重建（PVC 持久保留，容器重建后工作区数据自动恢复）
+            var createResponse = await sandboxService.CreateAsync(
+                new SandboxCreateRequestDto
+                {
+                    ScopeType = SandboxScopeTypes.Runtime,
+                    ScopeKey = scopeKey,
+                    SandboxRole = RuntimeSandboxRole,
+                    OwnerSubject = ownerSubject,
+                    TenantId = tenantId,
+                    OperatorId = operatorId,
+                    ProvisioningMode = "managed",
+                    UseCase = $"runtime-chat-for:{instanceId}",
+                    Metadata = BuildRuntimeSandboxMeta(ownerSubject, instanceId, instance.BasedOnTemplateId)
+                },
+                cancellationToken);
+            if (!createResponse.Success || createResponse.Data is null)
+            {
+                return ApiResponse<string>.ErrorResponse(createResponse.Code, createResponse.Message);
+            }
+
+            var readyResponse = await WaitForManagedSandboxReadyAsync(createResponse.Data, cancellationToken);
+            if (!readyResponse.Success || readyResponse.Data is null)
+            {
+                return ApiResponse<string>.ErrorResponse(readyResponse.Code, readyResponse.Message);
+            }
+
+            return string.IsNullOrWhiteSpace(readyResponse.Data.GatewayEndpoint)
+                ? ApiResponse<string>.ErrorResponse(409, "sandbox gateway endpoint is not ready")
+                : ApiResponse<string>.SuccessResponse(readyResponse.Data.GatewayEndpoint.Trim());
         }
 
         if (string.IsNullOrWhiteSpace(sandbox.SandboxId))
@@ -192,7 +234,7 @@ public sealed partial class EmployeeRuntimeService
         return dbContext.SandboxInstances
             .AsNoTracking()
             .Where(item =>
-                item.ScopeType == SandboxScopeTypes.Hire &&
+                item.ScopeType == SandboxScopeTypes.Runtime &&
                 item.ScopeKey == scopeKey &&
                 item.SandboxRole == RuntimeSandboxRole &&
                 item.State != "Deleted")
@@ -216,14 +258,15 @@ public sealed partial class EmployeeRuntimeService
         var createResponse = await sandboxService.CreateAsync(
             new SandboxCreateRequestDto
             {
-                ScopeType = SandboxScopeTypes.Hire,
+                ScopeType = SandboxScopeTypes.Runtime,
                 ScopeKey = scopeKey,
                 SandboxRole = RuntimeSandboxRole,
                 OwnerSubject = ownerSubject,
                 TenantId = tenantId,
                 OperatorId = operatorId,
                 ProvisioningMode = "managed",
-                UseCase = $"runtime-chat-for:{employee.EmployeeId}"
+                UseCase = $"runtime-chat-for:{employee.EmployeeId}",
+                Metadata = BuildRuntimeSandboxMeta(ownerSubject, employee.EmployeeId, employee.BasedOnTemplateId ?? employee.SourceTemplateId)
             },
             cancellationToken);
         if (!createResponse.Success || createResponse.Data is null)
@@ -409,7 +452,7 @@ public sealed partial class EmployeeRuntimeService
                 new SandboxInstanceLookupRequestDto
                 {
                     SandboxId = sandboxId,
-                    ScopeType = SandboxScopeTypes.Hire,
+                    ScopeType = SandboxScopeTypes.Runtime,
                     ScopeKey = scopeKey,
                     SandboxRole = RuntimeSandboxRole,
                     OwnerSubject = ownerSubject
@@ -670,5 +713,21 @@ public sealed partial class EmployeeRuntimeService
             "retired" => "已退役",
             _ => status
         };
+    }
+
+    /// <summary>
+    /// 构建个人运行时沙箱元数据。
+    /// </summary>
+    private static Dictionary<string, string> BuildRuntimeSandboxMeta(
+        string ownerSubject, string instanceId, string? templateId)
+    {
+        var meta = new Dictionary<string, string>
+        {
+            [SandboxMetaKeys.UserSubject] = ownerSubject,
+            [SandboxMetaKeys.InstanceId] = instanceId
+        };
+        if (!string.IsNullOrWhiteSpace(templateId))
+            meta[SandboxMetaKeys.TemplateId] = templateId;
+        return meta;
     }
 }

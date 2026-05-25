@@ -1,7 +1,10 @@
+using System.Collections.Generic;
+using System.Text.Json;
 using HireBot.Abstraction.Models.User;
 using HireBot.Repository.Entities;
 using HireBot.Repository.Extensions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace HireBot.Repository;
 
@@ -334,6 +337,11 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.Property(e => e.GatewayEndpoint).HasMaxLength(512);
             entity.Property(e => e.LastError).HasMaxLength(1024);
             entity.Property(e => e.UseCase).HasMaxLength(200);
+            entity.Property(e => e.Metadata)
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    v => v == null ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => v == null ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null));
             entity.Property(e => e.CreatedAtUtc).IsRequired();
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
 

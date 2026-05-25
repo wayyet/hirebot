@@ -256,17 +256,24 @@ public sealed class InstanceRuntimeConversationService(
         var sandboxId = await ResolveRuntimeSandboxIdAsync(ownerSubject, scopeKey, cancellationToken);
         if (string.IsNullOrWhiteSpace(sandboxId))
         {
+            // DB 中无记录（沙箱不存在或已被标记删除），自动重建。
+            // PVC 按 scopeKey 持久保留，重建容器后工作区数据自动恢复，无需重新上传技能包。
+            logger.LogWarning(
+                "Runtime sandbox not found, auto-recreating before send. InstanceId={InstanceId} ScopeKey={ScopeKey}",
+                instance.InstanceId, scopeKey);
+
             var create = await sandboxService.CreateAsync(
                 new SandboxCreateRequestDto
                 {
-                    ScopeType = SandboxScopeTypes.Hire,
+                    ScopeType = SandboxScopeTypes.Runtime,
                     ScopeKey = scopeKey,
                     SandboxRole = RuntimeSandboxRole,
                     OwnerSubject = ownerSubject,
                     TenantId = tenantId,
                     OperatorId = operatorId,
                     ProvisioningMode = "managed",
-                    UseCase = $"runtime-chat-for:{instance.InstanceId}"
+                    UseCase = $"runtime-chat-for:{instance.InstanceId}",
+                    Metadata = BuildRuntimeSandboxMeta(ownerSubject, instance.InstanceId, instance.BasedOnTemplateId)
                 },
                 cancellationToken);
             if (!create.Success || create.Data is null)
@@ -274,13 +281,32 @@ public sealed class InstanceRuntimeConversationService(
                 return ApiResponse<HiringConversationResultDto>.ErrorResponse(create.Code, create.Message);
             }
 
-            sandboxId = create.Data.SandboxId;
+            // 等待沙箱就绪（最多 180 秒），确保网关可用后再发送消息
+            for (var attempt = 0; attempt < 36; attempt++)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                var refresh = await sandboxService.RefreshAsync(
+                    new SandboxInstanceLookupRequestDto { SandboxId = create.Data.SandboxId },
+                    cancellationToken);
+                if (refresh.Success && refresh.Data is not null &&
+                    string.Equals(refresh.Data.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(refresh.Data.GatewayEndpoint))
+                {
+                    sandboxId = create.Data.SandboxId;
+                    break;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(sandboxId))
+            {
+                return ApiResponse<HiringConversationResultDto>.ErrorResponse(504, "runtime sandbox 自动重建超时，请稍后重试");
+            }
         }
 
         return await sandboxService.SendMessageAsync(
             new SandboxSendMessageRequestDto
             {
-                ScopeType = SandboxScopeTypes.Hire,
+                ScopeType = SandboxScopeTypes.Runtime,
                 ScopeKey = scopeKey,
                 SandboxRole = RuntimeSandboxRole,
                 OwnerSubject = ownerSubject,
@@ -306,7 +332,7 @@ public sealed class InstanceRuntimeConversationService(
             .FirstOrDefaultAsync(
                 item =>
                     item.OwnerSubject == ownerSubject &&
-                    item.ScopeType == SandboxScopeTypes.Hire &&
+                    item.ScopeType == SandboxScopeTypes.Runtime &&
                     item.ScopeKey == scopeKey &&
                     item.SandboxRole == RuntimeSandboxRole &&
                     item.State != "Deleted",
@@ -422,5 +448,21 @@ public sealed class InstanceRuntimeConversationService(
         {
             return new AccessResult(false, code, message, null, null, string.Empty, string.Empty);
         }
+    }
+
+    /// <summary>
+    /// 构建个人运行时沙箱元数据。
+    /// </summary>
+    private static Dictionary<string, string> BuildRuntimeSandboxMeta(
+        string ownerSubject, string instanceId, string? templateId)
+    {
+        var meta = new Dictionary<string, string>
+        {
+            [SandboxMetaKeys.UserSubject] = ownerSubject,
+            [SandboxMetaKeys.InstanceId] = instanceId
+        };
+        if (!string.IsNullOrWhiteSpace(templateId))
+            meta[SandboxMetaKeys.TemplateId] = templateId;
+        return meta;
     }
 }

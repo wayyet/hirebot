@@ -90,7 +90,8 @@ internal sealed partial class SandboxService(
             GatewayEndpoint = provisioned.GatewayEndpoint,
             ExpiresAtUtc = provisioned.ExpiresAtUtc,
             UseCase = request.UseCase,
-            TemplateId = request.TemplateId
+            TemplateId = request.TemplateId,
+            Metadata = request.Metadata
         });
 
         await dbContext.SaveChangesAsync(cancellationToken);

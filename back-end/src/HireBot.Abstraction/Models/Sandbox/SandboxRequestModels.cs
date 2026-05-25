@@ -14,6 +14,7 @@ public sealed record SandboxCreateRequestDto
     public string? UseCase { get; init; }
     public string? TemplateId { get; init; }
     public bool IsInitialized { get; init; }
+    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
 }
 
 public sealed record SandboxRegisterRequestDto
@@ -32,6 +33,7 @@ public sealed record SandboxRegisterRequestDto
     public string? UseCase { get; init; }
     public string? TemplateId { get; init; }
     public bool IsInitialized { get; init; }
+    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
 }
 
 public sealed record SandboxInstanceLookupRequestDto
@@ -46,6 +48,7 @@ public sealed record SandboxInstanceLookupRequestDto
     public string? UseCase { get; init; }
     public string? TemplateId { get; init; }
     public bool IsInitialized { get; init; }
+    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
 }
 
 public sealed record SandboxEnsureSessionRequestDto

@@ -164,6 +164,11 @@ internal sealed partial class SandboxService
         instance.UseCase = string.IsNullOrWhiteSpace(request.UseCase) ? null : request.UseCase.Trim();
         instance.TemplateId = string.IsNullOrWhiteSpace(request.TemplateId) ? null : request.TemplateId.Trim();
         instance.IsInitialized = request.IsInitialized;
+        // Metadata 采用合并语义：请求携带新内容时更新，否则保留已有元数据。
+        if (request.Metadata is { Count: > 0 })
+        {
+            instance.Metadata = new Dictionary<string, string>(request.Metadata);
+        }
         instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
     }
 
@@ -186,7 +191,8 @@ internal sealed partial class SandboxService
             instance.TemplateId,
             instance.IsInitialized,
             instance.CreatedAtUtc,
-            instance.UpdatedAtUtc);
+            instance.UpdatedAtUtc,
+            instance.Metadata);
 
     private async Task<RemoteCallResult<string>> ResolveGatewayEndpointResultAsync(
         string ownerSubject,

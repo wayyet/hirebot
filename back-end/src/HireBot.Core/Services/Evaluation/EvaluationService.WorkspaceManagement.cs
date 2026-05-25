@@ -243,7 +243,13 @@ internal sealed partial class EvaluationService
                 TenantId = "tenant-default",
                 OperatorId = "operator-default",
                 ProvisioningMode = "managed",
-                UseCase = $"evaluation-{sandboxRole}-for:{employeeId}"
+                UseCase = $"evaluation-{sandboxRole}-for:{employeeId}",
+                Metadata = new Dictionary<string, string>
+                {
+                    [SandboxMetaKeys.UserSubject] = owner,
+                    [SandboxMetaKeys.EmployeeId] = employeeId,
+                    [SandboxMetaKeys.EvalScopeKey] = runtimeId
+                }
             },
             cancellationToken);
 

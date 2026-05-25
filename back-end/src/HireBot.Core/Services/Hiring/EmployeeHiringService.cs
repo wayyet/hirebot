@@ -127,6 +127,25 @@ internal sealed partial class EmployeeHiringService(
 
             if (existingInstance.IsInitialized)
             {
+                // 在复用前先 Refresh，验证沙箱在 OpenSandbox 中确实存活。
+                // 若沙箱已被意外删除，RefreshAsync 会自动重建并将 IsInitialized 重置为 false，
+                // 此时 fall-through 到下方的清理重建流程。
+                var refreshed = await sandboxService.RefreshAsync(
+                    new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
+                    cancellationToken);
+                if (refreshed.Success && refreshed.Data is not null)
+                {
+                    existingInstance = refreshed.Data;
+                }
+
+                if (!existingInstance.IsInitialized)
+                {
+                    logger.LogWarning(
+                        "Existing initialized sandbox was rebuilt (sandbox deleted externally), reinitializing. SandboxId={SandboxId}, HireId={HireId}",
+                        existingInstance.SandboxId, existingInstance.ScopeKey);
+                    goto reinitialize;
+                }
+
                 var existingHireId = existingInstance.ScopeKey;
 
                 // 直接从持久化 runtime 读取 sessionId；缺失时再从 DB 会话表补全
@@ -184,6 +203,7 @@ internal sealed partial class EmployeeHiringService(
             }
 
             // 沙箱存在但未初始化（被删除后由 RefreshAsync 自动重建的空壳），清理后走正常创建流程。
+            reinitialize:
             logger.LogInformation(
                 "Existing sandbox is not initialized (recreated after deletion), cleaning up and provisioning fresh. OldSandboxId={OldSandboxId}, HireId={HireId}",
                 existingInstance.SandboxId,

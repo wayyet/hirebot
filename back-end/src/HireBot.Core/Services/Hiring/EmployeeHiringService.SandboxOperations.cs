@@ -115,7 +115,8 @@ internal sealed partial class EmployeeHiringService
                 OperatorId = operatorId,
                 ProvisioningMode = "managed",
                 UseCase = useCase,
-                TemplateId = templateId
+                TemplateId = templateId,
+                Metadata = BuildHireSandboxMeta(ownerSubject, hireId, templateId)
             },
             cancellationToken);
         if (!createResult.Success || createResult.Data is null)
@@ -363,6 +364,22 @@ internal sealed partial class EmployeeHiringService
                 WorkspacePath: workspacePath,
                 FileMarker: fileMarker,
                 SizeBytes: archiveBytes.Length));
+    }
+
+    /// <summary>
+    /// 构建雇佣流程沙箱元数据。
+    /// </summary>
+    private static Dictionary<string, string> BuildHireSandboxMeta(
+        string ownerSubject, string hireId, string? templateId)
+    {
+        var meta = new Dictionary<string, string>
+        {
+            [SandboxMetaKeys.UserSubject] = ownerSubject,
+            [SandboxMetaKeys.HireId] = hireId
+        };
+        if (!string.IsNullOrWhiteSpace(templateId))
+            meta[SandboxMetaKeys.TemplateId] = templateId;
+        return meta;
     }
 
 }
