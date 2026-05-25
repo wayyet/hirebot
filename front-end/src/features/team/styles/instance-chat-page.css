@@ -1,0 +1,230 @@
+/**
+ * InstanceChatPage 专属样式 —— 亮色 / 暗色统一管理
+ */
+
+/* ══════════════════════════════════════════════════
+   1. 文本语义色
+   ══════════════════════════════════════════════════ */
+.ic-text-title    { color: var(--hb-near-black); }
+.dark .ic-text-title  { color: #eef2ff; }
+
+.ic-text-secondary { color: var(--hb-soft); }
+.dark .ic-text-secondary { color: #7a8fa8; }
+
+/* ══════════════════════════════════════════════════
+   2. 头部 / 页脚分割线
+   ══════════════════════════════════════════════════ */
+.ic-chat-divider { border-color: var(--hb-border); }
+.dark .ic-chat-divider { border-color: rgba(255, 255, 255, 0.08); }
+
+/* ══════════════════════════════════════════════════
+   3. 消息列表内迷你头像
+   ══════════════════════════════════════════════════ */
+.ic-avatar-user {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: #e2e8f0;
+  color: #475569;
+}
+.dark .ic-avatar-user {
+  background: rgba(255, 255, 255, 0.10);
+  color: #94a3b8;
+}
+
+/* ══════════════════════════════════════════════════
+   4. 消息气泡
+   ══════════════════════════════════════════════════ */
+
+/* 用户气泡：蓝色渐变 */
+.ic-bubble-user {
+  border-radius: 18px 18px 4px 18px;
+  background: linear-gradient(135deg, #4a6cf7 0%, #3a5be0 100%);
+  color: #ffffff;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  box-shadow: 0 4px 14px rgba(74, 108, 247, 0.28);
+}
+.dark .ic-bubble-user {
+  background: linear-gradient(135deg, #4f8ef7 0%, #3d7fd9 100%);
+  box-shadow: 0 4px 16px rgba(79, 142, 247, 0.30);
+}
+
+/* 分身气泡：浅色卡片 */
+.ic-bubble-assistant {
+  border-radius: 4px 18px 18px 18px;
+  border: 1px solid var(--hb-border);
+  background: var(--hb-surface-card);
+  color: var(--hb-body);
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.dark .ic-bubble-assistant {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.05);
+  color: #a8b5cc;
+}
+
+/* ══════════════════════════════════════════════════
+   5. 消息元信息（时间戳）
+   ══════════════════════════════════════════════════ */
+.ic-meta-secondary {
+  color: var(--hb-soft);
+  font-size: 11px;
+}
+.dark .ic-meta-secondary { color: #4a5e78; }
+
+/* ══════════════════════════════════════════════════
+   6. 连接状态徽章
+   ══════════════════════════════════════════════════ */
+.ic-badge-connected {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+.dark .ic-badge-connected {
+  border-color: rgba(74, 222, 128, 0.25);
+  background: rgba(74, 222, 128, 0.08);
+  color: #34d399;
+}
+.ic-badge-disconnected {
+  border-color: var(--hb-border);
+  background: var(--hb-surface-soft);
+  color: var(--hb-soft);
+}
+.dark .ic-badge-disconnected {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: #7a8fa8;
+}
+
+/* ══════════════════════════════════════════════════
+   7. 空态容器
+   ══════════════════════════════════════════════════ */
+.ic-empty-icon {
+  border-color: var(--hb-border);
+  background: var(--hb-surface-soft);
+}
+.dark .ic-empty-icon {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* ══════════════════════════════════════════════════
+   8. 打字动画三点
+   ══════════════════════════════════════════════════ */
+.ic-typing-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hb-soft);
+  animation: ic-typing-bounce 1.4s ease-in-out infinite;
+}
+.dark .ic-typing-dot { background: #7a8fa8; }
+
+@keyframes ic-typing-bounce {
+  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30%  { opacity: 1;    transform: translateY(-4px); }
+}
+
+/* ══════════════════════════════════════════════════
+   9. 暗色模式：Slash 命令菜单
+   ══════════════════════════════════════════════════ */
+.dark .hb-chat-slash-menu {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(12, 18, 38, 0.98);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.50);
+}
+.dark .hb-chat-slash-item:hover,
+.dark .hb-chat-slash-item.is-active {
+  background: rgba(255, 255, 255, 0.06);
+}
+.dark .hb-chat-slash-cmd  { color: #e2e8f0; }
+.dark .hb-chat-slash-args { color: #4a5e78; }
+.dark .hb-chat-slash-desc { color: #7a8fa8; }
+
+/* ══════════════════════════════════════════════════
+   10. 暗色模式：附件芯片
+   ══════════════════════════════════════════════════ */
+.dark .hb-chat-file-chip {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #a8b5cc;
+}
+.dark .hb-chat-file-chip.is-error {
+  border-color: rgba(248, 113, 113, 0.30);
+  background: rgba(248, 113, 113, 0.08);
+  color: #f87171;
+}
+.dark .hb-chat-file-chip-meta { color: #4a5e78; }
+
+/* ══════════════════════════════════════════════════
+   11. 暗色模式：输入框
+   ══════════════════════════════════════════════════ */
+.dark .hb-chat-compose textarea {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2e8f0;
+}
+.dark .hb-chat-compose textarea:focus {
+  border-color: #4f8ef7;
+  box-shadow: 0 0 0 3px rgba(79, 142, 247, 0.20);
+}
+.dark .hb-chat-compose textarea::placeholder { color: #4a5e78; }
+
+/* ══════════════════════════════════════════════════
+   12. 暗色模式：附件 / 展开按钮
+   ══════════════════════════════════════════════════ */
+.dark .hb-chat-attach-btn {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #7a8fa8;
+}
+.dark .hb-chat-attach-btn:hover:not(:disabled) {
+  border-color: #4f8ef7;
+  background: rgba(79, 142, 247, 0.12);
+  color: #4f8ef7;
+}
+.dark .hb-chat-expand-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #a8b5cc;
+}
+
+/* ══════════════════════════════════════════════════
+   13. 暗色模式：会话切换提示条
+   ══════════════════════════════════════════════════ */
+.ic-switching-bar {
+  border-color: #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.dark .ic-switching-bar {
+  border-color: rgba(96, 165, 250, 0.25);
+  background: rgba(96, 165, 250, 0.08);
+  color: #60a5fa;
+}
+
+/* ══════════════════════════════════════════════════
+   14. 未上岗提示条
+   ══════════════════════════════════════════════════ */
+.ic-inactive-notice {
+  border-color: var(--hb-border);
+  background: var(--hb-surface-soft);
+  color: var(--hb-soft);
+}
+.dark .ic-inactive-notice {
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: #7a8fa8;
+}

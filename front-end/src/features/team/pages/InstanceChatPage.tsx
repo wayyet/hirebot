@@ -14,6 +14,7 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
 import { instanceBasePath } from "@/shared/utils/instancePath";
+import "@/features/team/styles/instance-chat-page.css";
 
 import {
   api,
@@ -1014,7 +1015,7 @@ export default function InstanceChatPage() {
   }
 
   return (
-    <div className="hb-page hb-page-wide">
+    <div className="hb-page">
       <Breadcrumb
         items={[
           {
@@ -1044,7 +1045,8 @@ export default function InstanceChatPage() {
           当前实例不是分身类型，不能进入站内对话。
         </div>
       ) : (
-        <div className="flex gap-4">
+        <div className="flex h-[calc(100vh-116px)] min-h-[640px] gap-3">
+          {/* 左侧：会话历史列表 */}
           {gatewayEndpointRef.current && sessionListVisible && (
             <SessionListPanel
               gatewayEndpoint={gatewayEndpointRef.current}
@@ -1056,19 +1058,23 @@ export default function InstanceChatPage() {
               refreshTrigger={sessionListRefreshKey}
             />
           )}
-          <div className="hb-chat-shell hb-card flex-1">
-            <div className="hb-chat-head">
-              <div className="flex min-w-0 items-start gap-4">
+
+          {/* 右侧：主聊天卡片 */}
+          <div className="hb-card flex min-w-0 flex-1 flex-col overflow-hidden">
+
+            {/* 紧凑头部 */}
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b ic-chat-divider px-5 py-3.5">
+              <div className="flex min-w-0 items-center gap-3">
                 <div
-                  className={`hb-user-avatar hb-chat-avatar shrink-0 ${ownershipClass(employeeView.ownership)}`}
+                  className={`hb-user-avatar shrink-0 !h-9 !w-9 !rounded-xl !text-sm ${ownershipClass(employeeView.ownership)}`}
                 >
                   {firstCharacter(employee.nickname)}
                 </div>
-                <div className="min-w-0 space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="truncate text-[22px] font-semibold tracking-[-0.02em] text-[#0a0a0a]">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="truncate text-[15px] font-semibold ic-text-title">
                       {employee.nickname}
-                    </h1>
+                    </span>
                     <span
                       className={`hb-pill shrink-0 ${statusClass(employeeView.mappedStatus, employee.lifecycleStatus)}`}
                     >
@@ -1083,118 +1089,157 @@ export default function InstanceChatPage() {
                       {ownershipLabel(employeeView.ownership)}
                     </span>
                   </div>
-                  <p className="truncate text-sm leading-6 text-[#737373]">
-                    这里是你的实例站内对话。消息会直接发送到当前分身。
+                  <p className="mt-0.5 text-[11px] ic-text-secondary">
+                    实时对话 · 消息直达分身沙箱
                   </p>
-                  {/* <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-[#9ca3af]">
-                    <span className="shrink-0">ID {employee.employeeId}</span>
-                    <span className="shrink-0">Owner {employee.ownerUserId}</span>
-                    <span className="truncate">
-                      {employee.departmentId || employee.owningTeam}
-                    </span>
-                  </div> */}
                 </div>
               </div>
 
               <div className="flex shrink-0 items-center gap-2">
+                <span
+                  className={`rounded-full border px-2.5 py-1 text-[11px] ${sandboxConnected ? "ic-badge-connected" : "ic-badge-disconnected"}`}
+                >
+                  {sandboxConnected ? "已连接" : "未连接"}
+                </span>
                 <button
                   type="button"
-                  className="hb-btn-ghost"
+                  className="hb-btn-ghost !px-3 !py-1.5 !text-[12px]"
                   onClick={handleClear}
                   disabled={clearing || messages.length === 0}
                 >
-                  <Trash2 size={14} />
-                  {clearing ? "清空中" : "清空对话"}
+                  <Trash2 size={13} />
+                  {clearing ? "清空中" : "清空"}
                 </button>
                 <button
                   type="button"
-                  className="hb-btn-primary"
-                  onClick={() => navigate(instanceBasePath(location.pathname, employee.employeeId))}
+                  className="hb-btn-primary !px-3 !py-1.5 !text-[12px]"
+                  onClick={() =>
+                    navigate(
+                      instanceBasePath(location.pathname, employee.employeeId),
+                    )
+                  }
                 >
-                  <MessageCircle size={14} />
+                  <MessageCircle size={13} />
                   查看详情
                 </button>
               </div>
             </div>
 
-            <div className="hb-chat-history">
-              {messages.length === 0 ? (
-                <div className="hb-chat-empty">
-                  <MessageCircle size={16} />
-                  还没有消息，先给分身发一句话吧
+            {/* 消息列表 */}
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-5">
+              {messages.length === 0 && !typing ? (
+                <div className="m-auto flex flex-col items-center gap-3 text-center">
+                  <div className="rounded-2xl border ic-empty-icon p-4">
+                    <MessageCircle size={22} className="ic-text-secondary" />
+                  </div>
+                  <div>
+                    <p className="text-[14px] font-medium ic-text-title">
+                      和 {employee.nickname} 开始对话
+                    </p>
+                    <p className="mt-1 text-[12px] ic-text-secondary">
+                      发送消息，分身会实时响应
+                    </p>
+                  </div>
                 </div>
               ) : (
-                messages.map((message) => (
-                  <div
-                    key={message.messageId}
-                    className={`hb-chat-message ${message.role === "assistant" ? "is-assistant" : "is-user"}`}
-                  >
-                    <div className="hb-chat-meta">
-                      {message.role === "assistant" ? employee.nickname : "我"}{" "}
-                      · {formatTime(message.createdAt)}
-                    </div>
+                messages.map((message) => {
+                  const isUser = message.role === "user";
+                  return (
                     <div
-                      className={`hb-chat-bubble ${message.role === "assistant" ? "is-assistant" : "is-user"}`}
+                      key={message.messageId}
+                      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                     >
-                      {message.role === "assistant" &&
-                      message.toolSteps &&
-                      message.toolSteps.length > 0 ? (
-                        <div className="hb-chat-toolsteps">
-                          <HiringToolStepsBlock steps={message.toolSteps} />
+                      {!isUser && (
+                        <div
+                          className={`hb-hiring-avatar mr-2.5 mt-0.5 shrink-0 rounded-[8px] text-[12px] ${ownershipClass(employeeView.ownership)}`}
+                        >
+                          {firstCharacter(employee.nickname)}
                         </div>
-                      ) : null}
-                      <InstanceChatMessageBody
-                        content={message.content}
-                        role={
-                          message.role === "assistant" ? "assistant" : "user"
-                        }
-                        onMediaLinkClick={handleMediaLinkClick}
-                      />
+                      )}
+                      <div
+                        className={`flex min-w-0 max-w-[80%] flex-col ${isUser ? "items-end" : "items-start"}`}
+                      >
+                        {!isUser &&
+                          message.toolSteps &&
+                          message.toolSteps.length > 0 && (
+                            <div className="mb-2 w-full">
+                              <HiringToolStepsBlock steps={message.toolSteps} />
+                            </div>
+                          )}
+                        <div className={isUser ? "ic-bubble-user" : "ic-bubble-assistant"}>
+                          <InstanceChatMessageBody
+                            content={message.content}
+                            role={
+                              message.role === "assistant" ? "assistant" : "user"
+                            }
+                            onMediaLinkClick={handleMediaLinkClick}
+                          />
+                        </div>
+                        <div className="mt-1 ic-meta-secondary">
+                          {isUser ? "我" : employee.nickname} ·{" "}
+                          {formatTime(message.createdAt)}
+                        </div>
+                      </div>
+                      {isUser && (
+                        <div className="ic-avatar-user ml-2.5 mt-0.5">我</div>
+                      )}
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
 
-              {typing && streamingContent !== null && (
-                <div className="hb-chat-message is-assistant">
-                  <div className="hb-chat-meta">
-                    {employee.nickname} · 正在回复
+              {/* 流式响应 / 思考动画 */}
+              {typing && (
+                <div className="flex justify-start">
+                  <div
+                    className={`hb-hiring-avatar mr-2.5 mt-0.5 shrink-0 rounded-[8px] text-[12px] ${ownershipClass(employeeView.ownership)}`}
+                  >
+                    {firstCharacter(employee.nickname)}
                   </div>
-                  <div className="hb-chat-bubble is-assistant">
-                    {streamingToolSteps.length > 0 ? (
-                      <div className="hb-chat-toolsteps">
+                  <div className="flex min-w-0 max-w-[80%] flex-col items-start">
+                    {streamingToolSteps.length > 0 && (
+                      <div className="mb-2 w-full">
                         <HiringToolStepsBlock steps={streamingToolSteps} />
                       </div>
-                    ) : null}
-                    <InstanceChatMessageBody
-                      content={streamingContent.length > 0 ? streamingContent : "..."}
-                      role="assistant"
-                      streaming
-                      onMediaLinkClick={handleMediaLinkClick}
-                    />
+                    )}
+                    <div className="ic-bubble-assistant">
+                      {streamingContent !== null &&
+                      streamingContent.length > 0 ? (
+                        <InstanceChatMessageBody
+                          content={streamingContent}
+                          role="assistant"
+                          streaming
+                          onMediaLinkClick={handleMediaLinkClick}
+                        />
+                      ) : (
+                        <div className="flex items-center gap-1.5 py-0.5">
+                          {[0, 1, 2].map((i) => (
+                            <span
+                              key={i}
+                              className="ic-typing-dot"
+                              style={{ animationDelay: `${i * 0.2}s` }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-1 ic-meta-secondary">
+                      {employee.nickname} · 正在回复
+                    </div>
                   </div>
                 </div>
               )}
 
-              {typing && streamingContent === null && (
-                <div className="hb-chat-message is-assistant">
-                  <div className="hb-chat-meta">
-                    {employee.nickname} · 正在回复
-                  </div>
-                  <div className="hb-chat-bubble is-assistant hb-chat-typing">
-                    {streamingToolSteps.length > 0 ? (
-                      <div className="hb-chat-toolsteps">
-                        <HiringToolStepsBlock steps={streamingToolSteps} />
-                      </div>
-                    ) : null}
-                    正在思考中...
-                  </div>
+              {sessionSwitching && (
+                <div className="rounded-xl border px-4 py-2 text-center text-[12px] ic-switching-bar">
+                  正在切换会话...
                 </div>
               )}
 
               <div ref={bottomRef} />
             </div>
 
+            {/* 编辑区 */}
             <div className="hb-chat-compose">
               {/* 待上传文件列表 */}
               {pendingFiles.length > 0 && (
@@ -1217,9 +1262,7 @@ export default function InstanceChatPage() {
                       ) : (
                         <FileText size={12} className="text-[#9ca3af]" />
                       )}
-                      <span className="max-w-[200px] truncate">
-                        {file.name}
-                      </span>
+                      <span className="max-w-[200px] truncate">{file.name}</span>
                       <span className="hb-chat-file-chip-meta">
                         {file.status === "上传失败"
                           ? file.uploadError || file.status
@@ -1254,7 +1297,9 @@ export default function InstanceChatPage() {
                 >
                   <Paperclip size={16} />
                 </button>
-                <div className={`hb-chat-input-wrap ${expandOpen ? "is-expanded" : ""}`}>
+                <div
+                  className={`hb-chat-input-wrap ${expandOpen ? "is-expanded" : ""}`}
+                >
                   {slashMenuOpen ? (
                     <div className="hb-chat-slash-menu">
                       {slashCandidates.map((command, index) => (
@@ -1270,9 +1315,13 @@ export default function InstanceChatPage() {
                         >
                           <span className="hb-chat-slash-cmd">{command.cmd}</span>
                           {command.args ? (
-                            <span className="hb-chat-slash-args">{command.args}</span>
+                            <span className="hb-chat-slash-args">
+                              {command.args}
+                            </span>
                           ) : null}
-                          <span className="hb-chat-slash-desc">{command.desc}</span>
+                          <span className="hb-chat-slash-desc">
+                            {command.desc}
+                          </span>
                         </button>
                       ))}
                     </div>
@@ -1297,7 +1346,9 @@ export default function InstanceChatPage() {
 
                         if (event.key === "ArrowUp") {
                           event.preventDefault();
-                          setSlashMenuIdx((current) => Math.max(current - 1, 0));
+                          setSlashMenuIdx((current) =>
+                            Math.max(current - 1, 0),
+                          );
                           return;
                         }
 
@@ -1335,7 +1386,11 @@ export default function InstanceChatPage() {
                     onClick={() => setExpandOpen((current) => !current)}
                     title={expandOpen ? "收起输入框" : "放大输入框"}
                   >
-                    {expandOpen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                    {expandOpen ? (
+                      <Minimize2 size={14} />
+                    ) : (
+                      <Maximize2 size={14} />
+                    )}
                   </button>
                 </div>
 
