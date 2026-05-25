@@ -1,7 +1,7 @@
 import type { ReactNode, RefObject } from 'react'
 import { useState, useCallback } from 'react'
 
-import { Check, ChevronDown, ChevronUp, Copy, FileText, Paperclip, Package, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Copy, Download, FileCode, FileText, Paperclip, Package, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
 
@@ -10,6 +10,29 @@ import type { ChatFile, ChatMessage, ToolStep } from '../hiringPageTypes'
 import { ArtifactMessageCard } from './ArtifactMessageCard'
 import { HiringToolStepsBlock } from './HiringToolStepsBlock'
 import { StageGateCard } from './StageGateCard'
+
+/** 从 bot 消息文本中解析出内联 [FILE_URL:path|filename] 标记，返回干净文本与文件列表 */
+const FILE_URL_INLINE_REGEX = /\[FILE_URL:([^\]|]+)(?:\|([^\]]+))?\]/g
+
+function parseInlineFileMarkers(content: string): { text: string; fileMarkers: { path: string; filename: string }[] } {
+  const fileMarkers: { path: string; filename: string }[] = []
+  const text = content
+    .replace(FILE_URL_INLINE_REGEX, (_, path: string, filename?: string) => {
+      const cleanPath = path.trim()
+      const cleanFilename = filename?.trim() || cleanPath.split('/').pop() || 'file'
+      fileMarkers.push({ path: cleanPath, filename: cleanFilename })
+      return ''
+    })
+    .trim()
+  return { text, fileMarkers }
+}
+
+function getFileIcon(filename: string): ReactNode {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  if (ext === 'zip') return <Package size={14} />
+  if (ext === 'json') return <FileCode size={14} />
+  return <FileText size={14} />
+}
 
 /** 将对话消息列表转换为 Markdown 字符串，便于粘贴给其他 LLM 分析 */
 function chatToMarkdown(messages: ChatMessage[], botName: string): string {
@@ -201,6 +224,11 @@ export function HiringConversationPanel({
             )
           }
 
+          // 对 bot 消息解析内联 FILE_URL 标记，从正文中剔除并单独渲染为可下载文件卡片
+          const { text: messageText, fileMarkers } = message.role === 'bot'
+            ? parseInlineFileMarkers(message.content)
+            : { text: message.content, fileMarkers: [] as { path: string; filename: string }[] }
+
           return (
           <div key={message.id} className={`hb-hiring-msg ${message.role === 'user' ? 'is-user' : ''}`}>
             <div className={`hb-hiring-avatar ${message.role === 'user' ? 'is-user' : ''}`}>
@@ -212,12 +240,29 @@ export function HiringConversationPanel({
                   <HiringToolStepsBlock steps={message.toolSteps} />
                 </div>
               ) : null}
-              {message.content ? (
+              {messageText ? (
                 <div className={`hb-hiring-bubble ${message.role === 'user' ? 'is-user' : 'is-bot'}`}>
                   <InstanceChatMessageBody
-                    content={message.content}
+                    content={messageText}
                     role={message.role === 'user' ? 'user' : 'assistant'}
                   />
+                </div>
+              ) : null}
+              {fileMarkers.length > 0 ? (
+                <div className="hb-hiring-inline-file-list">
+                  {fileMarkers.map((marker, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      className="hb-hiring-inline-file-chip"
+                      onClick={() => onArtifactFileDownload?.(marker.path, marker.filename)}
+                      title={marker.filename}
+                    >
+                      {getFileIcon(marker.filename)}
+                      <span className="hb-hiring-file-name">{marker.filename}</span>
+                      <Download size={12} className="hb-hiring-file-icon" />
+                    </button>
+                  ))}
                 </div>
               ) : null}
               {message.files?.map((file) => (
