@@ -235,6 +235,8 @@ export default function EvaluationPage() {
   const [autoInitVisible, setAutoInitVisible] = useState(false)
   const [autoInitCountdown, setAutoInitCountdown] = useState(3)
   const autoInitFiredRef = useRef(false)
+  // 仅在当前会话内有效：点击「执行评估」后置为 true，刷新页面自动重置为 false
+  const [hasTriggeredEval, setHasTriggeredEval] = useState(false)
 
   async function loadData() {
     if (!id) return
@@ -348,13 +350,22 @@ export default function EvaluationPage() {
 
   const workflowStages = useMemo<Array<{ key: string; title: string; detail: string; status: WorkflowStageStatus }>>(() => {
     const stepMap = new Map((workspaceStatus?.steps ?? []).map((step) => [step.step, step.status]))
-    const executionStatus: WorkflowStageStatus = reportSummary
-      ? reportSummary.passed ? 'completed' : 'failed'
-      : wsEvaluating
+    // 装载材料阶段：以测试用例加载出来为完成标志
+    const materialsStageStatus: WorkflowStageStatus = testcaseOutlines.length > 0
+      ? 'completed'
+      : mergeStageStatus([
+          stepMap.get('upload_skill'),
+          stepMap.get('upload_employee_template'),
+          stepMap.get('upload_artifacts'),
+          materialsReady ? 'completed' : stepMap.get('materials'),
+        ])
+    // 执行阶段：只有本次会话内点击「执行评估」才进入 running，刷新前未点击视为 pending；
+    // 人工评估按钮出现（canNavigateToHumanEval）才算 completed
+    const executionStatus: WorkflowStageStatus = canNavigateToHumanEval
+      ? 'completed'
+      : hasTriggeredEval
         ? 'running'
-        : aiRunning || chatMessages.length > 0
-          ? 'running'
-          : 'pending'
+        : 'pending'
 
     return [
       {
@@ -372,28 +383,17 @@ export default function EvaluationPage() {
       {
         key: 'materials',
         title: '装载模板与材料',
-        detail: materialsReady ? '题卡、本体、模板材料已进入评估沙箱' : '上传评估技能包、目标模板和评估材料',
-        status: mergeStageStatus([
-          stepMap.get('upload_skill'),
-          stepMap.get('upload_employee_template'),
-          stepMap.get('upload_artifacts'),
-          materialsReady ? 'completed' : stepMap.get('materials'),
-        ]),
-      },
-      {
-        key: 'questions',
-        title: '展示题卡与标准',
-        detail: questionCards.length > 0 ? `已生成 ${questionCards.length} 张题卡` : '左侧会话展示评估阶段、题目和补充说明',
-        status: questionCards.length > 0 ? 'completed' : materialsReady ? 'running' : 'pending',
+        detail: testcaseOutlines.length > 0 ? `测试用例已就绪（${testcaseOutlines.length} 个场景）` : materialsReady ? '模板材料已进入评估沙箱，等待测试用例生成' : '上传评估技能包、目标模板和评估材料',
+        status: materialsStageStatus,
       },
       {
         key: 'execution',
         title: '执行评分与报告',
-        detail: reportSummary ? `第 ${reportSummary.iteration} 轮，综合 ${reportSummary.overallScore} 分` : wsEvaluating ? (wsProgress || '正在驱动目标沙箱执行') : '通过聊天或 WS 触发正式评估',
+        detail: reportSummary ? `第 ${reportSummary.iteration} 轮，综合 ${reportSummary.overallScore} 分` : hasTriggeredEval ? '正在驱动目标沙箱执行' : '通过聊天或 WS 触发正式评估',
         status: executionStatus,
       },
     ]
-  }, [aiRunning, chatMessages.length, materialsReady, questionCards.length, reportSummary, workspaceStatus, wsEvaluating, wsProgress])
+  }, [canNavigateToHumanEval, hasTriggeredEval, materialsReady, reportSummary, testcaseOutlines.length, workspaceStatus])
 
     const reportMetrics = useMemo(() => ([
     {
@@ -849,6 +849,7 @@ export default function EvaluationPage() {
       setChatMessages([])
       setEvaluation(null)
       setWsStatusLoaded(false)
+      setHasTriggeredEval(false)
       // 阻止 auto-init effect 弹出倒计时遮罩，由下方直接调用 submitAiDecision 接管
       autoInitFiredRef.current = true
       await loadData()  // 刷新 employee 状态，确保 submitAiDecision 基于最新数据
@@ -873,6 +874,7 @@ export default function EvaluationPage() {
     try {
       // RUN: 沙箱环境已在 START 阶段就绪，直接通过聊天 WS 发送评估触发消息，不再重复调用后端接口
       if (decision === 'RUN') {
+        setHasTriggeredEval(true)
         setSubmitting(false)
         void sendEvaluatorMessage('评估材料已就绪，请开始执行 AI 评估。')
         return
