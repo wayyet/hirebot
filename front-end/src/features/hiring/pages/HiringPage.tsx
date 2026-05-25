@@ -1948,6 +1948,7 @@ export default function HiringPage() {
             onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}
             onGenerate={() => { void handleRequestPackaging() }}
             generated={instanceCreated}
+            onEnterEvaluation={createdId ? () => navigate(`/department-employees/instances/${createdId}/evaluation`) : undefined}
             onLinkedSkillIdsChange={setLinkedStoreSkillIds}
           />
         </div>

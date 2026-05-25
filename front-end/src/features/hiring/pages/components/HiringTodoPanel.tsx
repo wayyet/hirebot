@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { FileText, Upload } from 'lucide-react'
+import { ArrowRight, FileText, Upload } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
@@ -61,6 +61,8 @@ export interface HiringTodoPanelProps {
   /** 触发生成实例包 */
   onGenerate?: () => void
   generated?: boolean
+  /** 生成完成后跳转 AI 评估页 */
+  onEnterEvaluation?: () => void
   /** 用户关联的 store skill UUID 列表变化时回调；用于在导入产物包时一并提交给后端。 */
   onLinkedSkillIdsChange?: (skillIds: string[]) => void
   templatePackageSkills?: EmployeeTemplatePackageSkill[]
@@ -281,6 +283,7 @@ export function HiringTodoPanel({
   onAfterStageMessage,
   onGenerate,
   generated = false,
+  onEnterEvaluation,
   onLinkedSkillIdsChange,
   templatePackageSkills = [],
   requestedMaterialCategories = [],
@@ -384,6 +387,7 @@ export function HiringTodoPanel({
           isFocus={activeStageKey === 'final'}
           onToggle={() => toggle('final')}
           onGenerate={onGenerate}
+          onEnterEvaluation={onEnterEvaluation}
         />
       </div>
     </div>
@@ -1075,7 +1079,7 @@ function ExternalCardBody({ onAfterSave }: { onAfterSave: (summary: string) => v
 // ── Final 卡片（生成实例包） ──────────────────────────────────────────────────
 
 function FinalCard({
-  canGenerate, generated, expanded, isFocus, onToggle, onGenerate,
+  canGenerate, generated, expanded, isFocus, onToggle, onGenerate, onEnterEvaluation,
 }: {
   canGenerate: boolean
   generated: boolean
@@ -1083,6 +1087,7 @@ function FinalCard({
   isFocus: boolean
   onToggle: () => void
   onGenerate?: () => void
+  onEnterEvaluation?: () => void
 }) {
   const { t } = useTranslation()
   return (
@@ -1112,6 +1117,16 @@ function FinalCard({
             onClick={onGenerate}>
             {generated ? t('hiring.todo.final.generatedBtn') : t('hiring.todo.final.generateBtn')}
           </button>
+          {generated && onEnterEvaluation && (
+            <button
+              type="button"
+              className="hb-todo-row-btn is-primary"
+              onClick={onEnterEvaluation}
+            >
+              <ArrowRight size={14} strokeWidth={2.2} />
+              {t('hiring.todo.final.enterEvaluationBtn')}
+            </button>
+          )}
         </div>
       )}
     </div>

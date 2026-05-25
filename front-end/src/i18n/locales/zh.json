@@ -436,7 +436,8 @@
         "canGenerateBadge": "可生成",
         "hint": "前序阶段完成后，将整合资料、技能与可选配置，生成可下发到员工待上岗界面的实例模板包。",
         "generateBtn": "生成实例包",
-        "generatedBtn": "已生成"
+        "generatedBtn": "已生成",
+        "enterEvaluationBtn": "进入 AI 评估"
       }
     },
     "employee": {
