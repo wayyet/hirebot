@@ -56,12 +56,18 @@
       "col": {
         "sandboxId": "沙箱 ID",
         "scope": "作用域",
+        "role": "角色",
         "state": "状态",
         "createdAt": "创建时间",
         "expiresAt": "过期时间",
         "actions": "操作"
       },
-      "delete": "删除"
+      "delete": "删除",
+      "expiryNever": "永不过期",
+      "expiryExpired": "已过期",
+      "expiryInMinutes": "剩余 {{count}} 分钟",
+      "expiryInHours": "剩余 {{count}} 小时",
+      "expiryInDays": "剩余 {{count}} 天"
     }
   },
   "common": {

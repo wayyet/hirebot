@@ -56,12 +56,18 @@
       "col": {
         "sandboxId": "Sandbox ID",
         "scope": "Scope",
+        "role": "Role",
         "state": "State",
         "createdAt": "Created",
         "expiresAt": "Expires",
         "actions": "Actions"
       },
-      "delete": "Delete"
+      "delete": "Delete",
+      "expiryNever": "Never expires",
+      "expiryExpired": "Expired",
+      "expiryInMinutes": "{{count}} min left",
+      "expiryInHours": "{{count}} hr left",
+      "expiryInDays": "{{count}} day left"
     }
   },
   "common": {

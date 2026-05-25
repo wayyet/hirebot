@@ -9,5 +9,5 @@ public sealed class DateTimeOffsetMinuteConverter : JsonConverter<DateTimeOffset
         => DateTimeOffset.Parse(reader.GetString()!);
 
     public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.ToString("yyyy-MM-dd HH:mm"));
+        => writer.WriteStringValue(value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"));
 }

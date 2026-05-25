@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, RefreshCw, Trash2, AlertCircle, Server, Layers } from 'lucide-react'
+import { Loader2, RefreshCw, Trash2, AlertCircle, Server, Layers, Clock } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type HiringSandboxItem } from '@/infra/api'
 
@@ -12,6 +12,91 @@ function statePillClass(state: string): string {
     case 'error': return 'red'
     default: return 'gray'  // expired / deleted / deleting
   }
+}
+
+// ── 沙箱角色 → hb-pill 颜色映射 ──
+function rolePillClass(role: string): string {
+  switch (role.toLowerCase()) {
+    case 'hiring': return 'blue'
+    case 'evaluation-target': return 'purple'
+    case 'evaluation-evaluator': return 'pink'
+    default: return 'gray'
+  }
+}
+
+// ── UTC ISO 日期 → 浏览器本地时区时间字符串 ──
+function formatLocalDate(isoUtc: string | null): string {
+  if (!isoUtc) return '—'
+  return new Date(isoUtc).toLocaleString(undefined, {
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+// ── 过期状态计算（基于客户端当前时间）──
+type ExpiryStatus =
+  | { type: 'never' }
+  | { type: 'expired' }
+  | { type: 'critical'; diffMs: number }  // 剩余 < 10 分钟
+  | { type: 'warning'; diffMs: number }   // 剩余 10 分钟 ~ 1 小时
+  | { type: 'ok'; diffMs: number }
+
+function computeExpiryStatus(expiresAtUtc: string | null): ExpiryStatus {
+  if (!expiresAtUtc) return { type: 'never' }
+  const diffMs = new Date(expiresAtUtc).getTime() - Date.now()
+  if (diffMs <= 0) return { type: 'expired' }
+  if (diffMs < 10 * 60_000) return { type: 'critical', diffMs }
+  if (diffMs < 60 * 60_000) return { type: 'warning', diffMs }
+  return { type: 'ok', diffMs }
+}
+
+// ── 过期时间单元格 ──
+function ExpiryCell({ expiresAtUtc }: { expiresAtUtc: string | null }) {
+  const { t } = useTranslation()
+  const status = computeExpiryStatus(expiresAtUtc)
+
+  if (status.type === 'never') {
+    return (
+      <span className="hb-expiry-never">
+        <Clock size={11} />
+        {t('settings.sandboxes.expiryNever')}
+      </span>
+    )
+  }
+
+  const localTime = formatLocalDate(expiresAtUtc)
+
+  if (status.type === 'expired') {
+    return (
+      <div className="hb-expiry-cell">
+        <span className="hb-expiry-time">{localTime}</span>
+        <span className="hb-expiry-badge expired">{t('settings.sandboxes.expiryExpired')}</span>
+      </div>
+    )
+  }
+
+  const { diffMs } = status
+  let relText: string
+  if (diffMs < 60 * 60_000) {
+    relText = t('settings.sandboxes.expiryInMinutes', { count: Math.ceil(diffMs / 60_000) })
+  } else if (diffMs < 24 * 3600_000) {
+    relText = t('settings.sandboxes.expiryInHours', { count: Math.floor(diffMs / 3600_000) })
+  } else {
+    relText = t('settings.sandboxes.expiryInDays', { count: Math.floor(diffMs / 86400_000) })
+  }
+
+  const badgeClass = status.type === 'critical' ? 'critical' : status.type === 'warning' ? 'warning' : 'ok'
+
+  return (
+    <div className="hb-expiry-cell">
+      <span className="hb-expiry-time">{localTime}</span>
+      <span className={`hb-expiry-badge ${badgeClass}`}>{relText}</span>
+    </div>
+  )
 }
 
 // ── 单行沙箱记录 ──
@@ -27,18 +112,10 @@ function SandboxRow({ item, onDelete, onSelectionChange, deletingIds, selected }
   const { t } = useTranslation()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const isDeleting = deletingIds.has(item.sandboxId)
-
-  function formatDate(iso: string | null) {
-    if (!iso) return '—'
-    return new Date(iso).toLocaleString('zh-CN', {
-      hour12: false,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
+  const expiryStatus = computeExpiryStatus(item.expiresAtUtc)
+  const isClientExpired = expiryStatus.type === 'expired' &&
+    !['deleted', 'deleting', 'error'].includes(item.state.toLowerCase())
+  const effectiveState = isClientExpired ? 'expired' : item.state
 
   function handleConfirm() {
     setConfirmOpen(false)
@@ -73,8 +150,13 @@ function SandboxRow({ item, onDelete, onSelectionChange, deletingIds, selected }
             )}
           </div>
         </td>
-        <td>
-          <span className={`hb-pill ${statePillClass(item.state)}`}>{item.state}</span>
+        <td>          <span className={`hb-pill ${rolePillClass(item.sandboxRole)}`}>
+            {item.sandboxRole || '—'}
+          </span>
+        </td>
+        <td>          <span className={`hb-pill ${statePillClass(effectiveState)}`}>
+            {t(`settings.sandboxes.state.${effectiveState.toLowerCase()}`, { defaultValue: effectiveState })}
+          </span>
           {item.lastError && (
             <span title={item.lastError}>
               <AlertCircle
@@ -84,8 +166,8 @@ function SandboxRow({ item, onDelete, onSelectionChange, deletingIds, selected }
             </span>
           )}
         </td>
-        <td className="muted">{formatDate(item.createdAtUtc)}</td>
-        <td className="muted">{formatDate(item.expiresAtUtc)}</td>
+        <td className="muted">{formatLocalDate(item.createdAtUtc)}</td>
+        <td><ExpiryCell expiresAtUtc={item.expiresAtUtc} /></td>
         <td>
           <button
             type="button"
@@ -105,7 +187,7 @@ function SandboxRow({ item, onDelete, onSelectionChange, deletingIds, selected }
       {/* 内联确认行：点击删除后展开 */}
       {confirmOpen && (
         <tr className="hb-confirm-row">
-          <td colSpan={7}>
+          <td colSpan={8}>
             <div className="hb-confirm-bar">
               <AlertCircle size={14} />
               <span>{t('settings.sandboxes.deleteConfirm')}</span>
@@ -399,6 +481,7 @@ export default function SettingsPage() {
                     </th>
                     <th>{t('settings.sandboxes.col.sandboxId')}</th>
                     <th>{t('settings.sandboxes.col.scope')}</th>
+                    <th>{t('settings.sandboxes.col.role')}</th>
                     <th>{t('settings.sandboxes.col.state')}</th>
                     <th>{t('settings.sandboxes.col.createdAt')}</th>
                     <th>{t('settings.sandboxes.col.expiresAt')}</th>

@@ -361,6 +361,55 @@
   font-size: 14px;
 }
 
+/* 沙箱过期时间单元格 */
+.hb-expiry-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hb-expiry-time {
+  color: var(--hb-caption);
+  font-size: 12px;
+}
+
+.hb-expiry-never {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--hb-caption);
+  font-size: 12px;
+}
+
+.hb-expiry-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+
+.hb-expiry-badge.ok {
+  background: #e6f5ec;
+  color: #15803d;
+}
+
+.hb-expiry-badge.warning {
+  background: #fef1e3;
+  color: #c47a26;
+}
+
+.hb-expiry-badge.critical {
+  background: #fff1f2;
+  color: #b3263c;
+}
+
+.hb-expiry-badge.expired {
+  background: #efefef;
+  color: #525252;
+}
+
 /* Hero 内容 */
 .hb-landing-hero-content {
   position: relative;
