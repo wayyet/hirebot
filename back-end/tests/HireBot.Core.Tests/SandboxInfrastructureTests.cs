@@ -64,6 +64,7 @@ public sealed class SandboxInfrastructureTests
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmModel", "gpt-5.4"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmEndpoint", "https://api.example.com"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmApiKey", "secret"),
+                new KeyValuePair<string, string?>("OpenSandbox:ApiKey", "test-api-key"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:NetworkEgressAllowHosts:0", "api.openai.com"),
                 new KeyValuePair<string, string?>("AllowedOrigins:Sandbox:0", "https://hirebot.example.com")
             ])
@@ -104,6 +105,7 @@ public sealed class SandboxInfrastructureTests
                 new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
                 new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "3600"),
                 new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:ApiKey", "test-api-key"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmModel", "MiniMax-M2.5"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmEndpoint", "https://api.minimaxi.com/v1")
@@ -147,6 +149,7 @@ public sealed class SandboxInfrastructureTests
                 new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
                 new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "3600"),
                 new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:ApiKey", "test-api-key"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token")
             ])
             .Build();
@@ -195,7 +198,8 @@ public sealed class SandboxInfrastructureTests
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmModel", "MiniMax-M2.5"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmEndpoint", "https://api.minimaxi.com/v1"),
-                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmApiKey", "secret")
+                new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmApiKey", "secret"),
+                new KeyValuePair<string, string?>("OpenSandbox:ApiKey", "test-api-key")
             ])
             .Build();
 
@@ -240,6 +244,7 @@ public sealed class SandboxInfrastructureTests
                 new KeyValuePair<string, string?>("OpenSandbox:DefaultTimeoutSecondsByRole:hiring", "1800"),
                 new KeyValuePair<string, string?>("OpenSandbox:DefaultTimeoutSecondsByRole:evaluation-target", "1800"),
                 new KeyValuePair<string, string?>("OpenSandbox:DefaultTimeoutSecondsByRole:evaluation-evaluator", "1800"),
+                new KeyValuePair<string, string?>("OpenSandbox:ApiKey", "test-api-key"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmModel", "MiniMax-M2.5"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmEndpoint", "https://api.minimaxi.com/v1"),
@@ -272,6 +277,7 @@ public sealed class SandboxInfrastructureTests
                 new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "43200"),
                 new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
                 new KeyValuePair<string, string?>("OpenSandbox:DefaultTimeoutSecondsByRole:hiring", "1800"),
+                new KeyValuePair<string, string?>("OpenSandbox:ApiKey", "test-api-key"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmModel", "MiniMax-M2.5"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:LlmEndpoint", "https://api.minimaxi.com/v1"),
@@ -790,6 +796,7 @@ public sealed class SandboxInfrastructureTests
                 new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
                 new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "3600"),
                 new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:ApiKey", "test-api-key"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token")
             ])
             .Build();
@@ -923,6 +930,7 @@ public sealed class SandboxInfrastructureTests
                 new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
                 new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "3600"),
                 new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:ApiKey", "test-api-key"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token")
             ])
             .Build();
@@ -985,6 +993,7 @@ public sealed class SandboxInfrastructureTests
                 new KeyValuePair<string, string?>("OpenSandbox:GatewayPort", "18790"),
                 new KeyValuePair<string, string?>("OpenSandbox:TimeoutSeconds", "3600"),
                 new KeyValuePair<string, string?>("OpenSandbox:ReadyTimeoutSeconds", "120"),
+                new KeyValuePair<string, string?>("OpenSandbox:ApiKey", "test-api-key"),
                 new KeyValuePair<string, string?>("OpenSandbox:KingCrab:AuthToken", "sandbox-token")
             ])
             .Build();
