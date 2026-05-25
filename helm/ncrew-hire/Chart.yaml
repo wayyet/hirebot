@@ -2,5 +2,5 @@ apiVersion: v2
 name: ncrew-hire
 description: Helm chart for deploying HireBot (ncrew-hire) — AI 雇佣流程服务
 type: application
-version: 0.2.15
-appVersion: "dev-202605221408"
+version: 0.2.16
+appVersion: "dev-202605260039"
