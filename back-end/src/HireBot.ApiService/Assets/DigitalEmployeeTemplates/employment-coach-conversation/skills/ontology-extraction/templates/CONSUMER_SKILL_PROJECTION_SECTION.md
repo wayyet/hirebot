@@ -9,10 +9,10 @@ If you need a full starter `SKILL.md` instead of only this section, use `CONSUME
 ```md
 ## Projection Contracts
 
-This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/projection-index.json`.
+This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/contract-index.json`.
 
 - Projection discovery and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contracts/projection-index.json` first, then the referenced `*.projection.json` file in the same directory.
+- For human review, read `contracts/contract-index.json` first to select the topic and target view, then enter the topic subdirectory and read `<domain-slug>.<target-view>.projection.json`, and finally check `REVIEW.md`.
 
 ### Projection Consumption
 

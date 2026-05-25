@@ -12,12 +12,12 @@ If the new skill binds to local projection contracts, keep this layout next to t
 <consumer-skill>/
   SKILL.md
   contracts/
-    projections/
-      ontology-extraction/
-        <domain-slug>/
-          <domain-slug>.<projection-type-short>.projection.json
-          README.md
-          REVIEW.md
+    contract-index.json
+    README.md
+    <domain-slug>/
+      <domain-slug>.<target-view>.projection.json
+      README.md
+      REVIEW.md
 ```
 
 See `../references/CONSUMER_PROJECTION_LAYOUT_GUIDE.md` for naming and placement rules.
@@ -53,10 +53,10 @@ When asked to <primary trigger phrases or user intents>:
 
 ## Projection Contracts
 
-This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/projection-index.json`.
+This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/contract-index.json`.
 
 - Projection discovery and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contracts/projection-index.json` first, then the referenced `*.projection.json` file in the same directory.
+- For human review, read `contracts/contract-index.json` first to select the topic and target view, then enter the topic subdirectory and read `<domain-slug>.<target-view>.projection.json`, and finally check `REVIEW.md`.
 
 ### Projection Consumption
 

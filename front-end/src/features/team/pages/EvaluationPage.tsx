@@ -2,15 +2,17 @@
 import {
   AlertCircle,
   BarChart2,
+  Check,
   CheckCircle2,
   ChevronDown,
+  Copy,
   ExternalLink,
   FileText,
   Loader2,
   MessageCircle,
-  PlayCircle,
   Rocket,
   SendHorizontal,
+  Trash2,
   X,
   Zap,
 } from 'lucide-react'
@@ -122,6 +124,32 @@ function workflowStagePill(status: WorkflowStageStatus) {
   }
 }
 
+function workflowStageTextTone(status: WorkflowStageStatus) {
+  switch (status) {
+    case 'completed':
+      return 'eval-flow-step-text-completed'
+    case 'running':
+      return 'eval-flow-step-text-running'
+    case 'failed':
+      return 'eval-flow-step-text-failed'
+    default:
+      return 'eval-flow-step-text-pending'
+  }
+}
+
+function renderWorkflowStageMarker(status: WorkflowStageStatus, order: number) {
+  switch (status) {
+    case 'completed':
+      return <CheckCircle2 size={16} />
+    case 'running':
+      return <Loader2 size={15} className="animate-spin" />
+    case 'failed':
+      return <AlertCircle size={15} />
+    default:
+      return <span className="text-[11px] font-semibold">{String(order).padStart(2, '0')}</span>
+  }
+}
+
 function logEvaluationDebug(label: string, payload?: unknown) {
   if (typeof console === 'undefined') return
   if (payload === undefined) {
@@ -189,6 +217,7 @@ export default function EvaluationPage() {
   const wsProgress = ''
   const [resetting, setResetting] = useState(false)
   const [resetConfirm, setResetConfirm] = useState(false)
+  const [sessionCopied, setSessionCopied] = useState(false)
   const chatEndRef = useRef<HTMLDivElement | null>(null)
   const wsRef = useRef<GatewayWs | null>(null)
   const gatewayEndpointRef = useRef<string | null>(null)
@@ -243,8 +272,6 @@ export default function EvaluationPage() {
   const aiRunning = isAiStage && employee?.evalPhase === 'ai_running'
 
   const workspaceReady = workspaceStatus?.overallStatus === 'ready'
-  const showWorkspaceProgress =
-    workspacePolling || (!!workspaceStatus && workspaceStatus.overallStatus !== 'not_started' && workspaceStatus.overallStatus !== 'ready')
   // 沙箱正在初始化时（轮询中或重置中）显示全屏过渡遮罩，防止用户看到未就绪的页面
   const showSandboxInitOverlay = workspacePolling || resetting
 
@@ -310,6 +337,14 @@ export default function EvaluationPage() {
   const humanEvalBannerDescription = reportSummary?.overallScore != null
     ? `（综合评分 ${reportSummary.overallScore} 分），请进入人工评估决定后续流程`
     : '，请进入人工评估决定后续流程'
+
+  function handleCopySessionId() {
+    if (!workspaceStatus?.sessionId) return
+    void navigator.clipboard.writeText(workspaceStatus.sessionId).then(() => {
+      setSessionCopied(true)
+      window.setTimeout(() => setSessionCopied(false), 1800)
+    })
+  }
 
   const workflowStages = useMemo<Array<{ key: string; title: string; detail: string; status: WorkflowStageStatus }>>(() => {
     const stepMap = new Map((workspaceStatus?.steps ?? []).map((step) => [step.step, step.status]))
@@ -1129,134 +1164,150 @@ export default function EvaluationPage() {
 
       {!autoInitVisible && !showSandboxInitOverlay && (
       <div className="flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
-        <section className="hb-card p-2.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <h1 className="text-[16px] font-semibold eval-text-strong">AI 评估对话</h1>
-                <span className="rounded-full border eval-pill-neutral px-2 py-0.5 text-[10px]">
-                  {employee.nickname} 路 {employee.roleName}
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+              <div className="min-w-0">
+                <h1 className="text-[20px] font-semibold eval-text-strong">AI 评估对话</h1>
+                <p className="mt-1 text-[12px] leading-5 eval-text-secondary">
+                  通过双沙箱实时对话推进评估，流程状态、会话和报告会持续同步到当前页面。
+                </p>
+              </div>
+              <div className="flex max-w-full items-center justify-start xl:justify-end">
+                <div className="rounded-full border eval-flow-target px-3 py-1.5 text-[11px]">
+                  <span className="eval-text-caption">评估对象</span>
+                  <span className="ml-2 font-medium eval-text-title">{employee.nickname} · {employee.roleName}</span>
+                </div>
+              </div>
+            </div>
+
+            {error && (
+              <div className="rounded-xl border eval-bar-error px-3 py-2 text-xs">
+                <span className="inline-flex items-center gap-1.5">
+                  <AlertCircle size={12} />
+                  {error}
                 </span>
               </div>
+            )}
 
-            </div>
-            <div className="ml-auto flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                disabled={submitting || !canPrepare || aiRunning}
-                className="hb-btn-primary !px-2.5 !py-1 !text-[11px]"
-                onClick={() => void submitAiDecision('START')}
-              >
-                <PlayCircle size={12} />
-                准备评估环境
-              </button>
-              <button
-                type="button"
-                disabled={submitting || wsEvaluating || !aiRunning}
-                className="hb-btn-ghost !px-2.5 !py-1 !text-[11px]"
-                onClick={() => void submitAiDecision('RUN')}
-              >
-                {wsEvaluating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-                {wsEvaluating ? (wsProgress || 'WS 评估中...') : '执行评估'}
-              </button>
-              {resetConfirm ? (
-                <div className="flex items-center gap-1.5 rounded-lg border border-[var(--hb-danger)]/30 bg-[var(--hb-danger)]/5 px-2 py-1">
-                  <AlertCircle size={11} className="shrink-0 text-[var(--hb-danger)]" />
-                  <span className="whitespace-nowrap text-[11px] text-[var(--hb-danger)]">确认清理？</span>
+            <section className="hb-card eval-flow-panel px-4 py-4">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="min-w-0 flex-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="flex min-w-[980px]">
+                    {workflowStages.map((stage, index) => {
+                      const tone = workflowStageTone(stage.status)
+                      const textTone = workflowStageTextTone(stage.status)
+                      const connectorTone = stage.status === 'completed'
+                        ? 'eval-flow-step-line-completed'
+                        : stage.status === 'running'
+                          ? 'eval-flow-step-line-running'
+                          : stage.status === 'failed'
+                            ? 'eval-flow-step-line-failed'
+                            : 'eval-flow-step-line-pending'
+
+                      return (
+                        <div key={stage.key} className="flex min-w-0 flex-1">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center">
+                              <div className={`eval-flow-step-node ${tone}`}>
+                                {renderWorkflowStageMarker(stage.status, index + 1)}
+                              </div>
+                              {index < workflowStages.length - 1 && (
+                                <div className={`eval-flow-step-line ${connectorTone}`} />
+                              )}
+                            </div>
+                            <div className="mt-3 pr-4">
+                              <div className="text-[12px] font-semibold leading-5 eval-text-title">{stage.title}</div>
+                              <div className={`mt-1 text-[11px] font-medium leading-4 ${textTone}`}>
+                                {workflowStagePill(stage.status)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 flex-wrap items-center gap-2 xl:ml-6">
+                  {resetConfirm ? (
+                    <div className="flex items-center gap-1.5 rounded-lg border border-[var(--hb-danger)]/30 bg-[var(--hb-danger)]/5 px-2.5 py-2">
+                      <AlertCircle size={11} className="shrink-0 text-[var(--hb-danger)]" />
+                      <span className="whitespace-nowrap text-[11px] text-[var(--hb-danger)]">确认清理？</span>
+                      <button
+                        type="button"
+                        disabled={resetting || submitting}
+                        className="text-[11px] font-semibold text-[var(--hb-danger)] underline-offset-2 hover:underline disabled:opacity-50"
+                        onClick={() => void handleResetEvaluationData()}
+                      >
+                        {resetting ? (
+                          <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" />清理中...</span>
+                        ) : '确认'}
+                      </button>
+                      <span className="text-[11px] text-[var(--hb-border)]">/</span>
+                      <button
+                        type="button"
+                        disabled={resetting}
+                        className="text-[11px] text-[var(--hb-soft)] hover:text-[var(--hb-body)] disabled:opacity-50"
+                        onClick={() => setResetConfirm(false)}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={resetting || submitting}
+                      className="eval-flow-ghost-btn"
+                      onClick={() => void handleResetEvaluationData()}
+                      title="清理当前评估数据（工作区状态、会话记录、报告），便于重新走评估流程"
+                    >
+                      {resetting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                      {resetting ? '清理中...' : '清理'}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    disabled={resetting || submitting}
-                    className="text-[11px] font-semibold text-[var(--hb-danger)] underline-offset-2 hover:underline disabled:opacity-50"
-                    onClick={() => void handleResetEvaluationData()}
+                    disabled={submitting || wsEvaluating || !aiRunning}
+                    className="eval-flow-primary-btn"
+                    onClick={() => void submitAiDecision('RUN')}
                   >
-                    {resetting ? (
-                      <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" />清理中...</span>
-                    ) : '确认'}
-                  </button>
-                  <span className="text-[11px] text-[var(--hb-border)]">/</span>
-                  <button
-                    type="button"
-                    disabled={resetting}
-                    className="text-[11px] text-[var(--hb-soft)] hover:text-[var(--hb-body)] disabled:opacity-50"
-                    onClick={() => setResetConfirm(false)}
-                  >
-                    取消
+                    {wsEvaluating ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                    {wsEvaluating ? (wsProgress || '执行中...') : '执行评估'}
                   </button>
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  disabled={resetting || submitting}
-                  className="hb-btn-ghost !px-2.5 !py-1 !text-[11px]"
-                  onClick={() => void handleResetEvaluationData()}
-                  title="清理当前评估数据（工作区状态、会话记录、报告），便于重新走评估流程"
-                >
-                  {resetting ? <Loader2 size={12} className="animate-spin" /> : <AlertCircle size={12} />}
-                  {resetting ? '清理中...' : '清理评估数据'}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setRightCollapsed((current) => !current)}
-                className="hb-btn-ghost !px-2.5 !py-1 !text-[11px]"
-              >
-                <BarChart2 size={12} />
-                {rightCollapsed ? '展开辅助面板' : '收起辅助面板'}
-              </button>
-            </div>
-          </div>
+              </div>
 
-          {error && (
-            <div className="mt-3 rounded-xl border eval-bar-error px-3 py-2 text-xs">
-              <span className="inline-flex items-center gap-1.5">
-                <AlertCircle size={12} />
-                {error}
-              </span>
-            </div>
-          )}
-
-          {showWorkspaceProgress && workspaceProgressSummary && (
-            <div className="mt-2 rounded-xl border eval-progress-wrap px-2.5 py-2">
-              <div className="flex flex-wrap items-center gap-2 text-[10px]">
-                <span className={`rounded-full px-2 py-0.5 font-medium ${workspaceProgressSummary.failed ? 'eval-progress-label-fail' : 'eval-progress-label-ok'}`}>
-                  {workspaceProgressSummary.label}
+              <div className="mt-4 flex flex-wrap items-center gap-0 border-t eval-chat-footer pt-3 text-[11px]">
+                {workspaceReady && (
+                  <span className="eval-flow-status-item eval-flow-status-ok">双沙箱已连接</span>
+                )}
+                <span className={`eval-flow-status-item ${sandboxConnected ? 'eval-flow-status-connected' : 'eval-flow-status-muted'}`}>
+                  会话{sandboxConnected ? '已连接' : '未连接'}
                 </span>
-                <span className="text-[var(--hb-soft)]">
-                  {workspaceProgressSummary.completed}/{workspaceProgressSummary.total} 步
-                </span>
-                {workspaceProgressSummary.errorMessage && (
-                  <span className="truncate eval-text-red">{workspaceProgressSummary.errorMessage}</span>
+                {workspaceStatus?.sessionId && (
+                  <span className="eval-flow-status-item eval-flow-status-session">
+                    <span className="eval-flow-status-label">Session</span>
+                    <span className="font-mono eval-text-title">{shortSessionId(workspaceStatus.sessionId)}</span>
+                    <button
+                      type="button"
+                      className="eval-flow-copy-btn"
+                      onClick={handleCopySessionId}
+                      title={sessionCopied ? '已复制' : '复制 Session'}
+                    >
+                      {sessionCopied ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  </span>
+                )}
+                {workspaceProgressSummary?.errorMessage && (
+                  <span className="eval-flow-status-item eval-flow-status-error">
+                    {workspaceProgressSummary.errorMessage}
+                  </span>
                 )}
               </div>
-              <div className="mt-1.5 h-1 w-full rounded-full eval-progress-track">
-                <div
-                  className={`h-1 rounded-full transition-all duration-500 ${workspaceProgressSummary.failed ? 'eval-progress-bar-fail' : 'eval-progress-bar-ok'}`}
-                  style={{ width: `${workspaceProgressSummary.percent}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="mt-2 flex gap-1.5 overflow-x-auto whitespace-nowrap pb-0.5 text-[10px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {workflowStages.map((stage, index) => (
-              <span key={stage.key} className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 ${workflowStageTone(stage.status)}`}>
-                <span className="font-semibold">0{index + 1}</span>
-                <span>{stage.title}</span>
-                <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px]">{workflowStagePill(stage.status)}</span>
-              </span>
-            ))}
-            {workspaceStatus?.sessionId && (
-              <span className="inline-flex shrink-0 items-center rounded-full border eval-pill-neutral px-2 py-0.5">
-                Session：{shortSessionId(workspaceStatus.sessionId)}
-              </span>
-            )}
-            {workspaceReady && (
-              <span className="inline-flex shrink-0 items-center rounded-full border eval-pill-connected px-2 py-0.5">
-                双沙箱已连接
-              </span>
-            )}
+            </section>
           </div>
-        </section>
+        </div>
 
         <section className="flex min-h-0 flex-1 gap-4">
           {gatewayEndpointRef.current && (
