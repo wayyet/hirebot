@@ -202,10 +202,18 @@ public sealed partial class EmployeeRuntimeService
             return ApiResponse<string>.ErrorResponse(409, "sandboxId is not ready");
         }
 
+        // 传入完整 scope 信息：
+        // 若 SandboxId 因并发重建而过期，RefreshAsync 可回退到 scope 查询，避免 "OwnerSubject is required" 400
         var refreshResult = await sandboxService.RefreshAsync(
             new SandboxInstanceLookupRequestDto
             {
-                SandboxId = sandbox.SandboxId
+                SandboxId = sandbox.SandboxId,
+                ScopeType = sandbox.ScopeType,
+                ScopeKey = sandbox.ScopeKey,
+                SandboxRole = sandbox.SandboxRole,
+                OwnerSubject = sandbox.OwnerSubject,
+                TenantId = sandbox.TenantId,
+                OperatorId = sandbox.OperatorId
             },
             cancellationToken);
 

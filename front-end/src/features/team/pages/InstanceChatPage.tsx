@@ -326,6 +326,58 @@ export default function InstanceChatPage() {
     fileRef.current?.click();
   }, []);
 
+  async function resolveLatestSandboxEndpoint(instanceId: string) {
+    const gatewayEndpointResult =
+      await api.employeeRuntime.getSandboxGatewayEndpoint(instanceId);
+    const gatewayEndpoint = resolveGatewayEndpoint(gatewayEndpointResult);
+    if (!gatewayEndpoint) {
+      throw new Error("沙箱网关地址未就绪，请稍后重试");
+    }
+
+    gatewayEndpointRef.current = gatewayEndpoint;
+    return gatewayEndpoint;
+  }
+
+  async function connectSandboxWsWithRecovery(preferredEndpoint?: string | null) {
+    if (!id) {
+      throw new Error("实例 ID 缺失，无法连接沙箱");
+    }
+
+    let endpoint = preferredEndpoint?.trim() || gatewayEndpointRef.current;
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        if (!endpoint) {
+          endpoint = await resolveLatestSandboxEndpoint(id);
+        }
+
+        await connectSandboxWs(endpoint);
+        gatewayEndpointRef.current = endpoint;
+        return endpoint;
+      } catch (connectionError: unknown) {
+        lastError = connectionError;
+        wsRef.current?.disconnect();
+        wsRef.current = null;
+        setSandboxConnected(false);
+
+        if (attempt >= 2) {
+          break;
+        }
+
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, 1200 * (attempt + 1));
+        });
+
+        endpoint = await resolveLatestSandboxEndpoint(id);
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("沙箱连接未建立，无法发送消息");
+  }
+
   async function syncSandboxHistory(endpoint: string, sessionId: string) {
     const sandboxMessages = await fetchSandboxSessionMessages(
       endpoint,
@@ -587,7 +639,7 @@ export default function InstanceChatPage() {
             setSelectedSessionId(latestSessionId);
             await syncSandboxHistory(gatewayEndpoint, latestSessionId);
           }
-          await connectSandboxWs(gatewayEndpoint);
+          await connectSandboxWsWithRecovery(gatewayEndpoint);
         } catch (sandboxError: unknown) {
           setError(normalizeErrorMessage(sandboxError));
           gatewayEndpointRef.current = null;
@@ -634,13 +686,13 @@ export default function InstanceChatPage() {
       const mapped = mapSandboxMessages(sandboxMessages);
       setMessages(mapped);
       sessionIdRef.current = sessionId;
-      await connectSandboxWs(endpoint);
+      await connectSandboxWsWithRecovery(endpoint);
     } catch (sessionError: unknown) {
       setError(normalizeErrorMessage(sessionError));
       setSelectedSessionId(previousSelectedSessionId);
       sessionIdRef.current = previousActiveSessionId;
       if (previousActiveSessionId) {
-        void connectSandboxWs(endpoint);
+        void connectSandboxWsWithRecovery(endpoint);
       }
     } finally {
       setSessionSwitching(false);
@@ -761,9 +813,7 @@ export default function InstanceChatPage() {
       setDraft({ content });
       setPendingFiles(incoming);
       setSending(false);
-      if (sandboxGatewayEndpoint) {
-        void connectSandboxWs(sandboxGatewayEndpoint);
-      }
+      void connectSandboxWsWithRecovery(sandboxGatewayEndpoint);
       return;
     }
 
@@ -835,7 +885,7 @@ export default function InstanceChatPage() {
 
       const endpoint = gatewayEndpointRef.current;
       if (endpoint && sessionIdRef.current) {
-        void connectSandboxWs(endpoint);
+        void connectSandboxWsWithRecovery(endpoint);
       }
     } catch (requestError: unknown) {
       setError(normalizeErrorMessage(requestError));
