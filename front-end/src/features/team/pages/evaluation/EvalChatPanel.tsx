@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
-import { CheckCircle2, Loader2, MessageCircle, SendHorizontal } from 'lucide-react'
+import { AlertCircle, Check, CheckCircle2, Copy, Loader2, MessageCircle, SendHorizontal } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
 import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
-import type { EvaluationTestcaseOutline } from '@/infra/api'
+import type { EvaluationTestcaseOutline, EvaluationWorkspaceStatus } from '@/infra/api'
 import type { EvalChatMessage, ArtifactTab } from './evaluationTypes'
 import {
   evaluationStarterActions,
@@ -23,8 +23,12 @@ interface EvalChatPanelProps {
   chatInput: string
   chatError: string
   sessionSwitching: boolean
-  selectedSessionId: string | null
   sandboxConnected: boolean
+  environmentStatus: { label: string; dotClassName: string }
+  workspaceStatus: EvaluationWorkspaceStatus | null
+  sessionCopied: boolean
+  errorMessage: string
+  onCopySessionId: () => void
   testcaseItems: EvaluationTestcaseOutline[]
   canNavigateToHumanEval: boolean
   humanEvalPath: string | null
@@ -50,8 +54,12 @@ export function EvalChatPanel({
   chatInput,
   chatError,
   sessionSwitching,
-  selectedSessionId,
   sandboxConnected,
+  environmentStatus,
+  workspaceStatus,
+  sessionCopied,
+  errorMessage,
+  onCopySessionId,
   testcaseItems,
   canNavigateToHumanEval,
   humanEvalPath,
@@ -83,28 +91,48 @@ export function EvalChatPanel({
 
   return (
     <div className="hb-card flex min-w-0 flex-1 flex-col overflow-hidden">
-      {/* 头部：标题 + 状态 */}
-      <div className="border-b eval-chat-footer px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-2xl eval-icon-indigo">
-                <MessageCircle size={18} />
-              </div>
-              <div>
-                <div className="text-base font-semibold eval-text-title">评估对话</div>
-                <div className="text-[12px] leading-5 eval-text-secondary">主视图聚焦对话发起，题卡、轨迹和报告继续保留在右侧。</div>
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2 text-[11px]">
-            <span className={`rounded-full border px-2.5 py-1 ${sandboxConnected ? 'eval-badge-connected' : 'eval-badge-disconnected'}`}>
-              会话连接：{sandboxConnected ? '已连接' : '未连接'}
+      {/* 头部：紧凑单行 + 状态条 */}
+      <div className="border-b eval-chat-footer px-4 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <span className="text-sm font-semibold eval-text-title">评估对话</span>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+            {/* 环境状态 */}
+            <span className="eval-flow-status-item">
+              <span className={environmentStatus.dotClassName} />
+              {environmentStatus.label}
             </span>
-            {selectedSessionId && (
-              <span className="rounded-full border eval-pill-neutral px-2.5 py-1">
-                当前会话：{shortSessionId(selectedSessionId)}
-              </span>
+            <span className="eval-flow-status-divider" aria-hidden="true" />
+            {/* WS 连接状态 */}
+            <span className={`eval-flow-status-item ${sandboxConnected ? 'eval-flow-status-connected' : 'eval-flow-status-muted'}`}>
+              {workspaceStatus?.sessionId ? (sandboxConnected ? '会话已连接' : '会话未连接') : '暂无会话'}
+            </span>
+            {/* Session ID */}
+            {workspaceStatus?.sessionId && (
+              <>
+                <span className="eval-flow-status-divider" aria-hidden="true" />
+                <span className="eval-flow-status-item eval-flow-status-session">
+                  <span className="eval-flow-status-label">Session</span>
+                  <span className="font-mono eval-flow-status-session-value">{shortSessionId(workspaceStatus.sessionId)}</span>
+                  <button
+                    type="button"
+                    className="eval-flow-copy-btn"
+                    onClick={onCopySessionId}
+                    title={sessionCopied ? '已复制' : '复制 Session'}
+                  >
+                    {sessionCopied ? <Check size={12} /> : <Copy size={12} />}
+                  </button>
+                </span>
+              </>
+            )}
+            {/* 错误信息 */}
+            {errorMessage && (
+              <>
+                <span className="eval-flow-status-divider" aria-hidden="true" />
+                <span className="eval-flow-status-item eval-flow-status-error">
+                  <AlertCircle size={12} className="shrink-0" />
+                  {errorMessage}
+                </span>
+              </>
             )}
           </div>
         </div>

@@ -1,29 +1,21 @@
-import { Check, CheckCircle2, Loader2, AlertCircle, Trash2, Copy } from 'lucide-react'
-import type { EvaluationWorkspaceStatus } from '@/infra/api'
+import { Check, CheckCircle2, Loader2, AlertCircle, Trash2 } from 'lucide-react'
 import type { WorkflowStage } from './evaluationTypes'
 import {
   workflowStageTone,
   workflowStageTextTone,
   workflowStageStatusLabel,
   renderWorkflowStageMarker,
-  shortSessionId,
 } from './evaluationUtils'
 
 interface EvalWorkflowPanelProps {
   stages: WorkflowStage[]
   currentStageIndex: number
-  workspaceStatus: EvaluationWorkspaceStatus | null
-  sandboxConnected: boolean
-  sessionCopied: boolean
   resetConfirm: boolean
   resetting: boolean
   submitting: boolean
   wsEvaluating: boolean
   aiRunning: boolean
   primaryActionLabel: string
-  environmentStatus: { label: string; dotClassName: string }
-  errorMessage: string
-  onCopySessionId: () => void
   onSetResetConfirm: (value: boolean) => void
   onReset: () => void
   onSubmitRun: () => void
@@ -32,28 +24,22 @@ interface EvalWorkflowPanelProps {
 export function EvalWorkflowPanel({
   stages,
   currentStageIndex,
-  workspaceStatus,
-  sandboxConnected,
-  sessionCopied,
   resetConfirm,
   resetting,
   submitting,
   wsEvaluating,
   aiRunning,
   primaryActionLabel,
-  environmentStatus,
-  errorMessage,
-  onCopySessionId,
   onSetResetConfirm,
   onReset,
   onSubmitRun,
 }: EvalWorkflowPanelProps) {
   return (
-    <section className="hb-card eval-flow-panel px-4 pb-3 pt-3">
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+    <section className="hb-card eval-flow-panel px-3 pb-2 pt-2">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0 flex-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <div className="flex min-w-[1180px] pl-[50px]">
+            <div className="flex min-w-[900px] pl-[36px]">
               {stages.map((stage, index) => {
                 const tone = workflowStageTone(stage.status)
                 const textTone = workflowStageTextTone(stage.status)
@@ -69,7 +55,7 @@ export function EvalWorkflowPanel({
                 return (
                   <div key={stage.key} className="flex min-w-0 flex-1">
                     <div className="min-w-0 flex-1">
-                      <div className="mt-[4px] flex items-center">
+                      <div className="mt-[2px] flex items-center">
                         <div className={`eval-flow-step-node ${tone} ${isCurrentStage ? 'eval-flow-step-node-current' : ''}`}>
                           {renderWorkflowStageMarker(stage.status, index + 1)}
                         </div>
@@ -77,7 +63,7 @@ export function EvalWorkflowPanel({
                           <div className={`eval-flow-step-line ${connectorTone}`} />
                         )}
                       </div>
-                      <div className="eval-flow-stage-copy mt-[16px] pr-4">
+                      <div className="eval-flow-stage-copy mt-[8px] pr-4">
                         <div className={`eval-flow-stage-title ${stage.status === 'pending' ? 'eval-flow-stage-title-muted' : ''} ${isCurrentStage ? 'eval-flow-stage-title-current' : ''}`}>
                           {stage.title}
                         </div>
@@ -156,42 +142,7 @@ export function EvalWorkflowPanel({
           </div>
         </div>
 
-        <div className="eval-flow-status-strip eval-flow-status-strip-indented">
-          <span className="eval-flow-status-item">
-            <span className={environmentStatus.dotClassName} />
-            {environmentStatus.label}
-          </span>
-          <span className="eval-flow-status-divider" aria-hidden="true" />
-          <span className={`eval-flow-status-item ${sandboxConnected ? 'eval-flow-status-connected' : 'eval-flow-status-muted'}`}>
-            会话{sandboxConnected ? '已连接' : '未连接'}
-          </span>
-          {workspaceStatus?.sessionId && (
-            <>
-              <span className="eval-flow-status-divider" aria-hidden="true" />
-              <span className="eval-flow-status-item eval-flow-status-session">
-                <span className="eval-flow-status-label">Session</span>
-                <span className="font-mono eval-flow-status-session-value">{shortSessionId(workspaceStatus.sessionId)}</span>
-                <button
-                  type="button"
-                  className="eval-flow-copy-btn"
-                  onClick={onCopySessionId}
-                  title={sessionCopied ? '已复制' : '复制 Session'}
-                >
-                  {sessionCopied ? <Check size={12} /> : <Copy size={12} />}
-                </button>
-              </span>
-            </>
-          )}
-          {errorMessage && (
-            <>
-              <span className="eval-flow-status-divider" aria-hidden="true" />
-              <span className="eval-flow-status-item eval-flow-status-error">
-                <AlertCircle size={12} className="shrink-0" />
-                {errorMessage}
-              </span>
-            </>
-          )}
-        </div>
+
       </div>
     </section>
   )

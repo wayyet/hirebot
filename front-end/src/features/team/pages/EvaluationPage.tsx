@@ -1081,18 +1081,12 @@ export default function EvaluationPage() {
             <EvalWorkflowPanel
               stages={workflowStages}
               currentStageIndex={currentWorkflowStageIndex}
-              workspaceStatus={workspaceStatus}
-              sandboxConnected={sandboxConnected}
-              sessionCopied={sessionCopied}
               resetConfirm={resetConfirm}
               resetting={resetting}
               submitting={submitting}
               wsEvaluating={wsEvaluating}
               aiRunning={aiRunning}
               primaryActionLabel={primaryActionLabel}
-              environmentStatus={environmentStatus}
-              errorMessage={workspaceProgressSummary?.errorMessage ?? ''}
-              onCopySessionId={handleCopySessionId}
               onSetResetConfirm={setResetConfirm}
               onReset={() => void handleResetEvaluationData()}
               onSubmitRun={() => void submitAiDecision('RUN')}
@@ -1122,8 +1116,12 @@ export default function EvaluationPage() {
             chatInput={chatInput}
             chatError={chatError}
             sessionSwitching={sessionSwitching}
-            selectedSessionId={selectedSessionId}
             sandboxConnected={sandboxConnected}
+            environmentStatus={environmentStatus}
+            workspaceStatus={workspaceStatus}
+            sessionCopied={sessionCopied}
+            errorMessage={workspaceProgressSummary?.errorMessage ?? ''}
+            onCopySessionId={handleCopySessionId}
             testcaseItems={testcaseItems}
             canNavigateToHumanEval={canNavigateToHumanEval}
             humanEvalPath={humanEvalPath}
