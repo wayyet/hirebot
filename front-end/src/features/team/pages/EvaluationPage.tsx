@@ -2281,7 +2281,7 @@ export default function EvaluationPage() {
                                                       {turn.turn_index + 1}
                                                     </span>
                                                     {turn.test_case_id && (
-                                                      <span className="rounded-full bg-[var(--hb-soft)] eval-text-caption px-1.5 py-0.5 text-[10px] font-mono">
+                                                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-mono font-semibold eval-trace-seq-${colorIdx}`}>
                                                         {turn.test_case_id}
                                                       </span>
                                                     )}
@@ -2320,12 +2320,12 @@ export default function EvaluationPage() {
                                                   {et.summary && (
                                                     <div className="flex flex-wrap gap-1.5">
                                                       {et.summary.total_messages != null && (
-                                                        <span className="rounded-full border eval-stats-badge px-2 py-0.5 text-[10px]">
+                                                        <span className="rounded-full border eval-stats-badge-ontology px-2 py-0.5 text-[10px]">
                                                           {et.summary.total_messages} msgs
                                                         </span>
                                                       )}
                                                       {(et.summary.total_tool_calls ?? 0) > 0 && (
-                                                        <span className="rounded-full border eval-stats-badge-ontology px-2 py-0.5 text-[10px]">
+                                                        <span className="rounded-full border eval-trace-badge-tool-use px-2 py-0.5 text-[10px]">
                                                           {et.summary.total_tool_calls} 工具
                                                         </span>
                                                       )}
@@ -2375,18 +2375,6 @@ export default function EvaluationPage() {
                                             )
                                           })}
 
-                                          {/* 原始 JSON 链接 */}
-                                          {traceLink && (
-                                            <a
-                                              href={traceLink}
-                                              target="_blank"
-                                              rel="noreferrer"
-                                              className="inline-flex items-center gap-1 text-[11px] eval-link"
-                                            >
-                                              <ExternalLink size={10} />
-                                              查看原始 Trace JSON
-                                            </a>
-                                          )}
                                         </>
                                       )
                                     })()}
