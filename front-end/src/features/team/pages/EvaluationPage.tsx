@@ -8,11 +8,10 @@ import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { tokenService } from '@/infra/auth/token-service'
 import { GatewayWs } from '@/infra/sandbox/gateway-ws'
-import { fetchSandboxSessionMessages } from '@/infra/sandbox/sandbox-api'
+import { fetchAdminSessions, fetchSandboxSessionMessages } from '@/infra/sandbox/sandbox-api'
 import {
   api,
   type EmployeeDetail,
-  type EvaluationSandboxConversationState,
   type EvaluationState,
   type EvaluationWorkspaceStatus,
   type HiringConversationMessage,
@@ -69,7 +68,7 @@ export default function EvaluationPage() {
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
   const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([])
   const [chatTyping, setChatTyping] = useState(false)
-  const [, setSandboxConversation] = useState<EvaluationSandboxConversationState | null>(null)
+  // sandboxConversation state 已移除，session ID 改为直接从网关查询
   const wsEvaluating = false
   const wsProgress = ''
   const [resetting, setResetting] = useState(false)
@@ -469,6 +468,8 @@ export default function EvaluationPage() {
     if (artifactTab !== 'trace') return
     const sessionId = evaluation?.sessionId ?? null
     if (!sessionId) return
+    // assetRefs 中没有 trace-json 时跳过，避免向后端发出必然 404 的请求
+    if (traceAssets.length === 0) return
     if (!expandedTraceUrls.includes(sessionId)) {
       setExpandedTraceUrls(prev => [...prev, sessionId])
       void loadTraceContent(sessionId)
@@ -717,12 +718,18 @@ export default function EvaluationPage() {
         // 把 eval session id 写回 workspaceStatus（右侧调试面板 Session 字段显示用）
         setWorkspaceStatus((prev) => (prev ? { ...prev, sessionId: connection.sessionId } : prev))
 
-        // WS 会话 id 由沙箱侧分配，与 eval session id 不同；优先复用已有值，否则向沙箱查询
+        // WS 会话 id 由沙箱侧分配，与 eval session id 不同；优先复用已有值，否则直接向网关查询
         let sessionId = sessionIdRef.current ?? ''
         if (!sessionId) {
-          const conversation = await api.employeeRuntime.getEvaluationSandboxConversation(id)
-          setSandboxConversation(conversation)
-          sessionId = conversation.sessionId?.trim() ?? ''
+          // 直接向网关 admin/sessions 取最新会话，避免后端存储的历史 session ID 因过期而触发 404
+          const adminResp = await fetchAdminSessions(endpoint, { page: 1, pageSize: 1 })
+          const latestSession = adminResp.active[0] ?? adminResp.persisted.items[0]
+          sessionId = latestSession?.id?.trim() ?? ''
+          // 网关无会话时兜底走后端接口（首次创建沙箱的边界情况）
+          if (!sessionId) {
+            const conversation = await api.employeeRuntime.getEvaluationSandboxConversation(id)
+            sessionId = conversation.sessionId?.trim() ?? ''
+          }
         }
 
         if (!endpoint || !sessionId) {
@@ -894,7 +901,8 @@ export default function EvaluationPage() {
   }
 
   async function loadTraceContent(sessionId: string) {
-    if (traceDataCache[sessionId]) return
+    // 已在加载中或已成功缓存时跳过；'error' 状态允许重试
+    if (traceDataCache[sessionId] && traceDataCache[sessionId] !== 'error') return
     if (!id) return
     setTraceDataCache(prev => ({ ...prev, [sessionId]: 'loading' }))
     try {
@@ -1048,18 +1056,16 @@ export default function EvaluationPage() {
       <div className="flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
                 <h1 className="text-[20px] font-semibold eval-text-strong">AI 评估对话</h1>
                 <p className="mt-1 text-[12px] leading-5 eval-text-secondary">
                   通过双沙箱实时对话推进评估，流程状态、会话和报告会持续同步到当前页面。
                 </p>
               </div>
-              <div className="flex max-w-full items-center justify-start xl:justify-end">
-                <div className="rounded-full border eval-flow-target px-3 py-1.5 text-[11px]">
-                  <span className="eval-text-caption">评估对象</span>
-                  <span className="ml-2 font-medium eval-text-title">{employee.nickname} · {employee.roleName}</span>
-                </div>
+              <div className="rounded-full border eval-flow-target shrink-0 px-3 py-1.5 text-[11px]">
+                <span className="eval-text-caption">评估对象</span>
+                <span className="ml-2 font-medium eval-text-title">{employee.nickname} · {employee.roleName}</span>
               </div>
             </div>
 
