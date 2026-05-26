@@ -32,13 +32,6 @@ export const HiringStageReadinessStatus = {
   Skipped: 'skipped',
 } as const
 
-export const HiringCredentialBindingStatus = {
-  Pending: 'pending',
-  Bound: 'bound',
-  NotRequired: 'not_required',
-  Failed: 'failed',
-} as const
-
 export const HiringAuditDecision = {
   Approve: 'APPROVE',
   RequestChanges: 'REQUEST_CHANGES',
@@ -192,16 +185,6 @@ export interface WorkflowRuntimeFacts {
   materialExtractionTargets: Record<string, string>
   skillBaselineReviewed: boolean
   skillBaselineConfirmed: boolean
-}
-
-export interface CredentialSlot {
-  credentialSlot: string
-  secretRef?: string | null
-  authKind?: string | null
-  targetSystem?: string | null
-  todoId?: string | null
-  bindingStatus: string
-  updatedAtUtc: string
 }
 
 export interface ConfigGovernanceFile {
@@ -359,7 +342,6 @@ export interface HiringWorkflowState {
   handoffItems?: HandoffItem[] | null
   latestDispatches?: DispatchCallback[] | null
   latestDiagnosticReport?: DiagnosticReport | null
-  credentialSlots?: CredentialSlot[] | null
   configGovernance?: ConfigGovernanceState | null
   stageReadiness?: StageReadiness[] | null
   runtimeFacts?: WorkflowRuntimeFacts | null

@@ -109,7 +109,6 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
             StageCompletion = workflowState?.StageCompletion ?? [],
             HandoffItems = workflowState?.HandoffItems ?? [],
             LatestDispatches = workflowState?.LatestDispatches ?? [],
-            CredentialSlots = workflowState?.CredentialSlots ?? [],
             ConfigGovernance = workflowState?.ConfigGovernance,
             StageReadiness = workflowState?.StageReadiness ?? []
         };
@@ -166,7 +165,6 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
         IReadOnlyList<HiringStageCompletionDto> StageCompletion,
         IReadOnlyList<HiringWorkflowHandoffDto> HandoffItems,
         IReadOnlyList<HiringDispatchRecordDto> LatestDispatches,
-        IReadOnlyList<HiringCredentialSlotDto> CredentialSlots,
         HiringConfigGovernanceStateDto? ConfigGovernance,
         IReadOnlyList<HiringStageReadinessDto> StageReadiness)
     {
@@ -176,7 +174,6 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
             context.StageCompletion,
             context.HandoffItems,
             context.LatestDispatches,
-            context.CredentialSlots,
             context.ConfigGovernance,
             context.StageReadiness);
     }

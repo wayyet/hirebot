@@ -1,8 +1,10 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using HireBot.Abstraction.Models.User;
 using HireBot.Repository.Entities;
 using HireBot.Repository.Extensions;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
@@ -10,6 +12,11 @@ namespace HireBot.Repository;
 
 public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options) : DbContext(options)
 {
+    private static readonly ValueComparer<Dictionary<string, string>?> SandboxMetadataComparer = new(
+        (left, right) => DictionariesEqual(left, right),
+        value => GetDictionaryHashCode(value),
+        value => value == null ? null : new Dictionary<string, string>(value, StringComparer.Ordinal));
+
     public override int SaveChanges()
     {
         TruncateTimestamps();
@@ -49,7 +56,6 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
 
     public DbSet<HiringSessionEntity> HiringSessions { get; set; }
     public DbSet<HiringRuntimeStateEntity> HiringRuntimeStates { get; set; }
-    public DbSet<HiringCredentialBindingEntity> HiringCredentialBindings { get; set; }
     public DbSet<HiringArtifactEntity> HiringArtifacts { get; set; }
     public DbSet<HiringMaterialFileEntity> HiringMaterialFiles { get; set; }
     public DbSet<HiringArtifactUploadEntity> HiringArtifactUploads { get; set; }
@@ -180,25 +186,6 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
 
             entity.HasIndex(e => e.SessionId);
             entity.HasIndex(e => e.UpdatedAtUtc);
-        });
-
-        modelBuilder.Entity<HiringCredentialBindingEntity>(entity =>
-        {
-            entity.HasKey(e => e.BindingId);
-            entity.Property(e => e.SessionId).IsRequired().HasMaxLength(64);
-            entity.Property(e => e.HireId).IsRequired().HasMaxLength(64);
-            entity.Property(e => e.CredentialSlot).IsRequired().HasMaxLength(160);
-            entity.Property(e => e.SecretRef).HasMaxLength(256);
-            entity.Property(e => e.AuthKind).HasMaxLength(80);
-            entity.Property(e => e.TargetSystem).HasMaxLength(160);
-            entity.Property(e => e.HandoffId).HasMaxLength(160);
-            entity.Property(e => e.BindingStatus).IsRequired().HasMaxLength(64);
-            entity.Property(e => e.ProtectedSecret).IsRequired();
-            entity.Property(e => e.CreatedAtUtc).IsRequired();
-            entity.Property(e => e.UpdatedAtUtc).IsRequired();
-
-            entity.HasIndex(e => new { e.SessionId, e.CredentialSlot }).IsUnique();
-            entity.HasIndex(e => new { e.HireId, e.UpdatedAtUtc });
         });
 
         modelBuilder.Entity<HiringArtifactEntity>(entity =>
@@ -341,7 +328,8 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
                 .HasColumnType("jsonb")
                 .HasConversion(
                     v => v == null ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                    v => v == null ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null));
+                    v => v == null ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null))
+                .Metadata.SetValueComparer(SandboxMetadataComparer);
             entity.Property(e => e.CreatedAtUtc).IsRequired();
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
 
@@ -399,5 +387,47 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
                 .HasForeignKey(e => e.SandboxSessionEntityId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
+    }
+
+    private static bool DictionariesEqual(
+        Dictionary<string, string>? left,
+        Dictionary<string, string>? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left is null || right is null || left.Count != right.Count)
+        {
+            return false;
+        }
+
+        foreach (var (key, value) in left)
+        {
+            if (!right.TryGetValue(key, out var otherValue) || !string.Equals(value, otherValue, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static int GetDictionaryHashCode(Dictionary<string, string>? value)
+    {
+        if (value is null || value.Count == 0)
+        {
+            return 0;
+        }
+
+        var hash = new HashCode();
+        foreach (var key in value.Keys.OrderBy(static item => item, StringComparer.Ordinal))
+        {
+            hash.Add(key, StringComparer.Ordinal);
+            hash.Add(value[key], StringComparer.Ordinal);
+        }
+
+        return hash.ToHashCode();
     }
 }

@@ -25,7 +25,6 @@ using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -45,7 +44,6 @@ internal sealed partial class EmployeeHiringService(
     IHiringRuntimeStore hiringRuntimeStore,
     IKingCrabHttpClient kingCrabHttpClient,
     ISandboxService sandboxService,
-    IDataProtectionProvider dataProtectionProvider,
     IHttpContextAccessor httpContextAccessor,
     IServiceScopeFactory serviceScopeFactory,
     HireBotDbContext dbContext,
@@ -56,7 +54,6 @@ internal sealed partial class EmployeeHiringService(
     IConfiguration configuration,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
-    private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
     private const string EvaluationWorkspaceTemplateId = "evaluation-expert";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

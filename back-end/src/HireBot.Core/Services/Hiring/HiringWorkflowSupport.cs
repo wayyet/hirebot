@@ -193,7 +193,6 @@ internal sealed record HiringDispatchCallbackTodoResultPayload(
     string HandoffId,
     string Status,
     IReadOnlyList<HiringDispatchCallbackArtifactPayload> Artifacts,
-    IReadOnlyList<HiringCredentialSlotDto>? CredentialSlots,
     IReadOnlyList<string> Errors);
 
 internal sealed record HiringDispatchCallbackPayload(

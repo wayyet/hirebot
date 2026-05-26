@@ -50,7 +50,6 @@ export {
   HiringAuditDecision,
   HiringTodoStatus,
   HiringStageReadinessStatus,
-  HiringCredentialBindingStatus,
 } from './modules/hiringWorkflowApi'
 
 export type {
@@ -67,7 +66,6 @@ export type {
   DiagnosticTodo,
   DiagnosticReport,
   WorkflowRuntimeFacts,
-  CredentialSlot,
   ConfigGovernanceFile,
   ConfigGovernanceState,
   HiringConversationMaterial,

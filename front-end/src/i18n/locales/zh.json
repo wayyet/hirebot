@@ -299,7 +299,7 @@
       },
       "external": {
         "title": "外部连接",
-        "description": "连接能力与凭据绑定",
+        "description": "连接能力与接入说明",
         "panelTitle": "配置外部连接",
         "panelDescription": "按连接能力逐条说明系统、操作、目标与认证方式。",
         "subtask": "连接配置",

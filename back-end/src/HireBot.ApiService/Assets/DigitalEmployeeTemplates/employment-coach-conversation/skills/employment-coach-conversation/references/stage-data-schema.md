@@ -41,7 +41,7 @@
     }
   ],
   "collected_count": 2,
-  "items": [
+  "external_capabilities": [
     {
       "title": "退货处理规则",
       "source_hint": "用户上传：非标退货处理规则.docx",
@@ -232,15 +232,15 @@
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `collected_count` | 是 | 当前已整理的外部能力数量 |
-| `items[]` | 是 | 外部能力清单 |
-| `items[].name` | 是 | 外部能力 slug |
-| `items[].display_name` | 是 | 对用户可读的名称 |
-| `items[].category` | 是 | `read` / `write` / `notify` / `search` / `transform` / `skip` |
-| `items[].objective` | 是 | 调用目的 |
-| `items[].target_system` | 是 | 目标系统名称 |
-| `items[].auth_kind` | 是 | `none` / `oauth2` / `bearer_token` / `api_key` / `basic` |
-| `items[].linked_skills` | 是 | 关联的 skill name 列表（非空） |
-| `items[].status` | 是 | `pending` / `ready` |
+| `external_capabilities[]` | 是 | 外部能力清单 |
+| `external_capabilities[].name` | 是 | 外部能力 slug |
+| `external_capabilities[].display_name` | 是 | 对用户可读的名称 |
+| `external_capabilities[].category` | 是 | `read` / `write` / `notify` / `search` / `transform` / `skip` |
+| `external_capabilities[].objective` | 是 | 调用目的 |
+| `external_capabilities[].target_system` | 是 | 目标系统名称 |
+| `external_capabilities[].auth_kind` | 是 | `none` / `oauth2` / `bearer_token` / `api_key` / `basic` |
+| `external_capabilities[].linked_skills` | 是 | 关联的 skill name 列表（非空） |
+| `external_capabilities[].status` | 是 | `pending` / `ready` |
 | `notes` | 否 | 补充说明（不得包含凭据值） |
 
 ---
@@ -249,9 +249,9 @@
 
 ```json
 {
-  "total_items": 2,
+  "total_capabilities": 2,
   "skip": false,
-  "items": [ "... 同 progress items ..." ],
+  "external_capabilities": [ "... 同 progress external_capabilities ..." ],
   "summary": "共规划 2 项外部能力接入，凭据配置待表单填写，外部阶段已确认"
 }
 ```
@@ -260,9 +260,9 @@
 
 ```json
 {
-  "total_items": 0,
+  "total_capabilities": 0,
   "skip": true,
-  "items": [],
+  "external_capabilities": [],
   "summary": "用户明确声明不需要外部系统接入，外部阶段已跳过"
 }
 ```
