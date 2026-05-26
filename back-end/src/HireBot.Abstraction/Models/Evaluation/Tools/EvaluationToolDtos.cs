@@ -89,3 +89,20 @@ public sealed record EvaluationReportUpsertResultDto(
     string ReportJsonUrl,
     string? ReportHtmlUrl,
     IReadOnlyList<EvaluationAssetRefDto> Assets);
+
+public sealed record EvaluationTraceSyncRequestDto
+{
+    [Required]
+    public string SessionId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// evaluate.py --mode execute 输出的 trace_result.json 完整内容（JSON 字符串）。
+    /// </summary>
+    [Required]
+    public string TraceJson { get; init; } = string.Empty;
+}
+
+public sealed record EvaluationTraceSyncResultDto(
+    string SessionId,
+    string AssetId,
+    string TraceJsonUrl);

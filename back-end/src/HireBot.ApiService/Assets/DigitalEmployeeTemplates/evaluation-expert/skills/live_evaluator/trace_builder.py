@@ -52,6 +52,10 @@ def build_turn_trace(
     """
     将单轮对话的原始 WS 消息列表格式化为 execution_trace。
 
+    流式 token（text_delta / assistant_chunk）会被折叠为单条 text_complete 日志，
+    raw_messages 不写入输出（assembled_assistant_text 已包含完整文本），
+    两者共同大幅减少 trace JSON 体积。
+
     Args:
         turn_index:   轮次序号（0-based）
         test_case_id: 对应的测试用例 ID
@@ -64,13 +68,30 @@ def build_turn_trace(
     logs: list[dict[str, Any]] = []
     tool_calls: list[dict[str, Any]] = []
     assistant_text_parts: list[str] = []
-    think_blocks: list[str] = []  # 收集所有思考块（暂不提取）
+    think_blocks: list[str] = []
     has_thought = False
     start_ts = None
     end_ts = None
-    
+
     # 工具调用配对：tool_start → tool_result
     pending_tool: dict[str, Any] | None = None
+
+    # 流式文本折叠状态：把连续的 text_delta 合并成一条 text_complete
+    _text_stream: dict[str, Any] = {"parts": [], "start": None, "end": None}
+
+    def _flush_text_stream() -> None:
+        """把当前积累的 text_delta 序列写入一条 text_complete 日志，然后重置。"""
+        if not _text_stream["parts"]:
+            return
+        logs.append({
+            "type": "text_complete",
+            "timestamp_start": _text_stream["start"],
+            "timestamp_end": _text_stream["end"],
+            "text": "".join(_text_stream["parts"]),
+        })
+        _text_stream["parts"] = []
+        _text_stream["start"] = None
+        _text_stream["end"] = None
 
     for msg in raw_messages:
         msg_type = msg.get("type", "unknown")
@@ -84,12 +105,13 @@ def build_turn_trace(
 
         # 工具调用开始
         if msg_type == "tool_start":
+            _flush_text_stream()
             tool_name = msg.get("text") or msg.get("tool_name") or "unknown"
             pending_tool = {
                 "type": "tool_call",
                 "timestamp": ts,
                 "tool_name": tool_name,
-                "parameters": None,  # tool_start 里没有入参
+                "parameters": None,
                 "result": None,
                 "start_message": msg,
             }
@@ -101,6 +123,7 @@ def build_turn_trace(
 
         # 工具调用结果
         elif msg_type == "tool_result":
+            _flush_text_stream()
             result_text = msg.get("text") or ""
             if pending_tool:
                 pending_tool["result"] = result_text
@@ -113,8 +136,9 @@ def build_turn_trace(
                 "result": result_text,
             })
 
-        # 独立 thought 消息（如果存在）
+        # 独立 thought 消息
         elif msg_type == "thought":
+            _flush_text_stream()
             has_thought = True
             logs.append({
                 "type": "thought",
@@ -122,8 +146,9 @@ def build_turn_trace(
                 "content": msg.get("content") or msg.get("text") or "",
             })
 
-        # 独立 tool_call 消息（如果存在，与 tool_start/result 不同）
+        # 独立 tool_call 消息（与 tool_start/result 不同）
         elif msg_type == "tool_call":
+            _flush_text_stream()
             entry = {
                 "type": "tool_call",
                 "timestamp": ts,
@@ -137,8 +162,8 @@ def build_turn_trace(
 
         # 完整助手消息
         elif msg_type == "assistant_message":
+            _flush_text_stream()
             content = msg.get("content") or msg.get("text") or ""
-            # 提取 <think> 块
             extracted_thinks, cleaned_content = extract_think_blocks(content)
             think_blocks.extend(extracted_thinks)
             has_thought = has_thought or len(extracted_thinks) > 0
@@ -149,18 +174,20 @@ def build_turn_trace(
                 "cleaned_content": cleaned_content,
             })
 
-        # 流式 token（拼接备用，暂不提取 <think>）
+        # 流式 token：只积累，不写单条日志；由 _flush_text_stream 统一折叠
         elif msg_type in ("text_delta", "assistant_chunk"):
             delta = msg.get("delta") or msg.get("text") or ""
             assistant_text_parts.append(delta)
-            logs.append({
-                "type": "text_delta",
-                "timestamp": ts,
-                "delta": delta,
-            })
+            _text_stream["parts"].append(delta)
+            if _text_stream["start"] is None:
+                _text_stream["start"] = ts
+            _text_stream["end"] = ts
 
         # 状态变更
         elif msg_type in ("typing_start", "typing_stop", "assistant_done"):
+            # typing_stop / assistant_done 标志流结束，先冲刷
+            if msg_type in ("typing_stop", "assistant_done"):
+                _flush_text_stream()
             logs.append({
                 "type": "state_change",
                 "timestamp": ts,
@@ -169,6 +196,7 @@ def build_turn_trace(
 
         # 审批请求
         elif msg_type == "approval_required":
+            _flush_text_stream()
             logs.append({
                 "type": "approval_required",
                 "timestamp": ts,
@@ -179,6 +207,7 @@ def build_turn_trace(
 
         # 错误
         elif msg_type == "error":
+            _flush_text_stream()
             logs.append({
                 "type": "error",
                 "timestamp": ts,
@@ -187,11 +216,15 @@ def build_turn_trace(
 
         # 未知类型，原样保留
         else:
+            _flush_text_stream()
             logs.append({
                 "type": log_type,
                 "timestamp": ts,
                 "_raw": msg,
             })
+
+    # 循环结束后确保未冲刷的流式文本写入
+    _flush_text_stream()
 
     # 如果没有 assistant_message 但有 text_delta，拼接成完整文本并提取 <think>
     assembled_text = None
@@ -218,9 +251,10 @@ def build_turn_trace(
         "user_input": user_input,
         "execution_trace": {
             "logs": logs,
-            "raw_messages": raw_messages,   # 完整原始消息，不丢弃
+            # raw_messages 不写入：assembled_assistant_text 已包含完整文本，
+            # 保留 raw_messages 会使 trace JSON 体积膨胀 10x 以上
             "assembled_assistant_text": assembled_text,
-            "think_blocks": think_blocks,   # 所有提取的思考内容
+            "think_blocks": think_blocks,
             "summary": {
                 "total_messages": len(raw_messages),
                 "total_tool_calls": len(tool_calls),

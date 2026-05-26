@@ -206,6 +206,32 @@ python3 /workspace/skills/live_evaluator/evaluate.py \
 
 ### 阶段 6：持久化
 
+#### 阶段 6a：上传执行轨迹（失败不阻断后续流程）
+
+调用 `trace_uploader.py` 把执行轨迹上传到 HireBot 后端：
+
+```bash
+python3 /workspace/skills/live_evaluator/trace_uploader.py \
+  --runtime-context /workspace/runtime/evaluation-context.json \
+  --trace-result /tmp/trace_result.json \
+  --output /tmp/trace_upload_result.json
+```
+
+脚本会自动从运行时上下文中读取以下配置：
+
+| 配置项 | 来源 |
+|--------|------|
+| HireBot 后端地址 | `runtime_context.ncrew_hire.base_url` |
+| API Token | 由脚本内部通过 `auth_client.resolve_auth()` 从 `auth_config.json` 自动获取，无需手动传入 |
+
+上传成功后，后端将完成：
+
+- 执行轨迹原始 JSON 资产存储（`EvaluationAssets` 表，`assetType = "trace-json"`）
+
+读取 `/tmp/trace_upload_result.json`，若 `status != "success"`，输出告警，**继续执行阶段 6b，不阻断**。
+
+#### 阶段 6b：上传评估结果
+
 调用 `verdict_uploader.py` 把评估结果上传到 HireBot 后端：
 
 ```bash
@@ -270,6 +296,7 @@ python3 /workspace/skills/live_evaluator/verdict_uploader.py \
 | testcase / ontology 缺失 | 引导上传到评估沙箱本地 |
 | 目标沙箱鉴权失败 | 提示检查 `auth_config.json` 配置或凭据过期 |
 | 目标沙箱执行超时 | 返回失败结果并保留已采集 trace |
+| 轨迹持久化失败 | 明确说明执行轨迹落库失败，不阻断 verdict 上传 |
 | 报告持久化失败 | 明确说明评分已完成，但后端落库失败 |
 
 ## 禁止事项

@@ -1278,6 +1278,62 @@ internal sealed partial class EvaluationService(
         return ApiResponse<EvaluationVerdictSyncResultDto>.SuccessResponse(resultDto, "verdict synced and report persisted");
     }
 
+    public async Task<ApiResponse<EvaluationTraceSyncResultDto>> SyncTraceAsync(
+        string employeeId,
+        EvaluationTraceSyncRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId) || request is null || string.IsNullOrWhiteSpace(request.SessionId) || string.IsNullOrWhiteSpace(request.TraceJson))
+            return ApiResponse<EvaluationTraceSyncResultDto>.ErrorResponse(400, "employeeId, sessionId and traceJson are required");
+
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
+            return ApiResponse<EvaluationTraceSyncResultDto>.ErrorResponse(404, "employee not found");
+
+        var scope = accessContext.PersistenceScope;
+
+        var sessionEntity = await dbContext.EvaluationSessions
+            .FirstOrDefaultAsync(item =>
+                item.OwnerSubject == scope &&
+                item.EmployeeId == employeeId.Trim() &&
+                item.SessionId == request.SessionId.Trim(),
+                cancellationToken);
+        if (sessionEntity is null)
+            return ApiResponse<EvaluationTraceSyncResultDto>.ErrorResponse(404, "evaluation session not found");
+
+        // 提取摘要字段用于日志，不把完整 traceJson 打印到日志
+        int traceJsonBytes = System.Text.Encoding.UTF8.GetByteCount(request.TraceJson);
+        logger.LogInformation(
+            "[Eval] SyncTrace received. employeeId={EmployeeId} sessionId={SessionId} traceJsonBytes={TraceJsonBytes}",
+            employeeId,
+            request.SessionId,
+            traceJsonBytes);
+
+        var traceAsset = await PersistTextAssetAsync(
+            sessionEntity,
+            assetType: "trace-json",
+            relatedKey: "trace:latest",
+            fileName: $"trace_result_{sessionEntity.SessionId}.json",
+            content: request.TraceJson,
+            mimeType: "application/json",
+            sourceType: "evaluator",
+            cancellationToken);
+
+        logger.LogInformation(
+            "[Eval] SyncTrace persisted. employeeId={EmployeeId} sessionId={SessionId} assetId={AssetId} url={Url}",
+            employeeId,
+            request.SessionId,
+            traceAsset.Id,
+            traceAsset.PublicUrl);
+
+        return ApiResponse<EvaluationTraceSyncResultDto>.SuccessResponse(
+            new EvaluationTraceSyncResultDto(
+                SessionId: sessionEntity.SessionId,
+                AssetId: traceAsset.Id.ToString("N"),
+                TraceJsonUrl: traceAsset.PublicUrl),
+            "trace synced");
+    }
+
     private static IReadOnlyList<EvaluationDimensionScoreDto> DeserializeDimensionScores(string? dimensionScoresJson)
     {
         if (string.IsNullOrWhiteSpace(dimensionScoresJson))

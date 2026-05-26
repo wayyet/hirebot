@@ -241,6 +241,22 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    [HttpPost("{employeeId}/evaluation/sync-trace")]
+    public async Task<IActionResult> SyncTrace(
+        string employeeId,
+        [FromBody] EvaluationTraceSyncRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EvaluationTraceSyncResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await evaluationService.SyncTraceAsync(employeeId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpDelete("{employeeId}/evaluation/data")]
     public async Task<IActionResult> ResetEvaluationData(string employeeId, CancellationToken cancellationToken = default)
     {
