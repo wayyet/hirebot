@@ -15,6 +15,7 @@ import {
   Trash2,
   X,
   Zap,
+  type LucideIcon,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
@@ -43,6 +44,52 @@ type EvalChatMessage = HiringConversationMessage & { toolSteps?: ToolStep[] }
 
 type ArtifactTab = 'overview' | 'testcase' | 'trace' | 'report'
 type WorkflowStageStatus = 'pending' | 'running' | 'completed' | 'failed'
+type WorkflowStage = {
+  key: string
+  title: string
+  detail: string
+  status: WorkflowStageStatus
+  pendingLabel?: string
+}
+
+type EvaluationStarterAction = {
+  key: string
+  title: string
+  description: string
+  prompt: string
+  icon: LucideIcon
+}
+
+const evaluationStarterActions: EvaluationStarterAction[] = [
+  {
+    key: 'explain-card',
+    title: '解释当前题卡',
+    description: '先说明本轮评估的目标、关键维度和判断重点。',
+    prompt: '请先解释当前题卡的评估目标、关键维度、预期输出，以及我接下来应该重点关注什么。',
+    icon: FileText,
+  },
+  {
+    key: 'execution-plan',
+    title: '给出执行计划',
+    description: '把评估拆成清晰步骤，先看路径再正式开始。',
+    prompt: '请基于当前题卡和已有素材，给出本轮评估的执行计划，按步骤列出每一步要验证什么。',
+    icon: Zap,
+  },
+  {
+    key: 'start-evaluation',
+    title: '开始完整评估',
+    description: '直接发起本轮评估，并持续同步结论和轨迹。',
+    prompt: '评估材料已就绪，请开始执行 AI 评估，并持续同步关键结论、风险点和评分依据。',
+    icon: Rocket,
+  },
+]
+
+const evaluationSuggestionPrompts = [
+  '对比上一轮评估，这次哪些维度有改善？',
+  '把评分标准里的「合规性」拆成更细的指标。',
+  '如果某个场景失败，我们应该优先追问什么？',
+  '请先给出本轮评估最值得关注的风险点。',
+]
 
 function toAbsoluteApiUrl(path?: string | null): string | null {
   if (!path) return null
@@ -111,7 +158,7 @@ function workflowStageTone(status: WorkflowStageStatus) {
   }
 }
 
-function workflowStagePill(status: WorkflowStageStatus) {
+function workflowStageStatusLabel(status: WorkflowStageStatus, pendingLabel = '等待中') {
   switch (status) {
     case 'completed':
       return '已完成'
@@ -120,7 +167,7 @@ function workflowStagePill(status: WorkflowStageStatus) {
     case 'failed':
       return '失败'
     default:
-      return '等待中'
+      return pendingLabel
   }
 }
 
@@ -135,6 +182,16 @@ function workflowStageTextTone(status: WorkflowStageStatus) {
     default:
       return 'eval-flow-step-text-pending'
   }
+}
+
+function findCurrentWorkflowStageIndex(stages: WorkflowStage[]) {
+  const runningOrFailedIndex = stages.findIndex((stage) => stage.status === 'running' || stage.status === 'failed')
+  if (runningOrFailedIndex >= 0) return runningOrFailedIndex
+
+  const pendingIndex = stages.findIndex((stage) => stage.status === 'pending')
+  if (pendingIndex >= 0) return pendingIndex
+
+  return stages.length > 0 ? stages.length - 1 : -1
 }
 
 function renderWorkflowStageMarker(status: WorkflowStageStatus, order: number) {
@@ -196,6 +253,7 @@ export default function EvaluationPage() {
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('overview')
   const [workspaceStatus, setWorkspaceStatus] = useState<EvaluationWorkspaceStatus | null>(null)
   const [workspacePolling, setWorkspacePolling] = useState(false)
+  const [expandedQuestionCardIds, setExpandedQuestionCardIds] = useState<string[]>([])
 
   const location = useLocation()
   const navigate = useNavigate()
@@ -219,6 +277,7 @@ export default function EvaluationPage() {
   const [resetConfirm, setResetConfirm] = useState(false)
   const [sessionCopied, setSessionCopied] = useState(false)
   const chatEndRef = useRef<HTMLDivElement | null>(null)
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null)
   const wsRef = useRef<GatewayWs | null>(null)
   const gatewayEndpointRef = useRef<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
@@ -283,6 +342,20 @@ export default function EvaluationPage() {
 
   const questionCards = evaluation?.questionCards ?? []
   const testcaseOutlines = evaluation?.testcaseOutlines ?? []
+  const questionCardMap = useMemo(
+    () => new Map(questionCards.map((card) => [card.testcaseId, card])),
+    [questionCards],
+  )
+  const testcaseItems = useMemo(
+    () => testcaseOutlines.length > 0
+      ? testcaseOutlines
+      : questionCards.map((card) => ({
+          testcaseId: card.testcaseId,
+          title: card.title || card.testcaseId,
+          userRequest: '',
+        })),
+    [questionCards, testcaseOutlines],
+  )
   const traceAssets = (evaluation?.assetRefs ?? [])
     .filter((asset) => asset.assetType === 'trace-json')
     .slice(0, 8)
@@ -291,8 +364,6 @@ export default function EvaluationPage() {
   const reportJsonUrl = toAbsoluteApiUrl(reportSummary?.reportJsonUrl ?? null)
   const reportHtmlUrl = toAbsoluteApiUrl(reportSummary?.reportHtmlUrl ?? null)
   const dimensionScores = reportSummary?.dimensionScores ?? []
-  const testcaseReady = evaluation?.readiness?.testcasesReady ?? false
-  const ontologyReady = evaluation?.readiness?.ontologyReady ?? false
 
   // 只要已有评估结果，或已进入人工复核/待上岗阶段，就允许进入人工评估页。
   // AI 结果只负责展示，不替用户做最终业务决策。
@@ -305,6 +376,11 @@ export default function EvaluationPage() {
   const [enteringHumanEval, setEnteringHumanEval] = useState(false)
   const [showHumanEvalConfirm, setShowHumanEvalConfirm] = useState(false)
   const { t } = useTranslation()
+  const hasChatTimelineContent =
+    chatLoading ||
+    chatMessages.length > 0 ||
+    streamingContent !== null ||
+    chatTyping
 
   function handleEnterHumanEval() {
     setShowHumanEvalConfirm(true)
@@ -348,9 +424,9 @@ export default function EvaluationPage() {
     })
   }
 
-  const workflowStages = useMemo<Array<{ key: string; title: string; detail: string; status: WorkflowStageStatus }>>(() => {
+  const workflowStages = useMemo<WorkflowStage[]>(() => {
     const stepMap = new Map((workspaceStatus?.steps ?? []).map((step) => [step.step, step.status]))
-    // 装载材料阶段：以测试用例加载出来为完成标志
+    // 保持原有四步流程语义：材料阶段以测试用例就绪作为完成标志
     const materialsStageStatus: WorkflowStageStatus = testcaseOutlines.length > 0
       ? 'completed'
       : mergeStageStatus([
@@ -371,29 +447,81 @@ export default function EvaluationPage() {
       {
         key: 'target',
         title: '创建目标沙箱',
-        detail: workspaceStatus?.targetSandboxId ? `目标 ${shortSandboxId(workspaceStatus.targetSandboxId)}` : '先创建被评估模板沙箱并拿到 gatewayEndpoint',
+        detail: workspaceStatus?.targetSandboxId ? `目标沙箱已创建：${shortSandboxId(workspaceStatus.targetSandboxId)}` : '创建被评估模板沙箱并拿到 gatewayEndpoint',
         status: resolveStageStatus(stepMap.get('target_sandbox')),
       },
       {
         key: 'evaluator',
         title: '创建评估沙箱',
-        detail: workspaceStatus?.evaluatorSandboxId ? `评估 ${shortSandboxId(workspaceStatus.evaluatorSandboxId)}` : '创建最终与用户交互的评估沙箱',
+        detail: workspaceStatus?.evaluatorSandboxId ? `评估沙箱已创建：${shortSandboxId(workspaceStatus.evaluatorSandboxId)}` : '创建最终与用户交互的评估沙箱',
         status: resolveStageStatus(stepMap.get('evaluator_sandbox')),
       },
       {
         key: 'materials',
         title: '装载模板与材料',
-        detail: testcaseOutlines.length > 0 ? `测试用例已就绪（${testcaseOutlines.length} 个场景）` : materialsReady ? '模板材料已进入评估沙箱，等待测试用例生成' : '上传评估技能包、目标模板和评估材料',
+        detail: testcaseOutlines.length > 0
+          ? `测试用例已就绪（${testcaseOutlines.length} 个场景）`
+          : materialsReady
+            ? '模板材料已进入评估沙箱，等待测试用例生成'
+            : '上传评估技能包、目标模板和评估材料',
         status: materialsStageStatus,
       },
       {
         key: 'execution',
         title: '执行评分与报告',
-        detail: reportSummary ? `第 ${reportSummary.iteration} 轮，综合 ${reportSummary.overallScore} 分` : hasTriggeredEval ? '正在驱动目标沙箱执行' : '通过聊天或 WS 触发正式评估',
+        detail: reportSummary
+          ? `已完成第 ${reportSummary.iteration} 轮评估，综合 ${reportSummary.overallScore} 分`
+          : hasTriggeredEval
+            ? '正在驱动评估并汇总报告'
+            : '点击主按钮开始正式评估',
         status: executionStatus,
+        pendingLabel: '未开始',
       },
     ]
-  }, [canNavigateToHumanEval, hasTriggeredEval, materialsReady, reportSummary, testcaseOutlines.length, workspaceStatus])
+  }, [
+    canNavigateToHumanEval,
+    hasTriggeredEval,
+    materialsReady,
+    reportSummary,
+    testcaseOutlines.length,
+    workspaceStatus,
+  ])
+
+  const currentWorkflowStageIndex = useMemo(
+    () => findCurrentWorkflowStageIndex(workflowStages),
+    [workflowStages],
+  )
+
+  const environmentStatus = useMemo(() => {
+    if (workspaceReady) {
+      return {
+        label: '双沙箱已连接',
+        dotClassName: 'eval-flow-status-dot eval-flow-status-dot-ready',
+      }
+    }
+    if (workspaceStatus?.overallStatus === 'failed') {
+      return {
+        label: '双沙箱准备失败',
+        dotClassName: 'eval-flow-status-dot eval-flow-status-dot-failed',
+      }
+    }
+    if (workspaceStatus && workspaceStatus.overallStatus !== 'not_started') {
+      return {
+        label: '双沙箱准备中',
+        dotClassName: 'eval-flow-status-dot eval-flow-status-dot-running',
+      }
+    }
+    return {
+      label: '尚未准备环境',
+      dotClassName: 'eval-flow-status-dot eval-flow-status-dot-pending',
+    }
+  }, [workspaceReady, workspaceStatus])
+
+  const primaryActionLabel = wsEvaluating
+    ? (wsProgress || '执行中...')
+    : hasTriggeredEval
+      ? '重新执行评估'
+      : '执行评估'
 
     const reportMetrics = useMemo(() => ([
     {
@@ -968,6 +1096,33 @@ export default function EvaluationPage() {
     }
   }
 
+  function focusChatInput() {
+    window.requestAnimationFrame(() => {
+      chatInputRef.current?.focus()
+    })
+  }
+
+  function handleStarterAction(prompt: string) {
+    void sendEvaluatorMessage(prompt)
+  }
+
+  function handleSuggestionSelect(prompt: string) {
+    setChatInput(prompt)
+    focusChatInput()
+  }
+
+  function toggleQuestionCardDetails(testcaseId: string) {
+    setExpandedQuestionCardIds((current) => (
+      current.includes(testcaseId)
+        ? current.filter((item) => item !== testcaseId)
+        : [...current, testcaseId]
+    ))
+  }
+
+  function handleRunSingleScenario(testcaseId: string, title: string) {
+    void sendEvaluatorMessage(`请仅执行测试场景「${title}」（${testcaseId}），并说明执行结果、评分依据和结论。`)
+  }
+
   useEffect(() => {
     if (!aiRunning || !id) {
       setChatMessages([])
@@ -1192,13 +1347,15 @@ export default function EvaluationPage() {
               </div>
             )}
 
-            <section className="hb-card eval-flow-panel px-4 py-4">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0 flex-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="flex min-w-[980px]">
+            <section className="hb-card eval-flow-panel px-4 pb-3 pt-3">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 flex-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    <div className="flex min-w-[1180px] pl-[50px]">
                     {workflowStages.map((stage, index) => {
                       const tone = workflowStageTone(stage.status)
                       const textTone = workflowStageTextTone(stage.status)
+                      const isCurrentStage = index === currentWorkflowStageIndex
                       const connectorTone = stage.status === 'completed'
                         ? 'eval-flow-step-line-completed'
                         : stage.status === 'running'
@@ -1210,102 +1367,127 @@ export default function EvaluationPage() {
                       return (
                         <div key={stage.key} className="flex min-w-0 flex-1">
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center">
-                              <div className={`eval-flow-step-node ${tone}`}>
+                            <div className="mt-[4px] flex items-center">
+                              <div className={`eval-flow-step-node ${tone} ${isCurrentStage ? 'eval-flow-step-node-current' : ''}`}>
                                 {renderWorkflowStageMarker(stage.status, index + 1)}
                               </div>
                               {index < workflowStages.length - 1 && (
                                 <div className={`eval-flow-step-line ${connectorTone}`} />
                               )}
                             </div>
-                            <div className="mt-3 pr-4">
-                              <div className="text-[12px] font-semibold leading-5 eval-text-title">{stage.title}</div>
-                              <div className={`mt-1 text-[11px] font-medium leading-4 ${textTone}`}>
-                                {workflowStagePill(stage.status)}
+                            <div className="eval-flow-stage-copy mt-[16px] pr-4">
+                              <div className={`eval-flow-stage-title ${stage.status === 'pending' ? 'eval-flow-stage-title-muted' : ''} ${isCurrentStage ? 'eval-flow-stage-title-current' : ''}`}>
+                                {stage.title}
+                              </div>
+                              <div className={`mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium leading-4 ${textTone} ${isCurrentStage ? 'eval-flow-stage-status-current' : ''}`}>
+                                {stage.status === 'completed' ? (
+                                  <Check size={12} />
+                                ) : stage.status === 'running' ? (
+                                  <Loader2 size={12} className="animate-spin" />
+                                ) : stage.status === 'failed' ? (
+                                  <AlertCircle size={12} />
+                                ) : (
+                                  <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+                                )}
+                                {workflowStageStatusLabel(stage.status, stage.pendingLabel)}
                               </div>
                             </div>
                           </div>
                         </div>
                       )
                     })}
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex shrink-0 flex-wrap items-center gap-2 xl:ml-6">
-                  {resetConfirm ? (
-                    <div className="flex items-center gap-1.5 rounded-lg border border-[var(--hb-danger)]/30 bg-[var(--hb-danger)]/5 px-2.5 py-2">
-                      <AlertCircle size={11} className="shrink-0 text-[var(--hb-danger)]" />
-                      <span className="whitespace-nowrap text-[11px] text-[var(--hb-danger)]">确认清理？</span>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2 xl:ml-8 xl:self-start">
+                    {resetConfirm ? (
+                      <div className="flex items-center gap-1.5 rounded-lg border border-[var(--hb-danger)]/30 bg-[var(--hb-danger)]/5 px-2.5 py-2">
+                        <AlertCircle size={11} className="shrink-0 text-[var(--hb-danger)]" />
+                        <span className="whitespace-nowrap text-[11px] text-[var(--hb-danger)]">确认清理？</span>
+                        <button
+                          type="button"
+                          disabled={resetting || submitting}
+                          className="text-[11px] font-semibold text-[var(--hb-danger)] underline-offset-2 hover:underline disabled:opacity-50"
+                          onClick={() => void handleResetEvaluationData()}
+                        >
+                          {resetting ? (
+                            <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" />清理中...</span>
+                          ) : '确认'}
+                        </button>
+                        <span className="text-[11px] text-[var(--hb-border)]">/</span>
+                        <button
+                          type="button"
+                          disabled={resetting}
+                          className="text-[11px] text-[var(--hb-soft)] hover:text-[var(--hb-body)] disabled:opacity-50"
+                          onClick={() => setResetConfirm(false)}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    ) : (
                       <button
                         type="button"
                         disabled={resetting || submitting}
-                        className="text-[11px] font-semibold text-[var(--hb-danger)] underline-offset-2 hover:underline disabled:opacity-50"
+                        className="eval-flow-ghost-btn"
                         onClick={() => void handleResetEvaluationData()}
+                        title="清理当前评估数据（工作区状态、会话记录、报告），便于重新走评估流程"
                       >
-                        {resetting ? (
-                          <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" />清理中...</span>
-                        ) : '确认'}
+                        {resetting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                        {resetting ? '清理中...' : '清理'}
                       </button>
-                      <span className="text-[11px] text-[var(--hb-border)]">/</span>
-                      <button
-                        type="button"
-                        disabled={resetting}
-                        className="text-[11px] text-[var(--hb-soft)] hover:text-[var(--hb-body)] disabled:opacity-50"
-                        onClick={() => setResetConfirm(false)}
-                      >
-                        取消
-                      </button>
-                    </div>
-                  ) : (
+                    )}
                     <button
                       type="button"
-                      disabled={resetting || submitting}
-                      className="eval-flow-ghost-btn"
-                      onClick={() => void handleResetEvaluationData()}
-                      title="清理当前评估数据（工作区状态、会话记录、报告），便于重新走评估流程"
+                      disabled={submitting || wsEvaluating || !aiRunning}
+                      className="eval-flow-primary-btn min-w-[176px] justify-center"
+                      onClick={() => void submitAiDecision('RUN')}
                     >
-                      {resetting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                      {resetting ? '清理中...' : '清理'}
+                      {wsEvaluating ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <CheckCircle2 size={13} />
+                      )}
+                      {primaryActionLabel}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    disabled={submitting || wsEvaluating || !aiRunning}
-                    className="eval-flow-primary-btn"
-                    onClick={() => void submitAiDecision('RUN')}
-                  >
-                    {wsEvaluating ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                    {wsEvaluating ? (wsProgress || '执行中...') : '执行评估'}
-                  </button>
+                  </div>
                 </div>
-              </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-0 border-t eval-chat-footer pt-3 text-[11px]">
-                {workspaceReady && (
-                  <span className="eval-flow-status-item eval-flow-status-ok">双沙箱已连接</span>
-                )}
-                <span className={`eval-flow-status-item ${sandboxConnected ? 'eval-flow-status-connected' : 'eval-flow-status-muted'}`}>
-                  会话{sandboxConnected ? '已连接' : '未连接'}
-                </span>
-                {workspaceStatus?.sessionId && (
-                  <span className="eval-flow-status-item eval-flow-status-session">
-                    <span className="eval-flow-status-label">Session</span>
-                    <span className="font-mono eval-text-title">{shortSessionId(workspaceStatus.sessionId)}</span>
-                    <button
-                      type="button"
-                      className="eval-flow-copy-btn"
-                      onClick={handleCopySessionId}
-                      title={sessionCopied ? '已复制' : '复制 Session'}
-                    >
-                      {sessionCopied ? <Check size={12} /> : <Copy size={12} />}
-                    </button>
+                <div className="eval-flow-status-strip eval-flow-status-strip-indented">
+                  <span className="eval-flow-status-item">
+                    <span className={environmentStatus.dotClassName} />
+                    {environmentStatus.label}
                   </span>
-                )}
-                {workspaceProgressSummary?.errorMessage && (
-                  <span className="eval-flow-status-item eval-flow-status-error">
-                    {workspaceProgressSummary.errorMessage}
+                  <span className="eval-flow-status-divider" aria-hidden="true" />
+                  <span className={`eval-flow-status-item ${sandboxConnected ? 'eval-flow-status-connected' : 'eval-flow-status-muted'}`}>
+                    会话{sandboxConnected ? '已连接' : '未连接'}
                   </span>
-                )}
+                  {workspaceStatus?.sessionId && (
+                    <>
+                      <span className="eval-flow-status-divider" aria-hidden="true" />
+                      <span className="eval-flow-status-item eval-flow-status-session">
+                        <span className="eval-flow-status-label">Session</span>
+                        <span className="font-mono eval-flow-status-session-value">{shortSessionId(workspaceStatus.sessionId)}</span>
+                        <button
+                          type="button"
+                          className="eval-flow-copy-btn"
+                          onClick={handleCopySessionId}
+                          title={sessionCopied ? '已复制' : '复制 Session'}
+                        >
+                          {sessionCopied ? <Check size={12} /> : <Copy size={12} />}
+                        </button>
+                      </span>
+                    </>
+                  )}
+                  {workspaceProgressSummary?.errorMessage && (
+                    <>
+                      <span className="eval-flow-status-divider" aria-hidden="true" />
+                      <span className="eval-flow-status-item eval-flow-status-error">
+                        <AlertCircle size={12} className="shrink-0" />
+                        {workspaceProgressSummary.errorMessage}
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
             </section>
           </div>
@@ -1331,8 +1513,8 @@ export default function EvaluationPage() {
                       <MessageCircle size={18} />
                     </div>
                     <div>
-                      <div className="text-base font-semibold eval-text-title">评估对话主视图</div>
-                      <div className="text-[12px] leading-5 eval-text-secondary">以聊天为主，右侧只保留题卡、轨迹和报告。</div>
+                      <div className="text-base font-semibold eval-text-title">评估对话</div>
+                      <div className="text-[12px] leading-5 eval-text-secondary">主视图聚焦对话发起，题卡、轨迹和报告继续保留在右侧。</div>
                     </div>
                   </div>
                 </div>
@@ -1348,7 +1530,7 @@ export default function EvaluationPage() {
                 </div>
               </div>
             </div>
-            <div className="flex flex-1 flex-col overflow-hidden eval-chat-bg px-5 py-4">
+            <div className="flex flex-1 flex-col overflow-hidden eval-chat-bg px-5 pb-4 pt-2">
               {/* 评估结果横幅：无论通过或未通过，都应允许人工评估接管决策 */}
               {canNavigateToHumanEval && humanEvalPath && (
                 <div className={`mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-sm ${humanEvalBannerTone}`}>
@@ -1370,49 +1552,71 @@ export default function EvaluationPage() {
                   </button>
                 </div>
               )}
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border eval-chat-wrapper shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 {!aiRunning ? (
                   <div className="m-4 rounded-2xl border eval-inactive-tip px-4 py-3 text-sm leading-6">
                     请先点击“准备评估环境”。环境就绪后，这里会成为主聊天入口，你可以直接和评估沙箱对话，再结合右侧题卡、轨迹和报告辅助判断。
                   </div>
                 ) : (
                   <>
-                    {testcaseOutlines.length > 0 && (
-                      <div className="shrink-0 border-b eval-chat-footer px-5 py-2.5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[12px] font-medium eval-text-green-mid">✓ 测试用例已就绪</span>
-                          <span className="rounded-full border eval-stats-badge px-2 py-0.5 text-[11px]">
-                            {testcaseOutlines.length} 个场景
-                          </span>
-                          {testcaseOutlines.slice(0, 3).map((outline) => (
-                            <span key={outline.testcaseId} className="rounded-full border eval-pill-neutral px-2 py-0.5 text-[11px] truncate max-w-[160px]">
-                              {outline.title}
-                            </span>
-                          ))}
-                          {testcaseOutlines.length > 3 && (
-                            <button
-                              type="button"
-                              className="rounded-full border eval-pill-neutral px-2 py-0.5 text-[11px] text-[var(--hb-blue)] hover:bg-[var(--hb-blue)]/10 transition-colors"
-                              onClick={() => {
-                                setRightCollapsed(false)
-                                setArtifactTab('testcase')
-                              }}
-                            >
-                              +{testcaseOutlines.length - 3} 查看全部 →
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+                    <div className={`flex-1 px-5 py-4 ${hasChatTimelineContent ? 'space-y-3 overflow-y-auto' : 'overflow-y-hidden'}`}>
                       {chatLoading ? (
                         <div className="flex items-center gap-2 text-sm text-[var(--hb-soft)]">
                           <Loader2 size={14} className="animate-spin" />
                           正在加载评估沙箱对话...
                         </div>
                       ) : chatMessages.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed eval-empty-chat px-4 py-4 text-sm leading-6">
-                          暂无对话。你可以先让评估沙箱解释当前题卡、给出执行计划，或者要求它开始一次完整评估。
+                        <div className="flex min-h-full items-center justify-center py-8">
+                          <section className="eval-chat-empty-stage flex w-full max-w-[760px] flex-col items-center">
+                            <div className="eval-empty-stage-icon">
+                              <MessageCircle size={20} />
+                            </div>
+                            <div className="mt-5 text-center">
+                              <h2 className="text-[28px] font-semibold tracking-[-0.02em] eval-text-strong">从一句话开始评估</h2>
+                              <p className="mx-auto mt-3 max-w-[560px] text-[14px] leading-7 eval-text-secondary">
+                                暂无对话。选一个起手动作直接向评估沙箱提问，所有答复、执行轨迹和评分结论都会同步回到当前面板。
+                              </p>
+                            </div>
+
+                            <div className="mt-9 grid w-full gap-3 md:grid-cols-3">
+                              {evaluationStarterActions.map((action, index) => (
+                                <button
+                                  key={action.key}
+                                  type="button"
+                                  disabled={chatSending}
+                                  className="eval-starter-card text-left disabled:cursor-not-allowed disabled:opacity-60"
+                                  onClick={() => handleStarterAction(action.prompt)}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="eval-starter-card-icon">
+                                      <action.icon size={16} />
+                                    </div>
+                                    <span className="eval-starter-card-index">{index + 1}</span>
+                                  </div>
+                                  <div className="mt-6 text-[18px] font-semibold tracking-[-0.02em] eval-text-title">
+                                    {action.title}
+                                  </div>
+                                  <p className="mt-2 text-[13px] leading-6 eval-text-secondary">
+                                    {action.description}
+                                  </p>
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                              {evaluationSuggestionPrompts.map((prompt) => (
+                                <button
+                                  key={prompt}
+                                  type="button"
+                                  disabled={chatSending}
+                                  className="eval-suggestion-pill disabled:cursor-not-allowed disabled:opacity-60"
+                                  onClick={() => handleSuggestionSelect(prompt)}
+                                >
+                                  {prompt}
+                                </button>
+                              ))}
+                            </div>
+                          </section>
                         </div>
                       ) : (
                         chatMessages.map((message) => {
@@ -1485,11 +1689,12 @@ export default function EvaluationPage() {
                           </div>
                         </div>
                       )}
-                      <div ref={chatEndRef} />
+                      {hasChatTimelineContent ? <div ref={chatEndRef} /> : null}
                     </div>
                     <div className="border-t eval-chat-footer px-4 py-4">
-                      <div className="flex items-end gap-2">
+                      <div className="eval-composer-shell flex items-end gap-3 rounded-[24px] border px-4 py-3">
                         <textarea
+                          ref={chatInputRef}
                           value={chatInput}
                           onChange={(event) => setChatInput(event.target.value)}
                           onKeyDown={(event) => {
@@ -1501,12 +1706,12 @@ export default function EvaluationPage() {
                           rows={2}
                           disabled={chatSending}
                           placeholder="向评估沙箱发送消息（Enter 发送，Shift+Enter 换行）"
-                          className="min-h-[72px] flex-1 resize-y rounded-2xl border eval-textarea px-4 py-3.5 text-sm leading-6 outline-none disabled:opacity-60"
+                          className="eval-composer-input min-h-[88px] flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 outline-none disabled:opacity-60"
                         />
                         <button
                           type="button"
                           disabled={chatSending || !chatInput.trim()}
-                          className="hb-btn-primary !px-4 !py-3.5 disabled:!bg-[#d4d4d8]"
+                          className="hb-btn-primary mb-1 !h-11 !w-11 !rounded-full !px-0 !py-0 disabled:!bg-[#d4d4d8]"
                           onClick={() => void sendEvaluatorMessage()}
                         >
                           {chatSending ? <Loader2 size={12} className="animate-spin" /> : <SendHorizontal size={12} />}
@@ -1544,7 +1749,7 @@ export default function EvaluationPage() {
               </button>
             ) : (
               <>
-                <div className="flex border-b eval-tab-bar">
+                <div className="flex items-center border-b eval-tab-bar px-2">
                   {[
                     { key: 'overview' as ArtifactTab, label: '概览报告', icon: BarChart2 },
                     { key: 'testcase' as ArtifactTab, label: '测试用例', icon: FileText },
@@ -1555,277 +1760,260 @@ export default function EvaluationPage() {
                       key={tab.key}
                       type="button"
                       onClick={() => setArtifactTab(tab.key)}
-                      className={`flex flex-1 items-center justify-center gap-1 border-b-2 py-2 text-xs font-medium ${
+                      className={`eval-side-tab-button flex flex-1 items-center justify-center gap-1 border-b-2 px-2 py-3 text-[11px] font-medium whitespace-nowrap ${
                         artifactTab === tab.key ? 'eval-tab-active' : 'eval-tab-inactive'
                       }`}
                     >
-                      <tab.icon size={11} />
+                      <tab.icon size={12} />
                       {tab.label}
                     </button>
                   ))}
                   <button
                     type="button"
                     onClick={() => setRightCollapsed(true)}
-                    className="ml-auto px-2 py-2 text-[var(--hb-caption)] transition-colors hover:text-[var(--hb-soft)]"
+                    className="ml-auto rounded-lg px-2 py-2 text-[var(--hb-caption)] transition-colors hover:bg-[var(--hb-surface-soft)] hover:text-[var(--hb-soft)]"
                   >
                     <ChevronDown size={14} className="rotate-90" />
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-3 text-xs">
+                <div className="flex-1 overflow-y-auto p-4 pt-3 text-xs">
                   {artifactTab === 'overview' && (
                     <div className="space-y-3">
-                      <div className="rounded-2xl border eval-stats-header p-4">
+                      <div className={`rounded-[22px] border p-4 ${reportSummary?.passed === false ? 'eval-report-fail' : 'eval-report-pass'}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] eval-text-indigo-label">Summary Report</div>
+                            <div className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${reportSummary?.passed === false ? 'eval-text-red-2' : 'eval-text-green-mid'}`}>
+                              {reportSummary == null ? '等待评估' : reportSummary.passed ? '✓ 评估通过' : '✗ 评估未通过'}
+                            </div>
                             <div className="mt-1 text-base font-semibold eval-text-title">AI 评估结论</div>
-                            <div className="mt-1 text-[11px] leading-relaxed eval-text-secondary">布局参考原型的总结面板，但仅展示当前后端真实返回的数据。</div>
+                            <div className="mt-1 text-[11px] leading-relaxed eval-text-secondary">
+                              {reportSummary
+                                ? `第 ${reportSummary.iteration} 轮 · ${formatDateTime(reportSummary.createdAtUtc)}`
+                                : '执行评估后，这里会展示本轮结论和关键指标。'}
+                            </div>
                           </div>
-                          <div className="rounded-2xl border eval-score-card px-4 py-3 text-center shadow-sm">
+                          <div className="rounded-2xl border eval-score-card px-4 py-3 text-center">
                             <div className="text-3xl font-bold tabular-nums eval-text-title">{reportSummary?.overallScore ?? '--'}</div>
                             <div className="mt-1 text-[11px] eval-text-secondary">综合评分</div>
                           </div>
                         </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          {reportMetrics.map((metric) => (
-                            <div key={metric.label} className="rounded-xl border eval-score-card px-3 py-2.5">
-                              <div className="text-[11px] eval-text-secondary">{metric.label}</div>
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          {reportMetrics.slice(0, 4).map((metric) => (
+                            <div key={metric.label} className="rounded-2xl border eval-score-card px-3 py-2.5">
+                              <div className="text-[10px] uppercase tracking-[0.06em] eval-text-caption">{metric.label}</div>
                               <div className={`mt-1 text-sm font-semibold ${metric.tone}`}>{metric.value}</div>
                             </div>
                           ))}
                         </div>
+                        <div className="mt-4 rounded-2xl border eval-recommendation px-3 py-3 text-[11px] leading-relaxed">
+                          {evaluation.recommendation || '暂无建议，等待评估结果生成。'}
+                        </div>
                       </div>
 
-                      <div className="rounded-xl border eval-overview-panel p-3">
-                        <div className="mb-2 flex items-center gap-1.5 font-semibold text-[var(--hb-body)]">
-                          <BarChart2 size={11} />
-                          维度评分对比
-                        </div>
-                        {dimensionScores.length === 0 ? (
-                          <div className="text-[11px] text-[var(--hb-soft)]">当前报告未返回维度明细。</div>
-                        ) : (
-                          <div className="overflow-hidden rounded-lg border eval-table-row-border">
-                            <table className="w-full border-collapse text-left text-[11px]">
-                              <thead className="eval-table-header">
-                                <tr>
-                                  <th className="px-3 py-2 font-medium">维度</th>
-                                  <th className="px-3 py-2 font-medium">得分</th>
-                                  <th className="px-3 py-2 font-medium">说明</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {dimensionScores.map((item) => (
-                                  <tr key={item.dimension} className="border-t eval-table-row-border align-top">
-                                    <td className="px-3 py-2 font-medium eval-text-title">{item.dimension}</td>
-                                    <td className="px-3 py-2 tabular-nums eval-text-title">{item.score}</td>
-                                    <td className="px-3 py-2 eval-text-secondary">{item.comment || '--'}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                      {dimensionScores.length > 0 && (
+                        <details className="eval-side-disclosure rounded-[20px] border eval-overview-panel">
+                          <summary className="eval-side-disclosure-summary">
+                            <span className="inline-flex items-center gap-1.5">
+                              <BarChart2 size={12} />
+                              维度评分明细
+                            </span>
+                          </summary>
+                          <div className="eval-side-disclosure-body space-y-2">
+                            {dimensionScores.map((item) => (
+                              <div key={item.dimension} className="rounded-xl border eval-dim-item px-3 py-2.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[11px] font-medium eval-text-title">{item.dimension}</span>
+                                  <span className="tabular-nums text-[11px] font-semibold eval-text-indigo">{item.score}</span>
+                                </div>
+                                {item.comment && (
+                                  <div className="mt-1.5 text-[10px] leading-relaxed eval-text-secondary">{item.comment}</div>
+                                )}
+                              </div>
+                            ))}
                           </div>
-                        )}
-                      </div>
+                        </details>
+                      )}
 
-                      <div className="rounded-xl border eval-overview-panel p-3">
-                        <div className="mb-2 flex items-center gap-1.5 font-semibold text-[var(--hb-body)]">
-                          <FileText size={11} />
-                          报告与建议
-                        </div>
-                        {reportSummary ? (
-                          <div className="space-y-2 text-[11px] text-[var(--hb-soft)]">
-                            <div>生成时间：{formatDateTime(reportSummary.createdAtUtc)}</div>
-                            <div>评估轮次：第 {reportSummary.iteration} 轮</div>
-                            <div className="flex flex-wrap gap-2">
-                              {reportJsonUrl && (
-                                <a
-                                  href={reportJsonUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 eval-link"
-                                >
-                                  <ExternalLink size={10} />
-                                  查看报告 JSON
-                                </a>
-                              )}
-                              {reportHtmlUrl && (
-                                <a
-                                  href={reportHtmlUrl}
-                                  download={`evaluation-report-${reportSummary.reportId}.html`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 eval-link"
-                                >
-                                  <ExternalLink size={10} />
-                                  下载报告 HTML
-                                </a>
-                              )}
+                      {(reportJsonUrl || reportHtmlUrl || workspaceStatus?.sessionId) && (
+                        <details className="eval-side-disclosure rounded-[20px] border eval-overview-panel">
+                          <summary className="eval-side-disclosure-summary">
+                            <span className="inline-flex items-center gap-1.5">
+                              <FileText size={12} />
+                              报告资源与调试信息
+                            </span>
+                          </summary>
+                          <div className="eval-side-disclosure-body space-y-3">
+                            {(reportJsonUrl || reportHtmlUrl) && (
+                              <div className="flex flex-wrap gap-2">
+                                {reportJsonUrl && (
+                                  <a
+                                    href={reportJsonUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]"
+                                  >
+                                    <ExternalLink size={10} />
+                                    查看报告 JSON
+                                  </a>
+                                )}
+                                {reportHtmlUrl && reportSummary && (
+                                  <a
+                                    href={reportHtmlUrl}
+                                    download={`evaluation-report-${reportSummary.reportId}.html`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]"
+                                  >
+                                    <ExternalLink size={10} />
+                                    下载报告 HTML
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                            <div className="space-y-1 text-[10px] font-mono leading-relaxed eval-text-secondary">
+                              <div>session: {workspaceStatus?.sessionId ?? '--'}</div>
+                              <div>target: {workspaceStatus?.targetSandboxId ?? '--'}</div>
+                              <div>evaluator: {workspaceStatus?.evaluatorSandboxId ?? '--'}</div>
                             </div>
                           </div>
-                        ) : (
-                          <div className="text-[11px] text-[var(--hb-soft)]">暂无评估报告，请先执行评估。</div>
-                        )}
-                        <div className="mt-3 rounded-lg border eval-recommendation px-3 py-2.5 text-[11px] leading-relaxed">
-                          {evaluation.recommendation}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl border border-dashed eval-debug-panel p-3">
-                        <div className="mb-1 text-[11px] font-semibold eval-text-blue">调试信息</div>
-                        <div className="space-y-1 text-[10px] font-mono leading-relaxed text-[var(--hb-soft)]">
-                          <div>target: {workspaceStatus?.targetSandboxId ?? '--'} | {workspaceStatus?.targetGatewayEndpoint ?? '--'}</div>
-                          <div>evaluator: {workspaceStatus?.evaluatorSandboxId ?? '--'} | {workspaceStatus?.evaluatorGatewayEndpoint ?? '--'}</div>
-                          <div>session: {workspaceStatus?.sessionId ?? '--'}</div>
-                        </div>
-                      </div>
+                        </details>
+                      )}
                     </div>
                   )}
 
                   {artifactTab === 'testcase' && (
-                    <div className="space-y-2">
-                      {/* 测试场景概览（与聊天区域上方一致） */}
-                      {testcaseOutlines.length > 0 && (
-                        <div className="overflow-hidden rounded-2xl border eval-scenario-list shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-                          <div className="px-3 pb-2.5 pt-3">
-                            <div className="mb-2 text-[11px] font-semibold eval-text-title">
-                              测试场景（{testcaseOutlines.length} 个）
-                            </div>
-                            <div className="space-y-1.5">
-                              {testcaseOutlines.map((outline) => (
-                                <div key={outline.testcaseId} className="rounded-lg border eval-step-row px-2.5 py-2">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="flex min-w-0 items-start gap-1.5">
-                                      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--hb-text-green)]" />
-                                      <div className="min-w-0">
-                                        <div className="text-[11px] font-medium eval-text-body">{outline.title}</div>
-                                        {outline.userRequest && (
-                                          <div className="mt-0.5 text-[10px] leading-relaxed eval-text-secondary">{outline.userRequest}</div>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <span className="shrink-0 text-[10px] font-mono eval-text-caption">{outline.testcaseId}</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="border-t eval-scenario-footer px-3 py-2">
-                            <span className="text-[10px] font-medium eval-text-green-mid">✓ 用例已就绪，可开始评估</span>
-                          </div>
-                        </div>
-                      )}
+                    <div className="space-y-3">
                       {!workspaceReady ? (
-                        <div className="rounded-xl border eval-empty-card px-3 py-3 text-[11px]">
+                        <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
                           请先完成沙箱初始化流程，随后展示测试用例。
                         </div>
                       ) : !materialsReady ? (
-                        <div className="rounded-xl border eval-empty-card px-3 py-3 text-[11px]">
-                          素材未就绪，等待完成“加载评估素材”。
+                        <div className="rounded-[20px] border eval-side-notice-warning px-4 py-3 text-[11px] leading-relaxed">
+                          素材未就绪，等待完成“加载评估素材”后将自动激活更多场景。
                         </div>
-                      ) : questionCards.length === 0 ? (
-                        <div className="rounded-xl border eval-empty-card px-3 py-3 text-[11px]">
+                      ) : testcaseItems.length === 0 ? (
+                        <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
                           暂无测试用例。
                         </div>
                       ) : (
                         <>
-                          {/* 统计头 */}
-                          <div className="rounded-2xl border eval-stats-header p-3">
-                            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                              <span className="rounded-full border eval-stats-badge px-2.5 py-1">
-                                题卡数量：{questionCards.length}
-                              </span>
-                              <span className={`rounded-full border px-2.5 py-1 ${testcaseReady ? 'eval-stats-badge-ready' : 'eval-stats-badge-pending'}`}>
-                                {testcaseReady ? '✓ 用例已就绪' : '等待就绪'}
-                              </span>
-                              {ontologyReady && (
-                                <span className="rounded-full border eval-stats-badge-ontology px-2.5 py-1">
-                                  本体已就绪
-                                </span>
-                              )}
-                            </div>
+                          <div className="rounded-[18px] eval-side-status-banner px-4 py-3 text-[12px] font-medium">
+                            <span className="inline-flex items-center gap-2">
+                              <Check size={13} />
+                              用例已就绪，可开始评估
+                            </span>
                           </div>
 
-                          {/* 逐个展开的题卡完整详情 */}
-                          {questionCards.map((card, index) => (
-                            <div key={`${card.testcaseId}_${index}`} className="rounded-2xl border eval-question-card p-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-                              {/* 标题行 */}
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full eval-seq-circle text-[10px] font-semibold">
-                                    {index + 1}
-                                  </span>
-                                  <span className="truncate text-[12px] font-semibold eval-text-title">
-                                    {card.title || card.testcaseId}
-                                  </span>
-                                </div>
-                                <span className="shrink-0 rounded-full border eval-id-badge px-2 py-0.5 text-[10px] font-mono">
-                                  {card.testcaseId}
-                                </span>
-                              </div>
+                          <div className="flex items-center gap-2 px-1">
+                            <div className="text-[13px] font-semibold eval-text-title">测试场景</div>
+                            <span className="text-[12px] font-medium eval-text-caption">{testcaseItems.length} 个</span>
+                          </div>
 
-                              {/* 来源文件 */}
-                              {card.sourceFile && (
-                                <div className="mt-1.5 flex items-center gap-1 text-[10px] eval-text-caption">
-                                  <FileText size={9} />
-                                  <span className="truncate">{card.sourceFile}</span>
-                                </div>
-                              )}
+                          <div className="space-y-3">
+                            {testcaseItems.map((outline) => {
+                              const card = questionCardMap.get(outline.testcaseId)
+                              const expanded = expandedQuestionCardIds.includes(outline.testcaseId)
 
-                              {/* 提示词（完整展示不截断） */}
-                              {card.prompt && (
-                                <div className="mt-2 rounded-xl border eval-prompt-box px-3 py-2.5 text-[11px] leading-relaxed">
-                                  {card.prompt}
-                                </div>
-                              )}
-
-                              {/* 评估步骤（展开列表） */}
-                              {card.steps.length > 0 && (
-                                <div className="mt-2 space-y-1.5">
-                                  <div className="text-[10px] font-semibold uppercase tracking-[0.06em] eval-text-caption">
-                                    评估步骤（{card.steps.length}）
-                                  </div>
-                                  {card.steps.map((step, stepIndex) => (
-                                    <div
-                                      key={`${card.testcaseId}_step_${stepIndex}`}
-                                      className="flex gap-2 rounded-lg border eval-step-row px-2.5 py-2"
-                                    >
-                                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full eval-seq-circle text-[9px] font-semibold">
-                                        {stepIndex + 1}
-                                      </span>
-                                      <div className="text-[11px] leading-relaxed eval-text-body-2">{step}</div>
+                              return (
+                                <article key={outline.testcaseId} className="rounded-[20px] border eval-side-case-card px-4 py-4">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex min-w-0 items-start gap-3">
+                                      <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-[var(--hb-text-green)]" />
+                                      <div className="min-w-0">
+                                        <div className="text-[14px] font-semibold leading-6 eval-text-title">
+                                          {outline.title}
+                                        </div>
+                                        <div className="mt-2 border-l-2 border-[rgba(148,163,184,0.18)] pl-3 text-[12px] leading-6 eval-text-body-2">
+                                          {outline.userRequest || '未提供用户请求。'}
+                                        </div>
+                                      </div>
                                     </div>
-                                  ))}
-                                </div>
-                              )}
+                                    <span className="shrink-0 text-[11px] font-mono eval-text-caption">{outline.testcaseId}</span>
+                                  </div>
 
-                              {/* 评分提示（完整展示） */}
-                              {card.scoringHint && (
-                                <div className="mt-2 rounded-xl border border-dashed eval-scoring-hint px-3 py-2 text-[11px] leading-relaxed">
-                                  <span className="font-semibold eval-text-body-2">评分提示：</span>
-                                  {card.scoringHint}
-                                </div>
-                              )}
-                            </div>
-                          ))}
+                                  <div className="mt-4 flex flex-wrap items-center gap-4 text-[12px]">
+                                    {card && (
+                                      <button
+                                        type="button"
+                                        className="eval-side-inline-action"
+                                        onClick={() => toggleQuestionCardDetails(outline.testcaseId)}
+                                      >
+                                        {expanded ? '收起题卡' : '展开题卡'}
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      disabled={!aiRunning || chatSending}
+                                      className="eval-side-inline-action disabled:opacity-50"
+                                      onClick={() => handleRunSingleScenario(outline.testcaseId, outline.title)}
+                                    >
+                                      仅运行此场景
+                                    </button>
+                                  </div>
+
+                                  {expanded && card && (
+                                    <div className="mt-4 rounded-[18px] border eval-side-case-detail px-3 py-3">
+                                      {card.prompt && (
+                                        <div className="rounded-xl border eval-prompt-box px-3 py-2.5 text-[11px] leading-relaxed">
+                                          {card.prompt}
+                                        </div>
+                                      )}
+
+                                      {card.steps.length > 0 && (
+                                        <div className="mt-3 space-y-2">
+                                          <div className="text-[10px] font-semibold uppercase tracking-[0.06em] eval-text-caption">
+                                            评估步骤（{card.steps.length}）
+                                          </div>
+                                          {card.steps.map((step, stepIndex) => (
+                                            <div
+                                              key={`${card.testcaseId}_step_${stepIndex}`}
+                                              className="flex gap-2 rounded-xl border eval-step-row px-2.5 py-2"
+                                            >
+                                              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full eval-seq-circle text-[9px] font-semibold">
+                                                {stepIndex + 1}
+                                              </span>
+                                              <div className="text-[11px] leading-relaxed eval-text-body-2">{step}</div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+
+                                      {(card.scoringHint || card.sourceFile) && (
+                                        <div className="mt-3 space-y-2">
+                                          {card.scoringHint && (
+                                            <div className="rounded-xl border border-dashed eval-scoring-hint px-3 py-2 text-[11px] leading-relaxed">
+                                              <span className="font-semibold eval-text-body-2">评分提示：</span>
+                                              {card.scoringHint}
+                                            </div>
+                                          )}
+                                          {card.sourceFile && (
+                                            <div className="text-[10px] eval-text-caption">来源文件：{card.sourceFile}</div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </article>
+                              )
+                            })}
+                          </div>
                         </>
                       )}
                     </div>
                   )}
 
                   {artifactTab === 'trace' && (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {traceAssets.length === 0 ? (
-                        <div className="rounded-xl border eval-empty-card px-3 py-3 text-[11px]">
+                        <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
                           暂无执行轨迹，请先执行评估。
                         </div>
                       ) : (
                         <>
-                          <div className="rounded-2xl border eval-stats-header p-3">
-                            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                              <span className="rounded-full border eval-stats-badge px-2.5 py-1">Trace 数量：{traceAssets.length}</span>
-                              <span className="rounded-full border eval-stats-badge px-2.5 py-1">最新更新时间：{formatDateTime(traceAssets[0]?.createdAtUtc)}</span>
-                            </div>
+                          <div className="rounded-[18px] border eval-overview-panel px-4 py-3">
+                            <div className="text-[12px] font-medium eval-text-title">已生成 {traceAssets.length} 份执行轨迹</div>
+                            <div className="mt-1 text-[11px] eval-text-secondary">最新更新时间：{formatDateTime(traceAssets[0]?.createdAtUtc)}</div>
                           </div>
                           {traceAssets.map((asset, index) => {
                             const traceLink = toAbsoluteApiUrl(asset.publicUrl)
@@ -1833,26 +2021,26 @@ export default function EvaluationPage() {
                               (item) => item.scenarioId === asset.relatedKey || item.scenarioName === asset.relatedKey,
                             )
                             return (
-                              <div key={asset.relativePath} className="rounded-xl border eval-trace-card p-2.5">
-                                <div className="mb-1 flex items-center gap-1.5">
-                                  <Zap size={10} className="eval-text-brand" />
+                              <div key={asset.relativePath} className="rounded-[18px] border eval-trace-card px-3 py-3">
+                                <div className="flex items-center gap-1.5">
+                                  <Zap size={11} className="eval-text-brand" />
                                   <span className="font-semibold text-[var(--hb-body)]">
-                                    轨迹 #{index + 1} {asset.relatedKey ? `路 ${asset.relatedKey}` : ''}
+                                    轨迹 #{index + 1} {asset.relatedKey ? `· ${asset.relatedKey}` : ''}
                                   </span>
                                 </div>
-                                <div className="text-[11px] text-[var(--hb-soft)]">创建时间：{formatDateTime(asset.createdAtUtc)}</div>
+                                <div className="mt-1 text-[11px] eval-text-secondary">创建时间：{formatDateTime(asset.createdAtUtc)}</div>
                                 {relatedScenario && (
-                                  <div className="mt-1 text-[11px] text-[var(--hb-soft)]">
+                                  <div className="mt-1 text-[11px] eval-text-secondary">
                                     场景：{relatedScenario.scenarioName} 路 判定：{verdictLabel(relatedScenario.verdict)}
                                   </div>
                                 )}
-                                <div className="mt-1 break-all text-[11px] eval-text-caption">{asset.relativePath}</div>
+                                <div className="mt-2 break-all text-[10px] eval-text-caption">{asset.relativePath}</div>
                                 {traceLink && (
                                   <a
                                     href={traceLink}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="mt-2 inline-flex items-center gap-1 text-[11px] eval-link"
+                                    className="mt-3 inline-flex items-center gap-1 text-[11px] eval-link"
                                   >
                                     <ExternalLink size={10} />
                                     查看原始 Trace JSON
@@ -1869,7 +2057,7 @@ export default function EvaluationPage() {
                   {artifactTab === 'report' && (
                     <div className="space-y-3">
                       {!reportSummary ? (
-                        <div className="rounded-xl border eval-empty-card px-3 py-3 text-[11px]">
+                        <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
                           暂无评估报告，请先执行评估。
                         </div>
                       ) : (
@@ -1894,11 +2082,13 @@ export default function EvaluationPage() {
 
                           {/* 维度评分 */}
                           {dimensionScores.length > 0 && (
-                            <div className="rounded-xl border eval-overview-panel p-3">
-                              <div className="mb-2 text-[11px] font-semibold text-[var(--hb-body)]">维度评分明细</div>
-                              <div className="space-y-2">
+                            <details className="eval-side-disclosure rounded-[20px] border eval-overview-panel">
+                              <summary className="eval-side-disclosure-summary">
+                                <span>维度评分明细</span>
+                              </summary>
+                              <div className="eval-side-disclosure-body space-y-2">
                                 {dimensionScores.map((item) => (
-                                  <div key={item.dimension} className="rounded-lg border eval-dim-item px-3 py-2">
+                                  <div key={item.dimension} className="rounded-xl border eval-dim-item px-3 py-2">
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="text-[11px] font-medium eval-text-title">{item.dimension}</span>
                                       <span className="tabular-nums text-[11px] font-semibold eval-text-indigo">{item.score}</span>
@@ -1909,7 +2099,7 @@ export default function EvaluationPage() {
                                   </div>
                                 ))}
                               </div>
-                            </div>
+                            </details>
                           )}
 
                           {/* 有评估结果就允许进入人工评估，由用户做最终决策 */}
