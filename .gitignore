@@ -422,3 +422,5 @@ appsettings.*.local.json
 .ci-build/
 .build-out-test/
 /back-end/src/HireBot.ApiService/wwwroot/resources/DigitalWorkforce
+.cursor/
+docs/
