@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   BarChart2,
@@ -1559,6 +1559,32 @@ export default function EvaluationPage() {
                   </div>
                 ) : (
                   <>
+                    {testcaseItems.length > 0 && (
+                      <div className="shrink-0 border-b eval-chat-footer px-5 py-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[12px] font-medium eval-text-green-mid">✓ 测试用例已就绪</span>
+                          <span className="rounded-full border eval-stats-badge px-2 py-0.5 text-[11px]">
+                            {testcaseItems.length} 个场景
+                          </span>
+                          {testcaseItems.slice(0, 3).map((outline) => (
+                            <span key={outline.testcaseId} className="max-w-[160px] truncate rounded-full border eval-pill-neutral px-2 py-0.5 text-[11px]">
+                              {outline.title || outline.testcaseId}
+                            </span>
+                          ))}
+                          {testcaseItems.length > 3 && (
+                            <button
+                              type="button"
+                              className="rounded-full border eval-pill-neutral px-2 py-0.5 text-[11px] eval-text-indigo transition-colors hover:bg-[var(--hb-blue)]/10"
+                              onClick={() => {
+                                setArtifactTab('testcase')
+                              }}
+                            >
+                              +{testcaseItems.length - 3} 查看全部 →
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <div className={`flex-1 px-5 py-4 ${hasChatTimelineContent ? 'space-y-3 overflow-y-auto' : 'overflow-y-hidden'}`}>
                       {chatLoading ? (
                         <div className="flex items-center gap-2 text-sm text-[var(--hb-soft)]">
@@ -1879,23 +1905,52 @@ export default function EvaluationPage() {
                           </div>
                         </details>
                       )}
+
+                      {testcaseItems.length > 0 && (
+                        <details className="eval-side-disclosure rounded-[20px] border eval-overview-panel" open>
+                          <summary className="eval-side-disclosure-summary">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Check size={12} />
+                              测试用例 · {testcaseItems.length} 个
+                            </span>
+                          </summary>
+                          <div className="eval-side-disclosure-body space-y-1.5">
+                            {testcaseItems.slice(0, 3).map((outline) => (
+                              <div key={outline.testcaseId} className="truncate rounded-xl border eval-pill-neutral px-2.5 py-1.5 text-[11px]">
+                                {outline.title || outline.testcaseId}
+                              </div>
+                            ))}
+                            {testcaseItems.length > 3 && (
+                              <button
+                                type="button"
+                                onClick={() => setArtifactTab('testcase')}
+                                className="w-full rounded-xl border eval-pill-neutral px-2.5 py-1.5 text-left text-[11px] eval-text-indigo"
+                              >
+                                +{testcaseItems.length - 3} 查看全部 →
+                              </button>
+                            )}
+                          </div>
+                        </details>
+                      )}
                     </div>
                   )}
 
                   {artifactTab === 'testcase' && (
                     <div className="space-y-3">
-                      {!workspaceReady ? (
-                        <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
-                          请先完成沙箱初始化流程，随后展示测试用例。
-                        </div>
-                      ) : !materialsReady ? (
-                        <div className="rounded-[20px] border eval-side-notice-warning px-4 py-3 text-[11px] leading-relaxed">
-                          素材未就绪，等待完成“加载评估素材”后将自动激活更多场景。
-                        </div>
-                      ) : testcaseItems.length === 0 ? (
-                        <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
-                          暂无测试用例。
-                        </div>
+                      {testcaseItems.length === 0 ? (
+                        !workspaceReady ? (
+                          <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
+                            请先完成沙箱初始化流程，随后展示测试用例。
+                          </div>
+                        ) : !materialsReady ? (
+                          <div className="rounded-[20px] border eval-side-notice-warning px-4 py-3 text-[11px] leading-relaxed">
+                            素材未就绪，等待完成“加载评估素材”后将自动激活更多场景。
+                          </div>
+                        ) : (
+                          <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
+                            暂无测试用例。
+                          </div>
+                        )
                       ) : (
                         <>
                           <div className="rounded-[18px] eval-side-status-banner px-4 py-3 text-[12px] font-medium">
