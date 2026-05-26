@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   BarChart2,
+  Bot,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -13,6 +14,7 @@ import {
   Rocket,
   SendHorizontal,
   Trash2,
+  User,
   X,
   Zap,
   type LucideIcon,
@@ -41,6 +43,75 @@ import { instanceBasePath } from '@/shared/utils/instancePath'
 
 /** 评估页面本地消息类型（在 HiringConversationMessage 基础上增加工具调用步骤） */
 type EvalChatMessage = HiringConversationMessage & { toolSteps?: ToolStep[] }
+
+/** 执行轨迹 JSON 的事件条目 */
+interface TraceLogEntry {
+  type: string
+  timestamp?: string
+  timestamp_start?: string
+  timestamp_end?: string
+  text?: string
+  state?: string        // for state_change
+  name?: string         // for tool_use
+  input?: unknown       // for tool_use
+  content?: unknown     // for tool_result
+}
+
+interface TraceTurnSummary {
+  total_messages?: number
+  total_tool_calls?: number
+  has_thought?: boolean
+  think_count?: number
+  execution_time_seconds?: number
+  tool_calls_list?: string[]
+}
+
+interface TraceExecutionTrace {
+  logs: TraceLogEntry[]
+  assembled_assistant_text?: string
+  think_blocks?: unknown[]
+  summary?: TraceTurnSummary
+}
+
+/** 执行轨迹 JSON 的单轮结构 */
+interface TraceTurn {
+  turn_index: number
+  test_case_id?: string
+  user_input?: string
+  execution_trace: TraceExecutionTrace
+}
+
+interface TraceMeta {
+  total_turns?: number
+  session_id?: string
+  employee_name?: string
+  iteration?: number
+  collected_at?: string
+  target_sandbox_id?: string
+}
+
+interface TraceProviderUsage {
+  providerId?: string
+  modelId?: string
+  requests?: number
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+}
+
+/** 执行轨迹 JSON 文件的顶层结构 */
+interface TraceJsonData {
+  meta?: TraceMeta
+  status?: string
+  turns: TraceTurn[]
+  http_supplement?: {
+    dashboard?: {
+      providers?: {
+        usage?: TraceProviderUsage[]
+      }
+    }
+  }
+}
 
 type ArtifactTab = 'overview' | 'testcase' | 'trace' | 'report'
 type WorkflowStageStatus = 'pending' | 'running' | 'completed' | 'failed'
@@ -254,6 +325,8 @@ export default function EvaluationPage() {
   const [workspaceStatus, setWorkspaceStatus] = useState<EvaluationWorkspaceStatus | null>(null)
   const [workspacePolling, setWorkspacePolling] = useState(false)
   const [expandedQuestionCardIds, setExpandedQuestionCardIds] = useState<string[]>([])
+  const [traceDataCache, setTraceDataCache] = useState<Record<string, TraceJsonData | 'loading' | 'error'>>({})
+  const [expandedTraceUrls, setExpandedTraceUrls] = useState<string[]>([])
 
   const location = useLocation()
   const navigate = useNavigate()
@@ -678,6 +751,18 @@ export default function EvaluationPage() {
     setAutoInitCountdown(3)
     setAutoInitVisible(true)
   }, [loading, wsStatusLoaded, employee, canPrepare, aiRunning, workspaceStatus])
+
+  // 切换到 trace tab 时自动展开并加载第一条轨迹
+  useEffect(() => {
+    if (artifactTab !== 'trace') return
+    const sessionId = evaluation?.sessionId ?? null
+    if (!sessionId) return
+    if (!expandedTraceUrls.includes(sessionId)) {
+      setExpandedTraceUrls(prev => [...prev, sessionId])
+      void loadTraceContent(sessionId)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artifactTab, evaluation?.sessionId])
 
   // 倒计时：每秒 -1，到 0 时自动触发初始化
   useEffect(() => {
@@ -1109,6 +1194,27 @@ export default function EvaluationPage() {
   function handleSuggestionSelect(prompt: string) {
     setChatInput(prompt)
     focusChatInput()
+  }
+
+  async function loadTraceContent(sessionId: string) {
+    if (traceDataCache[sessionId]) return
+    if (!id) return
+    setTraceDataCache(prev => ({ ...prev, [sessionId]: 'loading' }))
+    try {
+      const resp = await api.employeeRuntime.getTraceContent(id, sessionId)
+      const parsed = JSON.parse(resp.traceJsonContent) as TraceJsonData
+      setTraceDataCache(prev => ({ ...prev, [sessionId]: parsed }))
+    } catch {
+      setTraceDataCache(prev => ({ ...prev, [sessionId]: 'error' }))
+    }
+  }
+
+  function toggleTraceExpand(sessionId: string) {
+    const isExpanding = !expandedTraceUrls.includes(sessionId)
+    setExpandedTraceUrls(prev =>
+      isExpanding ? [...prev, sessionId] : prev.filter(k => k !== sessionId),
+    )
+    if (isExpanding) void loadTraceContent(sessionId)
   }
 
   function toggleQuestionCardDetails(testcaseId: string) {
@@ -2072,34 +2178,219 @@ export default function EvaluationPage() {
                           </div>
                           {traceAssets.map((asset, index) => {
                             const traceLink = toAbsoluteApiUrl(asset.publicUrl)
-                            const relatedScenario = evaluation.scenarios.find(
-                              (item) => item.scenarioId === asset.relatedKey || item.scenarioName === asset.relatedKey,
-                            )
+                            const traceSessionId = evaluation?.sessionId ?? null
+                            const isExpanded = traceSessionId != null && expandedTraceUrls.includes(traceSessionId)
+                            const traceData = traceSessionId != null ? traceDataCache[traceSessionId] : undefined
                             return (
                               <div key={asset.relativePath} className="rounded-[18px] border eval-trace-card px-3 py-3">
-                                <div className="flex items-center gap-1.5">
-                                  <Zap size={11} className="eval-text-brand" />
-                                  <span className="font-semibold text-[var(--hb-body)]">
-                                    轨迹 #{index + 1} {asset.relatedKey ? `· ${asset.relatedKey}` : ''}
-                                  </span>
-                                </div>
-                                <div className="mt-1 text-[11px] eval-text-secondary">创建时间：{formatDateTime(asset.createdAtUtc)}</div>
-                                {relatedScenario && (
-                                  <div className="mt-1 text-[11px] eval-text-secondary">
-                                    场景：{relatedScenario.scenarioName} 路 判定：{verdictLabel(relatedScenario.verdict)}
+                                {/* 头部 */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5">
+                                    <Zap size={11} className="eval-text-brand" />
+                                    <span className="text-[12px] font-semibold eval-text-title">
+                                      轨迹 #{index + 1}
+                                    </span>
+                                    <span className="text-[11px] eval-text-caption">{formatDateTime(asset.createdAtUtc)}</span>
                                   </div>
-                                )}
-                                <div className="mt-2 break-all text-[10px] eval-text-caption">{asset.relativePath}</div>
-                                {traceLink && (
-                                  <a
-                                    href={traceLink}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="mt-3 inline-flex items-center gap-1 text-[11px] eval-link"
-                                  >
-                                    <ExternalLink size={10} />
-                                    查看原始 Trace JSON
-                                  </a>
+                                  {traceSessionId && (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleTraceExpand(traceSessionId)}
+                                      className="flex items-center gap-1 rounded-full border eval-pill-neutral px-2.5 py-0.5 text-[11px]"
+                                    >
+                                      {traceData === 'loading'
+                                        ? <Loader2 size={10} className="animate-spin" />
+                                        : <ChevronDown size={10} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />}
+                                      {isExpanded ? '收起' : '展开轨迹'}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* 展开后的时间线 */}
+                                {isExpanded && (
+                                  <div className="mt-3 space-y-2">
+                                    {traceData === 'loading' && (
+                                      <div className="flex items-center gap-2 text-[11px] eval-text-secondary">
+                                        <Loader2 size={11} className="animate-spin" />
+                                        正在加载轨迹数据...
+                                      </div>
+                                    )}
+                                    {traceData === 'error' && (
+                                      <div className="rounded-xl border eval-side-notice-warning px-3 py-2 text-[11px]">
+                                        加载失败，请检查网络或重试。
+                                      </div>
+                                    )}
+                                    {traceData != null && traceData !== 'loading' && traceData !== 'error' && (() => {
+                                      const td = traceData as TraceJsonData
+                                      const usage = td.http_supplement?.dashboard?.providers?.usage?.[0]
+                                      const TURN_COLORS = ['l0', 'l1', 'l2', 'l3', 'l4'] as const
+                                      return (
+                                        <>
+                                          {/* ── 元信息横条 ── */}
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {td.status && (
+                                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                td.status === 'completed'
+                                                  ? 'eval-tone-completed'
+                                                  : td.status === 'failed'
+                                                  ? 'eval-tone-failed'
+                                                  : 'eval-tone-running'
+                                              }`}>{td.status}</span>
+                                            )}
+                                            {td.meta?.total_turns != null && (
+                                              <span className="rounded-full border eval-stats-badge px-2 py-0.5 text-[10px]">
+                                                {td.meta.total_turns} 轮
+                                              </span>
+                                            )}
+                                            {td.meta?.iteration != null && (
+                                              <span className="rounded-full border eval-stats-badge px-2 py-0.5 text-[10px]">
+                                                iter-{td.meta.iteration}
+                                              </span>
+                                            )}
+                                            {usage?.modelId && (
+                                              <span className="rounded-full border eval-trace-model-badge px-2 py-0.5 text-[10px] font-mono">
+                                                {usage.modelId}
+                                              </span>
+                                            )}
+                                            {usage && (
+                                              <span className="rounded-full border eval-trace-token-badge px-2 py-0.5 text-[10px]">
+                                                ↑{usage.inputTokens ?? 0} ↓{usage.outputTokens ?? 0}
+                                                {(usage.cacheReadTokens ?? 0) > 0 && (
+                                                  <span className="opacity-65"> cache {usage.cacheReadTokens}</span>
+                                                )}
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {/* ── 逐轮时间线 ── */}
+                                          {td.turns.map((turn) => {
+                                            const et = turn.execution_trace
+                                            const colorIdx = turn.turn_index % TURN_COLORS.length
+                                            const toolLogs = et.logs.filter(l =>
+                                              l.type === 'tool_use' || l.type === 'tool_result'
+                                            )
+                                            return (
+                                              <details
+                                                key={turn.turn_index}
+                                                open
+                                                className={`eval-side-disclosure rounded-[16px] border eval-overview-panel eval-trace-turn-${TURN_COLORS[colorIdx]}`}
+                                              >
+                                                <summary className="eval-side-disclosure-summary">
+                                                  <span className="inline-flex items-center gap-2">
+                                                    <span className={`inline-flex h-[20px] w-[20px] items-center justify-center rounded-full text-[10px] font-bold eval-trace-seq-${colorIdx}`}>
+                                                      {turn.turn_index + 1}
+                                                    </span>
+                                                    {turn.test_case_id && (
+                                                      <span className="rounded-full bg-[var(--hb-soft)] eval-text-caption px-1.5 py-0.5 text-[10px] font-mono">
+                                                        {turn.test_case_id}
+                                                      </span>
+                                                    )}
+                                                    {et.summary?.execution_time_seconds != null && (
+                                                      <span className="text-[10px] eval-text-caption">
+                                                        {et.summary.execution_time_seconds.toFixed(1)}s
+                                                      </span>
+                                                    )}
+                                                  </span>
+                                                </summary>
+                                                <div className="eval-side-disclosure-body space-y-2">
+                                                  {/* 用户输入 */}
+                                                  <div className="rounded-xl border eval-trace-user-block px-2.5 py-2">
+                                                    <div className="mb-1 flex items-center gap-1">
+                                                      <User size={9} />
+                                                      <span className="text-[10px] font-medium opacity-70">用户</span>
+                                                    </div>
+                                                    {turn.user_input
+                                                      ? <div className="text-[11px] font-medium">{turn.user_input}</div>
+                                                      : <div className="text-[11px] opacity-40 italic">（已通过评估脚本注入，内容不在轨迹中记录）</div>
+                                                    }
+                                                  </div>
+                                                  {/* AI 回复 */}
+                                                  {et.assembled_assistant_text && (
+                                                    <div className="rounded-xl border eval-trace-ai-block px-2.5 py-2">
+                                                      <div className="mb-1 flex items-center gap-1 eval-text-indigo">
+                                                        <Bot size={9} />
+                                                        <span className="text-[10px] font-medium">AI 回复</span>
+                                                      </div>
+                                                      <div className="max-h-[100px] overflow-y-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed eval-text-secondary">
+                                                        {et.assembled_assistant_text}
+                                                      </div>
+                                                    </div>
+                                                  )}
+                                                  {/* 执行统计 */}
+                                                  {et.summary && (
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                      {et.summary.total_messages != null && (
+                                                        <span className="rounded-full border eval-stats-badge px-2 py-0.5 text-[10px]">
+                                                          {et.summary.total_messages} msgs
+                                                        </span>
+                                                      )}
+                                                      {(et.summary.total_tool_calls ?? 0) > 0 && (
+                                                        <span className="rounded-full border eval-stats-badge-ontology px-2 py-0.5 text-[10px]">
+                                                          {et.summary.total_tool_calls} 工具
+                                                        </span>
+                                                      )}
+                                                      {et.summary.has_thought && (
+                                                        <span className="rounded-full border eval-trace-thought-badge px-2 py-0.5 text-[10px]">
+                                                          思维链 ×{et.summary.think_count}
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                  )}
+                                                  {/* 工具调用日志 */}
+                                                  {toolLogs.map((log, li) => (
+                                                    <div key={li} className="rounded-xl border eval-dim-item px-2.5 py-2">
+                                                      <div className="flex items-center gap-1.5">
+                                                        <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-mono ${
+                                                          log.type === 'tool_use'
+                                                            ? 'eval-trace-badge-tool-use'
+                                                            : 'eval-trace-badge-tool-result'
+                                                        }`}>
+                                                          {log.type === 'tool_use' ? '→ tool' : '← result'}
+                                                        </span>
+                                                        {log.name && (
+                                                          <span className="text-[11px] font-medium eval-text-title">{log.name}</span>
+                                                        )}
+                                                        {(log.timestamp_start ?? log.timestamp) && (
+                                                          <span className="ml-auto text-[10px] eval-text-caption font-mono">
+                                                            {(log.timestamp_start ?? log.timestamp ?? '').slice(11, 19)}
+                                                          </span>
+                                                        )}
+                                                      </div>
+                                                      {log.type === 'tool_use' && log.input != null && (
+                                                        <pre className="mt-1.5 max-h-[80px] overflow-y-auto break-all text-[10px] font-mono eval-text-secondary whitespace-pre-wrap">
+                                                          {JSON.stringify(log.input, null, 2).slice(0, 400)}
+                                                        </pre>
+                                                      )}
+                                                      {log.type === 'tool_result' && log.content != null && (
+                                                        <pre className="mt-1.5 max-h-[80px] overflow-y-auto break-all text-[10px] font-mono eval-text-secondary whitespace-pre-wrap">
+                                                          {typeof log.content === 'string'
+                                                            ? log.content.slice(0, 400)
+                                                            : JSON.stringify(log.content).slice(0, 400)}
+                                                        </pre>
+                                                      )}
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </details>
+                                            )
+                                          })}
+
+                                          {/* 原始 JSON 链接 */}
+                                          {traceLink && (
+                                            <a
+                                              href={traceLink}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="inline-flex items-center gap-1 text-[11px] eval-link"
+                                            >
+                                              <ExternalLink size={10} />
+                                              查看原始 Trace JSON
+                                            </a>
+                                          )}
+                                        </>
+                                      )
+                                    })()}
+                                  </div>
                                 )}
                               </div>
                             )

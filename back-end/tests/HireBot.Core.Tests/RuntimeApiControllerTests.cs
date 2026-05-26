@@ -380,6 +380,7 @@ public sealed class RuntimeApiControllerTests
         public Task<ApiResponse<EvaluationSandboxConnectionResultDto>> GetSandboxConnectionAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EvaluationVerdictSyncResultDto>> SyncVerdictAsync(string employeeId, EvaluationVerdictSyncRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EvaluationTraceSyncResultDto>> SyncTraceAsync(string employeeId, EvaluationTraceSyncRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<EvaluationTraceContentDto>> GetTraceContentAsync(string employeeId, string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EvaluationWorkspaceStatusDto>> GetWorkspaceStatusAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<ApiResponse<EmployeeDetailDto>> StartAiEvaluationAsync(string employeeId, CancellationToken cancellationToken = default)

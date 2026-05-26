@@ -353,6 +353,13 @@ export interface EvaluationVerdictSyncRequest {
 }
 
 
+export interface EvaluationTraceContentResult {
+  sessionId: string
+  assetId: string
+  traceJsonUrl: string
+  traceJsonContent: string
+}
+
 export interface EvaluationVerdictSyncResult {
   employeeId: string
   sessionId: string
@@ -586,6 +593,12 @@ export const employeeRuntimeApi = {
 
   resetEvaluationData(employeeId: string) {
     return httpClient.delete<object>(`/api/v1/employees/${employeeId}/evaluation/data`)
+  },
+
+  getTraceContent(employeeId: string, sessionId: string) {
+    return httpClient.get<EvaluationTraceContentResult>(
+      `/api/v1/employees/${employeeId}/evaluation/trace-content?sessionId=${encodeURIComponent(sessionId)}`,
+    )
   },
 
   async quickCreateFromTemplate(file: File): Promise<EmployeeDetail> {

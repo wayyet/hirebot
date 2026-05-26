@@ -1043,6 +1043,101 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
+/* 执行轨迹：单轮时间线左边框（按 turn_index 循环 5 色） */
+.eval-trace-turn-l0 { border-left: 2px solid #6366f1; }
+.eval-trace-turn-l1 { border-left: 2px solid #06b6d4; }
+.eval-trace-turn-l2 { border-left: 2px solid #10b981; }
+.eval-trace-turn-l3 { border-left: 2px solid #f59e0b; }
+.eval-trace-turn-l4 { border-left: 2px solid #ec4899; }
+
+/* 轮次序号圆圈色（与左边框对应） */
+.eval-trace-seq-0 { background: #eef2ff; color: #4f46e5; }
+.eval-trace-seq-1 { background: #ecfeff; color: #0891b2; }
+.eval-trace-seq-2 { background: #ecfdf5; color: #059669; }
+.eval-trace-seq-3 { background: #fffbeb; color: #d97706; }
+.eval-trace-seq-4 { background: #fdf2f8; color: #be185d; }
+.dark .eval-trace-seq-0 { background: rgba(99,102,241,0.15); color: #a5b4fc; }
+.dark .eval-trace-seq-1 { background: rgba(6,182,212,0.15); color: #67e8f9; }
+.dark .eval-trace-seq-2 { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+.dark .eval-trace-seq-3 { background: rgba(245,158,11,0.15); color: #fcd34d; }
+.dark .eval-trace-seq-4 { background: rgba(236,72,153,0.15); color: #f9a8d4; }
+
+/* 用户输入气泡（蓝色调） */
+.eval-trace-user-block {
+  border-color: #dbeafe;
+  background: #eff6ff;
+  color: #1e40af;
+}
+.dark .eval-trace-user-block {
+  border-color: rgba(96, 165, 250, 0.25);
+  background: rgba(59, 130, 246, 0.08);
+  color: #93c5fd;
+}
+
+/* AI 回复气泡（靛蓝/紫色调） */
+.eval-trace-ai-block {
+  border-color: #e0e7ff;
+  background: #eef2ff;
+}
+.dark .eval-trace-ai-block {
+  border-color: rgba(167, 139, 250, 0.22);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+/* 工具调用类型徽章 */
+.eval-trace-badge-tool-use {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+.dark .eval-trace-badge-tool-use {
+  background: rgba(167, 139, 250, 0.18);
+  color: #c4b5fd;
+}
+.eval-trace-badge-tool-result {
+  background: #dcfce7;
+  color: #166534;
+}
+.dark .eval-trace-badge-tool-result {
+  background: rgba(74, 222, 128, 0.15);
+  color: #4ade80;
+}
+
+/* 模型 ID 徽章（蓝色） */
+.eval-trace-model-badge {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.dark .eval-trace-model-badge {
+  border-color: rgba(96, 165, 250, 0.30);
+  background: rgba(96, 165, 250, 0.10);
+  color: #60a5fa;
+}
+
+/* token 用量徽章（紫色） */
+.eval-trace-token-badge {
+  border-color: #e9d5ff;
+  background: #faf5ff;
+  color: #7e22ce;
+}
+.dark .eval-trace-token-badge {
+  border-color: rgba(167, 139, 250, 0.25);
+  background: rgba(139, 92, 246, 0.08);
+  color: #c4b5fd;
+}
+
+/* 思维链徽章（琥珀色） */
+.eval-trace-thought-badge {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+.dark .eval-trace-thought-badge {
+  border-color: rgba(251, 191, 36, 0.28);
+  background: rgba(245, 158, 11, 0.10);
+  color: #fcd34d;
+}
+
 /* ════════════════════════════════════════════════════════════════
    11. 评估报告 report tab
    ════════════════════════════════════════════════════════════════ */
