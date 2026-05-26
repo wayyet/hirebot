@@ -380,7 +380,9 @@ export function EvalArtifactsPanel({
               <div className="space-y-3">
                 {traceAssets.length === 0 ? (
                   <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
-                    暂无执行轨迹，请先执行评估。
+                    {evaluation.overallStatus === 'not_started'
+                      ? '请先执行评估以生成执行轨迹。'
+                      : '本次评估未生成执行轨迹（评估器未上报轨迹数据）。'}
                   </div>
                 ) : (
                   <>
