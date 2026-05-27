@@ -92,11 +92,11 @@ export default function TrainingFlowPage() {
   }, [state])
 
   return (
-    <div className="hb-page space-y-5">
+    <div className="hb-page hb-workflow-page hb-training-page space-y-5">
       <Breadcrumb items={[{ label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' }, { label: '训练流程' }]} />
 
       {error && (
-        <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">
+        <div className="hb-workflow-alert rounded-2xl px-4 py-3 text-sm">
           <span className="inline-flex items-center gap-2">
             <AlertCircle size={14} />
             {error}
@@ -105,7 +105,7 @@ export default function TrainingFlowPage() {
       )}
 
       {loading ? (
-        <div className="hb-card flex min-h-52 items-center justify-center gap-2 p-8 text-sm text-[#737373]">
+        <div className="hb-card hb-detail-state">
           <Loader2 size={16} className="animate-spin" />
           正在加载培训流程...
         </div>
@@ -134,11 +134,11 @@ export default function TrainingFlowPage() {
                 </div>
                 <div className="hb-metric-card">
                   <div className="hb-metric-label">已通过</div>
-                  <div className="hb-metric-value text-[#15803d]">{checkpointSummary.passed}</div>
+                  <div className="hb-metric-value hb-workflow-value-success">{checkpointSummary.passed}</div>
                 </div>
                 <div className="hb-metric-card">
                   <div className="hb-metric-label">未通过</div>
-                  <div className="hb-metric-value text-[#b3263c]">{checkpointSummary.failed}</div>
+                  <div className="hb-metric-value hb-workflow-value-danger">{checkpointSummary.failed}</div>
                 </div>
                 <div className="hb-metric-card">
                   <div className="hb-metric-label">考试得分</div>

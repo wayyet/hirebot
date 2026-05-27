@@ -1011,8 +1011,8 @@ export default function EvaluationPage() {
 
   if (loading) {
     return (
-      <div className="hb-page">
-        <div className="hb-card flex min-h-[220px] items-center justify-center gap-2 p-8 text-sm text-[var(--hb-soft)]">
+      <div className="hb-page hb-workflow-page hb-eval-page">
+        <div className="hb-card hb-detail-state">
           <Loader2 size={16} className="animate-spin" />
           正在加载 AI 评估...
         </div>
@@ -1022,14 +1022,14 @@ export default function EvaluationPage() {
 
   if (!employee || !evaluation) {
     return (
-      <div className="hb-page">
+      <div className="hb-page hb-workflow-page hb-eval-page">
         <div className="hb-card p-8 text-sm text-[var(--hb-soft)]">评估数据不存在</div>
       </div>
     )
   }
 
   return (
-    <div className="hb-page">
+    <div className="hb-page hb-workflow-page hb-eval-page">
       <Breadcrumb items={[{ label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' }, { label: 'AI 评估' }]} />
 
       {/* 自动初始化过渡屏 */}

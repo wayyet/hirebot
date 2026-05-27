@@ -17,36 +17,40 @@ const EMPTY_LIST: EmployeeTemplateListData = {
 
 function formatDate(value?: string | null) {
   if (!value) return '--'
+
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+
+  return date.toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
 }
 
-function tagColor(index: number) {
-  const mods = ['blue', 'orange', 'green', 'gray', 'pink', 'purple'] as const
-  return mods[index % mods.length]
-}
-
-function TemplateCard({ template, onClick }: { template: EmployeeTemplateCard; onClick: () => void }) {
+function TemplateCard({
+  template,
+  onClick,
+}: {
+  template: EmployeeTemplateCard
+  onClick: () => void
+}) {
   return (
-    <button type="button" onClick={onClick} className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--hb-border)] bg-[var(--hb-surface-card)] p-6 text-left shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:shadow-lg hover:opacity-90">
-      <h3 className="text-base font-semibold text-[var(--hb-near-black)]">{template.name}</h3>
+    <button type="button" onClick={onClick} className="hb-market-card">
+      <h3 className="hb-market-card-title">{template.name}</h3>
+      <p className="hb-market-card-copy">{template.positioning}</p>
 
-      <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[var(--hb-body)]">{template.positioning}</p>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        {template.tags.slice(0, 4).map((tag, index) => (
-          <span key={tag} className={`hb-pill ${tagColor(index)}`}>
+      <div className="hb-market-card-tags">
+        {template.tags.slice(0, 4).map((tag) => (
+          <span key={tag} className="hb-market-card-tag">
             {tag}
           </span>
         ))}
       </div>
 
-      <div className="mt-auto pt-4">
-        <div className="flex items-center gap-1.5 border-t border-[var(--hb-border)] pt-3 text-xs text-[var(--hb-soft)]">
-          <Clock size={12} />
-          <span>更新于 {formatDate(template.updatedAt)}</span>
-        </div>
+      <div className="hb-market-card-meta">
+        <Clock size={12} />
+        <span>{formatDate(template.updatedAt)}</span>
       </div>
     </button>
   )
@@ -101,17 +105,20 @@ export default function MarketPage() {
   const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE))
 
   useEffect(() => {
-    if (page > totalPages) {
+    if (page <= totalPages) return
+
+    queueMicrotask(() => {
       setPage(totalPages)
-    }
+    })
   }, [page, totalPages])
 
   return (
-    <div className="hb-page">
+    <div className="hb-page hb-market-page">
       <div className="hb-page-head">
         <div>
+          <span className="hb-kicker hb-market-kicker">{t('market.kicker')}</span>
           <h1 className="hb-page-title">{t('market.title')}</h1>
-          <p className="hb-page-copy">
+          <p className="hb-page-copy hb-market-head-copy">
             {t('market.copy')}
             <span className="hb-page-copy-meta">
               · {t('market.templateCount', { count: data.total })}
@@ -147,7 +154,7 @@ export default function MarketPage() {
         ) : null}
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="hb-market-toolbar">
         <div className="hb-chip-row">
           <button
             type="button"
@@ -160,13 +167,13 @@ export default function MarketPage() {
           >
             {t('common.allTypes')}
           </button>
-          {availableTags.map((tag, index) => (
+          {availableTags.map((tag) => (
             <button
               key={tag}
               type="button"
-              className={`hb-market-tag-button ${selectedTag === tag ? 'is-active' : ''} is-tone-${tagColor(index)}`}
+              className={`hb-market-tag-button ${selectedTag === tag ? 'is-active' : ''}`}
               onClick={() => {
-                setSelectedTag((current) => current === tag ? '' : tag)
+                setSelectedTag((current) => (current === tag ? '' : tag))
                 setPage(1)
               }}
               aria-pressed={selectedTag === tag}
@@ -175,7 +182,7 @@ export default function MarketPage() {
             </button>
           ))}
         </div>
-        <span className="text-xs text-[var(--hb-soft)]">{t('market.templateCount', { count: data.total })}</span>
+        <span className="hb-market-count">{t('market.templateCount', { count: data.total })}</span>
       </div>
 
       {error ? (
@@ -195,7 +202,7 @@ export default function MarketPage() {
             <div className="hb-empty-copy">{t('market.emptyCopy')}</div>
           </div>
         ) : (
-          <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3${isPlaceholderData ? ' opacity-60 transition-opacity' : ''}`}>
+          <div className={`hb-market-grid${isPlaceholderData ? ' opacity-60 transition-opacity' : ''}`}>
             {data.items.map((template) => (
               <TemplateCard
                 key={template.id}

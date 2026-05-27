@@ -11,6 +11,8 @@
 
 /* ── 通用 UI 组件：card、button、pill、chat、form、stat 等 ── */
 @import "./shared/styles/components.css";
+@import "./features/market/market.css";
+@import "./features/hiring/workbench.css";
 
 /* ── 招聘功能：EvaluationPage 样式 + 暗色模式覆盖 ── */
 @import "./features/hiring/hiring-eval.css";

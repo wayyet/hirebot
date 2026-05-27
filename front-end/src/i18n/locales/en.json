@@ -25,6 +25,22 @@
   },
   "settings": {
     "title": "Settings",
+    "appearance": {
+      "title": "Appearance",
+      "description": "Workspace Theme",
+      "copy": "Manage the surface mode and brand accent used across navigation, buttons, and page atmosphere.",
+      "modeTitle": "Mode",
+      "modeDescription": "Choose the light or dark surface system for daily work.",
+      "brandTitle": "Theme Color",
+      "brandDescription": "Choose the accent color shared by navigation, primary actions, and page highlights.",
+      "current": "Current: {{mode}} · {{brand}}",
+      "options": {
+        "lightDescription": "Bright surfaces for daytime work",
+        "darkDescription": "Dim surfaces for focused sessions",
+        "amberDescription": "Warm accent with soft highlights",
+        "blueDescription": "Cool accent with calm contrast"
+      }
+    },
     "sandboxes": {
       "title": "My Hiring Sandboxes",
       "description": "Manage all hiring sandboxes launched by this account. Delete sandboxes you no longer need.",
@@ -89,7 +105,12 @@
   "theme": {
     "toggle": "Toggle Theme",
     "light": "Light Mode",
-    "dark": "Dark Mode"
+    "dark": "Dark Mode",
+    "brandToggle": "Switch Theme Color",
+    "brand": {
+      "amber": "Warm",
+      "blue": "Blue"
+    }
   },
   "language": {
     "toggle": "Switch Language",
@@ -717,6 +738,7 @@
     "breadcrumb": "Employee Detail",
     "loading": "Loading instance details...",
     "notFound": "Instance not found",
+    "loadFailed": "Failed to load instance details",
     "meta": {
       "sourceTemplate": "Source Template",
       "department": "Department",
@@ -739,7 +761,14 @@
       "enterHumanEvaluation": "Enter Human Evaluation",
       "configureIm": "Configure IM"
     },
+    "confirmAbandon": "Abandoning this branch will roll back the five-piece set and restore it as a personal clone. Sandbox, chat, and IM configuration will stay in place. Continue?",
     "capabilities": "Capabilities",
+    "intro": {
+      "coreAbilities": "Core Abilities",
+      "inScope": "Responsibility Scope",
+      "outOfScope": "Explicit Exclusions",
+      "empty": "No capability summary yet"
+    },
     "runStatus": "Run Status",
     "onboardedAt": "Onboarded At",
     "readyCapabilities": "Available Capabilities",

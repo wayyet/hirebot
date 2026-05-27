@@ -513,9 +513,7 @@ export default function InstanceChatPage() {
         if (targetIndex >= 0) {
           next[targetIndex] = {
             ...next[targetIndex],
-            status: Boolean(rawMsg.is_error ?? rawMsg.isError)
-              ? "error"
-              : "done",
+            status: (rawMsg.is_error ?? rawMsg.isError) ? "error" : "done",
             result: resultText || next[targetIndex].result,
           };
           pendingToolStepsRef.current = next;
