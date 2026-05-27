@@ -16,6 +16,7 @@ using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
+using HireBot.Abstraction.Services.Security;
 using HireBot.Core.Services.Hiring.Artifacts;
 using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.Storage;
@@ -25,7 +26,6 @@ using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -45,7 +45,6 @@ internal sealed partial class EmployeeHiringService(
     IHiringRuntimeStore hiringRuntimeStore,
     IKingCrabHttpClient kingCrabHttpClient,
     ISandboxService sandboxService,
-    IDataProtectionProvider dataProtectionProvider,
     IHttpContextAccessor httpContextAccessor,
     IServiceScopeFactory serviceScopeFactory,
     HireBotDbContext dbContext,
@@ -53,10 +52,10 @@ internal sealed partial class EmployeeHiringService(
     IInstanceArtifactCloneService instanceArtifactCloneService,
     IHiringArtifactPackageService artifactPackageService,
     IStoreSkillPackageDownloader storeSkillPackageDownloader,
+    ISecretProtector secretProtector,
     IConfiguration configuration,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
-    private const string CredentialProtectorPurpose = "HireBot.Hiring.Credentials";
     private const string EvaluationWorkspaceTemplateId = "evaluation-expert";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -159,6 +158,19 @@ internal sealed partial class EmployeeHiringService(
 
                 // 直接从持久化 runtime 读取 sessionId；缺失时再从 DB 会话表补全
                 var existingRuntime = hiringRuntimeStore.Get(existingHireId);
+                if (existingRuntime?.ExternalSystemConfig is null)
+                {
+                    var sandboxExternalConfig = DeserializeExternalSystemConfig(existingInstance.Metadata);
+                    if (sandboxExternalConfig is not null && existingRuntime is not null)
+                    {
+                        existingRuntime = ApplyConversationProgressToTemplatePackage(existingRuntime with
+                        {
+                            ExternalSystemConfig = sandboxExternalConfig
+                        });
+                        hiringRuntimeStore.Upsert(existingRuntime);
+                    }
+                }
+
                 var existingSessionId = existingRuntime?.SessionId;
                 if (string.IsNullOrWhiteSpace(existingSessionId))
                 {
@@ -194,7 +206,8 @@ internal sealed partial class EmployeeHiringService(
                             RoleTemplatePackage = roleTemplatePackage,
                         WorkingTemplatePackage = workingTemplatePackage,
                         DiscoverySkill = discoverySkill,
-                        StageCompletion = restoredStageCompletion
+                        StageCompletion = restoredStageCompletion,
+                        ExternalSystemConfig = DeserializeExternalSystemConfig(existingInstance.Metadata)
                     });
                 }
 
@@ -733,6 +746,8 @@ internal sealed partial class EmployeeHiringService(
             {
                 runtimeContext = await EnsureSandboxReinitializedAsync(runtimeContext, cancellationToken);
             }
+
+            runtimeContext = await EnsureExternalSystemConfigHydratedAsync(runtimeContext, cancellationToken);
         }
 
         runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken) ?? runtimeContext;
@@ -1270,6 +1285,8 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(409, "本地雇佣上下文不存在，请重新发起雇佣流程");
         }
 
+        runtimeContext = await EnsureExternalSystemConfigHydratedAsync(runtimeContext, cancellationToken);
+
         // 将前端直传的产物包读取为字节数组
         byte[] packageBytes;
         using (var ms = new MemoryStream())
@@ -1308,6 +1325,7 @@ internal sealed partial class EmployeeHiringService(
             extractedArtifacts,
             storeSkillArtifacts,
             runtimeContext.WorkingTemplatePackage);
+        OverlayManagedExternalPackageArtifacts(mergedArtifacts, runtimeContext.ExternalSystemConfig);
         if (mergedArtifacts.Count == 0)
         {
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包合并后无有效文件");

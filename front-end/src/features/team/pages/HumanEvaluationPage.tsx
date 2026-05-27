@@ -58,10 +58,10 @@ function verdictLabel(verdict?: string | null) {
 }
 
 function verdictPillClass(verdict?: string | null) {
-  if (verdict === 'passed') return 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]'
-  if (verdict === 'failed') return 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c]'
-  if (verdict === 'warning') return 'border-[#fed7aa] bg-[#fff7ed] text-[#c2410c]'
-  return 'border-[#e5e7eb] bg-white text-[#737373]'
+  if (verdict === 'passed') return 'eval-tone-completed'
+  if (verdict === 'failed') return 'eval-tone-failed'
+  if (verdict === 'warning') return 'eval-tone-warning'
+  return 'eval-tone-pending'
 }
 
 function mapSandboxMessages(messages: SandboxMessage[]): EvalChatMessage[] {
@@ -479,8 +479,8 @@ export default function HumanEvaluationPage() {
 
   if (loading) {
     return (
-      <div className="hb-page">
-        <div className="hb-card flex min-h-[220px] items-center justify-center gap-2 p-8 text-sm text-[#737373]">
+      <div className="hb-page hb-workflow-page hb-eval-page">
+        <div className="hb-card hb-detail-state">
           <Loader2 size={16} className="animate-spin" />
           {t('humanEvaluation.loading')}
         </div>
@@ -490,8 +490,8 @@ export default function HumanEvaluationPage() {
 
   if (!employee || !evaluation) {
     return (
-      <div className="hb-page">
-        <div className="hb-card p-8 text-sm text-[#737373]">{t('humanEvaluation.notFound')}</div>
+      <div className="hb-page hb-workflow-page hb-eval-page">
+        <div className="hb-card hb-detail-state">{t('humanEvaluation.notFound')}</div>
       </div>
     )
   }
@@ -501,7 +501,7 @@ export default function HumanEvaluationPage() {
   const workspaceFailed = workspaceStatus?.overallStatus === 'failed'
 
   return (
-    <div className="hb-page">
+    <div className="hb-page hb-workflow-page hb-eval-page">
       <Breadcrumb
         items={[
           { label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' },
@@ -694,7 +694,7 @@ export default function HumanEvaluationPage() {
                   type="button"
                   disabled={chatSending || !chatInput.trim() || !workspaceReady}
                   onClick={() => void sendMessage()}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#5b21b6] text-white disabled:opacity-40"
+                  className="hb-workflow-send-btn"
                 >
                   {chatSending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={16} />}
                 </button>

@@ -467,7 +467,7 @@
 .hb-hiring-dropzone {
   border: 2px dashed var(--hb-border-input);
   border-radius: 20px;
-  background: #fafafa;
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, transparent);
   padding: 32px 20px;
   text-align: center;
   cursor: pointer;
@@ -475,13 +475,13 @@
 }
 
 .hb-hiring-dropzone.is-active {
-  border-color: var(--hb-blue);
-  background: #eef2ff;
+  border-color: var(--hb-accent-solid);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 78%, var(--hb-surface-card));
 }
 
 .hb-hiring-dropzone.is-filled {
-  border-color: #c7d2fe;
-  background: #f5f3ff;
+  border-color: var(--hb-accent-border-strong);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 60%, var(--hb-surface-card));
 }
 
 .hb-hiring-form-input,
@@ -489,7 +489,7 @@
   width: 100%;
   border: 1px solid var(--hb-border-input);
   border-radius: 16px;
-  background: #fafafa;
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, transparent);
   color: var(--hb-near-black);
   padding: 12px 14px;
   font-size: 14px;
@@ -504,15 +504,21 @@
 .hb-hiring-form-input:focus,
 .hb-hiring-form-textarea:focus {
   background: var(--hb-surface-card);
-  border-color: var(--hb-blue);
+  border-color: var(--hb-accent-solid);
   box-shadow: var(--hb-focus);
 }
 
 body.hb-body-hiring-prototype {
   background:
-    radial-gradient(ellipse 70% 45% at 18% 60%, rgba(255, 255, 255, 0.95) 0%, rgba(245, 250, 252, 0.75) 35%, rgba(221, 239, 247, 0.35) 70%, transparent 100%),
-    radial-gradient(ellipse 60% 45% at 88% 42%, rgba(255, 255, 255, 0.75) 0%, rgba(235, 247, 252, 0.45) 45%, transparent 100%),
-    linear-gradient(180deg, #a9d4ea 0%, #cfe8f4 28%, #eef7fa 54%, #f8fbfc 70%, #d8eef7 100%);
+    radial-gradient(ellipse 72% 46% at 16% 58%, color-mix(in srgb, var(--hb-market-wash-left) 92%, white) 0%, transparent 72%),
+    radial-gradient(ellipse 60% 42% at 88% 24%, color-mix(in srgb, var(--hb-market-wash-right) 88%, white) 0%, transparent 68%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--hb-accent-soft-bg) 40%, white) 0%,
+      color-mix(in srgb, var(--hb-accent-soft-bg) 18%, var(--hb-bg-body)) 32%,
+      var(--hb-bg-body) 68%,
+      color-mix(in srgb, var(--hb-accent-soft-bg) 16%, var(--hb-bg-body)) 100%
+    );
   background-attachment: fixed;
 }
 
@@ -562,7 +568,7 @@ body.hb-body-hiring-prototype {
   line-height: 1.4;
   font-weight: 700;
   letter-spacing: 0.18em;
-  color: #3654d4;
+  color: var(--hb-accent-text);
   text-transform: uppercase;
 }
 
@@ -605,17 +611,17 @@ body.hb-body-hiring-prototype {
 
 .hb-hiring-primary-btn,
 .hb-hiring-card-action.primary {
-  border: 1px solid var(--hb-blue);
-  background: var(--hb-blue);
+  border: 1px solid var(--hb-accent-solid);
+  background: var(--hb-accent-solid);
   color: #fff;
-  box-shadow: 0 2px 10px rgba(74, 108, 247, 0.30);
+  box-shadow: 0 8px 20px var(--hb-accent-shadow);
 }
 
 .hb-hiring-primary-btn:hover,
 .hb-hiring-card-action.primary:hover {
-  background: #3b5de7;
-  border-color: #3b5de7;
-  box-shadow: 0 4px 14px rgba(74, 108, 247, 0.40);
+  background: var(--hb-accent-solid-hover);
+  border-color: var(--hb-accent-solid-hover);
+  box-shadow: 0 12px 28px var(--hb-accent-shadow-strong);
 }
 
 .hb-hiring-shell {
@@ -1085,10 +1091,14 @@ body.hb-body-hiring-prototype {
 .hb-hiring-steps-card {
   flex-shrink: 0;
   padding: 8px 12px 6px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--hb-border);
   border-radius: 16px;
-  background: var(--hb-surface-card);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hb-surface-card) 96%, transparent),
+    color-mix(in srgb, var(--hb-surface-soft) 92%, var(--hb-accent-soft-bg) 8%)
+  );
+  box-shadow: var(--hb-card-shadow);
 }
 
 /* 右侧状态条：紧凑单行 */

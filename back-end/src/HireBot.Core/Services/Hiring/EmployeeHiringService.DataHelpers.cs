@@ -37,6 +37,21 @@ namespace HireBot.Core.Services.Hiring;
 
 internal sealed partial class EmployeeHiringService
 {
+    private static readonly JsonSerializerOptions ExternalPackageJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        WriteIndented = true
+    };
+
+    private static readonly string[] ManagedExternalPackagePaths =
+    [
+        "external/user-config.json",
+        "external/external-config.index.json",
+        "external/systems/cli.json",
+        "external/systems/mcp.json",
+        "external/README.md"
+    ];
+
     private static HiringStagePreviewDto BuildLocalStagePreview(
         string hireId,
         DiscoverySkillDefinition discoverySkill,
@@ -146,6 +161,8 @@ internal sealed partial class EmployeeHiringService
             UpsertPackageFile(enrichedFiles, "ontology/hiring-session/evaluation-test-cases.json", evaluationTestCasesJson);
         }
 
+        SyncManagedExternalPackageFiles(enrichedFiles, runtimeContext.ExternalSystemConfig);
+
         var enrichedTemplatePackage = runtimeContext.WorkingTemplatePackage with
         {
             PackageFiles = enrichedFiles.Values.ToArray()
@@ -166,6 +183,208 @@ internal sealed partial class EmployeeHiringService
         var bytes = Encoding.UTF8.GetBytes(content);
         var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         packageFiles[normalizedPath] = new TemplatePackageFileAsset(normalizedPath, bytes, hash);
+    }
+
+    internal static void OverlayManagedExternalPackageArtifacts(
+        IDictionary<string, byte[]> artifacts,
+        HiringExternalSystemConfigState? externalSystemConfig)
+    {
+        RemoveManagedExternalPackageFiles(artifacts);
+        foreach (var (relativePath, content) in BuildManagedExternalPackageFiles(externalSystemConfig))
+        {
+            artifacts[relativePath] = Encoding.UTF8.GetBytes(content);
+        }
+    }
+
+    private static void SyncManagedExternalPackageFiles(
+        IDictionary<string, TemplatePackageFileAsset> packageFiles,
+        HiringExternalSystemConfigState? externalSystemConfig)
+    {
+        RemoveManagedExternalPackageFiles(packageFiles);
+        foreach (var (relativePath, content) in BuildManagedExternalPackageFiles(externalSystemConfig))
+        {
+            UpsertPackageFile(packageFiles, relativePath, content);
+        }
+    }
+
+    private static IReadOnlyDictionary<string, string> BuildManagedExternalPackageFiles(
+        HiringExternalSystemConfigState? externalSystemConfig)
+    {
+        var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (externalSystemConfig is null || !externalSystemConfig.HasAnyConfig)
+        {
+            return files;
+        }
+
+        var configDto = externalSystemConfig.ToDto();
+        var cliTools = configDto.CliTools
+            .Select(tool => new
+            {
+                tool.ToolName,
+                tool.Description,
+                tool.ExecutionMode,
+                ArgumentTemplate = string.IsNullOrWhiteSpace(tool.ArgumentTemplate) ? null : tool.ArgumentTemplate
+            })
+            .ToArray();
+
+        var mcpServer = configDto.McpServer;
+        var snapshot = new
+        {
+            schemaVersion = "1.0.0",
+            artifactType = "external_user_config",
+            source = "manual_form",
+            updatedAtUtc = configDto.UpdatedAtUtc ?? externalSystemConfig.UpdatedAtUtc,
+            cliTools,
+            mcpServer = mcpServer is null
+                ? null
+                : new
+                {
+                    mcpServer.ServerUrl,
+                    Auth = new
+                    {
+                        Kind = mcpServer.AuthMode,
+                        HasBoundSecret = mcpServer.HasApiKey,
+                        CredentialSlot = mcpServer.HasApiKey ? "mcp_api_key" : null
+                    },
+                    SelectedTools = mcpServer.SelectedTools
+                }
+        };
+        files["external/user-config.json"] = JsonSerializer.Serialize(snapshot, ExternalPackageJsonOptions);
+
+        var systems = new List<object>();
+        var fileEntries = new List<object>
+        {
+            new
+            {
+                path = "external/user-config.json",
+                kind = "snapshot"
+            }
+        };
+
+        if (cliTools.Length > 0)
+        {
+            var cliSystem = new
+            {
+                schemaVersion = "1.0.0",
+                artifactType = "external_system",
+                systemKey = "cli",
+                displayName = "CLI",
+                integrationMethod = "cli",
+                toolCount = cliTools.Length,
+                tools = cliTools,
+                configPath = "external/user-config.json"
+            };
+            files["external/systems/cli.json"] = JsonSerializer.Serialize(cliSystem, ExternalPackageJsonOptions);
+            systems.Add(new
+            {
+                systemKey = "cli",
+                displayName = "CLI",
+                path = "external/systems/cli.json"
+            });
+            fileEntries.Add(new
+            {
+                path = "external/systems/cli.json",
+                kind = "system"
+            });
+        }
+
+        if (mcpServer is not null && (!string.IsNullOrWhiteSpace(mcpServer.ServerUrl) || mcpServer.SelectedTools.Count > 0))
+        {
+            var mcpSystem = new
+            {
+                schemaVersion = "1.0.0",
+                artifactType = "external_system",
+                systemKey = "mcp",
+                displayName = "MCP",
+                integrationMethod = "mcp",
+                mcpServer.ServerUrl,
+                Auth = new
+                {
+                    Kind = mcpServer.AuthMode,
+                    HasBoundSecret = mcpServer.HasApiKey,
+                    CredentialSlot = mcpServer.HasApiKey ? "mcp_api_key" : null
+                },
+                SelectedTools = mcpServer.SelectedTools,
+                configPath = "external/user-config.json"
+            };
+            files["external/systems/mcp.json"] = JsonSerializer.Serialize(mcpSystem, ExternalPackageJsonOptions);
+            systems.Add(new
+            {
+                systemKey = "mcp",
+                displayName = "MCP",
+                path = "external/systems/mcp.json"
+            });
+            fileEntries.Add(new
+            {
+                path = "external/systems/mcp.json",
+                kind = "system"
+            });
+        }
+
+        var index = new
+        {
+            schemaVersion = "1.0.0",
+            artifactType = "external_config_index",
+            source = "manual_form",
+            updatedAtUtc = configDto.UpdatedAtUtc ?? externalSystemConfig.UpdatedAtUtc,
+            systems,
+            files = fileEntries
+        };
+        files["external/external-config.index.json"] = JsonSerializer.Serialize(index, ExternalPackageJsonOptions);
+
+        var readme = BuildManagedExternalReadme(configDto);
+        files["external/README.md"] = readme;
+        return files;
+    }
+
+    private static string BuildManagedExternalReadme(HiringExternalSystemConfigDto config)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# External Config");
+        builder.AppendLine();
+        builder.AppendLine("该目录由外部系统配置表单生成，供后续流程读取。");
+        builder.AppendLine();
+
+        if (config.CliTools.Count > 0)
+        {
+            builder.AppendLine("## CLI");
+            foreach (var tool in config.CliTools)
+            {
+                builder.Append("- ");
+                builder.Append(tool.ToolName);
+                builder.Append("（");
+                builder.Append(tool.ExecutionMode);
+                builder.AppendLine("）");
+            }
+
+            builder.AppendLine();
+        }
+
+        if (config.McpServer is not null)
+        {
+            builder.AppendLine("## MCP");
+            builder.AppendLine($"- Server: {config.McpServer.ServerUrl}");
+            builder.AppendLine($"- Auth Mode: {config.McpServer.AuthMode}");
+            if (config.McpServer.SelectedTools.Count > 0)
+            {
+                builder.AppendLine($"- Tools: {string.Join(", ", config.McpServer.SelectedTools)}");
+            }
+
+            if (config.McpServer.HasApiKey)
+            {
+                builder.AppendLine("- API Key: 已通过安全存储绑定，未写入模板包");
+            }
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
+    private static void RemoveManagedExternalPackageFiles<TValue>(IDictionary<string, TValue> packageFiles)
+    {
+        foreach (var managedPath in ManagedExternalPackagePaths)
+        {
+            packageFiles.Remove(managedPath);
+        }
     }
 
     private static bool TryBuildEvaluationTestCases(HiringRuntimeContext runtimeContext, out string testCasesJson)
@@ -745,7 +964,7 @@ internal sealed partial class EmployeeHiringService
     /// 按优先级合并三层产物：沙箱生成产物（最高） &gt; store skill 关联包（中层） &gt; 原始模板包（最低）。
     /// 后写入者不能覆盖已存在键，从而保证用户在沙箱里的最终编辑、和用户主动选择的 store skill 都不会被旧模板回写。
     /// </summary>
-    private static IReadOnlyDictionary<string, byte[]> MergeTemplatePackageArtifacts(
+    private static Dictionary<string, byte[]> MergeTemplatePackageArtifacts(
         IReadOnlyDictionary<string, byte[]> generatedArtifacts,
         IReadOnlyDictionary<string, byte[]> storeSkillArtifacts,
         TemplatePackageDefinition templatePackage)

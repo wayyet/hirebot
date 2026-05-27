@@ -21,8 +21,6 @@ public static class HiringHandoffKind
     public const string FileRequest = "file_request";
     /// <summary>需要用户在前端上传技能包（.zip）的 handoff 工单，前端面板会显示技能包上传表单。</summary>
     public const string SkillUpload = "skill_upload";
-    /// <summary>需要用户在前端填写外部系统接入配置（API URL / 密钥 / 服务名等）的 handoff 工单。</summary>
-    public const string ExternalConfig = "external_config";
 }
 
 public static class HiringDiagnosticPriority
@@ -45,14 +43,6 @@ public static class HiringStageReadinessStatus
     public const string Partial = "partial";
     public const string Complete = "complete";
     public const string Skipped = "skipped";
-}
-
-public static class HiringCredentialBindingStatus
-{
-    public const string Pending = "pending";
-    public const string Bound = "bound";
-    public const string NotRequired = "not_required";
-    public const string Failed = "failed";
 }
 
 public static class HiringConfigFileKeys
@@ -139,15 +129,6 @@ public sealed record HiringDiagnosticReportDto(
     IReadOnlyList<string> OpenQuestions,
     string UserSummary,
     DateTimeOffset GeneratedAtUtc);
-
-public sealed record HiringCredentialSlotDto(
-    string CredentialSlot,
-    string? SecretRef,
-    string? AuthKind,
-    string? TargetSystem,
-    string? HandoffId,
-    string BindingStatus,
-    DateTimeOffset UpdatedAtUtc);
 
 public sealed record HiringConfigGovernanceFileDto(
     string ConfigKey,

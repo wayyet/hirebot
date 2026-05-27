@@ -84,14 +84,14 @@
   gap: 6px;
   padding: 7px 16px;
   border-radius: 9px;
-  background: linear-gradient(135deg, #4F8EF7, #7B5EFF);
+  background: var(--hb-brand-gradient);
   border: none;
   color: #fff;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: opacity 0.2s, transform 0.15s;
-  box-shadow: 0 4px 16px rgba(79, 142, 247, 0.35);
+  box-shadow: var(--hb-shadow-cta);
 }
 
 .hb-landing-login-btn:hover {
@@ -130,8 +130,8 @@
   pointer-events: none;
   opacity: 0.14;
   background-image:
-    linear-gradient(rgba(79, 142, 247, 0.4) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(79, 142, 247, 0.4) 1px, transparent 1px);
+    linear-gradient(var(--hb-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hb-grid-line) 1px, transparent 1px);
   background-size: 64px 64px;
   -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 30%, transparent 100%);
   mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 30%, transparent 100%);
@@ -150,7 +150,7 @@
   left: 5%;
   width: 500px;
   height: 420px;
-  background: radial-gradient(circle, rgba(79, 142, 247, 0.12) 0%, transparent 70%);
+  background: var(--hb-landing-hero-glow-left);
 }
 
 .hb-landing-hero-glow--r {
@@ -158,7 +158,7 @@
   right: 5%;
   width: 420px;
   height: 360px;
-  background: radial-gradient(circle, rgba(123, 94, 255, 0.12) 0%, transparent 70%);
+  background: var(--hb-landing-hero-glow-right);
 }
 
 /* ── 数据表格 (设置页等管理类页面使用) ── */
@@ -429,9 +429,9 @@
   gap: 7px;
   padding: 6px 18px;
   border-radius: 999px;
-  border: 1px solid rgba(79, 142, 247, 0.32);
-  background: rgba(79, 142, 247, 0.08);
-  color: #7BB8FF;
+  border: 1px solid var(--hb-accent-border-strong);
+  background: var(--hb-accent-soft-bg);
+  color: var(--hb-accent-text-soft);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -449,7 +449,7 @@
 }
 
 .hb-landing-headline-accent {
-  background: linear-gradient(135deg, #4F8EF7 20%, #7B5EFF 80%);
+  background: var(--hb-headline-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -480,19 +480,19 @@
   gap: 9px;
   padding: 14px 32px;
   border-radius: 13px;
-  background: linear-gradient(135deg, #4F8EF7, #7B5EFF);
+  background: var(--hb-brand-gradient);
   border: none;
   color: #fff;
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.2s, opacity 0.2s;
-  box-shadow: 0 6px 28px rgba(79, 142, 247, 0.42);
+  box-shadow: var(--hb-shadow-cta);
 }
 
 .hb-landing-cta-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 40px rgba(79, 142, 247, 0.55);
+  box-shadow: 0 14px 36px var(--hb-accent-shadow-strong);
 }
 
 .hb-landing-cta-primary:active {
@@ -523,7 +523,7 @@
 }
 
 .hb-landing-cta-secondary:hover {
-  border-color: rgba(79, 142, 247, 0.4);
+  border-color: var(--hb-accent-border-strong);
   background: var(--hb-surface-soft);
 }
 
@@ -571,8 +571,12 @@
   font-weight: 700;
   letter-spacing: 3px;
   text-transform: uppercase;
-  color: #4F8EF7;
+  color: var(--hb-accent-text);
   margin-bottom: 14px;
+}
+
+.hb-landing-section-label--accent {
+  color: var(--hb-accent-text);
 }
 
 .hb-landing-section-title {
@@ -657,7 +661,7 @@
 }
 
 .hb-landing-step:hover {
-  border-color: rgba(79, 142, 247, 0.28);
+  border-color: var(--hb-accent-border);
   transform: translateX(6px);
 }
 
@@ -666,14 +670,14 @@
   width: 52px;
   height: 52px;
   border-radius: 14px;
-  background: linear-gradient(135deg, rgba(79,142,247,0.15), rgba(123,94,255,0.15));
-  border: 1px solid rgba(79, 142, 247, 0.2);
+  background: linear-gradient(135deg, var(--hb-accent-soft-bg-strong), var(--hb-accent-soft-bg));
+  border: 1px solid var(--hb-accent-border);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
   font-weight: 800;
-  color: #7BB8FF;
+  color: var(--hb-accent-text-soft);
   letter-spacing: -0.5px;
 }
 
@@ -710,7 +714,7 @@
   transform: translate(-50%, -50%);
   width: 700px;
   height: 400px;
-  background: radial-gradient(circle, rgba(79, 142, 247, 0.1) 0%, rgba(123, 94, 255, 0.05) 50%, transparent 70%);
+  background: var(--hb-final-cta-glow);
   filter: blur(80px);
   pointer-events: none;
 }
@@ -730,11 +734,11 @@
   width: 64px;
   height: 64px;
   border-radius: 20px;
-  background: linear-gradient(135deg, #4F8EF7, #7B5EFF);
+  background: var(--hb-brand-gradient);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8px 32px rgba(79, 142, 247, 0.4);
+  box-shadow: var(--hb-shadow-cta);
   margin-bottom: 28px;
 }
 

@@ -22,11 +22,11 @@
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0.16)),
+    var(--hb-login-grid-overlay),
     repeating-linear-gradient(
       90deg,
-      rgba(103, 126, 255, 0.03) 0,
-      rgba(103, 126, 255, 0.03) 64px,
+      color-mix(in srgb, var(--hb-grid-line) 20%, transparent) 0,
+      color-mix(in srgb, var(--hb-grid-line) 20%, transparent) 64px,
       transparent 64px,
       transparent 128px
     );
@@ -78,12 +78,12 @@
   display: grid;
   place-items: center;
   border-radius: 10px;
-  background: linear-gradient(135deg, #4f7dff 0%, #6f5fff 100%);
+  background: var(--hb-brand-gradient);
   color: #fff;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.06em;
-  box-shadow: 0 10px 22px rgba(91, 124, 255, 0.22);
+  box-shadow: 0 10px 22px var(--hb-accent-shadow);
 }
 
 .hb-login-brand-text {
@@ -99,8 +99,8 @@
   min-height: 32px;
   padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid rgba(103, 126, 255, 0.16);
-  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid var(--hb-accent-border);
+  background: var(--hb-glass-bg);
   color: #61708b;
   font-size: 12px;
   font-weight: 500;
@@ -132,9 +132,9 @@
   min-height: 40px;
   padding: 0 18px;
   border-radius: 999px;
-  border: 1px solid rgba(92, 123, 255, 0.24);
-  background: rgba(255, 255, 255, 0.72);
-  color: #5f7cff;
+  border: 1px solid var(--hb-accent-border);
+  background: var(--hb-glass-bg-soft);
+  color: var(--hb-accent-kicker-color);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -150,7 +150,7 @@
 }
 
 .hb-login-title-accent {
-  background: linear-gradient(90deg, #4f7dff 0%, #6f5fff 100%);
+  background: var(--hb-headline-gradient);
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -179,19 +179,19 @@
   min-height: 58px;
   border: none;
   border-radius: 22px;
-  background: linear-gradient(90deg, #4f7dff 0%, #6f5fff 100%);
+  background: var(--hb-brand-gradient);
   color: #fff;
   font-size: 16px;
   font-weight: 600;
   padding: 0 28px;
   cursor: pointer;
-  box-shadow: 0 16px 34px rgba(91, 124, 255, 0.28);
+  box-shadow: var(--hb-shadow-cta);
   transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
 }
 
 .hb-login-primary-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 20px 38px rgba(91, 124, 255, 0.34);
+  box-shadow: 0 16px 36px var(--hb-accent-shadow-strong);
   filter: saturate(1.06);
 }
 
@@ -218,7 +218,7 @@
   padding: 0 14px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(255, 255, 255, 0.76);
+  background: var(--hb-glass-bg);
   color: #64748b;
   font-size: 13px;
   font-weight: 500;

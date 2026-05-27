@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Globe, Loader2, LogOut, Moon, Settings, Sparkles, Sun } from "lucide-react";
+import {
+  ChevronDown,
+  Globe,
+  Loader2,
+  LogOut,
+  Moon,
+  Palette,
+  Settings,
+  Sparkles,
+  Sun,
+} from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
@@ -7,6 +17,7 @@ import {
   UserRoleContext,
   type HirebotUserRole,
 } from "@/app/context/UserRoleContext";
+import { useTheme } from "@/app/theme/ThemeProvider";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { isAuthBypassed } from "@/infra/auth/auth-mode";
 import { signOut, getAuthUser, getUserDisplayName } from "@/infra/auth/oidc";
@@ -36,16 +47,17 @@ function deriveDefaultRole(): HirebotUserRole {
   if (cachedRole === "manager" || cachedRole === "member") {
     return cachedRole;
   }
+
   return "manager";
 }
 
 function isNavItemActive(pathname: string, navPath: string) {
   if (pathname === navPath) return true;
+
   if (navPath === "/template-pool") {
-    return (
-      (pathname.startsWith("/template-pool/") && pathname !== "/template-pool")
-    );
+    return pathname.startsWith("/template-pool/") && pathname !== "/template-pool";
   }
+
   if (navPath === "/department-employees") {
     return (
       !pathname.startsWith("/my-employees") &&
@@ -55,6 +67,7 @@ function isNavItemActive(pathname: string, navPath: string) {
         pathname.includes("/onboarding"))
     );
   }
+
   if (navPath === "/my-employees") {
     return (
       pathname.startsWith("/my-employees") ||
@@ -72,12 +85,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { showToast } = useUxOverlay();
   const { t } = useTranslation();
+  const { brand, cycleBrand, isDark, toggleMode } = useTheme();
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [userDisplayName, setUserDisplayName] = useState<string>("");
   const [loadingUser, setLoadingUser] = useState(true);
 
-  // 自适应导航折叠
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [navStacked, setNavStacked] = useState(false);
   const [navMenuOpen, setNavMenuOpen] = useState(false);
@@ -86,19 +99,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navMeasureRef = useRef<HTMLDivElement | null>(null);
   const actionsRef = useRef<HTMLDivElement | null>(null);
 
-  // Dark / light theme
-  const [isDark, setIsDark] = useState(
-    () => localStorage.getItem("ncrew-hire-theme") === "dark",
-  );
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", isDark);
-    localStorage.setItem("ncrew-hire-theme", isDark ? "dark" : "light");
-  }, [isDark]);
-
-  // 自适应导航：通过 ResizeObserver 测量各区域宽度，决定是否折叠导航
   useEffect(() => {
     let rafId = 0;
+
     const measureNavLayout = () => {
       const layoutWidth = layoutRef.current?.clientWidth ?? 0;
       const brandWidth = brandRef.current?.offsetWidth ?? 0;
@@ -110,6 +113,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       setNavCollapsed(requiredWidth > layoutWidth);
       setNavStacked(layoutWidth < 520);
     };
+
     const scheduleMeasure = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(measureNavLayout);
@@ -123,42 +127,48 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       : null;
 
     const observedElements = [layoutRef.current, brandRef.current, navMeasureRef.current, actionsRef.current]
-      .filter((el): el is HTMLDivElement => Boolean(el));
-    observedElements.forEach(el => resizeObserver?.observe(el));
+      .filter((element): element is HTMLDivElement => Boolean(element));
+    observedElements.forEach((element) => resizeObserver?.observe(element));
 
     return () => {
       cancelAnimationFrame(rafId);
       window.removeEventListener("resize", scheduleMeasure);
       resizeObserver?.disconnect();
     };
-  }, [t, role]);
+  }, [role, t]);
 
-  // Language switcher
   const [langOpen, setLangOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
   const currentLang = i18n.language ?? "zh";
 
   useEffect(() => {
-    function handleOutside(e: MouseEvent) {
-      if (langRef.current && !langRef.current.contains(e.target as Node)) {
+    function handleOutside(event: MouseEvent) {
+      if (langRef.current && !langRef.current.contains(event.target as Node)) {
         setLangOpen(false);
       }
     }
-    if (langOpen) document.addEventListener("mousedown", handleOutside);
+
+    if (langOpen) {
+      document.addEventListener("mousedown", handleOutside);
+    }
+
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [langOpen]);
 
-  // User dropdown
   const [userOpen, setUserOpen] = useState(false);
   const userRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function handleOutside(e: MouseEvent) {
-      if (userRef.current && !userRef.current.contains(e.target as Node)) {
+    function handleOutside(event: MouseEvent) {
+      if (userRef.current && !userRef.current.contains(event.target as Node)) {
         setUserOpen(false);
       }
     }
-    if (userOpen) document.addEventListener("mousedown", handleOutside);
+
+    if (userOpen) {
+      document.addEventListener("mousedown", handleOutside);
+    }
+
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [userOpen]);
 
@@ -185,12 +195,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         if (user) {
           setUserDisplayName(getUserDisplayName(user));
         }
-      } catch (err) {
-        console.warn("Failed to load user info:", err);
+      } catch (error) {
+        console.warn("Failed to load user info:", error);
       } finally {
         setLoadingUser(false);
       }
     }
+
     loadUserInfo();
   }, []);
 
@@ -204,6 +215,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   async function handleLogout() {
     if (logoutLoading) return;
+
     setLogoutLoading(true);
     try {
       await signOut();
@@ -224,8 +236,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <div className="hb-shell">
         <header className="hb-topnav">
           <div ref={layoutRef} className={`hb-topnav-inner${navStacked ? " is-stacked" : ""}`}>
-
-            {/* ── Brand ── */}
             <div ref={brandRef} style={{ flexShrink: 0 }}>
               <Link
                 to={role === "manager" ? "/template-pool" : "/department-employees"}
@@ -241,13 +251,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             </div>
 
-            {/* ── Nav center（居中，自适应折叠） ── */}
             <div className={`hb-topnav-center${navStacked && navCollapsed ? " is-stacked" : ""}`}>
-              {/* 用于测量导航实际宽度的隐藏克隆 */}
               <div ref={navMeasureRef} aria-hidden="true" className="hb-nav-measure">
                 <div className="hb-nav-pill-shell">
                   {visibleNavItems.map((item) => (
-                    <span key={`measure-${item.path}`} className="hb-nav-pill-item" style={{ background: "transparent", boxShadow: "none" }}>
+                    <span
+                      key={`measure-${item.path}`}
+                      className="hb-nav-pill-item"
+                      style={{ background: "transparent", boxShadow: "none" }}
+                    >
                       {t(item.labelKey)}
                     </span>
                   ))}
@@ -255,7 +267,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
 
               {!navCollapsed ? (
-                /* 正常宽度：展示 pill 导航 */
                 <nav className="hb-nav-pill-shell">
                   {visibleNavItems.map((item) => {
                     const active = isNavItemActive(location.pathname, item.path);
@@ -267,29 +278,39 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       >
                         {t(item.labelKey)}
                         {item.isNew ? <span className="hb-nav-flag">new</span> : null}
-                        {active && <span className="hb-nav-pill-dot" />}
+                        {active ? <span className="hb-nav-pill-dot" /> : null}
                       </Link>
                     );
                   })}
                 </nav>
               ) : (
-                /* 宽度不足：折叠为下拉菜单 */
                 <div style={{ position: "relative", width: navStacked ? "100%" : "auto" }}>
                   <button
                     type="button"
                     className={`hb-nav-collapse-btn${navStacked ? " is-stacked" : ""}`}
-                    onClick={() => { setNavMenuOpen(v => !v); setLangOpen(false); setUserOpen(false); }}
+                    onClick={() => {
+                      setNavMenuOpen((current) => !current);
+                      setLangOpen(false);
+                      setUserOpen(false);
+                    }}
                   >
                     <span className="hb-nav-collapse-btn__label">
-                      {t(visibleNavItems.find(item => isNavItemActive(location.pathname, item.path))?.labelKey ?? visibleNavItems[0]?.labelKey ?? "")}
+                      {t(
+                        visibleNavItems.find((item) => isNavItemActive(location.pathname, item.path))
+                          ?.labelKey ?? visibleNavItems[0]?.labelKey ?? "",
+                      )}
                     </span>
                     <ChevronDown
                       size={13}
-                      style={{ transform: navMenuOpen ? "rotate(180deg)" : "none", transition: "transform 180ms ease", flexShrink: 0 }}
+                      style={{
+                        transform: navMenuOpen ? "rotate(180deg)" : "none",
+                        transition: "transform 180ms ease",
+                        flexShrink: 0,
+                      }}
                     />
                   </button>
 
-                  {navMenuOpen && (
+                  {navMenuOpen ? (
                     <div className={`hb-nav-collapse-menu${navStacked ? " is-stacked" : ""}`}>
                       {visibleNavItems.map((item) => {
                         const active = isNavItemActive(location.pathname, item.path);
@@ -305,31 +326,40 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                         );
                       })}
                     </div>
-                  )}
+                  ) : null}
                 </div>
               )}
             </div>
 
-            {/* ── Right actions ── */}
             <div ref={actionsRef} className="hb-nav-actions">
-
-              {/* Theme toggle */}
               <button
                 type="button"
                 className="hb-icon-btn"
                 title={t("theme.toggle")}
-                onClick={() => setIsDark((prev) => !prev)}
+                onClick={toggleMode}
               >
                 {isDark ? <Sun size={15} /> : <Moon size={15} />}
               </button>
 
-              {/* Language switcher */}
+              <button
+                type="button"
+                className="hb-nav-utility-btn"
+                title={t("theme.brandToggle")}
+                onClick={cycleBrand}
+              >
+                <Palette size={14} />
+                <span>{t(`theme.brand.${brand}`)}</span>
+              </button>
+
               <div className="hb-lang-dropdown" ref={langRef}>
                 <button
                   type="button"
                   className="hb-nav-utility-btn"
                   title={t("language.toggle")}
-                  onClick={() => { setLangOpen((v) => !v); setUserOpen(false); }}
+                  onClick={() => {
+                    setLangOpen((current) => !current);
+                    setUserOpen(false);
+                  }}
                 >
                   <Globe size={14} />
                   <span>{currentLang === "zh" ? "中文" : "EN"}</span>
@@ -341,7 +371,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     }}
                   />
                 </button>
-                {langOpen && (
+                {langOpen ? (
                   <div className="hb-dropdown-menu">
                     {(["zh", "en"] as const).map((code) => (
                       <button
@@ -354,15 +384,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       </button>
                     ))}
                   </div>
-                )}
+                ) : null}
               </div>
 
-              {/* User dropdown */}
               <div className="hb-user-dropdown" ref={userRef}>
                 <button
                   type="button"
                   className="hb-user-btn"
-                  onClick={() => { setUserOpen((v) => !v); setLangOpen(false); }}
+                  onClick={() => {
+                    setUserOpen((current) => !current);
+                    setLangOpen(false);
+                  }}
                 >
                   <div className="hb-user-avatar">{avatarLetter}</div>
                   <span className="hb-user-name">{displayName}</span>
@@ -375,35 +407,38 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     }}
                   />
                 </button>
-                {userOpen && (
+                {userOpen ? (
                   <div className="hb-dropdown-menu hb-dropdown-menu--right">
-                    {/* 只在控制台展示进入设置页面的入口 */}
                     <button
                       type="button"
                       className="hb-dropdown-item"
-                      onClick={() => { setUserOpen(false); navigate('/settings'); }}
+                      onClick={() => {
+                        setUserOpen(false);
+                        navigate("/settings");
+                      }}
                     >
                       <Settings size={13} />
                       {t("user.settings")}
                     </button>
-                    {!isAuthBypassed && (
+                    {!isAuthBypassed ? (
                       <button
                         type="button"
                         className="hb-dropdown-item hb-dropdown-item--danger"
                         disabled={logoutLoading}
-                        onClick={() => { setUserOpen(false); void handleLogout(); }}
+                        onClick={() => {
+                          setUserOpen(false);
+                          void handleLogout();
+                        }}
                       >
                         {logoutLoading
                           ? <Loader2 size={13} className="animate-spin" />
-                          : <LogOut size={13} />
-                        }
+                          : <LogOut size={13} />}
                         {t("user.logout")}
                       </button>
-                    )}
+                    ) : null}
                   </div>
-                )}
+                ) : null}
               </div>
-
             </div>
           </div>
         </header>

@@ -1869,9 +1869,8 @@ export default function HiringPage() {
     return null
   })()
 
-  // @ts-ignore
   return (
-    <div className="hb-hiring-page">
+    <div className="hb-hiring-page hb-workflow-page">
       <HiringJourneyHeader
         templateName={introName}
         templateId={template.templateId}
@@ -1967,8 +1966,8 @@ export default function HiringPage() {
 
 function CenterState({ message }: { message: string }) {
   return (
-    <div className="hb-page">
-      <div className="hb-card flex min-h-52 items-center justify-center p-8 text-sm text-[#737373]">
+    <div className="hb-page hb-workflow-page">
+      <div className="hb-card hb-detail-state">
         {message}
       </div>
     </div>
@@ -2014,7 +2013,7 @@ function SkillUploadModal({
   return (
     <div className="hb-modal-mask">
       <div className="hb-modal hb-hiring-modal">
-        <div className="hb-modal-head flex items-center justify-between gap-4 border-b border-[#f5f5f5] pb-4">
+        <div className="hb-modal-head hb-hiring-modal-head">
           <div>
             <h2 className="hb-modal-title">{t('hiring.skillUpload.title')}</h2>
             <p className="hb-modal-sub">{t('hiring.skillUpload.desc')}</p>
@@ -2037,13 +2036,13 @@ function SkillUploadModal({
               <Upload size={22} className={`mx-auto mb-2 ${file ? 'text-violet-500' : 'text-slate-400'}`} />
               {file ? (
                 <>
-                  <p className="text-sm font-medium text-[#4a6cf7]">{file.name}</p>
-                  <p className="mt-1 text-xs text-[#737373]">{t('hiring.skillUpload.selectAgain')}</p>
+                  <p className="hb-hiring-dropzone-file text-sm font-medium">{file.name}</p>
+                  <p className="hb-hiring-dropzone-sub mt-1 text-xs">{t('hiring.skillUpload.selectAgain')}</p>
                 </>
               ) : (
                 <>
-                  <p className="text-sm text-[#404040]">{t('hiring.skillUpload.dragHint')}</p>
-                  <p className="mt-1 text-xs text-[#737373]">{t('hiring.skillUpload.supportedFormats')}</p>
+                  <p className="hb-hiring-dropzone-copy text-sm">{t('hiring.skillUpload.dragHint')}</p>
+                  <p className="hb-hiring-dropzone-sub mt-1 text-xs">{t('hiring.skillUpload.supportedFormats')}</p>
                 </>
               )}
               <input
@@ -2075,7 +2074,7 @@ function SkillUploadModal({
           <div className="hb-hiring-form-field">
             <label className="hb-hiring-form-label">
               {t('hiring.skillUpload.releaseNote')}
-              <span className="ml-1 font-normal text-[#9ca3af]">{t('hiring.skillUpload.releaseNoteOptional')}</span>
+              <span className="hb-hiring-hint ml-1 font-normal">{t('hiring.skillUpload.releaseNoteOptional')}</span>
             </label>
             <textarea
               disabled={disabled}

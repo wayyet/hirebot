@@ -245,10 +245,7 @@ internal sealed partial class EmployeeHiringService
         // CollectionPhase / CurrentStage 由外部显式设置，不再基于 HandoffItems 自动推进。
         return runtimeContext with
         {
-            StructuredData = NormalizeStructuredData(runtimeContext.StructuredData),
-            CredentialSlots = runtimeContext.CredentialSlots
-                .OrderBy(item => item.CredentialSlot, StringComparer.OrdinalIgnoreCase)
-                .ToArray()
+            StructuredData = NormalizeStructuredData(runtimeContext.StructuredData)
         };
     }
 

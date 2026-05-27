@@ -68,6 +68,22 @@
       "expiryInMinutes": "剩余 {{count}} 分钟",
       "expiryInHours": "剩余 {{count}} 小时",
       "expiryInDays": "剩余 {{count}} 天"
+    },
+    "appearance": {
+      "title": "外观",
+      "description": "工作区主题",
+      "copy": "统一管理导航、主按钮和页面氛围使用的明暗模式与主题配色。",
+      "modeTitle": "明暗模式",
+      "modeDescription": "为日常工作选择浅色或深色界面基调。",
+      "brandTitle": "主题配色",
+      "brandDescription": "选择导航、主操作和页面高亮共享的强调颜色。",
+      "current": "当前：{{mode}} · {{brand}}",
+      "options": {
+        "lightDescription": "适合白天办公的明亮表面",
+        "darkDescription": "适合长时间专注的深色表面",
+        "amberDescription": "更暖的强调色与光感",
+        "blueDescription": "更冷静的强调色与对比"
+      }
     }
   },
   "common": {
@@ -89,7 +105,12 @@
   "theme": {
     "toggle": "切换主题",
     "light": "浅色模式",
-    "dark": "深色模式"
+    "dark": "深色模式",
+    "brandToggle": "切换主题配色",
+    "brand": {
+      "amber": "暖调",
+      "blue": "蓝调"
+    }
   },
   "language": {
     "toggle": "切换语言",
@@ -299,7 +320,7 @@
       },
       "external": {
         "title": "外部连接",
-        "description": "连接能力与凭据绑定",
+        "description": "连接能力与接入说明",
         "panelTitle": "配置外部连接",
         "panelDescription": "按连接能力逐条说明系统、操作、目标与认证方式。",
         "subtask": "连接配置",
@@ -718,6 +739,7 @@
     "breadcrumb": "员工详情",
     "loading": "正在加载实例详情...",
     "notFound": "实例不存在",
+    "loadFailed": "加载实例详情失败",
     "meta": {
       "sourceTemplate": "来源模板",
       "department": "所属部门",
@@ -740,7 +762,14 @@
       "enterHumanEvaluation": "进入人工评估",
       "configureIm": "配置 IM"
     },
+    "confirmAbandon": "废弃后会回滚五件套并恢复为个人分身，沙箱、对话和 IM 配置都会继续沿用。此操作不可撤销，确定继续？",
     "capabilities": "能力简介",
+    "intro": {
+      "coreAbilities": "核心能力",
+      "inScope": "职责范围",
+      "outOfScope": "明确排除",
+      "empty": "暂无员工介绍"
+    },
     "runStatus": "运行状态",
     "onboardedAt": "上岗时间",
     "readyCapabilities": "可用能力",

@@ -1,0 +1,387 @@
+.hb-kicker-accent {
+  color: var(--hb-accent-text);
+  letter-spacing: 0.12em;
+}
+
+.hb-theme-section {
+  margin-bottom: 24px;
+}
+
+.hb-theme-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.hb-theme-panel {
+  border: 1px solid var(--hb-border);
+  border-radius: 20px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hb-surface-card) 94%, transparent),
+    color-mix(in srgb, var(--hb-surface-soft) 90%, transparent)
+  );
+  box-shadow: var(--hb-card-shadow);
+  padding: 18px;
+}
+
+.hb-theme-panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.hb-theme-panel-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--hb-accent-soft-bg);
+  color: var(--hb-blue);
+  border: 1px solid var(--hb-accent-border);
+  flex-shrink: 0;
+}
+
+.hb-theme-panel-title {
+  margin: 0;
+  color: var(--hb-near-black);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.hb-theme-panel-copy {
+  margin: 6px 0 0;
+  color: var(--hb-soft);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.hb-theme-option-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.hb-theme-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--hb-border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--hb-surface-card) 96%, transparent);
+  color: var(--hb-body);
+  cursor: pointer;
+  transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+  text-align: left;
+}
+
+.hb-theme-option:hover {
+  border-color: var(--hb-accent-border);
+  transform: translateY(-1px);
+}
+
+.hb-theme-option.is-active {
+  border-color: var(--hb-accent-border-strong);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 72%, var(--hb-surface-card));
+  box-shadow: 0 10px 24px var(--hb-accent-shadow);
+}
+
+.hb-theme-option-icon,
+.hb-theme-swatch {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--hb-border);
+  background: color-mix(in srgb, var(--hb-surface-soft) 90%, transparent);
+  color: var(--hb-blue);
+}
+
+.hb-theme-swatch--amber {
+  background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+  border-color: rgba(251, 146, 60, 0.24);
+}
+
+.hb-theme-swatch--blue {
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  border-color: rgba(99, 102, 241, 0.24);
+}
+
+.hb-theme-option-body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hb-theme-option-title {
+  color: var(--hb-near-black);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hb-theme-option-copy {
+  color: var(--hb-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.hb-theme-current {
+  margin-top: 14px;
+  color: var(--hb-soft);
+  font-size: 12px;
+}
+
+.hb-employee-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.hb-employee-page::before {
+  content: "";
+  position: absolute;
+  inset: -52px 0 auto;
+  height: 220px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 10% 30%, var(--hb-market-wash-left) 0%, transparent 34%),
+    radial-gradient(circle at 86% 22%, var(--hb-market-wash-right) 0%, transparent 30%);
+  filter: blur(40px);
+  opacity: 0.88;
+}
+
+.hb-employee-page .hb-employee-card {
+  border: 1px solid var(--hb-border);
+  border-radius: 20px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hb-surface-card) 96%, transparent),
+    color-mix(in srgb, var(--hb-surface-soft) 88%, var(--hb-accent-soft-bg) 12%)
+  );
+  box-shadow: var(--hb-card-shadow);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.hb-employee-page .hb-employee-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--hb-accent-border);
+  box-shadow: var(--hb-card-hover-shadow);
+}
+
+.hb-employee-avatar--accent,
+.hb-detail-avatar--accent {
+  background: var(--hb-brand-gradient);
+}
+
+.hb-detail-panel {
+  padding: 24px;
+}
+
+.hb-detail-copy-text {
+  color: var(--hb-body);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.hb-detail-empty-text {
+  color: var(--hb-soft);
+  font-size: 14px;
+}
+
+.hb-detail-state {
+  min-height: 208px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  color: var(--hb-soft);
+  font-size: 14px;
+}
+
+.hb-detail-danger-btn {
+  border: 1px solid color-mix(in srgb, var(--hb-danger) 18%, var(--hb-border));
+  background: color-mix(in srgb, var(--hb-surface-card) 92%, transparent);
+  color: var(--hb-danger);
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.hb-workflow-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.hb-workflow-page::before {
+  content: "";
+  position: absolute;
+  inset: -56px -24px auto;
+  height: 280px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 12% 26%, var(--hb-market-wash-left) 0%, transparent 36%),
+    radial-gradient(circle at 88% 18%, var(--hb-market-wash-right) 0%, transparent 32%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--hb-accent-soft-bg) 32%, var(--hb-bg-body)) 0%,
+      transparent 100%
+    );
+  filter: blur(24px);
+  opacity: 0.92;
+}
+
+.hb-workflow-page .hb-card {
+  border: 1px solid var(--hb-border);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hb-surface-card) 97%, transparent),
+    color-mix(in srgb, var(--hb-surface-soft) 90%, var(--hb-accent-soft-bg) 10%)
+  );
+  box-shadow: var(--hb-card-shadow);
+}
+
+.hb-workflow-page .hb-btn-primary {
+  box-shadow: 0 10px 24px var(--hb-accent-shadow);
+}
+
+.hb-workflow-page .hb-btn-primary:hover {
+  box-shadow: 0 14px 32px var(--hb-accent-shadow-strong);
+}
+
+.hb-workflow-page .hb-btn-ghost {
+  border-color: var(--hb-border-input);
+  background: color-mix(in srgb, var(--hb-surface-card) 92%, transparent);
+}
+
+.hb-workflow-page .hb-btn-ghost:hover {
+  border-color: var(--hb-accent-border);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 66%, var(--hb-surface-card));
+}
+
+.hb-workflow-send-btn {
+  display: inline-flex;
+  height: 40px;
+  width: 40px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 16px;
+  background: var(--hb-accent-solid);
+  color: #fff;
+  box-shadow: 0 10px 24px var(--hb-accent-shadow);
+  transition: background 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+
+.hb-workflow-send-btn:hover {
+  background: var(--hb-accent-solid-hover);
+  box-shadow: 0 14px 32px var(--hb-accent-shadow-strong);
+}
+
+.hb-workflow-send-btn:disabled {
+  opacity: 0.4;
+  box-shadow: none;
+}
+
+.hb-workflow-alert {
+  border: 1px solid color-mix(in srgb, var(--hb-danger) 22%, var(--hb-border));
+  background: color-mix(in srgb, var(--hb-danger) 10%, var(--hb-surface-card));
+  color: var(--hb-danger);
+}
+
+.hb-workflow-surface {
+  border: 1px solid var(--hb-border);
+  background: color-mix(in srgb, var(--hb-surface-card) 96%, transparent);
+}
+
+.hb-workflow-surface-soft {
+  border: 1px solid var(--hb-border);
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, var(--hb-accent-soft-bg) 8%);
+}
+
+.hb-workflow-title {
+  color: var(--hb-near-black);
+}
+
+.hb-workflow-body {
+  color: var(--hb-body);
+}
+
+.hb-workflow-muted {
+  color: var(--hb-soft);
+}
+
+.hb-workflow-value-success {
+  color: var(--hb-success);
+}
+
+.hb-workflow-value-danger {
+  color: var(--hb-danger);
+}
+
+.hb-workflow-note {
+  color: var(--hb-soft);
+  line-height: 1.65;
+}
+
+.hb-workflow-danger-btn {
+  border: 1px solid color-mix(in srgb, var(--hb-danger) 18%, var(--hb-border));
+  background: color-mix(in srgb, var(--hb-surface-card) 94%, transparent);
+  color: var(--hb-danger);
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.hb-workflow-danger-btn:hover {
+  border-color: color-mix(in srgb, var(--hb-danger) 36%, var(--hb-border));
+  background: color-mix(in srgb, var(--hb-danger) 8%, var(--hb-surface-card));
+}
+
+.hb-hiring-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--hb-border);
+}
+
+.hb-hiring-dropzone-file {
+  color: var(--hb-accent-text);
+}
+
+.hb-hiring-dropzone-copy {
+  color: var(--hb-body);
+}
+
+.hb-hiring-dropzone-sub,
+.hb-hiring-hint {
+  color: var(--hb-soft);
+}
+
+.hb-detail-danger-btn:hover {
+  border-color: color-mix(in srgb, var(--hb-danger) 28%, var(--hb-border));
+  background: var(--hb-danger-hover-bg);
+}
+
+@media (min-width: 900px) {
+  .hb-theme-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

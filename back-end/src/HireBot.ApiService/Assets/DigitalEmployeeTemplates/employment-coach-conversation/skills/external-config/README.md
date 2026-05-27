@@ -2,7 +2,7 @@
 
 `external-config` 是雇佣教练流程阶段三的下游执行型 skill。它接收 `employment-coach-conversation` 发出的 `external_workorder_summary` terminal artifact，把“要接哪个外部系统、做什么能力、需要哪些字段和认证形式”落成沙箱内 `external/` 目录下的配置草案。
 
-它不做对话引导，不收集真实凭据，不维护任何 handoff / dispatch 状态，也不直接调用外部系统。
+它不做对话引导，不收集真实凭据，也不直接调用外部系统。
 
 ## 目录结构
 

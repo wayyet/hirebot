@@ -17,6 +17,8 @@ public interface IEmployeeHiringService
     Task<ApiResponse<HiringStagePreviewDto>> GetStagePreviewAsync(string hireId, string? stage, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringAuditDecisionResultDto>> SubmitAuditDecisionAsync(string hireId, HiringAuditDecisionRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<IReadOnlyList<HiringAuditLogDto>>> GetAuditLogsAsync(string hireId, CancellationToken cancellationToken = default);
+    Task<ApiResponse<HiringExternalSystemConfigDto>> GetExternalSystemConfigAsync(string hireId, CancellationToken cancellationToken = default);
+    Task<ApiResponse<HiringExternalSystemConfigDto>> SaveExternalSystemConfigAsync(string hireId, HiringExternalSystemConfigDto request, CancellationToken cancellationToken = default);
     /// <summary>
     /// 前端从沙箱网关直接下载产物包后，调用此接口将包上传至后端，跳过 KingCrab 依赖。
     /// </summary>

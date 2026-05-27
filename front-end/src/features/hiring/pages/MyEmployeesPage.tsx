@@ -13,7 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeSummary } from "@/infra/api";
-import { withEmployeeView, extractCardIntroHeadline } from "./employeeView";
+import { withEmployeeView, extractCardIntroHeadline, firstCharacter } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 
 type FilterTab = "all" | "live" | "branch" | "retired";
@@ -165,7 +165,7 @@ export default function MyEmployeesPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   const viewedEmployees = useMemo(
     () => employees.map(withEmployeeView),
@@ -267,10 +267,10 @@ export default function MyEmployeesPage() {
   }, [pagedEmployees]);
 
   return (
-    <div className="hb-page">
+    <div className="hb-page hb-employee-page">
       <div className="hb-page-head">
         <div>
-          <span className="hb-kicker">{t("employees.myPage.kicker")}</span>
+          <span className="hb-kicker hb-kicker-accent">{t("employees.myPage.kicker")}</span>
           <h1 className="hb-page-title">{t("employees.myPage.title")}</h1>
           <p className="hb-page-copy">{t("employees.myPage.copy")}</p>
         </div>
@@ -468,6 +468,9 @@ export default function MyEmployeesPage() {
                   ) : null}
                 </div>
                 <div className="hb-employee-card-head pr-12">
+                  <div className="hb-employee-avatar hb-employee-avatar--accent">
+                    {firstCharacter(employee.nickname)}
+                  </div>
                   <div className="min-w-0 flex-1">
                     <h3 className="hb-employee-card-title">
                       {employee.nickname}

@@ -119,6 +119,29 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
+    [HttpGet("{hireId}/external-config")]
+    public async Task<IActionResult> GetExternalSystemConfig(string hireId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.GetExternalSystemConfigAsync(hireId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPut("{hireId}/external-config")]
+    public async Task<IActionResult> SaveExternalSystemConfig(
+        string hireId,
+        [FromBody] HiringExternalSystemConfigDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<HiringExternalSystemConfigDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeHiringService.SaveExternalSystemConfigAsync(hireId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     /// <summary>
     /// 前端从沙箱网关直接下载产物包后上传至此接口，跳过后端对 KingCrab 的依赖，完成数字员工创建。
     /// </summary>

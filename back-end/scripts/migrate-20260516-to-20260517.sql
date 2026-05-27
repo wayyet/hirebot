@@ -37,7 +37,6 @@ SET "WorkflowStateJson" = jsonb_build_object(
     'stageCompletion', COALESCE(("PayloadJson"::jsonb) -> 'stageCompletion', '[]'::jsonb),
     'handoffItems', COALESCE(("PayloadJson"::jsonb) -> 'handoffItems', '[]'::jsonb),
     'latestDispatches', COALESCE(("PayloadJson"::jsonb) -> 'latestDispatches', '[]'::jsonb),
-    'credentialSlots', COALESCE(("PayloadJson"::jsonb) -> 'credentialSlots', '[]'::jsonb),
     'configGovernance', ("PayloadJson"::jsonb) -> 'configGovernance',
     'stageReadiness', COALESCE(("PayloadJson"::jsonb) -> 'stageReadiness', '[]'::jsonb)
 )::text

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   HiringCollectionPhase,
   HiringCollectionStage,
-  HiringCredentialBindingStatus,
   HiringStageReadinessStatus,
 } from '@/infra/api'
 import type { HiringWorkflowState } from '@/infra/api'
@@ -38,7 +37,6 @@ function buildWorkflowState(overrides: Partial<HiringWorkflowState> = {}): Hirin
       userSummary: '仍需补齐资料阶段',
       generatedAtUtc: '2026-05-06T10:00:00Z',
     },
-    credentialSlots: [],
     configGovernance: {
       files: [],
       pendingReviewTodoIds: [],
@@ -77,7 +75,7 @@ describe('buildHiringWorkflowViewModel', () => {
       stageReadiness: [
         { stage: HiringCollectionStage.Material, status: HiringStageReadinessStatus.Complete, reason: '资料完成', blockingTodoIds: [] },
         { stage: HiringCollectionStage.Skill, status: HiringStageReadinessStatus.Complete, reason: '技能完成', blockingTodoIds: [] },
-        { stage: HiringCollectionStage.External, status: HiringStageReadinessStatus.Partial, reason: '凭据待绑定', blockingTodoIds: ['todo-external'] },
+        { stage: HiringCollectionStage.External, status: HiringStageReadinessStatus.Partial, reason: '配置治理待复核', blockingTodoIds: ['todo-external'] },
       ],
       latestDiagnosticReport: {
         status: 'blocked',
@@ -87,7 +85,7 @@ describe('buildHiringWorkflowViewModel', () => {
         stageReadiness: [
           { stage: HiringCollectionStage.Material, status: HiringStageReadinessStatus.Complete, reason: '资料完成', blockingTodoIds: [] },
           { stage: HiringCollectionStage.Skill, status: HiringStageReadinessStatus.Complete, reason: '技能完成', blockingTodoIds: [] },
-          { stage: HiringCollectionStage.External, status: HiringStageReadinessStatus.Partial, reason: '凭据待绑定', blockingTodoIds: ['todo-external'] },
+          { stage: HiringCollectionStage.External, status: HiringStageReadinessStatus.Partial, reason: '配置治理待复核', blockingTodoIds: ['todo-external'] },
         ],
         diagnosticTodos: [],
         todoCorrelation: [],
@@ -293,13 +291,13 @@ describe('buildHiringWorkflowViewModel', () => {
     })
   })
 
-  it('locks finalize CTA when credential slots or config review remain', () => {
+  it('locks finalize CTA when config review remains', () => {
     const workflow = buildWorkflowState({
       currentStage: HiringCollectionStage.External,
       stageReadiness: [
         { stage: HiringCollectionStage.Material, status: HiringStageReadinessStatus.Complete, reason: '资料完成', blockingTodoIds: [] },
         { stage: HiringCollectionStage.Skill, status: HiringStageReadinessStatus.Complete, reason: '技能完成', blockingTodoIds: [] },
-        { stage: HiringCollectionStage.External, status: HiringStageReadinessStatus.Partial, reason: '凭据待绑定', blockingTodoIds: ['todo-external'] },
+        { stage: HiringCollectionStage.External, status: HiringStageReadinessStatus.Partial, reason: '配置治理待复核', blockingTodoIds: ['todo-external'] },
       ],
       latestDiagnosticReport: {
         status: 'blocked',
@@ -309,25 +307,14 @@ describe('buildHiringWorkflowViewModel', () => {
         stageReadiness: [
           { stage: HiringCollectionStage.Material, status: HiringStageReadinessStatus.Complete, reason: '资料完成', blockingTodoIds: [] },
           { stage: HiringCollectionStage.Skill, status: HiringStageReadinessStatus.Complete, reason: '技能完成', blockingTodoIds: [] },
-          { stage: HiringCollectionStage.External, status: HiringStageReadinessStatus.Partial, reason: '凭据待绑定', blockingTodoIds: ['todo-external'] },
+          { stage: HiringCollectionStage.External, status: HiringStageReadinessStatus.Partial, reason: '配置治理待复核', blockingTodoIds: ['todo-external'] },
         ],
         diagnosticTodos: [],
         todoCorrelation: [],
         openQuestions: [],
-        userSummary: '仍有凭据待绑定',
+        userSummary: '仍有配置治理待复核',
         generatedAtUtc: '2026-05-06T10:00:00Z',
       },
-      credentialSlots: [
-        {
-          credentialSlot: 'crm-api-token',
-          secretRef: null,
-          authKind: 'api_key',
-          targetSystem: 'CRM',
-          todoId: 'todo-external',
-          bindingStatus: HiringCredentialBindingStatus.Pending,
-          updatedAtUtc: '2026-05-06T10:00:00Z',
-        },
-      ],
       configGovernance: {
         files: [],
         pendingReviewTodoIds: ['todo-external'],
