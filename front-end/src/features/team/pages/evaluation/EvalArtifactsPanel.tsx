@@ -82,7 +82,7 @@ export function EvalArtifactsPanel({
     <div
       className={`${
         rightCollapsed ? 'w-10' : 'w-[320px] xl:w-[340px] 2xl:w-[360px]'
-      } hb-card flex shrink-0 flex-col overflow-hidden transition-all duration-200`}
+      } hb-card eval-artifacts-shell flex shrink-0 flex-col overflow-hidden transition-all duration-200`}
     >
       {rightCollapsed ? (
         <button

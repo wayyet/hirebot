@@ -53,17 +53,14 @@
   min-height: 232px;
   flex-direction: column;
   align-items: flex-start;
-  border-radius: 20px;
-  border: 1px solid var(--hb-border);
-  background: linear-gradient(
-    180deg,
-    var(--hb-surface-card) 0%,
-    color-mix(in srgb, var(--hb-surface-card) 78%, var(--hb-accent-soft-bg) 22%) 100%
-  );
+  border-radius: var(--hb-card-radius);
+  border: 1px solid var(--hb-card-border);
+  background: var(--hb-card-bg);
   padding: 24px;
   text-align: left;
   box-shadow: var(--hb-card-shadow);
-  backdrop-filter: blur(14px);
+  backdrop-filter: var(--hb-card-backdrop);
+  -webkit-backdrop-filter: var(--hb-card-backdrop);
   transition:
     transform 160ms ease,
     border-color 160ms ease,
@@ -71,7 +68,7 @@
 }
 
 .hb-market-card:hover {
-  transform: translateY(-2px);
+  transform: var(--hb-card-hover-transform);
   border-color: var(--hb-accent-border);
   box-shadow: var(--hb-card-hover-shadow);
 }

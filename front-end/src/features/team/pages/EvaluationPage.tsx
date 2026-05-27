@@ -1166,7 +1166,7 @@ export default function EvaluationPage() {
 
       {showHumanEvalConfirm && (
         <div className="hb-modal-mask" onClick={() => setShowHumanEvalConfirm(false)}>
-          <div className="hb-modal hb-delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="hb-modal hb-delete-confirm-modal eval-human-confirm-modal" onClick={(e) => e.stopPropagation()}>
             <button type="button" className="hb-modal-close" onClick={() => setShowHumanEvalConfirm(false)}>
               <X size={16} />
             </button>

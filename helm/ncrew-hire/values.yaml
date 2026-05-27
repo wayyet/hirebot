@@ -61,6 +61,7 @@ env:
   ConsoleAuth__Realm: ai4c-saas
   ConsoleAuth__ClientId: ncrew-client
   ConsoleAuth__BypassAuth: "false"
+  ConsoleUi__EnableWarmTheme: "true"
   # ---- 跨域 ----
   AllowedOrigins__0: http://localhost:5173
   AllowedOrigins__1: http://localhost:3000

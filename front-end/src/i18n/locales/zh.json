@@ -72,17 +72,17 @@
     "appearance": {
       "title": "外观",
       "description": "工作区主题",
-      "copy": "统一管理导航、主按钮和页面氛围使用的明暗模式与主题配色。",
+      "copy": "统一管理导航、主按钮和页面氛围使用的外观方案。",
       "modeTitle": "明暗模式",
       "modeDescription": "为日常工作选择浅色或深色界面基调。",
-      "brandTitle": "主题配色",
-      "brandDescription": "选择导航、主操作和页面高亮共享的强调颜色。",
-      "current": "当前：{{mode}} · {{brand}}",
+      "brandTitle": "外观方案",
+      "brandDescription": "暖调会切换到暖白玻璃工作台，原样式则回到当前默认界面。",
+      "current": "当前：{{brand}}",
       "options": {
         "lightDescription": "适合白天办公的明亮表面",
         "darkDescription": "适合长时间专注的深色表面",
-        "amberDescription": "更暖的强调色与光感",
-        "blueDescription": "更冷静的强调色与对比"
+        "amberDescription": "切换到暖白底、橙色光晕与毛玻璃面板风格",
+        "blueDescription": "回到当前默认的冷静工作台样式"
       }
     }
   },
@@ -106,10 +106,10 @@
     "toggle": "切换主题",
     "light": "浅色模式",
     "dark": "深色模式",
-    "brandToggle": "切换主题配色",
+    "brandToggle": "切换外观方案",
     "brand": {
       "amber": "暖调",
-      "blue": "蓝调"
+      "blue": "原样式"
     }
   },
   "language": {

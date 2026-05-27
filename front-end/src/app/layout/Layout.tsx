@@ -13,6 +13,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
+import yWorkHireLogo from "@/assets/y-work-hire-logo.svg";
 import {
   UserRoleContext,
   type HirebotUserRole,
@@ -85,7 +86,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { showToast } = useUxOverlay();
   const { t } = useTranslation();
-  const { brand, cycleBrand, isDark, toggleMode } = useTheme();
+  const { brand, cycleBrand, isDark, toggleMode, warmThemeEnabled, warmThemeManagedByRuntime } = useTheme();
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [userDisplayName, setUserDisplayName] = useState<string>("");
@@ -241,8 +242,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 to={role === "manager" ? "/template-pool" : "/department-employees"}
                 className="hb-brand"
               >
-                <div className="hb-brand-logo">
-                  <Sparkles size={16} color="#fff" />
+                <div className={`hb-brand-logo${warmThemeEnabled ? " hb-brand-logo--mark" : ""}`}>
+                  {warmThemeEnabled ? (
+                    <img src={yWorkHireLogo} alt="" className="hb-brand-logo-mark" />
+                  ) : (
+                    <Sparkles size={16} color="#fff" />
+                  )}
                 </div>
                 <div className="hb-brand-body">
                   <span className="hb-brand-name">{t("brand.name")}</span>
@@ -332,24 +337,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
 
             <div ref={actionsRef} className="hb-nav-actions">
-              <button
-                type="button"
-                className="hb-icon-btn"
-                title={t("theme.toggle")}
-                onClick={toggleMode}
-              >
-                {isDark ? <Sun size={15} /> : <Moon size={15} />}
-              </button>
+              {!warmThemeEnabled ? (
+                <button
+                  type="button"
+                  className="hb-icon-btn"
+                  title={t("theme.toggle")}
+                  onClick={toggleMode}
+                >
+                  {isDark ? <Sun size={15} /> : <Moon size={15} />}
+                </button>
+              ) : null}
 
-              <button
-                type="button"
-                className="hb-nav-utility-btn"
-                title={t("theme.brandToggle")}
-                onClick={cycleBrand}
-              >
-                <Palette size={14} />
-                <span>{t(`theme.brand.${brand}`)}</span>
-              </button>
+              {!warmThemeManagedByRuntime ? (
+                <button
+                  type="button"
+                  className="hb-nav-utility-btn"
+                  title={t("theme.brandToggle")}
+                  onClick={cycleBrand}
+                >
+                  <Palette size={14} />
+                  <span>{t(`theme.brand.${brand}`)}</span>
+                </button>
+              ) : null}
 
               <div className="hb-lang-dropdown" ref={langRef}>
                 <button

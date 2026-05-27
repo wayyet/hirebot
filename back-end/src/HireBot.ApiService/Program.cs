@@ -205,6 +205,7 @@ app.MapGet("/runtime-config.js", (IConfiguration cfg) =>
         Realm = consoleCfg["Realm"] ?? string.Empty,
         ClientId = consoleCfg["ClientId"] ?? string.Empty,
         BypassAuth = consoleCfg.GetValue("BypassAuth", false),
+        EnableWarmTheme = ResolveEnableWarmTheme(cfg),
         ApiBase = string.Empty,
         TemplateApiBase = consoleCfg["TemplateApiBase"] ?? string.Empty,
         MaxActivePersonalClonesPerOwner = ResolveMaxActivePersonalClonesPerOwner(cfg),
@@ -239,6 +240,11 @@ static int ResolveMaxActivePersonalClonesPerOwner(IConfiguration configuration)
     return int.TryParse(configured, out var value) && value > 0
         ? value
         : defaultLimit;
+}
+
+static bool ResolveEnableWarmTheme(IConfiguration configuration)
+{
+    return configuration.GetValue("ConsoleUi:EnableWarmTheme", true);
 }
 
 static IReadOnlyCollection<string> BuildOidcValidationValues(params string?[] values)
