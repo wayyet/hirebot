@@ -1,0 +1,391 @@
+using System.Reflection;
+using System.Text;
+using System.Text.Json;
+using HireBot.Abstraction;
+using HireBot.Abstraction.Models.EmployeeRuntime;
+using HireBot.Abstraction.Models.Hiring;
+using HireBot.Abstraction.Models.Sandbox;
+using HireBot.Abstraction.Services.Sandbox;
+using HireBot.Core.Services.Hiring;
+using HireBot.Core.Services.Hiring.Discovery;
+using HireBot.Core.Services.Hiring.TemplatePackages;
+using HireBot.Core.Services.Hiring.Artifacts;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using HireBot.Abstraction.Providers;
+using HireBot.Abstraction.Services.Hiring;
+using HireBot.Core.Services.EmployeeRuntime;
+using HireBot.Core.Services.Hiring.Storage;
+using HireBot.Core.Services.Hiring.StoreSkills;
+using HireBot.Core.Services.Sandbox;
+using HireBot.Repository;
+
+namespace HireBot.Core.Tests;
+
+public class PackagingTestCasesFromHistoryTests
+{
+    private const string ValidLlmPayload = """
+        {
+          "description": "雇佣评估",
+          "role": "digital_employee",
+          "industry": "general",
+          "test_cases": [
+            {
+              "test_case_id": "TC-001",
+              "scenario_name": "咨询业务",
+              "input": { "user_request": "请介绍业务流程", "context": {} },
+              "expected_behavior_sequence": [
+                { "step": 1, "action": "理解需求", "criteria": "准确" },
+                { "step": 2, "action": "给出方案", "criteria": "完整" }
+              ],
+              "expected_output": {
+                "resolution": "已解答",
+                "user_satisfaction": "满意",
+                "artifacts_created": []
+              }
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public async Task TryBuildPackagingTestCasesFromHistoryAsync_WhenHistoryAndLlmSucceed_ShouldReturnKingcrabSource()
+    {
+        var sandbox = CreateSandboxFake();
+        var llm = new StubPackagingTestCaseLlmGenerator((true, ValidLlmPayload));
+        var service = EmployeeHiringServicePackagingTestFactory.Create(sandbox, llm);
+        var context = CreateRuntimeContext();
+
+        var (success, json) = await service.TryBuildPackagingTestCasesFromHistoryAsync(context, CancellationToken.None);
+
+        Assert.True(success);
+        Assert.Contains("kingcrab-history-llm", json);
+        Assert.Contains("TC-001", json);
+        Assert.Equal(1, sandbox.GetSessionDetailCallCount);
+        Assert.Equal(1, llm.CallCount);
+    }
+
+    [Fact]
+    public async Task TryBuildPackagingTestCasesFromHistoryAsync_WhenLlmFails_ShouldReturnFalse()
+    {
+        var sandbox = CreateSandboxFake();
+        var llm = new StubPackagingTestCaseLlmGenerator((false, string.Empty));
+        var service = EmployeeHiringServicePackagingTestFactory.Create(sandbox, llm);
+
+        var (success, _) = await service.TryBuildPackagingTestCasesFromHistoryAsync(CreateRuntimeContext(), CancellationToken.None);
+
+        Assert.False(success);
+    }
+
+    [Fact]
+    public async Task TryBuildPackagingTestCasesFromHistoryAsync_WhenSessionIdEmpty_ShouldReturnFalse()
+    {
+        var service = EmployeeHiringServicePackagingTestFactory.Create(
+            CreateSandboxFake(),
+            new StubPackagingTestCaseLlmGenerator((true, ValidLlmPayload)));
+        var context = CreateRuntimeContext() with { SessionId = string.Empty };
+
+        var (success, _) = await service.TryBuildPackagingTestCasesFromHistoryAsync(context, CancellationToken.None);
+
+        Assert.False(success);
+    }
+
+    [Fact]
+    public async Task TryBuildPackagingTestCasesFromHistoryAsync_WhenHistoryEmpty_ShouldReturnFalse()
+    {
+        var sandbox = CreateSandboxFake(messages: []);
+        var service = EmployeeHiringServicePackagingTestFactory.Create(
+            sandbox,
+            new StubPackagingTestCaseLlmGenerator((true, ValidLlmPayload)));
+
+        var (success, _) = await service.TryBuildPackagingTestCasesFromHistoryAsync(CreateRuntimeContext(), CancellationToken.None);
+
+        Assert.False(success);
+    }
+
+    [Fact]
+    public async Task EnsurePackagingTestCasesStagedAsync_WhenHistoryAndLlmSucceed_ShouldUploadAndMarkStaged()
+    {
+        var sandbox = CreateSandboxFake();
+        var llm = new StubPackagingTestCaseLlmGenerator((true, ValidLlmPayload));
+        var service = EmployeeHiringServicePackagingTestFactory.Create(sandbox, llm);
+        var context = CreateRuntimeContext();
+
+        var updated = await InvokeEnsurePackagingTestCasesStagedAsync(service, context, CancellationToken.None);
+
+        Assert.True(updated.PackagingTestCasesStaged);
+        Assert.NotNull(sandbox.LastUploadedJson);
+        Assert.Contains("kingcrab-history-llm", sandbox.LastUploadedJson);
+
+        var files = updated.WorkingTemplatePackage.PackageFiles.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
+        var packageJson = Encoding.UTF8.GetString(files["testcases/evaluation-test-cases.json"].Content);
+        Assert.Contains("TC-001", packageJson);
+    }
+
+    [Fact]
+    public async Task EnsurePackagingTestCasesStagedAsync_WhenLlmFails_ShouldFallbackAndStillStage()
+    {
+        var sandbox = CreateSandboxFake();
+        var llm = new StubPackagingTestCaseLlmGenerator((false, string.Empty));
+        var service = EmployeeHiringServicePackagingTestFactory.Create(sandbox, llm);
+
+        var updated = await InvokeEnsurePackagingTestCasesStagedAsync(service, CreateRuntimeContext(), CancellationToken.None);
+
+        Assert.True(updated.PackagingTestCasesStaged);
+        Assert.NotNull(sandbox.LastUploadedJson);
+        Assert.Contains("packaging-fallback", sandbox.LastUploadedJson);
+    }
+
+    private static PackagingSandboxFake CreateSandboxFake(
+        IReadOnlyList<HiringConversationMessageDto>? messages = null)
+    {
+        messages ??=
+        [
+            new HiringConversationMessageDto("1", "user", "请介绍业务流程", DateTimeOffset.UtcNow),
+            new HiringConversationMessageDto("2", "assistant", "流程如下...", DateTimeOffset.UtcNow)
+        ];
+
+        return new PackagingSandboxFake(messages);
+    }
+
+    private static HiringRuntimeContext CreateRuntimeContext()
+    {
+        var templatePackage = new TemplatePackageDefinition(
+            RequestedTemplateId: "default",
+            PackageId: "pkg",
+            PackageVersion: "1.0.0",
+            PackageHash: "hash",
+            SourceArchive: null,
+            PackageRootPath: "Assets/TemplatePackages/default/NCrewTemplate",
+            ManifestJson: "{\"name\":\"pkg\"}",
+            DisplayName: "pkg",
+            Description: "desc",
+            PackageFiles: [],
+            OntologySlices: [],
+            Skills: [],
+            RequiredSkills: [],
+            EntrySkill: null,
+            StageRules: []);
+
+        return new HiringRuntimeContext
+        {
+            HireId = "hire-packaging-history",
+            TemplateId = "default",
+            TemplateName = "template",
+            OwnerSubject = "owner",
+            TenantId = "tenant",
+            OperatorId = "operator",
+            SandboxId = "sandbox",
+            SessionId = "session-001",
+            CurrentStage = HiringCollectionStage.ReadyForPackaging,
+            CollectionPhase = "in_progress",
+            RoleTemplatePackage = templatePackage,
+            WorkingTemplatePackage = templatePackage,
+            DiscoverySkill = new DiscoverySkillDefinition(
+                SkillId: "employment-coach-conversation",
+                SkillVersion: "1.0.0",
+                SkillHash: "hash",
+                SkillRootPath: "Assets/DigitalEmployeeTemplates/employment-coach-conversation",
+                SkillContent: "# discovery",
+                Files: [],
+                StageRules: [])
+        };
+    }
+
+    private static async Task<HiringRuntimeContext> InvokeEnsurePackagingTestCasesStagedAsync(
+        EmployeeHiringService service,
+        HiringRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        var method = typeof(EmployeeHiringService).GetMethod(
+            "EnsurePackagingTestCasesStagedAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var task = (Task<HiringRuntimeContext>)method.Invoke(service, [context, cancellationToken])!;
+        return await task;
+    }
+
+    private sealed class PackagingSandboxFake(IReadOnlyList<HiringConversationMessageDto> messages) : ISandboxService
+    {
+        public int GetSessionDetailCallCount { get; private set; }
+        public string? LastUploadedJson { get; private set; }
+
+        public Task<ApiResponse<SandboxSessionDetailDto>> GetSessionDetailAsync(
+            SandboxSessionDetailRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            GetSessionDetailCallCount++;
+            return Task.FromResult(ApiResponse<SandboxSessionDetailDto>.SuccessResponse(
+                new SandboxSessionDetailDto("session-001", messages, [], true)));
+        }
+
+        public Task<ApiResponse<SandboxWorkspaceUploadResultDto>> UploadWorkspaceFileAsync(
+            SandboxWorkspaceUploadRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            LastUploadedJson = Encoding.UTF8.GetString(request.Content);
+            return Task.FromResult(ApiResponse<SandboxWorkspaceUploadResultDto>.SuccessResponse(
+                new SandboxWorkspaceUploadResultDto([request.FileName], 1, $"/workspace/{request.TargetDir}")));
+        }
+
+        public Task<ApiResponse<SandboxInstanceDto>> RegisterAsync(SandboxRegisterRequestDto request, CancellationToken cancellationToken = default) => Throw();
+        public Task<ApiResponse<SandboxInstanceDto>> CreateAsync(SandboxCreateRequestDto request, CancellationToken cancellationToken = default) => Throw();
+        public Task<ApiResponse<SandboxInstanceDto>> RefreshAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Throw();
+        public Task<ApiResponse<SandboxInstanceDto>> PauseAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Throw();
+        public Task<ApiResponse<SandboxInstanceDto>> ResumeAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Throw();
+        public Task<ApiResponse<SandboxInstanceDto>> RebuildAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Throw();
+        public Task<ApiResponse<bool>> DeleteAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => ThrowBool();
+        public Task<ApiResponse<IReadOnlyList<SandboxInstanceDto>>> ListByOwnerAsync(string ownerSubject, CancellationToken cancellationToken = default) => ThrowList();
+        public Task<ApiResponse<bool>> DeleteForOwnerAsync(string sandboxId, string ownerSubject, CancellationToken cancellationToken = default) => ThrowBool();
+        public Task<ApiResponse<StartHiringConversationResultDto>> EnsureSessionAsync(SandboxEnsureSessionRequestDto request, CancellationToken cancellationToken = default) => ThrowEnsureSession();
+        public Task<ApiResponse<HiringConversationResultDto>> SendMessageAsync(SandboxSendMessageRequestDto request, CancellationToken cancellationToken = default) => ThrowSend();
+        public Task<ApiResponse<HiringConversationTimelineDto>> GetTimelineAsync(SandboxTimelineRequestDto request, CancellationToken cancellationToken = default) => ThrowTimeline();
+        public Task<ApiResponse<SandboxAttachmentUploadResultDto>> UploadAttachmentAsync(SandboxAttachmentUploadRequestDto request, CancellationToken cancellationToken = default) => ThrowAttachment();
+        public Task<ApiResponse<DigitalEmployeeTemplateUploadResultDto>> UploadDigitalEmployeeTemplateAsync(DigitalEmployeeTemplateUploadRequestDto request, CancellationToken cancellationToken = default) => ThrowTemplate();
+        public Task<SandboxInstanceDto?> FindActiveByOwnerAndTemplateAsync(string ownerSubject, string templateId, string sandboxRole, CancellationToken cancellationToken = default) => Task.FromResult<SandboxInstanceDto?>(null);
+
+        private static Task<ApiResponse<SandboxInstanceDto>> Throw() => throw new NotSupportedException();
+        private static Task<ApiResponse<bool>> ThrowBool() => throw new NotSupportedException();
+        private static Task<ApiResponse<IReadOnlyList<SandboxInstanceDto>>> ThrowList() => throw new NotSupportedException();
+        private static Task<ApiResponse<StartHiringConversationResultDto>> ThrowEnsureSession() => throw new NotSupportedException();
+        private static Task<ApiResponse<HiringConversationResultDto>> ThrowSend() => throw new NotSupportedException();
+        private static Task<ApiResponse<HiringConversationTimelineDto>> ThrowTimeline() => throw new NotSupportedException();
+        private static Task<ApiResponse<SandboxAttachmentUploadResultDto>> ThrowAttachment() => throw new NotSupportedException();
+        private static Task<ApiResponse<DigitalEmployeeTemplateUploadResultDto>> ThrowTemplate() => throw new NotSupportedException();
+    }
+
+    private sealed class StubPackagingTestCaseLlmGenerator((bool Success, string Json) result) : IPackagingTestCaseLlmGenerator
+    {
+        public int CallCount { get; private set; }
+
+        public Task<(bool Success, string Json)> TryGenerateAsync(
+            PackagingTestCaseGenerationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(result);
+        }
+    }
+}
+
+internal static class EmployeeHiringServicePackagingTestFactory
+{
+    public static EmployeeHiringService Create(
+        ISandboxService sandboxService,
+        IPackagingTestCaseLlmGenerator packagingTestCaseLlmGenerator)
+    {
+        var dbContext = CreateDbContext();
+        var configuration = new ConfigurationBuilder().Build();
+        var dataProtection = DataProtectionProvider.Create(
+            new DirectoryInfo(Path.Combine(Path.GetTempPath(), "hirebot-packaging-tests")));
+
+        return new EmployeeHiringService(
+            new NotSupportedTemplateDataProvider(),
+            new NotSupportedTemplatePackageProvider(),
+            new NotSupportedDiscoveryRoleTemplatePackageProvider(),
+            new NotSupportedWorkingTemplatePackageProvider(),
+            new NotSupportedDiscoveryRuleProvider(),
+            new HiringStageCompletionEvaluator(),
+            new NotSupportedHiringRuntimeStore(),
+            new NotSupportedKingCrabHttpClient(),
+            sandboxService,
+            dataProtection,
+            new HttpContextAccessor(),
+            new NotSupportedServiceScopeFactory(),
+            dbContext,
+            new NotSupportedHiringFileStore(),
+            new NotSupportedInstanceArtifactCloneService(),
+            new NotSupportedHiringArtifactPackageService(),
+            new NotSupportedStoreSkillPackageDownloader(),
+            packagingTestCaseLlmGenerator,
+            configuration,
+            NullLogger<EmployeeHiringService>.Instance);
+    }
+
+    private static HireBotDbContext CreateDbContext()
+    {
+        var options = new DbContextOptionsBuilder<HireBotDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        return new HireBotDbContext(options);
+    }
+
+    private sealed class NotSupportedTemplateDataProvider : ITemplateDataProvider
+    {
+        public Task<IReadOnlyList<HireBot.Abstraction.Models.EmployeeTemplate.EmployeeTemplateDefinition>> GetAllAsync(CancellationToken cancellationToken = default) => Throw<IReadOnlyList<HireBot.Abstraction.Models.EmployeeTemplate.EmployeeTemplateDefinition>>();
+        public Task<HireBot.Abstraction.Models.EmployeeTemplate.EmployeeTemplateDefinition?> GetByIdAsync(string templateId, CancellationToken cancellationToken = default) => Throw<HireBot.Abstraction.Models.EmployeeTemplate.EmployeeTemplateDefinition?>();
+    }
+
+    private sealed class NotSupportedTemplatePackageProvider : ITemplatePackageProvider
+    {
+        public Task<TemplatePackageDefinition> LoadAsync(string templateId, CancellationToken cancellationToken = default) => Throw<TemplatePackageDefinition>();
+    }
+
+    private sealed class NotSupportedDiscoveryRoleTemplatePackageProvider : IDiscoveryRoleTemplatePackageProvider
+    {
+        public Task<TemplatePackageDefinition> LoadAsync(CancellationToken cancellationToken = default) => Throw<TemplatePackageDefinition>();
+    }
+
+    private sealed class NotSupportedWorkingTemplatePackageProvider : IWorkingTemplatePackageProvider
+    {
+        public Task<TemplatePackageDefinition> LoadAsync(CancellationToken cancellationToken = default) => Throw<TemplatePackageDefinition>();
+    }
+
+    private sealed class NotSupportedDiscoveryRuleProvider : IDiscoveryRuleProvider
+    {
+        public Task<DiscoverySkillDefinition> LoadAsync(CancellationToken cancellationToken = default) => Throw<DiscoverySkillDefinition>();
+    }
+
+    private sealed class NotSupportedHiringRuntimeStore : IHiringRuntimeStore
+    {
+        public HiringRuntimeContext? Get(string hireId) => throw new NotSupportedException();
+        public HiringRuntimeContext? GetBySessionId(string sessionId) => throw new NotSupportedException();
+        public void Upsert(HiringRuntimeContext context) => throw new NotSupportedException();
+    }
+
+    private sealed class NotSupportedKingCrabHttpClient : IKingCrabHttpClient
+    {
+        public Task<RemoteCallResult<T>> SendForJsonAsync<T>(HttpMethod method, string path, object? body, string ownerSubject, CancellationToken cancellationToken, bool useHireBotApiPrefix = true, string? absoluteBaseUrl = null, IReadOnlyDictionary<string, string>? additionalHeaders = null) => Throw<RemoteCallResult<T>>();
+        public Task<RemoteCallResult<T>> SendMultipartForJsonAsync<T>(string path, string formFieldName, string fileName, byte[] content, string contentType, string ownerSubject, CancellationToken cancellationToken, bool useHireBotApiPrefix = false, string? absoluteBaseUrl = null, IReadOnlyDictionary<string, string>? additionalHeaders = null) => Throw<RemoteCallResult<T>>();
+        public Task<RemoteBinaryCallResult> SendForBinaryAsync(HttpMethod method, string path, object? body, string ownerSubject, CancellationToken cancellationToken, bool useHireBotApiPrefix = true, string? absoluteBaseUrl = null, IReadOnlyDictionary<string, string>? additionalHeaders = null) => Throw<RemoteBinaryCallResult>();
+    }
+
+    private sealed class NotSupportedServiceScopeFactory : IServiceScopeFactory
+    {
+        public IServiceScope CreateScope() => throw new NotSupportedException();
+    }
+
+    private sealed class NotSupportedHiringFileStore : IHiringFileStore
+    {
+        public Task<string> SaveAsync(string sessionId, string category, string fileName, Stream content, CancellationToken cancellationToken = default) => Throw<string>();
+        public Task<Stream> OpenReadAsync(string storagePath, CancellationToken cancellationToken = default) => Throw<Stream>();
+        public Task<bool> ExistsAsync(string storagePath, CancellationToken cancellationToken = default) => Throw<bool>();
+    }
+
+    private sealed class NotSupportedInstanceArtifactCloneService : IInstanceArtifactCloneService
+    {
+        public Task<InstanceArtifactCloneResult> CloneArtifactsAsync(EmployeeDetailDto source, string targetInstanceId, CancellationToken cancellationToken = default) => Throw<InstanceArtifactCloneResult>();
+        public Task<InstanceArtifactCloneResult> StoreDepartmentArtifactsAsync(string departmentInstanceId, IReadOnlyDictionary<string, byte[]> files, CancellationToken cancellationToken = default) => Throw<InstanceArtifactCloneResult>();
+    }
+
+    private sealed class NotSupportedHiringArtifactPackageService : IHiringArtifactPackageService
+    {
+        public Task<HiringArtifactPackageSnapshotDto> PersistIntermediatePackageAsync(HiringArtifactPackagePersistRequestDto request, CancellationToken cancellationToken = default) => Throw<HiringArtifactPackageSnapshotDto>();
+        public Task<HiringArtifactPackageSnapshotDto> PersistFinalPackageAsync(HiringArtifactPackagePersistRequestDto request, CancellationToken cancellationToken = default) => Throw<HiringArtifactPackageSnapshotDto>();
+        public Task<HiringArtifactPackageSnapshotDto?> GetLatestPackageAsync(string hireId, CancellationToken cancellationToken = default) => Throw<HiringArtifactPackageSnapshotDto?>();
+        public Task<HiringArtifactDownloadResult> BuildFinalPackageDownloadAsync(string hireId, CancellationToken cancellationToken = default) => Throw<HiringArtifactDownloadResult>();
+        public Task<HiringArtifactDownloadResult> BuildFinalPackageFileDownloadAsync(string hireId, string artifactName, CancellationToken cancellationToken = default) => Throw<HiringArtifactDownloadResult>();
+    }
+
+    private sealed class NotSupportedStoreSkillPackageDownloader : IStoreSkillPackageDownloader
+    {
+        public Task<IReadOnlyDictionary<string, byte[]>> DownloadSkillsAsync(IReadOnlyList<string> skillIds, CancellationToken cancellationToken = default) => Throw<IReadOnlyDictionary<string, byte[]>>();
+    }
+
+    private static Task<T> Throw<T>() => throw new NotSupportedException();
+}

@@ -1,4 +1,4 @@
-﻿﻿using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeTemplate;
@@ -160,6 +160,7 @@ public static class ServiceExtensions
     private static void AddDomainServices(IServiceCollection services)
     {
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
+        services.AddScoped<IPackagingTestCaseLlmGenerator, PackagingTestCaseLlmGenerator>();
         services.AddScoped<IEmployeeHiringService, EmployeeHiringService>();
         services.AddScoped<IStoreSkillPackageDownloader, StoreSkillPackageDownloader>();
         services.AddScoped<IInstanceArtifactCloneService, InstanceArtifactCloneService>();

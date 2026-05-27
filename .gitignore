@@ -424,3 +424,4 @@ appsettings.*.local.json
 /back-end/src/HireBot.ApiService/wwwroot/resources/DigitalWorkforce
 .cursor/
 docs/
+.venv/

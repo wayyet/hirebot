@@ -53,6 +53,7 @@ internal sealed partial class EmployeeHiringService(
     IInstanceArtifactCloneService instanceArtifactCloneService,
     IHiringArtifactPackageService artifactPackageService,
     IStoreSkillPackageDownloader storeSkillPackageDownloader,
+    IPackagingTestCaseLlmGenerator packagingTestCaseLlmGenerator,
     IConfiguration configuration,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
@@ -807,6 +808,12 @@ internal sealed partial class EmployeeHiringService(
                         blockedPreview,
                         runtimeContext.IsConversationPaused,
                         true));
+            }
+
+            if (ShouldStagePackagingTestCases(runtimeContext, request.Content))
+            {
+                runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
+                hiringRuntimeStore.Upsert(runtimeContext);
             }
 
             var sendResponse = await SendSandboxConversationMessageAsync(

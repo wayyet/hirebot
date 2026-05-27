@@ -225,6 +225,12 @@ internal sealed partial class EmployeeHiringService
         runtimeContext = ApplyDispatchCallbacks(runtimeContext, parsedReply.DispatchCallbacks);
         runtimeContext = await ExecuteDispatchCommandsAsync(runtimeContext, parsedReply.DispatchCommands, cancellationToken);
         runtimeContext = ApplyWorkflowProgress(runtimeContext);
+        if (string.Equals(runtimeContext.CurrentStage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase) &&
+            !runtimeContext.PackagingTestCasesStaged)
+        {
+            runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
+        }
+
         runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
         if (ShouldPersistArtifactPackages(runtimeContext))
         {
