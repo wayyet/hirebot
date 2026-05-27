@@ -23,6 +23,9 @@ public static class SandboxMetaKeys
     /// <summary>雇佣所用模板 ID。</summary>
     public const string TemplateId = "template_id";
 
+    /// <summary>雇佣流程外部系统配置的加密 JSON 快照。</summary>
+    public const string ExternalSystemConfig = "external_system_config";
+
     // ──────────────────────────────────────────
     // 托管评估沙箱（ScopeType = "managed"）
     // ──────────────────────────────────────────

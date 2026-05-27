@@ -140,6 +140,14 @@ internal sealed partial class EmployeeHiringService
             await SetSandboxInitializedAsync(refreshResult.Data.SandboxId, cancellationToken);
         }
 
+        if (runtimeContext.ExternalSystemConfig is not null)
+        {
+            await UpsertExternalSystemConfigMetadataAsync(
+                refreshResult.Data.SandboxId,
+                runtimeContext.ExternalSystemConfig,
+                cancellationToken);
+        }
+
         return runtimeContext;
     }
 
