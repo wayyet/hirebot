@@ -18,6 +18,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useTheme } from '@/app/theme/ThemeProvider'
+import yWorkHireLogo from '@/assets/y-work-hire-logo.svg'
 import { getAuthUser, isOidcConfigured, userManager } from '@/infra/auth/oidc'
 import { isAuthBypassed } from '@/infra/auth/auth-mode'
 
@@ -51,7 +52,7 @@ export default function LandingPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const redirectPath = normalizeRedirectPath(searchParams.get('redirect'))
-  const { brand, cycleBrand, isDark, toggleMode } = useTheme()
+  const { brand, cycleBrand, isDark, toggleMode, warmThemeEnabled, warmThemeManagedByRuntime } = useTheme()
   const [langOpen, setLangOpen] = useState(false)
   const langRef = useRef<HTMLDivElement>(null)
 
@@ -110,8 +111,12 @@ export default function LandingPage() {
       <nav className="hb-landing-nav">
         <div className="hb-landing-nav-inner">
           <div className="hb-landing-brand">
-            <div className="hb-brand-logo">
-              <Sparkles size={16} color="#fff" />
+            <div className={`hb-brand-logo${warmThemeEnabled ? ' hb-brand-logo--mark' : ''}`}>
+              {warmThemeEnabled ? (
+                <img src={yWorkHireLogo} alt="" className="hb-brand-logo-mark" />
+              ) : (
+                <Sparkles size={16} color="#fff" />
+              )}
             </div>
             <div className="hb-brand-body">
               <span className="hb-brand-name">{t('brand.name')}</span>
@@ -120,23 +125,28 @@ export default function LandingPage() {
           </div>
 
           <div className="hb-landing-nav-actions">
-            <button
-              className="hb-icon-btn"
-              onClick={toggleMode}
-              aria-label={t('theme.toggle')}
-            >
-              {isDark ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
+            {!warmThemeEnabled ? (
+              <button
+                className="hb-icon-btn"
+                onClick={toggleMode}
+                aria-label={t('theme.toggle')}
+                title={t('theme.toggle')}
+              >
+                {isDark ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+            ) : null}
 
-            <button
-              className="hb-nav-utility-btn"
-              onClick={cycleBrand}
-              aria-label={t('theme.brandToggle')}
-              title={t('theme.brandToggle')}
-            >
-              <Palette size={14} />
-              <span>{t(`theme.brand.${brand}`)}</span>
-            </button>
+            {!warmThemeManagedByRuntime ? (
+              <button
+                className="hb-nav-utility-btn"
+                onClick={cycleBrand}
+                aria-label={t('theme.brandToggle')}
+                title={t('theme.brandToggle')}
+              >
+                <Palette size={14} />
+                <span>{t(`theme.brand.${brand}`)}</span>
+              </button>
+            ) : null}
 
             <div className="hb-lang-dropdown" ref={langRef}>
               <button

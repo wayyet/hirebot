@@ -2158,6 +2158,39 @@
   border-color: rgba(100, 116, 255, 0.22);
   box-shadow: inset 0 0 0 1px rgba(156, 163, 255, 0.08);
 }
+
+html[data-mode="light"][data-skin="warm"] .hb-todo-material-shell,
+html[data-mode="light"][data-skin="warm"] .hb-todo-stage-card.is-accent-shell {
+  border-color: rgba(255, 214, 190, 0.68);
+  background: linear-gradient(180deg, rgba(255, 250, 246, 0.96) 0%, rgba(255, 255, 255, 1) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 168, 120, 0.10);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-todo-material-shell:hover,
+html[data-mode="light"][data-skin="warm"] .hb-todo-material-shell.is-busy,
+html[data-mode="light"][data-skin="warm"] .hb-todo-stage-card.is-accent-shell:hover {
+  border-color: rgba(255, 168, 120, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(255, 138, 76, 0.16);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-todo-material-shell.is-filled {
+  background: linear-gradient(180deg, rgba(255, 252, 249, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-todo-stage-card.is-accent-shell .hb-todo-stage-head:hover {
+  background: rgba(255, 248, 242, 0.82);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-todo-stage-num {
+  border-color: rgba(var(--hb-accent-rgb), 0.24);
+  background: rgba(var(--hb-accent-rgb), 0.10);
+  color: var(--hb-accent-solid);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-todo-stage-badge.is-active {
+  background: rgba(var(--hb-accent-rgb), 0.10);
+  color: var(--hb-accent-solid);
+}
 .dark .hb-todo-stage-card.is-accent-shell .hb-todo-stage-head:hover {
   background: rgba(255, 255, 255, 0.05);
 }

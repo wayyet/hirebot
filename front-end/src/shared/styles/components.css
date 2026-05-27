@@ -4,7 +4,7 @@
 
 .hb-page {
   padding: 28px 32px 40px;
-  width: min(100%, 1440px);
+  width: min(100%, var(--hb-page-max-width));
   margin: 0 auto;
 }
 
@@ -73,10 +73,10 @@
 .hb-page-head-cta {
   min-height: 44px;
   padding: 11px 22px;
-  border-radius: 14px;
+  border-radius: var(--hb-btn-radius);
   font-size: 14px;
   font-weight: 600;
-  box-shadow: 0 12px 26px var(--hb-accent-shadow);
+  box-shadow: var(--hb-btn-primary-shadow);
 }
 
 .hb-page-head-cta:hover {
@@ -86,11 +86,12 @@
 .hb-hero {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  border-radius: 28px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.76) 100%);
-  box-shadow: 0 16px 40px rgba(24, 39, 75, 0.08);
+  border: 1px solid var(--hb-hero-border);
+  border-radius: var(--hb-hero-radius);
+  background: var(--hb-hero-bg);
+  backdrop-filter: var(--hb-card-backdrop);
+  -webkit-backdrop-filter: var(--hb-card-backdrop);
+  box-shadow: var(--hb-hero-shadow);
   padding: 28px;
 }
 
@@ -101,7 +102,7 @@
   width: 160px;
   height: 160px;
   border-radius: 50%;
-  background: var(--hb-accent-soft-bg);
+  background: var(--hb-hero-orb-left);
   filter: blur(6px);
   pointer-events: none;
 }
@@ -114,7 +115,7 @@
   width: 180px;
   height: 180px;
   border-radius: 50%;
-  background: var(--hb-accent-soft-bg);
+  background: var(--hb-hero-orb-right);
   filter: blur(2px);
   pointer-events: none;
 }
@@ -216,32 +217,34 @@
 }
 
 .hb-section-soft {
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 10px 28px rgba(24, 39, 75, 0.05);
+  border: 1px solid var(--hb-section-border);
+  border-radius: var(--hb-section-radius);
+  background: var(--hb-section-bg);
+  backdrop-filter: var(--hb-card-backdrop);
+  -webkit-backdrop-filter: var(--hb-card-backdrop);
+  box-shadow: var(--hb-section-shadow);
   padding: 20px;
 }
 
 .hb-card {
-  border: 1px solid var(--hb-border);
-  border-radius: 20px;
-  background: linear-gradient(145deg, rgba(255,255,255,0.88), var(--hb-surface-soft));
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid var(--hb-card-border);
+  border-radius: var(--hb-card-radius);
+  background: var(--hb-card-bg);
+  backdrop-filter: var(--hb-card-backdrop);
+  -webkit-backdrop-filter: var(--hb-card-backdrop);
   box-shadow: var(--hb-card-shadow);
   transition: box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .hb-card:hover {
   box-shadow: var(--hb-card-hover-shadow);
-  transform: translateY(-2px);
+  transform: var(--hb-card-hover-transform);
 }
 
-/* Dark mode overrides for glassmorphic cards */
+/* Dark mode cards stay variable-driven so brand skins can override them */
 .dark .hb-card {
-  background: linear-gradient(145deg, rgba(24,32,52,0.88), rgba(20,27,45,0.96));
-  border-color: rgba(96,118,158,0.24);
+  background: var(--hb-card-bg);
+  border-color: var(--hb-card-border);
 }
 
 .dark .hb-stat-card {
@@ -260,9 +263,9 @@
   justify-content: center;
   gap: 6px;
   border: none;
-  border-radius: 999px;
-  background: var(--hb-blue);
-  color: #fff;
+  border-radius: var(--hb-btn-radius);
+  background: var(--hb-btn-primary-bg);
+  color: var(--hb-btn-primary-text);
   font-size: 14px;
   font-weight: 500;
   padding: 10px 18px;
@@ -270,8 +273,8 @@
 }
 
 .hb-btn-primary:hover {
-  background: var(--hb-blue-hover);
-  box-shadow: var(--hb-shadow-cta);
+  background: var(--hb-btn-primary-hover-bg);
+  box-shadow: var(--hb-btn-primary-shadow);
 }
 
 .hb-btn-primary:disabled {
@@ -285,10 +288,10 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border: 1px solid var(--hb-border-input);
-  border-radius: 999px;
-  background: var(--hb-surface-card);
-  color: var(--hb-near-black);
+  border: 1px solid var(--hb-btn-ghost-border);
+  border-radius: var(--hb-btn-radius);
+  background: var(--hb-btn-ghost-bg);
+  color: var(--hb-btn-ghost-text);
   font-size: 14px;
   font-weight: 500;
   padding: 10px 18px;
@@ -296,7 +299,7 @@
 }
 
 .hb-btn-ghost:hover {
-  background: var(--hb-surface-soft);
+  background: var(--hb-btn-ghost-hover-bg);
 }
 
 .hb-btn-ghost:disabled {
@@ -336,40 +339,40 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border-radius: 999px;
+  border-radius: var(--hb-pill-radius);
   font-size: 12px;
   font-weight: 500;
   padding: 3px 10px;
 }
 
 .hb-pill.blue {
-  background: var(--hb-accent-100);
-  color: var(--hb-blue);
+  background: var(--hb-pill-blue-bg);
+  color: var(--hb-pill-blue-text);
 }
 
 .hb-pill.orange {
-  background: #fef1e3;
-  color: #c47a26;
+  background: var(--hb-pill-orange-bg);
+  color: var(--hb-pill-orange-text);
 }
 
 .hb-pill.green {
-  background: #e6f5ec;
-  color: #15803d;
+  background: var(--hb-pill-green-bg);
+  color: var(--hb-pill-green-text);
 }
 
 .hb-pill.gray {
-  background: #efefef;
-  color: #525252;
+  background: var(--hb-pill-gray-bg);
+  color: var(--hb-pill-gray-text);
 }
 
 .hb-pill.purple {
-  background: #ece7fb;
-  color: #6a5acd;
+  background: var(--hb-pill-purple-bg);
+  color: var(--hb-pill-purple-text);
 }
 
 .hb-pill.pink {
-  background: #fde2e8;
-  color: #be185d;
+  background: var(--hb-pill-pink-bg);
+  color: var(--hb-pill-pink-text);
 }
 
 .hb-squircle {
@@ -380,10 +383,12 @@
 }
 
 .hb-section {
-  border: 1px solid var(--hb-border);
-  border-radius: 20px;
-  background: var(--hb-surface);
-  box-shadow: var(--hb-shadow-card);
+  border: 1px solid var(--hb-section-border);
+  border-radius: var(--hb-section-radius);
+  background: var(--hb-section-bg);
+  backdrop-filter: var(--hb-card-backdrop);
+  -webkit-backdrop-filter: var(--hb-card-backdrop);
+  box-shadow: var(--hb-section-shadow);
   padding: 24px;
 }
 
@@ -1396,11 +1401,11 @@
   align-items: center;
   gap: 10px;
   border: 1px solid var(--hb-hub-panel-border);
-  border-radius: 14px;
+  border-radius: var(--hb-input-radius);
   background: var(--hb-hub-panel-bg);
   box-shadow: var(--hb-hub-panel-shadow);
-  backdrop-filter: blur(14px) saturate(160%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: var(--hb-card-backdrop);
+  -webkit-backdrop-filter: var(--hb-card-backdrop);
   padding: 12px 16px;
 }
 
@@ -1436,9 +1441,9 @@
 .hb-select,
 .hb-textarea {
   width: 100%;
-  border: 1px solid var(--hb-border-input);
-  border-radius: 14px;
-  background: var(--hb-surface-card);
+  border: 1px solid var(--hb-input-border);
+  border-radius: var(--hb-input-radius);
+  background: var(--hb-input-bg);
   color: var(--hb-near-black);
   font-size: 14px;
   outline: none;
@@ -1460,7 +1465,7 @@
 .hb-input:focus,
 .hb-select:focus,
 .hb-textarea:focus {
-  border-color: var(--hb-blue);
+  border-color: var(--hb-input-focus-border);
   box-shadow: var(--hb-focus);
 }
 
@@ -2411,6 +2416,57 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+html[data-skin="warm"] .hb-modal-mask {
+  background:
+    radial-gradient(circle at 18% 20%, rgba(255, 94, 15, 0.12) 0%, transparent 28%),
+    radial-gradient(circle at 82% 18%, rgba(255, 138, 76, 0.10) 0%, transparent 24%),
+    rgba(20, 22, 30, 0.26);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+html[data-skin="warm"] .hb-modal {
+  border-radius: 16px;
+  border-color: rgba(255, 255, 255, 0.46);
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(32px) saturate(160%);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
+}
+
+html[data-skin="warm"] .hb-modal-close {
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.36);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+}
+
+html[data-skin="warm"] .hb-modal-close:hover {
+  background: rgba(255, 255, 255, 0.64);
+}
+
+html[data-skin="warm"] .hb-modal-head {
+  padding: 24px 68px 0 28px;
+}
+
+html[data-skin="warm"] .hb-modal-title {
+  color: #1e293b;
+}
+
+html[data-skin="warm"] .hb-modal-sub {
+  color: #64748b;
+}
+
+html[data-skin="warm"] .hb-modal-body {
+  padding: 20px 28px;
+}
+
+html[data-skin="warm"] .hb-modal-foot {
+  border-top-color: rgba(30, 41, 59, 0.08);
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 0 0 16px 16px;
+  padding: 16px 28px 22px;
 }
 
 .hb-lark-preview {

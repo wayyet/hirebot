@@ -8,15 +8,15 @@
   position: sticky;
   top: 0;
   z-index: 50;
-  height: 64px;
+  height: var(--hb-topnav-height);
   border-bottom: 1px solid var(--hb-nav-border);
   background: var(--hb-nav-bg);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: var(--hb-nav-backdrop);
+  -webkit-backdrop-filter: var(--hb-nav-backdrop);
 }
 
 .hb-topnav-inner {
-  max-width: 1280px;
+  max-width: var(--hb-shell-max-width);
   margin: 0 auto;
   height: 100%;
   padding: 0 28px;
@@ -68,7 +68,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-radius: 14px;
+  border-radius: var(--hb-nav-collapse-radius);
   border: 1px solid var(--hb-nav-border);
   background: var(--hb-nav-pill-bg);
   color: var(--hb-soft);
@@ -98,12 +98,12 @@
   transform: translateX(-50%);
   min-width: 180px;
   padding: 6px;
-  border-radius: 14px;
+  border-radius: var(--hb-nav-collapse-radius);
   border: 1px solid var(--hb-dropdown-border);
   background: var(--hb-dropdown-bg);
   box-shadow: var(--hb-dropdown-shadow);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: var(--hb-dropdown-backdrop);
+  -webkit-backdrop-filter: var(--hb-dropdown-backdrop);
   z-index: 200;
 }
 
@@ -136,7 +136,7 @@
 
 .hb-nav-menu-item.is-active {
   background: var(--hb-nav-pill-active);
-  color: var(--hb-blue);
+  color: var(--hb-accent-text);
 }
 
 .hb-brand {
@@ -151,12 +151,26 @@
 .hb-brand-logo {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--hb-brand-logo-radius);
   display: grid;
   place-items: center;
   background: var(--hb-brand-gradient);
   flex-shrink: 0;
-  box-shadow: 0 8px 20px var(--hb-accent-shadow);
+  box-shadow: var(--hb-brand-logo-shadow);
+}
+
+.hb-brand-logo--mark {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.hb-brand-logo-mark {
+  display: block;
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
 }
 
 .hb-brand-body {
@@ -190,7 +204,7 @@
   align-items: center;
   gap: 4px;
   padding: 5px 8px;
-  border-radius: 16px;
+  border-radius: var(--hb-nav-shell-radius);
   background: var(--hb-nav-pill-bg);
   border: 1px solid var(--hb-nav-border);
   box-shadow: var(--hb-nav-pill-shadow);
@@ -205,7 +219,7 @@
   align-items: center;
   gap: 6px;
   padding: 7px 13px 9px;
-  border-radius: 10px;
+  border-radius: var(--hb-nav-item-radius);
   font-size: 13px;
   font-weight: 500;
   color: var(--hb-soft);
@@ -222,7 +236,7 @@
 
 .hb-nav-pill-item.is-active {
   background: var(--hb-nav-pill-active);
-  color: var(--hb-blue);
+  color: var(--hb-accent-text);
   box-shadow: var(--hb-pill-shadow-active);
 }
 
@@ -262,7 +276,7 @@
   width: 34px;
   height: 34px;
   border: 1px solid var(--hb-theme-btn-border);
-  border-radius: 10px;
+  border-radius: var(--hb-utility-radius);
   background: var(--hb-theme-btn-bg);
   color: var(--hb-soft);
   cursor: pointer;
@@ -282,9 +296,9 @@
   align-items: center;
   gap: 5px;
   padding: 6px 11px;
-  border-radius: 8px;
-  border: 1px solid var(--hb-border-input);
-  background: transparent;
+  border-radius: var(--hb-utility-radius);
+  border: 1px solid var(--hb-nav-utility-border);
+  background: var(--hb-nav-utility-bg);
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
@@ -295,7 +309,7 @@
 }
 
 .hb-nav-utility-btn:hover {
-  background: var(--hb-theme-btn-hover-bg);
+  background: var(--hb-nav-utility-hover-bg);
   border-color: var(--hb-theme-btn-hover-border);
   color: var(--hb-theme-btn-hover-color);
 }
@@ -317,8 +331,8 @@
   background: var(--hb-dropdown-bg);
   box-shadow: var(--hb-dropdown-shadow);
   padding: 6px;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: var(--hb-dropdown-backdrop);
+  -webkit-backdrop-filter: var(--hb-dropdown-backdrop);
   z-index: 200;
 }
 
@@ -368,7 +382,7 @@
   align-items: center;
   background: var(--hb-role-bg);
   border: 1px solid var(--hb-border-input);
-  border-radius: 999px;
+  border-radius: var(--hb-pill-radius);
   padding: 4px;
   gap: 4px;
 }
@@ -377,7 +391,7 @@
   border: none;
   background: transparent;
   color: var(--hb-soft);
-  border-radius: 999px;
+  border-radius: var(--hb-pill-radius);
   font-size: 12px;
   font-weight: 500;
   padding: 6px 10px;
@@ -385,7 +399,7 @@
 }
 
 .hb-role-switch > button.is-active {
-  background: var(--hb-blue);
+  background: var(--hb-btn-primary-bg);
   color: #fff;
 }
 
@@ -400,7 +414,7 @@
   align-items: center;
   gap: 7px;
   padding: 5px 11px 5px 6px;
-  border-radius: 8px;
+  border-radius: var(--hb-utility-radius);
   border: 1px solid var(--hb-user-btn-border);
   background: var(--hb-user-btn-bg);
   cursor: pointer;
@@ -425,7 +439,7 @@
 .hb-user-avatar {
   width: 24px;
   height: 24px;
-  border-radius: 7px;
+  border-radius: var(--hb-avatar-radius);
   background: var(--hb-user-avatar-bg);
   color: var(--hb-user-btn-color);
   display: grid;

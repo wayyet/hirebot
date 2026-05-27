@@ -28,17 +28,17 @@
     "appearance": {
       "title": "Appearance",
       "description": "Workspace Theme",
-      "copy": "Manage the surface mode and brand accent used across navigation, buttons, and page atmosphere.",
+      "copy": "Manage the appearance scheme used across navigation, buttons, and page atmosphere.",
       "modeTitle": "Mode",
       "modeDescription": "Choose the light or dark surface system for daily work.",
-      "brandTitle": "Theme Color",
-      "brandDescription": "Choose the accent color shared by navigation, primary actions, and page highlights.",
-      "current": "Current: {{mode}} · {{brand}}",
+      "brandTitle": "Appearance Scheme",
+      "brandDescription": "Warm switches to the warm glass workbench, while Original returns to the current default UI.",
+      "current": "Current: {{brand}}",
       "options": {
         "lightDescription": "Bright surfaces for daytime work",
         "darkDescription": "Dim surfaces for focused sessions",
-        "amberDescription": "Warm accent with soft highlights",
-        "blueDescription": "Cool accent with calm contrast"
+        "amberDescription": "Switch to the warm-white glass workbench with orange glow",
+        "blueDescription": "Return to the current default workbench style"
       }
     },
     "sandboxes": {
@@ -106,10 +106,10 @@
     "toggle": "Toggle Theme",
     "light": "Light Mode",
     "dark": "Dark Mode",
-    "brandToggle": "Switch Theme Color",
+    "brandToggle": "Switch Appearance",
     "brand": {
       "amber": "Warm",
-      "blue": "Blue"
+      "blue": "Original"
     }
   },
   "language": {

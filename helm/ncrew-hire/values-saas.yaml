@@ -34,6 +34,7 @@ env:
   ConsoleAuth__ClientId: ncrew-client
   ConsoleAuth__BypassAuth: "false"
   ConsoleAuth__TemplateApiBase: https://ncrew-builder.ai4c.cn
+  ConsoleUi__EnableWarmTheme: "true"
   # ---- 跨域 ----
   AllowedOrigins__0: https://hire.ai4c.cn
   AllowedOrigins__1: https://ncrew.ai4c.cn

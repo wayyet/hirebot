@@ -512,7 +512,7 @@ export default function InstanceImConfigPage() {
                       onClick={() => selectPlatform(platform)}
                       className={`w-full rounded-xl border p-4 text-left transition-all hover:bg-[#f8f9fc] ${
                         active
-                          ? "border-[#4a6cf7]/30 bg-[#eef1ff] ring-1 ring-[#4a6cf7]/20"
+                          ? "border-[color:var(--hb-accent-border-strong)] bg-[color:var(--hb-accent-soft-bg)] ring-1 ring-[color:var(--hb-accent-border)]"
                           : "border-[#ececec] bg-white"
                       }`}
                     >
@@ -555,12 +555,12 @@ export default function InstanceImConfigPage() {
                 <div className="mt-3 space-y-2 rounded-xl border border-[#ececec] bg-[#fafafa] p-4">
                   {currentSchema.guide.steps.map((step, i) => (
                     <div key={i} className="flex items-start gap-2 text-sm text-[#404040]">
-                      <span className="mt-0.5 shrink-0 rounded-full bg-[#4a6cf7]/10 px-1.5 py-0.5 text-[11px] font-semibold text-[#4a6cf7]">{i + 1}</span>
+                      <span className="mt-0.5 shrink-0 rounded-full bg-[color:var(--hb-accent-soft-bg)] px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--hb-accent-600)]">{i + 1}</span>
                       <span>{step}</span>
                     </div>
                   ))}
                   <a href={currentSchema.guide.docUrl} target="_blank" rel="noopener noreferrer"
-                     className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-[#4a6cf7] hover:underline">
+                     className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-[color:var(--hb-accent-600)] hover:underline">
                     {currentSchema.guide.docLabel} <ExternalLink size={12} />
                   </a>
                 </div>
@@ -574,7 +574,7 @@ export default function InstanceImConfigPage() {
                       <label className="flex items-center gap-2 rounded-xl border border-[#ececec] bg-white px-3 py-3 text-sm text-[#404040]">
                         <input type="checkbox" checked={String(drafts[selectedPlatform][field.key] ?? "") === "true"}
                           onChange={(e) => updateCheckboxField(field.key, e.target.checked)} disabled={saving}
-                          className="h-4 w-4 rounded border-[#d4d4d8] text-[#2563eb]" />
+                          className="h-4 w-4 rounded border-[#d4d4d8] text-[color:var(--hb-accent-600)]" />
                         <span>{field.placeholder || field.label}</span>
                       </label>
                     ) : (

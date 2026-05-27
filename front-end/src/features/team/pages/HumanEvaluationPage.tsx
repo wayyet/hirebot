@@ -508,10 +508,10 @@ export default function HumanEvaluationPage() {
           { label: t('humanEvaluation.breadcrumb') },
         ]}
       />
-      <div className="flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
+      <div className="eval-human-layout flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
 
         {/* 顶部状态栏 */}
-        <section className="hb-card p-2.5">
+        <section className="hb-card eval-human-topbar p-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
@@ -558,7 +558,7 @@ export default function HumanEvaluationPage() {
 
         <section className="flex min-h-0 flex-1 gap-4">
           {/* 左侧：与目标沙箱的对话主区域 */}
-          <div className="hb-card flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="hb-card eval-human-chat-shell eval-chat-wrapper flex min-w-0 flex-1 flex-col overflow-hidden">
             <div className="border-b eval-chat-footer px-5 py-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl eval-icon-indigo">
@@ -701,7 +701,7 @@ export default function HumanEvaluationPage() {
               </div>
 
               {/* 评估结论操作区 */}
-              <div className="mt-4 rounded-2xl border eval-decision-panel px-4 py-3">
+              <div className="mt-4 rounded-2xl border eval-decision-panel eval-human-decision-panel px-4 py-3">
                 <div className="mb-2.5 text-[11px] font-semibold eval-text-body">{t('humanEvaluation.decisionTitle')}</div>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -759,7 +759,7 @@ export default function HumanEvaluationPage() {
 
           {/* 右侧：AI 评估参考面板（可折叠） */}
           {!rightCollapsed && (
-            <div className="hb-card flex w-[320px] xl:w-[360px] 2xl:w-[400px] shrink-0 flex-col overflow-hidden">
+            <div className="hb-card eval-human-reference-shell eval-artifacts-shell flex w-[320px] xl:w-[360px] 2xl:w-[400px] shrink-0 flex-col overflow-hidden">
               <div className="border-b eval-chat-footer px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="text-[13px] font-semibold eval-text-title">{t('humanEvaluation.aiReferencePanel')}</div>
@@ -837,7 +837,7 @@ export default function HumanEvaluationPage() {
             <button
               type="button"
               onClick={() => setRightCollapsed(false)}
-              className="hb-card flex w-8 shrink-0 items-center justify-center eval-text-caption hover:eval-text-secondary"
+              className="hb-card eval-human-compact-rail flex w-8 shrink-0 items-center justify-center eval-text-caption hover:eval-text-secondary"
             >
               <ChevronDown size={14} />
             </button>

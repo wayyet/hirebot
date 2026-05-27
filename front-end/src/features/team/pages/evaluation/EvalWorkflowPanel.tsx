@@ -38,7 +38,7 @@ export function EvalWorkflowPanel({
     <section className="hb-card eval-flow-panel px-3 pb-2 pt-2">
       <div className="flex flex-col gap-2">
         <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0 flex-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="min-w-0 flex-1 -mt-2 overflow-x-auto pb-1 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="flex min-w-[900px] pl-[36px]">
               {stages.map((stage, index) => {
                 const tone = workflowStageTone(stage.status)
@@ -89,26 +89,26 @@ export function EvalWorkflowPanel({
 
           <div className="flex shrink-0 flex-wrap items-center gap-2 xl:ml-8 xl:self-start">
             {resetConfirm ? (
-              <div className="flex items-center gap-1.5 rounded-lg border border-[var(--hb-danger)]/30 bg-[var(--hb-danger)]/5 px-2.5 py-2">
-                <AlertCircle size={11} className="shrink-0 text-[var(--hb-danger)]" />
+              <div className="eval-reset-confirm">
+                <AlertCircle size={11} className="eval-reset-confirm-icon" />
                 <span className="whitespace-nowrap text-[11px] text-[var(--hb-danger)]">确认清理？</span>
                 <button
                   type="button"
                   disabled={resetting || submitting}
-                  className="text-[11px] font-semibold text-[var(--hb-danger)] underline-offset-2 hover:underline disabled:opacity-50"
+                  className="eval-reset-confirm-action is-danger"
                   onClick={onReset}
                 >
                   {resetting ? (
-                    <span className="flex items-center gap-1">
+                    <span className="eval-reset-confirm-loading">
                       <Loader2 size={10} className="animate-spin" />清理中...
                     </span>
                   ) : '确认'}
                 </button>
-                <span className="text-[11px] text-[var(--hb-border)]">/</span>
+                <span className="eval-reset-confirm-divider">/</span>
                 <button
                   type="button"
                   disabled={resetting}
-                  className="text-[11px] text-[var(--hb-soft)] hover:text-[var(--hb-body)] disabled:opacity-50"
+                  className="eval-reset-confirm-action"
                   onClick={() => onSetResetConfirm(false)}
                 >
                   取消

@@ -90,7 +90,7 @@ export function EvalChatPanel({
   }
 
   return (
-    <div className="hb-card flex min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="hb-card eval-chat-wrapper flex min-w-0 flex-1 flex-col overflow-hidden">
       {/* 头部：紧凑单行 + 状态条 */}
       <div className="border-b eval-chat-footer px-4 py-2">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -142,7 +142,7 @@ export function EvalChatPanel({
       <div className="flex flex-1 flex-col overflow-hidden eval-chat-bg px-5 pb-4 pt-2">
         {/* 人工评估横幅：评估完成后提示进入人工评估 */}
         {canNavigateToHumanEval && humanEvalPath && (
-          <div className={`mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-sm ${humanEvalBannerTone}`}>
+          <div className={`eval-human-banner mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-sm ${humanEvalBannerTone}`}>
             <div className={`flex items-center gap-2.5 text-sm font-medium ${humanEvalBannerTextTone}`}>
               <CheckCircle2 size={16} className="shrink-0 eval-text-green-mid" />
               <span>
@@ -153,7 +153,7 @@ export function EvalChatPanel({
             <button
               type="button"
               disabled={enteringHumanEval}
-              className="hb-btn-primary shrink-0 !px-3 !py-1.5 !text-[12px] disabled:opacity-60"
+              className="hb-btn-primary eval-human-banner-btn shrink-0 !px-3 !py-1.5 !text-[12px] disabled:opacity-60"
               onClick={onEnterHumanEval}
             >
               {enteringHumanEval ? <Loader2 size={12} className="animate-spin" /> : null}
@@ -196,7 +196,7 @@ export function EvalChatPanel({
               )}
 
               {/* 消息时间线 */}
-              <div className={`flex-1 px-5 py-4 ${hasChatTimelineContent ? 'space-y-3 overflow-y-auto' : 'overflow-y-hidden'}`}>
+              <div className={`eval-chat-timeline flex-1 px-5 py-4 ${hasChatTimelineContent ? 'space-y-3 overflow-y-auto' : 'overflow-y-hidden'}`}>
                 {chatLoading ? (
                   <div className="flex items-center gap-2 text-sm text-[var(--hb-soft)]">
                     <Loader2 size={14} className="animate-spin" />
