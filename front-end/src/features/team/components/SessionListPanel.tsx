@@ -78,6 +78,8 @@ export default function SessionListPanel({
     Record<string, string>
   >({});
   const sessionPreviewsRef = useRef<Record<string, string>>({});
+  // 首次加载后若无选中会话，自动选中最新一条；页面刷新后组件重新挂载，ref 归零，可再次触发
+  const autoSelectedRef = useRef(false);
 
   const loadSessions = useCallback(
     async (pageNum: number, searchTerm: string, append: boolean) => {
@@ -162,6 +164,19 @@ export default function SessionListPanel({
     },
     [],
   );
+
+  // 会话列表加载后：若已有选中会话但它不在列表中，自动切换到最新一条。
+  // currentSessionId 为 null 时说明初始化仍在进行，不提前触发，避免与 ensureEvaluationChatReady 竞态
+  useEffect(() => {
+    if (sessions.length === 0 || autoSelectedRef.current) return;
+    if (currentSessionId == null) return;
+    const isCurrentInList = sessions.some((s) => s.id === currentSessionId);
+    if (!isCurrentInList) {
+      autoSelectedRef.current = true;
+      onSelectSession(sessions[0].id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, currentSessionId]);
 
   const handleLoadMore = useCallback(() => {
     void loadSessions(page + 1, search, true);

@@ -106,3 +106,12 @@ public sealed record EvaluationTraceSyncResultDto(
     string SessionId,
     string AssetId,
     string TraceJsonUrl);
+
+/// <summary>
+/// 执行轨迹内容查询结果。TraceJsonContent 为 trace_result.json 的原始 JSON 字符串。
+/// </summary>
+public sealed record EvaluationTraceContentDto(
+    string SessionId,
+    string AssetId,
+    string TraceJsonUrl,
+    string TraceJsonContent);

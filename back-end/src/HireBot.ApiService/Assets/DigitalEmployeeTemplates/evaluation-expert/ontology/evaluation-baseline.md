@@ -11,9 +11,11 @@
 
 - 每个维度 0-100 分。
 - `overall_score` 为多维加权综合分。
-- verdict 规则：
-  - `PASS`: 综合分达到阈值，且无关键合规问题。
-  - `FAIL`: 综合分未达阈值，或存在关键合规风险。
+- **通过分数线（pass_threshold）：70 分**
+- verdict 规则（必须严格按以下规则输出，禁止主观拔高或压低）：
+  - `PASS`: `overall_score >= 70` 且未触发任何红线合规问题。
+  - `FAIL`: `overall_score < 70` 或触发了红线合规问题（需在 `red_line_details` 中列出具体证据）。
+- **重要**：verdict 字段必须与 overall_score 保持一致。overall_score >= 70 时，除非有具体红线证据，否则 verdict 必须为 `PASS`。
 
 ## Evidence Rule
 

@@ -257,6 +257,22 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    /// <summary>
+    /// 获取指定会话的执行轨迹内容。
+    /// </summary>
+    [HttpGet("{employeeId}/evaluation/trace-content")]
+    public async Task<IActionResult> GetTraceContent(
+        string employeeId,
+        [FromQuery] string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return BadRequest(ApiResponse<object>.ErrorResponse(400, "sessionId is required"));
+
+        var response = await evaluationService.GetTraceContentAsync(employeeId, sessionId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpDelete("{employeeId}/evaluation/data")]
     public async Task<IActionResult> ResetEvaluationData(string employeeId, CancellationToken cancellationToken = default)
     {

@@ -140,9 +140,18 @@ internal sealed partial class EmployeeHiringService(
                 if (!existingInstance.IsInitialized)
                 {
                     logger.LogWarning(
-                        "Existing initialized sandbox was rebuilt (sandbox deleted externally), reinitializing. SandboxId={SandboxId}, HireId={HireId}",
+                        "Existing initialized sandbox was rebuilt (sandbox deleted externally), reinitializing with same hireId. SandboxId={SandboxId}, HireId={HireId}",
                         existingInstance.SandboxId, existingInstance.ScopeKey);
-                    goto reinitialize;
+                    // 沙箱被自动超时删除后，RefreshAsync 已用相同 ScopeKey (hireId) 重建并挂载原 PVC。
+                    // 不走 reinitialize: 路径（会删除 PVC 并生成新 hireId），直接复用原 hireId 完成初始化，
+                    // 确保工作区数据和 DB 会话历史关联不丢失。
+                    return await ReinitializeRebuiltHireSandboxAsync(
+                        existingInstance,
+                        ownerSubject, tenantId, operatorId,
+                        normalizedTemplateId, request.UseCase,
+                        roleTemplatePackage, workingTemplatePackage,
+                        discoverySkill, referenceTemplatePackage,
+                        template, cancellationToken);
                 }
 
                 var existingHireId = existingInstance.ScopeKey;
@@ -215,10 +224,9 @@ internal sealed partial class EmployeeHiringService(
                     "已复用现有沙箱");
             }
 
-            // 沙箱存在但未初始化（被删除后由 RefreshAsync 自动重建的空壳），清理后走正常创建流程。
-            reinitialize:
+            // 沙箱存在但从未完成初始化（非自动超时重建路径），清理后走正常创建流程。
             logger.LogInformation(
-                "Existing sandbox is not initialized (recreated after deletion), cleaning up and provisioning fresh. OldSandboxId={OldSandboxId}, HireId={HireId}",
+                "Existing sandbox is not initialized, cleaning up and provisioning fresh. OldSandboxId={OldSandboxId}, HireId={HireId}",
                 existingInstance.SandboxId,
                 existingInstance.ScopeKey);
             await sandboxService.DeleteAsync(
@@ -400,6 +408,175 @@ internal sealed partial class EmployeeHiringService(
         return ApiResponse<HireTemplateResultDto>.SuccessResponse(
             call.Data with { SessionId = conversationStartResponse.Data.SessionId, TemplatePrimingRequired = true },
             "雇佣任务已创建");
+    }
+
+    /// <summary>
+    /// 对已被自动删除并由 RefreshAsync 以相同 hireId/ScopeKey 重建的沙箱执行再初始化。
+    /// 不删除 PVC、不变更 hireId，保留工作区数据；仅等待沙箱就绪后补全会话和模板上传等初始化步骤。
+    /// </summary>
+    private async Task<ApiResponse<HireTemplateResultDto>> ReinitializeRebuiltHireSandboxAsync(
+        SandboxInstanceDto existingInstance,
+        string ownerSubject,
+        string tenantId,
+        string operatorId,
+        string normalizedTemplateId,
+        string? useCase,
+        TemplatePackageDefinition roleTemplatePackage,
+        TemplatePackageDefinition workingTemplatePackage,
+        DiscoverySkillDefinition discoverySkill,
+        TemplatePackageDefinition referenceTemplatePackage,
+        EmployeeTemplateDefinition template,
+        CancellationToken cancellationToken)
+    {
+        var hireId = existingInstance.ScopeKey;
+
+        // 等待沙箱就绪（RefreshAsync 刚创建的沙箱状态可能仍为 Creating）
+        var readyResult = await WaitForManagedSandboxReadyAsync(existingInstance, cancellationToken);
+        if (!readyResult.Success || readyResult.Data is null)
+        {
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(readyResult.Code, readyResult.Message);
+        }
+
+        var readySandbox = readyResult.Data;
+        var call = RemoteCallResult<HireTemplateResultDto>.Ok(new HireTemplateResultDto(
+            hireId,
+            readySandbox.SandboxId,
+            string.Equals(readySandbox.State, "Running", StringComparison.OrdinalIgnoreCase) ? "READY" : readySandbox.State,
+            "start_conversation"));
+
+        var initialStageCompletion = stageCompletionEvaluator.Evaluate(
+            discoverySkill.StageRules,
+            new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
+
+        hiringRuntimeStore.Upsert(new HiringRuntimeContext
+        {
+            HireId = hireId,
+            TemplateId = normalizedTemplateId,
+            TemplateName = template.Name,
+            OwnerSubject = ownerSubject,
+            TenantId = tenantId,
+            OperatorId = operatorId,
+            SandboxId = readySandbox.SandboxId,
+            SessionId = string.Empty,
+            CurrentStage = HiringCollectionStage.Material,
+            CollectionPhase = HiringCollectionPhase.NotStarted,
+            IsConversationPaused = false,
+            IsConversationResponding = false,
+            RoleTemplatePackage = roleTemplatePackage,
+            WorkingTemplatePackage = workingTemplatePackage,
+            DiscoverySkill = discoverySkill,
+            StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
+            Materials = [],
+            StageCompletion = initialStageCompletion,
+            IsTemplateUploadPending = false,
+            TemplateUploadRetryCount = 0,
+            TemplateUploadLastError = null,
+            TemplateUploadLastAttemptAt = null
+        });
+
+        // EnsureSessionAsync 会从 DB 查找同 ScopeKey + SessionKey 的已有 sessionId 并复用，
+        // 使重建后的沙箱能继续使用原会话上下文（PVC 中的 memory 数据与 sessionId 对应）
+        var conversationStartResponse = await sandboxService.EnsureSessionAsync(
+            new SandboxEnsureSessionRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = hireId,
+                SandboxRole = "hiring",
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                SandboxId = readySandbox.SandboxId,
+                SessionKey = "default"
+            },
+            cancellationToken);
+        if (!conversationStartResponse.Success || conversationStartResponse.Data is null || string.IsNullOrWhiteSpace(conversationStartResponse.Data.SessionId))
+        {
+            logger.LogWarning(
+                "Failed to create hiring session during reinitialize. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
+                hireId, normalizedTemplateId, conversationStartResponse.Code, conversationStartResponse.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                conversationStartResponse.Code <= 0 ? 502 : conversationStartResponse.Code,
+                string.IsNullOrWhiteSpace(conversationStartResponse.Message) ? "雇佣会话创建失败" : conversationStartResponse.Message);
+        }
+
+        hiringRuntimeStore.Upsert(hiringRuntimeStore.Get(hireId) is { } runtimeWithSession
+            ? runtimeWithSession with { SessionId = conversationStartResponse.Data.SessionId }
+            : new HiringRuntimeContext
+            {
+                HireId = hireId,
+                TemplateId = normalizedTemplateId,
+                TemplateName = template.Name,
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                SandboxId = readySandbox.SandboxId,
+                SessionId = conversationStartResponse.Data.SessionId,
+                CurrentStage = HiringCollectionStage.Material,
+                CollectionPhase = HiringCollectionPhase.NotStarted,
+                IsConversationPaused = false,
+                IsConversationResponding = false,
+                RoleTemplatePackage = roleTemplatePackage,
+                WorkingTemplatePackage = workingTemplatePackage,
+                DiscoverySkill = discoverySkill,
+                StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
+                Materials = [],
+                StageCompletion = initialStageCompletion
+            });
+
+        try
+        {
+            // PersistSessionAndSourceZipAsync 内部会检测 hireId 对应的 session 是否已存在，
+            // 重建场景下原 session 记录仍在 DB 中，方法会直接返回已有记录，不重复插入。
+            await PersistSessionAndSourceZipAsync(
+                hireId,
+                conversationStartResponse.Data.SessionId,
+                normalizedTemplateId,
+                referenceTemplatePackage,
+                ownerSubject, tenantId, operatorId,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Persist session/source zip failed during reinitialize. HireId={HireId}, SessionId={SessionId}",
+                hireId, conversationStartResponse.Data.SessionId);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, "雇佣会话初始化持久化失败");
+        }
+
+        // 重新上传角色模板包到新沙箱（原沙箱已删除，新沙箱需要重装）
+        var roleTemplateUploadResult = await UploadTemplatePackageAsync(hireId, roleTemplatePackage, ownerSubject, cancellationToken);
+        if (!roleTemplateUploadResult.Success)
+        {
+            logger.LogWarning(
+                "Role template package upload failed during reinitialize. HireId={HireId}, PackageId={PackageId}, StatusCode={StatusCode}, Message={Message}",
+                hireId, roleTemplatePackage.PackageId, roleTemplateUploadResult.StatusCode, roleTemplateUploadResult.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                roleTemplateUploadResult.StatusCode <= 0 ? 502 : roleTemplateUploadResult.StatusCode,
+                string.IsNullOrWhiteSpace(roleTemplateUploadResult.Message) ? "雇佣角色模板包上传失败" : roleTemplateUploadResult.Message);
+        }
+
+        var mcpConfig = ReadMcpConfig();
+        if (mcpConfig is not null)
+        {
+            var mcpUploadResult = await UploadSandboxMcpConfigAsync(hireId, ownerSubject, mcpConfig, cancellationToken);
+            if (!mcpUploadResult.Success)
+            {
+                logger.LogWarning(
+                    "MCP config upload failed (non-fatal) during reinitialize. HireId={HireId}, StatusCode={StatusCode}, Message={Message}",
+                    hireId, mcpUploadResult.StatusCode, mcpUploadResult.Message);
+            }
+        }
+
+        await SetSandboxInitializedAsync(readySandbox.SandboxId, cancellationToken);
+
+        logger.LogInformation(
+            "Sandbox reinitialize with same hireId completed. HireId={HireId}, NewSandboxId={SandboxId}",
+            hireId, readySandbox.SandboxId);
+
+        return ApiResponse<HireTemplateResultDto>.SuccessResponse(
+            call.Data! with { SessionId = conversationStartResponse.Data.SessionId, TemplatePrimingRequired = true },
+            "沙箱重建初始化完成");
     }
 
     private async Task<PersistedSourceZipInfo?> PersistSessionAndSourceZipAsync(

@@ -126,6 +126,7 @@ export type {
   EvaluationVerdictSyncResult,
   EvaluationWorkspaceStep,
   EvaluationWorkspaceStatus,
+  EvaluationTraceContentResult,
   ImportFixtureInstancesResult,
 } from './modules/employeeRuntimeApi'
 

@@ -1334,6 +1334,56 @@ internal sealed partial class EvaluationService(
             "trace synced");
     }
 
+    public async Task<ApiResponse<EvaluationTraceContentDto>> GetTraceContentAsync(
+        string employeeId,
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId) || string.IsNullOrWhiteSpace(sessionId))
+            return ApiResponse<EvaluationTraceContentDto>.ErrorResponse(400, "employeeId and sessionId are required");
+
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
+            return ApiResponse<EvaluationTraceContentDto>.ErrorResponse(404, "employee not found");
+
+        var scope = accessContext.PersistenceScope;
+
+        // 查 trace-json 类型资产，取最新一条（按创建时间倒序）
+        var sessionEntity = await dbContext.EvaluationSessions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s =>
+                s.OwnerSubject == scope &&
+                s.EmployeeId == employeeId.Trim() &&
+                s.SessionId == sessionId.Trim(),
+                cancellationToken);
+
+        if (sessionEntity is null)
+            return ApiResponse<EvaluationTraceContentDto>.ErrorResponse(404, "evaluation session not found");
+
+        var assetEntity = await dbContext.EvaluationAssets
+            .AsNoTracking()
+            .Where(a => a.SessionEntityId == sessionEntity.Id && a.AssetType == "trace-json")
+            .OrderByDescending(a => a.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (assetEntity is null)
+            return ApiResponse<EvaluationTraceContentDto>.ErrorResponse(404, "trace asset not found for this session");
+
+        var physicalPath = ResolvePhysicalAssetPath(assetEntity.RelativePath);
+        if (physicalPath is null || !File.Exists(physicalPath))
+            return ApiResponse<EvaluationTraceContentDto>.ErrorResponse(404, "trace file not found on disk");
+
+        var content = await File.ReadAllTextAsync(physicalPath, cancellationToken);
+
+        return ApiResponse<EvaluationTraceContentDto>.SuccessResponse(
+            new EvaluationTraceContentDto(
+                SessionId: sessionId.Trim(),
+                AssetId: assetEntity.Id.ToString("N"),
+                TraceJsonUrl: assetEntity.PublicUrl,
+                TraceJsonContent: content),
+            "ok");
+    }
+
     private static IReadOnlyList<EvaluationDimensionScoreDto> DeserializeDimensionScores(string? dimensionScoresJson)
     {
         if (string.IsNullOrWhiteSpace(dimensionScoresJson))
