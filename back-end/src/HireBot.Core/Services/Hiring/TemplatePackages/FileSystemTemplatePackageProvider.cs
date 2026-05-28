@@ -297,6 +297,15 @@ internal sealed class FileSystemTemplatePackageProvider(
                 RequiredFields: []));
         }
 
+        if (HasSkill(requiredSkills, "skills/packaging-test-cases/SKILL.md"))
+        {
+            stageRules.Add(new TemplatePackageStageRule(
+                Stage: "ready_for_packaging",
+                SkillName: "packaging-test-cases",
+                Description: "Generate evaluation test cases before packaging.",
+                RequiredFields: []));
+        }
+
         return stageRules.ToArray();
     }
 

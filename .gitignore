@@ -425,3 +425,4 @@ appsettings.*.local.json
 .cursor/
 docs/
 .venv/
+.tmp-e2e-msg.json

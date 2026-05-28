@@ -11,8 +11,14 @@ internal sealed partial class EmployeeHiringService
 {
     private const string PackagingTestCasesRelativePath = "testcases/evaluation-test-cases.json";
     private const string PackagingTestCasesOntologyCopyPath = "ontology/hiring-session/evaluation-test-cases.json";
+    private const string PackagingTestCasesSourcesIndexPath = "ontology/hiring-session/testcases-sources-index.json";
+    private const string PackagingTestCasesHistoryDerivedPath = "ontology/hiring-session/testcases-sources/history-derived.json";
+    private const string PackagingTestCasesMaterialsDerivedPath = "ontology/hiring-session/testcases-sources/materials-derived.json";
+    private const string PackagingTestCasesTemplateDerivedPath = "ontology/hiring-session/testcases-sources/template-derived.json";
+    private const string PackagingTestCasesSourceMerged = "packaging-merged";
     private const string PackagingTestCasesSourceHistoryLlm = "kingcrab-history-llm";
     private const string PackagingTestCasesSourceFallback = "packaging-fallback";
+    private const string PackagingTestCasesSkillTarget = "packaging-test-cases";
 
     private static readonly JsonSerializerOptions PackagingTestCasesJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -71,6 +77,15 @@ internal sealed partial class EmployeeHiringService
         HiringRuntimeContext runtimeContext,
         byte[] content)
     {
+        return BuildPackagingWorkspaceUploadRequest(runtimeContext, "testcases", "evaluation-test-cases.json", content);
+    }
+
+    internal static SandboxWorkspaceUploadRequestDto BuildPackagingWorkspaceUploadRequest(
+        HiringRuntimeContext runtimeContext,
+        string targetDir,
+        string fileName,
+        byte[] content)
+    {
         return new SandboxWorkspaceUploadRequestDto
         {
             ScopeType = SandboxScopeTypes.Hire,
@@ -78,8 +93,8 @@ internal sealed partial class EmployeeHiringService
             SandboxRole = "hiring",
             OwnerSubject = runtimeContext.OwnerSubject,
             SandboxId = runtimeContext.SandboxId,
-            TargetDir = "testcases",
-            FileName = "evaluation-test-cases.json",
+            TargetDir = targetDir,
+            FileName = fileName,
             Content = content,
             ContentType = "application/json"
         };
@@ -101,24 +116,37 @@ internal sealed partial class EmployeeHiringService
     }
 
     /// <summary>
-    /// 从 KingCrab Session History 经 LLM 生成 testcase JSON。
+    /// 通过沙箱 packaging-test-cases Skill 生成 testcase JSON 包。
     /// </summary>
-    internal async Task<(bool Success, string Json)> TryBuildPackagingTestCasesFromHistoryAsync(
+    internal async Task<(bool Success, PackagingTestCasesBundle? Bundle)> InvokePackagingTestCasesSkillAsync(
         HiringRuntimeContext runtimeContext,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(runtimeContext.SessionId))
         {
             logger.LogWarning(
-                "[Hiring] Packaging testcase generation skipped because SessionId is empty. HireId={HireId}",
+                "[Hiring] Packaging testcase skill skipped because SessionId is empty. HireId={HireId}",
                 runtimeContext.HireId);
-            return (false, string.Empty);
+            return (false, null);
         }
 
+        var uploadedMaterialFiles = await PackagingTestCaseMaterialLoader.LoadAsync(
+            dbContext,
+            runtimeContext.HireId,
+            runtimeContext.SessionId,
+            cancellationToken);
+        var templatePackageFiles = PackagingTestCaseTemplateSnapshotBuilder.Build(
+            runtimeContext.WorkingTemplatePackage.PackageFiles);
+
+        IReadOnlyList<HiringConversationMessageDto> sessionMessages = [];
         var sessionDetailResult = await sandboxService.GetSessionDetailAsync(
             BuildPackagingSessionDetailRequest(runtimeContext),
             cancellationToken);
-        if (!sessionDetailResult.Success || sessionDetailResult.Data is null)
+        if (sessionDetailResult.Success && sessionDetailResult.Data is not null)
+        {
+            sessionMessages = sessionDetailResult.Data.Messages;
+        }
+        else
         {
             logger.LogWarning(
                 "[Hiring] Failed to load KingCrab session history for packaging testcases. HireId={HireId}, SessionId={SessionId}, Code={Code}, Message={Message}",
@@ -126,40 +154,78 @@ internal sealed partial class EmployeeHiringService
                 runtimeContext.SessionId,
                 sessionDetailResult.Code,
                 sessionDetailResult.Message);
-            return (false, string.Empty);
         }
 
-        if (sessionDetailResult.Data.Messages.Count == 0)
+        var transcript = PackagingTestCasesJsonValidator.PrepareHistoryTranscript(sessionMessages);
+        if (transcript.Count == 0 &&
+            uploadedMaterialFiles.Count == 0 &&
+            templatePackageFiles.Count == 0)
         {
             logger.LogWarning(
-                "[Hiring] KingCrab session history is empty for packaging testcases. HireId={HireId}, SessionId={SessionId}",
+                "[Hiring] Packaging testcase inputs are empty (history/materials/template). HireId={HireId}, SessionId={SessionId}",
                 runtimeContext.HireId,
                 runtimeContext.SessionId);
-            return (false, string.Empty);
+            return (false, null);
         }
 
-        var generationRequest = new PackagingTestCaseGenerationRequest(
+        var invokePayload = new PackagingTestCasesInvokePayload(
+            runtimeContext.SessionId,
             runtimeContext.TemplateName,
             runtimeContext.StructuredData,
-            sessionDetailResult.Data.Messages);
+            transcript,
+            uploadedMaterialFiles,
+            templatePackageFiles);
+        var invokeContent =
+            $"<invoke_packaging_testcases>{PackagingTestCasesJsonValidator.SerializeInvokePayload(invokePayload)}</invoke_packaging_testcases>";
 
-        var generationResult = await packagingTestCaseLlmGenerator.TryGenerateAsync(generationRequest, cancellationToken);
-        if (!generationResult.Success)
+        var skillResponse = await SendSandboxConversationMessageAsync(
+            runtimeContext,
+            invokeContent,
+            [],
+            cancellationToken);
+        if (!skillResponse.Success || skillResponse.Data is null)
         {
-            return (false, string.Empty);
+            logger.LogWarning(
+                "[Hiring] Packaging testcase skill invoke failed. HireId={HireId}, SessionId={SessionId}, Code={Code}, Message={Message}",
+                runtimeContext.HireId,
+                runtimeContext.SessionId,
+                skillResponse.Code,
+                skillResponse.Message);
+            return (false, null);
         }
 
-        var testCasesJson = PackagingTestCaseLlmGenerator.AppendPackagingMetadata(
-            generationResult.Json,
-            PackagingTestCasesSourceHistoryLlm);
+        var parsedReply = HiringWorkflowSupport.ParseAssistantReply(skillResponse.Data.AssistantMessage.Content);
+        var callback = parsedReply.DispatchCallbacks.FirstOrDefault(item =>
+            string.Equals(item.SourceDispatchTarget, PackagingTestCasesSkillTarget, StringComparison.OrdinalIgnoreCase));
+        if (callback is null)
+        {
+            logger.LogWarning(
+                "[Hiring] Packaging testcase skill returned no dispatch_callback. HireId={HireId}, SessionId={SessionId}",
+                runtimeContext.HireId,
+                runtimeContext.SessionId);
+            return (false, null);
+        }
 
+        if (!PackagingTestCasesJsonValidator.TryExtractPackagingTestCasesBundle(callback, out var bundle))
+        {
+            logger.LogWarning(
+                "[Hiring] Packaging testcase skill callback failed bundle validation. HireId={HireId}, SessionId={SessionId}",
+                runtimeContext.HireId,
+                runtimeContext.SessionId);
+            return (false, null);
+        }
+
+        var normalizedBundle = EnsureBundleMetadata(bundle);
         logger.LogInformation(
-            "[Hiring] Generated packaging testcases from KingCrab history via LLM. HireId={HireId}, SessionId={SessionId}, MessageCount={MessageCount}",
+            "[Hiring] Generated packaging testcases via packaging-test-cases skill. HireId={HireId}, SessionId={SessionId}, HistoryTurns={HistoryTurns}, MaterialFiles={MaterialFiles}, TemplateFiles={TemplateFiles}, Source={Source}",
             runtimeContext.HireId,
             runtimeContext.SessionId,
-            sessionDetailResult.Data.Messages.Count);
+            transcript.Count,
+            uploadedMaterialFiles.Count,
+            templatePackageFiles.Count,
+            normalizedBundle.Source);
 
-        return (true, testCasesJson);
+        return (true, normalizedBundle);
     }
 
     /// <summary>
@@ -174,11 +240,10 @@ internal sealed partial class EmployeeHiringService
             return runtimeContext;
         }
 
-        var (historySuccess, historyJson) = await TryBuildPackagingTestCasesFromHistoryAsync(runtimeContext, cancellationToken);
-        var testCasesJson = historySuccess ? historyJson : string.Empty;
-        if (!historySuccess)
+        var (skillSuccess, bundle) = await InvokePackagingTestCasesSkillAsync(runtimeContext, cancellationToken);
+        if (!skillSuccess || bundle is null)
         {
-            if (!TryBuildPackagingTestCasesPlaceholder(out testCasesJson))
+            if (!TryBuildPackagingTestCasesPlaceholder(out var placeholderJson))
             {
                 return runtimeContext;
             }
@@ -187,23 +252,23 @@ internal sealed partial class EmployeeHiringService
                 "[Hiring] Packaging testcase generation fell back to empty demo structure. HireId={HireId}, SessionId={SessionId}",
                 runtimeContext.HireId,
                 runtimeContext.SessionId);
+
+            bundle = new PackagingTestCasesBundle(
+                placeholderJson,
+                SourcesIndexJson: string.Empty,
+                HistoryDerivedJson: string.Empty,
+                MaterialsDerivedJson: string.Empty,
+                TemplateDerivedJson: string.Empty,
+                PackagingTestCasesSourceFallback);
         }
 
-        var contentBytes = Encoding.UTF8.GetBytes(testCasesJson);
-        var uploadRequest = BuildPackagingTestCaseUploadRequest(runtimeContext, contentBytes);
-        var uploadResult = await sandboxService.UploadWorkspaceFileAsync(uploadRequest, cancellationToken);
-        if (!uploadResult.Success)
+        var uploadSucceeded = await UploadPackagingTestCasesBundleAsync(runtimeContext, bundle, cancellationToken);
+        if (!uploadSucceeded)
         {
-            logger.LogWarning(
-                "[Hiring] Failed to stage packaging testcases to sandbox. HireId={HireId}, SandboxId={SandboxId}, Code={Code}, Message={Message}",
-                runtimeContext.HireId,
-                runtimeContext.SandboxId,
-                uploadResult.Code,
-                uploadResult.Message);
             return runtimeContext;
         }
 
-        runtimeContext = ApplyPackagingTestCasesToWorkingPackage(runtimeContext, testCasesJson);
+        runtimeContext = ApplyPackagingTestCasesToWorkingPackage(runtimeContext, bundle);
         runtimeContext = runtimeContext with { PackagingTestCasesStaged = true };
 
         logger.LogInformation(
@@ -215,17 +280,107 @@ internal sealed partial class EmployeeHiringService
         return runtimeContext;
     }
 
+    private async Task<bool> UploadPackagingTestCasesBundleAsync(
+        HiringRuntimeContext runtimeContext,
+        PackagingTestCasesBundle bundle,
+        CancellationToken cancellationToken)
+    {
+        var filesToUpload = BuildPackagingUploadEntries(bundle);
+        foreach (var entry in filesToUpload)
+        {
+            var uploadRequest = BuildPackagingWorkspaceUploadRequest(
+                runtimeContext,
+                entry.TargetDir,
+                entry.FileName,
+                Encoding.UTF8.GetBytes(entry.Json));
+            var uploadResult = await sandboxService.UploadWorkspaceFileAsync(uploadRequest, cancellationToken);
+            if (!uploadResult.Success)
+            {
+                logger.LogWarning(
+                    "[Hiring] Failed to stage packaging testcases to sandbox. HireId={HireId}, SandboxId={SandboxId}, TargetDir={TargetDir}, FileName={FileName}, Code={Code}, Message={Message}",
+                    runtimeContext.HireId,
+                    runtimeContext.SandboxId,
+                    entry.TargetDir,
+                    entry.FileName,
+                    uploadResult.Code,
+                    uploadResult.Message);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static IReadOnlyList<PackagingUploadEntry> BuildPackagingUploadEntries(PackagingTestCasesBundle bundle)
+    {
+        var entries = new List<PackagingUploadEntry>
+        {
+            new("testcases", "evaluation-test-cases.json", bundle.MergedJson)
+        };
+
+        if (!string.IsNullOrWhiteSpace(bundle.SourcesIndexJson))
+        {
+            entries.Add(new("ontology/hiring-session", "testcases-sources-index.json", bundle.SourcesIndexJson));
+        }
+
+        if (!string.IsNullOrWhiteSpace(bundle.HistoryDerivedJson))
+        {
+            entries.Add(new("ontology/hiring-session/testcases-sources", "history-derived.json", bundle.HistoryDerivedJson));
+        }
+
+        if (!string.IsNullOrWhiteSpace(bundle.MaterialsDerivedJson))
+        {
+            entries.Add(new("ontology/hiring-session/testcases-sources", "materials-derived.json", bundle.MaterialsDerivedJson));
+        }
+
+        if (!string.IsNullOrWhiteSpace(bundle.TemplateDerivedJson))
+        {
+            entries.Add(new("ontology/hiring-session/testcases-sources", "template-derived.json", bundle.TemplateDerivedJson));
+        }
+
+        return entries;
+    }
+
+    private static PackagingTestCasesBundle EnsureBundleMetadata(PackagingTestCasesBundle bundle)
+    {
+        var mergedJson = bundle.MergedJson.Contains("\"source\"", StringComparison.Ordinal)
+            ? bundle.MergedJson
+            : PackagingTestCasesJsonValidator.AppendPackagingMetadata(bundle.MergedJson, bundle.Source);
+
+        return bundle with { MergedJson = mergedJson };
+    }
+
     private static HiringRuntimeContext ApplyPackagingTestCasesToWorkingPackage(
         HiringRuntimeContext runtimeContext,
-        string testCasesJson)
+        PackagingTestCasesBundle bundle)
     {
         var enrichedFiles = runtimeContext.WorkingTemplatePackage.PackageFiles.ToDictionary(
             file => file.RelativePath,
             file => file,
             StringComparer.OrdinalIgnoreCase);
 
-        UpsertPackageFile(enrichedFiles, PackagingTestCasesRelativePath, testCasesJson);
-        UpsertPackageFile(enrichedFiles, PackagingTestCasesOntologyCopyPath, testCasesJson);
+        UpsertPackageFile(enrichedFiles, PackagingTestCasesRelativePath, bundle.MergedJson);
+        UpsertPackageFile(enrichedFiles, PackagingTestCasesOntologyCopyPath, bundle.MergedJson);
+
+        if (!string.IsNullOrWhiteSpace(bundle.SourcesIndexJson))
+        {
+            UpsertPackageFile(enrichedFiles, PackagingTestCasesSourcesIndexPath, bundle.SourcesIndexJson);
+        }
+
+        if (!string.IsNullOrWhiteSpace(bundle.HistoryDerivedJson))
+        {
+            UpsertPackageFile(enrichedFiles, PackagingTestCasesHistoryDerivedPath, bundle.HistoryDerivedJson);
+        }
+
+        if (!string.IsNullOrWhiteSpace(bundle.MaterialsDerivedJson))
+        {
+            UpsertPackageFile(enrichedFiles, PackagingTestCasesMaterialsDerivedPath, bundle.MaterialsDerivedJson);
+        }
+
+        if (!string.IsNullOrWhiteSpace(bundle.TemplateDerivedJson))
+        {
+            UpsertPackageFile(enrichedFiles, PackagingTestCasesTemplateDerivedPath, bundle.TemplateDerivedJson);
+        }
 
         return runtimeContext with
         {
@@ -235,4 +390,109 @@ internal sealed partial class EmployeeHiringService
             }
         };
     }
+
+    private static readonly string[] PackagingTestCasesSupplementPaths =
+    [
+        PackagingTestCasesSourcesIndexPath,
+        PackagingTestCasesHistoryDerivedPath,
+        PackagingTestCasesMaterialsDerivedPath,
+        PackagingTestCasesTemplateDerivedPath
+    ];
+
+    /// <summary>
+    /// import 合并后将 staging（WTP / intermediate）中的 testcase 写入 final，并与 merged 已有兜底 JSON 合并。
+    /// </summary>
+    private async Task<Dictionary<string, byte[]>> EnrichMergedArtifactsWithPackagingTestCasesAsync(
+        IReadOnlyDictionary<string, byte[]> mergedArtifacts,
+        HiringRuntimeContext runtimeContext,
+        CancellationToken cancellationToken)
+    {
+        var enriched = mergedArtifacts is Dictionary<string, byte[]> mutable
+            ? mutable
+            : new Dictionary<string, byte[]>(mergedArtifacts, StringComparer.OrdinalIgnoreCase);
+
+        var stagedSources = await ResolvePackagingTestCaseSourcesAsync(runtimeContext, cancellationToken);
+        if (stagedSources.Count == 0)
+        {
+            return enriched;
+        }
+
+        EnrichPrimaryTestCasesJson(enriched, stagedSources);
+        EnrichSupplementPaths(enriched, stagedSources);
+
+        return enriched;
+    }
+
+    private async Task<IReadOnlyDictionary<string, byte[]>> ResolvePackagingTestCaseSourcesAsync(
+        HiringRuntimeContext runtimeContext,
+        CancellationToken cancellationToken)
+    {
+        var fromWorkingPackage = BuildPackageFileMap(runtimeContext.WorkingTemplatePackage);
+        if (fromWorkingPackage.ContainsKey(PackagingTestCasesRelativePath))
+        {
+            return fromWorkingPackage;
+        }
+
+        if (!runtimeContext.PackagingTestCasesStaged ||
+            string.IsNullOrWhiteSpace(runtimeContext.HireId))
+        {
+            return fromWorkingPackage;
+        }
+
+        var intermediateSnapshot = await artifactPackageService.GetPackageByKindAsync(
+            runtimeContext.HireId,
+            HiringArtifactPackageKinds.IntermediatePackageZip,
+            cancellationToken);
+        if (intermediateSnapshot is null || intermediateSnapshot.Content.Length == 0)
+        {
+            return fromWorkingPackage;
+        }
+
+        return ExtractZipEntries(intermediateSnapshot.Content);
+    }
+
+    private static void EnrichPrimaryTestCasesJson(
+        IDictionary<string, byte[]> mergedArtifacts,
+        IReadOnlyDictionary<string, byte[]> stagedSources)
+    {
+        if (!stagedSources.TryGetValue(PackagingTestCasesRelativePath, out var stagedBytes) ||
+            stagedBytes.Length == 0)
+        {
+            return;
+        }
+
+        var stagedJson = Encoding.UTF8.GetString(stagedBytes);
+        foreach (var path in new[] { PackagingTestCasesRelativePath, PackagingTestCasesOntologyCopyPath })
+        {
+            if (mergedArtifacts.TryGetValue(path, out var existingBytes) && existingBytes.Length > 0)
+            {
+                var existingJson = Encoding.UTF8.GetString(existingBytes);
+                if (PackagingTestCasesJsonMerger.TryMergeEvaluationTestCasesJson(existingJson, stagedJson, out var mergedJson))
+                {
+                    mergedArtifacts[path] = Encoding.UTF8.GetBytes(mergedJson);
+                }
+
+                continue;
+            }
+
+            mergedArtifacts[path] = stagedBytes;
+        }
+    }
+
+    private static void EnrichSupplementPaths(
+        IDictionary<string, byte[]> mergedArtifacts,
+        IReadOnlyDictionary<string, byte[]> stagedSources)
+    {
+        foreach (var path in PackagingTestCasesSupplementPaths)
+        {
+            if (!stagedSources.TryGetValue(path, out var stagedBytes) || stagedBytes.Length == 0)
+            {
+                continue;
+            }
+
+            mergedArtifacts.TryAdd(path, stagedBytes);
+        }
+    }
+
+    private sealed record PackagingUploadEntry(string TargetDir, string FileName, string Json);
 }

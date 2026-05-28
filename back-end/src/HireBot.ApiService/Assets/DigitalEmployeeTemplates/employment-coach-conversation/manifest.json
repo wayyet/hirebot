@@ -33,6 +33,11 @@
       "name": "external-config",
       "path": "skills/external-config/SKILL.md",
       "required": true
+    },
+    {
+      "name": "packaging-test-cases",
+      "path": "skills/packaging-test-cases/SKILL.md",
+      "required": true
     }
   ],
   "stage_rules": [
@@ -53,6 +58,12 @@
       "skill_name": "employment-coach-conversation",
       "description": "收集外部系统对接需求，明确 category、target_system、objective 和关联 skill；该阶段只允许在 skill-generation 已完成且用户明确同意继续后进入。用户确认（或明确跳过）后，通过 emit_artifact（external_workorder_summary, isTerminal: true）完成阶段",
       "required_fields": ["category", "target_system", "objective", "linked_skills"]
+    },
+    {
+      "stage": "ready_for_packaging",
+      "skill_name": "packaging-test-cases",
+      "description": "在进入 instance_packaging 前根据会话历史、上传资料与模板快照生成 testcases/evaluation-test-cases.json 及来源 index",
+      "required_fields": []
     }
   ]
 }

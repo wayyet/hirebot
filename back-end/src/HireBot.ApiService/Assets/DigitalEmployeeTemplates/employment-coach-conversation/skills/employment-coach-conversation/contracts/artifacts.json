@@ -116,7 +116,7 @@
         }
       ]
     },
-    "description": "进入条件二选一：(A) 下游三个 skill 全部发出 terminal artifact；(B) 本 coach 三个阶段 summary 已发出且用户在对话中显式请求打包。任一成立后先进入阶段 4：系统会在打包前向工作区预置 testcases/（coach 不得编造内容）；若下游已齐，调用 package_workspace 工具真实打包并推送 template_package；若下游未齐，只允许推送 packaging_progress(status=waiting_downstream) 说明仍在等待的下游项，等缺失项补齐后再真实打包。严禁未真实调用打包工具就宣称已打包。",
+    "description": "进入条件二选一：(A) 下游三个 skill 全部发出 terminal artifact；(B) 本 coach 三个阶段 summary 已发出且用户在对话中显式请求打包。任一成立后先进入阶段 4：后端会自动 invoke packaging-test-cases Skill 向工作区预置 testcases/（coach 不得编造 testcase 内容，仅将已有 testcases/ 打入 zip）；若下游已齐，调用 package_workspace 工具真实打包并推送 template_package；若下游未齐，只允许推送 packaging_progress(status=waiting_downstream) 说明仍在等待的下游项，等缺失项补齐后再真实打包。严禁未真实调用打包工具就宣称已打包。",
     "artifacts": [
       {
         "type": "packaging_progress",

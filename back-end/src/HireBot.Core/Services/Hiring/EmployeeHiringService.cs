@@ -53,7 +53,6 @@ internal sealed partial class EmployeeHiringService(
     IInstanceArtifactCloneService instanceArtifactCloneService,
     IHiringArtifactPackageService artifactPackageService,
     IStoreSkillPackageDownloader storeSkillPackageDownloader,
-    IPackagingTestCaseLlmGenerator packagingTestCaseLlmGenerator,
     IConfiguration configuration,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
@@ -1119,6 +1118,22 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包为空或无法解析，请确认上传的是有效 ZIP 文件");
         }
 
+        if (ShouldStagePackagingTestCases(runtimeContext, userMessage: null) ||
+            string.Equals(runtimeContext.CurrentStage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!runtimeContext.PackagingTestCasesStaged)
+            {
+                runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
+            }
+
+            hiringRuntimeStore.Upsert(runtimeContext);
+        }
+
+        if (ShouldPersistArtifactPackages(runtimeContext))
+        {
+            await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+        }
+
         // 用户在前端 TODO 面板关联的 store skill：先从 ncrew-builder 拉取并解压，作为产物的"中层"基底。
         // 优先级：沙箱产物（最高）> store skill > 原始模板包（最低），保证用户显式选择的技能不会被陈旧模板覆盖。
         IReadOnlyDictionary<string, byte[]> storeSkillArtifacts;
@@ -1142,6 +1157,11 @@ internal sealed partial class EmployeeHiringService(
         {
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包合并后无有效文件");
         }
+
+        mergedArtifacts = await EnrichMergedArtifactsWithPackagingTestCasesAsync(
+            mergedArtifacts,
+            runtimeContext,
+            cancellationToken);
 
         // 创建数字员工实例（首次调用时）
         // 直接从 DB 持久化的 runtimeContext 读取所有者信息，保证重启后依然有效。

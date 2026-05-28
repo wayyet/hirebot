@@ -602,7 +602,7 @@ ls <workspace_root>/skills/*/SKILL.md
 - `skills/`（skill-generation 写入的全部内容）
 - `external/`（external-config 写入的全部内容）
 - `config/`（配置文件治理目标）
-- `testcases/`（**由系统在打包前预置**，如 `evaluation-test-cases.json`；coach **不得**自行编造 testcase 内容，但若工作区已存在该目录则 **必须** 打入 zip）
+- `testcases/`（**由后端在打包前 invoke `packaging-test-cases` Skill 预置**，如 `evaluation-test-cases.json`；coach **不得**自行编造 testcase 内容，但若工作区已存在该目录则 **必须** 打入 zip）
 
 **黑名单（严禁打入 zip）**：
 - `.git/`、`.cache/`、`node_modules/`、`.venv/`、`__pycache__/`、任何 `.` 前缀的隐藏目录或文件
