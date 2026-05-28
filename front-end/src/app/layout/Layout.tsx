@@ -7,13 +7,17 @@ import {
   Moon,
   Palette,
   Settings,
-  Sparkles,
   Sun,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
 import yWorkHireLogo from "@/assets/y-work-hire-logo.svg";
+import {
+  resolveBrandWordmarkSrc,
+  resolveDisplayProductName,
+  resolveSystemTitle,
+} from "@/app/branding/runtimeBranding";
 import {
   UserRoleContext,
   type HirebotUserRole,
@@ -87,7 +91,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { showToast } = useUxOverlay();
   const { t } = useTranslation();
   const { brand, cycleBrand, isDark, toggleMode, warmThemeEnabled, warmThemeManagedByRuntime } = useTheme();
-  const brandName = warmThemeEnabled ? "Y Work" : t("brand.name");
+  const currentLang = i18n.resolvedLanguage ?? i18n.language ?? "zh";
+  const brandName = resolveDisplayProductName(warmThemeEnabled, t("brand.name"));
+  const originalBrandWordmarkSrc = resolveBrandWordmarkSrc(currentLang);
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [userDisplayName, setUserDisplayName] = useState<string>("");
@@ -139,9 +145,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     };
   }, [role, t]);
 
+  useEffect(() => {
+    document.title = resolveSystemTitle(warmThemeEnabled, currentLang);
+  }, [currentLang, warmThemeEnabled]);
+
   const [langOpen, setLangOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
-  const currentLang = i18n.language ?? "zh";
 
   useEffect(() => {
     function handleOutside(event: MouseEvent) {
@@ -243,17 +252,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 to={role === "manager" ? "/template-pool" : "/department-employees"}
                 className="hb-brand"
               >
-                <div className={`hb-brand-logo${warmThemeEnabled ? " hb-brand-logo--mark" : ""}`}>
-                  {warmThemeEnabled ? (
-                    <img src={yWorkHireLogo} alt="" className="hb-brand-logo-mark" />
-                  ) : (
-                    <Sparkles size={16} color="#fff" />
-                  )}
-                </div>
-                <div className="hb-brand-body">
-                  <span className="hb-brand-name">{brandName}</span>
-                  <span className="hb-brand-tagline">{t("brand.tagline")}</span>
-                </div>
+                {warmThemeEnabled ? (
+                  <>
+                    <div className="hb-brand-logo hb-brand-logo--mark">
+                      <img src={yWorkHireLogo} alt="" className="hb-brand-logo-mark" />
+                    </div>
+                    <div className="hb-brand-body">
+                      <span className="hb-brand-name">{brandName}</span>
+                      <span className="hb-brand-tagline">{t("brand.tagline")}</span>
+                    </div>
+                  </>
+                ) : (
+                  <img
+                    src={originalBrandWordmarkSrc}
+                    alt={t("brand.name")}
+                    className="hb-brand-wordmark"
+                  />
+                )}
               </Link>
             </div>
 

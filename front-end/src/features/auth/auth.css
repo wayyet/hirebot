@@ -107,6 +107,14 @@
   letter-spacing: -0.04em;
 }
 
+.hb-login-brand-wordmark {
+  display: block;
+  height: 34px;
+  width: auto;
+  max-width: 180px;
+  object-fit: contain;
+}
+
 .hb-login-header-tag {
   display: inline-flex;
   align-items: center;
