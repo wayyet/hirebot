@@ -17,6 +17,7 @@ import {
   type HiringConversationMessage,
 } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
+import { TYPEWRITER_SOFT_FINISH_DEFER_MS, useTypewriterStream } from '@/shared/hooks/useTypewriterStream'
 import SessionListPanel from '@/features/team/components/SessionListPanel'
 import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
 import { instanceBasePath } from '@/shared/utils/instancePath'
@@ -65,7 +66,13 @@ export default function EvaluationPage() {
   const [sessionListRefreshKey, setSessionListRefreshKey] = useState(0)
   const [sandboxConnected, setSandboxConnected] = useState(false)
   const [sessionSwitching, setSessionSwitching] = useState(false)
-  const [streamingContent, setStreamingContent] = useState<string | null>(null)
+  const {
+    displayText: streamingContent,
+    start: startTypewriterStream,
+    append: appendTypewriterStream,
+    finish: finishTypewriterStream,
+    reset: resetTypewriterStream,
+  } = useTypewriterStream()
   const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([])
   const [chatTyping, setChatTyping] = useState(false)
   // sandboxConversation state 已移除，session ID 改为直接从网关查询
@@ -77,7 +84,6 @@ export default function EvaluationPage() {
   const wsRef = useRef<GatewayWs | null>(null)
   const gatewayEndpointRef = useRef<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
-  const streamingContentRef = useRef('')
   const streamingToolStepsRef = useRef<ToolStep[]>([])
   const connectionStateRef = useRef<{ endpoint: string | null; sessionId: string | null }>({
     endpoint: null,
@@ -519,6 +525,10 @@ export default function EvaluationPage() {
 
     wsRef.current?.disconnect()
     wsRef.current = null
+    resetTypewriterStream()
+    streamingToolStepsRef.current = []
+    setStreamingToolSteps([])
+    setChatTyping(false)
     setSandboxConnected(false)
 
     const token = await tokenService.ensureFresh()
@@ -553,6 +563,12 @@ export default function EvaluationPage() {
           }
           reject(new Error('评估沙箱连接未建立，无法发送消息'))
         }
+        if (state === 'closed' || state === 'error') {
+          resetTypewriterStream()
+          streamingToolStepsRef.current = []
+          setStreamingToolSteps([])
+          setChatTyping(false)
+        }
       }
     })
 
@@ -561,9 +577,8 @@ export default function EvaluationPage() {
 
       if (messageType === 'typing_start') {
         // 新轮次开始：重置流式内容和工具步骤
-        streamingContentRef.current = ''
         streamingToolStepsRef.current = []
-        setStreamingContent('')
+        startTypewriterStream()
         setStreamingToolSteps([])
         setChatTyping(true)
         return
@@ -571,8 +586,7 @@ export default function EvaluationPage() {
 
       if (messageType === 'text_delta' || messageType === 'assistant_chunk') {
         const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
-        streamingContentRef.current += chunk
-        setStreamingContent(streamingContentRef.current)
+        appendTypewriterStream(chunk)
         setChatTyping(false)
         return
       }
@@ -634,44 +648,48 @@ export default function EvaluationPage() {
         const endpointValue = gatewayEndpointRef.current
         const sessionIdValue = sessionIdRef.current
         const completedToolSteps = [...streamingToolStepsRef.current]
-        setStreamingContent(null)
-        setStreamingToolSteps([])
-        setChatTyping(false)
-        streamingContentRef.current = ''
-        streamingToolStepsRef.current = []
-        if (endpointValue && sessionIdValue) {
-          void syncSandboxHistory(endpointValue, sessionIdValue)
-            .then(async () => {
-              // 把本轮工具步骤附加到最后一条 bot 消息
-              if (completedToolSteps.length > 0) {
-                setChatMessages((prev) => {
-                  const lastBotIdx = [...prev].reverse().findIndex((m) => m.role !== 'user')
-                  if (lastBotIdx === -1) return prev
-                  const idx = prev.length - 1 - lastBotIdx
-                  const updated = [...prev]
-                  updated[idx] = { ...updated[idx], toolSteps: completedToolSteps }
-                  return updated
-                })
-              }
-              setSessionListRefreshKey((current) => current + 1)
-              // 每轮对话结束后刷新评估状态，检查是否有新报告产出
-              if (id) {
-                try {
-                  const [evalState, employeeState] = await Promise.all([
-                    api.employeeRuntime.getEvaluationState(id),
-                    api.employeeRuntime.getEmployee(id),
-                  ])
-                  setEvaluation(evalState)
-                  setEmployee(employeeState)
-                } catch {
-                  // 刷新失败不影响主流程
+        const fallbackReply = String(msg.content ?? msg.text ?? '')
+        const finishOptions = messageType === 'typing_stop'
+          ? { deferMs: TYPEWRITER_SOFT_FINISH_DEFER_MS }
+          : undefined
+        finishTypewriterStream(fallbackReply, () => {
+          setStreamingToolSteps([])
+          setChatTyping(false)
+          streamingToolStepsRef.current = []
+          if (endpointValue && sessionIdValue) {
+            void syncSandboxHistory(endpointValue, sessionIdValue)
+              .then(async () => {
+                // 把本轮工具步骤附加到最后一条 bot 消息。
+                if (completedToolSteps.length > 0) {
+                  setChatMessages((prev) => {
+                    const lastBotIdx = [...prev].reverse().findIndex((m) => m.role !== 'user')
+                    if (lastBotIdx === -1) return prev
+                    const idx = prev.length - 1 - lastBotIdx
+                    const updated = [...prev]
+                    updated[idx] = { ...updated[idx], toolSteps: completedToolSteps }
+                    return updated
+                  })
                 }
-              }
-            })
-            .catch((historyError: unknown) => {
-              setChatError(historyError instanceof Error ? historyError.message : '同步评估沙箱历史失败')
-            })
-        }
+                setSessionListRefreshKey((current) => current + 1)
+                // 每轮对话结束后刷新评估状态，检查是否有新报告产出。
+                if (id) {
+                  try {
+                    const [evalState, employeeState] = await Promise.all([
+                      api.employeeRuntime.getEvaluationState(id),
+                      api.employeeRuntime.getEmployee(id),
+                    ])
+                    setEvaluation(evalState)
+                    setEmployee(employeeState)
+                  } catch {
+                    // 刷新失败不影响主流程
+                  }
+                }
+              })
+              .catch((historyError: unknown) => {
+                setChatError(historyError instanceof Error ? historyError.message : '同步评估沙箱历史失败')
+              })
+          }
+        }, finishOptions)
         return
       }
 
@@ -877,8 +895,7 @@ export default function EvaluationPage() {
         throw new Error('评估沙箱连接未建立，无法发送消息')
       }
 
-      setStreamingContent('')
-      streamingContentRef.current = ''
+      startTypewriterStream()
 
       const sent = activeWs.send({
         type: 'user_message',
@@ -895,6 +912,10 @@ export default function EvaluationPage() {
     } catch (sendError: unknown) {
       setChatError(sendError instanceof Error ? sendError.message : '发送消息到评估沙箱失败')
       setChatMessages((prev) => prev.filter((item) => item.messageId !== optimistic.messageId))
+      resetTypewriterStream()
+      streamingToolStepsRef.current = []
+      setStreamingToolSteps([])
+      setChatTyping(false)
     } finally {
       setChatSending(false)
     }
@@ -939,7 +960,7 @@ export default function EvaluationPage() {
       setChatMessages([])
       setChatError('')
       setSelectedSessionId(null)
-      setStreamingContent(null)
+      resetTypewriterStream()
       setStreamingToolSteps([])
       setChatTyping(false)
       gatewayEndpointRef.current = null
@@ -958,8 +979,12 @@ export default function EvaluationPage() {
       wsRef.current?.disconnect()
       wsRef.current = null
       connectionStateRef.current = { endpoint: null, sessionId: null }
+      resetTypewriterStream()
+      streamingToolStepsRef.current = []
+      setStreamingToolSteps([])
+      setChatTyping(false)
     }
-  }, [aiRunning, id])
+  }, [aiRunning, id, resetTypewriterStream])
 
   async function handleSelectSession(sessionId: string) {
     if (sessionSwitching || sessionId === selectedSessionId) return
@@ -973,7 +998,7 @@ export default function EvaluationPage() {
     const previousSessionId = sessionIdRef.current
     setSessionSwitching(true)
     setSelectedSessionId(sessionId)
-    setStreamingContent(null)
+    resetTypewriterStream()
     setStreamingToolSteps([])
     setChatTyping(false)
 
@@ -999,7 +1024,7 @@ export default function EvaluationPage() {
     sessionIdRef.current = newSessionId
     setSelectedSessionId(newSessionId)
     setChatMessages([])
-    setStreamingContent(null)
+    resetTypewriterStream()
     setStreamingToolSteps([])
     setChatTyping(false)
     setSessionListRefreshKey((current) => current + 1)

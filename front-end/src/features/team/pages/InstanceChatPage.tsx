@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
+import {
+  TYPEWRITER_SOFT_FINISH_DEFER_MS,
+  useTypewriterStream,
+} from "@/shared/hooks/useTypewriterStream";
 import { instanceBasePath } from "@/shared/utils/instancePath";
 import "@/features/team/styles/instance-chat-page.css";
 
@@ -194,7 +198,8 @@ export default function InstanceChatPage() {
   const [typing, setTyping] = useState(false);
   const [error, setError] = useState("");
   const [clearing, setClearing] = useState(false);
-  const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const typewriterStream = useTypewriterStream();
+  const streamingContent = typewriterStream.displayText;
   const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
@@ -211,8 +216,6 @@ export default function InstanceChatPage() {
   const wsRef = useRef<GatewayWs | null>(null);
   const gatewayEndpointRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  // 保存 WS 流式回复的原始内容（normalizeMessageContent 之前）
-  const rawStreamingContentRef = useRef<string>("");
   const pendingToolStepsRef = useRef<ToolStep[]>([]);
   // 文件选择 input 的 ref
   const fileRef = useRef<HTMLInputElement>(null);
@@ -433,24 +436,19 @@ export default function InstanceChatPage() {
       const type = String(msg.type ?? "");
       if (type === "typing_start") {
         // AI 开始思考，初始化流式内容
-        rawStreamingContentRef.current = "";
         pendingToolStepsRef.current = [];
         setStreamingToolSteps([]);
-        setStreamingContent("");
+        typewriterStream.start();
         setTyping(true);
         return;
       }
 
       if (type === "text_delta" || type === "assistant_chunk") {
-        // 逐字追加流式内容，同时处理 <think> 标签
+        // 原始分片进入共享打字机缓冲，UI 按稳定节奏释放字符。
         const chunk = String(
           msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? "",
         );
-        setStreamingContent((prev) => {
-          const nextRaw = prev === null ? chunk : prev + chunk;
-          rawStreamingContentRef.current = nextRaw;
-          return nextRaw;
-        });
+        typewriterStream.append(chunk);
         return;
       }
 
@@ -524,48 +522,49 @@ export default function InstanceChatPage() {
 
       if (type === "typing_stop" || type === "assistant_done") {
         // AI 回复完毕，保存原始内容，然后将清理后的内容提交为正式气泡
-        const rawReply =
-          rawStreamingContentRef.current ||
-          String(msg.content ?? msg.text ?? "");
         const toolSteps =
           pendingToolStepsRef.current.length > 0
             ? [...pendingToolStepsRef.current]
             : undefined;
-        rawStreamingContentRef.current = "";
+        const fallbackReply = String(msg.content ?? msg.text ?? "");
+        const finishOptions =
+          type === "typing_stop"
+            ? { deferMs: TYPEWRITER_SOFT_FINISH_DEFER_MS }
+            : undefined;
 
-        // 直接从 ref 取流式内容提交为正式消息（不放在 setStreamingContent 回调里，
-        // 避免 React StrictMode 双重调用导致同一条 bot 消息被 add 两遍）
-        if (rawReply && rawReply.trim().length > 0) {
-          const cleaned = normalizeMessageContent(rawReply);
-          if (cleaned.length > 0 || toolSteps) {
-            setMessages((current) => [
-              ...current,
-              {
-                messageId: `local-${Date.now()}`,
-                role: "assistant",
-                content: cleaned,
-                createdAt: new Date().toISOString(),
-                toolSteps,
-              },
-            ]);
+        typewriterStream.finish(fallbackReply, (rawReply) => {
+          // 直接从 hook 的 raw 文本提交正式消息，避免 React StrictMode 双重调用导致重复气泡。
+          if (rawReply && rawReply.trim().length > 0) {
+            const cleaned = normalizeMessageContent(rawReply);
+            if (cleaned.length > 0 || toolSteps) {
+              setMessages((current) => [
+                ...current,
+                {
+                  messageId: `local-${Date.now()}`,
+                  role: "assistant",
+                  content: cleaned,
+                  createdAt: new Date().toISOString(),
+                  toolSteps,
+                },
+              ]);
+            }
           }
-        }
-        pendingToolStepsRef.current = [];
-        setStreamingToolSteps([]);
-        setStreamingContent(null);
-        setTyping(false);
+          pendingToolStepsRef.current = [];
+          setStreamingToolSteps([]);
+          setTyping(false);
 
-        const sandboxSessionId = sessionIdRef.current;
-        const sandboxGatewayEndpoint = gatewayEndpointRef.current;
-        if (sandboxSessionId && sandboxGatewayEndpoint) {
-          void syncSandboxHistory(sandboxGatewayEndpoint, sandboxSessionId)
-            .catch(() => {
-              // 历史同步失败时保留当前已渲染内容
-            })
-            .finally(() => {
-              setSessionListRefreshKey((k) => k + 1);
-            });
-        }
+          const sandboxSessionId = sessionIdRef.current;
+          const sandboxGatewayEndpoint = gatewayEndpointRef.current;
+          if (sandboxSessionId && sandboxGatewayEndpoint) {
+            void syncSandboxHistory(sandboxGatewayEndpoint, sandboxSessionId)
+              .catch(() => {
+                // 历史同步失败时保留当前已渲染内容
+              })
+              .finally(() => {
+                setSessionListRefreshKey((k) => k + 1);
+              });
+          }
+        }, finishOptions);
       }
     };
 
@@ -595,10 +594,9 @@ export default function InstanceChatPage() {
       if (state === "closed" || state === "error") {
         settleOpen(new Error("沙箱连接未建立，无法发送消息"));
         setTyping(false);
-        setStreamingContent(null);
+        typewriterStream.reset();
         pendingToolStepsRef.current = [];
         setStreamingToolSteps([]);
-        rawStreamingContentRef.current = "";
       }
     };
 
@@ -663,7 +661,7 @@ export default function InstanceChatPage() {
     const previousActiveSessionId = sessionIdRef.current;
     setSelectedSessionId(sessionId);
     setSessionSwitching(true);
-    setStreamingContent(null);
+    typewriterStream.reset();
     pendingToolStepsRef.current = [];
     setStreamingToolSteps([]);
     setTyping(false);
@@ -857,7 +855,7 @@ export default function InstanceChatPage() {
     sessionIdRef.current = newSessionId;
     setSelectedSessionId(newSessionId);
     setMessages([]);
-    setStreamingContent(null);
+    typewriterStream.reset();
     pendingToolStepsRef.current = [];
     setStreamingToolSteps([]);
     setTyping(false);
@@ -874,7 +872,7 @@ export default function InstanceChatPage() {
     try {
       wsRef.current?.disconnect();
       wsRef.current = null;
-      setStreamingContent(null);
+      typewriterStream.reset();
       pendingToolStepsRef.current = [];
       setStreamingToolSteps([]);
       setTyping(false);

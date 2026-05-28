@@ -31,7 +31,9 @@ import {
   type HiringConversationMessage,
 } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
+import { TYPEWRITER_SOFT_FINISH_DEFER_MS, useTypewriterStream } from '@/shared/hooks/useTypewriterStream'
 import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
+import { InstanceChatMessageBody } from '@/features/team/components/InstanceChatMessageBody'
 import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
 import { instanceBasePath } from '@/shared/utils/instancePath'
 
@@ -108,7 +110,13 @@ export default function HumanEvaluationPage() {
   const [chatSending, setChatSending] = useState(false)
   const [chatError, setChatError] = useState('')
   const [sandboxConnected, setSandboxConnected] = useState(false)
-  const [streamingContent, setStreamingContent] = useState<string | null>(null)
+  const {
+    displayText: streamingContent,
+    start: startTypewriterStream,
+    append: appendTypewriterStream,
+    finish: finishTypewriterStream,
+    reset: resetTypewriterStream,
+  } = useTypewriterStream()
   const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([])
   const [chatTyping, setChatTyping] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -118,7 +126,6 @@ export default function HumanEvaluationPage() {
   const wsRef = useRef<GatewayWs | null>(null)
   const targetEndpointRef = useRef<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
-  const streamingContentRef = useRef('')
   const streamingToolStepsRef = useRef<ToolStep[]>([])
   const chatEndRef = useRef<HTMLDivElement | null>(null)
   const chatReadyRef = useRef<Promise<boolean> | null>(null)
@@ -128,8 +135,11 @@ export default function HumanEvaluationPage() {
   })
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages, streamingContent])
+    const frame = window.requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: streamingContent !== null ? 'auto' : 'smooth' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [chatMessages, streamingContent, streamingToolSteps])
 
   async function loadData() {
     if (!id) return
@@ -184,9 +194,13 @@ export default function HumanEvaluationPage() {
       sessionIdRef.current = null
       chatReadyRef.current = null
       connectionStateRef.current = { endpoint: null, sessionId: null }
+      resetTypewriterStream()
+      streamingToolStepsRef.current = []
+      setStreamingToolSteps([])
+      setChatTyping(false)
       setSandboxConnected(false)
     }
-  }, [workspaceStatus?.targetGatewayEndpoint, workspaceStatus?.overallStatus])
+  }, [workspaceStatus?.targetGatewayEndpoint, workspaceStatus?.overallStatus, resetTypewriterStream])
 
   async function connectTargetWs(endpoint: string): Promise<void> {
     if (
@@ -200,6 +214,10 @@ export default function HumanEvaluationPage() {
 
     wsRef.current?.disconnect()
     wsRef.current = null
+    resetTypewriterStream()
+    streamingToolStepsRef.current = []
+    setStreamingToolSteps([])
+    setChatTyping(false)
     setSandboxConnected(false)
 
     const token = await tokenService.ensureFresh()
@@ -235,9 +253,8 @@ export default function HumanEvaluationPage() {
       const msgType = String(msg.type ?? '')
 
       if (msgType === 'typing_start') {
-        streamingContentRef.current = ''
         streamingToolStepsRef.current = []
-        setStreamingContent('')
+        startTypewriterStream()
         setStreamingToolSteps([])
         setChatTyping(true)
         return
@@ -245,8 +262,7 @@ export default function HumanEvaluationPage() {
 
       if (msgType === 'text_delta' || msgType === 'assistant_chunk') {
         const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
-        streamingContentRef.current += chunk
-        setStreamingContent(streamingContentRef.current)
+        appendTypewriterStream(chunk)
         setChatTyping(false)
         return
       }
@@ -304,29 +320,33 @@ export default function HumanEvaluationPage() {
         const ep = targetEndpointRef.current
         const sid = sessionIdRef.current
         const completedToolSteps = [...streamingToolStepsRef.current]
-        setStreamingContent(null)
-        setStreamingToolSteps([])
-        setChatTyping(false)
-        streamingContentRef.current = ''
-        streamingToolStepsRef.current = []
-        if (ep && sid) {
-          void fetchSandboxSessionMessages(ep, sid)
-            .then((msgs) => {
-              const mapped = mapSandboxMessages(msgs)
-              setChatMessages(mapped)
-              if (completedToolSteps.length > 0) {
-                setChatMessages((prev) => {
-                  const lastBotIdx = [...prev].reverse().findIndex((m) => m.role !== 'user')
-                  if (lastBotIdx === -1) return prev
-                  const idx = prev.length - 1 - lastBotIdx
-                  const updated = [...prev]
-                  updated[idx] = { ...updated[idx], toolSteps: completedToolSteps }
-                  return updated
-                })
-              }
-            })
-            .catch(() => {})
-        }
+        const fallbackReply = String(msg.content ?? msg.text ?? '')
+        const finishOptions = msgType === 'typing_stop'
+          ? { deferMs: TYPEWRITER_SOFT_FINISH_DEFER_MS }
+          : undefined
+        finishTypewriterStream(fallbackReply, () => {
+          setStreamingToolSteps([])
+          setChatTyping(false)
+          streamingToolStepsRef.current = []
+          if (ep && sid) {
+            void fetchSandboxSessionMessages(ep, sid)
+              .then((msgs) => {
+                const mapped = mapSandboxMessages(msgs)
+                setChatMessages(mapped)
+                if (completedToolSteps.length > 0) {
+                  setChatMessages((prev) => {
+                    const lastBotIdx = [...prev].reverse().findIndex((m) => m.role !== 'user')
+                    if (lastBotIdx === -1) return prev
+                    const idx = prev.length - 1 - lastBotIdx
+                    const updated = [...prev]
+                    updated[idx] = { ...updated[idx], toolSteps: completedToolSteps }
+                    return updated
+                  })
+                }
+              })
+              .catch(() => {})
+          }
+        }, finishOptions)
         return
       }
 
@@ -423,8 +443,7 @@ export default function HumanEvaluationPage() {
       const sessionId = sessionIdRef.current
       if (!ws?.isOpen() || !sessionId) throw new Error('目标沙箱连接未建立，请稍后重试')
 
-      setStreamingContent('')
-      streamingContentRef.current = ''
+      startTypewriterStream()
 
       const sent = ws.send({
         type: 'user_message',
@@ -437,6 +456,10 @@ export default function HumanEvaluationPage() {
     } catch (err: unknown) {
       setChatError(err instanceof Error ? err.message : '发送消息失败')
       setChatMessages((prev) => prev.filter((m) => m.messageId !== optimistic.messageId))
+      resetTypewriterStream()
+      streamingToolStepsRef.current = []
+      setStreamingToolSteps([])
+      setChatTyping(false)
     } finally {
       setChatSending(false)
     }
@@ -652,9 +675,7 @@ export default function HumanEvaluationPage() {
                       ) : streamingContent ? (
                         <div className="border eval-bubble-bot rounded-2xl px-3 py-2.5 text-sm leading-6">
                           <div className="mb-1 text-[11px] eval-bubble-meta-bot">{t('humanEvaluation.messageEmployee')} · {t('humanEvaluation.streaming')}</div>
-                          <div className="hb-md prose prose-sm max-w-none break-words">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
-                          </div>
+                          <InstanceChatMessageBody content={streamingContent} role="assistant" streaming />
                         </div>
                       ) : null}
                     </div>
