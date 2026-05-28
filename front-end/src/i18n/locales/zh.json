@@ -2,7 +2,7 @@
   "brand": {
     "name": "NCrew Hire",
     "tagline": "数字员工雇佣端",
-    "footer": "NCrew Hire · 数字员工雇佣端"
+    "footer": "{{productName}} · 数字员工雇佣端"
   },
   "nav": {
     "templatePool": "企业模板池",
@@ -122,7 +122,7 @@
     "kicker": "数字员工雇佣端",
     "title1": "雇佣下一位",
     "title2": "数字员工",
-    "copy": "从模板挑选、发起雇佣，到完成入职与上岗协作，NCrew Hire 将整个数字员工雇佣流程收束到同一个入口。",
+    "copy": "从模板挑选、发起雇佣，到完成入职与上岗协作，{{productName}} 将整个数字员工雇佣流程收束到同一个入口。",
     "primaryLabel": "进入统一登录",
     "primaryLabelLoading": "检查登录状态中...",
     "bypassHeaderTag": "开发态直通",
@@ -664,7 +664,7 @@
     "badge": "数字员工雇佣平台",
     "heroTitle1": "雇佣你的下一位",
     "heroTitle2": "数字员工",
-    "heroSubtitle": "从模板挑选、发起雇佣，到完成入职与上岗协作，NCrew Hire 将整个数字员工雇佣流程收束到同一个入口。",
+    "heroSubtitle": "从模板挑选、发起雇佣，到完成入职与上岗协作，{{productName}} 将整个数字员工雇佣流程收束到同一个入口。",
     "loginBtn": "登录",
     "enterConsole": "进入工作台",
     "ctaPrimary": "立即登录",
@@ -715,7 +715,7 @@
       }
     },
     "finalCtaTitle": "开始你的数字员工雇佣",
-    "finalCtaCopy": "立即登录，进入 NCrew Hire 工作台，为团队配置专属数字员工。"
+    "finalCtaCopy": "立即登录，进入 {{productName}} 工作台，为团队配置专属数字员工。"
   },
   "templateDetail": {
     "startHiring": "发起雇佣",
