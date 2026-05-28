@@ -87,6 +87,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { showToast } = useUxOverlay();
   const { t } = useTranslation();
   const { brand, cycleBrand, isDark, toggleMode, warmThemeEnabled, warmThemeManagedByRuntime } = useTheme();
+  const brandName = warmThemeEnabled ? "Y-Work Hire" : t("brand.name");
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [userDisplayName, setUserDisplayName] = useState<string>("");
@@ -250,7 +251,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   )}
                 </div>
                 <div className="hb-brand-body">
-                  <span className="hb-brand-name">{t("brand.name")}</span>
+                  <span className="hb-brand-name">{brandName}</span>
                   <span className="hb-brand-tagline">{t("brand.tagline")}</span>
                 </div>
               </Link>
