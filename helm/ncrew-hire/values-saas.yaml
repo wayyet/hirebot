@@ -34,7 +34,7 @@ env:
   ConsoleAuth__ClientId: ncrew-client
   ConsoleAuth__BypassAuth: "false"
   ConsoleAuth__TemplateApiBase: https://ncrew-builder.ai4c.cn
-  ConsoleUi__EnableWarmTheme: "true"
+  ConsoleUi__EnableWarmTheme: "false"
   # ---- 跨域 ----
   AllowedOrigins__0: https://hire.ai4c.cn
   AllowedOrigins__1: https://ncrew.ai4c.cn
@@ -51,7 +51,7 @@ env:
   OpenSandbox__UseServerProxy: "false"
   OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605181416
   OpenSandbox__Resource__cpu: 500m
-  OpenSandbox__Resource__memory: 1Gi
+  OpenSandbox__Resource__memory: 500Mi
   OpenSandbox__TimeoutSeconds: "43200"
   OpenSandbox__ReadyTimeoutSeconds: "180"
   OpenSandbox__RequestTimeoutSeconds: "180"
