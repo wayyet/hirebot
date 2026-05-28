@@ -47,6 +47,9 @@ env:
   AllowedOrigins__8: https://hire.y-work.cn
   AllowedOrigins__9: http://hire.y-work.cn
   
+  # ---- ywork 服务自引用地址（覆盖 appsettings.Production.json 中的 ncrew-hire）----
+  OpenSandbox__McpConfig__Servers__streaming-vhk95z__Url: http://ywork:8080/mcp
+  Evaluation__ApiBaseUrl: http://ywork:8080
   # ---- OpenSandbox 沙箱服务地址（SaaS 集群内地址）----
   OpenSandbox__Domain: opensandbox-server.ai4c.cn
   OpenSandbox__Protocol: Https
