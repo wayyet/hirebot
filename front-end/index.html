@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link id="app-favicon" rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NCrew Hire</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -12,6 +12,19 @@
          后端不可用时 onerror 回退，前端自行使用环境变量。
          此标签为同步非模块脚本，在所有 ESM 模块执行前完成。 -->
     <script src="/runtime-config.js" onerror="window.__AUTH_CONFIG__={}"></script>
+    <script>
+      (function () {
+        var warmThemeEnabled = window.__AUTH_CONFIG__ && window.__AUTH_CONFIG__.EnableWarmTheme === true;
+        if (!warmThemeEnabled) return;
+
+        var favicon = document.getElementById('app-favicon');
+        if (favicon) {
+          favicon.setAttribute('href', '/favicon-warm.svg');
+        }
+
+        document.title = 'Y Work';
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

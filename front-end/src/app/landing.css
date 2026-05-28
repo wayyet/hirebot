@@ -438,6 +438,14 @@
   margin-bottom: 28px;
 }
 
+.hb-landing-badge-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
 /* 大标题 */
 .hb-landing-headline {
   font-size: clamp(40px, 6vw, 72px);

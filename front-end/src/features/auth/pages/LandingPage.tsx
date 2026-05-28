@@ -193,7 +193,11 @@ export default function LandingPage() {
 
         <div className="hb-landing-hero-content">
           <div className="hb-landing-badge hb-anim-fade-up" style={{ animationDelay: '0ms' }}>
-            <Sparkles size={12} />
+            {warmThemeEnabled ? (
+              <img src="/favicon-warm.svg" alt="" className="hb-landing-badge-icon" />
+            ) : (
+              <Sparkles size={12} />
+            )}
             {t('landing.badge')}
           </div>
 
