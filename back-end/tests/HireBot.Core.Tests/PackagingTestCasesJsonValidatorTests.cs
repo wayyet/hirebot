@@ -223,6 +223,27 @@ public class PackagingTestCasesJsonValidatorTests
         Assert.Contains("history-derived", normalized);
     }
 
+    [Fact]
+    public void TryValidateSourcesIndexJson_WhenLegacyArraySources_ShouldReturnTrue()
+    {
+        var json = """
+            {
+              "schema_version": "1.0",
+              "generated_at": "2026-05-28T07:59:00Z",
+              "sources": [
+                { "source": "materials-derived", "path": "ontology/hiring-session/testcases-sources/materials-derived.json", "count": 3 }
+              ]
+            }
+            """;
+
+        var valid = PackagingTestCasesJsonValidator.TryValidateSourcesIndexJson(json, out _);
+
+        Assert.True(valid);
+        using var document = JsonDocument.Parse(json);
+        Assert.True(PackagingTestCasesJsonValidator.TryGetSourcesIndexMaterialFileCount(document.RootElement, out var count));
+        Assert.Equal(3, count);
+    }
+
     private static string BuildDerivedPayload(string source, string testCaseId, bool emptyCases = false)
     {
         if (emptyCases)

@@ -266,13 +266,7 @@ internal static partial class PackagingTestCasesJsonValidator
         try
         {
             using var document = JsonDocument.Parse(json);
-            var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("primary", out var primaryElement) ||
-                primaryElement.ValueKind != JsonValueKind.String ||
-                string.IsNullOrWhiteSpace(primaryElement.GetString()) ||
-                !root.TryGetProperty("sources", out var sourcesElement) ||
-                sourcesElement.ValueKind != JsonValueKind.Object)
+            if (!TryValidateSourcesIndexRoot(document.RootElement))
             {
                 return false;
             }
@@ -284,6 +278,88 @@ internal static partial class PackagingTestCasesJsonValidator
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// 契约格式（primary + sources 对象）或实包常见数组格式（sources[] 含 source/path/count）。
+    /// </summary>
+    private static bool TryValidateSourcesIndexRoot(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("sources", out var sourcesElement))
+        {
+            return false;
+        }
+
+        if (sourcesElement.ValueKind == JsonValueKind.Object)
+        {
+            return root.TryGetProperty("primary", out var primaryElement) &&
+                   primaryElement.ValueKind == JsonValueKind.String &&
+                   !string.IsNullOrWhiteSpace(primaryElement.GetString());
+        }
+
+        if (sourcesElement.ValueKind != JsonValueKind.Array ||
+            sourcesElement.GetArrayLength() == 0)
+        {
+            return false;
+        }
+
+        foreach (var entry in sourcesElement.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object ||
+                !entry.TryGetProperty("source", out var sourceElement) ||
+                sourceElement.ValueKind != JsonValueKind.String ||
+                string.IsNullOrWhiteSpace(sourceElement.GetString()) ||
+                !entry.TryGetProperty("path", out var pathElement) ||
+                pathElement.ValueKind != JsonValueKind.String ||
+                string.IsNullOrWhiteSpace(pathElement.GetString()))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    internal static bool TryGetSourcesIndexMaterialFileCount(JsonElement root, out int materialFiles)
+    {
+        materialFiles = 0;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (root.TryGetProperty("inputs_summary", out var summaryElement) &&
+            summaryElement.ValueKind == JsonValueKind.Object &&
+            summaryElement.TryGetProperty("material_files", out var materialFilesElement) &&
+            materialFilesElement.TryGetInt32(out materialFiles))
+        {
+            return true;
+        }
+
+        if (!root.TryGetProperty("sources", out var sourcesElement) ||
+            sourcesElement.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (var entry in sourcesElement.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object ||
+                !entry.TryGetProperty("source", out var sourceElement) ||
+                sourceElement.ValueKind != JsonValueKind.String ||
+                !string.Equals(sourceElement.GetString(), "materials-derived", StringComparison.OrdinalIgnoreCase) ||
+                !entry.TryGetProperty("count", out var countElement) ||
+                !countElement.TryGetInt32(out var count))
+            {
+                continue;
+            }
+
+            materialFiles = count;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>

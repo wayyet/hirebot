@@ -137,15 +137,11 @@ internal static class FinalPackageTestCasesZipVerifier
 
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
-        if (!root.TryGetProperty("inputs_summary", out var summaryElement) ||
-            summaryElement.ValueKind != JsonValueKind.Object ||
-            !summaryElement.TryGetProperty("material_files", out var materialFilesElement) ||
-            materialFilesElement.ValueKind != JsonValueKind.Number ||
-            !materialFilesElement.TryGetInt32(out var materialFiles) ||
+        if (!PackagingTestCasesJsonValidator.TryGetSourcesIndexMaterialFileCount(root, out var materialFiles) ||
             materialFiles < 1)
         {
             throw new XunitException(
-                $"index 未记录上传资料（inputs_summary.material_files 应 ≥ 1）: {SourcesIndexPath}");
+                $"index 未记录上传资料（material_files / materials-derived.count 应 ≥ 1）: {SourcesIndexPath}");
         }
     }
 
