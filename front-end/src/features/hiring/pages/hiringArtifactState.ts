@@ -40,15 +40,13 @@ export const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey;
   skill_generation_ready: { key: 'skill-generation', status: 'waiting_confirm' },
   skill_generation_progress: { key: 'skill-generation', status: 'running' },
   skill_generation_done: { key: 'skill-generation', status: 'completed' },
-  external_config_progress: { key: 'external-config', status: 'running' },
-  external_config_done: { key: 'external-config', status: 'completed' },
 }
 
 export function resolveHiringStageFromWs(
   skillName: string | undefined,
   stageName: string | undefined,
 ): HiringUiStage | null {
-  if (skillName === 'employment-coach-conversation' && stageName) {
+  if ((skillName === 'employment-coach-conversation' || skillName === 'external-config') && stageName) {
     if (stageName.includes('material')) return HiringCollectionStage.Material
     if (stageName.includes('skill')) return HiringCollectionStage.Skill
     if (stageName.includes('external')) return HiringCollectionStage.External
@@ -90,7 +88,6 @@ export function shouldHoldExternalStageUntilSkillImplementation(
 export function buildUiStageOverrides(
   rawStageOverrides: Map<HiringUiStage, 'running' | 'completed' | 'failed'>,
   skillGenerationState: DownstreamRunState | null,
-  externalConfigState: DownstreamRunState | null,
   holdExternalStage: boolean,
 ): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
   const next = new Map(rawStageOverrides)
@@ -108,16 +105,6 @@ export function buildUiStageOverrides(
 
   if (skillGenerationState?.status === 'failed') {
     next.set(HiringCollectionStage.Skill, 'failed')
-  }
-
-  if (!holdExternalStage && externalConfigState) {
-    if (externalConfigState.status === 'completed') {
-      next.set(HiringCollectionStage.External, 'completed')
-    } else if (externalConfigState.status === 'failed') {
-      next.set(HiringCollectionStage.External, 'failed')
-    } else {
-      next.set(HiringCollectionStage.External, 'running')
-    }
   }
 
   return next
@@ -269,7 +256,11 @@ export function buildHistoricalHiringConversationState(
         continue
       }
 
-      if (artifact.isTerminal) {
+      if (artifact.artifactType === 'external_workorder_summary') {
+        if (wsStageOverrides.get(HiringCollectionStage.External) !== 'completed') {
+          wsStageOverrides.set(HiringCollectionStage.External, 'running')
+        }
+      } else if (artifact.isTerminal) {
         wsStageOverrides.set(hiringStage, 'completed')
       } else if (wsStageOverrides.get(hiringStage) !== 'completed') {
         wsStageOverrides.set(hiringStage, 'running')
@@ -310,7 +301,7 @@ export function buildHistoricalHiringConversationState(
  * 因果链：
  * - ontology-extraction 存在 → Material 阶段已完成（material_handoff_summary 已发出）
  * - skill-generation 存在 → Skill 阶段已完成或进行中
- * - external-config 存在 → External 阶段已完成或进行中
+ * - External 阶段优先由右侧卡片保存/跳过结果驱动；不再依赖 external-config 下游运行
  */
 export function deriveStageOverridesFromDownstreamRuns(
   runs: DownstreamRunsSnapshot,
@@ -319,7 +310,6 @@ export function deriveStageOverridesFromDownstreamRuns(
 
   const ontologyRun = runs['ontology-extraction']
   const skillGenRun = runs['skill-generation']
-  const externalConfigRun = runs['external-config']
 
   // ontology extraction 仅在 Material 阶段完成后触发，因此只要它存在，Material 必然已完成
   if (ontologyRun) {
@@ -339,17 +329,6 @@ export function deriveStageOverridesFromDownstreamRuns(
   }
 
   // external config 在 External 阶段进行中时触发
-  if (externalConfigRun) {
-    overrides.set(HiringCollectionStage.Material, 'completed')
-    overrides.set(HiringCollectionStage.Skill, 'completed')
-    if (externalConfigRun.status === 'completed') {
-      overrides.set(HiringCollectionStage.External, 'completed')
-    } else if (externalConfigRun.status === 'failed') {
-      overrides.set(HiringCollectionStage.External, 'failed')
-    } else {
-      overrides.set(HiringCollectionStage.External, 'running')
-    }
-  }
 
   return overrides
 }

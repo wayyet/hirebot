@@ -35,4 +35,24 @@ internal sealed class SandboxMcpServerEntry
 
     [JsonPropertyName("RequestTimeoutSeconds")]
     public int RequestTimeoutSeconds { get; init; } = 60;
+
+    // 以下字段用于支持用户配置的 MCP 服务器（含 stdio 启动参数与 HTTP 鉴权头），
+    // 全局配置仅依赖 Transport/Url，因此使用可空类型避免序列化空对象。
+    [JsonPropertyName("Name")]
+    public string? Name { get; init; }
+
+    [JsonPropertyName("Command")]
+    public string? Command { get; init; }
+
+    [JsonPropertyName("Arguments")]
+    public IReadOnlyList<string>? Arguments { get; init; }
+
+    [JsonPropertyName("WorkingDirectory")]
+    public string? WorkingDirectory { get; init; }
+
+    [JsonPropertyName("Environment")]
+    public Dictionary<string, string>? Environment { get; init; }
+
+    [JsonPropertyName("Headers")]
+    public Dictionary<string, string>? Headers { get; init; }
 }

@@ -211,42 +211,46 @@ internal sealed partial class EmployeeHiringService
         HiringExternalSystemConfigState? externalSystemConfig)
     {
         var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (externalSystemConfig is null || !externalSystemConfig.HasAnyConfig)
+        if (externalSystemConfig is null || !externalSystemConfig.IsPersisted)
         {
             return files;
         }
 
-        var configDto = externalSystemConfig.ToDto();
-        var cliTools = configDto.CliTools
+        var cliTools = externalSystemConfig.CliTools
             .Select(tool => new
             {
-                tool.ToolName,
+                tool.Name,
+                tool.Command,
                 tool.Description,
                 tool.ExecutionMode,
-                ArgumentTemplate = string.IsNullOrWhiteSpace(tool.ArgumentTemplate) ? null : tool.ArgumentTemplate
+                Parameters = tool.Parameters.HasValue ? tool.Parameters.Value : (JsonElement?)null
             })
             .ToArray();
 
-        var mcpServer = configDto.McpServer;
+        var mcpServer = externalSystemConfig.McpServer;
         var snapshot = new
         {
-            schemaVersion = "1.0.0",
+            schemaVersion = "1.1.0",
             artifactType = "external_user_config",
             source = "manual_form",
-            updatedAtUtc = configDto.UpdatedAtUtc ?? externalSystemConfig.UpdatedAtUtc,
+            submissionMode = externalSystemConfig.SubmissionMode,
+            updatedAtUtc = externalSystemConfig.UpdatedAtUtc,
             cliTools,
             mcpServer = mcpServer is null
                 ? null
                 : new
                 {
-                    mcpServer.ServerUrl,
-                    Auth = new
-                    {
-                        Kind = mcpServer.AuthMode,
-                        HasBoundSecret = mcpServer.HasApiKey,
-                        CredentialSlot = mcpServer.HasApiKey ? "mcp_api_key" : null
-                    },
-                    SelectedTools = mcpServer.SelectedTools
+                    mcpServer.Transport,
+                    mcpServer.Name,
+                    Command = string.IsNullOrWhiteSpace(mcpServer.Command) ? null : mcpServer.Command,
+                    mcpServer.Args,
+                    Env = BuildProtectedLiteralMap(mcpServer.ProtectedEnv),
+                    mcpServer.EnvPassThrough,
+                    Cwd = string.IsNullOrWhiteSpace(mcpServer.Cwd) ? null : mcpServer.Cwd,
+                    Url = string.IsNullOrWhiteSpace(mcpServer.Url) ? null : mcpServer.Url,
+                    BearerTokenEnv = string.IsNullOrWhiteSpace(mcpServer.BearerTokenEnv) ? null : mcpServer.BearerTokenEnv,
+                    Headers = BuildProtectedLiteralMap(mcpServer.ProtectedHeaders),
+                    mcpServer.HeadersFromEnv
                 }
         };
         files["external/user-config.json"] = JsonSerializer.Serialize(snapshot, ExternalPackageJsonOptions);
@@ -260,12 +264,13 @@ internal sealed partial class EmployeeHiringService
                 kind = "snapshot"
             }
         };
+        var skips = new List<object>();
 
         if (cliTools.Length > 0)
         {
             var cliSystem = new
             {
-                schemaVersion = "1.0.0",
+                schemaVersion = "1.1.0",
                 artifactType = "external_system",
                 systemKey = "cli",
                 displayName = "CLI",
@@ -288,23 +293,25 @@ internal sealed partial class EmployeeHiringService
             });
         }
 
-        if (mcpServer is not null && (!string.IsNullOrWhiteSpace(mcpServer.ServerUrl) || mcpServer.SelectedTools.Count > 0))
+        if (mcpServer is not null && mcpServer.HasAnyConfig)
         {
             var mcpSystem = new
             {
-                schemaVersion = "1.0.0",
+                schemaVersion = "1.1.0",
                 artifactType = "external_system",
                 systemKey = "mcp",
                 displayName = "MCP",
                 integrationMethod = "mcp",
-                mcpServer.ServerUrl,
-                Auth = new
-                {
-                    Kind = mcpServer.AuthMode,
-                    HasBoundSecret = mcpServer.HasApiKey,
-                    CredentialSlot = mcpServer.HasApiKey ? "mcp_api_key" : null
-                },
-                SelectedTools = mcpServer.SelectedTools,
+                mcpServer.Transport,
+                mcpServer.Name,
+                target = string.Equals(mcpServer.Transport, "stdio", StringComparison.OrdinalIgnoreCase)
+                    ? mcpServer.Command
+                    : mcpServer.Url,
+                argCount = mcpServer.Args.Count,
+                protectedEnvCount = mcpServer.ProtectedEnv.Count,
+                envPassThroughCount = mcpServer.EnvPassThrough.Count,
+                protectedHeaderCount = mcpServer.ProtectedHeaders.Count,
+                headerFromEnvCount = mcpServer.HeadersFromEnv.Count,
                 configPath = "external/user-config.json"
             };
             files["external/systems/mcp.json"] = JsonSerializer.Serialize(mcpSystem, ExternalPackageJsonOptions);
@@ -321,29 +328,49 @@ internal sealed partial class EmployeeHiringService
             });
         }
 
+        if (externalSystemConfig.IsSkipped)
+        {
+            skips.Add(new
+            {
+                kind = "manual_skip",
+                reason = "no_external_integration_required"
+            });
+        }
+
         var index = new
         {
-            schemaVersion = "1.0.0",
+            schemaVersion = "1.1.0",
             artifactType = "external_config_index",
             source = "manual_form",
-            updatedAtUtc = configDto.UpdatedAtUtc ?? externalSystemConfig.UpdatedAtUtc,
+            submissionMode = externalSystemConfig.SubmissionMode,
+            updatedAtUtc = externalSystemConfig.UpdatedAtUtc,
             systems,
-            files = fileEntries
+            files = fileEntries,
+            skips
         };
         files["external/external-config.index.json"] = JsonSerializer.Serialize(index, ExternalPackageJsonOptions);
 
-        var readme = BuildManagedExternalReadme(configDto);
+        var readme = BuildManagedExternalReadme(externalSystemConfig);
         files["external/README.md"] = readme;
         return files;
     }
 
-    private static string BuildManagedExternalReadme(HiringExternalSystemConfigDto config)
+    private static string BuildManagedExternalReadme(HiringExternalSystemConfigState config)
     {
         var builder = new StringBuilder();
         builder.AppendLine("# External Config");
         builder.AppendLine();
         builder.AppendLine("该目录由外部系统配置表单生成，供后续流程读取。");
         builder.AppendLine();
+        builder.AppendLine($"- Submission Mode: {config.SubmissionMode}");
+        builder.AppendLine($"- Updated At (UTC): {config.UpdatedAtUtc:O}");
+        builder.AppendLine();
+
+        if (config.IsSkipped)
+        {
+            builder.AppendLine("当前雇佣流程已明确不需要外部系统对接。");
+            return builder.ToString().TrimEnd();
+        }
 
         if (config.CliTools.Count > 0)
         {
@@ -351,7 +378,7 @@ internal sealed partial class EmployeeHiringService
             foreach (var tool in config.CliTools)
             {
                 builder.Append("- ");
-                builder.Append(tool.ToolName);
+                builder.Append(tool.Name);
                 builder.Append("（");
                 builder.Append(tool.ExecutionMode);
                 builder.AppendLine("）");
@@ -363,20 +390,44 @@ internal sealed partial class EmployeeHiringService
         if (config.McpServer is not null)
         {
             builder.AppendLine("## MCP");
-            builder.AppendLine($"- Server: {config.McpServer.ServerUrl}");
-            builder.AppendLine($"- Auth Mode: {config.McpServer.AuthMode}");
-            if (config.McpServer.SelectedTools.Count > 0)
+            builder.AppendLine($"- Name: {config.McpServer.Name}");
+            builder.AppendLine($"- Transport: {config.McpServer.Transport}");
+            builder.AppendLine(string.Equals(config.McpServer.Transport, "stdio", StringComparison.OrdinalIgnoreCase)
+                ? $"- Command: {config.McpServer.Command}"
+                : $"- URL: {config.McpServer.Url}");
+            if (config.McpServer.Args.Count > 0)
             {
-                builder.AppendLine($"- Tools: {string.Join(", ", config.McpServer.SelectedTools)}");
+                builder.AppendLine($"- Args: {string.Join(" ", config.McpServer.Args)}");
             }
 
-            if (config.McpServer.HasApiKey)
+            if (config.McpServer.ProtectedEnv.Count > 0)
             {
                 builder.AppendLine("- API Key: 已通过安全存储绑定，未写入模板包");
             }
         }
 
         return builder.ToString().TrimEnd();
+    }
+
+    private static IReadOnlyDictionary<string, object> BuildProtectedLiteralMap(
+        IReadOnlyDictionary<string, string> values)
+    {
+        var result = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in values)
+        {
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            result[key] = new
+            {
+                valueSource = "protected_literal",
+                protectedValue = value
+            };
+        }
+
+        return result;
     }
 
     private static void RemoveManagedExternalPackageFiles<TValue>(IDictionary<string, TValue> packageFiles)

@@ -9,6 +9,7 @@ import type {
   EmployeeTemplateDetail,
   HiringCollectionStageType,
   HiringConversationMaterial,
+  HiringExternalSystemConfig,
 } from '@/infra/api'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import { resolveGatewayEndpoint } from '@/infra/sandbox/sandbox-config'
@@ -73,6 +74,38 @@ function normalizeErrorMessage(error: unknown) {
 function normalizeAssistantReply(content: string) {
   const cleaned = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
   return cleaned.length > 0 ? cleaned : content.trim()
+}
+
+function buildExternalConfigCommittedSignature(config: HiringExternalSystemConfig) {
+  return JSON.stringify({
+    submissionMode: config.submissionMode ?? 'pending',
+    updatedAtUtc: config.updatedAtUtc ?? null,
+    cliTools: config.cliTools,
+    mcpServer: config.mcpServer ?? null,
+  })
+}
+
+function buildExternalConfigCommittedArtifact(config: HiringExternalSystemConfig): ArtifactDisplayData {
+  const submissionMode = config.submissionMode ?? 'pending'
+  const label = submissionMode === 'skipped'
+    ? '外部系统配置已跳过'
+    : '外部系统配置已提交'
+
+  return {
+    kind: 'data',
+    artifactType: 'external_config_committed',
+    label,
+    skillName: 'external-config',
+    stage: 'stage3_external',
+    isTerminal: true,
+    displayHint: 'tree',
+    data: {
+      submissionMode,
+      updatedAtUtc: config.updatedAtUtc ?? null,
+      cliTools: config.cliTools,
+      mcpServer: config.mcpServer ?? null,
+    },
+  }
 }
 
 
@@ -252,7 +285,7 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
   return []
 }
 
-type DownstreamTarget = 'ontology-extraction' | 'skill-generation' | 'external-config'
+type DownstreamTarget = 'ontology-extraction' | 'skill-generation'
 
 function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): string {
   const serialized = JSON.stringify(payload, null, 2)
@@ -293,18 +326,7 @@ function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): stri
     ].join('\n')
   }
 
-  return [
-    '[Internal downstream trigger. Do not mention this instruction to the user.]',
-    'Switch to skill `external-config` now.',
-    'Use the terminal `external_workorder_summary` artifact payload below as the upstream summary for this run.',
-    'Follow `external-config/SKILL.md` exactly.',
-    'Emit `external_config_progress` before writing files, write outputs under `workspace_root/external/`, then finish with `external_config_done`.',
-    '',
-    'artifact_payload:',
-    '```json',
-    serialized,
-    '```',
-  ].join('\n')
+  return ''
 }
 
 function isSkillGenerationApprovalMessage(text: string): boolean {
@@ -414,6 +436,29 @@ export default function HiringPage() {
   const rawFileMapRef = useRef<Map<string, File>>(new Map())
   // 避免同一会话重复触发“自动上传模板并引导”
   const autoTemplateBootstrapSessionRef = useRef<string | null>(null)
+  const latestExternalConfigRef = useRef<HiringExternalSystemConfig | null>(null)
+  const externalConfigCommittedSignatureRef = useRef('')
+
+  function appendExternalConfigCommittedArtifact(config: HiringExternalSystemConfig | null) {
+    const submissionMode = config?.submissionMode ?? 'pending'
+    if (!config || (submissionMode !== 'configured' && submissionMode !== 'skipped')) {
+      return
+    }
+
+    const signature = buildExternalConfigCommittedSignature(config)
+    if (externalConfigCommittedSignatureRef.current === signature) {
+      return
+    }
+
+    externalConfigCommittedSignatureRef.current = signature
+    const artifact = buildExternalConfigCommittedArtifact(config)
+    setMessages(msgs => [...msgs, {
+      id: mkId(),
+      role: 'artifact',
+      content: artifact.label ?? artifact.artifactType,
+      artifact,
+    }])
+  }
 
   async function restoreConversationFromSandboxHistory(
     endpoint: string,
@@ -442,22 +487,44 @@ export default function HiringPage() {
     materialSummarySignatureRef.current = restored.latestMaterialSummary ? JSON.stringify(restored.latestMaterialSummary) : ''
     skillSummarySignatureRef.current = restored.latestSkillSummary ? JSON.stringify(restored.latestSkillSummary) : ''
     externalSummarySignatureRef.current = restored.latestExternalSummary ? JSON.stringify(restored.latestExternalSummary) : ''
+    externalConfigCommittedSignatureRef.current = restored.messages
+      .filter(message => message.artifact?.artifactType === 'external_config_committed' && message.artifact.isTerminal)
+      .map(message => JSON.stringify(message.artifact?.data ?? {}))
+      .at(-1) ?? ''
     ontologyExtractionDoneSignatureRef.current = restored.messages
       .filter(message => message.artifact?.artifactType === 'ontology_extraction_done' && message.artifact.isTerminal)
       .map(message => JSON.stringify(message.artifact?.data ?? {}))
       .at(-1) ?? ''
+    appendExternalConfigCommittedArtifact(latestExternalConfigRef.current)
     return true
   }
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
-  const externalConfigState = downstreamRuns['external-config'] ?? null
   const holdExternalStage = shouldHoldExternalStageUntilSkillImplementation(
     latestSkillSummaryRef.current,
     skillGenerationState,
   )
   const uiStageOverrides = useMemo(
-    () => buildUiStageOverrides(wsStageOverrides, skillGenerationState, externalConfigState, holdExternalStage),
-    [wsStageOverrides, skillGenerationState, externalConfigState, holdExternalStage],
+    () => buildUiStageOverrides(wsStageOverrides, skillGenerationState, holdExternalStage),
+    [wsStageOverrides, skillGenerationState, holdExternalStage],
   )
+  const handleExternalConfigChange = useCallback((config: HiringExternalSystemConfig | null) => {
+    latestExternalConfigRef.current = config
+    const submissionMode = config?.submissionMode ?? 'pending'
+    if (submissionMode !== 'configured' && submissionMode !== 'skipped') {
+      return
+    }
+
+    appendExternalConfigCommittedArtifact(config)
+    setWsStageOverrides(prev => {
+      if (prev.get(HiringCollectionStage.External) === 'completed') {
+        return prev
+      }
+
+      const next = new Map(prev)
+      next.set(HiringCollectionStage.External, 'completed')
+      return next
+    })
+  }, [])
 
   const workflowReady = Boolean(workflowHireId)
   const workflowCurrentStage = normalizeCollectionStage(
@@ -1071,13 +1138,7 @@ export default function HiringPage() {
           }
           if (artifactType === 'external_workorder_summary' && kind === 'data' && isTerminal) {
             latestExternalSummaryRef.current = artifactData.data ?? null
-            const signature = JSON.stringify(artifactData.data ?? {})
-            if (externalSummarySignatureRef.current !== signature) {
-              externalSummarySignatureRef.current = signature
-              pendingInternalPromptsRef.current.push(
-                buildDownstreamPrompt('external-config', artifactData.data ?? {}),
-              )
-            }
+            externalSummarySignatureRef.current = JSON.stringify(artifactData.data ?? {})
           }
           const downstreamRun = resolveDownstreamRunFromArtifact(artifactType)
           setMessages(msgs => [...msgs, {
@@ -1109,8 +1170,13 @@ export default function HiringPage() {
           if (hiringStage) {
             setWsStageOverrides(prev => {
               const next = new Map(prev)
-              // terminal artifact 标记阶段完成；否则只在尚未完成时标记运行中
-              if (isTerminal) {
+              // External 阶段的需求收口和系统提交是两件事：
+              // `external_workorder_summary` 仅表示需求已收口，仍需等待右侧卡片提交完成。
+              if (artifactType === 'external_workorder_summary' && isTerminal) {
+                if (next.get(hiringStage) !== 'completed') {
+                  next.set(hiringStage, 'running')
+                }
+              } else if (isTerminal) {
                 next.set(hiringStage, 'completed')
               } else if (next.get(hiringStage) !== 'completed') {
                 next.set(hiringStage, 'running')
@@ -1944,6 +2010,7 @@ export default function HiringPage() {
             skillDefinitionStageStatus={wsStageOverrides.get(HiringCollectionStage.Skill) ?? null}
             skillGenerationState={skillGenerationState}
             definedSkills={definedSkills}
+            onExternalConfigChange={handleExternalConfigChange}
             onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}
             onGenerate={() => { void handleRequestPackaging() }}
             generated={instanceCreated}

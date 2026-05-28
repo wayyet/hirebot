@@ -1,7 +1,18 @@
+using System.Text.Json;
+
 namespace HireBot.Abstraction.Models.Hiring;
+
+public static class HiringExternalSystemSubmissionModes
+{
+    public const string Pending = "pending";
+    public const string Configured = "configured";
+    public const string Skipped = "skipped";
+}
 
 public sealed record HiringExternalSystemConfigDto
 {
+    public string SubmissionMode { get; init; } = HiringExternalSystemSubmissionModes.Pending;
+
     public IReadOnlyList<HiringCliToolConfigDto> CliTools { get; init; } = [];
 
     public HiringMcpServerConfigDto? McpServer { get; init; }
@@ -11,24 +22,38 @@ public sealed record HiringExternalSystemConfigDto
 
 public sealed record HiringCliToolConfigDto
 {
-    public string ToolName { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+
+    public string Command { get; init; } = string.Empty;
 
     public string Description { get; init; } = string.Empty;
 
     public string ExecutionMode { get; init; } = "direct";
 
-    public string ArgumentTemplate { get; init; } = string.Empty;
+    public JsonElement? Parameters { get; init; }
 }
 
 public sealed record HiringMcpServerConfigDto
 {
-    public string ServerUrl { get; init; } = string.Empty;
+    public string Transport { get; init; } = "http";
 
-    public string AuthMode { get; init; } = "none";
+    public string Name { get; init; } = string.Empty;
 
-    public string ApiKey { get; init; } = string.Empty;
+    public string Command { get; init; } = string.Empty;
 
-    public bool HasApiKey { get; init; }
+    public IReadOnlyList<string> Args { get; init; } = [];
 
-    public IReadOnlyList<string> SelectedTools { get; init; } = [];
+    public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyList<string> EnvPassThrough { get; init; } = [];
+
+    public string Cwd { get; init; } = string.Empty;
+
+    public string Url { get; init; } = string.Empty;
+
+    public string BearerTokenEnv { get; init; } = string.Empty;
+
+    public IReadOnlyDictionary<string, string> Headers { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyDictionary<string, string> HeadersFromEnv { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }

@@ -3,9 +3,11 @@ using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction.Models.EmployeeTemplate;
 using HireBot.Abstraction.Models.Hiring;
+using HireBot.Abstraction.Services.Security;
 using HireBot.Core.Services.Hiring;
 using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.TemplatePackages;
+using HireBot.Core.Services.Sandbox;
 
 namespace HireBot.Core.Tests;
 
@@ -119,21 +121,31 @@ public class EmployeeHiringServiceTests
         var runtimeContext = CreateRuntimeContext(templatePackage) with
         {
             ExternalSystemConfig = new HiringExternalSystemConfigState(
+                SubmissionMode: HiringExternalSystemSubmissionModes.Configured,
                 CliTools:
                 [
-                    new HiringCliToolConfigDto
-                    {
-                        ToolName = "jq",
-                        Description = "处理 JSON",
-                        ExecutionMode = "sandbox",
-                        ArgumentTemplate = "--input {file}"
-                    }
+                    new HiringCliToolConfigState(
+                        Name: "jq",
+                        Command: "jq",
+                        Description: "处理 JSON",
+                        ExecutionMode: "sandbox",
+                        Parameters: null)
                 ],
                 McpServer: new HiringMcpServerConfigState(
-                    ServerUrl: "https://mcp.example.com",
-                    AuthMode: "api_key",
-                    ProtectedApiKey: "protected-secret",
-                    SelectedTools: ["工具A", "工具B"]),
+                    Transport: "http",
+                    Name: "CRM MCP",
+                    Command: string.Empty,
+                    Args: [],
+                    ProtectedEnv: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["API_KEY"] = "protected-secret"
+                    },
+                    EnvPassThrough: [],
+                    Cwd: string.Empty,
+                    Url: "https://mcp.example.com",
+                    BearerTokenEnv: string.Empty,
+                    ProtectedHeaders: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                    HeadersFromEnv: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)),
                 UpdatedAtUtc: DateTimeOffset.Parse("2026-05-26T08:00:00Z"))
         };
 
@@ -151,8 +163,8 @@ public class EmployeeHiringServiceTests
         var readme = Encoding.UTF8.GetString(files["external/README.md"].Content);
 
         Assert.Contains("jq", userConfigJson);
-        Assert.Contains("mcp_api_key", userConfigJson);
-        Assert.DoesNotContain("protected-secret", userConfigJson);
+        Assert.Contains("protected_literal", userConfigJson);
+        Assert.Contains("protected-secret", userConfigJson);
         Assert.Contains("external/systems/mcp.json", indexJson);
         Assert.Contains("API Key: 已通过安全存储绑定", readme);
     }
@@ -253,5 +265,208 @@ public class EmployeeHiringServiceTests
         }
 
         return Convert.ToBase64String(memory.ToArray());
+    }
+
+    [Fact]
+    public void BuildMergedMcpConfig_WithUserHttpMcp_MergesCorrectly()
+    {
+        var protector = new FakeSecretProtector();
+        var globalConfig = CreateGlobalMcpConfig();
+        var externalConfig = CreateConfiguredExternalConfig(
+            new HiringMcpServerConfigState(
+                Transport: "http",
+                Name: "CRM MCP",
+                Command: string.Empty,
+                Args: [],
+                ProtectedEnv: EmptyMap(),
+                EnvPassThrough: [],
+                Cwd: string.Empty,
+                Url: "https://mcp.example.com",
+                BearerTokenEnv: string.Empty,
+                ProtectedHeaders: EmptyMap(),
+                HeadersFromEnv: EmptyMap()));
+
+        var merged = EmployeeHiringService.BuildMergedMcpConfig(globalConfig, externalConfig, protector);
+
+        Assert.True(merged.Enabled);
+        Assert.Equal(2, merged.Servers.Count);
+        Assert.True(merged.Servers.ContainsKey("weather"));
+
+        // 用户 server 使用由 SanitizeServerId 生成的同名 Key
+        Assert.True(merged.Servers.ContainsKey("crmmcp"));
+        var userServer = merged.Servers["crmmcp"];
+        Assert.Equal("streamable-http", userServer.Transport);
+        Assert.Equal("https://mcp.example.com", userServer.Url);
+        Assert.Equal("crmmcp.", userServer.ToolNamePrefix);
+        Assert.True(userServer.Enabled);
+    }
+
+    [Fact]
+    public void BuildMergedMcpConfig_WithUserStdioMcp_MergesCorrectly()
+    {
+        var protector = new FakeSecretProtector();
+        var globalConfig = CreateGlobalMcpConfig();
+        var protectedEnv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            // FakeSecretProtector 使用 protected: 前缀模拟加密
+            ["API_KEY"] = "protected:secret-token"
+        };
+        var externalConfig = CreateConfiguredExternalConfig(
+            new HiringMcpServerConfigState(
+                Transport: "stdio",
+                Name: "local-tool",
+                Command: "node",
+                Args: ["server.js", "--port", "3000"],
+                ProtectedEnv: protectedEnv,
+                EnvPassThrough: [],
+                Cwd: "/workspace/tool",
+                Url: string.Empty,
+                BearerTokenEnv: string.Empty,
+                ProtectedHeaders: EmptyMap(),
+                HeadersFromEnv: EmptyMap()));
+
+        var merged = EmployeeHiringService.BuildMergedMcpConfig(globalConfig, externalConfig, protector);
+
+        Assert.True(merged.Servers.ContainsKey("local-tool"));
+        var entry = merged.Servers["local-tool"];
+        Assert.Equal("stdio", entry.Transport);
+        Assert.Equal("node", entry.Command);
+        Assert.NotNull(entry.Arguments);
+        Assert.Equal(new[] { "server.js", "--port", "3000" }, entry.Arguments);
+        Assert.Equal("/workspace/tool", entry.WorkingDirectory);
+        Assert.NotNull(entry.Environment);
+        Assert.Equal("secret-token", entry.Environment!["API_KEY"]);
+        // stdio 模式不应填充 Url/Headers
+        Assert.Equal(string.Empty, entry.Url);
+        Assert.Null(entry.Headers);
+    }
+
+    [Fact]
+    public void BuildMergedMcpConfig_WithNullExternalConfig_ReturnsGlobalOnly()
+    {
+        var protector = new FakeSecretProtector();
+        var globalConfig = CreateGlobalMcpConfig();
+
+        var merged = EmployeeHiringService.BuildMergedMcpConfig(globalConfig, externalConfig: null, protector);
+
+        Assert.True(merged.Enabled);
+        Assert.Single(merged.Servers);
+        Assert.True(merged.Servers.ContainsKey("weather"));
+    }
+
+    [Fact]
+    public void BuildMergedMcpConfig_DecryptsProtectedValues()
+    {
+        var protector = new FakeSecretProtector();
+        var protectedHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["X-Tenant"] = "protected:tenant-007"
+        };
+        var externalConfig = CreateConfiguredExternalConfig(
+            new HiringMcpServerConfigState(
+                Transport: "http",
+                Name: "secure-mcp",
+                Command: string.Empty,
+                Args: [],
+                ProtectedEnv: EmptyMap(),
+                EnvPassThrough: [],
+                Cwd: string.Empty,
+                Url: "https://secure.example.com",
+                BearerTokenEnv: "protected:bearer-xyz",
+                ProtectedHeaders: protectedHeaders,
+                HeadersFromEnv: EmptyMap()));
+
+        var merged = EmployeeHiringService.BuildMergedMcpConfig(globalConfig: null, externalConfig, protector);
+
+        var entry = Assert.Single(merged.Servers).Value;
+        Assert.NotNull(entry.Headers);
+        Assert.Equal("tenant-007", entry.Headers!["X-Tenant"]);
+        Assert.Equal("Bearer bearer-xyz", entry.Headers!["Authorization"]);
+    }
+
+    [Fact]
+    public void BuildMergedMcpConfig_SkippedMode_ExcludesUserMcp()
+    {
+        var protector = new FakeSecretProtector();
+        var globalConfig = CreateGlobalMcpConfig();
+        // skipped 模式：SubmissionMode=skipped、McpServer=null，IsPersisted=true 但 HasAnyConfig=false
+        var skippedExternalConfig = new HiringExternalSystemConfigState(
+            SubmissionMode: HiringExternalSystemSubmissionModes.Skipped,
+            CliTools: [],
+            McpServer: null,
+            UpdatedAtUtc: DateTimeOffset.UtcNow);
+
+        Assert.True(skippedExternalConfig.IsPersisted);
+
+        var merged = EmployeeHiringService.BuildMergedMcpConfig(globalConfig, skippedExternalConfig, protector);
+
+        Assert.Single(merged.Servers);
+        Assert.True(merged.Servers.ContainsKey("weather"));
+        // 用户 MCP 未被合并
+        Assert.DoesNotContain(merged.Servers.Keys, key => key.StartsWith("user", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("我的服务器!@#", "user-mcp")] // 中文与特殊字符全部被过滤
+    [InlineData("", "user-mcp")]
+    [InlineData("   ", "user-mcp")]
+    [InlineData("My-Server_01", "my-server_01")] // 保留字母数字与连字符/下划线且小写化
+    [InlineData("--leading--", "leading")] // 修剪首尾占位符
+    public void SanitizeServerId_WithSpecialCharacters_ReturnsCleanId(string input, string expected)
+    {
+        Assert.Equal(expected, EmployeeHiringService.SanitizeServerId(input));
+    }
+
+    private static SandboxWorkspaceMcpConfig CreateGlobalMcpConfig()
+    {
+        return new SandboxWorkspaceMcpConfig
+        {
+            Enabled = true,
+            Servers = new Dictionary<string, SandboxMcpServerEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["weather"] = new SandboxMcpServerEntry
+                {
+                    Transport = "streamable-http",
+                    Url = "https://global.example.com/weather",
+                    Enabled = true,
+                    ToolNamePrefix = "weather."
+                }
+            }
+        };
+    }
+
+    private static HiringExternalSystemConfigState CreateConfiguredExternalConfig(HiringMcpServerConfigState mcpServer)
+    {
+        return new HiringExternalSystemConfigState(
+            SubmissionMode: HiringExternalSystemSubmissionModes.Configured,
+            CliTools: [],
+            McpServer: mcpServer,
+            UpdatedAtUtc: DateTimeOffset.UtcNow);
+    }
+
+    private static IReadOnlyDictionary<string, string> EmptyMap()
+        => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 测试用加解密实现：使用 "protected:" 前缀标记加密以便验证 Unprotect 被调用。
+    /// 未带前缀的输入原样返回，与生产环境 ISecretProtector 可能返回空串的行为不同，
+    /// 但在合并逻辑测试中只关心“加密走 Unprotect”路径。
+    /// </summary>
+    private sealed class FakeSecretProtector : ISecretProtector
+    {
+        public string? Protect(string? value) => value is null ? null : $"protected:{value}";
+
+        public string? Unprotect(string? value)
+        {
+            if (value is null)
+            {
+                return null;
+            }
+
+            const string prefix = "protected:";
+            return value.StartsWith(prefix, StringComparison.Ordinal)
+                ? value[prefix.Length..]
+                : value;
+        }
     }
 }

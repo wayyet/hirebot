@@ -396,8 +396,7 @@ internal sealed partial class EmployeeHiringService
         string dispatchTarget)
     {
         if (!string.Equals(dispatchTarget, "ontology-extraction", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(dispatchTarget, "skill-generation", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(dispatchTarget, "external-config", StringComparison.OrdinalIgnoreCase))
+            !string.Equals(dispatchTarget, "skill-generation", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"dispatch target 不受支持: {dispatchTarget}");
         }

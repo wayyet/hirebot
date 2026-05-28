@@ -40,7 +40,7 @@
     },
     "external_configs": {
       "directory": "<workspace_root>/external/",
-      "file_naming": "<capability-slug>.config.json",
+      "file_naming": "user-config.json, systems/*.json, external-config.index.json, README.md（可按 external-config 结构扩展 capabilities/）",
       "owner_skill": "external-config"
     }
   },
@@ -51,7 +51,7 @@
     "employment-coach-conversation 在会话初始化阶段负责：解析 template_slug、创建带时间戳的 workspace_root 目录、解压 ZIP 到 <workspace_root>/uploads/、通过 emit_artifact.data.workspace_root 将真实路径透传给下游 skill；除 uploads 解压外，本 skill 不主动写入其它目录",
     "ontology-extraction 只写入 <workspace_root>/ontology/，不写入 skills/ 或 external/",
     "skill-generation 只写入 <workspace_root>/skills/，不写入 ontology/ 或 external/",
-    "external-config 只写入 <workspace_root>/external/，不写入 ontology/ 或 skills/",
+    "external/ 目录由系统层在右侧卡片保存或跳过后按 external-config 结构约定写入，不写入 ontology/ 或 skills/",
     "config/ 目录只有 employment-coach-conversation 通过 config_governance_patch 机制修改，其他 skill 不得写入",
     "<workspace_root>/uploads/ 目录在解压完成后视为只读，任何 skill 不得改写其中文件"
   ]

@@ -379,12 +379,14 @@ internal sealed partial class EmployeeHiringService(
         }
 
         // 上传 MCP 配置到沙箱，让沙箱内的数字员工可以访问配置的 MCP 服务；
-        // 此步骤为非致命操作，失败时只记录警告，不阻断初始化流程
-        var mcpConfig = ReadMcpConfig();
-        if (mcpConfig is not null)
+        // 此步骤为非致命操作，失败时只记录警告，不阻断初始化流程；
+        // 合并全局 MCP 配置与用户已保存的 MCP 配置（首次创建场景下用户配置通常为空）
+        var runtimeContextForMcp = hiringRuntimeStore.Get(call.Data.HireId);
+        var mergedMcpConfig = BuildMergedMcpConfig(runtimeContextForMcp?.ExternalSystemConfig);
+        if (mergedMcpConfig.Enabled && mergedMcpConfig.Servers.Count > 0)
         {
             var mcpUploadResult = await UploadSandboxMcpConfigAsync(
-                call.Data.HireId, ownerSubject, mcpConfig, cancellationToken);
+                call.Data.HireId, ownerSubject, mergedMcpConfig, cancellationToken);
             if (!mcpUploadResult.Success)
             {
                 logger.LogWarning(
@@ -556,10 +558,13 @@ internal sealed partial class EmployeeHiringService(
                 string.IsNullOrWhiteSpace(roleTemplateUploadResult.Message) ? "雇佣角色模板包上传失败" : roleTemplateUploadResult.Message);
         }
 
-        var mcpConfig = ReadMcpConfig();
-        if (mcpConfig is not null)
+        // 沙箱重建场景下需重新合并并上传 MCP 配置（PVC 数据保留但 Kingcrab 内存配置已丢失）；
+        // 从 runtime store 获取已保存的用户 MCP 配置一并合并到全局配置
+        var runtimeContextForMcp = hiringRuntimeStore.Get(hireId);
+        var mergedMcpConfig = BuildMergedMcpConfig(runtimeContextForMcp?.ExternalSystemConfig);
+        if (mergedMcpConfig.Enabled && mergedMcpConfig.Servers.Count > 0)
         {
-            var mcpUploadResult = await UploadSandboxMcpConfigAsync(hireId, ownerSubject, mcpConfig, cancellationToken);
+            var mcpUploadResult = await UploadSandboxMcpConfigAsync(hireId, ownerSubject, mergedMcpConfig, cancellationToken);
             if (!mcpUploadResult.Success)
             {
                 logger.LogWarning(

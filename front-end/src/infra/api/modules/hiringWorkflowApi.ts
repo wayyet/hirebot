@@ -244,6 +244,7 @@ export interface HiringMcpServerConfig {
 }
 
 export interface HiringExternalSystemConfig {
+  submissionMode?: 'pending' | 'configured' | 'skipped' | string
   cliTools: HiringCliToolConfig[]
   mcpServer?: HiringMcpServerConfig | null
   updatedAtUtc?: string | null

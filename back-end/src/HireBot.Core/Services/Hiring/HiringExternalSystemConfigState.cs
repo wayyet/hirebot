@@ -1,147 +1,290 @@
+using System.Text.Json;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Services.Security;
 
 namespace HireBot.Core.Services.Hiring;
 
 internal sealed record HiringExternalSystemConfigState(
-    IReadOnlyList<HiringCliToolConfigDto> CliTools,
+    string SubmissionMode,
+    IReadOnlyList<HiringCliToolConfigState> CliTools,
     HiringMcpServerConfigState? McpServer,
     DateTimeOffset UpdatedAtUtc)
 {
-    public bool HasAnyConfig =>
+    public bool IsSkipped => string.Equals(SubmissionMode, HiringExternalSystemSubmissionModes.Skipped, StringComparison.OrdinalIgnoreCase);
+
+    public bool HasConfiguredSystems =>
         CliTools.Count > 0
         || (McpServer is not null && McpServer.HasAnyConfig);
 
-    public HiringExternalSystemConfigDto ToDto()
+    public bool IsPersisted => IsSkipped || HasConfiguredSystems;
+
+    public HiringExternalSystemConfigDto ToDto(ISecretProtector secretProtector)
         => new()
         {
-            CliTools = CliTools,
-            McpServer = McpServer?.ToDto(),
+            SubmissionMode = ResolveSubmissionMode(this),
+            CliTools = CliTools
+                .Select(static tool => tool.ToDto())
+                .ToArray(),
+            McpServer = McpServer?.ToDto(secretProtector),
             UpdatedAtUtc = UpdatedAtUtc
         };
 
     public static HiringExternalSystemConfigState FromDto(
         HiringExternalSystemConfigDto? dto,
-        HiringExternalSystemConfigState? existingState,
         ISecretProtector secretProtector)
     {
         var normalizedCliTools = (dto?.CliTools ?? [])
-            .Select(static tool => NormalizeCliTool(tool))
+            .Select(static tool => HiringCliToolConfigState.FromDto(tool))
             .Where(static tool => tool is not null)
             .Select(static tool => tool!)
             .ToArray();
 
-        var normalizedMcpServer = HiringMcpServerConfigState.FromDto(
-            dto?.McpServer,
-            existingState?.McpServer,
-            secretProtector);
+        var normalizedMcpServer = HiringMcpServerConfigState.FromDto(dto?.McpServer, secretProtector);
+        var provisionalState = new HiringExternalSystemConfigState(
+            SubmissionMode: HiringExternalSystemSubmissionModes.Pending,
+            CliTools: normalizedCliTools,
+            McpServer: normalizedMcpServer,
+            UpdatedAtUtc: dto?.UpdatedAtUtc ?? DateTimeOffset.UtcNow);
 
-        var updatedAtUtc = dto?.UpdatedAtUtc ?? DateTimeOffset.UtcNow;
-        return new HiringExternalSystemConfigState(
-            normalizedCliTools,
-            normalizedMcpServer,
-            updatedAtUtc);
+        return provisionalState with
+        {
+            SubmissionMode = NormalizeSubmissionMode(dto?.SubmissionMode, provisionalState)
+        };
     }
 
-    private static HiringCliToolConfigDto? NormalizeCliTool(HiringCliToolConfigDto? tool)
+    private static string NormalizeSubmissionMode(string? submissionMode, HiringExternalSystemConfigState state)
     {
-        if (tool is null)
+        if (string.Equals(submissionMode, HiringExternalSystemSubmissionModes.Skipped, StringComparison.OrdinalIgnoreCase))
+        {
+            return HiringExternalSystemSubmissionModes.Skipped;
+        }
+
+        return state.HasConfiguredSystems
+            ? HiringExternalSystemSubmissionModes.Configured
+            : HiringExternalSystemSubmissionModes.Pending;
+    }
+
+    private static string ResolveSubmissionMode(HiringExternalSystemConfigState state)
+    {
+        if (state.IsSkipped)
+        {
+            return HiringExternalSystemSubmissionModes.Skipped;
+        }
+
+        return state.HasConfiguredSystems
+            ? HiringExternalSystemSubmissionModes.Configured
+            : HiringExternalSystemSubmissionModes.Pending;
+    }
+}
+
+internal sealed record HiringCliToolConfigState(
+    string Name,
+    string Command,
+    string Description,
+    string ExecutionMode,
+    JsonElement? Parameters)
+{
+    public HiringCliToolConfigDto ToDto()
+        => new()
+        {
+            Name = Name,
+            Command = Command,
+            Description = Description,
+            ExecutionMode = ExecutionMode,
+            Parameters = CloneParameters(Parameters)
+        };
+
+    public static HiringCliToolConfigState? FromDto(HiringCliToolConfigDto? dto)
+    {
+        if (dto is null)
         {
             return null;
         }
 
-        var toolName = tool.ToolName?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(toolName))
+        var name = dto.Name?.Trim() ?? string.Empty;
+        var command = dto.Command?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(command))
         {
             return null;
         }
 
-        var executionMode = string.Equals(tool.ExecutionMode, "sandbox", StringComparison.OrdinalIgnoreCase)
+        var executionMode = string.Equals(dto.ExecutionMode, "sandbox", StringComparison.OrdinalIgnoreCase)
             ? "sandbox"
             : "direct";
 
-        return new HiringCliToolConfigDto
+        return new HiringCliToolConfigState(
+            Name: name,
+            Command: command,
+            Description: dto.Description?.Trim() ?? string.Empty,
+            ExecutionMode: executionMode,
+            Parameters: CloneParameters(dto.Parameters));
+    }
+
+    private static JsonElement? CloneParameters(JsonElement? parameters)
+    {
+        if (!parameters.HasValue)
         {
-            ToolName = toolName,
-            Description = tool.Description?.Trim() ?? string.Empty,
-            ExecutionMode = executionMode,
-            ArgumentTemplate = tool.ArgumentTemplate?.Trim() ?? string.Empty
-        };
+            return null;
+        }
+
+        return parameters.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined
+            ? null
+            : parameters.Value.Clone();
     }
 }
 
 internal sealed record HiringMcpServerConfigState(
-    string ServerUrl,
-    string AuthMode,
-    string? ProtectedApiKey,
-    IReadOnlyList<string> SelectedTools)
+    string Transport,
+    string Name,
+    string Command,
+    IReadOnlyList<string> Args,
+    IReadOnlyDictionary<string, string> ProtectedEnv,
+    IReadOnlyList<string> EnvPassThrough,
+    string Cwd,
+    string Url,
+    string BearerTokenEnv,
+    IReadOnlyDictionary<string, string> ProtectedHeaders,
+    IReadOnlyDictionary<string, string> HeadersFromEnv)
 {
     public bool HasAnyConfig =>
-        !string.IsNullOrWhiteSpace(ServerUrl)
-        || SelectedTools.Count > 0
-        || !string.IsNullOrWhiteSpace(ProtectedApiKey)
-        || !string.Equals(AuthMode, "none", StringComparison.OrdinalIgnoreCase);
+        !string.IsNullOrWhiteSpace(Name)
+        && (string.Equals(Transport, "stdio", StringComparison.OrdinalIgnoreCase)
+            ? !string.IsNullOrWhiteSpace(Command)
+            : !string.IsNullOrWhiteSpace(Url));
 
-    public HiringMcpServerConfigDto ToDto()
+    public HiringMcpServerConfigDto ToDto(ISecretProtector secretProtector)
         => new()
         {
-            ServerUrl = ServerUrl,
-            AuthMode = AuthMode,
-            ApiKey = string.Empty,
-            HasApiKey = !string.IsNullOrWhiteSpace(ProtectedApiKey),
-            SelectedTools = SelectedTools
+            Transport = Transport,
+            Name = Name,
+            Command = Command,
+            Args = Args,
+            Env = UnprotectMap(ProtectedEnv, secretProtector),
+            EnvPassThrough = EnvPassThrough,
+            Cwd = Cwd,
+            Url = Url,
+            BearerTokenEnv = BearerTokenEnv,
+            Headers = UnprotectMap(ProtectedHeaders, secretProtector),
+            HeadersFromEnv = HeadersFromEnv
         };
 
     public static HiringMcpServerConfigState? FromDto(
         HiringMcpServerConfigDto? dto,
-        HiringMcpServerConfigState? existingState,
         ISecretProtector secretProtector)
     {
-        if (dto is null && existingState is null)
+        if (dto is null)
         {
             return null;
         }
 
-        var serverUrl = dto?.ServerUrl?.Trim() ?? existingState?.ServerUrl ?? string.Empty;
-        var authMode = NormalizeAuthMode(dto?.AuthMode ?? existingState?.AuthMode);
-        var selectedTools = (dto?.SelectedTools ?? existingState?.SelectedTools ?? [])
-            .Where(static tool => !string.IsNullOrWhiteSpace(tool))
-            .Select(static tool => tool.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var transport = NormalizeTransport(dto.Transport);
+        var name = dto.Name?.Trim() ?? string.Empty;
+        var command = transport == "stdio" ? dto.Command?.Trim() ?? string.Empty : string.Empty;
+        var url = transport == "http" ? dto.Url?.Trim() ?? string.Empty : string.Empty;
+        var normalized = new HiringMcpServerConfigState(
+            Transport: transport,
+            Name: name,
+            Command: command,
+            Args: transport == "stdio"
+                ? NormalizeStringList(dto.Args)
+                : [],
+            ProtectedEnv: transport == "stdio"
+                ? ProtectMap(dto.Env, secretProtector)
+                : EmptyMap(),
+            EnvPassThrough: transport == "stdio"
+                ? NormalizeStringList(dto.EnvPassThrough)
+                : [],
+            Cwd: transport == "stdio" ? dto.Cwd?.Trim() ?? string.Empty : string.Empty,
+            Url: url,
+            BearerTokenEnv: transport == "http" ? dto.BearerTokenEnv?.Trim() ?? string.Empty : string.Empty,
+            ProtectedHeaders: transport == "http"
+                ? ProtectMap(dto.Headers, secretProtector)
+                : EmptyMap(),
+            HeadersFromEnv: transport == "http"
+                ? NormalizeMap(dto.HeadersFromEnv)
+                : EmptyMap());
 
-        var protectedApiKey = ResolveProtectedApiKey(dto, existingState, secretProtector, authMode);
-        var normalized = new HiringMcpServerConfigState(serverUrl, authMode, protectedApiKey, selectedTools);
         return normalized.HasAnyConfig ? normalized : null;
     }
 
-    private static string NormalizeAuthMode(string? authMode)
-        => authMode?.Trim().ToLowerInvariant() switch
-        {
-            "api_key" => "api_key",
-            "oauth" => "oauth",
-            _ => "none"
-        };
+    private static string NormalizeTransport(string? transport)
+        => string.Equals(transport, "stdio", StringComparison.OrdinalIgnoreCase)
+            ? "stdio"
+            : "http";
 
-    private static string? ResolveProtectedApiKey(
-        HiringMcpServerConfigDto? dto,
-        HiringMcpServerConfigState? existingState,
-        ISecretProtector secretProtector,
-        string authMode)
+    private static IReadOnlyList<string> NormalizeStringList(IReadOnlyList<string>? values)
+        => (values ?? [])
+            .Where(static value => !string.IsNullOrWhiteSpace(value))
+            .Select(static value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private static IReadOnlyDictionary<string, string> NormalizeMap(IReadOnlyDictionary<string, string>? values)
     {
-        if (!string.Equals(authMode, "api_key", StringComparison.OrdinalIgnoreCase))
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (values is null)
         {
-            return null;
+            return map;
         }
 
-        var apiKey = dto?.ApiKey?.Trim();
-        if (!string.IsNullOrWhiteSpace(apiKey))
+        foreach (var (key, value) in values)
         {
-            return secretProtector.Protect(apiKey);
+            var normalizedKey = key?.Trim() ?? string.Empty;
+            var normalizedValue = value?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalizedKey) || string.IsNullOrWhiteSpace(normalizedValue))
+            {
+                continue;
+            }
+
+            map[normalizedKey] = normalizedValue;
         }
 
-        return dto?.HasApiKey == true
-            ? existingState?.ProtectedApiKey
-            : null;
+        return map;
     }
+
+    private static IReadOnlyDictionary<string, string> ProtectMap(
+        IReadOnlyDictionary<string, string>? values,
+        ISecretProtector secretProtector)
+    {
+        var protectedValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in NormalizeMap(values))
+        {
+            var protectedValue = secretProtector.Protect(value);
+            if (string.IsNullOrWhiteSpace(protectedValue))
+            {
+                throw new InvalidOperationException($"External config secret protection failed for key '{key}'.");
+            }
+
+            protectedValues[key] = protectedValue;
+        }
+
+        return protectedValues;
+    }
+
+    private static IReadOnlyDictionary<string, string> UnprotectMap(
+        IReadOnlyDictionary<string, string> values,
+        ISecretProtector secretProtector)
+    {
+        var unprotectedValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in values)
+        {
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            var unprotectedValue = secretProtector.Unprotect(value);
+            if (string.IsNullOrWhiteSpace(unprotectedValue))
+            {
+                continue;
+            }
+
+            unprotectedValues[key] = unprotectedValue;
+        }
+
+        return unprotectedValues;
+    }
+
+    private static IReadOnlyDictionary<string, string> EmptyMap()
+        => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }

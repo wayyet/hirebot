@@ -2293,3 +2293,138 @@ html[data-mode="light"][data-skin="warm"] .hb-todo-stage-badge.is-active {
   border-color: rgba(100, 116, 255, 0.18);
   background: rgba(2, 6, 23, 0.88);
 }
+
+/* ═══ 模态框入场动画 ═══ */
+@keyframes hb-modal-backdrop-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes hb-modal-enter {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.hb-todo-modal-backdrop {
+  animation: hb-modal-backdrop-enter 0.2s ease;
+}
+
+.hb-todo-modal {
+  animation: hb-modal-enter 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ═══ 骨架屏 ═══ */
+@keyframes hb-skeleton-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.hb-todo-skeleton-bar {
+  height: 14px;
+  border-radius: 6px;
+  background: var(--hb-border, #e5e7eb);
+  animation: hb-skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.hb-todo-skeleton-bar.is-wide  { width: 80%; }
+.hb-todo-skeleton-bar.is-mid   { width: 55%; }
+.hb-todo-skeleton-bar.is-short { width: 35%; }
+
+/* ═══ 字段验证错误状态 ═══ */
+.hb-todo-input.is-error {
+  border-color: var(--hb-error, #ef4444);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.08);
+}
+
+.hb-todo-input.is-error:focus {
+  border-color: var(--hb-error, #ef4444);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.hb-todo-field-error {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--hb-error, #ef4444);
+}
+
+/* ═══ 文本截断 ═══ */
+.hb-todo-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+/* ═══ 敏感字段切换按钮 ═══ */
+.hb-todo-input-toggle-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.hb-todo-input-toggle-wrap > input {
+  flex: 1;
+  padding-right: 36px;
+}
+
+.hb-todo-input-toggle-btn {
+  position: absolute;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--hb-text-muted, #6b7280);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.hb-todo-input-toggle-btn:hover {
+  color: var(--hb-text, #111827);
+  background: var(--hb-surface-2, #f3f4f6);
+}
+
+/* ═══ 草稿丢弃确认条 ═══ */
+.hb-todo-discard-confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  font-size: 12px;
+  color: var(--hb-text, #111827);
+}
+
+.hb-todo-discard-confirm .hb-todo-row-btn {
+  flex-shrink: 0;
+}
+
+/* ═══ Monaco Editor 容器 ═══ */
+.hb-todo-monaco-wrap {
+  border: 1px solid var(--hb-border, #e5e7eb);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.18s ease;
+}
+
+.hb-todo-monaco-wrap:focus-within {
+  border-color: rgba(74, 108, 247, 0.72);
+  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.12);
+}
+
+.hb-todo-monaco-wrap.is-error {
+  border-color: var(--hb-error, #ef4444);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.08);
+}

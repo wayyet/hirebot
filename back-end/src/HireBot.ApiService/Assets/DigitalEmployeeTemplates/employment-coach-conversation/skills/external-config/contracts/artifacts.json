@@ -3,19 +3,14 @@
   "stages": [
     {
       "name": "external-config",
-      "label": "外部配置",
+      "label": "外部配置提交",
       "artifacts": [
         {
-          "type": "external_config_progress",
-          "label": "外部配置进度",
-          "display": "progress",
-          "terminal": false
-        },
-        {
-          "type": "external_config_done",
-          "label": "外部配置结果",
+          "type": "external_config_committed",
+          "label": "外部配置已提交",
           "display": "tree",
-          "terminal": true
+          "terminal": true,
+          "note": "由系统层在右侧卡片保存或跳过成功后发出，表示 External 阶段已完成最终提交。"
         }
       ]
     }

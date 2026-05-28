@@ -20,7 +20,6 @@ describe('buildUiStageOverrides', () => {
         artifactType: 'skill_generation_ready',
         updatedAt: '2026-05-20T10:00:00Z',
       },
-      null,
       false,
     )
 
@@ -39,7 +38,6 @@ describe('buildUiStageOverrides', () => {
         artifactType: 'skill_generation_ready',
         updatedAt: '2026-05-20T10:00:00Z',
       },
-      null,
       true,
     )
 
@@ -55,7 +53,6 @@ describe('buildUiStageOverrides', () => {
         artifactType: 'skill_generation_ready',
         updatedAt: '2026-05-20T10:00:00Z',
       },
-      null,
       true,
     )
 
@@ -152,6 +149,41 @@ describe('buildHistoricalHiringConversationState', () => {
         },
       ],
     })
+  })
+
+  it('marks the external stage completed when external_config_committed exists in history', () => {
+    const sandboxMessages: SandboxMessage[] = [
+      {
+        type: 'assistant_message',
+        content: '外部配置已经提交完成。',
+        toolCalls: [
+          {
+            toolName: 'emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'external_config_committed',
+              label: '外部配置已提交',
+              skillName: 'external-config',
+              stage: 'stage3_external',
+              isTerminal: true,
+              displayHint: 'tree',
+              data: {
+                submissionMode: 'configured',
+                updatedAtUtc: '2026-05-28T10:00:00Z',
+              },
+            }),
+          },
+        ],
+      },
+    ]
+
+    const restored = buildHistoricalHiringConversationState(
+      sandboxMessages,
+      content => content.trim(),
+    )
+
+    expect(restored.messages.some(message => message.role === 'artifact' && message.artifact?.artifactType === 'external_config_committed')).toBe(true)
+    expect(restored.wsStageOverrides.get(HiringCollectionStage.External)).toBe('completed')
   })
 })
 

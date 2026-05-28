@@ -2,10 +2,10 @@
   "schemaVersion": "1.0.0",
   "artifactType": "external-config_index",
   "generatedFrom": {
-    "sourceDispatchTarget": "external-config",
-    "todoIds": [
-      "e_example_read_order_001"
-    ]
+    "sourceArtifactType": "external_config_committed",
+    "summaryArtifactType": "external_workorder_summary",
+    "sourceStage": "stage3_external",
+    "submissionMode": "configured"
   },
   "systems": [
     {
@@ -16,7 +16,7 @@
   ],
   "capabilities": [
     {
-      "todoId": "e_example_read_order_001",
+      "capabilityId": "e_example_read_order_001",
       "kind": "normal",
       "category": "read",
       "targetSystemSlug": "example-crm",
@@ -25,7 +25,7 @@
   ],
   "skips": [
     {
-      "todoId": "e_external_skip_001",
+      "capabilityId": "e_external_skip_001",
       "reason": "User explicitly skipped external systems.",
       "path": "external/capabilities/e_external_skip_001.json",
       "status": "recorded"
