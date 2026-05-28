@@ -173,6 +173,14 @@
   object-fit: contain;
 }
 
+.hb-brand-wordmark {
+  display: block;
+  height: 34px;
+  width: auto;
+  max-width: 150px;
+  object-fit: contain;
+}
+
 .hb-brand-body {
   display: flex;
   flex-direction: column;
