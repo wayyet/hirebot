@@ -63,7 +63,7 @@ function OidcLoginPage() {
   const [searchParams] = useSearchParams()
   const { t } = useTranslation()
   const { warmThemeEnabled } = useTheme()
-  const productName = warmThemeEnabled ? 'Y-Work Hire' : t('brand.name')
+  const productName = warmThemeEnabled ? 'Y Work' : t('brand.name')
   const redirectPath = normalizeRedirectPath(searchParams.get('redirect'))
   const redirectLabel = resolveRedirectLabel(redirectPath, t)
 
@@ -181,7 +181,7 @@ function AuthEntryShell({
 }: AuthEntryShellProps) {
   const { t } = useTranslation()
   const { warmThemeEnabled } = useTheme()
-  const productName = warmThemeEnabled ? 'Y-Work Hire' : t('brand.name')
+  const productName = warmThemeEnabled ? 'Y Work' : t('brand.name')
   const brandName = productName
   const highlightKeys = ['auth.highlights.template', 'auth.highlights.onboarding', 'auth.highlights.security'] as const
 

@@ -53,7 +53,7 @@ export default function LandingPage() {
   const [searchParams] = useSearchParams()
   const redirectPath = normalizeRedirectPath(searchParams.get('redirect'))
   const { brand, cycleBrand, isDark, toggleMode, warmThemeEnabled, warmThemeManagedByRuntime } = useTheme()
-  const productName = warmThemeEnabled ? 'Y-Work Hire' : t('brand.name')
+  const productName = warmThemeEnabled ? 'Y Work' : t('brand.name')
   const brandName = productName
   const [langOpen, setLangOpen] = useState(false)
   const langRef = useRef<HTMLDivElement>(null)
