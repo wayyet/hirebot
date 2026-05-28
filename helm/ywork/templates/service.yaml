@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "ncrew-hire.fullname" . }}
+  name: {{ include "ywork.fullname" . }}
   labels:
-    {{- include "ncrew-hire.labels" . | nindent 4 }}
+    {{- include "ywork.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -12,4 +12,4 @@ spec:
       protocol: TCP
       name: http
   selector:
-    {{- include "ncrew-hire.selectorLabels" . | nindent 4 }}
+    {{- include "ywork.selectorLabels" . | nindent 4 }}

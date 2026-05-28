@@ -1,5 +1,5 @@
-# values-saas.yaml — SaaS 生产环境覆盖值
-# 使用方式：helm upgrade --install ncrew-hire ./helm/ncrew-hire -f helm/ncrew-hire/values-saas.yaml
+# values-ywork.yaml — ywork 生产环境覆盖值
+# 使用方式：helm upgrade --install ywork ./helm/ywork -f helm/ywork/values-ywork.yaml
 
 replicaCount: 1
 
@@ -89,14 +89,14 @@ env:
   BuildService__BearerToken: ""
   BuildService__HttpTimeoutSeconds: "60"
 
-# 敏感值由 helm 统一管理（secrets.create=true 时自动创建 Secret ncrew-hire-env）
+# 敏感值由 helm 统一管理（secrets.create=true 时自动创建 Secret ywork-env）
 # 部署前将下方 PLACEHOLDER 替换为真实值
 secretEnv:
   - name: OpenSandbox__KingCrab__LlmApiKey
-    secretName: ncrew-hire-env
+    secretName: ywork-env
     secretKey: OpenSandboxKingCrabLlmApiKey
   - name: OpenSandbox__KingCrab__ClientSecret
-    secretName: ncrew-hire-env
+    secretName: ywork-env
     secretKey: OpenSandboxKingCrabClientSecret
 
 secrets:
@@ -107,11 +107,11 @@ secrets:
 
 database:
   existingSecret: ""
-  secretName: ncrew-hire-db
+  secretName: ywork-db
   secretKey: ConnectionStrings__DefaultConnection
   connectionString: "Host=10.127.1.10;Port=5432;Username=ai4c_pro;Password=KT~/ry0o~SV~;Database=ywork_dev"
 
-# ncrew-hire-data PVC —— 挂载到 /app/ncrew-hire-data，持久化运行数据目录
+# ywork-data PVC —— 挂载到 /app/ncrew-hire-data，持久化运行数据目录
 hireData:
   persistence:
     enabled: true

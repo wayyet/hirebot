@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "ncrew-hire.fullname" . }}
+  name: {{ include "ywork.fullname" . }}
   labels:
-    {{- include "ncrew-hire.labels" . | nindent 4 }}
+    {{- include "ywork.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "ncrew-hire.selectorLabels" . | nindent 6 }}
+      {{- include "ywork.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "ncrew-hire.selectorLabels" . | nindent 8 }}
+        {{- include "ywork.selectorLabels" . | nindent 8 }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
@@ -24,11 +24,11 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "ncrew-hire.serviceAccountName" . }}
+      serviceAccountName: {{ include "ywork.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        - name: ncrew-hire
+        - name: ywork
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -46,7 +46,7 @@ spec:
             - name: ConnectionStrings__DefaultConnection
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "ncrew-hire.databaseSecretName" . }}
+                  name: {{ include "ywork.databaseSecretName" . }}
                   key: {{ .Values.database.secretKey }}
             {{- range .Values.extraEnv }}
             - name: {{ .name }}
@@ -97,5 +97,5 @@ spec:
       volumes:
         - name: hire-data
           persistentVolumeClaim:
-            claimName: {{ include "ncrew-hire.fullname" . }}-data
+            claimName: {{ include "ywork.fullname" . }}-data
       {{- end }}

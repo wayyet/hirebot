@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "ncrew-hire.fullname" . }}-data
+  name: {{ include "ywork.fullname" . }}-data
   labels:
-    {{- include "ncrew-hire.labels" . | nindent 4 }}
+    {{- include "ywork.labels" . | nindent 4 }}
   annotations:
     "helm.sh/resource-policy": keep
 spec:

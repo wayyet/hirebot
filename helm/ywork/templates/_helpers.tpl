@@ -1,8 +1,8 @@
-{{- define "ncrew-hire.name" -}}
+{{- define "ywork.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "ncrew-hire.fullname" -}}
+{{- define "ywork.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
@@ -15,30 +15,30 @@
 {{- end -}}
 {{- end -}}
 
-{{- define "ncrew-hire.chart" -}}
+{{- define "ywork.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "ncrew-hire.labels" -}}
-helm.sh/chart: {{ include "ncrew-hire.chart" . }}
-{{ include "ncrew-hire.selectorLabels" . }}
+{{- define "ywork.labels" -}}
+helm.sh/chart: {{ include "ywork.chart" . }}
+{{ include "ywork.selectorLabels" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
-{{- define "ncrew-hire.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "ncrew-hire.name" . }}
+{{- define "ywork.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "ywork.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
-{{- define "ncrew-hire.serviceAccountName" -}}
+{{- define "ywork.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
-{{- default (include "ncrew-hire.fullname" .) .Values.serviceAccount.name -}}
+{{- default (include "ywork.fullname" .) .Values.serviceAccount.name -}}
 {{- else -}}
 {{- default "default" .Values.serviceAccount.name -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "ncrew-hire.databaseSecretName" -}}
+{{- define "ywork.databaseSecretName" -}}
 {{- if .Values.database.existingSecret -}}
 {{- .Values.database.existingSecret -}}
 {{- else -}}
