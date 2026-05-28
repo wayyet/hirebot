@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ArrowRight, Eye, EyeOff, FileText, Loader2, Lock, Upload } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, FileText, Loader2, Trash2, Upload } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import Editor from '@monaco-editor/react'
@@ -1107,15 +1107,6 @@ function ExternalCardBody({
   const cliConfiguredTools = cliTools.filter(tool => tool.name.trim().length > 0 && tool.command.trim().length > 0)
   const hasMcpConfig = hasMeaningfulMcpConfig(mcpConfig)
   const hasAnyConfig = cliConfiguredTools.length > 0 || hasMcpConfig
-  const isMcpDraftReady = hasMeaningfulMcpConfig(mcpDraftConfig)
-  const mcpDraftTargetPreview = getMcpTargetPreview(mcpDraftConfig)
-  const mcpDraftNamePreview = mcpDraftConfig.name.trim() || '未命名 MCP 服务'
-  const mcpDraftArgCount = countFilledStrings(mcpDraftConfig.args)
-  const mcpDraftEnvCount = countFilledEntries(mcpDraftConfig.envEntries)
-  const mcpDraftPassThroughCount = countFilledStrings(mcpDraftConfig.envPassThrough)
-  const mcpDraftHeaderCount = countFilledEntries(mcpDraftConfig.headerEntries)
-  const mcpDraftHeaderFromEnvCount = countFilledEntries(mcpDraftConfig.headersFromEnvEntries)
-  const mcpDraftTransportGuide = MCP_TRANSPORT_GUIDES[mcpDraftConfig.transport]
 
   useEffect(() => {
     if (!persistedExternalConfig || hasHydratedExternalConfigRef.current) {
@@ -1583,32 +1574,36 @@ function ExternalCardBody({
           </div>
 
           {activeModal === 'cli' && (
-            <div className="hb-todo-modal-backdrop" role="presentation" onClick={handleCloseModal}>
-              <div className="hb-todo-modal" role="dialog" aria-modal="true" aria-label="CLI 配置" onClick={e => e.stopPropagation()}>
-                <div className="hb-todo-modal-head">
-                  <div>
-                    <div className="hb-todo-modal-title">CLI 配置</div>
-                    <p className="hb-todo-modal-copy">定义 AI 可调用的命令行工具。需指定命令路径和参数 JSON Schema。</p>
-                  </div>
-                  <button type="button" className="hb-todo-row-btn is-ghost" onClick={handleCloseModal}>关闭</button>
-                </div>
-
-                <div className="hb-todo-external-stack">
+            <div
+              className="hb-todo-modal-backdrop"
+              role="presentation"
+              onClick={() => { setActiveModal(null); setShowDiscardConfirm(false) }}
+            >
+              <div
+                className="hb-todo-modal hb-todo-mcp-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="CLI 配置"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="hb-todo-mcp-form">
                   {cliDraftTools.map((tool, index) => (
-                    <div key={tool.id} className="hb-todo-external-subcard">
-                      <div className="hb-todo-external-subcard-head">
-                        <strong>{`工具 ${index + 1}`}</strong>
-                        <button
-                          type="button"
-                          className="hb-todo-row-btn is-ghost"
-                          disabled={cliDraftTools.length === 1}
-                          onClick={() => handleRemoveCliDraftTool(tool.id)}
-                        >
-                          删除
-                        </button>
-                      </div>
+                    <div key={tool.id} className="hb-todo-cli-tool">
+                      {cliDraftTools.length > 1 && (
+                        <div className="hb-todo-cli-tool-head">
+                          <span className="hb-todo-cli-tool-label">{`工具 ${index + 1}`}</span>
+                          <button
+                            type="button"
+                            className="hb-todo-mcp-icon-btn"
+                            aria-label="删除工具"
+                            onClick={() => handleRemoveCliDraftTool(tool.id)}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
 
-                      <label className="hb-todo-field">
+                      <label className="hb-todo-field hb-todo-mcp-field">
                         <span>工具标识</span>
                         <input
                           type="text"
@@ -1619,7 +1614,7 @@ function ExternalCardBody({
                         />
                       </label>
 
-                      <label className="hb-todo-field">
+                      <label className="hb-todo-field hb-todo-mcp-field">
                         <span>可执行文件路径</span>
                         <input
                           type="text"
@@ -1630,7 +1625,7 @@ function ExternalCardBody({
                         />
                       </label>
 
-                      <label className="hb-todo-field">
+                      <label className="hb-todo-field hb-todo-mcp-field">
                         <span>描述</span>
                         <textarea
                           className="hb-todo-input hb-todo-textarea"
@@ -1640,36 +1635,32 @@ function ExternalCardBody({
                         />
                       </label>
 
-                      <div className="hb-todo-field">
+                      {/* 执行方式 Tab 切换，复用 MCP 弹窗的 tabs 样式 */}
+                      <div className="hb-todo-field hb-todo-mcp-field">
                         <span>执行方式</span>
-                        <div className="hb-todo-choice-group">
-                          <label className="hb-todo-choice-item">
-                            <input
-                              type="radio"
-                              name={`cli-execution-${tool.id}`}
-                              checked={tool.executionMode === 'direct'}
-                              onChange={() => handleUpdateCliDraftTool(tool.id, { executionMode: 'direct' })}
-                            />
-                            <span>直接执行</span>
-                          </label>
-                          <label className="hb-todo-choice-item">
-                            <input
-                              type="radio"
-                              name={`cli-execution-${tool.id}`}
-                              checked={tool.executionMode === 'sandbox'}
-                              onChange={() => handleUpdateCliDraftTool(tool.id, { executionMode: 'sandbox' })}
-                            />
-                            <span>沙箱执行</span>
-                          </label>
+                        <div className="hb-todo-mcp-tabs" role="tablist" aria-label="CLI 执行方式">
+                          {(['direct', 'sandbox'] as const).map(mode => {
+                            const selected = tool.executionMode === mode
+                            const label = mode === 'direct' ? '直接执行' : '沙箱执行'
+                            return (
+                              <button
+                                key={mode}
+                                type="button"
+                                role="tab"
+                                aria-selected={selected}
+                                className={clsx('hb-todo-mcp-tab', selected && 'is-active')}
+                                onClick={() => handleUpdateCliDraftTool(tool.id, { executionMode: mode })}
+                              >
+                                {label}
+                              </button>
+                            )
+                          })}
                         </div>
-                        {tool.executionMode === 'sandbox' && (
-                          <p className="hb-todo-hint-muted">该工具将在隔离环境运行，不可访问宿主文件系统。</p>
-                        )}
                       </div>
 
-                      <label className="hb-todo-field">
+                      {/* 参数 JSON Schema：保留 Monaco 编辑器，去除多余说明文字 */}
+                      <div className="hb-todo-field hb-todo-mcp-field">
                         <span>参数 JSON Schema</span>
-                        {/* 使用 Monaco Editor 提供 JSON 语法高亮、自动补全和错误标注；onValidate 替代原 onBlur 校验 */}
                         <div className={`hb-todo-monaco-wrap${fieldErrors[`schema-${tool.id}`] ? ' is-error' : ''}`}>
                           <Editor
                             height="200px"
@@ -1707,32 +1698,20 @@ function ExternalCardBody({
                           />
                         </div>
                         {fieldErrors[`schema-${tool.id}`] && <p className="hb-todo-field-error">{fieldErrors[`schema-${tool.id}`]}</p>}
-                        <p className="hb-todo-hint-muted">定义工具接收的参数结构，AI 将根据此 Schema 生成调用参数。</p>
-                      </label>
+                      </div>
                     </div>
                   ))}
-                </div>
 
-                <div className="hb-todo-modal-actions">
-                  <button type="button" className="hb-todo-row-btn is-secondary" onClick={handleAddCliDraftTool}>
-                    新增 CLI 工具
+                  <button type="button" className="hb-todo-mcp-add-btn" onClick={handleAddCliDraftTool}>
+                    + 添加工具
                   </button>
-                  <div className="hb-todo-actions-row">
-                    <button type="button" className="hb-todo-row-btn is-ghost" onClick={handleCloseModal}>{t('hiring.todo.external.cancel')}</button>
-                    <button type="button" className="hb-todo-row-btn is-primary" onClick={handleSaveCliConfig}>保存配置</button>
+
+                  <div className="hb-todo-mcp-footer">
+                    <button type="button" className="hb-todo-mcp-save-btn" onClick={handleSaveCliConfig}>
+                      保存
+                    </button>
                   </div>
                 </div>
-                {showDiscardConfirm && (
-                  <div className="hb-todo-discard-confirm">
-                    <span style={{ flex: 1 }}>{t('hiring.todo.external.discardDraftMessage')}</span>
-                    <button type="button" className="hb-todo-row-btn is-ghost" onClick={() => setShowDiscardConfirm(false)}>
-                      {t('hiring.todo.external.discardDraftCancel')}
-                    </button>
-                    <button type="button" className="hb-todo-row-btn is-primary" onClick={confirmDiscard}>
-                      {t('hiring.todo.external.discardDraftConfirm')}
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -1746,139 +1725,60 @@ function ExternalCardBody({
                 aria-label="MCP 配置"
                 onClick={e => e.stopPropagation()}
               >
-                <div className="hb-todo-modal-head">
-                  <div className="hb-todo-mcp-hero-copy">
-                    <span className="hb-todo-mcp-eyebrow">Model Context Protocol</span>
-                    <div className="hb-todo-modal-title">MCP 配置</div>
-                    <p className="hb-todo-modal-copy">按 Codex 风格组织 MCP 连接信息，区分连接方式、运行环境和鉴权来源。</p>
-                  </div>
-                  <button type="button" className="hb-todo-row-btn is-ghost" onClick={handleCloseModal}>关闭</button>
-                </div>
+                <div className="hb-todo-mcp-form">
+                  {/* 名称 */}
+                  <label className="hb-todo-field hb-todo-mcp-field">
+                    <span>名称</span>
+                    <input
+                      type="text"
+                      className="hb-todo-input"
+                      value={mcpDraftConfig.name}
+                      onChange={e => setMcpDraftConfig(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="MCP server name"
+                    />
+                  </label>
 
-                <section className="hb-todo-mcp-hero">
-                  <div className="hb-todo-mcp-hero-main">
-                    <div className="hb-todo-mcp-status-row">
-                      <span className={clsx('hb-todo-mcp-status-pill', isMcpDraftReady ? 'is-ready' : 'is-draft')}>
-                        {isMcpDraftReady ? '连接信息已完整' : '仍是草稿'}
-                      </span>
-                      <span className="hb-todo-mcp-mode-pill">{MCP_TRANSPORT_LABELS[mcpDraftConfig.transport]}</span>
-                    </div>
-                    <div className="hb-todo-mcp-service-name">{mcpDraftNamePreview}</div>
-                    <p className="hb-todo-mcp-hero-note">{mcpDraftTransportGuide.summary}</p>
-                  </div>
-                  <div className="hb-todo-mcp-summary-card">
-                    <span className="hb-todo-mcp-summary-label">连接目标</span>
-                    <code className="hb-todo-mcp-summary-value">{mcpDraftTargetPreview}</code>
-                    <div className="hb-todo-mcp-summary-grid">
-                      <div>
-                        <span>参数</span>
-                        <strong>{mcpDraftArgCount}</strong>
-                      </div>
-                      <div>
-                        <span>环境</span>
-                        <strong>{mcpDraftEnvCount + mcpDraftPassThroughCount}</strong>
-                      </div>
-                      <div>
-                        <span>Headers</span>
-                        <strong>{mcpDraftHeaderCount + mcpDraftHeaderFromEnvCount}</strong>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="hb-todo-mcp-section">
-                  <div className="hb-todo-mcp-section-head">
-                    <div>
-                      <div className="hb-todo-mcp-section-title">服务身份</div>
-                      <p className="hb-todo-mcp-section-copy">给这个 MCP 源一个稳定名称，后续会用于工具来源标识和回显。</p>
-                    </div>
-                  </div>
-                  <div className="hb-todo-mcp-grid">
-                    <label className="hb-todo-field">
-                      <span>名称</span>
-                      <input
-                        type="text"
-                        className="hb-todo-input"
-                        value={mcpDraftConfig.name}
-                        onChange={e => setMcpDraftConfig(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="例如：openai / internal-ops / browser-gateway"
-                      />
-                    </label>
-                    <div className="hb-todo-field">
-                      <span>传输方式</span>
-                      <div className="hb-todo-mcp-transport-grid" role="radiogroup" aria-label="MCP 传输方式">
-                        {(['stdio', 'http'] as const).map(transport => {
-                          const selected = mcpDraftConfig.transport === transport
-                          const guide = MCP_TRANSPORT_GUIDES[transport]
-                          return (
-                            <button
-                              key={transport}
-                              type="button"
-                              className={clsx('hb-todo-mcp-transport-card', selected && 'is-active')}
-                              aria-pressed={selected}
-                              onClick={() => setMcpDraftConfig(prev => ({ ...prev, transport }))}
-                            >
-                              <span className="hb-todo-mcp-transport-eyebrow">{guide.kicker}</span>
-                              <strong>{MCP_TRANSPORT_LABELS[transport]}</strong>
-                              <span>{guide.detail}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="hb-todo-mcp-section">
-                  <div className="hb-todo-mcp-section-head">
-                    <div>
-                      <div className="hb-todo-mcp-section-title">连接方式</div>
-                      <p className="hb-todo-mcp-section-copy">{mcpDraftTransportGuide.description}</p>
-                    </div>
-                    <span className="hb-todo-mcp-section-badge">{mcpDraftConfig.transport === 'stdio' ? '本地进程' : '远程服务'}</span>
+                  {/* 传输方式 Tab 切换 */}
+                  <div className="hb-todo-mcp-tabs" role="tablist" aria-label="MCP 传输方式">
+                    {(['stdio', 'http'] as const).map(transport => {
+                      const selected = mcpDraftConfig.transport === transport
+                      const label = transport === 'stdio' ? 'STDIO' : '流式 HTTP'
+                      return (
+                        <button
+                          key={transport}
+                          type="button"
+                          role="tab"
+                          aria-selected={selected}
+                          className={clsx('hb-todo-mcp-tab', selected && 'is-active')}
+                          onClick={() => setMcpDraftConfig(prev => ({ ...prev, transport }))}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
                   </div>
 
                   {mcpDraftConfig.transport === 'stdio' ? (
-                    <div className="hb-todo-mcp-stack">
-                      <div className="hb-todo-mcp-grid">
-                        <label className="hb-todo-field">
-                          <span>启动命令</span>
-                          <input
-                            type="text"
-                            className="hb-todo-input hb-todo-input-mono"
-                            value={mcpDraftConfig.command}
-                            onChange={e => setMcpDraftConfig(prev => ({ ...prev, command: e.target.value }))}
-                            placeholder="例如：openai-dev-mcp serve-sqlite"
-                          />
-                        </label>
-                        <label className="hb-todo-field">
-                          <span>工作目录</span>
-                          <input
-                            type="text"
-                            className="hb-todo-input hb-todo-input-mono"
-                            value={mcpDraftConfig.cwd}
-                            onChange={e => setMcpDraftConfig(prev => ({ ...prev, cwd: e.target.value }))}
-                            placeholder="例如：~/code"
-                          />
-                        </label>
-                      </div>
+                    <>
+                      {/* 启动命令 */}
+                      <label className="hb-todo-field hb-todo-mcp-field">
+                        <span>启动命令</span>
+                        <input
+                          type="text"
+                          className="hb-todo-input hb-todo-input-mono"
+                          value={mcpDraftConfig.command}
+                          onChange={e => setMcpDraftConfig(prev => ({ ...prev, command: e.target.value }))}
+                          placeholder="openai-dev-mcp serve-sqlite"
+                        />
+                      </label>
 
-                      <div className="hb-todo-mcp-inline-panel">
-                        <div className="hb-todo-mcp-inline-head">
-                          <div>
-                            <strong>命令参数</strong>
-                            <p>按顺序传入子进程。留空表示直接以基础命令启动。</p>
-                          </div>
-                          <button type="button" className="hb-todo-row-btn is-secondary" onClick={handleAddArg}>
-                            添加参数
-                          </button>
-                        </div>
-                        {mcpDraftConfig.args.length === 0 ? (
-                          <p className="hb-todo-mcp-empty">当前没有参数，适合直接启动的本地 MCP 进程。</p>
-                        ) : (
+                      {/* 参数 */}
+                      <div className="hb-todo-field hb-todo-mcp-field">
+                        <span>参数</span>
+                        {mcpDraftConfig.args.length > 0 && (
                           <div className="hb-todo-mcp-list">
                             {mcpDraftConfig.args.map((arg, index) => (
-                              <div key={index} className="hb-todo-kv-row hb-todo-mcp-arg-row">
+                              <div key={index} className="hb-todo-mcp-row">
                                 <input
                                   type="text"
                                   className="hb-todo-input hb-todo-input-mono"
@@ -1888,84 +1788,34 @@ function ExternalCardBody({
                                 />
                                 <button
                                   type="button"
-                                  className="hb-todo-row-btn is-ghost"
+                                  className="hb-todo-mcp-icon-btn"
+                                  aria-label="删除参数"
                                   onClick={() => handleRemoveArg(index)}
                                 >
-                                  删除
+                                  <Trash2 size={14} />
                                 </button>
                               </div>
                             ))}
                           </div>
                         )}
+                        <button type="button" className="hb-todo-mcp-add-btn" onClick={handleAddArg}>
+                          + 添加参数
+                        </button>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="hb-todo-mcp-stack">
-                      <label className="hb-todo-field">
-                        <span>URL</span>
-                        <input
-                          type="text"
-                          className={`hb-todo-input hb-todo-input-mono${fieldErrors['mcpUrl'] ? ' is-error' : ''}`}
-                          value={mcpDraftConfig.url}
-                          onChange={e => {
-                            setMcpDraftConfig(prev => ({ ...prev, url: e.target.value }))
-                            if (fieldErrors['mcpUrl']) clearFieldError('mcpUrl')
-                          }}
-                          onBlur={e => {
-                            const val = e.target.value.trim()
-                            if (val && !/^https?:\/\/.+/.test(val)) {
-                              setFieldErrors(prev => ({ ...prev, mcpUrl: t('hiring.todo.external.urlInvalid') }))
-                            }
-                          }}
-                          placeholder="https://mcp.example.com/mcp"
-                        />
-                        {fieldErrors['mcpUrl'] && <p className="hb-todo-field-error">{fieldErrors['mcpUrl']}</p>}
-                      </label>
-                      <div className="hb-todo-mcp-callout">
-                        推荐优先使用环境变量注入鉴权信息，避免在界面中保存 Bearer Token 明文。
-                      </div>
-                    </div>
-                  )}
-                </section>
 
-                <section className="hb-todo-mcp-section">
-                  <div className="hb-todo-mcp-section-head">
-                    <div>
-                      <div className="hb-todo-mcp-section-title">
-                        {mcpDraftConfig.transport === 'stdio' ? '运行环境' : '鉴权与请求头'}
-                      </div>
-                      <p className="hb-todo-mcp-section-copy">
-                        {mcpDraftConfig.transport === 'stdio'
-                          ? '把运行期变量和透传变量分开维护，只暴露当前 MCP 必须使用的最小集合。'
-                          : '鉴权优先走环境变量映射，再补充固定 Header，避免敏感信息进入可见配置。'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {mcpDraftConfig.transport === 'stdio' ? (
-                    <div className="hb-todo-mcp-stack">
-                      <div className="hb-todo-mcp-inline-panel">
-                        <div className="hb-todo-mcp-inline-head">
-                          <div>
-                            <strong>环境变量</strong>
-                            <p>显式声明这个 MCP 进程启动时需要注入的键值对。</p>
-                          </div>
-                          <button type="button" className="hb-todo-row-btn is-secondary" onClick={handleAddEnvEntry}>
-                            新增
-                          </button>
-                        </div>
-                        {mcpDraftConfig.envEntries.length === 0 ? (
-                          <p className="hb-todo-mcp-empty">没有额外环境变量时可留空。</p>
-                        ) : (
+                      {/* 环境变量 */}
+                      <div className="hb-todo-field hb-todo-mcp-field">
+                        <span>环境变量</span>
+                        {mcpDraftConfig.envEntries.length > 0 && (
                           <div className="hb-todo-mcp-list">
                             {mcpDraftConfig.envEntries.map(entry => (
-                              <div key={entry.id} className="hb-todo-kv-row">
+                              <div key={entry.id} className="hb-todo-mcp-row hb-todo-mcp-row-kv">
                                 <input
                                   type="text"
                                   className="hb-todo-input hb-todo-input-mono"
                                   value={entry.key}
                                   onChange={e => handleUpdateEnvEntry(entry.id, { key: e.target.value })}
-                                  placeholder="变量名"
+                                  placeholder="键"
                                 />
                                 <div className="hb-todo-input-toggle-wrap">
                                   <input
@@ -1986,33 +1836,28 @@ function ExternalCardBody({
                                 </div>
                                 <button
                                   type="button"
-                                  className="hb-todo-row-btn is-ghost"
+                                  className="hb-todo-mcp-icon-btn"
+                                  aria-label="删除环境变量"
                                   onClick={() => handleRemoveEnvEntry(entry.id)}
                                 >
-                                  删除
+                                  <Trash2 size={14} />
                                 </button>
                               </div>
                             ))}
                           </div>
                         )}
+                        <button type="button" className="hb-todo-mcp-add-btn" onClick={handleAddEnvEntry}>
+                          + 添加环境变量
+                        </button>
                       </div>
 
-                      <div className="hb-todo-mcp-inline-panel">
-                        <div className="hb-todo-mcp-inline-head">
-                          <div>
-                            <strong>环境变量透传</strong>
-                            <p>只列出允许直接透传给子进程的宿主机变量名，例如密钥或区域配置。</p>
-                          </div>
-                          <button type="button" className="hb-todo-row-btn is-secondary" onClick={handleAddEnvPassThrough}>
-                            添加变量
-                          </button>
-                        </div>
-                        {mcpDraftConfig.envPassThrough.length === 0 ? (
-                          <p className="hb-todo-mcp-empty">默认不透传任何变量，安全性更高。</p>
-                        ) : (
+                      {/* 环境变量传递 */}
+                      <div className="hb-todo-field hb-todo-mcp-field">
+                        <span>环境变量传递</span>
+                        {mcpDraftConfig.envPassThrough.length > 0 && (
                           <div className="hb-todo-mcp-list">
                             {mcpDraftConfig.envPassThrough.map((name, index) => (
-                              <div key={index} className="hb-todo-kv-row hb-todo-mcp-arg-row">
+                              <div key={index} className="hb-todo-mcp-row">
                                 <input
                                   type="text"
                                   className="hb-todo-input hb-todo-input-mono"
@@ -2022,20 +1867,59 @@ function ExternalCardBody({
                                 />
                                 <button
                                   type="button"
-                                  className="hb-todo-row-btn is-ghost"
+                                  className="hb-todo-mcp-icon-btn"
+                                  aria-label="删除变量"
                                   onClick={() => handleRemoveEnvPassThrough(index)}
                                 >
-                                  删除
+                                  <Trash2 size={14} />
                                 </button>
                               </div>
                             ))}
                           </div>
                         )}
+                        <button type="button" className="hb-todo-mcp-add-btn" onClick={handleAddEnvPassThrough}>
+                          + 添加变量
+                        </button>
                       </div>
-                    </div>
+
+                      {/* 工作目录 */}
+                      <label className="hb-todo-field hb-todo-mcp-field">
+                        <span>工作目录</span>
+                        <input
+                          type="text"
+                          className="hb-todo-input hb-todo-input-mono"
+                          value={mcpDraftConfig.cwd}
+                          onChange={e => setMcpDraftConfig(prev => ({ ...prev, cwd: e.target.value }))}
+                          placeholder="~/code"
+                        />
+                      </label>
+                    </>
                   ) : (
-                    <div className="hb-todo-mcp-stack">
-                      <label className="hb-todo-field">
+                    <>
+                      {/* URL */}
+                      <label className="hb-todo-field hb-todo-mcp-field">
+                        <span>URL</span>
+                        <input
+                          type="text"
+                          className={`hb-todo-input hb-todo-input-mono${fieldErrors['mcpUrl'] ? ' is-error' : ''}`}
+                          value={mcpDraftConfig.url}
+                          onChange={e => {
+                            setMcpDraftConfig(prev => ({ ...prev, url: e.target.value }))
+                            if (fieldErrors['mcpUrl']) clearFieldError('mcpUrl')
+                          }}
+                          onBlur={e => {
+                            const val = e.target.value.trim()
+                            if (val && !/^https?:\/\/.+/.test(val)) {
+                              setFieldErrors(prev => ({ ...prev, mcpUrl: t('hiring.todo.external.urlInvalid') }))
+                            }
+                          }}
+                          placeholder="https://mcp.example.com/mcp"
+                        />
+                        {fieldErrors['mcpUrl'] && <p className="hb-todo-field-error">{fieldErrors['mcpUrl']}</p>}
+                      </label>
+
+                      {/* Bearer 令牌环境变量 */}
+                      <label className="hb-todo-field hb-todo-mcp-field">
                         <span>Bearer 令牌环境变量</span>
                         <input
                           type="text"
@@ -2044,25 +1928,15 @@ function ExternalCardBody({
                           onChange={e => setMcpDraftConfig(prev => ({ ...prev, bearerTokenEnv: e.target.value }))}
                           placeholder="例如：MCP_BEARER_TOKEN"
                         />
-                        <p className="hb-todo-hint-muted">填写环境变量名，而不是 Token 明文。运行时会从该变量读取 Bearer Token。</p>
                       </label>
 
-                      <div className="hb-todo-mcp-inline-panel">
-                        <div className="hb-todo-mcp-inline-head">
-                          <div>
-                            <strong>固定 Header</strong>
-                            <p>用于附加非敏感请求头，例如版本、租户或静态标识。</p>
-                          </div>
-                          <button type="button" className="hb-todo-row-btn is-secondary" onClick={handleAddHeaderEntry}>
-                            新增
-                          </button>
-                        </div>
-                        {mcpDraftConfig.headerEntries.length === 0 ? (
-                          <p className="hb-todo-mcp-empty">没有固定 Header 时可留空。</p>
-                        ) : (
+                      {/* 固定 Header */}
+                      <div className="hb-todo-field hb-todo-mcp-field">
+                        <span>固定 Header</span>
+                        {mcpDraftConfig.headerEntries.length > 0 && (
                           <div className="hb-todo-mcp-list">
                             {mcpDraftConfig.headerEntries.map(entry => (
-                              <div key={entry.id} className="hb-todo-kv-row">
+                              <div key={entry.id} className="hb-todo-mcp-row hb-todo-mcp-row-kv">
                                 <input
                                   type="text"
                                   className="hb-todo-input hb-todo-input-mono"
@@ -2089,37 +1963,28 @@ function ExternalCardBody({
                                 </div>
                                 <button
                                   type="button"
-                                  className="hb-todo-row-btn is-ghost"
+                                  className="hb-todo-mcp-icon-btn"
+                                  aria-label="删除 Header"
                                   onClick={() => handleRemoveHeaderEntry(entry.id)}
                                 >
-                                  删除
+                                  <Trash2 size={14} />
                                 </button>
                               </div>
                             ))}
                           </div>
                         )}
-                        <p className="hb-todo-hint-muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <Lock size={11} />
-                          {t('hiring.todo.external.sensitiveHint')}
-                        </p>
+                        <button type="button" className="hb-todo-mcp-add-btn" onClick={handleAddHeaderEntry}>
+                          + 添加 Header
+                        </button>
                       </div>
 
-                      <div className="hb-todo-mcp-inline-panel">
-                        <div className="hb-todo-mcp-inline-head">
-                          <div>
-                            <strong>来自环境变量的 Header</strong>
-                            <p>把敏感 Header 值映射到宿主机环境变量，避免界面保存明文。</p>
-                          </div>
-                          <button type="button" className="hb-todo-row-btn is-secondary" onClick={handleAddHeadersFromEnvEntry}>
-                            新增
-                          </button>
-                        </div>
-                        {mcpDraftConfig.headersFromEnvEntries.length === 0 ? (
-                          <p className="hb-todo-mcp-empty">如需动态注入密钥或租户令牌，在这里配置 Header 与环境变量映射。</p>
-                        ) : (
+                      {/* 来自环境变量的 Header */}
+                      <div className="hb-todo-field hb-todo-mcp-field">
+                        <span>来自环境变量的 Header</span>
+                        {mcpDraftConfig.headersFromEnvEntries.length > 0 && (
                           <div className="hb-todo-mcp-list">
                             {mcpDraftConfig.headersFromEnvEntries.map(entry => (
-                              <div key={entry.id} className="hb-todo-kv-row">
+                              <div key={entry.id} className="hb-todo-mcp-row hb-todo-mcp-row-kv">
                                 <input
                                   type="text"
                                   className="hb-todo-input hb-todo-input-mono"
@@ -2136,26 +2001,26 @@ function ExternalCardBody({
                                 />
                                 <button
                                   type="button"
-                                  className="hb-todo-row-btn is-ghost"
+                                  className="hb-todo-mcp-icon-btn"
+                                  aria-label="删除映射"
                                   onClick={() => handleRemoveHeadersFromEnvEntry(entry.id)}
                                 >
-                                  删除
+                                  <Trash2 size={14} />
                                 </button>
                               </div>
                             ))}
                           </div>
                         )}
+                        <button type="button" className="hb-todo-mcp-add-btn" onClick={handleAddHeadersFromEnvEntry}>
+                          + 添加映射
+                        </button>
                       </div>
-                    </div>
+                    </>
                   )}
-                </section>
 
-                <div className="hb-todo-modal-actions hb-todo-mcp-footer">
-                  <p className="hb-todo-mcp-footer-copy">这里的保存只会更新当前页面草稿，返回外部系统卡片后还需要点击“保存外部系统”。</p>
-                  <div className="hb-todo-actions-row hb-todo-mcp-footer-actions">
-                    <button type="button" className="hb-todo-row-btn is-ghost" onClick={handleCloseModal}>{t('hiring.todo.external.cancel')}</button>
-                    <button type="button" className="hb-todo-row-btn is-primary" onClick={handleSaveMcpConfig}>
-                      {isMcpDraftReady ? '保存配置' : '保存草稿'}
+                  <div className="hb-todo-mcp-footer">
+                    <button type="button" className="hb-todo-mcp-save-btn" onClick={handleSaveMcpConfig}>
+                      保存
                     </button>
                   </div>
                 </div>
@@ -2220,20 +2085,6 @@ const MCP_TRANSPORT_LABELS: Record<McpTransport, string> = {
   stdio: 'STDIO（本地进程）',
   http: 'HTTP（远程服务）',
 }
-const MCP_TRANSPORT_GUIDES: Record<McpTransport, { kicker: string; detail: string; description: string; summary: string }> = {
-  stdio: {
-    kicker: '本地拉起',
-    detail: '适合命令行网关、文件桥接或依赖工作目录的服务。',
-    description: '通过命令、参数和工作目录启动本地 MCP 进程，并按需注入最小环境变量集合。',
-    summary: '当前模式会从本地命令启动 MCP Server，适合与 CLI、脚本或本地代理一起工作。',
-  },
-  http: {
-    kicker: '远程接入',
-    detail: '适合已托管的 MCP 网关或流式 HTTP 工具服务。',
-    description: '使用远程 URL 暴露工具，并把 Bearer Token 或敏感 Header 映射到环境变量来源。',
-    summary: '当前模式会连接远程 MCP 服务，适合集中托管、统一认证和多环境复用。',
-  },
-}
 const EXTERNAL_CONFIG_START_MESSAGE = '我选择继续配置外部系统。请先帮我梳理应该配置哪些 CLI 工具和 MCP 服务，再逐项确认。'
 
 let cliDraftSeed = 0
@@ -2289,22 +2140,6 @@ function hasMeaningfulMcpConfig(config: McpConfigDraft): boolean {
   if (!config.name.trim()) return false
   if (config.transport === 'stdio') return config.command.trim().length > 0
   return config.url.trim().length > 0
-}
-
-function countFilledStrings(values: string[]): number {
-  return values.filter(value => value.trim().length > 0).length
-}
-
-function countFilledEntries(entries: McpKeyValueEntry[]): number {
-  return entries.filter(entry => entry.key.trim().length > 0).length
-}
-
-function getMcpTargetPreview(config: McpConfigDraft): string {
-  if (config.transport === 'stdio') {
-    return config.command.trim() || '未填写启动命令'
-  }
-
-  return config.url.trim() || '未填写远程 URL'
 }
 
 function recordToEntries(record?: Record<string, string> | null): McpKeyValueEntry[] {

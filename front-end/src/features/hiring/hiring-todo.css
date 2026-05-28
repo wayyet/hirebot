@@ -1596,51 +1596,6 @@
   font-size: 12px;
   line-height: 1.65;
 }
-.hb-todo-external-stack { display: flex; flex-direction: column; gap: 10px; }
-.hb-todo-external-subcard {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px;
-  border-radius: 10px;
-  border: 1px dashed rgba(107,114,128,0.24);
-  background: rgba(255,255,255,0.72);
-}
-.hb-todo-external-subcard-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.hb-todo-kv-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 6px;
-}
-.hb-todo-choice-group,
-.hb-todo-checkbox-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 2px;
-}
-.hb-todo-choice-item,
-.hb-todo-checkbox-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--hb-border, #e5e7eb);
-  background: rgba(255,255,255,0.84);
-  color: var(--hb-text, #374151);
-}
-.hb-todo-choice-item input,
-.hb-todo-checkbox-item input { margin: 0; }
-.hb-todo-inline-actions { display: flex; justify-content: flex-start; }
 .hb-todo-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1664,319 +1619,164 @@
   background: var(--hb-surface, #fff);
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
 }
-.hb-todo-modal-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-.hb-todo-modal-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--hb-text, #111827);
-}
-.hb-todo-modal-copy {
-  margin: 4px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--hb-text-muted, #6b7280);
-}
-.hb-todo-modal-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
 .hb-todo-mcp-modal {
-  width: min(880px, 100%);
-  max-height: min(84vh, 900px);
+  width: min(640px, 100%);
+  max-height: min(86vh, 920px);
   padding: 0;
   gap: 0;
   overflow: hidden auto;
-  background:
-    radial-gradient(circle at top right, rgba(96, 165, 250, 0.16), transparent 34%),
-    linear-gradient(180deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 255, 255, 1) 42%);
+  background: #ffffff;
 }
-.hb-todo-mcp-modal .hb-todo-modal-head {
-  padding: 20px 22px 0;
-}
-.hb-todo-mcp-hero-copy {
+.hb-todo-mcp-form {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 14px;
+  padding: 22px 22px 18px;
 }
-.hb-todo-mcp-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(37, 99, 235, 0.08);
-  color: var(--hb-text-blue, #1d4ed8);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.hb-todo-mcp-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.95fr);
-  gap: 16px;
-  padding: 16px 22px 18px;
-}
-.hb-todo-mcp-hero-main,
-.hb-todo-mcp-summary-card {
+.hb-todo-mcp-field {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(255,255,255,0.78);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55);
-}
-.hb-todo-mcp-hero-main {
-  background:
-    linear-gradient(135deg, rgba(37, 99, 235, 0.07), rgba(255,255,255,0) 55%),
-    rgba(255,255,255,0.84);
-}
-.hb-todo-mcp-status-row {
-  display: flex;
-  flex-wrap: wrap;
   gap: 8px;
-}
-.hb-todo-mcp-status-pill,
-.hb-todo-mcp-mode-pill,
-.hb-todo-mcp-section-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 28px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-}
-.hb-todo-mcp-status-pill.is-ready {
-  background: rgba(34, 197, 94, 0.12);
-  color: #15803d;
-}
-.hb-todo-mcp-status-pill.is-draft {
-  background: rgba(245, 158, 11, 0.12);
-  color: #b45309;
-}
-.hb-todo-mcp-mode-pill {
-  border: 1px solid rgba(37,99,235,0.18);
-  background: rgba(37,99,235,0.08);
-  color: var(--hb-text-blue, #1d4ed8);
-}
-.hb-todo-mcp-service-name {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--hb-text, #0f172a);
-  line-height: 1.2;
-}
-.hb-todo-mcp-hero-note {
-  margin: 0;
   font-size: 13px;
-  line-height: 1.7;
-  color: var(--hb-text-muted, #64748b);
+  color: var(--ink-1, #0f172a);
 }
-.hb-todo-mcp-summary-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--hb-text-muted, #64748b);
+.hb-todo-mcp-field > span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-1, #0f172a);
+  letter-spacing: 0;
+  text-transform: none;
 }
-.hb-todo-mcp-summary-value {
-  display: block;
+.hb-todo-mcp-field .hb-todo-input {
   padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(15,23,42,0.06);
-  color: var(--hb-text, #0f172a);
-  font-size: 12px;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: #ffffff;
+  color: var(--ink-1, #0f172a);
+  font-size: 13px;
 }
-.hb-todo-mcp-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+.hb-todo-mcp-field .hb-todo-input::placeholder {
+  color: rgba(148, 163, 184, 0.95);
 }
-.hb-todo-mcp-summary-grid > div {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(248,250,252,0.92);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-}
-.hb-todo-mcp-summary-grid span {
-  font-size: 11px;
-  color: var(--hb-text-muted, #64748b);
-}
-.hb-todo-mcp-summary-grid strong {
-  font-size: 16px;
-  color: var(--hb-text, #0f172a);
-}
-.hb-todo-mcp-section {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px 22px;
-  border-top: 1px solid rgba(148, 163, 184, 0.18);
-}
-.hb-todo-mcp-section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-.hb-todo-mcp-section-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--hb-text, #0f172a);
-}
-.hb-todo-mcp-section-copy {
-  margin: 4px 0 0;
-  font-size: 12px;
-  line-height: 1.65;
-  color: var(--hb-text-muted, #64748b);
-}
-.hb-todo-mcp-section-badge {
-  flex-shrink: 0;
-  border: 1px solid rgba(148,163,184,0.18);
-  background: rgba(248,250,252,0.88);
-  color: var(--hb-text-muted, #475569);
-}
-.hb-todo-mcp-grid {
+
+/* 传输方式 Tab 切换条 */
+.hb-todo-mcp-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 0;
+  padding: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 10px;
+  background: #ffffff;
 }
-.hb-todo-mcp-transport-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.hb-todo-mcp-transport-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  min-height: 126px;
-  padding: 14px;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: rgba(248,250,252,0.86);
-  color: var(--hb-text, #0f172a);
-  text-align: left;
+.hb-todo-mcp-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(100, 116, 139, 0.95);
   cursor: pointer;
-  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  transition: background 0.18s ease, color 0.18s ease;
 }
-.hb-todo-mcp-transport-card:hover {
-  transform: translateY(-1px);
-  border-color: rgba(37,99,235,0.24);
-  box-shadow: 0 10px 24px rgba(15,23,42,0.08);
+.hb-todo-mcp-tab:hover {
+  color: var(--ink-1, #0f172a);
 }
-.hb-todo-mcp-transport-card.is-active {
-  border-color: rgba(37,99,235,0.36);
-  background: linear-gradient(180deg, rgba(37,99,235,0.11) 0%, rgba(255,255,255,0.94) 100%);
-  box-shadow: inset 0 0 0 1px rgba(37,99,235,0.12);
+.hb-todo-mcp-tab.is-active {
+  background: rgba(15, 23, 42, 0.92);
+  color: #ffffff;
 }
-.hb-todo-mcp-transport-card strong {
-  font-size: 13px;
-  color: var(--hb-text, #0f172a);
-}
-.hb-todo-mcp-transport-card span {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--hb-text-muted, #64748b);
-}
-.hb-todo-mcp-transport-eyebrow {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--hb-text-blue, #1d4ed8);
-}
-.hb-todo-mcp-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.hb-todo-mcp-inline-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(255,255,255,0.78);
-}
-.hb-todo-mcp-inline-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-.hb-todo-mcp-inline-head strong {
-  display: block;
-  font-size: 13px;
-  color: var(--hb-text, #0f172a);
-}
-.hb-todo-mcp-inline-head p {
-  margin: 4px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--hb-text-muted, #64748b);
-}
+
+/* 列表行 */
 .hb-todo-mcp-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.hb-todo-mcp-arg-row {
+.hb-todo-mcp-row {
+  display: grid;
   grid-template-columns: 1fr auto;
-  margin-bottom: 0;
+  align-items: center;
+  gap: 8px;
 }
-.hb-todo-mcp-empty {
-  margin: 0;
+.hb-todo-mcp-row-kv {
+  grid-template-columns: 1fr 1fr auto;
+}
+.hb-todo-mcp-row .hb-todo-input,
+.hb-todo-mcp-row .hb-todo-input-toggle-wrap > input {
   padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px dashed rgba(148, 163, 184, 0.22);
-  background: rgba(248,250,252,0.78);
-  color: var(--hb-text-muted, #64748b);
-  font-size: 12px;
-  line-height: 1.65;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: #ffffff;
+  font-size: 13px;
 }
-.hb-todo-mcp-callout {
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  background: rgba(59, 130, 246, 0.08);
-  color: #1d4ed8;
-  font-size: 12px;
-  line-height: 1.65;
+.hb-todo-mcp-row .hb-todo-input::placeholder,
+.hb-todo-mcp-row .hb-todo-input-toggle-wrap > input::placeholder {
+  color: rgba(148, 163, 184, 0.95);
 }
+.hb-todo-mcp-icon-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(100, 116, 139, 0.95);
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.hb-todo-mcp-icon-btn:hover {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--ink-1, #0f172a);
+}
+
+/* + 添加按钮 */
+.hb-todo-mcp-add-btn {
+  appearance: none;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(241, 245, 249, 0.92);
+  color: rgba(100, 116, 139, 0.95);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.hb-todo-mcp-add-btn:hover {
+  background: rgba(226, 232, 240, 1);
+  color: var(--ink-1, #0f172a);
+}
+
+/* 底部保存 */
 .hb-todo-mcp-footer {
-  position: sticky;
-  bottom: 0;
-  padding: 16px 22px 20px;
-  border-top: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(255,255,255,0.94);
-  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 6px;
 }
-.hb-todo-mcp-footer-copy {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.65;
-  color: var(--hb-text-muted, #64748b);
+.hb-todo-mcp-save-btn {
+  appearance: none;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: rgba(241, 245, 249, 0.92);
+  color: rgba(71, 85, 105, 0.95);
+  padding: 7px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
 }
-.hb-todo-mcp-footer-actions {
-  margin-top: 0;
+.hb-todo-mcp-save-btn:hover {
+  background: rgba(226, 232, 240, 1);
+  color: var(--ink-1, #0f172a);
+  border-color: rgba(148, 163, 184, 0.6);
 }
 
 /* 200% 缩放 / Surface Pro 8 类窄屏适配（CSS 像素 <= 1100） */
@@ -2032,15 +1832,12 @@
   .hb-todo-external-choice-grid {
     grid-template-columns: 1fr;
   }
-  .hb-todo-external-card-head,
-  .hb-todo-external-subcard-head {
+  .hb-todo-external-card-head {
     flex-direction: column;
     align-items: flex-start;
   }
-  .hb-todo-mcp-hero,
   .hb-todo-mcp-grid,
-  .hb-todo-mcp-transport-grid,
-  .hb-todo-mcp-summary-grid {
+  .hb-todo-mcp-transport-grid {
     grid-template-columns: 1fr;
   }
   .hb-todo-mcp-inline-head,
@@ -2048,15 +1845,11 @@
     flex-direction: column;
     align-items: stretch;
   }
-  .hb-todo-external-row,
-  .hb-todo-modal-head,
-  .hb-todo-modal-actions {
+  .hb-todo-external-row {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;
   }
-  .hb-todo-choice-group,
-  .hb-todo-checkbox-grid,
   .hb-todo-actions-row {
     flex-direction: column;
     align-items: stretch;
@@ -2072,8 +1865,6 @@
   .hb-todo-mcp-modal {
     padding: 0;
   }
-  .hb-todo-mcp-modal .hb-todo-modal-head,
-  .hb-todo-mcp-hero,
   .hb-todo-mcp-section,
   .hb-todo-mcp-footer {
     padding-inline: 14px;
@@ -2220,43 +2011,22 @@ html[data-mode="light"][data-skin="warm"] .hb-todo-stage-badge.is-active {
     radial-gradient(circle at top right, rgba(96, 165, 250, 0.16), transparent 30%),
     linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(2, 6, 23, 1) 48%);
 }
-.dark .hb-todo-mcp-hero-main,
-.dark .hb-todo-mcp-summary-card,
 .dark .hb-todo-mcp-inline-panel {
   border-color: rgba(100, 116, 255, 0.18);
   background: rgba(15, 23, 42, 0.78);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
 }
-.dark .hb-todo-mcp-hero-main {
-  background:
-    linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(15,23,42,0.2) 58%),
-    rgba(15, 23, 42, 0.84);
-}
-.dark .hb-todo-mcp-status-pill.is-ready {
-  background: rgba(34, 197, 94, 0.14);
-  color: #86efac;
-}
-.dark .hb-todo-mcp-status-pill.is-draft {
-  background: rgba(245, 158, 11, 0.14);
-  color: #fcd34d;
-}
-.dark .hb-todo-mcp-mode-pill,
 .dark .hb-todo-mcp-section-badge,
 .dark .hb-todo-mcp-eyebrow {
   border-color: rgba(96, 165, 250, 0.2);
   background: rgba(59, 130, 246, 0.12);
   color: #93c5fd;
 }
-.dark .hb-todo-mcp-service-name,
-.dark .hb-todo-mcp-summary-value,
 .dark .hb-todo-mcp-section-title,
 .dark .hb-todo-mcp-inline-head strong,
 .dark .hb-todo-mcp-transport-card strong {
   color: #e5eefb;
 }
-.dark .hb-todo-mcp-hero-note,
-.dark .hb-todo-mcp-summary-label,
-.dark .hb-todo-mcp-summary-grid span,
 .dark .hb-todo-mcp-section-copy,
 .dark .hb-todo-mcp-inline-head p,
 .dark .hb-todo-mcp-empty,
@@ -2264,17 +2034,10 @@ html[data-mode="light"][data-skin="warm"] .hb-todo-stage-badge.is-active {
 .dark .hb-todo-mcp-transport-card span {
   color: #94a3b8;
 }
-.dark .hb-todo-mcp-summary-value {
-  background: rgba(148, 163, 184, 0.08);
-}
-.dark .hb-todo-mcp-summary-grid > div,
 .dark .hb-todo-mcp-transport-card,
 .dark .hb-todo-mcp-empty {
   border-color: rgba(100, 116, 255, 0.18);
   background: rgba(15, 23, 42, 0.66);
-}
-.dark .hb-todo-mcp-summary-grid strong {
-  color: #f8fafc;
 }
 .dark .hb-todo-mcp-transport-card.is-active {
   background: linear-gradient(180deg, rgba(59, 130, 246, 0.16) 0%, rgba(15, 23, 42, 0.88) 100%);
@@ -2409,6 +2172,30 @@ html[data-mode="light"][data-skin="warm"] .hb-todo-stage-badge.is-active {
 
 .hb-todo-discard-confirm .hb-todo-row-btn {
   flex-shrink: 0;
+}
+
+/* ═══ CLI 配置弹窗内多工具分隔 ═══ */
+/* 单个 CLI 工具的字段组，与 MCP form 的 gap 对齐 */
+.hb-todo-cli-tool {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* 后续工具与前一个之间用细分隔线区分，保持平铺风格 */
+.hb-todo-cli-tool + .hb-todo-cli-tool {
+  padding-top: 18px;
+  border-top: 1px solid rgba(148, 163, 184, 0.24);
+}
+.hb-todo-cli-tool-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hb-todo-cli-tool-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-1, #0f172a);
 }
 
 /* ═══ Monaco Editor 容器 ═══ */

@@ -300,8 +300,11 @@ export function buildHistoricalHiringConversationState(
  *
  * 因果链：
  * - ontology-extraction 存在 → Material 阶段已完成（material_handoff_summary 已发出）
- * - skill-generation 存在 → Skill 阶段已完成或进行中
+ * - skill-generation 存在 → Skill 阶段已完成或进行中；同时隐式蕴含 ontology-extraction 已完成
  * - External 阶段优先由右侧卡片保存/跳过结果驱动；不再依赖 external-config 下游运行
+ *
+ * 容错：WebSocket 投影事件可能丢失，导致 ontology-extraction 轨道缺席。
+ * 利用 skill-generation 必须在 ontology-extraction 完成后才能启动这一约束，反向恢复 Material 阶段进度。
  */
 export function deriveStageOverridesFromDownstreamRuns(
   runs: DownstreamRunsSnapshot,
@@ -311,13 +314,18 @@ export function deriveStageOverridesFromDownstreamRuns(
   const ontologyRun = runs['ontology-extraction']
   const skillGenRun = runs['skill-generation']
 
-  // ontology extraction 仅在 Material 阶段完成后触发，因此只要它存在，Material 必然已完成
-  if (ontologyRun) {
+  // ontology extraction 仅在 Material 阶段完成后触发。
+  // 仅当其状态为 running 或 completed 时才将 Material 标记为 completed；
+  // failed 状态保留默认行为，避免误导用户认为材料阶段已正常收束。
+  if (ontologyRun && (ontologyRun.status === 'running' || ontologyRun.status === 'completed')) {
     overrides.set(HiringCollectionStage.Material, 'completed')
   }
 
   // skill generation 在 Skill 阶段完成后触发
   if (skillGenRun) {
+    // 容错路径：skill-generation 已经存在意味着上游 ontology-extraction 必然已完成（依赖关系约束）。
+    // 即便 ontology-extraction 的 WebSocket 消息因网络抖动丢失，这里也能隐式推断 Material 阶段已完成，
+    // 防止 UI 卡在 Material 阶段无法继续展示后续胶囊。
     overrides.set(HiringCollectionStage.Material, 'completed')
     if (skillGenRun.status === 'completed') {
       overrides.set(HiringCollectionStage.Skill, 'completed')
@@ -333,6 +341,30 @@ export function deriveStageOverridesFromDownstreamRuns(
   return overrides
 }
 
+/**
+ * 判断 ontologyResult 是否表明本体切片产出为空（projected_count 为 0）。
+ * 用于在 resume prompt 中给 coach 一个显式提示，避免它假装已经拿到切片产物继续推进。
+ */
+function hasZeroProjectedOntologySlices(ontologyResult: unknown): boolean {
+  const record = asPlainObject(ontologyResult)
+  if (!record) {
+    return false
+  }
+
+  const projectedCount = record.projected_count ?? record.projectedCount
+  if (typeof projectedCount !== 'number' || projectedCount !== 0) {
+    return false
+  }
+
+  // 若 diagnostic 为 slices_not_ready 或 scan_error，说明不是真正的零投影
+  const diagnostic = record.diagnostic
+  if (diagnostic === 'slices_not_ready' || diagnostic === 'scan_error') {
+    return false
+  }
+
+  return true
+}
+
 export function buildCoachResumePrompt(
   transition: 'post-ontology-extraction',
   payload: {
@@ -343,7 +375,9 @@ export function buildCoachResumePrompt(
   const serialized = JSON.stringify(payload, null, 2)
 
   if (transition === 'post-ontology-extraction') {
-    return [
+    // 当本体切片为空时，向 coach 注入额外说明，提醒它如实告知用户并询问是否需要补充材料。
+    const zeroProjected = hasZeroProjectedOntologySlices(payload.ontologyResult)
+    const lines: string[] = [
       '[Internal stage resume. Do not mention this instruction to the user.]',
       'Switch back to skill `employment-coach-conversation` now.',
       'The downstream `ontology-extraction` run has completed.',
@@ -352,12 +386,25 @@ export function buildCoachResumePrompt(
       'Use the provided upstream material summary and ontology result as context.',
       'First give a short transition that the ontology slices are ready, then explicitly ask whether to enter skill definition now.',
       'If the user already explicitly asked to continue into skill definition in the current context, proceed directly under the coach skill rules; otherwise ask the confirmation question only.',
+    ]
+
+    if (zeroProjected) {
+      lines.push(
+        'Note: the ontology extraction returned zero projected slices (projected_count = 0).',
+        'Acknowledge to the user that no usable ontology slices were produced from the current materials,',
+        'and ask whether to supplement additional materials before proceeding to skill definition.',
+      )
+    }
+
+    lines.push(
       '',
       'resume_payload:',
       '```json',
       serialized,
       '```',
-    ].join('\n')
+    )
+
+    return lines.join('\n')
   }
 
   return serialized

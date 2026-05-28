@@ -1380,9 +1380,23 @@ internal sealed partial class EmployeeHiringService(
                     await dbContext.SaveChangesAsync(cancellationToken);
                 }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // 取消令牌触发的中断不属于产物存储失败，向上层透传以保留取消语义。
+                throw;
+            }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to persist imported instance artifacts. EmployeeId={EmployeeId}", employeeId);
+                // 产物存储失败会导致 Instance 版本未更新、产物根目录不完整，
+                // 后续的沙箱初始化与投影生成都将基于错误状态运行，必须立即中止流程并返回失败响应。
+                logger.LogError(
+                    ex,
+                    "Failed to persist imported instance artifacts; aborting import to avoid inconsistent sandbox initialization. HireId={HireId}, EmployeeId={EmployeeId}",
+                    normalizedHireId,
+                    employeeId);
+                return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
+                    500,
+                    $"导入交付物失败：产物存储异常 ({ex.Message})");
             }
         }
 

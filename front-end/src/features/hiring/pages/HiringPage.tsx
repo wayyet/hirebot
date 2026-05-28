@@ -409,6 +409,7 @@ export default function HiringPage() {
   const skillSummarySignatureRef = useRef('')
   const externalSummarySignatureRef = useRef('')
   const ontologyExtractionDoneSignatureRef = useRef('')
+  const ontologyProjectionDoneSignatureRef = useRef('')
   const skillGenerationLaunchSignatureRef = useRef('')
   const pendingInternalPromptsRef = useRef<string[]>([])
 
@@ -493,6 +494,10 @@ export default function HiringPage() {
       .at(-1) ?? ''
     ontologyExtractionDoneSignatureRef.current = restored.messages
       .filter(message => message.artifact?.artifactType === 'ontology_extraction_done' && message.artifact.isTerminal)
+      .map(message => JSON.stringify(message.artifact?.data ?? {}))
+      .at(-1) ?? ''
+    ontologyProjectionDoneSignatureRef.current = restored.messages
+      .filter(message => message.artifact?.artifactType === 'ontology_projection_done' && message.artifact.isTerminal)
       .map(message => JSON.stringify(message.artifact?.data ?? {}))
       .at(-1) ?? ''
     appendExternalConfigCommittedArtifact(latestExternalConfigRef.current)
@@ -1129,6 +1134,14 @@ export default function HiringPage() {
                   ontologyResult: artifactData.data ?? {},
                 }),
               )
+            }
+          }
+          if (artifactType === 'ontology_projection_done' && kind === 'data' && isTerminal) {
+            // buildCoachResumePrompt 目前仅支持 'post-ontology-extraction'，
+            // 此处仅做签名去重以避免重复触发后续逻辑，暂不注入 internal prompt。
+            const signature = JSON.stringify(artifactData.data ?? {})
+            if (ontologyProjectionDoneSignatureRef.current !== signature) {
+              ontologyProjectionDoneSignatureRef.current = signature
             }
           }
           if (artifactType === 'skill_workorder_summary' && kind === 'data' && isTerminal) {
@@ -1841,6 +1854,7 @@ export default function HiringPage() {
         externalSummarySignatureRef.current = ''
         skillGenerationLaunchSignatureRef.current = ''
         ontologyExtractionDoneSignatureRef.current = ''
+        ontologyProjectionDoneSignatureRef.current = ''
         pendingInternalPromptsRef.current = []
 
         // 清除后端对话缓存，确保重置后刷新页面不会恢复旧记录

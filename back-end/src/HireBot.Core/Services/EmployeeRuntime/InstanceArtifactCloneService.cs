@@ -4,6 +4,7 @@ using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
@@ -13,8 +14,19 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 public sealed class InstanceArtifactCloneService(
     IConfiguration configuration,
     IHostEnvironment hostEnvironment,
-    HireBotDbContext dbContext) : IInstanceArtifactCloneService
+    HireBotDbContext dbContext,
+    ILogger<InstanceArtifactCloneService>? logger = null) : IInstanceArtifactCloneService
 {
+    // 关键产物子目录：缺失这些目录通常意味着沙箱无法完成 ontology-extraction 等下游环节
+    private static readonly string[] KeyArtifactDirectories =
+    [
+        "ontology",
+        "skills",
+        "agents",
+        "knowledge",
+        "tools"
+    ];
+
     /// <summary>
     /// 克隆源员工的产物到目标实例。
     /// </summary>
@@ -38,7 +50,14 @@ public sealed class InstanceArtifactCloneService(
             throw new InvalidOperationException("源部门员工未找到可复制的实例包，请先完成雇佣交付或重新导入实例产物");
         }
 
-        sourceRoot = ResolveCloneSourceFallback(source, sourceRoot) ?? sourceRoot;
+        // 如果当前源仅含元数据文件，则尝试回退到模板包；保持原回退逻辑不变
+        var fallbackRoot = ResolveCloneSourceFallback(source, sourceRoot);
+        if (fallbackRoot is not null)
+        {
+            sourceRoot = fallbackRoot;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         var version = BuildVersion();
         var targetRoot = BuildPersonalCloneVersionRoot(source.EmployeeId, targetInstanceId, version);
@@ -48,6 +67,18 @@ public sealed class InstanceArtifactCloneService(
         if (copied.Count == 0)
         {
             throw new InvalidOperationException("源部门员工实例包为空，无法创建分身");
+        }
+
+        // 复制完成后再次校验目标目录是否包含真实产物，便于尽早暴露链路断点
+        if (!HasRequiredArtifactStructure(targetRoot))
+        {
+            var missingKeyDirectories = GetMissingKeyDirectories(targetRoot);
+            logger?.LogWarning(
+                "克隆完成但目标产物目录缺少关键内容：EmployeeId={EmployeeId}, TargetInstanceId={TargetInstanceId}, TargetRoot={TargetRoot}, MissingKeyDirectories={MissingKeyDirectories}",
+                source.EmployeeId,
+                targetInstanceId,
+                targetRoot,
+                missingKeyDirectories);
         }
 
         await Task.CompletedTask;
@@ -111,6 +142,8 @@ public sealed class InstanceArtifactCloneService(
 
     /// <summary>
     /// 解析源员工的产物根路径。
+    /// 各分支按优先级匹配：部门版本目录 → 分身版本目录 → 示例 fixture 目录 → 数字员工目录。
+    /// 命中分支若缺少关键产物结构（如 ontology/ 等），仅记录告警，不中断回退链路。
     /// </summary>
     private async Task<string?> ResolveSourceRootAsync(EmployeeDetailDto source, CancellationToken cancellationToken)
     {
@@ -119,15 +152,19 @@ public sealed class InstanceArtifactCloneService(
             .Where(item => item.InstanceId == source.EmployeeId)
             .Select(item => item.CurrentVersion)
             .FirstOrDefaultAsync(cancellationToken);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!string.IsNullOrWhiteSpace(currentVersion))
         {
             var instanceRoot = BuildDepartmentVersionRoot(source.EmployeeId, currentVersion);
             if (Directory.Exists(instanceRoot))
             {
+                WarnIfArtifactStructureIncomplete(instanceRoot, source.EmployeeId, "department-version");
                 return instanceRoot;
             }
 
-            // For personal_clone sources, artifacts are under instances/personal_clone/{parentId}/{instanceId}/
+            // 对于 personal_clone 源，产物落在 instances/personal_clone/{parentId}/{instanceId}/ 下
             if (!string.IsNullOrWhiteSpace(source.FromInstanceId))
             {
                 var cloneRoot = BuildCloneVersionRoot(
@@ -137,6 +174,7 @@ public sealed class InstanceArtifactCloneService(
                     currentVersion);
                 if (Directory.Exists(cloneRoot))
                 {
+                    WarnIfArtifactStructureIncomplete(cloneRoot, source.EmployeeId, "clone-version");
                     return cloneRoot;
                 }
             }
@@ -145,20 +183,28 @@ public sealed class InstanceArtifactCloneService(
         var fixtureRoot = ResolveFixtureRoot(source.EmployeeId);
         if (!string.IsNullOrWhiteSpace(fixtureRoot) && Directory.Exists(fixtureRoot))
         {
+            WarnIfArtifactStructureIncomplete(fixtureRoot, source.EmployeeId, "fixture");
             return fixtureRoot;
         }
 
         var digitalWorkforceRoot = Path.Combine(ResolveDigitalWorkforceRoot(), Sanitize(source.EmployeeId));
         if (Directory.Exists(digitalWorkforceRoot))
         {
+            WarnIfArtifactStructureIncomplete(digitalWorkforceRoot, source.EmployeeId, "digital-workforce");
             return digitalWorkforceRoot;
         }
 
+        logger?.LogWarning(
+            "未能为员工解析到任何产物根目录：EmployeeId={EmployeeId}, CurrentVersion={CurrentVersion}, FromInstanceId={FromInstanceId}",
+            source.EmployeeId,
+            currentVersion,
+            source.FromInstanceId);
         return null;
     }
 
     /// <summary>
     /// 解析克隆源的回退路径。
+    /// 若候选模板自身也缺少关键产物结构，会记录告警但仍按既有顺序返回（保持向后兼容）。
     /// </summary>
     private string? ResolveCloneSourceFallback(EmployeeDetailDto source, string sourceRoot)
     {
@@ -167,18 +213,28 @@ public sealed class InstanceArtifactCloneService(
             return null;
         }
 
+        // 优先使用 SourceTemplateId 指向的模板包
         var templateRoot = ResolveTemplatePackageRoot(source.SourceTemplateId);
         if (!string.IsNullOrWhiteSpace(templateRoot) && Directory.Exists(templateRoot))
         {
+            WarnIfArtifactStructureIncomplete(templateRoot, source.EmployeeId, "fallback-source-template");
             return templateRoot;
         }
 
+        // 其次使用 BasedOnTemplateId 指向的模板包
         var basedOnRoot = ResolveTemplatePackageRoot(source.BasedOnTemplateId);
         if (!string.IsNullOrWhiteSpace(basedOnRoot) && Directory.Exists(basedOnRoot))
         {
+            WarnIfArtifactStructureIncomplete(basedOnRoot, source.EmployeeId, "fallback-based-on-template");
             return basedOnRoot;
         }
 
+        logger?.LogWarning(
+            "源仅包含元数据文件且未找到可用模板包：EmployeeId={EmployeeId}, SourceTemplateId={SourceTemplateId}, BasedOnTemplateId={BasedOnTemplateId}, SourceRoot={SourceRoot}",
+            source.EmployeeId,
+            source.SourceTemplateId,
+            source.BasedOnTemplateId,
+            sourceRoot);
         return null;
     }
 
@@ -342,34 +398,118 @@ public sealed class InstanceArtifactCloneService(
 
     /// <summary>
     /// 判断是否仅包含元数据的包。
+    /// 通过 <see cref="HasRequiredArtifactStructure"/> 反向校验：缺少实质产物（子目录或非元数据文件）时视为元数据包，
+    /// 从而触发模板回退。
     /// </summary>
     private static bool LooksLikeMetadataOnlyPackage(string sourceRoot)
     {
+        return !HasRequiredArtifactStructure(sourceRoot);
+    }
+
+    /// <summary>
+    /// 验证目录是否包含除元数据文件以外的实际产物内容。
+    /// 判定标准：存在任意包含文件的子目录，或顶层存在 instance.json/manifest.json 之外的文件。
+    /// 用于尽早识别 ontology/ 等关键目录缺失导致的链路断点。
+    /// </summary>
+    private static bool HasRequiredArtifactStructure(string rootPath)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+        {
+            return false;
+        }
+
         try
         {
-            var files = Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories)
-                .Select(path => Path.GetFileName(path))
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Select(name => name!.Trim())
-                .ToArray();
-
-            if (files.Length == 0)
+            // 任一子目录中存在文件，即视为存在实际产物内容
+            foreach (var directory in Directory.EnumerateDirectories(rootPath))
             {
-                return true;
+                if (Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).Any())
+                {
+                    return true;
+                }
             }
 
-            if (files.Length > 2)
+            // 顶层除 instance.json / manifest.json 以外的任何文件，也算具备实质内容
+            foreach (var filePath in Directory.EnumerateFiles(rootPath))
             {
-                return false;
+                var fileName = Path.GetFileName(filePath);
+                if (string.IsNullOrWhiteSpace(fileName))
+                {
+                    continue;
+                }
+
+                if (!fileName.Equals("instance.json", StringComparison.OrdinalIgnoreCase) &&
+                    !fileName.Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
             }
 
-            return files.All(name =>
-                name.Equals("instance.json", StringComparison.OrdinalIgnoreCase) ||
-                name.Equals("manifest.json", StringComparison.OrdinalIgnoreCase));
+            return false;
         }
         catch
         {
+            // 枚举异常视为结构不完整，交由调用方触发回退或告警
             return false;
+        }
+    }
+
+    /// <summary>
+    /// 返回当前目录中缺失的关键子目录名（用于结构化日志）。
+    /// </summary>
+    private static IReadOnlyList<string> GetMissingKeyDirectories(string rootPath)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+        {
+            return KeyArtifactDirectories;
+        }
+
+        var missing = new List<string>(KeyArtifactDirectories.Length);
+        foreach (var name in KeyArtifactDirectories)
+        {
+            var path = Path.Combine(rootPath, name);
+            if (!Directory.Exists(path))
+            {
+                missing.Add(name);
+            }
+        }
+
+        return missing;
+    }
+
+    /// <summary>
+    /// 校验目标目录是否包含关键产物子目录，缺失时记录结构化告警。
+    /// 不抛出异常，避免破坏既有回退链路。
+    /// </summary>
+    private void WarnIfArtifactStructureIncomplete(string rootPath, string employeeId, string source)
+    {
+        if (logger is null)
+        {
+            return;
+        }
+
+        var missing = GetMissingKeyDirectories(rootPath);
+        // ontology/ 是 ontology-extraction 等下游环节最关键的依赖，单独高亮告警
+        var ontologyMissing = missing.Contains("ontology", StringComparer.OrdinalIgnoreCase);
+
+        if (ontologyMissing)
+        {
+            logger.LogWarning(
+                "产物根目录缺少 ontology/ 关键目录，可能导致沙箱 ontology-extraction 失败：EmployeeId={EmployeeId}, Source={Source}, RootPath={RootPath}, MissingKeyDirectories={MissingKeyDirectories}",
+                employeeId,
+                source,
+                rootPath,
+                missing);
+            return;
+        }
+
+        if (!HasRequiredArtifactStructure(rootPath))
+        {
+            logger.LogWarning(
+                "产物根目录缺少实质内容（仅含元数据或为空）：EmployeeId={EmployeeId}, Source={Source}, RootPath={RootPath}",
+                employeeId,
+                source,
+                rootPath);
         }
     }
 
