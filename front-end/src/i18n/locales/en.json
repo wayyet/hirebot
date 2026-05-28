@@ -1,8 +1,8 @@
 {
   "brand": {
     "name": "NCrew Hire",
-    "tagline": "Digital Workforce Platform",
-    "footer": "NCrew Hire · Digital Workforce Platform"
+    "tagline": "Your Digital Employee",
+    "footer": "{{productName}} · Digital Workforce Platform"
   },
   "nav": {
     "templatePool": "Template Pool",
@@ -122,7 +122,7 @@
     "kicker": "Digital Workforce Platform",
     "title1": "Hire Your Next",
     "title2": "Digital Employee",
-    "copy": "From template selection and hiring, to onboarding and collaboration, NCrew Hire unifies the entire digital employee hiring workflow in one place.",
+    "copy": "From template selection and hiring, to onboarding and collaboration, {{productName}} unifies the entire digital employee hiring workflow in one place.",
     "primaryLabel": "Sign In",
     "primaryLabelLoading": "Checking auth status...",
     "bypassHeaderTag": "Dev Bypass",
@@ -681,7 +681,7 @@
     "badge": "Digital Workforce Hiring Platform",
     "heroTitle1": "Hire Your Next",
     "heroTitle2": "Digital Employee",
-    "heroSubtitle": "From template selection and hiring, to onboarding and collaboration, NCrew Hire unifies the entire digital workforce workflow in one place.",
+    "heroSubtitle": "From template selection and hiring, to onboarding and collaboration, {{productName}} unifies the entire digital workforce workflow in one place.",
     "loginBtn": "Sign In",
     "enterConsole": "Go to Dashboard",
     "ctaPrimary": "Get Started",
@@ -732,7 +732,7 @@
       }
     },
     "finalCtaTitle": "Start Hiring Digital Employees",
-    "finalCtaCopy": "Sign in to NCrew Hire and begin configuring your digital workforce."
+    "finalCtaCopy": "Sign in to {{productName}} and begin configuring your digital workforce."
   },
   "templateDetail": {
     "startHiring": "Start Hiring",

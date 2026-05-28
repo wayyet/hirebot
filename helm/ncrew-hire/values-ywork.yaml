@@ -5,7 +5,7 @@ replicaCount: 1
 
 image:
   repository: ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot
-  tag: dev-202605281400   # 部署时替换为实际镜像标签
+  tag: dev-202605262342   # 部署时替换为实际镜像标签
   pullPolicy: IfNotPresent
 
 resources:
@@ -26,15 +26,15 @@ env:
   # ---- 安全 / OIDC (SaaS) ----
   Security__OidcAuthority: https://passport.ai4c.cn/realms/ai4c-saas
   Security__OidcAudience: account
-  Security__OidcClientId: ncrew-client
+  Security__OidcClientId: ywork
   Security__OidcRequireHttpsMetadata: "true"
   # ---- 前端 runtime-config 注入 (SaaS) ----
   ConsoleAuth__Authority: https://passport.ai4c.cn
   ConsoleAuth__Realm: ai4c-saas
-  ConsoleAuth__ClientId: ncrew-client
+  ConsoleAuth__ClientId: ywork
   ConsoleAuth__BypassAuth: "false"
   ConsoleAuth__TemplateApiBase: https://ncrew-builder.ai4c.cn
-  ConsoleUi__EnableWarmTheme: "false"
+  ConsoleUi__EnableWarmTheme: "true"
   # ---- 跨域 ----
   AllowedOrigins__0: https://hire.ai4c.cn
   AllowedOrigins__1: https://ncrew.ai4c.cn
@@ -44,6 +44,8 @@ env:
   AllowedOrigins__5: http://opensandbox-gateway.ai4c.cn
   AllowedOrigins__6: https://ncrew-builder.ai4c.cn
   AllowedOrigins__7: https://opensandbox-gateway.ai4c.cn
+  AllowedOrigins__8: https://hire.y-work.cn
+  AllowedOrigins__9: http://hire.y-work.cn
   
   # ---- OpenSandbox 沙箱服务地址（SaaS 集群内地址）----
   OpenSandbox__Domain: opensandbox-server.ai4c.cn
@@ -107,7 +109,7 @@ database:
   existingSecret: ""
   secretName: ncrew-hire-db
   secretKey: ConnectionStrings__DefaultConnection
-  connectionString: "Host=10.127.1.10;Port=5432;Username=ai4c_pro;Password=KT~/ry0o~SV~;Database=ncrew_hire"
+  connectionString: "Host=10.127.1.10;Port=5432;Username=ai4c_pro;Password=KT~/ry0o~SV~;Database=ywork_dev"
 
 # ncrew-hire-data PVC —— 挂载到 /app/ncrew-hire-data，持久化运行数据目录
 hireData:

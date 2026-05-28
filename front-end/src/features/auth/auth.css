@@ -86,6 +86,20 @@
   box-shadow: 0 10px 22px var(--hb-accent-shadow);
 }
 
+.hb-login-brand-mark.is-image {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.hb-login-brand-mark-img {
+  display: block;
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
 .hb-login-brand-text {
   color: var(--hb-near-black);
   font-size: 18px;

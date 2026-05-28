@@ -72,7 +72,7 @@ artifact 生命周期与阶段门禁定义见 [contracts/artifacts.json](contrac
 
 **Bootstrap 模式** — 消息含 `"workflow": "live_evaluation"` 和 `runtime_context`：
 全自动管道执行。**不展示题卡，不等待用户交互，不输出 think/analysis。**
-顺序跑完：阶段 0→1→3→4→5→6，最终只输出 verdict JSON。
+顺序跑完：阶段 0→1→3→3.5→4→5→6，最终只输出 verdict JSON。
 
 **交互模式** — 普通对话消息：
 各阶段之间与用户交互，展示题卡，等待确认。
@@ -163,6 +163,32 @@ python3 /workspace/skills/live_evaluator/evaluate.py \
 
 执行过程中按 testcase 粒度推送 `evaluation_execution_progress`。
 
+### 阶段 3.5：立即上传执行轨迹
+
+**execute 执行完毕后，必须立即调用 `trace_uploader.py`，不等待评分、不等待用户任何输入。**
+
+这一步与评分、报告完全解耦：执行轨迹是原始采集数据，应在数据产生后第一时间持久化，避免后续流程失败导致轨迹丢失。
+
+```bash
+python3 /workspace/skills/live_evaluator/trace_uploader.py \
+  --runtime-context /workspace/runtime/evaluation-context.json \
+  --trace-result /tmp/trace_result.json \
+  --output /tmp/trace_upload_result.json
+```
+
+脚本会自动从运行时上下文中读取以下配置：
+
+| 配置项 | 来源 |
+|--------|------|
+| HireBot 后端地址 | `runtime_context.ncrew_hire.base_url` |
+| API Token | 由脚本内部通过 `auth_client.resolve_auth()` 从 `auth_config.json` 自动获取，无需手动传入 |
+
+上传成功后，后端将完成：
+
+- 执行轨迹原始 JSON 资产存储（`EvaluationAssets` 表，`assetType = "trace-json"`）
+
+读取 `/tmp/trace_upload_result.json`，若 `status != "success"`，输出告警，**继续后续阶段，不阻断**。
+
 ### 阶段 4：执行评分
 
 **重要：这里没有可调用的评分脚本。评分由你自己作为 AI 完成，不要尝试执行任何 Python 文件，不要去 `/workspace/skills/evaluator/` 寻找脚本。**
@@ -206,31 +232,9 @@ python3 /workspace/skills/live_evaluator/evaluate.py \
 
 ### 阶段 6：持久化
 
-#### 阶段 6a：上传执行轨迹（失败不阻断后续流程）
+> 注意：执行轨迹已在阶段 3.5 上传，本阶段仅上传评估结果。
 
-调用 `trace_uploader.py` 把执行轨迹上传到 HireBot 后端：
-
-```bash
-python3 /workspace/skills/live_evaluator/trace_uploader.py \
-  --runtime-context /workspace/runtime/evaluation-context.json \
-  --trace-result /tmp/trace_result.json \
-  --output /tmp/trace_upload_result.json
-```
-
-脚本会自动从运行时上下文中读取以下配置：
-
-| 配置项 | 来源 |
-|--------|------|
-| HireBot 后端地址 | `runtime_context.ncrew_hire.base_url` |
-| API Token | 由脚本内部通过 `auth_client.resolve_auth()` 从 `auth_config.json` 自动获取，无需手动传入 |
-
-上传成功后，后端将完成：
-
-- 执行轨迹原始 JSON 资产存储（`EvaluationAssets` 表，`assetType = "trace-json"`）
-
-读取 `/tmp/trace_upload_result.json`，若 `status != "success"`，输出告警，**继续执行阶段 6b，不阻断**。
-
-#### 阶段 6b：上传评估结果
+#### 上传评估结果
 
 调用 `verdict_uploader.py` 把评估结果上传到 HireBot 后端：
 
@@ -256,6 +260,8 @@ python3 /workspace/skills/live_evaluator/verdict_uploader.py \
 
 读取 `/tmp/verdict_upload_result.json`，确认 `status = "success"`。
 若上传失败，输出报错并告知用户，不阻塞报告展示。
+
+> 若阶段 3.5 的轨迹上传已失败，可在此阶段结束后再重试一次 `trace_uploader.py`，确保轨迹最终落库。
 
 如果平台已注入 `evaluation_report` 工具，可同时调用以完成文件资产的上传；
 若未注入，仅用 `verdict_uploader.py` 完成核心状态同步即可。
@@ -295,8 +301,8 @@ python3 /workspace/skills/live_evaluator/verdict_uploader.py \
 | 运行时上下文缺失 | 提示平台未完成初始化，停止执行 |
 | testcase / ontology 缺失 | 引导上传到评估沙箱本地 |
 | 目标沙箱鉴权失败 | 提示检查 `auth_config.json` 配置或凭据过期 |
-| 目标沙箱执行超时 | 返回失败结果并保留已采集 trace |
-| 轨迹持久化失败 | 明确说明执行轨迹落库失败，不阻断 verdict 上传 |
+| 目标沙箱执行超时 | 返回失败结果，仍尝试执行阶段 3.5 上传已采集到的 trace |
+| 轨迹持久化失败（阶段 3.5）| 输出告警，继续后续阶段；阶段 6 结束后可补重试一次 |
 | 报告持久化失败 | 明确说明评分已完成，但后端落库失败 |
 
 ## 禁止事项

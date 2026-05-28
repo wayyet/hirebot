@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { getAuthUser, isOidcConfigured, signIn } from '@/infra/auth/oidc'
 import { isAuthBypassed } from '@/infra/auth/auth-mode'
+import { useTheme } from '@/app/theme/ThemeProvider'
+import yWorkHireLogo from '@/assets/y-work-hire-logo.svg'
 
 const POST_LOGIN_REDIRECT_KEY = 'ncrew_post_login_redirect'
 
@@ -60,6 +62,8 @@ function OidcLoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { t } = useTranslation()
+  const { warmThemeEnabled } = useTheme()
+  const productName = warmThemeEnabled ? 'Y Work' : t('brand.name')
   const redirectPath = normalizeRedirectPath(searchParams.get('redirect'))
   const redirectLabel = resolveRedirectLabel(redirectPath, t)
 
@@ -92,7 +96,7 @@ function OidcLoginPage() {
           <span className="hb-login-title-accent">{t('auth.title2')}</span>
         </>
       }
-      copy={t('auth.copy')}
+      copy={t('auth.copy', { productName })}
       primaryLabel={isLoading ? t('auth.primaryLabelLoading') : t('auth.primaryLabel')}
       primaryBusy={isLoading}
       onPrimary={handleLogin}
@@ -176,6 +180,9 @@ function AuthEntryShell({
   onPrimary,
 }: AuthEntryShellProps) {
   const { t } = useTranslation()
+  const { warmThemeEnabled } = useTheme()
+  const productName = warmThemeEnabled ? 'Y Work' : t('brand.name')
+  const brandName = productName
   const highlightKeys = ['auth.highlights.template', 'auth.highlights.onboarding', 'auth.highlights.security'] as const
 
   return (
@@ -187,8 +194,14 @@ function AuthEntryShell({
       <div className="hb-login-shell">
         <header className="hb-login-header">
           <div className="hb-login-brand">
-            <span className="hb-login-brand-mark"><Sparkles size={16} /></span>
-            <strong className="hb-login-brand-text">{t('brand.name')}</strong>
+            <span className={`hb-login-brand-mark${warmThemeEnabled ? ' is-image' : ''}`}>
+              {warmThemeEnabled ? (
+                <img src={yWorkHireLogo} alt="" className="hb-login-brand-mark-img" />
+              ) : (
+                <Sparkles size={16} />
+              )}
+            </span>
+            <strong className="hb-login-brand-text">{brandName}</strong>
           </div>
           <span className="hb-login-header-tag">{headerTag}</span>
         </header>
@@ -235,7 +248,7 @@ function AuthEntryShell({
           </section>
         </main>
 
-        <footer className="hb-login-footer">{t('brand.footer')}</footer>
+        <footer className="hb-login-footer">{t('brand.footer', { productName })}</footer>
       </div>
     </div>
   )

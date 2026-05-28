@@ -53,6 +53,8 @@ export default function LandingPage() {
   const [searchParams] = useSearchParams()
   const redirectPath = normalizeRedirectPath(searchParams.get('redirect'))
   const { brand, cycleBrand, isDark, toggleMode, warmThemeEnabled, warmThemeManagedByRuntime } = useTheme()
+  const productName = warmThemeEnabled ? 'Y Work' : t('brand.name')
+  const brandName = productName
   const [langOpen, setLangOpen] = useState(false)
   const langRef = useRef<HTMLDivElement>(null)
 
@@ -119,7 +121,7 @@ export default function LandingPage() {
               )}
             </div>
             <div className="hb-brand-body">
-              <span className="hb-brand-name">{t('brand.name')}</span>
+              <span className="hb-brand-name">{brandName}</span>
               <span className="hb-brand-tagline">{t('brand.tagline')}</span>
             </div>
           </div>
@@ -191,7 +193,11 @@ export default function LandingPage() {
 
         <div className="hb-landing-hero-content">
           <div className="hb-landing-badge hb-anim-fade-up" style={{ animationDelay: '0ms' }}>
-            <Sparkles size={12} />
+            {warmThemeEnabled ? (
+              <img src="/favicon-warm.svg" alt="" className="hb-landing-badge-icon" />
+            ) : (
+              <Sparkles size={12} />
+            )}
             {t('landing.badge')}
           </div>
 
@@ -204,7 +210,7 @@ export default function LandingPage() {
           </h1>
 
           <p className="hb-landing-subtitle hb-anim-fade-up" style={{ animationDelay: '180ms' }}>
-            {t('landing.heroSubtitle')}
+            {t('landing.heroSubtitle', { productName })}
           </p>
 
           <div className="hb-landing-cta hb-anim-fade-up" style={{ animationDelay: '280ms' }}>
@@ -289,7 +295,7 @@ export default function LandingPage() {
             <Users size={28} color="#fff" />
           </div>
           <h2 className="hb-landing-final-title">{t('landing.finalCtaTitle')}</h2>
-          <p className="hb-landing-final-copy">{t('landing.finalCtaCopy')}</p>
+          <p className="hb-landing-final-copy">{t('landing.finalCtaCopy', { productName })}</p>
           <button
             className="hb-landing-cta-primary"
             onClick={handleLogin}
@@ -303,7 +309,7 @@ export default function LandingPage() {
       </section>
 
       <footer className="hb-landing-footer">
-        <span>{t('brand.footer')}</span>
+        <span>{t('brand.footer', { productName })}</span>
       </footer>
     </div>
   )

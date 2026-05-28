@@ -114,18 +114,18 @@ extraEnv: []
 # 敏感值通过 secretEnv 注入（不写入 values，由外部 Secret 提供）
 # 必须配置：LlmApiKey（AI 推理）+ ClientSecret（沙箱 OIDC token 换取）
 secretEnv: []
-# 示例（使用 secrets.create=true 时 secretName 填 ncrew-hire-env）：
+# 示例（使用 secrets.create=true 时 secretName 填 ywork-env）：
 # secretEnv:
 #   - name: OpenSandbox__KingCrab__LlmApiKey
-#     secretName: ncrew-hire-env
+#     secretName: ywork-env
 #     secretKey: OpenSandboxKingCrabLlmApiKey
 #   - name: OpenSandbox__KingCrab__ClientSecret
-#     secretName: ncrew-hire-env
+#     secretName: ywork-env
 #     secretKey: OpenSandboxKingCrabClientSecret
 
 database:
   existingSecret: ""
-  secretName: ncrew-hire-db
+  secretName: ywork-db
   secretKey: ConnectionStrings__DefaultConnection
   connectionString: "Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=HireBot"
 
@@ -133,7 +133,7 @@ secrets:
   create: false
   stringData: {}
 
-# ncrew-hire-data PVC —— 挂载到 /app/ncrew-hire-data，持久化运行数据目录
+# ywork-data PVC —— 挂载到 /app/ncrew-hire-data，持久化运行数据目录
 hireData:
   persistence:
     enabled: false
