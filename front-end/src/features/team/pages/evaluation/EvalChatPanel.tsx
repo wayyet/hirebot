@@ -3,6 +3,7 @@ import { AlertCircle, Check, CheckCircle2, Copy, Loader2, MessageCircle, SendHor
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
+import { InstanceChatMessageBody } from '@/features/team/components/InstanceChatMessageBody'
 import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
 import type { EvaluationTestcaseOutline, EvaluationWorkspaceStatus } from '@/infra/api'
 import type { EvalChatMessage, ArtifactTab } from './evaluationTypes'
@@ -79,8 +80,11 @@ export function EvalChatPanel({
 
   // 消息更新时自动滚动到底部
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatLoading, chatMessages, streamingContent])
+    const frame = window.requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: streamingContent !== null ? 'auto' : 'smooth' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [chatLoading, chatMessages, streamingContent, streamingToolSteps])
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -317,11 +321,7 @@ export function EvalChatPanel({
                       ) : streamingContent ? (
                         <div className="rounded-2xl border eval-bubble-bot px-3 py-2.5 text-sm leading-6">
                           <div className="mb-1 text-[11px] eval-bubble-meta-bot">评估沙箱 · 正在回复</div>
-                          <div className="hb-md prose prose-sm max-w-none break-words">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {streamingContent}
-                            </ReactMarkdown>
-                          </div>
+                          <InstanceChatMessageBody content={streamingContent} role="assistant" streaming />
                         </div>
                       ) : null}
                     </div>

@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { resolveSystemTitle } from '@/app/branding/runtimeBranding'
 
 export const THEME_MODES = ['light', 'dark'] as const
 export const THEME_BRANDS = ['amber', 'blue'] as const
@@ -116,7 +117,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       favicon.href = warmThemeEnabled ? '/favicon-warm.svg' : '/favicon.svg'
     }
 
-    document.title = warmThemeEnabled ? 'Y Work' : 'NCrew Hire'
+    const language = localStorage.getItem('ncrew-hire-lang') ?? document.documentElement.lang ?? 'zh'
+    document.title = resolveSystemTitle(warmThemeEnabled, language)
   }, [warmThemeEnabled])
 
   useEffect(() => {

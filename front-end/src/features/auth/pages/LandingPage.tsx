@@ -12,13 +12,19 @@ import {
   Moon,
   Palette,
   ShieldCheck,
-  Sparkles,
   Sun,
   Users,
   Zap,
 } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import { useTheme } from '@/app/theme/ThemeProvider'
 import yWorkHireLogo from '@/assets/y-work-hire-logo.svg'
+import {
+  resolveBrandWordmarkSrc,
+  resolveDisplayProductName,
+  resolveSystemBrandIconSrc,
+  resolveSystemTitle,
+} from '@/app/branding/runtimeBranding'
 import { getAuthUser, isOidcConfigured, userManager } from '@/infra/auth/oidc'
 import { isAuthBypassed } from '@/infra/auth/auth-mode'
 
@@ -53,8 +59,11 @@ export default function LandingPage() {
   const [searchParams] = useSearchParams()
   const redirectPath = normalizeRedirectPath(searchParams.get('redirect'))
   const { brand, cycleBrand, isDark, toggleMode, warmThemeEnabled, warmThemeManagedByRuntime } = useTheme()
-  const productName = warmThemeEnabled ? 'Y Work' : t('brand.name')
+  const currentLang = i18n.resolvedLanguage ?? i18n.language ?? 'zh'
+  const productName = resolveDisplayProductName(warmThemeEnabled, t('brand.name'))
   const brandName = productName
+  const originalBrandWordmarkSrc = resolveBrandWordmarkSrc(currentLang)
+  const systemBrandIconSrc = resolveSystemBrandIconSrc(warmThemeEnabled)
   const [langOpen, setLangOpen] = useState(false)
   const langRef = useRef<HTMLDivElement>(null)
 
@@ -87,6 +96,10 @@ export default function LandingPage() {
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [])
 
+  useEffect(() => {
+    document.title = resolveSystemTitle(warmThemeEnabled, currentLang)
+  }, [currentLang, warmThemeEnabled])
+
   const handleLogin = () => {
     // 登录后继续回到用户原本想进入的业务路径。
     void userManager.signinRedirect({ state: { returnTo: redirectPath } })
@@ -113,17 +126,23 @@ export default function LandingPage() {
       <nav className="hb-landing-nav">
         <div className="hb-landing-nav-inner">
           <div className="hb-landing-brand">
-            <div className={`hb-brand-logo${warmThemeEnabled ? ' hb-brand-logo--mark' : ''}`}>
-              {warmThemeEnabled ? (
-                <img src={yWorkHireLogo} alt="" className="hb-brand-logo-mark" />
-              ) : (
-                <Sparkles size={16} color="#fff" />
-              )}
-            </div>
-            <div className="hb-brand-body">
-              <span className="hb-brand-name">{brandName}</span>
-              <span className="hb-brand-tagline">{t('brand.tagline')}</span>
-            </div>
+            {warmThemeEnabled ? (
+              <>
+                <div className="hb-brand-logo hb-brand-logo--mark">
+                  <img src={yWorkHireLogo} alt="" className="hb-brand-logo-mark" />
+                </div>
+                <div className="hb-brand-body">
+                  <span className="hb-brand-name">{brandName}</span>
+                  <span className="hb-brand-tagline">{t('brand.tagline')}</span>
+                </div>
+              </>
+            ) : (
+              <img
+                src={originalBrandWordmarkSrc}
+                alt={t('brand.name')}
+                className="hb-brand-wordmark"
+              />
+            )}
           </div>
 
           <div className="hb-landing-nav-actions">
@@ -193,11 +212,7 @@ export default function LandingPage() {
 
         <div className="hb-landing-hero-content">
           <div className="hb-landing-badge hb-anim-fade-up" style={{ animationDelay: '0ms' }}>
-            {warmThemeEnabled ? (
-              <img src="/favicon-warm.svg" alt="" className="hb-landing-badge-icon" />
-            ) : (
-              <Sparkles size={12} />
-            )}
+            <img src={systemBrandIconSrc} alt="" className="hb-landing-badge-icon" />
             {t('landing.badge')}
           </div>
 

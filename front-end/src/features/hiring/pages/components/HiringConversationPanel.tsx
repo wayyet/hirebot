@@ -278,7 +278,7 @@ export function HiringConversationPanel({
         })}
 
         {/* WS 流式回复：有内容时展示逐字气泡（使用 streaming 模式避免不完整 Markdown 解析卡顿），否则显示 typing 动画 */}
-        {streamingContent !== null && streamingContent !== undefined ? (
+        {streamingContent !== null && streamingContent !== undefined && streamingContent.length > 0 ? (
           <div className="hb-hiring-msg">
             <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
             <div className="hb-hiring-msg-stack">
@@ -289,7 +289,7 @@ export function HiringConversationPanel({
               ) : null}
               <div className="hb-hiring-bubble is-bot">
                 <InstanceChatMessageBody
-                  content={streamingContent.length > 0 ? streamingContent : '…'}
+                  content={streamingContent}
                   role="assistant"
                   streaming
                 />

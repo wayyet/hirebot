@@ -21,6 +21,7 @@ import {
 } from '@/infra/sandbox/sandbox-api'
 import { inferGatewayProtocol } from '@/infra/sandbox/sandbox-utils'
 import { tokenService } from '@/infra/auth/token-service'
+import { TYPEWRITER_SOFT_FINISH_DEFER_MS, useTypewriterStream } from '@/shared/hooks/useTypewriterStream'
 
 import { HiringConversationPanel } from './components/HiringConversationPanel'
 import { HiringJourneyHeader } from './components/HiringJourneyHeader'
@@ -385,13 +386,14 @@ export default function HiringPage() {
   // 用户在 TODO 面板关联的 store skill UUID 列表；导入产物包时一并提交给后端用于合并
   const [linkedStoreSkillIds, setLinkedStoreSkillIds] = useState<string[]>([])
   const [submittingMessage, setSubmittingMessage] = useState(false)
-  // WS 流式内容：非 null 时表示 AI 正在逐字输出
-  const [streamingContent, setStreamingContent] = useState<string | null>(null)
+  const typewriterStream = useTypewriterStream()
+  // WS 流式展示内容：raw 文本由 typewriterStream.rawTextRef 保存，避免 UI 节奏影响同步端点。
+  const streamingContent = typewriterStream.displayText
   /**
    * 当前轮次累积的 MCP 工具调甈步骤。
    * - ref 作为权威数据源，避免 setState 异步造成 tool_result 丢失
    * - streamingToolSteps 状态镜像仅用于驱动 React 重渲染
-   * - typing_stop 时将 ref 附到最终 bot 消息上，并同时清空
+   * - 终止事件完成后将 ref 附到最终 bot 消息上，并同时清空
    */
   const pendingToolStepsRef = useRef<ToolStep[]>([])
   const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([])
@@ -429,8 +431,6 @@ export default function HiringPage() {
   const sessionIdRef = useRef<string | null>(null)
   // 记录最近一次通过 WS 发送的用户消息，用于同步端点回传
   const lastWsUserMessageRef = useRef<string>('')
-  // 保存 WS 流式回复的原始内容（normalizeAssistantReply 之前），供同步端点使用
-  const rawStreamingContentRef = useRef<string>('')
   // 记录最近一次 WS 发送时的附件材料
   const lastWsMaterialsRef = useRef<ReturnType<typeof toConversationMaterials> | undefined>(undefined)
   // 存储原始 File 对象，供 WS 路径上传到 Gateway 使用
@@ -578,8 +578,11 @@ export default function HiringPage() {
   const uploadedFileCount = Math.max(allFiles.length, uploadedConversationFiles.length)
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, typing])
+    const frame = window.requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: streamingContent !== null ? 'auto' : 'smooth' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [messages, typing, streamingContent, streamingToolSteps])
 
   useEffect(() => {
     document.body.classList.add('hb-body-hiring-prototype')
@@ -980,8 +983,7 @@ export default function HiringPage() {
       }
       if (type === 'typing_start') {
         // AI 开始思考，切换到流式展示
-        rawStreamingContentRef.current = ''
-        setStreamingContent('')
+        typewriterStream.start()
         setTyping(true)
         // 重置本轮工具步骤累积
         pendingToolStepsRef.current = []
@@ -989,46 +991,43 @@ export default function HiringPage() {
         // 沙箱 AI 已开始回复，"模板包解析中"提示已完成其使命，清除以避免流程结束后残留
         setWorkflowNotice(prev => prev.includes('自动导入模板包') ? '' : prev)
       } else if (type === 'text_delta' || type === 'assistant_chunk') {
-        // 逐字追加流式内容
+        // 原始分片进入共享打字机缓冲，UI 按稳定节奏释放字符。
         const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
-        setStreamingContent(prev => {
-          const next = prev === null ? chunk : prev + chunk
-          rawStreamingContentRef.current = next
-          return next
-        })
+        typewriterStream.append(chunk)
       } else if (type === 'typing_stop' || type === 'assistant_done') {
-        // AI 回复完毕，保存原始内容（供同步端点使用），然后将清理后的内容提交为正式气泡
-        const rawReply = rawStreamingContentRef.current
+        // typing_stop 只做软结束等待，assistant_done 可带完整正文并立即固化。
         const userMessage = lastWsUserMessageRef.current
         const materials = lastWsMaterialsRef.current
-        rawStreamingContentRef.current = ''
-
-        // 直接从 ref 取流式内容提交为正式消息（不放在 setStreamingContent 回调里，
-        // 避免 React StrictMode 双重调用导致同一条 bot 消息被 add 两遍）
-        if (rawReply && rawReply.trim().length > 0) {
-          const cleaned = normalizeAssistantReply(rawReply)
-          if (cleaned.length > 0) {
-            // 将本轮累积的工具调甈步骤附到 bot 消息，与 Markdown 正文合并呈现
-            const steps = pendingToolStepsRef.current.length > 0 ? [...pendingToolStepsRef.current] : undefined
-            setMessages(msgs => [...msgs, { id: mkId(), role: 'bot', content: cleaned, toolSteps: steps }])
+        const fallbackReply = String(msg.content ?? msg.text ?? '')
+        const finishOptions = type === 'typing_stop'
+          ? { deferMs: TYPEWRITER_SOFT_FINISH_DEFER_MS }
+          : undefined
+        typewriterStream.finish(fallbackReply, (rawReply) => {
+          // 直接从 hook 的 raw 文本提交正式消息，避免 React StrictMode 双重调用导致重复气泡。
+          if (rawReply && rawReply.trim().length > 0) {
+            const cleaned = normalizeAssistantReply(rawReply)
+            if (cleaned.length > 0) {
+              // 将本轮累积的工具调用步骤附到 bot 消息，与 Markdown 正文合并呈现。
+              const steps = pendingToolStepsRef.current.length > 0 ? [...pendingToolStepsRef.current] : undefined
+              setMessages(msgs => [...msgs, { id: mkId(), role: 'bot', content: cleaned, toolSteps: steps }])
+            }
           }
-        }
-        // 无论是否产生 bot 消息，本轮状态都需重置
-        pendingToolStepsRef.current = []
-        setStreamingToolSteps([])
-        setStreamingContent(null)
-        setTyping(false)
+          // 无论是否产生 bot 消息，本轮状态都需重置。
+          pendingToolStepsRef.current = []
+          setStreamingToolSteps([])
+          setTyping(false)
 
-        // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等
-        const hireId = workflowHireIdRef.current
-        if (hireId && rawReply) {
-          api.hiringWorkflow.syncConversationTurn(hireId, {
-            userMessage: userMessage || '',
-            assistantReply: rawReply,
-            materials: materials ?? undefined,
-          }).catch(() => { /* 忽略 */ })
-        }
-        void flushQueuedInternalPrompt()
+          // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等。
+          const hireId = workflowHireIdRef.current
+          if (hireId && rawReply) {
+            api.hiringWorkflow.syncConversationTurn(hireId, {
+              userMessage: userMessage || '',
+              assistantReply: rawReply,
+              materials: materials ?? undefined,
+            }).catch(() => { /* 忽略 */ })
+          }
+          void flushQueuedInternalPrompt()
+        }, finishOptions)
       } else if (type === 'tool_start') {
         // MCP 工具开始调用：仅用于记录流式气泡上方的进度面板
         const rawMsg = msg as unknown as Record<string, unknown>
@@ -1423,7 +1422,7 @@ export default function HiringPage() {
           }
         }
 
-        // 记录本次发送的用户消息和材料，供 WS typing_stop 事件中调用同步端点使用
+        // 记录本次发送的用户消息和材料，供 WS 终止事件中调用同步端点使用。
         lastWsUserMessageRef.current = messageText
         lastWsMaterialsRef.current = toConversationMaterials(incoming)
         if (!ws.isOpen()) {
@@ -1446,8 +1445,7 @@ export default function HiringPage() {
       } catch (error: unknown) {
         setWorkflowError(normalizeErrorMessage(error))
         setTyping(false)
-        setStreamingContent(null)
-        rawStreamingContentRef.current = ''
+        typewriterStream.reset()
         // 错误回退时清理本轮工具步骤累积
         pendingToolStepsRef.current = []
         setStreamingToolSteps([])
@@ -1475,11 +1473,17 @@ export default function HiringPage() {
 
       const assistantContent = normalizeAssistantReply(response.assistantMessage.content)
       if (assistantContent) {
-        setMessages(prev => [...prev, {
-          id: response.assistantMessage.messageId || mkId(),
-          role: 'bot',
-          content: assistantContent,
-        }])
+        typewriterStream.start()
+        await new Promise<void>((resolve) => {
+          typewriterStream.finish(assistantContent, (displayedReply) => {
+            setMessages(prev => [...prev, {
+              id: response.assistantMessage.messageId || mkId(),
+              role: 'bot',
+              content: displayedReply,
+            }])
+            resolve()
+          })
+        })
       }
 
       const endpoint = gatewayEndpointRef.current
@@ -1496,7 +1500,7 @@ export default function HiringPage() {
       return false
     } finally {
       setTyping(false)
-      setStreamingContent(null)
+      typewriterStream.reset()
       messageSubmitRef.current = false
       setSubmittingMessage(false)
     }
@@ -1834,7 +1838,7 @@ export default function HiringPage() {
         setInput('')
         setPendingFiles([])
         setAllFiles([])
-        setStreamingContent(null)
+        typewriterStream.reset()
         setTyping(false)
         setJourneyGuideVisible(false)
         setFocusedStage(null)
