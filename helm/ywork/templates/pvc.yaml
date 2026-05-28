@@ -1,0 +1,19 @@
+{{- if .Values.hireData.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ncrew-hire.fullname" . }}-data
+  labels:
+    {{- include "ncrew-hire.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/resource-policy": keep
+spec:
+  accessModes:
+    - {{ .Values.hireData.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.hireData.persistence.size }}
+  {{- if .Values.hireData.persistence.storageClassName }}
+  storageClassName: {{ .Values.hireData.persistence.storageClassName }}
+  {{- end }}
+{{- end }}
