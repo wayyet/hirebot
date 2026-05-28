@@ -87,6 +87,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<ThemeMode>(readInitialMode)
   const [brand, setBrandState] = useState<ThemeBrand>(readInitialBrand)
   const skin = deriveSkin(brand)
+  const warmThemeEnabled = brand === 'amber'
 
   useEffect(() => {
     if (configuredBrand && brand !== configuredBrand) {
@@ -108,6 +109,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(THEME_BRAND_STORAGE_KEY, brand)
     localStorage.setItem(LEGACY_THEME_STORAGE_KEY, mode)
   }, [brand, mode, skin])
+
+  useEffect(() => {
+    const favicon = document.getElementById('app-favicon')
+    if (favicon instanceof HTMLLinkElement) {
+      favicon.href = warmThemeEnabled ? '/favicon-warm.svg' : '/favicon.svg'
+    }
+
+    document.title = warmThemeEnabled ? 'Y Work' : 'NCrew Hire'
+  }, [warmThemeEnabled])
 
   useEffect(() => {
     function handleStorage(event: StorageEvent) {
@@ -137,7 +147,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     mode,
     brand,
     skin,
-    warmThemeEnabled: brand === 'amber',
+    warmThemeEnabled,
     warmThemeManagedByRuntime,
     isDark: mode === 'dark',
     setMode,
@@ -156,7 +166,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
       setBrandState((current) => (current === 'amber' ? 'blue' : 'amber'))
     },
-  }), [brand, mode, skin, warmThemeManagedByRuntime])
+  }), [brand, mode, skin, warmThemeEnabled, warmThemeManagedByRuntime])
 
   return (
     <ThemeContext.Provider value={value}>
