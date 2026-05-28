@@ -15,5 +15,5 @@ export function resolveSystemTitle(warmThemeEnabled: boolean, language: string):
     return 'Y Work'
   }
 
-  return language.toLowerCase().startsWith('zh') ? '好雇' : 'Good Crew'
+  return language.toLowerCase().startsWith('zh') ? '好雇' : 'GoodCrew'
 }
