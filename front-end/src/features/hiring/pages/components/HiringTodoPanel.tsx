@@ -552,13 +552,15 @@ function MaterialCardBody({
   const [persistedCategories, setPersistedCategories] = useState<MaterialRequestedCategory[]>([])
   const { t } = useTranslation()
 
-  const refresh = useCallback(async () => {
-    if (!hireId || !sessionId) return
+  const refresh = useCallback(async (): Promise<UploadedFileMeta[]> => {
+    if (!hireId || !sessionId) return []
     try {
       const items = await api.hiringWorkflow.listMaterialFiles(hireId, sessionId)
       setUploaded(items)
+      return items
     } catch {
       // 列表刷新失败不阻断资料上传主流程。
+      return []
     }
   }, [hireId, sessionId])
 
@@ -617,18 +619,17 @@ function MaterialCardBody({
         groups.set(folder, list)
       }
 
-      let total = 0
-      const names: string[] = []
       for (const [folder, filesInFolder] of groups.entries()) {
-        const saved = await api.hiringWorkflow.uploadMaterialFiles(hireId, sessionId, filesInFolder, {
+        await api.hiringWorkflow.uploadMaterialFiles(hireId, sessionId, filesInFolder, {
           folder: folder || undefined,
           requestedCategoryTitle: requestedCategoryTitle || undefined,
         })
-        total += saved.length
-        names.push(...saved.map(item => item.relativePath))
       }
 
-      await refresh()
+      // 基于全量已上传文件构建摘要，避免多次上传时只发送最后一批的信息给 AI
+      const allFiles = await refresh()
+      const total = allFiles.length
+      const names = allFiles.map(item => item.originalFileName || item.relativePath)
       const preview = names.slice(0, 5).join('、')
       const suffix = names.length > 5 ? t('hiring.todo.material.uploadSuffix', { count: names.length }) : ''
       const categoryPrefix = requestedCategoryTitle ? t('hiring.todo.material.categoryPrefix', { category: requestedCategoryTitle }) : ''

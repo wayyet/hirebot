@@ -31,7 +31,7 @@ metadata: {"openclaw":{"emoji":"{{emoji}}"}}
 This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/contract-index.json`.
 
 - Projection discovery, route selection, and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contracts/contract-index.json` first to select the topic and target view, then enter the topic subdirectory and read `<domain-slug>.<target-view>.projection.json`, and finally check `REVIEW.md`.
+- For human review, read `contracts/contract-index.json` to understand available topics and views, then read the corresponding projection files under `contracts/ontology-extraction/`.
 
 ### Projection Consumption
 

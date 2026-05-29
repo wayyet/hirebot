@@ -5,7 +5,7 @@ import type { ArtifactDisplayData } from '../hiringPageTypes'
 interface Props {
   artifact: ArtifactDisplayData
   /** 带 token 的文件下载回调；未提供时退化为直接 <a href> */
-  onFileDownload?: (url: string, fileName: string) => void
+  onFileDownload?: (url: string, fileName: string, artifactType: string) => void
   /** 手动触发上传到系统（仅 template_package 展示） */
   onManualUpload?: (fileUrl: string, fileName: string) => void
 }
@@ -38,7 +38,7 @@ export function ArtifactMessageCard({ artifact, onFileDownload, onManualUpload }
             <button
               type="button"
               className="hb-artifact-file-link"
-              onClick={() => onFileDownload(artifact.fileUrl!, artifact.fileName ?? title)}
+              onClick={() => onFileDownload(artifact.fileUrl!, artifact.fileName ?? title, artifact.artifactType)}
             >
               <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
               {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}

@@ -2133,7 +2133,31 @@ export default function HiringPage() {
           onOpenSkillUpload={() => setShowSkillUploadModal(true)}
           onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
           formatFileSize={formatFileSize}
-          onArtifactFileDownload={(url, fileName) => { void downloadGatewayFile(url, fileName) }}
+          onArtifactFileDownload={(url, fileName, artifactType) => {
+            // template_package 产物：优先使用后端已叠加外部系统配置的最终包
+            if (artifactType === 'template_package' && artifactArchive) {
+              downloadBlob(artifactArchive.blob, artifactArchive.fileName)
+              return
+            }
+            // template_package 且有外部配置但尚未生成实例时，从后端中间包下载（包含外部配置）
+            if (
+              artifactType === 'template_package' &&
+              workflowHireId &&
+              latestExternalConfigRef.current?.submissionMode === 'configured'
+            ) {
+              void (async () => {
+                try {
+                  const archive = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
+                  downloadBlob(archive.blob, archive.fileName)
+                } catch {
+                  // 后端无包时回退到网关下载
+                  void downloadGatewayFile(url, fileName)
+                }
+              })()
+              return
+            }
+            void downloadGatewayFile(url, fileName)
+          }}
           onArtifactManualUpload={(url, fileName) => { void triggerCreate({ fileUrl: url, fileName }) }}
           workflowStatus={workflowStatus}
         />

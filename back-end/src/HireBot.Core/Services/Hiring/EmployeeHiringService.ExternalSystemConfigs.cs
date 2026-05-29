@@ -75,6 +75,13 @@ internal sealed partial class EmployeeHiringService
         await UpsertExternalSystemConfigMetadataAsync(runtimeContext.SandboxId, persistedState, cancellationToken);
         await SyncExternalSystemConfigWorkspaceAsync(runtimeContext, cancellationToken);
 
+        // 外部配置变更后立即持久化中间包，确保后端存储的包始终包含最新外部配置，
+        // 即使沙箱工作区写入失败，下载时仍可从后端获取包含外部配置的完整包。
+        if (ShouldPersistArtifactPackages(runtimeContext))
+        {
+            await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+        }
+
         return ApiResponse<HiringExternalSystemConfigDto>.SuccessResponse(
             persistedState?.ToDto(secretProtector) ?? new HiringExternalSystemConfigDto(),
             persistedState is null ? "已清空外部系统配置" : "已保存外部系统配置");

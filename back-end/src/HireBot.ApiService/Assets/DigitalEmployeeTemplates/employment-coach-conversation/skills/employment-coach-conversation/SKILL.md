@@ -338,9 +338,8 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 **阶段 3 完成后的强制阶段门动作**：发出 `external_workorder_summary` 后，按以下顺序判断：
 
 - 若仍处于 `skill_generation_ready`（等待用户确认是否开始生成技能实现），**必须先复用阶段 2 的确认门询问**，不要直接进入打包询问。
-- 右侧卡片保存或跳过外部系统配置后，会回流一条显式完成消息，并由系统层发出 `external_config_committed`；把这类信号视为 `external/` 已由系统同步完成。
 - 若 ontology-extraction 或 skill-generation 任一仍未发出 terminal artifact，先用一行简短状态同步告诉用户"下游生成仍在执行，完成后即可打包"，不要提前承诺已打包，也不要发 `template_package`。
-- 只有当 ontology-extraction、skill-generation 均已完成，且外部配置已收到右侧卡片保存/跳过的明确信号后，才给用户一句主动询问，引导进入打包阶段：
+- 只有当 ontology-extraction、skill-generation 均已完成后，才给用户一句主动询问，引导进入打包阶段：
 
 > 「三个阶段均已完成——资料、技能定义和外部能力都已梳理好了。现在可以生成产物包，把配置打包交付给系统。是否现在开始打包？」
 
@@ -375,7 +374,7 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 **触发条件（满足任一即进入）**：
 
-A. **下游就绪触发**：ontology-extraction、skill-generation 两个下游 skill 全部发出 terminal artifact（`ontology_extraction_done` / `skill_generation_done` 均已收到），且外部系统配置已通过右侧卡片保存或跳过。
+A. **下游就绪触发**：ontology-extraction、skill-generation 两个下游 skill 全部发出 terminal artifact（`ontology_extraction_done` / `skill_generation_done` 均已收到）。
 
 B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 terminal summary（`material_handoff_summary` / `skill_workorder_summary` / `external_workorder_summary`，其中外部阶段允许是 skip 形态），**且**用户在对话中显式请求打包（关键词：「生成产物包」「打包」「生成实例包」「导出」「打成 zip」「完成打包」等），进入阶段 4 的等待 / 执行分支：
 - 若下游 terminal artifact 已全部到位，立即执行真实打包。
