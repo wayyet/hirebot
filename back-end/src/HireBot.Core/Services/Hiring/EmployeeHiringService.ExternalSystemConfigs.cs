@@ -180,6 +180,13 @@ internal sealed partial class EmployeeHiringService
             || !runtimeContext.ExternalSystemConfig.IsPersisted
             || string.IsNullOrWhiteSpace(runtimeContext.SandboxId))
         {
+            logger.LogWarning(
+                "[MCP-DIAG] SyncExternalSystemConfigWorkspaceAsync skipped. " +
+                "ExternalSystemConfig={HasConfig}, IsPersisted={IsPersisted}, SandboxId={SandboxId}, HireId={HireId}",
+                runtimeContext.ExternalSystemConfig is not null,
+                runtimeContext.ExternalSystemConfig?.IsPersisted ?? false,
+                runtimeContext.SandboxId ?? "(null)",
+                runtimeContext.HireId);
             return;
         }
 
@@ -389,12 +396,16 @@ internal sealed partial class EmployeeHiringService
     {
         if (string.IsNullOrWhiteSpace(runtimeContext.SandboxId))
         {
+            logger.LogWarning("[MCP-DIAG] SyncMcpConfigToSandboxAsync skipped: SandboxId is empty. HireId={HireId}", runtimeContext.HireId);
             return;
         }
 
         var mergedConfig = BuildMergedMcpConfig(runtimeContext.ExternalSystemConfig);
         if (!mergedConfig.Enabled || mergedConfig.Servers.Count == 0)
         {
+            logger.LogWarning(
+                "[MCP-DIAG] SyncMcpConfigToSandboxAsync skipped: Enabled={Enabled}, ServerCount={ServerCount}, HireId={HireId}",
+                mergedConfig.Enabled, mergedConfig.Servers.Count, runtimeContext.HireId);
             return;
         }
 

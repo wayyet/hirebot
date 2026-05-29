@@ -6,7 +6,7 @@
  * - 阶段亮灯/完成态完全由 `wsStageOverrides`（artifact / skill_stage_gate WS 事件聚合）控制。
  * - 资料卡：仅接受 .md / .json 的文件夹/文件上传，落盘到 wwwroot/resources/todo-files/{sessionId}/{folder?}/。
  * - 技能卡：调用内部 Skills Catalog 搜索并关联，外部系统配置作为可选项。
- * - 上传完成后通过 onAfterStageMessage 回调，模拟用户消息驱动 AI 推进下一阶段。
+ * - 资料/外部阶段在用户完成一次上传或保存后，先进入待确认，再由用户明确选择继续补充或推进阶段。
  * - 含 200% 缩放（Surface Pro 8 类窄屏）适配。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -30,6 +30,11 @@ import type {
   DownstreamRunState,
   MaterialRequestedCategory,
 } from '../hiringPageTypes'
+import type { ExternalConfigChangeSource } from '../externalPackagingState'
+import type {
+  PendingStageAdvanceConfirmation,
+  StageAdvanceIntent,
+} from '../stageAdvanceConfirmation'
 import {
   buildUploadedCountByCategory,
   countDistinctMaterialUploads,
@@ -62,8 +67,8 @@ export interface HiringTodoPanelProps {
   sessionId: string
   /** WS 阶段覆盖状态：由 HiringPage 聚合 artifact / skill_stage_gate 事件得到 */
   wsStageOverrides: Map<StageKey, StageStatus>
-  /** 上传完成后回调（模拟用户消息驱动 AI 进入下一阶段） */
-  onAfterStageMessage?: (stage: StageKey, summary: string) => void
+  /** 子卡片产出阶段摘要后回调；资料/外部阶段会先等待用户确认是否推进 */
+  onAfterStageMessage?: (stage: StageKey, summary: string, intent?: StageAdvanceIntent) => void
   /** 触发生成实例包 */
   onGenerate?: () => void
   generated?: boolean
@@ -77,7 +82,11 @@ export interface HiringTodoPanelProps {
   skillDefinitionStageStatus?: StageStatus | null
   skillGenerationState?: DownstreamRunState | null
   definedSkills?: DefinedSkillItem[]
-  onExternalConfigChange?: (config: HiringExternalSystemConfig | null) => void
+  onExternalConfigChange?: (config: HiringExternalSystemConfig | null, source?: ExternalConfigChangeSource) => void
+  pendingStageConfirmation?: PendingStageAdvanceConfirmation | null
+  onContinueStageCollection?: () => void
+  onConfirmStageAdvance?: () => void
+  stageConfirmationBusy?: boolean
 }
 
 interface StageConfig {
@@ -299,6 +308,10 @@ export function HiringTodoPanel({
   skillGenerationState = null,
   definedSkills = [],
   onExternalConfigChange,
+  pendingStageConfirmation = null,
+  onContinueStageCollection,
+  onConfirmStageAdvance,
+  stageConfirmationBusy = false,
 }: HiringTodoPanelProps) {
   const { t } = useTranslation()
   // 用户是否手动覆盖了某张卡片的展开状态；未手动覆盖的走"活跃阶段自动展开"逻辑
@@ -364,7 +377,11 @@ export function HiringTodoPanel({
             sessionId={sessionId}
             requestedCategories={requestedMaterialCategories}
             uploadedConversationFiles={uploadedConversationFiles}
-            onAfterUpload={summary => onAfterStageMessage?.(HiringCollectionStage.Material, summary)}
+            pendingConfirmation={pendingStageConfirmation?.stage === HiringCollectionStage.Material ? pendingStageConfirmation : null}
+            stageConfirmationBusy={stageConfirmationBusy}
+            onContinueCollection={onContinueStageCollection}
+            onConfirmAdvance={onConfirmStageAdvance}
+            onAfterUpload={summary => onAfterStageMessage?.(HiringCollectionStage.Material, summary, 'ready_to_advance')}
           />
         </div>
 
@@ -380,7 +397,7 @@ export function HiringTodoPanel({
             {stage.key === HiringCollectionStage.Skill && (
               <SkillCardBody
                 templatePackageSkills={templatePackageSkills}
-                onAfterLink={summary => onAfterStageMessage?.(HiringCollectionStage.Skill, summary)}
+                onAfterLink={summary => onAfterStageMessage?.(HiringCollectionStage.Skill, summary, 'collecting')}
                 onLinkedIdsChange={onLinkedSkillIdsChange}
                 definitionStageStatus={skillDefinitionStageStatus}
                 skillGenerationState={skillGenerationState}
@@ -391,7 +408,11 @@ export function HiringTodoPanel({
               <ExternalCardBody
                 hireId={hireId}
                 isUnlocked={isExternalStageUnlocked}
-                onAfterSave={summary => onAfterStageMessage?.(HiringCollectionStage.External, summary)}
+                pendingConfirmation={pendingStageConfirmation?.stage === HiringCollectionStage.External ? pendingStageConfirmation : null}
+                stageConfirmationBusy={stageConfirmationBusy}
+                onContinueCollection={onContinueStageCollection}
+                onConfirmAdvance={onConfirmStageAdvance}
+                onAfterSave={(summary, intent) => onAfterStageMessage?.(HiringCollectionStage.External, summary, intent)}
                 onConfigChange={onExternalConfigChange}
               />
             )}
@@ -458,13 +479,66 @@ function StageCard({
 
 // ── 资料卡（文件夹上传 .md/.json） ─────────────────────────────────────────────
 
+function StageAdvanceConfirmationPanel({
+  pendingConfirmation,
+  busy,
+  onContinueCollection,
+  onConfirmAdvance,
+}: {
+  pendingConfirmation: PendingStageAdvanceConfirmation
+  busy: boolean
+  onContinueCollection?: () => void
+  onConfirmAdvance?: () => void
+}) {
+  return (
+    <section className="hb-todo-external-card is-list-card">
+      <div className="hb-todo-external-card-head">
+        <div>
+          <div className="hb-todo-external-card-title">{pendingConfirmation.title}</div>
+          <p className="hb-todo-external-card-copy">{pendingConfirmation.prompt}</p>
+        </div>
+      </div>
+      <div className="hb-todo-actions-row">
+        <button
+          type="button"
+          className="hb-todo-row-btn is-ghost"
+          disabled={busy}
+          onClick={onContinueCollection}
+        >
+          {pendingConfirmation.continueLabel}
+        </button>
+        <button
+          type="button"
+          className="hb-todo-row-btn is-primary"
+          disabled={busy}
+          onClick={onConfirmAdvance}
+        >
+          {pendingConfirmation.confirmLabel}
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function MaterialCardBody({
-  hireId, sessionId, requestedCategories, uploadedConversationFiles, onAfterUpload,
+  hireId,
+  sessionId,
+  requestedCategories,
+  uploadedConversationFiles,
+  pendingConfirmation,
+  stageConfirmationBusy,
+  onContinueCollection,
+  onConfirmAdvance,
+  onAfterUpload,
 }: {
   hireId: string
   sessionId: string
   requestedCategories: MaterialRequestedCategory[]
   uploadedConversationFiles: ChatFile[]
+  pendingConfirmation: PendingStageAdvanceConfirmation | null
+  stageConfirmationBusy: boolean
+  onContinueCollection?: () => void
+  onConfirmAdvance?: () => void
   onAfterUpload: (summary: string) => void
 }) {
   const folderInputRef = useRef<HTMLInputElement | null>(null)
@@ -730,6 +804,15 @@ function MaterialCardBody({
           }}
         />
       </div>
+
+      {pendingConfirmation && (
+        <StageAdvanceConfirmationPanel
+          pendingConfirmation={pendingConfirmation}
+          busy={stageConfirmationBusy}
+          onContinueCollection={onContinueCollection}
+          onConfirmAdvance={onConfirmAdvance}
+        />
+      )}
 
       {error && <p className="hb-todo-error">{error}</p>}
     </div>
@@ -1057,11 +1140,19 @@ function ExternalCardBody({
   isUnlocked,
   onAfterSave,
   onConfigChange,
+  pendingConfirmation,
+  stageConfirmationBusy,
+  onContinueCollection,
+  onConfirmAdvance,
 }: {
   hireId: string
   isUnlocked: boolean
-  onAfterSave: (summary: string) => void
-  onConfigChange?: (config: HiringExternalSystemConfig | null) => void
+  onAfterSave: (summary: string, intent: StageAdvanceIntent) => void
+  onConfigChange?: (config: HiringExternalSystemConfig | null, source?: ExternalConfigChangeSource) => void
+  pendingConfirmation: PendingStageAdvanceConfirmation | null
+  stageConfirmationBusy: boolean
+  onContinueCollection?: () => void
+  onConfirmAdvance?: () => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -1120,7 +1211,7 @@ function ExternalCardBody({
     if ((persistedExternalConfig.submissionMode ?? 'pending') === 'configured' && hasPersistedExternalConfig(persistedExternalConfig)) {
       setIsConfiguring(true)
     }
-    onConfigChange?.(persistedExternalConfig)
+    onConfigChange?.(persistedExternalConfig, 'hydrate')
 
     hasHydratedExternalConfigRef.current = true
   }, [onConfigChange, persistedExternalConfig])
@@ -1175,7 +1266,7 @@ function ExternalCardBody({
       setMcpConfig(createMcpConfigDraftFromConfig(savedConfig.mcpServer))
       setMcpDraftConfig(createMcpConfigDraftFromConfig(savedConfig.mcpServer))
       setIsConfiguring(false)
-      onConfigChange?.(null)
+      onConfigChange?.(null, 'clear')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '重置外部系统配置失败')
     } finally {
@@ -1198,8 +1289,8 @@ function ExternalCardBody({
       setMcpConfig(createMcpConfigDraftFromConfig(savedConfig.mcpServer))
       setMcpDraftConfig(createMcpConfigDraftFromConfig(savedConfig.mcpServer))
       setIsConfiguring(false)
-      onConfigChange?.(savedConfig)
-      onAfterSave(i18n.t('hiring.todo.external.skipMessage'))
+      onConfigChange?.(savedConfig, 'skip')
+      onAfterSave(i18n.t('hiring.todo.external.skipMessage'), 'skip')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '外部系统配置跳过失败')
     } finally {
@@ -1210,7 +1301,7 @@ function ExternalCardBody({
   function handleStartConfig() {
     setSaveError('')
     setIsConfiguring(true)
-    onAfterSave(EXTERNAL_CONFIG_START_MESSAGE)
+    onAfterSave(EXTERNAL_CONFIG_START_MESSAGE, 'collecting')
   }
 
   function handleOpenCliModal() {
@@ -1428,8 +1519,8 @@ function ExternalCardBody({
       setCliDraftTools(createCliToolDraftsFromConfig(savedConfig.cliTools))
       setMcpConfig(createMcpConfigDraftFromConfig(savedConfig.mcpServer))
       setMcpDraftConfig(createMcpConfigDraftFromConfig(savedConfig.mcpServer))
-      onConfigChange?.(savedConfig)
-      onAfterSave(buildSaveSummary())
+      onConfigChange?.(savedConfig, 'save')
+      onAfterSave(buildSaveSummary(), 'ready_to_advance')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '外部系统配置保存失败')
     } finally {
@@ -1466,18 +1557,28 @@ function ExternalCardBody({
           {t('hiring.todo.external.stageLockedMessage')}
         </div>
       ) : persistedExternalConfig?.submissionMode === 'skipped' ? (
-        <div className="hb-todo-external-locked">
-          <p>{i18n.t('hiring.todo.external.skipMessage')}</p>
-          <button
-            type="button"
-            className="hb-todo-row-btn is-ghost"
-            style={{ marginTop: 8 }}
-            disabled={isSaving}
-            onClick={() => { void handleReconfigure() }}
-          >
-            {t('hiring.todo.external.reconfigure')}
-          </button>
-        </div>
+        <>
+          <div className="hb-todo-external-locked">
+            <p>{i18n.t('hiring.todo.external.skipMessage')}</p>
+            <button
+              type="button"
+              className="hb-todo-row-btn is-ghost"
+              style={{ marginTop: 8 }}
+              disabled={isSaving}
+              onClick={() => { void handleReconfigure() }}
+            >
+              {t('hiring.todo.external.reconfigure')}
+            </button>
+          </div>
+          {pendingConfirmation && (
+            <StageAdvanceConfirmationPanel
+              pendingConfirmation={pendingConfirmation}
+              busy={stageConfirmationBusy}
+              onContinueCollection={onContinueCollection}
+              onConfirmAdvance={onConfirmAdvance}
+            />
+          )}
+        </>
       ) : !isConfiguring ? (
         <>
           <div className="hb-todo-external-choice-grid">
@@ -1504,6 +1605,14 @@ function ExternalCardBody({
             <button type="button" className="hb-todo-row-btn is-ghost" onClick={handleSkip}>{t('hiring.todo.external.skip')}</button>
             <button type="button" className="hb-todo-row-btn is-primary" onClick={handleStartConfig}>{t('hiring.todo.external.continueConfig')}</button>
           </div>
+          {pendingConfirmation && (
+            <StageAdvanceConfirmationPanel
+              pendingConfirmation={pendingConfirmation}
+              busy={stageConfirmationBusy}
+              onContinueCollection={onContinueCollection}
+              onConfirmAdvance={onConfirmAdvance}
+            />
+          )}
         </>
       ) : (
         <>
@@ -1572,6 +1681,14 @@ function ExternalCardBody({
               ) : t('hiring.todo.external.save')}
             </button>
           </div>
+          {pendingConfirmation && (
+            <StageAdvanceConfirmationPanel
+              pendingConfirmation={pendingConfirmation}
+              busy={stageConfirmationBusy}
+              onContinueCollection={onContinueCollection}
+              onConfirmAdvance={onConfirmAdvance}
+            />
+          )}
 
           {activeModal === 'cli' && (
             <div

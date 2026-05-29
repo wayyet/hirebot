@@ -256,7 +256,7 @@ export function buildHistoricalHiringConversationState(
         continue
       }
 
-      if (artifact.artifactType === 'external_workorder_summary') {
+      if (artifact.artifactType === 'external_workorder_summary' || artifact.artifactType === 'external_config_committed') {
         if (wsStageOverrides.get(HiringCollectionStage.External) !== 'completed') {
           wsStageOverrides.set(HiringCollectionStage.External, 'running')
         }

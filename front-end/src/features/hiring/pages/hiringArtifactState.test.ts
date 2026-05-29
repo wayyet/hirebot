@@ -151,7 +151,7 @@ describe('buildHistoricalHiringConversationState', () => {
     })
   })
 
-  it('marks the external stage completed when external_config_committed exists in history', () => {
+  it('keeps the external stage running when only external_config_committed exists in history', () => {
     const sandboxMessages: SandboxMessage[] = [
       {
         type: 'assistant_message',
@@ -183,7 +183,7 @@ describe('buildHistoricalHiringConversationState', () => {
     )
 
     expect(restored.messages.some(message => message.role === 'artifact' && message.artifact?.artifactType === 'external_config_committed')).toBe(true)
-    expect(restored.wsStageOverrides.get(HiringCollectionStage.External)).toBe('completed')
+    expect(restored.wsStageOverrides.get(HiringCollectionStage.External)).toBe('running')
   })
 })
 
