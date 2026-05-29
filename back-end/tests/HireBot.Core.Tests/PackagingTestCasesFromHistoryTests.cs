@@ -7,6 +7,7 @@ using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Hiring;
+using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Hiring.Artifacts;
@@ -14,6 +15,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Hiring;
@@ -130,9 +133,11 @@ public class PackagingTestCasesFromHistoryTests
     public async Task InvokePackagingTestCasesSkillAsync_WhenHistoryEmptyButMaterialsPresent_ShouldStillInvoke()
     {
         var dbContext = EmployeeHiringServicePackagingTestFactory.CreateDbContext();
-        var tempDir = Path.Combine(Path.GetTempPath(), "hirebot-packaging-materials", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var storagePath = Path.Combine(tempDir, "rules.md");
+        var contentRoot = Directory.GetCurrentDirectory();
+        var todoFilesRoot = HireBotPathResolver.ResolveTodoFilesRoot(contentRoot, null, null);
+        var sessionDir = Path.Combine(todoFilesRoot, "session-001");
+        Directory.CreateDirectory(sessionDir);
+        var storagePath = Path.Combine(sessionDir, "rules.md");
         await File.WriteAllTextAsync(storagePath, "# 访客预约规则", Encoding.UTF8);
 
         dbContext.HiringMaterialFiles.Add(new HireBot.Repository.Entities.HiringMaterialFileEntity
@@ -507,6 +512,7 @@ internal static class EmployeeHiringServicePackagingTestFactory
             storeSkillPackageDownloader ?? new NotSupportedStoreSkillPackageDownloader(),
             new PassThroughSecretProtector(),
             configuration,
+            new TestHostEnvironment(),
             NullLogger<EmployeeHiringService>.Instance);
     }
 
@@ -632,4 +638,12 @@ internal static class EmployeeHiringServicePackagingTestFactory
     }
 
     private static Task<T> Throw<T>() => throw new NotSupportedException();
+}
+
+file sealed class TestHostEnvironment : IHostEnvironment
+{
+    public string EnvironmentName { get; set; } = "Test";
+    public string ApplicationName { get; set; } = "Test";
+    public string ContentRootPath { get; set; } = Directory.GetCurrentDirectory();
+    public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
 }

@@ -37,11 +37,48 @@ public class PackagingTestCaseMaterialLoaderTests
             dbContext,
             "hire-1",
             "session-1",
+            [tempDir],
             CancellationToken.None);
 
         Assert.Single(snapshots);
         Assert.Equal("访客预约与审核规则", snapshots[0].RequestedCategoryTitle);
         Assert.Equal(PackagingTestCaseMaterialLoader.MaxSingleFileCharacters, snapshots[0].Content.Length);
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenStoragePathOutsideAllowedRoot_ShouldSkip()
+    {
+        var dbContext = CreateDbContext();
+        var allowedRoot = Path.Combine(Path.GetTempPath(), "hirebot-material-loader-allowed", Guid.NewGuid().ToString("N"));
+        var outsideRoot = Path.Combine(Path.GetTempPath(), "hirebot-material-loader-outside", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outsideRoot);
+        var storagePath = Path.Combine(outsideRoot, "rules.md");
+        await File.WriteAllTextAsync(storagePath, "# 规则", Encoding.UTF8);
+
+        dbContext.HiringMaterialFiles.Add(new HiringMaterialFileEntity
+        {
+            HireId = "hire-1",
+            SessionId = "session-1",
+            RelativePath = "rules.md",
+            OriginalFileName = "rules.md",
+            StoragePath = storagePath,
+            Format = "md",
+            Sha256 = "abc",
+            RequestedCategoryTitle = "访客预约与审核规则",
+            TenantId = "tenant",
+            OperatorId = "operator",
+            UploadedBy = "user"
+        });
+        await dbContext.SaveChangesAsync();
+
+        var snapshots = await PackagingTestCaseMaterialLoader.LoadAsync(
+            dbContext,
+            "hire-1",
+            "session-1",
+            [allowedRoot],
+            CancellationToken.None);
+
+        Assert.Empty(snapshots);
     }
 
     [Fact]
@@ -53,6 +90,7 @@ public class PackagingTestCaseMaterialLoaderTests
             dbContext,
             "hire-empty",
             "session-empty",
+            [Path.GetTempPath()],
             CancellationToken.None);
 
         Assert.Empty(snapshots);
