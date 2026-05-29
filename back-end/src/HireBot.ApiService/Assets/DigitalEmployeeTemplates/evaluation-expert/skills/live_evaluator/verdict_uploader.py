@@ -146,9 +146,11 @@ def _build_summary(evaluation_result: dict[str, Any]) -> str:
         top_issues = [str(i.get("description") or i) for i in issues[:3]]
         return "主要问题：" + "；".join(top_issues)
 
-    # 4. 默认摘要
-    passed = bool(evaluation_result.get("passed"))
-    return "综合评估通过" if passed else "综合评估未通过"
+    # 4. 默认摘要：优先读 verdict 字符串字段
+    verdict_str = str(evaluation_result.get("verdict") or "").strip().upper()
+    if not verdict_str:
+        verdict_str = "PASS" if bool(evaluation_result.get("passed")) else "FAIL"
+    return "综合评估通过" if verdict_str == "PASS" else "综合评估未通过"
 
 
 def build_verdict_payload(
@@ -169,13 +171,17 @@ def build_verdict_payload(
         }
       }
     """
-    passed = bool(evaluation_result.get("passed"))
+    # 优先读 evaluator 输出的 verdict 字符串（"PASS" / "FAIL"）。
+    # 兜底：若不存在，则从 passed 布尔字段转换（兼容旧格式）。
+    verdict_text = str(evaluation_result.get("verdict") or "").strip().upper()
+    if verdict_text not in ("PASS", "FAIL"):
+        verdict_text = "PASS" if bool(evaluation_result.get("passed")) else "FAIL"
     overall_score = float(evaluation_result.get("overall_score") or 0)
 
     return {
         "sessionId": session_id,
         "verdict": {
-            "verdict": "PASS" if passed else "FAIL",
+            "verdict": verdict_text,
             "overallScore": overall_score,
             "summary": _build_summary(evaluation_result),
             "dimensionScores": _build_dimension_scores(evaluation_result),

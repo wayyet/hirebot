@@ -1,8 +1,8 @@
 {
   "brand": {
-    "name": "NCrew Hire",
-    "tagline": "数字员工雇佣端",
-    "footer": "NCrew Hire · 数字员工雇佣端"
+    "name": "GoodCrew",
+    "tagline": "你的数字员工",
+    "footer": "{{productName}} · 数字员工雇佣端"
   },
   "nav": {
     "templatePool": "企业模板池",
@@ -68,6 +68,22 @@
       "expiryInMinutes": "剩余 {{count}} 分钟",
       "expiryInHours": "剩余 {{count}} 小时",
       "expiryInDays": "剩余 {{count}} 天"
+    },
+    "appearance": {
+      "title": "外观",
+      "description": "工作区主题",
+      "copy": "统一管理导航、主按钮和页面氛围使用的外观方案。",
+      "modeTitle": "明暗模式",
+      "modeDescription": "为日常工作选择浅色或深色界面基调。",
+      "brandTitle": "外观方案",
+      "brandDescription": "暖调会切换到暖白玻璃工作台，原样式则回到当前默认界面。",
+      "current": "当前：{{brand}}",
+      "options": {
+        "lightDescription": "适合白天办公的明亮表面",
+        "darkDescription": "适合长时间专注的深色表面",
+        "amberDescription": "切换到暖白底、橙色光晕与毛玻璃面板风格",
+        "blueDescription": "回到当前默认的冷静工作台样式"
+      }
     }
   },
   "common": {
@@ -89,7 +105,12 @@
   "theme": {
     "toggle": "切换主题",
     "light": "浅色模式",
-    "dark": "深色模式"
+    "dark": "深色模式",
+    "brandToggle": "切换外观方案",
+    "brand": {
+      "amber": "暖调",
+      "blue": "原样式"
+    }
   },
   "language": {
     "toggle": "切换语言",
@@ -101,7 +122,7 @@
     "kicker": "数字员工雇佣端",
     "title1": "雇佣下一位",
     "title2": "数字员工",
-    "copy": "从模板挑选、发起雇佣，到完成入职与上岗协作，NCrew Hire 将整个数字员工雇佣流程收束到同一个入口。",
+    "copy": "从模板挑选、发起雇佣，到完成入职与上岗协作，{{productName}} 将整个数字员工雇佣流程收束到同一个入口。",
     "primaryLabel": "进入统一登录",
     "primaryLabelLoading": "检查登录状态中...",
     "bypassHeaderTag": "开发态直通",
@@ -299,7 +320,7 @@
       },
       "external": {
         "title": "外部连接",
-        "description": "连接能力与凭据绑定",
+        "description": "连接能力与接入说明",
         "panelTitle": "配置外部连接",
         "panelDescription": "按连接能力逐条说明系统、操作、目标与认证方式。",
         "subtask": "连接配置",
@@ -643,7 +664,7 @@
     "badge": "数字员工雇佣平台",
     "heroTitle1": "雇佣你的下一位",
     "heroTitle2": "数字员工",
-    "heroSubtitle": "从模板挑选、发起雇佣，到完成入职与上岗协作，NCrew Hire 将整个数字员工雇佣流程收束到同一个入口。",
+    "heroSubtitle": "从模板挑选、发起雇佣，到完成入职与上岗协作，{{productName}} 将整个数字员工雇佣流程收束到同一个入口。",
     "loginBtn": "登录",
     "enterConsole": "进入工作台",
     "ctaPrimary": "立即登录",
@@ -694,7 +715,7 @@
       }
     },
     "finalCtaTitle": "开始你的数字员工雇佣",
-    "finalCtaCopy": "立即登录，进入 NCrew Hire 工作台，为团队配置专属数字员工。"
+    "finalCtaCopy": "立即登录，进入 {{productName}} 工作台，为团队配置专属数字员工。"
   },
   "templateDetail": {
     "startHiring": "发起雇佣",
@@ -718,6 +739,7 @@
     "breadcrumb": "员工详情",
     "loading": "正在加载实例详情...",
     "notFound": "实例不存在",
+    "loadFailed": "加载实例详情失败",
     "meta": {
       "sourceTemplate": "来源模板",
       "department": "所属部门",
@@ -740,7 +762,14 @@
       "enterHumanEvaluation": "进入人工评估",
       "configureIm": "配置 IM"
     },
+    "confirmAbandon": "废弃后会回滚五件套并恢复为个人分身，沙箱、对话和 IM 配置都会继续沿用。此操作不可撤销，确定继续？",
     "capabilities": "能力简介",
+    "intro": {
+      "coreAbilities": "核心能力",
+      "inScope": "职责范围",
+      "outOfScope": "明确排除",
+      "empty": "暂无员工介绍"
+    },
     "runStatus": "运行状态",
     "onboardedAt": "上岗时间",
     "readyCapabilities": "可用能力",

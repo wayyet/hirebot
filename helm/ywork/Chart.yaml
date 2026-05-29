@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ywork
+description: Helm chart for deploying HireBot (ywork) — AI 雇佣流程服务
+type: application
+version: 0.2.20
+appVersion: "dev-202605281551"

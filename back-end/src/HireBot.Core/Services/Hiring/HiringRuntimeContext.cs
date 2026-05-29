@@ -37,8 +37,8 @@ internal sealed record HiringRuntimeContext
     public IReadOnlyList<HiringStageCompletionDto> StageCompletion { get; init; } = [];
     public IReadOnlyList<HiringWorkflowHandoffDto> HandoffItems { get; init; } = [];
     public IReadOnlyList<HiringDispatchRecordDto> LatestDispatches { get; init; } = [];
-    public IReadOnlyList<HiringCredentialSlotDto> CredentialSlots { get; init; } = [];
     public HiringConfigGovernanceStateDto? ConfigGovernance { get; init; }
+    public HiringExternalSystemConfigState? ExternalSystemConfig { get; init; }
     public IReadOnlyList<HiringStageReadinessDto> StageReadiness { get; init; } = [];
 
     // ── 模板包上传重试状态 ────────────────────────────────────────────────────

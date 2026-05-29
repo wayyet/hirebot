@@ -1,0 +1,45 @@
+:root {
+  --ref-white: #ffffff;
+  --ref-black: #020617;
+
+  --ref-slate-50: #f8fafc;
+  --ref-slate-100: #f1f5f9;
+  --ref-slate-200: #e2e8f0;
+  --ref-slate-300: #cbd5e1;
+  --ref-slate-400: #94a3b8;
+  --ref-slate-500: #64748b;
+  --ref-slate-600: #475569;
+  --ref-slate-700: #334155;
+  --ref-slate-800: #1e293b;
+  --ref-slate-900: #0f172a;
+  --ref-slate-950: #020617;
+
+  --ref-amber-50: #fff7ed;
+  --ref-amber-100: #ffedd5;
+  --ref-amber-200: #fed7aa;
+  --ref-amber-300: #fdba74;
+  --ref-amber-400: #fb923c;
+  --ref-amber-500: #f97316;
+  --ref-amber-600: #ea580c;
+  --ref-amber-700: #c2410c;
+
+  --ref-blue-50: #eff6ff;
+  --ref-blue-100: #dbeafe;
+  --ref-blue-200: #bfdbfe;
+  --ref-blue-300: #93c5fd;
+  --ref-blue-400: #60a5fa;
+  --ref-blue-500: #3b82f6;
+  --ref-blue-600: #2563eb;
+  --ref-blue-700: #1d4ed8;
+
+  --ref-indigo-300: #a5b4fc;
+  --ref-indigo-400: #818cf8;
+  --ref-indigo-500: #6366f1;
+
+  --ref-emerald-500: #10b981;
+  --ref-emerald-600: #059669;
+  --ref-red-400: #f87171;
+  --ref-red-600: #dc2626;
+  --ref-violet-500: #8b5cf6;
+  --ref-violet-600: #7c3aed;
+}

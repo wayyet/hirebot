@@ -31,7 +31,9 @@ import {
   type HiringConversationMessage,
 } from '@/infra/api'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
+import { TYPEWRITER_SOFT_FINISH_DEFER_MS, useTypewriterStream } from '@/shared/hooks/useTypewriterStream'
 import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
+import { InstanceChatMessageBody } from '@/features/team/components/InstanceChatMessageBody'
 import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
 import { instanceBasePath } from '@/shared/utils/instancePath'
 
@@ -58,10 +60,10 @@ function verdictLabel(verdict?: string | null) {
 }
 
 function verdictPillClass(verdict?: string | null) {
-  if (verdict === 'passed') return 'border-[#dcfce7] bg-[#f0fdf4] text-[#166534]'
-  if (verdict === 'failed') return 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c]'
-  if (verdict === 'warning') return 'border-[#fed7aa] bg-[#fff7ed] text-[#c2410c]'
-  return 'border-[#e5e7eb] bg-white text-[#737373]'
+  if (verdict === 'passed') return 'eval-tone-completed'
+  if (verdict === 'failed') return 'eval-tone-failed'
+  if (verdict === 'warning') return 'eval-tone-warning'
+  return 'eval-tone-pending'
 }
 
 function mapSandboxMessages(messages: SandboxMessage[]): EvalChatMessage[] {
@@ -108,7 +110,13 @@ export default function HumanEvaluationPage() {
   const [chatSending, setChatSending] = useState(false)
   const [chatError, setChatError] = useState('')
   const [sandboxConnected, setSandboxConnected] = useState(false)
-  const [streamingContent, setStreamingContent] = useState<string | null>(null)
+  const {
+    displayText: streamingContent,
+    start: startTypewriterStream,
+    append: appendTypewriterStream,
+    finish: finishTypewriterStream,
+    reset: resetTypewriterStream,
+  } = useTypewriterStream()
   const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([])
   const [chatTyping, setChatTyping] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -118,7 +126,6 @@ export default function HumanEvaluationPage() {
   const wsRef = useRef<GatewayWs | null>(null)
   const targetEndpointRef = useRef<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
-  const streamingContentRef = useRef('')
   const streamingToolStepsRef = useRef<ToolStep[]>([])
   const chatEndRef = useRef<HTMLDivElement | null>(null)
   const chatReadyRef = useRef<Promise<boolean> | null>(null)
@@ -128,8 +135,11 @@ export default function HumanEvaluationPage() {
   })
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages, streamingContent])
+    const frame = window.requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: streamingContent !== null ? 'auto' : 'smooth' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [chatMessages, streamingContent, streamingToolSteps])
 
   async function loadData() {
     if (!id) return
@@ -184,9 +194,13 @@ export default function HumanEvaluationPage() {
       sessionIdRef.current = null
       chatReadyRef.current = null
       connectionStateRef.current = { endpoint: null, sessionId: null }
+      resetTypewriterStream()
+      streamingToolStepsRef.current = []
+      setStreamingToolSteps([])
+      setChatTyping(false)
       setSandboxConnected(false)
     }
-  }, [workspaceStatus?.targetGatewayEndpoint, workspaceStatus?.overallStatus])
+  }, [workspaceStatus?.targetGatewayEndpoint, workspaceStatus?.overallStatus, resetTypewriterStream])
 
   async function connectTargetWs(endpoint: string): Promise<void> {
     if (
@@ -200,6 +214,10 @@ export default function HumanEvaluationPage() {
 
     wsRef.current?.disconnect()
     wsRef.current = null
+    resetTypewriterStream()
+    streamingToolStepsRef.current = []
+    setStreamingToolSteps([])
+    setChatTyping(false)
     setSandboxConnected(false)
 
     const token = await tokenService.ensureFresh()
@@ -235,9 +253,8 @@ export default function HumanEvaluationPage() {
       const msgType = String(msg.type ?? '')
 
       if (msgType === 'typing_start') {
-        streamingContentRef.current = ''
         streamingToolStepsRef.current = []
-        setStreamingContent('')
+        startTypewriterStream()
         setStreamingToolSteps([])
         setChatTyping(true)
         return
@@ -245,8 +262,7 @@ export default function HumanEvaluationPage() {
 
       if (msgType === 'text_delta' || msgType === 'assistant_chunk') {
         const chunk = String(msg.delta ?? msg.chunk ?? msg.content ?? msg.text ?? '')
-        streamingContentRef.current += chunk
-        setStreamingContent(streamingContentRef.current)
+        appendTypewriterStream(chunk)
         setChatTyping(false)
         return
       }
@@ -304,29 +320,33 @@ export default function HumanEvaluationPage() {
         const ep = targetEndpointRef.current
         const sid = sessionIdRef.current
         const completedToolSteps = [...streamingToolStepsRef.current]
-        setStreamingContent(null)
-        setStreamingToolSteps([])
-        setChatTyping(false)
-        streamingContentRef.current = ''
-        streamingToolStepsRef.current = []
-        if (ep && sid) {
-          void fetchSandboxSessionMessages(ep, sid)
-            .then((msgs) => {
-              const mapped = mapSandboxMessages(msgs)
-              setChatMessages(mapped)
-              if (completedToolSteps.length > 0) {
-                setChatMessages((prev) => {
-                  const lastBotIdx = [...prev].reverse().findIndex((m) => m.role !== 'user')
-                  if (lastBotIdx === -1) return prev
-                  const idx = prev.length - 1 - lastBotIdx
-                  const updated = [...prev]
-                  updated[idx] = { ...updated[idx], toolSteps: completedToolSteps }
-                  return updated
-                })
-              }
-            })
-            .catch(() => {})
-        }
+        const fallbackReply = String(msg.content ?? msg.text ?? '')
+        const finishOptions = msgType === 'typing_stop'
+          ? { deferMs: TYPEWRITER_SOFT_FINISH_DEFER_MS }
+          : undefined
+        finishTypewriterStream(fallbackReply, () => {
+          setStreamingToolSteps([])
+          setChatTyping(false)
+          streamingToolStepsRef.current = []
+          if (ep && sid) {
+            void fetchSandboxSessionMessages(ep, sid)
+              .then((msgs) => {
+                const mapped = mapSandboxMessages(msgs)
+                setChatMessages(mapped)
+                if (completedToolSteps.length > 0) {
+                  setChatMessages((prev) => {
+                    const lastBotIdx = [...prev].reverse().findIndex((m) => m.role !== 'user')
+                    if (lastBotIdx === -1) return prev
+                    const idx = prev.length - 1 - lastBotIdx
+                    const updated = [...prev]
+                    updated[idx] = { ...updated[idx], toolSteps: completedToolSteps }
+                    return updated
+                  })
+                }
+              })
+              .catch(() => {})
+          }
+        }, finishOptions)
         return
       }
 
@@ -423,8 +443,7 @@ export default function HumanEvaluationPage() {
       const sessionId = sessionIdRef.current
       if (!ws?.isOpen() || !sessionId) throw new Error('目标沙箱连接未建立，请稍后重试')
 
-      setStreamingContent('')
-      streamingContentRef.current = ''
+      startTypewriterStream()
 
       const sent = ws.send({
         type: 'user_message',
@@ -437,6 +456,10 @@ export default function HumanEvaluationPage() {
     } catch (err: unknown) {
       setChatError(err instanceof Error ? err.message : '发送消息失败')
       setChatMessages((prev) => prev.filter((m) => m.messageId !== optimistic.messageId))
+      resetTypewriterStream()
+      streamingToolStepsRef.current = []
+      setStreamingToolSteps([])
+      setChatTyping(false)
     } finally {
       setChatSending(false)
     }
@@ -479,8 +502,8 @@ export default function HumanEvaluationPage() {
 
   if (loading) {
     return (
-      <div className="hb-page">
-        <div className="hb-card flex min-h-[220px] items-center justify-center gap-2 p-8 text-sm text-[#737373]">
+      <div className="hb-page hb-workflow-page hb-eval-page">
+        <div className="hb-card hb-detail-state">
           <Loader2 size={16} className="animate-spin" />
           {t('humanEvaluation.loading')}
         </div>
@@ -490,8 +513,8 @@ export default function HumanEvaluationPage() {
 
   if (!employee || !evaluation) {
     return (
-      <div className="hb-page">
-        <div className="hb-card p-8 text-sm text-[#737373]">{t('humanEvaluation.notFound')}</div>
+      <div className="hb-page hb-workflow-page hb-eval-page">
+        <div className="hb-card hb-detail-state">{t('humanEvaluation.notFound')}</div>
       </div>
     )
   }
@@ -501,17 +524,17 @@ export default function HumanEvaluationPage() {
   const workspaceFailed = workspaceStatus?.overallStatus === 'failed'
 
   return (
-    <div className="hb-page">
+    <div className="hb-page hb-workflow-page hb-eval-page">
       <Breadcrumb
         items={[
           { label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' },
           { label: t('humanEvaluation.breadcrumb') },
         ]}
       />
-      <div className="flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
+      <div className="eval-human-layout flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
 
         {/* 顶部状态栏 */}
-        <section className="hb-card p-2.5">
+        <section className="hb-card eval-human-topbar p-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
@@ -558,7 +581,7 @@ export default function HumanEvaluationPage() {
 
         <section className="flex min-h-0 flex-1 gap-4">
           {/* 左侧：与目标沙箱的对话主区域 */}
-          <div className="hb-card flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="hb-card eval-human-chat-shell eval-chat-wrapper flex min-w-0 flex-1 flex-col overflow-hidden">
             <div className="border-b eval-chat-footer px-5 py-4">
               <div className="flex items-center gap-2">
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl eval-icon-indigo">
@@ -652,9 +675,7 @@ export default function HumanEvaluationPage() {
                       ) : streamingContent ? (
                         <div className="border eval-bubble-bot rounded-2xl px-3 py-2.5 text-sm leading-6">
                           <div className="mb-1 text-[11px] eval-bubble-meta-bot">{t('humanEvaluation.messageEmployee')} · {t('humanEvaluation.streaming')}</div>
-                          <div className="hb-md prose prose-sm max-w-none break-words">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
-                          </div>
+                          <InstanceChatMessageBody content={streamingContent} role="assistant" streaming />
                         </div>
                       ) : null}
                     </div>
@@ -694,14 +715,14 @@ export default function HumanEvaluationPage() {
                   type="button"
                   disabled={chatSending || !chatInput.trim() || !workspaceReady}
                   onClick={() => void sendMessage()}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#5b21b6] text-white disabled:opacity-40"
+                  className="hb-workflow-send-btn"
                 >
                   {chatSending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={16} />}
                 </button>
               </div>
 
               {/* 评估结论操作区 */}
-              <div className="mt-4 rounded-2xl border eval-decision-panel px-4 py-3">
+              <div className="mt-4 rounded-2xl border eval-decision-panel eval-human-decision-panel px-4 py-3">
                 <div className="mb-2.5 text-[11px] font-semibold eval-text-body">{t('humanEvaluation.decisionTitle')}</div>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -759,7 +780,7 @@ export default function HumanEvaluationPage() {
 
           {/* 右侧：AI 评估参考面板（可折叠） */}
           {!rightCollapsed && (
-            <div className="hb-card flex w-[320px] xl:w-[360px] 2xl:w-[400px] shrink-0 flex-col overflow-hidden">
+            <div className="hb-card eval-human-reference-shell eval-artifacts-shell flex w-[320px] xl:w-[360px] 2xl:w-[400px] shrink-0 flex-col overflow-hidden">
               <div className="border-b eval-chat-footer px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="text-[13px] font-semibold eval-text-title">{t('humanEvaluation.aiReferencePanel')}</div>
@@ -837,7 +858,7 @@ export default function HumanEvaluationPage() {
             <button
               type="button"
               onClick={() => setRightCollapsed(false)}
-              className="hb-card flex w-8 shrink-0 items-center justify-center eval-text-caption hover:eval-text-secondary"
+              className="hb-card eval-human-compact-rail flex w-8 shrink-0 items-center justify-center eval-text-caption hover:eval-text-secondary"
             >
               <ChevronDown size={14} />
             </button>

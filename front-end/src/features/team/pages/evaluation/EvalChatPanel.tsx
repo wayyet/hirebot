@@ -1,0 +1,374 @@
+import { useEffect, useRef } from 'react'
+import { AlertCircle, Check, CheckCircle2, Copy, Loader2, MessageCircle, SendHorizontal } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
+import { InstanceChatMessageBody } from '@/features/team/components/InstanceChatMessageBody'
+import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
+import type { EvaluationTestcaseOutline, EvaluationWorkspaceStatus } from '@/infra/api'
+import type { EvalChatMessage, ArtifactTab } from './evaluationTypes'
+import {
+  evaluationStarterActions,
+  evaluationSuggestionPrompts,
+} from './evaluationTypes'
+import { formatDateTime, shortSessionId } from './evaluationUtils'
+
+interface EvalChatPanelProps {
+  aiRunning: boolean
+  chatLoading: boolean
+  chatSending: boolean
+  chatMessages: EvalChatMessage[]
+  streamingContent: string | null
+  streamingToolSteps: ToolStep[]
+  chatTyping: boolean
+  chatInput: string
+  chatError: string
+  sessionSwitching: boolean
+  sandboxConnected: boolean
+  environmentStatus: { label: string; dotClassName: string }
+  workspaceStatus: EvaluationWorkspaceStatus | null
+  sessionCopied: boolean
+  errorMessage: string
+  onCopySessionId: () => void
+  testcaseItems: EvaluationTestcaseOutline[]
+  canNavigateToHumanEval: boolean
+  humanEvalPath: string | null
+  humanEvalBannerTone: string
+  humanEvalBannerTextTone: string
+  humanEvalBannerTitle: string
+  humanEvalBannerDescription: string
+  enteringHumanEval: boolean
+  onSendMessage: (content?: string) => void
+  onEnterHumanEval: () => void
+  onSetChatInput: (value: string) => void
+  onSetArtifactTab: (tab: ArtifactTab) => void
+}
+
+export function EvalChatPanel({
+  aiRunning,
+  chatLoading,
+  chatSending,
+  chatMessages,
+  streamingContent,
+  streamingToolSteps,
+  chatTyping,
+  chatInput,
+  chatError,
+  sessionSwitching,
+  sandboxConnected,
+  environmentStatus,
+  workspaceStatus,
+  sessionCopied,
+  errorMessage,
+  onCopySessionId,
+  testcaseItems,
+  canNavigateToHumanEval,
+  humanEvalPath,
+  humanEvalBannerTone,
+  humanEvalBannerTextTone,
+  humanEvalBannerTitle,
+  humanEvalBannerDescription,
+  enteringHumanEval,
+  onSendMessage,
+  onEnterHumanEval,
+  onSetChatInput,
+  onSetArtifactTab,
+}: EvalChatPanelProps) {
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatInputRef = useRef<HTMLTextAreaElement>(null)
+  const hasChatTimelineContent = chatLoading || chatMessages.length > 0 || streamingContent !== null || chatTyping
+
+  // 消息更新时自动滚动到底部
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: streamingContent !== null ? 'auto' : 'smooth' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [chatLoading, chatMessages, streamingContent, streamingToolSteps])
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      onSendMessage()
+    }
+  }
+
+  return (
+    <div className="hb-card eval-chat-wrapper flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* 头部：紧凑单行 + 状态条 */}
+      <div className="border-b eval-chat-footer px-4 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <span className="text-sm font-semibold eval-text-title">评估对话</span>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+            {/* 环境状态 */}
+            <span className="eval-flow-status-item">
+              <span className={environmentStatus.dotClassName} />
+              {environmentStatus.label}
+            </span>
+            <span className="eval-flow-status-divider" aria-hidden="true" />
+            {/* WS 连接状态 */}
+            <span className={`eval-flow-status-item ${sandboxConnected ? 'eval-flow-status-connected' : 'eval-flow-status-muted'}`}>
+              {workspaceStatus?.sessionId ? (sandboxConnected ? '会话已连接' : '会话未连接') : '暂无会话'}
+            </span>
+            {/* Session ID */}
+            {workspaceStatus?.sessionId && (
+              <>
+                <span className="eval-flow-status-divider" aria-hidden="true" />
+                <span className="eval-flow-status-item eval-flow-status-session">
+                  <span className="eval-flow-status-label">Session</span>
+                  <span className="font-mono eval-flow-status-session-value">{shortSessionId(workspaceStatus.sessionId)}</span>
+                  <button
+                    type="button"
+                    className="eval-flow-copy-btn"
+                    onClick={onCopySessionId}
+                    title={sessionCopied ? '已复制' : '复制 Session'}
+                  >
+                    {sessionCopied ? <Check size={12} /> : <Copy size={12} />}
+                  </button>
+                </span>
+              </>
+            )}
+            {/* 错误信息 */}
+            {errorMessage && (
+              <>
+                <span className="eval-flow-status-divider" aria-hidden="true" />
+                <span className="eval-flow-status-item eval-flow-status-error">
+                  <AlertCircle size={12} className="shrink-0" />
+                  {errorMessage}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 消息区 */}
+      <div className="flex flex-1 flex-col overflow-hidden eval-chat-bg px-5 pb-4 pt-2">
+        {/* 人工评估横幅：评估完成后提示进入人工评估 */}
+        {canNavigateToHumanEval && humanEvalPath && (
+          <div className={`eval-human-banner mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-sm ${humanEvalBannerTone}`}>
+            <div className={`flex items-center gap-2.5 text-sm font-medium ${humanEvalBannerTextTone}`}>
+              <CheckCircle2 size={16} className="shrink-0 eval-text-green-mid" />
+              <span>
+                {humanEvalBannerTitle}
+                {humanEvalBannerDescription}
+              </span>
+            </div>
+            <button
+              type="button"
+              disabled={enteringHumanEval}
+              className="hb-btn-primary eval-human-banner-btn shrink-0 !px-3 !py-1.5 !text-[12px] disabled:opacity-60"
+              onClick={onEnterHumanEval}
+            >
+              {enteringHumanEval ? <Loader2 size={12} className="animate-spin" /> : null}
+              进入人工评估 →
+            </button>
+          </div>
+        )}
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {!aiRunning ? (
+            <div className="m-4 rounded-2xl border eval-inactive-tip px-4 py-3 text-sm leading-6">
+              请先点击"准备评估环境"。环境就绪后，这里会成为主聊天入口，你可以直接和评估沙箱对话，再结合右侧题卡、轨迹和报告辅助判断。
+            </div>
+          ) : (
+            <>
+              {/* 测试用例快捷栏 */}
+              {testcaseItems.length > 0 && (
+                <div className="shrink-0 border-b eval-chat-footer px-5 py-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[12px] font-medium eval-text-green-mid">✓ 测试用例已就绪</span>
+                    <span className="rounded-full border eval-stats-badge px-2 py-0.5 text-[11px]">
+                      {testcaseItems.length} 个场景
+                    </span>
+                    {testcaseItems.slice(0, 3).map((outline) => (
+                      <span key={outline.testcaseId} className="max-w-[160px] truncate rounded-full border eval-pill-neutral px-2 py-0.5 text-[11px]">
+                        {outline.title || outline.testcaseId}
+                      </span>
+                    ))}
+                    {testcaseItems.length > 3 && (
+                      <button
+                        type="button"
+                        className="rounded-full border eval-pill-neutral px-2 py-0.5 text-[11px] eval-text-indigo transition-colors hover:bg-[var(--hb-blue)]/10"
+                        onClick={() => onSetArtifactTab('testcase')}
+                      >
+                        +{testcaseItems.length - 3} 查看全部 →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 消息时间线 */}
+              <div className={`eval-chat-timeline flex-1 px-5 py-4 ${hasChatTimelineContent ? 'space-y-3 overflow-y-auto' : 'overflow-y-hidden'}`}>
+                {chatLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-[var(--hb-soft)]">
+                    <Loader2 size={14} className="animate-spin" />
+                    正在加载评估沙箱对话...
+                  </div>
+                ) : chatMessages.length === 0 ? (
+                  // 空状态：引导页
+                  <div className="flex min-h-full items-center justify-center py-8">
+                    <section className="eval-chat-empty-stage flex w-full max-w-[760px] flex-col items-center">
+                      <div className="eval-empty-stage-icon">
+                        <MessageCircle size={20} />
+                      </div>
+                      <div className="mt-5 text-center">
+                        <h2 className="text-[28px] font-semibold tracking-[-0.02em] eval-text-strong">从一句话开始评估</h2>
+                        <p className="mx-auto mt-3 max-w-[560px] text-[14px] leading-7 eval-text-secondary">
+                          暂无对话。选一个起手动作直接向评估沙箱提问，所有答复、执行轨迹和评分结论都会同步回到当前面板。
+                        </p>
+                      </div>
+
+                      <div className="mt-9 grid w-full gap-3 md:grid-cols-3">
+                        {evaluationStarterActions.map((action, index) => (
+                          <button
+                            key={action.key}
+                            type="button"
+                            disabled={chatSending}
+                            className="eval-starter-card text-left disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => onSendMessage(action.prompt)}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="eval-starter-card-icon">
+                                <action.icon size={16} />
+                              </div>
+                              <span className="eval-starter-card-index">{index + 1}</span>
+                            </div>
+                            <div className="mt-6 text-[18px] font-semibold tracking-[-0.02em] eval-text-title">
+                              {action.title}
+                            </div>
+                            <p className="mt-2 text-[13px] leading-6 eval-text-secondary">
+                              {action.description}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                        {evaluationSuggestionPrompts.map((prompt) => (
+                          <button
+                            key={prompt}
+                            type="button"
+                            disabled={chatSending}
+                            className="eval-suggestion-pill disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => onSendMessage(prompt)}
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  </div>
+                ) : (
+                  // 消息列表
+                  chatMessages.map((message) => {
+                    const isUser = message.role.toLowerCase() === 'user'
+                    return (
+                      <div key={message.messageId} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                        {!isUser && (
+                          <div className="hb-hiring-avatar mr-2 mt-0.5 shrink-0">评</div>
+                        )}
+                        <div className={`flex min-w-0 max-w-[90%] flex-col gap-1.5 ${isUser ? 'items-end' : 'items-start'}`}>
+                          {!isUser && message.toolSteps && message.toolSteps.length > 0 && (
+                            <HiringToolStepsBlock steps={message.toolSteps} />
+                          )}
+                          <div
+                            className={`rounded-2xl px-3 py-2.5 text-sm leading-6 ${
+                              isUser ? 'eval-bubble-user' : 'border eval-bubble-bot'
+                            }`}
+                          >
+                            <div className={`mb-1 text-[11px] ${isUser ? 'eval-bubble-meta-user' : 'eval-bubble-meta-bot'}`}>
+                              {isUser ? '你' : '评估沙箱'} · {formatDateTime(message.createdAt)}
+                            </div>
+                            {isUser ? (
+                              <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                            ) : (
+                              <div className="hb-md prose prose-sm max-w-none break-words">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {message.content}
+                                </ReactMarkdown>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {isUser && (
+                          <div className="hb-hiring-avatar is-user ml-2 mt-0.5 shrink-0">你</div>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+
+                {/* 流式回复气泡 */}
+                {(streamingContent !== null || chatTyping) && (
+                  <div className="flex justify-start">
+                    <div className="hb-hiring-avatar mr-2 mt-0.5 shrink-0">评</div>
+                    <div className="flex min-w-0 max-w-[90%] flex-col items-start gap-1.5">
+                      {streamingToolSteps.length > 0 && (
+                        <HiringToolStepsBlock steps={streamingToolSteps} />
+                      )}
+                      {chatTyping && streamingContent === '' ? (
+                        <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
+                          {[0, 1, 2].map((i) => (
+                            <span
+                              key={i}
+                              className="hb-hiring-typing-dot"
+                              style={{ animationDelay: `${i * 0.15}s` }}
+                            />
+                          ))}
+                        </div>
+                      ) : streamingContent ? (
+                        <div className="rounded-2xl border eval-bubble-bot px-3 py-2.5 text-sm leading-6">
+                          <div className="mb-1 text-[11px] eval-bubble-meta-bot">评估沙箱 · 正在回复</div>
+                          <InstanceChatMessageBody content={streamingContent} role="assistant" streaming />
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+
+                {hasChatTimelineContent ? <div ref={chatEndRef} /> : null}
+              </div>
+
+              {/* 输入框 */}
+              <div className="border-t eval-chat-footer px-4 py-4">
+                <div className="eval-composer-shell flex items-end gap-3 rounded-[24px] border px-4 py-3">
+                  <textarea
+                    ref={chatInputRef}
+                    value={chatInput}
+                    onChange={(event) => onSetChatInput(event.target.value)}
+                    onKeyDown={handleKeyDown}
+                    rows={2}
+                    disabled={chatSending}
+                    placeholder="向评估沙箱发送消息（Enter 发送，Shift+Enter 换行）"
+                    className="eval-composer-input min-h-[88px] flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 outline-none disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    disabled={chatSending || !chatInput.trim()}
+                    className="hb-btn-primary mb-1 !h-11 !w-11 !rounded-full !px-0 !py-0 disabled:!bg-[#d4d4d8]"
+                    onClick={() => onSendMessage()}
+                  >
+                    {chatSending ? <Loader2 size={12} className="animate-spin" /> : <SendHorizontal size={12} />}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {chatError && (
+          <div className="mt-2 rounded-xl border eval-bar-error px-2.5 py-1.5 text-[11px]">
+            {chatError}
+          </div>
+        )}
+        {sessionSwitching && (
+          <div className="mt-2 rounded-xl border eval-bar-info px-2.5 py-1.5 text-[11px]">
+            正在切换评估会话...
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -1,8 +1,8 @@
 {
   "brand": {
-    "name": "NCrew Hire",
-    "tagline": "Digital Workforce Platform",
-    "footer": "NCrew Hire · Digital Workforce Platform"
+    "name": "GoodCrew",
+    "tagline": "Your Digital Employee",
+    "footer": "{{productName}} · Digital Workforce Platform"
   },
   "nav": {
     "templatePool": "Template Pool",
@@ -25,6 +25,22 @@
   },
   "settings": {
     "title": "Settings",
+    "appearance": {
+      "title": "Appearance",
+      "description": "Workspace Theme",
+      "copy": "Manage the appearance scheme used across navigation, buttons, and page atmosphere.",
+      "modeTitle": "Mode",
+      "modeDescription": "Choose the light or dark surface system for daily work.",
+      "brandTitle": "Appearance Scheme",
+      "brandDescription": "Warm switches to the warm glass workbench, while Original returns to the current default UI.",
+      "current": "Current: {{brand}}",
+      "options": {
+        "lightDescription": "Bright surfaces for daytime work",
+        "darkDescription": "Dim surfaces for focused sessions",
+        "amberDescription": "Switch to the warm-white glass workbench with orange glow",
+        "blueDescription": "Return to the current default workbench style"
+      }
+    },
     "sandboxes": {
       "title": "My Hiring Sandboxes",
       "description": "Manage all hiring sandboxes launched by this account. Delete sandboxes you no longer need.",
@@ -89,7 +105,12 @@
   "theme": {
     "toggle": "Toggle Theme",
     "light": "Light Mode",
-    "dark": "Dark Mode"
+    "dark": "Dark Mode",
+    "brandToggle": "Switch Appearance",
+    "brand": {
+      "amber": "Warm",
+      "blue": "Original"
+    }
   },
   "language": {
     "toggle": "Switch Language",
@@ -101,7 +122,7 @@
     "kicker": "Digital Workforce Platform",
     "title1": "Hire Your Next",
     "title2": "Digital Employee",
-    "copy": "From template selection and hiring, to onboarding and collaboration, NCrew Hire unifies the entire digital employee hiring workflow in one place.",
+    "copy": "From template selection and hiring, to onboarding and collaboration, {{productName}} unifies the entire digital employee hiring workflow in one place.",
     "primaryLabel": "Sign In",
     "primaryLabelLoading": "Checking auth status...",
     "bypassHeaderTag": "Dev Bypass",
@@ -642,7 +663,7 @@
     "badge": "Digital Workforce Hiring Platform",
     "heroTitle1": "Hire Your Next",
     "heroTitle2": "Digital Employee",
-    "heroSubtitle": "From template selection and hiring, to onboarding and collaboration, NCrew Hire unifies the entire digital workforce workflow in one place.",
+    "heroSubtitle": "From template selection and hiring, to onboarding and collaboration, {{productName}} unifies the entire digital workforce workflow in one place.",
     "loginBtn": "Sign In",
     "enterConsole": "Go to Dashboard",
     "ctaPrimary": "Get Started",
@@ -693,7 +714,7 @@
       }
     },
     "finalCtaTitle": "Start Hiring Digital Employees",
-    "finalCtaCopy": "Sign in to NCrew Hire and begin configuring your digital workforce."
+    "finalCtaCopy": "Sign in to {{productName}} and begin configuring your digital workforce."
   },
   "templateDetail": {
     "startHiring": "Start Hiring",
@@ -717,6 +738,7 @@
     "breadcrumb": "Employee Detail",
     "loading": "Loading instance details...",
     "notFound": "Instance not found",
+    "loadFailed": "Failed to load instance details",
     "meta": {
       "sourceTemplate": "Source Template",
       "department": "Department",
@@ -739,7 +761,14 @@
       "enterHumanEvaluation": "Enter Human Evaluation",
       "configureIm": "Configure IM"
     },
+    "confirmAbandon": "Abandoning this branch will roll back the five-piece set and restore it as a personal clone. Sandbox, chat, and IM configuration will stay in place. Continue?",
     "capabilities": "Capabilities",
+    "intro": {
+      "coreAbilities": "Core Abilities",
+      "inScope": "Responsibility Scope",
+      "outOfScope": "Explicit Exclusions",
+      "empty": "No capability summary yet"
+    },
     "runStatus": "Run Status",
     "onboardedAt": "Onboarded At",
     "readyCapabilities": "Available Capabilities",

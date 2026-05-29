@@ -3,13 +3,30 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
-  ArrowRight, Bot, ChevronDown, Globe, Layers,
-  LogIn, Moon, ShieldCheck, Sparkles, Sun, Users, Zap,
+  ArrowRight,
+  Bot,
+  ChevronDown,
+  Globe,
+  Layers,
+  LogIn,
+  Moon,
+  Palette,
+  ShieldCheck,
+  Sun,
+  Users,
+  Zap,
 } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
+import { useTheme } from '@/app/theme/ThemeProvider'
+import yWorkHireLogo from '@/assets/y-work-hire-logo.svg'
+import {
+  resolveBrandWordmarkSrc,
+  resolveDisplayProductName,
+  resolveSystemBrandIconSrc,
+  resolveSystemTitle,
+} from '@/app/branding/runtimeBranding'
 import { getAuthUser, isOidcConfigured, userManager } from '@/infra/auth/oidc'
 import { isAuthBypassed } from '@/infra/auth/auth-mode'
-
-// ── 常量 ────────────────────────────────────────────────────────────────────
 
 const LANGS = [
   { code: 'zh', label: '中文' },
@@ -17,12 +34,12 @@ const LANGS = [
 ]
 
 const FEATURES = [
-  { icon: Layers,       key: 'templatePool',   color: '#4F8EF7' },
-  { icon: Users,        key: 'hiring',         color: '#7B5EFF' },
-  { icon: Bot,          key: 'employees',      color: '#10B981' },
-  { icon: ShieldCheck,  key: 'onboarding',     color: '#F59E0B' },
-  { icon: Zap,          key: 'skills',         color: '#EC4899' },
-  { icon: Sparkles,     key: 'collaboration',  color: '#06B6D4' },
+  { icon: Layers, key: 'templatePool', color: '#4F8EF7' },
+  { icon: Users, key: 'hiring', color: '#7B5EFF' },
+  { icon: Bot, key: 'employees', color: '#10B981' },
+  { icon: ShieldCheck, key: 'onboarding', color: '#F59E0B' },
+  { icon: Zap, key: 'skills', color: '#EC4899' },
+  { icon: Sparkles, key: 'collaboration', color: '#06B6D4' },
 ] as const
 
 const STEPS = [
@@ -36,17 +53,17 @@ function normalizeRedirectPath(raw: string | null): string {
   return raw.trim()
 }
 
-// ── 主组件 ──────────────────────────────────────────────────────────────────
-
 export default function LandingPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const redirectPath = normalizeRedirectPath(searchParams.get('redirect'))
-
-  const [isDark, setIsDark] = useState(
-    () => localStorage.getItem('ncrew-hire-theme') === 'dark',
-  )
+  const { brand, cycleBrand, isDark, toggleMode, warmThemeEnabled, warmThemeManagedByRuntime } = useTheme()
+  const currentLang = i18n.resolvedLanguage ?? i18n.language ?? 'zh'
+  const productName = resolveDisplayProductName(warmThemeEnabled, t('brand.name'))
+  const brandName = productName
+  const originalBrandWordmarkSrc = resolveBrandWordmarkSrc(currentLang)
+  const systemBrandIconSrc = resolveSystemBrandIconSrc(warmThemeEnabled)
   const [langOpen, setLangOpen] = useState(false)
   const langRef = useRef<HTMLDivElement>(null)
 
@@ -57,41 +74,34 @@ export default function LandingPage() {
     retry: false,
   })
 
-  // 深色模式同步
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('ncrew-hire-theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('ncrew-hire-theme', 'light')
-    }
-  }, [isDark])
-
-  // 已登录 → 直接进入目标页
   useEffect(() => {
     if (isAuthBypassed) {
       navigate(redirectPath, { replace: true })
       return
     }
+
     if (!isLoading && user) {
       navigate(redirectPath, { replace: true })
     }
-  }, [isLoading, user, navigate, redirectPath])
+  }, [isLoading, navigate, redirectPath, user])
 
-  // 点击外部关闭语言下拉
   useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (langRef.current && !langRef.current.contains(e.target as Node)) {
+    function onDocClick(event: MouseEvent) {
+      if (langRef.current && !langRef.current.contains(event.target as Node)) {
         setLangOpen(false)
       }
     }
+
     document.addEventListener('mousedown', onDocClick)
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [])
 
+  useEffect(() => {
+    document.title = resolveSystemTitle(warmThemeEnabled, currentLang)
+  }, [currentLang, warmThemeEnabled])
+
   const handleLogin = () => {
-    // 将目标路径写入 OIDC state，AuthCallbackPage 从 user.state.returnTo 读取
+    // 登录后继续回到用户原本想进入的业务路径。
     void userManager.signinRedirect({ state: { returnTo: redirectPath } })
   }
 
@@ -101,7 +111,6 @@ export default function LandingPage() {
     setLangOpen(false)
   }
 
-  // 登录跳转或 bypass 跳转期间显示占位
   if (isAuthBypassed || (!isLoading && user)) {
     return (
       <div className="hb-landing-loading">
@@ -110,64 +119,80 @@ export default function LandingPage() {
     )
   }
 
-  const currentLangLabel = LANGS.find(l => l.code === i18n.language)?.label ?? 'ZH'
+  const currentLangLabel = LANGS.find((lang) => lang.code === i18n.language)?.label ?? 'ZH'
 
   return (
     <div className="hb-landing">
-
-      {/* ── 顶部导航 ─────────────────────────────────────────────────────── */}
       <nav className="hb-landing-nav">
         <div className="hb-landing-nav-inner">
-
-          {/* 品牌 */}
           <div className="hb-landing-brand">
-            <div className="hb-brand-logo">
-              <Sparkles size={16} color="#fff" />
-            </div>
-            <div className="hb-brand-body">
-              <span className="hb-brand-name">{t('brand.name')}</span>
-              <span className="hb-brand-tagline">{t('brand.tagline')}</span>
-            </div>
+            {warmThemeEnabled ? (
+              <>
+                <div className="hb-brand-logo hb-brand-logo--mark">
+                  <img src={yWorkHireLogo} alt="" className="hb-brand-logo-mark" />
+                </div>
+                <div className="hb-brand-body">
+                  <span className="hb-brand-name">{brandName}</span>
+                  <span className="hb-brand-tagline">{t('brand.tagline')}</span>
+                </div>
+              </>
+            ) : (
+              <img
+                src={originalBrandWordmarkSrc}
+                alt={t('brand.name')}
+                className="hb-brand-wordmark"
+              />
+            )}
           </div>
 
-          {/* 右侧操作区 */}
           <div className="hb-landing-nav-actions">
+            {!warmThemeEnabled ? (
+              <button
+                className="hb-icon-btn"
+                onClick={toggleMode}
+                aria-label={t('theme.toggle')}
+                title={t('theme.toggle')}
+              >
+                {isDark ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+            ) : null}
 
-            {/* 主题切换 */}
-            <button
-              className="hb-icon-btn"
-              onClick={() => setIsDark(v => !v)}
-              aria-label={t('theme.toggle')}
-            >
-              {isDark ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
+            {!warmThemeManagedByRuntime ? (
+              <button
+                className="hb-nav-utility-btn"
+                onClick={cycleBrand}
+                aria-label={t('theme.brandToggle')}
+                title={t('theme.brandToggle')}
+              >
+                <Palette size={14} />
+                <span>{t(`theme.brand.${brand}`)}</span>
+              </button>
+            ) : null}
 
-            {/* 语言切换 */}
             <div className="hb-lang-dropdown" ref={langRef}>
               <button
                 className="hb-nav-utility-btn"
-                onClick={() => setLangOpen(v => !v)}
+                onClick={() => setLangOpen((current) => !current)}
               >
                 <Globe size={14} />
                 <span>{currentLangLabel}</span>
                 <ChevronDown size={12} />
               </button>
-              {langOpen && (
+              {langOpen ? (
                 <div className="hb-dropdown-menu hb-dropdown-menu--right">
-                  {LANGS.map(l => (
+                  {LANGS.map((lang) => (
                     <button
-                      key={l.code}
-                      className={`hb-dropdown-item${i18n.language === l.code ? ' is-active' : ''}`}
-                      onClick={() => switchLang(l.code)}
+                      key={lang.code}
+                      className={`hb-dropdown-item${i18n.language === lang.code ? ' is-active' : ''}`}
+                      onClick={() => switchLang(lang.code)}
                     >
-                      {l.label}
+                      {lang.label}
                     </button>
                   ))}
                 </div>
-              )}
+              ) : null}
             </div>
 
-            {/* 登录按钮 */}
             <button
               className="hb-landing-login-btn"
               onClick={handleLogin}
@@ -176,26 +201,21 @@ export default function LandingPage() {
               <LogIn size={14} />
               {t('landing.loginBtn')}
             </button>
-
           </div>
         </div>
       </nav>
 
-      {/* ── Hero 区 ──────────────────────────────────────────────────────── */}
       <section className="hb-landing-hero">
         <div className="hb-landing-hero-grid" aria-hidden="true" />
         <div className="hb-landing-hero-glow hb-landing-hero-glow--l" aria-hidden="true" />
         <div className="hb-landing-hero-glow hb-landing-hero-glow--r" aria-hidden="true" />
 
         <div className="hb-landing-hero-content">
-
-          {/* 角标 */}
           <div className="hb-landing-badge hb-anim-fade-up" style={{ animationDelay: '0ms' }}>
-            <Sparkles size={12} />
+            <img src={systemBrandIconSrc} alt="" className="hb-landing-badge-icon" />
             {t('landing.badge')}
           </div>
 
-          {/* 大标题 */}
           <h1 className="hb-landing-headline hb-anim-fade-up" style={{ animationDelay: '80ms' }}>
             {t('landing.heroTitle1')}
             <br />
@@ -204,12 +224,10 @@ export default function LandingPage() {
             </span>
           </h1>
 
-          {/* 副标题 */}
           <p className="hb-landing-subtitle hb-anim-fade-up" style={{ animationDelay: '180ms' }}>
-            {t('landing.heroSubtitle')}
+            {t('landing.heroSubtitle', { productName })}
           </p>
 
-          {/* CTA 按钮 */}
           <div className="hb-landing-cta hb-anim-fade-up" style={{ animationDelay: '280ms' }}>
             <button
               className="hb-landing-cta-primary"
@@ -226,20 +244,16 @@ export default function LandingPage() {
             </a>
           </div>
 
-          {/* 技术标签 */}
           <div className="hb-landing-tags hb-anim-fade-up" style={{ animationDelay: '380ms' }}>
-            {['Template Pool', 'Hiring Flow', 'Employee Hub', 'Skills', 'Onboarding', 'Collaboration'].map(tag => (
+            {['Template Pool', 'Hiring Flow', 'Employee Hub', 'Skills', 'Onboarding', 'Collaboration'].map((tag) => (
               <span key={tag} className="hb-landing-tag">{tag}</span>
             ))}
           </div>
-
         </div>
       </section>
 
-      {/* ── 功能模块 ─────────────────────────────────────────────────────── */}
       <section id="features" className="hb-landing-section">
         <div className="hb-landing-container">
-
           <div className="hb-landing-section-head">
             <span className="hb-landing-section-label">{t('landing.featuresLabel')}</span>
             <h2 className="hb-landing-section-title">{t('landing.featuresTitle')}</h2>
@@ -264,16 +278,13 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
-
         </div>
       </section>
 
-      {/* ── 使用步骤 ─────────────────────────────────────────────────────── */}
       <section className="hb-landing-section hb-landing-section--alt">
         <div className="hb-landing-container">
-
           <div className="hb-landing-section-head">
-            <span className="hb-landing-section-label" style={{ color: '#7B5EFF' }}>
+            <span className="hb-landing-section-label hb-landing-section-label--accent">
               {t('landing.stepsLabel')}
             </span>
             <h2 className="hb-landing-section-title">{t('landing.stepsTitle')}</h2>
@@ -290,18 +301,16 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
-
         </div>
       </section>
 
-      {/* ── 页底 CTA ─────────────────────────────────────────────────────── */}
       <section className="hb-landing-final">
         <div className="hb-landing-final-inner">
           <div className="hb-landing-final-icon">
             <Users size={28} color="#fff" />
           </div>
           <h2 className="hb-landing-final-title">{t('landing.finalCtaTitle')}</h2>
-          <p className="hb-landing-final-copy">{t('landing.finalCtaCopy')}</p>
+          <p className="hb-landing-final-copy">{t('landing.finalCtaCopy', { productName })}</p>
           <button
             className="hb-landing-cta-primary"
             onClick={handleLogin}
@@ -314,11 +323,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── 页脚 ─────────────────────────────────────────────────────────── */}
       <footer className="hb-landing-footer">
-        <span>{t('brand.footer')}</span>
+        <span>{t('brand.footer', { productName })}</span>
       </footer>
-
     </div>
   )
 }

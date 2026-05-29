@@ -47,7 +47,7 @@ describe('Layout', () => {
       </MemoryRouter>,
     )
 
-    expect(html).toContain('NCrew Hire')
+    expect(html).toContain('GoodCrew')
     expect(html).toContain('加载中...')
   })
 })

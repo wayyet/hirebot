@@ -1,12 +1,10 @@
 import {
   HiringCollectionPhase,
   HiringCollectionStage,
-  HiringCredentialBindingStatus,
   HiringStageReadinessStatus,
   HiringTodoStatus,
 } from '@/infra/api'
 import type {
-  CredentialSlot,
   DiagnosticTodo,
   DispatchCallback,
   HandoffItem,
@@ -126,7 +124,7 @@ const STAGE_CONFIG: Record<HiringUiStage, StageConfig> = {
   },
   [HiringCollectionStage.External]: {
     title: '外部连接',
-    description: '连接能力与凭据绑定',
+    description: '连接能力与接入说明',
     panelTitle: '配置外部连接',
     panelDescription: '按连接能力逐条说明系统、操作、目标与认证方式。',
     subtask: '连接配置',
@@ -307,12 +305,6 @@ function buildStageTodoItems(stageTodos: WorkflowTodo[]): HiringStageTodoVm[] {
   return result
 }
 
-function getExternalPendingCredentialSlots(credentialSlots: CredentialSlot[] | null | undefined) {
-  return credentialSlots?.filter(slot =>
-    slot.bindingStatus !== HiringCredentialBindingStatus.Bound &&
-    slot.bindingStatus !== HiringCredentialBindingStatus.NotRequired) ?? []
-}
-
 function getRuntimeFacts(workflowState: HiringWorkflowState | null): WorkflowRuntimeFacts {
   return workflowState?.runtimeFacts ?? EMPTY_RUNTIME_FACTS
 }
@@ -370,10 +362,6 @@ function summarizeStageNotes(
   }
 
   if (stage === HiringCollectionStage.External) {
-    const pendingSlots = getExternalPendingCredentialSlots(workflowState?.credentialSlots)
-    if (pendingSlots.length > 0) {
-      notes.push(`仍有 ${pendingSlots.length} 个凭据槽位待绑定`)
-    }
     if (stageTodos.some(todo =>
       todo.gapType === 'external_skip_declaration' &&
       isTodoComplete(todo.status))) {
@@ -440,13 +428,6 @@ function getStageDetail(
 ) {
   const config = STAGE_CONFIG[stage]
   if (status === 'active') {
-    if (stage === HiringCollectionStage.External) {
-      const pendingSlots = getExternalPendingCredentialSlots(workflowState?.credentialSlots)
-      if (pendingSlots.length > 0) {
-        return `${pendingSlots.length} 个凭据待绑定`
-      }
-    }
-
     return '进行中'
   }
 
@@ -519,12 +500,12 @@ function buildGuideCard(
     return {
       stage,
       title: '把外部连接拆成能力单元',
-      description: '每条外部能力都要明确系统、操作、目标、凭据槽位和关联技能。',
+      description: '每条外部能力都要明确系统、操作、目标、认证方式和关联技能。',
       bulletTitle: '外部阶段',
       bulletBody: notes[0] ?? readiness?.reason ?? '按 MCP / CLI / database 这类连接能力逐条补齐。',
       statusText,
       hints: [
-        '敏感凭据不要发进聊天框，统一在右侧凭据绑定区处理。',
+        '敏感凭据不要发进聊天框，只描述认证方式和接入要求。',
         '如果确实不需要外部系统，要显式声明跳过。',
       ],
     }
@@ -612,14 +593,10 @@ export function buildHiringWorkflowViewModel(
   const canFinalize = collectionPhase === HiringCollectionPhase.ReadyForFinalize ||
     workflowState?.latestDiagnosticReport?.readyForPackaging === true
   const pendingReviewCount = workflowState?.configGovernance?.pendingReviewTodoIds.length ?? 0
-  const pendingSlots = getExternalPendingCredentialSlots(workflowState?.credentialSlots)
 
   let blockedReason = ''
   if (!canFinalize) {
     blockedReason = workflowState?.latestDiagnosticReport?.userSummary ?? currentStageReason
-  }
-  if (pendingSlots.length > 0) {
-    blockedReason = `仍有 ${pendingSlots.length} 个凭据槽位待绑定。`
   }
   if (pendingReviewCount > 0) {
     blockedReason = `仍有 ${pendingReviewCount} 条工单因配置治理待复核。`

@@ -1,11 +1,11 @@
-/**
- * EvaluationPage 专属样式 —— 统一管理亮色 / 暗色下的语义化色彩
- * 通过 .dark 类切换（与 tokens.css 保持一致）
+﻿/**
+ * EvaluationPage 涓撳睘鏍峰紡 鈥斺€?缁熶竴绠＄悊浜壊 / 鏆楄壊涓嬬殑璇箟鍖栬壊褰?
+ * 閫氳繃 .dark 绫诲垏鎹紙涓?tokens.css 淇濇寔涓€鑷达級
  */
 
-/* ════════════════════════════════════════════════════════════════
-   1. 工作流阶段状态色（workflow stage tone）
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   1. 宸ヤ綔娴侀樁娈电姸鎬佽壊锛坵orkflow stage tone锛?
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-tone-completed {
   border-color: #dcfce7;
   background: #f0fdf4;
@@ -18,14 +18,25 @@
 }
 
 .eval-tone-running {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: var(--hb-accent-border-strong);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 86%, var(--hb-surface-card));
+  color: var(--hb-accent-text);
 }
 .dark .eval-tone-running {
-  border-color: rgba(96, 165, 250, 0.30);
-  background: rgba(96, 165, 250, 0.10);
-  color: #60a5fa;
+  border-color: var(--hb-accent-border-strong);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 74%, transparent);
+  color: var(--hb-accent-text);
+}
+
+.eval-tone-warning {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
+}
+.dark .eval-tone-warning {
+  border-color: rgba(251, 191, 36, 0.30);
+  background: rgba(251, 191, 36, 0.08);
+  color: #fbbf24;
 }
 
 .eval-tone-failed {
@@ -50,9 +61,9 @@
   color: #7a8fa8;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   2. 人工评估横幅（human eval banner）
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   2. 浜哄伐璇勪及妯箙锛坔uman eval banner锛?
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-banner-pass {
   border-color: #bbf7d0;
   background: #f0fdf4;
@@ -77,9 +88,9 @@
 .eval-banner-fail .eval-banner-text  { color: #c2410c; }
 .dark .eval-banner-fail .eval-banner-text { color: #fbbf24; }
 
-/* ════════════════════════════════════════════════════════════════
-   3. 错误栏 / 系统提示条
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   3. 閿欒鏍?/ 绯荤粺鎻愮ず鏉?
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-bar-error {
   border-color: #ffd5da;
   background: #fff1f2;
@@ -92,19 +103,19 @@
 }
 
 .eval-bar-info {
-  border-color: #dbeafe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: var(--hb-accent-border);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 82%, var(--hb-surface-card));
+  color: var(--hb-accent-text);
 }
 .dark .eval-bar-info {
-  border-color: rgba(96, 165, 250, 0.25);
-  background: rgba(96, 165, 250, 0.08);
-  color: #60a5fa;
+  border-color: var(--hb-accent-border);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 68%, transparent);
+  color: var(--hb-accent-text);
 }
 
-/* ════════════════════════════════════════════════════════════════
-   4. 工作区进度条容器
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   4. 宸ヤ綔鍖鸿繘搴︽潯瀹瑰櫒
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-progress-wrap {
   border-color: #ececec;
   background: #fafafa;
@@ -115,12 +126,12 @@
 }
 
 .eval-progress-label-ok {
-  background: #e8edff;
-  color: #4a6cf7;
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 84%, var(--hb-surface-card));
+  color: var(--hb-accent-text);
 }
 .dark .eval-progress-label-ok {
-  background: rgba(74, 108, 247, 0.15);
-  color: #4f8ef7;
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 72%, transparent);
+  color: var(--hb-accent-text);
 }
 
 .eval-progress-label-fail {
@@ -139,29 +150,37 @@
   background: rgba(255, 255, 255, 0.10);
 }
 
-.eval-progress-bar-ok { background: #4a6cf7; }
-.dark .eval-progress-bar-ok { background: #4f8ef7; }
+.eval-progress-bar-ok { background: var(--hb-accent-solid); }
+.dark .eval-progress-bar-ok { background: var(--hb-accent-solid); }
 
 .eval-progress-bar-fail { background: #b3263c; }
 .dark .eval-progress-bar-fail { background: #f87171; }
 
 .eval-flow-target {
-  border-color: #dbeafe;
-  background: #f8fbff;
+  border-color: var(--hb-accent-border);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 40%, var(--hb-surface-card));
 }
 .dark .eval-flow-target {
-  border-color: rgba(96, 165, 250, 0.26);
-  background: rgba(96, 165, 250, 0.08);
+  border-color: var(--hb-accent-border);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 48%, transparent);
 }
 
 .eval-flow-panel {
-  border-color: #dbe4f0;
-  background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
-  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.06);
+  border-color: var(--hb-border);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hb-surface-card) 98%, transparent) 0%,
+    color-mix(in srgb, var(--hb-surface-soft) 92%, var(--hb-accent-soft-bg) 8%) 100%
+  );
+  box-shadow: var(--hb-card-shadow);
 }
 .dark .eval-flow-panel {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border-color: var(--hb-border);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hb-surface-card) 94%, transparent) 0%,
+    color-mix(in srgb, var(--hb-surface-soft) 88%, var(--hb-accent-soft-bg) 12%) 100%
+  );
 }
 
 .eval-flow-summary-chip {
@@ -177,32 +196,32 @@
 
 .eval-flow-step-node {
   display: flex;
-  height: 36px;
-  width: 36px;
+  height: 28px;
+  width: 28px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
   border: 1px solid transparent;
-  box-shadow: 0 0 0 7px rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.92);
   transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
 .dark .eval-flow-step-node {
-  box-shadow: 0 0 0 7px rgba(15, 23, 42, 0.96);
+  box-shadow: 0 0 0 5px rgba(15, 23, 42, 0.96);
 }
 
 .eval-flow-step-node-current {
   transform: none;
-  border-color: rgba(59, 130, 246, 0.34);
+  border-color: var(--hb-accent-border-strong);
   box-shadow:
-    0 0 0 6px rgba(239, 246, 255, 0.98),
-    0 0 0 10px rgba(37, 99, 235, 0.06);
+    0 0 0 4px color-mix(in srgb, var(--hb-surface-card) 96%, transparent),
+    0 0 0 7px color-mix(in srgb, var(--hb-accent-shadow) 42%, transparent);
 }
 .dark .eval-flow-step-node-current {
-  border-color: rgba(96, 165, 250, 0.35);
+  border-color: var(--hb-accent-border-strong);
   box-shadow:
-    0 0 0 6px rgba(15, 23, 42, 0.96),
-    0 0 0 10px rgba(96, 165, 250, 0.08);
+    0 0 0 4px color-mix(in srgb, var(--hb-surface-card) 96%, transparent),
+    0 0 0 7px color-mix(in srgb, var(--hb-accent-shadow) 52%, transparent);
 }
 
 .eval-flow-step-line {
@@ -222,10 +241,10 @@
 }
 
 .eval-flow-step-line-running {
-  background: #4a6cf7;
+  background: var(--hb-accent-solid);
 }
 .dark .eval-flow-step-line-running {
-  background: #60a5fa;
+  background: var(--hb-accent-solid);
 }
 
 .eval-flow-step-line-failed {
@@ -249,7 +268,7 @@
 
 .eval-flow-stage-title {
   color: #0f172a;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.45;
 }
@@ -497,22 +516,22 @@
   color: #dc2626;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   5. 工作流 badge pill（Sesion, 双沙箱已连接 等）
-   ════════════════════════════════════════════════════════════════ */
-/* 人工评估阶段 badge（紫罗兰色） */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   5. 宸ヤ綔娴?badge pill锛圫esion, 鍙屾矙绠卞凡杩炴帴 绛夛級
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
+/* 浜哄伐璇勪及闃舵 badge锛堢传缃楀叞鑹诧級 */
 .eval-pill-violet {
-  border-color: #ddd6fe;
-  background: #ede9fe;
-  color: #5b21b6;
+  border-color: var(--hb-accent-border);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 84%, var(--hb-surface-card));
+  color: var(--hb-accent-text);
 }
 .dark .eval-pill-violet {
-  border-color: rgba(167, 139, 250, 0.30);
-  background: rgba(167, 139, 250, 0.12);
-  color: #c4b5fd;
+  border-color: var(--hb-accent-border);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 70%, transparent);
+  color: var(--hb-accent-text);
 }
 
-/* 决策操作区容器 */
+/* 鍐崇瓥鎿嶄綔鍖哄鍣?*/
 .eval-decision-panel {
   border-color: #ececec;
   background: #fafafa;
@@ -545,20 +564,20 @@
   color: #60a5fa;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   6. 聊天主面板
-   ════════════════════════════════════════════════════════════════ */
-/* 聊天顶部标题区图标背景 */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   6. 鑱婂ぉ涓婚潰鏉?
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
+/* 鑱婂ぉ椤堕儴鏍囬鍖哄浘鏍囪儗鏅?*/
 .eval-icon-indigo {
-  background: #eef2ff;
-  color: #4f46e5;
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 84%, var(--hb-surface-card));
+  color: var(--hb-accent-text);
 }
 .dark .eval-icon-indigo {
-  background: rgba(167, 139, 250, 0.15);
-  color: #a78bfa;
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 70%, transparent);
+  color: var(--hb-accent-text);
 }
 
-/* 沙箱连接状态 badge */
+/* 娌欑杩炴帴鐘舵€?badge */
 .eval-badge-connected {
   border-color: #dcfce7;
   background: #f0fdf4;
@@ -581,15 +600,15 @@
   color: #7a8fa8;
 }
 
-/* 聊天区底色 */
+/* 鑱婂ぉ鍖哄簳鑹?*/
 .eval-chat-bg {
-  background: #fafafa;
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, var(--hb-accent-soft-bg) 8%);
 }
 .dark .eval-chat-bg {
-  background: var(--hb-surface-soft);
+  background: color-mix(in srgb, var(--hb-surface-soft) 90%, var(--hb-accent-soft-bg) 10%);
 }
 
-/* 聊天气泡容器 */
+/* 鑱婂ぉ姘旀场瀹瑰櫒 */
 .eval-chat-wrapper {
   border-color: #ececec;
   background: #ffffff;
@@ -599,7 +618,7 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
-/* 机器人气泡（bot bubble） */
+/* 鏈哄櫒浜烘皵娉★紙bot bubble锛?*/
 .eval-bubble-bot {
   border-color: #ececec;
   background: #fafafa;
@@ -611,33 +630,33 @@
   color: var(--hb-body);
 }
 
-/* 用户气泡（user bubble） */
+/* 鐢ㄦ埛姘旀场锛坲ser bubble锛?*/
 .eval-bubble-user {
-  background: #000000;
+  background: var(--hb-accent-solid);
   color: #ffffff;
 }
 .dark .eval-bubble-user {
-  background: #EEF2FF;
-  color: #111827;
+  background: var(--hb-accent-solid);
+  color: #ffffff;
 }
 
-/* 气泡时间戳/发送者标签 */
+/* 姘旀场鏃堕棿鎴?鍙戦€佽€呮爣绛?*/
 .eval-bubble-meta-bot  { color: #9ca3af; }
 .dark .eval-bubble-meta-bot  { color: #4a5e78; }
 
-.eval-bubble-meta-user { color: #e5e5e5; }
-.dark .eval-bubble-meta-user { color: rgba(0, 0, 0, 0.45); }
+.eval-bubble-meta-user { color: rgba(255, 255, 255, 0.76); }
+.dark .eval-bubble-meta-user { color: rgba(255, 255, 255, 0.76); }
 
-/* 空聊天提示（dashed border） */
+/* 绌鸿亰澶╂彁绀猴紙dashed border锛?*/
 .eval-empty-chat {
-  border-color: #d1d5db;
-  background: #fafafa;
-  color: #737373;
+  border-color: var(--hb-border-input);
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, transparent);
+  color: var(--hb-soft);
 }
 .dark .eval-empty-chat {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.03);
-  color: #7a8fa8;
+  border-color: var(--hb-border-input);
+  background: color-mix(in srgb, var(--hb-surface-soft) 86%, transparent);
+  color: var(--hb-soft);
 }
 
 .eval-chat-empty-stage {
@@ -755,7 +774,7 @@
   color: #93c5fd;
 }
 
-/* 聊天未激活提示框 */
+/* 鑱婂ぉ鏈縺娲绘彁绀烘 */
 .eval-inactive-tip {
   border-color: #ececec;
   background: #fafafa;
@@ -767,12 +786,12 @@
   color: #7a8fa8;
 }
 
-/* 聊天输入框底部边框 */
+/* 鑱婂ぉ杈撳叆妗嗗簳閮ㄨ竟妗?*/
 .eval-chat-footer {
-  border-color: #ececec;
+  border-color: var(--hb-border);
 }
 .dark .eval-chat-footer {
-  border-color: rgba(255, 255, 255, 0.10);
+  border-color: var(--hb-border);
 }
 
 .eval-composer-shell {
@@ -799,29 +818,30 @@
   color: #4a5e78;
 }
 
-/* 输入框 textarea */
+/* 杈撳叆妗?textarea */
 .eval-textarea {
-  border-color: #e5e5e5;
-  background: #fafafa;
+  border-color: var(--hb-border-input);
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, transparent);
   color: var(--hb-near-black);
 }
 .dark .eval-textarea {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.04);
-  color: #EEF2FF;
+  border-color: var(--hb-border-input);
+  background: color-mix(in srgb, var(--hb-surface-soft) 86%, transparent);
+  color: var(--hb-near-black);
 }
 .eval-textarea:focus {
-  border-color: #4a6cf7;
+  border-color: var(--hb-accent-solid);
+  box-shadow: var(--hb-focus);
   outline: none;
 }
 .dark .eval-textarea:focus {
-  border-color: #4f8ef7;
+  border-color: var(--hb-accent-solid);
 }
 
-/* ════════════════════════════════════════════════════════════════
-   7. 测试用例题卡（testcase cards）
-   ════════════════════════════════════════════════════════════════ */
-/* 统计头 / 各类 header 卡片 */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   7. 娴嬭瘯鐢ㄤ緥棰樺崱锛坱estcase cards锛?
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
+/* 缁熻澶?/ 鍚勭被 header 鍗＄墖 */
 .eval-stats-header {
   border-color: #e5e7eb;
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
@@ -831,7 +851,7 @@
   background: linear-gradient(180deg, rgba(24, 32, 52, 0.95) 0%, rgba(15, 22, 40, 0.98) 100%);
 }
 
-/* 统计区 stats badge（白底）*/
+/* 缁熻鍖?stats badge锛堢櫧搴曪級*/
 .eval-stats-badge {
   border-color: #e2e8f0;
   background: #ffffff;
@@ -843,7 +863,7 @@
   color: #7a8fa8;
 }
 
-/* 用例就绪 badge */
+/* 鐢ㄤ緥灏辩华 badge */
 .eval-stats-badge-ready {
   border-color: #bbf7d0;
   background: #f0fdf4;
@@ -855,7 +875,7 @@
   color: #34d399;
 }
 
-/* 用例等待 badge */
+/* 鐢ㄤ緥绛夊緟 badge */
 .eval-stats-badge-pending {
   border-color: #ececec;
   background: #ffffff;
@@ -867,29 +887,29 @@
   color: #7a8fa8;
 }
 
-/* 本体 badge */
+/* 鏈綋 badge */
 .eval-stats-badge-ontology {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: var(--hb-accent-border);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 82%, var(--hb-surface-card));
+  color: var(--hb-accent-text);
 }
 .dark .eval-stats-badge-ontology {
-  border-color: rgba(96, 165, 250, 0.30);
-  background: rgba(96, 165, 250, 0.10);
-  color: #60a5fa;
+  border-color: var(--hb-accent-border);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 68%, transparent);
+  color: var(--hb-accent-text);
 }
 
-/* 测试题卡卡片 */
+/* 娴嬭瘯棰樺崱鍗＄墖 */
 .eval-question-card {
-  border-color: #e5e7eb;
-  background: #ffffff;
+  border-color: var(--hb-border);
+  background: color-mix(in srgb, var(--hb-surface-card) 96%, transparent);
 }
 .dark .eval-question-card {
-  border-color: rgba(255, 255, 255, 0.10);
-  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--hb-border);
+  background: color-mix(in srgb, var(--hb-surface-card) 92%, transparent);
 }
 
-/* 题卡：序号圆圈 */
+/* 棰樺崱锛氬簭鍙峰渾鍦?*/
 .eval-seq-circle {
   background: #eef2ff;
   color: #4f46e5;
@@ -899,7 +919,7 @@
   color: #a78bfa;
 }
 
-/* 题卡：ID badge */
+/* 棰樺崱锛欼D badge */
 .eval-id-badge {
   border-color: #e5e7eb;
   background: #f9fafb;
@@ -911,7 +931,7 @@
   color: #7a8fa8;
 }
 
-/* 题卡：prompt 区域 */
+/* 棰樺崱锛歱rompt 鍖哄煙 */
 .eval-prompt-box {
   border-color: #ececec;
   background: #fafafa;
@@ -923,7 +943,7 @@
   color: #d1d5db;
 }
 
-/* 题卡：步骤行 */
+/* 棰樺崱锛氭楠よ */
 .eval-step-row {
   border-color: #ececec;
   background: #ffffff;
@@ -933,7 +953,7 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
-/* 题卡：评分提示框（dashed） */
+/* 棰樺崱锛氳瘎鍒嗘彁绀烘锛坉ashed锛?*/
 .eval-scoring-hint {
   border-color: #d1d5db;
   background: #f9fafb;
@@ -945,9 +965,9 @@
   color: #7a8fa8;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   8. 空状态占位卡片
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   8. 绌虹姸鎬佸崰浣嶅崱鐗?
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-empty-card {
   border-color: #ececec;
   background: #ffffff;
@@ -959,10 +979,10 @@
   color: #7a8fa8;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   9. 概览报告（overview tab）
-   ════════════════════════════════════════════════════════════════ */
-/* 通用 overview 面板容器 */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   9. 姒傝鎶ュ憡锛坥verview tab锛?
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
+/* 閫氱敤 overview 闈㈡澘瀹瑰櫒 */
 .eval-overview-panel {
   border-color: #ececec;
   background: #ffffff;
@@ -972,7 +992,7 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
-/* 评分数字卡片 */
+/* 璇勫垎鏁板瓧鍗＄墖 */
 .eval-score-card {
   border-color: #e5e7eb;
   background: #ffffff;
@@ -982,7 +1002,7 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
-/* 表格行（维度评分） */
+/* 琛ㄦ牸琛岋紙缁村害璇勫垎锛?*/
 .eval-table-header {
   background: #f8fafc;
   color: #6b7280;
@@ -999,7 +1019,7 @@
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-/* 维度评分 item（report tab 里） */
+/* 缁村害璇勫垎 item锛坮eport tab 閲岋級 */
 .eval-dim-item {
   border-color: #f3f4f6;
   background: #fafafa;
@@ -1009,19 +1029,19 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
-/* 推荐建议框 */
+/* 鎺ㄨ崘寤鸿妗?*/
 .eval-recommendation {
-  border-color: #f3f4f6;
-  background: #fafafa;
-  color: #6b7280;
+  border-color: var(--hb-border);
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, transparent);
+  color: var(--hb-body);
 }
 .dark .eval-recommendation {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
-  color: #7a8fa8;
+  border-color: var(--hb-border);
+  background: color-mix(in srgb, var(--hb-surface-soft) 86%, transparent);
+  color: var(--hb-body);
 }
 
-/* 调试面板（dashed blue） */
+/* 璋冭瘯闈㈡澘锛坉ashed blue锛?*/
 .eval-debug-panel {
   border-color: #dbeafe;
   background: #f8fbff;
@@ -1031,9 +1051,9 @@
   background: rgba(59, 130, 246, 0.06);
 }
 
-/* ════════════════════════════════════════════════════════════════
-   10. 轨迹 trace tab
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   10. 杞ㄨ抗 trace tab
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-trace-card {
   border-color: #ececec;
   background: #fafafa;
@@ -1043,14 +1063,14 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
-/* 执行轨迹：单轮时间线左边框（按 turn_index 循环 5 色） */
+/* 鎵ц杞ㄨ抗锛氬崟杞椂闂寸嚎宸﹁竟妗嗭紙鎸?turn_index 寰幆 5 鑹诧級 */
 .eval-trace-turn-l0 { border-left: 2px solid #6366f1; }
 .eval-trace-turn-l1 { border-left: 2px solid #06b6d4; }
 .eval-trace-turn-l2 { border-left: 2px solid #10b981; }
 .eval-trace-turn-l3 { border-left: 2px solid #f59e0b; }
 .eval-trace-turn-l4 { border-left: 2px solid #ec4899; }
 
-/* 轮次序号圆圈色（与左边框对应） */
+/* 杞搴忓彿鍦嗗湀鑹诧紙涓庡乏杈规瀵瑰簲锛?*/
 .eval-trace-seq-0 { background: #eef2ff; color: #4f46e5; }
 .eval-trace-seq-1 { background: #ecfeff; color: #0891b2; }
 .eval-trace-seq-2 { background: #ecfdf5; color: #059669; }
@@ -1062,7 +1082,7 @@
 .dark .eval-trace-seq-3 { background: rgba(245,158,11,0.15); color: #fcd34d; }
 .dark .eval-trace-seq-4 { background: rgba(236,72,153,0.15); color: #f9a8d4; }
 
-/* 用户输入气泡（蓝色调） */
+/* 鐢ㄦ埛杈撳叆姘旀场锛堣摑鑹茶皟锛?*/
 .eval-trace-user-block {
   border-color: #dbeafe;
   background: #eff6ff;
@@ -1074,7 +1094,7 @@
   color: #93c5fd;
 }
 
-/* AI 回复气泡（靛蓝/紫色调） */
+/* AI 鍥炲姘旀场锛堥潧钃?绱壊璋冿級 */
 .eval-trace-ai-block {
   border-color: #e0e7ff;
   background: #eef2ff;
@@ -1084,7 +1104,7 @@
   background: rgba(99, 102, 241, 0.08);
 }
 
-/* 工具调用类型徽章 */
+/* 宸ュ叿璋冪敤绫诲瀷寰界珷 */
 .eval-trace-badge-tool-use {
   background: #ede9fe;
   color: #5b21b6;
@@ -1102,7 +1122,7 @@
   color: #4ade80;
 }
 
-/* 模型 ID 徽章（蓝色） */
+/* 妯″瀷 ID 寰界珷锛堣摑鑹诧級 */
 .eval-trace-model-badge {
   border-color: #bfdbfe;
   background: #eff6ff;
@@ -1114,7 +1134,7 @@
   color: #60a5fa;
 }
 
-/* token 用量徽章（紫色） */
+/* token 鐢ㄩ噺寰界珷锛堢传鑹诧級 */
 .eval-trace-token-badge {
   border-color: #e9d5ff;
   background: #faf5ff;
@@ -1126,7 +1146,7 @@
   color: #c4b5fd;
 }
 
-/* 思维链徽章（琥珀色） */
+/* 鎬濈淮閾惧窘绔狅紙鐞ョ弨鑹诧級 */
 .eval-trace-thought-badge {
   border-color: #fde68a;
   background: #fffbeb;
@@ -1138,9 +1158,9 @@
   color: #fcd34d;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   11. 评估报告 report tab
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   11. 璇勪及鎶ュ憡 report tab
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-report-pass {
   border-color: #bbf7d0;
   background: #f0fdf4;
@@ -1244,13 +1264,13 @@
   display: none;
 }
 .eval-side-disclosure-summary::after {
-  content: "展开";
+  content: "灞曞紑";
   font-size: 11px;
   font-weight: 500;
   color: #94a3b8;
 }
 .eval-side-disclosure[open] .eval-side-disclosure-summary::after {
-  content: "收起";
+  content: "鏀惰捣";
 }
 .dark .eval-side-disclosure-summary {
   color: #e2e8f0;
@@ -1267,9 +1287,9 @@
   border-top-color: rgba(255, 255, 255, 0.08);
 }
 
-/* ════════════════════════════════════════════════════════════════
-   12. 右侧面板 tab 按钮
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   12. 鍙充晶闈㈡澘 tab 鎸夐挳
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-tab-bar {
   border-color: #ececec;
 }
@@ -1299,7 +1319,7 @@
   color: #7a8fa8;
 }
 
-/* 折叠按钮 chevron */
+/* 鎶樺彔鎸夐挳 chevron */
 .eval-collapse-btn:hover {
   background: #fafafa;
 }
@@ -1307,9 +1327,9 @@
   background: rgba(255, 255, 255, 0.05);
 }
 
-/* ════════════════════════════════════════════════════════════════
-   13. 测试场景列表（testcase outlines）
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   13. 娴嬭瘯鍦烘櫙鍒楄〃锛坱estcase outlines锛?
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-scenario-list {
   border-color: #e5e7eb;
   background: #ffffff;
@@ -1326,9 +1346,9 @@
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-/* ════════════════════════════════════════════════════════════════
-   14. 链接颜色
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   14. 閾炬帴棰滆壊
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-link {
   color: #2563eb;
 }
@@ -1336,9 +1356,9 @@
   color: #60a5fa;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   15. 文字语义色（text semantic tokens）
-   ════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   15. 鏂囧瓧璇箟鑹诧紙text semantic tokens锛?
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 .eval-text-title   { color: #111827; }
 .dark .eval-text-title   { color: #e2e8f0; }
 
@@ -1375,11 +1395,22 @@
 .eval-text-blue-link { color: #2563eb; }
 .dark .eval-text-blue-link { color: #60a5fa; }
 
-.eval-text-indigo  { color: #4f46e5; }
-.dark .eval-text-indigo  { color: #a78bfa; }
+.eval-text-indigo  { color: var(--hb-accent-text); }
+.dark .eval-text-indigo  { color: var(--hb-accent-text); }
 
-.eval-text-indigo-label { color: #4f46e5; }
-.dark .eval-text-indigo-label { color: #a78bfa; }
+.eval-text-indigo-label { color: var(--hb-accent-text); }
+.dark .eval-text-indigo-label { color: var(--hb-accent-text); }
+
+.eval-send-btn {
+  background: var(--hb-accent-solid);
+  color: #fff;
+  box-shadow: 0 10px 24px var(--hb-accent-shadow);
+}
+
+.eval-send-btn:hover {
+  background: var(--hb-accent-solid-hover);
+  box-shadow: 0 14px 32px var(--hb-accent-shadow-strong);
+}
 
 .eval-text-red     { color: #b3263c; }
 .dark .eval-text-red     { color: #f87171; }
@@ -1395,3 +1426,387 @@
 
 .eval-text-teal    { color: #0f766e; }
 .dark .eval-text-teal    { color: #2dd4bf; }
+
+ .eval-human-layout {
+  position: relative;
+}
+
+.eval-human-topbar {
+  position: relative;
+  overflow: hidden;
+}
+
+.eval-human-topbar::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--hb-border) 84%, transparent);
+}
+
+.eval-human-chat-shell,
+.eval-human-reference-shell,
+.eval-human-compact-rail {
+  box-shadow: var(--hb-card-shadow);
+}
+
+.eval-human-reference-shell {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hb-surface-card) 98%, transparent) 0%,
+    color-mix(in srgb, var(--hb-surface-soft) 92%, var(--hb-accent-soft-bg) 8%) 100%
+  );
+}
+
+.dark .eval-human-reference-shell {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hb-surface-card) 94%, transparent) 0%,
+    color-mix(in srgb, var(--hb-surface-soft) 88%, var(--hb-accent-soft-bg) 12%) 100%
+  );
+}
+
+.eval-human-decision-panel {
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, var(--hb-accent-soft-bg) 8%);
+}
+
+.dark .eval-human-decision-panel {
+  background: color-mix(in srgb, var(--hb-surface-soft) 86%, var(--hb-accent-soft-bg) 14%);
+}
+
+.eval-human-compact-rail {
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.eval-human-compact-rail:hover {
+  transform: translateY(-1px);
+  border-color: var(--hb-accent-border);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 68%, var(--hb-surface-card));
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-human-topbar {
+  border-color: rgba(255, 255, 255, 0.42);
+  background:
+    radial-gradient(circle at top right, rgba(255, 94, 15, 0.10), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.40) 0%, rgba(255, 255, 255, 0.28) 100%);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-human-decision-panel {
+  border-color: rgba(255, 255, 255, 0.44);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 247, 240, 0.62) 100%);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-human-compact-rail {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.42);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-human-compact-rail:hover {
+  background: rgba(255, 255, 255, 0.64);
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-panel,
+html[data-mode="light"][data-skin="warm"] .eval-chat-wrapper,
+html[data-mode="light"][data-skin="warm"] .eval-artifacts-shell {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-panel {
+  background:
+    radial-gradient(circle at top right, rgba(255, 94, 15, 0.10), transparent 28%),
+    rgba(255, 255, 255, 0.34);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-step-node {
+  height: 32px;
+  width: 32px;
+  border-color: rgba(30, 41, 59, 0.12);
+  background: rgba(255, 255, 255, 0.58);
+  color: #64748b;
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.48);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-step-node-current {
+  border-color: #ff5e0f;
+  background: #ff5e0f;
+  color: #ffffff;
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.56),
+    0 0 0 8px rgba(255, 94, 15, 0.18);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-step-line {
+  height: 0;
+  border-top: 2px dashed rgba(30, 41, 59, 0.12);
+  background: none;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-step-line-completed {
+  border-top-style: solid;
+  border-top-color: #10b981;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-step-line-running {
+  border-top-style: solid;
+  border-top-color: #ff8a4c;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-step-line-failed {
+  border-top-style: solid;
+  border-top-color: #ef4444;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-stage-title,
+html[data-mode="light"][data-skin="warm"] .eval-flow-status-session-value,
+html[data-mode="light"][data-skin="warm"] .eval-text-title,
+html[data-mode="light"][data-skin="warm"] .eval-text-strong {
+  color: #1e293b;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-stage-title-current,
+html[data-mode="light"][data-skin="warm"] .eval-tab-active,
+html[data-mode="light"][data-skin="warm"] .eval-text-brand {
+  color: #c2410c;
+  border-bottom-color: #ff5e0f;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-stage-status-current {
+  background: rgba(255, 94, 15, 0.10);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-step-text-running,
+html[data-mode="light"][data-skin="warm"] .eval-text-indigo,
+html[data-mode="light"][data-skin="warm"] .eval-text-indigo-label {
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-primary-btn,
+html[data-mode="light"][data-skin="warm"] .eval-human-banner-btn {
+  border-radius: 10px;
+  background: #ff5e0f;
+  color: #ffffff;
+  box-shadow: 0 8px 20px rgba(255, 94, 15, 0.32);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-primary-btn:hover:not(:disabled),
+html[data-mode="light"][data-skin="warm"] .eval-human-banner-btn:hover:not(:disabled) {
+  background: #e54e00;
+  box-shadow: 0 12px 28px rgba(255, 94, 15, 0.26);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-ghost-btn,
+html[data-mode="light"][data-skin="warm"] .eval-reset-confirm {
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.42);
+  color: #475569;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-flow-ghost-btn:hover:not(:disabled) {
+  border-color: rgba(255, 94, 15, 0.24);
+  background: rgba(255, 255, 255, 0.64);
+  color: #1e293b;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-reset-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-reset-confirm-icon {
+  flex-shrink: 0;
+  color: #dc2626;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-reset-confirm-copy {
+  white-space: nowrap;
+  font-size: 11px;
+  color: #dc2626;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-reset-confirm > span:first-of-type {
+  white-space: nowrap;
+  font-size: 11px;
+  color: #dc2626;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-reset-confirm-divider {
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-reset-confirm-action {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 11px;
+  color: #64748b;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-reset-confirm-action.is-danger {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-reset-confirm-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-chat-bg {
+  background:
+    radial-gradient(circle at top right, rgba(255, 94, 15, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-human-banner,
+html[data-mode="light"][data-skin="warm"] .eval-side-status-banner,
+html[data-mode="light"][data-skin="warm"] .eval-side-notice-warning,
+html[data-mode="light"][data-skin="warm"] .eval-report-pass,
+html[data-mode="light"][data-skin="warm"] .eval-report-fail,
+html[data-mode="light"][data-skin="warm"] .eval-score-card,
+html[data-mode="light"][data-skin="warm"] .eval-empty-card,
+html[data-mode="light"][data-skin="warm"] .eval-side-case-card,
+html[data-mode="light"][data-skin="warm"] .eval-side-case-detail,
+html[data-mode="light"][data-skin="warm"] .eval-prompt-box,
+html[data-mode="light"][data-skin="warm"] .eval-progress-wrap,
+html[data-mode="light"][data-skin="warm"] .eval-overview-panel,
+html[data-mode="light"][data-skin="warm"] .eval-debug-panel,
+html[data-mode="light"][data-skin="warm"] .eval-scenario-list {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.36);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-side-status-banner {
+  border-color: rgba(16, 185, 129, 0.22);
+  background: linear-gradient(180deg, rgba(236, 253, 245, 0.92) 0%, rgba(209, 250, 229, 0.82) 100%);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-side-notice-warning,
+html[data-mode="light"][data-skin="warm"] .eval-banner-fail {
+  border-color: #fcd34d;
+  background: linear-gradient(180deg, rgba(255, 247, 237, 0.92) 0%, rgba(254, 243, 199, 0.84) 100%);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-report-pass,
+html[data-mode="light"][data-skin="warm"] .eval-banner-pass {
+  border-color: rgba(16, 185, 129, 0.22);
+  background: linear-gradient(180deg, rgba(236, 253, 245, 0.92) 0%, rgba(209, 250, 229, 0.82) 100%);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-report-fail {
+  border-color: rgba(239, 68, 68, 0.20);
+  background: linear-gradient(180deg, rgba(254, 242, 242, 0.94) 0%, rgba(254, 226, 226, 0.82) 100%);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-progress-track {
+  background: rgba(30, 41, 59, 0.08);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-progress-label-ok {
+  background: rgba(255, 94, 15, 0.10);
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-progress-label-fail {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-starter-card,
+html[data-mode="light"][data-skin="warm"] .eval-suggestion-pill,
+html[data-mode="light"][data-skin="warm"] .eval-pill-neutral,
+html[data-mode="light"][data-skin="warm"] .eval-pill-connected,
+html[data-mode="light"][data-skin="warm"] .eval-stats-badge,
+html[data-mode="light"][data-skin="warm"] .eval-id-badge,
+html[data-mode="light"][data-skin="warm"] .eval-step-row,
+html[data-mode="light"][data-skin="warm"] .eval-trace-model-badge,
+html[data-mode="light"][data-skin="warm"] .eval-trace-token-badge,
+html[data-mode="light"][data-skin="warm"] .eval-trace-thought-badge {
+  border-color: rgba(30, 41, 59, 0.08);
+  background: rgba(255, 255, 255, 0.46);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-starter-card:hover,
+html[data-mode="light"][data-skin="warm"] .eval-suggestion-pill:hover {
+  border-color: rgba(255, 94, 15, 0.24);
+  background: rgba(255, 255, 255, 0.64);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-starter-card-icon {
+  background: rgba(255, 94, 15, 0.10);
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-starter-card-index {
+  border-color: rgba(30, 41, 59, 0.08);
+  background: rgba(255, 255, 255, 0.52);
+  color: #94a3b8;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-composer-shell {
+  border-color: rgba(30, 41, 59, 0.08);
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-composer-input {
+  color: #1e293b;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-composer-input::placeholder,
+html[data-mode="light"][data-skin="warm"] .eval-tab-inactive,
+html[data-mode="light"][data-skin="warm"] .eval-text-secondary,
+html[data-mode="light"][data-skin="warm"] .eval-text-body-2,
+html[data-mode="light"][data-skin="warm"] .eval-text-caption {
+  color: #64748b;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-bubble-bot {
+  border-color: rgba(30, 41, 59, 0.08);
+  background: rgba(255, 255, 255, 0.52);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-tab-bar,
+html[data-mode="light"][data-skin="warm"] .eval-side-disclosure-body,
+html[data-mode="light"][data-skin="warm"] .eval-chat-footer,
+html[data-mode="light"][data-skin="warm"] .eval-flow-status-strip {
+  border-color: rgba(30, 41, 59, 0.08);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-collapse-btn:hover,
+html[data-mode="light"][data-skin="warm"] .eval-flow-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.54);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-side-inline-action:hover:not(:disabled),
+html[data-mode="light"][data-skin="warm"] .eval-link,
+html[data-mode="light"][data-skin="warm"] .eval-text-blue-link {
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-human-confirm-modal {
+  max-width: 480px;
+}
+

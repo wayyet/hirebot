@@ -92,11 +92,11 @@ export default function TrainingFlowPage() {
   }, [state])
 
   return (
-    <div className="hb-page space-y-5">
+    <div className="hb-page hb-workflow-page hb-training-page space-y-5">
       <Breadcrumb items={[{ label: '员工详情', to: id ? instanceBasePath(location.pathname, id) : '/department-employees' }, { label: '训练流程' }]} />
 
       {error && (
-        <div className="rounded-2xl border border-[#ffd5da] bg-[#fff1f2] px-4 py-3 text-sm text-[#b3263c]">
+        <div className="hb-workflow-alert rounded-2xl px-4 py-3 text-sm">
           <span className="inline-flex items-center gap-2">
             <AlertCircle size={14} />
             {error}
@@ -105,7 +105,7 @@ export default function TrainingFlowPage() {
       )}
 
       {loading ? (
-        <div className="hb-card flex min-h-52 items-center justify-center gap-2 p-8 text-sm text-[#737373]">
+        <div className="hb-card hb-detail-state">
           <Loader2 size={16} className="animate-spin" />
           正在加载培训流程...
         </div>
@@ -134,11 +134,11 @@ export default function TrainingFlowPage() {
                 </div>
                 <div className="hb-metric-card">
                   <div className="hb-metric-label">已通过</div>
-                  <div className="hb-metric-value text-[#15803d]">{checkpointSummary.passed}</div>
+                  <div className="hb-metric-value hb-workflow-value-success">{checkpointSummary.passed}</div>
                 </div>
                 <div className="hb-metric-card">
                   <div className="hb-metric-label">未通过</div>
-                  <div className="hb-metric-value text-[#b3263c]">{checkpointSummary.failed}</div>
+                  <div className="hb-metric-value hb-workflow-value-danger">{checkpointSummary.failed}</div>
                 </div>
                 <div className="hb-metric-card">
                   <div className="hb-metric-label">考试得分</div>
@@ -148,30 +148,30 @@ export default function TrainingFlowPage() {
             </div>
           </section>
 
-          <section className="grid gap-3 md:grid-cols-4">
-            <div className="hb-card p-4">
+          <section className="hb-training-summary-grid grid gap-3 md:grid-cols-4">
+            <div className="hb-card hb-training-summary-card p-4">
               <div className="flex items-center gap-2 text-xs text-[#737373]"><Sparkles size={14} /> 检查点总数</div>
               <div className="mt-2 text-2xl font-semibold text-[#0a0a0a]">{state.checkpoints.length}</div>
             </div>
-            <div className="hb-card p-4">
+            <div className="hb-card hb-training-summary-card p-4">
               <div className="flex items-center gap-2 text-xs text-[#737373]"><BadgeCheck size={14} /> 已通过</div>
               <div className="mt-2 text-2xl font-semibold text-[#15803d]">{checkpointSummary.passed}</div>
             </div>
-            <div className="hb-card p-4">
+            <div className="hb-card hb-training-summary-card p-4">
               <div className="flex items-center gap-2 text-xs text-[#737373]"><XCircle size={14} /> 未通过</div>
               <div className="mt-2 text-2xl font-semibold text-[#b3263c]">{checkpointSummary.failed}</div>
             </div>
-            <div className="hb-card p-4">
+            <div className="hb-card hb-training-summary-card p-4">
               <div className="text-xs text-[#737373]">考试得分</div>
               <div className="mt-2 text-2xl font-semibold text-[#0a0a0a]">{state.examScore}</div>
             </div>
           </section>
 
-          <section className="hb-card p-6">
+          <section className="hb-card hb-training-panel p-6">
             <h2 className="text-base font-semibold text-[#0a0a0a]">训练检查点</h2>
-            <div className="mt-4 space-y-3">
+            <div className="hb-training-checkpoints">
               {state.checkpoints.map((item) => (
-                <div key={item.key} className="rounded-2xl border border-[#ececec] bg-white px-4 py-3">
+                <div key={item.key} className="hb-training-checkpoint-item">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-sm font-semibold text-[#0a0a0a]">{item.label}</div>
                     <span className={`hb-pill ${checkpointClass(item)}`}>
@@ -179,7 +179,7 @@ export default function TrainingFlowPage() {
                     </span>
                   </div>
                   {item.detail && (
-                    <div className="mt-2 rounded-xl border border-[#f3f4f6] bg-[#fafafa] px-3 py-2 text-xs leading-relaxed text-[#404040]">
+                    <div className="hb-training-checkpoint-detail">
                       {item.detail}
                     </div>
                   )}
@@ -188,9 +188,9 @@ export default function TrainingFlowPage() {
             </div>
           </section>
 
-          <section className="hb-card p-6">
+          <section className="hb-card hb-training-panel hb-training-decision-panel p-6">
             <h2 className="mb-3 text-base font-semibold text-[#0a0a0a]">评估决策</h2>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="hb-training-decision-actions">
               <button
                 type="button"
                 disabled={submitting}
@@ -203,12 +203,12 @@ export default function TrainingFlowPage() {
                 type="button"
                 disabled={submitting}
                 onClick={() => void submitDecision('REJECT')}
-                className="rounded-full border border-[#fde2e2] bg-white px-4 py-2 text-sm font-medium text-[#be3a4a] hover:bg-[#fff5f5] disabled:opacity-50"
+                className="hb-workflow-danger-btn disabled:opacity-50"
               >
                 驳回并继续训练
               </button>
             </div>
-            <p className="mt-3 text-xs text-[#737373]">
+            <p className="mt-3 text-xs hb-workflow-note">
               通过后将进入后续实习阶段；驳回则保持当前实例，继续训练迭代。
             </p>
           </section>

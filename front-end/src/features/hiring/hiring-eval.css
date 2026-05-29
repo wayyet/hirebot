@@ -1,4 +1,4 @@
-/* 聊天面板顶部：工作流连接状态条 */
+﻿/* 鑱婂ぉ闈㈡澘椤堕儴锛氬伐浣滄祦杩炴帴鐘舵€佹潯 */
 .hb-hiring-chat-status {
   display: flex;
   align-items: flex-start;
@@ -96,7 +96,7 @@
   align-items: flex-end;
 }
 
-/* ===== 工具调用步骤面板（MCP tool_start/tool_result 聚合展示） ===== */
+/* ===== 宸ュ叿璋冪敤姝ラ闈㈡澘锛圡CP tool_start/tool_result 鑱氬悎灞曠ず锛?===== */
 .hb-hiring-toolsteps {
   border: 1px solid var(--line);
   background: var(--surface-2);
@@ -467,7 +467,7 @@
 .hb-hiring-dropzone {
   border: 2px dashed var(--hb-border-input);
   border-radius: 20px;
-  background: #fafafa;
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, transparent);
   padding: 32px 20px;
   text-align: center;
   cursor: pointer;
@@ -475,13 +475,13 @@
 }
 
 .hb-hiring-dropzone.is-active {
-  border-color: var(--hb-blue);
-  background: #eef2ff;
+  border-color: var(--hb-accent-solid);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 78%, var(--hb-surface-card));
 }
 
 .hb-hiring-dropzone.is-filled {
-  border-color: #c7d2fe;
-  background: #f5f3ff;
+  border-color: var(--hb-accent-border-strong);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 60%, var(--hb-surface-card));
 }
 
 .hb-hiring-form-input,
@@ -489,7 +489,7 @@
   width: 100%;
   border: 1px solid var(--hb-border-input);
   border-radius: 16px;
-  background: #fafafa;
+  background: color-mix(in srgb, var(--hb-surface-soft) 92%, transparent);
   color: var(--hb-near-black);
   padding: 12px 14px;
   font-size: 14px;
@@ -504,21 +504,27 @@
 .hb-hiring-form-input:focus,
 .hb-hiring-form-textarea:focus {
   background: var(--hb-surface-card);
-  border-color: var(--hb-blue);
+  border-color: var(--hb-accent-solid);
   box-shadow: var(--hb-focus);
 }
 
 body.hb-body-hiring-prototype {
   background:
-    radial-gradient(ellipse 70% 45% at 18% 60%, rgba(255, 255, 255, 0.95) 0%, rgba(245, 250, 252, 0.75) 35%, rgba(221, 239, 247, 0.35) 70%, transparent 100%),
-    radial-gradient(ellipse 60% 45% at 88% 42%, rgba(255, 255, 255, 0.75) 0%, rgba(235, 247, 252, 0.45) 45%, transparent 100%),
-    linear-gradient(180deg, #a9d4ea 0%, #cfe8f4 28%, #eef7fa 54%, #f8fbfc 70%, #d8eef7 100%);
+    radial-gradient(ellipse 72% 46% at 16% 58%, color-mix(in srgb, var(--hb-market-wash-left) 92%, white) 0%, transparent 72%),
+    radial-gradient(ellipse 60% 42% at 88% 24%, color-mix(in srgb, var(--hb-market-wash-right) 88%, white) 0%, transparent 68%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--hb-accent-soft-bg) 40%, white) 0%,
+      color-mix(in srgb, var(--hb-accent-soft-bg) 18%, var(--hb-bg-body)) 32%,
+      var(--hb-bg-body) 68%,
+      color-mix(in srgb, var(--hb-accent-soft-bg) 16%, var(--hb-bg-body)) 100%
+    );
   background-attachment: fixed;
 }
 
 .hb-hiring-page {
   height: calc(100vh - 64px);
-  height: calc(100dvh - 64px); /* dvh 渐进增强：修复平板/触屏因地址栏伸缩导致的布局抖动 */
+  height: calc(100dvh - 64px); /* dvh 娓愯繘澧炲己锛氫慨澶嶅钩鏉?瑙﹀睆鍥犲湴鍧€鏍忎几缂╁鑷寸殑甯冨眬鎶栧姩 */
   padding: 8px 16px 8px;
   display: flex;
   flex-direction: column;
@@ -562,7 +568,7 @@ body.hb-body-hiring-prototype {
   line-height: 1.4;
   font-weight: 700;
   letter-spacing: 0.18em;
-  color: #3654d4;
+  color: var(--hb-accent-text);
   text-transform: uppercase;
 }
 
@@ -605,17 +611,17 @@ body.hb-body-hiring-prototype {
 
 .hb-hiring-primary-btn,
 .hb-hiring-card-action.primary {
-  border: 1px solid var(--hb-blue);
-  background: var(--hb-blue);
+  border: 1px solid var(--hb-accent-solid);
+  background: var(--hb-accent-solid);
   color: #fff;
-  box-shadow: 0 2px 10px rgba(74, 108, 247, 0.30);
+  box-shadow: 0 8px 20px var(--hb-accent-shadow);
 }
 
 .hb-hiring-primary-btn:hover,
 .hb-hiring-card-action.primary:hover {
-  background: #3b5de7;
-  border-color: #3b5de7;
-  box-shadow: 0 4px 14px rgba(74, 108, 247, 0.40);
+  background: var(--hb-accent-solid-hover);
+  border-color: var(--hb-accent-solid-hover);
+  box-shadow: 0 12px 28px var(--hb-accent-shadow-strong);
 }
 
 .hb-hiring-shell {
@@ -654,7 +660,7 @@ body.hb-body-hiring-prototype {
   color: var(--hb-soft);
 }
 
-/* ── 阶段步骤进度条（水平紧凑，参考 ncrew-builder 向导设计） ── */
+/* 鈹€鈹€ 闃舵姝ラ杩涘害鏉★紙姘村钩绱у噾锛屽弬鑰?ncrew-builder 鍚戝璁捐锛?鈹€鈹€ */
 .hb-hiring-step-pills {
   display: flex;
   align-items: flex-start;
@@ -679,7 +685,7 @@ body.hb-body-hiring-prototype {
   text-align: center;
 }
 
-/* 连接线：从上一个圆圈右边缘 → 当前圆圈左边缘 */
+/* 杩炴帴绾匡細浠庝笂涓€涓渾鍦堝彸杈圭紭 鈫?褰撳墠鍦嗗湀宸﹁竟缂?*/
 .hb-hiring-step-pill:not(:first-child)::before {
   content: '';
   position: absolute;
@@ -707,7 +713,7 @@ body.hb-body-hiring-prototype {
   border-color: transparent;
 }
 
-/* 圆形序号 */
+/* 鍦嗗舰搴忓彿 */
 .hb-hiring-step-index {
   width: 22px;
   height: 22px;
@@ -738,7 +744,7 @@ body.hb-body-hiring-prototype {
   color: #ffffff;
 }
 
-/* 文字区域：居中，紧凑 */
+/* 鏂囧瓧鍖哄煙锛氬眳涓紝绱у噾 */
 .hb-hiring-step-copy {
   display: flex;
   flex-direction: column;
@@ -768,7 +774,7 @@ body.hb-body-hiring-prototype {
   max-width: 100%;
 }
 
-/* dispatch 状态徽标 */
+/* dispatch 鐘舵€佸窘鏍?*/
 .hb-hiring-step-dispatch {
   display: inline-block;
   margin-top: 2px;
@@ -798,7 +804,7 @@ body.hb-body-hiring-prototype {
   color: #b3263c;
 }
 
-/* ===== artifact 产物卡片 ===== */
+/* ===== artifact 浜х墿鍗＄墖 ===== */
 .hb-artifact-card {
   display: flex;
   flex-direction: column;
@@ -909,7 +915,7 @@ body.hb-body-hiring-prototype {
   font-weight: 700;
 }
 
-/* ===== stage_gate 阶段推进卡片 ===== */
+/* ===== stage_gate 闃舵鎺ㄨ繘鍗＄墖 ===== */
 .hb-stage-gate-card {
   display: flex;
   flex-direction: column;
@@ -1063,12 +1069,12 @@ body.hb-body-hiring-prototype {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
-/* 右侧进度卡不显示卡片外边框，避免标题区出现上下两根线 */
+/* 鍙充晶杩涘害鍗′笉鏄剧ず鍗＄墖澶栬竟妗嗭紝閬垮厤鏍囬鍖哄嚭鐜颁笂涓嬩袱鏍圭嚎 */
 .hb-hiring-side {
   border: none;
 }
 
-/* ── 右侧列容器：步骤进度 + 状态条 + 待办账本 ── */
+/* 鈹€鈹€ 鍙充晶鍒楀鍣細姝ラ杩涘害 + 鐘舵€佹潯 + 寰呭姙璐︽湰 鈹€鈹€ */
 .hb-hiring-right-col {
   display: flex;
   flex-direction: column;
@@ -1081,17 +1087,21 @@ body.hb-body-hiring-prototype {
   min-height: 0;
 }
 
-/* 步骤进度卡片（右侧列顶部） */
+/* 姝ラ杩涘害鍗＄墖锛堝彸渚у垪椤堕儴锛?*/
 .hb-hiring-steps-card {
   flex-shrink: 0;
   padding: 8px 12px 6px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--hb-border);
   border-radius: 16px;
-  background: var(--hb-surface-card);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hb-surface-card) 96%, transparent),
+    color-mix(in srgb, var(--hb-surface-soft) 92%, var(--hb-accent-soft-bg) 8%)
+  );
+  box-shadow: var(--hb-card-shadow);
 }
 
-/* 右侧状态条：紧凑单行 */
+/* 鍙充晶鐘舵€佹潯锛氱揣鍑戝崟琛?*/
 .hb-hiring-right-col .hb-hiring-proto-note {
   flex-shrink: 0;
   padding: 6px 12px;
@@ -1893,7 +1903,7 @@ body.hb-body-hiring-prototype {
   cursor: pointer;
 }
 
-/* 紧凑型 header 布局 */
+/* 绱у噾鍨?header 甯冨眬 */
 .hb-hiring-header-top {
   display: flex;
   align-items: center;
@@ -1912,7 +1922,7 @@ body.hb-body-hiring-prototype {
   display: none;
 }
 
-/* Surface Pro 8 / 中等视口高度 (~860–900 px) */
+/* Surface Pro 8 / 涓瓑瑙嗗彛楂樺害 (~860鈥?00 px) */
 @media (max-height: 860px) {
   .hb-hiring-page {
     height: 100vh;
@@ -2037,9 +2047,9 @@ body.hb-body-hiring-prototype {
   }
 }
 
-/* ===== 多屏 DPI 自适应增强 ===== */
+/* ===== 澶氬睆 DPI 鑷€傚簲澧炲己 ===== */
 
-/* 舒适屏幕：1080p（视口高度约 960-1200px），恢复适当间距与尺寸 */
+/* 鑸掗€傚睆骞曪細1080p锛堣鍙ｉ珮搴︾害 960-1200px锛夛紝鎭㈠閫傚綋闂磋窛涓庡昂瀵?*/
 @media (min-height: 960px) {
   .hb-hiring-page {
     padding: 14px 24px 18px;
@@ -2086,7 +2096,7 @@ body.hb-body-hiring-prototype {
   }
 }
 
-/* 大屏：2K（视口高度约 ≥ 1200px），恢复隐藏元素并整体放大比例 */
+/* 澶у睆锛?K锛堣鍙ｉ珮搴︾害 鈮?1200px锛夛紝鎭㈠闅愯棌鍏冪礌骞舵暣浣撴斁澶ф瘮渚?*/
 @media (min-height: 1200px) {
   .hb-hiring-page {
     padding: 16px 24px 22px;
@@ -2172,7 +2182,7 @@ body.hb-body-hiring-prototype {
   }
 }
 
-/* 超宽屏：2K 横向（视口宽度 ≥ 1600px），拓宽容器并调整双栏比例 */
+/* 瓒呭灞忥細2K 妯悜锛堣鍙ｅ搴?鈮?1600px锛夛紝鎷撳瀹瑰櫒骞惰皟鏁村弻鏍忔瘮渚?*/
 @media (min-width: 1600px) {
   .hb-hiring-page {
     max-width: 1520px;
@@ -2374,16 +2384,16 @@ body.hb-body-hiring-prototype {
   }
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Hiring Page – Dark Theme Overrides
-   ══════════════════════════════════════════════════════════════════════════ */
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+   Hiring Page 鈥?Dark Theme Overrides
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
 
-/* ── 原型页背景 ── */
+/* 鈹€鈹€ 鍘熷瀷椤佃儗鏅?鈹€鈹€ */
 .dark body.hb-body-hiring-prototype {
   background: var(--hb-grad);
 }
 
-/* ── 主外壳 & 步骤区域 ── */
+/* 鈹€鈹€ 涓诲澹?& 姝ラ鍖哄煙 鈹€鈹€ */
 .dark .hb-hiring-shell {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.04);
@@ -2393,7 +2403,7 @@ body.hb-body-hiring-prototype {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.02) 100%);
 }
 
-/* ── 状态栏 ── */
+/* 鈹€鈹€ 鐘舵€佹爮 鈹€鈹€ */
 .dark .hb-hiring-statusbar {
   background: rgba(37, 99, 235, 0.15);
   color: #7bb8ff;
@@ -2408,7 +2418,7 @@ body.hb-body-hiring-prototype {
   background: rgba(255, 255, 255, 0.03);
 }
 
-/* ── 工作区双栏 ── */
+/* 鈹€鈹€ 宸ヤ綔鍖哄弻鏍?鈹€鈹€ */
 .dark .hb-hiring-chat,
 .dark .hb-hiring-side {
   border-color: rgba(255, 255, 255, 0.08);
@@ -2423,12 +2433,12 @@ body.hb-body-hiring-prototype {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.02) 100%);
 }
 
-/* ── 聊天内容区 ── */
+/* 鈹€鈹€ 鑱婂ぉ鍐呭鍖?鈹€鈹€ */
 .dark .hb-hiring-chat-body {
   background: transparent;
 }
 
-/* ── 头像 ── */
+/* 鈹€鈹€ 澶村儚 鈹€鈹€ */
 .dark .hb-hiring-employee-avatar,
 .dark .hb-hiring-avatar {
   background: rgba(74, 108, 247, 0.20);
@@ -2440,7 +2450,7 @@ body.hb-body-hiring-prototype {
   color: #d1d5db;
 }
 
-/* ── 气泡 ── */
+/* 鈹€鈹€ 姘旀场 鈹€鈹€ */
 .dark .hb-hiring-bubble.is-bot,
 .dark .hb-hiring-bubble.is-panel {
   background: rgba(255, 255, 255, 0.06);
@@ -2448,12 +2458,12 @@ body.hb-body-hiring-prototype {
 }
 
 .dark .hb-hiring-bubble.is-user {
-  /* 暗色下 --hb-near-black 变为近白色，改用品牌蓝作为用户气泡背景 */
+  /* 鏆楄壊涓?--hb-near-black 鍙樹负杩戠櫧鑹诧紝鏀圭敤鍝佺墝钃濅綔涓虹敤鎴锋皵娉¤儗鏅?*/
   background: var(--hb-blue);
   color: #fff;
 }
 
-/* ── 文件卡片 ── */
+/* 鈹€鈹€ 鏂囦欢鍗＄墖 鈹€鈹€ */
 .dark .hb-hiring-file-chip {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.08);
@@ -2471,12 +2481,12 @@ body.hb-body-hiring-prototype {
   color: #a3baff;
 }
 
-/* ── 输入框底部区域 ── */
+/* 鈹€鈹€ 杈撳叆妗嗗簳閮ㄥ尯鍩?鈹€鈹€ */
 .dark .hb-hiring-composer {
   background: linear-gradient(180deg, rgba(8, 14, 28, 0.72) 0%, rgba(8, 14, 28, 0.98) 100%);
 }
 
-/* ── 发送按钮 ── */
+/* 鈹€鈹€ 鍙戦€佹寜閽?鈹€鈹€ */
 .dark .hb-hiring-send {
   background: var(--hb-blue);
 }
@@ -2485,13 +2495,13 @@ body.hb-body-hiring-prototype {
   background: #3b6de8;
 }
 
-/* ── 工具按钮 hover ── */
+/* 鈹€鈹€ 宸ュ叿鎸夐挳 hover 鈹€鈹€ */
 .dark .hb-hiring-tool-btn:hover:not(:disabled) {
   background: rgba(74, 108, 247, 0.12);
   border-color: rgba(74, 108, 247, 0.25);
 }
 
-/* ── 工作流连接状态条 ── */
+/* 鈹€鈹€ 宸ヤ綔娴佽繛鎺ョ姸鎬佹潯 鈹€鈹€ */
 .dark .hb-hiring-chat-status {
   background: rgba(255, 255, 255, 0.04);
   border-bottom-color: rgba(255, 255, 255, 0.06);
@@ -2509,7 +2519,7 @@ body.hb-body-hiring-prototype {
   color: #f87171;
 }
 
-/* ── 工具调用步骤面板 ── */
+/* 鈹€鈹€ 宸ュ叿璋冪敤姝ラ闈㈡澘 鈹€鈹€ */
 .dark .hb-hiring-toolsteps-title.is-running {
   color: #fbbf24;
 }
@@ -2517,7 +2527,7 @@ body.hb-body-hiring-prototype {
   color: #fbbf24;
 }
 
-/* ── 产物输出卡片 ── */
+/* 鈹€鈹€ 浜х墿杈撳嚭鍗＄墖 鈹€鈹€ */
 .dark .hb-hiring-output-head {
   border-bottom-color: rgba(255, 255, 255, 0.06);
 }
@@ -2527,13 +2537,13 @@ body.hb-body-hiring-prototype {
   color: var(--hb-soft);
 }
 
-/* ── 统计格子 ── */
+/* 鈹€鈹€ 缁熻鏍煎瓙 鈹€鈹€ */
 .dark .hb-hiring-stat-tile {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.04);
 }
 
-/* ── 上传区 ── */
+/* 鈹€鈹€ 涓婁紶鍖?鈹€鈹€ */
 .dark .hb-hiring-dropzone {
   background: rgba(255, 255, 255, 0.03);
 }
@@ -2547,18 +2557,18 @@ body.hb-body-hiring-prototype {
   background: rgba(79, 70, 229, 0.10);
 }
 
-/* ── 表单输入 ── */
+/* 鈹€鈹€ 琛ㄥ崟杈撳叆 鈹€鈹€ */
 .dark .hb-hiring-form-input,
 .dark .hb-hiring-form-textarea {
   background: rgba(255, 255, 255, 0.05);
 }
 
-/* ── 眉标文字 ── */
+/* 鈹€鈹€ 鐪夋爣鏂囧瓧 鈹€鈹€ */
 .dark .hb-hiring-eyebrow {
   color: #7bb8ff;
 }
 
-/* ── 步骤进度条（dark） ── */
+/* 鈹€鈹€ 姝ラ杩涘害鏉★紙dark锛?鈹€鈹€ */
 .dark .hb-hiring-step-pill.is-active {
   border-color: transparent;
   box-shadow: none;
@@ -2595,7 +2605,7 @@ body.hb-body-hiring-prototype {
   color: #ffffff;
 }
 
-/* ── 任务派发徽标 ── */
+/* 鈹€鈹€ 浠诲姟娲惧彂寰芥爣 鈹€鈹€ */
 .dark .hb-hiring-step-dispatch.is-running {
   background: rgba(37, 99, 235, 0.15);
   color: #7bb8ff;
@@ -2611,7 +2621,7 @@ body.hb-body-hiring-prototype {
   color: #f87171;
 }
 
-/* ── 提示便签 ── */
+/* 鈹€鈹€ 鎻愮ず渚跨 鈹€鈹€ */
 .dark .hb-hiring-proto-note {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(255, 255, 255, 0.08);
@@ -2637,7 +2647,7 @@ body.hb-body-hiring-prototype {
   color: #fb923c;
 }
 
-/* ── Todo 任务项 ── */
+/* 鈹€鈹€ Todo 浠诲姟椤?鈹€鈹€ */
 .dark .hb-hiring-todo-item {
   border-color: rgba(255, 255, 255, 0.06);
 }
@@ -2661,7 +2671,7 @@ body.hb-body-hiring-prototype {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* ── 子任务卡片 ── */
+/* 鈹€鈹€ 瀛愪换鍔″崱鐗?鈹€鈹€ */
 .dark .hb-hiring-subtask-chip {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(255, 255, 255, 0.08);
@@ -2673,7 +2683,7 @@ body.hb-body-hiring-prototype {
   color: #4ade80;
 }
 
-/* ── 阶段任务行 & 胶囊 ── */
+/* 鈹€鈹€ 闃舵浠诲姟琛?& 鑳跺泭 鈹€鈹€ */
 .dark .hb-hiring-stage-todo-row {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
@@ -2708,7 +2718,7 @@ body.hb-body-hiring-prototype {
   color: #fb923c;
 }
 
-/* ── 摘要卡片 & section pill ── */
+/* 鈹€鈹€ 鎽樿鍗＄墖 & section pill 鈹€鈹€ */
 .dark .hb-hiring-summary-card {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(255, 255, 255, 0.06);
@@ -2724,13 +2734,13 @@ body.hb-body-hiring-prototype {
   color: #fb923c;
 }
 
-/* ── 产物操作按钮 ── */
+/* 鈹€鈹€ 浜х墿鎿嶄綔鎸夐挳 鈹€鈹€ */
 .dark .hb-hiring-artifact-btn.is-primary {
   background: var(--hb-blue);
   border-color: var(--hb-blue);
 }
 
-/* ── 配置警告块 ── */
+/* 鈹€鈹€ 閰嶇疆璀﹀憡鍧?鈹€鈹€ */
 .dark .hb-hiring-config-warning {
   border-color: rgba(253, 215, 170, 0.20);
   background: rgba(180, 83, 9, 0.12);
@@ -2757,7 +2767,7 @@ body.hb-body-hiring-prototype {
   color: #86efac;
 }
 
-/* ── Artifact 产物卡片（背景/边框已由 token 变量统一，无需重复覆盖） ── */
+/* 鈹€鈹€ Artifact 浜х墿鍗＄墖锛堣儗鏅?杈规宸茬敱 token 鍙橀噺缁熶竴锛屾棤闇€閲嶅瑕嗙洊锛?鈹€鈹€ */
 .dark .hb-artifact-subtitle,
 .dark .hb-artifact-file-size {
   color: var(--hb-soft);
@@ -2772,7 +2782,7 @@ body.hb-body-hiring-prototype {
   border-color: rgba(255, 255, 255, 0.10);
 }
 
-/* ── Stage gate 阶段推进卡片 ── */
+/* 鈹€鈹€ Stage gate 闃舵鎺ㄨ繘鍗＄墖 鈹€鈹€ */
 .dark .hb-stage-gate-card {
   border-color: rgba(255, 255, 255, 0.10);
   background: rgba(255, 255, 255, 0.04);
@@ -2807,21 +2817,355 @@ body.hb-body-hiring-prototype {
   color: #f87171;
 }
 
-/* ── 打字动画点 ── */
+/* 鈹€鈹€ 鎵撳瓧鍔ㄧ敾鐐?鈹€鈹€ */
 .dark .hb-hiring-typing-dot {
   background: var(--hb-caption);
 }
 
-/* ── 指引列表文字 ── */
+/* 鈹€鈹€ 鎸囧紩鍒楄〃鏂囧瓧 鈹€鈹€ */
 .dark .hb-hiring-guide-item,
 .dark .hb-hiring-guide-item strong {
   color: var(--hb-soft);
 }
 
-/* ── 模板详情 dark ── */
+/* 鈹€鈹€ 妯℃澘璇︽儏 dark 鈹€鈹€ */
 .dark .hb-detail-hero {
   background:
     radial-gradient(circle at top right, rgba(74, 108, 247, 0.12), transparent 34%),
     linear-gradient(180deg, rgba(28, 30, 38, 0.98), rgba(24, 26, 34, 0.94));
 }
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-steps-card {
+  padding: 12px 16px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-pill {
+  gap: 8px;
+  padding: 4px 10px 0;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-pill:not(:first-child)::before {
+  top: 14px;
+  left: calc(-50% + 14px);
+  right: calc(50% + 14px);
+  height: 0;
+  border-top: 2px dashed rgba(30, 41, 59, 0.12);
+  background: none;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-pill.is-complete:not(:first-child)::before {
+  border-top-style: solid;
+  border-top-color: rgba(255, 138, 76, 0.72);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-pill.is-active:not(:first-child)::before {
+  border-top-style: solid;
+  border-top-color: rgba(255, 94, 15, 0.56);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-index {
+  width: 28px;
+  height: 28px;
+  border-color: rgba(30, 41, 59, 0.12);
+  background: rgba(255, 255, 255, 0.58);
+  color: #64748b;
+  font-weight: 700;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.42);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-pill.is-active .hb-hiring-step-index {
+  border-color: #ff5e0f;
+  background: #ff5e0f;
+  box-shadow: 0 0 0 4px rgba(255, 94, 15, 0.18);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-pill.is-complete .hb-hiring-step-index {
+  border-color: #10b981;
+  background: #10b981;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.14);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-copy strong {
+  color: #1e293b;
+  font-size: 12px;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-copy span {
+  color: #64748b;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-dispatch.is-running {
+  background: rgba(255, 94, 15, 0.10);
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-dispatch.is-done {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-step-dispatch.is-failed {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-score-card,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-summary-card,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-todo-item {
+  border-color: rgba(255, 214, 190, 0.58);
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-todo-item {
+  position: relative;
+  padding: 16px 16px 16px 18px;
+  overflow: hidden;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-todo-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 18px;
+  bottom: 18px;
+  width: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.28);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-todo-item:has(.hb-hiring-todo-status.is-active)::before {
+  background: rgba(255, 94, 15, 0.72);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-todo-item:has(.hb-hiring-todo-status.is-complete)::before {
+  background: rgba(16, 185, 129, 0.72);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-todo-head h3,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-panel-title,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-score-card span {
+  color: #1e293b;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-todo-head p,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-score-card small {
+  color: #64748b;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-todo-status.is-active {
+  background: rgba(255, 94, 15, 0.10);
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-todo-status.is-complete {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-todo-status.is-pending {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-subtask-chip,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-stage-todo-row,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-artifact-btn {
+  border-color: rgba(255, 226, 210, 0.82);
+  background: rgba(255, 255, 255, 0.50);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-subtask-chip.is-complete {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: rgba(236, 253, 245, 0.86);
+  color: #047857;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-stage-todo-row.is-fallback {
+  border-color: rgba(255, 223, 201, 0.88);
+  background: rgba(255, 248, 242, 0.84);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-stage-todo-pill.is-active {
+  background: rgba(255, 94, 15, 0.10);
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-stage-todo-pill.is-complete {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-stage-todo-pill.is-pending {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-stage-todo-pill.is-fallback {
+  background: rgba(255, 240, 226, 0.96);
+  color: #9a3412;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-stage-todo-pill.is-structured,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-section-pill.is-warning {
+  background: #ffe8d9;
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-config-warning {
+  border-color: #fcd34d;
+  background: linear-gradient(180deg, rgba(255, 247, 237, 0.92) 0%, rgba(254, 243, 199, 0.84) 100%);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-config-warning strong {
+  color: #9a3412;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-config-warning span {
+  color: #b45309;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-config-warning.is-success {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: linear-gradient(180deg, rgba(236, 253, 245, 0.92) 0%, rgba(209, 250, 229, 0.82) 100%);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-stage-gate-card {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.34);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-stage-gate-card.is-pass {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: rgba(236, 253, 245, 0.82);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-stage-gate-card.is-blocked {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: rgba(254, 242, 242, 0.86);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-dropzone {
+  border-color: rgba(30, 41, 59, 0.12);
+  background: rgba(255, 255, 255, 0.46);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-dropzone.is-active {
+  border-color: #ff5e0f;
+  background: rgba(255, 94, 15, 0.08);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-dropzone.is-filled {
+  border-color: rgba(255, 94, 15, 0.24);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-avatar.is-user {
+  border: 1px solid rgba(var(--hb-accent-rgb), 0.24);
+  background: linear-gradient(180deg, rgba(255, 250, 244, 0.98) 0%, rgba(255, 241, 229, 0.92) 100%);
+  color: var(--hb-accent-solid);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-bubble.is-user {
+  border: 1px solid rgba(var(--hb-accent-rgb), 0.24);
+  background: linear-gradient(180deg, #ff8a4c 0%, var(--hb-accent-solid) 100%);
+  color: #fffaf5;
+  box-shadow: 0 10px 24px rgba(var(--hb-accent-rgb), 0.22);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-input-wrap {
+  border-color: rgba(30, 41, 59, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-input-wrap:focus-within {
+  border-color: #ff5e0f;
+  box-shadow: 0 0 0 3px rgba(255, 94, 15, 0.18);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-tool-btn,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-card-action.ghost {
+  border-color: rgba(255, 255, 255, 0.58);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.42);
+  color: #1e293b;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-tool-btn:hover:not(:disabled),
+html[data-mode="light"][data-skin="warm"] .hb-hiring-card-action.ghost:hover {
+  border-color: rgba(255, 94, 15, 0.24);
+  background: rgba(255, 255, 255, 0.64);
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-send,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-primary-btn,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-card-action.primary,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-artifact-btn.is-primary {
+  border-radius: 10px;
+  background: #ff5e0f;
+  border-color: #ff5e0f;
+  color: #ffffff;
+  box-shadow: 0 8px 20px rgba(255, 94, 15, 0.32);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-send:hover:not(:disabled),
+html[data-mode="light"][data-skin="warm"] .hb-hiring-primary-btn:hover,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-card-action.primary:hover,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-artifact-btn.is-primary:hover {
+  background: #e54e00;
+  border-color: #e54e00;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-chat-status {
+  border-bottom-color: rgba(255, 226, 210, 0.76);
+  background: rgba(255, 255, 255, 0.28);
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-chat-status.is-blue,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-proto-note.is-blue {
+  background: linear-gradient(180deg, rgba(255, 248, 240, 0.98) 0%, rgba(255, 239, 228, 0.92) 100%);
+  color: #9a3412;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-chat-status.is-blue .hb-hiring-chat-status-dot {
+  background: #ff8a4c;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-chat-status.is-green,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-proto-note.is-green {
+  background: linear-gradient(180deg, rgba(250, 255, 239, 0.98) 0%, rgba(242, 250, 220, 0.94) 100%);
+  color: #5f8a10;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-chat-status.is-green .hb-hiring-chat-status-dot {
+  background: #8fcb3a;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-chat-status.is-pink,
+html[data-mode="light"][data-skin="warm"] .hb-hiring-proto-note.is-pink {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-proto-note.is-orange {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .hb-hiring-modal {
+  max-width: 760px;
+}
+
 

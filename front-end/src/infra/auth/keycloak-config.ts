@@ -3,6 +3,7 @@ interface RuntimeAuthConfig {
   Realm?: string
   ClientId?: string
   BypassAuth?: boolean
+  EnableWarmTheme?: boolean
   ApiBase?: string
   SandboxGatewayEndpoint?: string
   TemplateApiBase?: string

@@ -76,7 +76,6 @@ function buildWorkflowState(overrides: Record<string, unknown> = {}) {
       userSummary: '仍需补齐资料阶段',
       generatedAtUtc: '2026-05-06T10:00:00Z',
     },
-    credentialSlots: [],
     configGovernance: {
       files: [],
       pendingReviewTodoIds: [],
@@ -280,48 +279,6 @@ async function setupHiringMocks(
       return
     }
 
-    if (method === 'POST' && path === `/api/v1/hirings/${HIRE_ID}/credential-bindings`) {
-      workflowState = {
-        ...workflowState,
-        currentStage: 'ready_for_packaging',
-        collectionPhase: 'READY_FOR_FINALIZE',
-        credentialSlots: [
-          {
-            credentialSlot: 'crm-api-token',
-            secretRef: 'vault://crm-api-token',
-            authKind: 'api_key',
-            targetSystem: 'CRM',
-            todoId: 'todo-external',
-            bindingStatus: 'bound',
-            updatedAtUtc: '2026-05-06T10:02:00Z',
-          },
-        ],
-        stageReadiness: [
-          { stage: 'material', status: 'complete', reason: '资料已确认。', blockingTodoIds: [] },
-          { stage: 'skill', status: 'complete', reason: '技能已确认。', blockingTodoIds: [] },
-          { stage: 'external', status: 'complete', reason: '外部系统已绑定。', blockingTodoIds: [] },
-        ],
-        latestDiagnosticReport: {
-          status: 'pass',
-          confidence: 'high',
-          currentStage: 'ready_for_packaging',
-          readyForPackaging: true,
-          stageReadiness: [
-            { stage: 'material', status: 'complete', reason: '资料已确认。', blockingTodoIds: [] },
-            { stage: 'skill', status: 'complete', reason: '技能已确认。', blockingTodoIds: [] },
-            { stage: 'external', status: 'complete', reason: '外部系统已绑定。', blockingTodoIds: [] },
-          ],
-          diagnosticTodos: [],
-          handoffCorrelation: [],
-          openQuestions: [],
-          userSummary: '已满足打包条件。',
-          generatedAtUtc: '2026-05-06T10:02:00Z',
-        },
-      }
-      await route.fulfill({ json: envelope(workflowState) })
-      return
-    }
-
     if (method === 'PUT' && path.startsWith(`/api/v1/hirings/${HIRE_ID}/config-files/`)) {
       workflowState = {
         ...workflowState,
@@ -463,14 +420,14 @@ test.describe('数字员工雇佣流程', () => {
     await expect(page.getByRole('button', { name: '生成实例', exact: true })).toBeVisible()
   })
 
-  test('外部阶段存在未绑定 credentialSlots 时不允许 finalize', async ({ page }) => {
+  test('外部阶段存在配置治理待复核时不允许 finalize', async ({ page }) => {
     await setupHiringMocks(page, {
       initialWorkflowState: {
         currentStage: 'external',
         stageReadiness: [
           { stage: 'material', status: 'complete', reason: '资料完成', blockingTodoIds: [] },
           { stage: 'skill', status: 'complete', reason: '技能完成', blockingTodoIds: [] },
-          { stage: 'external', status: 'partial', reason: '外部系统仍有凭据待绑定。', blockingTodoIds: ['todo-external'] },
+          { stage: 'external', status: 'partial', reason: '外部系统仍有配置治理待复核。', blockingTodoIds: ['todo-external'] },
         ],
         latestDiagnosticReport: {
           status: 'blocked',
@@ -480,32 +437,21 @@ test.describe('数字员工雇佣流程', () => {
           stageReadiness: [
             { stage: 'material', status: 'complete', reason: '资料完成', blockingTodoIds: [] },
             { stage: 'skill', status: 'complete', reason: '技能完成', blockingTodoIds: [] },
-            { stage: 'external', status: 'partial', reason: '外部系统仍有凭据待绑定。', blockingTodoIds: ['todo-external'] },
+            { stage: 'external', status: 'partial', reason: '外部系统仍有配置治理待复核。', blockingTodoIds: ['todo-external'] },
           ],
           diagnosticTodos: [],
           handoffCorrelation: [],
           openQuestions: [],
-          userSummary: '仍有凭据待绑定。',
+          userSummary: '仍有配置治理待复核。',
           generatedAtUtc: '2026-05-06T10:02:00Z',
         },
-        credentialSlots: [
-          {
-            credentialSlot: 'crm-api-token',
-            secretRef: null,
-            authKind: 'api_key',
-            targetSystem: 'CRM',
-            todoId: 'todo-external',
-            bindingStatus: 'pending',
-            updatedAtUtc: '2026-05-06T10:02:00Z',
-          },
-        ],
       },
     })
     await page.goto(`/hiring/${TEMPLATE_ID}`)
 
-    await expect(page.getByText('凭据绑定')).toBeVisible()
+    await expect(page.getByText('待复核')).toBeVisible()
     await expect(page.getByRole('button', { name: '继续补齐', exact: true })).toBeVisible()
-    await expect(page.locator('.hb-hiring-subtask-chip').getByText(/凭据待绑定/)).toBeVisible()
+    await expect(page.locator('.hb-hiring-subtask-chip').getByText(/待复核/)).toBeVisible()
   })
 
   test('finalize 只在 READY_FOR_FINALIZE 时可点，成功后显示产物与实例入口', async ({ page }) => {

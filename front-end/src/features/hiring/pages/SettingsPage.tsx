@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, RefreshCw, Trash2, AlertCircle, Server, Layers, Clock } from 'lucide-react'
+import { Loader2, RefreshCw, Trash2, AlertCircle, Server, Layers, Clock, Palette } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useTheme } from '@/app/theme/ThemeProvider'
 import { api, type HiringSandboxItem } from '@/infra/api'
 
 // ── 沙箱状态 → hb-pill 颜色映射 ──
@@ -84,7 +85,7 @@ function ExpiryCell({ expiresAtUtc }: { expiresAtUtc: string | null }) {
   if (diffMs < 60 * 60_000) {
     relText = t('settings.sandboxes.expiryInMinutes', { count: Math.ceil(diffMs / 60_000) })
   } else if (diffMs < 24 * 3600_000) {
-    relText = t('settings.sandboxes.expiryInHours', { count: Math.floor(diffMs / 3600_000) })
+    relText = t('settings.sandboxes.expiryInHours', { count: Math.round(diffMs / 3600_000) })
   } else {
     relText = t('settings.sandboxes.expiryInDays', { count: Math.floor(diffMs / 86400_000) })
   }
@@ -212,6 +213,7 @@ function SandboxRow({ item, onDelete, onSelectionChange, deletingIds, selected }
 // ── 主页面 ──
 export default function SettingsPage() {
   const { t } = useTranslation()
+  const { brand, setBrand, warmThemeManagedByRuntime } = useTheme()
   const [sandboxes, setSandboxes] = useState<HiringSandboxItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -226,6 +228,18 @@ export default function SettingsPage() {
   const isBusyDeleting = deletingIds.size > 0
   const allSelected = sandboxes.length > 0 && selectedCount === sandboxes.length
   const batchTargetIds = batchConfirmMode === 'all' ? sandboxIds : [...selectedSandboxIds]
+  const brandOptions = useMemo(() => [
+    {
+      id: 'amber' as const,
+      label: t('theme.brand.amber'),
+      description: t('settings.appearance.options.amberDescription'),
+    },
+    {
+      id: 'blue' as const,
+      label: t('theme.brand.blue'),
+      description: t('settings.appearance.options.blueDescription'),
+    },
+  ], [t])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -346,6 +360,53 @@ export default function SettingsPage() {
 
   return (
     <div className="hb-page">
+      {!warmThemeManagedByRuntime ? (
+        <div className="hb-section hb-theme-section">
+          <div className="hb-section-head">
+            <div>
+              <span className="hb-kicker hb-kicker-accent">{t('settings.appearance.title')}</span>
+              <h2 className="hb-section-title">{t('settings.appearance.description')}</h2>
+              <p className="hb-section-copy">{t('settings.appearance.copy')}</p>
+            </div>
+          </div>
+
+          <div className="hb-theme-grid">
+            <section className="hb-theme-panel">
+              <div className="hb-theme-panel-head">
+                <div className="hb-theme-panel-icon">
+                  <Palette size={16} />
+                </div>
+                <div>
+                  <h3 className="hb-theme-panel-title">{t('settings.appearance.brandTitle')}</h3>
+                  <p className="hb-theme-panel-copy">{t('settings.appearance.brandDescription')}</p>
+                </div>
+              </div>
+
+              <div className="hb-theme-option-grid">
+                {brandOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`hb-theme-option ${brand === option.id ? 'is-active' : ''}`}
+                    onClick={() => setBrand(option.id)}
+                  >
+                    <div className="hb-theme-option-body">
+                      <span className="hb-theme-option-title">{option.label}</span>
+                      <span className="hb-theme-option-copy">{option.description}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <div className="hb-theme-current">
+            {t('settings.appearance.current', {
+              brand: t(`theme.brand.${brand}`),
+            })}
+          </div>
+        </div>
+      ) : null}
       {/* 页头 */}
       <div className="hb-page-head">
         <div>

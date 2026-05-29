@@ -113,6 +113,51 @@ public class EmployeeHiringServiceTests
     }
 
     [Fact]
+    public void ApplyConversationProgressToTemplatePackage_WithExternalSystemConfig_ShouldWriteExternalArtifacts()
+    {
+        var templatePackage = CreateTemplatePackage();
+        var runtimeContext = CreateRuntimeContext(templatePackage) with
+        {
+            ExternalSystemConfig = new HiringExternalSystemConfigState(
+                CliTools:
+                [
+                    new HiringCliToolConfigDto
+                    {
+                        ToolName = "jq",
+                        Description = "处理 JSON",
+                        ExecutionMode = "sandbox",
+                        ArgumentTemplate = "--input {file}"
+                    }
+                ],
+                McpServer: new HiringMcpServerConfigState(
+                    ServerUrl: "https://mcp.example.com",
+                    AuthMode: "api_key",
+                    ProtectedApiKey: "protected-secret",
+                    SelectedTools: ["工具A", "工具B"]),
+                UpdatedAtUtc: DateTimeOffset.Parse("2026-05-26T08:00:00Z"))
+        };
+
+        var updated = EmployeeHiringService.ApplyConversationProgressToTemplatePackage(runtimeContext);
+        var files = updated.WorkingTemplatePackage.PackageFiles.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains("external/user-config.json", files.Keys);
+        Assert.Contains("external/external-config.index.json", files.Keys);
+        Assert.Contains("external/systems/cli.json", files.Keys);
+        Assert.Contains("external/systems/mcp.json", files.Keys);
+        Assert.Contains("external/README.md", files.Keys);
+
+        var userConfigJson = Encoding.UTF8.GetString(files["external/user-config.json"].Content);
+        var indexJson = Encoding.UTF8.GetString(files["external/external-config.index.json"].Content);
+        var readme = Encoding.UTF8.GetString(files["external/README.md"].Content);
+
+        Assert.Contains("jq", userConfigJson);
+        Assert.Contains("mcp_api_key", userConfigJson);
+        Assert.DoesNotContain("protected-secret", userConfigJson);
+        Assert.Contains("external/systems/mcp.json", indexJson);
+        Assert.Contains("API Key: 已通过安全存储绑定", readme);
+    }
+
+    [Fact]
     public void BuildReferenceTemplatePrimingContent_ShouldInlineSummaryAndForbidAskingForAttachmentContent()
     {
         var template = new EmployeeTemplateDefinition(

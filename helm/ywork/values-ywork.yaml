@@ -1,0 +1,124 @@
+# values-ywork.yaml — ywork 生产环境覆盖值
+# 使用方式：helm upgrade --install ywork ./helm/ywork -f helm/ywork/values-ywork.yaml
+
+replicaCount: 1
+
+image:
+  repository: ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot
+  tag: dev-202605281551   # 部署时替换为实际镜像标签
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "500m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+autoscaling:
+  enabled: false
+
+env:
+  ASPNETCORE_URLS: http://+:8080
+  DOTNET_NOLOGO: "true"
+  Database__AutoMigrateOnStartup: "false"
+  # ---- 安全 / OIDC (SaaS) ----
+  Security__OidcAuthority: https://passport.ai4c.cn/realms/ai4c-saas
+  Security__OidcAudience: account
+  Security__OidcClientId: ywork
+  Security__OidcRequireHttpsMetadata: "true"
+  # ---- 前端 runtime-config 注入 (SaaS) ----
+  ConsoleAuth__Authority: https://passport.ai4c.cn
+  ConsoleAuth__Realm: ai4c-saas
+  ConsoleAuth__ClientId: ywork
+  ConsoleAuth__BypassAuth: "false"
+  ConsoleAuth__TemplateApiBase: https://ncrew-builder.ai4c.cn
+  ConsoleUi__EnableWarmTheme: "true"
+  # ---- 跨域 ----
+  AllowedOrigins__0: https://hire.ai4c.cn
+  AllowedOrigins__1: https://ncrew.ai4c.cn
+  AllowedOrigins__2: https://ncrew-hire.ai4c.cn
+  AllowedOrigins__3: http://ncrew-hire.ai4c.cn
+  AllowedOrigins__4: http://ncrew-builder.ai4c.cn
+  AllowedOrigins__5: http://opensandbox-gateway.ai4c.cn
+  AllowedOrigins__6: https://ncrew-builder.ai4c.cn
+  AllowedOrigins__7: https://opensandbox-gateway.ai4c.cn
+  AllowedOrigins__8: https://hire.y-work.cn
+  AllowedOrigins__9: http://hire.y-work.cn
+  
+  # ---- ywork 服务自引用地址（覆盖 appsettings.Production.json 中的 ncrew-hire）----
+  OpenSandbox__McpConfig__Servers__streaming-vhk95z__Url: http://ywork:8080/mcp
+  Evaluation__ApiBaseUrl: http://ywork:8080
+  # ---- OpenSandbox 沙箱服务地址（SaaS 集群内地址）----
+  OpenSandbox__Domain: opensandbox-server.ai4c.cn
+  OpenSandbox__Protocol: Https
+  OpenSandbox__UseServerProxy: "false"
+  OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605181416
+  OpenSandbox__Resource__cpu: 500m
+  OpenSandbox__Resource__memory: 500Mi
+  OpenSandbox__TimeoutSeconds: "43200"
+  OpenSandbox__ReadyTimeoutSeconds: "180"
+  OpenSandbox__RequestTimeoutSeconds: "180"
+  OpenSandbox__GatewayPort: "18789"
+  OpenSandbox__Entrypoint__0: /app/OpenClaw.Gateway
+  # ---- 沙箱 KingCrab 子配置 (SaaS OIDC) ----
+  OpenSandbox__KingCrab__AuthToken: ncrew-hire-sandbox-token
+  OpenSandbox__KingCrab__OidcAuthority: https://passport.ai4c.cn/realms/ai4c-saas
+  OpenSandbox__KingCrab__OidcAudience: account
+  OpenSandbox__KingCrab__ToolTimeoutSeconds: "300"
+  OpenSandbox__KingCrab__LlmModel: gpt-5.2
+  OpenSandbox__KingCrab__LlmEndpoint: https://new-api.ai4c.cn/v1
+  # LlmApiKey 和 ClientSecret 通过 secretEnv 注入
+  # KingCrabSandboxTokenProvider 优先用 ClientId/ClientSecret 向 Keycloak 换取 token；
+  # 若两者未配置则回退到静态 AuthToken。
+  OpenSandbox__KingCrab__ClientId: ncrew-hire-sandbox
+  # ---- 沙箱 PVC (SaaS CFS) ----
+  SandboxPvc__Enabled: "true"
+  SandboxPvc__Namespace: opensandbox
+  SandboxPvc__StorageClassName: ai4c-saas-cfs
+  SandboxPvc__WorkspaceSize: 5Gi
+  SandboxPvc__MemorySize: 5Gi
+  SandboxPvc__AccessMode: ReadWriteMany
+  SandboxPvc__KubeConfigPath: ""
+  # ---- KingCrab HTTP 客户端（调用 KingCrab API 服务，SaaS 集群内）----
+  KingCrab__BaseUrl: http://opensandbox-server.opensandbox-system:80/
+  KingCrab__BearerToken: ""
+  KingCrab__HttpTimeoutSeconds: "120"
+  KingCrab__HireBotApiPrefix: /api/integration/hirebot
+  # ---- 构建服务 (ncrew-builder SaaS 地址) ----
+  BuildService__BaseUrl: https://ncrew-builder.ai4c.cn/
+  BuildService__ApiPrefix: /api/store
+  BuildService__BearerToken: ""
+  BuildService__HttpTimeoutSeconds: "60"
+
+# 敏感值由 helm 统一管理（secrets.create=true 时自动创建 Secret ywork-env）
+# 部署前将下方 PLACEHOLDER 替换为真实值
+secretEnv:
+  - name: OpenSandbox__KingCrab__LlmApiKey
+    secretName: ywork-env
+    secretKey: OpenSandboxKingCrabLlmApiKey
+  - name: OpenSandbox__KingCrab__ClientSecret
+    secretName: ywork-env
+    secretKey: OpenSandboxKingCrabClientSecret
+
+secrets:
+  create: true
+  stringData:
+    OpenSandboxKingCrabLlmApiKey: "sk-zd4vgCanFy62ZJoQpiJCdbKXE80JcRmFQWD9vdxJib2r5g44"
+    OpenSandboxKingCrabClientSecret: "IZTY9YKEO1Qx4pgrKIYaOSfUdcyYag9z"
+
+database:
+  existingSecret: ""
+  secretName: ywork-db
+  secretKey: ConnectionStrings__DefaultConnection
+  connectionString: "Host=10.127.1.10;Port=5432;Username=ai4c_pro;Password=KT~/ry0o~SV~;Database=ywork_dev"
+
+# ywork-data PVC —— 挂载到 /app/ncrew-hire-data，持久化运行数据目录
+hireData:
+  persistence:
+    enabled: true
+    storageClassName: "ai4c-saas-cfs"
+    accessMode: ReadWriteMany
+    size: 10Gi
+    mountPath: /app/ncrew-hire-data

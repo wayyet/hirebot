@@ -534,68 +534,6 @@ namespace HireBot.Repository.Migrations
                     b.ToTable("HiringAuditLogs");
                 });
 
-            modelBuilder.Entity("HireBot.Repository.Entities.HiringCredentialBindingEntity", b =>
-                {
-                    b.Property<string>("BindingId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("AuthKind")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<string>("BindingStatus")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CredentialSlot")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
-
-                    b.Property<string>("HandoffId")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
-
-                    b.Property<string>("HireId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ProtectedSecret")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("SecretRef")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("TargetSystem")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("BindingId");
-
-                    b.HasIndex("HireId", "UpdatedAtUtc");
-
-                    b.HasIndex("SessionId", "CredentialSlot")
-                        .IsUnique();
-
-                    b.ToTable("HiringCredentialBindings");
-                });
-
             modelBuilder.Entity("HireBot.Repository.Entities.HiringMaterialFileEntity", b =>
                 {
                     b.Property<Guid>("MaterialFileId")

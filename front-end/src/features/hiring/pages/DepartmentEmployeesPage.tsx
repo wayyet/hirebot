@@ -17,36 +17,13 @@ import { api, type EmployeeSummary } from "@/infra/api";
 import TemplateUploadModal from "./components/TemplateUploadModal";
 import CloneEmployeeModal from "./components/CloneEmployeeModal";
 import EmployeeDetailModal from "./components/EmployeeDetailModal";
-import { withEmployeeView } from "./employeeView";
+import { firstCharacter, withEmployeeView } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 
 type StageTab = "hired" | "intern" | "live";
 type InternSubTab = "ai" | "human";
 
 const PAGE_SIZE = 9;
-
-const AVATAR_COLORS = [
-  "hsl(200, 70%, 45%)",
-  "hsl(160, 60%, 40%)",
-  "hsl(280, 55%, 50%)",
-  "hsl(30, 80%, 45%)",
-  "hsl(340, 65%, 48%)",
-  "hsl(100, 50%, 42%)",
-  "hsl(220, 60%, 48%)",
-  "hsl(50, 70%, 40%)",
-  "hsl(180, 55%, 42%)",
-  "hsl(310, 50%, 46%)",
-  "hsl(15, 65%, 45%)",
-  "hsl(260, 55%, 48%)",
-];
-
-function getAvatarColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
 
 export default function DepartmentEmployeesPage() {
   const navigate = useNavigate();
@@ -129,7 +106,7 @@ export default function DepartmentEmployeesPage() {
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, t]);
 
   useEffect(() => {
     const uniqueIds = [...new Set(employees.map((e) => e.sourceTemplateId).filter(Boolean))];
@@ -314,10 +291,10 @@ export default function DepartmentEmployeesPage() {
   }
 
   return (
-    <div className="hb-page">
+    <div className="hb-page hb-employee-page">
       <div className="hb-page-head">
         <div>
-          <span className="hb-kicker">
+          <span className="hb-kicker hb-kicker-accent">
             {role === "manager"
               ? t("employees.departmentPage.kickerManager")
               : t("employees.departmentPage.kickerMember")}
@@ -549,12 +526,9 @@ export default function DepartmentEmployeesPage() {
                   >
                     <div className="hb-employee-card-head">
                       <div
-                        className="hb-employee-avatar"
-                        style={{
-                          backgroundColor: getAvatarColor(employee.nickname),
-                        }}
+                        className="hb-employee-avatar hb-employee-avatar--accent"
                       >
-                        {employee.nickname.charAt(0)}
+                        {firstCharacter(employee.nickname)}
                       </div>
                       <div className="min-w-0 flex-1">
                         <h3 className="hb-employee-card-title">

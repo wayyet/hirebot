@@ -32,13 +32,6 @@ export const HiringStageReadinessStatus = {
   Skipped: 'skipped',
 } as const
 
-export const HiringCredentialBindingStatus = {
-  Pending: 'pending',
-  Bound: 'bound',
-  NotRequired: 'not_required',
-  Failed: 'failed',
-} as const
-
 export const HiringAuditDecision = {
   Approve: 'APPROVE',
   RequestChanges: 'REQUEST_CHANGES',
@@ -194,16 +187,6 @@ export interface WorkflowRuntimeFacts {
   skillBaselineConfirmed: boolean
 }
 
-export interface CredentialSlot {
-  credentialSlot: string
-  secretRef?: string | null
-  authKind?: string | null
-  targetSystem?: string | null
-  todoId?: string | null
-  bindingStatus: string
-  updatedAtUtc: string
-}
-
 export interface ConfigGovernanceFile {
   configKey: string
   displayName: string
@@ -217,6 +200,52 @@ export interface ConfigGovernanceFile {
 export interface ConfigGovernanceState {
   files: ConfigGovernanceFile[]
   pendingReviewTodoIds: string[]
+  updatedAtUtc?: string | null
+}
+
+export interface HiringCliToolConfig {
+  /** 工具唯一标识 */
+  name: string
+  /** 可执行文件路径 */
+  command: string
+  /** AI 理解何时调用的描述 */
+  description: string
+  /** 输入参数 JSON Schema */
+  parameters: Record<string, unknown>
+  /** sandbox = 沙箱隔离执行, direct = 直接执行 */
+  executionMode: 'sandbox' | 'direct' | string
+}
+
+export interface HiringMcpServerConfig {
+  /** 传输方式: stdio = 启动本地进程, http = 连接远程服务器 */
+  transport: 'stdio' | 'http' | string
+  /** MCP Server 标识名称 */
+  name: string
+  // ── stdio 字段 ──
+  /** 启动 MCP Server 的命令 */
+  command?: string | null
+  /** 启动参数 */
+  args?: string[] | null
+  /** 显式设置的环境变量 */
+  env?: Record<string, string> | null
+  /** 透传给子进程的宿主机环境变量名列表 */
+  envPassThrough?: string[] | null
+  /** 工作目录 */
+  cwd?: string | null
+  // ── http 字段 ──
+  /** MCP Server URL */
+  url?: string | null
+  /** 包含 Bearer Token 的环境变量名（非明文 token） */
+  bearerTokenEnv?: string | null
+  /** 静态 HTTP 请求头 */
+  headers?: Record<string, string> | null
+  /** 值从环境变量读取的请求头（key=header 名, value=环境变量名） */
+  headersFromEnv?: Record<string, string> | null
+}
+
+export interface HiringExternalSystemConfig {
+  cliTools: HiringCliToolConfig[]
+  mcpServer?: HiringMcpServerConfig | null
   updatedAtUtc?: string | null
 }
 
@@ -359,7 +388,6 @@ export interface HiringWorkflowState {
   handoffItems?: HandoffItem[] | null
   latestDispatches?: DispatchCallback[] | null
   latestDiagnosticReport?: DiagnosticReport | null
-  credentialSlots?: CredentialSlot[] | null
   configGovernance?: ConfigGovernanceState | null
   stageReadiness?: StageReadiness[] | null
   runtimeFacts?: WorkflowRuntimeFacts | null
@@ -624,6 +652,17 @@ export const hiringWorkflowApi = {
   /** 保存前端对话状态缓存（messages + stageOverrides）。*/
   async saveConversationCache(hireId: string, cache: unknown): Promise<void> {
     await httpClient.put<boolean>(`/api/v1/hirings/${encodeURIComponent(hireId)}/conversation/cache`, cache)
+  },
+
+  async getExternalConfig(hireId: string): Promise<HiringExternalSystemConfig> {
+    return httpClient.get<HiringExternalSystemConfig>(`/api/v1/hirings/${encodeURIComponent(hireId)}/external-config`)
+  },
+
+  async saveExternalConfig(hireId: string, payload: HiringExternalSystemConfig): Promise<HiringExternalSystemConfig> {
+    return httpClient.put<HiringExternalSystemConfig>(
+      `/api/v1/hirings/${encodeURIComponent(hireId)}/external-config`,
+      payload,
+    )
   },
 
   /**

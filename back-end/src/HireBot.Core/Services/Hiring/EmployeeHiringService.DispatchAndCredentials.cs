@@ -37,30 +37,6 @@ namespace HireBot.Core.Services.Hiring;
 
 internal sealed partial class EmployeeHiringService
 {
-    private static IReadOnlyList<HiringCredentialSlotDto> UpsertCredentialSlot(
-        IReadOnlyList<HiringCredentialSlotDto> existing,
-        HiringCredentialSlotDto incoming)
-    {
-        var normalizedSlot = incoming.CredentialSlot.Trim();
-        var result = existing
-            .Where(item => !string.Equals(item.CredentialSlot, normalizedSlot, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        result.Add(incoming with { CredentialSlot = normalizedSlot });
-        return result
-            .OrderBy(item => item.CredentialSlot, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
-    private static string BuildSecretRef(string credentialSlot)
-    {
-        var normalized = credentialSlot
-            .Trim()
-            .Replace('-', '_')
-            .Replace(' ', '_')
-            .ToUpperInvariant();
-        return $"secret://hirebot/{normalized}";
-    }
-
     private HiringRuntimeContext UpsertConfigGovernanceFile(
         HiringRuntimeContext runtimeContext,
         string configKey,
@@ -227,58 +203,10 @@ internal sealed partial class EmployeeHiringService
             to = command.To?.Trim(),
             note = command.Note?.Trim(),
             mode = command.Mode?.Trim(),
-            handoff_todos = selectedHandoffs,
-            secure_credential_context = BuildSecureCredentialContext(runtimeContext, normalizedHandoffIds)
+            handoff_todos = selectedHandoffs
         };
 
         return $"<dispatch>{JsonSerializer.Serialize(payload, JsonOptions)}</dispatch>";
-    }
-
-    private object[] BuildSecureCredentialContext(
-        HiringRuntimeContext runtimeContext,
-        IReadOnlyList<string> handoffIds)
-    {
-        var relevantHandoffIds = handoffIds
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value.Trim())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var boundSlots = runtimeContext.CredentialSlots
-            .Where(slot =>
-                string.Equals(slot.BindingStatus, HiringCredentialBindingStatus.Bound, StringComparison.OrdinalIgnoreCase) &&
-                (relevantHandoffIds.Count == 0 || (!string.IsNullOrWhiteSpace(slot.HandoffId) && relevantHandoffIds.Contains(slot.HandoffId))))
-            .ToArray();
-        if (boundSlots.Length == 0)
-        {
-            return [];
-        }
-
-        var bindings = dbContext.HiringCredentialBindings
-            .AsNoTracking()
-            .Where(item => item.HireId == runtimeContext.HireId)
-            .ToArray();
-        var protector = dataProtectionProvider.CreateProtector(CredentialProtectorPurpose);
-
-        return boundSlots
-            .Select(slot =>
-            {
-                var entity = bindings.FirstOrDefault(item =>
-                    string.Equals(item.CredentialSlot, slot.CredentialSlot, StringComparison.OrdinalIgnoreCase));
-                if (entity is null)
-                {
-                    throw new InvalidOperationException($"凭据槽位 {slot.CredentialSlot} 已绑定但未找到密文记录");
-                }
-
-                return (object)new
-                {
-                    credential_slot = slot.CredentialSlot,
-                    secret_ref = slot.SecretRef,
-                    auth_kind = slot.AuthKind,
-                    target_system = slot.TargetSystem,
-                    handoff_id = slot.HandoffId,
-                    secret_value = protector.Unprotect(entity.ProtectedSecret)
-                };
-            })
-            .ToArray();
     }
 
     private HiringRuntimeContext ApplyDispatchCallbacks(
@@ -413,20 +341,6 @@ internal sealed partial class EmployeeHiringService
                 Errors: item.Errors))
             .ToArray();
 
-        var updatedCredentialSlots = runtimeContext.CredentialSlots;
-        foreach (var credentialSlot in callback.TodoResults
-                     .SelectMany(item => item.CredentialSlots ?? [])
-                     .Where(slot => !string.IsNullOrWhiteSpace(slot.CredentialSlot)))
-        {
-            updatedCredentialSlots = UpsertCredentialSlot(
-                updatedCredentialSlots,
-                credentialSlot with
-                {
-                    BindingStatus = NormalizeCredentialBindingStatus(credentialSlot.BindingStatus),
-                    UpdatedAtUtc = credentialSlot.UpdatedAtUtc == default ? now : credentialSlot.UpdatedAtUtc
-                });
-        }
-
         var resolvedDispatchId = string.IsNullOrWhiteSpace(dispatchId) ? $"dispatch-{Guid.NewGuid():N}" : dispatchId;
         var updatedDispatches = UpdateDispatchRecord(
             runtimeContext.LatestDispatches,
@@ -469,19 +383,7 @@ internal sealed partial class EmployeeHiringService
             {
                 PackageFiles = packageFiles.Values.ToArray()
             },
-            CredentialSlots = updatedCredentialSlots,
             LatestDispatches = updatedDispatches
-        };
-    }
-
-    private static string NormalizeCredentialBindingStatus(string? status)
-    {
-        return status?.Trim().ToLowerInvariant() switch
-        {
-            HiringCredentialBindingStatus.Bound => HiringCredentialBindingStatus.Bound,
-            HiringCredentialBindingStatus.NotRequired => HiringCredentialBindingStatus.NotRequired,
-            HiringCredentialBindingStatus.Failed => HiringCredentialBindingStatus.Failed,
-            _ => HiringCredentialBindingStatus.Pending
         };
     }
 

@@ -61,6 +61,7 @@ env:
   ConsoleAuth__Realm: ai4c-saas
   ConsoleAuth__ClientId: ncrew-client
   ConsoleAuth__BypassAuth: "false"
+  ConsoleUi__EnableWarmTheme: "false"
   # ---- 跨域 ----
   AllowedOrigins__0: http://localhost:5173
   AllowedOrigins__1: http://localhost:3000
@@ -70,7 +71,7 @@ env:
   OpenSandbox__UseServerProxy: "false"
   OpenSandbox__Image: ai4c-tcr.tencentcloudcr.com/agentfoundry/king-crab:opensandbox-202605172234
   OpenSandbox__Resource__cpu: 500m
-  OpenSandbox__Resource__memory: 1Gi
+  OpenSandbox__Resource__memory: 500Mi
   OpenSandbox__TimeoutSeconds: "43200"
   OpenSandbox__ReadyTimeoutSeconds: "180"
   OpenSandbox__RequestTimeoutSeconds: "180"
