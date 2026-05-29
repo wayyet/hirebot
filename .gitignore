@@ -426,3 +426,4 @@ appsettings.*.local.json
 docs/
 .venv/
 .tmp-e2e-msg.json
+.tmp-e2e-hire.json
