@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["description", "role", "industry", "test_cases"],
+  "properties": {
+    "description": { "type": "string", "minLength": 1 },
+    "role": { "type": "string", "minLength": 1 },
+    "industry": { "type": "string", "minLength": 1 },
+    "source": { "type": "string" },
+    "generated_at": { "type": "string" },
+    "test_cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "test_case_id",
+          "scenario_name",
+          "input",
+          "expected_behavior_sequence",
+          "expected_output"
+        ],
+        "properties": {
+          "test_case_id": { "type": "string" },
+          "scenario_name": { "type": "string" },
+          "input": {
+            "type": "object",
+            "required": ["user_request"],
+            "properties": {
+              "user_request": { "type": "string" },
+              "context": { "type": "object" }
+            }
+          },
+          "expected_behavior_sequence": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": ["step", "action", "criteria"],
+              "properties": {
+                "step": { "type": "integer" },
+                "action": { "type": "string" },
+                "criteria": { "type": "string" }
+              }
+            }
+          },
+          "expected_output": { "type": "object" }
+        }
+      }
+    }
+  }
+}

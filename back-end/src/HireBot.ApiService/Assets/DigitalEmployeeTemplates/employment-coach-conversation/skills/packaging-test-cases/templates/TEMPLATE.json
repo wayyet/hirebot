@@ -1,0 +1,24 @@
+{
+  "description": "数字员工评估测试用例",
+  "role": "digital_employee",
+  "industry": "general",
+  "test_cases": [
+    {
+      "test_case_id": "TC-001",
+      "scenario_name": "典型业务咨询",
+      "input": {
+        "user_request": "用户请求示例",
+        "context": {}
+      },
+      "expected_behavior_sequence": [
+        { "step": 1, "action": "理解需求", "criteria": "准确复述用户意图" },
+        { "step": 2, "action": "给出方案", "criteria": "方案完整可执行" }
+      ],
+      "expected_output": {
+        "resolution": "问题已解决",
+        "user_satisfaction": "用户满意",
+        "artifacts_created": []
+      }
+    }
+  ]
+}

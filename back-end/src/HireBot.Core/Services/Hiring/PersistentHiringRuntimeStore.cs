@@ -101,6 +101,7 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
             TemplateUploadRetryCount = meta.TemplateUploadRetryCount,
             TemplateUploadLastError = meta.TemplateUploadLastError,
             TemplateUploadLastAttemptAt = meta.TemplateUploadLastAttemptAt,
+            PackagingTestCasesStaged = meta.PackagingTestCasesStaged,
             RoleTemplatePackage = packages!.RoleTemplatePackage,
             WorkingTemplatePackage = packages.WorkingTemplatePackage,
             DiscoverySkill = packages.DiscoverySkill,
@@ -129,7 +130,8 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
         bool IsTemplateUploadPending,
         int TemplateUploadRetryCount,
         string? TemplateUploadLastError,
-        DateTimeOffset? TemplateUploadLastAttemptAt)
+        DateTimeOffset? TemplateUploadLastAttemptAt,
+        bool PackagingTestCasesStaged)
     {
         public static PersistedHiringMeta From(HiringRuntimeContext context) => new(
             context.TemplateId,
@@ -144,7 +146,8 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
             context.IsTemplateUploadPending,
             context.TemplateUploadRetryCount,
             context.TemplateUploadLastError,
-            context.TemplateUploadLastAttemptAt);
+            context.TemplateUploadLastAttemptAt,
+            context.PackagingTestCasesStaged);
     }
 
     // 模板包定义：体积较大（含 PackageFiles 文件内容），独立列便于按需加载。

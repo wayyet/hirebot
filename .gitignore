@@ -422,3 +422,8 @@ appsettings.*.local.json
 .ci-build/
 .build-out-test/
 /back-end/src/HireBot.ApiService/wwwroot/resources/DigitalWorkforce
+.cursor/
+docs/
+.venv/
+.tmp-e2e-msg.json
+.tmp-e2e-hire.json
