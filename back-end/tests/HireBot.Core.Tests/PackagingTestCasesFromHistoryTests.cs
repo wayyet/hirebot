@@ -10,7 +10,6 @@ using HireBot.Core.Services.Hiring;
 using HireBot.Core.Services.Hiring.Discovery;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Hiring.Artifacts;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -18,6 +17,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Hiring;
+using HireBot.Abstraction.Services.Security;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Hiring.StoreSkills;
@@ -482,8 +482,6 @@ internal static class EmployeeHiringServicePackagingTestFactory
     {
         dbContext ??= CreateDbContext();
         var configuration = new ConfigurationBuilder().Build();
-        var dataProtection = DataProtectionProvider.Create(
-            new DirectoryInfo(Path.Combine(Path.GetTempPath(), "hirebot-packaging-tests")));
         var hiringRuntimeStore = new InMemoryHiringRuntimeStore();
         if (seedContext is not null)
         {
@@ -500,7 +498,6 @@ internal static class EmployeeHiringServicePackagingTestFactory
             hiringRuntimeStore,
             new NotSupportedKingCrabHttpClient(),
             sandboxService,
-            dataProtection,
             new HttpContextAccessor(),
             new NotSupportedServiceScopeFactory(),
             dbContext,
@@ -508,6 +505,7 @@ internal static class EmployeeHiringServicePackagingTestFactory
             new NoOpInstanceArtifactCloneService(),
             artifactPackageService ?? new NotSupportedHiringArtifactPackageService(),
             storeSkillPackageDownloader ?? new NotSupportedStoreSkillPackageDownloader(),
+            new PassThroughSecretProtector(),
             configuration,
             NullLogger<EmployeeHiringService>.Instance);
     }
@@ -624,6 +622,13 @@ internal static class EmployeeHiringServicePackagingTestFactory
             IReadOnlyList<string> skillIds,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(files);
+    }
+
+    /// <summary>测试用：明文往返，满足 develop 合并后 EmployeeHiringService 对 ISecretProtector 的依赖。</summary>
+    private sealed class PassThroughSecretProtector : ISecretProtector
+    {
+        public string? Protect(string? value) => value;
+        public string? Unprotect(string? value) => value;
     }
 
     private static Task<T> Throw<T>() => throw new NotSupportedException();
