@@ -85,7 +85,7 @@ function ExpiryCell({ expiresAtUtc }: { expiresAtUtc: string | null }) {
   if (diffMs < 60 * 60_000) {
     relText = t('settings.sandboxes.expiryInMinutes', { count: Math.ceil(diffMs / 60_000) })
   } else if (diffMs < 24 * 3600_000) {
-    relText = t('settings.sandboxes.expiryInHours', { count: Math.floor(diffMs / 3600_000) })
+    relText = t('settings.sandboxes.expiryInHours', { count: Math.round(diffMs / 3600_000) })
   } else {
     relText = t('settings.sandboxes.expiryInDays', { count: Math.floor(diffMs / 86400_000) })
   }
