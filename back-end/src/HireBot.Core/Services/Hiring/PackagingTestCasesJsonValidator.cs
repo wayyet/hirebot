@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using HireBot.Abstraction.Models.Hiring;
 
 namespace HireBot.Core.Services.Hiring;
@@ -8,7 +7,7 @@ namespace HireBot.Core.Services.Hiring;
 /// <summary>
 /// 打包前评估测试用例 JSON 的转录过滤、校验与元数据追加（供 Skill 回调解析与单测复用）。
 /// </summary>
-internal static partial class PackagingTestCasesJsonValidator
+internal static class PackagingTestCasesJsonValidator
 {
     private const int MaxHistoryTurns = 40;
     private const int MaxHistoryCharacters = 12_000;
@@ -19,11 +18,6 @@ internal static partial class PackagingTestCasesJsonValidator
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         WriteIndented = false
     };
-
-    [GeneratedRegex(
-        @"生成(?:实例|产物)?包|开始(?:生成)?打包|产物包|template_package|package_workspace|ready_for_packaging|instance_packaging",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled)]
-    private static partial Regex PackagingIntentRegex();
 
     internal static IReadOnlyList<HistoryTranscriptTurn> PrepareHistoryTranscript(
         IReadOnlyList<HiringConversationMessageDto> messages)
@@ -53,7 +47,7 @@ internal static partial class PackagingTestCasesJsonValidator
 
             if (string.Equals(role, "user", StringComparison.OrdinalIgnoreCase))
             {
-                if (content.Length < MinUserMessageLength || PackagingIntentRegex().IsMatch(content))
+                if (content.Length < MinUserMessageLength || PackagingIntentSupport.IsPackagingIntent(content))
                 {
                     continue;
                 }

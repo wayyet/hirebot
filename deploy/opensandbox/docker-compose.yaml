@@ -1,10 +1,13 @@
+# local-only: 仅用于本地开发联调，勿用于生产部署。
+# 默认 API Key 与 ApiService appsettings.Development.local.json 中 OpenSandbox:ApiKey 一致。
+# 自定义 Key：PowerShell 中设置 $env:OPENSANDBOX_API_KEY 后执行 docker compose up。
 configs:
   opensandbox-config:
     content: |
       [server]
       host = "0.0.0.0"
       port = 8080
-      api_key = "hirebot-local-opensandbox-key"
+      api_key = "${OPENSANDBOX_API_KEY:-hirebot-local-opensandbox-key}"
 
       [log]
       level = "INFO"
@@ -30,7 +33,7 @@ version: "3.8"
 
 services:
   opensandbox-server:
-    image: "opensandbox/server:latest"
+    image: "opensandbox/server:v1.0.18"
     container_name: "opensandbox-server"
     networks:
       - "opensandbox-net"

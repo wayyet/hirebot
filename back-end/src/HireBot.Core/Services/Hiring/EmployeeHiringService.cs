@@ -54,6 +54,7 @@ internal sealed partial class EmployeeHiringService(
     IStoreSkillPackageDownloader storeSkillPackageDownloader,
     ISecretProtector secretProtector,
     IConfiguration configuration,
+    IHostEnvironment hostEnvironment,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     private const string EvaluationWorkspaceTemplateId = "evaluation-expert";

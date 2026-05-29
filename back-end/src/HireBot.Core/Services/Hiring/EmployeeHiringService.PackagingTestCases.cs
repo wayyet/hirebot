@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using HireBot.Abstraction.Models.Hiring;
+using HireBot.Core.Services.Internal;
 using HireBot.Abstraction.Models.Sandbox;
 using Microsoft.Extensions.Logging;
 
@@ -26,11 +26,6 @@ internal sealed partial class EmployeeHiringService
         WriteIndented = false
     };
 
-    [GeneratedRegex(
-        @"生成(?:实例|产物)?包|开始(?:生成)?打包|产物包|template_package|package_workspace|ready_for_packaging|instance_packaging",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled)]
-    private static partial Regex PackagingIntentRegex();
-
     /// <summary>
     /// 是否应在沙箱调用 package_workspace 之前写入 testcases/。
     /// </summary>
@@ -46,7 +41,7 @@ internal sealed partial class EmployeeHiringService
             return false;
         }
 
-        return PackagingIntentRegex().IsMatch(userMessage);
+        return PackagingIntentSupport.IsPackagingIntent(userMessage);
     }
 
     /// <summary>
@@ -130,10 +125,15 @@ internal sealed partial class EmployeeHiringService
             return (false, null);
         }
 
+        var todoFilesRoot = HireBotPathResolver.ResolveTodoFilesRoot(
+            hostEnvironment.ContentRootPath,
+            configuration["HireBot:DataRoot"],
+            configuration["HireBot:EvaluationResourceRoot"]);
         var uploadedMaterialFiles = await PackagingTestCaseMaterialLoader.LoadAsync(
             dbContext,
             runtimeContext.HireId,
             runtimeContext.SessionId,
+            [todoFilesRoot],
             cancellationToken);
         var templatePackageFiles = PackagingTestCaseTemplateSnapshotBuilder.Build(
             runtimeContext.WorkingTemplatePackage.PackageFiles);

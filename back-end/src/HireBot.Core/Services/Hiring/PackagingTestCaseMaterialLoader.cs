@@ -1,4 +1,5 @@
 using System.Text;
+using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,9 +17,15 @@ internal static class PackagingTestCaseMaterialLoader
         HireBotDbContext dbContext,
         string hireId,
         string sessionId,
+        IReadOnlyList<string> allowedStorageRoots,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(hireId) || string.IsNullOrWhiteSpace(sessionId))
+        {
+            return [];
+        }
+
+        if (allowedStorageRoots is null || allowedStorageRoots.Count == 0)
         {
             return [];
         }
@@ -52,7 +59,9 @@ internal static class PackagingTestCaseMaterialLoader
                 continue;
             }
 
-            if (string.IsNullOrWhiteSpace(record.StoragePath) || !File.Exists(record.StoragePath))
+            if (string.IsNullOrWhiteSpace(record.StoragePath) ||
+                !IsStoragePathAllowed(record.StoragePath, allowedStorageRoots) ||
+                !File.Exists(record.StoragePath))
             {
                 continue;
             }
@@ -98,6 +107,19 @@ internal static class PackagingTestCaseMaterialLoader
         }
 
         return snapshots;
+    }
+
+    private static bool IsStoragePathAllowed(string storagePath, IReadOnlyList<string> allowedStorageRoots)
+    {
+        foreach (var root in allowedStorageRoots)
+        {
+            if (HireBotPathResolver.IsPathUnderRoot(storagePath, root))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     internal static string TruncateContent(string content, int maxLength)
