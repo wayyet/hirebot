@@ -46,4 +46,7 @@ internal sealed record HiringRuntimeContext
     public int TemplateUploadRetryCount { get; init; }
     public string? TemplateUploadLastError { get; init; }
     public DateTimeOffset? TemplateUploadLastAttemptAt { get; init; }
+
+    /// <summary>打包前 testcase 是否已写入雇佣沙箱工作区（幂等标记）。</summary>
+    public bool PackagingTestCasesStaged { get; init; }
 }

@@ -16,6 +16,11 @@ public interface IHiringArtifactPackageService
         string hireId,
         CancellationToken cancellationToken = default);
 
+    Task<HiringArtifactPackageSnapshotDto?> GetPackageByKindAsync(
+        string hireId,
+        string kind,
+        CancellationToken cancellationToken = default);
+
     Task<HiringArtifactDownloadResult> BuildFinalPackageDownloadAsync(
         string hireId,
         CancellationToken cancellationToken = default);

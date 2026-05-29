@@ -155,7 +155,8 @@ internal sealed partial class EmployeeHiringService
         var materialsJson = JsonSerializer.Serialize(runtimeContext.Materials, JsonOptions);
         UpsertPackageFile(enrichedFiles, "ontology/hiring-session/structured-data.json", structuredDataJson);
         UpsertPackageFile(enrichedFiles, "ontology/hiring-session/materials.json", materialsJson);
-        if (TryBuildEvaluationTestCases(runtimeContext, out var evaluationTestCasesJson))
+        if (!runtimeContext.PackagingTestCasesStaged &&
+            TryBuildEvaluationTestCases(runtimeContext, out var evaluationTestCasesJson))
         {
             UpsertPackageFile(enrichedFiles, "testcases/evaluation-test-cases.json", evaluationTestCasesJson);
             UpsertPackageFile(enrichedFiles, "ontology/hiring-session/evaluation-test-cases.json", evaluationTestCasesJson);
@@ -1009,7 +1010,7 @@ internal sealed partial class EmployeeHiringService
     }
 
     private static readonly HashSet<string> ArtifactRootWhitelist =
-        new(StringComparer.OrdinalIgnoreCase) { "ontology", "skills", "external", "config" };
+        new(StringComparer.OrdinalIgnoreCase) { "manifest", "ontology", "skills", "external", "config", "testcases" };
 
     /// <summary>
     /// 按优先级合并三层产物：沙箱生成产物（最高） &gt; store skill 关联包（中层） &gt; 原始模板包（最低）。

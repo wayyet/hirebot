@@ -1,0 +1,25 @@
+{
+  "source_dispatch_target": "packaging-test-cases",
+  "handoff_ids": [],
+  "user_summary": "已根据对话历史、上传资料与模板快照生成评估测试用例并写入 testcases/ 与来源 index。",
+  "technical_artifact": {
+    "source": "packaging-merged",
+    "evaluation_test_cases_json": "{\"description\":\"雇佣评估（合并）\",\"role\":\"digital_employee\",\"industry\":\"general\",\"source\":\"packaging-merged\",\"test_cases\":[{\"test_case_id\":\"TC-001\",\"scenario_name\":\"咨询业务\",\"input\":{\"user_request\":\"请介绍业务流程\",\"context\":{}},\"expected_behavior_sequence\":[{\"step\":1,\"action\":\"理解需求\",\"criteria\":\"准确\"},{\"step\":2,\"action\":\"给出方案\",\"criteria\":\"完整\"}],\"expected_output\":{\"resolution\":\"已解答\",\"user_satisfaction\":\"满意\",\"artifacts_created\":[]}}]}",
+    "testcases_sources_index_json": "{\"generated_at\":\"2026-05-28T12:00:00Z\",\"primary\":\"testcases/evaluation-test-cases.json\",\"sources\":{\"history\":\"ontology/hiring-session/testcases-sources/history-derived.json\",\"materials\":\"ontology/hiring-session/testcases-sources/materials-derived.json\",\"template\":\"ontology/hiring-session/testcases-sources/template-derived.json\"},\"inputs_summary\":{\"history_turns\":2,\"material_files\":1,\"template_files\":3}}",
+    "history_derived_json": "{\"description\":\"历史对话来源\",\"role\":\"digital_employee\",\"industry\":\"general\",\"source\":\"history-derived\",\"test_cases\":[{\"test_case_id\":\"TC-H01\",\"scenario_name\":\"历史场景\",\"input\":{\"user_request\":\"请介绍业务流程\",\"context\":{}},\"expected_behavior_sequence\":[{\"step\":1,\"action\":\"理解\",\"criteria\":\"准确\"},{\"step\":2,\"action\":\"回复\",\"criteria\":\"完整\"}],\"expected_output\":{\"resolution\":\"完成\",\"user_satisfaction\":\"满意\",\"artifacts_created\":[]}}]}",
+    "materials_derived_json": "{\"description\":\"上传资料来源\",\"role\":\"digital_employee\",\"industry\":\"general\",\"source\":\"materials-derived\",\"test_cases\":[{\"test_case_id\":\"TC-M01\",\"scenario_name\":\"资料规则验证\",\"input\":{\"user_request\":\"按访客预约规则审核\",\"context\":{}},\"expected_behavior_sequence\":[{\"step\":1,\"action\":\"读取规则\",\"criteria\":\"准确\"},{\"step\":2,\"action\":\"执行审核\",\"criteria\":\"合规\"}],\"expected_output\":{\"resolution\":\"审核完成\",\"user_satisfaction\":\"满意\",\"artifacts_created\":[]}}]}",
+    "template_derived_json": "{\"description\":\"模板快照来源\",\"role\":\"digital_employee\",\"industry\":\"general\",\"source\":\"template-derived\",\"test_cases\":[{\"test_case_id\":\"TC-T01\",\"scenario_name\":\"技能编排\",\"input\":{\"user_request\":\"提交访客预约\",\"context\":{}},\"expected_behavior_sequence\":[{\"step\":1,\"action\":\"受理预约\",\"criteria\":\"回执完整\"},{\"step\":2,\"action\":\"通知审核\",\"criteria\":\"路由正确\"}],\"expected_output\":{\"resolution\":\"流程启动\",\"user_satisfaction\":\"满意\",\"artifacts_created\":[]}}]}"
+  },
+  "artifacts": [
+    {
+      "path": "testcases/evaluation-test-cases.json",
+      "kind": "evaluation_test_cases_json",
+      "encoding": "utf8",
+      "content": "",
+      "sha256": ""
+    }
+  ],
+  "todo_results": [],
+  "status": "success",
+  "errors": []
+}

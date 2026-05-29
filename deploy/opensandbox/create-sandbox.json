@@ -1,0 +1,16 @@
+{
+  "image": {
+    "uri": "python:3.11-slim"
+  },
+  "entrypoint": [
+    "python",
+    "-m",
+    "http.server",
+    "8000"
+  ],
+  "timeout": 600,
+  "resourceLimits": {
+    "cpu": "500m",
+    "memory": "512Mi"
+  }
+}

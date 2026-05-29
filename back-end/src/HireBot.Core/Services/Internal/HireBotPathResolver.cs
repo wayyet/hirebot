@@ -148,4 +148,36 @@ public static class HireBotPathResolver
             ? Path.GetFullPath(path)
             : Path.GetFullPath(Path.Combine(contentRootPath, path));
     }
+
+    /// <summary>
+    /// 判断候选路径是否在指定根目录下（防御性路径遍历校验）。
+    /// </summary>
+    public static bool IsPathUnderRoot(string candidatePath, string rootDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(candidatePath) || string.IsNullOrWhiteSpace(rootDirectory))
+        {
+            return false;
+        }
+
+        string normalizedCandidate;
+        string normalizedRoot;
+        try
+        {
+            normalizedCandidate = Path.GetFullPath(candidatePath.Trim());
+            normalizedRoot = EnsureTrailingDirectorySeparator(Path.GetFullPath(rootDirectory.Trim()));
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        return normalizedCandidate.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string EnsureTrailingDirectorySeparator(string path)
+    {
+        return path.EndsWith(Path.DirectorySeparatorChar)
+            ? path
+            : path + Path.DirectorySeparatorChar;
+    }
 }

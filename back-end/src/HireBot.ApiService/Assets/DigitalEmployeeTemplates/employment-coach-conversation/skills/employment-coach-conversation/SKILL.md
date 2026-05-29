@@ -602,6 +602,7 @@ ls <workspace_root>/skills/*/SKILL.md
 - `skills/`（skill-generation 写入的全部内容）
 - `external/`（系统层按 external-config 结构约定生成的全部内容）
 - `config/`（配置文件治理目标）
+- `testcases/`（**由后端在打包前 invoke `packaging-test-cases` Skill 预置**，如 `evaluation-test-cases.json`；coach **不得**自行编造 testcase 内容，但若工作区已存在该目录则 **必须** 打入 zip）
 
 **黑名单（严禁打入 zip）**：
 - `.git/`、`.cache/`、`node_modules/`、`.venv/`、`__pycache__/`、任何 `.` 前缀的隐藏目录或文件
@@ -619,6 +620,7 @@ ontology/digital-employee/index.json
 skills/report-synthesis/SKILL.md
 external/connectors/erp.json
 config/soul.md
+testcases/evaluation-test-cases.json
 ```
 
 **错误示例（任一出现即视为打包失败，必须重新打包）**：

@@ -45,6 +45,14 @@ internal sealed class HiringArtifactPackageService(
             cancellationToken);
     }
 
+    public Task<HiringArtifactPackageSnapshotDto?> GetPackageByKindAsync(
+        string hireId,
+        string kind,
+        CancellationToken cancellationToken = default)
+    {
+        return GetPackageByKindInternalAsync(hireId, kind, cancellationToken);
+    }
+
     public async Task<HiringArtifactPackageSnapshotDto?> GetLatestPackageAsync(
         string hireId,
         CancellationToken cancellationToken = default)
@@ -89,7 +97,7 @@ internal sealed class HiringArtifactPackageService(
             return HiringArtifactDownloadResult.Error(400, "hireId cannot be empty");
         }
 
-        var snapshot = await GetPackageByKindAsync(
+        var snapshot = await GetPackageByKindInternalAsync(
             hireId,
             HiringArtifactPackageKinds.FinalPackageZip,
             cancellationToken);
@@ -119,7 +127,7 @@ internal sealed class HiringArtifactPackageService(
             return HiringArtifactDownloadResult.Error(400, error);
         }
 
-        var snapshot = await GetPackageByKindAsync(
+        var snapshot = await GetPackageByKindInternalAsync(
             hireId,
             HiringArtifactPackageKinds.FinalPackageZip,
             cancellationToken);
@@ -242,7 +250,7 @@ internal sealed class HiringArtifactPackageService(
             isFinal);
     }
 
-    private async Task<HiringArtifactPackageSnapshotDto?> GetPackageByKindAsync(
+    private async Task<HiringArtifactPackageSnapshotDto?> GetPackageByKindInternalAsync(
         string hireId,
         string kind,
         CancellationToken cancellationToken)

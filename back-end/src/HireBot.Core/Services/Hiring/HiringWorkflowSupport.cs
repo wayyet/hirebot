@@ -202,7 +202,8 @@ internal sealed record HiringDispatchCallbackPayload(
     IReadOnlyList<HiringDispatchCallbackArtifactPayload> Artifacts,
     IReadOnlyList<HiringDispatchCallbackTodoResultPayload> TodoResults,
     string Status,
-    IReadOnlyList<string> Errors);
+    IReadOnlyList<string> Errors,
+    JsonElement? TechnicalArtifact = null);
 
 internal sealed record HiringConfigGovernancePatchDocument(
     IReadOnlyList<HiringConfigGovernanceFileDto> Files);

@@ -426,6 +426,8 @@ export default function HiringPage() {
   const lastWsUserMessageRef = useRef<string>('')
   // 记录最近一次 WS 发送时的附件材料
   const lastWsMaterialsRef = useRef<ReturnType<typeof toConversationMaterials> | undefined>(undefined)
+  /** 等待本轮 conversation/sync 完成后再 import-package，避免 final 包早于 testcase staging */
+  const turnSyncBarrierRef = useRef<Promise<void>>(Promise.resolve())
   // 存储原始 File 对象，供 WS 路径上传到 Gateway 使用
   const rawFileMapRef = useRef<Map<string, File>>(new Map())
   // 避免同一会话重复触发“自动上传模板并引导”
@@ -693,7 +695,17 @@ export default function HiringPage() {
     if (!pendingPackageArtifact || !workflowHireId || instanceCreated) return
     if (pendingStageConfirmation) return
     if (hasPendingDownstreamRuns(downstreamRunsRef.current)) return
-    void triggerCreate(pendingPackageArtifact)
+
+    let cancelled = false
+    void (async () => {
+      await turnSyncBarrierRef.current
+      if (cancelled) return
+      void triggerCreate(pendingPackageArtifact)
+    })()
+
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPackageArtifact, workflowHireId, instanceCreated, pendingStageConfirmation, downstreamRuns])
 
@@ -1099,14 +1111,18 @@ export default function HiringPage() {
           setStreamingToolSteps([])
           setTyping(false)
 
-          // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等。
+          // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等
           const hireId = workflowHireIdRef.current
           if (hireId && rawReply) {
-            api.hiringWorkflow.syncConversationTurn(hireId, {
-              userMessage: userMessage || '',
-              assistantReply: rawReply,
-              materials: materials ?? undefined,
-            }).catch(() => { /* 忽略 */ })
+            const syncPromise = api.hiringWorkflow
+              .syncConversationTurn(hireId, {
+                userMessage: userMessage || '',
+                assistantReply: rawReply,
+                materials: materials ?? undefined,
+              })
+              .then(() => undefined)
+              .catch(() => undefined)
+            turnSyncBarrierRef.current = syncPromise
           }
           void flushQueuedInternalPrompt()
         }, finishOptions)
@@ -1759,6 +1775,7 @@ export default function HiringPage() {
 
   async function triggerCreate(packageArtifact?: { fileUrl: string; fileName: string }) {
     if (!canCreate || instanceCreated) return
+    await turnSyncBarrierRef.current
     const hireId = await ensureWorkflowReady()
     if (!hireId) return
 

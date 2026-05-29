@@ -1,0 +1,52 @@
+# local-only: 仅用于本地开发联调，勿用于生产部署。
+# 默认 API Key 与 ApiService appsettings.Development.local.json 中 OpenSandbox:ApiKey 一致。
+# 自定义 Key：PowerShell 中设置 $env:OPENSANDBOX_API_KEY 后执行 docker compose up。
+configs:
+  opensandbox-config:
+    content: |
+      [server]
+      host = "0.0.0.0"
+      port = 8080
+      api_key = "${OPENSANDBOX_API_KEY:-hirebot-local-opensandbox-key}"
+
+      [log]
+      level = "INFO"
+
+      [runtime]
+      type = "docker"
+      execd_image = "opensandbox/execd:v1.0.18"
+
+      [egress]
+      image = "opensandbox/egress:v1.0.12"
+
+      [docker]
+      network_mode = "bridge"
+      host_ip = "127.0.0.1"
+      drop_capabilities = ["AUDIT_WRITE", "MKNOD", "NET_ADMIN", "NET_RAW", "SYS_ADMIN", "SYS_MODULE", "SYS_PTRACE", "SYS_TIME", "SYS_TTY_CONFIG"]
+      no_new_privileges = true
+      pids_limit = 4096
+
+      [ingress]
+      mode = "direct"
+
+version: "3.8"
+
+services:
+  opensandbox-server:
+    image: "opensandbox/server:v1.0.18"
+    container_name: "opensandbox-server"
+    networks:
+      - "opensandbox-net"
+    ports:
+      - "8090:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    configs:
+      - source: "opensandbox-config"
+        target: "/etc/opensandbox/config.toml"
+    environment:
+      - "SANDBOX_CONFIG_PATH=/etc/opensandbox/config.toml"
+
+networks:
+  opensandbox-net:
+    driver: "bridge"

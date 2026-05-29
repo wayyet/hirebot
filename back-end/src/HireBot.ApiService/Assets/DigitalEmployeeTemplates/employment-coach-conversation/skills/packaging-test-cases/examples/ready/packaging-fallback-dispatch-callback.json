@@ -1,0 +1,21 @@
+{
+  "source_dispatch_target": "packaging-test-cases",
+  "handoff_ids": [],
+  "user_summary": "对话历史不足以生成用例，已写入降级占位 testcases/。",
+  "technical_artifact": {
+    "source": "packaging-fallback",
+    "evaluation_test_cases_json": "{\"description\":\"雇佣会话评估测试用例（降级）\",\"role\":\"digital_employee\",\"industry\":\"general\",\"source\":\"packaging-fallback\",\"test_cases\":[]}"
+  },
+  "artifacts": [
+    {
+      "path": "testcases/evaluation-test-cases.json",
+      "kind": "evaluation_test_cases_json",
+      "encoding": "utf8",
+      "content": "",
+      "sha256": ""
+    }
+  ],
+  "todo_results": [],
+  "status": "fallback",
+  "errors": []
+}

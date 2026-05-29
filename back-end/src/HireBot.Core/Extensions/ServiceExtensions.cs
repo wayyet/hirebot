@@ -1,4 +1,4 @@
-﻿﻿using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeTemplate;
