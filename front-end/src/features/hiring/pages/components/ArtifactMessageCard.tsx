@@ -5,7 +5,7 @@ import type { ArtifactDisplayData } from '../hiringPageTypes'
 interface Props {
   artifact: ArtifactDisplayData
   /** 带 token 的文件下载回调；未提供时退化为直接 <a href> */
-  onFileDownload?: (url: string, fileName: string) => void
+  onFileDownload?: (url: string, fileName: string, artifactType: string) => void
   /** 手动触发上传到系统（仅 template_package 展示） */
   onManualUpload?: (fileUrl: string, fileName: string) => void
 }
@@ -38,7 +38,7 @@ export function ArtifactMessageCard({ artifact, onFileDownload, onManualUpload }
             <button
               type="button"
               className="hb-artifact-file-link"
-              onClick={() => onFileDownload(artifact.fileUrl!, artifact.fileName ?? title)}
+              onClick={() => onFileDownload(artifact.fileUrl!, artifact.fileName ?? title, artifact.artifactType)}
             >
               <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
               {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
@@ -77,6 +77,7 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
     return <OntologyExtractionView data={artifact.data} />
   }
   if (artifact.artifactType === 'skill_workorder_summary') return <SkillWorkorderSummaryView data={artifact.data} />
+  if (artifact.artifactType === 'external_workorder_summary') return <ExternalWorkorderSummaryView data={artifact.data} />
   if (
     artifact.artifactType === 'skill_generation_ready' ||
     artifact.artifactType === 'skill_generation_progress' ||
@@ -84,17 +85,14 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
   ) {
     return <SkillGenerationStatusView artifactType={artifact.artifactType} data={artifact.data} />
   }
-  if (
-    artifact.artifactType === 'external_config_done' ||
-    artifact.artifactType === 'external_config_progress'
-  ) {
-    return <ExternalConfigView data={artifact.data} />
+  if (artifact.artifactType === 'external_config_committed') {
+    return <ExternalConfigCommittedView data={artifact.data} />
   }
   if (artifact.artifactType === 'stage4_packaging') return <Stage4PackagingView data={artifact.data} />
   // 结构化兜底：未命中类型但数据具备对应特征时自动使用专用视图
   const _d = asRecord(artifact.data)
   if (_d && Array.isArray(_d.external_capabilities)) {
-    return <ExternalConfigView data={artifact.data} />
+    return <ExternalWorkorderSummaryView data={artifact.data} />
   }
   if (_d && Array.isArray(_d.skills) && (_d.workspace_root != null || _d.template_slug != null)) {
     return <SkillWorkorderSummaryView data={artifact.data} />
@@ -552,8 +550,8 @@ const statChipStyle: CSSProperties = {
   color: 'var(--hb-text-muted, #6b7280)',
 }
 
-/** external_config_done / _progress 外部系统接入配置视图 */
-function ExternalConfigView({ data }: { data: unknown }) {
+/** external_workorder_summary 外部能力需求摘要视图 */
+function ExternalWorkorderSummaryView({ data }: { data: unknown }) {
   const rec = asRecord(data)
   if (!rec) return <CodeView data={data} />
 
@@ -730,6 +728,230 @@ function ExternalConfigView({ data }: { data: unknown }) {
   )
 }
 
+/** external_config_committed 系统提交成功视图 */
+function ExternalConfigCommittedView({ data }: { data: unknown }) {
+  const rec = asRecord(data)
+  if (!rec) return <CodeView data={data} />
+
+  const submissionMode = typeof rec.submissionMode === 'string' ? rec.submissionMode : 'pending'
+  const updatedAtUtc = typeof rec.updatedAtUtc === 'string' ? rec.updatedAtUtc : ''
+  const cliTools = Array.isArray(rec.cliTools) ? rec.cliTools.filter(isRecord) : []
+  const mcpServer = asRecord(rec.mcpServer)
+  const isSkipped = submissionMode === 'skipped'
+  const timeLabel = updatedAtUtc
+    ? new Date(updatedAtUtc).toLocaleString('zh-CN', { hour12: false })
+    : ''
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={statChipStyle}>
+          {'🔐 '}提交结果 <b style={{ marginLeft: 3 }}>{isSkipped ? '已跳过' : '已保存'}</b>
+        </span>
+        {timeLabel && (
+          <span style={statChipStyle}>
+            {'🕒 '}更新时间 <b style={{ marginLeft: 3 }}>{timeLabel}</b>
+          </span>
+        )}
+      </div>
+
+      {isSkipped ? (
+        <div style={{
+          display: 'flex', gap: 8,
+          padding: '10px 12px', borderRadius: 8,
+          border: '1px dashed var(--hb-border, #e5e7eb)',
+          background: 'color-mix(in srgb, var(--hb-surface-soft, #f9fafb) 50%, transparent)',
+          fontSize: 12, color: 'var(--hb-text-muted, #6b7280)', lineHeight: 1.6,
+        }}>
+          <span style={{ flexShrink: 0 }}>⊘</span>
+          <span>当前雇佣流程已明确无需对接外部系统，系统已提交跳过结果并可继续后续打包。</span>
+        </div>
+      ) : (
+        <>
+          {cliTools.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={sectionLabelStyle}>CLI 工具</div>
+              {cliTools.map((tool, index) => (
+                <div key={index} style={{
+                  display: 'flex', flexDirection: 'column', gap: 3,
+                  padding: '8px 10px', borderRadius: 8,
+                  border: '1px solid var(--hb-border, #e5e7eb)',
+                  background: 'color-mix(in srgb, var(--hb-surface-soft, #f9fafb) 50%, transparent)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div className="hb-todo-truncate" title={stringify(tool.name)} style={{ fontWeight: 500, fontSize: 12 }}>
+                      {stringify(tool.name)}
+                    </div>
+                    <div style={{
+                      fontSize: 11, color: 'var(--hb-text-muted, #6b7280)',
+                      background: 'var(--hb-surface-2, #f3f4f6)',
+                      padding: '1px 6px', borderRadius: 4,
+                    }}>
+                      {stringify(tool.executionMode) || 'direct'}
+                    </div>
+                  </div>
+                  {tool.command != null && String(tool.command).trim().length > 0 && (
+                    <code style={{
+                      fontSize: 11,
+                      fontFamily: 'JetBrains Mono, Consolas, monospace',
+                      color: 'var(--hb-text-muted, #6b7280)',
+                    }}>
+                      {String(tool.command)}
+                    </code>
+                  )}
+                  {/* 可展开详情：参数 Schema 与描述 */}
+                  <details style={{ marginTop: 4 }}>
+                    <summary style={{
+                      fontSize: 11,
+                      color: 'var(--hb-text-muted, #6b7280)',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                    }}>
+                      查看详情
+                    </summary>
+                    <div style={{
+                      marginTop: 6, padding: '8px 10px', borderRadius: 6,
+                      background: 'var(--hb-surface-2, #f3f4f6)',
+                      fontSize: 11, lineHeight: 1.6,
+                    }}>
+                      {tool.parameters != null && (
+                        <div>
+                          <div style={{ fontWeight: 500, marginBottom: 2 }}>参数 Schema:</div>
+                          <pre style={{
+                            margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                            fontFamily: 'JetBrains Mono, Consolas, monospace', fontSize: 10,
+                          }}>
+                            {typeof tool.parameters === 'string'
+                              ? tool.parameters
+                              : JSON.stringify(tool.parameters, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                      {tool.description != null && String(tool.description).trim().length > 0 && (
+                        <div style={{ marginTop: 4 }}>
+                          <span style={{ fontWeight: 500 }}>描述: </span>
+                          <span>{String(tool.description)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {mcpServer && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={sectionLabelStyle}>MCP</div>
+              <div style={{
+                display: 'flex', flexDirection: 'column', gap: 3,
+                padding: '8px 10px', borderRadius: 8,
+                border: '1px solid var(--hb-border, #e5e7eb)',
+                background: 'color-mix(in srgb, var(--hb-surface-soft, #f9fafb) 50%, transparent)',
+                fontSize: 12,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div
+                    className="hb-todo-truncate"
+                    title={stringify(mcpServer.name) || 'MCP Server'}
+                    style={{ fontWeight: 600 }}
+                  >
+                    {stringify(mcpServer.name) || 'MCP Server'}
+                  </div>
+                  <div style={{
+                    fontSize: 11, color: 'var(--hb-text-muted, #6b7280)',
+                    background: 'var(--hb-surface-2, #f3f4f6)',
+                    padding: '1px 6px', borderRadius: 4,
+                  }}>
+                    {stringify(mcpServer.transport) || 'http'}
+                  </div>
+                </div>
+                {mcpServer.command != null && String(mcpServer.command).trim().length > 0 && (
+                  <code style={{
+                    fontSize: 11,
+                    fontFamily: 'JetBrains Mono, Consolas, monospace',
+                    color: 'var(--hb-text-muted, #6b7280)',
+                  }}>
+                    {String(mcpServer.command)}
+                  </code>
+                )}
+                {mcpServer.url != null && String(mcpServer.url).trim().length > 0 && (
+                  <code style={{
+                    fontSize: 11,
+                    fontFamily: 'JetBrains Mono, Consolas, monospace',
+                    color: 'var(--hb-text-muted, #6b7280)',
+                  }}>
+                    {String(mcpServer.url)}
+                  </code>
+                )}
+                {/* 可展开详情：环境变量、请求头、启动参数等 */}
+                <details style={{ marginTop: 4 }}>
+                  <summary style={{
+                    fontSize: 11,
+                    color: 'var(--hb-text-muted, #6b7280)',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}>
+                    查看详情
+                  </summary>
+                  <div style={{
+                    marginTop: 6, padding: '8px 10px', borderRadius: 6,
+                    background: 'var(--hb-surface-2, #f3f4f6)',
+                    fontSize: 11, lineHeight: 1.6,
+                  }}>
+                    {mcpServer.env != null && typeof mcpServer.env === 'object' && (
+                      <div>
+                        <span style={{ fontWeight: 500 }}>环境变量: </span>
+                        <span>{Object.keys(mcpServer.env as Record<string, unknown>).length} 项</span>
+                      </div>
+                    )}
+                    {mcpServer.headers != null && typeof mcpServer.headers === 'object' && (
+                      <div>
+                        <span style={{ fontWeight: 500 }}>请求头: </span>
+                        <span>{Object.keys(mcpServer.headers as Record<string, unknown>).length} 项</span>
+                      </div>
+                    )}
+                    {mcpServer.headersFromEnv != null && typeof mcpServer.headersFromEnv === 'object' && (
+                      <div>
+                        <span style={{ fontWeight: 500 }}>环境变量映射请求头: </span>
+                        <span>{Object.keys(mcpServer.headersFromEnv as Record<string, unknown>).length} 项</span>
+                      </div>
+                    )}
+                    {mcpServer.bearerTokenEnv != null && String(mcpServer.bearerTokenEnv).trim().length > 0 && (
+                      <div>
+                        <span style={{ fontWeight: 500 }}>Bearer Token 环境变量: </span>
+                        <code style={{ fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
+                          {String(mcpServer.bearerTokenEnv)}
+                        </code>
+                      </div>
+                    )}
+                    {Array.isArray(mcpServer.args) && (mcpServer.args as unknown[]).length > 0 && (
+                      <div>
+                        <span style={{ fontWeight: 500 }}>启动参数: </span>
+                        <code style={{ fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
+                          {(mcpServer.args as unknown[]).map((a) => String(a)).join(' ')}
+                        </code>
+                      </div>
+                    )}
+                    {mcpServer.cwd != null && String(mcpServer.cwd).trim().length > 0 && (
+                      <div>
+                        <span style={{ fontWeight: 500 }}>工作目录: </span>
+                        <code style={{ fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
+                          {String(mcpServer.cwd)}
+                        </code>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 /** stage4_packaging 专用状态视图 */
 function Stage4PackagingView({ data }: { data: unknown }) {
   const rec = asRecord(data)
@@ -875,7 +1097,7 @@ function ArtifactIcon({ artifact }: { artifact: ArtifactDisplayData }) {
   ) return <span className="hb-artifact-icon">⚙️</span>
   if (artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
   if (artifact.artifactType === 'ontology_extraction_done' || artifact.artifactType === 'ontology_extraction_progress') return <span className="hb-artifact-icon">🌿</span>
-  if (artifact.artifactType === 'external_config_done' || artifact.artifactType === 'external_config_progress') return <span className="hb-artifact-icon">🔌</span>
+  if (artifact.artifactType === 'external_workorder_summary' || artifact.artifactType === 'external_config_committed') return <span className="hb-artifact-icon">🔌</span>
   if (artifact.artifactType === 'stage4_packaging') return <span className="hb-artifact-icon">📦</span>
   const map: Record<string, string> = { table: '📊', code: '💻', tree: '🌿', badge: '✅', progress: '⏳' }
   return <span className="hb-artifact-icon">{map[artifact.displayHint ?? ''] ?? '📦'}</span>

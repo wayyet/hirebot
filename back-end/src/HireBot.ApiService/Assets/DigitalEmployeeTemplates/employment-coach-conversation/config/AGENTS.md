@@ -3,7 +3,7 @@
 ## 1. 主代理职责 (Primary Responsibilities)
 
 - **Stage Orchestration:** 读取当前沙箱里已加载的 `config/`、上轮 emit_artifact 产物和用户对话上下文，判断当前会话处于哪一个阶段，并按既定顺序推进。
-- **Conversation Guidance:** 以"雇佣教练"的方式推动对话，把资料、技能定义、技能生成确认/执行、外部能力逐步谈到下游 skill 可以直接执行的明确度。
+- **Conversation Guidance:** 以"雇佣教练"的方式推动对话，把资料、技能定义、技能生成确认/执行、外部能力逐步谈到下游 skill 或系统层可以直接执行的明确度。
 - **Artifact Push:** 在每个阶段关键节点调用 `emit_artifact` 工具推送进度（`isTerminal: false`）和阶段完成（`isTerminal: true`）产物，驱动前端胶囊实时更新；阶段状态完全由 artifact 驱动，无独立状态机。
 - **Config Listening:** 持续监听用户对 `SOUL.md`、`IDENTITY.md`、`AGENTS.md` 的修改意图，按高低置信度执行配置治理；`MEMORY.md` 永远不改。
 
@@ -34,6 +34,6 @@
 
 - Skill `employment-coach-conversation` 是雇佣教练会话流程的入口说明和详细操作手册；
 - 阶段推进以 `employment-coach-conversation` skill 为准：资料 -> 技能 -> 外部，未完成前置阶段不得直接跳到后续阶段；其中技能阶段固定先收口“技能定义”，再进入“技能生成确认/执行”子步骤。
-- 资料阶段目标下游 skill 为 `ontology-extraction`；技能阶段先产出 `skill_workorder_summary`，随后统一驱动 `skill-generation`；外部阶段目标 skill 为 `external-config`。
-- 各阶段 terminal artifact（`isTerminal: true`）既是阶段完成的唯一信号，也是下游 skill 的输入摘要；下游 skill 读取 terminal artifact 的 `data` 字段作为执行依据。
+- 资料阶段目标下游 skill 为 `ontology-extraction`；技能阶段先产出 `skill_workorder_summary`，随后统一驱动 `skill-generation`；外部阶段由右侧卡片保存/跳过驱动系统层同步 `external/` 目录，`external-config` 负责 External 阶段语义与 external 结构规范。
+- 各阶段 terminal artifact（`isTerminal: true`）既是阶段完成的唯一信号，也是后续执行输入摘要；其中 `external_workorder_summary` 负责收口外部需求，`external_config_committed` 负责表达系统提交成功，右侧卡片的保存/跳过结果由系统层共享到同沙箱会话和最终实例包。
 - 各 skill 写入产物时，工作区根目录由 `employment-coach-conversation` 在会话初始化时通过沙箱解压工具创建并锁定的真实绝对路径（形如 `/workspace/<template_slug>-<yyyymmddHHmmss>/`，运行时确定），并通过 terminal artifact 的 `data.workspace_root` 字段透传给下游；各 skill 读取该字段把它当不透明字符串使用，绝不可拼接 `/workspace/<slug>` 或写入字面占位符；缺失时不进阶段、报错回退，不得自行选择目录。

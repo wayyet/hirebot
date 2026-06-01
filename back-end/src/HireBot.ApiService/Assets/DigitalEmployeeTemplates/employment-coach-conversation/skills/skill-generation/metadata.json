@@ -97,9 +97,7 @@
         "user_summary",
         "references/quality-report.md",
         "可选 contract-index.json",
-        "可选 <domain-slug>/<domain-slug>.<target-view>.projection.json",
-        "可选 contracts/README.md",
-        "可选主题子文件夹 README.md 和 REVIEW.md"
+        "可选 ontology-extraction/<domain-slug>.projection.json"
       ],
       "fallback": "渲染或校验失败时不覆盖旧文件，返回失败原因和异常上下文"
     },

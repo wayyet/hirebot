@@ -1,6 +1,8 @@
 # Output Layout
 
-`external-config` 只写当前沙箱的 `external/` 目录。
+本文定义系统层生成的 `external/` 目录布局。
+
+`external-config` 负责定义结构，不负责真实落盘；真实写入由系统层在提交成功后执行。
 
 ## 目录结构
 
@@ -10,13 +12,13 @@ external/
   systems/
     <system-slug>.json
   capabilities/
-    <handoff-id>.json
+    <capability-id>.json
   README.md
 ```
 
 ## capability 文件
 
-每条 external Handoff todo 对应一个 `external/capabilities/<handoff-id>.json`。文件内可以包含该 Handoff todo 的 `payload.external_capabilities[]` 多项能力；普通能力使用 `kind: normal`，跳过外部系统使用 `kind: skip`。
+每条外部能力对应一个 `external/capabilities/<capability-id>.json`。
 
 建议字段：
 
@@ -24,60 +26,39 @@ external/
 {
   "schemaVersion": "1.0.0",
   "artifactType": "external_capability",
-  "handoff_id": "e_xiaoshouyi_read_order_001",
+  "capabilityId": "e_example_read_order_001",
   "kind": "normal",
   "category": "read",
-  "objective": "在退货咨询时，从 CRM 拉指定订单的创建时间、状态、客户等级、商品类型",
+  "objective": "在业务处理中读取 CRM 订单详情",
   "targetSystem": {
-    "name": "销售易 CRM",
-    "slug": "xiaoshouyi-crm"
+    "name": "Example CRM",
+    "slug": "example-crm"
   },
   "integrationMethods": ["mcp"],
-  "linkedSkills": ["s_seven_day_init_001"],
+  "linkedSkills": ["order-status-query"],
   "auth": {
-    "kind": "API Key",
-    "secretRef": "EXTERNAL_XIAOSHOUYI_CRM_API_KEY",
-    "credentialSlot": "xiaoshouyi-crm-api-key",
-    "bindingStatus": "pending",
-    "value": null
+    "kind": "api_key",
+    "secretRef": "EXTERNAL_EXAMPLE_CRM_API_KEY",
+    "credentialSlot": "example-crm-api-key",
+    "bindingStatus": "bound"
   },
   "fields": {
-    "required": ["order_id", "created_at", "status"],
+    "required": ["order_id", "status"],
     "mapping": []
   },
-  "acceptance": "external/ 中包含可调用的销售易订单读取配置 + 字段映射",
-  "sourceDigest": "用户说明退货资格初判需要查 CRM 订单",
-  "status": "draft",
-  "validation": {
-    "passed": true,
-    "warnings": []
-  }
+  "status": "configured"
 }
 ```
 
-`auth.value` 必须固定为 `null` 或完全省略；不得写真实凭据。
+要求：
 
-skip artifact 使用同一路径，建议字段：
-
-```json
-{
-  "schemaVersion": "1.0.0",
-  "artifactType": "external_capability",
-  "handoff_id": "e_external_skip_001",
-  "kind": "skip",
-  "reason": "用户明确表示不需要外部系统",
-  "sourceDigest": "用户说明本阶段先不接外部系统",
-  "status": "recorded",
-  "validation": {
-    "passed": true,
-    "warnings": []
-  }
-}
-```
+- 不写明文凭据。
+- `auth` 里只保留受保护值或安全引用。
+- skip 场景仍使用同一路径，只是 `kind = skip` 并带上原因。
 
 ## system 文件
 
-同一 `target_system` 的多条 capability 应合并进一个 `external/systems/<system-slug>.json`。
+同一外部系统的多条 capability 聚合到 `external/systems/<system-slug>.json`。
 
 建议字段：
 
@@ -85,46 +66,43 @@ skip artifact 使用同一路径，建议字段：
 {
   "schemaVersion": "1.0.0",
   "artifactType": "external_system",
-  "name": "销售易 CRM",
-  "slug": "xiaoshouyi-crm",
+  "name": "Example CRM",
+  "slug": "example-crm",
   "integrationMethods": ["mcp"],
-  "authKinds": ["API Key"],
-  "credentialSlots": ["xiaoshouyi-crm-api-key"],
+  "authKinds": ["api_key"],
+  "credentialSlots": ["example-crm-api-key"],
   "capabilities": [
     {
-      "handoff_id": "e_xiaoshouyi_read_order_001",
+      "capabilityId": "e_example_read_order_001",
       "category": "read",
-      "path": "external/capabilities/e_xiaoshouyi_read_order_001.json"
+      "path": "external/capabilities/e_example_read_order_001.json"
     }
-  ],
-  "securityNotes": [
-    "真实凭据必须通过安全表单和安全存储通道提供。"
   ]
 }
 ```
 
 ## index 文件
 
-`external/external-config.index.json` 是诊断和实例打包的主入口。
+`external/external-config.index.json` 是诊断、共享和最终打包的主入口。
 
-它应列出：
+它应至少列出：
 
-- 本次配置覆盖的 Handoff id
-- 所有 target system
-- 所有 capability artifact path
-- skip 记录，至少包含 `handoff_id`、`reason`、`path`、`status`
-- validation 摘要
-- 是否发现安全阻断
+- 本次配置的 `submissionMode`
+- 对应的 `external_config_committed` 来源信息
+- 所有 `system` 路径
+- 所有 `capability` 路径
+- 所有 skip 记录
+- 校验摘要
 
-路径必须使用沙箱内相对路径，不要写绝对路径。
+所有路径都必须使用工作区内相对路径。
 
 ## README
 
-`external/README.md` 面向人工审阅，内容保持短：
+`external/README.md` 面向人工审核，应只说明：
 
-- 当前接入了哪些系统
+- 配置了哪些系统
 - 每个系统有哪些能力
-- 哪些字段还需要接口映射或表单凭据
+- 哪些字段或凭据槽位仍待补齐
 - 安全提醒
 
-README 不得包含真实 endpoint token、密码、API Key 或连接串。
+不得写明文 endpoint、Token、密码、API Key 或连接串。

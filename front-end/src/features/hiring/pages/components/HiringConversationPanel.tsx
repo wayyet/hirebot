@@ -120,7 +120,7 @@ type HiringConversationPanelProps = {
   onRemovePendingFile: (fileId: string) => void
   formatFileSize: (bytes: number) => string
   /** 带 token 的 gateway 文件下载回调 */
-  onArtifactFileDownload?: (url: string, fileName: string) => void
+  onArtifactFileDownload?: (url: string, fileName: string, artifactType: string) => void
   /** 手动触发产物包上传到系统（template_package 卡片展示） */
   onArtifactManualUpload?: (url: string, fileName: string) => void
   /** 工作流连接状态徽标：放在聊天面板顶部 */
@@ -255,7 +255,7 @@ export function HiringConversationPanel({
                       key={idx}
                       type="button"
                       className="hb-hiring-inline-file-chip"
-                      onClick={() => onArtifactFileDownload?.(marker.path, marker.filename)}
+                      onClick={() => onArtifactFileDownload?.(marker.path, marker.filename, 'file')}
                       title={marker.filename}
                     >
                       {getFileIcon(marker.filename)}

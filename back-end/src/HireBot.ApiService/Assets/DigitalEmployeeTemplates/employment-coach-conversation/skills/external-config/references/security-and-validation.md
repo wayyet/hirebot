@@ -1,127 +1,68 @@
 # Security And Validation
 
-本文定义 `external-config` 的安全红线、结构校验和失败策略。
+本文定义 External 阶段在系统提交链路中的安全红线与结构校验规则。
 
 ## 凭据红线
 
-禁止落盘或回显：
+禁止在对话、artifact、JSON 产物、README 或日志摘要中落下以下明文：
 
 - token
-- 密钥
-- 密码
-- API Key
-- Bearer 值
-- OAuth client secret
+- password
+- api key
+- bearer value
+- oauth client secret
 - 数据库连接串
 - webhook secret
-- 私钥块
+- 私钥
 
-允许记录：
+允许出现的只有：
 
-- `auth.kind`: 凭据类型，例如 `OAuth`、`Bearer Token`、`API Key`、`应用凭据`、`内部 token`、`none`
-- `secretRef`: 安全存储引用名
-- `credentialSlot`: 表单或安全存储槽位名
-- `bindingStatus`: `bound`、`pending`、`not_required`
-- `required_fields`: 业务字段名，不是凭据值
+- `auth.kind`
+- `secretRef`
+- `credentialSlot`
+- `bindingStatus`
+- 已加密的受保护值
 
-## 安全表单凭据上下文
+## 提交职责边界
 
-系统层可以通过安全表单 / 安全存储通道把真实凭据交给 `external-config`，但该值只允许用于绑定安全存储引用：
+真实凭据由系统层通过安全表单和安全存储链路处理。
 
-```yaml
-secure_credential_context:
-  credentials:
-    - credential_slot: xiaoshouyi-crm-api-key
-      secret_ref: EXTERNAL_XIAOSHOUYI_CRM_API_KEY
-      value: <opaque secret value>
-      source: secure_form
-```
+`external-config` 规范只要求最终结构满足：
 
-处理要求：
+- 对话中不出现明文凭据
+- `external/` 中不出现明文凭据
+- 提交结果用 `external_config_committed` 表示
+- `external/` 快照与系统保存状态一致
 
-- `value` 不得写入任何 `external/` artifact、README、callback、日志摘要或错误消息。
-- 绑定成功时只写 `bindingStatus: bound`。
-- 当前环境没有安全存储能力时写 `bindingStatus: pending`，整体 callback 可为 `partial`。
-- `auth.kind: none` 时写 `bindingStatus: not_required`，不生成 `secretRef`。
+## 疑似凭据处理
 
-## 疑似凭据检测
+如果需求文本中混入疑似凭据，应：
 
-输入、产物和 callback 摘要中出现以下形态时，应视为高风险：
-
-- `password=...`、`pwd=...`、`secret=...`、`token=...`、`api_key=...`
-- `Bearer <long-value>`
-- 长度很长且高熵的连续字符串
-- `-----BEGIN ... PRIVATE KEY-----`
-- 常见连接串片段，如 `AccountKey=`、`SharedAccessKey=`、`DefaultEndpointsProtocol=`
-
-处理方式：
-
-1. 不复述原文。
-2. 不写入 artifact。
-3. 将对应 Handoff todo 的回传结果标为 `failed`，或在可安全剔除时标为 `partial`。
-4. `errors` 只写“发现疑似凭据值，请通过右侧表单重新提交”。
+1. 不在任何 artifact 或持久化 JSON 中回显原文。
+2. 提示用户改走右侧安全表单。
+3. 将对应配置标记为 `partial` 或 `failed`，由系统层给出安全提示。
 
 ## 字段校验
 
-普通能力必须满足：
+普通 capability 至少满足：
 
 - `category` 属于 `read/write/notify/search/transform`
-- `payload.external_capabilities[]` 至少 1 项
-- `payload.external_capabilities[].objective` 非空
-- `payload.external_capabilities[].target_system` 非空
-- `payload.external_capabilities[].integration_methods` 是至少 1 项的数组；仅描述对接方式（如 `mcp`、`cli`、`http_api`、`sdk`、`webhook`），不得携带真实 endpoint、命令参数或凭据
-- `payload.external_capabilities[].linked_skills` 至少 1 个，且由系统层证明对应 skill Handoff todo 已 confirmed
-- `payload.external_capabilities[].auth_kind` 有值；缺失时优先返回 `partial`，只有系统层允许临时草案时才写 `unknown` 并给 warning
-- artifact path 使用相对路径
+- `objective` 非空
+- `target_system` 非空
+- `integration_methods` 至少一项
+- `linked_skills` 至少一项
+- `auth_kind` 明确
 
-skip 能力必须满足：
+skip capability 至少满足：
 
-- `kind` 为 `skip`
-- 有可读 reason
-- 写入 index 的 `skips` 或等价列表
-- 写入 `external/capabilities/<handoff-id>.json`，便于 callback 和诊断用统一路径关联 artifact
+- `kind = skip`
+- `reason` 非空
 
-## 分类口径
+## 完成校验
 
-| category | 使用场景 | 示例 |
-| --- | --- | --- |
-| `read` | 按已知 id 或上下文读取实体 | 读取 CRM 订单详情 |
-| `search` | 按条件筛选、检索或查重 | 搜索近 3 个月工单 |
-| `write` | 创建、更新或流转系统记录 | 创建企微工单 |
-| `notify` | 向人或群发送消息 | 通知经理复核 |
-| `transform` | 格式转换、字段归一或数据整理 | 把表单字段转成工单 payload |
+系统层发出 `external_config_committed` 前，应确认：
 
-如果一条能力同时跨多类，应拆成多条 capability，并让它们引用同一组 `linkedSkills`。
-
-## 失败策略
-
-单条 Handoff todo 失败不影响其他 Handoff todo：
-
-```json
-{
-  "handoff_id": "e_bad_secret_001",
-  "status": "failed",
-  "reason": "发现疑似凭据值，请通过右侧表单重新提交。"
-}
-```
-
-整体 callback 状态：
-
-- 全部成功：`success`
-- 成功与失败混合：`partial`
-- 全部失败或出现全局安全阻断：`failed`
-
-## 回传摘要要求
-
-`user_summary` 应说明：
-
-- 配置了哪个系统
-- 配置了哪类能力
-- 字段或凭据是否还需在表单补齐
-
-`user_summary` 不应说明：
-
-- 绝对路径
-- 内部 hook / orchestrator
-- 真实凭据值
-- 原始错误栈
+- 提交模式是 `configured` 或 `skipped`
+- 敏感字段已保护
+- 统一状态已持久化
+- `external/` 可由该状态稳定重建

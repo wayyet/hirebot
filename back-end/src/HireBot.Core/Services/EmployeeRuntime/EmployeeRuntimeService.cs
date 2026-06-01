@@ -5,6 +5,7 @@ using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Migration;
 using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Services.EmployeeRuntime;
+using HireBot.Abstraction.Services.Security;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Abstraction.Services.Sandbox;
@@ -12,6 +13,7 @@ using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using System.Text;
 using Microsoft.Extensions.Hosting;
 using System.IO.Compression;
@@ -30,7 +32,9 @@ public sealed partial class EmployeeRuntimeService(
     ISandboxService sandboxService,
     IKingCrabHttpClient kingCrabHttpClient,
     IConfiguration configuration,
-    IHostEnvironment hostEnvironment) : IEmployeeRuntimeService
+    IHostEnvironment hostEnvironment,
+    ISecretProtector secretProtector,
+    ILogger<EmployeeRuntimeService> logger) : IEmployeeRuntimeService
 {
     /// <summary>
     /// 支持的员工状态列表。
@@ -1059,7 +1063,7 @@ public sealed partial class EmployeeRuntimeService(
 
         if (await NicknameExistsForOwnerAsync(owner, displayName, cancellationToken))
         {
-            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "你已经有同名的分身或私人定制");
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, "你已经有同名的分身或私人定制，请前往我的数字员工执行退役删除操作");
         }
 
         var cloneId = BuildInstanceId("pc");
@@ -1119,6 +1123,14 @@ public sealed partial class EmployeeRuntimeService(
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(sandboxSetup.Code, sandboxSetup.Message);
         }
+
+        // 将源员工雇佣流程中保存的外部系统 MCP 配置同步到分身沙箱（非致命）
+        await SyncMcpConfigToCloneSandboxAsync(
+            source.EmployeeId,
+            sandboxSetup.Data.SandboxId,
+            sandboxSetup.Data.GatewayEndpoint,
+            owner,
+            cancellationToken);
 
         await UpsertInstanceRecordAsync(clone, currentVersion: artifactResult.CurrentVersion, cancellationToken: cancellationToken);
 

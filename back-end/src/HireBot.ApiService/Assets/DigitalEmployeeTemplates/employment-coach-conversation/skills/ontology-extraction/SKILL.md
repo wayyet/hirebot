@@ -256,17 +256,40 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
       "order-status-query": "no_available_slices",
       "appointment-booking": "no_available_slices"
     },
-    "diagnostic": "ontology/ 目录下未找到 *.slice.json 或含 slice_request 字段的 JSON 文件；请确认 ontology-extraction 阶段已将切片写入文件系统",
+    "diagnostic": "slices_not_ready",
+    "diagnostic_detail": "ontology/ 目录下未找到 *.slice.json 或含 slice_request 字段的 JSON 文件；请确认 ontology-extraction 阶段已将切片写入文件系统",
     "status": "done"
   }
 }
 ```
+
+### 落盘验证（发出 ontology_projection_done 的前置条件）
+
+**在发出 `ontology_projection_done` 之前，必须按下列规则确认产物状态**：
+
+1. 当 `projected_count > 0` 时：`projection_paths` 中列出的每个路径对应的文件，必须确实存在于文件系统（通过 `read_file` 或等价的文件存在性检查工具确认），并且 JSON 顶层包含 `projection_type`、`source_slice`、`concept_mappings` 字段；不得仅在对话里描述内容就视为已写入。
+2. **就绪等待**：若发现某路径尚未就绪（文件不存在 / 内容为空 / JSON 截断或正在写入），按 500ms 间隔轮询重读，**最长等待 5 秒**；不要立即放弃，也不要无限阻塞。
+3. **超时降级**：等待超时后仍未就绪的路径，从 `projection_paths` 中剔除，对应 skill 移入 `skipped_skills`，`skip_reasons` 标记为 `"slices_not_ready"`，重新计算 `projected_count` / `skipped_count` 后再发出 done。
+4. **零投影必须给原因**：当最终 `projected_count === 0` 时，`data.diagnostic` 字段必填，且只能取下列枚举值之一。
+
+#### `diagnostic` 字段枚举（projected_count === 0 时必填）
+
+| 枚举值 | 触发场景 |
+| --- | --- |
+| `"no_matching_slice"` | `ontology/` 下已扫描到合法 slice，但没有任何 skill 能与现有 slice 在 concepts / relations / constraints 维度建立匹配（真零投影） |
+| `"slices_not_ready"` | 扫描时 `ontology/` 下的 slice 文件尚未就绪：目录不存在、目录为空、文件正在写入或经 5 秒就绪等待后仍不可读 |
+| `"scan_error"` | 扫描过程发生异常：目录权限不足、读取 IO 错误、JSON 解析失败等导致无法完成 slice 发现 |
+
+如需附加排查线索，可在 `data` 中追加自由文本字段 `diagnostic_detail`（仅作人工阅读用），但 `diagnostic` 本身必须是上述三个枚举值之一，不得写整段描述。
+
+**⛔ 严禁**：当 `projected_count > 0` 时不做任何文件存在性确认就直接发出 done —— 这会让前端阶段在文件尚未真正落盘的情况下推进，导致 skill-generation 读取 projection 失败、产物包出现空 contract。
 
 ### Projection Pass emit 约束
 
 - **先调用后输出**：同一轮次识别到可推送的阶段事件时，先调用 `emit_artifact`，再继续文件生成或对话输出
 - **data 禁止凭据**：data 字段中不得写入 token / 密钥 / 密码 / API Key
 - **无论 projected_count 是否为 0 都必须发 done**：即使全部 skill 跳过，也必须发出 `ontology_projection_done`，使 employment-coach 能继续触发 skill-generation
+- **projected_count > 0 时必须先通过落盘验证再发 done**：按上方"落盘验证"小节逐路径确认 `projection_paths` 中文件确实落盘，未通过验证前不得发出 done；若验证后仍有路径无法就绪，应剔除该路径并降级为 `slices_not_ready`，再发 done
 
 ## Workflow
 
@@ -382,7 +405,9 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 
    读取每个合法 slice 的 `slice_request.topic`、`concepts`、`constraints`、validation 状态。
 
-   **⚠️ 若扫描结果为空**（`ontology/` 下无任何合法 JSON slice 文件）：所有 skill 记为 `no_available_slices`，立即跳到步骤 6 发出 `ontology_projection_done`（`projected_count: 0`）。同时在 `ontology_projection_done.data` 中追加 `"diagnostic": "ontology/ 目录下未找到 *.slice.json 或含 slice_request 字段的 JSON 文件；请确认 ontology-extraction 阶段已将切片写入文件系统"`。
+   **⚠️ 若扫描结果为空**（`ontology/` 下无任何合法 JSON slice 文件）：所有 skill 记为 `no_available_slices`，立即跳到发出 `ontology_projection_done` 的步骤（`projected_count: 0`）。同时在 `ontology_projection_done.data` 中追加 `"diagnostic": "slices_not_ready"`，并可选追加自由文本字段 `"diagnostic_detail": "ontology/ 目录下未找到 *.slice.json 或含 slice_request 字段的 JSON 文件；请确认 ontology-extraction 阶段已将切片写入文件系统"`。
+
+   **⚠️ 若扫描过程异常**（目录权限拒绝、IO 错误、JSON 解析失败等）：所有 skill 记为 `no_available_slices`，跳到发 done 步骤，`diagnostic` 取值 `"scan_error"`，并在 `diagnostic_detail` 中描述异常摘要。
 
 3. **逐 skill 匹配**：对每个 skill，以其 `triggers` + `description` 中的关键词与各 slice 的 `slice_request.topic`、`concepts[].name`、`constraints[].rule` 做语义匹配；取匹配度最高的一个 slice 作为来源
 
@@ -422,11 +447,14 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
    **绝不允许**写入仅含 `note`/`source_projection_path` 的占位引用文件——这种 stub 文件无法被 skill-generation 消费，会导致产物包中 projection contract 无实质内容。
 5. **无匹配时**：记录到 `skipped_skills` + `skip_reasons`，不写文件，不阻断后续 skill 处理
    - `skip_reasons` 枚举值：`no_matching_slice` / `slice_validation_fail` / `no_available_slices`
-6. **Projection 落盘验证**：在发 done 之前，对 `projection_paths` 中将要列出的每条路径执行读取验证：
-   - 文件存在且非空
-   - JSON 顶层包含 `projection_type`、`source_slice`、`concept_mappings` 字段
-   - 若任一路径验证失败，立即重新写入（回到步骤 4 的写入逻辑）
-7. **发 `ontology_projection_done`**（所有 skill 处理完毕后，即使 `projected_count === 0` 也必须发出）
+6. **Projection 文件就绪性验证**（发 done 前的强制检查，扫描完成与发出 done 之间不可省略）：在发 done 之前，对 `projection_paths` 中将要列出的每条路径逐一执行：
+   - **存在性**：用 `read_file` 确认文件已落盘
+   - **完整性**：JSON 顶层包含 `projection_type`、`source_slice`、`concept_mappings` 字段，且 JSON 可解析（未截断）
+   - **就绪等待**：若文件尚未就绪（不存在 / 内容空 / JSON 截断 / 正在写入），按 500ms 间隔轮询重读，**最长等待 5 秒**
+   - **写入失败回退**：5 秒等待窗口内若怀疑落盘失败，可立即重新写入（回到步骤 4 的写入逻辑）后再次验证
+   - **超时降级**：等待超时后仍未就绪的路径，从 `projection_paths` 中剔除，对应 skill 移入 `skipped_skills`（`skip_reasons: "slices_not_ready"`），重新计算 `projected_count` / `skipped_count`
+   - **零结果处置**：若全部路径验证失败导致 `projected_count` 归零，按"落盘验证"小节给 `data.diagnostic` 赋值 `"slices_not_ready"`
+7. **发 `ontology_projection_done`**（所有 skill 处理完毕、且步骤 6 文件就绪性验证全部通过后才能发出，即使 `projected_count === 0` 也必须发出；当 `projected_count === 0` 时必须附带合法的 `diagnostic` 枚举值）
 
 ### 质量约束
 

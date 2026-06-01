@@ -9,6 +9,7 @@ import type {
   EmployeeTemplateDetail,
   HiringCollectionStageType,
   HiringConversationMaterial,
+  HiringExternalSystemConfig,
 } from '@/infra/api'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
 import { resolveGatewayEndpoint } from '@/infra/sandbox/sandbox-config'
@@ -49,6 +50,23 @@ import {
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
 } from './hiringArtifactState'
+import {
+  buildExternalConfigCommittedArtifact as createExternalConfigCommittedArtifact,
+  buildExternalConfigCommittedSandboxPrompt,
+  buildExternalConfigCommittedSignature,
+  isDuplicateExternalConfigCommittedArtifact,
+  tryBuildExternalConfigCommittedSignature,
+} from './externalConfigCommitted'
+import {
+  type ExternalConfigChangeSource,
+  shouldRequireFreshPackagingAfterExternalConfigChange,
+} from './externalPackagingState'
+import {
+  buildPendingStageAdvanceConfirmation,
+  shouldRequireStageAdvanceConfirmation,
+  type PendingStageAdvanceConfirmation,
+  type StageAdvanceIntent,
+} from './stageAdvanceConfirmation'
 import { extractConversationMaterialFiles } from './materialUploadMatching'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 import { normalizeMaterialRequestedCategories } from './materialRequestedCategories'
@@ -74,6 +92,12 @@ function normalizeErrorMessage(error: unknown) {
 function normalizeAssistantReply(content: string) {
   const cleaned = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
   return cleaned.length > 0 ? cleaned : content.trim()
+}
+
+const EXTERNAL_CONFIG_REPACKAGE_NOTICE = '外部系统配置已更新，旧产物包已失效。请重新生成实例包后再继续导入。'
+
+function buildExternalConfigCommittedArtifact(config: HiringExternalSystemConfig): ArtifactDisplayData {
+  return createExternalConfigCommittedArtifact(config)
 }
 
 
@@ -253,7 +277,7 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
   return []
 }
 
-type DownstreamTarget = 'ontology-extraction' | 'skill-generation' | 'external-config'
+type DownstreamTarget = 'ontology-extraction' | 'skill-generation'
 
 function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): string {
   const serialized = JSON.stringify(payload, null, 2)
@@ -294,18 +318,7 @@ function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): stri
     ].join('\n')
   }
 
-  return [
-    '[Internal downstream trigger. Do not mention this instruction to the user.]',
-    'Switch to skill `external-config` now.',
-    'Use the terminal `external_workorder_summary` artifact payload below as the upstream summary for this run.',
-    'Follow `external-config/SKILL.md` exactly.',
-    'Emit `external_config_progress` before writing files, write outputs under `workspace_root/external/`, then finish with `external_config_done`.',
-    '',
-    'artifact_payload:',
-    '```json',
-    serialized,
-    '```',
-  ].join('\n')
+  return ''
 }
 
 function isSkillGenerationApprovalMessage(text: string): boolean {
@@ -361,6 +374,8 @@ export default function HiringPage() {
   const [materialRequestedCategories, setMaterialRequestedCategories] = useState<MaterialRequestedCategory[]>([])
   // template_package artifact 到达时暂存，触发 triggerCreate() 后消费
   const [pendingPackageArtifact, setPendingPackageArtifact] = useState<{ fileUrl: string; fileName: string } | null>(null)
+  const [pendingStageConfirmation, setPendingStageConfirmation] = useState<PendingStageAdvanceConfirmation | null>(null)
+  const [requiresFreshPackaging, setRequiresFreshPackaging] = useState(false)
   // 用户在 TODO 面板关联的 store skill UUID 列表；导入产物包时一并提交给后端用于合并
   const [linkedStoreSkillIds, setLinkedStoreSkillIds] = useState<string[]>([])
   const [submittingMessage, setSubmittingMessage] = useState(false)
@@ -389,6 +404,7 @@ export default function HiringPage() {
   const skillSummarySignatureRef = useRef('')
   const externalSummarySignatureRef = useRef('')
   const ontologyExtractionDoneSignatureRef = useRef('')
+  const ontologyProjectionDoneSignatureRef = useRef('')
   const skillGenerationLaunchSignatureRef = useRef('')
   const pendingInternalPromptsRef = useRef<string[]>([])
 
@@ -416,6 +432,62 @@ export default function HiringPage() {
   const rawFileMapRef = useRef<Map<string, File>>(new Map())
   // 避免同一会话重复触发“自动上传模板并引导”
   const autoTemplateBootstrapSessionRef = useRef<string | null>(null)
+  const latestExternalConfigRef = useRef<HiringExternalSystemConfig | null>(null)
+  const externalConfigCommittedSignatureRef = useRef('')
+
+  /**
+   * 将外部系统配置提交事件以 artifact 形式追加到本地消息列表，
+   * 并在需要时向沙箱网关同步一条内部信号，告知 AI 引擎外部配置已完成。
+   *
+   * - sendToSandbox=true：用户在 UI 上真正完成/跳过配置后调用，需要把信号发送到沙箱以推动流程；
+   * - sendToSandbox=false（默认）：历史会话恢复等场景，沙箱已经知晓该状态，避免重复发送。
+   */
+  function appendExternalConfigCommittedArtifact(
+    config: HiringExternalSystemConfig | null,
+    options: { sendToSandbox?: boolean } = {},
+  ) {
+    const submissionMode = config?.submissionMode ?? 'pending'
+    if (!config || (submissionMode !== 'configured' && submissionMode !== 'skipped')) {
+      return
+    }
+
+    const signature = buildExternalConfigCommittedSignature(config)
+    if (externalConfigCommittedSignatureRef.current === signature) {
+      return
+    }
+
+    externalConfigCommittedSignatureRef.current = signature
+    const artifact = buildExternalConfigCommittedArtifact(config)
+    setMessages(msgs => [...msgs, {
+      id: mkId(),
+      role: 'artifact',
+      content: artifact.label ?? artifact.artifactType,
+      artifact,
+    }])
+
+    if (options.sendToSandbox) {
+      sendExternalConfigCommittedToSandbox(artifact)
+    }
+  }
+
+  /**
+   * 将 external_config_committed artifact 通过 WebSocket 同步给沙箱网关。
+   * 网关只支持 user_message / assistant_message 帧，因此采用 `[Internal ...]` 前缀的
+   * 内部 user_message 携带 artifact 负载：历史回放路径会按该前缀过滤掉，避免污染聊天记录。
+   */
+  function sendExternalConfigCommittedToSandbox(artifact: ArtifactDisplayData) {
+    const ws = wsRef.current
+    const sessionId = sessionIdRef.current
+    if (!ws || !sessionId || !ws.isOpen()) {
+      return
+    }
+
+    ws.send({
+      type: 'user_message',
+      text: buildExternalConfigCommittedSandboxPrompt(artifact),
+      sessionId,
+    })
+  }
 
   async function restoreConversationFromSandboxHistory(
     endpoint: string,
@@ -444,22 +516,103 @@ export default function HiringPage() {
     materialSummarySignatureRef.current = restored.latestMaterialSummary ? JSON.stringify(restored.latestMaterialSummary) : ''
     skillSummarySignatureRef.current = restored.latestSkillSummary ? JSON.stringify(restored.latestSkillSummary) : ''
     externalSummarySignatureRef.current = restored.latestExternalSummary ? JSON.stringify(restored.latestExternalSummary) : ''
+    externalConfigCommittedSignatureRef.current = restored.messages
+      .filter(message => message.artifact?.artifactType === 'external_config_committed' && message.artifact.isTerminal)
+      .map(message => JSON.stringify(message.artifact?.data ?? {}))
+      .at(-1) ?? ''
     ontologyExtractionDoneSignatureRef.current = restored.messages
       .filter(message => message.artifact?.artifactType === 'ontology_extraction_done' && message.artifact.isTerminal)
       .map(message => JSON.stringify(message.artifact?.data ?? {}))
       .at(-1) ?? ''
+    ontologyProjectionDoneSignatureRef.current = restored.messages
+      .filter(message => message.artifact?.artifactType === 'ontology_projection_done' && message.artifact.isTerminal)
+      .map(message => JSON.stringify(message.artifact?.data ?? {}))
+      .at(-1) ?? ''
+    appendExternalConfigCommittedArtifact(latestExternalConfigRef.current)
     return true
   }
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
-  const externalConfigState = downstreamRuns['external-config'] ?? null
   const holdExternalStage = shouldHoldExternalStageUntilSkillImplementation(
     latestSkillSummaryRef.current,
     skillGenerationState,
   )
   const uiStageOverrides = useMemo(
-    () => buildUiStageOverrides(wsStageOverrides, skillGenerationState, externalConfigState, holdExternalStage),
-    [wsStageOverrides, skillGenerationState, externalConfigState, holdExternalStage],
+    () => buildUiStageOverrides(wsStageOverrides, skillGenerationState, holdExternalStage),
+    [wsStageOverrides, skillGenerationState, holdExternalStage],
   )
+  const handleExternalConfigChange = useCallback((
+    config: HiringExternalSystemConfig | null,
+    source: ExternalConfigChangeSource = 'hydrate',
+  ) => {
+    const previousConfig = latestExternalConfigRef.current
+    latestExternalConfigRef.current = config
+    if (shouldRequireFreshPackagingAfterExternalConfigChange(previousConfig, config, source, instanceCreated)) {
+      setPendingPackageArtifact(null)
+      setArtifactArchive(null)
+      setArtifactFileNames([])
+      setRequiresFreshPackaging(true)
+      setWorkflowError('')
+      setWorkflowNotice(EXTERNAL_CONFIG_REPACKAGE_NOTICE)
+    }
+
+    const submissionMode = config?.submissionMode ?? 'pending'
+    if (submissionMode !== 'configured' && submissionMode !== 'skipped') {
+      setPendingStageConfirmation(prev => prev?.stage === HiringCollectionStage.External ? null : prev)
+      if (source !== 'hydrate') {
+        setWsStageOverrides(prev => {
+          const next = new Map(prev)
+          next.set(HiringCollectionStage.External, 'running')
+          return next
+        })
+      }
+      return
+    }
+
+    appendExternalConfigCommittedArtifact(config, { sendToSandbox: source !== 'hydrate' })
+    setWsStageOverrides(prev => {
+      if (source === 'hydrate') {
+        return prev
+      }
+
+      const next = new Map(prev)
+      next.set(HiringCollectionStage.External, 'running')
+      return next
+    })
+  }, [instanceCreated])
+
+  function handleAfterStageMessage(
+    stage: HiringCollectionStageType,
+    summary: string,
+    intent: StageAdvanceIntent = 'collecting',
+  ) {
+    if (shouldRequireStageAdvanceConfirmation(stage, intent)) {
+      const pending = buildPendingStageAdvanceConfirmation(stage, summary)
+      if (!pending) {
+        return
+      }
+
+      setPendingStageConfirmation(pending)
+      setWorkflowError('')
+      setWorkflowNotice('')
+      setMessages(prev => [...prev, {
+        id: mkId(),
+        role: 'bot',
+        content: pending.prompt,
+      }])
+      return
+    }
+
+    // skip 视为阶段已完成，直接标记阶段状态
+    if (intent === 'skip' && stage === HiringCollectionStage.External) {
+      setWsStageOverrides(prev => {
+        const next = new Map(prev)
+        next.set(HiringCollectionStage.External, 'completed')
+        return next
+      })
+    }
+
+    void submitWorkflowMessage(summary)
+  }
 
   const workflowReady = Boolean(workflowHireId)
   const workflowCurrentStage = normalizeCollectionStage(
@@ -540,6 +693,7 @@ export default function HiringPage() {
   // downstreamRuns 加入依赖：下游任务完成后重新检查，确保延迟暂存的产物包也能自动导入
   useEffect(() => {
     if (!pendingPackageArtifact || !workflowHireId || instanceCreated) return
+    if (pendingStageConfirmation) return
     if (hasPendingDownstreamRuns(downstreamRunsRef.current)) return
 
     let cancelled = false
@@ -553,7 +707,7 @@ export default function HiringPage() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingPackageArtifact, workflowHireId, instanceCreated, downstreamRuns])
+  }, [pendingPackageArtifact, workflowHireId, instanceCreated, pendingStageConfirmation, downstreamRuns])
 
   // 对话状态变化时防抖保存到后端（messages 或 wsStageOverrides 变化时触发）
   useEffect(() => {
@@ -1079,6 +1233,14 @@ export default function HiringPage() {
               )
             }
           }
+          if (artifactType === 'ontology_projection_done' && kind === 'data' && isTerminal) {
+            // buildCoachResumePrompt 目前仅支持 'post-ontology-extraction'，
+            // 此处仅做签名去重以避免重复触发后续逻辑，暂不注入 internal prompt。
+            const signature = JSON.stringify(artifactData.data ?? {})
+            if (ontologyProjectionDoneSignatureRef.current !== signature) {
+              ontologyProjectionDoneSignatureRef.current = signature
+            }
+          }
           if (artifactType === 'skill_workorder_summary' && kind === 'data' && isTerminal) {
             latestSkillSummaryRef.current = artifactData.data ?? null
             skillSummarySignatureRef.current = JSON.stringify(artifactData.data ?? {})
@@ -1086,21 +1248,28 @@ export default function HiringPage() {
           }
           if (artifactType === 'external_workorder_summary' && kind === 'data' && isTerminal) {
             latestExternalSummaryRef.current = artifactData.data ?? null
-            const signature = JSON.stringify(artifactData.data ?? {})
-            if (externalSummarySignatureRef.current !== signature) {
-              externalSummarySignatureRef.current = signature
-              pendingInternalPromptsRef.current.push(
-                buildDownstreamPrompt('external-config', artifactData.data ?? {}),
-              )
-            }
+            externalSummarySignatureRef.current = JSON.stringify(artifactData.data ?? {})
           }
           const downstreamRun = resolveDownstreamRunFromArtifact(artifactType)
-          setMessages(msgs => [...msgs, {
-            id: mkId(),
-            role: 'artifact',
-            content: label ?? artifactType,
-            artifact: artifactData,
-          }])
+          const duplicateExternalConfigCommitted = artifactType === 'external_config_committed'
+            && isDuplicateExternalConfigCommittedArtifact(
+              externalConfigCommittedSignatureRef.current,
+              artifactData.data,
+            )
+          const externalConfigCommittedSignature = artifactType === 'external_config_committed'
+            ? tryBuildExternalConfigCommittedSignature(artifactData.data)
+            : null
+          if (externalConfigCommittedSignature) {
+            externalConfigCommittedSignatureRef.current = externalConfigCommittedSignature
+          }
+          if (!duplicateExternalConfigCommitted) {
+            setMessages(msgs => [...msgs, {
+              id: mkId(),
+              role: 'artifact',
+              content: label ?? artifactType,
+              artifact: artifactData,
+            }])
+          }
           if (downstreamRun) {
             setDownstreamRuns(prev => {
               const next = {
@@ -1124,8 +1293,13 @@ export default function HiringPage() {
           if (hiringStage) {
             setWsStageOverrides(prev => {
               const next = new Map(prev)
-              // terminal artifact 标记阶段完成；否则只在尚未完成时标记运行中
-              if (isTerminal) {
+              // External 阶段的需求收口和系统提交是两件事：
+              // `external_workorder_summary` 仅表示需求已收口，仍需等待右侧卡片提交完成。
+              if ((artifactType === 'external_workorder_summary' || artifactType === 'external_config_committed') && isTerminal) {
+                if (next.get(hiringStage) !== 'completed') {
+                  next.set(hiringStage, 'running')
+                }
+              } else if (isTerminal) {
                 next.set(hiringStage, 'completed')
               } else if (next.get(hiringStage) !== 'completed') {
                 next.set(hiringStage, 'running')
@@ -1136,10 +1310,11 @@ export default function HiringPage() {
           // template_package artifact 表示沙箱已完成打包，暂存 fileUrl 后自动触发 import-package
           if (artifactType === 'template_package' && kind === 'file' && artifactData.fileUrl) {
             // 无论是否有下游任务未完成，均暂存产物包信息；
-            // useEffect 会在 downstreamRuns 全部完成后自动触发 triggerCreate。
-            setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
-            if (hasPendingDownstreamRuns(downstreamRunsRef.current)) {
-              setWorkflowNotice('已收到产物包，下游生成完成后将自动导入。')
+          // useEffect 会在 downstreamRuns 全部完成后自动触发 triggerCreate。
+          setRequiresFreshPackaging(false)
+          setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
+          if (hasPendingDownstreamRuns(downstreamRunsRef.current)) {
+            setWorkflowNotice('已收到产物包，下游生成完成后将自动导入。')
             }
           }
         }
@@ -1443,6 +1618,38 @@ export default function HiringPage() {
     }
   }
 
+  function handleContinueStageCollection() {
+    if (!pendingStageConfirmation) {
+      return
+    }
+
+    setWorkflowError('')
+    setWorkflowNotice(pendingStageConfirmation.continueNotice)
+    setPendingStageConfirmation(null)
+  }
+
+  async function handleConfirmStageAdvance() {
+    if (!pendingStageConfirmation) {
+      return
+    }
+
+    const pending = pendingStageConfirmation
+    const submitted = await submitWorkflowMessage(pending.summary)
+    if (!submitted) {
+      return
+    }
+
+    if (pending.stage === HiringCollectionStage.External) {
+      setWsStageOverrides(prev => {
+        const next = new Map(prev)
+        next.set(HiringCollectionStage.External, 'completed')
+        return next
+      })
+    }
+
+    setPendingStageConfirmation(null)
+  }
+
   async function handleSend() {
     if (isInteractionLocked || handleSendRef.current) return
     const text = input.trim()
@@ -1571,6 +1778,12 @@ export default function HiringPage() {
     await turnSyncBarrierRef.current
     const hireId = await ensureWorkflowReady()
     if (!hireId) return
+
+    if (requiresFreshPackaging) {
+      setWorkflowError('')
+      setWorkflowNotice(EXTERNAL_CONFIG_REPACKAGE_NOTICE)
+      return
+    }
 
     // 方案 A：只走 import-package，不再回退调 KingCrab finalize。
     // 不明确传入 packageArtifact 时，尝试从状态中拿上次推送的产物事件。
@@ -1734,6 +1947,10 @@ export default function HiringPage() {
    */
   async function handleRequestPackaging() {
     if (isInteractionLocked) return
+    if (pendingStageConfirmation) {
+      setWorkflowNotice(pendingStageConfirmation.prompt)
+      return
+    }
     if (pendingPackageArtifact) {
       void triggerCreate()
       return
@@ -1786,6 +2003,10 @@ export default function HiringPage() {
         setDownstreamRuns({})
         setMaterialRequestedCategories([])
         setPendingPackageArtifact(null)
+        setPendingStageConfirmation(null)
+        setRequiresFreshPackaging(false)
+        setArtifactArchive(null)
+        setArtifactFileNames([])
         setLinkedStoreSkillIds([])
         downstreamRunsRef.current = {}
         latestMaterialSummaryRef.current = null
@@ -1796,6 +2017,7 @@ export default function HiringPage() {
         externalSummarySignatureRef.current = ''
         skillGenerationLaunchSignatureRef.current = ''
         ontologyExtractionDoneSignatureRef.current = ''
+        ontologyProjectionDoneSignatureRef.current = ''
         pendingInternalPromptsRef.current = []
 
         // 清除后端对话缓存，确保重置后刷新页面不会恢复旧记录
@@ -1928,7 +2150,31 @@ export default function HiringPage() {
           onOpenSkillUpload={() => setShowSkillUploadModal(true)}
           onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
           formatFileSize={formatFileSize}
-          onArtifactFileDownload={(url, fileName) => { void downloadGatewayFile(url, fileName) }}
+          onArtifactFileDownload={(url, fileName, artifactType) => {
+            // template_package 产物：优先使用后端已叠加外部系统配置的最终包
+            if (artifactType === 'template_package' && artifactArchive) {
+              downloadBlob(artifactArchive.blob, artifactArchive.fileName)
+              return
+            }
+            // template_package 且有外部配置但尚未生成实例时，从后端中间包下载（包含外部配置）
+            if (
+              artifactType === 'template_package' &&
+              workflowHireId &&
+              latestExternalConfigRef.current?.submissionMode === 'configured'
+            ) {
+              void (async () => {
+                try {
+                  const archive = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
+                  downloadBlob(archive.blob, archive.fileName)
+                } catch {
+                  // 后端无包时回退到网关下载
+                  void downloadGatewayFile(url, fileName)
+                }
+              })()
+              return
+            }
+            void downloadGatewayFile(url, fileName)
+          }}
           onArtifactManualUpload={(url, fileName) => { void triggerCreate({ fileUrl: url, fileName }) }}
           workflowStatus={workflowStatus}
         />
@@ -1965,7 +2211,12 @@ export default function HiringPage() {
             skillDefinitionStageStatus={wsStageOverrides.get(HiringCollectionStage.Skill) ?? null}
             skillGenerationState={skillGenerationState}
             definedSkills={definedSkills}
-            onAfterStageMessage={(_stage, summary) => { void submitWorkflowMessage(summary) }}
+            onExternalConfigChange={handleExternalConfigChange}
+            pendingStageConfirmation={pendingStageConfirmation}
+            onContinueStageCollection={handleContinueStageCollection}
+            onConfirmStageAdvance={() => { void handleConfirmStageAdvance() }}
+            stageConfirmationBusy={isInteractionLocked}
+            onAfterStageMessage={handleAfterStageMessage}
             onGenerate={() => { void handleRequestPackaging() }}
             generated={instanceCreated}
             onEnterEvaluation={createdId ? () => navigate(`/department-employees/instances/${createdId}/evaluation`) : undefined}

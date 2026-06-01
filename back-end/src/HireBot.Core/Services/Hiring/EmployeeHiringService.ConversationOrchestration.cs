@@ -146,6 +146,9 @@ internal sealed partial class EmployeeHiringService
                 refreshResult.Data.SandboxId,
                 runtimeContext.ExternalSystemConfig,
                 cancellationToken);
+            await SyncExternalSystemConfigWorkspaceAsync(
+                runtimeContext with { SandboxId = refreshResult.Data.SandboxId },
+                cancellationToken);
         }
 
         return runtimeContext;
