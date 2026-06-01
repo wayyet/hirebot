@@ -123,6 +123,12 @@ type HiringConversationPanelProps = {
   onArtifactFileDownload?: (url: string, fileName: string, artifactType: string) => void
   /** 手动触发产物包上传到系统（template_package 卡片展示） */
   onArtifactManualUpload?: (url: string, fileName: string) => void
+  /** template_package 卡片：final 包展示文件名 */
+  templatePackageDownloadFileName?: string
+  /** template_package 卡片：import 完成前禁用下载 */
+  templatePackageDownloadDisabled?: boolean
+  /** template_package 下载禁用提示 */
+  templatePackageDownloadDisabledTitle?: string
   /** 工作流连接状态徽标：放在聊天面板顶部 */
   workflowStatus?: {
     title: string
@@ -155,6 +161,9 @@ export function HiringConversationPanel({
   formatFileSize,
   onArtifactFileDownload,
   onArtifactManualUpload,
+  templatePackageDownloadFileName,
+  templatePackageDownloadDisabled,
+  templatePackageDownloadDisabledTitle,
   workflowStatus,
 }: HiringConversationPanelProps) {
   const { t } = useTranslation()
@@ -206,7 +215,26 @@ export function HiringConversationPanel({
               <div key={message.id} className="hb-hiring-msg">
                 <div className="hb-hiring-avatar">{introName.slice(0, 1).toUpperCase()}</div>
                 <div className="hb-hiring-msg-stack">
-                  <ArtifactMessageCard artifact={message.artifact} onFileDownload={onArtifactFileDownload} onManualUpload={onArtifactManualUpload} />
+                  <ArtifactMessageCard
+                    artifact={message.artifact}
+                    onFileDownload={onArtifactFileDownload}
+                    onManualUpload={onArtifactManualUpload}
+                    packageDownloadFileName={
+                      message.artifact.artifactType === 'template_package'
+                        ? templatePackageDownloadFileName
+                        : undefined
+                    }
+                    packageDownloadDisabled={
+                      message.artifact.artifactType === 'template_package'
+                        ? templatePackageDownloadDisabled
+                        : undefined
+                    }
+                    packageDownloadDisabledTitle={
+                      message.artifact.artifactType === 'template_package'
+                        ? templatePackageDownloadDisabledTitle
+                        : undefined
+                    }
+                  />
                 </div>
               </div>
             )

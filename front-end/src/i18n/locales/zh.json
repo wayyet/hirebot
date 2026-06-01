@@ -290,7 +290,9 @@
     "artifact": {
       "terminal": "终态",
       "downloadFile": "下载产物包",
-      "manualImport": "手动导入系统"
+      "manualImport": "手动导入系统",
+      "waitForFinalPackage": "实例包正在导入系统，导入完成后可下载正式交付包（final）。",
+      "finalPackageLabel": "正式交付包"
     },
     "dispatch": {
       "running": "派发中",

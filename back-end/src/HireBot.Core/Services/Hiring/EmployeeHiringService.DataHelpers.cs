@@ -37,8 +37,6 @@ namespace HireBot.Core.Services.Hiring;
 
 internal sealed partial class EmployeeHiringService
 {
-    private static readonly string DebugLogFilePath = @"c:\Users\wayye\Documents\ai4c_Projects\hirebot\debug-0d9c1f.log";
-
     private static readonly JsonSerializerOptions ExternalPackageJsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -216,19 +214,6 @@ internal sealed partial class EmployeeHiringService
         var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (externalSystemConfig is null || !externalSystemConfig.IsPersisted)
         {
-            // #region agent log
-            WriteDebugLog(
-                runId: "initial",
-                hypothesisId: "H1",
-                location: "EmployeeHiringService.DataHelpers.cs:BuildManagedExternalPackageFiles",
-                message: "skip_build_external_files",
-                data: new
-                {
-                    hasExternalConfig = externalSystemConfig is not null,
-                    isPersisted = externalSystemConfig?.IsPersisted ?? false,
-                    submissionMode = externalSystemConfig?.SubmissionMode ?? string.Empty
-                });
-            // #endregion
             return files;
         }
 
@@ -368,20 +353,6 @@ internal sealed partial class EmployeeHiringService
 
         var readme = BuildManagedExternalReadme(externalSystemConfig);
         files["external/README.md"] = readme;
-        // #region agent log
-        WriteDebugLog(
-            runId: "initial",
-            hypothesisId: "H2",
-            location: "EmployeeHiringService.DataHelpers.cs:BuildManagedExternalPackageFiles",
-            message: "built_external_files",
-            data: new
-            {
-                submissionMode = externalSystemConfig.SubmissionMode,
-                cliToolCount = cliTools.Length,
-                hasMcp = mcpServer is not null && mcpServer.HasAnyConfig,
-                managedExternalFileCount = files.Count
-            });
-        // #endregion
         return files;
     }
 
@@ -1111,36 +1082,6 @@ internal sealed partial class EmployeeHiringService
     private static bool TryNormalizeArchiveEntryPath(string path, out string normalizedPath)
     {
         return TryNormalizeArtifactPath(path, out normalizedPath, out _);
-    }
-
-    private static void WriteDebugLog(
-        string runId,
-        string hypothesisId,
-        string location,
-        string message,
-        object data)
-    {
-        try
-        {
-            var payload = new
-            {
-                sessionId = "0d9c1f",
-                runId,
-                hypothesisId,
-                location,
-                message,
-                data,
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            };
-            File.AppendAllText(
-                DebugLogFilePath,
-                JsonSerializer.Serialize(payload) + Environment.NewLine,
-                Encoding.UTF8);
-        }
-        catch
-        {
-            // 调试日志写入失败不影响主流程
-        }
     }
 
 }

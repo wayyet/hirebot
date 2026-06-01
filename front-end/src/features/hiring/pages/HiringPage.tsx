@@ -434,6 +434,8 @@ export default function HiringPage() {
   const autoTemplateBootstrapSessionRef = useRef<string | null>(null)
   const latestExternalConfigRef = useRef<HiringExternalSystemConfig | null>(null)
   const externalConfigCommittedSignatureRef = useRef('')
+  /** 刷新页面后仅尝试一次从后端预热 final 包元数据 */
+  const artifactArchiveHydrateAttemptedRef = useRef(false)
 
   /**
    * 将外部系统配置提交事件以 artifact 形式追加到本地消息列表，
@@ -653,6 +655,20 @@ export default function HiringPage() {
     ? { ...viewModel.actionState, canFinalize: true }
     : viewModel.actionState
   const canCreate = Boolean(workflowHireId) && !instanceCreated
+  const canDownloadFinalPackage = instanceCreated && Boolean(workflowHireId)
+  const finalPackageFileName = useMemo(() => {
+    if (artifactArchive?.fileName) {
+      return artifactArchive.fileName
+    }
+    if (workflowHireId) {
+      return `${workflowHireId}_final_package.zip`
+    }
+    return ''
+  }, [artifactArchive?.fileName, workflowHireId])
+  const hasTemplatePackageArtifact = useMemo(
+    () => messages.some(message => message.artifact?.artifactType === 'template_package'),
+    [messages],
+  )
   const isInteractionLocked = typing || workflowBooting || submittingMessage || resetting
   const uploadedConversationFiles = useMemo(
     () => extractConversationMaterialFiles(messages),
@@ -708,6 +724,35 @@ export default function HiringPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPackageArtifact, workflowHireId, instanceCreated, pendingStageConfirmation, downstreamRuns])
+
+  // 刷新后若对话中已有 template_package 且后端已有 final，恢复下载态
+  useEffect(() => {
+    if (!workflowHireId || artifactArchive || artifactArchiveHydrateAttemptedRef.current) {
+      return
+    }
+    if (!instanceCreated && !hasTemplatePackageArtifact) {
+      return
+    }
+
+    artifactArchiveHydrateAttemptedRef.current = true
+    let cancelled = false
+    void (async () => {
+      try {
+        const archive = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
+        if (cancelled) {
+          return
+        }
+        setArtifactArchive(archive)
+        setInstanceCreated(true)
+      } catch {
+        // final 尚未生成（import 未完成）时保持禁用
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [workflowHireId, instanceCreated, artifactArchive, hasTemplatePackageArtifact])
 
   // 对话状态变化时防抖保存到后端（messages 或 wsStageOverrides 变化时触发）
   useEffect(() => {
@@ -1887,6 +1932,28 @@ export default function HiringPage() {
     }
   }
 
+  /** template_package 卡片：仅下载后端 final 交付包 */
+  async function downloadTemplatePackageFinal() {
+    if (!canDownloadFinalPackage || !workflowHireId) {
+      setWorkflowNotice(t('hiring.artifact.waitForFinalPackage'))
+      return
+    }
+    if (artifactArchive) {
+      downloadBlob(artifactArchive.blob, artifactArchive.fileName)
+      setWorkflowNotice('')
+      return
+    }
+    try {
+      const archive = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
+      setArtifactArchive(archive)
+      downloadBlob(archive.blob, archive.fileName)
+      setWorkflowError('')
+      setWorkflowNotice('')
+    } catch (error: unknown) {
+      setWorkflowError(normalizeErrorMessage(error))
+    }
+  }
+
   /**
    * 从沙箱 Gateway 下载文件（需要附带 Bearer token）。
    * fileUrl 可以是绝对 URL 或相对于 gateway endpoint 的路径。
@@ -2006,6 +2073,7 @@ export default function HiringPage() {
         setPendingStageConfirmation(null)
         setRequiresFreshPackaging(false)
         setArtifactArchive(null)
+        artifactArchiveHydrateAttemptedRef.current = false
         setArtifactFileNames([])
         setLinkedStoreSkillIds([])
         downstreamRunsRef.current = {}
@@ -2151,31 +2219,16 @@ export default function HiringPage() {
           onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
           formatFileSize={formatFileSize}
           onArtifactFileDownload={(url, fileName, artifactType) => {
-            // template_package 产物：优先使用后端已叠加外部系统配置的最终包
-            if (artifactType === 'template_package' && artifactArchive) {
-              downloadBlob(artifactArchive.blob, artifactArchive.fileName)
-              return
-            }
-            // template_package 且有外部配置但尚未生成实例时，从后端中间包下载（包含外部配置）
-            if (
-              artifactType === 'template_package' &&
-              workflowHireId &&
-              latestExternalConfigRef.current?.submissionMode === 'configured'
-            ) {
-              void (async () => {
-                try {
-                  const archive = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
-                  downloadBlob(archive.blob, archive.fileName)
-                } catch (error: unknown) {
-                  // 已配置外部系统时，禁止回退沙箱网关 zip（不含 external/），避免误下载错误包
-                  setWorkflowError(normalizeErrorMessage(error))
-                }
-              })()
+            if (artifactType === 'template_package') {
+              void downloadTemplatePackageFinal()
               return
             }
             void downloadGatewayFile(url, fileName)
           }}
           onArtifactManualUpload={(url, fileName) => { void triggerCreate({ fileUrl: url, fileName }) }}
+          templatePackageDownloadFileName={finalPackageFileName || undefined}
+          templatePackageDownloadDisabled={hasTemplatePackageArtifact && !canDownloadFinalPackage}
+          templatePackageDownloadDisabledTitle={t('hiring.artifact.waitForFinalPackage')}
           workflowStatus={workflowStatus}
         />
 

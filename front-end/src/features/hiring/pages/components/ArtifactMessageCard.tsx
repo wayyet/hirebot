@@ -8,12 +8,29 @@ interface Props {
   onFileDownload?: (url: string, fileName: string, artifactType: string) => void
   /** 手动触发上传到系统（仅 template_package 展示） */
   onManualUpload?: (fileUrl: string, fileName: string) => void
+  /** template_package：展示用 final 文件名（覆盖沙箱 artifact.fileName） */
+  packageDownloadFileName?: string
+  /** template_package：import 完成前禁用下载 */
+  packageDownloadDisabled?: boolean
+  /** 禁用时的 title / aria-label */
+  packageDownloadDisabledTitle?: string
 }
 
-export function ArtifactMessageCard({ artifact, onFileDownload, onManualUpload }: Props) {
+export function ArtifactMessageCard({
+  artifact,
+  onFileDownload,
+  onManualUpload,
+  packageDownloadFileName,
+  packageDownloadDisabled = false,
+  packageDownloadDisabledTitle,
+}: Props) {
   const { t } = useTranslation()
   const title = artifact.label ?? artifact.artifactType
   const isPackage = artifact.artifactType === 'template_package'
+  const displayFileName =
+    isPackage && packageDownloadFileName
+      ? packageDownloadFileName
+      : (artifact.fileName ?? title)
 
   return (
     <div className="hb-artifact-card">
@@ -34,22 +51,32 @@ export function ArtifactMessageCard({ artifact, onFileDownload, onManualUpload }
       {artifact.kind === 'file' ? (
         <div className="hb-artifact-file-row">
           {onFileDownload && artifact.fileUrl ? (
-            // gateway 文件需要附带 token，通过回调触发认证下载
+            // template_package：仅下载后端 final；import 前禁用，不走沙箱网关
             <button
               type="button"
               className="hb-artifact-file-link"
-              onClick={() => onFileDownload(artifact.fileUrl!, artifact.fileName ?? title, artifact.artifactType)}
+              disabled={isPackage && packageDownloadDisabled}
+              title={isPackage && packageDownloadDisabled ? packageDownloadDisabledTitle : undefined}
+              aria-label={
+                isPackage && packageDownloadDisabled && packageDownloadDisabledTitle
+                  ? packageDownloadDisabledTitle
+                  : displayFileName
+              }
+              onClick={() => {
+                if (isPackage && packageDownloadDisabled) return
+                onFileDownload(artifact.fileUrl!, displayFileName, artifact.artifactType)
+              }}
             >
-              <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
+              <span className="hb-artifact-file-name">{displayFileName}</span>
               {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
             </button>
           ) : (
             <a
               href={artifact.fileUrl ?? '#'}
-              download={artifact.fileName ?? title}
+              download={displayFileName}
               className="hb-artifact-file-link"
             >
-              <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
+              <span className="hb-artifact-file-name">{displayFileName}</span>
               {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
             </a>
           )}

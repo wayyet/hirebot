@@ -1353,40 +1353,7 @@ internal sealed partial class EmployeeHiringService(
             extractedArtifacts,
             storeSkillArtifacts,
             runtimeContext.WorkingTemplatePackage);
-        // #region agent log
-        WriteDebugLog(
-            runId: "initial",
-            hypothesisId: "H4",
-            location: "EmployeeHiringService.cs:ImportPackageAsync_pre_overlay",
-            message: "before_overlay_external_files",
-            data: new
-            {
-                hireId = normalizedHireId,
-                mergedArtifactCount = mergedArtifacts.Count,
-                mergedExternalFileCount = mergedArtifacts.Keys.Count(static key =>
-                    key.StartsWith("external/", StringComparison.OrdinalIgnoreCase)),
-                hasExternalConfig = runtimeContext.ExternalSystemConfig is not null,
-                externalIsPersisted = runtimeContext.ExternalSystemConfig?.IsPersisted ?? false,
-                externalSubmissionMode = runtimeContext.ExternalSystemConfig?.SubmissionMode ?? string.Empty
-            });
-        // #endregion
         OverlayManagedExternalPackageArtifacts(mergedArtifacts, runtimeContext.ExternalSystemConfig);
-        // #region agent log
-        WriteDebugLog(
-            runId: "initial",
-            hypothesisId: "H5",
-            location: "EmployeeHiringService.cs:ImportPackageAsync_post_overlay",
-            message: "after_overlay_external_files",
-            data: new
-            {
-                hireId = normalizedHireId,
-                mergedArtifactCount = mergedArtifacts.Count,
-                mergedExternalFileCount = mergedArtifacts.Keys.Count(static key =>
-                    key.StartsWith("external/", StringComparison.OrdinalIgnoreCase)),
-                hasExternalUserConfig = mergedArtifacts.ContainsKey("external/user-config.json"),
-                hasExternalIndex = mergedArtifacts.ContainsKey("external/external-config.index.json")
-            });
-        // #endregion
         if (mergedArtifacts.Count == 0)
         {
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包合并后无有效文件");
