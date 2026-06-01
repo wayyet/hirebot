@@ -3,6 +3,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction;
+using HireBot.Abstraction.Models.Hiring;
+using HireBot.Abstraction.Models.Sandbox;
+using HireBot.Abstraction.Services.Sandbox;
 using HireBot.ApiService.McpTools;
 using HireBot.Core.Services.Internal;
 using HireBot.Repository;
@@ -24,11 +27,17 @@ public sealed class HiringMaterialFilesController(
     IWebHostEnvironment env,
     IConfiguration configuration,
     HireBotDbContext dbContext,
+    ISandboxService sandboxService,
     IHttpContextAccessor httpContextAccessor,
     ILogger<HiringMaterialFilesController> logger)
     : ControllerBase
 {
     private const long MaxUploadBytes = 50_000_000;
+    private const string HiringSandboxRole = "hiring";
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".md",
@@ -44,6 +53,7 @@ public sealed class HiringMaterialFilesController(
         string? MimeType,
         string Sha256,
         string? RequestedCategoryTitle,
+        string? WorkspaceRelativePath,
         DateTimeOffset UploadedAtUtc,
         DateTimeOffset UpdatedAtUtc);
 
@@ -128,6 +138,7 @@ public sealed class HiringMaterialFilesController(
                 item.MimeType,
                 item.Sha256,
                 item.RequestedCategoryTitle,
+                item.WorkspaceRelativePath,
                 item.UploadedAtUtc,
                 item.UpdatedAtUtc))
             .ToListAsync(cancellationToken);
@@ -156,6 +167,7 @@ public sealed class HiringMaterialFilesController(
         var backupPath = BackupExistingFile(targetPath);
         var sha256 = string.Empty;
         var savedToDisk = false;
+        var mimeType = NormalizeOptional(file.ContentType, 120);
         var existing = await dbContext.HiringMaterialFiles
             .FirstOrDefaultAsync(item =>
                 item.SessionId == uploadContext.SessionId &&
@@ -166,6 +178,15 @@ public sealed class HiringMaterialFilesController(
         {
             sha256 = await SaveFileAndComputeHashAsync(file, targetPath, cancellationToken);
             savedToDisk = true;
+            var syncedWorkspaceRelativePath = await TrySyncWorkspaceCopyAsync(
+                uploadContext,
+                relativePath,
+                safeFolder,
+                safeFileName,
+                targetPath,
+                mimeType,
+                cancellationToken);
+            var workspaceRelativePath = syncedWorkspaceRelativePath ?? existing?.WorkspaceRelativePath;
 
             var now = DateTimeOffset.UtcNow;
             if (existing is null)
@@ -178,10 +199,11 @@ public sealed class HiringMaterialFilesController(
                     OriginalFileName = originalFileName,
                     StoragePath = targetPath,
                     Format = Path.GetExtension(safeFileName).TrimStart('.').ToLowerInvariant(),
-                    MimeType = NormalizeOptional(file.ContentType, 120),
+                    MimeType = mimeType,
                     SizeBytes = file.Length,
                     Sha256 = sha256,
                     RequestedCategoryTitle = requestedCategoryTitle,
+                    WorkspaceRelativePath = workspaceRelativePath,
                     TenantId = uploadContext.TenantId,
                     OperatorId = uploadContext.OperatorId,
                     UploadedBy = uploadContext.UploadedBy,
@@ -196,10 +218,11 @@ public sealed class HiringMaterialFilesController(
                 existing.OriginalFileName = originalFileName;
                 existing.StoragePath = targetPath;
                 existing.Format = Path.GetExtension(safeFileName).TrimStart('.').ToLowerInvariant();
-                existing.MimeType = NormalizeOptional(file.ContentType, 120);
+                existing.MimeType = mimeType;
                 existing.SizeBytes = file.Length;
                 existing.Sha256 = sha256;
                 existing.RequestedCategoryTitle = requestedCategoryTitle;
+                existing.WorkspaceRelativePath = workspaceRelativePath;
                 existing.TenantId = uploadContext.TenantId;
                 existing.OperatorId = uploadContext.OperatorId;
                 existing.UploadedBy = uploadContext.UploadedBy;
@@ -219,6 +242,7 @@ public sealed class HiringMaterialFilesController(
                 DetailJson = JsonSerializer.Serialize(new
                 {
                     relativePath,
+                    workspaceRelativePath,
                     originalFileName,
                     file.Length,
                     requestedCategoryTitle
@@ -281,7 +305,9 @@ public sealed class HiringMaterialFilesController(
             normalizedSessionId,
             session.TenantId,
             session.OperatorId,
-            session.OwnerSubject));
+            session.OwnerSubject,
+            TryResolveSandboxId(runtime.PayloadJson),
+            TryResolveWorkspaceRoot(runtime.WorkflowStateJson)));
     }
 
     private string ResolveFilePath(string sessionId, string relativePath)
@@ -343,8 +369,73 @@ public sealed class HiringMaterialFilesController(
             entity.MimeType,
             entity.Sha256,
             entity.RequestedCategoryTitle,
+            entity.WorkspaceRelativePath,
             entity.UploadedAtUtc,
             entity.UpdatedAtUtc);
+
+    private async Task<string?> TrySyncWorkspaceCopyAsync(
+        MaterialUploadContext uploadContext,
+        string relativePath,
+        string safeFolder,
+        string safeFileName,
+        string localPath,
+        string? mimeType,
+        CancellationToken cancellationToken)
+    {
+        var workspaceRoot = NormalizeWorkspaceRoot(uploadContext.WorkspaceRoot);
+        if (workspaceRoot is null)
+        {
+            logger.LogWarning(
+                "[MaterialFiles] Workspace root unavailable, skip workspace sync. HireId={HireId} SessionId={SessionId} RelativePath={RelativePath}",
+                uploadContext.HireId,
+                uploadContext.SessionId,
+                relativePath);
+            return null;
+        }
+
+        var workspaceRootDir = TryConvertWorkspaceRootToTargetDir(workspaceRoot);
+        if (workspaceRootDir is null)
+        {
+            logger.LogWarning(
+                "[MaterialFiles] Invalid workspace root, skip workspace sync. HireId={HireId} SessionId={SessionId} WorkspaceRoot={WorkspaceRoot}",
+                uploadContext.HireId,
+                uploadContext.SessionId,
+                workspaceRoot);
+            return null;
+        }
+
+        var workspaceRelativePath = BuildWorkspaceRelativePath(relativePath);
+        var targetDir = BuildWorkspaceTargetDir(workspaceRootDir, safeFolder);
+        var content = await System.IO.File.ReadAllBytesAsync(localPath, cancellationToken);
+        var uploadResult = await sandboxService.UploadWorkspaceFileAsync(
+            new SandboxWorkspaceUploadRequestDto
+            {
+                ScopeType = SandboxScopeTypes.Hire,
+                ScopeKey = uploadContext.HireId,
+                SandboxRole = HiringSandboxRole,
+                OwnerSubject = uploadContext.UploadedBy,
+                SandboxId = uploadContext.SandboxId,
+                TargetDir = targetDir,
+                FileName = safeFileName,
+                Content = content,
+                ContentType = ResolveContentType(safeFileName, mimeType)
+            },
+            cancellationToken);
+
+        if (!uploadResult.Success)
+        {
+            logger.LogWarning(
+                "[MaterialFiles] Failed to sync file into workspace. HireId={HireId} SessionId={SessionId} RelativePath={RelativePath} TargetDir={TargetDir} Message={Message}",
+                uploadContext.HireId,
+                uploadContext.SessionId,
+                relativePath,
+                targetDir,
+                uploadResult.Message);
+            return null;
+        }
+
+        return workspaceRelativePath;
+    }
 
     private static string? BackupExistingFile(string targetPath)
     {
@@ -408,12 +499,130 @@ public sealed class HiringMaterialFilesController(
         return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
 
+    private static string? TryResolveSandboxId(string payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            var payload = JsonSerializer.Deserialize<PersistedHiringMetaProjection>(payloadJson, JsonOptions);
+            return NormalizeOptional(payload?.SandboxId, 128);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? TryResolveWorkspaceRoot(string workflowStateJson)
+    {
+        if (string.IsNullOrWhiteSpace(workflowStateJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            var state = JsonSerializer.Deserialize<PersistedWorkflowStateProjection>(workflowStateJson, JsonOptions);
+            if (state?.Materials is null)
+            {
+                return null;
+            }
+
+            for (var index = state.Materials.Count - 1; index >= 0; index--)
+            {
+                var material = state.Materials[index];
+                if (material.Metadata is null ||
+                    !material.Metadata.TryGetValue("workspaceDir", out var workspaceDir) ||
+                    string.IsNullOrWhiteSpace(workspaceDir))
+                {
+                    continue;
+                }
+
+                var normalized = NormalizeWorkspaceRoot(workspaceDir);
+                if (normalized is not null)
+                {
+                    return normalized;
+                }
+            }
+
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? NormalizeWorkspaceRoot(string? workspaceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+        {
+            return null;
+        }
+
+        var trimmed = workspaceRoot.Trim().TrimEnd('/');
+        return trimmed.StartsWith("/workspace/", StringComparison.OrdinalIgnoreCase)
+            ? trimmed
+            : null;
+    }
+
+    private static string? TryConvertWorkspaceRootToTargetDir(string workspaceRoot)
+    {
+        if (!workspaceRoot.StartsWith("/workspace/", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var relative = workspaceRoot["/workspace/".Length..].Trim('/');
+        return relative.Length == 0 ? null : relative;
+    }
+
+    private static string BuildWorkspaceRelativePath(string relativePath)
+        => $"uploads/materials/{relativePath.Replace('\\', '/').Trim('/')}";
+
+    private static string BuildWorkspaceTargetDir(string workspaceRootDir, string safeFolder)
+    {
+        var normalizedRoot = workspaceRootDir.Trim('/');
+        if (string.IsNullOrWhiteSpace(safeFolder))
+        {
+            return $"{normalizedRoot}/uploads/materials";
+        }
+
+        return $"{normalizedRoot}/uploads/materials/{safeFolder}";
+    }
+
+    private static string ResolveContentType(string safeFileName, string? mimeType)
+    {
+        if (!string.IsNullOrWhiteSpace(mimeType))
+        {
+            return mimeType;
+        }
+
+        return Path.GetExtension(safeFileName).ToLowerInvariant() switch
+        {
+            ".json" => "application/json",
+            _ => "text/markdown"
+        };
+    }
+
     private sealed record MaterialUploadContext(
         string HireId,
         string SessionId,
         string TenantId,
         string OperatorId,
-        string UploadedBy);
+        string UploadedBy,
+        string? SandboxId,
+        string? WorkspaceRoot);
+
+    private sealed record PersistedHiringMetaProjection(
+        string? SandboxId);
+
+    private sealed record PersistedWorkflowStateProjection(
+        IReadOnlyList<HiringConversationMaterialDto>? Materials);
 
     private sealed record ContextResult<T>(bool Success, int Code, string Message, T? Data)
     {

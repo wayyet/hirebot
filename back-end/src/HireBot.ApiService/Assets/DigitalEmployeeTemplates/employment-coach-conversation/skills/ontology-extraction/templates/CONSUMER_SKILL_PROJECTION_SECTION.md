@@ -1,6 +1,6 @@
 # Consumer Skill Projection Section Template
 
-Use this file as the canonical minimal `Projection Contracts` section for consumer `SKILL.md` files that consume `ontology-extraction` projection contracts.
+Use this file as the canonical minimal `Projection Contracts` section for consumer `SKILL.md` files that consume projection contracts produced by `ontology_extraction`.
 
 Keep only stable shared rules in the copied section. Put any skill-specific target-view limits, field restrictions, or local binding paths in the consumer skill after copying this template.
 
@@ -9,10 +9,10 @@ If you need a full starter `SKILL.md` instead of only this section, use `CONSUME
 ```md
 ## Projection Contracts
 
-This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/contract-index.json`.
+This skill may be augmented by bound projection contracts from `ontology_extraction`, discovered under `contracts/projections/**/contract-index.json`.
 
 - Projection discovery and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contracts/contract-index.json` first to select the topic and target view, then enter the topic subdirectory and read `<domain-slug>.<target-view>.projection.json`, and finally check `REVIEW.md`.
+- For human review, read `contracts/projections/ontology_extraction/contract-index.json` first, optionally read the namespace `README.md`, and then read the chosen `*.projection.json` file.
 
 ### Projection Consumption
 
@@ -29,7 +29,7 @@ This skill may be augmented by bound `ontology-extraction` projection contracts 
 
 ## Adaptation Rules
 
-- Keep the discovery sentence unless the consumer skill binds to a narrower local path.
+- Keep the discovery sentence unless the consumer skill binds to a narrower local path under `contracts/projections/`.
 - Narrow the supported fields list if the consumer skill only consumes a subset.
 - Keep blocking behavior aligned with `mapping_policy`, `open_questions`, and `dropped_items`.
 - Do not copy topic scoring, target-view scoring, request mapping examples, or topic-local routing hints into consumer `SKILL.md` files.

@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using HireBot.Core.Services.Internal;
+using HireBot.Repository;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
@@ -10,38 +12,41 @@ using ModelContextProtocol.Server;
 
 namespace HireBot.ApiService.McpTools;
 
-/// <summary>
-/// MCP 工具：仅保留雇佣会话用户上传文件的解析能力。
-/// 新版右侧 TODO 面板由 artifact (material_collection_progress / skill_workorder_progress /
-/// external_workorder_progress 等) 事件驱动阶段亮灯与交互区显示，不再使用 handoff 文本工单，
-/// 因此 hiring.list_todos / hiring.upsert_todo / hiring.request_* 等旧工具全部下线。
-/// userId 和 sessionId 由 Kingcrab 通过 _meta 传入。
-/// </summary>
 [McpServerToolType]
 internal sealed class HiringTodoMcpTools(
     IWebHostEnvironment env,
     IConfiguration configuration,
+    HireBotDbContext dbContext,
     ILogger<HiringTodoMcpTools> logger)
 {
-    /// <summary>todo 上传文件的子目录名；由控制器和 MCP 工具共享。</summary>
     public const string TodoFilesSubdir = "todo-files";
 
-    /// <summary>
-    /// 解析当前雇佣会话用户已上传的 todo-files 目录，返回目录树和每个 md/json 文件的文本内容。
-    /// AI 可借此读取业务资料，进行本体抽取、能力推断等下游任务。
-    /// </summary>
     [McpServerTool(Name = "hiring.parse_uploaded_files", ReadOnly = true)]
-    [Description("读取并解析当前雇佣会话用户已上传的所有文件（仅 .md / .json）。返回目录结构和每个文件的全文本内容，供大模型抽取本体、推断技能等。会话上下文由 _meta.sessionId 自动识别。")]
+    [Description("读取当前雇佣会话已上传的 .md / .json 资料全文，并返回与资料条目对应的 source_path 元数据。")]
     public async Task<string> ParseUploadedFilesAsync(
         RequestContext<CallToolRequestParams> requestContext,
-        [Description("可选：限制最大返回字节数，默认 200000，避免上下文爆炸")] int maxBytes = 200_000,
+        [Description("可选：限制最大返回字节数，默认 200000。")] int maxBytes = 200_000,
         CancellationToken cancellationToken = default)
     {
         var sessionId = ExtractSessionId(requestContext);
-        logger.LogInformation("[MCP] hiring.parse_uploaded_files | sessionId={SessionId} maxBytes={MaxBytes}", sessionId ?? "<未传入>", maxBytes);
+        logger.LogInformation(
+            "[MCP] hiring.parse_uploaded_files | sessionId={SessionId} maxBytes={MaxBytes}",
+            sessionId ?? "<missing>",
+            maxBytes);
 
-        if (sessionId is null) return ErrorPayload("_meta.sessionId 未传入，无法定位雇佣会话");
+        if (sessionId is null)
+        {
+            return ErrorPayload("_meta.sessionId 未传入，无法定位雇佣会话");
+        }
 
+        return await ParseUploadedFilesForSessionAsync(sessionId, maxBytes, cancellationToken);
+    }
+
+    internal async Task<string> ParseUploadedFilesForSessionAsync(
+        string sessionId,
+        int maxBytes = 200_000,
+        CancellationToken cancellationToken = default)
+    {
         var root = ResolveSessionRoot(sessionId);
         if (!Directory.Exists(root))
         {
@@ -54,6 +59,16 @@ internal sealed class HiringTodoMcpTools(
             }, JsonSerializerOptions.Web);
         }
 
+        var fileMetadata = await dbContext.HiringMaterialFiles
+            .AsNoTracking()
+            .Where(item => item.SessionId == sessionId && item.DeletedAtUtc == null)
+            .Select(item => new UploadedFileMetadata(
+                item.RelativePath,
+                item.OriginalFileName,
+                item.RequestedCategoryTitle,
+                item.WorkspaceRelativePath))
+            .ToDictionaryAsync(item => item.RelativePath, StringComparer.OrdinalIgnoreCase, cancellationToken);
+
         var files = new List<object>();
         long totalBytes = 0;
         var truncated = false;
@@ -61,17 +76,22 @@ internal sealed class HiringTodoMcpTools(
         foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).OrderBy(p => p))
         {
             cancellationToken.ThrowIfCancellationRequested();
+
             var ext = Path.GetExtension(path).ToLowerInvariant();
-            if (ext is not (".md" or ".json")) continue;
+            if (ext is not (".md" or ".json"))
+            {
+                continue;
+            }
 
             var relative = Path.GetRelativePath(root, path).Replace('\\', '/');
             var info = new FileInfo(path);
+            var metadata = fileMetadata.GetValueOrDefault(relative);
 
             string content;
             if (totalBytes >= maxBytes)
             {
                 truncated = true;
-                content = "[truncated: 已达 maxBytes 上限，未读取此文件正文]";
+                content = "[truncated: maxBytes limit reached]";
             }
             else
             {
@@ -93,6 +113,9 @@ internal sealed class HiringTodoMcpTools(
             files.Add(new
             {
                 relative_path = relative,
+                original_file_name = metadata?.OriginalFileName,
+                requested_category_title = metadata?.RequestedCategoryTitle,
+                source_path = metadata?.WorkspaceRelativePath,
                 size_bytes = info.Length,
                 format = ext.TrimStart('.'),
                 content
@@ -126,8 +149,12 @@ internal sealed class HiringTodoMcpTools(
         var sb = new StringBuilder(value.Length);
         foreach (var ch in value)
         {
-            if (char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.') sb.Append(ch);
+            if (char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.')
+            {
+                sb.Append(ch);
+            }
         }
+
         return sb.Length == 0 ? "unknown" : sb.ToString();
     }
 
@@ -140,8 +167,22 @@ internal sealed class HiringTodoMcpTools(
     private static string? ExtractMeta(RequestContext<CallToolRequestParams> requestContext, string key)
     {
         var meta = requestContext.Params?.Meta;
-        if (meta is null) return null;
-        if (meta.TryGetPropertyValue(key, out JsonNode? node)) return node?.GetValue<string>();
+        if (meta is null)
+        {
+            return null;
+        }
+
+        if (meta.TryGetPropertyValue(key, out JsonNode? node))
+        {
+            return node?.GetValue<string>();
+        }
+
         return null;
     }
+
+    private sealed record UploadedFileMetadata(
+        string RelativePath,
+        string OriginalFileName,
+        string? RequestedCategoryTitle,
+        string? WorkspaceRelativePath);
 }
