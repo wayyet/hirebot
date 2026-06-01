@@ -102,6 +102,8 @@ function normalizeHistoricalUserMessage(content: string): { content: string; fil
 export const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey; status: DownstreamRunStatus }> = {
   ontology_extraction_progress: { key: 'ontology-extraction', status: 'running' },
   ontology_extraction_done: { key: 'ontology-extraction', status: 'completed' },
+  ontology_projection_progress: { key: 'ontology-projection', status: 'running' },
+  ontology_projection_done: { key: 'ontology-projection', status: 'completed' },
   skill_generation_ready: { key: 'skill-generation', status: 'waiting_confirm' },
   skill_generation_progress: { key: 'skill-generation', status: 'running' },
   skill_generation_done: { key: 'skill-generation', status: 'completed' },
@@ -373,6 +375,7 @@ export function deriveStageOverridesFromDownstreamRuns(
   const overrides = new Map<HiringUiStage, 'running' | 'completed' | 'failed'>()
 
   const ontologyRun = runs['ontology-extraction']
+  const projectionRun = runs['ontology-projection']
   const skillGenRun = runs['skill-generation']
 
   // ontology extraction 仅在 Material 阶段完成后触发。
@@ -380,6 +383,16 @@ export function deriveStageOverridesFromDownstreamRuns(
   // failed 状态保留默认行为，避免误导用户认为材料阶段已正常收束。
   if (ontologyRun && (ontologyRun.status === 'running' || ontologyRun.status === 'completed')) {
     overrides.set(HiringCollectionStage.Material, 'completed')
+  }
+
+  if (projectionRun) {
+    overrides.set(HiringCollectionStage.Material, 'completed')
+    if (!skillGenRun) {
+      overrides.set(
+        HiringCollectionStage.Skill,
+        projectionRun.status === 'failed' ? 'failed' : 'running',
+      )
+    }
   }
 
   // skill generation 在 Skill 阶段完成后触发

@@ -142,6 +142,8 @@ metadata:
 | 用户通过后台 todo-files 入口上传 .md/.json，且消息中没有 Gateway media 标记时 | `hiring.parse_uploaded_files` | 不传参或传 `maxBytes`；返回目录树 + .md/.json 全文 |
 | 消息中出现 `[FILE_URL:/app/memory/media-cache/...]` 或 `/media/media_xxx` 时 | 沙箱 `read_file` | 不调用 `hiring.parse_uploaded_files`；按下方 Gateway media-cache 规则先读 `{mediaId}.json`，再读元数据 `path` |
 
+**分支选择红线**：只有在当前消息里**明确出现** `[FILE_URL:/app/memory/media-cache/...]` 或 `/media/media_xxx` 标记时，才走 Gateway media-cache 读取分支。若当前消息只是“已上传 X 份资料，请基于这些资料继续后续阶段”这类纯文本摘要，或仅出现文件名 / `source_path`，则必须优先走 `hiring.parse_uploaded_files` 或直接使用已给出的 `source_path`；不要猜测 `/app/memory/media-cache` 目录，也不要只读取 `/workspace/.../uploads` 根目录来碰运气。
+
 ### 错误处理
 
 若 MCP 工具返回错误（如 `_meta.sessionId 未传入`），**不中断对话**，继续推进；该错误属于基础设施层问题，不要向用户暴露。
