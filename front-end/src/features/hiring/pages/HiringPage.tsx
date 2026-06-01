@@ -69,7 +69,7 @@ import {
 } from './stageAdvanceConfirmation'
 import { extractConversationMaterialFiles } from './materialUploadMatching'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
-import { normalizeMaterialRequestedCategories } from './materialRequestedCategories'
+import { extractLatestMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
 
 function mkId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -193,6 +193,153 @@ function asStringArray(value: unknown): string[] {
   }
 
   return []
+}
+
+type CachedStageOverride = [HiringUiStage, 'running' | 'completed' | 'failed']
+
+interface ConversationCacheSnapshot {
+  messages?: unknown
+  stageOverrides?: unknown
+  downstreamRuns?: DownstreamRunsSnapshot
+}
+
+function sanitizeFileForCache(file: ChatFile): ChatFile {
+  return {
+    id: file.id,
+    name: file.name,
+    size: file.size,
+    status: file.status,
+    type: file.type,
+    mimeType: file.mimeType,
+    metadata: file.metadata,
+  }
+}
+
+function sanitizeMessagesForCache(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map(message => ({
+    ...message,
+    files: message.files?.map(sanitizeFileForCache),
+  }))
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
+  const record = asPlainObject(value)
+  if (!record) return undefined
+
+  const entries = Object.entries(record)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined
+}
+
+function normalizeCachedFiles(value: unknown): ChatFile[] | undefined {
+  if (!Array.isArray(value)) return undefined
+
+  const files = value
+    .map((item, index): ChatFile | null => {
+      const record = asPlainObject(item)
+      const name = typeof record?.name === 'string' ? record.name.trim() : ''
+      if (!name) return null
+
+      const size = typeof record?.size === 'number' && Number.isFinite(record.size)
+        ? Math.max(0, record.size)
+        : 0
+      const rawStatus = record?.status
+      const rawType = record?.type
+      return {
+        id: typeof record?.id === 'string' && record.id ? record.id : `cached_file_${index}`,
+        name,
+        size,
+        status: rawStatus === '解析中' ? '解析中' : '已解析',
+        type: rawType === 'skill' ? 'skill' : 'file',
+        mimeType: typeof record?.mimeType === 'string' ? record.mimeType : undefined,
+        metadata: normalizeStringRecord(record?.metadata),
+      }
+    })
+    .filter((file): file is ChatFile => file !== null)
+
+  return files.length > 0 ? files : undefined
+}
+
+function normalizeCachedToolSteps(value: unknown): ToolStep[] | undefined {
+  if (!Array.isArray(value)) return undefined
+
+  const steps = value
+    .map((item, index): ToolStep | null => {
+      const record = asPlainObject(item)
+      const name = typeof record?.name === 'string' ? record.name.trim() : ''
+      if (!name) return null
+
+      const status = record?.status === 'error'
+        ? 'error'
+        : record?.status === 'done'
+          ? 'done'
+          : 'running'
+      return {
+        id: typeof record?.id === 'string' && record.id ? record.id : `cached_tool_${index}`,
+        name,
+        status,
+        args: typeof record?.args === 'string' ? record.args : undefined,
+        result: typeof record?.result === 'string' ? record.result : undefined,
+      }
+    })
+    .filter((step): step is ToolStep => step !== null)
+
+  return steps.length > 0 ? steps : undefined
+}
+
+function normalizeCachedMessages(value: unknown): ChatMessage[] {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((item, index): ChatMessage | null => {
+      const record = asPlainObject(item)
+      if (!record) return null
+
+      const role = record.role
+      if (role !== 'bot' && role !== 'user' && role !== 'artifact' && role !== 'stage_gate') {
+        return null
+      }
+
+      const message: ChatMessage = {
+        id: typeof record.id === 'string' && record.id ? record.id : `cached_message_${index}`,
+        role,
+        content: typeof record.content === 'string' ? record.content : '',
+      }
+
+      const files = normalizeCachedFiles(record.files)
+      if (files) message.files = files
+
+      const artifact = asPlainObject(record.artifact)
+      if (artifact) message.artifact = artifact as unknown as ArtifactDisplayData
+
+      const stageGate = asPlainObject(record.stageGate)
+      if (stageGate) message.stageGate = stageGate as unknown as StageGateData
+
+      const toolSteps = normalizeCachedToolSteps(record.toolSteps)
+      if (toolSteps) message.toolSteps = toolSteps
+
+      return message
+    })
+    .filter((message): message is ChatMessage => message !== null)
+}
+
+function normalizeCachedStageOverrides(value: unknown): CachedStageOverride[] {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((item): CachedStageOverride | null => {
+      if (!Array.isArray(item) || item.length < 2) return null
+      const stage = item[0]
+      const status = item[1]
+      const validStage =
+        stage === HiringCollectionStage.Material ||
+        stage === HiringCollectionStage.Skill ||
+        stage === HiringCollectionStage.External ||
+        stage === HiringCollectionStage.ReadyForPackaging
+      const validStatus = status === 'running' || status === 'completed' || status === 'failed'
+      return validStage && validStatus ? [stage, status] : null
+    })
+    .filter((item): item is CachedStageOverride => item !== null)
 }
 
 function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[] {
@@ -489,6 +636,76 @@ export default function HiringPage() {
     })
   }
 
+  function extractLatestMessageArtifactData(restoredMessages: ChatMessage[], artifactType: string): unknown | null {
+    for (let index = restoredMessages.length - 1; index >= 0; index -= 1) {
+      const artifact = restoredMessages[index].artifact
+      if (artifact?.artifactType === artifactType) {
+        return artifact.data ?? null
+      }
+    }
+
+    return null
+  }
+
+  function applyRestoredMessages(
+    restoredMessages: ChatMessage[],
+    requestedCategories = extractLatestMaterialRequestedCategories(restoredMessages),
+  ) {
+    setMessages(restoredMessages)
+    messagesRef.current = restoredMessages
+    setMaterialRequestedCategories(requestedCategories)
+
+    latestMaterialSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'material_handoff_summary')
+    latestSkillSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'skill_workorder_summary')
+    latestExternalSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'external_workorder_summary')
+    materialSummarySignatureRef.current = latestMaterialSummaryRef.current ? JSON.stringify(latestMaterialSummaryRef.current) : ''
+    skillSummarySignatureRef.current = latestSkillSummaryRef.current ? JSON.stringify(latestSkillSummaryRef.current) : ''
+    externalSummarySignatureRef.current = latestExternalSummaryRef.current ? JSON.stringify(latestExternalSummaryRef.current) : ''
+    externalConfigCommittedSignatureRef.current = restoredMessages
+      .filter(message => message.artifact?.artifactType === 'external_config_committed' && message.artifact.isTerminal)
+      .map(message => JSON.stringify(message.artifact?.data ?? {}))
+      .at(-1) ?? ''
+    ontologyExtractionDoneSignatureRef.current = restoredMessages
+      .filter(message => message.artifact?.artifactType === 'ontology_extraction_done' && message.artifact.isTerminal)
+      .map(message => JSON.stringify(message.artifact?.data ?? {}))
+      .at(-1) ?? ''
+    ontologyProjectionDoneSignatureRef.current = restoredMessages
+      .filter(message => message.artifact?.artifactType === 'ontology_projection_done' && message.artifact.isTerminal)
+      .map(message => JSON.stringify(message.artifact?.data ?? {}))
+      .at(-1) ?? ''
+
+    appendExternalConfigCommittedArtifact(latestExternalConfigRef.current)
+  }
+
+  async function restoreConversationFromBackendCache(
+    hireId: string,
+    mode: 'always' | 'if-longer' = 'if-longer',
+  ): Promise<boolean> {
+    const cached = await api.hiringWorkflow.getConversationCache(hireId) as ConversationCacheSnapshot | null
+    let restored = false
+
+    const cachedMessages = normalizeCachedMessages(cached?.messages)
+    if (cachedMessages.length > 0 && (mode === 'always' || cachedMessages.length >= messagesRef.current.length)) {
+      applyRestoredMessages(cachedMessages)
+      restored = true
+    }
+
+    const cachedStageOverrides = normalizeCachedStageOverrides(cached?.stageOverrides)
+    if (cachedStageOverrides.length > 0) {
+      setWsStageOverrides(new Map(cachedStageOverrides))
+      restored = true
+    }
+
+    if (cached?.downstreamRuns && Object.keys(cached.downstreamRuns).length > 0) {
+      const merged: DownstreamRunsSnapshot = { ...downstreamRunsRef.current, ...cached.downstreamRuns }
+      downstreamRunsRef.current = merged
+      setDownstreamRuns(merged)
+      restored = true
+    }
+
+    return restored
+  }
+
   async function restoreConversationFromSandboxHistory(
     endpoint: string,
     sessionId: string,
@@ -505,30 +722,10 @@ export default function HiringPage() {
       return false
     }
 
-    setMessages(restored.messages)
-    setMaterialRequestedCategories(restored.materialRequestedCategories)
+    applyRestoredMessages(restored.messages, restored.materialRequestedCategories)
     setWsStageOverrides(restored.wsStageOverrides)
     downstreamRunsRef.current = restored.downstreamRuns
     setDownstreamRuns(restored.downstreamRuns)
-    latestMaterialSummaryRef.current = restored.latestMaterialSummary
-    latestSkillSummaryRef.current = restored.latestSkillSummary
-    latestExternalSummaryRef.current = restored.latestExternalSummary
-    materialSummarySignatureRef.current = restored.latestMaterialSummary ? JSON.stringify(restored.latestMaterialSummary) : ''
-    skillSummarySignatureRef.current = restored.latestSkillSummary ? JSON.stringify(restored.latestSkillSummary) : ''
-    externalSummarySignatureRef.current = restored.latestExternalSummary ? JSON.stringify(restored.latestExternalSummary) : ''
-    externalConfigCommittedSignatureRef.current = restored.messages
-      .filter(message => message.artifact?.artifactType === 'external_config_committed' && message.artifact.isTerminal)
-      .map(message => JSON.stringify(message.artifact?.data ?? {}))
-      .at(-1) ?? ''
-    ontologyExtractionDoneSignatureRef.current = restored.messages
-      .filter(message => message.artifact?.artifactType === 'ontology_extraction_done' && message.artifact.isTerminal)
-      .map(message => JSON.stringify(message.artifact?.data ?? {}))
-      .at(-1) ?? ''
-    ontologyProjectionDoneSignatureRef.current = restored.messages
-      .filter(message => message.artifact?.artifactType === 'ontology_projection_done' && message.artifact.isTerminal)
-      .map(message => JSON.stringify(message.artifact?.data ?? {}))
-      .at(-1) ?? ''
-    appendExternalConfigCommittedArtifact(latestExternalConfigRef.current)
     return true
   }
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
@@ -717,14 +914,19 @@ export default function HiringPage() {
   useEffect(() => {
     if (!workflowHireId) return
     const timer = setTimeout(() => {
+      if (messagesRef.current.length === 0 && wsStageOverrides.size === 0 && Object.keys(downstreamRuns).length === 0) {
+        return
+      }
+
       const cache = {
+        messages: sanitizeMessagesForCache(messagesRef.current),
         stageOverrides: Array.from(wsStageOverrides.entries()),
         downstreamRuns,
       }
       api.hiringWorkflow.saveConversationCache(workflowHireId, cache).catch(() => {})
     }, 2000)
     return () => clearTimeout(timer)
-  }, [wsStageOverrides, downstreamRuns, workflowHireId])
+  }, [messages, wsStageOverrides, downstreamRuns, workflowHireId])
 
   useEffect(() => {
     if (journeyGuideVisible && !focusedStage) {
@@ -916,29 +1118,29 @@ export default function HiringPage() {
 
     // 检查当前会话是否已有历史消息——有消息说明模板之前已上传过，直接恢复历史，跳过引导上传
     const existingMessages = await fetchSandboxSessionMessages(endpoint, sessionId)
+    const hireIdForCache = currentHireId || workflowHireId
+    if (existingMessages.length === 0 && hireIdForCache) {
+      try {
+        const restoredFromCache = await restoreConversationFromBackendCache(hireIdForCache, 'if-longer')
+        if (restoredFromCache) {
+          autoTemplateBootstrapSessionRef.current = sessionId
+          return
+        }
+      } catch {
+        // 缓存读取失败时继续走首次引导，不阻断用户进入流程。
+      }
+    }
+
     if (existingMessages.length > 0) {
       // 1. 先从沙箱会话历史恢复消息，同时得到从 artifact tool call 派生的基础阶段状态
       await restoreConversationFromSandboxHistory(endpoint, sessionId, 'always')
 
-      // 2. 再从后端缓存加载阶段状态，覆盖历史派生值
+      // 2. 再从后端缓存加载完整 UI 快照，补齐沙箱历史无法表达的本地状态。
       //    原因：wsStageOverrides 中 WS stage_update 事件不在沙箱消息历史里，无法从历史重建；
-      //          downstreamRuns 缓存保存了最新完整的 status/data，优先级高于历史派生值。
-      const hireIdForCache = currentHireId || workflowHireId
+      //          messages 缓存可兜底恢复历史接口过滤或丢失的用户附件气泡。
       if (hireIdForCache) {
         try {
-          const cached = await api.hiringWorkflow.getConversationCache(hireIdForCache) as {
-            stageOverrides?: [string, string][]
-            downstreamRuns?: DownstreamRunsSnapshot
-          } | null
-          if (cached?.stageOverrides && cached.stageOverrides.length > 0) {
-            setWsStageOverrides(new Map(cached.stageOverrides as [HiringUiStage, 'running' | 'completed' | 'failed'][]))
-          }
-          if (cached?.downstreamRuns && Object.keys(cached.downstreamRuns).length > 0) {
-            // 合并：缓存中的 run 优先，保留历史中有而缓存中没有的 run
-            const merged: DownstreamRunsSnapshot = { ...downstreamRunsRef.current, ...cached.downstreamRuns }
-            downstreamRunsRef.current = merged
-            setDownstreamRuns(merged)
-          }
+          await restoreConversationFromBackendCache(hireIdForCache, 'if-longer')
         } catch {
           // 缓存读取失败时静默忽略，保留历史派生值
         }

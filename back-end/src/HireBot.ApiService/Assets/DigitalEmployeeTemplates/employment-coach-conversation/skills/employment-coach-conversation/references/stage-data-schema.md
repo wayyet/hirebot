@@ -78,7 +78,7 @@
 | `items[]` | 已有资料后必填 | 已整理的资料清单；开场亮灯但尚无资料时可省略 |
 | `items[].title` | 是 | 资料标题，对用户可读 |
 | `items[].source_hint` | 是 | 来源描述（对用户可读，如"用户上传：sales.csv"或"用户描述"） |
-| `items[].source_path` | 否 | 工作区相对路径（上传文件填 `uploads/<文件名>`；纯描述来源填 `null`）；下游 `ontology-extraction` skill 用此字段定位实际文件，路径约定见 `config/workspace.json`。**只要是上传文件，这个字段就是事实上的必填项；缺失时该条不能进入 terminal handoff。若是刚上传后的短暂同步窗口，可先等待最多 5 秒再决定是否阻断。** |
+| `items[].source_path` | 否 | 可被下游直接读取的实际文件路径。工作区资料填相对路径（如 `uploads/<文件名>`）；Gateway 直传资料必须先读 `/app/memory/media-cache/{mediaId}.json`，再填元数据 `path` 字段中的真实路径；纯描述来源填 `null`。不要填 `[FILE_URL:...]`、`/media/{mediaId}` 或无扩展名的 `/app/memory/media-cache/{mediaId}` 标记。**只要是上传文件，这个字段就是事实上的必填项；缺失时该条不能进入 terminal handoff。若是刚上传后的短暂同步窗口，可先等待最多 5 秒再决定是否阻断。** |
 | `items[].category` | 是 | 资料分类：决策规则 / 话术风格 / 业务流程 / 数据字段 / 其他 |
 | `items[].objective` | 是 | 本条资料要抽取的目标 |
 | `items[].status` | 是 | `pending`（待处理）/ `ready`（已就绪）。**上传文件若缺少 `source_path`、文件不存在或内容未读到，只能保持 `pending`。** |
@@ -105,7 +105,7 @@
 }
 ```
 
-字段说明：与 `material_collection_progress` 相同；terminal 时 `status` 全部为 `ready`，`source_path` 必须尽可能补全（有上传文件的条目**必填**），并补充 `summary` 字段。`ontology-extraction` skill 将以 `source_path` 为准定位工作区内的实际文件，`source_hint` 仅供人工阅读。**如果上传条目只有 `source_hint`、没有 `source_path`，或已经知道内容未能读取到，则不得发出 `material_handoff_summary`。**
+字段说明：与 `material_collection_progress` 相同；terminal 时 `status` 全部为 `ready`，`source_path` 必须尽可能补全（有上传文件的条目**必填**），并补充 `summary` 字段。`ontology-extraction` skill 将以 `source_path` 为准定位实际文件，`source_hint` 仅供人工阅读。**如果上传条目只有 `source_hint`、没有 `source_path`，或已经知道内容未能读取到，则不得发出 `material_handoff_summary`。**
 
 ---
 
