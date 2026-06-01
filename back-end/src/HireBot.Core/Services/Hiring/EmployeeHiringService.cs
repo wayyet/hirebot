@@ -1353,7 +1353,40 @@ internal sealed partial class EmployeeHiringService(
             extractedArtifacts,
             storeSkillArtifacts,
             runtimeContext.WorkingTemplatePackage);
+        // #region agent log
+        WriteDebugLog(
+            runId: "initial",
+            hypothesisId: "H4",
+            location: "EmployeeHiringService.cs:ImportPackageAsync_pre_overlay",
+            message: "before_overlay_external_files",
+            data: new
+            {
+                hireId = normalizedHireId,
+                mergedArtifactCount = mergedArtifacts.Count,
+                mergedExternalFileCount = mergedArtifacts.Keys.Count(static key =>
+                    key.StartsWith("external/", StringComparison.OrdinalIgnoreCase)),
+                hasExternalConfig = runtimeContext.ExternalSystemConfig is not null,
+                externalIsPersisted = runtimeContext.ExternalSystemConfig?.IsPersisted ?? false,
+                externalSubmissionMode = runtimeContext.ExternalSystemConfig?.SubmissionMode ?? string.Empty
+            });
+        // #endregion
         OverlayManagedExternalPackageArtifacts(mergedArtifacts, runtimeContext.ExternalSystemConfig);
+        // #region agent log
+        WriteDebugLog(
+            runId: "initial",
+            hypothesisId: "H5",
+            location: "EmployeeHiringService.cs:ImportPackageAsync_post_overlay",
+            message: "after_overlay_external_files",
+            data: new
+            {
+                hireId = normalizedHireId,
+                mergedArtifactCount = mergedArtifacts.Count,
+                mergedExternalFileCount = mergedArtifacts.Keys.Count(static key =>
+                    key.StartsWith("external/", StringComparison.OrdinalIgnoreCase)),
+                hasExternalUserConfig = mergedArtifacts.ContainsKey("external/user-config.json"),
+                hasExternalIndex = mergedArtifacts.ContainsKey("external/external-config.index.json")
+            });
+        // #endregion
         if (mergedArtifacts.Count == 0)
         {
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包合并后无有效文件");
@@ -1459,16 +1492,26 @@ internal sealed partial class EmployeeHiringService(
         return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(result, "交付物已导入");
     }
 
-    public Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
+    public async Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
         string hireId,
         CancellationToken cancellationToken = default)
     {
         if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
         {
-            return Task.FromResult(HiringArtifactDownloadResult.Error(400, error));
+            return HiringArtifactDownloadResult.Error(400, error);
         }
 
-        return artifactPackageService.BuildFinalPackageDownloadAsync(normalizedHireId, cancellationToken);
+        // 优先返回 final；若尚未 import，则回退到包含 external/ 的 intermediate 包。
+        var snapshot = await artifactPackageService.GetLatestPackageAsync(normalizedHireId, cancellationToken);
+        if (snapshot is null)
+        {
+            return HiringArtifactDownloadResult.Error(409, "交付包尚未生成，请先保存外部配置或执行 finalize");
+        }
+
+        return HiringArtifactDownloadResult.Success(
+            snapshot.FileName,
+            "application/zip",
+            snapshot.Content);
     }
 
     public Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(

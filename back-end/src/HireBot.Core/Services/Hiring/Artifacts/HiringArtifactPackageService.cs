@@ -1,5 +1,7 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Core.Services.Hiring.Storage;
@@ -18,6 +20,7 @@ internal sealed class HiringArtifactPackageService(
     private const string IntermediateCategory = "packages/intermediate";
     private const string FinalCategory = "packages/final";
     private const string PackageStorageFileName = "package.zip";
+    private static readonly string DebugLogFilePath = @"c:\Users\wayye\Documents\ai4c_Projects\hirebot\debug-0d9c1f.log";
 
     public Task<HiringArtifactPackageSnapshotDto> PersistIntermediatePackageAsync(
         HiringArtifactPackagePersistRequestDto request,
@@ -58,15 +61,6 @@ internal sealed class HiringArtifactPackageService(
         CancellationToken cancellationToken = default)
     {
         var normalizedHireId = NormalizeRequired(hireId, nameof(hireId));
-        var session = await dbContext.HiringSessions
-            .AsNoTracking()
-            .Where(item => item.HireId == normalizedHireId && item.DeletedAtUtc == null)
-            .Select(item => new { item.HireId, item.SessionId })
-            .FirstOrDefaultAsync(cancellationToken);
-        if (session is null)
-        {
-            return null;
-        }
 
         foreach (var kind in new[]
                  {
@@ -74,9 +68,18 @@ internal sealed class HiringArtifactPackageService(
                      HiringArtifactPackageKinds.IntermediatePackageZip
                  })
         {
+            var artifactEntity = await FindLatestArtifactEntityForHireAsync(
+                normalizedHireId,
+                kind,
+                cancellationToken);
+            if (artifactEntity is null)
+            {
+                continue;
+            }
+
             var snapshot = await LoadPackageSnapshotAsync(
-                session.HireId,
-                session.SessionId,
+                normalizedHireId,
+                artifactEntity.SessionId,
                 kind,
                 cancellationToken);
             if (snapshot is not null)
@@ -166,6 +169,24 @@ internal sealed class HiringArtifactPackageService(
         {
             throw new InvalidOperationException("artifact package must contain at least one file.");
         }
+        // #region agent log
+        if (string.Equals(kind, HiringArtifactPackageKinds.FinalPackageZip, StringComparison.OrdinalIgnoreCase))
+        {
+            WriteDebugLog(
+                runId: "initial",
+                hypothesisId: "H10",
+                location: "HiringArtifactPackageService.cs:PersistPackageAsync",
+                message: "persist_final_package_input",
+                data: new
+                {
+                    hireId = normalizedHireId,
+                    sessionId = normalizedSessionId,
+                    fileCount = normalizedFiles.Count,
+                    externalFileCount = normalizedFiles.Keys.Count(static key =>
+                        key.StartsWith("external/", StringComparison.OrdinalIgnoreCase))
+                });
+        }
+        // #endregion
 
         var session = await dbContext.HiringSessions
             .FirstOrDefaultAsync(
@@ -256,17 +277,58 @@ internal sealed class HiringArtifactPackageService(
         CancellationToken cancellationToken)
     {
         var normalizedHireId = NormalizeRequired(hireId, nameof(hireId));
-        var session = await dbContext.HiringSessions
-            .AsNoTracking()
-            .Where(item => item.HireId == normalizedHireId && item.DeletedAtUtc == null)
-            .Select(item => new { item.HireId, item.SessionId })
-            .FirstOrDefaultAsync(cancellationToken);
-        if (session is null)
+        var artifactEntity = await FindLatestArtifactEntityForHireAsync(
+            normalizedHireId,
+            kind,
+            cancellationToken);
+        // #region agent log
+        if (string.Equals(kind, HiringArtifactPackageKinds.FinalPackageZip, StringComparison.OrdinalIgnoreCase))
+        {
+            WriteDebugLog(
+                runId: "post-fix",
+                hypothesisId: "H9",
+                location: "HiringArtifactPackageService.cs:GetPackageByKindInternalAsync",
+                message: "resolve_latest_final_artifact_for_hire",
+                data: new
+                {
+                    hireId = normalizedHireId,
+                    selectedSessionId = artifactEntity?.SessionId ?? string.Empty,
+                    uploadedAtUtc = artifactEntity?.UploadedAtUtc
+                });
+        }
+        // #endregion
+        if (artifactEntity is null)
         {
             return null;
         }
 
-        return await LoadPackageSnapshotAsync(session.HireId, session.SessionId, kind, cancellationToken);
+        return await LoadPackageSnapshotAsync(
+            normalizedHireId,
+            artifactEntity.SessionId,
+            kind,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// 按 hireId 查找指定 kind 的最新 artifact，避免仅依赖 HiringSessions 首条记录导致取错 session。
+    /// </summary>
+    private async Task<HiringArtifactEntity?> FindLatestArtifactEntityForHireAsync(
+        string hireId,
+        string kind,
+        CancellationToken cancellationToken)
+    {
+        return await (
+            from artifact in dbContext.HiringArtifacts.AsNoTracking()
+            join session in dbContext.HiringSessions.AsNoTracking()
+                on artifact.SessionId equals session.SessionId
+            where session.HireId == hireId
+                  && session.DeletedAtUtc == null
+                  && artifact.Kind == kind
+                  && artifact.DeletedAtUtc == null
+                  && !artifact.IsArchived
+            orderby artifact.UploadedAtUtc descending
+            select artifact)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task<HiringArtifactPackageSnapshotDto?> LoadPackageSnapshotAsync(
@@ -298,6 +360,37 @@ internal sealed class HiringArtifactPackageService(
         await using var stream = await hiringFileStore.OpenReadAsync(entity.StoragePath, cancellationToken);
         using var memory = new MemoryStream();
         await stream.CopyToAsync(memory, cancellationToken);
+        // #region agent log
+        if (string.Equals(kind, HiringArtifactPackageKinds.FinalPackageZip, StringComparison.OrdinalIgnoreCase))
+        {
+            var archiveBytes = memory.ToArray();
+            var externalFileCount = CountExternalEntries(archiveBytes);
+            WriteDebugLog(
+                runId: "initial",
+                hypothesisId: "H9",
+                location: "HiringArtifactPackageService.cs:LoadPackageSnapshotAsync",
+                message: "loaded_final_package_snapshot",
+                data: new
+                {
+                    hireId,
+                    sessionId,
+                    artifactSessionId = entity.SessionId,
+                    fileName = entity.FileName,
+                    sha256 = entity.Sha256,
+                    sizeBytes = archiveBytes.LongLength,
+                    externalFileCount
+                });
+            return new HiringArtifactPackageSnapshotDto(
+                hireId,
+                sessionId,
+                entity.Kind,
+                entity.FileName,
+                entity.LogicalPath,
+                entity.Sha256,
+                archiveBytes,
+                entity.IsFinal);
+        }
+        // #endregion
 
         return new HiringArtifactPackageSnapshotDto(
             hireId,
@@ -308,6 +401,15 @@ internal sealed class HiringArtifactPackageService(
             entity.Sha256,
             memory.ToArray(),
             entity.IsFinal);
+    }
+
+    private static int CountExternalEntries(byte[] archiveBytes)
+    {
+        using var stream = new MemoryStream(archiveBytes, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+        return archive.Entries.Count(static entry =>
+            !string.IsNullOrWhiteSpace(entry.Name) &&
+            entry.FullName.Replace('\\', '/').StartsWith("external/", StringComparison.OrdinalIgnoreCase));
     }
 
     private static IReadOnlyDictionary<string, byte[]> NormalizePackageFiles(IReadOnlyDictionary<string, byte[]> files)
@@ -427,5 +529,35 @@ internal sealed class HiringArtifactPackageService(
             ".xml" => "application/xml",
             _ => "application/octet-stream"
         };
+    }
+
+    private static void WriteDebugLog(
+        string runId,
+        string hypothesisId,
+        string location,
+        string message,
+        object data)
+    {
+        try
+        {
+            var payload = new
+            {
+                sessionId = "0d9c1f",
+                runId,
+                hypothesisId,
+                location,
+                message,
+                data,
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+            File.AppendAllText(
+                DebugLogFilePath,
+                JsonSerializer.Serialize(payload) + Environment.NewLine,
+                Encoding.UTF8);
+        }
+        catch
+        {
+            // 调试日志写入失败不影响主流程
+        }
     }
 }

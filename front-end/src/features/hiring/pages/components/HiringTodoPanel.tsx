@@ -1471,6 +1471,9 @@ function ExternalCardBody({
     setSaveError('')
     setIsSaving(true)
     try {
+      // #region agent log
+      fetch('http://127.0.0.1:7454/ingest/e788cd37-7074-4230-8216-bbeab4c47c36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d9c1f'},body:JSON.stringify({sessionId:'0d9c1f',runId:'initial',hypothesisId:'H6',location:'HiringTodoPanel.tsx:ExternalCardBody.handleSave',message:'frontend_handle_save_entered',data:{hireId,hasAnyConfig,cliConfiguredToolsCount:cliConfiguredTools.length,hasMcpConfig},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       const savedConfig = await api.hiringWorkflow.saveExternalConfig(hireId, {
         submissionMode: 'configured',
         cliTools: cliConfiguredTools.map(tool => {
@@ -1514,6 +1517,9 @@ function ExternalCardBody({
           }
           : null,
       })
+      // #region agent log
+      fetch('http://127.0.0.1:7454/ingest/e788cd37-7074-4230-8216-bbeab4c47c36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d9c1f'},body:JSON.stringify({sessionId:'0d9c1f',runId:'initial',hypothesisId:'H8',location:'HiringTodoPanel.tsx:ExternalCardBody.handleSave',message:'frontend_save_external_config_success',data:{hireId,savedSubmissionMode:savedConfig?.submissionMode ?? '',savedCliToolCount:savedConfig?.cliTools?.length ?? 0,savedHasMcp:Boolean(savedConfig?.mcpServer)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
 
       queryClient.setQueryData(externalConfigQueryKey, savedConfig)
       setCliTools(createCliToolDraftsFromConfig(savedConfig.cliTools))
@@ -1523,6 +1529,9 @@ function ExternalCardBody({
       onConfigChange?.(savedConfig, 'save')
       onAfterSave(buildSaveSummary(), 'ready_to_advance')
     } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7454/ingest/e788cd37-7074-4230-8216-bbeab4c47c36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d9c1f'},body:JSON.stringify({sessionId:'0d9c1f',runId:'initial',hypothesisId:'H7',location:'HiringTodoPanel.tsx:ExternalCardBody.handleSave',message:'frontend_save_external_config_failed',data:{hireId,errorType:error instanceof Error ? error.name : typeof error,errorMessage:error instanceof Error ? error.message : 'unknown'},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       setSaveError(error instanceof Error ? error.message : '外部系统配置保存失败')
     } finally {
       setIsSaving(false)

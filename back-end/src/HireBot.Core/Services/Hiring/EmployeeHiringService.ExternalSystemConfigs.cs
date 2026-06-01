@@ -52,6 +52,21 @@ internal sealed partial class EmployeeHiringService
 
         runtimeContext = await EnsureExternalSystemConfigHydratedAsync(runtimeContext, cancellationToken);
 
+        // #region agent log
+        WriteDebugLog(
+            runId: "initial",
+            hypothesisId: "H3",
+            location: "EmployeeHiringService.ExternalSystemConfigs.cs:SaveExternalSystemConfigAsync_entry",
+            message: "external_config_save_request_received",
+            data: new
+            {
+                hireId = normalizedHireId,
+                requestSubmissionMode = request.SubmissionMode,
+                requestCliToolCount = request.CliTools?.Count ?? 0,
+                hasRequestMcp = request.McpServer is not null
+            });
+        // #endregion
+
         HiringExternalSystemConfigState normalizedState;
         try
         {
@@ -59,11 +74,41 @@ internal sealed partial class EmployeeHiringService
         }
         catch (InvalidOperationException ex)
         {
+            // #region agent log
+            WriteDebugLog(
+                runId: "initial",
+                hypothesisId: "H3",
+                location: "EmployeeHiringService.ExternalSystemConfigs.cs:SaveExternalSystemConfigAsync_exception",
+                message: "external_config_save_failed_during_normalization",
+                data: new
+                {
+                    hireId = normalizedHireId,
+                    requestSubmissionMode = request.SubmissionMode,
+                    exceptionType = ex.GetType().Name
+                });
+            // #endregion
             logger.LogError(ex, "Failed to protect external system config. HireId={HireId}", normalizedHireId);
             return ApiResponse<HiringExternalSystemConfigDto>.ErrorResponse(500, "外部系统敏感配置加密失败，请稍后重试");
         }
 
         var persistedState = normalizedState.IsPersisted ? normalizedState : null;
+        // #region agent log
+        WriteDebugLog(
+            runId: "initial",
+            hypothesisId: "H3",
+            location: "EmployeeHiringService.ExternalSystemConfigs.cs:SaveExternalSystemConfigAsync",
+            message: "external_config_saved",
+            data: new
+            {
+                hireId = normalizedHireId,
+                requestSubmissionMode = request.SubmissionMode,
+                normalizedSubmissionMode = normalizedState.SubmissionMode,
+                isPersisted = normalizedState.IsPersisted,
+                persistedIsNull = persistedState is null,
+                cliToolCount = normalizedState.CliTools.Count,
+                hasMcp = normalizedState.McpServer is not null && normalizedState.McpServer.HasAnyConfig
+            });
+        // #endregion
 
         runtimeContext = runtimeContext with
         {

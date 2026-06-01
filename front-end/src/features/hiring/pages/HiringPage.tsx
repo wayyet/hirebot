@@ -2166,9 +2166,9 @@ export default function HiringPage() {
                 try {
                   const archive = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
                   downloadBlob(archive.blob, archive.fileName)
-                } catch {
-                  // 后端无包时回退到网关下载
-                  void downloadGatewayFile(url, fileName)
+                } catch (error: unknown) {
+                  // 已配置外部系统时，禁止回退沙箱网关 zip（不含 external/），避免误下载错误包
+                  setWorkflowError(normalizeErrorMessage(error))
                 }
               })()
               return
