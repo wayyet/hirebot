@@ -1,4 +1,4 @@
----
+﻿---
 name: skill-generation
 description: 根据结构化工单输入、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并仅写入当前沙箱 skills/ 目录。
 compatibility: HireBot employment-coach-conversation v1.0
@@ -160,14 +160,20 @@ skills/<skill_slug>/
     extraction-notes.md
     quality-report.md
   contracts/                         # optional, only when projection data exists
-    contract-index.json              # 投影选择与路由索引入口（runtime 发现入口）
-    ontology-extraction/             # producer skill 命名空间
-      <domain-slug>.projection.json  # 完整投影内容（每个主题一个文件）
+    projections/
+      ontology_extraction/
+        contract-index.json          # 投影选择与路由索引入口（runtime 发现入口）
+        README.md                    # 命名空间级说明
+        <domain-slug>/
+          <domain-slug>.domain-model.projection.json
+          <domain-slug>.json-schema.projection.json
+          <domain-slug>.prompt-constraint.projection.json
+          <domain-slug>.workflow-contract.projection.json
 ```
 
 目录必须自包含：生成 skill 所需的摘要、来源、质量报告都放在该 skill 目录内；如生成 projection contract 或 draft notes，也必须放在该 skill 目录内。不要把生成过程依赖散落到 `config/`、`ontology/`、`external/` 或临时目录。
 
-**Projection Pass 预生成检查**：若 `ontology/projections/<skill-slug>/` 目录已存在（由上游 ontology-extraction projection pass 预生成），Phase 3 将直接读取该目录中的 projection 文件来生成 consumer contract 结构，无需重新推导；`contracts/` 目录的内容和命名规范不变。
+**Projection Pass 预生成检查**：若 `ontology/projections/<skill-slug>/` 目录已存在（由上游 `ontology-extraction` projection pass 预生成），Phase 3 将直接读取该目录中的 projection 文件来生成 consumer contract 结构，无需重新推导；consumer 侧仍统一落盘到 `contracts/projections/ontology_extraction/`。
 
 ### Phase 1: 输入采集与来源归档
 
@@ -177,7 +183,7 @@ skills/<skill_slug>/
 - 会话描述：保留用户原话，写入 `references/source-digest.md` 的 conversation source 区块。
 - 上传文件：解析 Markdown、文本、JSON、YAML；zip 递归读取候选 skill 文件；保留文件清单、解析结论和不可解析项。**当由上游 `employment-coach-conversation` 触发时，输入以 `skill_workorder_summary` 为主工单；若工单条目中附带 `source_path` 或来源文件提示，直接按这些真实路径读取，不要运行 `shell: ls` 探索文件系统。** `source_path` 为 `null` 的条目是纯文本描述，无对应文件。`skill_workorder_summary` 的 `data.workspace_root` 是雇佣教练会话初始化时由沙箱解压工具创建并锁定的真实绝对路径（运行时确定，本 skill 当作不透明字符串使用），本 skill 的所有产物必须写入 `<workspace_root>/skills/<skill-slug>/`（用 artifact 收到的真实路径替换 `<workspace_root>`）；若 `workspace_root` 缺失，停下来报错，不要靠 `ls /workspace` 推断或自行拼接 `/workspace/<slug>`。
 - 混合输入：上传文件作为基线，会话描述作为增量补充，不用会话描述覆盖文件里更明确的能力定义。
-- **Projection 发现（可选）**：当 `workspace_root` 可用时，对每个待生成 skill 检查 `<workspace_root>/ontology/projections/<skill-slug>/` 目录是否存在。若存在，扫描其中的 `*.projection.json` 文件；读取文件内的 `open_questions` 字段：为空或 null 则视为 **READY projection**，记录路径与 `domain-slug`（目录名）供 Phase 3 使用；非空则视为 **WARNING projection**，同样记录但 Phase 3 只生成 draft consumer contract。若目录不存在，继续正常流程（Phase 3 按原逻辑判断信息是否充足）。
+- **Projection 发现（可选）**：当 `workspace_root` 可用时，对每个待生成 skill 检查 `<workspace_root>/ontology/projections/<skill-slug>/` 目录是否存在。若存在，扫描其中的 `*.projection.json` 文件；按 `domain-slug` 聚合已有 view，读取每个文件内的 `open_questions` 字段：为空或 null 则视为 **READY projection**，非空则视为 **WARNING projection**。记录已有 view 列表与路径，供 Phase 3 使用。若目录不存在，继续正常流程（Phase 3 按原逻辑判断信息是否充足）。
 
 来源归档必须记录：来源类型、可信度、抽取到的能力、未决问题和被丢弃内容。不要把 token、密钥、密码、连接串写入归档。
 
@@ -225,15 +231,21 @@ skills/<skill_slug>/
 Step 1 全部确认落盘后，按以下两条路径处理投影契约：
 
 - **路径 A（projection pass 预生成 — 优先）**：若 Phase 1 发现了来自 `ontology/projections/<skill-slug>/` 的 projection 文件：
-  1. 读取该 projection 文件（`<workspace_root>/ontology/projections/<skill-slug>/<domain-slug>.<type-short>.projection.json`）
-  2. **验证源文件完整性**：确认读取到的 JSON 至少包含 `projection_type`、`source_slice`、`intended_consumers`、`concept_mappings` 四个顶层字段。若文件仅含 `note`/`source_projection_path` 等 stub 引用，视为**源文件无效**，跳过路径 A，转入路径 B
-  3. 在 `skills/<skill-slug>/contracts/` 下写入以下文件：
-     - `ontology-extraction/<domain-slug>.projection.json`（**完整复制**源文件 JSON 内容，仅将 `source_slice.path` 更新为从 skill 目录出发的相对路径。禁止写入仅含 `note` + `source_projection_path` 的 stub 引用文件）
+  1. 读取该 skill 在 `<workspace_root>/ontology/projections/<skill-slug>/` 目录下的全部 projection 文件，并按 `domain-slug` 聚合已有 view。
+  2. **验证源文件完整性**：每个候选源文件至少包含 `projection_type`、`source_slice`、`intended_consumers`、`concept_mappings` 四个顶层字段。若文件仅含 `note`/`source_projection_path` 等 stub 引用，视为**源文件无效**，跳过该源文件。
+  3. **固定产出 4 个本地 view**：无论上游当前给了 1 个还是多个源 view，consumer contract 都必须落盘 4 个标准 view：`domain-model`、`json-schema`、`prompt-constraint`、`workflow-contract`。若上游缺少某些 view，则以最相关的源 projection 为语义真源，拆分并派生缺失 view，保持“薄文件、分职责”的四视图结构。
+  4. 在 `skills/<skill-slug>/contracts/projections/ontology_extraction/` 下写入以下文件：
      - `contract-index.json`（投影选择与路由索引，格式见下文）
+     - `README.md`（命名空间级说明）
+     - `<domain-slug>/<domain-slug>.domain-model.projection.json`
+     - `<domain-slug>/<domain-slug>.json-schema.projection.json`
+     - `<domain-slug>/<domain-slug>.prompt-constraint.projection.json`
+     - `<domain-slug>/<domain-slug>.workflow-contract.projection.json`
+     4 个文件都必须是完整 JSON，而不是 stub 引用；同时将 `source_slice.path` 更新为从 skill 目录出发的相对路径。
   4. `contract-index.json` 最小必要格式：
      ```json
      {
-       "producer_skill": "ontology-extraction",
+       "producer_skill": "ontology_extraction",
        "consumer_skill": "<skill-slug>",
        "default_selection_policy": {
          "prefer_ready_only": true,
@@ -243,22 +255,40 @@ Step 1 全部确认落盘后，按以下两条路径处理投影契约：
          {
            "domain_slug": "<domain-slug>",
            "intent_keywords": ["..."],
-           "default_target_view": "<type-short>",
-           "views": [
-             {
-               "target_view": "<type-short>",
-               "projection_type": "<projection_type>",
+           "default_target_view": "workflow-contract",
+            "views": [
+              {
+               "target_view": "domain-model",
+               "projection_type": "domain_model_projection",
                "status": "READY",
-               "path": "ontology-extraction/<domain-slug>.projection.json"
-             }
-           ]
-         }
-       ]
+               "path": "<domain-slug>/<domain-slug>.domain-model.projection.json"
+              },
+              {
+               "target_view": "json-schema",
+               "projection_type": "json_schema_projection",
+               "status": "READY",
+               "path": "<domain-slug>/<domain-slug>.json-schema.projection.json"
+              },
+              {
+               "target_view": "prompt-constraint",
+               "projection_type": "prompt_constraint_projection",
+               "status": "READY",
+               "path": "<domain-slug>/<domain-slug>.prompt-constraint.projection.json"
+              },
+              {
+               "target_view": "workflow-contract",
+               "projection_type": "workflow_contract_projection",
+               "status": "READY",
+               "path": "<domain-slug>/<domain-slug>.workflow-contract.projection.json"
+              }
+            ]
+          }
+        ]
      }
      ```
      可选追加 `topic_scoring`、`target_view_scoring`、`selection_algorithm` 等完整选择逻辑，但最小结构只需上述字段。
-  5. 若为 WARNING projection：对应 topic view 的 `status` 设为 `"WARNING"`，并追加 `open_questions` 透传非空内容
-  6. 写入后用 read_file 确认 `contract-index.json` 和 `ontology-extraction/<domain-slug>.projection.json` 已落盘
+  5. 若源 projection 为 WARNING：对应 topic 的 4 个本地 view 都继承 `"WARNING"` 状态，并追加 `open_questions` 透传非空内容
+  6. 写入后用 read_file 确认 `contract-index.json`、`README.md` 以及 4 个 projection 文件均已落盘
 - **路径 B（原有推导逻辑 — 兜底）**：Phase 1 未发现任何 projection 文件时，**或路径 A 源文件无效时**，沿用原逻辑：信息足够则生成 READY contract，否则写 draft/notes。**无论路径 B 结果如何，都不阻断 Step 1 已写入的基础 skill 产物。**
 - **路径 C（无投影信息）**：Phase 1 未发现投影且无法从上下文推导足够信息时，**跳过 contracts/ 目录**，Step 1 的基础文件即为本次完整产物。不需要为此阻塞或发出错误。
 
@@ -275,7 +305,7 @@ Step 1 全部确认落盘后，按以下两条路径处理投影契约：
 - Base File Check（强制）：确认 `skills/<skill_slug>/SKILL.md`、`metadata.json`、`references/source-digest.md`、`references/extraction-notes.md`、`references/quality-report.md` 全部存在且内容非空。若任何基础文件缺失，Phase 3 Step 1 写入失败，必须回到 Step 1 重新写入，不得跳过。
 - Sanity Check：用 2-3 个典型用户请求检查触发词、能力选择和输出边界是否匹配。
 - Edge Case：用 1 个信息不足或越界请求检查是否会补槽、拒绝或转交，而不是编造结果。
-- Contract Check（仅当 Step 2 生成了 contracts/ 时）：确认 `contract-index.json` 存在且结构完整（含 `producer_skill`、`consumer_skill`、`topics`），每个 topic view 的 `path` 指向 `contracts/ontology-extraction/` 下真实存在的 `<domain-slug>.projection.json` 文件；projection 文件含 `projection_type`、`source_slice`、`concept_mappings`、`delivery_artifacts`、`dropped_items`、`open_questions`；如信息不足，只写 draft/notes，不把 contract 标为 READY，也不阻断基础业务 skill 落盘。**额外验证**：读取每个 `*.projection.json` 文件，确认其 JSON 至少含 `projection_type`、`source_slice`、`concept_mappings` 三个顶层字段——若文件内容仅为 `{ "note": "...", "source_projection_path": "..." }` 等 stub 引用，则 Contract Check **不通过**，必须重新生成该 projection 文件的完整内容。
+- Contract Check（仅当 Step 2 生成了 contracts/ 时）：确认 `contracts/projections/ontology_extraction/contract-index.json` 存在且结构完整（含 `producer_skill`、`consumer_skill`、`topics`），每个 topic 必须固定包含 4 个 view：`domain-model`、`json-schema`、`prompt-constraint`、`workflow-contract`，且它们的 `path` 都指向 `contracts/projections/ontology_extraction/` 下真实存在的 projection 文件；projection 文件含 `projection_type`、`source_slice`、`concept_mappings`、`delivery_artifacts`、`dropped_items`、`open_questions`；如信息不足，只写 draft/notes，不把 contract 标为 READY，也不阻断基础业务 skill 落盘。**额外验证**：读取每个 `*.projection.json` 文件，确认其 JSON 至少含 `projection_type`、`source_slice`、`concept_mappings` 三个顶层字段——若文件内容仅为 `{ "note": "...", "source_projection_path": "..." }` 等 stub 引用，则 Contract Check **不通过**，必须重新生成该 projection 文件的完整内容。
 - Safety Check：确认产物不含明文 token、密钥、密码、连接串或凭据。
 - Self-contained Check：复制整个 `skills/<skill_slug>/` 后仍能独立被 loader 发现和人工审阅。
 
@@ -350,7 +380,7 @@ description: |
 
 ## 生成 Skill 的 Projection Contract 模板
 
-生成出来的业务 skill 可以按本仓库 consumer skill 方式接入 `ontology-extraction` projection。projection contract 是条件增强：有足够 ontology projection 信息时生成 READY contract；信息不足时生成 draft/notes，不能伪造 READY contract，也不能因此阻断基础业务 skill 落盘。
+生成出来的业务 skill 可以按本仓库 consumer skill 方式接入 `ontology_extraction` producer namespace 下的 projection contract。projection contract 是条件增强：有足够 ontology projection 信息时生成 READY contract；信息不足时生成 draft/notes，不能伪造 READY contract，也不能因此阻断基础业务 skill 落盘。
 
 当 projection 信息足够时，每个生成的技能包包含：
 
@@ -363,20 +393,26 @@ skills/<skill_slug>/
     extraction-notes.md
     quality-report.md
   contracts/
-    contract-index.json
-    ontology-extraction/
-      <domain-slug>.projection.json
+    projections/
+      ontology_extraction/
+        contract-index.json
+        README.md
+        <domain-slug>/
+          <domain-slug>.domain-model.projection.json
+          <domain-slug>.json-schema.projection.json
+          <domain-slug>.prompt-constraint.projection.json
+          <domain-slug>.workflow-contract.projection.json
 ```
 
-生成的业务 `SKILL.md` 可以包含以下 consumer skill 章节，并按具体业务域裁剪 supported deliverables、projection types 和 local exclusions。仅当该技能确实带有 `contracts/contract-index.json` 时写入本章节：
+生成的业务 `SKILL.md` 可以包含以下 consumer skill 章节，并按具体业务域裁剪 supported deliverables、projection types 和 local exclusions。仅当该技能确实带有 `contracts/projections/ontology_extraction/contract-index.json` 时写入本章节：
 
 ```markdown
 ## Projection Contracts
 
-This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/contract-index.json`.
+This skill may be augmented by bound `ontology_extraction` projection contracts discovered under `contracts/projections/**/contract-index.json`.
 
 - Projection discovery and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contracts/contract-index.json` first, then the referenced projection files under `contracts/ontology-extraction/`.
+- For human review, read `contracts/projections/ontology_extraction/contract-index.json` first, optionally read the namespace `README.md`, and then the chosen `*.projection.json` file.
 
 ### Projection Consumption
 
@@ -393,19 +429,24 @@ This skill may be augmented by bound `ontology-extraction` projection contracts 
 
 生成 READY `contract-index.json` 时必须：
 
-- `producer_skill` 设为 `"ontology-extraction"`。
+- `producer_skill` 设为 `"ontology_extraction"`。
 - `consumer_skill` 设为当前生成的 `{{name}}`。
 - `default_selection_policy` 至少含 `prefer_ready_only` 和 `block_on_open_questions`。
 - `topics` 至少包含 1 个条目，`domain_slug` 优先来自业务域 slug。
-- 每个 topic 的 `views[].path` 指向 `ontology-extraction/<domain-slug>.projection.json`（相对于 `contracts/` 目录）。
+- 每个 topic 必须固定包含 4 个标准 view，且 `views[].path` 分别指向：
+  - `<domain-slug>/<domain-slug>.domain-model.projection.json`
+  - `<domain-slug>/<domain-slug>.json-schema.projection.json`
+  - `<domain-slug>/<domain-slug>.prompt-constraint.projection.json`
+  - `<domain-slug>/<domain-slug>.workflow-contract.projection.json`
 - 每个 view 的 `status` 默认为 `"READY"`；有未决问题时设为 `"WARNING"`。
 - 可选追加 `topic_scoring`、`target_view_scoring`、`selection_algorithm` 等完整选择路由逻辑。
 
-生成 projection document（`ontology-extraction/<domain-slug>.projection.json`）时必须：
+生成 projection documents（`contracts/projections/ontology_extraction/<domain-slug>/` 下的 4 个标准 view 文件）时必须：
 
 - 包含完整的 projection 结构：`projection_type`、`source_slice`、`intended_consumers`、`concept_mappings`、`relation_mappings`、`constraint_mappings`、`prompt_projection`、`delivery_artifacts`、`dropped_items`、`open_questions`。
 - 对 `mapping_policy.unresolved_item_policy` 使用 `block_or_escalate`。
 - 将 `delivery_artifacts.path` 限定到该业务 skill 真实会产出的文件或响应结构。
+- 4 个 view 都要生成，但保持薄文件：`workflow-contract` 为主视图；`prompt-constraint`、`json-schema`、`domain-model` 只承载各自层级的最小职责。
 - 如果用户输入中没有足够信息生成 READY projection，生成 WARNING/草稿摘要但不要伪造 READY contract，也不要阻断基础业务 skill 落盘。
 
 ## 伴随文件模板
@@ -431,7 +472,7 @@ This skill may be augmented by bound `ontology-extraction` projection contracts 
 - 落盘确认：5 个基础文件全部通过 read_file 确认存在且非空。
 
 **投影契约检查（Step 2 产物，仅当 contracts/ 存在时执行）**：
-- 可消费性：如生成 READY projection contract，`contracts/contract-index.json` 必须存在且 `topics[].views[].path` 指向 `contracts/ontology-extraction/` 下的真实文件。
+- 可消费性：如生成 READY projection contract，`contracts/projections/ontology_extraction/contract-index.json` 必须存在，且每个 topic 固定包含 4 个标准 view，并全部指向 `contracts/projections/ontology_extraction/` 下的真实文件。
 - 如 contracts/ 不存在（Step 2 跳过或降级为无投影），此检查项自动通过，不阻断基础文件落盘。
 
 如检测到敏感明文即将写入，拒绝写入并输出安全告警。敏感内容应替换为 `[REDACTED]`，但不要把真实值写入任何产物。
@@ -466,8 +507,11 @@ This skill may be augmented by bound `ontology-extraction` projection contracts 
     "skills/<skill_slug>/references/quality-report.md"
   ],
   "optional_projection_artifact": [
-    "skills/<skill_slug>/contracts/contract-index.json",
-    "skills/<skill_slug>/contracts/ontology-extraction/<domain-slug>.projection.json"
+    "skills/<skill_slug>/contracts/projections/ontology_extraction/contract-index.json",
+    "skills/<skill_slug>/contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.domain-model.projection.json",
+    "skills/<skill_slug>/contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.json-schema.projection.json",
+    "skills/<skill_slug>/contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.prompt-constraint.projection.json",
+    "skills/<skill_slug>/contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.workflow-contract.projection.json"
   ],
   "skill_results": [
     {

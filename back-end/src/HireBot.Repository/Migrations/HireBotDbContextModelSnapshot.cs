@@ -585,6 +585,11 @@ namespace HireBot.Repository.Migrations
                         .HasColumnType("character varying(160)")
                         .HasColumnName("requested_category_title");
 
+                    b.Property<string>("WorkspaceRelativePath")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("workspace_relative_path");
+
                     b.Property<string>("SessionId")
                         .IsRequired()
                         .HasMaxLength(64)

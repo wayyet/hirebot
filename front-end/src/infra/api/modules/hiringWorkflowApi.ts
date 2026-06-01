@@ -289,6 +289,7 @@ export interface HiringMaterialFile {
   mimeType?: string | null
   sha256: string
   requestedCategoryTitle?: string | null
+  workspaceRelativePath?: string | null
   uploadedAtUtc: string
   updatedAtUtc: string
 }

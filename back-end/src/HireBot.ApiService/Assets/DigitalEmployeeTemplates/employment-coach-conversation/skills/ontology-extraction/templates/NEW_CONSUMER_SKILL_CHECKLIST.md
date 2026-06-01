@@ -15,7 +15,7 @@ The goal is to remove unresolved placeholders, trim unsupported projection field
 
 ## 2. Keep or Delete the Projection Section
 
-- Keep `## Projection Contracts` only if the new skill directly consumes `ontology-extraction` projection contracts.
+- Keep `## Projection Contracts` only if the new skill directly consumes `ontology_extraction` projection contracts.
 - If the skill does not consume projection contracts directly, delete the entire `Projection Contracts` section.
 - If the skill consumes a narrower local binding path, replace the generic discovery sentence with the local path.
 
@@ -49,7 +49,7 @@ The goal is to remove unresolved placeholders, trim unsupported projection field
 
 - Keep the shared references to `../ontology-extraction/templates/CONSUMER_SKILL_PROJECTION_SECTION.md`, `../ontology-extraction/references/PROJECTION_CONSUMPTION_GUIDE.md`, and `../ontology-extraction/references/CONSUMER_PROJECTION_LAYOUT_GUIDE.md` if the new skill consumes projection contracts.
 - Delete unused references if the skill is not a projection consumer.
-- If the new skill will store local bound contracts, create the `contracts/` layout with `contract-index.json`, `README.md`, and per-topic subfolders (`<domain-slug>/`) containing `<domain-slug>.<target-view>.projection.json`, `README.md`, and `REVIEW.md`.
+- If the new skill will store local bound contracts, create the `contracts/` layout with `contract-index.json`, namespace `README.md`, and per-topic subfolders (`<domain-slug>/`) containing the 4 standard projection files: `domain-model`, `json-schema`, `prompt-constraint`, and `workflow-contract`.
 
 ## 8. Final Review Before Commit
 

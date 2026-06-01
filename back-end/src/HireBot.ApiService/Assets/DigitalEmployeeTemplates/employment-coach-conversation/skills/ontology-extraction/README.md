@@ -155,10 +155,14 @@
 
 1. 如果输入还是上传文件，先由 `ontology-extraction` 直接读取资料，按指定模式生成或更新当前主题 slice，并确认 `sources` 与 `extraction_summary` 对齐。
 2. 再在 `ontology-extraction` 中收缩当前主题，产出最小可验证 slice，并先让 slice 通过对应校验器校验：在技能根目录使用 `validate-slice`，在仓库根目录使用 `validate-ontology-slice`。
-3. 先决定本次只面向哪一种主交付视图：`domain-model`、`json-schema`、`prompt-constraint` 或 `workflow-contract`。
-4. 基于已通过校验的 slice，由 `ontology-extraction` 按映射规范填充 `PROJECTION_TEMPLATE.json`，把 `concepts`、`relations`、`constraints` 显式映射到 projection。
+3. 先确定当前 topic 的默认主视图为 `workflow-contract`，并准备同时产出四个薄视图：`domain-model`、`json-schema`、`prompt-constraint`、`workflow-contract`。
+4. 基于已通过校验的 slice，由 `ontology-extraction` 按映射规范填充 projection，把 `concepts`、`relations`、`constraints` 显式映射到四个视图中；四个视图共享同一 topic，但各自只承载自己的最小职责。
 5. 验证 projection 时按所在层级选择入口：在技能根目录使用 `validate-projection.py`，在仓库根目录使用 `validate-ontology-projection.py`，确保结构、关键字段和本地诊断全部通过。
-6. projection 验证通过后，再将产物放入 consumer skill 的 `contracts/` 目录，生成 `contract-index.json` 选择索引文件、`README.md` 总览文件，以及按主题分组的 `<domain-slug>/` 子文件夹（每文件夹内含 `<domain-slug>.<target-view>.projection.json`、`README.md` 和 `REVIEW.md`）。
+6. projection 验证通过后，再将产物放入 consumer skill 的 `contracts/` 目录，生成 `contract-index.json` 选择索引文件、`README.md` 总览文件，以及按主题分组的 `<domain-slug>/` 子文件夹；每个 topic 子文件夹默认固定包含 4 个真实 projection 文件：
+   - `<domain-slug>.domain-model.projection.json`
+   - `<domain-slug>.json-schema.projection.json`
+   - `<domain-slug>.prompt-constraint.projection.json`
+   - `<domain-slug>.workflow-contract.projection.json`
 
 ---
 

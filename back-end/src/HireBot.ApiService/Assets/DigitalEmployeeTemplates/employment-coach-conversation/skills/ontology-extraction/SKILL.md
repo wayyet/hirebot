@@ -171,6 +171,8 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 
 **⛔ 严禁**：仅在对话中描述切片内容而不实际写入 `*.slice.json` + `*.slice.md` 文件就发出 done artifact — 这会导致下游 projection pass 和 skill-generation 无法读取到本体产物。
 
+**⛔ 严禁**：在没有读到上传资料正文、只有 `source_hint` 或文件名的情况下，写"占位 slice"后再发 `ontology_extraction_done`。这种产物会把上游假成功传播到 projection pass。
+
 ### 约束
 
 - **先调用后输出**：识别到可推送事件时，先调用 `emit_artifact`，再继续后续对话或文件输出
@@ -310,8 +312,13 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 如果用户给的是上传文件，而不是已经整理好的 slice JSON，本 skill 自己读取资料并产出 slice：
 
 - **定位上传文件（优先级最高）**：当由上游 `employment-coach-conversation` 触发时，输入中会包含 `material_handoff_summary` 数据，其中每条物料都有 `source_path` 字段。**直接使用 `source_path` 作为文件路径读取，不要运行 `shell: ls` 或 `shell: find` 来探索工作区**。`source_path` 为 `null` 的物料是纯文本描述，无对应文件。
+- **上传资料门禁**：如果条目标记为用户上传但缺少 `source_path`，或 `source_path` 指向的文件不存在 / 不可读，立即把它视为阻断条件而不是可降级事实。此时只能请求补齐路径或重新上传，**不得**靠 `source_hint` 臆造 slice，也**不得**写占位 slice。
+- **有界自愈恢复**：考虑到上传同步和 `source_path` 回填可能存在短暂竞态，对"刚上传但当前不可读"的情况先做一次窄范围恢复：
+  - 若 `source_path` 已存在但目标文件不存在：按约 500ms 间隔重试读取原路径，最长等待 5 秒。
+  - 若 `source_path` 缺失，但条目明确来自用户上传：只允许在 `<workspace_root>/uploads/` 目录内做一次窄范围候选恢复。优先用 `title` 文件名，其次从 `source_hint` 中提取原始文件名；若**恰好**匹配到 1 个可读文件，则把该相对路径视为恢复后的 `source_path` 并继续处理。
+  - 若 5 秒后仍不可读，或候选匹配结果为 0 个 / 多个，则再进入阻断；不要做更宽泛的目录猜测，也不要跨出 `<workspace_root>/uploads/`。
 - **工作区根目录**：`material_handoff_summary` 的 `data.workspace_root` 是雇佣教练在会话初始化时由沙箱解压工具创建的真实绝对路径（运行时确定，本 skill 把它当作不透明字符串使用，不要解析或重组）。本 skill 的所有产物必须写入 `<workspace_root>/ontology/` 目录（用 artifact 里收到的真实路径替换 `<workspace_root>`）。若 `workspace_root` 字段缺失，停下来通过下游 fallback artifact 报错，**不要**靠 `ls /workspace` 推断或自行拼接 `/workspace/<slug>`。
-- 支持 Markdown、文本、JSON、YAML 等可读资料；无法读取的文件必须在摘要中说明。
+- 支持 Markdown、文本、JSON、YAML 等可读资料；无法读取的文件必须在摘要中说明，并保持为阻断项而不是降级为"占位资料"。
 - 如果遇到 zip 或二进制文档，只有在运行时已经提供可读文本或解析后路径时才处理；不要假设存在额外解析工具。
 - 默认使用 `incremental` 模式更新当前主题 slice；用户明确要求"全量替换"时使用 `full_replace` 替换当前主题 slice。
 - 返回给用户的摘要必须说明资料解析情况、切片范围、更新模式和产物路径，而不是只给一个文件列表。
@@ -459,6 +466,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 ### 质量约束
 
 - slice validation 为 **PASS** 或 **NOT_RUN**：生成 READY projection（`open_questions: []`）。`NOT_RUN` 表示 slice 已写入但未经过形式校验脚本，视为可用
+- `NOT_RUN` 只表示"文件已真实写入但未跑结构校验"；**不表示**"内容没读到也可以靠占位 slice 继续"。
 - slice validation 为 **WARNING** 且原 slice `open_questions` 为空：生成 READY projection
 - slice validation 为 **WARNING** 且原 slice `open_questions` 非空：生成 WARNING projection（`open_questions` 透传非空），skill-generation 遇到时只生成 draft consumer contract，不阻断基础 skill 落盘
 - slice validation 为 **FAIL**：跳过，记入 `skipped_skills`

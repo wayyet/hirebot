@@ -35,11 +35,11 @@ When asked to "write code", "fix a bug", "implement a feature", or act as a "dev
 
 ## Projection Contracts
 
-This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/contract-index.json`.
+This skill may be augmented by bound projection contracts from `ontology_extraction`, discovered under `contracts/projections/**/contract-index.json`.
 
 - Use `../ontology-extraction/templates/CONSUMER_SKILL_PROJECTION_SECTION.md` as the shared minimal template for consumer skills.
 - Projection discovery, route selection, and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contracts/contract-index.json` first to select the topic and target view, then enter the topic subdirectory and read `<domain-slug>.<target-view>.projection.json`, and finally check `REVIEW.md`.
+- For human review, read `contracts/projections/ontology_extraction/contract-index.json` first, optionally read the namespace `README.md`, and then read the chosen `*.projection.json` file.
 
 ### Projection Consumption
 
@@ -56,7 +56,7 @@ This skill may be augmented by bound `ontology-extraction` projection contracts 
 ## Skill-Specific Constraints
 
 - Supported deliverables: code, tests, schema, workflow
-- Supported projection types: domain-model, json-schema, workflow-contract
+- Supported projection types: domain-model, json-schema, prompt-constraint, workflow-contract
 - Supported projection fields beyond the shared minimum: `concept_mappings.target_path`, `concept_mappings.target_kind`, `constraint_mappings.severity_mapping`, `delivery_artifacts.path`
 - Local exclusions: do not invent unsupported APIs, do not bypass mapped constraints, and do not modify files outside the intended implementation scope
 
@@ -71,6 +71,6 @@ This skill may be augmented by bound `ontology-extraction` projection contracts 
 ## Why This Example Matters
 
 - It replaces all scaffold placeholders.
-- It trims the supported projection types to the subset that fits a code-generation consumer.
+- It keeps the standard four-view projection set aligned with generated business skills while still narrowing the consumed fields to what a code-generation consumer actually needs.
 - It narrows the consumed projection fields instead of keeping the full generic list.
 - It shows where to keep shared rules versus skill-local constraints.
