@@ -3,6 +3,7 @@ import type { SandboxMessage, SandboxToolCall } from '@/infra/sandbox/sandbox-ap
 
 import type {
   ArtifactDisplayData,
+  ChatFile,
   ChatMessage,
   DownstreamRunKey,
   DownstreamRunsSnapshot,
@@ -15,6 +16,9 @@ import type { HiringUiStage } from './hiringWorkflowViewModel'
 function mkHistoricalId(prefix: string, index: number) {
   return `historical_${prefix}_${index}`
 }
+
+const HISTORICAL_FILE_ATTACHMENT_PATTERN =
+  /\[FILE_URL:[^\]]+\]\s*\r?\nAttached file:\s*(.+?)\s*\(([^)\r\n]+)\)\s*/gi
 
 function asPlainObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -32,6 +36,67 @@ function tryParseJsonRecord(value: unknown): Record<string, unknown> | null {
   }
 
   return asPlainObject(value)
+}
+
+function parseHistoricalFileSize(label: string): number {
+  const match = /([\d.]+)\s*(B|KB|MB|GB)?/i.exec(label.trim())
+  if (!match) {
+    return 0
+  }
+
+  const value = Number.parseFloat(match[1])
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0
+  }
+
+  const unit = (match[2] ?? 'B').toUpperCase()
+  if (unit === 'GB') return Math.round(value * 1024 * 1024 * 1024)
+  if (unit === 'MB') return Math.round(value * 1024 * 1024)
+  if (unit === 'KB') return Math.round(value * 1024)
+  return Math.round(value)
+}
+
+function normalizeHistoricalUserMessage(content: string): { content: string; files?: ChatFile[] } | null {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  if (trimmed.startsWith('[Internal ') || trimmed.startsWith('[System ')) {
+    return null
+  }
+
+  const files: ChatFile[] = []
+  const visibleContent = trimmed
+    .replace(HISTORICAL_FILE_ATTACHMENT_PATTERN, (_match, fileName: string, sizeLabel: string) => {
+      const name = fileName.trim()
+      if (name) {
+        files.push({
+          id: mkHistoricalId('file', files.length),
+          name,
+          size: parseHistoricalFileSize(sizeLabel),
+          status: '已解析',
+          type: 'file',
+        })
+      }
+
+      return '\n'
+    })
+    .trim()
+
+  // 模板自动引导也以 [FILE_URL:] 开头，但不会携带 Attached file 元数据，仍应视为内部消息。
+  if (trimmed.startsWith('[FILE_URL:') && files.length === 0) {
+    return null
+  }
+
+  if (!visibleContent && files.length === 0) {
+    return null
+  }
+
+  return {
+    content: visibleContent,
+    files: files.length > 0 ? files : undefined,
+  }
 }
 
 export const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey; status: DownstreamRunStatus }> = {
@@ -203,17 +268,13 @@ export function buildHistoricalHiringConversationState(
 
   for (const message of sandboxMessages) {
     if (message.type === 'user_message') {
-      const content = String(message.text ?? '').trim()
-      // 过滤内部系统提示：模板引导（[FILE_URL:...）、内部指令（[Internal ...）、系统指令（[System ...）
-      const isInternalPrompt =
-        content.startsWith('[FILE_URL:') ||
-        content.startsWith('[Internal ') ||
-        content.startsWith('[System ')
-      if (content.length > 0 && !isInternalPrompt) {
+      const userMessage = normalizeHistoricalUserMessage(String(message.text ?? ''))
+      if (userMessage) {
         messages.push({
           id: mkHistoricalId('user', messages.length),
           role: 'user',
-          content,
+          content: userMessage.content,
+          files: userMessage.files,
         })
       }
       continue

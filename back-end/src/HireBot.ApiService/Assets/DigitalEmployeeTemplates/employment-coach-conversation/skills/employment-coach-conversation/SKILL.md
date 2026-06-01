@@ -139,13 +139,59 @@ metadata:
 
 | 时机 | 工具 | 关键参数 |
 |------|------|---------|
-| 用户上传过文件需要读取分析时 | `hiring.parse_uploaded_files` | 不传参或传 `maxBytes`；返回目录树 + .md/.json 全文 |
+| 用户通过后台 todo-files 入口上传 .md/.json，且消息中没有 Gateway media 标记时 | `hiring.parse_uploaded_files` | 不传参或传 `maxBytes`；返回目录树 + .md/.json 全文 |
+| 消息中出现 `[FILE_URL:/app/memory/media-cache/...]` 或 `/media/media_xxx` 时 | 沙箱 `read_file` | 不调用 `hiring.parse_uploaded_files`；按下方 Gateway media-cache 规则先读 `{mediaId}.json`，再读元数据 `path` |
 
 ### 错误处理
 
 若 MCP 工具返回错误（如 `_meta.sessionId 未传入`），**不中断对话**，继续推进；该错误属于基础设施层问题，不要向用户暴露。
 
+### 上传附件读取规则（Gateway media-cache）
 
+用户在资料阶段或任意对话轮次上传文件后，消息里通常会出现类似：
+
+```text
+[FILE_URL:/app/memory/media-cache/media_xxx]
+Attached file: README.md (4.8 KB)
+```
+
+或 Gateway 上传响应中的 URL 是 `/media/media_xxx`。这里的 `media_xxx` 是 `mediaId`，`/media/...` 是 HTTP 下载 URL，`/app/memory/media-cache/media_xxx` 也只是媒体缓存标记，不是一定可直接读取的真实文件路径。
+
+读取上传文件必须按两步：
+
+1. 从 `[FILE_URL:...]` 或 `/media/...` 提取 `mediaId`，例如 `media_34cfdfd42f4e4de9`。
+2. 先调用 `read_file` 读取 `/app/memory/media-cache/{mediaId}.json`。
+3. 从元数据 JSON 的 `path` 字段取得真实文件路径。
+4. 再调用 `read_file` 读取该 `path` 指向的文件正文。
+
+不要直接读取 `/app/memory/media-cache/{mediaId}`，也不要读取 `/media/{mediaId}`；前者通常缺少扩展名，后者是 Gateway 下载 URL。只有在 `.json` 元数据读取失败，或元数据没有 `path` 字段时，才说明“文件暂时读不到”，并提示用户重新上传或改为粘贴内容。
+
+示例：
+
+```text
+[FILE_URL:/app/memory/media-cache/media_34cfdfd42f4e4de9]
+Attached file: README.md (4.8 KB)
+```
+
+应先读：
+
+```text
+/app/memory/media-cache/media_34cfdfd42f4e4de9.json
+```
+
+若其中有：
+
+```json
+{ "path": "/app/memory/media-cache/media_34cfdfd42f4e4de9.md", "fileName": "README.md" }
+```
+
+再读：
+
+```text
+/app/memory/media-cache/media_34cfdfd42f4e4de9.md
+```
+
+读到正文后，将该真实路径作为 `material_collection_progress` / `material_handoff_summary` 的 `items[].source_path`。不要把无扩展名的 media-cache 标记写入 `source_path`。
 
 ### 会话初始化：读取工作区并锁定路径
 
@@ -212,7 +258,7 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 > 前端的资料上传入口完全由 artifact 事件控制：`material_collection_progress` 一发出，阶段卡片自动展开拖拽上传区，**无需也无法**通过 MCP 工具触发。
 
-> 用户上传文件后，调用 `hiring.parse_uploaded_files` 拉取内容做识别，将已整理的资料摘要写入下一次 progress `emit_artifact` 的 `data` 字段（如 `data.items`）。
+> 用户上传文件后，若消息包含 `[FILE_URL:/app/memory/media-cache/...]` 或 `/media/media_xxx`，按“上传附件读取规则（Gateway media-cache）”读取内容并将真实路径写入 `data.items[].source_path`；只有后台 todo-files 入口且没有 Gateway media 标记时，才调用 `hiring.parse_uploaded_files` 拉取内容做识别。
 
 #### ⛔ 路径反伪造红线
 
