@@ -1343,6 +1343,23 @@ internal sealed partial class EvaluationService
         CancellationToken cancellationToken)
     {
         var testcaseSources = await LoadTestcaseSourcesAsync(ctx, employee, cancellationToken);
+
+        // employee 模板没有内置测试用例时，回落到默认连通性测试文件并转换为标准 *.tc.json。
+        // 这保证评估专家技能总能在 test-cases/ 目录找到 *.tc.json 文件，
+        // 而不是裸 default_connectivity_testcases.json（无法被技能的 STEP 1 加载器识别）。
+        if (testcaseSources.Count == 0)
+        {
+            var fallbackFiles = await LoadFallbackTestcaseFilesAsync(cancellationToken);
+            if (fallbackFiles.Count > 0)
+            {
+                logger.LogInformation(
+                    "[Eval] No employee test cases found, using fallback connectivity test cases for sandboxId={SandboxId}",
+                    ctx.EvaluatorSandboxId);
+                testcaseSources = fallbackFiles
+                    .Select(f => new TestcaseSourceFile(f.FileName, "fallback", System.Text.Encoding.UTF8.GetString(f.Content), "default_fallback"))
+                    .ToList();
+            }
+        }
         var ontologyProfile = await BuildOntologyProfileAsync(ctx, employee, cancellationToken);
 
         // 将测试用例和本体打包为 ZIP，ZIP 发送后 gateway 会自动解压到 workspace 目录
