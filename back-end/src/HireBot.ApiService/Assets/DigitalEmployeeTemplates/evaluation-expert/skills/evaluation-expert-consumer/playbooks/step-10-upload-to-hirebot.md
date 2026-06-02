@@ -15,7 +15,7 @@
 | `evaluation_context.hirebot_api` 块存在 | stat `runs/<eval_id>/evaluation_context.json`，确认 `hirebot_api.base_url`、`hirebot_api.employee_id`、`hirebot_api.session_id` 均非空 |
 | STEP 9 已完成 | `runs/<eval_id>/reports/evaluation_report.json` 存在且是合法 JSON |
 | STEP 3 已完成 | `runs/<eval_id>/traces/` 目录存在且包含至少一个 `*.trace.json` |
-| Python 解释器可用 | `.venv/bin/python` 存在（与 STEP 3 相同的 venv） |
+| Python 解释器可用 | `python3` 可执行（沙箱内置，无需 venv）|
 
 若 `evaluation_context.hirebot_api` 缺失，本步骤跳过（评估仍然完整，只是不同步到 HireBot）。提示用户在 `evaluation_context.json` 中补充 `hirebot_api` 配置后可手动重跑。
 
@@ -49,7 +49,7 @@
 ### 步骤 A — 上传评估结论（sync-verdict）
 
 ```bash
-.venv/bin/python runtime-drivers/ws_jwt/verdict_uploader.py \
+python3 runtime-drivers/ws_jwt/verdict_uploader.py \
   --evaluation-context runs/<eval_id>/evaluation_context.json \
   --evaluation-report  runs/<eval_id>/reports/evaluation_report.json \
   --output             runs/<eval_id>/upload_verdict_result.json
@@ -78,6 +78,7 @@
 ### 步骤 B — 上传执行轨迹（sync-trace）
 
 ```bash
+python3 runtime-drivers/ws_jwt/trace_uploader.py \
 .venv/bin/python runtime-drivers/ws_jwt/trace_uploader.py \
   --evaluation-context runs/<eval_id>/evaluation_context.json \
   --traces-dir         runs/<eval_id>/traces/ \

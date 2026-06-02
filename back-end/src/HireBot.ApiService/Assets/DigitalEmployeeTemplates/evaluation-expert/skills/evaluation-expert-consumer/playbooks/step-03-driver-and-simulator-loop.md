@@ -101,7 +101,7 @@ Path whitelist for executables: `./runtime-drivers/<driver_id>/**`, `./runtime-*
 
 **K20 (HARD)**: STEP 3 MUST NOT compose shell commands at runtime. Before STEP 3 begins, STEP 2.5 (`planRun`, see `playbooks/step-2.5-plan-run.md`) has materialised every `(pre_spawn_cleanup, spawn, read_one_event, write_action_template, post_scenario_cleanup)` as **literal shell strings** under `runs/<eval_id>/run_plan.json`. The agent reads `run_plan.scenarios[i].commands.*` and executes the strings verbatim. The ONLY runtime substitution permitted is replacing the marker `<<JSON_PAYLOAD>>` inside `commands.write_action_template` with the current single-line `send`/`end` action JSON.
 
-**K19 (HARD)**: The canonical FIFO pad layout `/tmp/eval-driver/<eval_id>/<tc_id>/{in,out,err,pid}` is the structural rule the pre-materialised commands obey. Agents inspecting failures should verify the pad layout matches K19; agents executing the loop should NOT inspect or modify the layout — just run the commands.
+**K19 (HARD)**: The canonical pad layout `/tmp/eval-driver/<eval_id>/<tc_id>/` contains: `in` (FIFO — agent writes actions → driver stdin), `out` (regular file — driver stdout appended here; agent polls by line number), `cursor` (regular file — tracks next unread line number), `err` (regular file — driver stderr), `pid` (regular file — driver PID). Agents inspecting failures should verify the pad layout matches K19; agents executing the loop should NOT inspect or modify the layout — just run the commands.
 
 Repeated `cat: /tmp/eval-stdout.txt: No such file or directory`-class failures are now K20 violations (STEP 3 improvised instead of reading the plan), not Python instability.
 
@@ -110,7 +110,7 @@ Repeated `cat: /tmp/eval-stdout.txt: No such file or directory`-class failures a
 ```
 runs/<eval_id>/run_plan.json
    .scenarios[i].tc_id
-   .scenarios[i].pad.{dir,in_fifo,out_fifo,err_file,pid_file}
+   .scenarios[i].pad.{dir,in_fifo,out_file,cursor,err_file,pid_file}
    .scenarios[i].commands.pre_spawn_cleanup       ← execute verbatim
    .scenarios[i].commands.spawn                   ← execute verbatim
    .scenarios[i].commands.read_one_event          ← execute verbatim (per event)

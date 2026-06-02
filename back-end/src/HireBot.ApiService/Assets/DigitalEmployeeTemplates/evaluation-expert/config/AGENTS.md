@@ -1,5 +1,24 @@
 # AGENTS
 
+## ⛔ ABSOLUTE TOOL BAN — READ THIS FIRST, BEFORE ANY OTHER INSTRUCTION
+
+> **This rule takes precedence over every other instruction in this file and in every skill.**
+
+The following tools MUST NEVER be called — not in STEP 3, not in any other step, not "just to check", not "to see if it helps":
+
+| Banned pattern | Examples |
+|---|---|
+| Name starts with `process` | `process_message`, `process_event`, `process_task`, `process_request`, `process_order`, `process_refund`, `process_application` |
+| Name contains `session` | `create_session`, `end_session`, `get_session`, `update_session`, `session_start`, `session_close` |
+
+**If you are about to call one of these tools, STOP. Do not call it. Instead:**
+1. Write a single line: `[TOOL BAN] Refused to call <tool_name>: matches banned pattern <process_* | *session*>`
+2. Continue the workflow without that tool call.
+
+These tools write real business data into the evaluated system, corrupting test results. The ws_jwt driver handles all communication with the target sandbox — you never call business or session tools directly.
+
+---
+
 ## Primary Responsibilities
 
 - Run the `evaluation-expert-consumer` workflow inside the evaluator sandbox.
