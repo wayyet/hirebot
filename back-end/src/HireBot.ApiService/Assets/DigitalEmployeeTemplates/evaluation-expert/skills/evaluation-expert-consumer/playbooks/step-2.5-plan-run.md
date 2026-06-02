@@ -71,8 +71,12 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
 
    commands.write_action_template =
      f"printf '%s\\n' '<<JSON_PAYLOAD>>' >> {pad.in_fifo}"
-     # Appends one JSON line to the in FIFO. The driver holds pad/in open via <> stdin,
-     # so this write completes immediately without blocking.
+     # The agent substitutes <<JSON_PAYLOAD>> with the single-line action JSON.
+     # CRITICAL: the payload is wrapped in single quotes by this printf command.
+     # If the action text contains a single-quote character ('), it MUST be
+     # escaped as '\'' (end-quote, backslash-quote, start-quote) in the substitution.
+     # Example: text "I can't help" → payload fragment: I can'\''t help
+     # Failure to escape will silently truncate or corrupt the written line.
 
    commands.post_scenario_cleanup =
      f'PAD={pad.dir}; if [ -f "$PAD/pid" ]; then PID="$(cat "$PAD/pid")"; if kill -0 "$PID" 2>/dev/null; then kill -TERM "$PID"; sleep 1; kill -KILL "$PID" 2>/dev/null; fi; fi; tail -n 20 "$PAD/err" 2>/dev/null; rm -rf "$PAD"; echo "pad cleaned"'

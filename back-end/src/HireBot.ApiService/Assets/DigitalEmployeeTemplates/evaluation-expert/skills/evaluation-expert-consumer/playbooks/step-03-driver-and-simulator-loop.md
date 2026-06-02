@@ -63,11 +63,17 @@ Execute `run_plan.scenarios[i].commands.read_one_event` **verbatim**. This polls
 
 ### 4. Turn 0 (deterministic, no LLM)
 
-Write the first `send` action:
+Write the first `send` action using **EXACTLY** this JSON shape (field names are literal — do NOT use `type`, `user_message`, or any other key):
 
 ```json
-{"action":"send","turn_index":0,"text":"<tc.input.opening_message verbatim>","decision":<deterministic turn-0 SimulatorDecision>}
+{"action":"send","turn_index":0,"text":"<tc.input.opening_message verbatim>","decision":{"should_continue":true,"next_utterance":"<opening_message>","internal_emotion":"neutral","stop_reason":null}}
 ```
+
+Produce this as a **single-line JSON string**, then substitute it into `commands.write_action_template` at the `<<JSON_PAYLOAD>>` marker.
+
+**Single-quote safety**: the `write_action_template` wraps the payload in single quotes (`printf '%s\n' '...'`). If the text contains a `'` character, the shell command will break. Before substituting, replace every `'` in the JSON string with `'\''` (end-quote, escaped-quote, start-quote). Example:
+- Original text: `I can't find the report`
+- Safe payload fragment: `I can\'\''t find the report`
 
 DO NOT consult the LLM for turn 0.
 
@@ -83,9 +89,19 @@ Each iteration:
    ```
    effective_max_turns = min(tc.turn_budget.hard_max_turns, evaluation_context.global_turn_cap or 30)
    ```
-5. Decide which action to write:
+5. Decide which action to write (exact JSON shapes — use `action` field, NOT `type`):
 
-   | Condition | Action |
+   **`send` action** (field names are mandatory and exact):
+   ```json
+   {"action":"send","turn_index":<N>,"text":"<utterance text>","decision":{"should_continue":true,"next_utterance":"<utterance text>","internal_emotion":"<emotion>","stop_reason":null}}
+   ```
+
+   **`end` action** (field names are mandatory and exact):
+   ```json
+   {"action":"end","decision":{"should_continue":false,"next_utterance":null,"internal_emotion":"<final emotion>","stop_reason":"<reason>"},"termination":{"reason":"<termination_reason>","detail":"<optional detail>","final_emotion":"<emotion>","turns_used":<N>}}
+   ```
+
+   | Condition | Action type |
    |---|---|
    | `turn_index + 1 >= effective_max_turns` | `end` with `termination.reason = "max_turns_reached"` (regardless of `decision.should_continue`) |
    | `decision.should_continue == false` AND `decision.next_utterance` non-empty | first write `send` carrying `next_utterance`, THEN write `end` |

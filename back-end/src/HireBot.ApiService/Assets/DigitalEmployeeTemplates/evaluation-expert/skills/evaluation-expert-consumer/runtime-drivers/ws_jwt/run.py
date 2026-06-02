@@ -463,7 +463,21 @@ async def _serve(
                     break
 
                 else:
-                    _emit_error(f"unknown action {action!r}; expected 'send' or 'end'")
+                    # Give a targeted diagnosis when the agent sends the old
+                    # WebSocket-level format {"type":"user_message",...} to
+                    # driver stdin — a common confusion with the legacy
+                    # evaluate.py single-layer architecture.
+                    if cmd.get("type") in ("user_message", "approve_tool"):
+                        _emit_error(
+                            f"wrong protocol layer: received {{\"type\":\"{cmd['type']}\",...}} "
+                            "on driver stdin. That format is the WebSocket wire protocol used "
+                            "by ws_client.py to talk to the evaluatee — the host agent must "
+                            "never write it directly. Use {\"action\":\"send\",...} or "
+                            "{\"action\":\"end\",...} on driver stdin instead. "
+                            "See step-03-driver-and-simulator-loop.md §4 for the exact shape."
+                        )
+                    else:
+                        _emit_error(f"unknown action {action!r}; expected 'send' or 'end'")
                     continue
 
     except asyncio.TimeoutError:
