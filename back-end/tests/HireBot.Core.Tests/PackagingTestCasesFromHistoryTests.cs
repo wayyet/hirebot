@@ -107,14 +107,31 @@ public class PackagingTestCasesFromHistoryTests
     }
 
     [Fact]
-    public async Task InvokePackagingTestCasesSkillAsync_WhenSessionIdEmpty_ShouldReturnFalse()
+    public async Task InvokePackagingTestCasesSkillAsync_WhenSessionIdEmptyAndNoTemplateFiles_ShouldReturnFalse()
     {
         var context = CreateRuntimeContext() with { SessionId = string.Empty };
-        var service = EmployeeHiringServicePackagingTestFactory.Create(CreateSandboxFake(), context);
+        var sandbox = CreateSandboxFake(messages: []);
+        var service = EmployeeHiringServicePackagingTestFactory.Create(sandbox, context);
 
         var (success, _) = await service.InvokePackagingTestCasesSkillAsync(context, CancellationToken.None);
 
         Assert.False(success);
+        Assert.Equal(0, sandbox.GetSessionDetailCallCount);
+    }
+
+    [Fact]
+    public async Task InvokePackagingTestCasesSkillAsync_WhenSessionIdEmptyButTemplatePresent_ShouldStillInvoke()
+    {
+        var context = CreateRuntimeContext(withTemplateFiles: true) with { SessionId = string.Empty };
+        var sandbox = CreateSandboxFake(messages: []);
+        var service = EmployeeHiringServicePackagingTestFactory.Create(sandbox, context);
+
+        var (success, bundle) = await service.InvokePackagingTestCasesSkillAsync(context, CancellationToken.None);
+
+        Assert.True(success);
+        Assert.NotNull(bundle);
+        Assert.Equal(0, sandbox.GetSessionDetailCallCount);
+        Assert.Equal(1, sandbox.SendMessageCallCount);
     }
 
     [Fact]
@@ -322,7 +339,7 @@ public class PackagingTestCasesFromHistoryTests
         return new PackagingSandboxFake(messages, skillReply ?? BuildSkillSuccessReply());
     }
 
-    private static HiringRuntimeContext CreateRuntimeContext(bool withTemplateFiles = false)
+    internal static HiringRuntimeContext CreateRuntimeContext(bool withTemplateFiles = false)
     {
         var packageFiles = withTemplateFiles
             ?
@@ -452,7 +469,31 @@ public class PackagingTestCasesFromHistoryTests
 
         public Task<ApiResponse<SandboxInstanceDto>> RegisterAsync(SandboxRegisterRequestDto request, CancellationToken cancellationToken = default) => Throw();
         public Task<ApiResponse<SandboxInstanceDto>> CreateAsync(SandboxCreateRequestDto request, CancellationToken cancellationToken = default) => Throw();
-        public Task<ApiResponse<SandboxInstanceDto>> RefreshAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Throw();
+        public Task<ApiResponse<SandboxInstanceDto>> RefreshAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default)
+        {
+            var now = DateTimeOffset.UtcNow;
+            return Task.FromResult(ApiResponse<SandboxInstanceDto>.SuccessResponse(
+                new SandboxInstanceDto(
+                    InstanceId: Guid.NewGuid(),
+                    SandboxId: request.SandboxId ?? "sandbox",
+                    ScopeType: request.ScopeType,
+                    ScopeKey: request.ScopeKey,
+                    SandboxRole: request.SandboxRole,
+                    ProvisioningMode: "test",
+                    OwnerSubject: request.OwnerSubject,
+                    TenantId: string.Empty,
+                    OperatorId: string.Empty,
+                    State: "Running",
+                    GatewayEndpoint: "http://127.0.0.1:8090",
+                    ExpiresAtUtc: null,
+                    LastError: null,
+                    UseCase: null,
+                    TemplateId: null,
+                    IsInitialized: true,
+                    CreatedAtUtc: now,
+                    UpdatedAtUtc: now,
+                    Metadata: null)));
+        }
         public Task<ApiResponse<SandboxInstanceDto>> PauseAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Throw();
         public Task<ApiResponse<SandboxInstanceDto>> ResumeAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Throw();
         public Task<ApiResponse<SandboxInstanceDto>> RebuildAsync(SandboxInstanceLookupRequestDto request, CancellationToken cancellationToken = default) => Throw();
@@ -605,6 +646,52 @@ internal static class EmployeeHiringServicePackagingTestFactory
 
         public Task<InstanceArtifactCloneResult> StoreDepartmentArtifactsAsync(string departmentInstanceId, IReadOnlyDictionary<string, byte[]> files, CancellationToken cancellationToken = default) =>
             Task.FromResult(new InstanceArtifactCloneResult("v_test", departmentInstanceId, files.Keys.ToArray()));
+    }
+
+    internal sealed class NoOpHiringArtifactPackageService : IHiringArtifactPackageService
+    {
+        public Task<HiringArtifactPackageSnapshotDto> PersistIntermediatePackageAsync(
+            HiringArtifactPackagePersistRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(CreateSnapshot(request, HiringArtifactPackageKinds.IntermediatePackageZip));
+
+        public Task<HiringArtifactPackageSnapshotDto> PersistFinalPackageAsync(
+            HiringArtifactPackagePersistRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(CreateSnapshot(request, HiringArtifactPackageKinds.FinalPackageZip));
+
+        public Task<HiringArtifactPackageSnapshotDto?> GetLatestPackageAsync(string hireId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<HiringArtifactPackageSnapshotDto?>(null);
+
+        public Task<HiringArtifactPackageSnapshotDto?> GetPackageByKindAsync(
+            string hireId,
+            string kind,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<HiringArtifactPackageSnapshotDto?>(null);
+
+        public Task<HiringArtifactDownloadResult> BuildFinalPackageDownloadAsync(string hireId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(HiringArtifactDownloadResult.Error(404, "not found"));
+
+        public Task<HiringArtifactDownloadResult> BuildFinalPackageFileDownloadAsync(
+            string hireId,
+            string artifactName,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(HiringArtifactDownloadResult.Error(404, "not found"));
+
+        private static HiringArtifactPackageSnapshotDto CreateSnapshot(
+            HiringArtifactPackagePersistRequestDto request,
+            string kind) =>
+            new(
+                request.HireId,
+                request.SessionId,
+                kind,
+                request.FileName,
+                kind == HiringArtifactPackageKinds.FinalPackageZip
+                    ? "packages/final/package.zip"
+                    : "packages/intermediate/package.zip",
+                "sha256-test",
+                [],
+                kind == HiringArtifactPackageKinds.FinalPackageZip);
     }
 
     private sealed class NotSupportedHiringArtifactPackageService : IHiringArtifactPackageService

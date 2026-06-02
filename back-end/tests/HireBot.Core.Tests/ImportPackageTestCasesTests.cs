@@ -44,6 +44,38 @@ public class ImportPackageTestCasesTests
     }
 
     [Fact]
+    public async Task ImportPackageAsync_WhenMaterialStageAndSandboxZipHasNoTestcases_ShouldIncludeStagedTestcasesInFinal()
+    {
+        var artifactRecorder = new RecordingHiringArtifactPackageService();
+        var context = CreateImportRuntimeContext() with
+        {
+            CurrentStage = HiringCollectionStage.Material,
+            PackagingTestCasesStaged = false
+        };
+        var sandbox = PackagingTestCasesFromHistoryTests.CreateSandboxFake(
+            skillReply: PackagingTestCasesFromHistoryTests.BuildSkillSuccessReply(includeExtendedBundle: false));
+        var service = EmployeeHiringServicePackagingTestFactory.Create(
+            sandbox,
+            context,
+            artifactPackageService: artifactRecorder,
+            templateDataProvider: new EmployeeHiringServicePackagingTestFactory.StubTemplateDataProvider());
+
+        await using var packageStream = BuildSandboxPackageStream();
+        var result = await service.ImportPackageAsync(
+            context.HireId,
+            packageStream,
+            "sandbox-package.zip",
+            cancellationToken: CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        Assert.NotNull(artifactRecorder.FinalFiles);
+        Assert.True(artifactRecorder.FinalFiles!.ContainsKey("testcases/evaluation-test-cases.json"));
+
+        var finalJson = Encoding.UTF8.GetString(artifactRecorder.FinalFiles["testcases/evaluation-test-cases.json"]);
+        Assert.Contains("TC-001", finalJson);
+    }
+
+    [Fact]
     public async Task ImportPackageAsync_WhenMergedAlreadyHasSkillGuidedFallback_ShouldMergeNotOverwrite()
     {
         var artifactRecorder = new RecordingHiringArtifactPackageService();
