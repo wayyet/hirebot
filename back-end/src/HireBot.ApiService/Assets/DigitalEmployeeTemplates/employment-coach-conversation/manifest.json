@@ -50,8 +50,8 @@
     {
       "stage": "skill",
       "skill_name": "employment-coach-conversation",
-      "description": "确认模板基线技能并为本轮技能写清 name + description + trigger + expected_output；用户确认技能清单后，通过 emit_artifact（skill_workorder_summary, isTerminal: true）完成“技能定义”子步骤。随后必须紧跟 emit_artifact（skill_generation_ready）并追问是否开始技能生成；只有 skill-generation 完成后，才允许进入外部阶段",
-      "required_fields": ["skill_name", "skill_description", "trigger", "expected_output", "generation_action"]
+      "description": "确认模板基线技能并为本轮技能写清 name + display_name + description + trigger + expected_output；用户确认技能清单后，通过 emit_artifact（skill_workorder_summary, isTerminal: true）完成“技能定义”子步骤，且该 summary.data 必须透传初始化阶段已解析的 workspace_root 与 template_slug。随后必须紧跟 emit_artifact（skill_generation_ready）并追问是否开始技能生成；只有 skill-generation 完成后，才允许进入外部阶段",
+      "required_fields": ["workspace_root", "template_slug", "name", "display_name", "description", "trigger", "expected_output", "generation_action"]
     },
     {
       "stage": "external",
