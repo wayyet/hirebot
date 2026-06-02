@@ -70,6 +70,27 @@ internal sealed partial class EmployeeHiringService
             ExternalSystemConfig = persistedState
         };
         runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
+
+        if (persistedState is not null &&
+            string.Equals(
+                persistedState.SubmissionMode,
+                HiringExternalSystemSubmissionModes.Configured,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            if (IsCollectionStageBeforeReadyForPackaging(runtimeContext.CurrentStage))
+            {
+                runtimeContext = runtimeContext with
+                {
+                    CurrentStage = HiringCollectionStage.ReadyForPackaging
+                };
+            }
+
+            if (!runtimeContext.PackagingTestCasesStaged)
+            {
+                runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
+            }
+        }
+
         hiringRuntimeStore.Upsert(runtimeContext);
 
         await UpsertExternalSystemConfigMetadataAsync(runtimeContext.SandboxId, persistedState, cancellationToken);

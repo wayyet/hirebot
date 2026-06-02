@@ -27,6 +27,21 @@ internal sealed partial class EmployeeHiringService
     };
 
     /// <summary>
+    /// 收集阶段是否尚未进入打包前 testcase 阶段。
+    /// </summary>
+    internal static bool IsCollectionStageBeforeReadyForPackaging(string? currentStage)
+    {
+        if (string.IsNullOrWhiteSpace(currentStage))
+        {
+            return true;
+        }
+
+        return string.Equals(currentStage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(currentStage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(currentStage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// 是否应在沙箱调用 package_workspace 之前写入 testcases/。
     /// </summary>
     internal static bool ShouldStagePackagingTestCases(HiringRuntimeContext runtimeContext, string? userMessage)
@@ -117,12 +132,12 @@ internal sealed partial class EmployeeHiringService
         HiringRuntimeContext runtimeContext,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(runtimeContext.SessionId))
+        var sessionId = runtimeContext.SessionId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sessionId))
         {
             logger.LogWarning(
-                "[Hiring] Packaging testcase skill skipped because SessionId is empty. HireId={HireId}",
+                "[Hiring] Packaging testcase skill proceeding without SessionId; history transcript will be empty. HireId={HireId}",
                 runtimeContext.HireId);
-            return (false, null);
         }
 
         var todoFilesRoot = HireBotPathResolver.ResolveTodoFilesRoot(
@@ -132,28 +147,31 @@ internal sealed partial class EmployeeHiringService
         var uploadedMaterialFiles = await PackagingTestCaseMaterialLoader.LoadAsync(
             dbContext,
             runtimeContext.HireId,
-            runtimeContext.SessionId,
+            sessionId,
             [todoFilesRoot],
             cancellationToken);
         var templatePackageFiles = PackagingTestCaseTemplateSnapshotBuilder.Build(
             runtimeContext.WorkingTemplatePackage.PackageFiles);
 
         IReadOnlyList<HiringConversationMessageDto> sessionMessages = [];
-        var sessionDetailResult = await sandboxService.GetSessionDetailAsync(
-            BuildPackagingSessionDetailRequest(runtimeContext),
-            cancellationToken);
-        if (sessionDetailResult.Success && sessionDetailResult.Data is not null)
+        if (!string.IsNullOrWhiteSpace(sessionId))
         {
-            sessionMessages = sessionDetailResult.Data.Messages;
-        }
-        else
-        {
-            logger.LogWarning(
-                "[Hiring] Failed to load KingCrab session history for packaging testcases. HireId={HireId}, SessionId={SessionId}, Code={Code}, Message={Message}",
-                runtimeContext.HireId,
-                runtimeContext.SessionId,
-                sessionDetailResult.Code,
-                sessionDetailResult.Message);
+            var sessionDetailResult = await sandboxService.GetSessionDetailAsync(
+                BuildPackagingSessionDetailRequest(runtimeContext),
+                cancellationToken);
+            if (sessionDetailResult.Success && sessionDetailResult.Data is not null)
+            {
+                sessionMessages = sessionDetailResult.Data.Messages;
+            }
+            else
+            {
+                logger.LogWarning(
+                    "[Hiring] Failed to load KingCrab session history for packaging testcases. HireId={HireId}, SessionId={SessionId}, Code={Code}, Message={Message}",
+                    runtimeContext.HireId,
+                    sessionId,
+                    sessionDetailResult.Code,
+                    sessionDetailResult.Message);
+            }
         }
 
         var transcript = PackagingTestCasesJsonValidator.PrepareHistoryTranscript(sessionMessages);
@@ -169,7 +187,7 @@ internal sealed partial class EmployeeHiringService
         }
 
         var invokePayload = new PackagingTestCasesInvokePayload(
-            runtimeContext.SessionId,
+            sessionId,
             runtimeContext.TemplateName,
             runtimeContext.StructuredData,
             transcript,

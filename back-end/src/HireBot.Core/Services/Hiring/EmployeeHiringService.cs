@@ -1318,16 +1318,13 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包为空或无法解析，请确认上传的是有效 ZIP 文件");
         }
 
-        if (ShouldStagePackagingTestCases(runtimeContext, userMessage: null) ||
-            string.Equals(runtimeContext.CurrentStage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase))
+        // import 前默认执行 testcase staging（Skill 或 packaging-fallback），不依赖阶段与打包意图话术
+        if (!runtimeContext.PackagingTestCasesStaged)
         {
-            if (!runtimeContext.PackagingTestCasesStaged)
-            {
-                runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
-            }
-
-            hiringRuntimeStore.Upsert(runtimeContext);
+            runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
         }
+
+        hiringRuntimeStore.Upsert(runtimeContext);
 
         if (ShouldPersistArtifactPackages(runtimeContext))
         {
