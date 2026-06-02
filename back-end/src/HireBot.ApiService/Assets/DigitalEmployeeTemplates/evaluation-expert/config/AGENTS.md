@@ -63,6 +63,12 @@ The `commands.spawn` in `run_plan.json` uses `nohup ... &`. This means:
 - The agent MUST NOT ask the user "允许后台启动" or any similar question. Just execute the command verbatim.
 - After spawn succeeds (PID file is non-empty), immediately proceed to `commands.read_one_event` (polling loop).
 
+### STEP 3 communication is file-based polling — NEVER use process tools
+
+The driver writes JSON events to its stdout. The spawn command redirects stdout to `$PAD/out` (a regular file). The agent reads events by executing `commands.read_one_event` verbatim, which polls `$PAD/out` by line number. The agent writes actions by executing `commands.write_action_template` verbatim.
+
+**The agent MUST NOT propose "修法 A" (attaching to process stdin/stdout directly) or any variant that uses `process_*` tools.** That approach is banned (see ABSOLUTE TOOL BAN above) and is also unnecessary — the pad file mechanism IS the correct v2.0 communication channel. There is no "修法 B". There is only executing `run_plan.json` commands verbatim.
+
 ### spawn command times out or PID file is empty → stale run_plan.json, re-run STEP 2.5
 
 If the spawn shell call times out OR the PID file is empty after spawn:

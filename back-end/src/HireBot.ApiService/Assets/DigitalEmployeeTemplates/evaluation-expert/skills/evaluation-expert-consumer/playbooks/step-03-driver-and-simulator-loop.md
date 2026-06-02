@@ -24,18 +24,42 @@ For each enriched test case `tc`:
 
 ### 2. Spawn the driver subprocess
 
+**K20 OVERRIDE — do NOT use the command below directly.** The conceptual command is:
+
 ```
-python -u runtime-drivers/<driver_id>/run.py \
+python3 -u runtime-drivers/<driver_id>/run.py \
   --evaluation-context <eval_ctx_path> \
   --enriched-test-case <enriched_tc_path> \
   --output ./runs/<eval_id>/traces/<tc_id>.trace.json
 ```
 
-One driver process per scenario. No long-running daemon for the whole evaluation.
+But STEP 3 MUST NOT compose this command. Instead, execute `run_plan.scenarios[i].commands.spawn` **verbatim** (from the pre-materialised `run_plan.json`). The spawn command produced by STEP 2.5 wraps the above with:
+- `nohup ... <> "$PAD/in" >> "$PAD/out" 2>> "$PAD/err" &` — backgrounds the driver and redirects its stdin/stdout/stderr to the pad files
+- `echo $! > "$PAD/pid"` — captures the background PID immediately
 
-### 3. Read first stdout line
+### HOW THE COMMUNICATION CHANNEL WORKS (read this before touching anything)
 
-Must be `{"event":"ready", ...}`. Anything else → abort STEP 3 for this scenario.
+The driver writes `{"event":"ready",...}` and all subsequent events to its **stdout**. The spawn command redirects driver stdout to the regular file `$PAD/out` via `>>`. The agent reads events by polling lines from `$PAD/out` — NOT by directly attaching to the process.
+
+```
+driver process stdout  ──(>> $PAD/out)──→  pad/out (regular file)
+                                                   ↑
+                              agent polls with sed -n "${N}p" (commands.read_one_event)
+
+agent writes action JSON ──(printf >> $PAD/in)──→  pad/in (FIFO)
+                                                          ↓
+                                             driver process stdin
+```
+
+The agent MUST NOT:
+- Use `process_*` tools to attach to the subprocess
+- Read driver stdout directly
+- Use `tail -f` or `cat` on the FIFO pad/in
+- Modify the spawn command in any way
+
+### 3. Read first stdout line (via pad/out polling)
+
+Execute `run_plan.scenarios[i].commands.read_one_event` **verbatim**. This polls `$PAD/out` for the next unread line (tracked by `$PAD/cursor`). Parse the returned line as JSON; expect `{"event":"ready",...}`. Anything else → abort STEP 3 for this scenario.
 
 ### 4. Turn 0 (deterministic, no LLM)
 
