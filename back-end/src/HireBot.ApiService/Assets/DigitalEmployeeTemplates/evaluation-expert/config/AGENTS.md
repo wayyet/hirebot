@@ -51,6 +51,26 @@ These situations are expected and MUST be handled autonomously — do NOT stop a
 
 The agent MUST NOT present "Option A / Option B" choices to the user for either of these situations. Just proceed.
 
+### driver_config.token is absent
+
+`evaluation_context.runtime_driver.driver_config.token` may be absent. **This is NOT a blocker.** The ws_jwt driver (`run.py`) resolves its own Bearer token at startup from `evaluation_context.hirebot_api.auth` using the `client_credentials` flow. The token is fetched automatically — the agent does not need to ask the user for a token, inject a token, or pause the evaluation. If both `driver_config.token` and `hirebot_api.auth` are absent, fail-fast with a clear message; otherwise proceed.
+
+### STEP 3 spawn command is already a background process — never ask user for permission
+
+The `commands.spawn` in `run_plan.json` uses `nohup ... &`. This means:
+- The shell call returns **immediately** after writing the PID file.
+- The driver process runs in the background for the entire scenario.
+- The agent MUST NOT ask the user "允许后台启动" or any similar question. Just execute the command verbatim.
+- After spawn succeeds (PID file is non-empty), immediately proceed to `commands.read_one_event` (polling loop).
+
+### spawn command times out or PID file is empty → stale run_plan.json, re-run STEP 2.5
+
+If the spawn shell call times out OR the PID file is empty after spawn:
+- **Do NOT ask the user for permission.** This is a self-heal.
+- The `run_plan.json` was generated with old FIFO-based commands (pad/out was a FIFO, which caused the shell to block on open before forking).
+- **Self-heal**: delete the existing `run_plan.json` and re-run STEP 2.5 (`planRun`) end-to-end. The new plan will use a regular file for pad/out and will not block.
+- After STEP 2.5 re-generates `run_plan.json`, proceed directly to STEP 3 without asking the user.
+
 ## Material Paths
 
 - Runtime context: `/workspace/runtime/evaluation-context.json`

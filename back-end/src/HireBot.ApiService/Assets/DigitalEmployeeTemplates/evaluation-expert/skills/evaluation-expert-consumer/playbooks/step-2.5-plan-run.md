@@ -58,8 +58,10 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
 
    commands.spawn =
      f'PAD={pad.dir}; nohup {python_bin} -u {run_py_path} --evaluation-context {evaluation_context_path} --enriched-test-case {enriched_tc_path} --output {trace_path} <> "$PAD/in" >> "$PAD/out" 2>> "$PAD/err" & echo $! > "$PAD/pid"; echo "driver pid=$(cat \"$PAD/pid\")"'
-     # <> (O_RDWR) on pad/in: opens the FIFO without blocking (no external writer needed yet).
-     # >> on pad/out (regular file): appends; never blocks. $! is captured immediately.
+     # run.py accepts ONLY --evaluation-context, --enriched-test-case, --output.
+     # DO NOT add --token or any other flag. The driver resolves its Bearer token
+     # internally at startup via evaluation_context.hirebot_api.auth (client_credentials).
+     # Adding --token is an error that will cause argparse to exit 2.
 
    commands.read_one_event =
      f'PAD={pad.dir}; N=$(cat "$PAD/cursor" 2>/dev/null || echo 1); DEADLINE=$(($(date +%s)+60)); while [ "$(date +%s)" -lt "$DEADLINE" ]; do L=$(sed -n "${N}p" "$PAD/out" 2>/dev/null); if [ -n "$L" ]; then printf "%d\n" $((N+1)) > "$PAD/cursor"; printf "%s\n" "$L"; exit 0; fi; sleep 0.3; done; printf \'{{"event":"error","detail":"read_one_event timeout after 60s"}}\n\''
