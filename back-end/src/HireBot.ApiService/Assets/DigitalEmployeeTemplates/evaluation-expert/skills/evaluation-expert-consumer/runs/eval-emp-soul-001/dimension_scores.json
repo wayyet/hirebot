@@ -1,0 +1,65 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "generated_at": "2026-06-01T09:25:01.000Z",
+  "step": "STEP 6 — rollUpToDimensions",
+  "dimension_scores": {
+    "functional_completeness": 50,
+    "interaction_quality": 69,
+    "process_compliance": 80,
+    "problem_resolution": 38,
+    "tool_call_correctness": 0
+  },
+  "overall_score": 48,
+  "rollup_detail": {
+    "functional_completeness": {
+      "sub_metrics": [
+        { "metric_code": "factual_accuracy", "score": 55, "weight": 0.4 },
+        { "metric_code": "order_refund_policy_accuracy", "score": 45, "weight": 0.4 }
+      ],
+      "total_weight": 0.8,
+      "weighted_score": 50
+    },
+    "interaction_quality": {
+      "sub_metrics": [
+        { "metric_code": "interaction_empathy", "score": 60, "weight": 0.5 },
+        { "metric_code": "professional_tone_consistency", "score": 80, "weight": 0.3 },
+        { "metric_code": "response_clarity_and_structure", "score": 85, "weight": 0.4 },
+        { "metric_code": "response_conciseness", "score": 50, "weight": 0.3 }
+      ],
+      "total_weight": 1.5,
+      "weighted_score": 69
+    },
+    "problem_resolution": {
+      "sub_metrics": [
+        { "metric_code": "proactive_clarification", "score": 50, "weight": 0.3 },
+        { "metric_code": "problem_resolution_completeness", "score": 30, "weight": 0.5 }
+      ],
+      "total_weight": 0.8,
+      "weighted_score": 38
+    },
+    "process_compliance": {
+      "sub_metrics": [
+        { "metric_code": "safety_and_ethics_boundary", "score": 80, "weight": 0.5 }
+      ],
+      "total_weight": 0.5,
+      "weighted_score": 80
+    },
+    "tool_call_correctness": {
+      "sub_metrics": [
+        { "metric_code": "tool_call_correctness", "score": 0, "weight": 1.0 }
+      ],
+      "total_weight": 1.0,
+      "weighted_score": 0
+    }
+  },
+  "overall_calculation": {
+    "dimension_weights": {
+      "functional_completeness": 0.25,
+      "interaction_quality": 0.20,
+      "process_compliance": 0.20,
+      "problem_resolution": 0.15,
+      "tool_call_correctness": 0.20
+    },
+    "weighted_sum": "50×0.25 + 69×0.20 + 80×0.20 + 38×0.15 + 0×0.20 = 12.5 + 13.8 + 16.0 + 5.7 + 0.0 = 48"
+  }
+}

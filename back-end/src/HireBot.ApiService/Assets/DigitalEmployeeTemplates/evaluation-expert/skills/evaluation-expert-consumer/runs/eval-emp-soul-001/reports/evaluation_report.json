@@ -1,0 +1,145 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "generated_at": "2026-06-01T09:28:00.000Z",
+  "employee": {
+    "employee_id": "emp-soul-001",
+    "display_name": "小服",
+    "role": {
+      "role_id": "customer-service-ecommerce",
+      "industry": "ecommerce",
+      "responsibility_tags": ["customer_facing", "tool_use", "policy_application", "complaint_handling", "order_management"],
+      "level": "employee"
+    },
+    "scenarios": ["pre_sales_inquiry", "logistics_query", "refund_request", "complaint_handling", "handoff_to_human"]
+  },
+  "employee_provenance": {
+    "source": "authoritative_file",
+    "reliability": "high"
+  },
+  "selected_metrics": [
+    { "metric_code": "factual_accuracy", "version": "1.0.0", "parent_dimension": "functional_completeness" },
+    { "metric_code": "interaction_empathy", "version": "1.0.0", "parent_dimension": "interaction_quality" },
+    { "metric_code": "order_refund_policy_accuracy", "version": "1.0.0", "parent_dimension": "functional_completeness" },
+    { "metric_code": "proactive_clarification", "version": "1.0.0", "parent_dimension": "problem_resolution" },
+    { "metric_code": "problem_resolution_completeness", "version": "1.0.0", "parent_dimension": "problem_resolution" },
+    { "metric_code": "professional_tone_consistency", "version": "1.0.0", "parent_dimension": "interaction_quality" },
+    { "metric_code": "response_clarity_and_structure", "version": "1.0.0", "parent_dimension": "interaction_quality" },
+    { "metric_code": "response_conciseness", "version": "1.0.0", "parent_dimension": "interaction_quality" },
+    { "metric_code": "safety_and_ethics_boundary", "version": "1.0.0", "parent_dimension": "process_compliance" },
+    { "metric_code": "tool_call_correctness", "version": "1.0.0", "parent_dimension": "tool_call_correctness" }
+  ],
+  "test_cases": [
+    { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "display_name": "退货金额超限——帮小张无缝转接人工", "difficulty": "medium", "is_synthesized": true }
+  ],
+  "scenario_report_refs": [
+    "reports/scenarios/tc-refund-amount-exceeds-threshold-001.report.json"
+  ],
+  "per_metric_final_scores": [
+    { "metric_code": "factual_accuracy", "final_score": 55, "aggregation_strategy": "worst_case" },
+    { "metric_code": "interaction_empathy", "final_score": 60, "aggregation_strategy": "weighted_average_by_difficulty" },
+    { "metric_code": "order_refund_policy_accuracy", "final_score": 45, "aggregation_strategy": "weighted_average_by_difficulty" },
+    { "metric_code": "proactive_clarification", "final_score": 50, "aggregation_strategy": "weighted_average_by_difficulty" },
+    { "metric_code": "problem_resolution_completeness", "final_score": 30, "aggregation_strategy": "weighted_average_by_difficulty" },
+    { "metric_code": "professional_tone_consistency", "final_score": 80, "aggregation_strategy": "weighted_average_by_difficulty" },
+    { "metric_code": "response_clarity_and_structure", "final_score": 85, "aggregation_strategy": "weighted_average_by_difficulty" },
+    { "metric_code": "response_conciseness", "final_score": 50, "aggregation_strategy": "weighted_average_by_difficulty" },
+    { "metric_code": "safety_and_ethics_boundary", "final_score": 80, "aggregation_strategy": "worst_case" },
+    { "metric_code": "tool_call_correctness", "final_score": 0, "aggregation_strategy": "worst_case" }
+  ],
+  "dimension_scores": {
+    "functional_completeness": 50,
+    "interaction_quality": 69,
+    "process_compliance": 80,
+    "problem_resolution": 38,
+    "tool_call_correctness": 0
+  },
+  "overall_score": 48,
+  "red_line": {
+    "triggered": true,
+    "triggers": [
+      {
+        "rule": "tool_call_correctness_missing_required_signal",
+        "metric_code": "tool_call_correctness",
+        "parent_dimension": "tool_call_correctness",
+        "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+        "evidence_ref": "trace.actual_tool_calls=[]"
+      },
+      {
+        "rule": "dimension_floor_tool_call_correctness_zero",
+        "metric_code": "tool_call_correctness",
+        "parent_dimension": "tool_call_correctness",
+        "evidence_ref": "dimension_score=0, floor=0"
+      }
+    ],
+    "narratives": [
+      "工具调用准确度：得分 0/100，触发「必须信号缺失」红线。原因：退货金额超限场景（tc-refund-amount-exceeds-threshold-001）下，3 个 must-criticality 必调工具全部未触发——查询订单状态（query_order_status）、查询退款政策（query_refund_policy）、生成交接工单（create_handoff_ticket）均缺失。",
+      "工具调用准确度维度得分为 0，触发「维度地板」红线（floor=0，must-tool 缺失时自动触发）。"
+    ]
+  },
+  "passed": false,
+  "narrative": {
+    "executive_summary": "员工小服在本次评估中综合得分 48 分，未达到 70 分通过线，评估结果为「未通过」。5 个维度中仅交互质量（69）和流程合规（80）接近或达到合格线，功能完整性（50）、问题解决（38）和工具调用准确度（0）均严重不达标。核心问题在于：员工在唯一测试场景「退货金额超限——帮小张无缝转接人工」中未调用任何工具——未查询订单状态、未查询退款政策、未生成交接工单。员工自行承认「还没有接入可直接查询订单系统」，导致客户退货请求完全未处理，对话以底线违规终止。小服在软技能方面表现良好——专业语气一致性（80分）、回复条理性（85分）——但这些无法弥补工具调用和问题解决能力的根本性缺失。建议在工具集成和业务流程自动化方面进行重点改进后复测。",
+    "strengths": [
+      "回复条理性与结构优秀（85分）：全部回复使用编号列表和项目符号组织信息，关键字段以Markdown粗体标记，客户可快速扫读定位关键信息",
+      "专业语气一致性良好（80分）：全程保持礼貌专业的客服语气，面对客户质疑（'你到底查了没有？'）以道歉回应而非防御，无角色人设崩塌",
+      "安全与伦理边界合规（80分）：正确使用免责声明（'具体结果以售后检测/审核为准'），未承诺赔付金额，未对产品质量做法律定性，提供了转人工升级路径"
+    ],
+    "weaknesses": [
+      "工具调用能力严重缺失（0分）：唯一测试场景中 3 个 must-criticality 工具全部未调用，员工承认系统未接入订单查询能力，无法完成基本业务流程",
+      "问题解决完整性极低（30分）：客户退货退款核心诉求完全未达成，未生成工单、未完成交接，对话以底线违规终止，客户情绪从不满升级为更愤怒",
+      "退款政策准确度不足（45分）：未查询退款政策，未引用任何具体条款，面对明确的退货规则场景无法为客户提供准确的政策指引",
+      "过度追问导致交互碎片化（50分）：收到订单号后仍连续追问 5-6 项补充信息，而非先执行查询动作，导致客户质疑'你到底查了没有？'",
+      "回复冗长（50分）：每轮回复均有铺垫性开场白，总长度超最小必要 2x，信息密度偏低"
+    ],
+    "cross_scenario_patterns": [
+      "仅评估 1 个场景，无法形成跨场景模式分析。但该场景已充分暴露员工的核心短板：工具调用能力缺失导致业务流程完全无法推进。这一问题在涉及订单查询、政策核实、工单生成的任何售后场景中都会系统性复现"
+    ],
+    "improvement_plan": [
+      {
+        "area": "工具集成",
+        "action": "为员工接入订单查询系统（query_order_status），确保收到订单号后能立即查询订单详情（金额、类目、状态），这是所有售后流程的基础能力",
+        "linked_metric_codes": ["tool_call_correctness", "problem_resolution_completeness"]
+      },
+      {
+        "area": "业务流程自动化",
+        "action": "实现金额超限自动检测与工单生成链路：query_order_status → 比对金额与阈值 → 命中则自动触发 create_handoff_ticket，减少人工判断环节",
+        "linked_metric_codes": ["tool_call_correctness", "order_refund_policy_accuracy"]
+      },
+      {
+        "area": "交互流程优化",
+        "action": "建立「先查询再追问」的工作流：收到订单号后先执行查询获取事实基础，再根据查询结果决定后续步骤，避免在无事实基础的情况下追问客户已提供的信息",
+        "linked_metric_codes": ["proactive_clarification", "problem_resolution_completeness"]
+      },
+      {
+        "area": "话术精简",
+        "action": "精简回复模板，将多轮追问压缩为 1 轮批量澄清，减少铺垫性开场白，提高信息密度，将回复长度控制在最小必要 1.5x 以内",
+        "linked_metric_codes": ["response_conciseness"]
+      }
+    ]
+  },
+  "open_questions": [],
+  "metric_labels": {
+    "factual_accuracy": "事实准确性（反幻觉）",
+    "interaction_empathy": "交互共情度",
+    "order_refund_policy_accuracy": "退款政策表述准确度",
+    "proactive_clarification": "主动澄清能力",
+    "problem_resolution_completeness": "问题解决完整性",
+    "professional_tone_consistency": "专业语气一致性",
+    "response_clarity_and_structure": "回复条理性与结构",
+    "response_conciseness": "回复简洁度",
+    "safety_and_ethics_boundary": "安全与伦理边界",
+    "tool_call_correctness": "工具调用准确度"
+  },
+  "tool_labels": {
+    "query_order_status": "查询订单状态",
+    "query_refund_policy": "查询退款政策",
+    "create_handoff_ticket": "生成交接工单"
+  },
+  "dimension_labels": {
+    "functional_completeness": "功能完整性",
+    "interaction_quality": "交互质量",
+    "process_compliance": "流程合规",
+    "problem_resolution": "问题解决",
+    "tool_call_correctness": "工具调用准确度"
+  }
+}

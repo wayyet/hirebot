@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://openclaw.io/evaluation-expert-consumer/runtime-schemas/enriched_test_case.schema.json",
+  "title": "EnrichedTestCase",
+  "description": "STEP 2 (enrichTestCases) output. A tightened superset of test-case.schema.json that REQUIRES applicable_metrics to be filled in. STEP 1.5 (parseTestCases) may emit raw test cases without metrics; STEP 2 always runs to attach metric bindings, even for fully curated test cases.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "test_case_id",
+    "version",
+    "applicable_roles",
+    "applicable_scenarios",
+    "input",
+    "expected_output",
+    "applicable_metrics",
+    "enrichment"
+  ],
+  "properties": {
+    "test_case_id": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "display_name": { "type": "string" },
+    "summary": { "type": "string" },
+    "applicable_roles": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "applicable_scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": ["easy", "normal", "hard", "edge_case"]
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["user_message"],
+      "properties": {
+        "user_message": { "type": "string", "minLength": 1 },
+        "context": { "type": "object", "additionalProperties": true },
+        "follow_up_messages": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "expected_output": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Same shape as test-case.schema.json#/properties/expected_output."
+    },
+    "applicable_metrics": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Metric codes that MUST be evaluated against this test case. Each code MUST exist in the loaded MetricRegistry and MUST be compatible with this test case's role/scenarios.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric_code", "binding_reason"],
+        "properties": {
+          "metric_code": { "type": "string", "minLength": 1 },
+          "binding_reason": {
+            "type": "string",
+            "enum": [
+              "role_and_scenario_match",
+              "explicit_curation",
+              "red_line_required_for_scenario",
+              "policy_floor_metric"
+            ]
+          },
+          "weight_override": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Optional per-test-case weight override. Aggregation defaults to the metric's own weight when absent."
+          }
+        }
+      }
+    },
+    "enrichment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enriched_at", "source"],
+      "properties": {
+        "enriched_at": { "type": "string", "format": "date-time" },
+        "source": {
+          "type": "string",
+          "enum": [
+            "always_runs_step_2",
+            "manual_override"
+          ],
+          "description": "STEP 2 always runs even if applicable_metrics already exists; this records that enforcement."
+        },
+        "added_metric_codes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "removed_metric_codes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Same shape as test-case.schema.json#/properties/provenance. Synthesized cases MUST keep source='synthesized_from_user_scenarios' and remain outside the canonical catalog directory."
+    },
+    "polarity": {
+      "type": "string",
+      "enum": ["positive", "negative", "boundary"],
+      "description": "Case polarity for equivalence-class partitioning. positive = normal/allowed path; negative = restricted/escalation path; boundary = exactly at threshold. Used with paired_case_id to mark both sides of a decision boundary."
+    },
+    "paired_case_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "test_case_id of the paired case on the opposite side of the same decision boundary. Positive points to negative and vice versa. Enables audit of boundary coverage completeness."
+    }
+  }
+}

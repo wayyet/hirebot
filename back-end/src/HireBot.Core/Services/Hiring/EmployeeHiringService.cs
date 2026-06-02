@@ -753,7 +753,7 @@ internal sealed partial class EmployeeHiringService(
                 runtimeContext = await EnsureSandboxReinitializedAsync(runtimeContext, cancellationToken);
             }
 
-            runtimeContext = await EnsureExternalSystemConfigHydratedAsync(runtimeContext, cancellationToken);
+            runtimeContext = await EnsureExternalSystemConfigHydratedAsync(runtimeContext!, cancellationToken);
         }
 
         runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken) ?? runtimeContext;

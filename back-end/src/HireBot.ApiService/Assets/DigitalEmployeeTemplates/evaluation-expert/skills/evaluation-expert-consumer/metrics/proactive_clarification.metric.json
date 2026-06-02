@@ -1,0 +1,33 @@
+{
+  "metric_code": "proactive_clarification",
+  "version": "1.0.0",
+  "display_name": "主动澄清能力",
+  "description": "Whether the digital employee proactively asks for missing information when the user's request is ambiguous, instead of guessing or executing on a faulty assumption. Penalizes both extremes: (a) silent assumption-making that leads to a wrong answer; (b) over-asking that fragments simple requests into many round-trips. Generic across all roles.",
+  "parent_dimension": "problem_resolution",
+  "applicable_roles": ["*"],
+  "applicable_scenarios": ["*"],
+  "evidence_signals": [
+    "ambiguous user input gets a focused clarifying question, not a guess",
+    "clarifying question is targeted (asks for the specific missing field)",
+    "clarification batches multiple related missing fields rather than asking one-by-one",
+    "no clarifying question is asked when the answer is unambiguous",
+    "after receiving the clarification, the employee proceeds without re-asking the same field"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.opening_message",
+      "test_case.input.context",
+      "test_case.input.goal",
+      "trace.dialog_turns"
+    ],
+    "exclude": ["trace.actual_tool_calls"]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "Every ambiguous input triggers exactly one focused clarification batched across all related missing fields; unambiguous inputs are answered directly without unnecessary clarification; clarification questions are specific and actionable.",
+    "acceptable_60_79": "Major ambiguities are clarified; one minor missing field is filled by a reasonable assumption that is explicitly flagged ('I'll assume X unless you tell me otherwise'); clarifications are mostly batched.",
+    "poor_below_60": "A material ambiguity is silently resolved by guessing, leading the answer down a wrong path; OR every reply asks more clarifying questions, fragmenting the conversation; OR the employee re-asks the same field after the user already provided it."
+  },
+  "aggregation_strategy": "weighted_average_by_difficulty",
+  "default_weight_within_dimension": 0.3,
+  "tags": ["clarification", "ambiguity-handling", "generic", "cross-role"]
+}

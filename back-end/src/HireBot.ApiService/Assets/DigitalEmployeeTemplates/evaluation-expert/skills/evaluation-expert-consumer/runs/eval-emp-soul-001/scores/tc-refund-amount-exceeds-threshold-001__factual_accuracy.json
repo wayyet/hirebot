@@ -1,0 +1,18 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+  "metric_code": "factual_accuracy",
+  "metric_version": "1.0.0",
+  "score": 55,
+  "reasoning": "员工未编造任何虚假事实。正确识别了订单号ORD20240520001。诚实承认系统限制（'还没有接入可直接查询订单系统'）。未虚构政策条款或订单数据。但没有主动提及测试用例上下文中的关键事实（899元金额、超500元阈值），也未查询订单来获取事实基础。无hallucination→不扣分，但也无factual grounding→不加分。基线50+5（诚实性）。",
+  "evidence": [
+    { "source": "trace.dialog_turns", "ref": "turn_index=1,evaluatee", "quote": "收到订单号 **ORD20240520001**" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluatee", "quote": "目前我这边**还没有接入可直接查询订单系统**，所以没法在对话里'查到并回传'您订单" },
+    { "source": "trace.actual_tool_calls", "ref": "entire_array_empty", "quote": "[]" }
+  ],
+  "observed_signals": [],
+  "rubric_adjustments": [
+    { "rule_id": "no_fabrication_honesty_about_limits", "delta": 5, "evidence_index": 1 }
+  ],
+  "scored_at": "2026-06-01T09:22:02.200Z"
+}

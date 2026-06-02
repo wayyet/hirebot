@@ -1,0 +1,167 @@
+{
+  "$schema": "../../../../../docs/skill-projection-document.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "evaluation-expert-consumer-testcase-library-test-case-catalog-v1",
+    "projection_type": "test_case_catalog_projection",
+    "target_name": "EvaluationExpertConsumerTestCaseLibraryCatalog",
+    "target_format": "structured_test_case_catalog",
+    "target_runtime": "evaluation_expert_consumer",
+    "projection_goal": "Declare the schema, governance, discovery rules, and provenance policy for the hot-loadable evaluation test case catalog consumed by evaluation-expert-consumer.",
+    "source_slice": {
+      "path": "../../../../test-cases/",
+      "slice_topic": "evaluation test cases (input + expected_output + applicable_roles + applicable_scenarios + provenance)",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "evaluation_expert_consumer_skill",
+      "evaluation_expert_consumer"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "disallow_drop",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "C1",
+      "projection_action": "map",
+      "target_kind": "test_case_registry",
+      "target_name": "TestCaseRegistry",
+      "source_ids": ["S1"],
+      "attributes": {
+        "discovery_method": "filesystem_scan",
+        "discovery_root_default": "evaluation-expert-consumer/test-cases/",
+        "discovery_root_env_override": "EVALUATION_TEST_CASES_DIR",
+        "file_glob": "*.tc.json",
+        "key_field": "test_case_id",
+        "schema_path": "schemas/test-case.schema.json",
+        "validation_policy": "drop_invalid_with_warning"
+      },
+      "notes": "Loaded at STEP 1 to determine if curated cases match the employee. Synthesized cases (STEP 1.5) are NOT loaded into this registry."
+    },
+    {
+      "concept_id": "C2",
+      "projection_action": "map",
+      "target_kind": "test_case",
+      "target_name": "TestCase",
+      "source_ids": ["S1"],
+      "attributes": {
+        "schema_ref": "schemas/test-case.schema.json",
+        "required_fields": [
+          "test_case_id",
+          "version",
+          "applicable_roles",
+          "applicable_scenarios",
+          "input",
+          "expected_output"
+        ]
+      }
+    },
+    {
+      "concept_id": "C3",
+      "projection_action": "map",
+      "target_kind": "expected_output",
+      "target_name": "ExpectedOutput",
+      "source_ids": ["S1"],
+      "attributes": {
+        "subfields": [
+          "expected_tool_calls",
+          "expected_response_traits",
+          "forbidden_behaviors",
+          "expected_outcomes"
+        ],
+        "consumed_by": [
+          "STEP 7 buildPerMetricRuntimeSlices (as evidence anchor)",
+          "STEP 7 redLineCheck (must-criticality tools as red-line input)"
+        ]
+      }
+    },
+    {
+      "concept_id": "C4",
+      "projection_action": "map",
+      "target_kind": "provenance",
+      "target_name": "Provenance",
+      "source_ids": ["S1"],
+      "attributes": {
+        "source_enum": [
+          "manual_curation",
+          "regression_baseline",
+          "employee_sop",
+          "synthesized_from_user_scenarios"
+        ],
+        "catalog_only_allows": ["manual_curation", "regression_baseline"],
+        "synthesized_destination": "./runs/<eval-id>/synthesized-cases/"
+      },
+      "notes": "Strict provenance separation prevents synthesized cases from polluting the curated golden set."
+    }
+  ],
+  "relation_mappings": [
+    {
+      "relation_id": "R1",
+      "projection_action": "map",
+      "target_kind": "applies_to",
+      "from": "TestCase",
+      "to": "EmployeeRoleAndScenario",
+      "via_fields": ["applicable_roles", "applicable_scenarios"]
+    },
+    {
+      "relation_id": "R2",
+      "projection_action": "map",
+      "target_kind": "binds",
+      "from": "TestCase",
+      "to": "SubMetric",
+      "via_field": "applicable_metrics",
+      "notes": "Optional pre-binding. STEP 2 enrichTestCases validates and may augment based on the metric registry from metric-ontology."
+    }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "TestCaseFileNameMustEqualTestCaseId",
+      "severity_mapping": "high -> blocking_validation",
+      "source_ids": ["S1"],
+      "notes": "The basename of each test case file (excluding `.tc.json`) MUST equal its `test_case_id`."
+    },
+    {
+      "constraint_id": "K2",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "SynthesizedCasesNotInCatalog",
+      "severity_mapping": "critical -> blocking_validation",
+      "source_ids": ["S1"],
+      "notes": "Auto-synthesized test cases (provenance.source ∈ {employee_sop, synthesized_from_user_scenarios}) MUST NOT be written into the catalog directory. They live in run-scoped synthesized-cases/."
+    },
+    {
+      "constraint_id": "K3",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "MustCriticalityToolCallsFeedRedLine",
+      "severity_mapping": "critical -> blocking_validation",
+      "source_ids": ["S1"],
+      "notes": "expected_tool_calls entries with criticality=must are normative inputs to STEP 7 redLineCheck for the missing_required_signal trigger; their absence in trace results in passed=false."
+    }
+  ],
+  "delivery_artifacts": [
+    {
+      "artifact_id": "A1",
+      "kind": "json_schema_file",
+      "path": "schemas/test-case.schema.json"
+    }
+  ],
+  "dropped_items": [],
+  "open_questions": [],
+  "meta": {
+    "generated_at": "2026-05-27T00:00:00Z",
+    "generated_by": "testcase-ontology",
+    "workspace": "kingcrab",
+    "notes": "Test-case-catalog projection that declares the contract for the hot-loadable test case catalog. Actual instances live as `*.tc.json` files in evaluation-expert-consumer/test-cases/."
+  }
+}

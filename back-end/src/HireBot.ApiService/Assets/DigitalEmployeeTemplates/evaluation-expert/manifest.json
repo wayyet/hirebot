@@ -1,10 +1,10 @@
 {
   "name": "evaluation-expert",
-  "display_name": "评估专家对话包",
-  "positioning": "双沙箱评估流程的执行中枢，通过 runtime-context 驱动目标沙箱逐题执行并基于 trace 进行多维评分与报告生成。",
-  "description": "评估沙箱加载本模板包后，由 live_evaluation_coordinator 协调材料检查、题卡展示、目标沙箱执行采集、评分与报告输出。与目标沙箱建立鉴权后的 WebSocket，逐题执行测试用例并生成结构化 verdict。",
-  "version": "v2.2.0",
-  "entry_skill": "skills/live_evaluation_coordinator",
+  "display_name": "Evaluation Expert",
+  "positioning": "Evaluator sandbox package for the consumer evaluation workflow.",
+  "description": "The evaluator sandbox loads evaluation-expert-consumer as the entry skill. It consumes runtime context, role and metric catalogs, test cases, runtime drivers, simulators, and produces structured evaluation reports.",
+  "version": "v3.0.0",
+  "entry_skill": "skills/evaluation-expert-consumer",
   "ontology_slices": [
     {
       "name": "evaluation-baseline-ontology",
@@ -15,43 +15,8 @@
   ],
   "skills": [
     {
-      "name": "live_evaluation_coordinator",
-      "path": "skills/live_evaluation_coordinator/SKILL.md",
-      "required": true
-    },
-    {
-      "name": "live_evaluator",
-      "path": "skills/live_evaluator/SKILL.md",
-      "required": true
-    },
-    {
-      "name": "evaluator",
-      "path": "skills/evaluator/SKILL.md",
-      "required": true
-    },
-    {
-      "name": "report_generator",
-      "path": "skills/report_generator/SKILL.md",
-      "required": true
-    },
-    {
-      "name": "training_advisor",
-      "path": "skills/training_advisor/SKILL.md",
-      "required": true
-    },
-    {
-      "name": "scenario_parser",
-      "path": "skills/scenario_parser/SKILL.md",
-      "required": true
-    },
-    {
-      "name": "test_executor",
-      "path": "skills/test_executor/SKILL.md",
-      "required": true
-    },
-    {
-      "name": "evaluation_orchestrator",
-      "path": "skills/evaluation_orchestrator/SKILL.md",
+      "name": "evaluation-expert-consumer",
+      "path": "skills/evaluation-expert-consumer/SKILL.md",
       "required": true
     }
   ]

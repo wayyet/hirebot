@@ -1,0 +1,37 @@
+{
+  "$schema": "../contracts/projections/metric-ontology/metric-library/schemas/metric.schema.json",
+  "metric_code": "interaction_empathy",
+  "version": "1.0.0",
+  "display_name": "交互共情度",
+  "description": "Whether the employee acknowledged customer emotions, used empathic language, and avoided cold or mechanical tone.",
+  "parent_dimension": "interaction_quality",
+  "applicable_roles": ["customer-service-ecommerce", "after-sales-agent"],
+  "applicable_scenarios": [
+    "complaint",
+    "refund_request",
+    "service_failure",
+    "*"
+  ],
+  "evidence_signals": [
+    "explicit empathy phrases",
+    "acknowledgement of customer feelings",
+    "tone neutrality vs warmth"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.user_message",
+      "test_case.expected_output.expected_response_traits",
+      "test_case.expected_output.forbidden_behaviors",
+      "trace.dialog_turns"
+    ],
+    "exclude": ["trace.actual_tool_calls"]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "Multiple, contextually-appropriate empathy expressions; explicit acknowledgement of feelings; warm, non-mechanical tone throughout.",
+    "acceptable_60_79": "At least one explicit empathy expression and overall warm tone, with minor lapses.",
+    "poor_below_60": "Cold, mechanical, or dismissive tone; missing acknowledgement of clearly-expressed customer emotions; matched any forbidden_behavior."
+  },
+  "aggregation_strategy": "weighted_average_by_difficulty",
+  "default_weight_within_dimension": 0.5,
+  "tags": ["interaction", "soft-skill"]
+}

@@ -1,0 +1,31 @@
+{
+  "metric_code": "response_clarity_and_structure",
+  "version": "1.0.0",
+  "display_name": "回复条理性与结构",
+  "description": "Whether the digital employee organizes responses with clear structure (numbered steps / parallel bullets / explicit sequencing words / appropriate paragraph breaks) so the user can follow the reasoning without re-reading. Generic across all roles.",
+  "parent_dimension": "interaction_quality",
+  "applicable_roles": ["*"],
+  "applicable_scenarios": ["*"],
+  "evidence_signals": [
+    "use of numbered steps when the answer has discrete actions",
+    "use of bullets when the answer has parallel options",
+    "explicit sequencing words ('首先' / '然后' / '最后' / 'first' / 'next' / 'finally')",
+    "logical grouping of related points instead of stream-of-consciousness",
+    "appropriate paragraph breaks; no wall-of-text"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.opening_message",
+      "trace.dialog_turns"
+    ],
+    "exclude": ["trace.actual_tool_calls"]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "Every multi-part answer uses appropriate structure (numbered for actions, bullets for options) with explicit sequencing markers; reader can scan and identify each step at a glance; structure choice fits content (no over-engineering single-sentence replies).",
+    "acceptable_60_79": "Most multi-part answers are structured; one or two replies are slightly run-on or skip a sequencing marker, but the logical flow is still recoverable on a careful read.",
+    "poor_below_60": "Wall-of-text answers; multiple discrete actions packed into one paragraph; sequencing unclear; reader has to re-parse to extract steps; or structure misused (bullets where prose was clearer)."
+  },
+  "aggregation_strategy": "weighted_average_by_difficulty",
+  "default_weight_within_dimension": 0.4,
+  "tags": ["clarity", "structure", "generic", "cross-role", "soft-skill"]
+}

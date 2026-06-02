@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://openclaw.io/evaluation-expert-consumer/runtime-schemas/simulator.schema.json",
+  "title": "UserSimulatorManifest",
+  "description": "Metadata file (simulator.json) that every user simulator under ./simulators/<simulator_id>/ MUST publish. A simulator is NOT a subprocess and NOT an external LLM. It is a ROLE PROFILE that the host evaluation-expert agent itself plays in STEP 3, using its OWN LLM brain — exactly the same brain that runs STEP 1.5 / STEP 4 / STEP 8 / STEP 9. The manifest captures the persona/voice the agent should adopt when impersonating a customer; the actual decision text is produced by the agent's own LLM each turn, then handed to the runtime_driver subprocess for I/O. Symmetric to runtime_driver.schema.json by purpose, but DIFFERENT in execution model: drivers ARE subprocesses, simulators are NOT.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "simulator_id",
+    "version",
+    "kind",
+    "system_prompt"
+  ],
+  "properties": {
+    "simulator_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier. MUST equal the simulator's directory basename. Referenced by EvaluationContext.runtime_simulator.simulator_id."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Semver-style version of this simulator profile."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["llm_persona", "scripted_replay", "rule_based"],
+      "description": "Simulator family. 'llm_persona' is the primary kind: the host agent's LLM consumes system_prompt + per-turn placeholders and emits a SimulatorDecision. 'scripted_replay' / 'rule_based' are escape hatches for offline replay or deterministic regression and are NOT in scope for v2.0."
+    },
+    "system_prompt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Relative path (within the simulator directory) to the system-prompt template file. The template MAY contain placeholders such as {{customer_persona}}, {{goal}}, {{stop_conditions}}, {{context}}, {{current_emotion}}, {{dialog_so_far}}, {{effective_max_turns}}; the host agent expands them each turn before consulting its own LLM. Typical value: 'system_prompt.md'."
+    },
+    "produces": {
+      "type": "string",
+      "const": "runtime-schemas/simulator_decision.schema.json",
+      "description": "Every turn the host agent MUST shape its output as a SimulatorDecision conforming to this schema BEFORE forwarding next_utterance to the driver and BEFORE appending the decision to ExecutionTrace.simulator_trail. Pinned literally so the contract stays checkable, but the schema is enforced by the agent's own scoring/parsing — not by a subprocess boundary."
+    },
+    "consumes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "runtime-schemas/evaluation_context.schema.json",
+          "runtime-schemas/enriched_test_case.schema.json",
+          "runtime-schemas/execution_trace.schema.json"
+        ]
+      },
+      "description": "Inputs the host agent must consult while playing this simulator role. Minimum: enriched_test_case (persona/goal/stop_conditions/opening_message) + the in-progress execution_trace (dialog so far + previous simulator_trail entries)."
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional self-declared capabilities the role profile expects the host agent to honor.",
+      "properties": {
+        "supports_emotion_tracking": { "type": "boolean", "default": false },
+        "supports_progress_assessment": { "type": "boolean", "default": false },
+        "supports_bottom_line_check": { "type": "boolean", "default": false }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional human-readable notes for simulator authors / reviewers."
+    }
+  }
+}

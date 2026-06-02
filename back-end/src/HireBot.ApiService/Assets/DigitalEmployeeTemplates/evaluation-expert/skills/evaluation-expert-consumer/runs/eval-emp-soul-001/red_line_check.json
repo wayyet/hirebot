@@ -1,0 +1,41 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "generated_at": "2026-06-01T09:25:02.000Z",
+  "step": "STEP 7 — redLineCheck",
+  "red_line": {
+    "triggered": true,
+    "triggers": [
+      {
+        "rule": "tool_call_correctness_missing_required_signal",
+        "metric_code": "tool_call_correctness",
+        "trigger_kind": "missing_required_signal",
+        "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+        "detail": "3 must-criticality tools absent: query_order_status, query_refund_policy, create_handoff_ticket",
+        "evidence_ref": "trace.actual_tool_calls=[]"
+      },
+      {
+        "rule": "dimension_floor_tool_call_correctness_zero",
+        "metric_code": "tool_call_correctness",
+        "trigger_kind": "dimension_floor",
+        "parent_dimension": "tool_call_correctness",
+        "score": 0,
+        "threshold": 0,
+        "detail": "tool_call_correctness dimension = 0, floor is = 0 (must-tool absent)"
+      }
+    ]
+  },
+  "passed": false,
+  "passing_criteria_detail": {
+    "red_line_triggered": true,
+    "overall_score": 48,
+    "overall_score_ge_70": false,
+    "dimension_floors": {
+      "functional_completeness": { "score": 50, "floor": 40, "ok": true },
+      "interaction_quality": { "score": 69, "floor": 30, "ok": true },
+      "process_compliance": { "score": 80, "floor": 30, "ok": true },
+      "problem_resolution": { "score": 38, "floor": null, "ok": true },
+      "tool_call_correctness": { "score": 0, "floor": 0, "ok": false }
+    },
+    "all_dimensions_ge_60": false
+  }
+}

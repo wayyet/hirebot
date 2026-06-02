@@ -1,0 +1,63 @@
+{
+  "$schema": "../../../../docs/skill-projection-contract-index.schema.json",
+  "template_type": "ontology_contract_index",
+  "index_version": "1.0.0",
+  "producer_skill": "metric-ontology",
+  "consumer_skill": "evaluation-expert-consumer",
+  "default_selection_policy": {
+    "fallback_order_by_target_view": ["metric-catalog"],
+    "on_no_match": "block_or_escalate"
+  },
+  "topic_conflict_resolution": {
+    "pairwise_rules": []
+  },
+  "topic_scoring": [
+    {
+      "topic": "metric-library",
+      "primary_intent_signals": ["指标库", "指标清单", "可选指标", "catalog", "list of metrics", "metric registry"],
+      "explicit_artifact_signals": ["metric_code", ".metric.json", "applicable_roles", "scoring_rubric"],
+      "supporting_signals": ["指标", "维度", "evaluation metric"],
+      "demote_when_competing_topic_signals": []
+    }
+  ],
+  "target_view_scoring": {
+    "metric-catalog": {
+      "primary_intent_signals": ["catalog", "registry", "枚举", "清单", "目录"],
+      "supporting_signals": ["指标定义", "rubric", "applicable scenarios"],
+      "weight": 5
+    }
+  },
+  "within_topic_overrides": {
+    "metric-library": {
+      "target_view_bonuses": {
+        "metric-catalog": {
+          "bonus_when_request_contains": ["registry", "schema", "热加载", "目录", "catalog", "清单"],
+          "bonus_value": 3
+        }
+      }
+    }
+  },
+  "selection_algorithm": {
+    "phases": [
+      "score_topics",
+      "score_target_views",
+      "resolve_projection"
+    ],
+    "tie_break_order": ["primary_intent_signals", "explicit_artifact_signals", "supporting_signals"],
+    "min_score_to_route": 1
+  },
+  "target_view_hints": {
+    "metric-catalog": "Use when the consumer needs the enumerated metric registry (definitions, rubrics, slice selectors). Different from prompt-constraint, which only governs selection rules."
+  },
+  "topics": {
+    "metric-library": {
+      "description": "Enumerated catalog of evaluation sub-metrics. The contract declares schema and governance; actual metric instances live as hot-loadable files in evaluation-expert-consumer/metrics/.",
+      "target_views": {
+        "metric-catalog": {
+          "status": "READY",
+          "projection_path": "metric-library/metric-library.metric-catalog.projection.json"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "driver_id": "ws_jwt",
+  "version": "2.0.0",
+  "protocol": "websocket+jwt",
+  "entry": "run.py",
+  "language": "python",
+  "produces": "runtime-schemas/execution_trace.schema.json",
+  "consumes": [
+    "runtime-schemas/evaluation_context.schema.json",
+    "runtime-schemas/enriched_test_case.schema.json"
+  ],
+  "capabilities": {
+    "supports_multi_turn": true,
+    "supports_tool_call_observation": true,
+    "supports_auto_approval": true,
+    "supports_stdin_control": true
+  },
+  "config_schema": {
+    "type": "object",
+    "required": ["endpoint", "token"],
+    "additionalProperties": false,
+    "properties": {
+      "endpoint": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Gateway address. Either bare HOST:PORT, http(s)://..., or ws(s)://..."
+      },
+      "token": {
+        "type": "string",
+        "minLength": 1,
+        "description": "JWT bearer token, appended to ws URL as ?token=..."
+      },
+      "timeout": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 60,
+        "description": "Per-turn assistant_done timeout in seconds (evaluatee side). Bounds how long the driver waits for the evaluatee to finish replying after each 'send' action from the host agent."
+      },
+      "auto_approve_tools": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true, automatically approves any approval_required messages from the evaluatee."
+      }
+    }
+  },
+  "notes": "v2.0: long-lived stdin/stdout JSON protocol. Spawned ONCE per scenario; the host evaluation-expert agent (acting as the customer simulator with its OWN LLM) drives turns by writing {\"action\":\"send\",...} / {\"action\":\"end\",...} lines to the driver's stdin and reads {\"event\":\"ready\"} / {\"event\":\"evaluatee_turn\",...} / {\"event\":\"trace_written\",...} / {\"event\":\"error\",...} lines on stdout. The legacy 'max_turns' and 'simulator_timeout' fields have been removed: the per-scenario hard cap now comes from min(test_case.turn_budget.hard_max_turns, evaluation_context.global_turn_cap), and there is no simulator subprocess to time out (the simulator is the host agent itself, NOT a subprocess). Reuses ws_client.py untouched."
+}

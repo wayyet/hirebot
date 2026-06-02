@@ -1,0 +1,288 @@
+{
+  "$schema": "../../../../../docs/skill-projection-document.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "evaluation-expert-consumer-customer-service-ecommerce-workflow-contract-v1",
+    "projection_type": "workflow_contract_projection",
+    "target_name": "EvaluationExpertConsumerCustomerServiceEcommerceWorkflowContract",
+    "target_format": "workflow_contract",
+    "target_runtime": "evaluation_expert_consumer",
+    "projection_goal": "Provide the evaluation-expert-consumer skill with a workflow contract for evaluating e-commerce customer-service employees, covering red-line gating, dimension scoring, ticket-creation expectations, and closing confirmation.",
+    "source_slice": {
+      "path": "../../../../SKILL.md",
+      "slice_topic": "e-commerce customer-service evaluation pipeline with red-line gating and evidence-driven scoring",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "evaluation_expert_consumer_skill",
+      "evaluation_expert_consumer"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "disallow_drop",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "C1",
+      "projection_action": "map",
+      "target_kind": "workflow_input",
+      "target_name": "testCase",
+      "target_path": "workflow.inputs.testCase",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Expose the structured test case (expected_behavior_sequence, expected_output, mandatory tool calls) as a first-class workflow input."
+    },
+    {
+      "concept_id": "C2",
+      "projection_action": "map",
+      "target_kind": "workflow_input",
+      "target_name": "executionTrace",
+      "target_path": "workflow.inputs.executionTrace",
+      "source_ids": [
+        "S2"
+      ],
+      "notes": "Make the captured execution trace (turns, tool_calls, assistant_messages, thoughts) an explicit workflow input so scoring decisions are grounded in evidence."
+    },
+    {
+      "concept_id": "C3",
+      "projection_action": "map",
+      "target_kind": "workflow_input",
+      "target_name": "employeeTemplate",
+      "target_path": "workflow.inputs.employeeTemplate",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Bind the employee template id (e.g., customer-service-ecommerce) so dimension weights and red-line thresholds resolve deterministically."
+    },
+    {
+      "concept_id": "C4",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "redLineCheck",
+      "target_path": "workflow.steps.redLineCheck",
+      "source_ids": [
+        "S3"
+      ],
+      "notes": "First step: evaluate red-line conditions before any positive scoring; failing this step short-circuits the pipeline to a fail-out result."
+    },
+    {
+      "concept_id": "C5",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "scoreDimensions",
+      "target_path": "workflow.steps.scoreDimensions",
+      "source_ids": [
+        "S3",
+        "S4"
+      ],
+      "notes": "Second step: compute the five dimension scores (functional_completeness, interaction_quality, process_compliance, problem_resolution, tool_call_correctness) from the execution trace and test case."
+    },
+    {
+      "concept_id": "C6",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "aggregateOverallScore",
+      "target_path": "workflow.steps.aggregateOverallScore",
+      "source_ids": [
+        "S4"
+      ],
+      "notes": "Third step: weighted aggregation (0.25 / 0.20 / 0.20 / 0.15 / 0.20) and per-dimension >=60 plus overall >=70 pass criteria."
+    },
+    {
+      "concept_id": "C7",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "buildEvaluationReport",
+      "target_path": "workflow.steps.buildEvaluationReport",
+      "source_ids": [
+        "S5"
+      ],
+      "notes": "Fourth step: assemble the structured report with dimension breakdowns, evidence citations, critical issues, and improvement suggestions."
+    },
+    {
+      "concept_id": "C8",
+      "projection_action": "map",
+      "target_kind": "workflow_output",
+      "target_name": "evaluationReport",
+      "target_path": "workflow.outputs.evaluationReport",
+      "source_ids": [
+        "S5"
+      ],
+      "notes": "Final deliverable matching the evaluator SKILL output schema (overall_score, passed, red_lines_triggered, dimension_scores, critical_issues, improvement_points, recommendation)."
+    }
+  ],
+  "relation_mappings": [
+    {
+      "relation_id": "R1",
+      "projection_action": "map",
+      "target_kind": "workflow_edge",
+      "target_name": "RedLineCheckPrecedesDimensionScoring",
+      "representation": "workflow_step_edge",
+      "source_ids": [
+        "S3"
+      ],
+      "notes": "Red-line evaluation must complete before per-dimension scoring runs; if any red line triggers, the pipeline must short-circuit instead of computing weighted scores."
+    },
+    {
+      "relation_id": "R2",
+      "projection_action": "map",
+      "target_kind": "workflow_edge",
+      "target_name": "DimensionScoringPrecedesAggregation",
+      "representation": "workflow_step_edge",
+      "source_ids": [
+        "S4"
+      ],
+      "notes": "Aggregation must consume completed per-dimension scores; partial scores must not be aggregated."
+    },
+    {
+      "relation_id": "R3",
+      "projection_action": "map",
+      "target_kind": "workflow_edge",
+      "target_name": "AggregationPrecedesReportBuild",
+      "representation": "workflow_step_edge",
+      "source_ids": [
+        "S5"
+      ],
+      "notes": "Report build must consume the final overall score and pass/fail decision; reports must not be drafted from interim scoring buffers."
+    },
+    {
+      "relation_id": "R4",
+      "projection_action": "map",
+      "target_kind": "workflow_edge",
+      "target_name": "ToolCallEvidenceFeedsToolCorrectnessDimension",
+      "representation": "workflow_step_edge",
+      "source_ids": [
+        "S2",
+        "S4"
+      ],
+      "notes": "tool_call_correctness scoring must read tool_call records from executionTrace; missing required tool calls must be flagged as critical evidence."
+    }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "MissingRequiredToolCallTriggersFailOut",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "source_ids": [
+        "S3"
+      ],
+      "notes": "If executionTrace lacks any tool call marked mandatory in the test case (e.g., create_ticket for return scenarios), set tool_call_correctness = 0 and short-circuit to fail-out before aggregation."
+    },
+    {
+      "constraint_id": "K2",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "ProcessComplianceFloorTriggersFailOut",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "source_ids": [
+        "S3"
+      ],
+      "notes": "If process_compliance score <= 30 (severe procedural violation), short-circuit to fail-out regardless of other dimension scores."
+    },
+    {
+      "constraint_id": "K3",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "InteractionQualityFloorTriggersFailOut",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "source_ids": [
+        "S3"
+      ],
+      "notes": "If interaction_quality score <= 30 (cold/mechanical tone, dismissive replies), short-circuit to fail-out regardless of other dimension scores."
+    },
+    {
+      "constraint_id": "K4",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "FunctionalCompletenessFloorTriggersFailOut",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "source_ids": [
+        "S3"
+      ],
+      "notes": "If functional_completeness score <= 40 (core task unresolved), short-circuit to fail-out regardless of other dimension scores."
+    },
+    {
+      "constraint_id": "K5",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "PassRequiresOverallAndPerDimensionFloors",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "source_ids": [
+        "S4"
+      ],
+      "notes": "Mark passed = true only when overall_score >= 70 AND every dimension score >= 60 AND no red line triggered. Any single-dimension dip below 60 must result in passed = false."
+    },
+    {
+      "constraint_id": "K6",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "EachAdjustmentRequiresEvidence",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "source_ids": [
+        "S4",
+        "S5"
+      ],
+      "notes": "Every dimension score adjustment (positive or negative) must carry an evidence reference quoting the conversation or tool-call record. Adjustments without evidence must be rejected and re-derived."
+    }
+  ],
+  "prompt_projection": {
+    "allowed_terms": [
+      "functional_completeness",
+      "interaction_quality",
+      "process_compliance",
+      "problem_resolution",
+      "tool_call_correctness",
+      "red_line",
+      "baseline_score",
+      "evidence",
+      "create_ticket"
+    ],
+    "forbidden_assumptions": [
+      "Do not invent dimension names that are not declared in the customer-service-ecommerce metric set.",
+      "Do not bypass red-line short-circuit by averaging it away in weighted aggregation.",
+      "Do not produce passed = true when any red line triggered, even if overall_score >= 70.",
+      "Do not add new mandatory tool calls that are not declared in the test case."
+    ],
+    "required_clarifications": [],
+    "reasoning_paths": [
+      "load_test_case -> load_execution_trace -> red_line_check -> score_dimensions -> aggregate_overall_score -> build_evaluation_report",
+      "tool_call_evidence -> tool_call_correctness -> red_line_trigger?"
+    ],
+    "source_digest": [
+      "Primary source: evaluation-expert-consumer/SKILL.md (red-line principles, baseline scoring, evidence-driven adjustments)",
+      "Supporting source: evaluation-expert-consumer/SKILL.md (built-in route table for customer-service-ecommerce)",
+      "Supporting source: evaluation-expert-consumer test-case schema (expected_behavior_sequence and expected_output compatibility)"
+    ]
+  },
+  "delivery_artifacts": [
+    {
+      "artifact_name": "customer-service-ecommerce.workflow-contract.json",
+      "artifact_type": "workflow_contract",
+      "path": "evaluation-expert-consumer/contracts/generated/customer-service-ecommerce/customer-service-ecommerce.workflow-contract.json",
+      "status": "planned"
+    },
+    {
+      "artifact_name": "evaluation_report",
+      "artifact_type": "evaluation_report",
+      "path": "evaluation-expert-consumer/contracts/generated/customer-service-ecommerce/evaluation-report.json",
+      "status": "planned"
+    }
+  ],
+  "dropped_items": [],
+  "open_questions": [],
+  "meta": {
+    "generated_at": "2026-05-27T00:00:00Z",
+    "generated_by": "ontology_extraction",
+    "workspace": "kingcrab",
+    "notes": "This consumer-skill workflow projection gives evaluation-expert-consumer an orchestration-ready contract for evaluating e-commerce customer-service employees with red-line gating and evidence-driven dimension scoring."
+  }
+}

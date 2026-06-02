@@ -1264,13 +1264,13 @@
   display: none;
 }
 .eval-side-disclosure-summary::after {
-  content: "灞曞紑";
+  content: "展开";
   font-size: 11px;
   font-weight: 500;
   color: #94a3b8;
 }
 .eval-side-disclosure[open] .eval-side-disclosure-summary::after {
-  content: "鏀惰捣";
+  content: "收起";
 }
 .dark .eval-side-disclosure-summary {
   color: #e2e8f0;

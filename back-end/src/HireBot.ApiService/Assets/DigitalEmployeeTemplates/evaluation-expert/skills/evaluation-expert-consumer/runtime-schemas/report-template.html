@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>评估报告 — {{EMPLOYEE_NAME}}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --primary: #1a73e8;
+  --danger: #d93025;
+  --success: #1e8e3e;
+  --bg: #f8f9fa;
+  --card: #ffffff;
+  --border: #dadce0;
+  --text: #202124;
+  --text-secondary: #5f6368;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.header { text-align: center; margin-bottom: 32px; }
+.header h1 { font-size: 28px; margin-bottom: 8px; }
+.header .subtitle { color: var(--text-secondary); font-size: 14px; }
+.badge { display: inline-block; padding: 4px 12px; border-radius: 16px; font-size: 13px; font-weight: 500; }
+.badge-pass { background: #e6f4ea; color: var(--success); }
+.badge-fail { background: #fce8e6; color: var(--danger); }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+.card h2 { font-size: 18px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+.score-big { font-size: 64px; font-weight: 700; text-align: center; }
+.score-big.pass { color: var(--success); }
+.score-big.fail { color: var(--danger); }
+.radar-container { position: relative; max-width: 450px; margin: 0 auto; }
+.dimension-table { width: 100%; border-collapse: collapse; }
+.dimension-table th, .dimension-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+.dimension-table th { font-weight: 500; color: var(--text-secondary); font-size: 13px; }
+.score-bar { height: 8px; border-radius: 4px; background: #e8eaed; position: relative; }
+.score-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+.red-line-box { background: #fce8e6; border: 1px solid #f28b82; border-radius: 8px; padding: 16px; }
+.red-line-box.ok { background: #e6f4ea; border-color: #81c995; }
+.tab-bar { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.tab-btn { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap; }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 500; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.chat-history { max-height: 500px; overflow-y: auto; padding: 12px; }
+.chat-msg { margin-bottom: 12px; padding: 10px 14px; border-radius: 12px; max-width: 80%; }
+.chat-msg.customer { background: #e3f2fd; margin-right: auto; border-bottom-left-radius: 4px; }
+.chat-msg.employee { background: #f3e5f5; margin-left: auto; border-bottom-right-radius: 4px; }
+.chat-msg .actor { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.chat-msg .content { font-size: 14px; white-space: pre-wrap; }
+.tool-call { background: #fff3e0; border: 1px solid #ffcc02; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+.tool-call .tool-name { font-weight: 600; color: #e65100; }
+.tool-call .tool-params { font-family: monospace; font-size: 13px; margin-top: 4px; color: var(--text-secondary); }
+.thinking-block { background: #f1f3f4; border-left: 3px solid var(--primary); padding: 12px; margin-bottom: 8px; font-size: 13px; color: var(--text-secondary); }
+.metric-result { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f1f3f4; }
+.metric-result:last-child { border-bottom: none; }
+.metric-code { font-weight: 500; min-width: 200px; }
+.metric-score { font-weight: 700; min-width: 40px; text-align: right; }
+.list-styled { padding-left: 20px; }
+.list-styled li { margin-bottom: 6px; font-size: 14px; }
+.pattern-card { background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+.pattern-card .pattern-title { font-weight: 600; margin-bottom: 4px; }
+.pattern-card .pattern-obs { font-size: 13px; color: var(--text-secondary); }
+.improvement-item { padding: 12px; border-left: 3px solid var(--primary); margin-bottom: 8px; background: #f8f9fa; }
+.improvement-item .priority { display: inline-block; background: var(--danger); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-right: 8px; }
+.footer { text-align: center; padding: 24px; color: var(--text-secondary); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- HEADER -->
+  <div class="header">
+    <h1>数字员工能力评估报告</h1>
+    <div class="subtitle">
+      <strong id="emp-name"></strong> · <span id="emp-role"></span> · 评估时间：<span id="eval-time"></span>
+    </div>
+    <div style="margin-top:12px">
+      <span class="badge" id="pass-badge"></span>
+    </div>
+  </div>
+
+  <!-- TAINTED RUN BANNER (STEP 9 / K11 / K16 / K18) -->
+  <div id="tainted-banner" style="display:none;background:#fce8e6;border:1px solid #f28b82;border-radius:12px;padding:16px;margin-bottom:24px;color:#a50e0e">
+    <strong>⚠️ 评估结论为「指示性（indicative）」而非「结论性（definitive）」</strong>
+    <ul id="tainted-reasons" class="list-styled" style="margin-top:8px"></ul>
+  </div>
+
+  <!-- OVERVIEW: SCORE + RADAR -->
+  <div class="grid-2">
+    <div class="card">
+      <h2>综合得分</h2>
+      <div class="score-big" id="overall-score"></div>
+      <div style="text-align:center;margin-top:8px;color:var(--text-secondary)" id="score-desc"></div>
+      <!-- Red line -->
+      <div style="margin-top:16px" id="redline-box"></div>
+    </div>
+    <div class="card">
+      <h2>能力雷达图</h2>
+      <div class="radar-container">
+        <canvas id="radarChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- DIMENSION SCORES TABLE -->
+  <div class="card">
+    <h2>维度得分详情</h2>
+    <table class="dimension-table">
+      <thead><tr><th>维度</th><th>权重</th><th>得分</th><th></th></tr></thead>
+      <tbody id="dim-table-body"></tbody>
+    </table>
+  </div>
+
+  <!-- EXECUTIVE SUMMARY -->
+  <div class="card">
+    <h2>执行摘要</h2>
+    <p id="exec-summary" style="font-size:15px"></p>
+  </div>
+
+  <!-- STRENGTHS & WEAKNESSES -->
+  <div class="grid-2">
+    <div class="card">
+      <h2>✅ 优势</h2>
+      <ul class="list-styled" id="strengths-list"></ul>
+    </div>
+    <div class="card">
+      <h2>⚠️ 不足</h2>
+      <ul class="list-styled" id="weaknesses-list"></ul>
+    </div>
+  </div>
+
+  <!-- CROSS-SCENARIO PATTERNS -->
+  <div class="card">
+    <h2>跨场景模式</h2>
+    <div id="patterns-container"></div>
+  </div>
+
+  <!-- IMPROVEMENT PLAN -->
+  <div class="card">
+    <h2>改进计划</h2>
+    <div id="improvement-container"></div>
+  </div>
+
+  <!-- SCENARIO REPORTS (TABS) -->
+  <div class="card">
+    <h2>场景详情</h2>
+    <div class="tab-bar" id="scenario-tabs"></div>
+    <div id="scenario-panels"></div>
+  </div>
+
+  <!-- OPEN QUESTIONS -->
+  <div class="card" id="open-questions-card" style="display:none">
+    <h2>待确认事项</h2>
+    <ul class="list-styled" id="open-questions-list"></ul>
+  </div>
+
+  <div class="footer">
+    评估系统 v1.0 · 报告生成时间 <span id="footer-time"></span> · 评估ID: <span id="footer-eval-id"></span>
+  </div>
+</div>
+
+<!--
+  ==================== DATA INJECTION ====================
+  STEP 9 agent: replace the content between REPORT_DATA markers
+  with the actual evaluation_report.json content.
+  Replace SCENARIOS_DATA with an array of objects:
+  [{ report: <scenario_report.json>, trace: <trace.json>, enriched: <enriched_case.json> }, ...]
+-->
+<script id="report-data" type="application/json">
+{{REPORT_DATA}}
+</script>
+<script id="scenarios-data" type="application/json">
+{{SCENARIOS_DATA}}
+</script>
+
+<script>
+// ===== RENDER LOGIC =====
+const report = JSON.parse(document.getElementById('report-data').textContent);
+const scenarios = JSON.parse(document.getElementById('scenarios-data').textContent);
+
+// Dimension config
+const DIM_CONFIG = {
+  functional_completeness: { label: '功能完整性', weight: '25%' },
+  interaction_quality: { label: '交互质量', weight: '20%' },
+  process_compliance: { label: '流程合规', weight: '20%' },
+  problem_resolution: { label: '问题解决', weight: '20%' },
+  tool_call_correctness: { label: '工具调用', weight: '15%' }
+};
+const DIM_ORDER = Object.keys(DIM_CONFIG);
+const TARGET_SCORE = 85;
+
+// === STEP 9 / K18 中文叙事字典 ===
+// 模板不内置任何 metric / tool 中文名（指标会持续新增，写死会让新指标退化为英文 code）。
+// STEP 9 必须在 REPORT_DATA 中注入：
+//   report.metric_labels = { <metric_code>: <metrics/<code>.metric.json#display_name>, ... }   // 全量当前评估涉及的 metric
+//   report.tool_labels   = { <tool_name>:   <role-catalog tool#display_name>,           ... }   // 全量当前评估涉及的 tool
+//   report.dimension_labels = { <dim_code>: <evaluation_context.dimension_meta[dim].display_name>, ... }   // 可选
+// 找不到注入项时退化为 code 字符串，并由 K18 self-check 在产出阶段拦截。
+const TRIGGER_KIND_LABEL = {
+  missing_required_signal: '必须信号缺失',
+  forbidden_behavior: '禁止行为出现',
+  threshold_breach: '阈值越界'
+};
+function metricLabel(code) {
+  const inj = (window.__reportLabels && window.__reportLabels.metric) || {};
+  return inj[code] || code;
+}
+function toolLabel(code) {
+  const inj = (window.__reportLabels && window.__reportLabels.tool) || {};
+  return inj[code] || code;
+}
+function triggerKindLabel(kind) { return TRIGGER_KIND_LABEL[kind] || kind || ''; }
+function dimLabel(code) {
+  const inj = (window.__reportLabels && window.__reportLabels.dimension) || {};
+  return inj[code] || (DIM_CONFIG[code] && DIM_CONFIG[code].label) || code;
+}
+function translateSignal(sig) {
+  if (typeof sig !== 'string') return '';
+  let m = sig.match(/^missing_required_tool_call:(.+)$/);
+  if (m) return `必须工具未调用：${toolLabel(m[1].trim())}`;
+  m = sig.match(/^forbidden_behavior:(.+)$/);
+  if (m) return `出现禁止行为：${m[1].trim()}`;
+  m = sig.match(/^threshold_breach:(.+)$/);
+  if (m) return `阈值越界：${m[1].trim()}`;
+  return sig;
+}
+
+// Header
+document.getElementById('emp-name').textContent = report.employee?.display_name || report.employee?.employee_id || '';
+document.getElementById('emp-role').textContent = report.employee?.role || '';
+document.getElementById('eval-time').textContent = report.generated_at ? new Date(report.generated_at).toLocaleString('zh-CN') : '';
+const passBadge = document.getElementById('pass-badge');
+passBadge.textContent = report.passed ? '✓ 通过' : '✗ 未通过';
+passBadge.className = 'badge ' + (report.passed ? 'badge-pass' : 'badge-fail');
+
+// Overall score
+const scoreEl = document.getElementById('overall-score');
+scoreEl.textContent = report.overall_score;
+scoreEl.className = 'score-big ' + (report.passed ? 'pass' : 'fail');
+document.getElementById('score-desc').textContent = report.passed ? '达标' : '未达标 — 需改进后复测';
+
+// Inject label dictionaries from REPORT_DATA (STEP 9 MUST author these from
+// metrics/<code>.metric.json#display_name and role-catalog tool#display_name —
+// the template intentionally has no built-in metric/tool fallback so that newly
+// added metrics/tools cannot silently regress into raw English codes).
+window.__reportLabels = {
+  metric: report.metric_labels || {},
+  tool: report.tool_labels || {},
+  dimension: report.dimension_labels || {}
+};
+
+// Red line
+const rl = report.red_line;
+const rlBox = document.getElementById('redline-box');
+if (rl && rl.triggered !== undefined) {
+  const triggered = rl.triggered || (rl.passed === false);
+  // K18 中文叙事：优先使用 narratives（已中文化的句子数组）；其次把 details 兼容渲染
+  const rawLines = rl.narratives || rl.details || [];
+  const items = (Array.isArray(rawLines) ? rawLines : []).map(item => {
+    if (typeof item === 'string') return item;
+    if (item && item.description) return item.description;
+    if (item && item.metric_code && item.trigger_kind) {
+      return `${metricLabel(item.metric_code)}：触发"${triggerKindLabel(item.trigger_kind)}"红线`;
+    }
+    return JSON.stringify(item);
+  });
+  rlBox.innerHTML = `<div class="red-line-box ${triggered ? '' : 'ok'}">
+    <strong>${triggered ? '🔴 红线已触发' : '🟢 红线未触发'}</strong>
+    ${items.length ? '<ul style="margin-top:8px;padding-left:20px">' + items.map(d => `<li style="font-size:13px;line-height:1.7">${escapeHtml(d)}</li>`).join('') + '</ul>' : ''}
+  </div>`;
+} else { rlBox.style.display = 'none'; }
+
+// Radar chart
+const dimScores = report.dimension_scores || {};
+const radarData = DIM_ORDER.map(k => dimScores[k] || 0);
+const radarLabels = DIM_ORDER.map(k => `${dimLabel(k)}(${DIM_CONFIG[k].weight})`);
+new Chart(document.getElementById('radarChart'), {
+  type: 'radar',
+  data: {
+    labels: radarLabels,
+    datasets: [
+      { label: '实际得分', data: radarData, backgroundColor: 'rgba(26,115,232,0.2)', borderColor: '#1a73e8', borderWidth: 2, pointRadius: 4, pointBackgroundColor: '#1a73e8' },
+      { label: `目标值(${TARGET_SCORE})`, data: DIM_ORDER.map(() => TARGET_SCORE), backgroundColor: 'transparent', borderColor: '#9e9e9e', borderWidth: 1, borderDash: [5,5], pointRadius: 0 }
+    ]
+  },
+  options: {
+    responsive: true,
+    scales: { r: { min: 0, max: 100, ticks: { stepSize: 20, backdropColor: 'transparent', font: { size: 10 } }, grid: { color: '#dadce0' }, pointLabels: { font: { size: 12 } } } },
+    plugins: { legend: { position: 'bottom', labels: { font: { size: 12 } } } }
+  }
+});
+
+// Dimension table
+const dimBody = document.getElementById('dim-table-body');
+DIM_ORDER.forEach(k => {
+  const s = dimScores[k] || 0;
+  const color = s >= 80 ? 'var(--success)' : s >= 60 ? '#f9a825' : 'var(--danger)';
+  dimBody.innerHTML += `<tr>
+    <td>${dimLabel(k)}</td><td style="color:var(--text-secondary)">${DIM_CONFIG[k].weight}</td>
+    <td style="font-weight:700;color:${color}">${s}</td>
+    <td style="width:40%"><div class="score-bar"><div class="score-bar-fill" style="width:${s}%;background:${color}"></div></div></td>
+  </tr>`;
+});
+
+// Executive summary
+document.getElementById('exec-summary').textContent = report.executive_summary || report.narrative?.executive_summary || '';
+
+// Strengths / Weaknesses
+const strList = document.getElementById('strengths-list');
+(report.strengths || report.narrative?.strengths || []).forEach(s => strList.innerHTML += `<li>${s}</li>`);
+const weakList = document.getElementById('weaknesses-list');
+(report.weaknesses || report.narrative?.weaknesses || []).forEach(w => weakList.innerHTML += `<li>${w}</li>`);
+
+// Cross-scenario patterns
+const patCont = document.getElementById('patterns-container');
+(report.cross_scenario_patterns || report.narrative?.cross_scenario_patterns || []).forEach(p => {
+  if (typeof p === 'string') { patCont.innerHTML += `<div class="pattern-card"><div class="pattern-obs">${p}</div></div>`; }
+  else { patCont.innerHTML += `<div class="pattern-card"><div class="pattern-title">${p.pattern || ''}</div><div class="pattern-obs">${p.observation || ''}</div></div>`; }
+});
+
+// Improvement plan
+const impCont = document.getElementById('improvement-container');
+const plan = report.improvement_plan || {};
+const actions = plan.immediate_actions || report.narrative?.improvement_plan || [];
+actions.forEach(a => {
+  if (typeof a === 'string') { impCont.innerHTML += `<div class="improvement-item">${a}</div>`; }
+  else { impCont.innerHTML += `<div class="improvement-item"><span class="priority">${a.priority || 'P1'}</span>${a.action || a.area || ''} → ${a.target || ''}</div>`; }
+});
+
+// Scenario tabs
+const tabBar = document.getElementById('scenario-tabs');
+const panels = document.getElementById('scenario-panels');
+scenarios.forEach((sc, i) => {
+  const rep = sc.report || {};
+  const trace = sc.trace || {};
+  const enriched = sc.enriched || {};
+  const tcId = rep.test_case_id || trace.test_case_id || `scenario-${i}`;
+  const label = rep.scenario_name || rep.test_case_display_name || tcId;
+
+  // Tab button
+  tabBar.innerHTML += `<button class="tab-btn ${i===0?'active':''}" onclick="switchTab('${tcId}')">${label}</button>`;
+
+  // Panel
+  let panelHtml = `<div class="tab-content ${i===0?'active':''}" id="panel-${tcId}">`;
+
+  // Metric results — K18 中文叙事：中文名为主，英文 code 仅作小字技术提示
+  panelHtml += `<h3 style="margin-bottom:12px">指标得分</h3>`;
+  (rep.metric_results || []).forEach(mr => {
+    const c = mr.score >= 80 ? 'var(--success)' : mr.score >= 60 ? '#f9a825' : 'var(--danger)';
+    const zh = metricLabel(mr.metric_code);
+    const signals = (mr.signals || mr.observed_signals || []).map(translateSignal).filter(Boolean);
+    panelHtml += `<div class="metric-result">
+      <span class="metric-code">${zh}<span style="color:var(--text-secondary);font-weight:400;font-size:12px;margin-left:6px">(${mr.metric_code})</span></span>
+      <span class="metric-score" style="color:${c}">${mr.score}</span>
+    </div>`;
+    if (signals.length) {
+      panelHtml += `<div style="font-size:12px;color:var(--text-secondary);margin:-4px 0 8px 220px">原因：${signals.map(escapeHtml).join('；')}</div>`;
+    }
+  });
+
+  // Chat history
+  panelHtml += `<h3 style="margin:20px 0 12px">会话记录</h3><div class="chat-history">`;
+  (trace.dialog_turns || []).forEach(t => {
+    const isCustomer = t.actor === 'evaluator' || t.actor === 'customer';
+    panelHtml += `<div class="chat-msg ${isCustomer ? 'customer' : 'employee'}">
+      <div class="actor">${isCustomer ? '👤 客户' : '🤖 数字员工'}</div>
+      <div class="content">${escapeHtml(t.content || '')}</div>
+    </div>`;
+  });
+  panelHtml += `</div>`;
+
+  // Thinking process (simulator trail)
+  if (trace.simulator_trail && trace.simulator_trail.length > 0) {
+    panelHtml += `<h3 style="margin:20px 0 12px">模拟器决策过程</h3>`;
+    trace.simulator_trail.forEach(st => {
+      panelHtml += `<div class="thinking-block">
+        <strong>Turn ${st.turn_index}</strong> · 情绪: ${st.internal_emotion || '-'} · 进展: ${st.perceived_progress || '-'}<br>
+        决策: ${st.should_continue ? '继续' : `结束(${st.stop_reason})`}<br>
+        理由: ${st.rationale || '-'}
+      </div>`;
+    });
+  }
+
+  // Tool calls
+  if (trace.actual_tool_calls && trace.actual_tool_calls.length > 0) {
+    panelHtml += `<h3 style="margin:20px 0 12px">工具调用</h3>`;
+    trace.actual_tool_calls.forEach(tc => {
+      panelHtml += `<div class="tool-call">
+        <div class="tool-name">🔧 ${tc.tool_name}</div>
+        <div class="tool-params">${tc.arguments ? JSON.stringify(tc.arguments, null, 2) : '(无参数)'}</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">结果: ${tc.outcome || '-'} · 在 turn ${tc.after_turn_index ?? '-'} 之后</div>
+      </div>`;
+    });
+  } else {
+    panelHtml += `<div style="margin:20px 0;padding:12px;background:#fff3e0;border-radius:8px;font-size:13px">⚠️ 此场景未检测到工具调用</div>`;
+  }
+
+  // Narrative
+  if (rep.what_went_well || rep.what_went_wrong || rep.narrative) {
+    panelHtml += `<h3 style="margin:20px 0 12px">分析</h3>`;
+    const well = rep.what_went_well || rep.narrative?.what_went_well || [];
+    const wrong = rep.what_went_wrong || rep.narrative?.what_went_wrong || [];
+    if (well.length) panelHtml += `<p style="font-weight:600;margin-bottom:4px">做得好：</p><ul class="list-styled">${well.map(w=>`<li>${w}</li>`).join('')}</ul>`;
+    if (wrong.length) panelHtml += `<p style="font-weight:600;margin:12px 0 4px">需改进：</p><ul class="list-styled">${wrong.map(w=>`<li>${w}</li>`).join('')}</ul>`;
+  }
+
+  panelHtml += `</div>`;
+  panels.innerHTML += panelHtml;
+});
+
+// Open questions
+const oqList = document.getElementById('open-questions-list');
+const oqs = report.open_questions || [];
+if (oqs.length > 0) {
+  document.getElementById('open-questions-card').style.display = '';
+  oqs.forEach(q => {
+    if (typeof q === 'string') oqList.innerHTML += `<li>${q}</li>`;
+    else oqList.innerHTML += `<li><strong>${q.question || ''}</strong>: ${q.context || ''}</li>`;
+  });
+}
+
+// Footer
+document.getElementById('footer-time').textContent = report.generated_at ? new Date(report.generated_at).toLocaleString('zh-CN') : '';
+document.getElementById('footer-eval-id').textContent = report.evaluation_id || '';
+
+// Tab switch
+function switchTab(tcId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('panel-' + tcId).classList.add('active');
+}
+
+// Tainted-run banner (STEP 9 / K11 / K16 / K18 — Chinese narrative only)
+(function(){
+  const reasons = [];
+  if (report.red_line && report.red_line.triggered) {
+    reasons.push('红线已触发：评估未通过');
+    const narratives = report.red_line.narratives || report.red_line.details || [];
+    narratives.forEach(d => {
+      if (typeof d === 'string') reasons.push(d);
+      else if (d && d.description) reasons.push(d.description);
+    });
+  }
+  (report.open_questions || []).forEach(q => {
+    const text = typeof q === 'string' ? q : (q.question || '');
+    if (text) reasons.push('待确认事项：' + text);
+  });
+  if (reasons.length > 0) {
+    const el = document.getElementById('tainted-banner');
+    if (el) {
+      el.style.display = '';
+      const ul = document.getElementById('tainted-reasons');
+      reasons.forEach(r => { const li = document.createElement('li'); li.textContent = r; ul.appendChild(li); });
+    }
+  }
+})();
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

@@ -69,7 +69,7 @@ internal sealed partial class SandboxService(
         }
 
         var provisioned = await provisioner.CreateAsync(request.OwnerSubject.Trim(), request.ScopeKey ?? string.Empty, request.SandboxRole, cancellationToken);
-        var instance = await FindInstanceByScopeAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey, request.SandboxRole, cancellationToken);
+        var instance = await FindInstanceByScopeAsync(request.OwnerSubject, request.ScopeType, request.ScopeKey ?? string.Empty, request.SandboxRole, cancellationToken);
         if (instance is null)
         {
             instance = new SandboxInstanceEntity();
@@ -472,7 +472,7 @@ internal sealed partial class SandboxService(
                 Model: null,
                 Messages:
                 [
-                    new SandboxGatewayChatMessage("user", outboundRequest.Content)
+                    new SandboxGatewayChatMessage("user", outboundRequest.Content ?? string.Empty)
                 ],
                 Stream: false),
             request.OwnerSubject,

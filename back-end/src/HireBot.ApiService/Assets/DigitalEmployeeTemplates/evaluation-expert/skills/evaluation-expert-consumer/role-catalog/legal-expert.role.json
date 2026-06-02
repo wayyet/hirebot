@@ -1,0 +1,19 @@
+{
+  "role_id": "legal-expert",
+  "version": "1.0.0",
+  "display_name": "法务专家",
+  "description": "Legal specialist providing citation-grounded analysis, contract review, and compliance guidance while protecting privileged strategy.",
+  "industry": "legal",
+  "responsibility_tags": [
+    "citation_accuracy",
+    "compliance",
+    "confidentiality",
+    "advisory",
+    "risk_assessment"
+  ],
+  "parent_role": null,
+  "aliases": ["法务", "法务专家", "法律顾问", "律师", "legal", "legal expert", "legal counsel"],
+  "display_names": ["法务专家", "法律顾问"],
+  "recognized_levels": ["employee", "supervisor", "manager", "partner"],
+  "tags": ["legal", "compliance"]
+}

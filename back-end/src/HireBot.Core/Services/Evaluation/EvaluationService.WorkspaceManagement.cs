@@ -907,6 +907,7 @@ internal sealed partial class EvaluationService
 
         foreach (var materialFile in allFiles)
         {
+            var targetDir = ResolveConsumerMaterialTargetDir(materialFile.TargetDir);
             var uploadResult = await sandboxService.UploadWorkspaceFileAsync(
                 new SandboxWorkspaceUploadRequestDto
                 {
@@ -915,7 +916,7 @@ internal sealed partial class EvaluationService
                     SandboxRole = "evaluation-evaluator",
                     OwnerSubject = owner,
                     SandboxId = evaluatorSandboxId,
-                    TargetDir = materialFile.TargetDir,
+                    TargetDir = targetDir,
                     FileName = materialFile.FileName,
                     Content = materialFile.Content,
                     ContentType = materialFile.TargetDir == "testcases" ? "application/json" : "text/plain"
@@ -926,7 +927,7 @@ internal sealed partial class EvaluationService
             {
                 logger.LogWarning(
                     "[Eval] Failed to upload material file sandboxId={SandboxId} dir={Dir} file={File} msg={Message}",
-                    evaluatorSandboxId, materialFile.TargetDir, materialFile.FileName, uploadResult.Message);
+                    evaluatorSandboxId, targetDir, materialFile.FileName, uploadResult.Message);
                 continue;
             }
 
@@ -990,6 +991,216 @@ internal sealed partial class EvaluationService
         }
     }
 
+    private IReadOnlyList<(string FileName, byte[] Content)> BuildConsumerTestCaseFiles(
+        IReadOnlyList<TestcaseSourceFile> testcaseSources,
+        EmployeeDetailDto employee)
+    {
+        var results = new List<(string FileName, byte[] Content)>();
+        var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var sourceIndex = 0;
+
+        foreach (var source in testcaseSources)
+        {
+            sourceIndex++;
+            JsonDocument doc;
+            try
+            {
+                doc = JsonDocument.Parse(source.RawJson);
+            }
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "[Eval] Failed to parse testcase source file {FileName}", source.FileName);
+                continue;
+            }
+
+            using (doc)
+            {
+                var caseIndex = 0;
+                foreach (var item in EnumerateTestcaseItems(doc.RootElement))
+                {
+                    if (item.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    caseIndex++;
+                    var rawId = GetStringProperty(item, "test_case_id", "testcase_id", "id")
+                                ?? $"{Path.GetFileNameWithoutExtension(source.FileName)}-{caseIndex}";
+                    var testCaseId = NormalizeUniqueConsumerTestCaseId(rawId, sourceIndex, caseIndex, usedIds);
+                    var title = GetStringProperty(item, "scenario_name", "title") ?? $"Scenario {caseIndex}";
+                    var openingMessage = ResolveConsumerOpeningMessage(item, title);
+                    var payload = BuildConsumerTestCasePayload(testCaseId, title, openingMessage, item, employee);
+                    var content = JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions);
+                    results.Add(($"{testCaseId}.tc.json", content));
+                }
+            }
+        }
+
+        return results;
+    }
+
+    private static IEnumerable<JsonElement> EnumerateTestcaseItems(JsonElement root)
+    {
+        return root.ValueKind switch
+        {
+            JsonValueKind.Array => root.EnumerateArray(),
+            JsonValueKind.Object when root.TryGetProperty("test_cases", out var nested)
+                && nested.ValueKind == JsonValueKind.Array => nested.EnumerateArray(),
+            JsonValueKind.Object => [root],
+            _ => []
+        };
+    }
+
+    private static Dictionary<string, object?> BuildConsumerTestCasePayload(
+        string testCaseId,
+        string title,
+        string openingMessage,
+        JsonElement source,
+        EmployeeDetailDto employee)
+    {
+        var input = new Dictionary<string, object?>
+        {
+            ["opening_message"] = openingMessage,
+            ["goal"] = new Dictionary<string, object?>
+            {
+                ["primary"] = ResolveConsumerGoal(source, openingMessage)
+            },
+            ["stop_conditions"] = new Dictionary<string, object?>
+            {
+                ["success"] = "User request is resolved with a clear next step.",
+                ["failure"] = "The employee violates business rules or cannot continue.",
+                ["deadlock"] = "No useful new information appears across multiple turns."
+            }
+        };
+
+        if (source.TryGetProperty("input", out var inputElement) &&
+            inputElement.ValueKind == JsonValueKind.Object &&
+            inputElement.TryGetProperty("context", out var contextElement) &&
+            contextElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+        {
+            input["context"] = contextElement.Clone();
+        }
+
+        var expectedOutput = new Dictionary<string, object?>
+        {
+            ["expected_response_traits"] = ExtractConsumerExpectedResponseTraits(source),
+            ["expected_outcomes"] = ExtractConsumerExpectedOutcomes(source)
+        };
+
+        return new Dictionary<string, object?>
+        {
+            ["test_case_id"] = testCaseId,
+            ["version"] = "1.0.0",
+            ["title"] = title,
+            ["description"] = $"Converted from HireBot evaluation material: {title}",
+            ["applicable_roles"] = new[] { "*" },
+            ["applicable_scenarios"] = new[] { "*" },
+            ["difficulty"] = "medium",
+            ["tags"] = new[] { FirstNonEmpty(employee.SourceTemplateId, employee.RoleName, "hirebot"), "hirebot-generated" },
+            ["input"] = input,
+            ["turn_budget"] = new Dictionary<string, object?>
+            {
+                ["hard_max_turns"] = 8,
+                ["soft_target_turns"] = 4
+            },
+            ["expected_output"] = expectedOutput
+        };
+    }
+
+    private static string ResolveConsumerOpeningMessage(JsonElement source, string fallbackTitle)
+    {
+        if (source.TryGetProperty("input", out var inputElement) &&
+            inputElement.ValueKind == JsonValueKind.Object)
+        {
+            var message = GetStringProperty(inputElement, "opening_message", "user_message", "user_request", "prompt");
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                return message;
+            }
+        }
+
+        return GetStringProperty(source, "prompt", "description") ?? fallbackTitle;
+    }
+
+    private static string ResolveConsumerGoal(JsonElement source, string fallback)
+    {
+        if (source.TryGetProperty("expected_output", out var expectedElement) &&
+            expectedElement.ValueKind == JsonValueKind.Object)
+        {
+            var resolution = GetStringProperty(expectedElement, "resolution", "summary");
+            if (!string.IsNullOrWhiteSpace(resolution))
+            {
+                return resolution;
+            }
+        }
+
+        return fallback;
+    }
+
+    private static IReadOnlyList<string> ExtractConsumerExpectedResponseTraits(JsonElement source)
+    {
+        if (!source.TryGetProperty("expected_behavior_sequence", out var stepsElement) ||
+            stepsElement.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var traits = new List<string>();
+        foreach (var step in stepsElement.EnumerateArray())
+        {
+            if (step.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var criteria = GetStringProperty(step, "criteria", "action");
+            if (!string.IsNullOrWhiteSpace(criteria))
+            {
+                traits.Add(criteria);
+            }
+        }
+
+        return traits;
+    }
+
+    private static IReadOnlyList<string> ExtractConsumerExpectedOutcomes(JsonElement source)
+    {
+        if (!source.TryGetProperty("expected_output", out var expectedElement) ||
+            expectedElement.ValueKind != JsonValueKind.Object)
+        {
+            return [];
+        }
+
+        var outcomes = new List<string>();
+        foreach (var name in new[] { "resolution", "user_satisfaction" })
+        {
+            var value = GetStringProperty(expectedElement, name);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                outcomes.Add(value);
+            }
+        }
+
+        return outcomes;
+    }
+
+    private static string NormalizeUniqueConsumerTestCaseId(
+        string value,
+        int sourceIndex,
+        int caseIndex,
+        HashSet<string> usedIds)
+    {
+        var baseId = NormalizeConsumerPathSegment(value, $"tc-{sourceIndex}-{caseIndex}");
+        var candidate = baseId;
+        var suffix = 2;
+        while (!usedIds.Add(candidate))
+        {
+            candidate = $"{baseId}-{suffix++}";
+        }
+
+        return candidate;
+    }
+
     private static string? GetStringProperty(JsonElement element, params string[] names)
     {
         foreach (var name in names)
@@ -1003,6 +1214,13 @@ internal sealed partial class EvaluationService
             }
         }
         return null;
+    }
+
+    private static string ResolveConsumerMaterialTargetDir(string targetDir)
+    {
+        return string.Equals(targetDir, "testcases", StringComparison.OrdinalIgnoreCase)
+            ? EvaluationConsumerTestCasesTargetDir
+            : EvaluationConsumerOntologyTargetDir;
     }
 
     /// <summary>
@@ -1115,7 +1333,7 @@ internal sealed partial class EvaluationService
     }
 
     /// <summary>
-    /// 将测试用例和本体规则打包成 ZIP，上传到 evaluator sandbox workspace/uploads/materials/ 目录。
+    /// 将测试用例和本体规则打包成 ZIP，上传到 evaluator sandbox 的 consumer 材料目录。
     /// evaluator skill 通过文件系统路径直接读取，不再经过媒体缓存中转。
     /// </summary>
     private async Task<ApiResponse<string>> PrepareEvaluatorMaterialsArchiveAsync(
@@ -1148,6 +1366,13 @@ internal sealed partial class EvaluationService
                 await tcStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(testcasesPayload), cancellationToken);
             }
 
+            foreach (var testCaseFile in BuildConsumerTestCaseFiles(testcaseSources, employee))
+            {
+                var consumerTcEntry = archive.CreateEntry($"test-cases/{testCaseFile.FileName}");
+                await using var consumerTcStream = consumerTcEntry.Open();
+                await consumerTcStream.WriteAsync(testCaseFile.Content, cancellationToken);
+            }
+
             // ontology.json
             var ontologyPayload = JsonSerializer.Serialize(new
             {
@@ -1157,7 +1382,7 @@ internal sealed partial class EvaluationService
                 dimension_weights = ontologyProfile.DimensionWeights,
                 rules = ontologyProfile.DimensionRules
             }, JsonOptions);
-            var ontoEntry = archive.CreateEntry("ontology.json");
+            var ontoEntry = archive.CreateEntry("ontology/ontology.json");
             await using (var ontoStream = ontoEntry.Open())
             {
                 await ontoStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(ontologyPayload), cancellationToken);
@@ -1176,7 +1401,7 @@ internal sealed partial class EvaluationService
                 SandboxRole = "evaluation-evaluator",
                 OwnerSubject = owner,
                 SandboxId = ctx.EvaluatorSandboxId,
-                TargetDir = "uploads/materials",
+                TargetDir = EvaluationConsumerMaterialUploadRoot,
                 FileName = "materials.zip",
                 Content = archiveBytes,
                 ContentType = "application/zip"

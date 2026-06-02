@@ -212,7 +212,7 @@ public sealed class BuildServiceTemplateDataProvider(
 
         return new EmployeeTemplateDefinition(
             TemplateId: templateId,
-            IconUrl: TemplatePresentationHelpers.BuildDefaultIconUrl(templateId, name),
+            IconUrl: TemplatePresentationHelpers.BuildDefaultIconUrl(templateId, name) ?? "",
             Name: name,
             Tagline: positioning,
             Description: description,
@@ -242,7 +242,7 @@ public sealed class BuildServiceTemplateDataProvider(
 
         return new EmployeeTemplateDefinition(
             TemplateId: templateId,
-            IconUrl: TemplatePresentationHelpers.BuildDefaultIconUrl(templateId, name),
+            IconUrl: TemplatePresentationHelpers.BuildDefaultIconUrl(templateId, name) ?? "",
             Name: name,
             Tagline: positioning,
             Description: description,

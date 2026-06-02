@@ -1,0 +1,20 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+  "metric_code": "response_clarity_and_structure",
+  "metric_version": "1.0.0",
+  "score": 85,
+  "reasoning": "员工在全部3轮回复中展示了优秀的条理性。turn 0使用编号列表（1, 2含子项）组织信息请求。turn 1使用编号（1, 2, 3）加子项和条件分支（'- 若支持线上自助：...' '- 若您希望我直接为您登记...'）。turn 2清晰呈现两个方案（1, 2）并附子项说明。关键信息使用Markdown粗体标记（**ORD20240520001**、**申请售后**等），便于扫读。每轮回复都有逻辑分组和适当分段，无文字墙。基线50+35（全场景结构化+编号/项目符号恰当使用+粗体标记关键信息）。",
+  "evidence": [
+    { "source": "trace.dialog_turns", "ref": "turn_index=0,evaluatee", "quote": "请您把订单号发我；同时为提高处理效率，也请补充两点信息：\n1) 是否还在签收后7天内？\n2) 方便的话提供：左耳杂音的简短视频/录音、是否摔过/进水、是否已尝试更换设备/重连/重置。" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=1,evaluatee", "quote": "1) 订单的签收日期大概是哪天？\n2) 左耳杂音是否在所有设备上都会出现？是否尝试过：断开重连/重置耳机/更换耳塞/充满电？\n3) 方便的话上传：杂音录音或视频、产品外观（左耳）照片；是否有摔过/进水情况？" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluatee", "quote": "1) 您自助发起售后（最快）\n进入：订单详情 → 申请售后 → 选择 退货退款/换货 → 原因选\"质量问题/有杂音\" → 上传杂音视频/录音 → 提交。\n\n2) 我为您转人工客服核实订单并跟进" }
+  ],
+  "observed_signals": [],
+  "rubric_adjustments": [
+    { "rule_id": "numbered_structure_for_actions", "delta": 15, "evidence_index": 0 },
+    { "rule_id": "clear_options_with_sub_details", "delta": 10, "evidence_index": 2 },
+    { "rule_id": "bold_markdown_for_key_terms", "delta": 10, "evidence_index": 1 }
+  ],
+  "scored_at": "2026-06-01T09:22:08.800Z"
+}

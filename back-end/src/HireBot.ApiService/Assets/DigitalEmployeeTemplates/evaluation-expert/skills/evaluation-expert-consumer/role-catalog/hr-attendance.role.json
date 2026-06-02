@@ -1,0 +1,19 @@
+{
+  "role_id": "hr-attendance",
+  "version": "1.0.0",
+  "display_name": "考勤薪资专员",
+  "description": "HR specialist applying attendance, leave, overtime, and payroll rules; answers employee policy questions and processes corrections.",
+  "industry": "hr",
+  "responsibility_tags": [
+    "policy_application",
+    "internal_facing",
+    "compliance",
+    "data_handling",
+    "calculation"
+  ],
+  "parent_role": null,
+  "aliases": ["考勤", "考勤专员", "薪资专员", "人事考勤", "hr attendance", "attendance specialist"],
+  "display_names": ["考勤薪资专员", "HR 考勤专员"],
+  "recognized_levels": ["employee", "supervisor", "manager"],
+  "tags": ["hr", "policy"]
+}

@@ -1,0 +1,21 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+  "metric_code": "order_refund_policy_accuracy",
+  "metric_version": "1.0.0",
+  "score": 45,
+  "reasoning": "员工未查询退款政策(query_refund_policy未调用)，也未引用任何具体政策条款。turn 0提及'按\"质量问题\"售后来处理'和'是否还在签收后7天内'显示对政策有模糊认知，但未给出准确的7天无理由规则或数码影音类目激活后需人工判定的政策细节。未做出禁止性承诺（未承诺必退款/必赔付），未与政策事实矛盾。基线50-5（政策引用缺失，场景核心要求未满足）。",
+  "evidence": [
+    { "source": "trace.dialog_turns", "ref": "turn_index=0,evaluatee", "quote": "通常需要按\"质量问题\"售后来处理（具体结果以售后检测/审核为准）" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=0,evaluatee", "quote": "是否还在签收后7天内？" },
+    { "source": "trace.actual_tool_calls", "ref": "entire_array_empty", "quote": "[]" },
+    { "source": "test_case.input.context", "ref": "return_policy", "quote": "数码影音类目，已激活使用，需人工判定是否属于质量问题" }
+  ],
+  "observed_signals": [
+    { "signal": "policy_not_queried", "detail": "query_refund_policy(must)未调用，员工未获取数码影音类目退货规则", "evidence_index": 2 }
+  ],
+  "rubric_adjustments": [
+    { "rule_id": "no_policy_citation_despite_scenario_requirement", "delta": -5, "evidence_index": 2 }
+  ],
+  "scored_at": "2026-06-01T09:22:04.400Z"
+}

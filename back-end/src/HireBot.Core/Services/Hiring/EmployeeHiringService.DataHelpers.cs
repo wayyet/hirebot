@@ -815,7 +815,7 @@ internal sealed partial class EmployeeHiringService
 
     private static Dictionary<string, string?> MergeStructuredData(
         IReadOnlyDictionary<string, string?> existing,
-        IReadOnlyDictionary<string, string>? incoming)
+        IReadOnlyDictionary<string, string?>? incoming)
     {
         var result = NormalizeStructuredData(existing);
         if (incoming is null)

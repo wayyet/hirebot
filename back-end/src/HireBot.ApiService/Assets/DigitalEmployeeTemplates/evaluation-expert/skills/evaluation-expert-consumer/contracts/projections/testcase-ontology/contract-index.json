@@ -1,0 +1,63 @@
+{
+  "$schema": "../../../../docs/skill-projection-contract-index.schema.json",
+  "template_type": "ontology_contract_index",
+  "index_version": "1.0.0",
+  "producer_skill": "testcase-ontology",
+  "consumer_skill": "evaluation-expert-consumer",
+  "default_selection_policy": {
+    "fallback_order_by_target_view": ["test-case-catalog"],
+    "on_no_match": "block_or_escalate"
+  },
+  "topic_conflict_resolution": {
+    "pairwise_rules": []
+  },
+  "topic_scoring": [
+    {
+      "topic": "testcase-library",
+      "primary_intent_signals": ["测试用例", "test case", "用例库", "scenario library", "regression set"],
+      "explicit_artifact_signals": ["test_case_id", ".tc.json", "expected_output", "expected_tool_calls"],
+      "supporting_signals": ["场景", "SOP", "用例", "scenario"],
+      "demote_when_competing_topic_signals": []
+    }
+  ],
+  "target_view_scoring": {
+    "test-case-catalog": {
+      "primary_intent_signals": ["catalog", "registry", "用例", "scenarios"],
+      "supporting_signals": ["输入", "预期输出", "input", "expected output"],
+      "weight": 5
+    }
+  },
+  "within_topic_overrides": {
+    "testcase-library": {
+      "target_view_bonuses": {
+        "test-case-catalog": {
+          "bonus_when_request_contains": ["registry", "schema", "用例库", "case catalog", "用例集"],
+          "bonus_value": 3
+        }
+      }
+    }
+  },
+  "selection_algorithm": {
+    "phases": [
+      "score_topics",
+      "score_target_views",
+      "resolve_projection"
+    ],
+    "tie_break_order": ["primary_intent_signals", "explicit_artifact_signals", "supporting_signals"],
+    "min_score_to_route": 1
+  },
+  "target_view_hints": {
+    "test-case-catalog": "Use when the consumer needs the enumerated test case registry (input / expected_output / applicable_roles / applicable_scenarios)."
+  },
+  "topics": {
+    "testcase-library": {
+      "description": "Enumerated catalog of evaluation test cases. The contract declares schema, governance, and provenance rules; actual test case instances live as hot-loadable files in evaluation-expert-consumer/test-cases/.",
+      "target_views": {
+        "test-case-catalog": {
+          "status": "READY",
+          "projection_path": "testcase-library/testcase-library.test-case-catalog.projection.json"
+        }
+      }
+    }
+  }
+}

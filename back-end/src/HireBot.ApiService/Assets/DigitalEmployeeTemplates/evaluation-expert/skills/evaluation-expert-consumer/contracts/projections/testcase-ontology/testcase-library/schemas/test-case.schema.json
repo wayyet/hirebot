@@ -1,0 +1,277 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://kingcrab.local/schemas/test-case.schema.json",
+  "title": "EvaluationTestCaseFile",
+  "description": "Schema for a single hot-loadable test case file under ./test-cases/<test_case_id>.tc.json. v2.0 adds simulator-driven fields (customer_persona, goal, stop_conditions, turn_budget) that replace the legacy scripted follow_up_messages. v1.0 fields user_message and follow_up_messages are retained as deprecated for backward compatibility; new cases SHOULD use opening_message + simulator fields instead.",
+  "type": "object",
+  "required": [
+    "test_case_id",
+    "version",
+    "applicable_roles",
+    "applicable_scenarios",
+    "input",
+    "expected_output"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "test_case_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Stable identifier; must match the file basename (excluding .tc.json)."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "applicable_roles": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "applicable_scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": ["easy", "medium", "hard"],
+      "default": "medium"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Scenario seed for STEP 3. Either opening_message (recommended, simulator-driven) or user_message (deprecated, scripted) MUST be present.",
+      "anyOf": [
+        { "required": ["opening_message"] },
+        { "required": ["user_message"] }
+      ],
+      "properties": {
+        "opening_message": {
+          "type": "string",
+          "description": "Customer's first utterance to the employee. Recommended replacement for the v1.0 user_message field."
+        },
+        "user_message": {
+          "type": "string",
+          "description": "DEPRECATED v1.0 field. Equivalent to opening_message. New cases SHOULD use opening_message instead. STEP 3 falls back to this field only when opening_message is absent."
+        },
+        "customer_persona": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Persona the simulator embodies for this case. Drives tone, patience, and willingness to push back.",
+          "properties": {
+            "name": { "type": "string" },
+            "age_band": {
+              "type": "string",
+              "description": "Free-form age range, e.g. '30-35' or 'senior'."
+            },
+            "personality": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" },
+              "description": "Personality tags, e.g. ['direct', 'impatient']."
+            },
+            "communication_style": {
+              "type": "string",
+              "description": "How the customer speaks, e.g. '口语化、情绪化', '礼貌冷静'."
+            },
+            "patience_level": {
+              "type": "string",
+              "enum": ["very_low", "low", "medium", "high"],
+              "default": "medium"
+            }
+          }
+        },
+        "initial_emotion": {
+          "type": "string",
+          "enum": [
+            "angry",
+            "anxious",
+            "neutral",
+            "curious",
+            "satisfied",
+            "skeptical",
+            "frustrated"
+          ],
+          "description": "Customer's emotional state at turn 0. Simulator updates emotion turn by turn."
+        },
+        "goal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["primary"],
+          "description": "What the customer actually wants. Used by the simulator to decide whether the conversation has resolved.",
+          "properties": {
+            "primary": {
+              "type": "string",
+              "description": "Core demand. Conversation 'resolves' when the employee satisfies this."
+            },
+            "secondary": {
+              "type": "string",
+              "description": "Nice-to-have demand. Customer may push for it but will accept primary alone."
+            },
+            "bottom_line": {
+              "type": "string",
+              "description": "Minimum acceptable outcome. If the employee falls below this, the customer leaves (termination=bottom_line_violated)."
+            }
+          }
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Free-form scenario context (order id, history, environment) that the employee will see before responding. Recommended structured subfields: order_id / order_status / promised_delivery_at / current_time / history."
+        },
+        "stop_conditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Plain-language conditions evaluated by the simulator each turn to decide whether to stop. Replaces the deprecated scripted follow_up_messages.trigger.",
+          "properties": {
+            "success": {
+              "type": "string",
+              "description": "What needs to happen for the customer to feel resolved. Maps to termination.reason=completed_normally + stop_reason=goal_achieved."
+            },
+            "failure": {
+              "type": "string",
+              "description": "What pushes the customer below their bottom line. Maps to termination.reason=bottom_line_violated."
+            },
+            "deadlock": {
+              "type": "string",
+              "description": "What looks like 'no progress'. Maps to termination.reason=deadlock_detected."
+            }
+          }
+        },
+        "follow_up_messages": {
+          "type": "array",
+          "description": "DEPRECATED v1.0 field. Pre-scripted follow-ups used by the legacy scripted driver. Ignored by the simulator-driven STEP 3 in v2.0+. Kept only for backward compatibility.",
+          "items": {
+            "type": "object",
+            "required": ["trigger", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "trigger": {
+                "type": "string",
+                "description": "Plain-language trigger condition. NO LONGER consulted in v2.0+; the simulator decides each turn."
+              },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "turn_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-test-case turn budget enforced by STEP 3. If absent, falls back to evaluation_context.global_turn_cap (default 30).",
+      "properties": {
+        "hard_max_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 30,
+          "description": "Hard upper bound on customer-employee exchanges. STEP 3 terminates with reason=max_turns_reached when reached, regardless of simulator opinion."
+        },
+        "soft_target_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Informational. Simulator prefers to wrap up around this turn but will not stop on its own."
+        }
+      }
+    },
+    "expected_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expected_tool_calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "criticality"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "required_params": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "criticality": {
+                "type": "string",
+                "enum": ["must", "should", "may"]
+              },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "expected_response_traits": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "forbidden_behaviors": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "expected_outcomes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "applicable_metrics": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional. Pre-bound metric_codes. Step 2 (enrichTestCases) will validate against the metric registry and may augment if missing."
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where this test case came from. Required on synthesized cases (STEP 1.5 output); optional on hand-curated catalog cases under ./test-cases/. The K11 user-consultation chain MUST set source/reliability accurately so STEP 9 can downgrade language about Tier-2 findings.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "user_provided_scenarios",
+            "synthesized_from_sop",
+            "mixed",
+            "manual_curation",
+            "regression_baseline",
+            "employee_sop"
+          ],
+          "description": "Authoritative origin. STEP 1.5 emits one of: user_provided_scenarios (Tier 1) | synthesized_from_sop (Tier 2) | mixed (Tier 1+2). Curated catalog files use manual_curation or regression_baseline. The legacy value 'employee_sop' is retained as a deprecated alias for synthesized_from_sop."
+        },
+        "reliability": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "Required on synthesized cases. high = each scenario maps 1:1 to a user-supplied real-world description; medium = mix of user seeds + SOP expansion; low = pure SOP / persona reasoning, no user grounding."
+        },
+        "reliability_caveat": {
+          "type": "string",
+          "description": "Required when reliability='low'. Surface in STEP 9 EvaluationReport.open_questions. Canonical value for SOP-only synthesis is 'synthesized_from_sop_only_no_user_grounding'."
+        },
+        "source_ref": { "type": "string" },
+        "generated_by": { "type": "string" },
+        "generated_at": { "type": "string", "format": "date-time" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reliability": { "const": "low" } }, "required": ["reliability"] },
+          "then": { "required": ["reliability_caveat"] }
+        }
+      ]
+    },
+    "polarity": {
+      "type": "string",
+      "enum": ["positive", "negative", "boundary"],
+      "description": "Case polarity for equivalence-class partitioning. positive = normal/allowed path; negative = restricted/escalation path; boundary = exactly at threshold. Used with paired_case_id to mark both sides of a decision boundary."
+    },
+    "paired_case_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "test_case_id of the paired case on the opposite side of the same decision boundary. Positive points to negative and vice versa. Enables audit of boundary coverage completeness."
+    }
+  }
+}

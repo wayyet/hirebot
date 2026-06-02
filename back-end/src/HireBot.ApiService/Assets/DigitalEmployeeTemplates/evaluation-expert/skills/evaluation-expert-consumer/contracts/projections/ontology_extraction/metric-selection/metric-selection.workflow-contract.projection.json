@@ -1,0 +1,677 @@
+{
+  "$schema": "../../../../../docs/skill-projection-document.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "evaluation-expert-consumer-metric-selection-workflow-contract-v1",
+    "projection_type": "workflow_contract_projection",
+    "target_name": "EvaluationExpertConsumerEvaluationWorkflow",
+    "target_format": "deterministic_workflow_with_llm_fanout_step",
+    "target_runtime": "evaluation_expert_consumer",
+    "projection_goal": "Provide the deterministic, role-agnostic 11-step evaluation workflow that drives an employee through scenarios, fans out per-metric LLM scoring, aggregates deterministically with red-line enforcement, and produces both per-scenario reports (STEP 8) and a final consolidated report (STEP 9).",
+    "source_slice": {
+      "path": "../../../../SKILL.md",
+      "slice_topic": "evaluation orchestration steps, fan-out scoring boundary, deterministic aggregation and red-line enforcement",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "evaluation_expert_consumer_skill",
+      "evaluation_expert_consumer"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "disallow_drop",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "PRE_A",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "loadRoleCatalog",
+      "attributes": {
+        "executor": "deterministic",
+        "runs_before": "S0",
+        "inputs": ["EVALUATION_ROLES_DIR (env, default ./role-catalog/)"],
+        "outputs": ["role_catalog (map keyed by role_id)"],
+        "validation": "contracts/projections/role-ontology/role-catalog/schemas/role-catalog-entry.schema.json",
+        "discovery": "filesystem scan of ./role-catalog/*.role.json",
+        "inheritance_rule": "When parent_role is non-null: industry overrides (child wins), responsibility_tags set-union dedup. Chain depth cap 8.",
+        "fail_soft_rules": {
+          "absent_parent_or_cycle_or_depth_gt_8": "load entry without inheritance + open_question + proceed",
+          "duplicate_role_id": "keep lexicographically-first filename + open_question + proceed",
+          "malformed_file": "skip file + open_question + proceed"
+        },
+        "notes": "PRE.A loads the Role_Catalog before STEP 0 so resolveEmployee can canonicalize. Fail-soft: a bad role file never blocks the run; only a missing match for the evaluatee's own role degrades to caveat (handled in S0)."
+      }
+    },
+    {
+      "concept_id": "S0",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "resolveEmployee",
+      "attributes": {
+        "executor": "llm_with_mandatory_confirmation",
+        "runs_before": "PRE",
+        "inputs": ["employee_id", "optional user free-form description", "role_catalog (from PRE_A)", "EVALUATION_EMPLOYEES_DIR (env, default ./employees/)"],
+        "outputs": ["evaluation_context.employee (object form)", "employee.employee_provenance", "evaluation_context.employee_resolution_log"],
+        "resolution_priority": [
+          "1. authoritative_file: ./employees/<employee_id>.json exists -> load + validate against runtime-schemas/employee.schema.json. parse/schema fail -> block_or_escalate. source=authoritative_file, reliability=high.",
+          "2. user_dialog: no file AND user supplied 1..10000-char description -> LLM parse to draft {role_id,industry,job_responsibilities,scenarios} -> DISPLAY draft -> request confirm|correct|decline. confirm -> source=user_dialog, reliability=high. correct -> apply + re-display (max 5 rounds). decline|120s timeout|5-round-exhaustion -> fall to inferred_fallback.",
+          "3. inferred_fallback: no file AND no usable user description -> LLM best-guess. source=inferred_fallback, reliability=low, caveat=employee_inferred_no_authoritative_source. emit open_question listing unknown fields + absent sources. empty employee_id -> block_or_escalate."
+        ],
+        "canonicalization_rule": "trim role string -> case-insensitive exact match against role_catalog role_id then aliases, catalog iteration order, first-match-wins. Match -> employee.role.role_id = matched role_id, copy industry + responsibility_tags. Miss (non-empty string) -> role_id = trimmed string, append 'role_id_no_catalog_entry' to caveat (dedup). Empty/whitespace role string -> block_or_escalate (cause=role_string_empty).",
+        "single_writer_rule": "S0 is the ONLY step permitted to write employee.role.role_id. Any later step whose output would change role_id is a violation: reject the write, preserve prior value, surface 'unauthorized_role_id_mutation'. Self-checked by the agent like K9/K13.",
+        "legacy_compat": "A bare-string evaluation_context.employee.role is wrapped into object form (role_id=string, empty industry, empty responsibility_tags, append role_id_no_catalog_entry caveat). An already-valid object is left unchanged.",
+        "block_or_escalate_causes": ["employee_id_invalid", "employee_file_parse_or_schema_fail", "role_string_empty", "employee_role_invalid_form", "inferred_fallback_llm_failure", "employee_id_required_for_inferred_fallback"],
+        "notes": "STEP 0 produces the structured employee object that K17 guards and that STEP 1.2 consumes. It is the resolve-then-canonicalize front door that eliminates the 'evaluation blocks because role spelled differently' failure class."
+      }
+    },
+    {
+      "concept_id": "PRE",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "loadMetricRegistry",
+      "attributes": {
+        "executor": "deterministic",
+        "inputs": ["EVALUATION_METRICS_DIR (env, default ./metrics/)"],
+        "outputs": ["metric_registry"],
+        "validation": "schemas/metric.schema.json",
+        "on_validation_failure": "drop_invalid_with_warning",
+        "on_empty_registry": "block_or_escalate"
+      }
+    },
+    {
+      "concept_id": "S1",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "resolveEmployeeAndCheckTestCases",
+      "attributes": {
+        "executor": "deterministic",
+        "inputs": ["employee (from S0, with canonical role.role_id)", "metric_registry (from PRE)", "EVALUATION_TEST_CASES_DIR (env, default ./test-cases/)"],
+        "outputs": ["candidate_metrics", "dropped_metrics", "test_case_status"],
+        "test_case_status_enum": ["ready", "missing"],
+        "matching_rule": "applicable_roles ∋ employee.role.role_id  (or '*' wildcard)",
+        "selected_metrics_rule": "candidate_metrics = [ m for m in metric_registry if (employee.role.role_id in m.applicable_roles) OR ('*' in m.applicable_roles) ]. The full metric_registry is the universe; candidate_metrics is its role-filtered subset. STEP 1.2 transforms candidate_metrics into selected_metrics. Copying the full registry into candidate_metrics without filtering is FORBIDDEN (see constraint K9). Note: employee resolution + role canonicalization is now done by S0; S1 consumes the already-canonical employee.role.role_id.",
+        "dropped_metrics_rule": "dropped_metrics = [ { metric_code, applicable_roles, drop_reason: 'role_mismatch' } for each m in metric_registry not in candidate_metrics ]. This list is REQUIRED for auditability — it lets reviewers verify the role filter was actually applied rather than skipped.",
+        "selected_metrics_invariants": [
+          "len(candidate_metrics) + len(dropped_metrics) == len(metric_registry)",
+          "set(candidate_metrics).intersection(set(dropped_metrics)) == empty",
+          "every entry in candidate_metrics has either employee.role.role_id or '*' in its applicable_roles",
+          "every entry in dropped_metrics has neither employee.role.role_id nor '*' in its applicable_roles",
+          "if candidate_metrics is empty AND metric_registry is non-empty -> block_or_escalate (no metric applies to this employee role; do NOT proceed to STEP 1.2)"
+        ],
+        "worked_example": {
+          "comment": "Concrete illustration so the host agent can verify its STEP 1 output by inspection.",
+          "given": {
+            "employee.role.role_id": "customer-service-ecommerce",
+            "metric_registry": [
+              { "metric_code": "tool_call_correctness", "applicable_roles": ["customer-service-ecommerce", "after-sales-agent", "*"] },
+              { "metric_code": "interaction_empathy", "applicable_roles": ["customer-service-ecommerce", "after-sales-agent"] },
+              { "metric_code": "order_refund_policy_accuracy", "applicable_roles": ["customer-service-ecommerce"] },
+              { "metric_code": "attendance_rule_compliance", "applicable_roles": ["hr-attendance"] },
+              { "metric_code": "bid_clause_completeness", "applicable_roles": ["bid-writer"] },
+              { "metric_code": "legal_citation_accuracy", "applicable_roles": ["legal-expert"] },
+              { "metric_code": "code_change_risk_disclosure", "applicable_roles": ["software-engineer"] },
+              { "metric_code": "confidentiality_boundary_compliance", "applicable_roles": ["legal-expert", "bid-writer", "hr-attendance", "software-engineer"] },
+              { "metric_code": "problem_resolution_completeness", "applicable_roles": ["*"] },
+              { "metric_code": "response_clarity_and_structure", "applicable_roles": ["*"] },
+              { "metric_code": "response_conciseness", "applicable_roles": ["*"] },
+              { "metric_code": "factual_accuracy", "applicable_roles": ["*"] },
+              { "metric_code": "proactive_clarification", "applicable_roles": ["*"] },
+              { "metric_code": "safety_and_ethics_boundary", "applicable_roles": ["*"] },
+              { "metric_code": "professional_tone_consistency", "applicable_roles": ["*"] }
+            ]
+          },
+          "expected_output": {
+            "candidate_metrics": ["tool_call_correctness", "interaction_empathy", "order_refund_policy_accuracy", "problem_resolution_completeness", "response_clarity_and_structure", "response_conciseness", "factual_accuracy", "proactive_clarification", "safety_and_ethics_boundary", "professional_tone_consistency"],
+            "comment_on_candidate": "10 kept = 3 role-specific (tool_call_correctness via '*', interaction_empathy, order_refund_policy_accuracy) + 7 cross-role generics (all applicable_roles=['*']).",
+            "dropped_metrics": [
+              { "metric_code": "attendance_rule_compliance", "applicable_roles": ["hr-attendance"], "drop_reason": "role_mismatch" },
+              { "metric_code": "bid_clause_completeness", "applicable_roles": ["bid-writer"], "drop_reason": "role_mismatch" },
+              { "metric_code": "legal_citation_accuracy", "applicable_roles": ["legal-expert"], "drop_reason": "role_mismatch" },
+              { "metric_code": "code_change_risk_disclosure", "applicable_roles": ["software-engineer"], "drop_reason": "role_mismatch" },
+              { "metric_code": "confidentiality_boundary_compliance", "applicable_roles": ["legal-expert", "bid-writer", "hr-attendance", "software-engineer"], "drop_reason": "role_mismatch" }
+            ]
+          },
+          "forbidden_output": {
+            "comment": "This is the bug observed in eval-xiaofu-001 — the host agent copied the full registry into candidate_metrics without filtering. Such an output marks the run as tainted under K9.",
+            "candidate_metrics_wrong": "all 15 metrics including the 5 role-mismatched ones"
+          }
+        }
+      },
+      "notes": "STEP 1 is now a single deterministic responsibility: FILTER metric_registry by the canonical employee.role.role_id (resolved by S0) to produce candidate_metrics + dropped_metrics. Both outputs MUST be persisted in evaluation_context.json. candidate_metrics is the deterministic, machine-verifiable input to STEP 1.2; selected_metrics is STEP 1.2's output. Test-case probing only decides whether STEP 1.5 needs to run; it does NOT affect metric filtering."
+    },
+    {
+      "concept_id": "S1_2",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "curateMetrics",
+      "attributes": {
+        "executor": "llm_bounded_and_auditable",
+        "runs_between": "S1 (after) and S1_5/S2 (before)",
+        "inputs": ["candidate_metrics (from S1)", "metric_registry (from PRE)", "employee.industry", "employee.role.responsibility_tags", "employee.job_responsibilities", "metric_selection_policy"],
+        "outputs": ["evaluation_context.selected_metrics", "evaluation_context.curate_log[]", "appended evaluation_context.user_consultation_log entries"],
+        "invocation_gate": {
+          "never": "skip; selected_metrics = candidate_metrics",
+          "always": "run unconditionally (even if size-trigger evaluation errors)",
+          "auto": "run iff len(candidate_metrics) < size_triggers.candidate_count_lower_bound (default 3) OR len(candidate_metrics) > size_triggers.candidate_count_upper_bound (default 15); else skip and selected_metrics = candidate_metrics"
+        },
+        "curate_algorithm": [
+          "1. Build prompt slices: employee.{industry, role.responsibility_tags, job_responsibilities} + candidate_metrics[*].{metric_code, description, tags, industry, responsibility_tags} + (metric_registry − candidate_metrics)[*].{same fields} (the addable pool) + metric_selection_policy.",
+          "2. LLM emits removed[] ⊆ candidate_metrics (semantically inappropriate) and added[] ⊆ (metric_registry − candidate_metrics) (string-match missed). Each decision: { metric_code, decision, evidence[], confidence∈[0,1] }.",
+          "3. DETERMINISTIC post-processing (orchestrator, not LLM): validate removed/added disjoint + subset (R10.3); resolve low-confidence adds via user confirmation (R13); selected_metrics = (candidate − removed) ∪ confirmed_adds; enforce max_metrics + min_dimensions_covered (R12.8/9) -> block_or_escalate on violation; persist curate_log + verify K18 evidence citations."
+        ],
+        "confidence_gate": {
+          ">= auto_apply_threshold (default 0.7)": "include; confirmed_by_user = 'auto_applied'",
+          "< threshold AND user confirms": "include; confirmed_by_user = true",
+          "< threshold AND user declines OR 300s timeout": "exclude; confirmed_by_user = false",
+          "multiple low-confidence adds": "prompt one at a time in curate_log order"
+        },
+        "evidence_citation_rule": "Every removed/added decision MUST have >=1 evidence citation naming a source_field (one of employee.industry / employee.job_responsibilities / employee.role.responsibility_tags / metric.description / metric.tags / metric.industry / metric.responsibility_tags / metric.complementary_metrics / metric.exclusive_with) and quoting a verbatim, >=1-char substring of that field's value. Enforced by K18.",
+        "bounds": {
+          "max_metrics": "len(selected_metrics) <= metric_selection_policy.max_metrics (default 8); strictly more -> block_or_escalate + curate_log entry citing observed vs configured.",
+          "min_dimensions_covered": "distinct parent_dimension count across selected_metrics >= metric_selection_policy.min_dimensions_covered (default 1); strictly fewer -> block_or_escalate."
+        },
+        "failure_handling": "Curator failure, malformed output, subset-constraint violation, missing input, or 30s timeout -> fall back to selected_metrics = candidate_metrics + open_question; run proceeds. SAFETY PROPERTY: STEP 1.2 can only refine or no-op, never degrade below the deterministic STEP 1 result.",
+        "legacy_compat": "If evaluation_context carries only legacy selected_metrics (no candidate_metrics), treat selected_metrics as candidate_metrics + open_question (R16.4). If both present, candidate_metrics wins + open_question (R16.5).",
+        "notes": "STEP 1.2 is the LLM curation layer that reasons over employee industry/responsibilities + metric semantic fields to remove false-positive string matches and add semantically-correct misses. K9 is rewritten as selected_metrics = (candidate_metrics − removed) ∪ added; candidate_metrics stays machine-verifiable, removed/added are auditable via curate_log (K18)."
+      }
+    },
+    {
+      "concept_id": "S1_5",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "parseTestCases",
+      "attributes": {
+        "executor": "llm",
+        "trigger": "test_case_status == 'missing' AND auto_parse policy permits",
+        "default_policy": "adaptive (run only when missing)",
+        "consult_user_first": {
+          "required": true,
+          "comment": "Whenever STEP 1.5 fires, the host agent MUST first ask the user whether they can supply real-world scenarios that the evaluatee actually handles in production. Real user-provided scenarios are the highest-fidelity grounding available; SOP documents only describe how the employee SHOULD behave, not what cases the employee ACTUALLY meets. Synthesizing cases from SOP alone produces low-reliability ground truth. See constraint K11.",
+          "prompt_template": "我即将为员工 <employee_id>（role=<role>）生成测试用例。为了让评估贴近真实业务，请提供该员工在生产环境中实际处理的代表性场景（1-7 个）。每个场景请说明：(a) 场景名称与频率；(b) 客户典型开场话术与诉求；(c) 需要员工调用的关键工具 / 查询 / 决策；(d) 隐含红线。若在询问后中你明确表示「没有」「不提供」「你自己合成即可」，我才会退回 SOP 合成并标 caveat。",
+          "acceptable_responses": [
+            "(A) user_supplies_scenarios -> proceed with Tier 1 (highest reliability)",
+            "(B) user_explicitly_declines (e.g. '你自己合成' / '没有' / 'skip') -> proceed with Tier 2 SOP fallback AND mark every synthesized case with reliability_caveat='synthesized_from_sop_only_no_user_grounding'",
+            "(C) user_partially_supplies (e.g. only 1-2 scenario seeds) -> Tier 1 for those, Tier 2 SOP for additional coverage; mark each case's reliability accordingly"
+          ],
+          "persistence": "Persist the prompt sent + raw user response (or explicit 'declined' marker) to evaluation_context.user_consultation_log = [ { asked_at, prompt, user_response, decision: 'tier1' | 'tier2' | 'tier3' } ]. STEP 9 EvaluationReport MUST surface 'reliability_caveat' in open_questions whenever any case in this run was synthesized via Tier 2 only."
+        },
+        "fallback_chain": [
+          "Tier1 (HIGHEST reliability): user_provided_scenarios non-empty -> extract scenarios verbatim -> generate cases (provenance.source = 'user_provided_scenarios', reliability = 'high'). User text is the authoritative seed; LLM only renders it into test-case.schema.json v2.0 shape, MUST NOT invent scenario types not mentioned by the user.",
+          "Tier2 (MEDIUM-LOW reliability, SOP fallback): consult_user_first answered (B) AND employee.sop_documents non-empty -> extract scenarios from SOP -> generate cases (provenance.source = 'synthesized_from_sop', reliability = 'low', reliability_caveat = 'synthesized_from_sop_only_no_user_grounding'). The synthesized cases MUST carry caveat note in provenance and be flagged in EvaluationReport.open_questions.",
+          "Tier3 (BLOCK): consult_user_first answered (B) AND employee.sop_documents empty -> block_or_escalate. Do NOT synthesize cases out of thin air."
+        ],
+        "reliability_taxonomy": {
+          "high": "Each scenario maps 1:1 to a user-supplied real-world description; case input/expected_output is faithful rendering of user's words.",
+          "medium": "Mix of user-supplied seeds + SOP-derived expansions; clearly attributed per case.",
+          "low": "Pure SOP / persona reasoning; no user grounding. MUST carry reliability_caveat. EvaluationReport MUST treat scores from low-reliability cases as indicative, not definitive."
+        },
+        "outputs": ["raw_test_cases", "user_consultation_log"],
+        "output_schema": "contracts/projections/testcase-ontology/testcase-library/schemas/test-case.schema.json",
+        "destination": "./runs/<eval-id>/synthesized-cases/",
+        "target_schema_version": "2.0",
+        "required_input_fields_v2": {
+          "opening_message": "Customer's first utterance to the employee. Replaces the deprecated v1.0 user_message. MUST be a natural, in-character first message — not a stage direction.",
+          "customer_persona": "REQUIRED. Object with name / age_band / personality[] / communication_style / patience_level. Synthesize a realistic, role-appropriate persona; do NOT default everyone to 'neutral middle-aged customer'.",
+          "initial_emotion": "REQUIRED. One of angry / anxious / neutral / curious / satisfied / skeptical / frustrated. Pick the emotion most consistent with the scenario seed (e.g. complaint -> angry/frustrated, refund_in_window -> neutral/curious).",
+          "goal": "REQUIRED. Object with primary (must), secondary (optional nice-to-have), bottom_line (walk-away threshold). The simulator uses bottom_line to decide when to terminate with stop_reason=bottom_line_violated; therefore bottom_line MUST be concrete and observable, not vague.",
+          "context": "REQUIRED. Free-form scenario context the employee will see (order_id / status / timestamps / history). MUST be self-consistent with opening_message and goal.",
+          "stop_conditions": "REQUIRED. Object with success / failure / deadlock — plain-language descriptions the simulator evaluates each turn. success maps to goal_achieved; failure to bottom_line_violated; deadlock to deadlock_detected."
+        },
+        "required_top_level_fields_v2": {
+          "turn_budget.hard_max_turns": "REQUIRED for synthesized cases. Choose between 5 and 30 based on scenario complexity (simple policy lookup -> 5-10; multi-step complaint with escalation -> 15-30). MUST NOT exceed 50.",
+          "turn_budget.soft_target_turns": "OPTIONAL. Informational hint to the simulator about a comfortable wrap-up point.",
+          "provenance": "REQUIRED. Object with source ('user_provided_scenarios' | 'synthesized_from_sop' | 'mixed') AND reliability ('high' | 'medium' | 'low') AND optional reliability_caveat string. Reviewers and STEP 9 read this field to weight evidence."
+        },
+        "forbidden_v1_fields": [
+          "DO NOT emit input.user_message in synthesized cases — use opening_message instead.",
+          "DO NOT emit input.follow_up_messages in synthesized cases — the simulator decides each turn dynamically; pre-scripted follow-ups are ignored by STEP 3 in v2.0+."
+        ],
+        "validation": "Each synthesized .tc.json MUST validate against test-case.schema.json v2.0 BEFORE being written to destination. Missing customer_persona / goal / stop_conditions / provenance is a blocking error, not a warning.",
+        "boundary_coverage_guidance": {
+          "policy": "best_practice",
+          "description": "When a user scenario or SOP document contains a decision boundary (amount threshold, time limit, category restriction, etc.), STEP 1.5 SHOULD generate paired test cases covering both sides of the boundary. This is equivalence-class partitioning applied to evaluation test case synthesis. Not blocking — single unpaired cases are acceptable when no decision boundary exists.",
+          "procedure": [
+            "1. Identify decision boundaries in user scenarios / SOP (e.g. '超过1000元需人工审批', '7天内可无理由退货', '电子产品需质检').",
+            "2. For each boundary, generate at least TWO cases: one positive (within boundary, normal path) and one negative (exceeds boundary, restricted/escalation path).",
+            "3. Tag each case with polarity='positive'|'negative'|'boundary' and set paired_case_id to cross-reference the counterpart.",
+            "4. Boundary values themselves (e.g. exactly 1000) MAY get a third 'boundary' polarity case if the SOP ambiguity warrants it.",
+            "5. Adjust expected_tool_calls per polarity — positive and negative paths typically require different must-tools and trigger different red-line conditions."
+          ],
+          "examples": [
+            "SOP rule '退款金额>500元需转人工': positive case (order_amount=350, expects process_refund) + negative case (order_amount=899, expects create_handoff_ticket)",
+            "SOP rule '7天内可无理由退货': positive case (day_3, auto-approve refund) + negative case (day_10, requires quality dispute proof + human review)"
+          ]
+        }
+      },
+      "notes": "Auto-synthesized cases never enter the curated catalog (testcase-ontology K2). Generated content MUST be in the simulator-driven v2.0 shape so STEP 3 can drive a real customer turn-by-turn instead of replaying a pre-decided script. RELIABILITY ORDER: user-supplied scenarios > SOP-derived scenarios > LLM imagination. The host agent MUST consult the user before falling back to SOP synthesis (constraint K11)."
+    },
+    {
+      "concept_id": "S2",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "enrichTestCases",
+      "attributes": {
+        "executor": "deterministic",
+        "always_runs": true,
+        "inputs": ["raw_test_cases or curated test_cases", "metric_registry", "employee.role"],
+        "outputs": ["enriched_test_cases"],
+        "binding_rule": "tc.applicable_metrics = [ m for m in evaluation_context.selected_metrics if role_match(m, employee.role) AND scenario_match(m, tc.scenarios) ]; role_match(m, role) ≡ (role ∈ m.applicable_roles) OR ('*' ∈ m.applicable_roles); scenario_match(m, tc_scenarios) ≡ ('*' ∈ m.applicable_scenarios) OR (m.applicable_scenarios ∩ tc_scenarios ≠ ∅)",
+        "wildcard_semantics_note": "'*' means 'matches all'. A metric with applicable_scenarios=['*'] (e.g. tool_call_correctness) MUST be attached to EVERY test case regardless of tc.scenarios — including cases like 'tc-pre-sales-inquiry' whose scenarios list does not otherwise appear in the metric. Failing to attach '*'-scoped metrics is the STEP 2 violation observed in eval-xiaofu-001 (where pre-sales cases dropped tool_call_correctness).",
+        "upstream_input_invariant": "The registry filtered here MUST be evaluation_context.selected_metrics (NOT the full metric_registry). Per K9/K10, role-dropped metrics from STEP 1 MUST NOT reappear at STEP 2.",
+        "augment_existing_bindings": true,
+        "validate_existing_bindings_against_registry": true
+      },
+      "notes": "Runs unconditionally to ensure every test case carries a valid set of applicable_metrics. Wildcard handling: '*' in applicable_roles or applicable_scenarios is a match-all wildcard, NOT a literal string."
+    },
+    {
+      "concept_id": "S3",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "driveEmployeeOnScenario",
+      "attributes": {
+        "executor": "host_agent_with_io_driver",
+        "scope": "per test_case",
+        "inputs": [
+          "enriched_test_case (one per scenario, supplies customer_persona/goal/stop_conditions/opening_message/turn_budget)",
+          "evaluation_context.runtime_driver",
+          "evaluation_context.runtime_simulator",
+          "evaluation_context.global_turn_cap"
+        ],
+        "outputs": [
+          "execution_trace = { dialog_turns, actual_tool_calls, actual_artifacts, simulator_trail, termination }"
+        ],
+        "output_schema": "runtime-schemas/execution_trace.schema.json",
+        "dual_role_design": {
+          "driver_role": "deterministic I/O subprocess between evaluator and evaluatee (protocol/JWT/WebSocket frames). Spawned ONCE per scenario as a long-lived subprocess; receives line-JSON commands on stdin and emits line-JSON events on stdout. Makes no decisions about what the customer says or when to stop.",
+          "simulator_role": "the host evaluation-expert agent itself, using its OWN LLM brain, impersonating the customer. The simulator directory under ./simulators/<simulator_id>/ is a role profile (system prompt + manifest); there is NO subprocess and NO external LLM call. Same brain that runs STEP 1.5 / STEP 4 / STEP 8 / STEP 9 also drives the dialog here.",
+          "separation_rule": "driver MUST NOT generate customer text; the host agent (acting as simulator) MUST NOT touch the protocol wire. The two communicate via the long-lived stdin/stdout JSON protocol described in driver_protocol below."
+        },
+        "driver_protocol": {
+          "transport": "line-delimited JSON over driver subprocess stdin/stdout",
+          "lifecycle": "driver is spawned once per scenario with --evaluation-context and --output flags; first stdout line is {\"event\":\"ready\"}; driver exits after {\"event\":\"trace_written\"} or {\"event\":\"error\"}",
+          "agent_to_driver_actions": {
+            "send": "{\"action\":\"send\",\"turn_index\":N,\"text\":<utterance>,\"decision\":<full SimulatorDecision>}",
+            "end": "{\"action\":\"end\",\"decision\":<final SimulatorDecision with should_continue=false>,\"termination\":{...}}"
+          },
+          "driver_to_agent_events": {
+            "ready": "{\"event\":\"ready\",\"driver_id\":...}",
+            "evaluatee_turn": "{\"event\":\"evaluatee_turn\",\"turn_index\":N,\"content\":...,\"tool_calls\":[...],\"raw_messages\":[...]}",
+            "trace_written": "{\"event\":\"trace_written\",\"path\":...}",
+            "error": "{\"event\":\"error\",\"detail\":...}"
+          },
+          "trace_assembly": "driver caches each `decision` from `send`/`end` actions into simulator_trail and writes the final ExecutionTrace JSON to --output before exiting; the host agent does NOT write the trace file directly"
+        },
+        "loop_logic": {
+          "turn_0": "host agent emits SimulatorDecision with turn_index=0 and next_utterance = tc.input.opening_message verbatim, WITHOUT consulting its LLM (no evaluatee reply yet to react to); writes a 'send' action to driver stdin",
+          "turn_n_step_1": "host agent reads {\"event\":\"evaluatee_turn\"} from driver stdout and appends it to dialog_so_far",
+          "turn_n_step_2": "host agent renders simulator/<id>/system_prompt.md with placeholders ({{customer_persona}} / {{goal}} / {{stop_conditions}} / {{context}} / {{current_emotion}} / {{dialog_so_far}} / {{effective_max_turns}}) and asks its OWN LLM for a SimulatorDecision JSON; validates against simulator_decision.schema.json",
+          "turn_n_step_3": "host agent enforces effective_max_turns; if turn_n+1 >= effective_max_turns, sends an 'end' action with reason=max_turns_reached regardless of decision.should_continue",
+          "turn_n_step_4": "if decision.should_continue=false, host agent sends 'end' action with termination.reason mapped from stop_reason; otherwise sends 'send' action with decision.next_utterance and loops"
+        },
+        "turn_budget_resolution": {
+          "effective_max_turns": "min(test_case.turn_budget.hard_max_turns, evaluation_context.global_turn_cap)",
+          "global_turn_cap_default": 30,
+          "override_disallowed": "simulator should_continue=true CANNOT bypass effective_max_turns"
+        },
+        "stop_reason_to_termination_mapping": {
+          "goal_achieved": "completed_normally",
+          "bottom_line_violated": "bottom_line_violated",
+          "deadlock_detected": "deadlock_detected",
+          "customer_gave_up": "deadlock_detected"
+        },
+        "driver_resolution": {
+          "order": [
+            "evaluation_context.runtime_driver.driver_id",
+            "env:EVALUATION_DRIVER_ID"
+          ],
+          "on_unresolved": "fail_fast",
+          "silent_default_disallowed": true
+        },
+        "driver_dir_default": "./runtime-drivers/",
+        "driver_dir_env": "EVALUATION_DRIVERS_DIR",
+        "driver_manifest_schema": "runtime-schemas/runtime_driver.schema.json",
+        "driver_config_validation": "driver_config MUST be validated against the selected driver's driver.json#/config_schema BEFORE spawning the entry subprocess",
+        "simulator_resolution": {
+          "order": [
+            "evaluation_context.runtime_simulator.simulator_id",
+            "env:EVALUATION_SIMULATOR_ID"
+          ],
+          "on_unresolved": "fail_fast",
+          "silent_default_disallowed": true
+        },
+        "simulator_dir_default": "./simulators/",
+        "simulator_dir_env": "EVALUATION_SIMULATORS_DIR",
+        "simulator_manifest_schema": "runtime-schemas/simulator.schema.json",
+        "simulator_decision_schema": "runtime-schemas/simulator_decision.schema.json",
+        "simulator_execution_model": "NOT a subprocess. The host agent loads simulator.json + system_prompt.md, renders placeholders each turn, and consults its own LLM. There is no entry script, no model/api_key configuration, and no IPC boundary at the simulator layer. Each per-turn decision MUST be validated against simulator_decision.schema.json before being forwarded to the driver via the 'send' action.",
+        "host_agent_execution_mode": {
+          "rule": "interactive_no_script",
+          "spawn_command_template": "python -u runtime-drivers/<driver_id>/run.py --evaluation-context <eval_ctx_path> --test-case <enriched_tc_path> --output ./runs/<eval_id>/traces/<test_case_id>.trace.json",
+          "agent_responsibilities_per_turn": [
+            "read one line from driver stdout (expect evaluatee_turn event)",
+            "render simulator system_prompt.md with the per-turn placeholders",
+            "consult host agent's own LLM for a SimulatorDecision JSON",
+            "validate decision against runtime-schemas/simulator_decision.schema.json",
+            "write a 'send' or 'end' action to driver stdin as one JSON line"
+          ],
+          "forbidden_patterns": [
+            "creating ANY new executable file (.py / .sh / .ts / .js / .mjs / .ipynb / Makefile / *.cmd / *.ps1) ANYWHERE inside the skill package outside the skill-creation-time whitelist (./runtime-drivers/<driver_id>/ and any future runtime-*/<id>/)",
+            "writing orchestrator / runner / coordinator scripts such as run_scenario.py, run_step3.py, run_evaluation.py, run_full_evaluation.py, runner.py, orchestrator.py, coordinator.py, main.py, eval.py, test_driver.py, driver_client.py, or any similarly-named file at the skill root, in ./runs/<eval_id>/, in ./scripts/, in ./tools/, or anywhere else",
+            "writing helper scripts that render simulator system_prompt placeholders, parse JSON, drive the per-turn loop, or call an LLM endpoint via HTTP (these duties belong to the host agent's own LLM brain in-process, not to a separate script)",
+            "writing a function that contains subprocess.Popen([..., 'runtime-drivers/...']) followed by proc.stdin.write(...) / proc.stdout.readline() in agent-authored code at any path",
+            "writing a while True: loop or asyncio coroutine that bundles multiple turns of driver I/O into one execution",
+            "importing modules from ./runtime-drivers/<driver_id>/ into agent-authored code",
+            "replicating WebSocket / JWT / trace-writing logic outside the driver subprocess",
+            "spawning the simulator as a subprocess",
+            "configuring an independent LLM api_key / endpoint for the simulator"
+          ],
+          "path_whitelist_for_executables": [
+            "./runtime-drivers/<driver_id>/**",
+            "./runtime-*/<id>/**"
+          ],
+          "on_violation": "Mark the run as tainted: stop scoring immediately, do NOT cite the partial outputs, drop a TAINTED.md (under ./runs/<eval_id>/ if it exists, otherwise at the skill root) describing which forbidden pattern was hit, and STEP 9 MUST surface the violation in EvaluationReport.open_questions."
+        },
+        "legacy_follow_up_messages_handling": "v1.0 tc.input.follow_up_messages MUST be IGNORED in v2.0+; the host agent decides each turn. Legacy field is kept in test-case schema only for file-level backward compatibility.",
+        "trace_persistence": "./runs/<eval-id>/traces/<tc.id>.trace.json (written by driver on receipt of 'end' action)",
+        "protocol_agnostic": true,
+        "provider_agnostic": true,
+        "evaluation_logic_disallowed": true
+      },
+      "notes": "Dual-role STEP 3 with asymmetric execution model: runtime_driver IS a long-lived subprocess (protocol-specific code under ./runtime-drivers/<driver_id>/), runtime_simulator is NOT a subprocess (role profile under ./simulators/<simulator_id>/ consumed by the host agent's own LLM, parity with STEP 1.5 / STEP 4 / STEP 8 / STEP 9). The contract layer never references a specific protocol or LLM provider. Adding a new protocol = dropping a driver directory; adding a new persona = dropping a simulator directory; this projection file does not need to change."
+    },
+    {
+      "concept_id": "S4",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "scoreScenario",
+      "attributes": {
+        "executor": "llm_fanout",
+        "scope": "per test_case",
+        "fanout_dimension": "applicable_metrics",
+        "parallelism": "metric-level parallel allowed",
+        "per_invocation_inputs": [
+          "rules_slim from scoring-judgement (single-dimension subset)",
+          "metric.scoring_rubric",
+          "slice = apply_selector(metric.runtime_slice_selector, tc.input, tc.expected_output, scenario_trace)",
+          "metric_score output schema"
+        ],
+        "outputs": ["scenario_scores[tc.id][metric.code]"],
+        "score_persistence": "./runs/<eval-id>/scores/<tc.id>.scores.json",
+        "retry_policy": "single (tc, metric) retriable on transient failure",
+        "uniform_fanout": true
+      },
+      "notes": "All metrics use fan-out uniformly; no per-metric exception flags. Each LLM invocation scopes to ONE (test_case, metric) pair."
+    },
+    {
+      "concept_id": "S5",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "aggregateAcrossScenarios",
+      "attributes": {
+        "executor": "deterministic",
+        "inputs": ["scenario_scores (matrix tc x metric)"],
+        "outputs": ["per_metric_final_scores"],
+        "strategy_source": "metric.aggregation_strategy",
+        "llm_disallowed": true
+      }
+    },
+    {
+      "concept_id": "S6",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "rollUpToDimensions",
+      "attributes": {
+        "executor": "deterministic",
+        "inputs": ["per_metric_final_scores", "metric.parent_dimension", "metric.default_weight_within_dimension"],
+        "outputs": ["dimension_scores", "overall_score"],
+        "dimension_enum": [
+          "functional_completeness",
+          "interaction_quality",
+          "process_compliance",
+          "problem_resolution",
+          "tool_call_correctness"
+        ]
+      }
+    },
+    {
+      "concept_id": "S7",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "redLineCheck",
+      "attributes": {
+        "executor": "deterministic",
+        "llm_disallowed": true,
+        "triggers": [
+          "missing_required_signal: any expected_tool_calls.criticality=must absent in any scenario_trace",
+          "dimension_floor: dimension_scores[d] <= floor(d) for any d declared in scoring-judgement red-line set"
+        ],
+        "outputs": ["red_line_triggered (bool)", "passed = !red_line_triggered AND overall_score >= 70 AND ∀d dimension_scores[d] >= 60"]
+      }
+    },
+    {
+      "concept_id": "S8",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "buildScenarioReports",
+      "attributes": {
+        "executor": "llm_synthesis",
+        "scope": "per test_case",
+        "parallelism": "per-scenario parallel allowed",
+        "inputs": [
+          "scenario_score (one ScenarioScore per test_case)",
+          "execution_trace (one per test_case)",
+          "enriched_test_case (one per test_case)",
+          "rules_slim from scoring-judgement where applies_to_layer = report_synthesis_prompt"
+        ],
+        "output_schema": "runtime-schemas/scenario_report.schema.json",
+        "outputs": ["./runs/<eval-id>/reports/scenarios/<test_case_id>.report.json"],
+        "numeric_field_policy": "copy_from_upstream_artifacts_no_recompute",
+        "narrative_field_policy": "llm_may_phrase_but_must_not_contradict_numbers",
+        "red_line_decision_disallowed": true
+      },
+      "notes": "One report per scenario, written before the overall report. The LLM synthesizes prose ('what went well / wrong / improve') but copies all numeric metric_results verbatim from the matching MetricScore objects. Red-line and pass/fail decisions are forbidden here; they live in STEP 7 / STEP 9 only."
+    },
+    {
+      "concept_id": "S9",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "buildOverallReport",
+      "attributes": {
+        "executor": "llm_synthesis",
+        "scope": "per evaluation_id (exactly once)",
+        "inputs": [
+          "evaluation_context",
+          "per_metric_final_scores (STEP 5)",
+          "dimension_scores + overall_score (STEP 6)",
+          "red_line_check_result (STEP 7)",
+          "all scenario_report files (STEP 8)",
+          "rules_slim from scoring-judgement where applies_to_layer = report_synthesis_prompt"
+        ],
+        "output_schema": "runtime-schemas/evaluation_report.schema.json",
+        "outputs": ["./runs/<eval-id>/reports/evaluation_report.json"],
+        "numeric_field_policy": "copy_from_step_5_step_6_step_7_no_recompute",
+        "scenario_report_inclusion_policy": "link_only_must_not_inline",
+        "red_line_decision_disallowed": true
+      },
+      "notes": "The single consolidated report. dimension_scores / overall_score / red_line / passed MUST be byte-identical to STEP 6 and STEP 7 outputs; the LLM only authors executive_summary, strengths, weaknesses, cross_scenario_patterns, and improvement_plan."
+    }
+  ],
+  "relation_mappings": [
+    { "relation_id": "Eneg2", "from": "loadRoleCatalog", "to": "resolveEmployee", "kind": "precedes" },
+    { "relation_id": "Eneg1", "from": "resolveEmployee", "to": "loadMetricRegistry", "kind": "precedes" },
+    { "relation_id": "E0", "from": "loadMetricRegistry", "to": "resolveEmployeeAndCheckTestCases", "kind": "precedes" },
+    { "relation_id": "E0b", "from": "resolveEmployeeAndCheckTestCases", "to": "curateMetrics", "kind": "precedes" },
+    { "relation_id": "E1", "from": "curateMetrics", "to": "parseTestCases", "kind": "conditionally_precedes", "condition": "test_case_status == 'missing'" },
+    { "relation_id": "E2", "from": "parseTestCases", "to": "enrichTestCases", "kind": "precedes" },
+    { "relation_id": "E2b", "from": "curateMetrics", "to": "enrichTestCases", "kind": "conditionally_precedes", "condition": "test_case_status == 'ready'" },
+    { "relation_id": "E3", "from": "enrichTestCases", "to": "driveEmployeeOnScenario", "kind": "loops_over", "loop_var": "enriched_test_cases" },
+    { "relation_id": "E4", "from": "driveEmployeeOnScenario", "to": "scoreScenario", "kind": "precedes_within_loop" },
+    { "relation_id": "E5", "from": "scoreScenario", "to": "aggregateAcrossScenarios", "kind": "loop_exit_then_precedes" },
+    { "relation_id": "E6", "from": "aggregateAcrossScenarios", "to": "rollUpToDimensions", "kind": "precedes" },
+    { "relation_id": "E7", "from": "rollUpToDimensions", "to": "redLineCheck", "kind": "precedes" },
+    { "relation_id": "E8", "from": "redLineCheck", "to": "buildScenarioReports", "kind": "precedes" },
+    { "relation_id": "E9", "from": "buildScenarioReports", "to": "buildOverallReport", "kind": "precedes" }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "MetricRegistryNonEmpty",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "If metric_registry is empty after PRE, the workflow MUST block_or_escalate; downstream steps cannot proceed."
+    },
+    {
+      "constraint_id": "K2",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "EnrichTestCasesAlwaysRuns",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "notes": "STEP 2 MUST run unconditionally on both curated and synthesized test cases to ensure metric bindings are valid against the current metric_registry."
+    },
+    {
+      "constraint_id": "K3",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "FanOutIsUniformAndPerMetric",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "STEP 4 MUST issue exactly one LLM invocation per (test_case, metric) pair. Batching multiple metrics or scenarios into a single LLM call is forbidden."
+    },
+    {
+      "constraint_id": "K4",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "AggregationAndRedLineAreDeterministic",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "STEPs 5, 6, 7 MUST NOT invoke LLM. They are pure functions over numeric inputs. STEP 7 red-line pseudo-code (authoritative): for each m in selected_metrics with non-null m.red_line: triggered = False, evidence = []. If m.red_line.trigger_kind == 'missing_required_signal' then for each (tc_id, score) in per_metric_scores[m.metric_code]: must_tools = [t for t in enriched_cases[tc_id].expected_tool_calls if t.criticality == 'must']; absent = [t for t in must_tools if t.tool_name not in traces[tc_id].actual_tool_calls]; if absent: triggered = True; evidence.append({tc_id, missing: absent}). If m.red_line.trigger_kind == 'score_below_threshold' then for each (tc_id, score): if score.overall_score < m.red_line.threshold: triggered = True; evidence.append({tc_id, score: score.overall_score, threshold: m.red_line.threshold}). The LLM in STEP 9 is FORBIDDEN from overwriting 'triggered'. Narrative rationalizations such as 'tool_call_correctness scored 10/100 but red_line is not triggered because the agent had reasonable substitute behavior' are K4 violations (this is the eval-xiaofu-001 bug). Per K7, EvaluationReport.red_line is a byte-copy of red_line_check.json."
+    },
+    {
+      "constraint_id": "K5",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "SynthesizedCasesIsolatedFromCatalog",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "notes": "STEP 1.5 outputs MUST be persisted under ./runs/<eval-id>/synthesized-cases/ and never written into the curated test-cases/ catalog."
+    },
+    {
+      "constraint_id": "K6",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "ReportLayerIsTwoTier",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "notes": "Reports MUST be split into per-scenario (STEP 8) and overall (STEP 9). STEP 9 MUST NOT run before every applicable scenario has a ScenarioReport file. The overall report MUST link, not inline, scenario reports."
+    },
+    {
+      "constraint_id": "K7",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "ReportNumericFieldsAreCopiesNotRecomputations",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "All numeric fields in ScenarioReport (metric_results.score) and EvaluationReport (per_metric_final_scores, dimension_scores, overall_score, red_line, passed) MUST be byte-identical to upstream MetricScore / STEP 5 / STEP 6 / STEP 7 outputs. The LLM in STEP 8 / STEP 9 is allowed to author prose only."
+    },
+    {
+      "constraint_id": "K8",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "NoAdhocOrchestratorScripts",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "The host agent MUST NOT generate any executable file (.py / .sh / .ts / .js / .mjs / .ipynb / Makefile / .cmd / .ps1) under ./runs/<eval_id>/, ./simulators/<simulator_id>/, or anywhere else as a substitute for executing a STEP. The only executable code permitted under this skill is what was committed at skill-creation time (currently ./runtime-drivers/<driver_id>/run.py). Specifically: ./simulators/<simulator_id>/ MUST contain ONLY persona artifacts (simulator.json, system_prompt.md, optional emotion_states.json / behavioral_constraints.md) plus a sentinel file '.no-decide-script' that documents the kind=llm_persona contract; finding decide.py / run.py / any *.py here means the simulator is being mistakenly treated as a subprocess, taints the run, and the offending file MUST be deleted. STEP 3 MUST spawn the configured driver via shell and communicate over its stdin/stdout line-JSON protocol; STEPs 1 / 1.5 / 2 / 4 / 5 / 6 / 7 / 8 / 9 MUST be performed inline by the host agent (filesystem operations + own LLM brain). Any agent-authored script under ./runs/ or ./simulators/ marks the run as tainted, and STEP 9 MUST surface this fact in EvaluationReport.open_questions."
+    },
+    {
+      "constraint_id": "K9",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "SelectedMetricsRoleFilteredAtStep1",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "UPDATED for STEP 1.2 curation. STEP 1 MUST persist evaluation_context.candidate_metrics = filter(metric_registry, m -> employee.role.role_id in m.applicable_roles OR '*' in m.applicable_roles) AND evaluation_context.dropped_metrics for the complement set with drop_reason='role_mismatch'. STEP 1.2 then produces evaluation_context.selected_metrics = (candidate_metrics − removed) ∪ added, where removed ⊆ candidate_metrics and added ⊆ (metric_registry − candidate_metrics). candidate_metrics MUST stay machine-verifiable: an automated verifier recomputes it from metric_registry + employee.role.role_id and confirms set equality. Copying the full metric_registry into candidate_metrics without role filtering is a contract violation; the run MUST be marked tainted via TAINTED.md and STEP 9 MUST surface the violation in EvaluationReport.open_questions. Validation: len(candidate_metrics) + len(dropped_metrics) == len(metric_registry); every metric in candidate_metrics satisfies the role match; every metric in dropped_metrics fails it; removed ∩ added == empty; every metric_code in (removed ∪ added) has a curate_log entry (K18). If candidate_metrics is empty while metric_registry is non-empty, STEP 1 MUST block_or_escalate (do not proceed to STEP 1.2). When STEP 1.2 is skipped (mode=never), fails, or times out, selected_metrics MUST equal candidate_metrics."
+    },
+    {
+      "constraint_id": "K10",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "InlineEnrichedCasesMatchPersistedFiles",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "For every entry e in evaluation_context.enriched_test_cases[], e.applicable_metrics MUST be byte-identical to the applicable_metrics field of the corresponding ./runs/<eval-id>/enriched-cases/<e.test_case_id>.json file produced by STEP 2. Furthermore, e.applicable_metrics MUST be a SUBSET of evaluation_context.selected_metrics (no metric filtered out at STEP 1 may reappear at STEP 2). STEP 3 LOOP and STEP 4 fan-out MUST consume the persisted file at ./runs/<eval-id>/enriched-cases/<tc_id>.json as the authoritative source for applicable_metrics; any divergence between the inline copy and the file marks the run as tainted."
+    },
+    {
+      "constraint_id": "K11",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "UserScenarioConsultationBeforeSynthesis",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "notes": "When STEP 1.5 fires (test_case_status == 'missing'), the host agent MUST consult the user FIRST and ask whether they can supply real-world scenarios that the evaluatee actually handles in production, BEFORE invoking any LLM-based scenario synthesis. The prompt + user response (or explicit decline marker) MUST be persisted as evaluation_context.user_consultation_log. Only after the user explicitly declines or partially declines may the host agent fall back to SOP-based synthesis (Tier 2), and every Tier-2 case's provenance MUST carry reliability='low' AND reliability_caveat='synthesized_from_sop_only_no_user_grounding'. STEP 9 EvaluationReport MUST surface this caveat in open_questions and weaken language about Tier-2 case findings (use 'indicative' / 'preliminary' rather than 'definitive'). Skipping the consultation and synthesizing directly from SOP is a high-severity violation; the run is NOT auto-tainted but EvaluationReport MUST flag the missing consultation explicitly."
+    },
+    {
+      "constraint_id": "K12",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "StepIntermediateArtifactsPersisted",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "Each of STEPs 5, 6, 7 MUST persist a typed JSON artifact under ./runs/<eval-id>/ BEFORE the next step begins. STEP 5 -> ./runs/<eval-id>/aggregated_metric_scores.json (keys ⊇ { m.metric_code for m in evaluation_context.selected_metrics }). STEP 6 -> ./runs/<eval-id>/dimension_scores.json (key set governed by K13). STEP 7 -> ./runs/<eval-id>/red_line_check.json (one entry per metric whose red_line config is non-null, with fields { metric_code, trigger_kind, triggered:bool, evidence:[] }). All three MUST be deterministic computation results (LLM-disallowed per K4). STEP 9 MUST byte-copy values from these three files into EvaluationReport (per K7) and MUST NOT begin if any of the three files is missing or fails its schema check — the run is tainted and EvaluationReport.open_questions MUST list the missing artifact(s). Synthesizing dimension_scores or red_line directly inside the STEP 9 LLM prompt without first persisting these intermediate artifacts is the eval-xiaofu-001 bug."
+    },
+    {
+      "constraint_id": "K13",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "DimensionScoresKeysMatchSelectedMetrics",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "STEP 6 dimension_scores.json key set MUST equal { m.parent_dimension for m in evaluation_context.selected_metrics }. Concretely: (a) NO key may appear that is not the parent_dimension of any selected metric — fabricating scores for parent dimensions whose sub-metrics were dropped at STEP 1 is forbidden (this is the eval-xiaofu-001 'process_compliance=87 / problem_resolution=82 invented out of thin air' bug, where only 3 metrics survived STEP 1 but dimension_scores listed 5 dimensions); (b) every parent_dimension contributed by selected_metrics MUST appear; (c) each value MUST be a deterministic roll-up of upstream MetricScore values (LLM-disallowed per K4); (d) EvaluationReport.dimension_scores is a byte-copy (per K7) and inherits the same key constraints. Validation: expected = { m.parent_dimension for m in selected_metrics }; assert set(dimension_scores.keys()) == expected, else taint the run."
+    },
+    {
+      "constraint_id": "K14",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "DriverProtocolLoopComplete",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "STEP 3 host agent MUST drive the driver subprocess through a complete stdin/stdout line-JSON loop until the driver emits {event:'trace_written'}. Required protocol: (a) write turn-0 'send' to stdin with text=tc.input.opening_message; (b) repeatedly read one stdout line, expecting {event:'evaluatee_turn'}, render the simulator system_prompt against placeholders, generate a SimulatorDecision via the host LLM, and write either another 'send' (decision.should_continue=true) OR an 'end' (decision.should_continue=false OR turn_index+1 >= effective_max_turns) to stdin; (c) ONLY AFTER writing 'end' (or after receiving {event:'error'}) may the agent close stdin; (d) the agent MUST then read until {event:'trace_written'} appears. Trace rejection rule (applied at STEP 4 input gate and STEP 9): a trace at ./runs/<eval-id>/traces/<tc_id>.trace.json is REJECTED iff (trace.termination.reason == 'evaluatee_error' AND trace.termination.detail contains \"stdin closed before 'end' action received\") OR (trace.termination.reason == 'evaluatee_error' AND trace.turns_used == 1 AND trace.actual_tool_calls == []) OR (trace.termination.reason == 'max_turns_reached' AND trace.turns_used < effective_max_turns AND simulator_trail[-1].should_continue == true) OR (simulator_trail is non-empty AND simulator_trail[-1].next_utterance is a non-empty string AND that exact string does NOT appear as the content of the LAST dialog_turns entry with actor='evaluator') — the third clause catches the 'demonstration shortcut' bug where the agent arbitrarily caps turns below effective_max_turns; the FOURTH clause catches the 'simulator decided but agent never delivered' bug (eval-soul-001 pattern: simulator_trail records next_utterance='订单号是 ORD…' with should_continue=false, but dialog_turns shows the customer never actually said it because the agent closed stdin before issuing the final 'send'). Whenever simulator decision yields a non-empty next_utterance, the agent MUST write a 'send' line carrying that exact text BEFORE writing 'end' — even when should_continue=false (the customer's last utterance, e.g. providing the order number or saying 'thanks, bye', is itself part of the dialog and must be in dialog_turns). A rejected trace marks the run tainted; STEP 4 MUST NOT score on a rejected trace; STEP 9 MUST list the affected tc_ids in open_questions. Anti-pattern: the agent issues exactly ONE 'send' message and immediately closes stdin without ever writing 'end' — this is a contract violation regardless of how the LLM 'feels' about the conversation. FORBIDDEN SHORTCUT: the agent MUST NOT terminate the loop early citing 'demonstration', 'preview', 'sample', 'testing', 'brevity', or any other reason that overrides the computed effective_max_turns = min(tc.turn_budget.hard_max_turns, evaluation_context.global_turn_cap or 30). The ONLY valid termination reasons inside the loop are: (1) simulator decision.should_continue == false; (2) turn_index+1 >= effective_max_turns; (3) driver emits {event:'error'}. Any other self-invented reason to write 'end' is a K14 violation. If the LLM rendering errors mid-loop, the recovery is to write {action:'end', termination:{reason:'deadlock_detected', detail:<reason>}} THEN close stdin, NEVER close stdin first. Symmetric simulator-side rule: a simulator decision MUST NOT set goal_progress='goal_achieved' or stop_reason='goal_achieved' on the first decision after the evaluatee asked the customer for required information (e.g. order_number, refund_id) UNLESS the customer's reply containing that information has been delivered to the evaluatee in a prior turn. Self-declaring goal_achieved while the required information is still locked inside next_utterance is a K15 violation (operability-loop principle), not a K14 violation, but its trace consequence is identical: REJECTED via the fourth clause above."
+    },
+    {
+      "constraint_id": "K15",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "StopConditionsAlignedWithExpectedToolCalls",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "notes": "STEP 1.5 and STEP 2 MUST ensure logical consistency between a test case's stop_conditions.success and its expected_tool_calls. Concretely: (a) if a test case declares expected_tool_calls with criticality='must', then stop_conditions.success MUST NOT be satisfiable until those tools have had an opportunity to fire — i.e. the success condition MUST describe an outcome that requires the evaluatee to have performed the must-criticality actions (e.g. 'refund application submitted after order query' rather than 'received refund instructions'); (b) if context contains information the evaluatee needs (e.g. order_reference) but the opening_message intentionally omits it, stop_conditions.success MUST require the customer to have provided that information during the conversation (the simulator cannot declare goal_achieved before providing it); (c) stop_conditions.success MUST describe an ACTIONABLE CLOSURE (the customer's actual problem is on track to resolution), NOT a passive reception of information (hearing a process explanation). Validation: for each synthesized/enriched test case, verify that if all must-criticality tools were never called AND no action was taken, the stop_conditions.success CANNOT be true — otherwise the case has an internal contradiction and MUST be revised before STEP 3 begins. This constraint prevents the eval-xiaofu-001 pattern where stop_conditions said 'got refund instructions' but expected_tool_calls required query_order_status + query_refund_policy, creating an impossible-to-pass evaluation."
+    },
+    {
+      "constraint_id": "K16",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "ScoringMustInvokeEvaluatorLLMPerCaseMetric",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "STEP 4 MUST invoke the evaluator LLM EXACTLY ONCE per (test_case_id, metric_code) pair where metric_code ∈ enriched_test_cases[tc].applicable_metrics. Hard rules: (a) the agent MUST NOT batch-fabricate scores from its own knowledge of the trace and metric definitions — every MetricScore JSON file under ./runs/<eval-id>/scores/<tc_id>__<metric_code>.json MUST be the literal output of an LLM call whose prompt was built from (i) that exact trace + (ii) that exact metric definition + (iii) the rubric/red-line config + (iv) per-case stop_conditions; (b) MetricScore.scored_at MUST be the real ISO8601 timestamp captured at LLM-response receipt time, accurate to at least the second, and DIFFERENT across distinct LLM calls (millisecond/microsecond drift expected); (c) tainting heuristic applied at STEP 5 input gate: if MORE THAN ONE score file in the same run shares an identical scored_at value (string equality), the run is marked tainted and STEP 9 MUST list every duplicate-timestamp pair in open_questions with severity='critical' — this catches the eval-soul-001 pattern where all 10 score files carried scored_at='2026-05-29T14:30:00Z' verbatim; (d) MetricScore.scoring_reasoning MUST cite at least one concrete substring/quote from dialog_turns or actual_tool_calls of the trace being scored — reasoning that cites no observable evidence and consists only of generic phrases ('based on standards', 'reasonable demonstration result', 'as a typical case') is rejected as fabrication and the score file MUST be regenerated; (e) FORBIDDEN SHORTCUT (mirror of K14): the agent MUST NOT skip the per-(case,metric) LLM call citing 'demonstration', 'preview', 'sample run', 'illustrative scoring', 'time pressure', or any other reason. STEP 4 is the ONLY LLM-bounded step in the back half of the workflow (per K4); STEPS 5/6/7/8/9 are deterministic roll-ups or LLM-bounded synthesis whose inputs MUST already be real per-(case,metric) scores produced here. Validation script outline: scored_at_set = { read(f).scored_at for f in scores/*.json }; assert len(scored_at_set) == count(scores/*.json), else taint."
+    },
+    {
+      "constraint_id": "K17",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "EmployeeResolutionProvenanceRequired",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "STEP 0 MUST persist evaluation_context.employee.employee_provenance as an object with string source ∈ {authoritative_file, user_dialog, inferred_fallback} and string reliability ∈ {high, low}; when reliability == 'low', caveat MUST be a non-empty string. EvaluationReport.employee_provenance MUST be byte-identical to the context value. When source == 'inferred_fallback' the report MUST describe inferred-derived findings as 'indicative', never 'definitive'. VIOLATION (provenance absent / not an object / missing source or reliability / non-string required field / reliability=low with empty-or-absent caveat): apply Tainted_Run_Lifecycle — write TAINTED.md describing the K17 subtype, stop all remaining scoring before any numeric score is produced, and surface the violation in EvaluationReport.open_questions. ATOMICITY: the three taint actions (TAINTED.md write, stop scoring, open_questions surfacing) are a single atomic outcome; if any fails the entire run fails with a non-success completion status and no successful EvaluationReport. If the TAINTED.md write itself fails, still halt scoring and emit the violation to run logs. SINGLE-WRITER: only STEP 0 may write employee.role.role_id; any later mutation is an unauthorized_role_id_mutation violation (self-checked like K9/K13)."
+    },
+    {
+      "constraint_id": "K18",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "CurateDecisionsMustBeAudited",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "Every entry in STEP 1.2 removed[] and added[] MUST have a corresponding evaluation_context.curate_log entry, and len(curate_log) == len(removed) + len(added), with each (removed ∪ added) metric_code appearing in exactly one entry. Each curate_log entry MUST carry decision ∈ {removed, added}, metric_code, confidence ∈ [0.0,1.0], and a non-empty evidence array where at least one citation names a source_field (one of employee.industry, employee.job_responsibilities, employee.role.responsibility_tags, metric.description, metric.tags, metric.industry, metric.responsibility_tags, metric.complementary_metrics, metric.exclusive_with) AND quotes a verbatim, >=1-char substring of that field's value. VIOLATION (empty evidence / missing curate_log entry / citation failing the source-field-and-substring check): apply Tainted_Run_Lifecycle — write TAINTED.md describing the K18 subtype (entry index + metric_code), stop remaining scoring, surface in EvaluationReport.open_questions. PARTIAL-FAILURE: if at least one but not all three taint actions succeed, accept partial state, continue the evaluation, and record failed actions in evaluation_context.open_questions; if none succeeds, halt with non-success status and no successful EvaluationReport. STEP 1.2 bounds (R12): len(selected_metrics) <= max_metrics and distinct parent_dimension count >= min_dimensions_covered, else block_or_escalate with a curate_log entry citing observed vs configured. SAFETY: any STEP 1.2 failure/timeout/skip -> selected_metrics = candidate_metrics (never degrades below the deterministic STEP 1 result)."
+    }
+  ],
+  "delivery_artifacts": [],
+  "dropped_items": [],
+  "open_questions": [],
+  "meta": {
+    "generated_at": "2026-05-27T00:00:00Z",
+    "generated_by": "ontology_extraction",
+    "workspace": "kingcrab",
+    "notes": "Deterministic role-agnostic workflow: PRE.A loadRoleCatalog → STEP 0 resolveEmployee → PRE loadMetricRegistry → STEP 1 (candidate_metrics) → STEP 1.2 curateMetrics (selected_metrics) → STEP 1.5 → STEP 2 → [STEP 3 → STEP 4]×N → STEP 5 → STEP 6 → STEP 7 → STEP 8×N → STEP 9. One LLM-with-confirmation step (STEP 0), one LLM-bounded curation step (STEP 1.2), one LLM-bounded fan-out scoring step (STEP 4), two LLM-bounded synthesis steps (STEP 8/9); everything else deterministic. Hot-pluggable via filesystem scan of role-catalog/, employees/, metrics/, test-cases/. K9 rewritten for the candidate→selected split; K17 (employee provenance) and K18 (curate auditability) added."
+  }
+}

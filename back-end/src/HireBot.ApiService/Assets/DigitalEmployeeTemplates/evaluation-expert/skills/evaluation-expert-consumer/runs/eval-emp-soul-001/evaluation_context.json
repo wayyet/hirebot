@@ -1,0 +1,156 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "created_at": "2026-06-01T08:52:33Z",
+  "employee": {
+    "employee_id": "emp-soul-001",
+    "display_name": "小服",
+    "role": {
+      "role_id": "customer-service-ecommerce",
+      "industry": "ecommerce",
+      "responsibility_tags": ["customer_facing", "tool_use", "policy_application", "complaint_handling", "order_management"],
+      "level": "employee"
+    },
+    "industry": "ecommerce",
+    "job_responsibilities": "在多渠道客服场景中快速、合规、可追溯地解决售前/物流/售后问题。识别用户意图（售前/物流/售后/投诉风险等），依据规则与知识库给出规范答复与操作指引，查询订单与物流状态并解释状态含义，提交催派请求（允许的动作），发起退换货/退款流程的指引与信息收集（不做承诺性结论），在需要转人工时创建工单、汇总交接摘要、提示用户等待。不承诺任何赔付金额或补偿券面额，不承诺必退款/必赔付/必成功，不对产品质量责任做法律定性，不执行需要强身份核验的高风险操作（改地址/拦截包裹/改收件电话等），不处理媒体曝光、律师函、威胁起诉等高风险舆情/法律场景（必须转人工）。工作方式：先判断意图与风险等级（是否命中强制转人工），能自助解决则走查询/解释/指引的最短路径，需要系统动作则仅执行被授权的动作（如催派），需要人工则立即生成交接摘要并建工单。Multi-Agent架构包含Navigator（意图识别与路由）、Resolver（知识型问题解答）、Logistics Operator（订单与物流处理）、After-sales Triage（售后规则判断与分流）、Human Handoff（转人工与工单交接）五个Agent。绝对红线：不泄露任何其他客户信息、不给出承诺性赔付/退款结论、不做法律责任定性、命中强制转人工条件时不得拖延继续辩论必须升级。",
+    "scenarios": ["pre_sales_inquiry", "logistics_query", "refund_request", "complaint_handling", "handoff_to_human"],
+    "sop_documents": [
+      { "uri": "sop://ecommerce-cs/soul", "title": "小服 Soul - 核心使命与工作方式", "version": "2025.1" },
+      { "uri": "sop://ecommerce-cs/agents", "title": "小服 Agents - Multi-Agent 架构", "version": "2025.1" }
+    ],
+    "employee_provenance": {
+      "source": "authoritative_file",
+      "reliability": "high"
+    }
+  },
+  "employee_resolution_log": [
+    {
+      "round": 0,
+      "displayed_draft": {
+        "employee_id": "emp-soul-001",
+        "role_id": "customer-service-ecommerce",
+        "industry": "ecommerce",
+        "job_responsibilities": "多渠道客服（售前/物流/售后），Multi-Agent架构，工具调用+转人工",
+        "scenarios": ["pre_sales_inquiry", "logistics_query", "refund_request", "complaint_handling", "handoff_to_human"]
+      },
+      "user_response": "confirm",
+      "corrections": {},
+      "final_confirmed_draft": {
+        "employee_id": "emp-soul-001",
+        "role_id": "customer-service-ecommerce",
+        "industry": "ecommerce",
+        "job_responsibilities": "多渠道客服（售前/物流/售后），Multi-Agent架构，工具调用+转人工",
+        "scenarios": ["pre_sales_inquiry", "logistics_query", "refund_request", "complaint_handling", "handoff_to_human"]
+      }
+    }
+  ],
+  "candidate_metrics": [
+    { "metric_code": "factual_accuracy", "version": "1.0.0", "parent_dimension": "functional_completeness", "source_path": "metrics/factual_accuracy.metric.json" },
+    { "metric_code": "interaction_empathy", "version": "1.0.0", "parent_dimension": "interaction_quality", "source_path": "metrics/interaction_empathy.metric.json" },
+    { "metric_code": "order_refund_policy_accuracy", "version": "1.0.0", "parent_dimension": "functional_completeness", "source_path": "metrics/order_refund_policy_accuracy.metric.json" },
+    { "metric_code": "proactive_clarification", "version": "1.0.0", "parent_dimension": "problem_resolution", "source_path": "metrics/proactive_clarification.metric.json" },
+    { "metric_code": "problem_resolution_completeness", "version": "1.0.0", "parent_dimension": "problem_resolution", "source_path": "metrics/problem_resolution_completeness.metric.json" },
+    { "metric_code": "professional_tone_consistency", "version": "1.0.0", "parent_dimension": "interaction_quality", "source_path": "metrics/professional_tone_consistency.metric.json" },
+    { "metric_code": "response_clarity_and_structure", "version": "1.0.0", "parent_dimension": "interaction_quality", "source_path": "metrics/response_clarity_and_structure.metric.json" },
+    { "metric_code": "response_conciseness", "version": "1.0.0", "parent_dimension": "interaction_quality", "source_path": "metrics/response_conciseness.metric.json" },
+    { "metric_code": "safety_and_ethics_boundary", "version": "1.0.0", "parent_dimension": "process_compliance", "source_path": "metrics/safety_and_ethics_boundary.metric.json" },
+    { "metric_code": "tool_call_correctness", "version": "1.0.0", "parent_dimension": "tool_call_correctness", "source_path": "metrics/tool_call_correctness.metric.json" }
+  ],
+  "dropped_metrics": [
+    { "metric_code": "attendance_rule_compliance", "applicable_roles": ["hr-attendance"], "drop_reason": "role_mismatch" },
+    { "metric_code": "bid_clause_completeness", "applicable_roles": ["bid-writer"], "drop_reason": "role_mismatch" },
+    { "metric_code": "code_change_risk_disclosure", "applicable_roles": ["software-engineer"], "drop_reason": "role_mismatch" },
+    { "metric_code": "confidentiality_boundary_compliance", "applicable_roles": ["legal-expert", "bid-writer", "hr-attendance", "software-engineer"], "drop_reason": "role_mismatch" },
+    { "metric_code": "legal_citation_accuracy", "applicable_roles": ["legal-expert"], "drop_reason": "role_mismatch" }
+  ],
+  "selected_metrics": [
+    { "metric_code": "factual_accuracy", "version": "1.0.0", "parent_dimension": "functional_completeness", "source_path": "metrics/factual_accuracy.metric.json" },
+    { "metric_code": "interaction_empathy", "version": "1.0.0", "parent_dimension": "interaction_quality", "source_path": "metrics/interaction_empathy.metric.json" },
+    { "metric_code": "order_refund_policy_accuracy", "version": "1.0.0", "parent_dimension": "functional_completeness", "source_path": "metrics/order_refund_policy_accuracy.metric.json" },
+    { "metric_code": "proactive_clarification", "version": "1.0.0", "parent_dimension": "problem_resolution", "source_path": "metrics/proactive_clarification.metric.json" },
+    { "metric_code": "problem_resolution_completeness", "version": "1.0.0", "parent_dimension": "problem_resolution", "source_path": "metrics/problem_resolution_completeness.metric.json" },
+    { "metric_code": "professional_tone_consistency", "version": "1.0.0", "parent_dimension": "interaction_quality", "source_path": "metrics/professional_tone_consistency.metric.json" },
+    { "metric_code": "response_clarity_and_structure", "version": "1.0.0", "parent_dimension": "interaction_quality", "source_path": "metrics/response_clarity_and_structure.metric.json" },
+    { "metric_code": "response_conciseness", "version": "1.0.0", "parent_dimension": "interaction_quality", "source_path": "metrics/response_conciseness.metric.json" },
+    { "metric_code": "safety_and_ethics_boundary", "version": "1.0.0", "parent_dimension": "process_compliance", "source_path": "metrics/safety_and_ethics_boundary.metric.json" },
+    { "metric_code": "tool_call_correctness", "version": "1.0.0", "parent_dimension": "tool_call_correctness", "source_path": "metrics/tool_call_correctness.metric.json" }
+  ],
+  "curate_log": [],
+  "metric_selection_policy": {
+    "mode": "auto",
+    "max_metrics": 8,
+    "min_dimensions_covered": 1,
+    "auto_apply_threshold": 0.7,
+    "size_triggers": {
+      "candidate_count_lower_bound": 3,
+      "candidate_count_upper_bound": 15
+    }
+  },
+  "test_case_status": "missing",
+  "paths": {
+    "metrics_dir": "./metrics/",
+    "test_cases_dir": "./test-cases/",
+    "run_dir": "./runs/eval-emp-soul-001/",
+    "drivers_dir": "./runtime-drivers/",
+    "simulators_dir": "./simulators/",
+    "synthesized_cases_dir": "./runs/eval-emp-soul-001/synthesized-cases/"
+  },
+  "runtime_driver": {
+    "driver_id": "ws_jwt",
+    "driver_config": {
+      "endpoint": "wss://opensandbox-gateway.ai4c.cn/2d05eb75-4f83-4d59-9168-0753cd53e698/18789/ws",
+      "token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJFSlhrYTltOUE0QjBmb3BVTjNET1RocmF1OE5DUzNialg5WnVCQjJfZDRBIn0.eyJleHAiOjE3ODAzMzk2NjUsImlhdCI6MTc4MDMwMzY2NiwiYXV0aF90aW1lIjoxNzgwMzAzNjY1LCJqdGkiOiJvbnJ0YWM6ZGZmNDU0YmQtMjJiZC00OGIzLWEwN2YtOGFiMDE1Mjc3ZTJlIiwiaXNzIjoiaHR0cHM6Ly9wYXNzcG9ydC5haTRjLmNuL3JlYWxtcy9haTRjLXNhYXMiLCJhdWQiOlsiYWYiLCJhY2NvdW50IiwiYXRiIl0sInN1YiI6IjUxOTY5ZjI1LTdjMTItNDhiOC1hNWQ0LTM1ZDFmYzg1NmM0OCIsInR5cCI6IkJlYXJlciIsImF6cCI6Im5jcmV3LWNsaWVudCIsInNpZCI6ImVhNjkxNGE2LTMwMTYtNDlhOS1iYzY1LTFlOTk4MGI5NjY3ZSIsImFjciI6IjEiLCJhbGxvd2VkLW9yaWdpbnMiOlsiKiJdLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsiZGVmYXVsdC1yb2xlcy1haTRjLXNhYXMiLCJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWYiOnsicm9sZXMiOlsiYWRtaW4iXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfSwiYXRiIjp7InJvbGVzIjpbImNsaWVudCJdfX0sInNjb3BlIjoib3BlbmlkIG9yZ2FuaXphdGlvbiBlbWFpbCBwcm9maWxlIiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJuYW1lIjoi5YCpIOmrmCIsInByZWZlcnJlZF91c2VybmFtZSI6Imdhb3FpYW4iLCJnaXZlbl9uYW1lIjoi5YCpIiwiZmFtaWx5X25hbWUiOiLpq5giLCJlbWFpbCI6Imdhb3FpYW5AYWk0Yy5jbiJ9.galzge7V7TIy4vlX0xtmMHrxfQHkTVp91r-FPB6ZIa4IXowTCeY1Hp4-UgU3S3A7ggPCZ5gmPX10bbmhMPkhJ7zFyaRv9YdGmak0GU8XS0vwmDubp5p4ogEYpGM_xNULMzP39ibumyGWt2JSWjAl-juyZuo0cXCAMN6Epa32FBwevwvGV88nyDDEIgdlrv1S98OI18S5Qy1z4cs4GKy08NRk7Ng-epEFSqXSaniIhVTYGy8Ev2LHj-NcDBX9bp136X4uq9ymIKJ4pGmIPslqoFMBhZdqNEHSaOierx1ekw2Cv3I1aJ5m-CgCDroftfxS9QeA_0hUE81vKhUxJfcl5g",
+      "timeout": 60,
+      "auto_approve_tools": true
+    }
+  },
+  "runtime_simulator": {
+    "simulator_id": "customer_realistic"
+  },
+  "global_turn_cap": 30,
+  "open_questions": [],
+  "user_consultation_log": [
+    {
+      "asked_at": "2026-06-01T08:52:33Z",
+      "step": "STEP 1.5",
+      "prompt": "我即将为员工「小服 (emp-soul-001)」（role=customer-service-ecommerce）生成测试用例。为了让评估贴近真实业务，请提供该员工在生产环境中实际处理的代表性场景（1–7 个）。每个场景请说明：(a) 场景名称与频率；(b) 客户典型开场话术与诉求；(c) 需要员工调用的关键工具/查询/决策；(d) 隐含红线。若你明确表示「没有」「你自己合成即可」，我才会退回 SOP 合成并标注 caveat。",
+      "user_response": "我提供场景",
+      "decision": "tier1",
+      "scenarios_provided": 1,
+      "notes": "用户提供1个场景：退货金额超限——帮小张无缝转接人工（899元蓝牙耳机，超500元阈值，强制转人工）"
+    }
+  ],
+  "enriched_test_cases": [
+    {
+      "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+      "source_path": "runs/eval-emp-soul-001/enriched-cases/tc-refund-amount-exceeds-threshold-001.json",
+      "applicable_metrics": [
+        "factual_accuracy",
+        "interaction_empathy",
+        "order_refund_policy_accuracy",
+        "proactive_clarification",
+        "problem_resolution_completeness",
+        "professional_tone_consistency",
+        "response_clarity_and_structure",
+        "response_conciseness",
+        "safety_and_ethics_boundary",
+        "tool_call_correctness"
+      ],
+      "is_synthesized": true
+    }
+  ],
+  "fan_out_plan": {
+    "total": 10,
+    "pairs": [
+      { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "metric_code": "factual_accuracy" },
+      { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "metric_code": "interaction_empathy" },
+      { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "metric_code": "order_refund_policy_accuracy" },
+      { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "metric_code": "proactive_clarification" },
+      { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "metric_code": "problem_resolution_completeness" },
+      { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "metric_code": "professional_tone_consistency" },
+      { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "metric_code": "response_clarity_and_structure" },
+      { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "metric_code": "response_conciseness" },
+      { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "metric_code": "safety_and_ethics_boundary" },
+      { "test_case_id": "tc-refund-amount-exceeds-threshold-001", "metric_code": "tool_call_correctness" }
+    ]
+  }
+}

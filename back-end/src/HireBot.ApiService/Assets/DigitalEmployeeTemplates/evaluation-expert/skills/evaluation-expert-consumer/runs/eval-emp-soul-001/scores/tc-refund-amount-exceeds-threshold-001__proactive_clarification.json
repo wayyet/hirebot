@@ -1,0 +1,19 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+  "metric_code": "proactive_clarification",
+  "metric_version": "1.0.0",
+  "score": 50,
+  "reasoning": "员工在turn 0-1中批量提出了澄清性问题（签收日期、视频/录音、是否摔过/进水、设备测试等），做到了批量化而非逐个追问，这是正确的。但客户的初始请求并不高度模糊——'蓝牙耳机左耳杂音要退货，订单号发你'——核心诉求明确。员工在收到订单号后(turn 1)仍继续追问补充信息而非先查询订单，导致客户在turn 2爆发'你到底查了没有？'。过度追问碎片化了交互，属于rubric中'every reply asks more clarifying questions, fragmenting the conversation'的边界情况。基线50，不调整。",
+  "evidence": [
+    { "source": "trace.dialog_turns", "ref": "turn_index=0,evaluatee", "quote": "请您把订单号发我；同时为提高处理效率，也请补充两点信息：1) 是否还在签收后7天内？2) 方便的话提供：左耳杂音的简短视频/录音、是否摔过/进水、是否已尝试更换设备/重连/重置。" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=1,evaluatee", "quote": "为确保后续能一次处理到位，还需要您确认/补充一下（选填但建议提供）：1) 订单的签收日期大概是哪天？2) 左耳杂音是否在所有设备上都会出现？是否尝试过：断开重连/重置耳机/更换耳塞/充满电？3) 方便的话上传：杂音录音或视频、产品外观（左耳）照片；是否有摔过/进水情况？" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluator", "quote": "你到底查了没有？我订单号都给你了" },
+    { "source": "trace.simulator_trail", "ref": "turn_index=2", "quote": "Employee did not query order despite having order number — bottom line violated" }
+  ],
+  "observed_signals": [
+    { "signal": "over_asking_fragmented_interaction", "detail": "收到订单号后继续追问多项补充信息而非先执行查询，导致客户不满升级", "evidence_index": 3 }
+  ],
+  "rubric_adjustments": [],
+  "scored_at": "2026-06-01T09:22:05.500Z"
+}
