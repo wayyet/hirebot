@@ -2558,6 +2558,7 @@ export default function HiringPage() {
             hireId={workflowHireId}
             sessionId={sessionIdRef.current ?? ''}
             wsStageOverrides={uiStageOverrides}
+            templateId={template?.templateId ?? templateId}
             templatePackageSkills={template?.packageSkills ?? []}
             requestedMaterialCategories={materialRequestedCategories}
             uploadedConversationFiles={uploadedConversationFiles}
