@@ -111,6 +111,8 @@ metadata:
     "isTerminal": true,
     "displayHint": "tree",
     "data": {
+      "workspace_root": "/workspace/refund-agent-20260518103000",
+      "template_slug": "refund-agent",
       "total_items": 5,
       "items": [
         {
@@ -127,7 +129,7 @@ metadata:
 }
 ```
 
-> ⛔ **禁止在 data 中写入**：`status: "ready_to_dispatch"`、`capabilities`、`materials`（顶层）、`scene_hint`、`dispatch_payload`、`handoff_todos` 等任何不在上方示例中的字段。也禁止在对话中使用"dispatch 闭环"、"handoff 工单"、"dispatch 给下游"等旧词语。
+> ⛔ **禁止在 data 中写入**：`status: "ready_to_dispatch"`、`capabilities`、`materials`（顶层）、`scene_hint`、`dispatch_payload`、`handoff_todos` 等任何不在上方示例中的字段。除 `stage4_packaging` 的 `packaging_progress` / `packaging_testcases_progress` / `packaging_testcases_done` 外，其他 artifact 禁止顶层 `data.status`。也禁止在对话中使用"dispatch 闭环"、"handoff 工单"、"dispatch 给下游"等旧词语。
 
 > 节奏与口吻、真实场景优先、情绪信号识别、反馈风格、初始化与开场示例 → 进入会话第一轮 / 拿不准对话节奏时，读 [references/interaction-quality.md](references/interaction-quality.md)。
 
@@ -363,8 +365,35 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 **阶段完成条件**：
 - 默认技能基线已经盘清（哪些直接复用，哪些需要新增）
+- 每条技能都已写清 `name`（skill slug）、`display_name`、`description`、`trigger`、`expected_output`、`generation_action`
+- `skill_workorder_summary.data` 已透传会话初始化阶段解析出的真实 `workspace_root` 与 `template_slug`
 - 用户对"技能清单已经足够"给出明确确认
 - 发出 `skill_workorder_summary` terminal artifact
+
+**阶段 2 terminal artifact 硬性要求**：
+发出 `skill_workorder_summary` 时，`data` 顶层必须包含：
+
+```json
+{
+  "workspace_root": "/workspace/<真实 slug>-<真实时间戳>",
+  "template_slug": "<真实 slug>",
+  "total_items": 1,
+  "items": [
+    {
+      "name": "emergency-trigger-audit",
+      "display_name": "应急触发判定与留痕协同",
+      "description": "判断应急触发条件并生成留痕要求",
+      "trigger": "用户上报突发风险",
+      "expected_output": "输出处置建议和留痕清单",
+      "generation_action": "generate_new",
+      "status": "ready"
+    }
+  ],
+  "summary": "技能定义已确认，等待确认是否开始技能生成"
+}
+```
+
+若拿不到真实 `workspace_root` 或 `template_slug`，不得发出 `skill_workorder_summary`，必须先回到会话初始化记录中恢复这两个值；禁止只发 `items` 清单让前端自行补齐。
 
 **阶段 2 完成后的强制动作（技能实现确认门）**：
 - 发出 `skill_workorder_summary` 后，必须立刻发出 `skill_generation_ready` artifact，用于标记"技能定义已确认，等待用户确认是否开始生成技能实现"。这个 artifact **只驱动技能实现轨状态**；前端仍应保留“技能定义已确认”的子步骤状态，但主 `stage2_skill` 在 `skill-generation` 完成前必须保持进行中。

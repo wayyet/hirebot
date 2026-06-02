@@ -36,7 +36,8 @@
           "type": "skill_workorder_summary",
           "label": "技能工单摘要",
           "display": "tree",
-          "terminal": true
+          "terminal": true,
+          "note": "data 必须包含初始化阶段解析出的 workspace_root 与 template_slug，以及可供 projection pass 使用的 items[].name/display_name/description/trigger/expected_output/generation_action。缺少 workspace_root 或 template_slug 时不得发出该 terminal artifact。"
         },
         {
           "type": "skill_generation_ready",
@@ -226,6 +227,20 @@
         "type": "ontology_extraction_done",
         "ownerSkill": "ontology-extraction",
         "label": "本体抽取完成",
+        "display": "tree",
+        "terminal": true
+      },
+      {
+        "type": "ontology_projection_progress",
+        "ownerSkill": "ontology-extraction",
+        "label": "本体 projection 进度",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "ontology_projection_done",
+        "ownerSkill": "ontology-extraction",
+        "label": "本体 projection 完成",
         "display": "tree",
         "terminal": true
       },
