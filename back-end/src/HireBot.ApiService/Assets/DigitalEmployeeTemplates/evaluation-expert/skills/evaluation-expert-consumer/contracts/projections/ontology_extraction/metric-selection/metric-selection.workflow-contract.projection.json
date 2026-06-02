@@ -353,7 +353,7 @@
         "simulator_execution_model": "NOT a subprocess. The host agent loads simulator.json + system_prompt.md, renders placeholders each turn, and consults its own LLM. There is no entry script, no model/api_key configuration, and no IPC boundary at the simulator layer. Each per-turn decision MUST be validated against simulator_decision.schema.json before being forwarded to the driver via the 'send' action.",
         "host_agent_execution_mode": {
           "rule": "interactive_no_script",
-          "spawn_command_template": "python -u runtime-drivers/<driver_id>/run.py --evaluation-context <eval_ctx_path> --test-case <enriched_tc_path> --output ./runs/<eval_id>/traces/<test_case_id>.trace.json",
+          "spawn_command_template": "python -u runtime-drivers/<driver_id>/run.py --evaluation-context <eval_ctx_path> --enriched-test-case <enriched_tc_path> --output ./runs/<eval_id>/traces/<test_case_id>.trace.json",
           "agent_responsibilities_per_turn": [
             "read one line from driver stdout (expect evaluatee_turn event)",
             "render simulator system_prompt.md with the per-turn placeholders",

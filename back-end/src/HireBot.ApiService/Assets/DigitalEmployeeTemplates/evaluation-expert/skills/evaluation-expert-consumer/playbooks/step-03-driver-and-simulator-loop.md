@@ -27,7 +27,7 @@ For each enriched test case `tc`:
 ```
 python -u runtime-drivers/<driver_id>/run.py \
   --evaluation-context <eval_ctx_path> \
-  --test-case <enriched_tc_path> \
+  --enriched-test-case <enriched_tc_path> \
   --output ./runs/<eval_id>/traces/<tc_id>.trace.json
 ```
 
