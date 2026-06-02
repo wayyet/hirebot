@@ -107,6 +107,9 @@ export const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey;
   skill_generation_ready: { key: 'skill-generation', status: 'waiting_confirm' },
   skill_generation_progress: { key: 'skill-generation', status: 'running' },
   skill_generation_done: { key: 'skill-generation', status: 'completed' },
+  packaging_testcases_ready: { key: 'packaging-test-cases', status: 'waiting_confirm' },
+  packaging_testcases_progress: { key: 'packaging-test-cases', status: 'running' },
+  packaging_testcases_done: { key: 'packaging-test-cases', status: 'completed' },
 }
 
 export function resolveHiringStageFromWs(

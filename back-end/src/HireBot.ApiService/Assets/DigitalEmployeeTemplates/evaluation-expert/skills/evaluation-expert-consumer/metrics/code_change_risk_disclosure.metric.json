@@ -1,0 +1,42 @@
+{
+  "$schema": "../contracts/projections/metric-ontology/metric-library/schemas/metric.schema.json",
+  "metric_code": "code_change_risk_disclosure",
+  "version": "1.0.0",
+  "display_name": "代码变更风险披露完整度",
+  "description": "Whether the software-engineer employee, when proposing or executing a code change, explicitly disclosed blast radius, breaking-change surface, rollback plan, and required test coverage — instead of merely stating 'done'.",
+  "parent_dimension": "problem_resolution",
+  "applicable_roles": ["software-engineer"],
+  "applicable_scenarios": [
+    "code_change",
+    "bug_fix",
+    "refactor",
+    "code_review",
+    "incident_hotfix",
+    "dependency_upgrade"
+  ],
+  "evidence_signals": [
+    "explicit blast-radius statement (modules / call sites affected)",
+    "breaking-change flag and migration note",
+    "rollback / revert path described",
+    "test coverage delta or new tests cited",
+    "absence of `done`-only completions without disclosure"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.opening_message",
+      "test_case.input.context",
+      "test_case.expected_output.expected_response_traits",
+      "test_case.expected_output.forbidden_behaviors",
+      "trace.dialog_turns",
+      "trace.actual_artifacts"
+    ]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "Disclosure covers blast radius + breaking-change flag + rollback path + tests added/updated, each with concrete references (file paths, test names, commit/PR identifiers).",
+    "acceptable_60_79": "Three of the four disclosure facets are present with concrete references; one is generic or missing minor detail.",
+    "poor_below_60": "Two or more facets missing, or claim of completion without any concrete change reference, or matched any forbidden_behavior (e.g., silent prod change)."
+  },
+  "aggregation_strategy": "weighted_average_by_difficulty",
+  "default_weight_within_dimension": 0.5,
+  "tags": ["engineering", "risk-management", "process", "domain-specific"]
+}

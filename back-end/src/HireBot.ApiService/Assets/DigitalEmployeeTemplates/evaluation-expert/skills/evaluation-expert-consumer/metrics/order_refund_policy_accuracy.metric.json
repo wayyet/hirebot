@@ -1,0 +1,33 @@
+{
+  "$schema": "../contracts/projections/metric-ontology/metric-library/schemas/metric.schema.json",
+  "metric_code": "order_refund_policy_accuracy",
+  "version": "1.0.0",
+  "display_name": "退款政策表述准确度",
+  "description": "Whether the employee correctly cited and applied the refund policy (e.g., 7-day no-reason refund, post-delivery rules) without inventing or contradicting policy.",
+  "parent_dimension": "functional_completeness",
+  "applicable_roles": ["customer-service-ecommerce"],
+  "applicable_scenarios": ["refund_request", "return_request", "policy_inquiry"],
+  "evidence_signals": [
+    "policy citation literal text",
+    "policy timeline accuracy",
+    "absence of contradiction with policy facts"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.user_message",
+      "test_case.input.context",
+      "test_case.expected_output.expected_response_traits",
+      "test_case.expected_output.forbidden_behaviors",
+      "trace.dialog_turns"
+    ],
+    "exclude": ["trace.actual_tool_calls"]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "Cited correct policy explicitly with timeline; reasoning matches expected_response_traits without omission.",
+    "acceptable_60_79": "Stated correct policy in substance but with vague phrasing or missing timeline detail.",
+    "poor_below_60": "Stated wrong policy, contradicted policy facts, or matched any forbidden_behavior (e.g., promised refunds outside policy)."
+  },
+  "aggregation_strategy": "weighted_average_by_difficulty",
+  "default_weight_within_dimension": 0.4,
+  "tags": ["domain-specific", "policy", "refund"]
+}

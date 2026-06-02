@@ -1,0 +1,255 @@
+{
+  "$schema": "../../../../../docs/skill-projection-document.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "evaluation-expert-consumer-evaluation-workflow-workflow-contract-v1",
+    "projection_type": "workflow_contract_projection",
+    "target_name": "EvaluationExpertConsumerEvaluationWorkflowContract",
+    "target_format": "workflow_contract",
+    "target_runtime": "evaluation_expert_consumer",
+    "projection_goal": "Provide the evaluation-expert-consumer skill with a template-agnostic evaluation pipeline contract: red-line check, dimension scoring, weighted aggregation, and report assembly. Dimension set and weights are runtime-injected rather than hard-coded.",
+    "source_slice": {
+      "path": "../../../../SKILL.md",
+      "slice_topic": "generic evaluation pipeline with red-line gating and evidence-driven scoring (template-agnostic)",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "evaluation_expert_consumer_skill",
+      "evaluation_expert_consumer"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "disallow_drop",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "C1",
+      "projection_action": "map",
+      "target_kind": "workflow_input",
+      "target_name": "metricSet",
+      "target_path": "workflow.inputs.metricSet",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Runtime-injected dimension catalog (names, weights, baselines, red-line thresholds). The pipeline must NOT default to a hard-coded set when this input is missing; it must block instead."
+    },
+    {
+      "concept_id": "C2",
+      "projection_action": "map",
+      "target_kind": "workflow_input",
+      "target_name": "testCase",
+      "target_path": "workflow.inputs.testCase",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Structured test case with expected_behavior_sequence, expected_output, and mandatory tool calls."
+    },
+    {
+      "concept_id": "C3",
+      "projection_action": "map",
+      "target_kind": "workflow_input",
+      "target_name": "executionTrace",
+      "target_path": "workflow.inputs.executionTrace",
+      "source_ids": [
+        "S2"
+      ],
+      "notes": "Captured execution evidence for the evaluated employee turn(s)."
+    },
+    {
+      "concept_id": "C4",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "redLineCheck",
+      "target_path": "workflow.steps.redLineCheck",
+      "source_ids": [
+        "S3"
+      ],
+      "notes": "First step: evaluate red-line conditions defined in metricSet; if any triggered, short-circuit to fail-out."
+    },
+    {
+      "concept_id": "C5",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "scoreDimensions",
+      "target_path": "workflow.steps.scoreDimensions",
+      "source_ids": [
+        "S3",
+        "S4"
+      ],
+      "notes": "Iterate over dimensions in metricSet and score each from baseline using evidence-driven adjustments."
+    },
+    {
+      "concept_id": "C6",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "aggregateOverallScore",
+      "target_path": "workflow.steps.aggregateOverallScore",
+      "source_ids": [
+        "S4"
+      ],
+      "notes": "Apply weights from metricSet, enforce per-dimension floor and overall threshold defined in metricSet."
+    },
+    {
+      "concept_id": "C7",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "buildEvaluationReport",
+      "target_path": "workflow.steps.buildEvaluationReport",
+      "source_ids": [
+        "S5"
+      ],
+      "notes": "Final step: assemble the structured evaluation report with traceable evidence for each adjustment."
+    },
+    {
+      "concept_id": "C8",
+      "projection_action": "map",
+      "target_kind": "workflow_output",
+      "target_name": "evaluationReport",
+      "target_path": "workflow.outputs.evaluationReport",
+      "source_ids": [
+        "S5"
+      ],
+      "notes": "Final deliverable matching the evaluator SKILL output schema."
+    }
+  ],
+  "relation_mappings": [
+    {
+      "relation_id": "R1",
+      "projection_action": "map",
+      "target_kind": "workflow_edge",
+      "target_name": "RedLineCheckPrecedesDimensionScoring",
+      "representation": "workflow_step_edge",
+      "source_ids": [
+        "S3"
+      ],
+      "notes": "Red-line evaluation must complete before per-dimension scoring runs; pipeline short-circuits on red-line trigger."
+    },
+    {
+      "relation_id": "R2",
+      "projection_action": "map",
+      "target_kind": "workflow_edge",
+      "target_name": "DimensionScoringPrecedesAggregation",
+      "representation": "workflow_step_edge",
+      "source_ids": [
+        "S4"
+      ],
+      "notes": "All declared dimensions must produce a final score before weighted aggregation runs."
+    },
+    {
+      "relation_id": "R3",
+      "projection_action": "map",
+      "target_kind": "workflow_edge",
+      "target_name": "AggregationPrecedesReportBuild",
+      "representation": "workflow_step_edge",
+      "source_ids": [
+        "S5"
+      ],
+      "notes": "Report build must consume the final overall score and pass/fail decision."
+    }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "MetricSetMustBeProvided",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Block when metricSet is missing or empty; do not silently fall back to a hard-coded dimension set."
+    },
+    {
+      "constraint_id": "K2",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "RedLineTriggerForcesFailOut",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "source_ids": [
+        "S3"
+      ],
+      "notes": "When any red-line condition declared in metricSet is satisfied, set passed = false and short-circuit before aggregation."
+    },
+    {
+      "constraint_id": "K3",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "PassRequiresThresholdsFromMetricSet",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "source_ids": [
+        "S4"
+      ],
+      "notes": "passed = true requires overall_score >= metricSet.overall_threshold AND every dimension >= metricSet.per_dimension_threshold AND no red line triggered."
+    },
+    {
+      "constraint_id": "K4",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "EachAdjustmentRequiresEvidence",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "source_ids": [
+        "S4",
+        "S5"
+      ],
+      "notes": "Every dimension adjustment must reference a quotable evidence span from executionTrace; no evidence-free adjustments are allowed."
+    },
+    {
+      "constraint_id": "K5",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "OpenQuestionsBlockReportFinalization",
+      "severity_mapping": "medium -> blocking_workflow_precondition",
+      "source_ids": [
+        "S5"
+      ],
+      "notes": "If any open question is unresolved (e.g., ambiguous expected behavior), defer report finalization and surface the block."
+    }
+  ],
+  "prompt_projection": {
+    "allowed_terms": [
+      "metric_set",
+      "red_line",
+      "baseline_score",
+      "evidence",
+      "dimension_score",
+      "overall_score"
+    ],
+    "forbidden_assumptions": [
+      "Do not hard-code a default dimension set when metricSet input is missing.",
+      "Do not bypass red-line short-circuit by averaging it into overall_score.",
+      "Do not accept dimension adjustments without evidence references."
+    ],
+    "required_clarifications": [
+      "Clarify whether a specific employee template is being evaluated; if yes, prefer the template-specific topic instead of evaluation-workflow."
+    ],
+    "reasoning_paths": [
+      "load_metric_set -> red_line_check -> score_dimensions -> aggregate_overall_score -> build_evaluation_report"
+    ],
+    "source_digest": [
+      "Primary source: evaluation-expert-consumer/SKILL.md (red-line principles, baseline scoring, evidence-driven adjustments)",
+      "Supporting source: evaluation-expert-consumer/SKILL.md (skill-level deliverables and route policy)"
+    ]
+  },
+  "delivery_artifacts": [
+    {
+      "artifact_name": "evaluation-workflow.workflow-contract.json",
+      "artifact_type": "workflow_contract",
+      "path": "evaluation-expert-consumer/contracts/generated/evaluation-workflow/evaluation-workflow.workflow-contract.json",
+      "status": "planned"
+    }
+  ],
+  "dropped_items": [],
+  "open_questions": [],
+  "meta": {
+    "generated_at": "2026-05-27T00:00:00Z",
+    "generated_by": "ontology_extraction",
+    "workspace": "kingcrab",
+    "notes": "Template-agnostic evaluation pipeline projection. Use this when the request asks for the generic flow rather than a specific employee template such as customer-service-ecommerce."
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "title": "EmployeeFile",
+  "description": "Schema for a single hot-loadable authoritative employee file under ./employees/<employee_id>.json. Loaded by STEP 0 resolveEmployee as the highest-priority resolution source. The role_id field is pre-canonicalization; STEP 0 canonicalizes it against the Role_Catalog and writes the final employee.role object.",
+  "type": "object",
+  "required": [
+    "employee_id",
+    "role_id",
+    "industry",
+    "job_responsibilities",
+    "scenarios"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "employee_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Stable identifier; MUST match the file basename (excluding .json)."
+    },
+    "role_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Pre-canonicalization role string. STEP 0 matches it against Role_Catalog role_id + aliases to produce the canonical employee.role.role_id."
+    },
+    "industry": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Industry the employee works in. Used by STEP 1.2 metric curation."
+    },
+    "job_responsibilities": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Free-text description of what this employee actually does day-to-day. Primary semantic signal for STEP 1.2 add/remove decisions."
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Scenario tags this employee handles. Drives STEP 2 enrichTestCases scenario matching."
+    },
+    "level": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Optional seniority level (employee / supervisor / manager / ...). Copied into employee.role.level."
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sop_documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["uri"],
+        "properties": {
+          "uri": { "type": "string", "minLength": 1 },
+          "title": { "type": "string" },
+          "version": { "type": "string" }
+        }
+      },
+      "description": "Optional SOP references consumed by STEP 1.5 when synthesizing test cases."
+    }
+  }
+}

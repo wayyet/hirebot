@@ -156,6 +156,10 @@ internal sealed partial class EmployeeHiringService
         UpsertPackageFile(enrichedFiles, "ontology/hiring-session/structured-data.json", structuredDataJson);
         UpsertPackageFile(enrichedFiles, "ontology/hiring-session/materials.json", materialsJson);
         if (!runtimeContext.PackagingTestCasesStaged &&
+            string.Equals(
+                PackagingTestCasesGenerationStatuses.Normalize(runtimeContext.PackagingTestCasesStatus),
+                PackagingTestCasesGenerationStatuses.Generated,
+                StringComparison.Ordinal) &&
             TryBuildEvaluationTestCases(runtimeContext, out var evaluationTestCasesJson))
         {
             UpsertPackageFile(enrichedFiles, "testcases/evaluation-test-cases.json", evaluationTestCasesJson);
@@ -811,7 +815,7 @@ internal sealed partial class EmployeeHiringService
 
     private static Dictionary<string, string?> MergeStructuredData(
         IReadOnlyDictionary<string, string?> existing,
-        IReadOnlyDictionary<string, string>? incoming)
+        IReadOnlyDictionary<string, string?>? incoming)
     {
         var result = NormalizeStructuredData(existing);
         if (incoming is null)

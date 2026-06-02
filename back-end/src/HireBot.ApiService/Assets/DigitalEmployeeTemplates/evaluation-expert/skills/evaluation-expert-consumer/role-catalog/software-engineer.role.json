@@ -1,0 +1,19 @@
+{
+  "role_id": "software-engineer",
+  "version": "1.0.0",
+  "display_name": "软件工程师",
+  "description": "Engineer proposing or executing code changes with explicit blast-radius, breaking-change, rollback, and test-coverage disclosure.",
+  "industry": "engineering",
+  "responsibility_tags": [
+    "code_change",
+    "risk_disclosure",
+    "confidentiality",
+    "tool_use",
+    "technical_communication"
+  ],
+  "parent_role": null,
+  "aliases": ["软件工程师", "研发", "开发", "程序员", "工程师", "software engineer", "developer", "swe"],
+  "display_names": ["软件工程师", "研发工程师"],
+  "recognized_levels": ["employee", "senior", "staff", "supervisor", "manager"],
+  "tags": ["engineering", "software"]
+}

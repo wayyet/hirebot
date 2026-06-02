@@ -1,0 +1,110 @@
+# STEP 2.5 — planRun (materialise the execution plan-of-record)
+
+**Kind**: deterministic (NO LLM)
+**Authority**: workflow contract `S2.5` (new) + K20
+**Inputs**: `evaluation_context.json` (post-STEP-6 materialisation OR post-STEP-2 enrich, see ordering note), every `runs/<eval_id>/enriched-cases/<tc_id>.json`
+**Output**: `runs/<eval_id>/run_plan.json` (validated against `runtime-schemas/run_plan.schema.json`)
+
+## Why this step exists
+
+STEP 3 used to ask the agent to **invent shell commands per turn**: pick a pipe name, decide a Python interpreter, format a `--enriched-test-case` argument, retry when the pipe name didn't match between commands, etc. That improvisation is the root cause of the recurring `cat: /tmp/eval-stdout.txt: No such file or directory` / stale-PID / 144-exit-code class of failures.
+
+STEP 2.5 removes that surface entirely. After STEP 2 has enriched every test case, every piece of information needed to launch every scenario's driver is already known and deterministic. STEP 2.5 freezes that information into a single file of **literal shell strings**. STEP 3 then becomes a thin executor: for each scenario it runs `commands.pre_spawn_cleanup` verbatim, then `commands.spawn` verbatim, reads with `commands.read_one_event` verbatim, writes with `commands.write_action_template` (substituting only the JSON payload), and ends with `commands.post_scenario_cleanup` verbatim.
+
+## When STEP 2.5 runs
+
+Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND after `evaluation_context.runtime_driver.driver_id` / `runtime_simulator.simulator_id` / `global_turn_cap` are fixed. If `evaluation_context.json` is materialised later (STEP 6 in some flows), STEP 2.5 still depends only on the subset listed under **Inputs** above — `runtime_driver.driver_id`, `runtime_driver.driver_config` (for sanity check), and `global_turn_cap`. The plan-writing has no dependency on metric registries, scores, or reports.
+
+## Procedure
+
+```
+1. Read:
+   - eval_id ← evaluation_context.evaluation_id
+   - driver_id ← evaluation_context.runtime_driver.driver_id
+   - run_py_path = "runtime-drivers/<driver_id>/run.py"
+   - global_cap ← evaluation_context.global_turn_cap or 30
+   - python_bin ← ".venv/bin/python"   # repo convention; do NOT switch per-scenario
+   - cwd ← <absolute path to the evaluation-expert-consumer directory>
+   - scenarios_inputs ← list of every persisted enriched-cases/<tc_id>.json
+
+2. Sanity-check (fail-fast; any failure ⇒ DO NOT write run_plan.json):
+   - run_py_path exists and is executable
+   - python_bin exists
+   - cwd ends with "/evaluation-expert-consumer"
+   - len(scenarios_inputs) ≥ 1
+   - every enriched tc has non-empty input.opening_message and turn_budget.hard_max_turns ≥ 1
+
+3. For each enriched tc, compute the scenario plan entry:
+   tc_id                    ← tc.test_case_id
+   enriched_tc_path         = f"runs/{eval_id}/enriched-cases/{tc_id}.json"
+   evaluation_context_path  = f"runs/{eval_id}/evaluation_context.json"
+   trace_path               = f"runs/{eval_id}/traces/{tc_id}.trace.json"
+   effective_max_turns      = min(tc.turn_budget.hard_max_turns, global_cap)
+   opening_message          = tc.input.opening_message
+   pad.dir                  = f"/tmp/eval-driver/{eval_id}/{tc_id}"
+   pad.in_fifo              = f"{pad.dir}/in"
+   pad.out_fifo             = f"{pad.dir}/out"
+   pad.err_file             = f"{pad.dir}/err"
+   pad.pid_file             = f"{pad.dir}/pid"
+
+4. For each scenario, compose the FIVE literal shell strings (no leftover `<placeholder>`):
+
+   commands.pre_spawn_cleanup =
+     f'PAD={pad.dir}; if [ -f "$PAD/pid" ]; then kill -TERM "$(cat "$PAD/pid")" 2>/dev/null; sleep 1; kill -KILL "$(cat "$PAD/pid")" 2>/dev/null; fi; rm -rf "$PAD"; mkdir -p "$PAD"; mkfifo "$PAD/in" "$PAD/out"; echo "pad ready: $PAD"'
+
+   commands.spawn =
+     f'PAD={pad.dir}; nohup {python_bin} -u {run_py_path} --evaluation-context {evaluation_context_path} --enriched-test-case {enriched_tc_path} --output {trace_path} < "$PAD/in" > "$PAD/out" 2> "$PAD/err" & echo $! > "$PAD/pid"; echo "driver pid=$(cat \"$PAD/pid\")"'
+
+   commands.read_one_event =
+     f'head -n 1 {pad.out_fifo}'
+
+   commands.write_action_template =
+     f"printf '%s\\n' '<<JSON_PAYLOAD>>' >> {pad.in_fifo}"
+
+   commands.post_scenario_cleanup =
+     f'PAD={pad.dir}; if [ -f "$PAD/pid" ]; then PID="$(cat "$PAD/pid")"; if kill -0 "$PID" 2>/dev/null; then kill -TERM "$PID"; sleep 1; kill -KILL "$PID" 2>/dev/null; fi; fi; tail -n 20 "$PAD/err" 2>/dev/null; rm -rf "$PAD"; echo "pad cleaned"'
+
+5. Assemble the RunPlan object, validate against `runtime-schemas/run_plan.schema.json`,
+   then write to `runs/<eval_id>/run_plan.json`.
+```
+
+## Self-check before STEP 3 may begin (K20)
+
+All MUST hold; any failure means STEP 2.5 has not run cleanly and STEP 3 MUST NOT start:
+
+- `runs/<eval_id>/run_plan.json` exists, is valid JSON, and validates against `runtime-schemas/run_plan.schema.json`;
+- `run_plan.scenarios[].tc_id` is the exact set of `enriched-cases/*.json` filenames (no missing tc, no orphan tc);
+- every `run_plan.scenarios[].commands.spawn` contains literal substrings that match `pad.in_fifo`, `pad.out_fifo`, `pad.err_file`, `pad.pid_file`, `python_bin`, `driver.run_py_path`, and `trace_path` from the same entry (no `<placeholder>` left);
+- every `run_plan.scenarios[].commands.write_action_template` contains exactly one occurrence of the marker `<<JSON_PAYLOAD>>`;
+- no two scenarios share the same `pad.dir` (deterministic isolation between tc runs);
+- `run_plan.generated_by_step == "STEP 2.5 planRun"` (guards against hand-written or LLM-written plans).
+
+## How STEP 3 consumes this (binding contract)
+
+In STEP 3, for each scenario in `run_plan.scenarios`, the agent:
+
+| Phase | What the agent runs |
+|---|---|
+| 1 | Execute `commands.pre_spawn_cleanup` **verbatim** (single shell tool-call) |
+| 2 | Execute `commands.spawn` **verbatim** (single shell tool-call) |
+| 3 | Execute `commands.read_one_event` **verbatim**; parse the returned line as JSON; expect `{"event":"ready",...}` |
+| 4 | Build the first action JSON `{"action":"send","turn_index":0,"text":<opening_message verbatim>,"decision":<deterministic turn-0 decision>}`; produce a single-line JSON string; substitute it into `commands.write_action_template` at the `<<JSON_PAYLOAD>>` marker; execute the resulting string |
+| 5 | Loop: execute `commands.read_one_event` → parse → simulator decision → substitute into `commands.write_action_template` → execute. Continue until the read returns `{"event":"trace_written",...}` or `{"event":"error",...}` |
+| 6 | Execute `commands.post_scenario_cleanup` **verbatim**, regardless of outcome |
+
+The agent MUST NOT rebuild or modify any string from `commands.*` other than substituting the single `<<JSON_PAYLOAD>>` marker. Adding `2>&1`, changing the redirection, using `cat` instead of `head -n 1`, or splitting the spawn into two tool-calls is a K20 violation.
+
+## Re-plan rules
+
+If anything in the inputs changes after STEP 2.5 has written `run_plan.json` (driver_id swap, new enriched tc added, evaluation_context renamed, ...), STEP 2.5 MUST be re-run end-to-end. Partial editing of `run_plan.json` by hand is forbidden (the `generated_by_step` literal + the `generated_at` timestamp anchor the audit chain).
+
+## Anti-patterns (each is a K20 violation)
+
+| Anti-pattern | Symptom | Cure |
+|---|---|---|
+| STEP 3 begins without `run_plan.json` present | Same "ad-hoc shell" recurrence | STEP 2.5 input gate; fail fast |
+| Agent rewrites `commands.spawn` to add `--verbose` / change redirection | Driver behaves differently across scenarios; one-off bugs | Re-run STEP 2.5 with the desired change wired into the plan generator |
+| Plan contains residual `<placeholder>` (other than the one allowed `<<JSON_PAYLOAD>>`) | Driver exits 1 because of literal angle-brackets in argv | Schema `pattern: "<<JSON_PAYLOAD>>"` rejects; STEP 2.5 must regenerate |
+| Two scenarios share the same `pad.dir` | Second scenario inherits first scenario's stale FIFO; nondeterministic hangs | `pad.dir = /tmp/eval-driver/<eval_id>/<tc_id>` is structurally unique; K20 self-check rejects duplicates |
+| Hand-edit `run_plan.json` between scenarios | Audit chain broken; reproducibility lost | Treat run_plan.json as read-only post STEP 2.5; any change ⇒ regenerate |
+| Generate `run_plan.json` via an agent-authored script `scripts/make_plan.py` | K8 violation on top of K20 | STEP 2.5 logic runs inline in the conversation (deterministic file ops + string templates) |

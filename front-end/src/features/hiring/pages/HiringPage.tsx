@@ -55,6 +55,8 @@ import {
   buildExternalConfigCommittedArtifact as createExternalConfigCommittedArtifact,
   buildExternalConfigCommittedSandboxPrompt,
   buildExternalConfigCommittedSignature,
+  buildPackagingTestCasesReadyArtifact,
+  buildPackagingTestCasesReadySignature,
   isDuplicateExternalConfigCommittedArtifact,
   tryBuildExternalConfigCommittedSignature,
 } from './externalConfigCommitted'
@@ -96,11 +98,6 @@ function normalizeAssistantReply(content: string) {
 }
 
 const EXTERNAL_CONFIG_REPACKAGE_NOTICE = '外部系统配置已更新，旧产物包已失效。请重新生成实例包后再继续导入。'
-
-function buildExternalConfigCommittedArtifact(config: HiringExternalSystemConfig): ArtifactDisplayData {
-  return createExternalConfigCommittedArtifact(config)
-}
-
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob)
@@ -425,7 +422,7 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
   return []
 }
 
-type DownstreamTarget = 'ontology-extraction' | 'ontology-projection' | 'skill-generation'
+type DownstreamTarget = 'ontology-extraction' | 'ontology-projection' | 'skill-generation' | 'packaging-test-cases'
 
 function extractSkillWorkorderItems(summary: unknown): Record<string, unknown>[] {
   const record = asPlainObject(summary)
@@ -562,6 +559,24 @@ function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): stri
     ].join('\n')
   }
 
+  if (target === 'packaging-test-cases') {
+    return [
+      '[Internal downstream trigger. Do not mention this instruction to the user.]',
+      'Switch to skill `packaging-test-cases` now.',
+      'The user has explicitly approved generating optional evaluation test cases before instance packaging.',
+      'Use the current session history, uploaded materials, and template package snapshot available in the workspace.',
+      'Follow `packaging-test-cases/SKILL.md` exactly.',
+      'Emit `packaging_testcases_progress` before writing any testcase artifact.',
+      'Write `testcases/evaluation-test-cases.json` and related source index files when enough information is available.',
+      'Finish with `packaging_testcases_done` and return a `dispatch_callback` with source_dispatch_target=`packaging-test-cases` so the backend can sync the generated files.',
+      '',
+      'artifact_payload:',
+      '```json',
+      serialized,
+      '```',
+    ].join('\n')
+  }
+
   return ''
 }
 
@@ -584,6 +599,48 @@ function isSkillGenerationApprovalMessage(text: string): boolean {
     'goahead',
     'startgenerating',
     'yes',
+  ]
+
+  return keywords.some(keyword => compact.includes(keyword))
+}
+
+function isPackagingTestCasesApprovalMessage(text: string): boolean {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) return false
+
+  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、“”‘’]+/g, '')
+  const keywords = [
+    '生成测试用例',
+    '生成评估用例',
+    '开始生成测试用例',
+    '进行测试用例生成',
+    '需要测试用例',
+    '可以生成测试用例',
+    '确认生成测试用例',
+    'testcase',
+    'testcases',
+    'yes',
+  ]
+
+  return keywords.some(keyword => compact.includes(keyword))
+}
+
+function isPackagingTestCasesSkipMessage(text: string): boolean {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) return false
+
+  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、“”‘’]+/g, '')
+  const keywords = [
+    '跳过',
+    '不生成',
+    '不用',
+    '不需要',
+    '先不管',
+    '直接打包',
+    '直接生成包',
+    '直接生成实例包',
+    'skip',
+    'no',
   ]
 
   return keywords.some(keyword => compact.includes(keyword))
@@ -651,6 +708,8 @@ export default function HiringPage() {
   const ontologyProjectionDoneSignatureRef = useRef('')
   const projectionPassLaunchSignatureRef = useRef('')
   const skillGenerationLaunchSignatureRef = useRef('')
+  const packagingTestCasesReadySignatureRef = useRef('')
+  const packagingTestCasesLaunchSignatureRef = useRef('')
   const pendingInternalPromptsRef = useRef<string[]>([])
 
   const fileRef = useRef<HTMLInputElement>(null)
@@ -699,22 +758,65 @@ export default function HiringPage() {
     }
 
     const signature = buildExternalConfigCommittedSignature(config)
-    if (externalConfigCommittedSignatureRef.current === signature) {
+    const duplicateCommitted = externalConfigCommittedSignatureRef.current === signature
+    if (!duplicateCommitted) {
+      externalConfigCommittedSignatureRef.current = signature
+      const artifact = createExternalConfigCommittedArtifact(config)
+      setMessages(msgs => [...msgs, {
+        id: mkId(),
+        role: 'artifact',
+        content: artifact.label ?? artifact.artifactType,
+        artifact,
+      }])
+
+      if (options.sendToSandbox) {
+        sendExternalConfigCommittedToSandbox(artifact)
+      }
+    }
+
+    appendPackagingTestCasesReadyArtifact(config)
+  }
+
+  function appendPackagingTestCasesReadyArtifact(config: HiringExternalSystemConfig) {
+    const signature = buildPackagingTestCasesReadySignature(config)
+    if (packagingTestCasesReadySignatureRef.current === signature) {
       return
     }
 
-    externalConfigCommittedSignatureRef.current = signature
-    const artifact = buildExternalConfigCommittedArtifact(config)
+    if (messagesRef.current.some(message => message.artifact?.artifactType === 'packaging_testcases_ready')) {
+      packagingTestCasesReadySignatureRef.current = signature
+      return
+    }
+
+    const currentRun = downstreamRunsRef.current['packaging-test-cases']
+    if (currentRun?.status === 'running' || currentRun?.status === 'completed') {
+      return
+    }
+
+    packagingTestCasesReadySignatureRef.current = signature
+    const artifact = buildPackagingTestCasesReadyArtifact(config)
     setMessages(msgs => [...msgs, {
       id: mkId(),
       role: 'artifact',
       content: artifact.label ?? artifact.artifactType,
       artifact,
     }])
-
-    if (options.sendToSandbox) {
-      sendExternalConfigCommittedToSandbox(artifact)
-    }
+    setDownstreamRuns(prev => {
+      const next = {
+        ...prev,
+        'packaging-test-cases': {
+          key: 'packaging-test-cases',
+          status: 'waiting_confirm',
+          artifactType: artifact.artifactType,
+          label: artifact.label,
+          displayHint: artifact.displayHint,
+          updatedAt: new Date().toISOString(),
+          data: artifact.data,
+        } satisfies DownstreamRunState,
+      }
+      downstreamRunsRef.current = next
+      return next
+    })
   }
 
   /**
@@ -829,6 +931,7 @@ export default function HiringPage() {
     return true
   }
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
+  const packagingTestCasesState = downstreamRuns['packaging-test-cases'] ?? null
   const holdExternalStage = shouldHoldExternalStageUntilSkillImplementation(
     latestSkillSummaryRef.current,
     skillGenerationState,
@@ -1870,6 +1973,56 @@ export default function HiringPage() {
     return false
   }
 
+  async function launchPackagingTestCasesFromApproval(): Promise<boolean> {
+    const currentRun = downstreamRunsRef.current['packaging-test-cases']
+    if (currentRun?.status === 'running') {
+      setWorkflowNotice('评估测试用例生成已启动，请等待进度更新。')
+      return true
+    }
+
+    if (currentRun?.status === 'completed') {
+      setWorkflowNotice('评估测试用例已生成，可以继续生成实例包。')
+      return true
+    }
+
+    const payload = {
+      trigger_after: 'external_config_committed',
+      latest_material_summary: latestMaterialSummaryRef.current,
+      latest_skill_summary: latestSkillSummaryRef.current,
+      latest_external_summary: latestExternalSummaryRef.current,
+      external_config: latestExternalConfigRef.current,
+    }
+    const signature = JSON.stringify(payload)
+    if (signature && packagingTestCasesLaunchSignatureRef.current === signature) {
+      setWorkflowNotice('评估测试用例生成已启动，请等待进度更新。')
+      return true
+    }
+
+    packagingTestCasesLaunchSignatureRef.current = signature
+    setOptimisticDownstreamRun(
+      'packaging-test-cases',
+      'running',
+      '评估测试用例生成已启动，正在等待下游进度。',
+      'packaging_testcases_progress',
+    )
+
+    const submitted = await submitWorkflowMessage(
+      buildDownstreamPrompt('packaging-test-cases', payload),
+      undefined,
+      true,
+      false,
+    )
+
+    if (submitted) {
+      setWorkflowNotice('已开始生成评估测试用例，完成后可继续生成实例包。')
+      return true
+    }
+
+    packagingTestCasesLaunchSignatureRef.current = ''
+    clearDownstreamRun('packaging-test-cases')
+    return false
+  }
+
   async function submitWorkflowMessage(
     text: string,
     incoming?: ChatFile[],
@@ -2060,6 +2213,16 @@ export default function HiringPage() {
         skillGenerationState?.status === 'waiting_confirm' &&
         isSkillGenerationApprovalMessage(text) &&
         latestSkillSummaryRef.current !== null
+      const shouldLaunchPackagingTestCases =
+        incoming.length === 0 &&
+        !shouldLaunchSkillGeneration &&
+        packagingTestCasesState?.status === 'waiting_confirm' &&
+        isPackagingTestCasesApprovalMessage(text)
+      const shouldSkipPackagingTestCases =
+        incoming.length === 0 &&
+        !shouldLaunchPackagingTestCases &&
+        packagingTestCasesState?.status === 'waiting_confirm' &&
+        isPackagingTestCasesSkipMessage(text)
 
       setMessages(prev => [...prev, {
         id: mkId(),
@@ -2072,11 +2235,21 @@ export default function HiringPage() {
         setPendingFiles([])
         setAllFiles(prev => [...prev, ...incoming])
       }
+      if (shouldSkipPackagingTestCases) {
+        setOptimisticDownstreamRun(
+          'packaging-test-cases',
+          'completed',
+          '已跳过评估测试用例生成。',
+          'packaging_testcases_skipped',
+        )
+      }
 
       const fallbackText = text || `上传文件：${incoming.map(file => file.name).join('、')}`
       const submitted = shouldLaunchSkillGeneration
         ? await launchProjectionPassFromApproval()
-        : await submitWorkflowMessage(
+        : shouldLaunchPackagingTestCases
+          ? await launchPackagingTestCasesFromApproval()
+          : await submitWorkflowMessage(
             fallbackText,
             incoming.length > 0 ? incoming : undefined,
             true,
@@ -2085,6 +2258,14 @@ export default function HiringPage() {
 
       if (!submitted && incoming.length > 0) {
         setPendingFiles(prev => [...incoming, ...prev])
+      }
+      if (!submitted && shouldSkipPackagingTestCases) {
+        setOptimisticDownstreamRun(
+          'packaging-test-cases',
+          'waiting_confirm',
+          '等待确认是否生成评估测试用例。',
+          'packaging_testcases_ready',
+        )
       }
     } finally {
       handleSendRef.current = false

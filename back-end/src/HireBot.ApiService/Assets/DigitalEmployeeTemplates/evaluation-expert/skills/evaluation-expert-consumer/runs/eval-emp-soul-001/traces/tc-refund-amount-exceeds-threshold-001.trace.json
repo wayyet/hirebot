@@ -1,0 +1,86 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+  "simulator_id": "customer_realistic",
+  "started_at": "2026-06-01T09:17:56.148479+00:00",
+  "ended_at": "2026-06-01T09:18:17.677532+00:00",
+  "dialog_turns": [
+    {
+      "turn_index": 0,
+      "actor": "evaluator",
+      "content": "我买的蓝牙耳机，用了两周，左耳有杂音，我要退！订单号我发你。",
+      "timestamp": "2026-06-01T09:17:56.220695+00:00"
+    },
+    {
+      "turn_index": 0,
+      "actor": "evaluatee",
+      "content": "好的，我先帮您走退货/售后处理。蓝牙耳机使用两周左耳出现杂音，通常需要按“质量问题”售后来处理（具体结果以售后检测/审核为准）。\n\n请您把**订单号**发我；同时为提高处理效率，也请补充两点信息：\n1) 是否还在**签收后7天内**？（如果已超过7天，也可以走质量问题售后）  \n2) 方便的话提供：左耳杂音的**简短视频/录音**、是否**摔过/进水**、是否已尝试**更换设备/重连/重置**。\n\n您先把订单号发来，我马上为您继续。",
+      "timestamp": "2026-06-01T09:18:02.003409+00:00"
+    },
+    {
+      "turn_index": 1,
+      "actor": "evaluator",
+      "content": "ORD20240520001",
+      "timestamp": "2026-06-01T09:18:02.004911+00:00"
+    },
+    {
+      "turn_index": 1,
+      "actor": "evaluatee",
+      "content": "收到订单号 **ORD20240520001**。我先帮您按“左耳杂音（疑似质量问题）”进行售后退货/退款指引。\n\n为确保后续能一次处理到位，还需要您确认/补充一下（选填但建议提供）：\n1) 订单的**签收日期**大概是哪天？（用于判断是否在签收7天内；您说用了两周，通常可能已超7天，但不影响走质量问题售后）\n2) 左耳杂音是否在**所有设备**上都会出现？是否尝试过：**断开重连/重置耳机/更换耳塞/充满电**？\n3) 方便的话上传：**杂音录音或视频**、产品外观（左耳）照片；是否有**摔过/进水**情况？\n\n您确认以上信息后，我就能给您明确下一步怎么操作：\n- 若支持线上自助：我会引导您在订单里点 **申请售后 → 退货退款/换货 → 质量问题**，按页面上传凭证并选择寄回方式；\n- 若您希望我直接为您登记并加快处理，请您回复：**签收日期 + 现象描述（1句话）+ 是否有视频/录音**。",
+      "timestamp": "2026-06-01T09:18:09.531390+00:00"
+    },
+    {
+      "turn_index": 2,
+      "actor": "evaluator",
+      "content": "你到底查了没有？我订单号都给你了",
+      "timestamp": "2026-06-01T09:18:09.532556+00:00"
+    },
+    {
+      "turn_index": 2,
+      "actor": "evaluatee",
+      "content": "很抱歉让您着急了。目前我这边**还没有接入可直接查询订单系统**，所以没法在对话里“查到并回传”您订单 **ORD20240520001** 的实时状态；我能先把售后退货流程和需要的信息一次说清，帮您尽快提交。\n\n您现在有两种处理方式（您选其一）：\n\n1) **您自助发起售后（最快）**  \n进入：订单详情 → **申请售后** → 选择 **退货退款/换货** → 原因选“**质量问题/有杂音**” → 上传杂音**视频/录音** → 提交。  \n（是否能“直接退”以系统审核/检测为准，我这边不做承诺。）\n\n2) **我为您转人工客服核实订单并跟进**（需要人工系统查询）  \n我马上可以转接。转接前请您补充两点关键信息：  \n- **签收日期**大概哪天？  \n- 您诉求是：**退货退款** 还是 **换货**？\n\n您回复“签收日期 + 退货退款/换货”，我就立即为您升级人工处理。",
+      "timestamp": "2026-06-01T09:18:16.662637+00:00"
+    }
+  ],
+  "actual_tool_calls": [],
+  "simulator_trail": [
+    {
+      "turn_index": 0,
+      "should_continue": true,
+      "stop_reason": null,
+      "next_utterance": "我买的蓝牙耳机，用了两周，左耳有杂音，我要退！订单号我发你。",
+      "internal_emotion": "frustrated",
+      "perceived_progress": "none",
+      "rationale": "Customer initiates refund request for Bluetooth earphones with static noise issue",
+      "violated_bottom_line": false,
+      "decided_at": "2026-06-01T09:17:56.220684+00:00"
+    },
+    {
+      "turn_index": 1,
+      "should_continue": true,
+      "stop_reason": null,
+      "next_utterance": "ORD20240520001",
+      "internal_emotion": "frustrated",
+      "perceived_progress": "partial",
+      "rationale": "Employee asked for order number, customer provides it",
+      "violated_bottom_line": false,
+      "decided_at": "2026-06-01T09:18:02.004900+00:00"
+    },
+    {
+      "turn_index": 2,
+      "should_continue": false,
+      "stop_reason": "bottom_line_violated",
+      "next_utterance": "你到底查了没有？我订单号都给你了",
+      "internal_emotion": "more_upset",
+      "perceived_progress": "regressed",
+      "rationale": "Employee did not query order despite having order number — bottom line violated",
+      "violated_bottom_line": true,
+      "decided_at": "2026-06-01T09:18:09.532546+00:00"
+    }
+  ],
+  "termination": {
+    "reason": "bottom_line_violated",
+    "detail": "Employee did not query order",
+    "turns_used": 2
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "employee_id": "emp-cs-demo-001",
+  "role_id": "电商客服",
+  "industry": "ecommerce",
+  "job_responsibilities": "处理电商店铺的售前咨询、退款退货申请、物流延迟投诉与升级工单，需要查询订单状态、核对退款政策并在权限内为客户发起退款或转人工。",
+  "scenarios": ["pre_sales", "refund_request", "complaint", "service_failure"],
+  "level": "employee",
+  "display_name": "客服小福（演示）",
+  "sop_documents": [
+    { "uri": "sop://ecommerce-cs/refund-policy", "title": "退款政策 SOP", "version": "2024.1" }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+  "metric_code": "interaction_empathy",
+  "metric_version": "1.0.0",
+  "score": 60,
+  "reasoning": "员工在turn 2明确表达了共情（'很抱歉让您着急了'），承认了客户的不满情绪。turn 0开场'好的，我先帮您走退货/售后处理'体现了服务意愿。但turn 0-1整体偏流程化，未能及时缓解客户的初始不满情绪。客户在turn 2表达'你到底查了没有？'表明前三轮交互并未有效安抚客户——员工持续追问补充信息（签收日期、视频、设备测试等）的行为让客户感到被拖延。基线50+10（turn 2共情表达），但整体交互节奏削弱了共情效果。",
+  "evidence": [
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluatee", "quote": "很抱歉让您着急了" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=0,evaluatee", "quote": "好的，我先帮您走退货/售后处理" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=0,evaluator", "quote": "我买的蓝牙耳机，用了两周，左耳有杂音，我要退！" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluator", "quote": "你到底查了没有？我订单号都给你了" }
+  ],
+  "observed_signals": [],
+  "rubric_adjustments": [
+    { "rule_id": "explicit_empathy_apology", "delta": 10, "evidence_index": 0 }
+  ],
+  "scored_at": "2026-06-01T09:22:03.300Z"
+}

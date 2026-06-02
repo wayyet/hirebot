@@ -16,7 +16,7 @@ metadata:
 ## 何时使用
 
 使用本 skill 当：
-- 业务用户已经在某个雇佣任务的会话窗口中
+- 业务用户已经在某个雇佣任务的会话窗口中·
 - 需要按"资料 → 技能（先定义，再完成技能生成）→ 外部"的阶段顺序引导用户对话
 - 需要在关键节点调用 emit_artifact 工具推送阶段进度与完成产物
 - 需要监听用户对 soul / identity / agent 三份配置文件的修改意图
@@ -83,6 +83,14 @@ metadata:
 |------|-------------|-------|------------|-------------|
 | 收到第一批外部能力描述后 | `external_workorder_progress` | `stage3_external` | `false` | `progress` |
 | 用户确认外部能力，外部阶段收尾 | `external_workorder_summary` | `stage3_external` | `true` | `tree` |
+
+**打包前测试用例确认 — 发出时机与参数**
+
+| 时机 | artifactType | stage | isTerminal | displayHint |
+|------|-------------|-------|------------|-------------|
+| 外部配置已保存或跳过，等待用户确认是否生成测试用例 | `packaging_testcases_ready` | `stage4_packaging` | `false` | `badge` |
+| 用户确认生成后，测试用例生成中 | `packaging_testcases_progress` | `stage4_packaging` | `false` | `progress` |
+| 测试用例已生成并回写工作区 | `packaging_testcases_done` | `stage4_packaging` | `true` | `tree` |
 
 所有 emit_artifact 调用：
 - `skillName` 固定为 `employment-coach-conversation`
@@ -399,12 +407,13 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 - 若仍处于 `skill_generation_ready`（等待用户确认是否开始生成技能实现），**必须先复用阶段 2 的确认门询问**，不要直接进入打包询问。
 - 若 ontology-extraction 或 skill-generation 任一仍未发出 terminal artifact，先用一行简短状态同步告诉用户"下游生成仍在执行，完成后即可打包"，不要提前承诺已打包，也不要发 `template_package`。
-- 只有当 ontology-extraction、skill-generation 均已完成后，才给用户一句主动询问，引导进入打包阶段：
+- 只有当 ontology-extraction、skill-generation 均已完成，且右侧外部配置已保存或明确跳过（系统层发出 `external_config_committed`）后，先进入测试用例确认门：发出或等待 `packaging_testcases_ready`，并询问是否生成评估测试用例。
 
-> 「三个阶段均已完成——资料、技能定义和外部能力都已梳理好了。现在可以生成产物包，把配置打包交付给系统。是否现在开始打包？」
+> 「外部配置已完成。生成实例包前，是否先生成评估测试用例？可以回复“生成测试用例”，也可以回复“跳过，直接打包”。」
 
 等待用户明确回应（肯定：「是」「好的」「开始」「打包」「生成」等；否定：「等一下」「先暂停」等）：
-- 用户**肯定**：立即进入阶段 4，按"强制执行顺序"开始打包动作。
+- 用户明确要**生成测试用例**：触发 `packaging-test-cases`，等待 `packaging_testcases_done` 后再回到打包询问。
+- 用户明确**跳过测试用例**或直接要求打包：立即进入阶段 4，按"强制执行顺序"开始打包动作；测试用例缺失不得阻塞打包。
 - 用户**否定或补充修改意见**：回到对应阶段补充，补充完后再次发出 terminal artifact，再重复本阶段门询问。
 - 前端点击了「发起打包」按钮（消息内含关键词"生成产物包"/"打包"/"发起打包"等）：视同用户肯定确认。若下游已齐，则**立即**进入阶段 4；若下游未齐，则进入阶段 4 的等待分支，先发 `packaging_progress` 告知缺失项，不得抢先发最终包。
 
@@ -439,6 +448,7 @@ A. **下游就绪触发**：ontology-extraction、skill-generation 两个下游 
 B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 terminal summary（`material_handoff_summary` / `skill_workorder_summary` / `external_workorder_summary`，其中外部阶段允许是 skip 形态），**且**用户在对话中显式请求打包（关键词：「生成产物包」「打包」「生成实例包」「导出」「打成 zip」「完成打包」等），进入阶段 4 的等待 / 执行分支：
 - 若下游 terminal artifact 已全部到位，立即执行真实打包。
 - 若下游 terminal artifact 尚未全部到位，只允许发 `packaging_progress`（`status = "waiting_downstream"`）告知缺失项，等待缺失项补齐后再执行真实打包。
+- 若仍处于 `packaging_testcases_ready` 且用户尚未表态，先询问是否生成评估测试用例；用户跳过或已收到 `packaging_testcases_done` 后，测试用例不再影响打包。
 
 > 任一触发条件成立时，立刻进入阶段 4；若下游已齐，按"强制执行顺序"开始真实打包；若下游未齐，进入等待分支。**禁止只在对话里复述"已完成配置 / 请点击生成实例"而不进入实际打包或明确等待状态**。
 
@@ -455,20 +465,26 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 
 **强制执行顺序**（每一步都必须实际执行，不可省略、不可调换）：
 
+**打包前置条件边界**：`testcases/evaluation-test-cases.json` 与 `packaging-test-cases` 只属于可选增强，**不得**作为打包前置条件。用户明确要求打包且 ontology-extraction / skill-generation 已满足阶段条件时，即使工作区缺少 `testcases/evaluation-test-cases.json`，也必须继续真实打包；不得回复“等待评估用例生成”“先生成测试用例再打包”或类似阻塞话术。后端 import 阶段会在缺失时用 fallback 结构补齐 final 包。
+
 若下游**尚未全部就绪**，先执行等待分支：
 
 1. 发 `packaging_progress`（isTerminal: false, `data.status = "waiting_downstream"`）
-2. `data.pending_downstream_skills` 中写清仍缺失 terminal artifact 的 skill 名称
+2. `data.pending_downstream_skills` 中写清仍缺失 terminal artifact 的 skill 名称（只检查 `ontology-extraction` 与 `skill-generation`，不得把 `packaging-test-cases` 或 `testcases/evaluation-test-cases.json` 列入等待项）
 3. 给用户一句简短反馈，明确说明"正在等待下游生成完成后再打包"
 4. **停止**，不得调用打包工具，也不得发 `template_package`
 
 若下游**已经全部就绪**，执行真实打包分支：
 
 1. 发 `packaging_progress`（isTerminal: false, `data.status = "packing"`）
-2. **Manifest 同步（强制）**：调用打包工具前，必须先将运行时产出回写到 `manifest.json`（详见下文"Manifest 同步规则"）
-3. 调用沙箱打包工具，等待返回 `fileUrl`
-4. 发 `template_package`（kind: file, isTerminal: true），`fileUrl` 字段填写第 3 步真实返回值
-5. 给用户一句简短反馈
+2. **Projection-consumer 一致性预检（强制）**：打包前逐个检查 `skills/<skill-slug>/`：
+   - 若 `SKILL.md` 包含 `## Projection Contracts`，则必须存在 `skills/<skill-slug>/contracts/projections/ontology_extraction/contract-index.json`
+   - 若 `metadata.json` 中记录了 projection source（如 `sources[].type == "projection"` 或 `projection.source_projection_paths` 非空），则要么存在上述 contract-index 与 4 个标准 view 文件，要么 `SKILL.md` 不得保留 Projection Contracts 章节，并且 `references/quality-report.md` 要明确写出跳过原因
+   - 一旦发现“文案/metadata 声称有 projection，但 contracts 缺失”的情况：**停止打包**，不给 `template_package`，先提示用户技能生成产物不完整，需要回到 `skill-generation` 补齐或重生成
+3. **Manifest 同步（强制）**：调用打包工具前，必须先将运行时产出回写到 `manifest.json`（详见下文"Manifest 同步规则"）
+4. 调用沙箱打包工具，等待返回 `fileUrl`
+5. 发 `template_package`（kind: file, isTerminal: true），`fileUrl` 字段填写第 4 步真实返回值
+6. 给用户一句简短反馈
 
 ### 1. 打包进度（isTerminal: false）
 
@@ -662,7 +678,7 @@ ls <workspace_root>/skills/*/SKILL.md
 - `skills/`（skill-generation 写入的全部内容）
 - `external/`（系统层按 external-config 结构约定生成的全部内容）
 - `config/`（配置文件治理目标）
-- `testcases/`（**由后端在打包前 invoke `packaging-test-cases` Skill 预置**，如 `evaluation-test-cases.json`；coach **不得**自行编造 testcase 内容，但若工作区已存在该目录则 **必须** 打入 zip）
+- `testcases/`（可选目录；coach **不得**自行编造 testcase 内容；若工作区已存在该目录则 **必须** 打入 zip，若不存在则直接继续打包，**不得**等待或阻塞）
 
 **黑名单（严禁打入 zip）**：
 - `.git/`、`.cache/`、`node_modules/`、`.venv/`、`__pycache__/`、任何 `.` 前缀的隐藏目录或文件
@@ -680,7 +696,7 @@ ontology/digital-employee/index.json
 skills/report-synthesis/SKILL.md
 external/connectors/erp.json
 config/soul.md
-testcases/evaluation-test-cases.json
+testcases/evaluation-test-cases.json        ← 可选；存在则包含，不存在也可以打包
 ```
 
 **错误示例（任一出现即视为打包失败，必须重新打包）**：

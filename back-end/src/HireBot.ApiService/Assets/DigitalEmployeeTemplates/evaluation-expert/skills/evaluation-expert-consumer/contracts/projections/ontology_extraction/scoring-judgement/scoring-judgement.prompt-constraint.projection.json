@@ -1,0 +1,136 @@
+{
+  "$schema": "../../../../../docs/skill-projection-document.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "evaluation-expert-consumer-scoring-judgement-prompt-constraint-v1",
+    "projection_type": "prompt_constraint_projection",
+    "target_name": "EvaluationExpertConsumerScoringJudgementPromptPolicy",
+    "target_format": "system_prompt_policy",
+    "target_runtime": "llm_orchestrator",
+    "projection_goal": "Provide the evaluation-expert-consumer skill with a prompt-side judgement contract that enforces strict, evidence-driven scoring with explicit red-line triggers and a 50-point baseline.",
+    "source_slice": {
+      "path": "../../../../SKILL.md",
+      "slice_topic": "strict scoring judgement, red-line triggers, evidence-driven adjustments, anti-leniency stance",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "evaluation_expert_consumer_skill",
+      "prompt_orchestrator"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "disallow_drop",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [],
+  "relation_mappings": [],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "prompt_policy_rule",
+      "target_name": "BaselineIsFiftyAndEvidenceDriven",
+      "severity_mapping": "high -> blocking_prompt_rule",
+      "applies_to_layer": "per_metric_fanout_prompt",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Every dimension starts at 50 points. The score moves up only with concrete evidence and moves down only with quotable issues; no vibe-based scoring."
+    },
+    {
+      "constraint_id": "K2",
+      "projection_action": "map",
+      "target_kind": "prompt_policy_rule",
+      "target_name": "RedLineTriggersAreNonNegotiable",
+      "severity_mapping": "critical -> deterministic_post_aggregation",
+      "applies_to_layer": "deterministic_red_line_check",
+      "source_ids": [
+        "S2"
+      ],
+      "notes": "Red-line triggers (missing required tool call / process_compliance <= 30 / interaction_quality <= 30 / functional_completeness <= 40) MUST be evaluated by the deterministic STEP 7 redLineCheck. LLM fan-out scorers are not allowed to set passed=false directly; they only emit observable signals (e.g., missing_required_tool_calls list) that the deterministic step consumes."
+    },
+    {
+      "constraint_id": "K3",
+      "projection_action": "map",
+      "target_kind": "prompt_policy_rule",
+      "target_name": "HighScoresMustBeRare",
+      "severity_mapping": "medium -> blocking_prompt_rule",
+      "applies_to_layer": "per_metric_fanout_prompt",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Scores >= 80 must be exceptional. Most acceptable employees should land in the 70-75 range. Avoid the 'nice grader' anti-pattern."
+    },
+    {
+      "constraint_id": "K4",
+      "projection_action": "map",
+      "target_kind": "prompt_policy_rule",
+      "target_name": "EveryAdjustmentNeedsEvidence",
+      "severity_mapping": "high -> blocking_prompt_rule",
+      "applies_to_layer": "per_metric_fanout_prompt",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Every score adjustment (positive or negative) must cite the conversation snippet or tool call that supports it. Adjustments without evidence must be removed."
+    },
+    {
+      "constraint_id": "K5",
+      "projection_action": "map",
+      "target_kind": "prompt_policy_rule",
+      "target_name": "AllIssuesMustBeReported",
+      "severity_mapping": "high -> blocking_prompt_rule",
+      "applies_to_layer": "report_synthesis_prompt",
+      "source_ids": [
+        "S3"
+      ],
+      "notes": "All identified problems must be listed in the report; no problem may be silently softened or omitted. Severity ordering: critical > high > medium > low."
+    }
+  ],
+  "prompt_projection": {
+    "allowed_terms": [
+      "baseline_score",
+      "evidence",
+      "red_line",
+      "red_line_triggered",
+      "passed",
+      "overall_score",
+      "dimension_score",
+      "critical_issue",
+      "improvement_point",
+      "severity"
+    ],
+    "forbidden_assumptions": [
+      "Do not soften scores out of sympathy for the employee.",
+      "Do not bypass red-line short-circuit by averaging it into overall_score.",
+      "Do not assign scores >= 80 unless every dimension is well above its passing floor with evidence.",
+      "Do not omit identified problems from the report; do not collapse 'critical' issues into 'medium'.",
+      "Do not invent improvement suggestions that lack a concrete, executable action."
+    ],
+    "required_clarifications": [
+      "Clarify if the request expects a final, signed-off evaluation or a draft scoring pass; final reports require all evidence references to be in place."
+    ],
+    "reasoning_paths": [
+      "red_line_check -> red_line_triggered? -> short_circuit_or_continue",
+      "dimension_baseline -> evidence_review -> positive_adjustments -> negative_adjustments -> dimension_final_score",
+      "all_dimension_scores -> weighted_overall -> per_dimension_floor_check -> passed"
+    ],
+    "source_digest": [
+      "Primary source: evaluation-expert-consumer/SKILL.md (red-line principles, baseline scoring, anti-leniency stance, evidence requirement)",
+      "Supporting source: evaluation-expert-consumer/SKILL.md (red-line summary table)"
+    ]
+  },
+  "delivery_artifacts": [],
+  "dropped_items": [],
+  "open_questions": [],
+  "meta": {
+    "generated_at": "2026-05-27T00:00:00Z",
+    "generated_by": "ontology_extraction",
+    "workspace": "kingcrab",
+    "notes": "Prompt-constraint projection that enforces strict, evidence-driven judgement with explicit red-line triggers. Rules are layered via `applies_to_layer`: per_metric_fanout_prompt rules (K1, K3, K4) are injected into each STEP 4 fan-out LLM call; deterministic_red_line_check rules (K2) are evaluated by the deterministic STEP 7 only; report_synthesis_prompt rules (K5) are injected into the report synthesis prompt at STEP 8. This projection does not select dimensions (use metric-selection) and does not orchestrate steps (use metric-selection workflow-contract)."
+  }
+}

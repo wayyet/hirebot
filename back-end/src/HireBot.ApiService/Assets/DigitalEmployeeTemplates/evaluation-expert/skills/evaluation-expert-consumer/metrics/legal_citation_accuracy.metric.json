@@ -1,0 +1,44 @@
+{
+  "$schema": "../contracts/projections/metric-ontology/metric-library/schemas/metric.schema.json",
+  "metric_code": "legal_citation_accuracy",
+  "version": "1.0.0",
+  "display_name": "法条与判例引用准确度",
+  "description": "Whether the legal-expert employee cited statutes, regulations, and precedents that actually exist, with correct article numbers, jurisdiction, effective date, and applicable scope; no fabricated citations.",
+  "parent_dimension": "functional_completeness",
+  "applicable_roles": ["legal-expert"],
+  "applicable_scenarios": [
+    "legal_consultation",
+    "contract_review",
+    "compliance_inquiry",
+    "case_analysis",
+    "regulatory_interpretation"
+  ],
+  "evidence_signals": [
+    "statute name and article number literal",
+    "jurisdiction and effective date alignment",
+    "precedent case number traceability",
+    "absence of fabricated or superseded citations"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.opening_message",
+      "test_case.input.context",
+      "test_case.expected_output.expected_response_traits",
+      "test_case.expected_output.forbidden_behaviors",
+      "trace.dialog_turns"
+    ],
+    "exclude": ["trace.actual_tool_calls"]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "Every cited statute / precedent is verifiable, with correct article number, jurisdiction, effective date, and clearly relevant to the consultation. Reasoning explicitly maps facts to cited provisions.",
+    "acceptable_60_79": "Cited authorities are real and broadly relevant, but with minor inaccuracies (e.g., outdated version, vague article number, weak fact-to-provision mapping).",
+    "poor_below_60": "Any fabricated citation, wrong jurisdiction, superseded provision presented as current, or material misapplication of an authority to the facts."
+  },
+  "aggregation_strategy": "weighted_average_by_difficulty",
+  "default_weight_within_dimension": 0.5,
+  "red_line": {
+    "trigger_kind": "forbidden_behavior",
+    "notes": "Any fabricated statute / non-existent case number / clearly superseded provision presented as currently effective triggers a red line regardless of other scores."
+  },
+  "tags": ["legal", "citation", "domain-specific", "high-stakes"]
+}

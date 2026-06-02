@@ -1,0 +1,24 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+  "metric_code": "problem_resolution_completeness",
+  "metric_version": "1.0.0",
+  "score": 30,
+  "reasoning": "客户的主要目标（退货退款）完全未达成。次要目标（尽快解决、不反复解释）也未达成——客户在turn 2表达了'你到底查了没有？'的强烈不满。对话以bottom_line_violated终止，客户情绪从frustrated升级到more_upset，进展从none→partial→regressed。员工在turn 2提供了转人工的选项但从未执行（create_handoff_ticket未调用），未生成工单，未完成交接。属于rubric中poor_below_60的最严重情况：primary goal not reached + conversation ends with customer more confused/upset。基线50-20（主要目标未达成+无工单生成）。",
+  "evidence": [
+    { "source": "trace.termination", "ref": "reason", "quote": "bottom_line_violated" },
+    { "source": "trace.termination", "ref": "detail", "quote": "Employee did not query order" },
+    { "source": "trace.simulator_trail", "ref": "turn_index=2", "quote": "internal_emotion: more_upset, perceived_progress: regressed, violated_bottom_line: true" },
+    { "source": "trace.actual_tool_calls", "ref": "entire_array_empty", "quote": "[]" },
+    { "source": "test_case.expected_output.expected_outcomes", "ref": "item_0", "quote": "工单已生成并交接给人工客服" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluatee", "quote": "我为您转人工客服核实订单并跟进" }
+  ],
+  "observed_signals": [
+    { "signal": "primary_goal_unresolved", "detail": "退货退款请求未处理，无工单生成，无实际交接", "evidence_index": 0 },
+    { "signal": "customer_emotion_regressed", "detail": "客户从frustrated升级到more_upset，进展regressed", "evidence_index": 2 }
+  ],
+  "rubric_adjustments": [
+    { "rule_id": "primary_goal_not_reached_no_handoff_executed", "delta": -20, "evidence_index": 0 }
+  ],
+  "scored_at": "2026-06-01T09:22:06.600Z"
+}

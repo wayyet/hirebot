@@ -66,12 +66,13 @@ public class EmployeeHiringServiceTests
     }
 
     [Fact]
-    public void ApplyConversationProgressToTemplatePackage_WithSkillArchiveMaterial_ShouldAppendEvaluationTestCases()
+    public void ApplyConversationProgressToTemplatePackage_WhenTestCasesGeneratedStatus_ShouldAppendEvaluationTestCases()
     {
         var templatePackage = CreateTemplatePackage();
         var runtimeContext = CreateRuntimeContext(templatePackage) with
         {
             CurrentStage = "systems",
+            PackagingTestCasesStatus = PackagingTestCasesGenerationStatuses.Generated,
             StructuredData = new Dictionary<string, string?>
             {
                 ["business_goal"] = "提升客户服务闭环效率",

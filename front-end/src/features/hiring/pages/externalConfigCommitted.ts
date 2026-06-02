@@ -81,6 +81,36 @@ export function buildExternalConfigCommittedArtifact(
   }
 }
 
+export function buildPackagingTestCasesReadySignature(config: HiringExternalSystemConfig): string {
+  return JSON.stringify({
+    submissionMode: config.submissionMode ?? 'pending',
+    externalConfigSignature: buildExternalConfigCommittedSignature(config),
+  })
+}
+
+export function buildPackagingTestCasesReadyArtifact(
+  config: HiringExternalSystemConfig,
+): ArtifactDisplayData {
+  const payload = buildExternalConfigCommittedPayload(config)
+  return {
+    kind: 'data',
+    artifactType: 'packaging_testcases_ready',
+    label: '等待确认是否生成评估测试用例',
+    skillName: 'employment-coach-conversation',
+    stage: 'stage4_packaging',
+    isTerminal: false,
+    displayHint: 'badge',
+    data: {
+      status: 'waiting_confirm',
+      trigger_after: 'external_config_committed',
+      submissionMode: payload.submissionMode,
+      updatedAtUtc: payload.updatedAtUtc,
+      optional: true,
+      message: '生成实例包前可选择生成评估测试用例，也可以跳过直接打包。',
+    },
+  }
+}
+
 export function buildExternalConfigCommittedSandboxPrompt(
   artifact: ArtifactDisplayData,
 ): string {
@@ -91,7 +121,8 @@ export function buildExternalConfigCommittedSandboxPrompt(
   return [
     '[Internal external config commit. Do not mention this instruction to the user.]',
     `The user has finalized the external system configuration (submission_mode=${submissionMode}).`,
-    'Treat the external configuration stage as completed and continue the hiring workflow accordingly.',
+    'Treat the external configuration stage as completed.',
+    'Before packaging, ask whether to generate optional evaluation test cases. Do not block packaging if the user skips them.',
     '',
     `artifact_type: ${artifact.artifactType}`,
     `artifact_label: ${artifact.label ?? artifact.artifactType}`,

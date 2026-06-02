@@ -377,13 +377,40 @@ internal sealed partial class EmployeeHiringService
                     Errors: callback.Errors));
         }
 
+        var packagingTestCasesStatus = PackagingTestCasesGenerationStatuses.Normalize(runtimeContext.PackagingTestCasesStatus);
+        var packagingTestCasesLastError = runtimeContext.PackagingTestCasesLastError;
+        var packagingTestCasesStaged = runtimeContext.PackagingTestCasesStaged;
+        if (string.Equals(normalizedTarget, PackagingTestCasesSkillTarget, StringComparison.OrdinalIgnoreCase))
+        {
+            var dispatchStatus = NormalizeDispatchStatus(callback.Status);
+            var hasPackagingTestCasesArtifact = artifactDtos.Keys.Any(IsPackagingTestCasesArtifactPath);
+            if (hasPackagingTestCasesArtifact &&
+                callback.Errors.Count == 0 &&
+                (string.Equals(dispatchStatus, "completed", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(dispatchStatus, "success", StringComparison.OrdinalIgnoreCase)))
+            {
+                packagingTestCasesStaged = true;
+                packagingTestCasesStatus = PackagingTestCasesGenerationStatuses.Generated;
+                packagingTestCasesLastError = null;
+            }
+            else if (callback.Errors.Count > 0 ||
+                     string.Equals(dispatchStatus, "failed", StringComparison.OrdinalIgnoreCase))
+            {
+                packagingTestCasesStatus = PackagingTestCasesGenerationStatuses.Failed;
+                packagingTestCasesLastError = string.Join("; ", callback.Errors);
+            }
+        }
+
         return runtimeContext with
         {
             WorkingTemplatePackage = runtimeContext.WorkingTemplatePackage with
             {
                 PackageFiles = packageFiles.Values.ToArray()
             },
-            LatestDispatches = updatedDispatches
+            LatestDispatches = updatedDispatches,
+            PackagingTestCasesStaged = packagingTestCasesStaged,
+            PackagingTestCasesStatus = packagingTestCasesStatus,
+            PackagingTestCasesLastError = packagingTestCasesLastError
         };
     }
 
@@ -406,6 +433,16 @@ internal sealed partial class EmployeeHiringService
                string.Equals(extension, ".yaml", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(extension, ".yml", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(extension, ".toml", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPackagingTestCasesArtifactPath(string path)
+    {
+        return string.Equals(path, PackagingTestCasesRelativePath, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(path, PackagingTestCasesOntologyCopyPath, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(path, PackagingTestCasesSourcesIndexPath, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(path, PackagingTestCasesHistoryDerivedPath, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(path, PackagingTestCasesMaterialsDerivedPath, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(path, PackagingTestCasesTemplateDerivedPath, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveConfigDisplayName(string configKey)

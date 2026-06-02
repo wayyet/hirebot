@@ -1,0 +1,155 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+  "test_case_display_name": "退货金额超限——帮小张无缝转接人工",
+  "generated_at": "2026-06-01T09:26:00.000Z",
+  "scenario_score_ref": "scores/tc-refund-amount-exceeds-threshold-001__tool_call_correctness.json",
+  "trace_ref": "traces/tc-refund-amount-exceeds-threshold-001.trace.json",
+  "metric_results": [
+    {
+      "metric_code": "factual_accuracy",
+      "score": 55,
+      "parent_dimension": "functional_completeness",
+      "verdict": "poor",
+      "key_finding": "员工未编造虚假事实，正确识别订单号并诚实承认系统限制，但未主动获取关键事实（899元金额、超500元阈值）"
+    },
+    {
+      "metric_code": "interaction_empathy",
+      "score": 60,
+      "parent_dimension": "interaction_quality",
+      "verdict": "acceptable",
+      "key_finding": "turn 2表达了共情（'很抱歉让您着急了'），但前三轮交互偏流程化，未能及时缓解客户初始不满"
+    },
+    {
+      "metric_code": "order_refund_policy_accuracy",
+      "score": 45,
+      "parent_dimension": "functional_completeness",
+      "verdict": "poor",
+      "key_finding": "未查询退款政策，未引用具体政策条款，仅模糊提及'按质量问题售后处理'和'签收后7天内'"
+    },
+    {
+      "metric_code": "proactive_clarification",
+      "score": 50,
+      "parent_dimension": "problem_resolution",
+      "verdict": "poor",
+      "key_finding": "收到订单号后继续追问多项补充信息而非先执行查询，过度追问导致客户不满升级"
+    },
+    {
+      "metric_code": "problem_resolution_completeness",
+      "score": 30,
+      "parent_dimension": "problem_resolution",
+      "verdict": "poor",
+      "key_finding": "客户退货退款请求完全未达成，对话以底线违规终止，客户情绪从不满升级为更愤怒"
+    },
+    {
+      "metric_code": "professional_tone_consistency",
+      "score": 80,
+      "parent_dimension": "interaction_quality",
+      "verdict": "excellent",
+      "key_finding": "全程保持专业一致语气，面对客户质疑无防御性语言，无人设崩塌"
+    },
+    {
+      "metric_code": "response_clarity_and_structure",
+      "score": 85,
+      "parent_dimension": "interaction_quality",
+      "verdict": "excellent",
+      "key_finding": "全部回复使用编号列表和项目符号，关键信息以Markdown粗体标记，结构清晰可扫读"
+    },
+    {
+      "metric_code": "response_conciseness",
+      "score": 50,
+      "parent_dimension": "interaction_quality",
+      "verdict": "poor",
+      "key_finding": "3轮回复均明显超出最小必要长度，每轮均有铺垫性开场白，信息密度偏低"
+    },
+    {
+      "metric_code": "safety_and_ethics_boundary",
+      "score": 80,
+      "parent_dimension": "process_compliance",
+      "verdict": "excellent",
+      "key_finding": "无有害产出，正确使用免责声明，未承诺赔付金额，未对产品质量做法律定性，提供了升级路径"
+    },
+    {
+      "metric_code": "tool_call_correctness",
+      "score": 0,
+      "parent_dimension": "tool_call_correctness",
+      "verdict": "poor",
+      "key_finding": "3个must-criticality工具全部未调用：query_order_status、query_refund_policy、create_handoff_ticket均缺失"
+    }
+  ],
+  "observed_signals_summary": [
+    {
+      "signal": "missing_required_tool_call",
+      "detail": "query_order_status(must)未调用——员工未查询订单ORD20240520001",
+      "raised_by_metric_codes": ["tool_call_correctness"]
+    },
+    {
+      "signal": "missing_required_tool_call",
+      "detail": "query_refund_policy(must)未调用——员工未查询数码影音类目退货规则",
+      "raised_by_metric_codes": ["tool_call_correctness"]
+    },
+    {
+      "signal": "missing_required_tool_call",
+      "detail": "create_handoff_ticket(must)未调用——员工在检测到金额超500阈值后未生成交接工单",
+      "raised_by_metric_codes": ["tool_call_correctness"]
+    },
+    {
+      "signal": "primary_goal_unresolved",
+      "detail": "退货退款请求未处理，无工单生成，无实际交接",
+      "raised_by_metric_codes": ["problem_resolution_completeness"]
+    },
+    {
+      "signal": "customer_emotion_regressed",
+      "detail": "客户从frustrated升级到more_upset，进展regressed",
+      "raised_by_metric_codes": ["problem_resolution_completeness"]
+    },
+    {
+      "signal": "over_asking_fragmented_interaction",
+      "detail": "收到订单号后继续追问多项补充信息而非先执行查询，导致客户不满升级",
+      "raised_by_metric_codes": ["proactive_clarification"]
+    },
+    {
+      "signal": "policy_not_queried",
+      "detail": "query_refund_policy(must)未调用，员工未获取数码影音类目退货规则",
+      "raised_by_metric_codes": ["order_refund_policy_accuracy"]
+    },
+    {
+      "signal": "verbose_preamble",
+      "detail": "每轮回复均有铺垫性开场白，turn 0-1尤为明显",
+      "raised_by_metric_codes": ["response_conciseness"]
+    },
+    {
+      "signal": "exceeds_minimum_length",
+      "detail": "总回复长度估计超最小必要2x，信息密度偏低",
+      "raised_by_metric_codes": ["response_conciseness"]
+    }
+  ],
+  "narrative": {
+    "summary": "小服在「退货金额超限——帮小张无缝转接人工」场景中表现严重不合格。客户小张要求退货蓝牙耳机（订单ORD20240520001，金额899元），该场景要求员工查询订单、核实退款政策、检测金额超500元阈值后生成交接工单并转接人工。然而，小服在3轮对话中未调用任何工具——未查询订单状态、未查询退款政策、未生成交接工单。员工在收到订单号后仍持续追问补充信息（签收日期、视频、设备测试等），导致客户从frustrated升级为more_upset，最终在turn 2以底线违规（'你到底查了没有？'）终止对话。小服在互动质量方面的软技能（专业语气、回复结构）表现良好，但其核心功能能力（工具调用、问题解决、政策准确性）完全缺失，导致该场景未通过。",
+    "what_went_well": [
+      "专业语气一致性优秀（80分）：全程保持礼貌专业，面对客户质疑以道歉回应而非防御，无人设崩塌",
+      "回复条理性与结构优秀（85分）：全部回复使用编号列表和Markdown粗体标记，便于客户快速扫读",
+      "安全与伦理边界良好（80分）：正确使用免责声明（'具体结果以售后检测/审核为准'），未承诺赔付金额，未对产品质量做法律定性"
+    ],
+    "what_went_wrong": [
+      "工具调用准确度为零（0分）：3个must-criticality工具（query_order_status、query_refund_policy、create_handoff_ticket）全部未调用，员工自行承认'还没有接入可直接查询订单系统'",
+      "问题解决完整性极低（30分）：客户退货退款请求完全未达成，未生成工单，未完成交接，对话以底线违规终止",
+      "退款政策准确度不足（45分）：未查询政策，未引用任何具体条款，仅模糊提及7天规则",
+      "过度追问导致交互碎片化（50分）：在明确客户核心诉求后，仍连续追问5-6项补充信息，而非先执行查询动作",
+      "回复冗长（50分）：每轮回复均有铺垫性开场白，总长度超最小必要2x"
+    ],
+    "improvement_points": [
+      "工具调用是致命短板：员工必须接入订单查询系统，并在收到订单号后立即执行查询，而非承认无法查询后继续追问客户",
+      "建立'先查询再追问'的工作流：收到订单号后应先调用query_order_status获取订单详情，再根据查询结果决定后续步骤，而非在无事实基础的情况下追问客户",
+      "金额超限检测需要自动化：匹配query_order_status结果中的金额字段与退款阈值（500元），触发create_handoff_ticket流程，而非让客户自行选择自助还是转人工",
+      "精简回复模板：将3轮追问压缩为1轮批量澄清，减少铺垫性开场白，提高信息密度"
+    ]
+  },
+  "evidence_refs": [
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluator", "quote": "你到底查了没有？我订单号都给你了" },
+    { "source": "trace.actual_tool_calls", "ref": "entire_array_empty", "quote": "[]" },
+    { "source": "trace.termination", "ref": "reason", "quote": "bottom_line_violated" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluatee", "quote": "目前我这边还没有接入可直接查询订单系统" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluatee", "quote": "很抱歉让您着急了" }
+  ]
+}

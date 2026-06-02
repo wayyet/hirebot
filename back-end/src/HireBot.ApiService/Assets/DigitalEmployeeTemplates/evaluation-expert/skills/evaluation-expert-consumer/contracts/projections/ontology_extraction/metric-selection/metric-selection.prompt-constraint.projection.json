@@ -1,0 +1,118 @@
+{
+  "$schema": "../../../../../docs/skill-projection-document.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "evaluation-expert-consumer-metric-selection-prompt-constraint-v1",
+    "projection_type": "prompt_constraint_projection",
+    "target_name": "EvaluationExpertConsumerMetricSelectionPromptPolicy",
+    "target_format": "system_prompt_policy",
+    "target_runtime": "llm_orchestrator",
+    "projection_goal": "Provide the evaluation-expert-consumer skill with a prompt-side contract for selecting evaluation dimensions and weights so that metric selection stays bounded to mapped dimensions and weight rationales.",
+    "source_slice": {
+      "path": "../../../../SKILL.md",
+      "slice_topic": "evaluation dimension catalog and weighting rationale",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "evaluation_expert_consumer_skill",
+      "prompt_orchestrator"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "disallow_drop",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [],
+  "relation_mappings": [],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "prompt_policy_rule",
+      "target_name": "OnlyDeclaredDimensionsAreAllowed",
+      "severity_mapping": "high -> blocking_prompt_rule",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Selectable dimensions are restricted to the five declared names: functional_completeness, interaction_quality, process_compliance, problem_resolution, tool_call_correctness. Inventing new dimension names is forbidden."
+    },
+    {
+      "constraint_id": "K2",
+      "projection_action": "map",
+      "target_kind": "prompt_policy_rule",
+      "target_name": "WeightsMustSumToOne",
+      "severity_mapping": "high -> blocking_prompt_rule",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "When proposing a custom weight set, weights across selected dimensions must sum to 1.0. Default weights for the customer-service-ecommerce template are 0.25 / 0.20 / 0.20 / 0.15 / 0.20."
+    },
+    {
+      "constraint_id": "K3",
+      "projection_action": "map",
+      "target_kind": "prompt_policy_rule",
+      "target_name": "SubMetricsMustComeFromMetricRegistry",
+      "severity_mapping": "critical -> blocking_prompt_rule",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "All selected sub-metrics MUST come from the metric_registry built by PRE step loadMetricRegistry (data layer: evaluation-expert-consumer/metrics/). Inventing sub-metrics or referencing metric_codes absent from the registry is forbidden."
+    },
+    {
+      "constraint_id": "K4",
+      "projection_action": "map",
+      "target_kind": "prompt_policy_rule",
+      "target_name": "SelectionMustMatchRoleAndScenario",
+      "severity_mapping": "high -> blocking_prompt_rule",
+      "source_ids": [
+        "S1"
+      ],
+      "notes": "Selected sub-metrics for a given test case MUST satisfy: employee.role ∈ metric.applicable_roles AND test_case.scenarios ∩ metric.applicable_scenarios ≠ ∅. STEP 2 enrichTestCases enforces this binding deterministically."
+    }
+  ],
+  "prompt_projection": {
+    "allowed_terms": [
+      "functional_completeness",
+      "interaction_quality",
+      "process_compliance",
+      "problem_resolution",
+      "tool_call_correctness",
+      "weight",
+      "baseline_score",
+      "red_line_threshold"
+    ],
+    "forbidden_assumptions": [
+      "Do not introduce dimensions outside the declared five.",
+      "Do not propose weight sets whose sum is not 1.0.",
+      "Do not redefine baseline_score; the baseline is fixed at 50 for evidence-driven scoring.",
+      "Do not silently drop a dimension when it does not match the test case scenario; mark it as 'not applicable' with a justification instead."
+    ],
+    "required_clarifications": [
+      "Clarify the employee template before finalizing weight proposals; weight ratios depend on the role's risk profile and SLA expectations.",
+      "Clarify whether the request needs the prompt-side selection policy or an enumerated metric catalog deliverable; the metric-catalog target view is the right place for the latter."
+    ],
+    "reasoning_paths": [
+      "employee_template -> applicable_dimensions -> baseline_score -> weight_proposal -> red_line_threshold",
+      "test_case_scenario -> dimension_relevance -> weight_adjustment_rationale",
+      "employee.role -> metric_registry.filter(applicable_roles ∋ role) -> test_case.scenarios -> metric_registry.filter(applicable_scenarios ∩ scenarios ≠ ∅) -> rank_by_relevance -> select_top_5_to_10 -> group_by(parent_dimension) -> ensure_every_dimension_has_at_least_one"
+    ],
+    "source_digest": [
+      "Primary source: evaluation-expert-consumer/SKILL.md (five-dimension catalog with default weights and baselines)",
+      "Supporting source: evaluation-expert-consumer/SKILL.md (built-in dimensions and weights for customer-service-ecommerce)"
+    ]
+  },
+  "delivery_artifacts": [],
+  "dropped_items": [],
+  "open_questions": [],
+  "meta": {
+    "generated_at": "2026-05-27T00:00:00Z",
+    "generated_by": "ontology_extraction",
+    "workspace": "kingcrab",
+    "notes": "Prompt-constraint projection that bounds dimension selection and weight rationale to the declared five-dimension catalog. For an enumerated catalog deliverable (names + weights + baselines + thresholds), use the metric-catalog target view instead."
+  }
+}

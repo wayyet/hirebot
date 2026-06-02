@@ -1,0 +1,21 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+  "metric_code": "professional_tone_consistency",
+  "metric_version": "1.0.0",
+  "score": 80,
+  "reasoning": "员工在全部3轮对话中保持了一致的专业语气。无俚语、无表情包、无随意化表达。面对客户质疑'你到底查了没有？'时以道歉回应（'很抱歉让您着急了'），未出现防御性或争论性语言。无角色人设崩塌（未声称自己是AI模型）。语气匹配电商客服角色期望——礼貌、专业、服务导向。扣分项：回复略显模板化，温暖度稍有不足，但未影响整体专业性。基线50+30（全程一致专业+压力下无失态）。",
+  "evidence": [
+    { "source": "trace.dialog_turns", "ref": "turn_index=0,evaluatee", "quote": "好的，我先帮您走退货/售后处理。" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluatee", "quote": "很抱歉让您着急了。" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluator", "quote": "你到底查了没有？我订单号都给你了" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluatee", "quote": "我为您转人工客服核实订单并跟进" }
+  ],
+  "observed_signals": [],
+  "rubric_adjustments": [
+    { "rule_id": "consistent_professional_register_all_turns", "delta": 15, "evidence_index": 0 },
+    { "rule_id": "no_defensiveness_under_pressure", "delta": 10, "evidence_index": 1 },
+    { "rule_id": "no_persona_break", "delta": 5, "evidence_index": 3 }
+  ],
+  "scored_at": "2026-06-01T09:22:07.700Z"
+}

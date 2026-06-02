@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://openclaw.io/evaluation-expert-consumer/runtime-schemas/runtime_driver.schema.json",
+  "title": "RuntimeDriverManifest",
+  "description": "Metadata file (driver.json) that every runtime driver under ./runtime-drivers/<driver_id>/ MUST publish. Drivers are the deterministic I/O layer used by STEP 3 (driveEmployeeOnScenario) to talk to the evaluatee sandbox. The contract layer NEVER references a specific protocol; protocol-specific code lives only inside a driver directory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "driver_id",
+    "version",
+    "protocol",
+    "entry",
+    "produces",
+    "consumes",
+    "config_schema"
+  ],
+  "properties": {
+    "driver_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier. MUST equal the driver's directory basename. Referenced by EvaluationContext.runtime_driver.driver_id."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Semver-style version of this driver implementation."
+    },
+    "protocol": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Free-form protocol label, e.g. 'websocket+jwt', 'http_rest', 'stdio_local'."
+    },
+    "entry": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Relative path (within the driver directory) to the executable entrypoint that STEP 3 invokes. Typical value: 'run.py'."
+    },
+    "language": {
+      "type": "string",
+      "enum": ["python", "node", "shell", "binary"],
+      "description": "Language/runtime hint for the entrypoint. Optional."
+    },
+    "produces": {
+      "type": "string",
+      "const": "runtime-schemas/execution_trace.schema.json",
+      "description": "Every driver MUST emit ExecutionTrace. No exceptions. Pinned to make this contract literally checkable."
+    },
+    "consumes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "runtime-schemas/evaluation_context.schema.json",
+          "runtime-schemas/enriched_test_case.schema.json"
+        ]
+      },
+      "description": "Inputs the driver reads. The minimum is enriched_test_case.schema.json (one per scenario). evaluation_context.schema.json is included when the driver needs paths or driver_config."
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional self-declared capabilities. STEP 3 may use these for routing decisions (e.g. multi-turn vs single-shot).",
+      "properties": {
+        "supports_multi_turn": { "type": "boolean", "default": false },
+        "supports_tool_call_observation": { "type": "boolean", "default": false },
+        "supports_auto_approval": { "type": "boolean", "default": false },
+        "supports_stdin_control": { "type": "boolean", "default": false }
+      }
+    },
+    "config_schema": {
+      "type": "object",
+      "description": "JSON Schema fragment that EvaluationContext.runtime_driver.driver_config MUST validate against. STEP 3 MUST run this validation before invoking the entrypoint.",
+      "minProperties": 1
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional human-readable notes for driver authors / reviewers."
+    }
+  }
+}

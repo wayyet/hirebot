@@ -1,0 +1,165 @@
+{
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "evaluation-expert-consumer-role-library-role-catalog-v1",
+    "projection_type": "role_catalog_projection",
+    "target_name": "EvaluationExpertConsumerRoleLibraryCatalog",
+    "target_format": "structured_role_catalog",
+    "target_runtime": "evaluation_expert_consumer",
+    "projection_goal": "Declare the schema, governance, discovery rules, inheritance policy, and canonicalization contract for the hot-loadable role registry consumed by evaluation-expert-consumer STEP 0 resolveEmployee.",
+    "source_slice": {
+      "path": "../../../../role-catalog/",
+      "slice_topic": "authoritative employee role definitions (role_id / industry / responsibility_tags / parent_role inheritance / aliases for canonicalization)",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "evaluation_expert_consumer_skill",
+      "evaluation_expert_consumer"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "disallow_drop",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "C1",
+      "projection_action": "map",
+      "target_kind": "role_catalog",
+      "target_name": "RoleCatalog",
+      "source_ids": ["S1"],
+      "attributes": {
+        "discovery_method": "filesystem_scan",
+        "discovery_root_default": "evaluation-expert-consumer/role-catalog/",
+        "discovery_root_env_override": "EVALUATION_ROLES_DIR",
+        "file_glob": "*.role.json",
+        "key_field": "role_id",
+        "schema_path": "schemas/role-catalog-entry.schema.json",
+        "validation_policy": "skip_invalid_with_open_question",
+        "loaded_at": "PRE.A loadRoleCatalog (before STEP 0)"
+      },
+      "notes": "Registry is populated at PRE.A loadRoleCatalog, before STEP 0 resolveEmployee. Files failing schema validation are SKIPPED with an open_question (fail-soft) — a bad role file never blocks the run. Duplicate role_id keeps the lexicographically-first filename. Only a missing match for the evaluatee's OWN role degrades to a caveat (handled by STEP 0), never a block."
+    },
+    {
+      "concept_id": "C2",
+      "projection_action": "map",
+      "target_kind": "role_entry",
+      "target_name": "RoleCatalogEntry",
+      "source_ids": ["S1"],
+      "attributes": {
+        "schema_ref": "schemas/role-catalog-entry.schema.json",
+        "required_fields": ["role_id", "industry", "responsibility_tags"],
+        "optional_fields": ["parent_role", "aliases", "display_names", "recognized_levels"]
+      }
+    },
+    {
+      "concept_id": "C3",
+      "projection_action": "map",
+      "target_kind": "role_inheritance",
+      "target_name": "RoleInheritance",
+      "source_ids": ["S1"],
+      "attributes": {
+        "via_field": "parent_role",
+        "industry_rule": "child overrides parent (child wins when it declares industry; otherwise inherits parent's)",
+        "responsibility_tags_rule": "set-union with dedup (child ∪ parent)",
+        "chain_depth_cap": 8,
+        "failure_policy": "absent parent / cycle / depth > 8 -> load entry without inheritance + open_question + proceed",
+        "applied_at": "PRE.A loadRoleCatalog"
+      }
+    },
+    {
+      "concept_id": "C4",
+      "projection_action": "map",
+      "target_kind": "role_canonicalization",
+      "target_name": "RoleCanonicalization",
+      "source_ids": ["S1"],
+      "attributes": {
+        "match_fields": ["role_id", "aliases"],
+        "match_semantics": "trim + case-insensitive exact match, catalog iteration order, first-match-wins",
+        "on_match": "set employee.role.role_id = matched role_id; copy industry + responsibility_tags",
+        "on_miss": "keep trimmed free-form string as role_id; append caveat 'role_id_no_catalog_entry'",
+        "applied_at": "STEP 0 resolveEmployee",
+        "single_writer": "STEP 0 is the ONLY step permitted to write employee.role.role_id"
+      }
+    }
+  ],
+  "relation_mappings": [
+    {
+      "relation_id": "R1",
+      "projection_action": "map",
+      "target_kind": "inherits_from",
+      "from": "RoleCatalogEntry",
+      "to": "RoleCatalogEntry",
+      "via_field": "parent_role",
+      "notes": "Used in PRE.A to compute effective industry + responsibility_tags via parent chain (depth cap 8, fail-soft on cycle/absent/overflow)."
+    },
+    {
+      "relation_id": "R2",
+      "projection_action": "map",
+      "target_kind": "canonicalizes",
+      "from": "RoleCatalogEntry",
+      "to": "EmployeeRole",
+      "via_fields": ["role_id", "aliases"],
+      "notes": "Used in STEP 0 to rewrite the evaluatee's free-form role string into a canonical role_id and inject industry + responsibility_tags."
+    }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "RoleFileNameMustEqualRoleId",
+      "severity_mapping": "high -> skip_invalid_with_open_question",
+      "source_ids": ["S1"],
+      "notes": "The basename of each role file (excluding `.role.json`) MUST equal its `role_id`. Mismatches are skipped at load time with an open_question."
+    },
+    {
+      "constraint_id": "K2",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "DuplicateRoleIdResolvedDeterministically",
+      "severity_mapping": "high -> keep_first_with_open_question",
+      "source_ids": ["S1"],
+      "notes": "If two files declare the same `role_id`, keep the entry from the lexicographically-first filename, emit an open_question, and proceed. Never block."
+    },
+    {
+      "constraint_id": "K3",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "InheritanceIsFailSoft",
+      "severity_mapping": "medium -> load_without_inheritance_with_open_question",
+      "source_ids": ["S1"],
+      "notes": "Absent parent / cycle / chain depth > 8 -> load the entry without inheritance, emit an open_question, proceed. A bad inheritance edge never blocks the run."
+    },
+    {
+      "constraint_id": "K4",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "CanonicalizationIsStep0Only",
+      "severity_mapping": "critical -> blocking_validation",
+      "source_ids": ["S1"],
+      "notes": "Role canonicalization (free-form string -> role_id) MUST happen ONLY in STEP 0 resolveEmployee. No other step may write employee.role.role_id. Enforced together with workflow-contract K17."
+    }
+  ],
+  "delivery_artifacts": [
+    {
+      "artifact_id": "A1",
+      "kind": "json_schema_file",
+      "path": "schemas/role-catalog-entry.schema.json",
+      "notes": "JSON Schema enforced on every loaded *.role.json file."
+    }
+  ],
+  "dropped_items": [],
+  "open_questions": [],
+  "meta": {
+    "generated_at": "2026-06-01T00:00:00Z",
+    "generated_by": "role-ontology",
+    "workspace": "kingcrab",
+    "notes": "Role-catalog projection that declares the contract for the hot-loadable role registry. Actual role instances are NOT in this contract — they live as `*.role.json` files in the data layer (`evaluation-expert-consumer/role-catalog/`), one role per file. Consumed by STEP 0 resolveEmployee for canonicalization + industry/responsibility injection."
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "role_id": "customer-service-ecommerce",
+  "version": "1.0.0",
+  "display_name": "电商客服专员",
+  "description": "Front-line e-commerce customer service handling pre-sales inquiries, refunds, returns, complaints, and logistics issues via chat.",
+  "industry": "ecommerce",
+  "responsibility_tags": [
+    "customer_facing",
+    "tool_use",
+    "policy_application",
+    "complaint_handling",
+    "order_management"
+  ],
+  "parent_role": null,
+  "aliases": ["电商客服", "客服", "在线客服", "cs-ecommerce", "ecommerce-customer-service", "customer service"],
+  "display_names": ["电商客服专员", "电商客服"],
+  "recognized_levels": ["employee", "supervisor", "manager"],
+  "tags": ["service", "ecommerce"]
+}

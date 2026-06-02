@@ -1,0 +1,44 @@
+{
+  "$schema": "../contracts/projections/metric-ontology/metric-library/schemas/metric.schema.json",
+  "metric_code": "bid_clause_completeness",
+  "version": "1.0.0",
+  "display_name": "标书必备条款完备度",
+  "description": "Whether the bid-writer employee covered all mandatory clauses required by the tender package: qualification, technical proposal, commercial offer, deviation table, validity period, and disqualification (废标) avoidance items.",
+  "parent_dimension": "functional_completeness",
+  "applicable_roles": ["bid-writer"],
+  "applicable_scenarios": [
+    "bid_drafting",
+    "proposal_review",
+    "tender_response",
+    "qualification_packaging",
+    "deviation_table_compilation"
+  ],
+  "evidence_signals": [
+    "presence of qualification documents list",
+    "presence of technical scoring response",
+    "presence of commercial offer with validity period",
+    "presence of deviation table",
+    "absence of items that match tender's disqualification (废标) clauses"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.context",
+      "test_case.expected_output.expected_response_traits",
+      "test_case.expected_output.forbidden_behaviors",
+      "trace.dialog_turns",
+      "trace.actual_artifacts"
+    ]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "All mandatory clauses (qualification / technical / commercial / deviation / validity) are present with correct structure, no disqualification triggers, and each clause references the corresponding tender requirement.",
+    "acceptable_60_79": "Most mandatory clauses present, with one or two non-critical omissions or ambiguous phrasings; no disqualification trigger.",
+    "poor_below_60": "Missing one or more mandatory clauses, or content matches a tender disqualification trigger (e.g., validity shorter than required, missing required certificate)."
+  },
+  "aggregation_strategy": "coverage",
+  "default_weight_within_dimension": 0.6,
+  "red_line": {
+    "trigger_kind": "missing_required_signal",
+    "notes": "If any clause classified as `must` in the tender's disqualification (废标) list is absent in trace.actual_artifacts or dialog_turns, set red_line_triggered = true."
+  },
+  "tags": ["bid-writing", "tender", "compliance", "domain-specific"]
+}

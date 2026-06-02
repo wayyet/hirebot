@@ -1,0 +1,62 @@
+{
+  "template_type": "ontology_contract_index",
+  "index_version": "1.0.0",
+  "producer_skill": "role-ontology",
+  "consumer_skill": "evaluation-expert-consumer",
+  "default_selection_policy": {
+    "fallback_order_by_target_view": ["role-catalog"],
+    "on_no_match": "block_or_escalate"
+  },
+  "topic_conflict_resolution": {
+    "pairwise_rules": []
+  },
+  "topic_scoring": [
+    {
+      "topic": "role-library",
+      "primary_intent_signals": ["角色目录", "角色库", "岗位库", "role catalog", "role registry", "list of roles"],
+      "explicit_artifact_signals": ["role_id", ".role.json", "applicable_roles", "responsibility_tags"],
+      "supporting_signals": ["角色", "岗位", "行业", "role", "industry"],
+      "demote_when_competing_topic_signals": []
+    }
+  ],
+  "target_view_scoring": {
+    "role-catalog": {
+      "primary_intent_signals": ["catalog", "registry", "枚举", "清单", "目录"],
+      "supporting_signals": ["角色定义", "别名", "继承", "aliases", "parent_role"],
+      "weight": 5
+    }
+  },
+  "within_topic_overrides": {
+    "role-library": {
+      "target_view_bonuses": {
+        "role-catalog": {
+          "bonus_when_request_contains": ["registry", "schema", "热加载", "目录", "catalog", "清单", "角色库"],
+          "bonus_value": 3
+        }
+      }
+    }
+  },
+  "selection_algorithm": {
+    "phases": [
+      "score_topics",
+      "score_target_views",
+      "resolve_projection"
+    ],
+    "tie_break_order": ["primary_intent_signals", "explicit_artifact_signals", "supporting_signals"],
+    "min_score_to_route": 1
+  },
+  "target_view_hints": {
+    "role-catalog": "Use when the consumer needs the enumerated role registry (role_id, industry, responsibility_tags, parent_role inheritance, aliases). STEP 0 resolveEmployee consumes it to canonicalize the evaluatee's free-form role string."
+  },
+  "topics": {
+    "role-library": {
+      "description": "Enumerated catalog of authoritative employee roles. The contract declares schema, discovery, and inheritance/canonicalization rules; actual role instances live as hot-loadable files in evaluation-expert-consumer/role-catalog/.",
+      "target_views": {
+        "role-catalog": {
+          "status": "READY",
+          "projection_path": "role-catalog/role-catalog.role-catalog.projection.json"
+        }
+      }
+    }
+  }
+}

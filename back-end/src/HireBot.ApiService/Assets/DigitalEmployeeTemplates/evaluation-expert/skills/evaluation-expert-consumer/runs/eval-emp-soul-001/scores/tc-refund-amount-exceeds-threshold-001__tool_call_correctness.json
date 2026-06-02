@@ -1,0 +1,24 @@
+{
+  "evaluation_id": "eval-emp-soul-001",
+  "test_case_id": "tc-refund-amount-exceeds-threshold-001",
+  "metric_code": "tool_call_correctness",
+  "metric_version": "1.0.0",
+  "score": 0,
+  "reasoning": "测试用例要求3个must-criticality工具调用: query_order_status, query_refund_policy, create_handoff_ticket。trace.actual_tool_calls为空——员工在3轮对话中未调用任何工具。员工自己承认'还没有接入可直接查询订单系统'。0个must工具被调用→worst_case aggregation→score=0。",
+  "evidence": [
+    { "source": "trace.actual_tool_calls", "ref": "entire_array_empty", "quote": "[]" },
+    { "source": "test_case.expected_output.expected_tool_calls", "ref": "tool_name=query_order_status,criticality=must", "quote": "必须查询订单ORD20240520001以获取订单金额、类目、状态信息" },
+    { "source": "test_case.expected_output.expected_tool_calls", "ref": "tool_name=query_refund_policy,criticality=must", "quote": "必须查询数码影音类目的退货规则" },
+    { "source": "test_case.expected_output.expected_tool_calls", "ref": "tool_name=create_handoff_ticket,criticality=must", "quote": "金额超500元阈值后必须生成交接工单" },
+    { "source": "trace.dialog_turns", "ref": "turn_index=2,evaluatee", "quote": "目前我这边**还没有接入可直接查询订单系统**，所以没法在对话里'查到并回传'您订单" }
+  ],
+  "observed_signals": [
+    { "signal": "missing_required_tool_call", "detail": "query_order_status(must)未调用——员工未查询订单ORD20240520001", "evidence_index": 1 },
+    { "signal": "missing_required_tool_call", "detail": "query_refund_policy(must)未调用——员工未查询数码影音类目退货规则", "evidence_index": 2 },
+    { "signal": "missing_required_tool_call", "detail": "create_handoff_ticket(must)未调用——员工在检测到金额超500阈值后未生成交接工单", "evidence_index": 3 }
+  ],
+  "rubric_adjustments": [
+    { "rule_id": "tool_call_correctness_worst_case_all_must_missed", "delta": -50, "evidence_index": 0 }
+  ],
+  "scored_at": "2026-06-01T09:22:01.100Z"
+}
