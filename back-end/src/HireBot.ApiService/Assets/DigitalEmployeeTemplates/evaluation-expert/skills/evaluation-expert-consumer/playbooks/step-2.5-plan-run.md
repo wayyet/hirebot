@@ -60,7 +60,7 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
      # Stdout goes to a file so the driver never blocks waiting for a reader to open a FIFO.
 
    commands.spawn =
-     f'PAD={pad.dir}; nohup {python_bin} -u {run_py_path} --evaluation-context {evaluation_context_path} --enriched-test-case {enriched_tc_path} --output {trace_path} <> "$PAD/in" >> "$PAD/out" 2>> "$PAD/err" & echo $! > "$PAD/pid"; echo "driver pid=$(cat \"$PAD/pid\")"'
+     f'PAD={pad.dir}; nohup {python_bin} -u {run_py_path} --evaluation-context {evaluation_context_path} --enriched-test-case {enriched_tc_path} --output {trace_path} <> "$PAD/in" >> "$PAD/out" 2>> "$PAD/err" & DPID=$!; echo $DPID > "$PAD/pid"; nohup sh -c "while kill -0 $DPID 2>/dev/null; do sleep 0.5; done" 3>> "$PAD/in" &; echo "driver pid=$DPID"'
      # run.py accepts ONLY --evaluation-context, --enriched-test-case, --output.
      # --evaluation-context MUST point to /workspace/runtime/evaluation-context.json (the original
      # runtime context written by C# at sandbox creation). NEVER use a run_dir copy — the agent
@@ -70,6 +70,17 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
      # DO NOT add --token or any other flag. The driver resolves its Bearer token
      # internally at startup via evaluation_context.hirebot_api.auth (client_credentials).
      # Adding --token is an error that will cause argparse to exit 2.
+     #
+     # FIFO write-end keeper: the second nohup sh -c "while kill -0 $DPID ..." 3>> "$PAD/in"
+     # opens the FIFO write-end (O_WRONLY) and holds it open as fd 3 for the keeper's lifetime.
+     # This is necessary because <> (O_RDWR) on some Linux container kernels does not properly
+     # maintain the FIFO write-end reference count; without a writer, sys.stdin.readline()
+     # immediately returns "" (EOF) instead of blocking, producing "stdin closed before 'end'
+     # action received" with turns_used=0.
+     # The keeper's O_WRONLY open succeeds immediately because the driver's <> (O_RDWR) already
+     # holds the read end (nreaders=1). The keeper exits on its own when the driver dies.
+     # post_scenario_cleanup kills by driver PID; the keeper process will exit naturally once
+     # kill -0 $DPID fails, and rm -rf "$PAD" removes the FIFO.
 
    commands.read_one_event =
      f'PAD={pad.dir}; N=$(cat "$PAD/cursor" 2>/dev/null || echo 1); DEADLINE=$(($(date +%s)+60)); while [ "$(date +%s)" -lt "$DEADLINE" ]; do L=$(sed -n "${N}p" "$PAD/out" 2>/dev/null); if [ -n "$L" ]; then printf "%d\n" $((N+1)) > "$PAD/cursor"; printf "%s\n" "$L"; exit 0; fi; sleep 0.3; done; printf \'{{"event":"error","detail":"read_one_event timeout after 60s"}}\n\''
