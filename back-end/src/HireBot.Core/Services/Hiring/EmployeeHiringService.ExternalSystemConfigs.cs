@@ -71,11 +71,7 @@ internal sealed partial class EmployeeHiringService
         };
         runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
 
-        if (persistedState is not null &&
-            string.Equals(
-                persistedState.SubmissionMode,
-                HiringExternalSystemSubmissionModes.Configured,
-                StringComparison.OrdinalIgnoreCase))
+        if (persistedState is not null)
         {
             if (IsCollectionStageBeforeReadyForPackaging(runtimeContext.CurrentStage))
             {
@@ -85,10 +81,7 @@ internal sealed partial class EmployeeHiringService
                 };
             }
 
-            if (!runtimeContext.PackagingTestCasesStaged)
-            {
-                runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
-            }
+            runtimeContext = MarkPackagingTestCasesWaitingConfirmIfNeeded(runtimeContext);
         }
 
         hiringRuntimeStore.Upsert(runtimeContext);
@@ -123,10 +116,24 @@ internal sealed partial class EmployeeHiringService
             return runtimeContext;
         }
 
-        var hydratedRuntimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext with
+        var hydratedRuntimeContext = runtimeContext with
         {
             ExternalSystemConfig = sandboxConfig
-        });
+        };
+        if (sandboxConfig.IsPersisted)
+        {
+            if (IsCollectionStageBeforeReadyForPackaging(hydratedRuntimeContext.CurrentStage))
+            {
+                hydratedRuntimeContext = hydratedRuntimeContext with
+                {
+                    CurrentStage = HiringCollectionStage.ReadyForPackaging
+                };
+            }
+
+            hydratedRuntimeContext = MarkPackagingTestCasesWaitingConfirmIfNeeded(hydratedRuntimeContext);
+        }
+
+        hydratedRuntimeContext = ApplyConversationProgressToTemplatePackage(hydratedRuntimeContext);
         hiringRuntimeStore.Upsert(hydratedRuntimeContext);
         return hydratedRuntimeContext;
     }

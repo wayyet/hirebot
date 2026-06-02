@@ -25,24 +25,7 @@ metadata: {"openclaw":{"emoji":"{{emoji}}"}}
 ## 边界与不做
 {{boundaries_markdown}}
 
-## Projection Contracts
-
-This skill may be augmented by bound projection contracts from `ontology_extraction`, discovered under `contracts/projections/**/contract-index.json`.
-
-- Projection discovery, route selection, and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contracts/projections/ontology_extraction/contract-index.json`, optionally read the namespace `README.md`, and then the chosen `*.projection.json`.
-
-### Projection Consumption
-
-- Read the selected projection before planning implementation details.
-- Only consume the projection fields and target views this skill actually supports, especially `concept_mappings`, `relation_mappings`, `constraint_mappings`, `prompt_projection`, `delivery_artifacts`, `mapping_policy`, `open_questions`, and `dropped_items`.
-- Treat the selected projection as authoritative for terminology, clarifications, dropped scope, and blocking conditions.
-
-### Blocking Rules
-
-- If route selection is blocked, ambiguous, or does not safely cover the request, surface that limitation instead of guessing.
-- If `mapping_policy` requires `block_or_escalate`, or `open_questions` is non-empty, do not finalize the output before surfacing the issue.
-- Do not recreate items listed in `dropped_items`.
+{{projection_contracts_section}}
 
 ## 对话示例
 {{examples_markdown}}
@@ -52,5 +35,6 @@ Template rules:
 
 - Keep frontmatter parser-friendly.
 - Do not leave placeholder text in the final file.
+- `{{projection_contracts_section}}` 仅在 `contracts/projections/ontology_extraction/contract-index.json` 已真实落盘时才可展开为 Projection Contracts 章节；否则必须替换为空字符串。
 - Keep projection consumption in generated business skills, not in `skill-generation` itself.
 - If a generated skill cannot produce a READY projection contract, write draft notes and do not block the base skill write for that reason alone.

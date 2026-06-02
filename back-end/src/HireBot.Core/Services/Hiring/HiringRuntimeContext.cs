@@ -49,4 +49,9 @@ internal sealed record HiringRuntimeContext
 
     /// <summary>打包前 testcase 是否已写入雇佣沙箱工作区（幂等标记）。</summary>
     public bool PackagingTestCasesStaged { get; init; }
+
+    /// <summary>测试用例生成确认门状态：not_asked / waiting_confirm / generating / generated / skipped / failed。</summary>
+    public string PackagingTestCasesStatus { get; init; } = PackagingTestCasesGenerationStatuses.NotAsked;
+
+    public string? PackagingTestCasesLastError { get; init; }
 }

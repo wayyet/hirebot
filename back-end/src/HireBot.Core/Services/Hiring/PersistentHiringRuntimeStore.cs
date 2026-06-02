@@ -102,6 +102,10 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
             TemplateUploadLastError = meta.TemplateUploadLastError,
             TemplateUploadLastAttemptAt = meta.TemplateUploadLastAttemptAt,
             PackagingTestCasesStaged = meta.PackagingTestCasesStaged,
+            PackagingTestCasesStatus = string.IsNullOrWhiteSpace(meta.PackagingTestCasesStatus) && meta.PackagingTestCasesStaged
+                ? PackagingTestCasesGenerationStatuses.Generated
+                : PackagingTestCasesGenerationStatuses.Normalize(meta.PackagingTestCasesStatus),
+            PackagingTestCasesLastError = meta.PackagingTestCasesLastError,
             RoleTemplatePackage = packages!.RoleTemplatePackage,
             WorkingTemplatePackage = packages.WorkingTemplatePackage,
             DiscoverySkill = packages.DiscoverySkill,
@@ -131,7 +135,9 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
         int TemplateUploadRetryCount,
         string? TemplateUploadLastError,
         DateTimeOffset? TemplateUploadLastAttemptAt,
-        bool PackagingTestCasesStaged)
+        bool PackagingTestCasesStaged,
+        string? PackagingTestCasesStatus,
+        string? PackagingTestCasesLastError)
     {
         public static PersistedHiringMeta From(HiringRuntimeContext context) => new(
             context.TemplateId,
@@ -147,7 +153,9 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
             context.TemplateUploadRetryCount,
             context.TemplateUploadLastError,
             context.TemplateUploadLastAttemptAt,
-            context.PackagingTestCasesStaged);
+            context.PackagingTestCasesStaged,
+            PackagingTestCasesGenerationStatuses.Normalize(context.PackagingTestCasesStatus),
+            context.PackagingTestCasesLastError);
     }
 
     // 模板包定义：体积较大（含 PackageFiles 文件内容），独立列便于按需加载。

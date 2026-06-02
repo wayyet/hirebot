@@ -194,6 +194,8 @@ public class PackagingTestCasesFromHistoryTests
         var updated = await InvokeEnsurePackagingTestCasesStagedAsync(service, context, CancellationToken.None);
 
         Assert.True(updated.PackagingTestCasesStaged);
+        Assert.Equal(PackagingTestCasesGenerationStatuses.Generated, updated.PackagingTestCasesStatus);
+        Assert.Null(updated.PackagingTestCasesLastError);
         Assert.True(sandbox.UploadedJsonByFileName.TryGetValue("evaluation-test-cases.json", out var mergedUploadJson));
         Assert.Contains("packaging-merged", mergedUploadJson);
         Assert.True(sandbox.UploadedFileNames.Count >= 5);
@@ -216,6 +218,8 @@ public class PackagingTestCasesFromHistoryTests
         var updated = await InvokeEnsurePackagingTestCasesStagedAsync(service, context, CancellationToken.None);
 
         Assert.True(updated.PackagingTestCasesStaged);
+        Assert.Equal(PackagingTestCasesGenerationStatuses.Generated, updated.PackagingTestCasesStatus);
+        Assert.Null(updated.PackagingTestCasesLastError);
         Assert.NotNull(sandbox.LastUploadedJson);
         Assert.Contains("packaging-fallback", sandbox.LastUploadedJson);
     }

@@ -4,8 +4,8 @@ description: 在打包前根据雇佣会话历史、待办上传资料与实例�
 compatibility: HireBot employment-coach-conversation v1.0
 metadata:
   category: generation
-  autonomy: 85
-  trigger: hiring-session-packaging, ready-for-packaging, backend-staging-invoke
+  autonomy: 75
+  trigger: backend-staging-invoke, user-confirmed-testcase-generation
   input: invoke_packaging_testcases, session-history, uploaded-materials, template-package-snapshot
   output: testcases-json, sources-index, dispatch-callback
 ---
@@ -14,17 +14,21 @@ metadata:
 
 ## 何时使用
 
-在以下任一情况**必须**执行本 Skill：
+仅在以下任一情况执行本 Skill：
 
 - 收到后端注入的 `<invoke_packaging_testcases>...</invoke_packaging_testcases>` 消息
-- 雇佣流程已进入 `ready_for_packaging`，且工作区尚不存在有效的 `testcases/evaluation-test-cases.json`
-- 用户即将调用 `package_workspace` 打包实例包
+- 外部系统配置已保存或跳过后，用户明确回复“生成测试用例 / 生成评估用例 / testcases”等确认语义，并由前端或后端切换到本 Skill
 
-**不要**在资料/技能/外部阶段中途生成 testcase；**不要**代替 `employment-coach-conversation` 执行打包。
+**不要**在资料/技能/外部阶段中途生成 testcase；**不要**因为用户即将打包就强行执行本 Skill；**不要**代替 `employment-coach-conversation` 执行打包。用户跳过测试用例时，打包仍应继续。
 
 ## 输入契约
 
-解析 `<invoke_packaging_testcases>` 内的 JSON，字段：
+支持两种输入形态：
+
+1. 后端注入的 `<invoke_packaging_testcases>...</invoke_packaging_testcases>` JSON。
+2. 前端确认后注入的内部 downstream trigger，读取其中 `artifact_payload` JSON，并结合当前会话历史、上传资料与工作区模板快照生成。
+
+`<invoke_packaging_testcases>` 字段：
 
 | 字段 | 说明 |
 |------|------|
@@ -35,11 +39,30 @@ metadata:
 | `uploaded_material_files` | 待办面板上传的资料正文（`.md`/`.json`，含 `requested_category_title`） |
 | `template_package_files` | 实例包文本快照（`manifest.json`、`skills/**/SKILL.md`、`ontology/**`、`config/**` 等） |
 
+`artifact_payload` 字段：
+
+| 字段 | 说明 |
+|------|------|
+| `trigger_after` | 固定为 `external_config_committed` |
+| `latest_material_summary` | 资料阶段 terminal artifact 摘要（可为空） |
+| `latest_skill_summary` | 技能阶段 terminal artifact 摘要（可为空） |
+| `latest_external_summary` | 外部阶段 terminal artifact 摘要（可为空） |
+| `external_config` | 用户已保存或跳过的外部系统配置摘要 |
+
 若 **history / materials / template 三者皆空**，**不得**编造用例，直接走降级输出（见下文）。
 
 ## 生成要求
 
 你是数字员工评估测试用例编写专家。综合三类输入生成用于 **live_evaluator** 的 JSON 文件。
+
+开始写入前先发出 `packaging_testcases_progress` artifact：
+
+- `kind`: `data`
+- `skillName`: `packaging-test-cases`
+- `stage`: `stage4_packaging`
+- `isTerminal`: `false`
+- `displayHint`: `progress`
+- `data.status`: `"running"`
 
 1. 分别基于 **history / materials / template** 各生成 0～8 条用例（输入不足时可少于 3 条；无输入则 `test_cases: []`）
 2. **合并去重**后写入主文件 `testcases/evaluation-test-cases.json`，`source: packaging-merged`
@@ -61,7 +84,17 @@ metadata:
 
 ## 返回 dispatch_callback（强制）
 
-在助手回复中输出 XML 标签 `<dispatch_callback>`，JSON 结构遵循 [examples/ready/packaging-test-cases-dispatch-callback.json](examples/ready/packaging-test-cases-dispatch-callback.json)。
+写入和校验完成后，先发出 `packaging_testcases_done` terminal artifact，再在助手回复中输出 XML 标签 `<dispatch_callback>`，JSON 结构遵循 [examples/ready/packaging-test-cases-dispatch-callback.json](examples/ready/packaging-test-cases-dispatch-callback.json)。
+
+`packaging_testcases_done` 要求：
+
+- `kind`: `data`
+- `skillName`: `packaging-test-cases`
+- `stage`: `stage4_packaging`
+- `isTerminal`: `true`
+- `displayHint`: `tree`
+- `data.generated_count`: 主文件中 `test_cases[]` 的数量
+- `data.paths`: 已写入的相对路径列表
 
 关键字段：
 

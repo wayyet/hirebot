@@ -202,6 +202,23 @@ describe('projection pass downstream orchestration', () => {
     })
   })
 
+  it('maps packaging testcase artifacts onto the packaging downstream track', () => {
+    expect(resolveDownstreamRunFromArtifact('packaging_testcases_ready')).toEqual({
+      key: 'packaging-test-cases',
+      status: 'waiting_confirm',
+    })
+
+    expect(resolveDownstreamRunFromArtifact('packaging_testcases_progress')).toEqual({
+      key: 'packaging-test-cases',
+      status: 'running',
+    })
+
+    expect(resolveDownstreamRunFromArtifact('packaging_testcases_done')).toEqual({
+      key: 'packaging-test-cases',
+      status: 'completed',
+    })
+  })
+
   it('keeps the skill stage running when only projection pass has started', () => {
     const overrides = deriveStageOverridesFromDownstreamRuns({
       'ontology-projection': {

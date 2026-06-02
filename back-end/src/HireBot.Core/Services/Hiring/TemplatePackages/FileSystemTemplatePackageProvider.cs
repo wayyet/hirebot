@@ -302,7 +302,7 @@ internal sealed class FileSystemTemplatePackageProvider(
             stageRules.Add(new TemplatePackageStageRule(
                 Stage: "ready_for_packaging",
                 SkillName: "packaging-test-cases",
-                Description: "Generate evaluation test cases before packaging.",
+                Description: "Optionally generate evaluation test cases; missing testcases must not block packaging.",
                 RequiredFields: []));
         }
 

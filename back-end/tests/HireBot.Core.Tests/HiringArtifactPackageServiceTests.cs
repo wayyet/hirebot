@@ -110,6 +110,43 @@ public sealed class HiringArtifactPackageServiceTests
         }
     }
 
+    [Fact]
+    public async Task BuildFinalPackageDownloadAsync_WhenOnlyIntermediateExists_ShouldReturnConflict()
+    {
+        var databaseRoot = new InMemoryDatabaseRoot();
+        var databaseName = $"hiring-artifact-packages-{Guid.NewGuid():N}";
+        var artifactRoot = CreateArtifactRoot();
+        var cancellationToken = TestContext.Current.CancellationToken;
+
+        try
+        {
+            using var dbContext = CreateDbContext(databaseName, databaseRoot);
+            dbContext.HiringSessions.Add(CreateHiringSessionEntity("hire-003", "session-003"));
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            var service = CreateService(dbContext, artifactRoot);
+            await service.PersistIntermediatePackageAsync(
+                new HiringArtifactPackagePersistRequestDto(
+                    "hire-003",
+                    "session-003",
+                    "hire-003_intermediate_package.zip",
+                    new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["manifest.json"] = Encoding.UTF8.GetBytes("{\"name\":\"intermediate\"}")
+                    }),
+                cancellationToken);
+
+            var download = await service.BuildFinalPackageDownloadAsync("hire-003", cancellationToken);
+
+            Assert.False(download.Found);
+            Assert.Equal(409, download.Code);
+        }
+        finally
+        {
+            DeleteArtifactRoot(artifactRoot);
+        }
+    }
+
     private static HiringArtifactPackageService CreateService(HireBotDbContext dbContext, string artifactRoot)
     {
         var configuration = new ConfigurationBuilder()

@@ -2,6 +2,8 @@
 
 Generated skills may be projection consumers when enough ontology projection information exists. Use this layout for READY contracts or draft projection notes:
 
+This template describes the local consumer contract under a generated business skill. It intentionally uses the consumer flat shape so runtime and human reviewers can read the same top-level fields directly. Source projection files may be either consumer flat shape or canonical ontology shape, but generated consumer contracts must be flat.
+
 ```text
 skills/<skill_slug>/
   contracts/
@@ -34,7 +36,15 @@ Minimum READY `contract-index.json` requirements:
 
 Minimum READY projection document requirements:
 
-- `projection`: contains `projection_id`, `projection_type`, `target_name`, `target_format`, `target_runtime`, and `source_slice`
+- `projection_id`
+- `projection_type`
+- `target_view`
+- `target_name`
+- `target_format`
+- `target_runtime`
+- `source_slice`
+- `intended_consumers`
+- `status`
 - `mapping_policy`
 - `concept_mappings`
 - `relation_mappings`
@@ -44,6 +54,14 @@ Minimum READY projection document requirements:
 - `dropped_items`
 - `open_questions` (empty for READY)
 
-Always generate the 4 standard views for generated business skills. Keep `workflow-contract` as `default_target_view`, and keep the other 3 views thin rather than omitting them.
+Always generate the 4 standard views for generated business skills. Keep `workflow-contract` as `default_target_view`, and keep the other 3 views thin rather than omitting them. Do not write stub references such as `{ "note": "...", "source_projection_path": "..." }`.
+
+Preferred materialization command:
+
+```bash
+python "scripts/materialize-consumer-projection-contract.py" --workspace-root "<workspace_root>" --skill-slug "<skill-slug>" --skill-name "<skill-name>"
+```
+
+When running from outside the `skill-generation` skill directory, use the absolute path to this script instead.
 
 If there is not enough information to generate a READY contract, write draft notes or a WARNING summary under the generated skill's `references/` area, but do not mark the contract READY and do not block the base skill write for that reason alone.
