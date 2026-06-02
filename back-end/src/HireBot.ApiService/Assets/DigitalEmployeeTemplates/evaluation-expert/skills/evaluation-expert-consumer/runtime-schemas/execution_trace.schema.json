@@ -17,6 +17,11 @@
   "properties": {
     "evaluation_id": { "type": "string", "minLength": 1 },
     "test_case_id": { "type": "string", "minLength": 1 },
+    "simulator_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The simulator_id used in this run, sourced from evaluation_context.runtime_simulator.simulator_id. Audit field only; not consumed by STEP 4 scoring."
+    },
     "started_at": { "type": "string", "format": "date-time" },
     "ended_at": { "type": "string", "format": "date-time" },
     "dialog_turns": {

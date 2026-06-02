@@ -106,6 +106,12 @@
   "runtime_simulator": {
     "simulator_id": "customer_realistic"
   },
+  "hirebot_api": {
+    "base_url": "https://hire.example.com",
+    "employee_id": "emp-soul-001",
+    "session_id": "EVAL-SESSION-PLACEHOLDER",
+    "_comment": "base_url 由部署配置决定；session_id 由 HireBot 后端在启动评估时注入；employee_id 与 employees/ 目录中的文件名一致。如需独立鉴权（非 fallback Keycloak JWT），在 auth 字段中配置 mode/token_url/client_id/client_secret。"
+  },
   "global_turn_cap": 30,
   "open_questions": [],
   "user_consultation_log": [

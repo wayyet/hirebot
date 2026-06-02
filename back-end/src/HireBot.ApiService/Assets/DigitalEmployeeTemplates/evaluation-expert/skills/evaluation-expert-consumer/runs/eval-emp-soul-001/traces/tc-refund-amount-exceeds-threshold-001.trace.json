@@ -81,6 +81,7 @@
   "termination": {
     "reason": "bottom_line_violated",
     "detail": "Employee did not query order",
-    "turns_used": 2
+    "final_emotion": "more_upset",
+    "turns_used": 3
   }
 }

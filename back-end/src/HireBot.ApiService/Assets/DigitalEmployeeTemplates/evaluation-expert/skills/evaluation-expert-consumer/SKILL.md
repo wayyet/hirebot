@@ -53,9 +53,13 @@ It is **template-agnostic**: every employee role is evaluated through the **same
                                                           STEP 8 (per scenario) ──► STEP 9 (overall)
                                                                                   │
                                                                    JSON + HTML report
+                                                                                  │
+                                                          STEP 10 uploadToHireBot (optional, if hirebot_api configured)
+                                                          ├── sync-verdict ──► POST /api/v1/employees/{id}/evaluation/sync-verdict
+                                                          └── sync-trace   ──► POST /api/v1/employees/{id}/evaluation/sync-trace
 ```
 
-Legend: deterministic = white-box; **LLM** = STEP 1.5 (conditional), STEP 4 (fan-out), STEP 8 (per-scenario synthesis), STEP 9 (overall synthesis); **driver subprocess** in STEP 3 only.
+Legend: deterministic = white-box; **LLM** = STEP 1.5 (conditional), STEP 4 (fan-out), STEP 8 (per-scenario synthesis), STEP 9 (overall synthesis); **driver subprocess** in STEP 3 only; **STEP 10** is deterministic subprocess (optional).
 
 ## Producer skill dependencies
 
@@ -162,6 +166,7 @@ The authoritative execution graph lives in `contracts/projections/ontology_extra
 | 7    | `redLineCheck` | deterministic, LLM-disallowed | same playbook |
 | 8    | `buildScenarioReports` | LLM synthesis (prose only, per scenario) | inline (numeric fields byte-copied from MetricScore; LLM only writes prose) |
 | 9    | `buildOverallReport` | LLM synthesis (prose only, exactly once) | [`step-09-overall-report.md`](./playbooks/step-09-overall-report.md) |
+| 10   | `uploadToHireBot`   | deterministic subprocess (optional, skipped if `hirebot_api` absent) | [`step-10-upload-to-hirebot.md`](./playbooks/step-10-upload-to-hirebot.md) |
 
 Before any of the above runs, verify the [pre-flight invariants](./playbooks/pre-flight-invariants.md). When a HARD RULE or K-rule fails, follow the [tainted-run lifecycle](./playbooks/tainted-run-lifecycle.md).
 
