@@ -386,7 +386,9 @@
         "errorUploadFailed": "Upload failed",
         "categoryPrefix": " under \"{{category}}\"",
         "uploadSuffix": " and {{count}} more",
-        "uploadSummary": "Uploaded {{total}} materials{{categoryPrefix}}: {{preview}}{{suffix}}. Please continue to the next stage."
+        "uploadSummary": "Uploaded {{total}} materials{{categoryPrefix}}: {{preview}}{{suffix}}. Please continue to the next stage.",
+        "uploadSourcePathLead": "These files have been synced into the current workspace. Use the following source_path values directly:",
+        "uploadSourcePathItem": "- {{name}} (source_path: {{path}})"
       },
       "status": {
         "confirmed": "Confirmed",

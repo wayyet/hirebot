@@ -7,6 +7,8 @@ import {
   buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
   buildUiStageOverrides,
+  deriveStageOverridesFromDownstreamRuns,
+  resolveDownstreamRunFromArtifact,
   shouldHoldExternalStageUntilSkillImplementation,
 } from './hiringArtifactState'
 
@@ -184,6 +186,34 @@ describe('buildHistoricalHiringConversationState', () => {
 
     expect(restored.messages.some(message => message.role === 'artifact' && message.artifact?.artifactType === 'external_config_committed')).toBe(true)
     expect(restored.wsStageOverrides.get(HiringCollectionStage.External)).toBe('running')
+  })
+})
+
+describe('projection pass downstream orchestration', () => {
+  it('maps ontology projection artifacts onto the projection downstream track', () => {
+    expect(resolveDownstreamRunFromArtifact('ontology_projection_progress')).toEqual({
+      key: 'ontology-projection',
+      status: 'running',
+    })
+
+    expect(resolveDownstreamRunFromArtifact('ontology_projection_done')).toEqual({
+      key: 'ontology-projection',
+      status: 'completed',
+    })
+  })
+
+  it('keeps the skill stage running when only projection pass has started', () => {
+    const overrides = deriveStageOverridesFromDownstreamRuns({
+      'ontology-projection': {
+        key: 'ontology-projection',
+        status: 'running',
+        artifactType: 'ontology_projection_progress',
+        updatedAt: '2026-06-01T10:00:00Z',
+      },
+    })
+
+    expect(overrides.get(HiringCollectionStage.Material)).toBe('completed')
+    expect(overrides.get(HiringCollectionStage.Skill)).toBe('running')
   })
 })
 

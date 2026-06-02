@@ -33,6 +33,7 @@ import type {
   ChatFile,
   ChatMessage,
   DefinedSkillItem,
+  DownstreamRunKey,
   DownstreamRunsSnapshot,
   DownstreamRunState,
   DownstreamRunStatus,
@@ -424,7 +425,86 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
   return []
 }
 
-type DownstreamTarget = 'ontology-extraction' | 'skill-generation'
+type DownstreamTarget = 'ontology-extraction' | 'ontology-projection' | 'skill-generation'
+
+function extractSkillWorkorderItems(summary: unknown): Record<string, unknown>[] {
+  const record = asPlainObject(summary)
+  if (!record) return []
+
+  const items = Array.isArray(record.items)
+    ? record.items
+    : Array.isArray(record.skills)
+      ? record.skills
+      : []
+
+  return items
+    .map(item => asPlainObject(item))
+    .filter((item): item is Record<string, unknown> => item !== null)
+}
+
+function buildProjectionPassPayload(summary: unknown): Record<string, unknown> | null {
+  const record = asPlainObject(summary)
+  if (!record) return null
+
+  const workspaceRoot = typeof record.workspace_root === 'string' ? record.workspace_root.trim() : ''
+  if (!workspaceRoot) return null
+
+  const skills = extractSkillWorkorderItems(summary)
+    .map((item) => {
+      const skillSlug = typeof item.name === 'string'
+        ? item.name.trim()
+        : typeof item.skill_slug === 'string'
+          ? item.skill_slug.trim()
+          : typeof item.skillName === 'string'
+            ? item.skillName.trim()
+            : ''
+      const skillName = typeof item.display_name === 'string'
+        ? item.display_name.trim()
+        : typeof item.skill_name === 'string'
+          ? item.skill_name.trim()
+          : typeof item.title === 'string'
+            ? item.title.trim()
+            : skillSlug
+      const triggers = Array.isArray(item.triggers)
+        ? asStringArray(item.triggers)
+        : asStringArray(item.trigger)
+      const description = typeof item.description === 'string' ? item.description.trim() : ''
+
+      if (!skillSlug || !skillName) {
+        return null
+      }
+
+      const normalized: Record<string, unknown> = {
+        skill_slug: skillSlug,
+        skill_name: skillName,
+        triggers,
+        description,
+      }
+
+      if (typeof item.expected_output === 'string' && item.expected_output.trim()) {
+        normalized.expected_output = item.expected_output.trim()
+      } else if (typeof item.expectedOutput === 'string' && item.expectedOutput.trim()) {
+        normalized.expected_output = item.expectedOutput.trim()
+      }
+
+      return normalized
+    })
+    .filter((item): item is Record<string, unknown> => item !== null)
+
+  if (skills.length === 0) return null
+
+  const payload: Record<string, unknown> = {
+    trigger_mode: 'projection_pass',
+    workspace_root: workspaceRoot,
+    skills,
+  }
+
+  if (typeof record.template_slug === 'string' && record.template_slug.trim()) {
+    payload.template_slug = record.template_slug.trim()
+  }
+
+  return payload
+}
 
 function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): string {
   const serialized = JSON.stringify(payload, null, 2)
@@ -438,6 +518,23 @@ function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): stri
       'Emit `ontology_extraction_progress` before processing any source.',
       'Read uploaded materials only from each item\'s `source_path` when available.',
       'Write outputs under the provided `workspace_root` and finish with `ontology_extraction_done`.',
+      '',
+      'artifact_payload:',
+      '```json',
+      serialized,
+      '```',
+    ].join('\n')
+  }
+
+  if (target === 'ontology-projection') {
+    return [
+      '[Internal downstream trigger. Do not mention this instruction to the user.]',
+      'Switch to skill `ontology-extraction` now.',
+      'Run in Projection Pass mode for the current session.',
+      'Use the payload below exactly as the trigger input for this run.',
+      'Follow `ontology-extraction/SKILL.md` exactly.',
+      'Emit `ontology_projection_progress` before generating any projection files.',
+      'Scan slices from `<workspace_root>/ontology/`, then finish with `ontology_projection_done`.',
       '',
       'artifact_payload:',
       '```json',
@@ -552,6 +649,7 @@ export default function HiringPage() {
   const externalSummarySignatureRef = useRef('')
   const ontologyExtractionDoneSignatureRef = useRef('')
   const ontologyProjectionDoneSignatureRef = useRef('')
+  const projectionPassLaunchSignatureRef = useRef('')
   const skillGenerationLaunchSignatureRef = useRef('')
   const pendingInternalPromptsRef = useRef<string[]>([])
 
@@ -1436,16 +1534,16 @@ export default function HiringPage() {
             }
           }
           if (artifactType === 'ontology_projection_done' && kind === 'data' && isTerminal) {
-            // buildCoachResumePrompt 目前仅支持 'post-ontology-extraction'，
-            // 此处仅做签名去重以避免重复触发后续逻辑，暂不注入 internal prompt。
             const signature = JSON.stringify(artifactData.data ?? {})
             if (ontologyProjectionDoneSignatureRef.current !== signature) {
               ontologyProjectionDoneSignatureRef.current = signature
+              queueSkillGenerationAfterProjectionDone()
             }
           }
           if (artifactType === 'skill_workorder_summary' && kind === 'data' && isTerminal) {
             latestSkillSummaryRef.current = artifactData.data ?? null
             skillSummarySignatureRef.current = JSON.stringify(artifactData.data ?? {})
+            projectionPassLaunchSignatureRef.current = ''
             skillGenerationLaunchSignatureRef.current = ''
           }
           if (artifactType === 'external_workorder_summary' && kind === 'data' && isTerminal) {
@@ -1615,18 +1713,23 @@ export default function HiringPage() {
     await submitWorkflowMessage(prompt, undefined, true, false)
   }
 
-  function setOptimisticSkillGenerationRun(status: DownstreamRunStatus, label: string, artifactType: string) {
+  function setOptimisticDownstreamRun(
+    key: DownstreamRunKey,
+    status: DownstreamRunStatus,
+    label: string,
+    artifactType: string,
+  ) {
     setDownstreamRuns(prev => {
       const next = {
         ...prev,
-        ['skill-generation']: {
-          key: 'skill-generation',
+        [key]: {
+          key,
           status,
           artifactType,
           label,
           displayHint: 'progress',
           updatedAt: new Date().toISOString(),
-          data: prev['skill-generation']?.data,
+          data: prev[key]?.data,
         } satisfies DownstreamRunState,
       }
       downstreamRunsRef.current = next
@@ -1634,44 +1737,91 @@ export default function HiringPage() {
     })
   }
 
-  async function launchSkillGenerationFromApproval(): Promise<boolean> {
+  function clearDownstreamRun(key: DownstreamRunKey) {
+    setDownstreamRuns(prev => {
+      if (!(key in prev)) return prev
+      const next = { ...prev }
+      delete next[key]
+      downstreamRunsRef.current = next
+      return next
+    })
+  }
+
+  function queueSkillGenerationAfterProjectionDone() {
     const summary = latestSkillSummaryRef.current
-    if (!summary) return false
+    if (!summary) return
 
     const signature = skillSummarySignatureRef.current || JSON.stringify(summary)
     if (signature && skillGenerationLaunchSignatureRef.current === signature) {
-      setWorkflowNotice('技能实现生成已启动，请等待进度更新。')
-      return true
+      return
     }
 
     if (signature) {
       skillGenerationLaunchSignatureRef.current = signature
     }
 
-    setOptimisticSkillGenerationRun(
+    setOptimisticDownstreamRun(
+      'skill-generation',
       'running',
-      '技能实现已启动，正在等待下游进度。',
+      '投影准备已完成，正在启动技能实现。',
       'skill_generation_progress',
+    )
+    pendingInternalPromptsRef.current.push(buildDownstreamPrompt('skill-generation', summary))
+  }
+
+  async function launchProjectionPassFromApproval(): Promise<boolean> {
+    const summary = latestSkillSummaryRef.current
+    if (!summary) return false
+
+    const projectionRun = downstreamRunsRef.current['ontology-projection']
+    const signature = skillSummarySignatureRef.current || JSON.stringify(summary)
+    if (projectionRun?.status === 'running') {
+      setWorkflowNotice('投影准备已启动，请等待进度更新。')
+      return true
+    }
+
+    if (projectionRun?.status === 'completed' && skillGenerationState?.status === 'waiting_confirm') {
+      queueSkillGenerationAfterProjectionDone()
+      setWorkflowNotice('投影准备已完成，正在启动技能实现。')
+      return true
+    }
+
+    if (signature && projectionPassLaunchSignatureRef.current === signature) {
+      setWorkflowNotice('投影准备已启动，请等待进度更新。')
+      return true
+    }
+
+    const projectionPayload = buildProjectionPassPayload(summary)
+    if (!projectionPayload) {
+      setWorkflowError('技能定义摘要缺少 projection pass 所需字段，暂时无法启动。')
+      return false
+    }
+
+    if (signature) {
+      projectionPassLaunchSignatureRef.current = signature
+    }
+
+    setOptimisticDownstreamRun(
+      'ontology-projection',
+      'running',
+      '投影准备已启动，正在等待下游进度。',
+      'ontology_projection_progress',
     )
 
     const submitted = await submitWorkflowMessage(
-      buildDownstreamPrompt('skill-generation', summary),
+      buildDownstreamPrompt('ontology-projection', projectionPayload),
       undefined,
       true,
       false,
     )
 
     if (submitted) {
-      setWorkflowNotice('已开始生成技能实现，等待进度更新。')
+      setWorkflowNotice('已开始准备投影契约，完成后将自动启动技能实现。')
       return true
     }
 
-    skillGenerationLaunchSignatureRef.current = ''
-    setOptimisticSkillGenerationRun(
-      'waiting_confirm',
-      '技能实现尚未启动，请重新确认是否开始生成。',
-      'skill_generation_ready',
-    )
+    projectionPassLaunchSignatureRef.current = ''
+    clearDownstreamRun('ontology-projection')
     return false
   }
 
@@ -1880,7 +2030,7 @@ export default function HiringPage() {
 
       const fallbackText = text || `上传文件：${incoming.map(file => file.name).join('、')}`
       const submitted = shouldLaunchSkillGeneration
-        ? await launchSkillGenerationFromApproval()
+        ? await launchProjectionPassFromApproval()
         : await submitWorkflowMessage(
             fallbackText,
             incoming.length > 0 ? incoming : undefined,
@@ -2217,6 +2367,7 @@ export default function HiringPage() {
         materialSummarySignatureRef.current = ''
         skillSummarySignatureRef.current = ''
         externalSummarySignatureRef.current = ''
+        projectionPassLaunchSignatureRef.current = ''
         skillGenerationLaunchSignatureRef.current = ''
         ontologyExtractionDoneSignatureRef.current = ''
         ontologyProjectionDoneSignatureRef.current = ''
