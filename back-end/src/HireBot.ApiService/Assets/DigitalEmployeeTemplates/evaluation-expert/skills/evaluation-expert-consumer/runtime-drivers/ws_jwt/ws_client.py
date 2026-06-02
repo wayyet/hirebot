@@ -75,7 +75,7 @@ class WsCollector:
             ping_interval=20,
             ping_timeout=10,
             open_timeout=15,
-            additional_headers={},
+            extra_headers={},
         )
         print(f"[ws_jwt] connected", file=_sys.stderr)
         return self

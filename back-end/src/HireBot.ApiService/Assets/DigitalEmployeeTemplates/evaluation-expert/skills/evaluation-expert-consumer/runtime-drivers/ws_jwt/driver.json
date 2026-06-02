@@ -17,7 +17,7 @@
   },
   "config_schema": {
     "type": "object",
-    "required": ["endpoint", "token"],
+    "required": ["endpoint"],
     "additionalProperties": false,
     "properties": {
       "endpoint": {
@@ -28,7 +28,7 @@
       "token": {
         "type": "string",
         "minLength": 1,
-        "description": "JWT bearer token, appended to ws URL as ?token=..."
+        "description": "Static JWT bearer token for the WebSocket connection. Optional when evaluation_context.hirebot_api.auth is configured with client_credentials — the driver will obtain a fresh token at startup via auth_client.py."
       },
       "timeout": {
         "type": "integer",

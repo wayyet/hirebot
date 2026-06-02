@@ -414,6 +414,34 @@
     "open_questions": {
       "type": "array",
       "items": { "type": "string" }
+    },
+    "hirebot_api": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "HireBot 后端 API 配置，用于 STEP 10 上传评估结论（sync-verdict）和执行轨迹（sync-trace）。由后端在沙箱创建时注入，agent 不得手动修改。",
+      "required": ["base_url", "employee_id", "session_id"],
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "HireBot 后端 REST API 基础地址，例如 https://hire.example.com。对应旧版 runtime_context.ncrew_hire.base_url。"
+        },
+        "employee_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "HireBot 系统中的员工 ID，对应旧版 runtime_context.session.employee_id。"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "HireBot 系统中的评估会话 ID，对应旧版 runtime_context.session.session_id。"
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "HireBot REST API 鉴权配置。与 runtime-drivers/ws_jwt/auth_client.py 的 resolve_auth() 相同的 schema，支持 static_token / password / client_credentials 三种模式。缺省时自动 fallback 到 runtime_driver.driver_config.token（Keycloak JWT 在 HireBot 生产部署中同时授权 WebSocket 和 REST API）。"
+        }
+      }
     }
   }
 }

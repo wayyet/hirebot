@@ -23,13 +23,14 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
    - driver_id ← evaluation_context.runtime_driver.driver_id
    - run_py_path = "runtime-drivers/<driver_id>/run.py"
    - global_cap ← evaluation_context.global_turn_cap or 30
-   - python_bin ← ".venv/bin/python"   # repo convention; do NOT switch per-scenario
+   - python_bin ← `python3`   # sandbox always provides python3; do NOT switch per-scenario
    - cwd ← <absolute path to the evaluation-expert-consumer directory>
    - scenarios_inputs ← list of every persisted enriched-cases/<tc_id>.json
 
-2. Sanity-check (fail-fast; any failure ⇒ DO NOT write run_plan.json):
+2. Sanity-check (fail-fast unless a self-heal is defined below; any unrecovered failure ⇒ DO NOT write run_plan.json):
    - run_py_path exists and is executable
-   - python_bin exists
+   - `python3` is available (`which python3`); if not found, fail-fast
+   - **websockets self-heal**: run `python3 -c "import websockets"` (single shell call); if exit-code ≠ 0, run `pip install websockets` once; if pip succeeds, continue; if pip fails, fail-fast with the install error
    - cwd ends with "/evaluation-expert-consumer"
    - len(scenarios_inputs) ≥ 1
    - every enriched tc has non-empty input.opening_message and turn_budget.hard_max_turns ≥ 1
@@ -37,29 +38,64 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
 3. For each enriched tc, compute the scenario plan entry:
    tc_id                    ← tc.test_case_id
    enriched_tc_path         = f"runs/{eval_id}/enriched-cases/{tc_id}.json"
-   evaluation_context_path  = f"runs/{eval_id}/evaluation_context.json"
+   evaluation_context_path  = "/workspace/runtime/evaluation-context.json"
+   # ALWAYS use the original runtime context — never a run_dir copy.
+   # Any copy the agent makes may have credentials sanitized (e.g. client_secret → "REDACTED"),
+   # which breaks the driver's client_credentials token fetch.
    trace_path               = f"runs/{eval_id}/traces/{tc_id}.trace.json"
    effective_max_turns      = min(tc.turn_budget.hard_max_turns, global_cap)
    opening_message          = tc.input.opening_message
    pad.dir                  = f"/tmp/eval-driver/{eval_id}/{tc_id}"
-   pad.in_fifo              = f"{pad.dir}/in"
-   pad.out_fifo             = f"{pad.dir}/out"
+   pad.in_fifo              = f"{pad.dir}/in"      # FIFO: agent writes actions → driver reads via stdin
+   pad.out_file             = f"{pad.dir}/out"     # regular file: driver stdout appended here; agent polls
+   pad.cursor               = f"{pad.dir}/cursor"  # regular file: next unread line number in out_file (1-based)
    pad.err_file             = f"{pad.dir}/err"
    pad.pid_file             = f"{pad.dir}/pid"
 
 4. For each scenario, compose the FIVE literal shell strings (no leftover `<placeholder>`):
 
    commands.pre_spawn_cleanup =
-     f'PAD={pad.dir}; if [ -f "$PAD/pid" ]; then kill -TERM "$(cat "$PAD/pid")" 2>/dev/null; sleep 1; kill -KILL "$(cat "$PAD/pid")" 2>/dev/null; fi; rm -rf "$PAD"; mkdir -p "$PAD"; mkfifo "$PAD/in" "$PAD/out"; echo "pad ready: $PAD"'
+     f'PAD={pad.dir}; if [ -f "$PAD/pid" ]; then kill -TERM "$(cat "$PAD/pid")" 2>/dev/null; sleep 1; kill -KILL "$(cat "$PAD/pid")" 2>/dev/null; fi; rm -rf "$PAD"; mkdir -p "$PAD"; mkfifo "$PAD/in"; touch "$PAD/out"; echo "pad ready: $PAD"'
+     # Only pad/in is a FIFO. pad/out is a pre-created regular file.
+     # Stdout goes to a file so the driver never blocks waiting for a reader to open a FIFO.
 
    commands.spawn =
-     f'PAD={pad.dir}; nohup {python_bin} -u {run_py_path} --evaluation-context {evaluation_context_path} --enriched-test-case {enriched_tc_path} --output {trace_path} < "$PAD/in" > "$PAD/out" 2> "$PAD/err" & echo $! > "$PAD/pid"; echo "driver pid=$(cat \"$PAD/pid\")"'
+     f'PAD={pad.dir}; nohup {python_bin} -u {run_py_path} --evaluation-context {evaluation_context_path} --enriched-test-case {enriched_tc_path} --output {trace_path} <> "$PAD/in" >> "$PAD/out" 2>> "$PAD/err" & DPID=$!; echo $DPID > "$PAD/pid"; nohup sh -c "while kill -0 $DPID 2>/dev/null; do sleep 0.5; done" 3>> "$PAD/in" &; echo "driver pid=$DPID"'
+     # run.py accepts ONLY --evaluation-context, --enriched-test-case, --output.
+     # --evaluation-context MUST point to /workspace/runtime/evaluation-context.json (the original
+     # runtime context written by C# at sandbox creation). NEVER use a run_dir copy — the agent
+     # sanitizes credentials when writing files to disk (client_secret → "REDACTED"), which
+     # breaks the client_credentials token fetch. The original file is written by the C# host and
+     # is never touched by the agent, so its credentials are always intact.
+     # DO NOT add --token or any other flag. The driver resolves its Bearer token
+     # internally at startup via evaluation_context.hirebot_api.auth (client_credentials).
+     # Adding --token is an error that will cause argparse to exit 2.
+     #
+     # FIFO write-end keeper: the second nohup sh -c "while kill -0 $DPID ..." 3>> "$PAD/in"
+     # opens the FIFO write-end (O_WRONLY) and holds it open as fd 3 for the keeper's lifetime.
+     # This is necessary because <> (O_RDWR) on some Linux container kernels does not properly
+     # maintain the FIFO write-end reference count; without a writer, sys.stdin.readline()
+     # immediately returns "" (EOF) instead of blocking, producing "stdin closed before 'end'
+     # action received" with turns_used=0.
+     # The keeper's O_WRONLY open succeeds immediately because the driver's <> (O_RDWR) already
+     # holds the read end (nreaders=1). The keeper exits on its own when the driver dies.
+     # post_scenario_cleanup kills by driver PID; the keeper process will exit naturally once
+     # kill -0 $DPID fails, and rm -rf "$PAD" removes the FIFO.
 
    commands.read_one_event =
-     f'head -n 1 {pad.out_fifo}'
+     f'PAD={pad.dir}; N=$(cat "$PAD/cursor" 2>/dev/null || echo 1); DEADLINE=$(($(date +%s)+60)); while [ "$(date +%s)" -lt "$DEADLINE" ]; do L=$(sed -n "${N}p" "$PAD/out" 2>/dev/null); if [ -n "$L" ]; then printf "%d\n" $((N+1)) > "$PAD/cursor"; printf "%s\n" "$L"; exit 0; fi; sleep 0.3; done; printf \'{{"event":"error","detail":"read_one_event timeout after 60s"}}\n\''
+     # Polls pad/out (regular file) for line N. Writes N+1 to cursor on success.
+     # No FIFO involved — never blocks on open. Times out after 60 s with a synthetic error event.
+     # Shell variable ${N} is runtime shell; only {pad.dir} is substituted at plan-generation time.
 
    commands.write_action_template =
      f"printf '%s\\n' '<<JSON_PAYLOAD>>' >> {pad.in_fifo}"
+     # The agent substitutes <<JSON_PAYLOAD>> with the single-line action JSON.
+     # CRITICAL: the payload is wrapped in single quotes by this printf command.
+     # If the action text contains a single-quote character ('), it MUST be
+     # escaped as '\'' (end-quote, backslash-quote, start-quote) in the substitution.
+     # Example: text "I can't help" → payload fragment: I can'\''t help
+     # Failure to escape will silently truncate or corrupt the written line.
 
    commands.post_scenario_cleanup =
      f'PAD={pad.dir}; if [ -f "$PAD/pid" ]; then PID="$(cat "$PAD/pid")"; if kill -0 "$PID" 2>/dev/null; then kill -TERM "$PID"; sleep 1; kill -KILL "$PID" 2>/dev/null; fi; fi; tail -n 20 "$PAD/err" 2>/dev/null; rm -rf "$PAD"; echo "pad cleaned"'
@@ -74,7 +110,7 @@ All MUST hold; any failure means STEP 2.5 has not run cleanly and STEP 3 MUST NO
 
 - `runs/<eval_id>/run_plan.json` exists, is valid JSON, and validates against `runtime-schemas/run_plan.schema.json`;
 - `run_plan.scenarios[].tc_id` is the exact set of `enriched-cases/*.json` filenames (no missing tc, no orphan tc);
-- every `run_plan.scenarios[].commands.spawn` contains literal substrings that match `pad.in_fifo`, `pad.out_fifo`, `pad.err_file`, `pad.pid_file`, `python_bin`, `driver.run_py_path`, and `trace_path` from the same entry (no `<placeholder>` left);
+- every `run_plan.scenarios[].commands.spawn` contains literal substrings that match `pad.in_fifo`, `pad.out_file`, `pad.err_file`, `pad.pid_file`, `python_bin`, `driver.run_py_path`, and `trace_path` from the same entry (no `<placeholder>` left);
 - every `run_plan.scenarios[].commands.write_action_template` contains exactly one occurrence of the marker `<<JSON_PAYLOAD>>`;
 - no two scenarios share the same `pad.dir` (deterministic isolation between tc runs);
 - `run_plan.generated_by_step == "STEP 2.5 planRun"` (guards against hand-written or LLM-written plans).

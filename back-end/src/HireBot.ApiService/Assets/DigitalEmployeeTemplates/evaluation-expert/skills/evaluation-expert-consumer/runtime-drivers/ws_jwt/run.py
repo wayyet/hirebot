@@ -53,6 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from auth_client import resolve_auth, resolve_auth_from_eval_ctx
 from ws_client import WsCollector
 
 
@@ -96,17 +97,58 @@ def _resolve_driver_config(eval_ctx: dict) -> dict:
         )
         sys.exit(2)
     cfg = dict(rd.get("driver_config") or {})
-    for required in ("endpoint", "token"):
-        if not cfg.get(required):
-            _emit_error(
-                f"driver_config.{required} is missing. STEP 3 must validate "
-                f"driver_config against driver.json#/config_schema before "
-                f"spawning this driver."
-            )
-            sys.exit(2)
+    if not cfg.get("endpoint"):
+        _emit_error(
+            "driver_config.endpoint is missing. STEP 3 must validate "
+            "driver_config against driver.json#/config_schema before "
+            "spawning this driver."
+        )
+        sys.exit(2)
+    # token is optional when hirebot_api.auth provides client_credentials;
+    # _resolve_ws_token() in main() resolves it before WsCollector is opened.
     cfg.setdefault("timeout", 60)
     cfg.setdefault("auto_approve_tools", True)
     return cfg
+
+
+def _resolve_ws_token(eval_ctx: dict, cfg: dict) -> str:
+    """
+    Resolve the WebSocket Bearer token.
+
+    Priority:
+      1. evaluation_context.hirebot_api.auth with mode=client_credentials
+         -> fresh token fetched at runtime; same Keycloak realm as HireBot REST API.
+      2. driver_config.token (injected by C# at sandbox creation; may have expired).
+
+    Exits with code 2 if neither source yields a token.
+    """
+    hirebot_auth_cfg = (eval_ctx.get("hirebot_api") or {}).get("auth")
+    if hirebot_auth_cfg:
+        try:
+            resolved = resolve_auth(hirebot_auth_cfg)
+            print(
+                f"[ws_jwt] WebSocket token resolved via hirebot_api.auth ({resolved.source})",
+                file=sys.stderr,
+            )
+            return resolved.access_token
+        except Exception as exc:  # noqa: BLE001
+            _emit_error(f"hirebot_api.auth token resolution failed: {exc}")
+            sys.exit(2)
+
+    static_token = str(cfg.get("token") or "").strip()
+    if static_token:
+        print(
+            "[ws_jwt] WebSocket token from driver_config.token (static fallback)",
+            file=sys.stderr,
+        )
+        return static_token
+
+    _emit_error(
+        "No WebSocket token available: hirebot_api.auth is not configured and "
+        "driver_config.token is empty. Configure OpenSandbox:KingCrab credentials "
+        "so the evaluator sandbox can obtain its own token."
+    )
+    sys.exit(2)
 
 
 def _resolve_simulator_id(eval_ctx: dict) -> str:
@@ -421,7 +463,21 @@ async def _serve(
                     break
 
                 else:
-                    _emit_error(f"unknown action {action!r}; expected 'send' or 'end'")
+                    # Give a targeted diagnosis when the agent sends the old
+                    # WebSocket-level format {"type":"user_message",...} to
+                    # driver stdin — a common confusion with the legacy
+                    # evaluate.py single-layer architecture.
+                    if cmd.get("type") in ("user_message", "approve_tool"):
+                        _emit_error(
+                            f"wrong protocol layer: received {{\"type\":\"{cmd['type']}\",...}} "
+                            "on driver stdin. That format is the WebSocket wire protocol used "
+                            "by ws_client.py to talk to the evaluatee — the host agent must "
+                            "never write it directly. Use {\"action\":\"send\",...} or "
+                            "{\"action\":\"end\",...} on driver stdin instead. "
+                            "See step-03-driver-and-simulator-loop.md §4 for the exact shape."
+                        )
+                    else:
+                        _emit_error(f"unknown action {action!r}; expected 'send' or 'end'")
                     continue
 
     except asyncio.TimeoutError:
@@ -463,7 +519,9 @@ def main() -> None:
                     "the driver streams evaluatee replies back on stdout.",
     )
     ap.add_argument("--evaluation-context", required=True,
-                    help="path to ./runs/<eval_id>/evaluation_context.json")
+                    help="path to the runtime evaluation context JSON; "
+                         "use /workspace/runtime/evaluation-context.json (original, with credentials) "
+                         "not a run_dir copy which may have secrets sanitized")
     ap.add_argument("--enriched-test-case", required=True,
                     help="path to one enriched test case under ./runs/<eval_id>/enriched-cases/")
     ap.add_argument("--output", required=True,
@@ -473,6 +531,8 @@ def main() -> None:
     eval_ctx = _load_json(args.evaluation_context)
     tc = _load_json(args.enriched_test_case)
     cfg = _resolve_driver_config(eval_ctx)
+    ws_token = _resolve_ws_token(eval_ctx, cfg)
+    cfg["token"] = ws_token
     simulator_id = _resolve_simulator_id(eval_ctx)
     effective_max_turns = _resolve_effective_max_turns(eval_ctx, tc)
 

@@ -871,18 +871,34 @@ internal sealed partial class EvaluationService
         [property: JsonPropertyName("materials")] EvaluationRuntimeContextMaterials Materials,
         [property: JsonPropertyName("target_sandbox")] EvaluationRuntimeContextTargetSandbox TargetSandbox,
         [property: JsonPropertyName("execution")] EvaluationRuntimeContextExecution Execution,
-        [property: JsonPropertyName("ncrew_hire")] EvaluationRuntimeContextNcrewHire NcrewHire,
+        [property: JsonPropertyName("hirebot_api")] EvaluationRuntimeContextHireBotApi HireBotApi,
         [property: JsonPropertyName("paths")] EvaluationRuntimeContextPaths Paths,
         [property: JsonPropertyName("runtime_driver")] EvaluationRuntimeContextDriver RuntimeDriver,
         [property: JsonPropertyName("runtime_simulator")] EvaluationRuntimeContextSimulator RuntimeSimulator,
         [property: JsonPropertyName("global_turn_cap")] int GlobalTurnCap);
 
     /// <summary>
-    /// NCrew Hire 业务后端连接配置，供 verdict_uploader.py 上传评估结果使用。
-    /// token 由 verdict_uploader.py 通过 auth_client.resolve_auth() 自行获取，无需此处注入。
+    /// HireBot 业务后端 API 配置，注入到 evaluation-context.json 的 hirebot_api 块。
+    /// STEP 3 (run.py) 用 auth.client_credentials 换 WebSocket 所需 token；
+    /// STEP 10 (verdict_uploader / trace_uploader) 用相同凭据换 REST API token。
+    /// 沙箱内所有出站请求统一通过 auth_client.py 自主换 token，不依赖 C# 注入的静态 token。
     /// </summary>
-    private sealed record EvaluationRuntimeContextNcrewHire(
-        [property: JsonPropertyName("base_url")] string BaseUrl);
+    private sealed record EvaluationRuntimeContextHireBotApi(
+        [property: JsonPropertyName("base_url")] string BaseUrl,
+        [property: JsonPropertyName("employee_id")] string EmployeeId,
+        [property: JsonPropertyName("session_id")] string SessionId,
+        [property: JsonPropertyName("auth")] EvaluationRuntimeContextAuth? Auth);
+
+    /// <summary>
+    /// 沙箱自主换 token 所需的 OAuth2 凭据，供 auth_client.py 的 client_credentials 模式使用。
+    /// 通过 OpenSandbox:KingCrab:ClientId / ClientSecret / OidcAuthority 配置注入。
+    /// 同时用于目标沙箱 WebSocket 连接和 HireBot REST API 调用（同一个 Keycloak realm）。
+    /// </summary>
+    private sealed record EvaluationRuntimeContextAuth(
+        [property: JsonPropertyName("mode")] string Mode,
+        [property: JsonPropertyName("token_url")] string TokenUrl,
+        [property: JsonPropertyName("client_id")] string ClientId,
+        [property: JsonPropertyName("client_secret")] string ClientSecret);
 
     private sealed record EvaluationRuntimeContextSession(
         [property: JsonPropertyName("session_id")] string SessionId,
@@ -939,7 +955,9 @@ internal sealed partial class EvaluationService
 
     private sealed record EvaluationRuntimeContextDriverConfig(
         [property: JsonPropertyName("endpoint")] string Endpoint,
-        [property: JsonPropertyName("token")] string Token,
+        // 当 hirebot_api.auth 已配置 client_credentials 时，token 不写入 JSON（run.py 自行换 token）；
+        // 仅在无凭据配置的 fallback 场景下注入静态 token 供 run.py 兜底使用。
+        [property: JsonPropertyName("token")][property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Token,
         [property: JsonPropertyName("timeout")] int Timeout,
         [property: JsonPropertyName("auto_approve_tools")] bool AutoApproveTools);
 
@@ -975,8 +993,22 @@ internal sealed partial class EvaluationService
                      string.Equals(configuration["OpenSandbox:Protocol"], "Https", StringComparison.OrdinalIgnoreCase);
 
         // Evaluation:ApiBaseUrl 是 NCrew Hire 业务 API 的根地址，供 verdict_uploader.py 上传评估结果。
-        // token 由 verdict_uploader.py 通过 auth_client.resolve_auth() 自行获取，无需此处注入。
+        // 沙箱内脚本通过 hirebot_api.auth（client_credentials）自主换 token，同时用于 WebSocket 和 REST API。
         var apiBaseUrl = configuration.GetValue("Evaluation:ApiBaseUrl", "http://localhost:5000")!;
+
+        // 读取 KingCrab 凭据，注入到 hirebot_api.auth 供沙箱内脚本自主换 token。
+        // 与 KingCrabSandboxTokenProvider 使用相同的配置键，无需额外配置项。
+        var oidcAuthority = configuration["OpenSandbox:KingCrab:OidcAuthority"];
+        var sandboxClientId = configuration["OpenSandbox:KingCrab:ClientId"];
+        var sandboxClientSecret = configuration["OpenSandbox:KingCrab:ClientSecret"];
+        EvaluationRuntimeContextAuth? hireBotAuth = null;
+        if (!string.IsNullOrWhiteSpace(oidcAuthority) &&
+            !string.IsNullOrWhiteSpace(sandboxClientId) &&
+            !string.IsNullOrWhiteSpace(sandboxClientSecret))
+        {
+            var tokenUrl = $"{oidcAuthority.TrimEnd('/')}/protocol/openid-connect/token";
+            hireBotAuth = new(Mode: "client_credentials", TokenUrl: tokenUrl, ClientId: sandboxClientId, ClientSecret: sandboxClientSecret);
+        }
         var consumerRoot = string.IsNullOrWhiteSpace(materialsWorkspaceDir)
             ? "/workspace/uploads/evaluation-expert-consumer"
             : materialsWorkspaceDir.TrimEnd('/');
@@ -1021,7 +1053,11 @@ internal sealed partial class EvaluationService
                 GatewayEndpoint: targetWsEndpoint,
                 HttpBaseUrl: NormalizeGatewayHttpBaseUrl(targetGatewayEndpoint, useTls)),
             Execution: new(TimeoutSeconds: 120, HttpSupplement: true),
-            NcrewHire: new(BaseUrl: apiBaseUrl.TrimEnd('/')),
+            HireBotApi: new(
+                BaseUrl: apiBaseUrl.TrimEnd('/'),
+                EmployeeId: employee.EmployeeId,
+                SessionId: sessionEntity.SessionId,
+                Auth: hireBotAuth),
             Paths: new(
                 MetricsDir: $"{EvaluationConsumerSkillWorkspaceRoot}/metrics",
                 TestCasesDir: testCasesDir,
@@ -1033,7 +1069,9 @@ internal sealed partial class EvaluationService
                 DriverId: driverId,
                 DriverConfig: new(
                     Endpoint: targetWsEndpoint,
-                    Token: targetAccessToken,
+                    // hireBotAuth 配置后由 run.py 自主换 token，无需注入静态 token；
+                    // 仅在凭据缺失时注入 targetAccessToken 作为兜底 fallback。
+                    Token: hireBotAuth is not null ? null : targetAccessToken,
                     Timeout: 120,
                     AutoApproveTools: true)),
             RuntimeSimulator: new(SimulatorId: simulatorId),
