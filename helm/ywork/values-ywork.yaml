@@ -33,7 +33,7 @@ env:
   ConsoleAuth__Realm: ai4c-saas
   ConsoleAuth__ClientId: ywork
   ConsoleAuth__BypassAuth: "false"
-  ConsoleAuth__TemplateApiBase: https://ncrew-builder.ai4c.cn
+  ConsoleAuth__TemplateApiBase: https://goodcrew-builder.ai4c.cn
   ConsoleUi__EnableWarmTheme: "true"
   # ---- 跨域 ----
   AllowedOrigins__0: https://hire.ai4c.cn
@@ -46,6 +46,11 @@ env:
   AllowedOrigins__7: https://opensandbox-gateway.ai4c.cn
   AllowedOrigins__8: https://hire.y-work.cn
   AllowedOrigins__9: http://hire.y-work.cn
+  AllowedOrigins__10: https://goodcrew.ai4c.cn
+  AllowedOrigins__11: https://goodcrew-hire.ai4c.cn
+  AllowedOrigins__12: http://goodcrew-hire.ai4c.cn
+  AllowedOrigins__13: http://goodcrew-builder.ai4c.cn
+  AllowedOrigins__14: https://goodcrew-builder.ai4c.cn
   
   # ---- ywork 服务自引用地址（覆盖 appsettings.Production.json 中的 ncrew-hire）----
   OpenSandbox__McpConfig__Servers__streaming-vhk95z__Url: http://ywork:8080/mcp
@@ -87,7 +92,7 @@ env:
   KingCrab__HttpTimeoutSeconds: "120"
   KingCrab__HireBotApiPrefix: /api/integration/hirebot
   # ---- 构建服务 (ncrew-builder SaaS 地址) ----
-  BuildService__BaseUrl: https://ncrew-builder.ai4c.cn/
+  BuildService__BaseUrl: https://goodcrew-builder.ai4c.cn/
   BuildService__ApiPrefix: /api/store
   BuildService__BearerToken: ""
   BuildService__HttpTimeoutSeconds: "60"
