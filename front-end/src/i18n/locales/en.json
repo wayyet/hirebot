@@ -290,7 +290,9 @@
     "artifact": {
       "terminal": "Terminal",
       "downloadFile": "Download Package",
-      "manualImport": "Import to System"
+      "manualImport": "Import to System",
+      "waitForFinalPackage": "The package is being imported. You can download the final delivery package after import completes.",
+      "finalPackageLabel": "Final delivery package"
     },
     "dispatch": {
       "running": "Dispatching",

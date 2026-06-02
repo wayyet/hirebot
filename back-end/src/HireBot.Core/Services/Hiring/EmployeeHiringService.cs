@@ -1318,16 +1318,13 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包为空或无法解析，请确认上传的是有效 ZIP 文件");
         }
 
-        if (ShouldStagePackagingTestCases(runtimeContext, userMessage: null) ||
-            string.Equals(runtimeContext.CurrentStage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase))
+        // import 前默认执行 testcase staging（Skill 或 packaging-fallback），不依赖阶段与打包意图话术
+        if (!runtimeContext.PackagingTestCasesStaged)
         {
-            if (!runtimeContext.PackagingTestCasesStaged)
-            {
-                runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
-            }
-
-            hiringRuntimeStore.Upsert(runtimeContext);
+            runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
         }
+
+        hiringRuntimeStore.Upsert(runtimeContext);
 
         if (ShouldPersistArtifactPackages(runtimeContext))
         {
@@ -1459,16 +1456,26 @@ internal sealed partial class EmployeeHiringService(
         return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(result, "交付物已导入");
     }
 
-    public Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
+    public async Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
         string hireId,
         CancellationToken cancellationToken = default)
     {
         if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
         {
-            return Task.FromResult(HiringArtifactDownloadResult.Error(400, error));
+            return HiringArtifactDownloadResult.Error(400, error);
         }
 
-        return artifactPackageService.BuildFinalPackageDownloadAsync(normalizedHireId, cancellationToken);
+        // 优先返回 final；若尚未 import，则回退到包含 external/ 的 intermediate 包。
+        var snapshot = await artifactPackageService.GetLatestPackageAsync(normalizedHireId, cancellationToken);
+        if (snapshot is null)
+        {
+            return HiringArtifactDownloadResult.Error(409, "交付包尚未生成，请先保存外部配置或执行 finalize");
+        }
+
+        return HiringArtifactDownloadResult.Success(
+            snapshot.FileName,
+            "application/zip",
+            snapshot.Content);
     }
 
     public Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(

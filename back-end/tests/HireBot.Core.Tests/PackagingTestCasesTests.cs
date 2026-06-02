@@ -25,6 +25,17 @@ public class PackagingTestCasesTests
         Assert.False(root.TryGetProperty("cases", out _));
     }
 
+    [Theory]
+    [InlineData(HiringCollectionStage.Material, true)]
+    [InlineData(HiringCollectionStage.Skill, true)]
+    [InlineData(HiringCollectionStage.External, true)]
+    [InlineData(HiringCollectionStage.ReadyForPackaging, false)]
+    [InlineData(null, true)]
+    public void IsCollectionStageBeforeReadyForPackaging_ShouldMatchExpected(string? stage, bool expected)
+    {
+        Assert.Equal(expected, EmployeeHiringService.IsCollectionStageBeforeReadyForPackaging(stage));
+    }
+
     [Fact]
     public void ShouldStagePackagingTestCases_WhenReadyForPackaging_ShouldReturnTrue()
     {
