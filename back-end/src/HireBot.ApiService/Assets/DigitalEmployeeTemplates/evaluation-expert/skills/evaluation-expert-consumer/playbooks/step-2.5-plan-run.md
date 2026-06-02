@@ -38,7 +38,10 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
 3. For each enriched tc, compute the scenario plan entry:
    tc_id                    ← tc.test_case_id
    enriched_tc_path         = f"runs/{eval_id}/enriched-cases/{tc_id}.json"
-   evaluation_context_path  = f"runs/{eval_id}/evaluation_context.json"
+   evaluation_context_path  = "/workspace/runtime/evaluation-context.json"
+   # ALWAYS use the original runtime context — never a run_dir copy.
+   # Any copy the agent makes may have credentials sanitized (e.g. client_secret → "REDACTED"),
+   # which breaks the driver's client_credentials token fetch.
    trace_path               = f"runs/{eval_id}/traces/{tc_id}.trace.json"
    effective_max_turns      = min(tc.turn_budget.hard_max_turns, global_cap)
    opening_message          = tc.input.opening_message
@@ -59,6 +62,11 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
    commands.spawn =
      f'PAD={pad.dir}; nohup {python_bin} -u {run_py_path} --evaluation-context {evaluation_context_path} --enriched-test-case {enriched_tc_path} --output {trace_path} <> "$PAD/in" >> "$PAD/out" 2>> "$PAD/err" & echo $! > "$PAD/pid"; echo "driver pid=$(cat \"$PAD/pid\")"'
      # run.py accepts ONLY --evaluation-context, --enriched-test-case, --output.
+     # --evaluation-context MUST point to /workspace/runtime/evaluation-context.json (the original
+     # runtime context written by C# at sandbox creation). NEVER use a run_dir copy — the agent
+     # sanitizes credentials when writing files to disk (client_secret → "REDACTED"), which
+     # breaks the client_credentials token fetch. The original file is written by the C# host and
+     # is never touched by the agent, so its credentials are always intact.
      # DO NOT add --token or any other flag. The driver resolves its Bearer token
      # internally at startup via evaluation_context.hirebot_api.auth (client_credentials).
      # Adding --token is an error that will cause argparse to exit 2.

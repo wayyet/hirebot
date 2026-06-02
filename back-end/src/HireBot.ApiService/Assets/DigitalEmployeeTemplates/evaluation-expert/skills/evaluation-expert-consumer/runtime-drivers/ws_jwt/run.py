@@ -519,7 +519,9 @@ def main() -> None:
                     "the driver streams evaluatee replies back on stdout.",
     )
     ap.add_argument("--evaluation-context", required=True,
-                    help="path to ./runs/<eval_id>/evaluation_context.json")
+                    help="path to the runtime evaluation context JSON; "
+                         "use /workspace/runtime/evaluation-context.json (original, with credentials) "
+                         "not a run_dir copy which may have secrets sanitized")
     ap.add_argument("--enriched-test-case", required=True,
                     help="path to one enriched test case under ./runs/<eval_id>/enriched-cases/")
     ap.add_argument("--output", required=True,
