@@ -3,6 +3,7 @@ import type { SandboxMessage, SandboxToolCall } from '@/infra/sandbox/sandbox-ap
 
 import type {
   ArtifactDisplayData,
+  ChatFile,
   ChatMessage,
   DownstreamRunKey,
   DownstreamRunsSnapshot,
@@ -15,6 +16,9 @@ import type { HiringUiStage } from './hiringWorkflowViewModel'
 function mkHistoricalId(prefix: string, index: number) {
   return `historical_${prefix}_${index}`
 }
+
+const HISTORICAL_FILE_ATTACHMENT_PATTERN =
+  /\[FILE_URL:[^\]]+\]\s*\r?\nAttached file:\s*(.+?)\s*\(([^)\r\n]+)\)\s*/gi
 
 function asPlainObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -34,9 +38,72 @@ function tryParseJsonRecord(value: unknown): Record<string, unknown> | null {
   return asPlainObject(value)
 }
 
+function parseHistoricalFileSize(label: string): number {
+  const match = /([\d.]+)\s*(B|KB|MB|GB)?/i.exec(label.trim())
+  if (!match) {
+    return 0
+  }
+
+  const value = Number.parseFloat(match[1])
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0
+  }
+
+  const unit = (match[2] ?? 'B').toUpperCase()
+  if (unit === 'GB') return Math.round(value * 1024 * 1024 * 1024)
+  if (unit === 'MB') return Math.round(value * 1024 * 1024)
+  if (unit === 'KB') return Math.round(value * 1024)
+  return Math.round(value)
+}
+
+function normalizeHistoricalUserMessage(content: string): { content: string; files?: ChatFile[] } | null {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  if (trimmed.startsWith('[Internal ') || trimmed.startsWith('[System ')) {
+    return null
+  }
+
+  const files: ChatFile[] = []
+  const visibleContent = trimmed
+    .replace(HISTORICAL_FILE_ATTACHMENT_PATTERN, (_match, fileName: string, sizeLabel: string) => {
+      const name = fileName.trim()
+      if (name) {
+        files.push({
+          id: mkHistoricalId('file', files.length),
+          name,
+          size: parseHistoricalFileSize(sizeLabel),
+          status: '已解析',
+          type: 'file',
+        })
+      }
+
+      return '\n'
+    })
+    .trim()
+
+  // 模板自动引导也以 [FILE_URL:] 开头，但不会携带 Attached file 元数据，仍应视为内部消息。
+  if (trimmed.startsWith('[FILE_URL:') && files.length === 0) {
+    return null
+  }
+
+  if (!visibleContent && files.length === 0) {
+    return null
+  }
+
+  return {
+    content: visibleContent,
+    files: files.length > 0 ? files : undefined,
+  }
+}
+
 export const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey; status: DownstreamRunStatus }> = {
   ontology_extraction_progress: { key: 'ontology-extraction', status: 'running' },
   ontology_extraction_done: { key: 'ontology-extraction', status: 'completed' },
+  ontology_projection_progress: { key: 'ontology-projection', status: 'running' },
+  ontology_projection_done: { key: 'ontology-projection', status: 'completed' },
   skill_generation_ready: { key: 'skill-generation', status: 'waiting_confirm' },
   skill_generation_progress: { key: 'skill-generation', status: 'running' },
   skill_generation_done: { key: 'skill-generation', status: 'completed' },
@@ -203,17 +270,13 @@ export function buildHistoricalHiringConversationState(
 
   for (const message of sandboxMessages) {
     if (message.type === 'user_message') {
-      const content = String(message.text ?? '').trim()
-      // 过滤内部系统提示：模板引导（[FILE_URL:...）、内部指令（[Internal ...）、系统指令（[System ...）
-      const isInternalPrompt =
-        content.startsWith('[FILE_URL:') ||
-        content.startsWith('[Internal ') ||
-        content.startsWith('[System ')
-      if (content.length > 0 && !isInternalPrompt) {
+      const userMessage = normalizeHistoricalUserMessage(String(message.text ?? ''))
+      if (userMessage) {
         messages.push({
           id: mkHistoricalId('user', messages.length),
           role: 'user',
-          content,
+          content: userMessage.content,
+          files: userMessage.files,
         })
       }
       continue
@@ -312,6 +375,7 @@ export function deriveStageOverridesFromDownstreamRuns(
   const overrides = new Map<HiringUiStage, 'running' | 'completed' | 'failed'>()
 
   const ontologyRun = runs['ontology-extraction']
+  const projectionRun = runs['ontology-projection']
   const skillGenRun = runs['skill-generation']
 
   // ontology extraction 仅在 Material 阶段完成后触发。
@@ -319,6 +383,16 @@ export function deriveStageOverridesFromDownstreamRuns(
   // failed 状态保留默认行为，避免误导用户认为材料阶段已正常收束。
   if (ontologyRun && (ontologyRun.status === 'running' || ontologyRun.status === 'completed')) {
     overrides.set(HiringCollectionStage.Material, 'completed')
+  }
+
+  if (projectionRun) {
+    overrides.set(HiringCollectionStage.Material, 'completed')
+    if (!skillGenRun) {
+      overrides.set(
+        HiringCollectionStage.Skill,
+        projectionRun.status === 'failed' ? 'failed' : 'running',
+      )
+    }
   }
 
   // skill generation 在 Skill 阶段完成后触发

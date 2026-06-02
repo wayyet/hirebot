@@ -53,6 +53,7 @@ interface UploadedFileMeta {
   sizeBytes: number
   format: string
   requestedCategoryTitle?: string | null
+  workspaceRelativePath?: string | null
 }
 
 interface LinkedSkill {
@@ -552,6 +553,35 @@ function MaterialCardBody({
   const [persistedCategories, setPersistedCategories] = useState<MaterialRequestedCategory[]>([])
   const { t } = useTranslation()
 
+  const buildUploadStageSummary = useCallback((
+    files: UploadedFileMeta[],
+    requestedCategoryTitle?: string | null,
+  ) => {
+    const total = files.length
+    const names = files.map(item => item.originalFileName || item.relativePath)
+    const preview = names.slice(0, 5).join('、')
+    const suffix = names.length > 5 ? t('hiring.todo.material.uploadSuffix', { count: names.length }) : ''
+    const categoryPrefix = requestedCategoryTitle ? t('hiring.todo.material.categoryPrefix', { category: requestedCategoryTitle }) : ''
+    const summaryLines = [
+      t('hiring.todo.material.uploadSummary', { categoryPrefix, total, preview, suffix }),
+    ]
+
+    const sourcePathLines = files
+      .slice(0, 8)
+      .map(item => {
+        const name = item.originalFileName || item.relativePath
+        const path = item.workspaceRelativePath?.trim() || item.relativePath
+        return t('hiring.todo.material.uploadSourcePathItem', { name, path })
+      })
+
+    if (sourcePathLines.length > 0) {
+      summaryLines.push(t('hiring.todo.material.uploadSourcePathLead'))
+      summaryLines.push(...sourcePathLines)
+    }
+
+    return summaryLines.join('\n')
+  }, [t])
+
   const refresh = useCallback(async (): Promise<UploadedFileMeta[]> => {
     if (!hireId || !sessionId) return []
     try {
@@ -628,19 +658,14 @@ function MaterialCardBody({
 
       // 基于全量已上传文件构建摘要，避免多次上传时只发送最后一批的信息给 AI
       const allFiles = await refresh()
-      const total = allFiles.length
-      const names = allFiles.map(item => item.originalFileName || item.relativePath)
-      const preview = names.slice(0, 5).join('、')
-      const suffix = names.length > 5 ? t('hiring.todo.material.uploadSuffix', { count: names.length }) : ''
-      const categoryPrefix = requestedCategoryTitle ? t('hiring.todo.material.categoryPrefix', { category: requestedCategoryTitle }) : ''
-      onAfterUpload(t('hiring.todo.material.uploadSummary', { categoryPrefix, total, preview, suffix }))
+      onAfterUpload(buildUploadStageSummary(allFiles, requestedCategoryTitle))
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : t('hiring.todo.material.errorUploadFailed'))
     } finally {
       setBusy(false)
       setUploadingCategoryTitle(null)
     }
-  }, [hireId, sessionId, refresh, onAfterUpload])
+  }, [hireId, sessionId, refresh, onAfterUpload, buildUploadStageSummary, t])
 
   const uploadedCountByCategory = useMemo(
     () => buildUploadedCountByCategory(displayCategories, uploaded, uploadedConversationFiles),

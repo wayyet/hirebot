@@ -36,6 +36,9 @@ public sealed class HiringMaterialFileEntity
     [MaxLength(160)]
     public string? RequestedCategoryTitle { get; set; }
 
+    [MaxLength(1024)]
+    public string? WorkspaceRelativePath { get; set; }
+
     [MaxLength(128)]
     public required string TenantId { get; set; }
 

@@ -18,20 +18,19 @@ metadata: {"openclaw":{"emoji":"{{emoji}}"}}
 {{capabilities_markdown}}
 
 ## 处理流程
-1. 意图识别与槽位补全
-2. 根据匹配能力执行动作或给出指引
-3. 返回结果、失败原因或下一步建议
-4. 如命中 projection blocking condition，先说明阻断原因，不继续编造结果
+1. 识别输入意图与关键字段。
+2. 产出该技能负责的结果。
+3. 命中 fallback 时输出映射建议、待确认项或阻断原因。
 
 ## 边界与不做
 {{boundaries_markdown}}
 
 ## Projection Contracts
 
-This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/contract-index.json`.
+This skill may be augmented by bound projection contracts from `ontology_extraction`, discovered under `contracts/projections/**/contract-index.json`.
 
 - Projection discovery, route selection, and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contracts/contract-index.json` to understand available topics and views, then read the corresponding projection files under `contracts/ontology-extraction/`.
+- For human review, read `contracts/projections/ontology_extraction/contract-index.json`, optionally read the namespace `README.md`, and then the chosen `*.projection.json`.
 
 ### Projection Consumption
 
@@ -51,7 +50,7 @@ This skill may be augmented by bound `ontology-extraction` projection contracts 
 
 Template rules:
 
-- Keep frontmatter parser-friendly. Prefer single-line `description` in this repository unless a target runtime is known to support multiline YAML.
+- Keep frontmatter parser-friendly.
 - Do not leave placeholder text in the final file.
-- Keep projection consumption in generated skills, not in `skill-generation` itself.
+- Keep projection consumption in generated business skills, not in `skill-generation` itself.
 - If a generated skill cannot produce a READY projection contract, write draft notes and do not block the base skill write for that reason alone.

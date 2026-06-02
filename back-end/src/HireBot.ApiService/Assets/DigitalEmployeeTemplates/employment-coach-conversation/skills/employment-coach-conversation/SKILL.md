@@ -139,13 +139,61 @@ metadata:
 
 | 时机 | 工具 | 关键参数 |
 |------|------|---------|
-| 用户上传过文件需要读取分析时 | `hiring.parse_uploaded_files` | 不传参或传 `maxBytes`；返回目录树 + .md/.json 全文 |
+| 用户通过后台 todo-files 入口上传 .md/.json，且消息中没有 Gateway media 标记时 | `hiring.parse_uploaded_files` | 不传参或传 `maxBytes`；返回目录树 + .md/.json 全文 |
+| 消息中出现 `[FILE_URL:/app/memory/media-cache/...]` 或 `/media/media_xxx` 时 | 沙箱 `read_file` | 不调用 `hiring.parse_uploaded_files`；按下方 Gateway media-cache 规则先读 `{mediaId}.json`，再读元数据 `path` |
+
+**分支选择红线**：只有在当前消息里**明确出现** `[FILE_URL:/app/memory/media-cache/...]` 或 `/media/media_xxx` 标记时，才走 Gateway media-cache 读取分支。若当前消息只是“已上传 X 份资料，请基于这些资料继续后续阶段”这类纯文本摘要，或仅出现文件名 / `source_path`，则必须优先走 `hiring.parse_uploaded_files` 或直接使用已给出的 `source_path`；不要猜测 `/app/memory/media-cache` 目录，也不要只读取 `/workspace/.../uploads` 根目录来碰运气。
 
 ### 错误处理
 
 若 MCP 工具返回错误（如 `_meta.sessionId 未传入`），**不中断对话**，继续推进；该错误属于基础设施层问题，不要向用户暴露。
 
+### 上传附件读取规则（Gateway media-cache）
 
+用户在资料阶段或任意对话轮次上传文件后，消息里通常会出现类似：
+
+```text
+[FILE_URL:/app/memory/media-cache/media_xxx]
+Attached file: README.md (4.8 KB)
+```
+
+或 Gateway 上传响应中的 URL 是 `/media/media_xxx`。这里的 `media_xxx` 是 `mediaId`，`/media/...` 是 HTTP 下载 URL，`/app/memory/media-cache/media_xxx` 也只是媒体缓存标记，不是一定可直接读取的真实文件路径。
+
+读取上传文件必须按两步：
+
+1. 从 `[FILE_URL:...]` 或 `/media/...` 提取 `mediaId`，例如 `media_34cfdfd42f4e4de9`。
+2. 先调用 `read_file` 读取 `/app/memory/media-cache/{mediaId}.json`。
+3. 从元数据 JSON 的 `path` 字段取得真实文件路径。
+4. 再调用 `read_file` 读取该 `path` 指向的文件正文。
+
+不要直接读取 `/app/memory/media-cache/{mediaId}`，也不要读取 `/media/{mediaId}`；前者通常缺少扩展名，后者是 Gateway 下载 URL。只有在 `.json` 元数据读取失败，或元数据没有 `path` 字段时，才说明“文件暂时读不到”，并提示用户重新上传或改为粘贴内容。
+
+示例：
+
+```text
+[FILE_URL:/app/memory/media-cache/media_34cfdfd42f4e4de9]
+Attached file: README.md (4.8 KB)
+```
+
+应先读：
+
+```text
+/app/memory/media-cache/media_34cfdfd42f4e4de9.json
+```
+
+若其中有：
+
+```json
+{ "path": "/app/memory/media-cache/media_34cfdfd42f4e4de9.md", "fileName": "README.md" }
+```
+
+再读：
+
+```text
+/app/memory/media-cache/media_34cfdfd42f4e4de9.md
+```
+
+读到正文后，将该真实路径作为 `material_collection_progress` / `material_handoff_summary` 的 `items[].source_path`。不要把无扩展名的 media-cache 标记写入 `source_path`。
 
 ### 会话初始化：读取工作区并锁定路径
 
@@ -212,7 +260,7 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 > 前端的资料上传入口完全由 artifact 事件控制：`material_collection_progress` 一发出，阶段卡片自动展开拖拽上传区，**无需也无法**通过 MCP 工具触发。
 
-> 用户上传文件后，调用 `hiring.parse_uploaded_files` 拉取内容做识别，将已整理的资料摘要写入下一次 progress `emit_artifact` 的 `data` 字段（如 `data.items`）。
+> 用户上传文件后，若消息包含 `[FILE_URL:/app/memory/media-cache/...]` 或 `/media/media_xxx`，按“上传附件读取规则（Gateway media-cache）”读取内容并将真实路径写入 `data.items[].source_path`；只有后台 todo-files 入口且没有 Gateway media 标记时，才调用 `hiring.parse_uploaded_files` 拉取内容做识别。
 
 #### ⛔ 路径反伪造红线
 
@@ -259,18 +307,28 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 **目的**：把用户的业务资料整理成"可供本体抽取的明确来源清单"。
 
-**最低门槛**：至少 1 份资料被指认归类，并且明确说出"要从中整理什么分类的规则或内容"。
+**最低门槛**：至少 1 份资料被指认归类，并且明确说出"要从中整理什么分类的规则或内容"。如果该资料来自上传文件，则还必须保留可供下游读取的 `source_path`；只有 `source_hint` 而没有 `source_path` 的上传条目，不算达标。
 
 **进入阶段时的强制动作**：初始化完成后，按会话初始化"步骤 4"立即推送 stage1 progress artifact——这是"亮灯仪式"，不依赖用户输入。
 
 **收到用户输入时的强制动作**：用户描述业务场景、资料种类、字段、规则、流程、案例或上传文件后，立即追加进度 emit_artifact，将 `data` 字段更新为最新已整理的资料条目摘要；再给用户一行简短反馈说已记下。
 
+**上传同步短等待**：如果本轮输入明确是"刚上传了文件"，但系统侧尚未把该文件的 `source_path` 回填到资料条目中，先执行一次有界等待：按约 500ms 间隔重读当前资料状态，最长等待 5 秒。等待期间不要发 terminal artifact，也不要把上传条目标记为 `ready`。如果 5 秒内 `source_path` 成功出现，再继续正常收口；如果仍未出现，保留在阶段 1 并提示用户重新上传或等待平台同步。
+
 **禁止替下游执行**：本阶段不要直接输出"本体切片"、概念表、关系表或约束表；本 skill 只负责对话收集与进度推送，下游 skill 负责实际执行。
 
 **阶段完成条件**：
 - 至少 1 份真实业务资料已完成分类，明确了抽取方向
+- 所有来自上传文件的条目都已补全 `source_path`，且没有"内容未能读取到但仍标记为 ready"的条目
 - 用户明确表达"先这些""这批资料先这样"或等价意思
 - 发出 `material_handoff_summary` terminal artifact
+
+**阶段 1 阻断规则（优先于用户催促推进）**：
+
+- 如果资料条目来自上传文件，但 `source_path` 缺失，不能发 `material_handoff_summary`，也不能进入下一阶段。
+- 如果资料条目来自上传文件，且只是**短暂**缺少 `source_path`，先执行上方 5 秒有界等待；只有等待结束后仍缺失，才正式阻断。
+- 如果已经知道"文件内容未能读取到"、"文件不存在"或"只有文件名没有实际路径"，该条资料必须保持 `pending`，不能标记 `ready`。
+- 即使用户说"只有这个文件，先继续"、"推进到下一个阶段"，也只能明确告知阻断原因，并要求重新上传、补 `source_path`，或直接粘贴可读内容；不得以"占位资料"形式放行。
 
 **阶段 1 完成后的强制动作（本体抽取启动门，不可省略）**：
 
@@ -282,6 +340,8 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 4. 收到 `ontology_extraction_done` 后，才正式进入阶段 2 的"进入阶段的强制动作"。
 
 > ⛔ 触发本体抽取不是可选项：资料阶段每一次 terminal artifact 之后都必须触发；已在进行中时不重复触发。
+
+> ⛔ 如果任何上传条目缺少 `source_path`、或已知内容不可读，则**不得**发出 `material_handoff_summary`，也就**不得**触发 `ontology-extraction`。先修复资料可读性，再谈下一阶段。
 
 > 第一批资料怎么按场景类型开口要、scene_hint 推断与静默修正、阶段 1 story-driven 推进 → 进入阶段 1 之前，读 [references/scene-types.md](references/scene-types.md)。
 

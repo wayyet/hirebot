@@ -1,6 +1,6 @@
 # Consumer Skill Scaffold Template
 
-Use this file when creating a new consumer skill that is expected to consume `ontology-extraction` projection contracts.
+Use this file when creating a new consumer skill that is expected to consume projection contracts produced by `ontology_extraction`.
 
 This scaffold is intentionally minimal. Copy it into the new skill directory as `SKILL.md`, then replace placeholders and trim sections that do not apply.
 
@@ -12,12 +12,15 @@ If the new skill binds to local projection contracts, keep this layout next to t
 <consumer-skill>/
   SKILL.md
   contracts/
-    contract-index.json
-    README.md
-    <domain-slug>/
-      <domain-slug>.<target-view>.projection.json
-      README.md
-      REVIEW.md
+    projections/
+      ontology_extraction/
+        contract-index.json
+        README.md
+        <domain-slug>/
+          <domain-slug>.domain-model.projection.json
+          <domain-slug>.json-schema.projection.json
+          <domain-slug>.prompt-constraint.projection.json
+          <domain-slug>.workflow-contract.projection.json
 ```
 
 See `../references/CONSUMER_PROJECTION_LAYOUT_GUIDE.md` for naming and placement rules.
@@ -53,10 +56,10 @@ When asked to <primary trigger phrases or user intents>:
 
 ## Projection Contracts
 
-This skill may be augmented by bound `ontology-extraction` projection contracts discovered under `contracts/contract-index.json`.
+This skill may be augmented by bound projection contracts from `ontology_extraction`, discovered under `contracts/projections/**/contract-index.json`.
 
 - Projection discovery and prompt patching are handled by runtime rather than by manual rules in this file.
-- For human review, read `contracts/contract-index.json` first to select the topic and target view, then enter the topic subdirectory and read `<domain-slug>.<target-view>.projection.json`, and finally check `REVIEW.md`.
+- For human review, read `contracts/projections/ontology_extraction/contract-index.json` first, optionally read the namespace `README.md`, and then read the chosen `*.projection.json` file.
 
 ### Projection Consumption
 

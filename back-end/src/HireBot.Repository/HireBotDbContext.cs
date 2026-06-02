@@ -211,6 +211,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.Property(e => e.SizeBytes).HasColumnName("size_bytes").IsRequired();
             entity.Property(e => e.Sha256).HasColumnName("sha256").IsRequired().HasMaxLength(64);
             entity.Property(e => e.RequestedCategoryTitle).HasColumnName("requested_category_title").HasMaxLength(160);
+            entity.Property(e => e.WorkspaceRelativePath).HasColumnName("workspace_relative_path").HasMaxLength(1024);
             entity.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
             entity.Property(e => e.OperatorId).HasColumnName("operator_id").IsRequired().HasMaxLength(128);
             entity.Property(e => e.UploadedBy).HasColumnName("uploaded_by").IsRequired().HasMaxLength(256);

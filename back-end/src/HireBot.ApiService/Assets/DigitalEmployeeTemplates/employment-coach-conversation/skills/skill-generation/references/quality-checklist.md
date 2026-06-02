@@ -23,10 +23,11 @@ Run these checks before writing a generated skill package.
 ## Projection Consumer Contract
 
 - [ ] If a READY projection contract is generated, generated `SKILL.md` includes the Projection Contracts section.
-- [ ] If a READY projection contract is generated, `contracts/contract-index.json` exists with `producer_skill`, `consumer_skill`, and `topics[]`.
+- [ ] If a READY projection contract is generated, `contracts/projections/ontology_extraction/contract-index.json` exists with `producer_skill`, `consumer_skill`, and `topics[]`.
 - [ ] If a READY projection contract is generated, the index `consumer_skill` matches generated skill `name`.
-- [ ] If a READY projection contract is generated, every topic view's `path` points to an existing file under `contracts/ontology-extraction/`.
-- [ ] If a READY projection contract is generated, projection document contains `prompt_projection`, `delivery_artifacts`, `dropped_items`, and `open_questions`.
+- [ ] If a READY projection contract is generated, every topic view's `path` points to an existing file under `contracts/projections/ontology_extraction/<domain-slug>/`.
+- [ ] If a READY projection contract is generated, every topic includes exactly the 4 standard views: `domain-model`, `json-schema`, `prompt-constraint`, and `workflow-contract`.
+- [ ] If a READY projection contract is generated, each projection document contains `mapping_policy`, `prompt_projection`, `delivery_artifacts`, `dropped_items`, and `open_questions`.
 - [ ] If ontology projection information is insufficient, draft notes are written instead of a READY contract, and the base skill write is not blocked for that reason alone.
 - [ ] `open_questions` is empty before marking a projection READY.
 
