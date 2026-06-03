@@ -1,14 +1,18 @@
 using System.ComponentModel.DataAnnotations;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class HiringArtifactUploadEntity
+public sealed class HiringArtifactUploadEntity : ITenant
 {
     [Key]
     public Guid UploadId { get; set; } = Guid.NewGuid();
 
     [MaxLength(64)]
     public required string SessionId { get; set; }
+
+    [MaxLength(128)]
+    public string? TenantId { get; set; }
 
     [MaxLength(32)]
     public required string Kind { get; set; }

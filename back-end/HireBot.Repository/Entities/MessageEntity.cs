@@ -1,8 +1,9 @@
 using System.ComponentModel.DataAnnotations;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class MessageEntity
+public sealed class MessageEntity : ITenant
 {
     [Key]
     [MaxLength(120)]
@@ -15,7 +16,7 @@ public sealed class MessageEntity
     public required string InstanceId { get; set; }
 
     [MaxLength(128)]
-    public required string TenantId { get; set; }
+    public string? TenantId { get; set; }
 
     [MaxLength(40)]
     public required string Role { get; set; }

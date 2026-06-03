@@ -45,7 +45,7 @@ public sealed class HireBotDbContext : DbContext
         }
         set => _tenantId = value;
     }
-
+{
     private static readonly ValueComparer<Dictionary<string, string>?> SandboxMetadataComparer = new(
         (left, right) => DictionariesEqual(left, right),
         value => GetDictionaryHashCode(value),
@@ -119,13 +119,11 @@ public sealed class HireBotDbContext : DbContext
             entity.HasIndex(e => e.Email).IsUnique();
         });
 
-        // AppUser (多租户用户表：同一 Keycloak 用户在不同租户下有独立记录)
         modelBuilder.Entity<AppUserEntity>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).HasMaxLength(36).ValueGeneratedNever();
-            entity.Property(e => e.ExternalUserId).IsRequired().HasMaxLength(256);
-            entity.Property(e => e.TenantId).HasMaxLength(128);
+            entity.Property(e => e.Id).HasMaxLength(256);
+            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
             entity.Property(e => e.Username).IsRequired().HasMaxLength(128);
             entity.Property(e => e.DisplayName).IsRequired().HasMaxLength(256);
             entity.Property(e => e.FamilyName).HasMaxLength(256);
@@ -134,13 +132,8 @@ public sealed class HireBotDbContext : DbContext
             entity.Property(e => e.CreatedAt).IsRequired();
             entity.Property(e => e.LastSeenAt).IsRequired();
 
-            // 唯一约束：同一租户下，外部用户ID唯一
-            entity.HasIndex(e => new { e.TenantId, e.ExternalUserId }).IsUnique();
-            
-            // 其他索引
             entity.HasIndex(e => e.TenantId);
             entity.HasIndex(e => new { e.TenantId, e.Username });
-            entity.HasIndex(e => e.ExternalUserId);
         });
 
         modelBuilder.Entity<EvaluationSessionEntity>(entity =>
@@ -235,7 +228,6 @@ public sealed class HireBotDbContext : DbContext
         modelBuilder.Entity<HiringRuntimeStateEntity>(entity =>
         {
             entity.HasKey(e => e.HireId);
-            entity.Property(e => e.SessionId).IsRequired().HasMaxLength(64);
             entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
             entity.Property(e => e.HireId).IsRequired().HasMaxLength(64);
             entity.Property(e => e.CurrentStage).IsRequired().HasMaxLength(64);
@@ -248,15 +240,16 @@ public sealed class HireBotDbContext : DbContext
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
 
             entity.HasIndex(e => new { e.TenantId, e.SessionId });
-            entity.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
+            entity.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc }
+            entity.HasIndex(e => e.UpdatedAtUtc);
         });
 
         modelBuilder.Entity<HiringArtifactEntity>(entity =>
         {
-            entity.HasKey(e => e.ArtifactId);
             entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
             entity.HasIndex(e => new { e.TenantId, e.SessionId, e.Kind, e.LogicalPath }).IsUnique();
-            entity.HasIndex(e => new { e.TenantId, e.SessionId, e.IsFinal });
+            entity.HasIndex(e => new { e.TenantId, e.SessionId, e.Kind, e.LogicalPath }).IsUnique();
+            entity.HasIndex(e => new { e.SessionId, e.IsFinal });
             entity.HasIndex(e => e.UploadedAtUtc);
         });
 
@@ -289,10 +282,10 @@ public sealed class HireBotDbContext : DbContext
         });
 
         modelBuilder.Entity<HiringArtifactUploadEntity>(entity =>
-        {
+        {Property(e => e.TenantId).IsRequired().HasMaxLength(128);
+            entity.HasIndex(e => new { e.TenantId,
             entity.HasKey(e => e.UploadId);
-            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
-            entity.HasIndex(e => new { e.TenantId, e.SessionId, e.Kind, e.LogicalPath, e.CompletedAtUtc });
+            entity.HasIndex(e => new { e.SessionId, e.Kind, e.LogicalPath, e.CompletedAtUtc });
             entity.HasIndex(e => e.CreatedAtUtc);
         });
 
@@ -305,9 +298,8 @@ public sealed class HireBotDbContext : DbContext
         modelBuilder.Entity<HiringAuditLogEntity>(entity =>
         {
             entity.HasKey(e => e.AuditId);
-            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
-            entity.HasIndex(e => new { e.TenantId, e.SessionId, e.TimestampUtc });
-            entity.HasIndex(e => new { e.TenantId, e.HireId, e.TimestampUtc });
+            entity.HasIndex(e => new { e.SessionId, e.TimestampUtc });
+            entity.HasIndex(e => new { e.HireId, e.TimestampUtc });
         });
 
         modelBuilder.Entity<InstanceEntity>(entity =>
@@ -411,7 +403,6 @@ public sealed class HireBotDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.SessionId).IsRequired().HasMaxLength(120);
-            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
             entity.Property(e => e.ScopeType).IsRequired().HasMaxLength(160);
             entity.Property(e => e.ScopeKey).IsRequired().HasMaxLength(160);
             entity.Property(e => e.SandboxRole).IsRequired().HasMaxLength(80);
@@ -423,7 +414,7 @@ public sealed class HireBotDbContext : DbContext
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
 
             entity.HasIndex(e => e.SessionId).IsUnique();
-            entity.HasIndex(e => new { e.TenantId, e.OwnerSubject, e.ScopeType, e.ScopeKey, e.SandboxRole, e.SessionKey }).IsUnique();
+            entity.HasIndex(e => new { e.OwnerSubject, e.ScopeType, e.ScopeKey, e.SandboxRole, e.SessionKey }).IsUnique();
 
             entity.HasOne(e => e.SandboxInstance)
                 .WithMany(s => s.Sessions)
@@ -456,12 +447,6 @@ public sealed class HireBotDbContext : DbContext
                 .HasForeignKey(e => e.SandboxSessionEntityId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
-
-        // ============================================================
-        // 应用多租户全局查询过滤器
-        // 所有实现 ITenant 接口的实体将自动应用租户隔离
-        // ============================================================
-        modelBuilder.ApplyTenantQueryFilters(() => TenantId);
     }
 
     private static bool DictionariesEqual(

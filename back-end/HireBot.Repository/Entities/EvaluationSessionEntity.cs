@@ -1,8 +1,9 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class EvaluationSessionEntity
+public sealed class EvaluationSessionEntity : ITenant
 {
     [Key]
     public Guid Id { get; set; }
@@ -14,6 +15,9 @@ public sealed class EvaluationSessionEntity
     [Required]
     [MaxLength(120)]
     public string OwnerSubject { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string? TenantId { get; set; }
 
     [Required]
     [MaxLength(120)]

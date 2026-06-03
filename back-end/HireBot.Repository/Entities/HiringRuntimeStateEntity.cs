@@ -1,8 +1,9 @@
 using System.ComponentModel.DataAnnotations;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class HiringRuntimeStateEntity
+public sealed class HiringRuntimeStateEntity : ITenant
 {
     [Key]
     [MaxLength(64)]
@@ -10,6 +11,9 @@ public sealed class HiringRuntimeStateEntity
 
     [MaxLength(64)]
     public required string SessionId { get; set; }
+
+    [MaxLength(128)]
+    public string? TenantId { get; set; }
 
     [MaxLength(64)]
     public required string CurrentStage { get; set; }

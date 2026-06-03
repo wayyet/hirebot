@@ -321,7 +321,7 @@ internal sealed partial class EmployeeHiringService
 
     private sealed record HireOwnerContext(
         string OwnerSubject,
-        string TenantId,
+        string? TenantId,
         string OperatorId,
         string TemplateId,
         string TemplateName,

@@ -1,11 +1,14 @@
 ﻿using HireBot.Abstraction;
+using HireBot.Abstraction.Infrastructure.Multitenancy;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeTemplate;
 using HireBot.Abstraction.Services.Evaluation;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
+using HireBot.Core.Infrastructure.Multitenancy;
 using HireBot.Core.Providers;
+using Microsoft.Extensions.Logging;
 using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.EmployeeTemplate;
 using HireBot.Core.Services.Evaluation;
@@ -22,6 +25,7 @@ using HireBot.Core.Services.Sandbox;
 using HireBot.Core.Services.SystemSkills;
 using HireBot.Abstraction.Services.Security;
 using HireBot.Repository;
+using HireBot.Repository.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
@@ -53,6 +57,9 @@ public static class ServiceExtensions
 
     private static void AddPersistence(IServiceCollection services, IConfiguration configuration)
     {
+        // ── Multi-tenancy Services ────────────────────────────────────────────────────
+        services.AddScoped<ITenantContextProvider, TenantContextProvider>();
+
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -65,15 +72,27 @@ public static class ServiceExtensions
         if (cs.StartsWith("Host=", StringComparison.OrdinalIgnoreCase)
             || cs.Contains("postgresql", StringComparison.OrdinalIgnoreCase))
         {
-            services.AddDbContext<HireBotDbContext>(options => options
-                .UseNpgsql(cs, npgsql => npgsql.MigrationsAssembly("HireBot.Repository"))
-                .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+            services.AddDbContext<HireBotDbContext>((serviceProvider, options) =>
+            {
+                options.UseNpgsql(cs, npgsql => npgsql.MigrationsAssembly("HireBot.Repository"))
+                    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+                
+                // 添加多租户保存拦截器
+                var logger = serviceProvider.GetRequiredService<ILogger<TenantSavingInterceptor>>();
+                options.AddInterceptors(new TenantSavingInterceptor(serviceProvider, logger));
+            });
         }
         else
         {
-            services.AddDbContext<HireBotDbContext>(options => options
-                .UseSqlite(cs)
-                .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+            services.AddDbContext<HireBotDbContext>((serviceProvider, options) =>
+            {
+                options.UseSqlite(cs)
+                    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+                
+                // 添加多租户保存拦截器
+                var logger = serviceProvider.GetRequiredService<ILogger<TenantSavingInterceptor>>();
+                options.AddInterceptors(new TenantSavingInterceptor(serviceProvider, logger));
+            });
         }
 
         services.AddScoped<IHireBotRepository, HireBotRepository>();

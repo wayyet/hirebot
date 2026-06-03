@@ -1,9 +1,10 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class SandboxSessionEntity
+public sealed class SandboxSessionEntity : ITenant
 {
     [Key]
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -38,6 +39,9 @@ public sealed class SandboxSessionEntity
 
     [MaxLength(120)]
     public string? SenderId { get; set; }
+
+    [MaxLength(128)]
+    public string? TenantId { get; set; }
 
     [Required]
     [MaxLength(256)]
