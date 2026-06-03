@@ -75,15 +75,17 @@ python3 runtime-drivers/ws_jwt/verdict_uploader.py \
 }
 ```
 
-### 步骤 B — 上传执行轨迹（sync-trace）
+### 步骤 B — 上传执行轨迹（sync-trace）+ 合成用例
 
 ```bash
 python3 runtime-drivers/ws_jwt/trace_uploader.py \
-.venv/bin/python runtime-drivers/ws_jwt/trace_uploader.py \
   --evaluation-context runs/<eval_id>/evaluation_context.json \
   --traces-dir         runs/<eval_id>/traces/ \
+  --synthesized-dir    runs/<eval_id>/synthesized-cases/ \
   --output             runs/<eval_id>/upload_trace_result.json
 ```
+
+`--synthesized-dir` 是可选的。当 STEP 1.5 合成了测试用例（落盘于 `runs/<eval_id>/synthesized-cases/`），传入此参数会将它们嵌入 trace bundle 的 `test_cases` 字段。后端 `SyncTraceAsync` → `EnsureQuestionCardsFromRuntimeTextAsync` 会通过 `CollectRuntimeTestcases` 递归扫描整个 JSON，自动发现 `test_cases` 数组并持久化为 Question Cards，展示在前端右侧面板。
 
 成功标志：脚本打印 `[成功] 执行轨迹已上传到 HireBot 后端`，输出文件中 `status == "success"`。
 
@@ -102,14 +104,23 @@ python3 runtime-drivers/ws_jwt/trace_uploader.py \
 {
   "evaluation_id": "<eval_id>",
   "session_id": "<session_id>",
+  "status": "completed" | "failed",
+  "meta": { "total_turns": N, "employee_name": "...", ... },
+  "turns": [ /* 前端可读的对话轮次，由 dialog_turns + actual_tool_calls 转换 */ ],
   "trace_count": N,
   "traces": [
     { /* <tc_id_1>.trace.json 内容（STEP 3 ws_jwt driver 输出）*/ },
     { /* <tc_id_2>.trace.json 内容 */ },
     ...
-  ]
+  ],
+  "test_cases": [     // 可选：仅在传入 --synthesized-dir 时出现
+    { /* STEP 1.5 合成的用例，tc 格式，含 test_case_id / input.opening_message / ... */ }
+  ],
+  "test_case_count": N
 }
 ```
+
+后端 `EnsureQuestionCardsFromRuntimeTextAsync` → `CollectRuntimeTestcases` 会递归遍历整个 trace JSON，自动发现 `test_cases` 数组（通过 `IsExplicitTestcaseContainer` 检测）并解析为 `ParsedTestcase`，最终持久化为 `testcases-json` 资产并生成 `EvaluationQuestionCardDto`，展示在前端右侧面板。
 
 ## 错误处理
 

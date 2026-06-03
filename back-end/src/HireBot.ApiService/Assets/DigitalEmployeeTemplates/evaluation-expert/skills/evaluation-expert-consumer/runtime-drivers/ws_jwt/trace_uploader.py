@@ -1,6 +1,6 @@
 """
 trace_uploader.py - 把执行轨迹上传到 HireBot 后端
-
+D:\hirebot\back-end\src\HireBot.ApiService\Assets\DigitalEmployeeTemplates\evaluation-expert\skills\evaluation-expert-consumer\runtime-drivers\ws_jwt\trace_uploader.py
 职责：
   - 扫描 runs/<eval_id>/traces/ 目录下所有 *.trace.json 文件（STEP 3 ws_jwt driver 输出）
   - 读取 evaluation_context.json（与 verdict_uploader.py 共用同一文件）
@@ -69,6 +69,42 @@ def resolve_hirebot_api_config(eval_ctx: dict[str, Any]) -> tuple[str, str, str]
 # ---------------------------------------------------------------------------
 # 轨迹文件扫描与合并
 # ---------------------------------------------------------------------------
+
+def collect_synthesized_testcases(synthesized_dir: str) -> list[dict[str, Any]]:
+    """
+    扫描 synthesized_dir 下所有 *.json 文件并返回内容列表（按文件名排序）。
+
+    这些文件由 STEP 1.5 在对话中合成，落盘于 runs/<eval_id>/synthesized-cases/。
+    上传后，后端 EnsureQuestionCardsFromRuntimeTextAsync 会从 trace bundle 中
+    自动提取 test_cases 并持久化为 Question Cards，展示在前端右侧面板。
+
+    Args:
+        synthesized_dir: STEP 1.5 输出目录，通常为 runs/<eval_id>/synthesized-cases/
+
+    Returns:
+        [{test case 文件内容}, ...] 按文件名升序排列；目录不存在或为空时返回 []
+    """
+    d = Path(synthesized_dir)
+    if not d.is_dir():
+        print(f"  [采集] 合成用例目录不存在，跳过: {synthesized_dir}")
+        return []
+
+    case_files = sorted(d.glob("*.json"))
+    if not case_files:
+        print(f"  [采集] 合成用例目录为空: {synthesized_dir}")
+        return []
+
+    result: list[dict[str, Any]] = []
+    for cf in case_files:
+        try:
+            content = json.loads(cf.read_text(encoding="utf-8"))
+            result.append(content)
+            print(f"  [采集] 合成用例: {cf.name}")
+        except Exception as exc:
+            print(f"  [警告] 跳过无法解析的合成用例文件 {cf.name}: {exc}")
+
+    return result
+
 
 def collect_traces(traces_dir: str) -> list[dict[str, Any]]:
     """
@@ -228,6 +264,7 @@ def _to_frontend_turns(
             "think_count": 0,
             "tool_calls_list": tool_names,
         }
+        # driver 只提供场景级耗时；挂在最后一轮，避免每轮重复展示同一总耗时。
         if duration is not None and offset == len(source_turn_indexes) - 1:
             summary["execution_time_seconds"] = duration
 
@@ -273,7 +310,7 @@ def _build_frontend_turns(traces: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _overall_status(traces: list[dict[str, Any]]) -> str:
-    failed_reasons = {"evaluatee_error", "tool_failure", "timeout"}
+    failed_reasons = {"evaluatee_error", "timeout"}
     for trace in traces:
         termination = trace.get("termination") if isinstance(trace.get("termination"), dict) else {}
         reason = str(termination.get("reason") or "")
@@ -287,11 +324,16 @@ def build_trace_bundle(
     session_id: str,
     eval_ctx: dict[str, Any],
     traces: list[dict[str, Any]],
+    synthesized_testcases: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
-    将多个场景轨迹合并为一个 bundle 文档。
+    将多个场景轨迹和合成测试用例合并为一个 bundle 文档。
 
     EvaluationTraceSyncRequestDto.traceJson 是该 bundle 的 JSON 字符串。
+
+    后端 SyncTraceAsync → EnsureQuestionCardsFromRuntimeTextAsync 会通过
+    ParseRuntimeTestcasesFromText → CollectRuntimeTestcases 递归扫描整个
+    trace JSON，自动发现顶层 test_cases 数组并持久化为 Question Cards。
     """
     frontend_turns = _build_frontend_turns(traces)
     session = eval_ctx.get("session") if isinstance(eval_ctx.get("session"), dict) else {}
@@ -302,7 +344,7 @@ def build_trace_bundle(
         else {}
     )
 
-    bundle = {
+    bundle: dict[str, Any] = {
         "evaluation_id": evaluation_id,
         "session_id": session_id,
         "status": _overall_status(traces),
@@ -319,6 +361,14 @@ def build_trace_bundle(
         "trace_format": "evaluation-expert-consumer.v2.bundle_with_frontend_turns",
         "traces": traces,
     }
+
+    # 嵌入合成测试用例，供后端提取为 Question Cards（前端右侧面板展示）
+    # 后端 IsExplicitTestcaseContainer 检测含 test_cases 数组的对象；
+    # CollectRuntimeTestcases 递归遍历整个 JSON 树，在顶层即可发现
+    if synthesized_testcases:
+        bundle["test_cases"] = synthesized_testcases
+        bundle["test_case_count"] = len(synthesized_testcases)
+
     return {
         "sessionId": session_id,
         "traceJson": json.dumps(bundle, ensure_ascii=False),
@@ -380,7 +430,7 @@ def _write_json(path: str, data: dict[str, Any]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="trace_uploader - 把 STEP 3 执行轨迹上传到 HireBot 后端"
+        description="trace_uploader - 把 STEP 3 执行轨迹与 STEP 1.5 合成用例上传到 HireBot 后端"
     )
     parser.add_argument(
         "--evaluation-context",
@@ -391,6 +441,11 @@ def main() -> int:
         "--traces-dir",
         required=True,
         help="STEP 3 输出目录（runs/<eval_id>/traces/），包含所有 *.trace.json 文件",
+    )
+    parser.add_argument(
+        "--synthesized-dir",
+        default=None,
+        help="STEP 1.5 合成用例目录（runs/<eval_id>/synthesized-cases/），可选；提供后用例会被嵌入 bundle 供后端解析为 Question Cards",
     )
     parser.add_argument(
         "--output",
@@ -418,7 +473,21 @@ def main() -> int:
         return 1
 
     print(f"[采集] 共 {len(traces)} 个场景轨迹")
-    payload = build_trace_bundle(evaluation_id, session_id, eval_ctx, traces)
+
+    # 采集合成测试用例（可选）
+    synthesized_testcases: list[dict[str, Any]] = []
+    if args.synthesized_dir:
+        synthesized_testcases = collect_synthesized_testcases(args.synthesized_dir)
+        if synthesized_testcases:
+            print(f"[采集] 共 {len(synthesized_testcases)} 个合成用例（将嵌入 bundle 供后端解析为 Question Cards）")
+
+    payload = build_trace_bundle(
+        evaluation_id,
+        session_id,
+        eval_ctx,
+        traces,
+        synthesized_testcases=synthesized_testcases if synthesized_testcases else None,
+    )
 
     trace_json_bytes = len(payload["traceJson"].encode("utf-8"))
     print(f"[上传] 目标地址:   {base_url}")
@@ -436,6 +505,7 @@ def main() -> int:
         "session_id": session_id,
         "evaluation_id": evaluation_id,
         "trace_count": len(traces),
+        "test_case_count": len(synthesized_testcases),
         "response": response,
     })
 
