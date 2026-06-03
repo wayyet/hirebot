@@ -65,6 +65,14 @@ public sealed partial class EmployeeRuntimeService
     {
         var instances = await query.ToArrayAsync(cancellationToken);
         var employees = new List<EmployeeDetailDto>();
+        
+        // 批量查询创建人信息
+        var ownerUserIds = instances.Select(i => i.OwnerUserId).Distinct().ToList();
+        var creators = await dbContext.AppUsers
+            .AsNoTracking()
+            .Where(u => ownerUserIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, cancellationToken);
+        
         foreach (var instance in instances)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -83,6 +91,21 @@ public sealed partial class EmployeeRuntimeService
 
             // 始终使用 DB 实体的 CreatedAt 覆盖快照中的值，避免历史快照缺少时间精度
             employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+            
+            // 填充创建人信息
+            if (creators.TryGetValue(instance.OwnerUserId, out var creator))
+            {
+                employee = employee with
+                {
+                    CreatedBy = new HireBot.Abstraction.Models.User.CreatorRef
+                    {
+                        Username = creator.Username,
+                        DisplayName = creator.DisplayName,
+                        FamilyName = creator.FamilyName,
+                        GivenName = creator.GivenName
+                    }
+                };
+            }
 
             if (owner is not null &&
                 !string.Equals(employee.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
@@ -125,6 +148,25 @@ public sealed partial class EmployeeRuntimeService
             if (employee is not null)
             {
                 employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+                
+                // 查询创建人信息
+                var creator = await dbContext.AppUsers
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.Id == instance.OwnerUserId, cancellationToken);
+                
+                if (creator is not null)
+                {
+                    employee = employee with
+                    {
+                        CreatedBy = new HireBot.Abstraction.Models.User.CreatorRef
+                        {
+                            Username = creator.Username,
+                            DisplayName = creator.DisplayName,
+                            FamilyName = creator.FamilyName,
+                            GivenName = creator.GivenName
+                        }
+                    };
+                }
             }
 
             // DB 查询已保证 OwnerUserId == owner，此处无需再次校验快照内的 OwnerUserId，
@@ -184,6 +226,25 @@ public sealed partial class EmployeeRuntimeService
         if (employee is not null)
         {
             employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+            
+            // 查询创建人信息
+            var creator = await dbContext.AppUsers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == instance.OwnerUserId, cancellationToken);
+            
+            if (creator is not null)
+            {
+                employee = employee with
+                {
+                    CreatedBy = new HireBot.Abstraction.Models.User.CreatorRef
+                    {
+                        Username = creator.Username,
+                        DisplayName = creator.DisplayName,
+                        FamilyName = creator.FamilyName,
+                        GivenName = creator.GivenName
+                    }
+                };
+            }
         }
 
         return employee;
@@ -696,7 +757,8 @@ public sealed partial class EmployeeRuntimeService
             detail.TasksTotal,
             detail.PendingActions,
             detail.IsConfigured,
-            detail.CardIntro);
+            detail.CardIntro,
+            detail.CreatedBy);
     }
 
 }

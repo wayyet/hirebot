@@ -20,6 +20,7 @@ import CloneEmployeeModal from "./components/CloneEmployeeModal";
 import EmployeeDetailModal from "./components/EmployeeDetailModal";
 import { firstCharacter, withEmployeeView } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
+import { CreatorDisplay } from "@/shared/components/CreatorDisplay";
 
 type StageTab = "hiring" | "intern" | "live";
 type InternSubTab = "ai" | "human";
@@ -544,11 +545,24 @@ export default function DepartmentEmployeesPage() {
                   </button>
                   <div className="hb-employee-card-divider" />
                   <div className="hb-employee-card-footer">
-                    <span>
-                      {t("employees.departmentPage.createdAt", {
-                        date: employee.createdAt,
-                      })}
-                    </span>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-[var(--hb-soft)]">
+                        {t("employees.departmentPage.createdAt", {
+                          date: employee.createdAt,
+                        })}
+                      </span>
+                      {employee.createdBy && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-[var(--hb-soft)]">
+                            {t("employees.departmentPage.createdBy")}
+                          </span>
+                          <CreatorDisplay
+                            creator={employee.createdBy}
+                            avatarSize={20}
+                          />
+                        </div>
+                      )}
+                    </div>
                     <div className="hb-employee-card-footer-actions">
                       {isHiring && employee.basedOnTemplateId ? (
                         <button

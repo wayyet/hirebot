@@ -613,6 +613,7 @@
       "emptyCopyManager": "Start a new hiring round from the template pool, or switch status tabs to inspect another stage.",
       "emptyCopyMember": "Once your manager completes onboarding, employees available for use and cloning will appear here.",
       "createdAt": "Created {{date}}",
+      "createdBy": "Created by:",
       "cloneReady": "Clone Ready",
       "actions": {
         "uploadTemplate": "Upload Role Employee",

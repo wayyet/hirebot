@@ -1,4 +1,6 @@
-﻿namespace HireBot.Abstraction.Models.EmployeeRuntime;
+﻿using HireBot.Abstraction.Models.User;
+
+namespace HireBot.Abstraction.Models.EmployeeRuntime;
 
 public sealed record EmployeeSummaryDto(
     string EmployeeId,
@@ -22,4 +24,5 @@ public sealed record EmployeeSummaryDto(
     int TasksTotal,
     IReadOnlyList<string> PendingActions,
     bool IsConfigured,
-    string? CardIntro = null);
+    string? CardIntro = null,
+    CreatorRef? CreatedBy = null);
