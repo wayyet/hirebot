@@ -22,6 +22,7 @@ import type {
   EmployeeTemplatePackageSkill,
   HiringCollectionStageType,
   HiringExternalSystemConfig,
+  RecommendedStoreSkillItem,
   StoreSkillItem,
 } from '@/infra/api'
 import type {
@@ -77,6 +78,7 @@ export interface HiringTodoPanelProps {
   onEnterEvaluation?: () => void
   /** 用户关联的 store skill UUID 列表变化时回调；用于在导入产物包时一并提交给后端。 */
   onLinkedSkillIdsChange?: (skillIds: string[]) => void
+  templateId?: string
   templatePackageSkills?: EmployeeTemplatePackageSkill[]
   requestedMaterialCategories?: MaterialRequestedCategory[]
   uploadedConversationFiles?: ChatFile[]
@@ -103,13 +105,6 @@ interface MaterialCategoryCard {
   formatLabel: string
   contextLabel?: string
   examplesLabel?: string
-}
-
-const EMPTY_STORE_SKILL_LIST = {
-  page: 1,
-  pageSize: 3,
-  total: 0,
-  items: [] as StoreSkillItem[],
 }
 
 const STAGES: StageConfig[] = [
@@ -302,6 +297,7 @@ export function HiringTodoPanel({
   generated = false,
   onEnterEvaluation,
   onLinkedSkillIdsChange,
+  templateId,
   templatePackageSkills = [],
   requestedMaterialCategories = [],
   uploadedConversationFiles = [],
@@ -397,6 +393,7 @@ export function HiringTodoPanel({
           >
             {stage.key === HiringCollectionStage.Skill && (
               <SkillCardBody
+                templateId={templateId}
                 templatePackageSkills={templatePackageSkills}
                 onAfterLink={summary => onAfterStageMessage?.(HiringCollectionStage.Skill, summary, 'collecting')}
                 onLinkedIdsChange={onLinkedSkillIdsChange}
@@ -846,6 +843,7 @@ function MaterialCardBody({
 }
 
 function SkillCardBody({
+  templateId,
   templatePackageSkills,
   onAfterLink,
   onLinkedIdsChange,
@@ -853,6 +851,7 @@ function SkillCardBody({
   skillGenerationState,
   definedSkills,
 }: {
+  templateId?: string
   templatePackageSkills: EmployeeTemplatePackageSkill[]
   onAfterLink: (summary: string) => void
   onLinkedIdsChange?: (skillIds: string[]) => void
@@ -870,13 +869,13 @@ function SkillCardBody({
   const trimmedQuery = query.trim()
 
   const {
-    data: defaultSkillData = EMPTY_STORE_SKILL_LIST,
-    isLoading: isDefaultLoading,
-    error: defaultSkillError,
+    data: recommendedSkillData = [] as RecommendedStoreSkillItem[],
+    isLoading: isRecommendationLoading,
+    error: recommendationError,
   } = useQuery({
-    queryKey: ['hiring-default-store-skills'],
-    queryFn: ({ signal }) => api.skillCatalog.searchStoreSkills({ page: 1, pageSize: 3 }, signal),
-    enabled: trimmedQuery.length === 0,
+    queryKey: ['hiring-recommended-store-skills', templateId],
+    queryFn: ({ signal }) => api.skillCatalog.getRecommendedStoreSkills(templateId ?? '', { limit: 5 }, signal),
+    enabled: trimmedQuery.length === 0 && Boolean(templateId),
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   })
@@ -918,23 +917,21 @@ function SkillCardBody({
   }, [trimmedQuery])
 
   const isLinked = useCallback((id: string) => linked.some(l => l.skillId === id), [linked])
-  const currentResults = trimmedQuery ? searchResults : defaultSkillData.items
-  const currentTotal = trimmedQuery ? searchTotal : (defaultSkillData.total ?? defaultSkillData.items.length)
-  const currentSearching = trimmedQuery ? searching : isDefaultLoading
+  const currentResults = trimmedQuery ? searchResults : recommendedSkillData
+  const currentTotal = trimmedQuery ? searchTotal : recommendedSkillData.length
+  const currentSearching = trimmedQuery ? searching : isRecommendationLoading
   const currentError = trimmedQuery
     ? searchError
-    : defaultSkillError instanceof Error
-      ? defaultSkillError.message
-      : defaultSkillError
-        ? t('hiring.todo.skill.errorSearchFailed')
-        : ''
+    : recommendationError
+      ? t('hiring.todo.skill.recommendUnavailable')
+      : ''
 
   const searchStatusLabel = currentSearching
     ? t('hiring.todo.skill.statusSearching')
     : linked.length > 0
       ? t('hiring.todo.skill.statusLinkedCount', { count: linked.length })
       : !trimmedQuery
-        ? t('hiring.todo.skill.statusDefaultCount')
+        ? t('hiring.todo.skill.statusRecommendedCount', { count: currentResults.length })
         : currentResults.length > 0
           ? t('hiring.todo.skill.statusResultCount', { count: currentResults.length })
       : t('hiring.todo.skill.statusPending')
@@ -1000,8 +997,8 @@ function SkillCardBody({
         <span
           className={clsx(
             'hb-todo-skill-status-pill',
-            searching && 'is-searching',
-            !searching && linked.length > 0 && 'is-linked',
+            currentSearching && 'is-searching',
+            !currentSearching && linked.length > 0 && 'is-linked',
           )}
         >
           {searchStatusLabel}
@@ -1058,6 +1055,7 @@ function SkillCardBody({
               {currentResults.map(s => {
                 const displayName = s.displayName ?? s.name
                 const linkedNow = isLinked(s.id)
+                const recommendation = isRecommendedSkill(s) ? s : null
 
                 return (
                   <li key={s.id} className="hb-todo-skill-item">
@@ -1070,6 +1068,13 @@ function SkillCardBody({
                         </div>
                       </div>
                       {s.description && <p className="hb-todo-skill-desc">{s.description}</p>}
+                      {recommendation?.matchedKeywords?.length && !trimmedQuery ? (
+                        <ul className="hb-todo-tag-list">
+                          {recommendation.matchedKeywords.slice(0, 5).map(keyword => (
+                            <li key={keyword} className="hb-todo-tag is-mini is-reason">{keyword}</li>
+                          ))}
+                        </ul>
+                      ) : null}
                       {s.tags && s.tags.length > 0 && (
                         <ul className="hb-todo-tag-list">
                           {s.tags.slice(0, 5).map(t => <li key={t} className="hb-todo-tag is-mini">{t}</li>)}
@@ -1160,6 +1165,10 @@ function SkillCardBody({
 }
 
 // ── 外部系统卡（可选配置） ────────────────────────────────────────────────────
+
+function isRecommendedSkill(skill: StoreSkillItem | RecommendedStoreSkillItem): skill is RecommendedStoreSkillItem {
+  return 'score' in skill && 'reason' in skill
+}
 
 function ExternalCardBody({
   hireId,

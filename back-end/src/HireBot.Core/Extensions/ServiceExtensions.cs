@@ -43,6 +43,7 @@ public static class ServiceExtensions
         ArgumentNullException.ThrowIfNull(configuration);
 
         AddPersistence(services, configuration);
+        services.AddMemoryCache();
         AddHttpClients(services, configuration);
         AddProviders(services, configuration);
         AddDomainServices(services);
@@ -160,6 +161,7 @@ public static class ServiceExtensions
     private static void AddDomainServices(IServiceCollection services)
     {
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
+        services.AddScoped<ITemplateSkillRecommendationService, TemplateSkillRecommendationService>();
         services.AddScoped<IEmployeeHiringService, EmployeeHiringService>();
         services.AddScoped<IStoreSkillPackageDownloader, StoreSkillPackageDownloader>();
         services.AddScoped<IInstanceArtifactCloneService, InstanceArtifactCloneService>();

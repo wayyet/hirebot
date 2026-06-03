@@ -141,6 +141,7 @@ export type {
   SkillSummary,
   SkillDetail,
   StoreSkillItem,
+  RecommendedStoreSkillItem,
   StoreSkillListData,
 } from './modules/skillCatalogApi'
 
