@@ -110,14 +110,23 @@ public sealed partial class EmployeeRuntimeService(
 
     /// <summary>
     /// 获取当前租户下所有部门数字员工列表。
+    /// 数据隔离规则：
+    /// - live 状态的员工：全部门可见
+    /// - 雇佣中的员工（hiring/hired/interning_ai/interning_human/failed）：只对创建者可见
     /// </summary>
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetDepartmentEmployeesAsync(CancellationToken cancellationToken = default)
     {
+        var owner = requestContextService.ResolveOwnerSubject();
         var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        
+        // 查询条件：部门类型 + (已上岗 OR 当前用户创建的)
         var query = dbContext.Instances
             .AsNoTracking()
-            .Where(item => item.TenantId == tenantId && item.InstanceType == "department")
+            .Where(item => item.TenantId == tenantId 
+                && item.InstanceType == "department"
+                && (item.Status == "live" || item.OwnerUserId == owner))
             .OrderByDescending(item => item.UpdatedAt);
+        
         var employees = await LoadInstancesAsEmployeesAsync(query, cancellationToken: cancellationToken);
         var summaries = employees.Select(ToSummary).ToArray();
         return ApiResponse<IReadOnlyList<EmployeeSummaryDto>>.SuccessResponse(summaries);
