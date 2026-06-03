@@ -1518,11 +1518,6 @@ export default function HiringPage() {
 
     ws.onMessage = (msg) => {
       const type = msg.type as string
-      // 调试：打印每条 WS 事件（text 截断为 120 字符避免刷屏）
-      if (import.meta.env.DEV) {
-        const preview = String((msg as unknown as Record<string, unknown>).text ?? '').slice(0, 120)
-        console.log('[WS onMessage] type=%s text=%s', type, preview)
-      }
       if (type === 'typing_start') {
         // AI 开始思考，切换到流式展示
         typewriterStream.start()
@@ -1579,7 +1574,6 @@ export default function HiringPage() {
         const rawMsg = msg as unknown as Record<string, unknown>
         const rawName = String(rawMsg.text ?? '')
         const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
-        console.log('[WS tool_start] rawName=%s toolName=%s', rawName, toolName)
         // 累积本轮的工具调用，驱动流式气泡上方的进度面板
         const args = rawMsg.arguments != null
           ? (typeof rawMsg.arguments === 'string' ? rawMsg.arguments : JSON.stringify(rawMsg.arguments))
@@ -1594,7 +1588,6 @@ export default function HiringPage() {
         const rawName = String(rawMsg.tool_name ?? rawMsg.name ?? '')
         const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
         const textStr = String(rawMsg.text ?? '')
-        console.log('[WS tool_result] rawName=%s toolName=%s textPreview=%s', rawName, toolName, textStr.slice(0, 120))
         // 将返回填回本轮步骤：同名优先匹配最后一个 running；缺失工具名时回退到最后一个 running
         {
           const list = pendingToolStepsRef.current

@@ -296,7 +296,7 @@ export default function TeamPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold text-slate-900 mb-2">团队</h1>
-              <p className="text-sm text-slate-500">管理已雇佣的数字员工 · {total} 个成员</p>
+              <p className="text-sm text-slate-500">管理雇佣中的数字员工 · {total} 个成员</p>
             </div>
             <div className="flex items-center gap-3">
               <button

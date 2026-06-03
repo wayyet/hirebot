@@ -1,7 +1,7 @@
 ﻿import i18n from '@/i18n'
 import type { EmployeeDetail, EmployeeSummary } from '@/infra/api'
 
-export type HirebotLifecycle = 'hired' | 'interning_ai' | 'interning_human' | 'live' | 'failed' | 'retired'
+export type HirebotLifecycle = 'hiring' | 'hired' | 'interning_ai' | 'interning_human' | 'live' | 'failed' | 'retired'
 export type EmployeeOwnership = 'department' | 'personal_clone' | 'private_branch'
 
 type EmployeeLike = Pick<EmployeeSummary, 'nickname' | 'roleName' | 'sourceTemplate' | 'owningTeam' | 'instanceType' | 'status' | 'lifecycleStatus'>
@@ -26,6 +26,7 @@ function normalizeStatus(value?: string | null): HirebotLifecycle | null {
   if (!value) return null
 
   const status = value.trim().toLowerCase()
+  if (status === 'hiring') return 'hiring'
   if (status === 'hired') return 'hired'
   if (status === 'interning_ai') return 'interning_ai'
   if (status === 'interning_human') return 'interning_human'
@@ -70,6 +71,7 @@ function isPendingOnboarding(lifecycleStatus?: string | null) {
 }
 
 export function statusLabel(status: HirebotLifecycle, lifecycleStatus?: string | null) {
+  if (status === 'hiring') return i18n.t('employees.status.hiring')
   if (status === 'live') return i18n.t('employees.status.live')
   if (status === 'interning_human' && isPendingOnboarding(lifecycleStatus)) return i18n.t('employees.status.pendingOnboarding')
   if (status === 'interning_ai') return i18n.t('employees.status.interningAi')
@@ -80,6 +82,7 @@ export function statusLabel(status: HirebotLifecycle, lifecycleStatus?: string |
 }
 
 export function statusClass(status: HirebotLifecycle, lifecycleStatus?: string | null) {
+  if (status === 'hiring') return 'purple'
   if (status === 'live') return 'green'
   if (status === 'interning_human' && isPendingOnboarding(lifecycleStatus)) return 'blue'
   if (status === 'interning_ai') return 'blue'

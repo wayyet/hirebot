@@ -681,6 +681,7 @@ public sealed partial class EmployeeRuntimeService
             var normalized = status.Trim().ToLowerInvariant();
             return normalized switch
             {
+                "hiring" => "hiring",
                 "hired" => "hired",
                 "interning_ai" => "interning_ai",
                 "interning_human" => "interning_human",
@@ -696,6 +697,7 @@ public sealed partial class EmployeeRuntimeService
             var normalized = lifecycleStatus.Trim().ToLowerInvariant();
             return normalized switch
             {
+                "hiring" or "雇佣中" => "hiring",
                 "hired" or "待入职" or "已雇佣" => "hired",
                 "interning_ai" or "ai评估" or "ai审核" or "待实习" => "interning_ai",
                 "interning_human" or "人工评估" or "人工审核" => "interning_human",
@@ -716,6 +718,7 @@ public sealed partial class EmployeeRuntimeService
     {
         return status switch
         {
+            "hiring" => "雇佣中",
             "hired" => "已雇佣",
             "interning_ai" => "AI评估中",
             "interning_human" => "人工复核",
