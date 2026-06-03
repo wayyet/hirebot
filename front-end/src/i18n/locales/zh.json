@@ -613,8 +613,7 @@
       "emptyTitle": "当前没有符合筛选条件的数字员工",
       "emptyCopyManager": "去模板池开始一轮新雇佣，或切换到其他状态查看不同阶段的员工。",
       "emptyCopyMember": "等部门长完成上岗后，这里就会出现可以直接使用和复制的员工。",
-      "createdAt": "创建于 {{date}}",
-      "cloneReady": "可复制",
+      "createdAt": "创建于 {{date}}",      "createdBy": "创建人:",      "cloneReady": "可复制",
       "actions": {
         "uploadTemplate": "上传岗位员工",
         "hireFromPool": "从模板池雇佣",
@@ -768,7 +767,7 @@
     "meta": {
       "sourceTemplate": "来源模板",
       "department": "所属部门",
-      "owner": "Owner",
+      "owner": "创建人",
       "createdAt": "创建时间",
       "source": "来源关系",
       "instanceId": "实例 ID",

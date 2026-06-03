@@ -32,6 +32,19 @@ CREATE TABLE "Users" (
     CONSTRAINT "PK_Users" PRIMARY KEY ("Id")
 );
 
+CREATE TABLE "AppUsers" (
+    "Id" character varying(256) NOT NULL,
+    "TenantId" character varying(128) NOT NULL,
+    "Username" character varying(128) NOT NULL,
+    "DisplayName" character varying(256) NOT NULL,
+    "FamilyName" character varying(256),
+    "GivenName" character varying(256),
+    "Email" character varying(256) NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "LastSeenAt" timestamp with time zone NOT NULL,
+    CONSTRAINT "PK_AppUsers" PRIMARY KEY ("Id")
+);
+
 CREATE TABLE "EvaluationAssets" (
     "Id" uuid NOT NULL,
     "SessionEntityId" uuid NOT NULL,
@@ -82,6 +95,10 @@ CREATE INDEX "IX_EvaluationSessions_OwnerSubject_EmployeeId_UpdatedAtUtc" ON "Ev
 CREATE UNIQUE INDEX "IX_EvaluationSessions_SessionId" ON "EvaluationSessions" ("SessionId");
 
 CREATE UNIQUE INDEX "IX_Users_Email" ON "Users" ("Email");
+
+CREATE INDEX "IX_AppUsers_TenantId" ON "AppUsers" ("TenantId");
+
+CREATE INDEX "IX_AppUsers_TenantId_Username" ON "AppUsers" ("TenantId", "Username");
 
 INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
 VALUES ('20260428035035_AddEvaluationPersistence', '10.0.7');
@@ -420,6 +437,22 @@ ALTER TABLE "Instances" ADD COLUMN IF NOT EXISTS runtime_snapshot_json text;
 
 INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
 VALUES ('20260504093000_AddInstanceRuntimeSnapshot', '10.0.7');
+
+COMMIT;
+
+START TRANSACTION;
+ALTER TABLE "Instances" ADD COLUMN IF NOT EXISTS describe_document text;
+
+INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+VALUES ('20260601000000_AddInstanceDescribeDocument', '10.0.7');
+
+COMMIT;
+
+START TRANSACTION;
+ALTER TABLE "Instances" ADD COLUMN IF NOT EXISTS description text;
+
+INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+VALUES ('20260604000000_AddInstanceDescription', '10.0.7');
 
 COMMIT;
 

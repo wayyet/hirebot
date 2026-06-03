@@ -28,6 +28,7 @@ import {
 import { api, type EmployeeDetail } from "@/infra/api";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
 import { instanceBasePath } from "@/shared/utils/instancePath";
+import { CreatorDisplay } from "@/shared/components/CreatorDisplay";
 
 function formatRelativeTime(dateStr: string, language: string): string {
   if (!dateStr) return "";
@@ -253,14 +254,18 @@ export default function InstanceDetailPage() {
                     </span>
                   </div>
                 </div>
-                <div className="hb-detail-meta">
-                  <span>
-                    {t("instanceDetail.meta.department")}{" "}
-                    {employee.owningTeam || employee.departmentId || "-"}
-                  </span>
-                  <span className="hb-detail-meta-sep">|</span>
-                  <span>
-                    {t("instanceDetail.meta.owner")} {employee.ownerUserId || "-"}
+                <div className="hb-detail-meta flex items-center">
+                  <span className="flex items-center gap-1">
+                    <span>{t("instanceDetail.meta.owner")}</span>
+                    {employee.createdBy ? (
+                      <CreatorDisplay
+                        creator={employee.createdBy}
+                        avatarSize={16}
+                        showAvatar={false}
+                      />
+                    ) : (
+                      <span>{employee.ownerUserId || "-"}</span>
+                    )}
                   </span>
                   <span className="hb-detail-meta-sep">|</span>
                   <span>

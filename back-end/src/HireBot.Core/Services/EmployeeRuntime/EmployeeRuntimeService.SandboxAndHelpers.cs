@@ -35,6 +35,7 @@ public sealed partial class EmployeeRuntimeService
     private async Task UpsertInstanceRecordAsync(
         EmployeeDetailDto employee,
         string? currentVersion = null,
+        string? description = null,
         string? describeDocument = null,
         CancellationToken cancellationToken = default)
     {
@@ -45,6 +46,18 @@ public sealed partial class EmployeeRuntimeService
         var version = string.IsNullOrWhiteSpace(currentVersion)
             ? existing?.CurrentVersion ?? "v_initial"
             : currentVersion.Trim();
+
+        // 如果未提供 description，尝试从 employee.Description 获取（可能在构建DTO时已设置）
+        var finalDescription = description ?? employee.Description;
+
+        // 如果未提供 describeDocument，尝试从源 Instance 复制
+        if (string.IsNullOrWhiteSpace(describeDocument) && existing is null)
+        {
+            describeDocument = await TryInheritDescribeDocumentAsync(
+                employee.FromInstanceId,
+                employee.BasedOnTemplateId,
+                cancellationToken);
+        }
 
         if (existing is null)
         {
@@ -61,6 +74,7 @@ public sealed partial class EmployeeRuntimeService
                 DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? "department-default" : employee.DepartmentId,
                 CurrentVersion = version,
                 RuntimeSnapshotJson = JsonSerializer.Serialize(employee),
+                Description = finalDescription,
                 DescribeDocument = describeDocument,
                 CreatedAt = ParseDate(employee.CreatedAt) ?? now,
                 UpdatedAt = now
@@ -77,6 +91,10 @@ public sealed partial class EmployeeRuntimeService
             existing.DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? existing.DepartmentId : employee.DepartmentId;
             existing.CurrentVersion = version;
             existing.RuntimeSnapshotJson = JsonSerializer.Serialize(employee);
+            if (!string.IsNullOrWhiteSpace(finalDescription))
+            {
+                existing.Description = finalDescription;
+            }
             if (describeDocument != null)
             {
                 existing.DescribeDocument = describeDocument;
@@ -101,6 +119,49 @@ public sealed partial class EmployeeRuntimeService
         if (DateOnly.TryParse(value, out var date))
         {
             return date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 尝试从源 Instance 或模板 Instance 继承 DescribeDocument。
+    /// </summary>
+    private async Task<string?> TryInheritDescribeDocumentAsync(
+        string? fromInstanceId,
+        string? basedOnTemplateId,
+        CancellationToken cancellationToken)
+    {
+        // 优先从 FromInstanceId（直接克隆源）获取
+        if (!string.IsNullOrWhiteSpace(fromInstanceId))
+        {
+            var fromInstance = await dbContext.Instances
+                .AsNoTracking()
+                .Where(i => i.InstanceId == fromInstanceId)
+                .Select(i => i.DescribeDocument)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(fromInstance))
+            {
+                return fromInstance;
+            }
+        }
+
+        // 其次从 BasedOnTemplateId 查找模板 Instance
+        // 假设模板ID对应的Instance记录中保存了模板的 describe.md
+        if (!string.IsNullOrWhiteSpace(basedOnTemplateId))
+        {
+            // 尝试查找以模板ID为InstanceId的记录（模板自身的Instance）
+            var templateInstance = await dbContext.Instances
+                .AsNoTracking()
+                .Where(i => i.InstanceId == basedOnTemplateId || i.BasedOnTemplateId == basedOnTemplateId)
+                .Select(i => i.DescribeDocument)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(templateInstance))
+            {
+                return templateInstance;
+            }
         }
 
         return null;

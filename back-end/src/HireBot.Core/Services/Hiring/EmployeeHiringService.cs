@@ -410,6 +410,7 @@ internal sealed partial class EmployeeHiringService(
                     HireId: call.Data.HireId,
                     TemplateId: normalizedTemplateId,
                     TemplateName: template.Name,
+                    Description: template.Description,
                     OwnerSubject: ownerSubject,
                     TenantId: tenantId,
                     OperatorId: operatorId,
@@ -1452,7 +1453,9 @@ internal sealed partial class EmployeeHiringService(
         // 如果仍然没有 employeeId，创建新实例（兼容旧流程）
         if (string.IsNullOrWhiteSpace(employeeId) && !string.IsNullOrWhiteSpace(runtimeContext.TemplateId))
         {
-            var capabilities = (await templateDataProvider.GetByIdAsync(runtimeContext.TemplateId, finalizationCancellationToken))?.CoreAbilities ?? [];
+            var template = await templateDataProvider.GetByIdAsync(runtimeContext.TemplateId, finalizationCancellationToken);
+            var capabilities = template?.CoreAbilities ?? [];
+            var templateDescription = template?.Description;
             
             // 直接创建 interning_ai 状态的实例（兼容旧流程）
             // 新流程已在 HireAsync 时创建 hiring 状态实例，这里仅为历史兼容
@@ -1463,6 +1466,7 @@ internal sealed partial class EmployeeHiringService(
                 HireId: normalizedHireId,
                 TemplateId: runtimeContext.TemplateId,
                 TemplateName: runtimeContext.TemplateName,
+                Description: templateDescription,
                 OwnerSubject: runtimeContext.OwnerSubject,
                 TenantId: runtimeContext.TenantId,
                 OperatorId: runtimeContext.OperatorId,

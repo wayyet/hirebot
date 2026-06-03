@@ -58,6 +58,7 @@ builder.Services.AddSwaggerGen(options =>
     options.OperationFilter<FormFileOperationFilter>();
 });
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache();
 builder.Services.AddAuthorization();
 
 var oidcAuthority = builder.Configuration["Security:OidcAuthority"];
@@ -190,6 +191,7 @@ app.MapGet("/api/diagnostics/evaluation-root", () =>
 });
 
 app.UseAuthentication();
+app.UseMiddleware<UserSyncMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 app.MapMcp("/mcp");

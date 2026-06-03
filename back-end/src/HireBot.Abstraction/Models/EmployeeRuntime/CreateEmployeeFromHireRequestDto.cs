@@ -4,6 +4,7 @@ public sealed record CreateEmployeeFromHireRequestDto(
     string HireId,
     string TemplateId,
     string TemplateName,
+    string? Description,
     string OwnerSubject,
     string TenantId,
     string OperatorId,

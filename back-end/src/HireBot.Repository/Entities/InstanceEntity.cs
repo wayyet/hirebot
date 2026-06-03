@@ -44,6 +44,11 @@ public sealed class InstanceEntity
     public string? RuntimeSnapshotJson { get; set; }
 
     /// <summary>
+    /// 模板简短描述文本，用于列表展示。
+    /// </summary>
+    public string? Description { get; set; }
+
+    /// <summary>
     /// describe.md 说明文档全文（Markdown），模板包上传时写入。
     /// </summary>
     public string? DescribeDocument { get; set; }
