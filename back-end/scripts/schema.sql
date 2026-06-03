@@ -440,3 +440,19 @@ VALUES ('20260504093000_AddInstanceRuntimeSnapshot', '10.0.7');
 
 COMMIT;
 
+START TRANSACTION;
+ALTER TABLE "Instances" ADD COLUMN IF NOT EXISTS describe_document text;
+
+INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+VALUES ('20260601000000_AddInstanceDescribeDocument', '10.0.7');
+
+COMMIT;
+
+START TRANSACTION;
+ALTER TABLE "Instances" ADD COLUMN IF NOT EXISTS description text;
+
+INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+VALUES ('20260604000000_AddInstanceDescription', '10.0.7');
+
+COMMIT;
+

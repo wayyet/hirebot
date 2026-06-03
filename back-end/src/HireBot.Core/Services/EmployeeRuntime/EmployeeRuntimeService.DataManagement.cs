@@ -92,9 +92,9 @@ public sealed partial class EmployeeRuntimeService
             // 始终使用 DB 实体的 CreatedAt 覆盖快照中的值，避免历史快照缺少时间精度
             employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
             
-            // 填充描述信息（优先从 DescribeDocument 提取简短描述，备用 CardIntro，最后截取原文）
-            string? description = null;
-            if (!string.IsNullOrWhiteSpace(instance.DescribeDocument))
+            // 填充描述信息（优先使用 Description 字段，如果为空则从 DescribeDocument 提取）
+            string? description = instance.Description;
+            if (string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(instance.DescribeDocument))
             {
                 // 尝试提取业务定位一句话
                 description = ExtractBusinessPositioningOneLiner(instance.DescribeDocument);
@@ -111,7 +111,7 @@ public sealed partial class EmployeeRuntimeService
                         : instance.DescribeDocument;
                 }
             }
-            // 如果 DescribeDocument 为空，使用 CardIntro
+            // 如果 Description 和 DescribeDocument 都为空，使用 CardIntro
             if (string.IsNullOrWhiteSpace(description))
             {
                 description = employee.CardIntro;
