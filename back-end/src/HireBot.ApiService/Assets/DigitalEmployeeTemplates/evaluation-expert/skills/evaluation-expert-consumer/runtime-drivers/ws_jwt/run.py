@@ -66,7 +66,7 @@ def _load_json(path: str) -> dict:
     if not p.exists():
         _emit_error(f"file not found: {path}")
         sys.exit(2)
-    with open(p, encoding="utf-8") as f:
+    with open(p, encoding="utf-8-sig") as f:
         return json.load(f)
 
 
@@ -86,6 +86,144 @@ def _emit(obj: dict) -> None:
 
 def _emit_error(detail: str) -> None:
     _emit({"event": "error", "detail": detail})
+
+
+
+
+_STOP_REASONS = {
+    "goal_achieved",
+    "bottom_line_violated",
+    "deadlock_detected",
+    "customer_gave_up",
+}
+
+_EMOTIONS = {
+    "angry",
+    "anxious",
+    "neutral",
+    "curious",
+    "satisfied",
+    "skeptical",
+    "frustrated",
+    "calmer",
+    "more_upset",
+}
+
+_ABSOLUTE_EMOTIONS = {
+    "angry",
+    "anxious",
+    "neutral",
+    "curious",
+    "satisfied",
+    "skeptical",
+    "frustrated",
+}
+
+_DELTA_EMOTION_MAP = {
+    "calmer": "neutral",
+    "more_upset": "frustrated",
+}
+
+_PERCEIVED_PROGRESS = {
+    "none",
+    "partial",
+    "resolved",
+    "regressed",
+}
+
+_SIMULATOR_DECISION_KEYS = {
+    "turn_index",
+    "should_continue",
+    "stop_reason",
+    "next_utterance",
+    "internal_emotion",
+    "perceived_progress",
+    "rationale",
+    "violated_bottom_line",
+}
+
+_SIMULATOR_DECISION_REQUIRED_KEYS = {
+    "turn_index",
+    "should_continue",
+    "internal_emotion",
+    "perceived_progress",
+}
+
+
+def _validate_simulator_decision(decision: dict, expected_turn_index: int) -> list[str]:
+    """校验宿主 agent 写入 driver 前的 SimulatorDecision，避免坏 trace 落盘后再补丁修复。"""
+    errors: list[str] = []
+
+    unknown_keys = sorted(set(decision) - _SIMULATOR_DECISION_KEYS)
+    if unknown_keys:
+        errors.append(f"decision has unknown field(s): {unknown_keys}")
+
+    missing_keys = sorted(_SIMULATOR_DECISION_REQUIRED_KEYS - set(decision))
+    if missing_keys:
+        errors.append(f"decision missing required field(s): {missing_keys}")
+
+    turn_index = decision.get("turn_index")
+    if type(turn_index) is not int:
+        errors.append("decision.turn_index must be an integer")
+    elif turn_index < 0:
+        errors.append("decision.turn_index must be >= 0")
+    elif turn_index != expected_turn_index:
+        errors.append(
+            f"decision.turn_index ({turn_index}) must match outer action "
+            f"turn_index ({expected_turn_index})"
+        )
+
+    should_continue = decision.get("should_continue")
+    if not isinstance(should_continue, bool):
+        errors.append("decision.should_continue must be a boolean")
+
+    internal_emotion = decision.get("internal_emotion")
+    if internal_emotion not in _EMOTIONS:
+        errors.append(
+            "decision.internal_emotion must be one of "
+            f"{sorted(_EMOTIONS)}, got {internal_emotion!r}"
+        )
+
+    perceived_progress = decision.get("perceived_progress")
+    if perceived_progress not in _PERCEIVED_PROGRESS:
+        errors.append(
+            "decision.perceived_progress must be one of "
+            f"{sorted(_PERCEIVED_PROGRESS)}, got {perceived_progress!r}"
+        )
+
+    stop_reason = decision.get("stop_reason")
+    next_utterance = decision.get("next_utterance")
+    if "next_utterance" in decision and not isinstance(next_utterance, str):
+        errors.append("decision.next_utterance must be a string when present")
+    if "rationale" in decision and not isinstance(decision["rationale"], str):
+        errors.append("decision.rationale must be a string when present")
+    if (
+        "violated_bottom_line" in decision
+        and not isinstance(decision["violated_bottom_line"], bool)
+    ):
+        errors.append("decision.violated_bottom_line must be a boolean when present")
+
+    if should_continue is True:
+        if stop_reason is not None:
+            errors.append("decision.stop_reason must be null when should_continue is true")
+        if "next_utterance" not in decision:
+            errors.append("decision.next_utterance is required when should_continue is true")
+    elif should_continue is False:
+        if stop_reason not in _STOP_REASONS:
+            errors.append(
+                "decision.stop_reason must be a non-null enum value when "
+                f"should_continue is false, got {stop_reason!r}"
+            )
+
+    if decision.get("violated_bottom_line") is True and (
+        should_continue is not False or stop_reason != "bottom_line_violated"
+    ):
+        errors.append(
+            "decision.violated_bottom_line=true requires should_continue=false "
+            "and stop_reason='bottom_line_violated'"
+        )
+
+    return errors
 
 
 def _resolve_driver_config(eval_ctx: dict) -> dict:
@@ -298,11 +436,9 @@ async def _serve(
         termination: dict[str, Any] = {"reason": termination_reason}
         if termination_detail:
             termination["detail"] = termination_detail
-        if final_emotion in {
-            "angry", "anxious", "neutral", "curious",
-            "satisfied", "skeptical", "frustrated",
-        }:
-            termination["final_emotion"] = final_emotion
+        mapped_final_emotion = _DELTA_EMOTION_MAP.get(final_emotion, final_emotion)
+        if mapped_final_emotion in _ABSOLUTE_EMOTIONS:
+            termination["final_emotion"] = mapped_final_emotion
         termination["turns_used"] = turns_used
 
         trace: dict[str, Any] = {
@@ -351,13 +487,44 @@ async def _serve(
                 action = cmd.get("action")
 
                 if action == "send":
-                    turn_index = int(cmd.get("turn_index", len(simulator_trail)))
-                    text = (cmd.get("text") or "").strip()
-                    decision = cmd.get("decision") or {}
+                    raw_turn_index = cmd.get("turn_index", len(simulator_trail))
+                    if type(raw_turn_index) is not int:
+                        termination_reason = "evaluatee_error"
+                        termination_detail = "'send' action turn_index must be an integer"
+                        _emit_error(termination_detail)
+                        exit_code = 2
+                        break
 
-                    # cache the decision into simulator_trail with timestamp
+                    turn_index = raw_turn_index
+                    text = (cmd.get("text") or "").strip()
+                    decision = cmd.get("decision")
+
+                    if not isinstance(decision, dict):
+                        termination_reason = "evaluatee_error"
+                        termination_detail = (
+                            f"'send' action requires object decision at "
+                            f"turn_index={turn_index}"
+                        )
+                        _emit_error(termination_detail)
+                        exit_code = 2
+                        break
+
                     trail_entry = dict(decision)
-                    trail_entry.setdefault("turn_index", turn_index)
+                    decision_errors = _validate_simulator_decision(
+                        trail_entry,
+                        expected_turn_index=turn_index,
+                    )
+                    if decision_errors:
+                        termination_reason = "evaluatee_error"
+                        termination_detail = (
+                            "invalid SimulatorDecision on send: "
+                            + "; ".join(decision_errors)
+                        )
+                        _emit_error(termination_detail)
+                        exit_code = 2
+                        break
+
+                    # 校验通过后才写入 simulator_trail，避免后续靠补丁修 trace。
                     trail_entry["decided_at"] = _now_iso()
                     simulator_trail.append(trail_entry)
                     final_emotion = decision.get("internal_emotion") or final_emotion
@@ -444,12 +611,33 @@ async def _serve(
 
                 elif action == "end":
                     decision = cmd.get("decision")
-                    if isinstance(decision, dict):
-                        trail_entry = dict(decision)
-                        trail_entry.setdefault("turn_index", len(simulator_trail))
-                        trail_entry["decided_at"] = _now_iso()
-                        simulator_trail.append(trail_entry)
-                        final_emotion = decision.get("internal_emotion") or final_emotion
+                    if not isinstance(decision, dict):
+                        termination_reason = "evaluatee_error"
+                        termination_detail = "'end' action requires object decision"
+                        _emit_error(termination_detail)
+                        exit_code = 2
+                        break
+
+                    expected_turn_index = len(simulator_trail)
+                    trail_entry = dict(decision)
+                    decision_errors = _validate_simulator_decision(
+                        trail_entry,
+                        expected_turn_index=expected_turn_index,
+                    )
+                    if decision_errors:
+                        termination_reason = "evaluatee_error"
+                        termination_detail = (
+                            "invalid SimulatorDecision on end: "
+                            + "; ".join(decision_errors)
+                        )
+                        _emit_error(termination_detail)
+                        exit_code = 2
+                        break
+
+                    # 终止动作同样先校验再落盘，确保 trace 首次生成即满足 schema。
+                    trail_entry["decided_at"] = _now_iso()
+                    simulator_trail.append(trail_entry)
+                    final_emotion = decision.get("internal_emotion") or final_emotion
 
                     term = cmd.get("termination") or {}
                     termination_reason = term.get("reason") or termination_reason
@@ -529,6 +717,8 @@ def main() -> None:
     args = ap.parse_args()
 
     eval_ctx = _load_json(args.evaluation_context)
+    evaluation_id = eval_ctx.get("evaluation_id") or f"eval-{uuid.uuid4().hex[:8]}"
+
     tc = _load_json(args.enriched_test_case)
     cfg = _resolve_driver_config(eval_ctx)
     ws_token = _resolve_ws_token(eval_ctx, cfg)
@@ -536,8 +726,8 @@ def main() -> None:
     simulator_id = _resolve_simulator_id(eval_ctx)
     effective_max_turns = _resolve_effective_max_turns(eval_ctx, tc)
 
-    evaluation_id = eval_ctx.get("evaluation_id") or f"eval-{uuid.uuid4().hex[:8]}"
     test_case_id = tc.get("test_case_id") or Path(args.enriched_test_case).stem
+    output_path = Path(args.output)
 
     inp = tc.get("input") or {}
     if not (inp.get("opening_message") or inp.get("user_message")):
@@ -553,7 +743,7 @@ def main() -> None:
         cfg=cfg,
         simulator_id=simulator_id,
         effective_max_turns=effective_max_turns,
-        output_path=Path(args.output),
+        output_path=output_path,
     ))
 
     sys.exit(exit_code)

@@ -271,6 +271,32 @@
       "notes": "Runs unconditionally to ensure every test case carries a valid set of applicable_metrics. Wildcard handling: '*' in applicable_roles or applicable_scenarios is a match-all wildcard, NOT a literal string."
     },
     {
+      "concept_id": "S2_5",
+      "projection_action": "map",
+      "target_kind": "workflow_step",
+      "target_name": "planRun",
+      "attributes": {
+        "executor": "deterministic",
+        "runs_between": "S2 (after enrichTestCases) and S3 (before driveEmployeeOnScenario)",
+        "llm_disallowed": true,
+        "inputs": [
+          "evaluation_context.runtime_driver.driver_id",
+          "evaluation_context.runtime_driver.driver_config",
+          "evaluation_context.runtime_simulator.simulator_id",
+          "evaluation_context.global_turn_cap",
+          "runs/<eval-id>/enriched-cases/<tc_id>.json"
+        ],
+        "outputs": [
+          "runs/<eval-id>/run_plan.json"
+        ],
+        "output_schema": "runtime-schemas/run_plan.schema.json",
+        "plan_contract": "For every enriched test case, materialise five literal shell strings: pre_spawn_cleanup, spawn, read_one_event, write_action_template, post_scenario_cleanup. STEP 3 must execute them verbatim. The only runtime substitution allowed anywhere in the plan is replacing the single <<JSON_PAYLOAD>> marker in write_action_template.",
+          "driver_cli_contract": "For ws_jwt, spawn MUST invoke runtime-drivers/ws_jwt/run.py with --evaluation-context, --enriched-test-case, and --output. Legacy flags --test-case-id, --endpoint, --pad-in, and --pad-out are forbidden and MUST fail schema validation before STEP 3. Spawn shell strings MUST NOT contain `&;`; background `&` is already the command separator in sh/bash.",
+        "pad_contract": "Canonical pad layout is /tmp/eval-driver/<eval_id>/<tc_id>/{in,out,cursor,err,pid}. Only in is FIFO. out is a regular stdout append file. cursor is a regular file tracking the next unread line number for the read_one_event poller.",
+        "notes": "S2.5 removes runtime shell composition from STEP 3. A missing or invalid run_plan.json blocks STEP 3; the agent must not self-heal by editing commands during scenario execution."
+      }
+    },
+    {
       "concept_id": "S3",
       "projection_action": "map",
       "target_kind": "workflow_step",
@@ -295,7 +321,7 @@
         },
         "driver_protocol": {
           "transport": "line-delimited JSON over driver subprocess stdin/stdout",
-          "lifecycle": "driver is spawned once per scenario with --evaluation-context and --output flags; first stdout line is {\"event\":\"ready\"}; driver exits after {\"event\":\"trace_written\"} or {\"event\":\"error\"}",
+          "lifecycle": "driver is spawned once per scenario with --evaluation-context, --enriched-test-case, and --output; first stdout line is {\"event\":\"ready\"}; driver exits after {\"event\":\"trace_written\"} or {\"event\":\"error\"}",
           "agent_to_driver_actions": {
             "send": "{\"action\":\"send\",\"turn_index\":N,\"text\":<utterance>,\"decision\":<full SimulatorDecision>}",
             "end": "{\"action\":\"end\",\"decision\":<final SimulatorDecision with should_continue=false>,\"termination\":{...}}"
@@ -306,14 +332,14 @@
             "trace_written": "{\"event\":\"trace_written\",\"path\":...}",
             "error": "{\"event\":\"error\",\"detail\":...}"
           },
-          "trace_assembly": "driver caches each `decision` from `send`/`end` actions into simulator_trail and writes the final ExecutionTrace JSON to --output before exiting; the host agent does NOT write the trace file directly"
+          "trace_assembly": "driver caches each `decision` from `send`/`end` actions into simulator_trail and writes the final ExecutionTrace JSON to the resolved output path before exiting; the host agent does NOT write the trace file directly"
         },
         "loop_logic": {
           "turn_0": "host agent emits SimulatorDecision with turn_index=0 and next_utterance = tc.input.opening_message verbatim, WITHOUT consulting its LLM (no evaluatee reply yet to react to); writes a 'send' action to driver stdin",
           "turn_n_step_1": "host agent reads {\"event\":\"evaluatee_turn\"} from driver stdout and appends it to dialog_so_far",
           "turn_n_step_2": "host agent renders simulator/<id>/system_prompt.md with placeholders ({{customer_persona}} / {{goal}} / {{stop_conditions}} / {{context}} / {{current_emotion}} / {{dialog_so_far}} / {{effective_max_turns}}) and asks its OWN LLM for a SimulatorDecision JSON; validates against simulator_decision.schema.json",
           "turn_n_step_3": "host agent enforces effective_max_turns; if turn_n+1 >= effective_max_turns, sends an 'end' action with reason=max_turns_reached regardless of decision.should_continue",
-          "turn_n_step_4": "if decision.should_continue=false, host agent sends 'end' action with termination.reason mapped from stop_reason; otherwise sends 'send' action with decision.next_utterance and loops"
+          "turn_n_step_4": "if decision.should_continue=false AND decision.next_utterance is non-empty, host agent first sends a 'send' action carrying that exact next_utterance, then sends 'end' with termination.reason mapped from stop_reason; if decision.should_continue=false AND next_utterance is empty or absent, host agent sends 'end'; otherwise sends 'send' action with decision.next_utterance and loops"
         },
         "turn_budget_resolution": {
           "effective_max_turns": "min(test_case.turn_budget.hard_max_turns, evaluation_context.global_turn_cap)",
@@ -511,7 +537,8 @@
     { "relation_id": "E1", "from": "curateMetrics", "to": "parseTestCases", "kind": "conditionally_precedes", "condition": "test_case_status == 'missing'" },
     { "relation_id": "E2", "from": "parseTestCases", "to": "enrichTestCases", "kind": "precedes" },
     { "relation_id": "E2b", "from": "curateMetrics", "to": "enrichTestCases", "kind": "conditionally_precedes", "condition": "test_case_status == 'ready'" },
-    { "relation_id": "E3", "from": "enrichTestCases", "to": "driveEmployeeOnScenario", "kind": "loops_over", "loop_var": "enriched_test_cases" },
+    { "relation_id": "E2_5", "from": "enrichTestCases", "to": "planRun", "kind": "precedes" },
+    { "relation_id": "E3", "from": "planRun", "to": "driveEmployeeOnScenario", "kind": "loops_over", "loop_var": "run_plan.scenarios" },
     { "relation_id": "E4", "from": "driveEmployeeOnScenario", "to": "scoreScenario", "kind": "precedes_within_loop" },
     { "relation_id": "E5", "from": "scoreScenario", "to": "aggregateAcrossScenarios", "kind": "loop_exit_then_precedes" },
     { "relation_id": "E6", "from": "aggregateAcrossScenarios", "to": "rollUpToDimensions", "kind": "precedes" },
@@ -663,6 +690,30 @@
       "target_name": "CurateDecisionsMustBeAudited",
       "severity_mapping": "critical -> blocking_workflow_precondition",
       "notes": "Every entry in STEP 1.2 removed[] and added[] MUST have a corresponding evaluation_context.curate_log entry, and len(curate_log) == len(removed) + len(added), with each (removed ∪ added) metric_code appearing in exactly one entry. Each curate_log entry MUST carry decision ∈ {removed, added}, metric_code, confidence ∈ [0.0,1.0], and a non-empty evidence array where at least one citation names a source_field (one of employee.industry, employee.job_responsibilities, employee.role.responsibility_tags, metric.description, metric.tags, metric.industry, metric.responsibility_tags, metric.complementary_metrics, metric.exclusive_with) AND quotes a verbatim, >=1-char substring of that field's value. VIOLATION (empty evidence / missing curate_log entry / citation failing the source-field-and-substring check): apply Tainted_Run_Lifecycle — write TAINTED.md describing the K18 subtype (entry index + metric_code), stop remaining scoring, surface in EvaluationReport.open_questions. PARTIAL-FAILURE: if at least one but not all three taint actions succeed, accept partial state, continue the evaluation, and record failed actions in evaluation_context.open_questions; if none succeeds, halt with non-success status and no successful EvaluationReport. STEP 1.2 bounds (R12): len(selected_metrics) <= max_metrics and distinct parent_dimension count >= min_dimensions_covered, else block_or_escalate with a curate_log entry citing observed vs configured. SAFETY: any STEP 1.2 failure/timeout/skip -> selected_metrics = candidate_metrics (never degrades below the deterministic STEP 1 result)."
+    },
+    {
+      "constraint_id": "K19",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "DriverSubprocessWiringContract",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "STEP 3 MUST use the canonical pad materialised by STEP 2.5: PAD=/tmp/eval-driver/<eval_id>/<tc_id> with files {in,out,cursor,err,pid}. Only in is a FIFO; out and cursor are regular files. The agent MUST NOT invent ad-hoc pipe names, MUST NOT use legacy /tmp/eval-stdin-pipe or /tmp/eval-stdout.txt names, MUST NOT replace the planned cursor-based read_one_event poller with cat or tail, and MUST NOT skip pre_spawn_cleanup or post_scenario_cleanup. Violations reject the scenario; repeated violations taint the run."
+    },
+    {
+      "constraint_id": "K20",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "RunPlanMaterialisedBeforeStep3",
+      "severity_mapping": "critical -> blocking_workflow_precondition",
+      "notes": "STEP 2.5 MUST write runs/<eval_id>/run_plan.json and validate it against runtime-schemas/run_plan.schema.json before STEP 3 starts. Each scenario entry contains literal shell strings for pre_spawn_cleanup, spawn, read_one_event, write_action_template, and post_scenario_cleanup. STEP 3 executes these strings verbatim; the only runtime substitution is replacing the single <<JSON_PAYLOAD>> marker inside write_action_template. For ws_jwt, spawn MUST use --evaluation-context, --enriched-test-case, and --output; legacy --test-case-id, --endpoint, --pad-in, and --pad-out flags are forbidden; `&;` is forbidden because background `&` already separates commands in sh/bash. Runtime shell composition, hand-editing plan commands, or starting STEP 3 without a valid run_plan.json is a critical violation."
+    },
+    {
+      "constraint_id": "K21",
+      "projection_action": "map",
+      "target_kind": "workflow_precondition",
+      "target_name": "NegativeCasesMustMeet20Percent",
+      "severity_mapping": "high -> blocking_workflow_precondition",
+      "notes": "Synthesized test cases from STEP 1.5 MUST include negative-polarity cases that exercise restricted, escalation, refusal, or failure paths. Let N be the number of synthesized cases whose polarity is positive or negative, excluding boundary cases. When N == 1, no ratio is enforced but an exemption rationale should be recorded. When 2 <= N <= 4, at least one negative case is required. When N >= 5, at least ceil(0.20 * N) negative cases are required. Every negative case must set paired_case_id when a matching positive pair exists, otherwise it must set polarity_rationale. The only way to skip negative coverage is evaluation_context.negative_coverage_exemption = { reason, evidence }; silent omission is rejected and STEP 9 surfaces the issue in open_questions."
     }
   ],
   "delivery_artifacts": [],
@@ -672,6 +723,6 @@
     "generated_at": "2026-05-27T00:00:00Z",
     "generated_by": "ontology_extraction",
     "workspace": "kingcrab",
-    "notes": "Deterministic role-agnostic workflow: PRE.A loadRoleCatalog → STEP 0 resolveEmployee → PRE loadMetricRegistry → STEP 1 (candidate_metrics) → STEP 1.2 curateMetrics (selected_metrics) → STEP 1.5 → STEP 2 → [STEP 3 → STEP 4]×N → STEP 5 → STEP 6 → STEP 7 → STEP 8×N → STEP 9. One LLM-with-confirmation step (STEP 0), one LLM-bounded curation step (STEP 1.2), one LLM-bounded fan-out scoring step (STEP 4), two LLM-bounded synthesis steps (STEP 8/9); everything else deterministic. Hot-pluggable via filesystem scan of role-catalog/, employees/, metrics/, test-cases/. K9 rewritten for the candidate→selected split; K17 (employee provenance) and K18 (curate auditability) added."
+    "notes": "Deterministic role-agnostic workflow: PRE.A loadRoleCatalog → STEP 0 resolveEmployee → PRE loadMetricRegistry → STEP 1 (candidate_metrics) → STEP 1.2 curateMetrics (selected_metrics) → STEP 1.5 → STEP 2 → STEP 2.5 planRun → [STEP 3 → STEP 4]×N → STEP 5 → STEP 6 → STEP 7 → STEP 8×N → STEP 9. One LLM-with-confirmation step (STEP 0), one LLM-bounded curation step (STEP 1.2), one LLM-bounded fan-out scoring step (STEP 4), two LLM-bounded synthesis steps (STEP 8/9); everything else deterministic. Hot-pluggable via filesystem scan of role-catalog/, employees/, metrics/, test-cases/. K9 rewritten for the candidate→selected split; K17 (employee provenance), K18 (curate auditability), K19 (driver pad contract), K20 (run_plan before STEP 3), and K21 (negative case coverage) added."
   }
 }

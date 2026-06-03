@@ -883,23 +883,15 @@ internal sealed partial class EvaluationService
         IReadOnlyList<TemplateMaterialFile> materialFiles,
         CancellationToken cancellationToken)
     {
-        // 按类型拆分：ontology 文件始终从模板上传；testcase 文件不存在时才 fallback
+        // 没有业务测试用例时保持 test-cases 为空，让评估 skill 进入 STEP 1.5 提示/合成。
         var testcaseFiles = materialFiles.Where(f => f.TargetDir == "testcases").ToList();
         var otherFiles = materialFiles.Where(f => f.TargetDir != "testcases").ToList();
 
-        // 目标模板没有内置测试用例时，回落到内置默认连通性测试文件
         if (testcaseFiles.Count == 0)
         {
-            logger.LogWarning(
-                "[Eval] No testcase files found in template, loading default fallback testcases sandboxId={SandboxId}",
+            logger.LogInformation(
+                "[Eval] No business testcase files found in template; leaving evaluator test-cases empty for STEP 1.5 synthesis sandboxId={SandboxId}",
                 evaluatorSandboxId);
-            var fallback = await LoadFallbackTestcaseFilesAsync(cancellationToken);
-            if (fallback.Count == 0)
-            {
-                logger.LogError("[Eval] Default fallback testcase file also missing, evaluation may fail sandboxId={SandboxId}", evaluatorSandboxId);
-                return ApiResponse<IReadOnlyList<EvaluationTestcaseOutline>>.SuccessResponse([], "no testcase files found");
-            }
-            testcaseFiles = [.. fallback];
         }
 
         var allFiles = testcaseFiles.Concat(otherFiles);
@@ -970,6 +962,8 @@ internal sealed partial class EvaluationService
                 JsonValueKind.Array => doc.RootElement.EnumerateArray(),
                 JsonValueKind.Object when doc.RootElement.TryGetProperty("test_cases", out var nested)
                     && nested.ValueKind == JsonValueKind.Array => nested.EnumerateArray(),
+                JsonValueKind.Object when doc.RootElement.TryGetProperty("cases", out var cases)
+                    && cases.ValueKind == JsonValueKind.Array => cases.EnumerateArray(),
                 JsonValueKind.Object => [doc.RootElement],
                 _ => []
             };
@@ -980,11 +974,11 @@ internal sealed partial class EvaluationService
                 index++;
                 if (item.ValueKind != JsonValueKind.Object) continue;
 
-                var id = GetStringProperty(item, "test_case_id", "testcase_id") ?? $"TC-{index:D3}";
-                var title = GetStringProperty(item, "scenario_name", "title") ?? $"场景 {index}";
+                var id = GetStringProperty(item, "test_case_id", "testcase_id", "case_id", "id") ?? $"TC-{index:D3}";
+                var title = GetStringProperty(item, "scenario_name", "title", "name") ?? $"场景 {index}";
                 var userRequest = item.TryGetProperty("input", out var inputEl) && inputEl.ValueKind == JsonValueKind.Object
-                    ? GetStringProperty(inputEl, "user_request") ?? string.Empty
-                    : string.Empty;
+                    ? GetStringProperty(inputEl, "opening_message", "user_message", "user_request", "prompt") ?? string.Empty
+                    : GetStringProperty(item, "prompt") ?? string.Empty;
 
                 yield return new EvaluationTestcaseOutline(id, title, userRequest);
             }
@@ -1024,10 +1018,10 @@ internal sealed partial class EvaluationService
                     }
 
                     caseIndex++;
-                    var rawId = GetStringProperty(item, "test_case_id", "testcase_id", "id")
+                    var rawId = GetStringProperty(item, "test_case_id", "testcase_id", "case_id", "id")
                                 ?? $"{Path.GetFileNameWithoutExtension(source.FileName)}-{caseIndex}";
                     var testCaseId = NormalizeUniqueConsumerTestCaseId(rawId, sourceIndex, caseIndex, usedIds);
-                    var title = GetStringProperty(item, "scenario_name", "title") ?? $"Scenario {caseIndex}";
+                    var title = GetStringProperty(item, "scenario_name", "title", "name") ?? $"Scenario {caseIndex}";
                     var openingMessage = ResolveConsumerOpeningMessage(item, title);
                     var payload = BuildConsumerTestCasePayload(testCaseId, title, openingMessage, item, employee);
                     var content = JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions);
@@ -1046,6 +1040,8 @@ internal sealed partial class EvaluationService
             JsonValueKind.Array => root.EnumerateArray(),
             JsonValueKind.Object when root.TryGetProperty("test_cases", out var nested)
                 && nested.ValueKind == JsonValueKind.Array => nested.EnumerateArray(),
+            JsonValueKind.Object when root.TryGetProperty("cases", out var cases)
+                && cases.ValueKind == JsonValueKind.Array => cases.EnumerateArray(),
             JsonValueKind.Object => [root],
             _ => []
         };
@@ -1224,44 +1220,6 @@ internal sealed partial class EvaluationService
     }
 
     /// <summary>
-    /// 当目标模板没有内置测试用例时，从 DigitalEmployeeTemplates/_defaults/testcases/ 目录
-    /// 加载兜底连通性测试文件，确保评估流程不因材料缺失而中断。
-    /// </summary>
-    private async Task<IReadOnlyList<TemplateMaterialFile>> LoadFallbackTestcaseFilesAsync(
-        CancellationToken cancellationToken)
-    {
-        // evaluationTemplatePackageRoot 指向 .../DigitalEmployeeTemplates/evaluation-expert
-        // 上一级就是 DigitalEmployeeTemplates 根目录
-        var templatesRoot = Path.GetDirectoryName(evaluationTemplatePackageRoot);
-        if (string.IsNullOrWhiteSpace(templatesRoot))
-            return [];
-
-        var fallbackDir = Path.Combine(templatesRoot, "_defaults", "testcases");
-        if (!Directory.Exists(fallbackDir))
-        {
-            logger.LogWarning("[Eval] Fallback testcase directory not found: {Dir}", fallbackDir);
-            return [];
-        }
-
-        var result = new List<TemplateMaterialFile>();
-        foreach (var filePath in Directory.EnumerateFiles(fallbackDir, "*.json", SearchOption.TopDirectoryOnly))
-        {
-            try
-            {
-                var content = await File.ReadAllBytesAsync(filePath, cancellationToken);
-                result.Add(new TemplateMaterialFile("testcases", Path.GetFileName(filePath), content));
-                logger.LogInformation("[Eval] Loaded fallback testcase file: {File}", filePath);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "[Eval] Failed to read fallback testcase file: {File}", filePath);
-            }
-        }
-
-        return result;
-    }
-
-    /// <summary>
     /// 将员工模板包 ZIP 存入本地缓存目录，供后续读取测试用例等。
     /// 返回缓存文件的本地绝对路径；若写入失败则返回 null。
     /// </summary>
@@ -1344,21 +1302,11 @@ internal sealed partial class EvaluationService
     {
         var testcaseSources = await LoadTestcaseSourcesAsync(ctx, employee, cancellationToken);
 
-        // employee 模板没有内置测试用例时，回落到默认连通性测试文件并转换为标准 *.tc.json。
-        // 这保证评估专家技能总能在 test-cases/ 目录找到 *.tc.json 文件，
-        // 而不是裸 default_connectivity_testcases.json（无法被技能的 STEP 1 加载器识别）。
         if (testcaseSources.Count == 0)
         {
-            var fallbackFiles = await LoadFallbackTestcaseFilesAsync(cancellationToken);
-            if (fallbackFiles.Count > 0)
-            {
-                logger.LogInformation(
-                    "[Eval] No employee test cases found, using fallback connectivity test cases for sandboxId={SandboxId}",
-                    ctx.EvaluatorSandboxId);
-                testcaseSources = fallbackFiles
-                    .Select(f => new TestcaseSourceFile(f.FileName, "fallback", System.Text.Encoding.UTF8.GetString(f.Content), "default_fallback"))
-                    .ToList();
-            }
+            logger.LogInformation(
+                "[Eval] No business testcase sources found; materials.zip will keep test-cases empty for STEP 1.5 synthesis sandboxId={SandboxId}",
+                ctx.EvaluatorSandboxId);
         }
         var ontologyProfile = await BuildOntologyProfileAsync(ctx, employee, cancellationToken);
 
@@ -1366,6 +1314,9 @@ internal sealed partial class EvaluationService
         using var ms = new MemoryStream();
         using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
         {
+            archive.CreateEntry("test-cases/");
+            archive.CreateEntry("ontology/");
+
             // testcases.json
             var testcasesPayload = JsonSerializer.Serialize(
                 testcaseSources.Select(s => new

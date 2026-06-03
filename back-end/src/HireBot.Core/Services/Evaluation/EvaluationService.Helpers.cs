@@ -445,6 +445,20 @@ internal sealed partial class EvaluationService
         };
     }
 
+    private static string TryGetFirstString(JsonElement element, string fallback, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            var value = TryGetString(element, propertyName, string.Empty);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return fallback;
+    }
+
     private static string? TryReadUserRequestFromRawTestcase(string rawJson)
     {
         if (string.IsNullOrWhiteSpace(rawJson))
@@ -464,16 +478,16 @@ internal sealed partial class EvaluationService
             if (root.TryGetProperty("input", out var inputElement) &&
                 inputElement.ValueKind == JsonValueKind.Object)
             {
-                if (inputElement.TryGetProperty("user_request", out var userRequestElement) &&
-                    userRequestElement.ValueKind == JsonValueKind.String)
+                var request = TryGetFirstString(
+                    inputElement,
+                    string.Empty,
+                    "opening_message",
+                    "user_message",
+                    "user_request",
+                    "prompt");
+                if (!string.IsNullOrWhiteSpace(request))
                 {
-                    return userRequestElement.GetString()?.Trim();
-                }
-
-                if (inputElement.TryGetProperty("prompt", out var promptElement) &&
-                    promptElement.ValueKind == JsonValueKind.String)
-                {
-                    return promptElement.GetString()?.Trim();
+                    return request.Trim();
                 }
             }
         }

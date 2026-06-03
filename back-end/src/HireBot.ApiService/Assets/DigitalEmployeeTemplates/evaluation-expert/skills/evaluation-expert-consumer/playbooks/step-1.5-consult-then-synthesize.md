@@ -193,3 +193,10 @@ Apply equivalence-class partitioning when the scenario seed contains a decision 
 | Ship 5 synthesized cases all with `polarity="positive"` (or missing `polarity`) and no `negative_coverage_exemption` | **K21** | STEP 1.5 output rejected; must re-synthesize with negatives |
 | Tag a case `polarity="negative"` only because it has a different amount, while expected behavior is still the same happy-path refund | **K21** | Case mis-classified; treated as positive at audit; K21 ratio recomputed |
 | `negative` case without `paired_case_id` AND without `polarity_rationale` | **K21** | STEP 1.5 output rejected |
+
+## After synthesis: STEP 1.6 pushSynthesizedTestCases
+
+Once all `*.tc.json` files are written to `./runs/<eval_id>/synthesized-cases/`,
+proceed to **STEP 1.6** — push them to HireBot so the frontend right panel shows
+Question Cards immediately (before STEP 3 begins). If `hirebot_api` is absent,
+skip (the cards will be embedded in the trace bundle at STEP 10 as a fallback).

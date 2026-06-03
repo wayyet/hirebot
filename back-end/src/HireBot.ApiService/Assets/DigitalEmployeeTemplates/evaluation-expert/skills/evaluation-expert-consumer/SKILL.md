@@ -41,25 +41,25 @@ It is **template-agnostic**: every employee role is evaluated through the **same
         (deterministic)        (LLM + user confirm)        (deterministic)
                                               │
                                               ▼
-  STEP 1 (candidate_metrics) ──► STEP 1.2 curateMetrics (selected_metrics) ──(test_case_status?)──► STEP 1.5 ─┐
-        (deterministic)              (LLM, bounded+auditable)                                                  │  STEP 2
-                                                                                                              └────►  ┌──────────────────────┐
-                                                                                                                     │  per scenario:        │
-                                                                                                                     │  STEP 3 ──► STEP 4   │ × N
-                                                                                                                     └──────────┬───────────┘
-                                                                                                                                │
-                                                          STEP 5 ──► STEP 6 ──► STEP 7 ──────────────────────────────────────────┘
-                                                                                  │
-                                                          STEP 8 (per scenario) ──► STEP 9 (overall)
-                                                                                  │
-                                                                   JSON + HTML report
-                                                                                  │
-                                                          STEP 10 uploadToHireBot (optional, if hirebot_api configured)
-                                                          ├── sync-verdict ──► POST /api/v1/employees/{id}/evaluation/sync-verdict
-                                                          └── sync-trace   ──► POST /api/v1/employees/{id}/evaluation/sync-trace
+  STEP 1 (candidate_metrics) ──► STEP 1.2 curateMetrics (selected_metrics) ──(test_case_status?)──► STEP 1.5 ──► STEP 1.6 ─┐
+        (deterministic)              (LLM, bounded+auditable)              (LLM, synthesize)    (deterministic)    │  STEP 2
+                                                                                                pushTestCases     └────►  ┌──────────────────────┐
+                                                                                                   (optional)                │  per scenario:        │
+                                                                                                                             │  STEP 3 ──► STEP 4   │ × N
+                                                                                                                             └──────────┬───────────┘
+                                                                                                                                        │
+                                                  STEP 5 ──► STEP 6 ──► STEP 7 ──────────────────────────────────────────┘
+                                                                          │
+                                                  STEP 8 (per scenario) ──► STEP 9 (overall)
+                                                                          │
+                                                           JSON + HTML report
+                                                                          │
+                                                  STEP 10 uploadToHireBot (optional, if hirebot_api configured)
+                                                  ├── sync-verdict ──► POST /api/v1/employees/{id}/evaluation/sync-verdict
+                                                  └── sync-trace   ──► POST /api/v1/employees/{id}/evaluation/sync-trace
 ```
 
-Legend: deterministic = white-box; **LLM** = STEP 1.5 (conditional), STEP 4 (fan-out), STEP 8 (per-scenario synthesis), STEP 9 (overall synthesis); **driver subprocess** in STEP 3 only; **STEP 10** is deterministic subprocess (optional).
+Legend: deterministic = white-box; **LLM** = STEP 1.5 (conditional), STEP 4 (fan-out), STEP 8 (per-scenario synthesis), STEP 9 (overall synthesis); **driver subprocess** in STEP 3 only; **STEP 10** and **STEP 1.6** are deterministic subprocesses (optional, skipped if `hirebot_api` absent).
 
 ## Producer skill dependencies
 
@@ -118,9 +118,9 @@ The workflow contract (`contracts/projections/ontology_extraction/metric-selecti
 | K16 | `ScoringMustInvokeEvaluatorLLMPerCaseMetric` | STEP 4 | Real LLM call per (case, metric); distinct `scored_at`; reasoning quotes trace |
 | K17 | `EmployeeResolutionProvenanceRequired` | STEP 0 | `employee.employee_provenance` present + valid; low reliability needs caveat; only STEP 0 writes `role_id`; **atomic-fail** taint |
 | K18 | `CurateDecisionsMustBeAudited` | STEP 1.2 | Every removed/added decision cites verbatim evidence; bounds enforced; **partial-success** taint |
-| K19 | `DriverSubprocessWiringContract` | STEP 3 | Canonical FIFO pad `/tmp/eval-driver/<eval_id>/<tc_id>/{in,out,err,pid}`; `head -n 1` to read; mandatory pre-spawn + post-scenario cleanup; ad-hoc pipe names forbidden |
+| K19 | `DriverSubprocessWiringContract` | STEP 3 | Canonical pad `/tmp/eval-driver/<eval_id>/<tc_id>/{in,out,cursor,err,pid}` — all regular files (no FIFOs); `in` is a regular file fed to driver stdin via `tail -f` pipe; `out` is a regular stdout file read through the cursor-based `read_one_event`; mandatory pre-spawn + post-scenario cleanup; ad-hoc pipe names forbidden |
 | K20 | `RunPlanMaterialisedBeforeStep3` | STEP 2.5 / STEP 3 | STEP 2.5 writes `runs/<eval_id>/run_plan.json` with five **literal shell strings** per scenario; STEP 3 executes them **verbatim**; ONLY `<<JSON_PAYLOAD>>` may be substituted at runtime; runtime string composition forbidden |
-| K21 | `NegativeCasesMustMeet20Percent` | STEP 1.5 | Synthesized cases MUST include **negative-polarity** cases at target ratio `positive : negative ≈ 80 : 20`; `N ∈ [2,4] ⇒ #negative ≥ 1`; `N ≥ 5 ⇒ #negative ≥ ceil(0.20*N)`; every `negative` MUST set `paired_case_id` OR `polarity_rationale`; silent omission rejected; only `negative_coverage_exemption` allows skipping |
+| K21 | `NegativeCasesMustMeet20Percent` | STEP 1.5 | Synthesized cases MUST include **negative-polarity** cases at target ratio `positive : negative ≈ 80 : 20`; `N ∈ [2,4] ⇒ #negative ≥ 1`; `N ≥ 5 ⇒ #negative ≥ ceil(0.20*N)`; every `negative` MUST set `paired_case_id` when a matching positive pair exists, otherwise set `polarity_rationale`; silent omission rejected; only `negative_coverage_exemption` allows skipping |
 
 > Namespace note. Each prompt-constraint projection has its own internal K1–K5 namespace. Unless explicitly prefixed (e.g. "scoring-judgement K3"), "K9" / "K12" / etc. always refer to the **workflow contract** namespace above. Also: `playbooks/step-09-overall-report.md` uses internal labels K17 / K18 that **collide** with workflow-contract K17 / K18 — those step-09 labels should be renamed `K-S9-TPL` / `K-S9-NAR` in a future cleanup; until then, any "K17" / "K18" inside `step-09-overall-report.md` means the STEP-9-local rules described there, not these workflow-contract rules.
 
@@ -156,6 +156,7 @@ The authoritative execution graph lives in `contracts/projections/ontology_extra
 | 1    | `resolveEmployeeAndCheckTestCases` | deterministic | [`step-01-resolve-and-filter.md`](./playbooks/step-01-resolve-and-filter.md) — role-filter into `candidate_metrics` |
 | 1.2  | `curateMetrics` | LLM, bounded + auditable, conditional | [`step-1.2-curate-metrics.md`](./playbooks/step-1.2-curate-metrics.md) — `selected_metrics = (candidate − removed) ∪ added` |
 | 1.5  | `parseTestCases` | LLM, conditional (only when `test_case_status == "missing"`) | [`step-1.5-consult-then-synthesize.md`](./playbooks/step-1.5-consult-then-synthesize.md) |
+| 1.6  | `pushSynthesizedTestCases` | deterministic subprocess (optional, skipped if `hirebot_api` absent or no synthesized cases) | inline — runs `testcase_uploader.py --synthesized-dir .../synthesized-cases/`; pushes cases to HireBot so frontend right-panel cards appear immediately |
 | 2    | `enrichTestCases` | deterministic, always runs | inline (attaches `applicable_metrics ⊆ selected_metrics` per K10; `*` is wildcard, not a literal) |
 | 2.5  | `planRun` | deterministic, NO LLM | [`step-2.5-plan-run.md`](./playbooks/step-2.5-plan-run.md) — materialises `runs/<eval_id>/run_plan.json` (validated against `runtime-schemas/run_plan.schema.json`): per-scenario literal shell strings for the entire driver lifecycle. Owns **K20**. STEP 3 MUST NOT start before this file exists. |
 | 3    | `driveEmployeeOnScenario` | dual-role (driver subprocess + host-LLM simulator) | [`step-03-driver-and-simulator-loop.md`](./playbooks/step-03-driver-and-simulator-loop.md) — thin executor: reads `run_plan.scenarios[i].commands.*` and runs them **verbatim** (K19 + K20); ONLY `<<JSON_PAYLOAD>>` may be substituted |
@@ -169,6 +170,21 @@ The authoritative execution graph lives in `contracts/projections/ontology_extra
 | 10   | `uploadToHireBot`   | deterministic subprocess (optional, skipped if `hirebot_api` absent) | [`step-10-upload-to-hirebot.md`](./playbooks/step-10-upload-to-hirebot.md) |
 
 Before any of the above runs, verify the [pre-flight invariants](./playbooks/pre-flight-invariants.md). When a HARD RULE or K-rule fails, follow the [tainted-run lifecycle](./playbooks/tainted-run-lifecycle.md).
+
+### STEP 1.6 inline procedure
+
+After STEP 1.5 has written every `*.tc.json` to `runs/<eval_id>/synthesized-cases/`:
+
+```bash
+python3 runtime-drivers/ws_jwt/testcase_uploader.py \
+  --evaluation-context runs/<eval_id>/evaluation_context.json \
+  --synthesized-dir    runs/<eval_id>/synthesized-cases/ \
+  --output             runs/<eval_id>/upload_testcase_result.json
+```
+
+- **If `hirebot_api` is absent**: skip (the synthesized cases will be embedded in the trace bundle at STEP 10 as a fallback).
+- **If the directory is empty or missing**: the uploader prints a skip message and exits 0 — not a failure.
+- **After success**: frontend right-panel cards appear on next refresh via `EnsureQuestionCardsFromRuntimeTextAsync` → `CollectRuntimeTestcases` detecting the `test_cases` array in the bundle.
 
 ## Skill-Specific Constraints
 

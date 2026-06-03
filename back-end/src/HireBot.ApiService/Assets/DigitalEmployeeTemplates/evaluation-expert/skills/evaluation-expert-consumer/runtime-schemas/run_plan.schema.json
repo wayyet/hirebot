@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://kingcrab.local/evaluation-expert-consumer/runtime-schemas/run_plan.schema.json",
   "title": "RunPlan",
-  "description": "K20: deterministic execution plan-of-record. Produced by STEP 2.5 (planRun) after enrichTestCases, consumed verbatim by STEP 3. Every shell command needed to drive every scenario is materialised here as a literal string so that STEP 3 NEVER concatenates strings at runtime. The agent reads commands[i].* as-is and executes them; the only runtime substitution is `<<JSON_PAYLOAD>>` inside `commands.write_action_template`, which the agent fills with the current `send`/`end` action JSON.",
+  "description": "K20: deterministic execution plan-of-record. Produced by STEP 2.5 (planRun) after enrichTestCases, consumed verbatim by STEP 3. Every shell command needed to drive every scenario is materialised here as a literal string so that STEP 3 NEVER concatenates strings at runtime. The agent reads commands[i].* as-is and executes them; the only runtime substitution is `<<JSON_PAYLOAD>>` inside `commands.write_action_template`, which the agent fills with the current `send`/`end` action JSON. Note: pad/in is a regular file (NOT a FIFO); tail -f pipes it into driver stdin, avoiding O_RDWR FIFO reference-count races on container kernels.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -114,15 +114,16 @@
           "pad": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["dir", "in_fifo", "out_fifo", "err_file", "pid_file"],
+            "required": ["dir", "in_fifo", "out_file", "cursor", "err_file", "pid_file"],
             "properties": {
               "dir": { "type": "string", "minLength": 1 },
               "in_fifo": { "type": "string", "minLength": 1 },
-              "out_fifo": { "type": "string", "minLength": 1 },
+              "out_file": { "type": "string", "minLength": 1 },
+              "cursor": { "type": "string", "minLength": 1 },
               "err_file": { "type": "string", "minLength": 1 },
               "pid_file": { "type": "string", "minLength": 1 }
             },
-            "description": "Pre-resolved FIFO pad paths for this scenario. MUST match K19 canonical layout: `/tmp/eval-driver/<eval_id>/<tc_id>/{in,out,err,pid}`."
+            "description": "Pre-resolved pad paths for this scenario. MUST match K19 canonical layout: `/tmp/eval-driver/<eval_id>/<tc_id>/{in,out,cursor,err,pid}`. All pad files are regular files — no FIFOs. `in` is a regular file that tail -f follows; `out` and `cursor` are regular files for event polling."
           },
           "commands": {
             "type": "object",
@@ -138,22 +139,47 @@
               "pre_spawn_cleanup": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Literal shell string. Agent executes verbatim before spawning the driver. Kills any stale PID and recreates the FIFOs."
+                "allOf": [
+                  { "pattern": "\\$PAD/in" },
+                  { "pattern": "\\$PAD/out" }
+                ],
+                "description": "Literal shell string. Agent executes verbatim before spawning the driver. Kills any stale PID, recreates the pad directory via rm -rf + mkdir -p, touches pad/in (regular file, NOT a FIFO — no mkfifo), and touches pad/out (regular file)."
               },
               "spawn": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Literal shell string that launches the driver in the background, redirecting stdin from `pad.in_fifo`, stdout to `pad.out_fifo`, stderr to `pad.err_file`, and writing the PID to `pad.pid_file`. NO `<placeholder>` left for runtime substitution."
+                "allOf": [
+                  { "pattern": "--evaluation-context" },
+                  { "pattern": "--enriched-test-case" },
+                  { "pattern": "--output" },
+                  { "pattern": "tail -f" },
+                  { "pattern": "\\$PAD/in" },
+                  { "pattern": "\\$PAD/out" },
+                  { "pattern": "\\$PAD/err" },
+                  { "pattern": "\\$PAD/pid" },
+                  { "not": { "pattern": "&;" } },
+                  { "not": { "pattern": "(^|\\s)--test-case-id(\\s|=|$)" } },
+                  { "not": { "pattern": "(^|\\s)--endpoint(\\s|=|$)" } },
+                  { "not": { "pattern": "(^|\\s)--pad-in(\\s|=|$)" } },
+                  { "not": { "pattern": "(^|\\s)--pad-out(\\s|=|$)" } },
+                  { "not": { "pattern": "<>.*\\$PAD/in" } }
+                ],
+                "description": "Literal shell string that launches the driver in the background via `tail -f $PAD/in | exec python3 -u run.py ...`. tail -f follows pad/in (a regular file) and pipes new lines into the driver's stdin. The entire pipeline is wrapped in `nohup sh -c '...'` and backgrounded. Driver stdout appends to pad.out_file, stderr to pad.err_file, PID written to pad.pid_file. MUST use canonical `--evaluation-context`, `--enriched-test-case`, and `--output` flags. MUST NOT use the deprecated `<> $PAD/in` (O_RDWR FIFO) pattern. NO `<placeholder>` left for runtime substitution."
               },
               "read_one_event": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Literal shell string that reads exactly one event line from `pad.out_fifo` (e.g. `head -n 1 /tmp/...out`). Agent uses the same string for every event read in this scenario."
+                "allOf": [
+                  { "pattern": "sed -n" },
+                  { "pattern": "\\$PAD/out" },
+                  { "pattern": "\\$PAD/cursor" }
+                ],
+                "description": "Literal shell string that polls exactly one unread event line from `pad.out_file` using `pad.cursor`. Agent uses the same string for every event read in this scenario."
               },
               "write_action_template": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "<<JSON_PAYLOAD>>",
+                "pattern": "^(?:(?!<<JSON_PAYLOAD>>).)*<<JSON_PAYLOAD>>(?:(?!<<JSON_PAYLOAD>>).)*$",
                 "description": "Literal shell string containing exactly one occurrence of the marker `<<JSON_PAYLOAD>>`. Agent substitutes the marker with the single-line JSON of the current `send`/`end` action and executes. This is the ONLY runtime substitution permitted in the entire plan."
               },
               "post_scenario_cleanup": {

@@ -51,12 +51,21 @@ internal sealed partial class EvaluationService
             {
                 caseElements.AddRange(testCasesElement.EnumerateArray());
             }
+            else if (root.ValueKind == JsonValueKind.Object &&
+                     root.TryGetProperty("cases", out var casesElement) &&
+                     casesElement.ValueKind == JsonValueKind.Array)
+            {
+                caseElements.AddRange(casesElement.EnumerateArray());
+            }
             else if (root.ValueKind == JsonValueKind.Array)
             {
                 caseElements.AddRange(root.EnumerateArray());
             }
             else if (root.ValueKind == JsonValueKind.Object &&
-                     root.TryGetProperty("test_case_id", out _))
+                     (root.TryGetProperty("test_case_id", out _) ||
+                      root.TryGetProperty("testcase_id", out _) ||
+                      root.TryGetProperty("case_id", out _) ||
+                      root.TryGetProperty("id", out _)))
             {
                 caseElements.Add(root);
             }
@@ -69,8 +78,9 @@ internal sealed partial class EvaluationService
             for (var index = 0; index < caseElements.Count; index++)
             {
                 var caseElement = caseElements[index];
-                var testcaseId = TryGetString(caseElement, "test_case_id", $"{Path.GetFileNameWithoutExtension(sourceFile)}-{index + 1:D2}");
-                var scenarioName = TryGetString(caseElement, "scenario_name", testcaseId);
+                var fallbackId = $"{Path.GetFileNameWithoutExtension(sourceFile)}-{index + 1:D2}";
+                var testcaseId = TryGetFirstString(caseElement, fallbackId, "test_case_id", "testcase_id", "case_id", "id");
+                var scenarioName = TryGetFirstString(caseElement, testcaseId, "scenario_name", "title", "name");
                 var expectedSteps = ParseExpectedSteps(caseElement);
                 var rawCase = caseElement.GetRawText();
                 var inputPrompt = TryReadUserRequestFromRawTestcase(rawCase) ?? scenarioName;
@@ -212,6 +222,381 @@ internal sealed partial class EvaluationService
         }
 
         return await LoadQuestionCardsForSessionAsync(latestSession.Id, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<EvaluationQuestionCardDto>> EnsureQuestionCardsForSessionAsync(
+        EvaluationSessionEntity sessionEntity,
+        EvaluationWorkspaceContext? workspaceContext,
+        EmployeeDetailDto employee,
+        CancellationToken cancellationToken)
+    {
+        var existingCards = await LoadQuestionCardsForSessionAsync(sessionEntity.Id, cancellationToken);
+        if (existingCards is { Count: > 0 })
+        {
+            return existingCards;
+        }
+
+        if (workspaceContext is null)
+        {
+            return [];
+        }
+
+        var sourceFiles = await LoadTestcaseSourcesAsync(workspaceContext, employee, cancellationToken);
+        if (sourceFiles.Count == 0)
+        {
+            return [];
+        }
+
+        var parsedTestcases = new List<ParsedTestcase>();
+        foreach (var sourceFile in sourceFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var parsedFromFile = ParseTestcases(sourceFile.FileName, sourceFile.SourcePath, sourceFile.RawJson);
+            if (parsedFromFile.Count == 0)
+            {
+                continue;
+            }
+
+            parsedTestcases.AddRange(parsedFromFile);
+            await PersistTextAssetAsync(
+                sessionEntity,
+                assetType: "testcases-json",
+                relatedKey: $"file:{sourceFile.FileName}",
+                fileName: sourceFile.FileName,
+                content: sourceFile.RawJson,
+                mimeType: "application/json",
+                sourceType: sourceFile.SourceType,
+                cancellationToken);
+        }
+
+        return parsedTestcases.Count == 0
+            ? []
+            : BuildQuestionCards(parsedTestcases);
+    }
+
+    private async Task<IReadOnlyList<EvaluationQuestionCardDto>> EnsureQuestionCardsFromConversationAsync(
+        EvaluationSessionEntity sessionEntity,
+        IReadOnlyList<HiringConversationMessageDto> messages,
+        CancellationToken cancellationToken)
+    {
+        var existingCards = await LoadQuestionCardsForSessionAsync(sessionEntity.Id, cancellationToken);
+        if (existingCards is { Count: > 0 })
+        {
+            return existingCards;
+        }
+
+        if (messages.Count == 0)
+        {
+            return [];
+        }
+
+        var parsedTestcases = new List<ParsedTestcase>();
+        foreach (var message in messages.Where(item => string.Equals(item.Role, "assistant", StringComparison.OrdinalIgnoreCase)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            parsedTestcases.AddRange(ParseRuntimeTestcasesFromText(
+                sourceFile: $"conversation-{message.MessageId}.json",
+                sourcePath: $"conversation:{message.MessageId}",
+                rawText: message.Content));
+        }
+
+        return await PersistRuntimeQuestionCardsAsync(
+            sessionEntity,
+            parsedTestcases,
+            relatedKey: "conversation:generated-testcases",
+            fileName: $"conversation-testcases-{sessionEntity.SessionId}.json",
+            sourceType: "evaluator-conversation",
+            cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<EvaluationQuestionCardDto>> EnsureQuestionCardsFromRuntimeTextAsync(
+        EvaluationSessionEntity sessionEntity,
+        string sourceFile,
+        string sourceType,
+        string rawText,
+        CancellationToken cancellationToken)
+    {
+        var existingCards = await LoadQuestionCardsForSessionAsync(sessionEntity.Id, cancellationToken);
+        if (existingCards is { Count: > 0 })
+        {
+            return existingCards;
+        }
+
+        var parsedTestcases = ParseRuntimeTestcasesFromText(
+            sourceFile,
+            sourceType,
+            rawText);
+
+        return await PersistRuntimeQuestionCardsAsync(
+            sessionEntity,
+            parsedTestcases,
+            relatedKey: $"{sourceType}:generated-testcases",
+            fileName: sourceFile,
+            sourceType: sourceType,
+            cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<EvaluationQuestionCardDto>> PersistRuntimeQuestionCardsAsync(
+        EvaluationSessionEntity sessionEntity,
+        IReadOnlyList<ParsedTestcase> parsedTestcases,
+        string relatedKey,
+        string fileName,
+        string sourceType,
+        CancellationToken cancellationToken)
+    {
+        var cards = BuildQuestionCards(parsedTestcases);
+        if (cards.Count == 0)
+        {
+            return [];
+        }
+
+        var normalizedJson = BuildNormalizedTestcasesJson(parsedTestcases);
+        await PersistTextAssetAsync(
+            sessionEntity,
+            assetType: "testcases-json",
+            relatedKey,
+            fileName,
+            content: normalizedJson,
+            mimeType: "application/json",
+            sourceType,
+            cancellationToken);
+
+        return cards;
+    }
+
+    private static IReadOnlyList<ParsedTestcase> ParseRuntimeTestcasesFromText(
+        string sourceFile,
+        string sourcePath,
+        string rawText)
+    {
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            return [];
+        }
+
+        var parsedTestcases = new List<ParsedTestcase>();
+        foreach (var payload in ExtractJsonPayloads(rawText))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(payload);
+                CollectRuntimeTestcases(document.RootElement, sourceFile, sourcePath, parsedTestcases);
+            }
+            catch
+            {
+                // 忽略非 JSON 片段，避免普通对话文本影响状态刷新。
+            }
+        }
+
+        return parsedTestcases
+            .GroupBy(item => item.TestcaseId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+    }
+
+    private static void CollectRuntimeTestcases(
+        JsonElement element,
+        string sourceFile,
+        string sourcePath,
+        List<ParsedTestcase> parsedTestcases)
+    {
+        if (element.ValueKind == JsonValueKind.Object && IsExplicitTestcaseContainer(element))
+        {
+            parsedTestcases.AddRange(ParseTestcases(sourceFile, sourcePath, element.GetRawText()));
+            return;
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                CollectRuntimeTestcases(property.Value, sourceFile, sourcePath, parsedTestcases);
+            }
+
+            return;
+        }
+
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var item in element.EnumerateArray())
+        {
+            CollectRuntimeTestcases(item, sourceFile, sourcePath, parsedTestcases);
+        }
+    }
+
+    private static bool IsExplicitTestcaseContainer(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (element.TryGetProperty("test_cases", out var testCasesElement) &&
+            testCasesElement.ValueKind == JsonValueKind.Array)
+        {
+            return true;
+        }
+
+        if (element.TryGetProperty("cases", out var casesElement) &&
+            casesElement.ValueKind == JsonValueKind.Array)
+        {
+            return true;
+        }
+
+        return element.TryGetProperty("test_case_id", out _) ||
+               element.TryGetProperty("testcase_id", out _) ||
+               element.TryGetProperty("case_id", out _);
+    }
+
+    private static IReadOnlyList<string> ExtractJsonPayloads(string rawText)
+    {
+        var payloads = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var trimmed = rawText.Trim();
+        AddJsonPayloadIfValid(trimmed, payloads, seen);
+
+        for (var index = 0; index < rawText.Length; index++)
+        {
+            if (rawText[index] is not ('{' or '['))
+            {
+                continue;
+            }
+
+            var endIndex = FindBalancedJsonEnd(rawText, index);
+            if (endIndex <= index)
+            {
+                continue;
+            }
+
+            var candidate = rawText.Substring(index, endIndex - index + 1);
+            AddJsonPayloadIfValid(candidate, payloads, seen);
+            index = endIndex;
+        }
+
+        return payloads;
+    }
+
+    private static void AddJsonPayloadIfValid(
+        string candidate,
+        List<string> payloads,
+        HashSet<string> seen)
+    {
+        if (string.IsNullOrWhiteSpace(candidate) || !seen.Add(candidate))
+        {
+            return;
+        }
+
+        try
+        {
+            using var _ = JsonDocument.Parse(candidate);
+            payloads.Add(candidate);
+        }
+        catch
+        {
+            seen.Remove(candidate);
+        }
+    }
+
+    private static int FindBalancedJsonEnd(string text, int startIndex)
+    {
+        var stack = new Stack<char>();
+        var inString = false;
+        var escaped = false;
+
+        for (var index = startIndex; index < text.Length; index++)
+        {
+            var character = text[index];
+            if (inString)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+
+                if (character == '\\')
+                {
+                    escaped = true;
+                    continue;
+                }
+
+                if (character == '"')
+                {
+                    inString = false;
+                }
+
+                continue;
+            }
+
+            if (character == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (character == '{')
+            {
+                stack.Push('}');
+                continue;
+            }
+
+            if (character == '[')
+            {
+                stack.Push(']');
+                continue;
+            }
+
+            if (character is not ('}' or ']'))
+            {
+                continue;
+            }
+
+            if (stack.Count == 0 || stack.Pop() != character)
+            {
+                return -1;
+            }
+
+            if (stack.Count == 0)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static string BuildNormalizedTestcasesJson(IReadOnlyList<ParsedTestcase> parsedTestcases)
+    {
+        var payload = new
+        {
+            test_cases = parsedTestcases.Select(testcase => new
+            {
+                test_case_id = testcase.TestcaseId,
+                scenario_name = testcase.ScenarioName,
+                input = new
+                {
+                    opening_message = testcase.InputPrompt
+                },
+                expected_behavior_sequence = testcase.ExpectedSteps
+                    .Select((step, index) => new
+                    {
+                        step = index + 1,
+                        action = step,
+                        criteria = string.Empty
+                    })
+                    .ToArray(),
+                source = new
+                {
+                    file = testcase.SourceFile,
+                    path = testcase.SourcePath
+                }
+            }).ToArray()
+        };
+
+        return JsonSerializer.Serialize(payload, JsonOptions);
     }
 
     private static bool HasMaterialsSupplementPrompt(IReadOnlyList<HiringConversationMessageDto> messages)
