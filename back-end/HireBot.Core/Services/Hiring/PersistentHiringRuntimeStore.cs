@@ -82,6 +82,11 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
         var packages = JsonSerializer.Deserialize<PersistedHiringPackages>(entity.PackagesJson, JsonOptions);
         var workflowState = JsonSerializer.Deserialize<PersistedHiringWorkflowState>(entity.WorkflowStateJson, JsonOptions);
 
+        // 兼容旧数据：OwnerSubject 可能为空，使用 TenantId:OperatorId 作为 fallback
+        var ownerSubject = string.IsNullOrWhiteSpace(meta.OwnerSubject)
+            ? $"{meta.TenantId}:{meta.OperatorId}"
+            : meta.OwnerSubject;
+
         return new HiringRuntimeContext
         {
             HireId = entity.HireId,
@@ -90,7 +95,7 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
             CollectionPhase = entity.CollectionPhase,
             TemplateId = meta.TemplateId,
             TemplateName = meta.TemplateName,
-            OwnerSubject = meta.OwnerSubject,
+            OwnerSubject = ownerSubject,
             TenantId = meta.TenantId,
             OperatorId = meta.OperatorId,
             SandboxId = meta.SandboxId,
@@ -124,7 +129,7 @@ internal sealed class PersistentHiringRuntimeStore(HireBotDbContext dbContext) :
     private sealed record PersistedHiringMeta(
         string TemplateId,
         string TemplateName,
-        string OwnerSubject,
+        string? OwnerSubject,  // 允许为空，兼容旧数据
         string TenantId,
         string OperatorId,
         string SandboxId,
