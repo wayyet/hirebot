@@ -92,6 +92,36 @@ public sealed partial class EmployeeRuntimeService
             // 始终使用 DB 实体的 CreatedAt 覆盖快照中的值，避免历史快照缺少时间精度
             employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
             
+            // 填充描述信息（优先从 DescribeDocument 提取简短描述，备用 CardIntro，最后截取原文）
+            string? description = null;
+            if (!string.IsNullOrWhiteSpace(instance.DescribeDocument))
+            {
+                // 尝试提取业务定位一句话
+                description = ExtractBusinessPositioningOneLiner(instance.DescribeDocument);
+                // 如果没有，尝试提取 CardIntro（第1和第4节）
+                if (string.IsNullOrWhiteSpace(description))
+                {
+                    description = ExtractCardIntro(instance.DescribeDocument);
+                }
+                // 如果还是没有，直接截取前 300 字符
+                if (string.IsNullOrWhiteSpace(description))
+                {
+                    description = instance.DescribeDocument.Length > 300
+                        ? instance.DescribeDocument.Substring(0, 300) + "..."
+                        : instance.DescribeDocument;
+                }
+            }
+            // 如果 DescribeDocument 为空，使用 CardIntro
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                description = employee.CardIntro;
+            }
+            // 填充描述
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                employee = employee with { Description = description };
+            }
+            
             // 填充创建人信息
             if (creators.TryGetValue(instance.OwnerUserId, out var creator))
             {
@@ -148,6 +178,36 @@ public sealed partial class EmployeeRuntimeService
             if (employee is not null)
             {
                 employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+                
+                // 填充描述信息（优先从 DescribeDocument 提取简短描述，备用 CardIntro，最后截取原文）
+                string? description = null;
+                if (!string.IsNullOrWhiteSpace(instance.DescribeDocument))
+                {
+                    // 尝试提取业务定位一句话
+                    description = ExtractBusinessPositioningOneLiner(instance.DescribeDocument);
+                    // 如果没有，尝试提取 CardIntro（第1和第4节）
+                    if (string.IsNullOrWhiteSpace(description))
+                    {
+                        description = ExtractCardIntro(instance.DescribeDocument);
+                    }
+                    // 如果还是没有，直接截取前 300 字符
+                    if (string.IsNullOrWhiteSpace(description))
+                    {
+                        description = instance.DescribeDocument.Length > 300
+                            ? instance.DescribeDocument.Substring(0, 300) + "..."
+                            : instance.DescribeDocument;
+                    }
+                }
+                // 如果 DescribeDocument 为空，使用 CardIntro
+                if (string.IsNullOrWhiteSpace(description))
+                {
+                    description = employee.CardIntro;
+                }
+                // 填充描述
+                if (!string.IsNullOrWhiteSpace(description))
+                {
+                    employee = employee with { Description = description };
+                }
                 
                 // 查询创建人信息
                 var creator = await dbContext.AppUsers
@@ -226,6 +286,36 @@ public sealed partial class EmployeeRuntimeService
         if (employee is not null)
         {
             employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+            
+            // 填充描述信息（优先从 DescribeDocument 提取简短描述，备用 CardIntro，最后截取原文）
+            string? description = null;
+            if (!string.IsNullOrWhiteSpace(instance.DescribeDocument))
+            {
+                // 尝试提取业务定位一句话
+                description = ExtractBusinessPositioningOneLiner(instance.DescribeDocument);
+                // 如果没有，尝试提取 CardIntro（第1和第4节）
+                if (string.IsNullOrWhiteSpace(description))
+                {
+                    description = ExtractCardIntro(instance.DescribeDocument);
+                }
+                // 如果还是没有，直接截取前 300 字符
+                if (string.IsNullOrWhiteSpace(description))
+                {
+                    description = instance.DescribeDocument.Length > 300
+                        ? instance.DescribeDocument.Substring(0, 300) + "..."
+                        : instance.DescribeDocument;
+                }
+            }
+            // 如果 DescribeDocument 为空，使用 CardIntro
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                description = employee.CardIntro;
+            }
+            // 填充描述
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                employee = employee with { Description = description };
+            }
             
             // 查询创建人信息
             var creator = await dbContext.AppUsers
@@ -341,7 +431,9 @@ public sealed partial class EmployeeRuntimeService
             EvalPhase: null,
             EvalIteration: null,
             EvalMaxIterations: null,
-            IsConfigured: capabilities.All(item => item.Ready));
+            IsConfigured: capabilities.All(item => item.Ready),
+            CardIntro: source?.CardIntro,
+            Description: null); // 描述将在外层方法中统一填充
     }
 
     /// <summary>
@@ -758,6 +850,7 @@ public sealed partial class EmployeeRuntimeService
             detail.PendingActions,
             detail.IsConfigured,
             detail.CardIntro,
+            detail.Description,
             detail.CreatedBy);
     }
 

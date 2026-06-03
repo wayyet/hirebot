@@ -33,6 +33,7 @@ public sealed record EmployeeDetailDto(
     int? EvalMaxIterations,
     bool IsConfigured,
     string? CardIntro = null,
+    string? Description = null,
     /// <summary>
     /// 最新一次评估报告摘要，仅在员工详情接口中实时查询并填充，不持久化到快照 JSON。
     /// </summary>

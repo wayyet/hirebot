@@ -767,7 +767,7 @@
     "meta": {
       "sourceTemplate": "来源模板",
       "department": "所属部门",
-      "owner": "Owner",
+      "owner": "创建人",
       "createdAt": "创建时间",
       "source": "来源关系",
       "instanceId": "实例 ID",

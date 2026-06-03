@@ -766,7 +766,7 @@
     "meta": {
       "sourceTemplate": "Source Template",
       "department": "Department",
-      "owner": "Owner",
+      "owner": "Creator",
       "createdAt": "Created At",
       "source": "Origin",
       "instanceId": "Instance ID",

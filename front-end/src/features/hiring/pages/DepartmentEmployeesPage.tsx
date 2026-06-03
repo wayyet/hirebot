@@ -55,7 +55,6 @@ export default function DepartmentEmployeesPage() {
     roleName: string;
   } | null>(null);
   const [detailEmployeeId, setDetailEmployeeId] = useState<string | null>(null);
-  const [templateDescriptions, setTemplateDescriptions] = useState<Record<string, string>>({});
 
   async function handleDelete(employeeId: string) {
     setDeletingId(employeeId);
@@ -109,36 +108,6 @@ export default function DepartmentEmployeesPage() {
       cancelled = true;
     };
   }, [refreshKey, t]);
-
-  useEffect(() => {
-    const uniqueIds = [...new Set(employees.map((e) => e.sourceTemplateId).filter(Boolean))];
-    if (uniqueIds.length === 0) return;
-
-    let cancelled = false;
-
-    async function loadDescriptions() {
-      const descriptions: Record<string, string> = {};
-      await Promise.all(
-        uniqueIds.map(async (id) => {
-          try {
-            const detail = await api.employeeTemplate.getDetail(id);
-            if (!cancelled) descriptions[id] = detail.description;
-          } catch {
-            // ignore
-          }
-        }),
-      );
-      if (!cancelled) {
-        setTemplateDescriptions((prev) => ({ ...prev, ...descriptions }));
-      }
-    }
-
-    void loadDescriptions();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [employees]);
 
   const viewedEmployees = useMemo(() => {
     return employees.map(withEmployeeView);
@@ -540,30 +509,29 @@ export default function DepartmentEmployeesPage() {
                       </div>
                     </div>
                     <p className="hb-employee-card-desc">
-                      {templateDescriptions[employee.sourceTemplateId] || ""}
+                      {employee.description || ""}
                     </p>
                   </button>
                   <div className="hb-employee-card-divider" />
                   <div className="hb-employee-card-footer">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs text-[var(--hb-soft)]">
+                    <div className="flex items-center gap-2 text-xs text-[var(--hb-soft)] flex-wrap min-w-0">
+                      {employee.createdBy && (
+                        <>
+                          <CreatorDisplay
+                            creator={employee.createdBy}
+                            avatarSize={16}
+                            showAvatar={false}
+                          />
+                          <span>·</span>
+                        </>
+                      )}
+                      <span className="whitespace-nowrap">
                         {t("employees.departmentPage.createdAt", {
                           date: employee.createdAt,
                         })}
                       </span>
-                      {employee.createdBy && (
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-[var(--hb-soft)]">
-                            {t("employees.departmentPage.createdBy")}
-                          </span>
-                          <CreatorDisplay
-                            creator={employee.createdBy}
-                            avatarSize={20}
-                          />
-                        </div>
-                      )}
                     </div>
-                    <div className="hb-employee-card-footer-actions">
+                    <div className="hb-employee-card-footer-actions flex-shrink-0">
                       {isHiring && employee.basedOnTemplateId ? (
                         <button
                           type="button"

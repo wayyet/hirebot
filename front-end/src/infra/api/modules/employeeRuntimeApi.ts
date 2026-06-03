@@ -38,6 +38,7 @@ export interface EmployeeSummary {
   pendingActions: string[]
   isConfigured: boolean
   cardIntro?: string | null
+  description?: string | null
   createdBy?: CreatorRef | null
 }
 

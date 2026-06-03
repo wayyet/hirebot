@@ -25,4 +25,5 @@ public sealed record EmployeeSummaryDto(
     IReadOnlyList<string> PendingActions,
     bool IsConfigured,
     string? CardIntro = null,
+    string? Description = null,
     CreatorRef? CreatedBy = null);
