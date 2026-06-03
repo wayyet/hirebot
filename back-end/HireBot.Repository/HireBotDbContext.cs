@@ -167,6 +167,7 @@ public sealed class HireBotDbContext : DbContext
         modelBuilder.Entity<EvaluationAssetEntity>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.TenantId).HasMaxLength(128);
             entity.Property(e => e.AssetType).IsRequired().HasMaxLength(40);
             entity.Property(e => e.RelatedKey).HasMaxLength(160);
             entity.Property(e => e.RelativePath).IsRequired().HasMaxLength(512);
@@ -176,6 +177,7 @@ public sealed class HireBotDbContext : DbContext
             entity.Property(e => e.SourceType).IsRequired().HasMaxLength(40);
             entity.Property(e => e.CreatedAtUtc).IsRequired();
 
+            entity.HasIndex(e => e.TenantId);
             entity.HasIndex(e => new { e.SessionEntityId, e.AssetType });
             entity.HasIndex(e => e.RelativePath);
 
@@ -188,11 +190,13 @@ public sealed class HireBotDbContext : DbContext
         modelBuilder.Entity<EvaluationReportEntity>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.TenantId).HasMaxLength(128);
             entity.Property(e => e.OverallScore).HasColumnType("numeric(6,2)");
             entity.Property(e => e.DimensionScoresJson).IsRequired();
             entity.Property(e => e.SummaryJson).IsRequired();
             entity.Property(e => e.CreatedAtUtc).IsRequired();
 
+            entity.HasIndex(e => e.TenantId);
             entity.HasIndex(e => new { e.SessionEntityId, e.Iteration });
 
             entity.HasOne(e => e.Session)
@@ -262,26 +266,25 @@ public sealed class HireBotDbContext : DbContext
 
         modelBuilder.Entity<HiringMaterialFileEntity>(entity =>
         {
-            entity.ToTable("hiring_material_files");
+            entity.ToTable("HiringMaterialFiles");
             entity.HasKey(e => e.MaterialFileId);
-            entity.Property(e => e.MaterialFileId).HasColumnName("material_file_id");
-            entity.Property(e => e.HireId).HasColumnName("hire_id").IsRequired().HasMaxLength(64);
-            entity.Property(e => e.SessionId).HasColumnName("session_id").IsRequired().HasMaxLength(64);
-            entity.Property(e => e.RelativePath).HasColumnName("relative_path").IsRequired().HasMaxLength(1024);
-            entity.Property(e => e.OriginalFileName).HasColumnName("original_file_name").IsRequired().HasMaxLength(512);
-            entity.Property(e => e.StoragePath).HasColumnName("storage_path").IsRequired().HasMaxLength(1024);
-            entity.Property(e => e.Format).HasColumnName("format").IsRequired().HasMaxLength(32);
-            entity.Property(e => e.MimeType).HasColumnName("mime_type").HasMaxLength(120);
-            entity.Property(e => e.SizeBytes).HasColumnName("size_bytes").IsRequired();
-            entity.Property(e => e.Sha256).HasColumnName("sha256").IsRequired().HasMaxLength(64);
-            entity.Property(e => e.RequestedCategoryTitle).HasColumnName("requested_category_title").HasMaxLength(160);
-            entity.Property(e => e.WorkspaceRelativePath).HasColumnName("workspace_relative_path").HasMaxLength(1024);
-            entity.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
-            entity.Property(e => e.OperatorId).HasColumnName("operator_id").IsRequired().HasMaxLength(128);
-            entity.Property(e => e.UploadedBy).HasColumnName("uploaded_by").IsRequired().HasMaxLength(256);
-            entity.Property(e => e.UploadedAtUtc).HasColumnName("uploaded_at_utc").IsRequired();
-            entity.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
-            entity.Property(e => e.DeletedAtUtc).HasColumnName("deleted_at_utc");
+            entity.Property(e => e.HireId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.SessionId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.RelativePath).IsRequired().HasMaxLength(1024);
+            entity.Property(e => e.OriginalFileName).IsRequired().HasMaxLength(512);
+            entity.Property(e => e.StoragePath).IsRequired().HasMaxLength(1024);
+            entity.Property(e => e.Format).IsRequired().HasMaxLength(32);
+            entity.Property(e => e.MimeType).HasMaxLength(120);
+            entity.Property(e => e.SizeBytes).IsRequired();
+            entity.Property(e => e.Sha256).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.RequestedCategoryTitle).HasMaxLength(160);
+            entity.Property(e => e.WorkspaceRelativePath).HasMaxLength(1024);
+            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.OperatorId).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.UploadedBy).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.UploadedAtUtc).IsRequired();
+            entity.Property(e => e.UpdatedAtUtc).IsRequired();
+            entity.Property(e => e.DeletedAtUtc);
 
             entity.HasIndex(e => new { e.SessionId, e.RelativePath }).IsUnique();
             entity.HasIndex(e => new { e.HireId, e.SessionId, e.UploadedAtUtc });
@@ -299,6 +302,8 @@ public sealed class HireBotDbContext : DbContext
         modelBuilder.Entity<HiringArtifactUploadPartEntity>(entity =>
         {
             entity.HasKey(e => e.PartId);
+            entity.Property(e => e.TenantId).HasMaxLength(128);
+            entity.HasIndex(e => e.TenantId);
             entity.HasIndex(e => new { e.UploadId, e.PartNumber }).IsUnique();
         });
 
@@ -314,22 +319,22 @@ public sealed class HireBotDbContext : DbContext
         {
             entity.ToTable("Instances");
             entity.HasKey(e => e.InstanceId);
-            entity.Property(e => e.InstanceId).HasColumnName("instance_id").IsRequired().HasMaxLength(120);
-            entity.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
-            entity.Property(e => e.InstanceType).HasColumnName("instance_type").IsRequired().HasMaxLength(40);
-            entity.Property(e => e.Status).HasColumnName("status").IsRequired().HasMaxLength(40);
-            entity.Property(e => e.BasedOnTemplateId).HasColumnName("based_on_template_id").HasMaxLength(128);
-            entity.Property(e => e.FromInstanceId).HasColumnName("from_instance_id").HasMaxLength(120);
-            entity.Property(e => e.ActiveBranchId).HasColumnName("active_branch_id").HasMaxLength(120);
-            entity.Property(e => e.EvalReportId).HasColumnName("eval_report_id").HasMaxLength(120);
-            entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id").IsRequired().HasMaxLength(256);
-            entity.Property(e => e.DepartmentId).HasColumnName("department_id").IsRequired().HasMaxLength(128);
-            entity.Property(e => e.CurrentVersion).HasColumnName("current_version").IsRequired().HasMaxLength(80);
-            entity.Property(e => e.RuntimeSnapshotJson).HasColumnName("runtime_snapshot_json");
-            entity.Property(e => e.Description).HasColumnName("description");
-            entity.Property(e => e.DescribeDocument).HasColumnName("describe_document");
-            entity.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
-            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            entity.Property(e => e.InstanceId).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.InstanceType).IsRequired().HasMaxLength(40);
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(40);
+            entity.Property(e => e.BasedOnTemplateId).HasMaxLength(128);
+            entity.Property(e => e.FromInstanceId).HasMaxLength(120);
+            entity.Property(e => e.ActiveBranchId).HasMaxLength(120);
+            entity.Property(e => e.EvalReportId).HasMaxLength(120);
+            entity.Property(e => e.OwnerUserId).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.DepartmentId).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.CurrentVersion).IsRequired().HasMaxLength(80);
+            entity.Property(e => e.RuntimeSnapshotJson);
+            entity.Property(e => e.Description);
+            entity.Property(e => e.DescribeDocument);
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.UpdatedAt).IsRequired();
 
             entity.HasIndex(e => new { e.TenantId, e.DepartmentId, e.InstanceType, e.Status });
             entity.HasIndex(e => new { e.OwnerUserId, e.InstanceType, e.Status });
@@ -341,13 +346,13 @@ public sealed class HireBotDbContext : DbContext
         {
             entity.ToTable("Conversations");
             entity.HasKey(e => e.ConversationId);
-            entity.Property(e => e.ConversationId).HasColumnName("conversation_id").IsRequired().HasMaxLength(120);
-            entity.Property(e => e.InstanceId).HasColumnName("instance_id").IsRequired().HasMaxLength(120);
-            entity.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
-            entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id").IsRequired().HasMaxLength(256);
-            entity.Property(e => e.Channel).HasColumnName("channel").IsRequired().HasMaxLength(40);
-            entity.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
-            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            entity.Property(e => e.ConversationId).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.InstanceId).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.OwnerUserId).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.Channel).IsRequired().HasMaxLength(40);
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.UpdatedAt).IsRequired();
 
             entity.HasIndex(e => new { e.InstanceId, e.OwnerUserId, e.Channel });
             entity.HasIndex(e => new { e.TenantId, e.UpdatedAt });
@@ -357,19 +362,19 @@ public sealed class HireBotDbContext : DbContext
         {
             entity.ToTable("Messages");
             entity.HasKey(e => e.MessageId);
-            entity.Property(e => e.MessageId).HasColumnName("message_id").IsRequired().HasMaxLength(120);
-            entity.Property(e => e.ConversationId).HasColumnName("conversation_id").IsRequired().HasMaxLength(120);
-            entity.Property(e => e.InstanceId).HasColumnName("instance_id").IsRequired().HasMaxLength(120);
-            entity.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
-            entity.Property(e => e.Role).HasColumnName("role").IsRequired().HasMaxLength(40);
-            entity.Property(e => e.Content).HasColumnName("content").IsRequired();
-            entity.Property(e => e.Channel).HasColumnName("channel").IsRequired().HasMaxLength(40);
-            entity.Property(e => e.ExternalMessageId).HasColumnName("external_message_id").HasMaxLength(160);
-            entity.Property(e => e.ExternalUserId).HasColumnName("external_user_id").HasMaxLength(160);
-            entity.Property(e => e.DeliveryStatus).HasColumnName("delivery_status").HasMaxLength(40);
-            entity.Property(e => e.ErrorMessage).HasColumnName("error_message").HasMaxLength(1024);
-            entity.Property(e => e.MetadataJson).HasColumnName("metadata_json");
-            entity.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(e => e.MessageId).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.ConversationId).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.InstanceId).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.Role).IsRequired().HasMaxLength(40);
+            entity.Property(e => e.Content).IsRequired();
+            entity.Property(e => e.Channel).IsRequired().HasMaxLength(40);
+            entity.Property(e => e.ExternalMessageId).HasMaxLength(160);
+            entity.Property(e => e.ExternalUserId).HasMaxLength(160);
+            entity.Property(e => e.DeliveryStatus).HasMaxLength(40);
+            entity.Property(e => e.ErrorMessage).HasMaxLength(1024);
+            entity.Property(e => e.MetadataJson);
+            entity.Property(e => e.CreatedAt).IsRequired();
 
             entity.HasIndex(e => new { e.ConversationId, e.CreatedAt });
             entity.HasIndex(e => new { e.InstanceId, e.CreatedAt });
@@ -434,6 +439,7 @@ public sealed class HireBotDbContext : DbContext
         modelBuilder.Entity<SandboxAssetEntity>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.TenantId).HasMaxLength(128);
             entity.Property(e => e.MediaId).IsRequired().HasMaxLength(120);
             entity.Property(e => e.Url).IsRequired().HasMaxLength(512);
             entity.Property(e => e.FileName).IsRequired().HasMaxLength(512);
@@ -443,6 +449,7 @@ public sealed class HireBotDbContext : DbContext
             entity.Property(e => e.AssetRole).IsRequired().HasMaxLength(80);
             entity.Property(e => e.CreatedAtUtc).IsRequired();
 
+            entity.HasIndex(e => e.TenantId);
             entity.HasIndex(e => e.MediaId).IsUnique();
             entity.HasIndex(e => new { e.SandboxInstanceEntityId, e.CreatedAtUtc });
 

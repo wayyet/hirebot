@@ -1,12 +1,16 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class SandboxAssetEntity
+public sealed class SandboxAssetEntity : ITenant
 {
     [Key]
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    [MaxLength(128)]
+    public string? TenantId { get; set; }
 
     public Guid? SandboxInstanceEntityId { get; set; }
 

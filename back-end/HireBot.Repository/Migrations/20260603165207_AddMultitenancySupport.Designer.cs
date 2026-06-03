@@ -3,6 +3,7 @@ using System;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HireBot.Repository.Migrations
 {
     [DbContext(typeof(HireBotDbContext))]
-    partial class HireBotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260603165207_AddMultitenancySupport")]
+    partial class AddMultitenancySupport
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -122,33 +125,40 @@ namespace HireBot.Repository.Migrations
                 {
                     b.Property<string>("ConversationId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("conversation_id");
 
                     b.Property<string>("Channel")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("channel");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("InstanceId")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("instance_id");
 
                     b.Property<string>("OwnerUserId")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("owner_user_id");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant_id");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
                     b.HasKey("ConversationId");
 
@@ -640,81 +650,99 @@ namespace HireBot.Repository.Migrations
                 {
                     b.Property<Guid>("MaterialFileId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
+                        .HasColumnType("uuid")
+                        .HasColumnName("material_file_id");
 
                     b.Property<DateTimeOffset?>("DeletedAtUtc")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at_utc");
 
                     b.Property<string>("Format")
                         .IsRequired()
                         .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("format");
 
                     b.Property<string>("HireId")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("hire_id");
 
                     b.Property<string>("MimeType")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("mime_type");
 
                     b.Property<string>("OperatorId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("operator_id");
 
                     b.Property<string>("OriginalFileName")
                         .IsRequired()
                         .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("original_file_name");
 
                     b.Property<string>("RelativePath")
                         .IsRequired()
                         .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("relative_path");
 
                     b.Property<string>("RequestedCategoryTitle")
                         .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("requested_category_title");
 
                     b.Property<string>("SessionId")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("session_id");
 
                     b.Property<string>("Sha256")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sha256");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
 
                     b.Property<string>("StoragePath")
                         .IsRequired()
                         .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("storage_path");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant_id");
 
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
 
                     b.Property<DateTimeOffset>("UploadedAtUtc")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("uploaded_at_utc");
 
                     b.Property<string>("UploadedBy")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("uploaded_by");
 
                     b.Property<string>("WorkspaceRelativePath")
                         .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("workspace_relative_path");
 
                     b.HasKey("MaterialFileId");
 
@@ -725,7 +753,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("HireId", "SessionId", "UploadedAtUtc");
 
-                    b.ToTable("HiringMaterialFiles", (string)null);
+                    b.ToTable("hiring_material_files", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringRuntimeStateEntity", b =>
@@ -868,68 +896,84 @@ namespace HireBot.Repository.Migrations
                 {
                     b.Property<string>("InstanceId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("instance_id");
 
                     b.Property<string>("ActiveBranchId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("active_branch_id");
 
                     b.Property<string>("BasedOnTemplateId")
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("based_on_template_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CurrentVersion")
                         .IsRequired()
                         .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("current_version");
 
                     b.Property<string>("DepartmentId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("department_id");
 
                     b.Property<string>("DescribeDocument")
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("describe_document");
 
                     b.Property<string>("Description")
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("description");
 
                     b.Property<string>("EvalReportId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("eval_report_id");
 
                     b.Property<string>("FromInstanceId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("from_instance_id");
 
                     b.Property<string>("InstanceType")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("instance_type");
 
                     b.Property<string>("OwnerUserId")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("owner_user_id");
 
                     b.Property<string>("RuntimeSnapshotJson")
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("runtime_snapshot_json");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("status");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant_id");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
                     b.HasKey("InstanceId");
 
@@ -948,58 +992,71 @@ namespace HireBot.Repository.Migrations
                 {
                     b.Property<string>("MessageId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("message_id");
 
                     b.Property<string>("Channel")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("channel");
 
                     b.Property<string>("Content")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("content");
 
                     b.Property<string>("ConversationId")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("conversation_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("DeliveryStatus")
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("delivery_status");
 
                     b.Property<string>("ErrorMessage")
                         .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("error_message");
 
                     b.Property<string>("ExternalMessageId")
                         .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("external_message_id");
 
                     b.Property<string>("ExternalUserId")
                         .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("external_user_id");
 
                     b.Property<string>("InstanceId")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("instance_id");
 
                     b.Property<string>("MetadataJson")
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("metadata_json");
 
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("role");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tenant_id");
 
                     b.HasKey("MessageId");
 
