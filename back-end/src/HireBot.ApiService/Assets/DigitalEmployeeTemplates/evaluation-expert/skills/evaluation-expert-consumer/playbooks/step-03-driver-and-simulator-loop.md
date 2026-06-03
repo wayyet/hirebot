@@ -42,20 +42,32 @@ But STEP 3 MUST NOT compose this command. Instead, execute `run_plan.scenarios[i
 The driver writes `{"event":"ready",...}` and all subsequent events to its **stdout**. The spawn command redirects driver stdout to the regular file `$PAD/out` via `>>`. The agent reads events by polling lines from `$PAD/out` — NOT by directly attaching to the process.
 
 ```
-driver process stdout  ──(>> $PAD/out)──→  pad/out (regular file)
-                                                   ↑
+                   tail -f $PAD/in (regular file)
+                          │
+                          │ pipe (never EOF while tail -f is alive)
+                          ▼
+driver process stdin ◄────┤
+                           │
+driver process stdout ──(>> $PAD/out)──→  pad/out (regular file)
+                                                   ▲
                               agent polls with sed -n "${N}p" (commands.read_one_event)
 
-agent writes action JSON ──(printf >> $PAD/in)──→  pad/in (FIFO)
-                                                          ↓
-                                             driver process stdin
+agent writes action JSON ──(printf >> $PAD/in)──→  pad/in (regular file)
+                                                          ▲
+                                         tail -f picks up via inotify
 ```
 
 The agent MUST NOT:
 - Use `process_*` tools to attach to the subprocess
 - Read driver stdout directly
-- Use `tail -f` or `cat` on the FIFO pad/in
+- Use `cat` on the pad/in (tail -f is the driver's mechanism; the agent appends with `>>`)
 - Modify the spawn command in any way
+
+Key design properties:
+- **pad/in is a regular file** (NOT a FIFO). The agent appends action JSON lines with `printf ... >>`. Appending to a regular file NEVER blocks.
+- **tail -f** watches pad/in and pipes new lines into the driver's stdin. Since it follows a regular file, it never returns EOF (unlike reading a FIFO with O_RDWR on container kernels).
+- **pad/out is a regular file** polled by `sed -n`. No FIFO semantics — polling never blocks on open.
+- The entire pipeline (`tail -f | python3`) is owned by a single `sh -c` wrapper. Killing the wrapper PID breaks the pipe and terminates both processes.
 
 ### 3. Read first stdout line (via pad/out polling)
 
@@ -66,7 +78,7 @@ Execute `run_plan.scenarios[i].commands.read_one_event` **verbatim**. This polls
 Write the first `send` action using **EXACTLY** this JSON shape (field names are literal — do NOT use `type`, `user_message`, or any other key):
 
 ```json
-{"action":"send","turn_index":0,"text":"<tc.input.opening_message verbatim>","decision":{"should_continue":true,"next_utterance":"<opening_message>","internal_emotion":"neutral","stop_reason":null}}
+{"action":"send","turn_index":0,"text":"<tc.input.opening_message verbatim>","decision":{"turn_index":0,"should_continue":true,"next_utterance":"<opening_message>","internal_emotion":"neutral","perceived_progress":"none","stop_reason":null}}
 ```
 
 Produce this as a **single-line JSON string**, then substitute it into `commands.write_action_template` at the `<<JSON_PAYLOAD>>` marker.
@@ -84,7 +96,7 @@ Each iteration:
 1. Read next stdout line. Expect `{"event":"evaluatee_turn", ...}`. Anything else → handle as error event.
 2. Render `simulators/<simulator_id>/system_prompt.md` against placeholders:
    - `customer_persona` / `goal` / `stop_conditions` / `context` / `current_emotion` / `dialog_so_far` / `effective_max_turns`
-3. The agent's own LLM consumes the rendered prompt and returns a `SimulatorDecision` JSON. Validate against `runtime-schemas/simulator_decision.schema.json`.
+3. The agent's own LLM consumes the rendered prompt and returns a `SimulatorDecision` JSON. Validate against `runtime-schemas/simulator_decision.schema.json` BEFORE writing anything to the driver. Validation failure blocks the scenario; do not write a malformed decision and do not patch the trace later.
 4. Compute:
    ```
    effective_max_turns = min(tc.turn_budget.hard_max_turns, evaluation_context.global_turn_cap or 30)
@@ -93,12 +105,12 @@ Each iteration:
 
    **`send` action** (field names are mandatory and exact):
    ```json
-   {"action":"send","turn_index":<N>,"text":"<utterance text>","decision":{"should_continue":true,"next_utterance":"<utterance text>","internal_emotion":"<emotion>","stop_reason":null}}
+   {"action":"send","turn_index":<N>,"text":"<utterance text>","decision":{"turn_index":<N>,"should_continue":true,"next_utterance":"<utterance text>","internal_emotion":"<emotion>","perceived_progress":"<none|partial|resolved|regressed>","stop_reason":null}}
    ```
 
    **`end` action** (field names are mandatory and exact):
    ```json
-   {"action":"end","decision":{"should_continue":false,"next_utterance":null,"internal_emotion":"<final emotion>","stop_reason":"<reason>"},"termination":{"reason":"<termination_reason>","detail":"<optional detail>","final_emotion":"<emotion>","turns_used":<N>}}
+   {"action":"end","decision":{"turn_index":<N>,"should_continue":false,"internal_emotion":"<final emotion>","perceived_progress":"<none|partial|resolved|regressed>","stop_reason":"<reason>"},"termination":{"reason":"<termination_reason>","detail":"<optional detail>","final_emotion":"<emotion>","turns_used":<N>}}
    ```
 
    | Condition | Action type |
@@ -141,7 +153,7 @@ Path whitelist for executables: `./runtime-drivers/<driver_id>/**`, `./runtime-*
 
 **K20 (HARD)**: STEP 3 MUST NOT compose shell commands at runtime. Before STEP 3 begins, STEP 2.5 (`planRun`, see `playbooks/step-2.5-plan-run.md`) has materialised every `(pre_spawn_cleanup, spawn, read_one_event, write_action_template, post_scenario_cleanup)` as **literal shell strings** under `runs/<eval_id>/run_plan.json`. The agent reads `run_plan.scenarios[i].commands.*` and executes the strings verbatim. The ONLY runtime substitution permitted is replacing the marker `<<JSON_PAYLOAD>>` inside `commands.write_action_template` with the current single-line `send`/`end` action JSON.
 
-**K19 (HARD)**: The canonical pad layout `/tmp/eval-driver/<eval_id>/<tc_id>/` contains: `in` (FIFO — agent writes actions → driver stdin), `out` (regular file — driver stdout appended here; agent polls by line number), `cursor` (regular file — tracks next unread line number), `err` (regular file — driver stderr), `pid` (regular file — driver PID). Agents inspecting failures should verify the pad layout matches K19; agents executing the loop should NOT inspect or modify the layout — just run the commands.
+**K19 (HARD)**: The canonical pad layout `/tmp/eval-driver/<eval_id>/<tc_id>/` contains: `in` (regular file — agent appends actions with `>>`; `tail -f` streams into driver stdin via pipe), `out` (regular file — driver stdout appended here; agent polls by line number), `cursor` (regular file — tracks next unread line number), `err` (regular file — driver stderr), `pid` (regular file — `sh -c` wrapper PID). All pad files are regular files — no FIFOs. This avoids the O_RDWR FIFO reference-count race that caused premature EOF on container kernels. Agents inspecting failures should verify the pad layout matches K19; agents executing the loop should NOT inspect or modify the layout — just run the commands.
 
 Repeated `cat: /tmp/eval-stdout.txt: No such file or directory`-class failures are now K20 violations (STEP 3 improvised instead of reading the plan), not Python instability.
 
@@ -182,7 +194,10 @@ For the current scenario `i`:
 - `runs/<eval_id>/run_plan.json` exists and validates against `runtime-schemas/run_plan.schema.json`;
 - `run_plan.scenarios[i]` exists for the tc the agent is about to run;
 - the five `commands.*` strings each have non-zero length;
-- the four pad paths in `commands.spawn` literally match `pad.in_fifo` / `pad.out_fifo` / `pad.err_file` / `pad.pid_file` from the same entry;
+- `commands.spawn` starts with the scenario `pad.dir` assignment and uses the canonical `$PAD/in`, `$PAD/out`, `$PAD/err`, and `$PAD/pid` leaves;
+- `commands.read_one_event` starts with the scenario `pad.dir` assignment and uses `sed -n` with canonical `$PAD/out` and `$PAD/cursor`;
+- `commands.spawn` contains `--evaluation-context`, `--enriched-test-case`, and `--output`, and contains none of the legacy `--test-case-id` / `--endpoint` / `--pad-in` / `--pad-out` flags;
+- `commands.spawn` contains no `&;` token; in sh/bash, background `&` is already a command separator;
 - `commands.write_action_template` contains exactly one occurrence of `<<JSON_PAYLOAD>>`;
 - no scenario has been started under a different command string in this conversation (search the tool-call transcript for previous shell calls referencing the same `tc_id`).
 
@@ -201,9 +216,9 @@ After the scenario ends and `commands.post_scenario_cleanup` has run:
 |---|---|---|
 | Compose `mkfifo /tmp/eval-stdin-pipe; ... > /tmp/eval-stdout.txt` from scratch in STEP 3 | `cat: /tmp/eval-stdout.txt: No such file or directory`; PID leaks | Execute `commands.*` from `run_plan.json` verbatim; if it's not in the plan, re-run STEP 2.5 |
 | Modify `commands.spawn` to add `2>&1` / change redirection / swap python binary | One scenario behaves differently than the rest; flaky runs | Re-run STEP 2.5 with the desired change wired into the plan generator |
-| Use `cat "$PAD/out"` instead of the plan's `head -n 1 ...` | Tool-call hangs forever waiting for FIFO EOF | Use `commands.read_one_event` verbatim |
-| Skip `commands.pre_spawn_cleanup` or `commands.post_scenario_cleanup` | Stale `ps aux` entries; FIFOs leak under `/tmp/eval-driver/` | Both cleanups are mandatory tool-calls; they are in the plan for a reason |
-| Substitute anything other than `<<JSON_PAYLOAD>>` (e.g. patch in a different `pad.in_fifo`) | Driver receives nothing because the write went to a non-existent FIFO | Only the marker is variable; everything else is read-only literal |
+| Use `cat "$PAD/out"` instead of the plan's cursor-based `sed -n "${N}p" ...` poller | Tool-call can block or re-read stale events | Use `commands.read_one_event` verbatim |
+| Skip `commands.pre_spawn_cleanup` or `commands.post_scenario_cleanup` | Stale `ps aux` entries; pad files leak under `/tmp/eval-driver/` | Both cleanups are mandatory tool-calls; they are in the plan for a reason |
+| Substitute anything other than `<<JSON_PAYLOAD>>` (e.g. patch in a different `pad.in_fifo`) | Driver receives nothing because the write went to a non-existent file | Only the marker is variable; everything else is read-only literal |
 | Run STEP 3 without `run_plan.json` present | The improvisation cycle returns; users see "Exit code 1" again | STEP 2.5 input gate: STEP 3 refuses to start; re-run STEP 2.5 first |
 
 ### Why this is a contract, not advice
@@ -245,7 +260,7 @@ Whenever `decision.next_utterance` is non-empty, the agent MUST first write a `s
 
 ### Recovery when the LLM rendering errors mid-loop
 
-Write `{"action":"end","termination":{"reason":"deadlock_detected","detail":"<reason>"}}` THEN close stdin. NEVER close stdin first.
+Write `{"action":"end","decision":{"turn_index":<N>,"should_continue":false,"internal_emotion":"<current emotion>","perceived_progress":"regressed","stop_reason":"deadlock_detected"},"termination":{"reason":"deadlock_detected","detail":"<reason>"}}` THEN close stdin. NEVER close stdin first.
 
 ### Forbidden shortcut (K14)
 
@@ -275,8 +290,10 @@ A rejected trace taints the run; the affected `tc_id`s MUST appear in `Evaluatio
 | Skip the final `send` when `should_continue=false` and `next_utterance` is non-empty | K14 (clause 4) | send-then-end pattern |
 | Simulator declares `goal_achieved` before customer's required info reached evaluatee | K15 runtime | Customer must utter required info first |
 | Improvise pipe filename per turn (`/tmp/eval-stdin-pipe` + `/tmp/eval-stdout.txt`, etc.) | K19 / K20 | Read the literal commands from `run_plan.json#scenarios[i].commands.*`; do not author shell at runtime |
-| Redirect driver stdout to a regular `*.txt` file instead of the FIFO | K19 / K20 | The plan's `commands.spawn` redirects to `pad.out_fifo`; execute it verbatim |
-| `cat "$PAD/out"` (waits for EOF, blocks forever) | K19 / K20 | Use `commands.read_one_event` (which is `head -n 1 <pad.out_fifo>`) verbatim |
+| Redirect driver stdout to an ad-hoc `*.txt` file instead of the planned `pad.out_file` | K19 / K20 | The plan's `commands.spawn` appends to `pad.out_file`; execute it verbatim |
+| `cat "$PAD/out"` (can block or re-read stale events) | K19 / K20 | Use `commands.read_one_event` (cursor-based `sed -n "${N}p"` polling) verbatim |
+| Use `<> "$PAD/in"` (O_RDWR FIFO open) in spawn command | K19 / K20 / deprecated | Use `tail -f "$PAD/in" | exec python3 ...` pattern from run_plan; O_RDWR FIFO causes premature stdin EOF on container kernels |
+| Use `mkfifo "$PAD/in"` in pre_spawn_cleanup | K19 / K20 / deprecated | Use `touch "$PAD/in"` — pad/in must be a regular file for tail -f |
 | Skip pre-spawn or post-scenario cleanup | K19 / K20 | `commands.pre_spawn_cleanup` and `commands.post_scenario_cleanup` are mandatory tool-calls |
 | Begin STEP 3 without `runs/<eval_id>/run_plan.json` | K20 | Run STEP 2.5 first; STEP 3 fails fast if the plan is missing |
 | Modify any string from `commands.*` other than substituting `<<JSON_PAYLOAD>>` | K20 | Re-run STEP 2.5 with the change wired into the plan generator |

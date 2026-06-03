@@ -229,6 +229,15 @@ internal sealed partial class EvaluationService
         EmployeeDetailDto employee,
         CancellationToken cancellationToken)
     {
+        var fromArtifactPackage = await LoadTestcaseSourcesFromArtifactPackageAsync(
+            workspaceContext,
+            employee,
+            cancellationToken);
+        if (fromArtifactPackage.Count > 0)
+        {
+            return fromArtifactPackage;
+        }
+
         var fromEvaluatorTemplatePackage = await LoadTestcaseSourcesFromEvaluatorTemplatePackageAsync(
             workspaceContext.EvaluatorTemplatePackageZipPath,
             "evaluator-template-package",
@@ -263,6 +272,55 @@ internal sealed partial class EvaluationService
         logger.LogWarning(
             "[Eval] No testcase json found under testcases/ in evaluator template package. TemplatePackageZipPath={TemplatePackageZipPath}",
             workspaceContext.EvaluatorTemplatePackageZipPath);
+        return [];
+    }
+
+    private async Task<IReadOnlyList<TestcaseSourceFile>> LoadTestcaseSourcesFromArtifactPackageAsync(
+        EvaluationWorkspaceContext workspaceContext,
+        EmployeeDetailDto employee,
+        CancellationToken cancellationToken)
+    {
+        var candidateHireIds = new[]
+            {
+                workspaceContext.TargetHireId,
+                employee.EmployeeId
+            }
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var hireId in candidateHireIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var packageSnapshot = await artifactPackageService.GetPackageByKindAsync(
+                hireId,
+                HiringArtifactPackageKinds.FinalPackageZip,
+                cancellationToken);
+            if (packageSnapshot?.Content is not { Length: > 0 })
+            {
+                continue;
+            }
+
+            var sourceType = $"artifact-package:{HiringArtifactPackageKinds.FinalPackageZip}";
+            var sources = await LoadTestcaseSourcesFromZipBytesAsync(
+                packageSnapshot.Content,
+                sourceType,
+                packageSnapshot.FileName,
+                cancellationToken);
+            if (sources.Count == 0)
+            {
+                continue;
+            }
+
+            logger.LogInformation(
+                "[Eval] Loaded testcase sources from final hiring artifact package. HireId={HireId}, Kind={Kind}, FileName={FileName}, Count={Count}",
+                hireId,
+                packageSnapshot.Kind,
+                packageSnapshot.FileName,
+                sources.Count);
+            return sources;
+        }
+
         return [];
     }
 
@@ -380,30 +438,10 @@ internal sealed partial class EvaluationService
         try
         {
             await using var fileStream = new FileStream(normalizedZipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read, leaveOpen: false);
-            foreach (var entry in archive.Entries)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!IsTemplateTestcaseEntry(entry.FullName))
-                {
-                    continue;
-                }
-
-                using var entryStream = entry.Open();
-                using var reader = new StreamReader(entryStream);
-                var json = await reader.ReadToEndAsync(cancellationToken);
-                if (string.IsNullOrWhiteSpace(json))
-                {
-                    continue;
-                }
-
-                var normalizedEntryPath = NormalizeZipEntryPath(entry.FullName);
-                sources.Add(new TestcaseSourceFile(
-                    FileName: Path.GetFileName(normalizedEntryPath),
-                    SourcePath: normalizedEntryPath,
-                    RawJson: json,
-                    SourceType: sourceType));
-            }
+            sources.AddRange(await LoadTestcaseSourcesFromZipStreamAsync(
+                fileStream,
+                sourceType,
+                cancellationToken));
         }
         catch (Exception ex)
         {
@@ -412,6 +450,70 @@ internal sealed partial class EvaluationService
                 "[Eval] Failed to extract testcase files from template package. SourceType={SourceType}, TemplatePackageZipPath={TemplatePackageZipPath}",
                 sourceType,
                 normalizedZipPath);
+        }
+
+        return sources;
+    }
+
+    private async Task<IReadOnlyList<TestcaseSourceFile>> LoadTestcaseSourcesFromZipBytesAsync(
+        byte[] archiveBytes,
+        string sourceType,
+        string sourceName,
+        CancellationToken cancellationToken)
+    {
+        if (archiveBytes.Length == 0)
+        {
+            return [];
+        }
+
+        try
+        {
+            using var memoryStream = new MemoryStream(archiveBytes, writable: false);
+            return await LoadTestcaseSourcesFromZipStreamAsync(
+                memoryStream,
+                sourceType,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "[Eval] Failed to extract testcase files from artifact package. SourceType={SourceType}, SourceName={SourceName}",
+                sourceType,
+                sourceName);
+            return [];
+        }
+    }
+
+    private static async Task<IReadOnlyList<TestcaseSourceFile>> LoadTestcaseSourcesFromZipStreamAsync(
+        Stream archiveStream,
+        string sourceType,
+        CancellationToken cancellationToken)
+    {
+        var sources = new List<TestcaseSourceFile>();
+        using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: true);
+        foreach (var entry in archive.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!IsTemplateTestcaseEntry(entry.FullName))
+            {
+                continue;
+            }
+
+            using var entryStream = entry.Open();
+            using var reader = new StreamReader(entryStream);
+            var json = await reader.ReadToEndAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                continue;
+            }
+
+            var normalizedEntryPath = NormalizeZipEntryPath(entry.FullName);
+            sources.Add(new TestcaseSourceFile(
+                FileName: Path.GetFileName(normalizedEntryPath),
+                SourcePath: normalizedEntryPath,
+                RawJson: json,
+                SourceType: sourceType));
         }
 
         return sources;

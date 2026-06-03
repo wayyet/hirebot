@@ -1,11 +1,13 @@
 using System.IO.Compression;
 using System.Net.Http;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.EmployeeTemplate;
+using HireBot.Abstraction.Models.Evaluation;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Providers;
@@ -260,6 +262,426 @@ public sealed class EmployeeTemplateServiceTests
         }
     }
 
+    [Fact]
+    public async Task EvaluationService_ShouldKeepConsumerTestCasesEmptyWhenNoBusinessTestcases()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"hirebot-eval-empty-cases-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var evaluatorTemplateZipPath = Path.Combine(tempRoot, "evaluator-template.zip");
+            CreateEvaluatorTemplateZipWithoutTestcases(evaluatorTemplateZipPath);
+
+            await using var dbContext = CreateDbContext();
+            var sandbox = new CapturingSandboxService();
+            var service = CreateEvaluationService(dbContext, new ConfigurationBuilder().Build(), sandbox);
+            var employee = CreateEvaluationEmployee();
+            var ctx = CreateEvaluationWorkspaceContext(evaluatorTemplateZipPath);
+
+            var result = await InvokeEvaluationPrivateAsync<ApiResponse<string>>(
+                service,
+                "PrepareEvaluatorMaterialsArchiveAsync",
+                "owner-1",
+                employee,
+                ctx,
+                CancellationToken.None);
+
+            Assert.True(result.Success, result.Message);
+            var upload = Assert.Single(sandbox.WorkspaceUploads);
+
+            using var archive = new ZipArchive(new MemoryStream(upload.Content), ZipArchiveMode.Read);
+            var archiveEntries = archive.Entries.Select(entry => entry.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            Assert.Contains("testcases.json", archiveEntries);
+            Assert.Contains("test-cases/", archiveEntries);
+            Assert.DoesNotContain(archiveEntries, entry =>
+                entry.StartsWith("test-cases/", StringComparison.OrdinalIgnoreCase) &&
+                entry.EndsWith(".tc.json", StringComparison.OrdinalIgnoreCase));
+
+            using var indexDoc = JsonDocument.Parse(ReadZipEntry(archive, "testcases.json"));
+            Assert.Equal(JsonValueKind.Array, indexDoc.RootElement.ValueKind);
+            Assert.Empty(indexDoc.RootElement.EnumerateArray());
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task EvaluationService_ShouldUseFinalArtifactPackageTestcasesAndIgnoreIntermediate()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"hirebot-eval-final-cases-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var evaluatorTemplateZipPath = Path.Combine(tempRoot, "evaluator-template.zip");
+            CreateEvaluatorTemplateZipWithoutTestcases(evaluatorTemplateZipPath);
+
+            var finalArchive = BuildZipArchiveBytes(new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["testcases/evaluation-test-cases.json"] = Encoding.UTF8.GetBytes(
+                    """
+                    {
+                      "cases": [
+                        {
+                          "case_id": "artifact-case-001",
+                          "title": "Final artifact generated testcase",
+                          "input": {
+                            "user_request": "Final artifact customer asks for access approval."
+                          }
+                        }
+                      ]
+                    }
+                    """)
+            });
+            var intermediateArchive = BuildZipArchiveBytes(new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["testcases/evaluation-test-cases.json"] = Encoding.UTF8.GetBytes(
+                    """
+                    {
+                      "cases": [
+                        {
+                          "case_id": "intermediate-case-001",
+                          "title": "Intermediate testcase should be ignored",
+                          "input": {
+                            "user_request": "Intermediate draft request."
+                          }
+                        }
+                      ]
+                    }
+                    """)
+            });
+
+            await using var dbContext = CreateDbContext();
+            var sandbox = new CapturingSandboxService();
+            var artifactPackageService = new FixedArtifactPackageService(finalArchive, intermediateArchive);
+            var service = CreateEvaluationService(
+                dbContext,
+                new ConfigurationBuilder().Build(),
+                sandbox,
+                artifactPackageService);
+            var employee = CreateEvaluationEmployee();
+            var ctx = CreateEvaluationWorkspaceContext(evaluatorTemplateZipPath);
+
+            var result = await InvokeEvaluationPrivateAsync<ApiResponse<string>>(
+                service,
+                "PrepareEvaluatorMaterialsArchiveAsync",
+                "owner-1",
+                employee,
+                ctx,
+                CancellationToken.None);
+
+            Assert.True(result.Success, result.Message);
+            var upload = Assert.Single(sandbox.WorkspaceUploads);
+
+            using var archive = new ZipArchive(new MemoryStream(upload.Content), ZipArchiveMode.Read);
+            var archiveEntries = archive.Entries.Select(entry => entry.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            Assert.Contains("test-cases/artifact-case-001.tc.json", archiveEntries);
+            Assert.DoesNotContain("test-cases/intermediate-case-001.tc.json", archiveEntries);
+
+            using var testCaseDoc = JsonDocument.Parse(ReadZipEntry(archive, "test-cases/artifact-case-001.tc.json"));
+            var testCaseRoot = testCaseDoc.RootElement;
+            Assert.Equal("artifact-case-001", testCaseRoot.GetProperty("test_case_id").GetString());
+            Assert.Equal(
+                "Final artifact customer asks for access approval.",
+                testCaseRoot.GetProperty("input").GetProperty("opening_message").GetString());
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task EvaluationService_ShouldPersistQuestionCardsFromInitializedMaterials()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"hirebot-eval-card-materials-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var evaluatorTemplateZipPath = Path.Combine(tempRoot, "evaluator-template.zip");
+            CreateEvaluatorTemplateZip(evaluatorTemplateZipPath);
+
+            await using var dbContext = CreateDbContext();
+            var assetRoot = Path.Combine(tempRoot, "eval-assets");
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["HireBot:EvaluationResourceRoot"] = assetRoot
+                })
+                .Build();
+            var service = CreateEvaluationService(
+                dbContext,
+                configuration,
+                assetStore: new FileBackedEvaluationAssetStore(assetRoot));
+            var employee = CreateEvaluationEmployee();
+            var ctx = CreateEvaluationWorkspaceContext(evaluatorTemplateZipPath);
+            var session = CreateEvaluationSession("eval-card-materials", iteration: 1);
+            dbContext.EvaluationSessions.Add(session);
+            await dbContext.SaveChangesAsync();
+
+            var cards = await InvokeEvaluationPrivateAsync<IReadOnlyList<EvaluationQuestionCardDto>>(
+                service,
+                "EnsureQuestionCardsForSessionAsync",
+                session,
+                ctx,
+                employee,
+                CancellationToken.None);
+
+            var card = Assert.Single(cards);
+            Assert.Equal("Greeting Case", card.TestcaseId);
+            Assert.Equal("Warranty greeting", card.Title);
+            Assert.Contains(dbContext.EvaluationAssets, asset =>
+                asset.SessionEntityId == session.Id &&
+                asset.AssetType == "testcases-json" &&
+                asset.SourceType == "evaluator-template-package");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task EvaluationService_ShouldPersistQuestionCardsFromFinalArtifactPackage()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"hirebot-eval-card-final-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var evaluatorTemplateZipPath = Path.Combine(tempRoot, "evaluator-template.zip");
+            CreateEvaluatorTemplateZipWithoutTestcases(evaluatorTemplateZipPath);
+            var finalArchive = BuildZipArchiveBytes(new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["testcases/evaluation-test-cases.json"] = Encoding.UTF8.GetBytes(
+                    """
+                    {
+                      "cases": [
+                        {
+                          "case_id": "final-card-case",
+                          "title": "Final generated testcase card",
+                          "input": {
+                            "user_request": "Generated final package request."
+                          }
+                        }
+                      ]
+                    }
+                    """)
+            });
+            var intermediateArchive = BuildZipArchiveBytes(new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["testcases/evaluation-test-cases.json"] = Encoding.UTF8.GetBytes(
+                    """
+                    {
+                      "cases": [
+                        {
+                          "case_id": "draft-card-case",
+                          "title": "Draft testcase card",
+                          "input": {
+                            "user_request": "Draft request."
+                          }
+                        }
+                      ]
+                    }
+                    """)
+            });
+
+            await using var dbContext = CreateDbContext();
+            var assetRoot = Path.Combine(tempRoot, "eval-assets");
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["HireBot:EvaluationResourceRoot"] = assetRoot
+                })
+                .Build();
+            var service = CreateEvaluationService(
+                dbContext,
+                configuration,
+                artifactPackageService: new FixedArtifactPackageService(finalArchive, intermediateArchive),
+                assetStore: new FileBackedEvaluationAssetStore(assetRoot));
+            var employee = CreateEvaluationEmployee();
+            var ctx = CreateEvaluationWorkspaceContext(evaluatorTemplateZipPath);
+            var session = CreateEvaluationSession("eval-card-final", iteration: 1);
+            dbContext.EvaluationSessions.Add(session);
+            await dbContext.SaveChangesAsync();
+
+            var cards = await InvokeEvaluationPrivateAsync<IReadOnlyList<EvaluationQuestionCardDto>>(
+                service,
+                "EnsureQuestionCardsForSessionAsync",
+                session,
+                ctx,
+                employee,
+                CancellationToken.None);
+
+            var card = Assert.Single(cards);
+            Assert.Equal("final-card-case", card.TestcaseId);
+            Assert.Equal("Final generated testcase card", card.Title);
+            Assert.DoesNotContain(cards, item => item.TestcaseId == "draft-card-case");
+            Assert.Contains(dbContext.EvaluationAssets, asset =>
+                asset.SessionEntityId == session.Id &&
+                asset.AssetType == "testcases-json" &&
+                asset.SourceType == $"artifact-package:{HiringArtifactPackageKinds.FinalPackageZip}");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task EvaluationService_ShouldPersistQuestionCardsFromConversationGeneratedTestcases()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"hirebot-eval-card-conversation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            await using var dbContext = CreateDbContext();
+            var assetRoot = Path.Combine(tempRoot, "eval-assets");
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["HireBot:EvaluationResourceRoot"] = assetRoot
+                })
+                .Build();
+            var service = CreateEvaluationService(
+                dbContext,
+                configuration,
+                assetStore: new FileBackedEvaluationAssetStore(assetRoot));
+            var session = CreateEvaluationSession("eval-card-conversation", iteration: 1);
+            dbContext.EvaluationSessions.Add(session);
+            await dbContext.SaveChangesAsync();
+            var messages = new[]
+            {
+                new HiringConversationMessageDto(
+                    "assistant-1",
+                    "assistant",
+                    """
+                    已生成评估测试用例：
+                    ```json
+                    {
+                      "test_cases": [
+                        {
+                          "test_case_id": "conversation-generated-case",
+                          "scenario_name": "Conversation generated testcase",
+                          "input": {
+                            "opening_message": "Generated from evaluation conversation."
+                          }
+                        }
+                      ]
+                    }
+                    ```
+                    """,
+                    DateTimeOffset.UtcNow)
+            };
+
+            var cards = await InvokeEvaluationPrivateAsync<IReadOnlyList<EvaluationQuestionCardDto>>(
+                service,
+                "EnsureQuestionCardsFromConversationAsync",
+                session,
+                messages,
+                CancellationToken.None);
+
+            var card = Assert.Single(cards);
+            Assert.Equal("conversation-generated-case", card.TestcaseId);
+            Assert.Equal("Conversation generated testcase", card.Title);
+            Assert.Equal("Generated from evaluation conversation.", card.Prompt);
+            Assert.Contains(dbContext.EvaluationAssets, asset =>
+                asset.SessionEntityId == session.Id &&
+                asset.AssetType == "testcases-json" &&
+                asset.SourceType == "evaluator-conversation");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task EvaluationService_ShouldPersistQuestionCardsFromTraceGeneratedTestcases()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"hirebot-eval-card-trace-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            await using var dbContext = CreateDbContext();
+            var assetRoot = Path.Combine(tempRoot, "eval-assets");
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["HireBot:EvaluationResourceRoot"] = assetRoot
+                })
+                .Build();
+            var service = CreateEvaluationService(
+                dbContext,
+                configuration,
+                assetStore: new FileBackedEvaluationAssetStore(assetRoot));
+            var session = CreateEvaluationSession("eval-card-trace", iteration: 1);
+            dbContext.EvaluationSessions.Add(session);
+            await dbContext.SaveChangesAsync();
+            const string traceJson =
+                """
+                {
+                  "events": [
+                    {
+                      "type": "step_1_5_synthesized",
+                      "payload": {
+                        "cases": [
+                          {
+                            "case_id": "trace-generated-case",
+                            "title": "Trace generated testcase",
+                            "input": {
+                              "user_message": "Generated from trace sync."
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+                """;
+
+            var cards = await InvokeEvaluationPrivateAsync<IReadOnlyList<EvaluationQuestionCardDto>>(
+                service,
+                "EnsureQuestionCardsFromRuntimeTextAsync",
+                session,
+                "trace-testcases-eval-card-trace.json",
+                "evaluator-trace",
+                traceJson,
+                CancellationToken.None);
+
+            var card = Assert.Single(cards);
+            Assert.Equal("trace-generated-case", card.TestcaseId);
+            Assert.Equal("Trace generated testcase", card.Title);
+            Assert.Equal("Generated from trace sync.", card.Prompt);
+            Assert.Contains(dbContext.EvaluationAssets, asset =>
+                asset.SessionEntityId == session.Id &&
+                asset.AssetType == "testcases-json" &&
+                asset.SourceType == "evaluator-trace");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
     private static string FindBackendRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
@@ -280,15 +702,17 @@ public sealed class EmployeeTemplateServiceTests
     private static EvaluationService CreateEvaluationService(
         HireBotDbContext dbContext,
         IConfiguration configuration,
-        ISandboxService? sandbox = null)
+        ISandboxService? sandbox = null,
+        IHiringArtifactPackageService? artifactPackageService = null,
+        IEvaluationAssetStore? assetStore = null)
     {
         var hostEnvironment = new TestHostingEnvironment();
         return new EvaluationService(
-            new EmptyArtifactPackageService(),
+            artifactPackageService ?? new EmptyArtifactPackageService(),
             sandbox ?? new CapturingSandboxService(),
             new TestRequestContextService(),
             dbContext,
-            new ThrowingEvaluationAssetStore(),
+            assetStore ?? new ThrowingEvaluationAssetStore(),
             hostEnvironment,
             configuration,
             NullLogger<EvaluationService>.Instance,
@@ -451,6 +875,32 @@ public sealed class EmployeeTemplateServiceTests
             """);
     }
 
+    private static void CreateEvaluatorTemplateZipWithoutTestcases(string zipPath)
+    {
+        using var fileStream = new FileStream(zipPath, FileMode.CreateNew, FileAccess.Write);
+        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Create);
+        var entry = archive.CreateEntry("ontology/notes.md");
+        using var entryStream = entry.Open();
+        using var writer = new StreamWriter(entryStream, Encoding.UTF8);
+        writer.Write("No business testcases are present in this package.");
+    }
+
+    private static byte[] BuildZipArchiveBytes(IReadOnlyDictionary<string, byte[]> files)
+    {
+        using var memoryStream = new MemoryStream();
+        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var file in files)
+            {
+                var entry = archive.CreateEntry(file.Key);
+                using var entryStream = entry.Open();
+                entryStream.Write(file.Value);
+            }
+        }
+
+        return memoryStream.ToArray();
+    }
+
     private static string ReadZipEntry(ZipArchive archive, string path)
     {
         var entry = archive.GetEntry(path) ?? throw new InvalidOperationException($"Missing zip entry {path}.");
@@ -529,6 +979,105 @@ public sealed class EmployeeTemplateServiceTests
         public Task<HiringArtifactPackageSnapshotDto> PersistFinalPackageAsync(HiringArtifactPackagePersistRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<HiringArtifactDownloadResult> BuildFinalPackageDownloadAsync(string hireId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<HiringArtifactDownloadResult> BuildFinalPackageFileDownloadAsync(string hireId, string artifactName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FixedArtifactPackageService(byte[] finalArchive, byte[] intermediateArchive) : IHiringArtifactPackageService
+    {
+        public Task<HiringArtifactPackageSnapshotDto?> GetLatestPackageAsync(string hireId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<HiringArtifactPackageSnapshotDto?>(new HiringArtifactPackageSnapshotDto(
+                hireId,
+                "session-test",
+                HiringArtifactPackageKinds.IntermediatePackageZip,
+                $"{hireId}-intermediate.zip",
+                "packages/intermediate.zip",
+                "sha-intermediate",
+                intermediateArchive,
+                false));
+        }
+
+        public Task<HiringArtifactPackageSnapshotDto?> GetPackageByKindAsync(
+            string hireId,
+            string kind,
+            CancellationToken cancellationToken = default)
+        {
+            if (!string.Equals(kind, HiringArtifactPackageKinds.FinalPackageZip, StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult<HiringArtifactPackageSnapshotDto?>(null);
+            }
+
+            return Task.FromResult<HiringArtifactPackageSnapshotDto?>(new HiringArtifactPackageSnapshotDto(
+                hireId,
+                "session-test",
+                HiringArtifactPackageKinds.FinalPackageZip,
+                $"{hireId}-final.zip",
+                "packages/final.zip",
+                "sha-final",
+                finalArchive,
+                true));
+        }
+
+        public Task<HiringArtifactPackageSnapshotDto> PersistIntermediatePackageAsync(HiringArtifactPackagePersistRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<HiringArtifactPackageSnapshotDto> PersistFinalPackageAsync(HiringArtifactPackagePersistRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<HiringArtifactDownloadResult> BuildFinalPackageDownloadAsync(string hireId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<HiringArtifactDownloadResult> BuildFinalPackageFileDownloadAsync(string hireId, string artifactName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FileBackedEvaluationAssetStore(string root) : IEvaluationAssetStore
+    {
+        public Task<StoredEvaluationAsset> SaveTextAsync(
+            string sessionId,
+            int iteration,
+            string assetType,
+            string fileName,
+            string content,
+            string mimeType,
+            CancellationToken cancellationToken = default)
+        {
+            return SaveBytesAsync(
+                sessionId,
+                iteration,
+                assetType,
+                fileName,
+                Encoding.UTF8.GetBytes(content),
+                mimeType,
+                cancellationToken);
+        }
+
+        public async Task<StoredEvaluationAsset> SaveBytesAsync(
+            string sessionId,
+            int iteration,
+            string assetType,
+            string fileName,
+            byte[] content,
+            string mimeType,
+            CancellationToken cancellationToken = default)
+        {
+            var safeFileName = string.Join("_", fileName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+            if (string.IsNullOrWhiteSpace(safeFileName))
+            {
+                safeFileName = "asset.json";
+            }
+
+            var relativePath = Path.Combine(
+                    "evaluation",
+                    sessionId,
+                    iteration.ToString(),
+                    assetType,
+                    safeFileName)
+                .Replace('\\', '/');
+            var physicalPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(physicalPath)!);
+            await File.WriteAllBytesAsync(physicalPath, content, cancellationToken);
+
+            return new StoredEvaluationAsset(
+                RelativePath: relativePath,
+                PublicUrl: $"/test-assets/{relativePath}",
+                MimeType: mimeType,
+                Size: content.Length,
+                ContentHash: Convert.ToHexStringLower(SHA256.HashData(content)),
+                PhysicalPath: physicalPath);
+        }
     }
 
     private sealed class ThrowingEvaluationAssetStore : IEvaluationAssetStore

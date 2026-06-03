@@ -154,6 +154,7 @@ export default function EvaluationPage() {
         })),
     [questionCards, testcaseOutlines],
   )
+  const testcaseCount = testcaseItems.length
   const traceAssets = (evaluation?.assetRefs ?? [])
     .filter((asset) => asset.assetType === 'trace-json')
     .slice(0, 8)
@@ -217,7 +218,7 @@ export default function EvaluationPage() {
   const workflowStages = useMemo<WorkflowStage[]>(() => {
     const stepMap = new Map((workspaceStatus?.steps ?? []).map((step) => [step.step, step.status]))
     // 保持原有四步流程语义：材料阶段以测试用例就绪作为完成标志
-    const materialsStageStatus: WorkflowStageStatus = testcaseOutlines.length > 0
+    const materialsStageStatus: WorkflowStageStatus = testcaseCount > 0
       ? 'completed'
       : mergeStageStatus([
           stepMap.get('upload_skill'),
@@ -249,8 +250,8 @@ export default function EvaluationPage() {
       {
         key: 'materials',
         title: '装载模板与材料',
-        detail: testcaseOutlines.length > 0
-          ? `测试用例已就绪（${testcaseOutlines.length} 个场景）`
+        detail: testcaseCount > 0
+          ? `测试用例已就绪（${testcaseCount} 个场景）`
           : materialsReady
             ? '模板材料已进入评估沙箱，等待测试用例生成'
             : '上传评估技能包、目标模板和评估材料',
@@ -273,7 +274,7 @@ export default function EvaluationPage() {
     hasTriggeredEval,
     materialsReady,
     reportSummary,
-    testcaseOutlines.length,
+    testcaseCount,
     workspaceStatus,
   ])
 
@@ -321,7 +322,7 @@ export default function EvaluationPage() {
     },
     {
       label: '题卡数量',
-      value: `${questionCards.length}`,
+      value: `${testcaseCount}`,
       tone: 'eval-text-teal',
     },
     {
@@ -334,7 +335,7 @@ export default function EvaluationPage() {
       value: materialsReady ? '已就绪' : '待补齐',
       tone: materialsReady ? 'eval-text-green-bright' : 'eval-text-red',
     },
-  ]), [materialsReady, questionCards.length, reportSummary?.reportId, traceAssets.length, workspaceStatus?.sessionId])
+  ]), [materialsReady, testcaseCount, reportSummary?.reportId, traceAssets.length, workspaceStatus?.sessionId])
 
   const workspaceProgressSummary = useMemo(() => {
     if (!workspaceStatus || workspaceStatus.overallStatus === 'not_started') {

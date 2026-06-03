@@ -423,6 +423,16 @@ internal sealed partial class EvaluationService(
 
         if (latestSession is not null)
         {
+            var ensuredQuestionCards = await EnsureQuestionCardsForSessionAsync(
+                latestSession,
+                workspaceContext,
+                employee,
+                cancellationToken);
+            if (ensuredQuestionCards.Count > 0)
+            {
+                questionCards = ensuredQuestionCards;
+            }
+
             var assets = await dbContext.EvaluationAssets
                 .AsNoTracking()
                 .Where(item => item.SessionEntityId == latestSession.Id)
@@ -438,21 +448,24 @@ internal sealed partial class EvaluationService(
                 .Select(ToAssetRef)
                 .ToArray();
 
-            var testcaseAssets = assets
-                .Where(item => item.AssetType == "testcases-json")
-                .GroupBy(
-                    item => string.IsNullOrWhiteSpace(item.RelatedKey) ? item.RelativePath : item.RelatedKey,
-                    StringComparer.OrdinalIgnoreCase)
-                .Select(group => group
-                    .OrderByDescending(item => item.CreatedAtUtc)
-                    .First())
-                .OrderByDescending(item => item.CreatedAtUtc)
-                .Take(5)
-                .ToArray();
-            var cards = await BuildQuestionCardsFromAssetsAsync(testcaseAssets, cancellationToken);
-            if (cards.Count > 0)
+            if (questionCards is not { Count: > 0 })
             {
-                questionCards = cards;
+                var testcaseAssets = assets
+                    .Where(item => item.AssetType == "testcases-json")
+                    .GroupBy(
+                        item => string.IsNullOrWhiteSpace(item.RelatedKey) ? item.RelativePath : item.RelatedKey,
+                        StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group
+                        .OrderByDescending(item => item.CreatedAtUtc)
+                        .First())
+                    .OrderByDescending(item => item.CreatedAtUtc)
+                    .Take(5)
+                    .ToArray();
+                var cards = await BuildQuestionCardsFromAssetsAsync(testcaseAssets, cancellationToken);
+                if (cards.Count > 0)
+                {
+                    questionCards = cards;
+                }
             }
 
             var reportEntity = await dbContext.EvaluationReports
@@ -581,7 +594,22 @@ internal sealed partial class EvaluationService(
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
         await SaveWorkspaceContextAsync(scope, employee.EmployeeId, refreshedWorkspace, cancellationToken);
 
-        var questionCards = await LoadQuestionCardsForLatestSessionAsync(scope, employee.EmployeeId, cancellationToken);
+        var latestSession = await dbContext.EvaluationSessions
+            .Where(item =>
+                item.OwnerSubject == scope &&
+                item.EmployeeId == employee.EmployeeId)
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        var questionCards = (latestSession is null
+            ? await LoadQuestionCardsForLatestSessionAsync(scope, employee.EmployeeId, cancellationToken)
+            : await EnsureQuestionCardsForSessionAsync(latestSession, refreshedWorkspace, employee, cancellationToken)) ?? [];
+        if (latestSession is not null && questionCards.Count == 0)
+        {
+            questionCards = await EnsureQuestionCardsFromConversationAsync(
+                latestSession,
+                timelineResult.Data.Messages,
+                cancellationToken);
+        }
 
         return ApiResponse<EvaluationSandboxConversationStateDto>.SuccessResponse(
             BuildSandboxConversationState(employee, refreshedWorkspace, timelineResult.Data, questionCards));
@@ -668,7 +696,22 @@ internal sealed partial class EvaluationService(
         var refreshedWorkspace = conversationPreparedResult.Data with { SessionId = timelineResult.Data.SessionId };
         await SaveWorkspaceContextAsync(scope, employee.EmployeeId, refreshedWorkspace, cancellationToken);
 
-        var questionCards = await LoadQuestionCardsForLatestSessionAsync(scope, employee.EmployeeId, cancellationToken);
+        var latestSession = await dbContext.EvaluationSessions
+            .Where(item =>
+                item.OwnerSubject == scope &&
+                item.EmployeeId == employee.EmployeeId)
+            .OrderByDescending(item => item.UpdatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        var questionCards = (latestSession is null
+            ? await LoadQuestionCardsForLatestSessionAsync(scope, employee.EmployeeId, cancellationToken)
+            : await EnsureQuestionCardsForSessionAsync(latestSession, refreshedWorkspace, employee, cancellationToken)) ?? [];
+        if (latestSession is not null && questionCards.Count == 0)
+        {
+            questionCards = await EnsureQuestionCardsFromConversationAsync(
+                latestSession,
+                timelineResult.Data.Messages,
+                cancellationToken);
+        }
 
         return ApiResponse<EvaluationSandboxConversationStateDto>.SuccessResponse(
             BuildSandboxConversationState(employee, refreshedWorkspace, timelineResult.Data, questionCards),
@@ -1324,6 +1367,13 @@ internal sealed partial class EvaluationService(
             request.SessionId,
             traceAsset.Id,
             traceAsset.PublicUrl);
+
+        await EnsureQuestionCardsFromRuntimeTextAsync(
+            sessionEntity,
+            sourceFile: $"trace-testcases-{sessionEntity.SessionId}.json",
+            sourceType: "evaluator-trace",
+            rawText: request.TraceJson,
+            cancellationToken);
 
         return ApiResponse<EvaluationTraceSyncResultDto>.SuccessResponse(
             new EvaluationTraceSyncResultDto(

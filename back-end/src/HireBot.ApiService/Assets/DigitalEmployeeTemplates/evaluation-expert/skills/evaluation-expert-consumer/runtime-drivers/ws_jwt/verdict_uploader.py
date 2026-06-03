@@ -42,6 +42,62 @@ def _load_json(path: str) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def _unwrap_report(data: dict[str, Any]) -> dict[str, Any]:
+    for key in ("evaluation_report", "report", "evaluation_result"):
+        nested = data.get(key)
+        if isinstance(nested, dict):
+            return nested
+    return data
+
+
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip().rstrip("%")
+        if not text:
+            return default
+        try:
+            return float(text)
+        except ValueError:
+            return default
+    return default
+
+
+def _coerce_bool(value: Any) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "pass", "passed", "yes", "y", "1"):
+            return True
+        if text in ("false", "fail", "failed", "no", "n", "0"):
+            return False
+    return None
+
+
+def _resolve_overall_score(report: dict[str, Any]) -> float:
+    return _coerce_float(report.get("overall_score", report.get("overallScore")))
+
+
+def _resolve_passed(report: dict[str, Any]) -> bool:
+    explicit = _coerce_bool(report.get("passed"))
+    if explicit is not None:
+        return bool(explicit)
+
+    verdict = str(report.get("verdict") or report.get("result") or "").strip().upper()
+    if verdict in ("PASS", "PASSED"):
+        return True
+    if verdict in ("FAIL", "FAILED"):
+        return False
+
+    return _resolve_overall_score(report) >= 60.0
+
+
 def resolve_hirebot_api_config(eval_ctx: dict[str, Any]) -> tuple[str, str, str]:
     """
     从 evaluation_context 中解析 HireBot API 调用的三要素：base_url、employee_id、session_id。
@@ -147,6 +203,144 @@ def _build_summary(report: dict[str, Any]) -> str:
     return "综合评估通过" if passed else "综合评估未通过"
 
 
+def _build_dimension_scores_for_upload(report: dict[str, Any]) -> list[dict[str, Any]]:
+    dim_scores = report.get("dimension_scores") or report.get("dimensionScores") or {}
+    per_metric = report.get("per_metric_final_scores") or report.get("perMetricFinalScores") or []
+    selected_metrics = report.get("selected_metrics") or report.get("selectedMetrics") or []
+
+    if isinstance(dim_scores, list):
+        result: list[dict[str, Any]] = []
+        for item in dim_scores:
+            if not isinstance(item, dict):
+                continue
+
+            evidence_refs = item.get("evidenceRefs") or item.get("evidence_refs") or []
+            if not isinstance(evidence_refs, list):
+                evidence_refs = [evidence_refs]
+
+            dimension = str(item.get("dimension") or item.get("name") or "").strip()
+            if not dimension:
+                continue
+
+            result.append({
+                "dimension": dimension,
+                "score": _coerce_float(
+                    item.get("score", item.get("final_score", item.get("finalScore")))
+                ),
+                "comment": str(item.get("comment") or item.get("summary") or ""),
+                "evidenceRefs": [str(ref) for ref in evidence_refs if str(ref).strip()],
+            })
+        return result
+
+    if not isinstance(dim_scores, dict):
+        return []
+
+    metric_to_dim: dict[str, str] = {}
+    for metric in selected_metrics:
+        if not isinstance(metric, dict):
+            continue
+        metric_code = str(metric.get("metric_code") or "").strip()
+        parent_dimension = str(metric.get("parent_dimension") or "").strip()
+        if metric_code and parent_dimension:
+            metric_to_dim[metric_code] = parent_dimension
+
+    dim_to_metric_scores: dict[str, list[dict[str, Any]]] = {}
+    for metric_score in per_metric:
+        if not isinstance(metric_score, dict):
+            continue
+        metric_code = str(metric_score.get("metric_code") or "").strip()
+        parent_dimension = metric_to_dim.get(metric_code)
+        if parent_dimension:
+            dim_to_metric_scores.setdefault(parent_dimension, []).append(metric_score)
+
+    result: list[dict[str, Any]] = []
+    for dimension_name, dimension_score in dim_scores.items():
+        evidence_refs: list[str] = []
+        comment = ""
+        if isinstance(dimension_score, dict):
+            score = _coerce_float(
+                dimension_score.get(
+                    "final_score",
+                    dimension_score.get("finalScore", dimension_score.get("score")),
+                )
+            )
+            comment = str(
+                dimension_score.get("comment")
+                or dimension_score.get("summary")
+                or dimension_score.get("status")
+                or ""
+            )
+            adjustments = dimension_score.get("adjustments") or []
+            if isinstance(adjustments, list):
+                for adjustment in adjustments:
+                    if not isinstance(adjustment, dict):
+                        continue
+                    evidence = str(adjustment.get("evidence") or "").strip()
+                    if evidence:
+                        evidence_refs.append(evidence)
+        else:
+            score = _coerce_float(dimension_score)
+
+        metrics_in_dimension = dim_to_metric_scores.get(str(dimension_name), [])
+        if metrics_in_dimension:
+            parts = [
+                f"{metric.get('metric_code')}={_coerce_float(metric.get('final_score', metric.get('score'))):g}"
+                for metric in metrics_in_dimension
+            ]
+            comment = "子指标: " + "、".join(parts)
+
+        result.append({
+            "dimension": str(dimension_name),
+            "score": score,
+            "comment": comment,
+            "evidenceRefs": evidence_refs,
+        })
+
+    return result
+
+
+def _build_summary_for_upload(report: dict[str, Any]) -> str:
+    narrative = report.get("narrative") if isinstance(report.get("narrative"), dict) else {}
+    for value in (
+        narrative.get("executive_summary"),
+        narrative.get("verdict_summary"),
+        report.get("executive_summary"),
+        report.get("summary"),
+        report.get("reason"),
+    ):
+        summary = str(value or "").strip()
+        if summary:
+            return summary
+
+    red_line = report.get("red_line") if isinstance(report.get("red_line"), dict) else {}
+    if red_line.get("triggered"):
+        triggers = red_line.get("triggers") or []
+        rules = []
+        for trigger in triggers[:3]:
+            if isinstance(trigger, dict):
+                rules.append(str(trigger.get("rule") or trigger.get("metric_code") or trigger))
+            else:
+                rules.append(str(trigger))
+        if rules:
+            return "触发红线: " + "、".join(rules)
+
+    red_lines = report.get("red_lines_triggered") or report.get("red_lines") or []
+    if isinstance(red_lines, list) and red_lines:
+        return "触发红线: " + "、".join(str(item) for item in red_lines[:3])
+
+    issues = report.get("issues") or []
+    if isinstance(issues, list) and issues:
+        descriptions = []
+        for issue in issues[:3]:
+            if isinstance(issue, dict):
+                descriptions.append(str(issue.get("description") or issue.get("message") or issue))
+            else:
+                descriptions.append(str(issue))
+        return "主要问题: " + "；".join(descriptions)
+
+    return "综合评估通过" if _resolve_passed(report) else "综合评估未通过"
+
+
 def build_verdict_payload(
     session_id: str,
     report: dict[str, Any],
@@ -165,16 +359,16 @@ def build_verdict_payload(
         }
       }
     """
-    passed = bool(report.get("passed"))
-    overall_score = float(report.get("overall_score") or 0)
+    passed = _resolve_passed(report)
+    overall_score = _resolve_overall_score(report)
 
     return {
         "sessionId": session_id,
         "verdict": {
             "verdict": "PASS" if passed else "FAIL",
             "overallScore": overall_score,
-            "summary": _build_summary(report),
-            "dimensionScores": _build_dimension_scores(report),
+            "summary": _build_summary_for_upload(report),
+            "dimensionScores": _build_dimension_scores_for_upload(report),
         },
     }
 
@@ -254,7 +448,7 @@ def main() -> int:
     args = parser.parse_args()
 
     eval_ctx = _load_json(args.evaluation_context)
-    report = _load_json(args.evaluation_report)
+    report = _unwrap_report(_load_json(args.evaluation_report))
 
     try:
         base_url, employee_id, session_id = resolve_hirebot_api_config(eval_ctx)
@@ -263,8 +457,8 @@ def main() -> int:
         print(f"[错误] 配置解析失败: {exc}")
         return 1
 
-    overall_score = float(report.get("overall_score") or 0)
-    passed = bool(report.get("passed"))
+    overall_score = _resolve_overall_score(report)
+    passed = _resolve_passed(report)
     verdict_str = "PASS" if passed else "FAIL"
 
     payload = build_verdict_payload(session_id, report)
