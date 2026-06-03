@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://openclaw.io/evaluation-expert-consumer/runtime-schemas/simulator_decision.schema.json",
+  "title": "SimulatorDecision",
+  "description": "Per-turn output of a user simulator invoked by STEP 3. The simulator observes the current dialog (and the latest evaluatee response) and returns this decision object. STEP 3 then either sends next_utterance via the runtime_driver or terminates the scenario. Append-only: each turn's decision is preserved in ExecutionTrace.simulator_trail for audit and report attribution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "turn_index",
+    "should_continue",
+    "internal_emotion",
+    "perceived_progress"
+  ],
+  "properties": {
+    "turn_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Zero-based index of the customer turn this decision belongs to. MUST equal the index of the next customer dialog_turn that would be appended (turn 0 = opening_message)."
+    },
+    "should_continue": {
+      "type": "boolean",
+      "description": "Whether the conversation should continue after this turn. STEP 3 enforces additional hard checks (turn_budget); even should_continue=true cannot bypass max_turns_reached."
+    },
+    "stop_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "goal_achieved",
+        "bottom_line_violated",
+        "deadlock_detected",
+        "customer_gave_up"
+      ],
+      "description": "REQUIRED when should_continue=false; MUST be null when should_continue=true. Maps to ExecutionTrace.termination.reason as: goal_achieved -> completed_normally; bottom_line_violated -> bottom_line_violated; deadlock_detected -> deadlock_detected; customer_gave_up -> deadlock_detected."
+    },
+    "next_utterance": {
+      "type": "string",
+      "description": "What the customer says next, in natural language. REQUIRED when should_continue=true. MAY be present when should_continue=false (a closing remark like '算了，不聊了')."
+    },
+    "internal_emotion": {
+      "type": "string",
+      "enum": [
+        "angry",
+        "anxious",
+        "neutral",
+        "curious",
+        "satisfied",
+        "skeptical",
+        "frustrated",
+        "calmer",
+        "more_upset"
+      ],
+      "description": "Customer's emotional state AFTER processing the latest evaluatee response. 'calmer' / 'more_upset' are deltas; the others are absolute states. NOT shown to the evaluatee; used only by reports."
+    },
+    "perceived_progress": {
+      "type": "string",
+      "enum": ["none", "partial", "resolved", "regressed"],
+      "description": "Simulator's judgement of how close the conversation is to satisfying customer.goal.primary. Used by STEP 8 ScenarioReport for narrative."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "One- or two-sentence explanation of why the simulator made this decision. Audit-only; NOT shown to the evaluatee."
+    },
+    "violated_bottom_line": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if the latest evaluatee response is judged to fall below customer.goal.bottom_line. When true, should_continue MUST be false and stop_reason MUST be 'bottom_line_violated'."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "should_continue": { "const": true } } },
+      "then": {
+        "required": ["next_utterance"],
+        "properties": {
+          "stop_reason": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "should_continue": { "const": false } } },
+      "then": {
+        "required": ["stop_reason"],
+        "properties": {
+          "stop_reason": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "name": "employment-coach-conversation",
   "display_name": "雇佣教练对话包",
   "positioning": "数字员工雇佣流程的 AI 对话导航中枢，通过「资料 → 技能定义/生成 → 外部 → 打包」四阶段引导把业务需求转化为可部署的工单集",
-  "description": "以雇佣教练身份引导业务用户完成「资料 → 技能 → 外部」三阶段对话装配；其中技能阶段固定先做技能定义，再进入“是否开始技能生成”的确认与执行子步骤，skill-generation 完成后才能进入外部阶段。外部系统配置由右侧卡片手动保存或跳过，系统层据此同步 `external/` 目录并驱动后续打包。资料阶段完成后先驱动 ontology-extraction，全部完成后自动调用打包工具将工作区打包为 zip，发出 template_package（kind: file）artifact 触发前端 auto-importPackage，完成实例入库全流程。每个阶段在关键节点通过 emit_artifact 推送进度和完成信号，驱动前端雇佣阶段胶囊更新。",
+  "description": "以雇佣教练身份引导业务用户完成「资料 → 技能 → 外部」三阶段对话装配；其中技能阶段固定先做技能定义，再进入“是否开始技能生成”的确认与执行子步骤，skill-generation 完成后才能进入外部阶段。外部系统配置由右侧卡片手动保存或跳过，系统层据此同步 `external/` 目录；随后先询问是否生成可选评估测试用例，用户确认后触发 packaging-test-cases，跳过时不得阻塞后续打包。资料阶段完成后先驱动 ontology-extraction，全部完成后自动调用打包工具将工作区打包为 zip，发出 template_package（kind: file）artifact 触发前端 auto-importPackage，完成实例入库全流程。每个阶段在关键节点通过 emit_artifact 推送进度和完成信号，驱动前端雇佣阶段胶囊更新。",
   "version": "v1.0.0",
   "entry_skill": "skills/employment-coach-conversation",
   "ontology_slices": [
@@ -50,19 +50,19 @@
     {
       "stage": "skill",
       "skill_name": "employment-coach-conversation",
-      "description": "确认模板基线技能并为本轮技能写清 name + description + trigger + expected_output；用户确认技能清单后，通过 emit_artifact（skill_workorder_summary, isTerminal: true）完成“技能定义”子步骤。随后必须紧跟 emit_artifact（skill_generation_ready）并追问是否开始技能生成；只有 skill-generation 完成后，才允许进入外部阶段",
-      "required_fields": ["skill_name", "skill_description", "trigger", "expected_output", "generation_action"]
+      "description": "确认模板基线技能并为本轮技能写清 name + display_name + description + trigger + expected_output；用户确认技能清单后，通过 emit_artifact（skill_workorder_summary, isTerminal: true）完成“技能定义”子步骤，且该 summary.data 必须透传初始化阶段已解析的 workspace_root 与 template_slug。随后必须紧跟 emit_artifact（skill_generation_ready）并追问是否开始技能生成；只有 skill-generation 完成后，才允许进入外部阶段",
+      "required_fields": ["workspace_root", "template_slug", "name", "display_name", "description", "trigger", "expected_output", "generation_action"]
     },
     {
       "stage": "external",
       "skill_name": "employment-coach-conversation",
-      "description": "收集外部系统对接需求，明确 category、target_system、objective 和关联 skill；该阶段只允许在 skill-generation 已完成且用户明确同意继续后进入。用户确认（或明确跳过）后，通过 emit_artifact（external_workorder_summary, isTerminal: true）完成需求收口；右侧卡片保存或跳过成功后，由系统层发出 external_config_committed，并按 external-config 结构同步 external/ 目录",
+      "description": "收集外部系统对接需求，明确 category、target_system、objective 和关联 skill；该阶段只允许在 skill-generation 已完成且用户明确同意继续后进入。用户确认（或明确跳过）后，通过 emit_artifact（external_workorder_summary, isTerminal: true）完成需求收口；右侧卡片保存或跳过成功后，由系统层发出 external_config_committed，并按 external-config 结构同步 external/ 目录，然后进入评估测试用例可选确认门",
       "required_fields": ["category", "target_system", "objective", "linked_skills"]
     },
     {
       "stage": "ready_for_packaging",
       "skill_name": "packaging-test-cases",
-      "description": "在进入 instance_packaging 前根据会话历史、上传资料与模板快照生成 testcases/evaluation-test-cases.json 及来源 index",
+      "description": "外部系统配置保存或跳过后，先询问用户是否生成评估测试用例；用户确认时根据会话历史、上传资料与模板快照生成 testcases/evaluation-test-cases.json 及来源 index，用户跳过或文件缺失不得阻止 instance_packaging",
       "required_fields": []
     }
   ]

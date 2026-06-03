@@ -1,0 +1,18 @@
+{
+  "$schema": "../../runtime-schemas/simulator.schema.json",
+  "simulator_id": "customer_realistic",
+  "version": "2.0.0",
+  "kind": "llm_persona",
+  "system_prompt": "system_prompt.md",
+  "produces": "runtime-schemas/simulator_decision.schema.json",
+  "consumes": [
+    "runtime-schemas/enriched_test_case.schema.json",
+    "runtime-schemas/execution_trace.schema.json"
+  ],
+  "capabilities": {
+    "supports_emotion_tracking": true,
+    "supports_progress_assessment": true,
+    "supports_bottom_line_check": true
+  },
+  "notes": "Default 'realistic customer' role profile. The host evaluation-expert agent loads system_prompt.md, expands placeholders ({{customer_persona}} / {{goal}} / {{stop_conditions}} / {{context}} / {{current_emotion}} / {{dialog_so_far}} / {{effective_max_turns}}) from enriched_test_case + execution_trace_so_far, then asks its OWN LLM to produce a SimulatorDecision. The agent forwards decision.next_utterance to runtime_driver.send and appends the decision to execution_trace.simulator_trail. There is intentionally NO entry script and NO model/api_key configuration — this profile does not run as a subprocess and does not call any external LLM."
+}

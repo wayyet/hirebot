@@ -104,6 +104,7 @@ internal static partial class HiringWorkflowSupport
         return path.StartsWith("ontology/", StringComparison.OrdinalIgnoreCase) ||
                path.StartsWith("skills/", StringComparison.OrdinalIgnoreCase) ||
                path.StartsWith("external/", StringComparison.OrdinalIgnoreCase) ||
+               path.StartsWith("testcases/", StringComparison.OrdinalIgnoreCase) ||
                path.StartsWith("config/", StringComparison.OrdinalIgnoreCase);
     }
 

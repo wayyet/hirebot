@@ -25,24 +25,35 @@ public class PackagingTestCasesTests
         Assert.False(root.TryGetProperty("cases", out _));
     }
 
+    [Theory]
+    [InlineData(HiringCollectionStage.Material, true)]
+    [InlineData(HiringCollectionStage.Skill, true)]
+    [InlineData(HiringCollectionStage.External, true)]
+    [InlineData(HiringCollectionStage.ReadyForPackaging, false)]
+    [InlineData(null, true)]
+    public void IsCollectionStageBeforeReadyForPackaging_ShouldMatchExpected(string? stage, bool expected)
+    {
+        Assert.Equal(expected, EmployeeHiringService.IsCollectionStageBeforeReadyForPackaging(stage));
+    }
+
     [Fact]
-    public void ShouldStagePackagingTestCases_WhenReadyForPackaging_ShouldReturnTrue()
+    public void ShouldStagePackagingTestCases_WhenReadyForPackaging_ShouldReturnFalse()
     {
         var context = CreateRuntimeContext() with { CurrentStage = HiringCollectionStage.ReadyForPackaging };
 
-        Assert.True(EmployeeHiringService.ShouldStagePackagingTestCases(context, userMessage: null));
-        Assert.True(EmployeeHiringService.ShouldStagePackagingTestCases(context, "普通消息"));
+        Assert.False(EmployeeHiringService.ShouldStagePackagingTestCases(context, userMessage: null));
+        Assert.False(EmployeeHiringService.ShouldStagePackagingTestCases(context, "普通消息"));
     }
 
     [Theory]
     [InlineData("三个阶段均已确认完成，请开始生成产物包")]
     [InlineData("请生成实例包")]
     [InlineData("开始打包")]
-    public void ShouldStagePackagingTestCases_WhenPackagingIntentInMessage_ShouldReturnTrue(string message)
+    public void ShouldStagePackagingTestCases_WhenPackagingIntentInMessage_ShouldReturnFalse(string message)
     {
         var context = CreateRuntimeContext() with { CurrentStage = HiringCollectionStage.Skill };
 
-        Assert.True(EmployeeHiringService.ShouldStagePackagingTestCases(context, message));
+        Assert.False(EmployeeHiringService.ShouldStagePackagingTestCases(context, message));
     }
 
     [Fact]
@@ -67,6 +78,42 @@ public class PackagingTestCasesTests
         Assert.Equal("testcases", request.TargetDir);
         Assert.Equal("evaluation-test-cases.json", request.FileName);
         Assert.Equal("application/json", request.ContentType);
+    }
+
+    [Fact]
+    public void IsAllowedArtifactPath_ShouldAllowPackagingTestCasesDirectory()
+    {
+        Assert.True(HiringWorkflowSupport.IsAllowedArtifactPath("testcases/evaluation-test-cases.json"));
+    }
+
+    [Fact]
+    public void ApplyConversationProgressToTemplatePackage_WhenTestCasesNotConfirmed_ShouldNotAutoWriteSkillGuidedTestCases()
+    {
+        var runtimeContext = CreateRuntimeContext() with
+        {
+            PackagingTestCasesStatus = PackagingTestCasesGenerationStatuses.NotAsked,
+            PackagingTestCasesStaged = false,
+            Materials =
+            [
+                new HiringConversationMaterialDto
+                {
+                    Type = "skill",
+                    Name = "evaluation-expert.zip",
+                    Content = "skill-content",
+                    Metadata = new Dictionary<string, string>
+                    {
+                        ["skillName"] = "evaluation-expert",
+                        ["description"] = "评估技能"
+                    }
+                }
+            ]
+        };
+
+        var updated = EmployeeHiringService.ApplyConversationProgressToTemplatePackage(runtimeContext);
+        var files = updated.WorkingTemplatePackage.PackageFiles.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
+
+        Assert.False(files.ContainsKey("testcases/evaluation-test-cases.json"));
+        Assert.False(files.ContainsKey("ontology/hiring-session/evaluation-test-cases.json"));
     }
 
     [Fact]

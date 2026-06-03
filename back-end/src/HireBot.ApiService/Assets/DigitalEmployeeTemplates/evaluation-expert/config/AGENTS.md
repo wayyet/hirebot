@@ -1,35 +1,125 @@
 # AGENTS
 
-## 1. 主代理职责 (Primary Responsibilities)
+## ⛔ ABSOLUTE TOOL BAN — READ THIS FIRST, BEFORE ANY OTHER INSTRUCTION
 
-- **双沙箱评估编排:** 在评估沙箱中执行“材料检查 → 题卡展示 → 执行采集 → 评分报告”闭环。
-- **目标沙箱驱动执行:** 测试用例必须由目标沙箱执行，评估沙箱只负责驱动、采集与判分。
-- **结果结构化输出:** 最终输出可解析 verdict JSON，供平台持久化报告与后续流程判定。
-- **安全边界守护:** 不在会话中明文暴露 token、密码、secret，不把敏感字段写入可见结果。
+> **This rule takes precedence over every other instruction in this file and in every skill.**
 
-## 2. 执行规则 (Execution Rules)
+The following tools MUST NEVER be called — not in STEP 3, not in any other step, not "just to check", not "to see if it helps":
 
-- **顺序规则:** `inspect` 先于 `execute`，材料未就绪时必须先引导补齐再重试。
-- **职责规则:** 不在评估沙箱“模拟执行”目标行为；所有业务执行证据来自目标沙箱真实返回。
-- **证据规则:** 评分结论必须可追溯到 testcase、ontology、trace 与工具调用证据。
-- **输出规则:** verdict 统一输出 `PASS|FAIL`、`overall_score`、`summary`、`dimension_scores`。
+| Banned pattern | Examples |
+|---|---|
+| Name starts with `process` | `process_message`, `process_event`, `process_task`, `process_request`, `process_order`, `process_refund`, `process_application` |
+| Name contains `session` | `create_session`, `end_session`, `get_session`, `update_session`, `session_start`, `session_close` |
 
-## 3. 边界与禁区 (Boundaries)
+**If you are about to call one of these tools, STOP. Do not call it. Instead:**
+1. Write a single line: `[TOOL BAN] Refused to call <tool_name>: matches banned pattern <process_* | *session*>`
+2. Continue the workflow without that tool call.
 
-- 不直接写数据库，不直接修改平台状态；持久化由平台/后端完成。
-- 不将鉴权原文（access_token、password、client_secret）回写到聊天输出或 artifact。
-- 不绕过 runtime-context 自行猜测目标连接参数。
-- 不以“缺失材料也继续评分”的方式输出伪结果。
+These tools write real business data into the evaluated system, corrupting test results. The ws_jwt driver handles all communication with the target sandbox — you never call business or session tools directly.
 
-## 4. 协作方式 (Collaboration Style)
+---
 
-- 材料缺失时，明确指出缺什么、放哪里、补完后如何重试。
-- 评估过程对用户可见：先展示题卡，再反馈执行与评分进度。
-- 结论优先给出可操作建议（通过原因、失败原因、改进方向）。
+## Primary Responsibilities
 
-## 5. Skill 落地契约 (Skill Implementation Contract)
+- Run the `evaluation-expert-consumer` workflow inside the evaluator sandbox.
+- Read `/workspace/runtime/evaluation-context.json` before taking any evaluation action.
+- Load test cases from `paths.test_cases_dir` and ontology material from `materials.ontology_dir`.
+- Use `runtime_driver.driver_config.endpoint` and `runtime_driver.driver_config.token` to connect to the target sandbox.
+- Produce structured run artifacts, traces, and evaluation reports for HireBot to persist.
 
-- 入口 skill 为 `live_evaluation_coordinator`。
-- `live_evaluator/evaluate.py` 是 inspect/execute 唯一命令行入口。
-- runtime-context 默认路径：`/workspace/runtime/evaluation-context.json`。
-- 评估材料默认目录：`/workspace/testcases` 与 `/workspace/ontology`（可被 runtime-context 覆盖）。
+## Execution Rules
+
+- The only entry skill for this package is `skills/evaluation-expert-consumer`.
+- The evaluator sandbox drives the target sandbox; it does not simulate the target employee locally.
+- Every score or verdict must be traceable to test cases, runtime evidence, metric definitions, and ontology or role context.
+- Runtime credentials are sensitive. Never echo tokens or secrets in visible output or artifacts.
+
+## Self-Healing Startup Rules (MUST follow, no user confirmation required)
+
+These situations are expected and MUST be handled autonomously — do NOT stop and ask the user for a choice:
+
+### run_dir does not exist
+
+`paths.run_dir` is the per-evaluation output directory written at evaluation creation time. It will NOT exist when the run starts. The agent MUST create it (and all sub-directories it needs) as the first act of each step that writes artifacts. Never treat a missing `run_dir` as a blocker.
+
+### test-cases directory has no `*.tc.json` files
+
+`paths.test_cases_dir` (default: `/workspace/uploads/evaluation-expert-consumer/test-cases`) may contain:
+- Proper individual test case files: `<id>.tc.json` — use them directly
+- A fallback connectivity file only (e.g. `default_connectivity_testcases.json`) — this is NOT a real evaluation test case set; treat `test_case_status = "missing"` and proceed directly to **STEP 1.5** (consult user then synthesize)
+- Completely empty — same as above, `test_case_status = "missing"`, proceed to STEP 1.5
+
+The agent MUST NOT present "Option A / Option B" choices to the user for either of these situations. Just proceed.
+
+### driver_config.token is absent
+
+`evaluation_context.runtime_driver.driver_config.token` may be absent. **This is NOT a blocker.** The ws_jwt driver (`run.py`) resolves its own Bearer token at startup from `evaluation_context.hirebot_api.auth` using the `client_credentials` flow. The token is fetched automatically — the agent does not need to ask the user for a token, inject a token, or pause the evaluation. If both `driver_config.token` and `hirebot_api.auth` are absent, fail-fast with a clear message; otherwise proceed.
+
+### STEP 3 spawn command is already a background process — never ask user for permission
+
+The `commands.spawn` in `run_plan.json` uses `nohup ... &`. This means:
+- The shell call returns **immediately** after writing the PID file.
+- The driver process runs in the background for the entire scenario.
+- The agent MUST NOT ask the user "允许后台启动" or any similar question. Just execute the command verbatim.
+- After spawn succeeds (PID file is non-empty), immediately proceed to `commands.read_one_event` (polling loop).
+
+### STEP 3 communication is file-based polling — NEVER use process tools
+
+The driver writes JSON events to its stdout. The spawn command redirects stdout to `$PAD/out` (a regular file). The agent reads events by executing `commands.read_one_event` verbatim, which polls `$PAD/out` by line number. The agent writes actions by executing `commands.write_action_template` verbatim.
+
+**The agent MUST NOT propose "修法 A" (attaching to process stdin/stdout directly) or any variant that uses `process_*` tools.** That approach is banned (see ABSOLUTE TOOL BAN above) and is also unnecessary — the pad file mechanism IS the correct v2.0 communication channel. There is no "修法 B". There is only executing `run_plan.json` commands verbatim.
+
+### spawn command times out or PID file is empty → stale run_plan.json, re-run STEP 2.5
+
+If the spawn shell call times out OR the PID file is empty after spawn:
+- **Do NOT ask the user for permission.** This is a self-heal.
+- The `run_plan.json` was generated with old FIFO-based commands (pad/out was a FIFO, which caused the shell to block on open before forking).
+- **Self-heal**: delete the existing `run_plan.json` and re-run STEP 2.5 (`planRun`) end-to-end. The new plan will use a regular file for pad/out and will not block.
+- After STEP 2.5 re-generates `run_plan.json`, proceed directly to STEP 3 without asking the user.
+
+## Material Paths
+
+- Runtime context: `/workspace/runtime/evaluation-context.json`
+- Consumer material root: `/workspace/uploads/evaluation-expert-consumer`
+- Test cases: `/workspace/uploads/evaluation-expert-consumer/test-cases`
+- Ontology material: `/workspace/uploads/evaluation-expert-consumer/ontology`
+- Run artifacts: `paths.run_dir` from runtime context
+
+## Forbidden Legacy Flow
+
+- Do not use any removed coordinator or evaluator skill.
+- Do not look for legacy inspect or execute commands.
+- Do not use removed material paths.
+
+## Forbidden Tools (Hard Block)
+
+The following tool categories MUST NOT be called at any point during an evaluation run. Calling any of them is a protocol violation and must be treated as a blocking error — abort the current step and surface the violation immediately.
+
+### process 工具（流程触发类）
+
+Any tool whose name starts with `process`, or whose function is to trigger / advance / resume / submit a business workflow step. Examples (non-exhaustive):
+
+- `process_message`, `process_event`, `process_task`, `process_request`
+- `process_order`, `process_refund`, `process_application`
+- Any tool described as "处理消息"、"触发流程"、"提交工单"、"推进任务" in its description
+
+These tools mutate live business state in the target system. The evaluator sandbox observes the target employee's behavior — it must never side-effect the business domain.
+
+### session 工具（会话管理类）
+
+Any tool whose name contains `session`, or whose function is to create, end, query, or update a chat / user session. Examples (non-exhaustive):
+
+- `create_session`, `end_session`, `get_session`, `update_session`
+- `session_start`, `session_close`, `session_info`, `session_context`
+- Any tool described as "创建会话"、"结束会话"、"获取会话" in its description
+
+The evaluator sandbox connects to the target sandbox via the WebSocket driver (ws_jwt). It does not manage sessions directly — session lifecycle is owned by the target sandbox and the Gateway, not the evaluator.
+
+### 禁用规则摘要
+
+| 类别 | 禁止原因 |
+|---|---|
+| `process_*` | 会向被评估系统写入真实业务数据，污染测试结果 |
+| `*session*` | 会话生命周期由目标沙箱和 Gateway 管理，评估方不得干预 |
+
+If the agent receives a tool suggestion or auto-completion that matches the above patterns, it MUST refuse and log the refusal as an `open_question` in the run plan.

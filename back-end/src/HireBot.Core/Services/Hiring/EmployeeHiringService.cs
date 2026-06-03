@@ -753,7 +753,7 @@ internal sealed partial class EmployeeHiringService(
                 runtimeContext = await EnsureSandboxReinitializedAsync(runtimeContext, cancellationToken);
             }
 
-            runtimeContext = await EnsureExternalSystemConfigHydratedAsync(runtimeContext, cancellationToken);
+            runtimeContext = await EnsureExternalSystemConfigHydratedAsync(runtimeContext!, cancellationToken);
         }
 
         runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken) ?? runtimeContext;
@@ -1007,10 +1007,20 @@ internal sealed partial class EmployeeHiringService(
                         true));
             }
 
-            if (ShouldStagePackagingTestCases(runtimeContext, request.Content))
+            var packagingTestCasesConfirmation = await HandlePackagingTestCasesConfirmationAsync(
+                runtimeContext,
+                request.Content,
+                requestMaterials,
+                cancellationToken);
+            runtimeContext = packagingTestCasesConfirmation.RuntimeContext;
+            if (packagingTestCasesConfirmation.ShouldPersistRuntimeContext)
             {
-                runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
                 hiringRuntimeStore.Upsert(runtimeContext);
+            }
+
+            if (packagingTestCasesConfirmation.Response is not null)
+            {
+                return packagingTestCasesConfirmation.Response;
             }
 
             var sendResponse = await SendSandboxConversationMessageAsync(
@@ -1312,26 +1322,25 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(400, "上传的产物包为空");
         }
 
+        // 上传包已读入内存后进入 final 包落盘关键区，避免浏览器断连导致最终产物目录半途缺失。
+        var finalizationCancellationToken = CancellationToken.None;
         var extractedArtifacts = ExtractZipEntries(packageBytes);
         if (extractedArtifacts.Count == 0)
         {
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包为空或无法解析，请确认上传的是有效 ZIP 文件");
         }
 
-        if (ShouldStagePackagingTestCases(runtimeContext, userMessage: null) ||
-            string.Equals(runtimeContext.CurrentStage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase))
+        // import 只做确定性兜底补齐；沙箱技能生成必须发生在 package_workspace 前，不能阻塞最终包落盘。
+        if (!runtimeContext.PackagingTestCasesStaged)
         {
-            if (!runtimeContext.PackagingTestCasesStaged)
-            {
-                runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
-            }
-
-            hiringRuntimeStore.Upsert(runtimeContext);
+            runtimeContext = EnsurePackagingTestCasesFallbackStagedForImport(runtimeContext);
         }
+
+        hiringRuntimeStore.Upsert(runtimeContext);
 
         if (ShouldPersistArtifactPackages(runtimeContext))
         {
-            await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+            await PersistIntermediatePackageAsync(runtimeContext, finalizationCancellationToken);
         }
 
         // 用户在前端 TODO 面板关联的 store skill：先从 ncrew-builder 拉取并解压，作为产物的"中层"基底。
@@ -1340,7 +1349,7 @@ internal sealed partial class EmployeeHiringService(
         try
         {
             storeSkillArtifacts = linkedStoreSkillIds is { Count: > 0 }
-                ? await storeSkillPackageDownloader.DownloadSkillsAsync(linkedStoreSkillIds, cancellationToken)
+                ? await storeSkillPackageDownloader.DownloadSkillsAsync(linkedStoreSkillIds, finalizationCancellationToken)
                 : new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception ex)
@@ -1362,14 +1371,14 @@ internal sealed partial class EmployeeHiringService(
         mergedArtifacts = await EnrichMergedArtifactsWithPackagingTestCasesAsync(
             mergedArtifacts,
             runtimeContext,
-            cancellationToken);
+            finalizationCancellationToken);
 
         // 创建数字员工实例（首次调用时）
         // 直接从 DB 持久化的 runtimeContext 读取所有者信息，保证重启后依然有效。
         string? employeeId = runtimeContext.EmployeeId;
         if (string.IsNullOrWhiteSpace(employeeId) && !string.IsNullOrWhiteSpace(runtimeContext.TemplateId))
         {
-            var capabilities = (await templateDataProvider.GetByIdAsync(runtimeContext.TemplateId, cancellationToken))?.CoreAbilities ?? [];
+            var capabilities = (await templateDataProvider.GetByIdAsync(runtimeContext.TemplateId, finalizationCancellationToken))?.CoreAbilities ?? [];
             using var scope = serviceScopeFactory.CreateScope();
             var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
             var createResponse = await employeeRuntimeService.CreateFromHireAsync(
@@ -1381,7 +1390,7 @@ internal sealed partial class EmployeeHiringService(
                     TenantId: runtimeContext.TenantId,
                     OperatorId: runtimeContext.OperatorId,
                     Capabilities: capabilities),
-                cancellationToken);
+                finalizationCancellationToken);
 
             if (createResponse.Success && createResponse.Data is not null)
             {
@@ -1397,15 +1406,15 @@ internal sealed partial class EmployeeHiringService(
                 var storedArtifacts = await instanceArtifactCloneService.StoreDepartmentArtifactsAsync(
                     employeeId,
                     mergedArtifacts,
-                    cancellationToken);
+                    finalizationCancellationToken);
                 var instance = await dbContext.Instances.FirstOrDefaultAsync(
                     item => item.InstanceId == employeeId,
-                    cancellationToken);
+                    finalizationCancellationToken);
                 if (instance is not null)
                 {
                     instance.CurrentVersion = storedArtifacts.CurrentVersion;
                     instance.UpdatedAt = DateTimeOffset.UtcNow;
-                    await dbContext.SaveChangesAsync(cancellationToken);
+                    await dbContext.SaveChangesAsync(finalizationCancellationToken);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1436,7 +1445,7 @@ internal sealed partial class EmployeeHiringService(
                     runtimeContext.SessionId,
                     BuildFinalPackageFileName(normalizedHireId, fileName),
                     mergedArtifacts),
-                cancellationToken);
+                finalizationCancellationToken);
         }
 
         runtimeContext = runtimeContext with
@@ -1459,16 +1468,19 @@ internal sealed partial class EmployeeHiringService(
         return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(result, "交付物已导入");
     }
 
-    public Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
+    public async Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
         string hireId,
         CancellationToken cancellationToken = default)
     {
         if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
         {
-            return Task.FromResult(HiringArtifactDownloadResult.Error(400, error));
+            return HiringArtifactDownloadResult.Error(400, error);
         }
 
-        return artifactPackageService.BuildFinalPackageDownloadAsync(normalizedHireId, cancellationToken);
+        var result = await artifactPackageService.BuildFinalPackageDownloadAsync(normalizedHireId, cancellationToken);
+        return result.Found || result.Code != 409
+            ? result
+            : HiringArtifactDownloadResult.Error(409, "最终交付包尚未生成，请先执行 finalize");
     }
 
     public Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(

@@ -1,0 +1,18 @@
+{
+  "role_id": "bid-writer",
+  "version": "1.0.0",
+  "display_name": "投标书撰写专员",
+  "description": "Bid/tender specialist assembling qualification, technical, commercial, and deviation sections while avoiding disqualification triggers.",
+  "industry": "procurement",
+  "responsibility_tags": [
+    "document_authoring",
+    "compliance",
+    "confidentiality",
+    "completeness_checking"
+  ],
+  "parent_role": null,
+  "aliases": ["投标", "投标专员", "标书撰写", "投标书", "bid writer", "tender writer"],
+  "display_names": ["投标书撰写专员", "标书专员"],
+  "recognized_levels": ["employee", "supervisor", "manager"],
+  "tags": ["bid", "tender", "procurement"]
+}

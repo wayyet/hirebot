@@ -1,0 +1,37 @@
+{
+  "metric_code": "factual_accuracy",
+  "version": "1.0.0",
+  "display_name": "事实准确性（反幻觉）",
+  "description": "Whether every factual claim made by the digital employee can be traced to either (a) tool-call results in the trace, (b) the test case context, or (c) widely-known general knowledge consistent with the scenario. Penalizes fabricated specifics (invented order numbers, made-up policies, hallucinated dates), self-contradiction across turns, and confidently-stated guesses presented as facts. Generic across all roles.",
+  "parent_dimension": "functional_completeness",
+  "applicable_roles": ["*"],
+  "applicable_scenarios": ["*"],
+  "evidence_signals": [
+    "every numeric value (amount / date / id / quota) is grounded in tool output or context",
+    "every cited rule / policy / clause matches what the SOP or context actually says",
+    "no self-contradiction between turn N and turn N+k",
+    "uncertainty is signalled with hedging ('我需要先查一下') rather than confidently fabricated",
+    "no invented entities (fake person names, fake order ids, fake document references)"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.context",
+      "test_case.expected_output.expected_response_traits",
+      "test_case.expected_output.forbidden_behaviors",
+      "trace.dialog_turns",
+      "trace.actual_tool_calls"
+    ]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "Every factual claim is traceable to tool output, context, or uncontroversial general knowledge; numbers, dates, ids, and policy citations exactly match their source; no self-contradiction across turns; uncertainty is explicitly hedged when grounding is missing.",
+    "acceptable_60_79": "All material facts are accurate; one minor non-load-bearing detail is imprecise (e.g. rounded number, slightly off paraphrase of a policy line) but does not change the answer's correctness; no contradictions.",
+    "poor_below_60": "Any fabricated specific (invented order id / made-up policy clause / hallucinated date), OR self-contradiction across turns, OR a confidently-stated guess presented as fact when grounding was missing, OR matched any forbidden_behavior related to truthfulness."
+  },
+  "aggregation_strategy": "worst_case",
+  "default_weight_within_dimension": 0.4,
+  "red_line": {
+    "trigger_kind": "forbidden_behavior",
+    "notes": "Fabricated specifics (invented entities or policy clauses presented as fact) trigger a red line regardless of overall_score. STEP 4 LLM raises observed_signals; STEP 7 deterministic check applies the red line."
+  },
+  "tags": ["accuracy", "anti-hallucination", "generic", "cross-role", "fundamental"]
+}

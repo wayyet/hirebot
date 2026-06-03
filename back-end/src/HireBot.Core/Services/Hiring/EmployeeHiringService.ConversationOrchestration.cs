@@ -236,12 +236,6 @@ internal sealed partial class EmployeeHiringService
         runtimeContext = ApplyDispatchCallbacks(runtimeContext, parsedReply.DispatchCallbacks);
         runtimeContext = await ExecuteDispatchCommandsAsync(runtimeContext, parsedReply.DispatchCommands, cancellationToken);
         runtimeContext = ApplyWorkflowProgress(runtimeContext);
-        if (string.Equals(runtimeContext.CurrentStage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase) &&
-            !runtimeContext.PackagingTestCasesStaged)
-        {
-            runtimeContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
-        }
-
         runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
         if (ShouldPersistArtifactPackages(runtimeContext))
         {
@@ -265,6 +259,45 @@ internal sealed partial class EmployeeHiringService
                 runtimeContext.CurrentStage,
                 latestPreview.ReadyForAudit,
                 visibleAssistantMessage,
+                latestPreview,
+                runtimeContext.IsConversationPaused,
+                true));
+    }
+
+    private async Task<ApiResponse<HiringConversationResultDto>> BuildLocalConversationResponseAsync(
+        HiringRuntimeContext runtimeContext,
+        string assistantContent,
+        CancellationToken cancellationToken)
+    {
+        runtimeContext = ApplyWorkflowProgress(runtimeContext);
+        runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
+        if (ShouldPersistArtifactPackages(runtimeContext))
+        {
+            await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
+        }
+
+        hiringRuntimeStore.Upsert(runtimeContext);
+        var assistantMessage = new HiringConversationMessageDto(
+            $"assistant-{Guid.NewGuid():N}",
+            "assistant",
+            assistantContent,
+            DateTimeOffset.UtcNow);
+        var latestPreview = BuildLocalStagePreview(
+            runtimeContext.HireId,
+            runtimeContext.DiscoverySkill,
+            runtimeContext.StageCompletion,
+            runtimeContext.CurrentStage,
+            runtimeContext.CollectionPhase,
+            runtimeContext.StructuredData,
+            assistantMessage.Content);
+
+        return ApiResponse<HiringConversationResultDto>.SuccessResponse(
+            new HiringConversationResultDto(
+                runtimeContext.HireId,
+                runtimeContext.SessionId,
+                runtimeContext.CurrentStage,
+                latestPreview.ReadyForAudit,
+                assistantMessage,
                 latestPreview,
                 runtimeContext.IsConversationPaused,
                 true));

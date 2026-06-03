@@ -1,0 +1,261 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://openclaw.io/evaluation-expert-consumer/runtime-schemas/evaluation_report.schema.json",
+  "title": "EvaluationReport",
+  "description": "STEP 9 (buildOverallReport) final consolidated report for one evaluation run. Produced exactly once after all ScenarioReports are written. Numeric fields (dimension_scores, overall_score, passed, red_line) are deterministic copies of STEP 6/STEP 7 outputs; the LLM only authors the narrative and cross-scenario synthesis sections.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evaluation_id",
+    "generated_at",
+    "employee",
+    "employee_provenance",
+    "selected_metrics",
+    "test_cases",
+    "scenario_report_refs",
+    "dimension_scores",
+    "overall_score",
+    "red_line",
+    "passed",
+    "narrative"
+  ],
+  "properties": {
+    "evaluation_id": { "type": "string", "minLength": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "employee": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["employee_id", "role"],
+      "properties": {
+        "employee_id": { "type": "string", "minLength": 1 },
+        "role": {
+          "description": "Object form (STEP 0 output) preferred; bare string accepted for legacy reports.",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["role_id"],
+              "properties": {
+                "role_id": { "type": "string", "minLength": 1 },
+                "industry": { "type": "string" },
+                "responsibility_tags": { "type": "array", "items": { "type": "string" } },
+                "level": { "type": "string" }
+              }
+            },
+            { "type": "string", "minLength": 1 }
+          ]
+        },
+        "scenarios": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "employee_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "reliability"],
+      "description": "Byte-identical copy of evaluation_context.employee.employee_provenance (K17). When reliability == 'low', caveat is surfaced in open_questions and findings use 'indicative' rather than 'definitive'.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["authoritative_file", "user_dialog", "inferred_fallback"]
+        },
+        "reliability": { "type": "string", "enum": ["high", "low"] },
+        "caveat": { "type": "string", "maxLength": 1000 }
+      }
+    },
+    "metric_curation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "STEP 1.2 surface (R14). Absent when mode == 'never' (no curation occurred). candidate_metrics/selected_metrics are byte-copies of EvaluationContext; removed/added are byte-copies of the matching curate_log subsets.",
+      "required": ["candidate_metrics", "selected_metrics", "removed", "added", "policy_snapshot"],
+      "properties": {
+        "candidate_metrics": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "selected_metrics": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "removed": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "added": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "policy_snapshot": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "selected_metrics": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Metric snapshot copied from EvaluationContext.selected_metrics, NOT re-derived.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric_code", "version", "parent_dimension"],
+        "properties": {
+          "metric_code": { "type": "string", "minLength": 1 },
+          "version": { "type": "string", "minLength": 1 },
+          "parent_dimension": {
+            "type": "string",
+            "enum": [
+              "functional_completeness",
+              "interaction_quality",
+              "process_compliance",
+              "problem_resolution",
+              "tool_call_correctness"
+            ]
+          }
+        }
+      }
+    },
+    "test_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["test_case_id", "is_synthesized"],
+        "properties": {
+          "test_case_id": { "type": "string", "minLength": 1 },
+          "display_name": { "type": "string" },
+          "difficulty": {
+            "type": "string",
+            "enum": ["easy", "normal", "hard", "edge_case"]
+          },
+          "is_synthesized": { "type": "boolean" }
+        }
+      }
+    },
+    "scenario_report_refs": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Relative paths to ScenarioReport files. The overall report MUST link them; it MUST NOT inline them.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "per_metric_final_scores": {
+      "type": "array",
+      "minItems": 1,
+      "description": "STEP 5 aggregateAcrossScenarios output, copied as-is.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric_code", "final_score", "aggregation_strategy"],
+        "properties": {
+          "metric_code": { "type": "string", "minLength": 1 },
+          "final_score": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "aggregation_strategy": {
+            "type": "string",
+            "enum": [
+              "weighted_average_by_difficulty",
+              "simple_average",
+              "worst_case",
+              "pass_rate",
+              "coverage"
+            ]
+          }
+        }
+      }
+    },
+    "dimension_scores": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "STEP 6 rollUpToDimensions output. All five keys are required so the report shape is stable for trend analysis.",
+      "required": [
+        "functional_completeness",
+        "interaction_quality",
+        "process_compliance",
+        "problem_resolution",
+        "tool_call_correctness"
+      ],
+      "properties": {
+        "functional_completeness": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "interaction_quality": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "process_compliance": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "problem_resolution": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "tool_call_correctness": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "overall_score": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "red_line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["triggered", "triggers"],
+      "description": "STEP 7 redLineCheck output, copied as-is. The LLM cannot mutate triggered / triggers. narratives is a K18-mandated Chinese narrative array authored by STEP 9 (one sentence per scenario / per metric_code) so the HTML can render human-readable explanations without surfacing raw English tokens.",
+      "properties": {
+        "triggered": { "type": "boolean" },
+        "triggers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rule", "evidence_ref"],
+            "properties": {
+              "rule": { "type": "string", "minLength": 1 },
+              "metric_code": { "type": "string" },
+              "parent_dimension": { "type": "string" },
+              "test_case_id": { "type": "string" },
+              "evidence_ref": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "narratives": {
+          "type": "array",
+          "description": "K18: Chinese narrative sentences. The first entry summarises the metric_code + trigger_kind + score; subsequent entries enumerate per-scenario evidence in Chinese. Used verbatim by the HTML report.",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "passed": {
+      "type": "boolean",
+      "description": "STEP 7 final verdict, copied as-is. passed = !red_line.triggered AND overall_score >= 70 AND ∀d dimension_scores[d] >= 60."
+    },
+    "narrative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executive_summary"],
+      "description": "LLM-authored prose. MUST be consistent with numeric fields above; contradictions are a contract violation.",
+      "properties": {
+        "executive_summary": { "type": "string", "minLength": 1 },
+        "strengths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "weaknesses": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "cross_scenario_patterns": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Patterns visible only across multiple scenarios (e.g. 'The agent handled refund cases well but failed every complaint case')."
+        },
+        "improvement_plan": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["area", "action"],
+            "properties": {
+              "area": { "type": "string", "minLength": 1 },
+              "action": { "type": "string", "minLength": 1 },
+              "linked_metric_codes": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

@@ -1,0 +1,821 @@
+{
+  "$schema": "../../../../docs/skill-projection-contract-index.schema.json",
+  "producer_skill": "ontology_extraction",
+  "producer_priority": 100,
+  "consumer_skill": "evaluation-expert-consumer",
+  "upstream_producer_dependencies": [
+    {
+      "producer_skill": "role-ontology",
+      "projection_path": "../role-ontology/contract-index.json",
+      "required_for_views": [
+        "metric-selection/workflow-contract"
+      ],
+      "reason": "metric-selection workflow STEP 0 (resolveEmployee, via PRE.A loadRoleCatalog) requires the RoleCatalog contract and ./role-catalog/*.role.json data layer published by role-ontology to canonicalize the evaluatee's role and inject industry / responsibility_tags for STEP 1.2 curation."
+    },
+    {
+      "producer_skill": "metric-ontology",
+      "projection_path": "../metric-ontology/contract-index.json",
+      "required_for_views": [
+        "metric-selection/workflow-contract"
+      ],
+      "reason": "metric-selection workflow STEP PRE (loadMetricRegistry) and STEP 2 (enrichTestCases) require the MetricRegistry contract and ./metrics/*.metric.json data layer published by metric-ontology."
+    },
+    {
+      "producer_skill": "testcase-ontology",
+      "projection_path": "../testcase-ontology/contract-index.json",
+      "required_for_views": [
+        "metric-selection/workflow-contract"
+      ],
+      "reason": "metric-selection workflow STEP 1 (resolveEmployeeAndCheckTestCases) and STEP 1.5 (parseTestCases) require the TestCaseRegistry contract and ./test-cases/*.tc.json data layer published by testcase-ontology."
+    }
+  ],
+  "default_selection_policy": {
+    "prefer_ready_only": true,
+    "block_on_open_questions": true,
+    "fallback_order_by_target_view": [
+      "workflow-contract",
+      "prompt-constraint",
+      "domain-model",
+      "metric-catalog"
+    ],
+    "multi_view_resolution_hints": [
+      "Prefer the target view that matches the user's explicitly requested evaluation artifact.",
+      "If the request mixes evaluation flow and scoring policy, choose workflow-contract only when step ordering, gating conditions, or red-line checkpoints are the core deliverable.",
+      "If the request asks for scoring criteria, dimension policy, or judgement language, choose prompt-constraint.",
+      "If the request asks for the evaluation domain model itself (employee templates, metric entities), choose domain-model.",
+      "If the request asks for the metric catalog (named scoring dimensions with weights and thresholds), choose metric-catalog."
+    ]
+  },
+  "topic_conflict_resolution": {
+    "default_rule": "Prefer the topic whose deliverable shape and intent keywords best match the user's primary output request. If no topic clearly dominates, ask for clarification instead of silently switching topics.",
+    "pairwise_rules": [
+      {
+        "topics": [
+          "customer-service-ecommerce",
+          "evaluation-workflow"
+        ],
+        "prefer_topic_when": [
+          {
+            "topic": "customer-service-ecommerce",
+            "request_signals": [
+              "客服",
+              "售后",
+              "退货",
+              "投诉",
+              "电商",
+              "工单",
+              "customer service",
+              "ecommerce"
+            ],
+            "reason": "These signals indicate the request is grounded in the e-commerce customer-service template rather than the generic evaluation flow."
+          },
+          {
+            "topic": "evaluation-workflow",
+            "request_signals": [
+              "评估流程",
+              "评估工作流",
+              "评估编排",
+              "evaluation workflow",
+              "evaluation pipeline",
+              "orchestration"
+            ],
+            "reason": "These signals indicate the user wants the generic evaluation workflow rather than a specific employee template."
+          }
+        ],
+        "tie_breaker": "If both signal groups appear, prefer customer-service-ecommerce when a specific employee template is named; otherwise prefer evaluation-workflow."
+      },
+      {
+        "topics": [
+          "metric-selection",
+          "scoring-judgement"
+        ],
+        "prefer_topic_when": [
+          {
+            "topic": "metric-selection",
+            "request_signals": [
+              "指标",
+              "评分维度",
+              "评估标准",
+              "维度权重",
+              "metric selection",
+              "scoring dimensions",
+              "weights"
+            ],
+            "reason": "These signals indicate the user wants to select or define which dimensions to evaluate, not how to apply scoring rules to evidence."
+          },
+          {
+            "topic": "scoring-judgement",
+            "request_signals": [
+              "打分",
+              "评分",
+              "严格评估",
+              "红线",
+              "扣分",
+              "起评分",
+              "judgement",
+              "strict scoring",
+              "red line"
+            ],
+            "reason": "These signals indicate the user wants the evidence-driven judgement policy and red-line rules rather than dimension selection."
+          }
+        ],
+        "tie_breaker": "If the request mixes dimension selection with judgement policy, prefer metric-selection when the artifact is the dimension list itself; otherwise prefer scoring-judgement."
+      }
+    ]
+  },
+  "topic_scoring": {
+    "clarify_when_score_gap_below": 2,
+    "topics": [
+      {
+        "domain_slug": "customer-service-ecommerce",
+        "primary_intent_signals": [
+          "客服",
+          "电商客服",
+          "售后",
+          "退货",
+          "投诉",
+          "工单",
+          "customer service",
+          "ecommerce"
+        ],
+        "explicit_artifact_signals": [
+          "customer-service-ecommerce",
+          "客服评估",
+          "客服员工",
+          "电商客服评估"
+        ],
+        "supporting_signals": [
+          "退款",
+          "物流",
+          "用户满意度",
+          "create_ticket"
+        ],
+        "demote_when_competing_topic_signals": [
+          "评估流程",
+          "评估编排",
+          "指标选取",
+          "打分政策"
+        ]
+      },
+      {
+        "domain_slug": "evaluation-workflow",
+        "primary_intent_signals": [
+          "评估流程",
+          "评估工作流",
+          "评估编排",
+          "evaluation workflow",
+          "evaluation pipeline",
+          "evaluation orchestration"
+        ],
+        "explicit_artifact_signals": [
+          "evaluation-workflow",
+          "workflow contract",
+          "评估工作流契约"
+        ],
+        "supporting_signals": [
+          "checkpoint",
+          "transition",
+          "gating condition",
+          "red-line check"
+        ],
+        "demote_when_competing_topic_signals": [
+          "客服",
+          "电商",
+          "维度权重",
+          "起评分"
+        ]
+      },
+      {
+        "domain_slug": "metric-selection",
+        "primary_intent_signals": [
+          "指标",
+          "评分维度",
+          "评估标准",
+          "维度权重",
+          "metric selection",
+          "scoring dimensions",
+          "weights",
+          "测试用例",
+          "用例匹配",
+          "指标库",
+          "评估流程",
+          "fan-out"
+        ],
+        "explicit_artifact_signals": [
+          "metric-selection",
+          "指标目录",
+          "metric catalog",
+          "metric-ontology",
+          "testcase-ontology",
+          "workflow-contract"
+        ],
+        "supporting_signals": [
+          "functional_completeness",
+          "interaction_quality",
+          "process_compliance",
+          "problem_resolution",
+          "tool_call_correctness",
+          "enrichTestCases",
+          "redLineCheck",
+          "rollUpToDimensions"
+        ],
+        "demote_when_competing_topic_signals": [
+          "打分",
+          "红线",
+          "起评分",
+          "扣分",
+          "judgement"
+        ]
+      },
+      {
+        "domain_slug": "scoring-judgement",
+        "primary_intent_signals": [
+          "打分",
+          "评分",
+          "严格评估",
+          "红线",
+          "起评分",
+          "judgement",
+          "strict scoring",
+          "red line"
+        ],
+        "explicit_artifact_signals": [
+          "scoring-judgement",
+          "scoring policy",
+          "judgement policy"
+        ],
+        "supporting_signals": [
+          "证据驱动",
+          "扣分",
+          "evidence-driven",
+          "red-line trigger"
+        ],
+        "demote_when_competing_topic_signals": [
+          "维度权重",
+          "指标选取",
+          "metric catalog"
+        ]
+      }
+    ]
+  },
+  "target_view_scoring": {
+    "clarify_when_score_gap_below": 2,
+    "views": [
+      {
+        "target_view": "workflow-contract",
+        "explicit_output_signals": [
+          "workflow contract",
+          "execution graph",
+          "step graph",
+          "评估流程",
+          "评估编排"
+        ],
+        "strong_signals": [
+          "workflow steps",
+          "gating conditions",
+          "checkpoints",
+          "transitions",
+          "red-line check",
+          "评估流程"
+        ],
+        "supporting_signals": [
+          "precondition",
+          "step ordering",
+          "blocking condition",
+          "工单创建顺序"
+        ],
+        "demote_when_competing_view_signals": [
+          "评分政策",
+          "打分起点",
+          "维度权重",
+          "metric catalog"
+        ]
+      },
+      {
+        "target_view": "prompt-constraint",
+        "explicit_output_signals": [
+          "prompt constraint",
+          "prompt policy",
+          "reviewer guidance",
+          "评分规则",
+          "判分政策"
+        ],
+        "strong_signals": [
+          "constrained reasoning",
+          "allowed terms",
+          "review guidance",
+          "起评分",
+          "红线"
+        ],
+        "supporting_signals": [
+          "policy language",
+          "review checklist",
+          "扣分规则",
+          "证据要求"
+        ],
+        "demote_when_competing_view_signals": [
+          "execution graph",
+          "workflow steps",
+          "domain model",
+          "metric catalog"
+        ]
+      },
+      {
+        "target_view": "domain-model",
+        "explicit_output_signals": [
+          "domain model",
+          "code model",
+          "实现结构",
+          "员工模板模型"
+        ],
+        "strong_signals": [
+          "implementation structure",
+          "domain objects",
+          "runtime guards",
+          "员工实体"
+        ],
+        "supporting_signals": [
+          "types",
+          "guards",
+          "entities"
+        ],
+        "demote_when_competing_view_signals": [
+          "workflow steps",
+          "prompt policy",
+          "metric catalog"
+        ]
+      },
+      {
+        "target_view": "metric-catalog",
+        "explicit_output_signals": [
+          "metric catalog",
+          "指标目录",
+          "scoring dimensions catalog"
+        ],
+        "strong_signals": [
+          "scoring dimension list",
+          "weights",
+          "thresholds",
+          "维度权重",
+          "评分维度清单"
+        ],
+        "supporting_signals": [
+          "dimension definition",
+          "score range"
+        ],
+        "demote_when_competing_view_signals": [
+          "workflow steps",
+          "prompt policy",
+          "domain model"
+        ]
+      }
+    ],
+    "within_topic_overrides": [
+      {
+        "domain_slug": "customer-service-ecommerce",
+        "bonuses": [
+          {
+            "target_view": "workflow-contract",
+            "when_request_signals": [
+              "工单",
+              "流程",
+              "顺序",
+              "create_ticket"
+            ],
+            "score": 2,
+            "reason": "Customer-service-ecommerce defaults toward workflow-contract when the request emphasizes step ordering or ticket creation."
+          },
+          {
+            "target_view": "prompt-constraint",
+            "when_request_signals": [
+              "话术",
+              "同理心",
+              "语气",
+              "review wording"
+            ],
+            "score": 2,
+            "reason": "Customer-service-ecommerce shifts to prompt-constraint when the request is about wording or interaction-quality language."
+          }
+        ]
+      },
+      {
+        "domain_slug": "evaluation-workflow",
+        "bonuses": [
+          {
+            "target_view": "workflow-contract",
+            "when_request_signals": [
+              "checkpoint",
+              "transition",
+              "step",
+              "红线检查",
+              "编排"
+            ],
+            "score": 2,
+            "reason": "Evaluation-workflow naturally favors workflow-contract when the request emphasizes staged execution flow."
+          }
+        ]
+      },
+      {
+        "domain_slug": "metric-selection",
+        "bonuses": [
+          {
+            "target_view": "prompt-constraint",
+            "when_request_signals": [
+              "评估指引",
+              "review",
+              "policy",
+              "guardrail"
+            ],
+            "score": 2,
+            "reason": "Metric-selection defaults toward prompt-constraint when the requested output is dimension-selection guidance."
+          },
+          {
+            "target_view": "metric-catalog",
+            "when_request_signals": [
+              "metric catalog",
+              "指标目录",
+              "维度清单",
+              "weights table"
+            ],
+            "score": 3,
+            "reason": "Promote metric-catalog when the request explicitly asks for an enumerated dimension list with weights or thresholds."
+          }
+        ]
+      },
+      {
+        "domain_slug": "scoring-judgement",
+        "bonuses": [
+          {
+            "target_view": "prompt-constraint",
+            "when_request_signals": [
+              "打分",
+              "评分",
+              "红线",
+              "起评分",
+              "review",
+              "guidance"
+            ],
+            "score": 2,
+            "reason": "Scoring-judgement defaults toward prompt-constraint when the request is about applying judgement rules and red-line triggers."
+          }
+        ]
+      }
+    ]
+  },
+  "selection_algorithm": {
+    "version": "1.0",
+    "goal": "Select the safest READY topic and target view by accumulating deterministic scores from request signals instead of relying on ad hoc pairwise branching.",
+    "inputs": [
+      "user_request_text",
+      "topic_scoring",
+      "target_view_scoring",
+      "topics",
+      "default_selection_policy"
+    ],
+    "normalization_steps": [
+      "Lowercase the request text before matching signals.",
+      "Treat exact phrase hits as a single match per signal per topic or view.",
+      "Do not count the same signal twice within the same scoring bucket."
+    ],
+    "phases": [
+      {
+        "phase": "score_topics",
+        "steps": [
+          {
+            "action": "initialize_topic_scores",
+            "description": "Create one score record per topic with score = 0 and an empty matched_reasons list."
+          },
+          {
+            "action": "apply_primary_intent_match",
+            "source": "topic_scoring.topics[].primary_intent_signals",
+            "score_dimension": "primary_intent_match",
+            "match_mode": "best_topic_only",
+            "description": "Award the primary intent score to the topic whose primary intent signals best match the user's main requested deliverable."
+          },
+          {
+            "action": "apply_explicit_artifact_bonus",
+            "source": "topic_scoring.topics[].explicit_artifact_signals",
+            "score_dimension": "explicit_artifact_bonus",
+            "match_mode": "all_matching_topics",
+            "description": "Award the explicit artifact bonus when the request explicitly names an artifact strongly associated with a topic."
+          },
+          {
+            "action": "apply_strong_keyword_matches",
+            "source": "topic_scoring.topics[].primary_intent_signals",
+            "score_dimension": "strong_keyword_match",
+            "match_mode": "per_signal",
+            "description": "For each matched strong signal, add the strong keyword score once per unique signal."
+          },
+          {
+            "action": "apply_supporting_keyword_matches",
+            "source": "topic_scoring.topics[].supporting_signals",
+            "score_dimension": "supporting_keyword_match",
+            "match_mode": "per_signal",
+            "description": "For each matched supporting signal, add the supporting keyword score once per unique signal."
+          },
+          {
+            "action": "apply_cross_topic_penalties",
+            "source": "topic_scoring.topics[].demote_when_competing_topic_signals",
+            "score_dimension": "cross_topic_conflict_penalty",
+            "match_mode": "per_topic_if_competing_topic_is_stronger",
+            "description": "Subtract the cross-topic penalty when the request contains stronger competing-topic signals and the current topic is only a secondary fit."
+          },
+          {
+            "action": "prefer_ready_topics_only",
+            "description": "If default_selection_policy.prefer_ready_only is true, remove non-READY topics that have no READY views from final selection consideration."
+          },
+          {
+            "action": "rank_topics",
+            "description": "Sort topic score records by descending score and keep the top candidate list."
+          },
+          {
+            "action": "clarify_on_close_topic_scores",
+            "threshold_source": "topic_scoring.clarify_when_score_gap_below",
+            "description": "If the score gap between the top two candidate topics is below the threshold, return clarify instead of auto-selecting a topic."
+          }
+        ],
+        "output": "selected_topic or clarify"
+      },
+      {
+        "phase": "score_target_views",
+        "precondition": "selected_topic exists",
+        "steps": [
+          {
+            "action": "initialize_view_scores",
+            "description": "Create one score record per READY target view under the selected topic with score = 0 and an empty matched_reasons list."
+          },
+          {
+            "action": "apply_explicit_output_matches",
+            "source": "target_view_scoring.views[].explicit_output_signals",
+            "score_dimension": "explicit_output_match",
+            "match_mode": "all_matching_views",
+            "description": "Award explicit output match when the request names a concrete artifact such as workflow contract, prompt policy, domain model, or metric catalog."
+          },
+          {
+            "action": "apply_strong_view_signal_matches",
+            "source": "target_view_scoring.views[].strong_signals",
+            "score_dimension": "strong_signal_match",
+            "match_mode": "per_signal",
+            "description": "For each matched strong target-view signal, add the strong signal score once per unique signal."
+          },
+          {
+            "action": "apply_supporting_view_signal_matches",
+            "source": "target_view_scoring.views[].supporting_signals",
+            "score_dimension": "supporting_signal_match",
+            "match_mode": "per_signal",
+            "description": "For each matched supporting signal, add the supporting signal score once per unique signal."
+          },
+          {
+            "action": "apply_topic_overrides",
+            "source": "target_view_scoring.within_topic_overrides",
+            "match_mode": "selected_topic_only",
+            "description": "Apply within-topic bonuses for the selected topic when the request contains the override's request signals."
+          },
+          {
+            "action": "apply_default_view_bonus",
+            "source": "topics[].default_target_view",
+            "score_dimension": "topic_default_view_bonus",
+            "match_mode": "selected_topic_default_view_only_when_no_stronger_explicit_match",
+            "description": "Award the default target view bonus only as a weak fallback when the request does not strongly point to another target view."
+          },
+          {
+            "action": "apply_cross_view_penalties",
+            "source": "target_view_scoring.views[].demote_when_competing_view_signals",
+            "score_dimension": "cross_view_conflict_penalty",
+            "match_mode": "per_view_if_competing_view_is_stronger",
+            "description": "Subtract the cross-view penalty when another target view has the stronger artifact match and the current view is only secondary."
+          },
+          {
+            "action": "rank_target_views",
+            "description": "Sort view score records by descending score and keep the top candidate list."
+          },
+          {
+            "action": "clarify_on_close_view_scores",
+            "threshold_source": "target_view_scoring.clarify_when_score_gap_below",
+            "description": "If the score gap between the top two target views is below the threshold, return clarify instead of auto-selecting a target view."
+          }
+        ],
+        "output": "selected_target_view or clarify"
+      },
+      {
+        "phase": "resolve_projection",
+        "precondition": "selected_topic and selected_target_view exist",
+        "steps": [
+          {
+            "action": "lookup_projection_record",
+            "source": "topics[].views[]",
+            "description": "Find the projection record whose topic and target_view match the selected values."
+          },
+          {
+            "action": "enforce_ready_status",
+            "description": "Use the projection only when its status is READY; otherwise fall back to the topic default target view only if that still matches the requested outcome."
+          },
+          {
+            "action": "block_on_open_questions_when_required",
+            "description": "If default_selection_policy.block_on_open_questions is true and the selected projection carries blocking open questions, surface the block instead of silently proceeding."
+          }
+        ],
+        "output": "selected_projection_path or clarify_or_block"
+      }
+    ],
+    "result_shape": {
+      "topic_scores": "array",
+      "selected_topic": "string or null",
+      "target_view_scores": "array",
+      "selected_target_view": "string or null",
+      "resolution": "selected | clarify | block",
+      "projection_path": "string or null"
+    }
+  },
+  "target_view_hints": [
+    {
+      "target_view": "workflow-contract",
+      "request_signals": [
+        "workflow steps",
+        "execution graph",
+        "评估流程",
+        "评估编排",
+        "checkpoints",
+        "transitions",
+        "red-line check"
+      ],
+      "use_when": "The user needs explicit step ordering, evaluation pipeline edges, or red-line gating preconditions."
+    },
+    {
+      "target_view": "prompt-constraint",
+      "request_signals": [
+        "prompt policy",
+        "judgement policy",
+        "起评分",
+        "红线",
+        "评分规则",
+        "review wording"
+      ],
+      "use_when": "The user needs prompt-side scoring rules, judgement language, evidence requirements, or interaction-quality wording."
+    },
+    {
+      "target_view": "domain-model",
+      "request_signals": [
+        "domain model",
+        "实现结构",
+        "员工模板模型",
+        "entities"
+      ],
+      "use_when": "The user needs executable implementation structure for evaluation domain objects (employee templates, metric entities, runtime guards)."
+    },
+    {
+      "target_view": "metric-catalog",
+      "request_signals": [
+        "metric catalog",
+        "指标目录",
+        "维度权重表",
+        "scoring dimensions catalog"
+      ],
+      "use_when": "The user needs an enumerated catalog of scoring dimensions with weights, baselines, and thresholds."
+    }
+  ],
+  "topics": [
+    {
+      "domain_slug": "customer-service-ecommerce",
+      "intent_keywords": [
+        "客服",
+        "售后",
+        "退货",
+        "投诉",
+        "电商",
+        "工单",
+        "customer service",
+        "ecommerce"
+      ],
+      "default_target_view": "workflow-contract",
+      "example_requests": [
+        {
+          "request": "评估这位电商客服员工在退货场景下的表现",
+          "target_view": "workflow-contract",
+          "reason": "The request is about applying the e-commerce customer-service evaluation workflow with ticket creation and red-line checks."
+        },
+        {
+          "request": "给客服评估补一份话术与同理心评分指引",
+          "target_view": "prompt-constraint",
+          "reason": "The request shifts to interaction-quality language and reviewer wording rather than the workflow itself."
+        }
+      ],
+      "views": [
+        {
+          "target_view": "workflow-contract",
+          "projection_type": "workflow_contract_projection",
+          "status": "READY",
+          "path": "customer-service-ecommerce/customer-service-ecommerce.workflow-contract.projection.json"
+        }
+      ]
+    },
+    {
+      "domain_slug": "evaluation-workflow",
+      "intent_keywords": [
+        "评估流程",
+        "评估工作流",
+        "评估编排",
+        "evaluation workflow",
+        "evaluation pipeline",
+        "orchestration"
+      ],
+      "default_target_view": "workflow-contract",
+      "example_requests": [
+        {
+          "request": "把通用评估流程拆成红线检查、维度评分、报告生成三个阶段",
+          "target_view": "workflow-contract",
+          "reason": "The request asks for explicit pipeline stages and gating preconditions for the generic evaluation flow."
+        }
+      ],
+      "views": [
+        {
+          "target_view": "workflow-contract",
+          "projection_type": "workflow_contract_projection",
+          "status": "READY",
+          "path": "evaluation-workflow/evaluation-workflow.workflow-contract.projection.json"
+        }
+      ]
+    },
+    {
+      "domain_slug": "metric-selection",
+      "intent_keywords": [
+        "指标",
+        "评分维度",
+        "评估标准",
+        "维度权重",
+        "metric selection",
+        "scoring dimensions",
+        "测试用例",
+        "用例匹配",
+        "指标库",
+        "评估流程",
+        "fan-out",
+        "评估编排"
+      ],
+      "default_target_view": "prompt-constraint",
+      "example_requests": [
+        {
+          "request": "给客服评估选取合适的评分维度并说明权重",
+          "target_view": "prompt-constraint",
+          "reason": "The request is about dimension-selection guidance and weight rationale rather than an enumerated catalog."
+        },
+        {
+          "request": "输出客服评估的指标目录（维度名 + 权重 + 起评分）",
+          "target_view": "metric-catalog",
+          "reason": "The request explicitly asks for an enumerated catalog of dimensions with weights."
+        },
+        {
+          "request": "完整跑一次员工评估：解析测试用例、绑定指标、按场景 fan-out 打分、最后出报告",
+          "target_view": "workflow-contract",
+          "reason": "The request asks for the end-to-end deterministic evaluation pipeline (10-step workflow) that covers test-case parsing, enrichment, scenario driving, per-metric fan-out, aggregation, red-line check, and report synthesis."
+        }
+      ],
+      "views": [
+        {
+          "target_view": "prompt-constraint",
+          "projection_type": "prompt_constraint_projection",
+          "status": "READY",
+          "path": "metric-selection/metric-selection.prompt-constraint.projection.json"
+        },
+        {
+          "target_view": "workflow-contract",
+          "projection_type": "workflow_contract_projection",
+          "status": "READY",
+          "path": "metric-selection/metric-selection.workflow-contract.projection.json",
+          "depends_on_producer_skills": [
+            "metric-ontology",
+            "testcase-ontology"
+          ]
+        }
+      ]
+    },
+    {
+      "domain_slug": "scoring-judgement",
+      "intent_keywords": [
+        "打分",
+        "评分",
+        "严格评估",
+        "红线",
+        "起评分",
+        "judgement",
+        "strict scoring"
+      ],
+      "default_target_view": "prompt-constraint",
+      "example_requests": [
+        {
+          "request": "给评估打分流程补一份严苛判定与红线触发规则",
+          "target_view": "prompt-constraint",
+          "reason": "The request asks for prompt-side judgement policy, red-line triggers, and evidence-driven scoring rules."
+        }
+      ],
+      "views": [
+        {
+          "target_view": "prompt-constraint",
+          "projection_type": "prompt_constraint_projection",
+          "status": "READY",
+          "path": "scoring-judgement/scoring-judgement.prompt-constraint.projection.json"
+        }
+      ]
+    }
+  ]
+}

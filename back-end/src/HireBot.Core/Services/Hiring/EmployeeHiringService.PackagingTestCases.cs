@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Core.Services.Internal;
 using HireBot.Abstraction.Models.Sandbox;
@@ -27,22 +28,313 @@ internal sealed partial class EmployeeHiringService
     };
 
     /// <summary>
-    /// 是否应在沙箱调用 package_workspace 之前写入 testcases/。
+    /// 收集阶段是否尚未进入打包前 testcase 阶段。
     /// </summary>
-    internal static bool ShouldStagePackagingTestCases(HiringRuntimeContext runtimeContext, string? userMessage)
+    internal static bool IsCollectionStageBeforeReadyForPackaging(string? currentStage)
     {
-        if (string.Equals(runtimeContext.CurrentStage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(currentStage))
         {
             return true;
         }
 
-        if (string.IsNullOrWhiteSpace(userMessage))
+        return string.Equals(currentStage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(currentStage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(currentStage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// packaging-test-cases 只作为可选增强，打包请求不得等待测试用例生成。
+    /// </summary>
+    internal static bool ShouldStagePackagingTestCases(HiringRuntimeContext runtimeContext, string? userMessage)
+    {
+        return false;
+    }
+
+    private async Task<PackagingTestCasesConfirmationHandlingResult> HandlePackagingTestCasesConfirmationAsync(
+        HiringRuntimeContext runtimeContext,
+        string? userMessage,
+        IReadOnlyList<HiringConversationMaterialDto> materials,
+        CancellationToken cancellationToken)
+    {
+        runtimeContext = NormalizePackagingTestCasesRuntimeState(runtimeContext);
+        var hasMaterials = materials.Count > 0;
+        var status = PackagingTestCasesGenerationStatuses.Normalize(runtimeContext.PackagingTestCasesStatus);
+        var externalFinalized = runtimeContext.ExternalSystemConfig?.IsPersisted == true;
+        if (!externalFinalized || hasMaterials)
+        {
+            return new PackagingTestCasesConfirmationHandlingResult(runtimeContext, null);
+        }
+
+        if (status == PackagingTestCasesGenerationStatuses.NotAsked)
+        {
+            if (IsPackagingTestCasesSkipMessage(userMessage))
+            {
+                runtimeContext = MarkPackagingTestCasesSkipped(runtimeContext);
+                if (PackagingIntentSupport.IsPackagingIntent(userMessage))
+                {
+                    return new PackagingTestCasesConfirmationHandlingResult(
+                        runtimeContext,
+                        null,
+                        ShouldPersistRuntimeContext: true);
+                }
+
+                return new PackagingTestCasesConfirmationHandlingResult(
+                    runtimeContext,
+                    await BuildLocalConversationResponseAsync(
+                        runtimeContext,
+                        "已跳过评估测试用例生成。现在可以继续生成实例包。",
+                        cancellationToken));
+            }
+
+            if (IsPackagingTestCasesApprovalMessage(userMessage))
+            {
+                return await GeneratePackagingTestCasesFromConfirmationAsync(runtimeContext, cancellationToken);
+            }
+
+            if (PackagingIntentSupport.IsPackagingIntent(userMessage) ||
+                string.Equals(runtimeContext.CurrentStage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase))
+            {
+                runtimeContext = MarkPackagingTestCasesWaitingConfirm(runtimeContext);
+                return new PackagingTestCasesConfirmationHandlingResult(
+                    runtimeContext,
+                    await BuildPackagingTestCasesConfirmationResponseAsync(runtimeContext, cancellationToken));
+            }
+
+            return new PackagingTestCasesConfirmationHandlingResult(runtimeContext, null);
+        }
+
+        if (status is not PackagingTestCasesGenerationStatuses.WaitingConfirm and not PackagingTestCasesGenerationStatuses.Failed)
+        {
+            return new PackagingTestCasesConfirmationHandlingResult(runtimeContext, null);
+        }
+
+        if (IsPackagingTestCasesApprovalMessage(userMessage))
+        {
+            return await GeneratePackagingTestCasesFromConfirmationAsync(runtimeContext, cancellationToken);
+        }
+
+        if (IsPackagingTestCasesSkipMessage(userMessage))
+        {
+            runtimeContext = MarkPackagingTestCasesSkipped(runtimeContext);
+            if (PackagingIntentSupport.IsPackagingIntent(userMessage))
+            {
+                return new PackagingTestCasesConfirmationHandlingResult(
+                    runtimeContext,
+                    null,
+                    ShouldPersistRuntimeContext: true);
+            }
+
+            return new PackagingTestCasesConfirmationHandlingResult(
+                runtimeContext,
+                await BuildLocalConversationResponseAsync(
+                    runtimeContext,
+                    "已跳过评估测试用例生成。现在可以继续生成实例包。",
+                    cancellationToken));
+        }
+
+        if (PackagingIntentSupport.IsPackagingIntent(userMessage))
+        {
+            var promptContext = status == PackagingTestCasesGenerationStatuses.Failed
+                ? MarkPackagingTestCasesWaitingConfirm(runtimeContext)
+                : runtimeContext;
+            return new PackagingTestCasesConfirmationHandlingResult(
+                promptContext,
+                await BuildPackagingTestCasesConfirmationResponseAsync(promptContext, cancellationToken));
+        }
+
+        return new PackagingTestCasesConfirmationHandlingResult(runtimeContext, null);
+    }
+
+    private async Task<PackagingTestCasesConfirmationHandlingResult> GeneratePackagingTestCasesFromConfirmationAsync(
+        HiringRuntimeContext runtimeContext,
+        CancellationToken cancellationToken)
+    {
+        runtimeContext = runtimeContext with
+        {
+            PackagingTestCasesStatus = PackagingTestCasesGenerationStatuses.Generating,
+            PackagingTestCasesLastError = null
+        };
+        hiringRuntimeStore.Upsert(runtimeContext);
+
+        try
+        {
+            var stagedContext = await EnsurePackagingTestCasesStagedAsync(runtimeContext, cancellationToken);
+            if (!stagedContext.PackagingTestCasesStaged)
+            {
+                var failedContext = stagedContext with
+                {
+                    PackagingTestCasesStatus = PackagingTestCasesGenerationStatuses.Failed,
+                    PackagingTestCasesLastError = "测试用例生成或写入沙箱失败"
+                };
+
+                return new PackagingTestCasesConfirmationHandlingResult(
+                    failedContext,
+                    await BuildLocalConversationResponseAsync(
+                        failedContext,
+                        "评估测试用例暂未生成成功。可以回复“重试生成测试用例”，也可以回复“跳过，直接打包”。",
+                        cancellationToken));
+            }
+
+            var generatedContext = stagedContext with
+            {
+                PackagingTestCasesStatus = PackagingTestCasesGenerationStatuses.Generated,
+                PackagingTestCasesLastError = null
+            };
+            generatedContext = ApplyConversationProgressToTemplatePackage(generatedContext);
+            if (ShouldPersistArtifactPackages(generatedContext))
+            {
+                await PersistIntermediatePackageAsync(generatedContext, cancellationToken);
+            }
+
+            return new PackagingTestCasesConfirmationHandlingResult(
+                generatedContext,
+                await BuildLocalConversationResponseAsync(
+                    generatedContext,
+                    "评估测试用例已生成并写入工作区。现在可以继续生成实例包。",
+                    cancellationToken));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "[Hiring] Packaging testcase generation failed after user confirmation. HireId={HireId}, SessionId={SessionId}",
+                runtimeContext.HireId,
+                runtimeContext.SessionId);
+            var failedContext = runtimeContext with
+            {
+                PackagingTestCasesStatus = PackagingTestCasesGenerationStatuses.Failed,
+                PackagingTestCasesLastError = ex.Message
+            };
+            return new PackagingTestCasesConfirmationHandlingResult(
+                failedContext,
+                await BuildLocalConversationResponseAsync(
+                    failedContext,
+                    "评估测试用例暂未生成成功。可以回复“重试生成测试用例”，也可以回复“跳过，直接打包”。",
+                    cancellationToken));
+        }
+    }
+
+    private async Task<ApiResponse<HiringConversationResultDto>> BuildPackagingTestCasesConfirmationResponseAsync(
+        HiringRuntimeContext runtimeContext,
+        CancellationToken cancellationToken)
+    {
+        return await BuildLocalConversationResponseAsync(
+            runtimeContext,
+            "外部系统配置已完成。生成实例包前，是否先生成评估测试用例？可以回复“生成测试用例”，也可以回复“跳过，直接打包”。",
+            cancellationToken);
+    }
+
+    private static HiringRuntimeContext NormalizePackagingTestCasesRuntimeState(HiringRuntimeContext runtimeContext)
+    {
+        var normalizedStatus = PackagingTestCasesGenerationStatuses.Normalize(runtimeContext.PackagingTestCasesStatus);
+        if (runtimeContext.PackagingTestCasesStaged &&
+            normalizedStatus is PackagingTestCasesGenerationStatuses.NotAsked or PackagingTestCasesGenerationStatuses.WaitingConfirm or PackagingTestCasesGenerationStatuses.Generating)
+        {
+            normalizedStatus = PackagingTestCasesGenerationStatuses.Generated;
+        }
+
+        return string.Equals(normalizedStatus, runtimeContext.PackagingTestCasesStatus, StringComparison.Ordinal)
+            ? runtimeContext
+            : runtimeContext with { PackagingTestCasesStatus = normalizedStatus };
+    }
+
+    private static HiringRuntimeContext MarkPackagingTestCasesWaitingConfirm(HiringRuntimeContext runtimeContext)
+    {
+        return runtimeContext with
+        {
+            PackagingTestCasesStatus = PackagingTestCasesGenerationStatuses.WaitingConfirm,
+            PackagingTestCasesLastError = null
+        };
+    }
+
+    private static HiringRuntimeContext MarkPackagingTestCasesWaitingConfirmIfNeeded(HiringRuntimeContext runtimeContext)
+    {
+        runtimeContext = NormalizePackagingTestCasesRuntimeState(runtimeContext);
+        return PackagingTestCasesGenerationStatuses.Normalize(runtimeContext.PackagingTestCasesStatus) switch
+        {
+            PackagingTestCasesGenerationStatuses.NotAsked or PackagingTestCasesGenerationStatuses.Failed =>
+                MarkPackagingTestCasesWaitingConfirm(runtimeContext),
+            _ => runtimeContext
+        };
+    }
+
+    private static HiringRuntimeContext MarkPackagingTestCasesSkipped(HiringRuntimeContext runtimeContext)
+    {
+        return runtimeContext with
+        {
+            PackagingTestCasesStatus = PackagingTestCasesGenerationStatuses.Skipped,
+            PackagingTestCasesLastError = null
+        };
+    }
+
+    private static bool IsPackagingTestCasesApprovalMessage(string? message)
+    {
+        var compact = CompactIntentText(message);
+        if (compact.Length == 0)
         {
             return false;
         }
 
-        return PackagingIntentSupport.IsPackagingIntent(userMessage);
+        if (compact is "是" or "可以" or "好" or "好的" or "确认" or "yes" or "ok")
+        {
+            return true;
+        }
+
+        return compact.Contains("生成测试用例", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("生成评估用例", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("进行测试用例", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("需要测试用例", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("testcases", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("testcase", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsPackagingTestCasesSkipMessage(string? message)
+    {
+        var compact = CompactIntentText(message);
+        if (compact.Length == 0)
+        {
+            return false;
+        }
+
+        return compact.Contains("跳过", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("不生成", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("不用", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("不需要", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("先不管", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("直接打包", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("直接生成包", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("直接生成实例包", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("no", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("skip", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string CompactIntentText(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(message.Length);
+        foreach (var ch in message.Trim())
+        {
+            if (!char.IsWhiteSpace(ch) && !char.IsPunctuation(ch) && !char.IsSymbol(ch))
+            {
+                builder.Append(char.ToLowerInvariant(ch));
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private sealed record PackagingTestCasesConfirmationHandlingResult(
+        HiringRuntimeContext RuntimeContext,
+        ApiResponse<HiringConversationResultDto>? Response,
+        bool ShouldPersistRuntimeContext = false);
 
     /// <summary>
     /// 构建降级 testcase JSON（demo 结构，test_cases 为空）。
@@ -117,12 +409,12 @@ internal sealed partial class EmployeeHiringService
         HiringRuntimeContext runtimeContext,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(runtimeContext.SessionId))
+        var sessionId = runtimeContext.SessionId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sessionId))
         {
             logger.LogWarning(
-                "[Hiring] Packaging testcase skill skipped because SessionId is empty. HireId={HireId}",
+                "[Hiring] Packaging testcase skill proceeding without SessionId; history transcript will be empty. HireId={HireId}",
                 runtimeContext.HireId);
-            return (false, null);
         }
 
         var todoFilesRoot = HireBotPathResolver.ResolveTodoFilesRoot(
@@ -132,28 +424,31 @@ internal sealed partial class EmployeeHiringService
         var uploadedMaterialFiles = await PackagingTestCaseMaterialLoader.LoadAsync(
             dbContext,
             runtimeContext.HireId,
-            runtimeContext.SessionId,
+            sessionId,
             [todoFilesRoot],
             cancellationToken);
         var templatePackageFiles = PackagingTestCaseTemplateSnapshotBuilder.Build(
             runtimeContext.WorkingTemplatePackage.PackageFiles);
 
         IReadOnlyList<HiringConversationMessageDto> sessionMessages = [];
-        var sessionDetailResult = await sandboxService.GetSessionDetailAsync(
-            BuildPackagingSessionDetailRequest(runtimeContext),
-            cancellationToken);
-        if (sessionDetailResult.Success && sessionDetailResult.Data is not null)
+        if (!string.IsNullOrWhiteSpace(sessionId))
         {
-            sessionMessages = sessionDetailResult.Data.Messages;
-        }
-        else
-        {
-            logger.LogWarning(
-                "[Hiring] Failed to load KingCrab session history for packaging testcases. HireId={HireId}, SessionId={SessionId}, Code={Code}, Message={Message}",
-                runtimeContext.HireId,
-                runtimeContext.SessionId,
-                sessionDetailResult.Code,
-                sessionDetailResult.Message);
+            var sessionDetailResult = await sandboxService.GetSessionDetailAsync(
+                BuildPackagingSessionDetailRequest(runtimeContext),
+                cancellationToken);
+            if (sessionDetailResult.Success && sessionDetailResult.Data is not null)
+            {
+                sessionMessages = sessionDetailResult.Data.Messages;
+            }
+            else
+            {
+                logger.LogWarning(
+                    "[Hiring] Failed to load KingCrab session history for packaging testcases. HireId={HireId}, SessionId={SessionId}, Code={Code}, Message={Message}",
+                    runtimeContext.HireId,
+                    sessionId,
+                    sessionDetailResult.Code,
+                    sessionDetailResult.Message);
+            }
         }
 
         var transcript = PackagingTestCasesJsonValidator.PrepareHistoryTranscript(sessionMessages);
@@ -169,7 +464,7 @@ internal sealed partial class EmployeeHiringService
         }
 
         var invokePayload = new PackagingTestCasesInvokePayload(
-            runtimeContext.SessionId,
+            sessionId,
             runtimeContext.TemplateName,
             runtimeContext.StructuredData,
             transcript,
@@ -243,7 +538,7 @@ internal sealed partial class EmployeeHiringService
         var (skillSuccess, bundle) = await InvokePackagingTestCasesSkillAsync(runtimeContext, cancellationToken);
         if (!skillSuccess || bundle is null)
         {
-            if (!TryBuildPackagingTestCasesPlaceholder(out var placeholderJson))
+            if (!TryBuildPackagingTestCasesFallbackBundle(out bundle))
             {
                 return runtimeContext;
             }
@@ -252,14 +547,6 @@ internal sealed partial class EmployeeHiringService
                 "[Hiring] Packaging testcase generation fell back to empty demo structure. HireId={HireId}, SessionId={SessionId}",
                 runtimeContext.HireId,
                 runtimeContext.SessionId);
-
-            bundle = new PackagingTestCasesBundle(
-                placeholderJson,
-                SourcesIndexJson: string.Empty,
-                HistoryDerivedJson: string.Empty,
-                MaterialsDerivedJson: string.Empty,
-                TemplateDerivedJson: string.Empty,
-                PackagingTestCasesSourceFallback);
         }
 
         var uploadSucceeded = await UploadPackagingTestCasesBundleAsync(runtimeContext, bundle, cancellationToken);
@@ -269,7 +556,12 @@ internal sealed partial class EmployeeHiringService
         }
 
         runtimeContext = ApplyPackagingTestCasesToWorkingPackage(runtimeContext, bundle);
-        runtimeContext = runtimeContext with { PackagingTestCasesStaged = true };
+        runtimeContext = runtimeContext with
+        {
+            PackagingTestCasesStaged = true,
+            PackagingTestCasesStatus = PackagingTestCasesGenerationStatuses.Generated,
+            PackagingTestCasesLastError = null
+        };
 
         logger.LogInformation(
             "[Hiring] Packaging testcases staged to sandbox before package_workspace. HireId={HireId}, SandboxId={SandboxId}, Path={Path}",
@@ -278,6 +570,69 @@ internal sealed partial class EmployeeHiringService
             PackagingTestCasesRelativePath);
 
         return runtimeContext;
+    }
+
+    private HiringRuntimeContext EnsurePackagingTestCasesFallbackStagedForImport(HiringRuntimeContext runtimeContext)
+    {
+        if (runtimeContext.PackagingTestCasesStaged)
+        {
+            return runtimeContext;
+        }
+
+        var workingFiles = BuildPackageFileMap(runtimeContext.WorkingTemplatePackage);
+        if (workingFiles.ContainsKey(PackagingTestCasesRelativePath))
+        {
+            return runtimeContext with
+            {
+                PackagingTestCasesStaged = true,
+                PackagingTestCasesStatus = NormalizePackagingTestCasesStagedStatus(runtimeContext),
+                PackagingTestCasesLastError = null
+            };
+        }
+
+        if (!TryBuildPackagingTestCasesFallbackBundle(out var bundle))
+        {
+            return runtimeContext;
+        }
+
+        logger.LogWarning(
+            "[Hiring] Import package skipped sandbox testcase generation and staged fallback testcases locally. HireId={HireId}, SessionId={SessionId}",
+            runtimeContext.HireId,
+            runtimeContext.SessionId);
+
+        runtimeContext = ApplyPackagingTestCasesToWorkingPackage(runtimeContext, bundle);
+        return runtimeContext with
+        {
+            PackagingTestCasesStaged = true,
+            PackagingTestCasesStatus = NormalizePackagingTestCasesStagedStatus(runtimeContext),
+            PackagingTestCasesLastError = null
+        };
+    }
+
+    private static bool TryBuildPackagingTestCasesFallbackBundle(out PackagingTestCasesBundle bundle)
+    {
+        if (!TryBuildPackagingTestCasesPlaceholder(out var placeholderJson))
+        {
+            bundle = null!;
+            return false;
+        }
+
+        bundle = new PackagingTestCasesBundle(
+            placeholderJson,
+            SourcesIndexJson: string.Empty,
+            HistoryDerivedJson: string.Empty,
+            MaterialsDerivedJson: string.Empty,
+            TemplateDerivedJson: string.Empty,
+            PackagingTestCasesSourceFallback);
+        return true;
+    }
+
+    private static string NormalizePackagingTestCasesStagedStatus(HiringRuntimeContext runtimeContext)
+    {
+        var normalizedStatus = PackagingTestCasesGenerationStatuses.Normalize(runtimeContext.PackagingTestCasesStatus);
+        return normalizedStatus == PackagingTestCasesGenerationStatuses.Skipped
+            ? PackagingTestCasesGenerationStatuses.Skipped
+            : PackagingTestCasesGenerationStatuses.Generated;
     }
 
     private async Task<bool> UploadPackagingTestCasesBundleAsync(

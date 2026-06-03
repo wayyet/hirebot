@@ -8,12 +8,29 @@ interface Props {
   onFileDownload?: (url: string, fileName: string, artifactType: string) => void
   /** 手动触发上传到系统（仅 template_package 展示） */
   onManualUpload?: (fileUrl: string, fileName: string) => void
+  /** template_package：展示用 final 文件名（覆盖沙箱 artifact.fileName） */
+  packageDownloadFileName?: string
+  /** template_package：import 完成前禁用下载 */
+  packageDownloadDisabled?: boolean
+  /** 禁用时的 title / aria-label */
+  packageDownloadDisabledTitle?: string
 }
 
-export function ArtifactMessageCard({ artifact, onFileDownload, onManualUpload }: Props) {
+export function ArtifactMessageCard({
+  artifact,
+  onFileDownload,
+  onManualUpload,
+  packageDownloadFileName,
+  packageDownloadDisabled = false,
+  packageDownloadDisabledTitle,
+}: Props) {
   const { t } = useTranslation()
   const title = artifact.label ?? artifact.artifactType
   const isPackage = artifact.artifactType === 'template_package'
+  const displayFileName =
+    isPackage && packageDownloadFileName
+      ? packageDownloadFileName
+      : (artifact.fileName ?? title)
 
   return (
     <div className="hb-artifact-card">
@@ -34,22 +51,32 @@ export function ArtifactMessageCard({ artifact, onFileDownload, onManualUpload }
       {artifact.kind === 'file' ? (
         <div className="hb-artifact-file-row">
           {onFileDownload && artifact.fileUrl ? (
-            // gateway 文件需要附带 token，通过回调触发认证下载
+            // template_package：仅下载后端 final；import 前禁用，不走沙箱网关
             <button
               type="button"
               className="hb-artifact-file-link"
-              onClick={() => onFileDownload(artifact.fileUrl!, artifact.fileName ?? title, artifact.artifactType)}
+              disabled={isPackage && packageDownloadDisabled}
+              title={isPackage && packageDownloadDisabled ? packageDownloadDisabledTitle : undefined}
+              aria-label={
+                isPackage && packageDownloadDisabled && packageDownloadDisabledTitle
+                  ? packageDownloadDisabledTitle
+                  : displayFileName
+              }
+              onClick={() => {
+                if (isPackage && packageDownloadDisabled) return
+                onFileDownload(artifact.fileUrl!, displayFileName, artifact.artifactType)
+              }}
             >
-              <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
+              <span className="hb-artifact-file-name">{displayFileName}</span>
               {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
             </button>
           ) : (
             <a
               href={artifact.fileUrl ?? '#'}
-              download={artifact.fileName ?? title}
+              download={displayFileName}
               className="hb-artifact-file-link"
             >
-              <span className="hb-artifact-file-name">{artifact.fileName ?? title}</span>
+              <span className="hb-artifact-file-name">{displayFileName}</span>
               {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
             </a>
           )}
@@ -90,6 +117,13 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
     artifact.artifactType === 'skill_generation_done'
   ) {
     return <SkillGenerationStatusView artifactType={artifact.artifactType} data={artifact.data} />
+  }
+  if (
+    artifact.artifactType === 'packaging_testcases_ready' ||
+    artifact.artifactType === 'packaging_testcases_progress' ||
+    artifact.artifactType === 'packaging_testcases_done'
+  ) {
+    return <PackagingTestCasesStatusView artifactType={artifact.artifactType} data={artifact.data} />
   }
   if (artifact.artifactType === 'external_config_committed') {
     return <ExternalConfigCommittedView data={artifact.data} />
@@ -278,6 +312,63 @@ function SkillGenerationStatusView({
         {totalSkills !== null && (
           <span style={statChipStyle}>
             {'🧩 技能数'} <b style={{ marginLeft: 3 }}>{totalSkills}</b>
+          </span>
+        )}
+        <span style={{
+          fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600,
+          background: st.bg, color: st.color, border: `1px solid ${st.border}`,
+        }}>
+          {st.label}
+        </span>
+      </div>
+      {summary && (
+        <div style={{ fontSize: 12, color: 'var(--hb-text, #374151)', lineHeight: 1.65 }}>
+          {summary}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** packaging_testcases_ready / _progress / _done 轻量状态视图 */
+function PackagingTestCasesStatusView({
+  artifactType, data,
+}: { artifactType: string; data: unknown }) {
+  const rec = asRecord(data)
+  if (!rec) return <CodeView data={data} />
+
+  const summary = stringify(rec.summary ?? rec.message ?? '')
+  const generatedCount = typeof rec.generated_count === 'number'
+    ? rec.generated_count
+    : typeof rec.testcase_count === 'number'
+      ? rec.testcase_count
+      : null
+
+  const statusConfig: Record<string, { label: string; bg: string; color: string; border: string }> = {
+    packaging_testcases_ready: {
+      label: '等待确认',
+      bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
+      border: 'rgba(245,158,11,0.30)',
+    },
+    packaging_testcases_progress: {
+      label: '生成中',
+      bg: 'rgba(37,99,235,0.10)', color: 'var(--hb-text-blue, #1d4ed8)',
+      border: 'rgba(37,99,235,0.25)',
+    },
+    packaging_testcases_done: {
+      label: '已完成',
+      bg: 'rgba(16,185,129,0.10)', color: 'var(--hb-text-green, #059669)',
+      border: 'rgba(16,185,129,0.30)',
+    },
+  }
+  const st = statusConfig[artifactType] ?? statusConfig.packaging_testcases_ready
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {generatedCount !== null && (
+          <span style={statChipStyle}>
+            {'用例数'} <b style={{ marginLeft: 3 }}>{generatedCount}</b>
           </span>
         )}
         <span style={{
@@ -1108,7 +1199,12 @@ function ArtifactIcon({ artifact }: { artifact: ArtifactDisplayData }) {
     artifact.artifactType === 'skill_generation_progress' ||
     artifact.artifactType === 'skill_generation_done'
   ) return <span className="hb-artifact-icon">⚙️</span>
-  if (artifact.artifactType === 'material_collection_progress' || artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
+    if (
+        artifact.artifactType === 'packaging_testcases_ready' ||
+        artifact.artifactType === 'packaging_testcases_progress' ||
+        artifact.artifactType === 'packaging_testcases_done'
+    ) return <span className="hb-artifact-icon">🧪</span>
+    if (artifact.artifactType === 'material_collection_progress' || artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
   if (artifact.artifactType === 'ontology_extraction_done' || artifact.artifactType === 'ontology_extraction_progress') return <span className="hb-artifact-icon">🌿</span>
   if (artifact.artifactType === 'external_workorder_progress' || artifact.artifactType === 'external_workorder_summary' || artifact.artifactType === 'external_config_committed') return <span className="hb-artifact-icon">🔌</span>
   if (artifact.artifactType === 'stage4_packaging') return <span className="hb-artifact-icon">📦</span>

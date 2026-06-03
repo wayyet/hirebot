@@ -1,0 +1,42 @@
+{
+  "$schema": "../contracts/projections/metric-ontology/metric-library/schemas/metric.schema.json",
+  "metric_code": "attendance_rule_compliance",
+  "version": "1.0.0",
+  "display_name": "考勤与薪资规则适用准确度",
+  "description": "Whether the HR-attendance employee correctly applied company attendance / leave / overtime / payroll rules: legal holiday multiples, comp-leave (调休) deadlines, leave quotas, and overtime cap policies, without inventing or contradicting them.",
+  "parent_dimension": "process_compliance",
+  "applicable_roles": ["hr-attendance"],
+  "applicable_scenarios": [
+    "leave_request",
+    "attendance_correction",
+    "overtime_calculation",
+    "payroll_inquiry",
+    "policy_inquiry",
+    "shift_adjustment"
+  ],
+  "evidence_signals": [
+    "literal citation of company attendance handbook",
+    "correct holiday-multiplier application (1x / 2x / 3x)",
+    "comp-leave deadline arithmetic",
+    "leave quota residual calculation",
+    "absence of contradictions with statutory labor law"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.opening_message",
+      "test_case.input.context",
+      "test_case.expected_output.expected_response_traits",
+      "test_case.expected_output.forbidden_behaviors",
+      "trace.dialog_turns",
+      "trace.actual_tool_calls"
+    ]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "All applied rules cite the correct handbook section; numeric arithmetic (multipliers, deadlines, residuals) is exact; statutory boundaries are respected.",
+    "acceptable_60_79": "Rule citation is correct in substance with minor numerical rounding or vague phrasing; no statutory violation.",
+    "poor_below_60": "Wrong rule applied, contradictory arithmetic, statutory violation (e.g., denying statutory annual leave), or matched any forbidden_behavior."
+  },
+  "aggregation_strategy": "weighted_average_by_difficulty",
+  "default_weight_within_dimension": 0.5,
+  "tags": ["hr", "attendance", "policy", "domain-specific"]
+}

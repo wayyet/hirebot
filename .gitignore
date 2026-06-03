@@ -427,3 +427,4 @@ docs/
 .venv/
 .tmp-e2e-msg.json
 .tmp-e2e-hire.json
+back-end/tests/HireBot.Core.Tests/

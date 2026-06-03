@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://openclaw.io/evaluation-expert-consumer/runtime-schemas/scenario_report.schema.json",
+  "title": "ScenarioReport",
+  "description": "STEP 8 (buildScenarioReports) per-scenario human-readable report. One ScenarioReport is produced for every test case after STEP 4 fan-out completes. The LLM only does narrative synthesis; numeric fields are deterministically copied from upstream artifacts (ScenarioScore + ExecutionTrace + EnrichedTestCase) and MUST NOT be invented or rewritten by the LLM.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evaluation_id",
+    "test_case_id",
+    "generated_at",
+    "metric_results",
+    "narrative",
+    "evidence_refs"
+  ],
+  "properties": {
+    "evaluation_id": { "type": "string", "minLength": 1 },
+    "test_case_id": { "type": "string", "minLength": 1 },
+    "test_case_display_name": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "scenario_score_ref": {
+      "type": "string",
+      "description": "Relative path to the upstream ScenarioScore file used as the numeric source of truth.",
+      "minLength": 1
+    },
+    "trace_ref": {
+      "type": "string",
+      "description": "Relative path to the ExecutionTrace file."
+    },
+    "metric_results": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One row per applicable metric for this test case. Numeric values MUST be copied from the matching MetricScore; the LLM cannot recompute them.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric_code", "score", "verdict"],
+        "properties": {
+          "metric_code": { "type": "string", "minLength": 1 },
+          "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "parent_dimension": {
+            "type": "string",
+            "enum": [
+              "functional_completeness",
+              "interaction_quality",
+              "process_compliance",
+              "problem_resolution",
+              "tool_call_correctness"
+            ]
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["excellent", "acceptable", "poor"]
+          },
+          "key_finding": { "type": "string" }
+        }
+      }
+    },
+    "observed_signals_summary": {
+      "type": "array",
+      "description": "De-duplicated union of all observed_signals raised by per-metric MetricScore objects for this test case. Used by STEP 9 buildOverallReport without re-reading individual MetricScore files.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["signal", "raised_by_metric_codes"],
+        "properties": {
+          "signal": { "type": "string", "minLength": 1 },
+          "raised_by_metric_codes": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "narrative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary"],
+      "description": "LLM-authored prose. The LLM may rephrase but MUST NOT contradict numeric metric_results.",
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "what_went_well": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "what_went_wrong": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "improvement_points": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "description": "Pointers reused from MetricScore.evidence[]. STEP 8 prose MUST cite at least one evidence ref.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "ref"],
+        "properties": {
+          "source": { "type": "string", "minLength": 1 },
+          "ref": { "type": "string", "minLength": 1 },
+          "quote": { "type": "string" }
+        }
+      }
+    }
+  }
+}

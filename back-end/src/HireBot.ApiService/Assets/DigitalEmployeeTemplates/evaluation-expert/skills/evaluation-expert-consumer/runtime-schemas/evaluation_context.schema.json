@@ -1,0 +1,447 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://openclaw.io/evaluation-expert-consumer/runtime-schemas/evaluation_context.schema.json",
+  "title": "EvaluationContext",
+  "description": "Runtime aggregate produced before LOOP(STEP 3, STEP 4). Materialized once per evaluation run; immutable thereafter. Persisted at ./runs/<eval_id>/evaluation_context.json. Never written back into contract files.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evaluation_id",
+    "created_at",
+    "employee",
+    "selected_metrics",
+    "enriched_test_cases",
+    "fan_out_plan",
+    "paths",
+    "runtime_driver",
+    "runtime_simulator"
+  ],
+  "properties": {
+    "evaluation_id": {
+      "type": "string",
+      "description": "Stable identifier for this evaluation run (UUID or timestamped slug).",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "employee": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["employee_id", "role", "scenarios", "employee_provenance"],
+      "properties": {
+        "employee_id": { "type": "string", "minLength": 1 },
+        "role": {
+          "description": "STEP 0 output. Object form is authoritative. A bare string is accepted only as legacy input and is normalized by STEP 0 into the object form (role_id = string, empty industry/responsibility_tags, caveat appended).",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["role_id", "industry", "responsibility_tags"],
+              "properties": {
+                "role_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+                "industry": { "type": "string", "maxLength": 128 },
+                "responsibility_tags": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "level": { "type": "string", "minLength": 1, "maxLength": 64 }
+              }
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "DEPRECATED legacy bare-string role. STEP 0 wraps it into the object form before any downstream step reads it."
+            }
+          ]
+        },
+        "industry": {
+          "type": "string",
+          "description": "Convenience mirror of employee.role.industry; populated by STEP 0 for STEP 1.2 input."
+        },
+        "job_responsibilities": {
+          "type": "string",
+          "description": "Free-text day-to-day responsibilities. Primary semantic signal for STEP 1.2 curation."
+        },
+        "employee_provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "reliability"],
+          "description": "STEP 0 resolution provenance (K17). Surfaced byte-identically in EvaluationReport.employee_provenance.",
+          "properties": {
+            "source": {
+              "type": "string",
+              "enum": ["authoritative_file", "user_dialog", "inferred_fallback"]
+            },
+            "reliability": {
+              "type": "string",
+              "enum": ["high", "low"]
+            },
+            "caveat": {
+              "type": "string",
+              "maxLength": 1000,
+              "description": "Required (non-empty) when reliability == 'low'. Canonical values: 'employee_inferred_no_authoritative_source', 'role_id_no_catalog_entry' (may be combined)."
+            }
+          }
+        },
+        "scenarios": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "sop_documents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["uri"],
+            "properties": {
+              "uri": { "type": "string", "minLength": 1 },
+              "title": { "type": "string" },
+              "version": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "candidate_metrics": {
+      "type": "array",
+      "description": "STEP 1 deterministic role-filter output (the role-filtered subset of metric_registry). STEP 1.2 transforms this into selected_metrics. Optional at schema level for backward-compat: legacy contexts carry only selected_metrics, which STEP 2 treats as candidate_metrics (R16.4).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric_code", "version", "parent_dimension", "source_path"],
+        "properties": {
+          "metric_code": { "type": "string", "minLength": 1 },
+          "version": { "type": "string", "minLength": 1 },
+          "parent_dimension": {
+            "type": "string",
+            "enum": [
+              "functional_completeness",
+              "interaction_quality",
+              "process_compliance",
+              "problem_resolution",
+              "tool_call_correctness"
+            ]
+          },
+          "source_path": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "dropped_metrics": {
+      "type": "array",
+      "description": "STEP 1 audit trail: metrics in metric_registry not in candidate_metrics, each with drop_reason. Required for K9 auditability.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric_code", "drop_reason"],
+        "properties": {
+          "metric_code": { "type": "string", "minLength": 1 },
+          "applicable_roles": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "drop_reason": {
+            "type": "string",
+            "enum": ["role_mismatch"]
+          }
+        }
+      }
+    },
+    "selected_metrics": {
+      "type": "array",
+      "minItems": 1,
+      "description": "STEP 1.2 curateMetrics output: selected_metrics = (candidate_metrics − removed) ∪ added. When STEP 1.2 mode is 'never' / skipped / fails, equals candidate_metrics. Consumed by STEP 2 / STEP 4. Each entry is a snapshot reference, not the full metric body.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric_code", "version", "parent_dimension", "source_path"],
+        "properties": {
+          "metric_code": { "type": "string", "minLength": 1 },
+          "version": { "type": "string", "minLength": 1 },
+          "parent_dimension": {
+            "type": "string",
+            "enum": [
+              "functional_completeness",
+              "interaction_quality",
+              "process_compliance",
+              "problem_resolution",
+              "tool_call_correctness"
+            ]
+          },
+          "source_path": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "curate_log": {
+      "type": "array",
+      "description": "STEP 1.2 audit trail (K18). One entry per removed/added decision. len(curate_log) == len(removed) + len(added).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decision", "metric_code", "evidence", "confidence"],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": ["removed", "added"]
+          },
+          "metric_code": { "type": "string", "minLength": 1 },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "description": "At least one citation (K18). Each names a source field and quotes a verbatim substring of that field's value.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source_field", "quote"],
+              "properties": {
+                "source_field": {
+                  "type": "string",
+                  "enum": [
+                    "employee.industry",
+                    "employee.job_responsibilities",
+                    "employee.role.responsibility_tags",
+                    "metric.description",
+                    "metric.tags",
+                    "metric.industry",
+                    "metric.responsibility_tags",
+                    "metric.complementary_metrics",
+                    "metric.exclusive_with"
+                  ]
+                },
+                "quote": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "confirmed_by_user": {
+            "description": "true = human confirmed; false = human declined / timed out; 'auto_applied' = confidence >= auto_apply_threshold, applied without asking.",
+            "oneOf": [
+              { "type": "boolean" },
+              { "type": "string", "enum": ["auto_applied"] }
+            ]
+          },
+          "policy_violation": {
+            "type": "string",
+            "description": "Set when this entry records a max_metrics / min_dimensions_covered block (R12.8/12.9)."
+          }
+        }
+      }
+    },
+    "metric_selection_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "description": "Governs STEP 1.2 invocation and bounds. All optional fields apply their declared defaults when omitted.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["auto", "always", "never"],
+          "default": "auto"
+        },
+        "max_metrics": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 8
+        },
+        "min_dimensions_covered": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 1
+        },
+        "auto_apply_threshold": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.7
+        },
+        "size_triggers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "candidate_count_lower_bound": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 200,
+              "default": 3
+            },
+            "candidate_count_upper_bound": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 200,
+              "default": 15
+            }
+          }
+        }
+      }
+    },
+    "employee_resolution_log": {
+      "type": "array",
+      "description": "STEP 0 audit trail. One entry per user-confirmation round (R2.8): displayed draft, user response type, corrections, final confirmed draft.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "round": { "type": "integer", "minimum": 0 },
+          "displayed_draft": { "type": "object", "additionalProperties": true },
+          "user_response": {
+            "type": "string",
+            "enum": ["confirm", "correct", "decline", "timeout"]
+          },
+          "corrections": { "type": "object", "additionalProperties": true },
+          "final_confirmed_draft": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "user_consultation_log": {
+      "type": "array",
+      "description": "Shared K11 user-consultation log. Holds both STEP 1.5 scenario consultations and STEP 1.2 low-confidence-add confirmations.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "enriched_test_cases": {
+      "type": "array",
+      "minItems": 1,
+      "description": "References to enriched test cases (id only) to keep the context compact. Full bodies live in their own files.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["test_case_id", "source_path", "applicable_metrics"],
+        "properties": {
+          "test_case_id": { "type": "string", "minLength": 1 },
+          "source_path": { "type": "string", "minLength": 1 },
+          "applicable_metrics": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "is_synthesized": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    "fan_out_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pairs", "total"],
+      "description": "Cartesian product of (test_case_id, metric_code) that STEP 4 must execute.",
+      "properties": {
+        "total": { "type": "integer", "minimum": 1 },
+        "pairs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["test_case_id", "metric_code"],
+            "properties": {
+              "test_case_id": { "type": "string", "minLength": 1 },
+              "metric_code": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metrics_dir", "test_cases_dir", "run_dir", "drivers_dir", "simulators_dir"],
+      "properties": {
+        "metrics_dir": { "type": "string", "minLength": 1 },
+        "test_cases_dir": { "type": "string", "minLength": 1 },
+        "run_dir": { "type": "string", "minLength": 1 },
+        "drivers_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Directory containing one subdirectory per runtime driver. Default './runtime-drivers/'. Overridable via EVALUATION_DRIVERS_DIR."
+        },
+        "simulators_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Directory containing one subdirectory per user simulator. Default './simulators/'. Overridable via EVALUATION_SIMULATORS_DIR."
+        },
+        "synthesized_cases_dir": { "type": "string" }
+      }
+    },
+    "runtime_driver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["driver_id", "driver_config"],
+      "description": "Selects which runtime driver under paths.drivers_dir/<driver_id>/ STEP 3 invokes, and supplies the protocol-specific configuration that the driver's manifest config_schema validates. STEP 3 MUST validate driver_config against the chosen driver's driver.json#/config_schema BEFORE invoking the entry.",
+      "properties": {
+        "driver_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "MUST equal an existing subdirectory name under paths.drivers_dir. STEP 3 fails fast if not found."
+        },
+        "driver_config": {
+          "type": "object",
+          "description": "Protocol-specific configuration. Validated against the selected driver's driver.json#/config_schema, NOT here.",
+          "additionalProperties": true
+        }
+      }
+    },
+    "runtime_simulator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["simulator_id"],
+      "description": "Selects which simulator role profile under paths.simulators_dir/<simulator_id>/ the host evaluation-expert agent loads when impersonating the customer in STEP 3. The simulator is NOT a subprocess and does NOT call any external LLM — the host agent's own LLM brain consumes the simulator's system_prompt template. There is no `simulator_config` field by design: model / temperature / api_key choices belong to the host agent's runtime, not to this contract.",
+      "properties": {
+        "simulator_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "MUST equal an existing subdirectory name under paths.simulators_dir. STEP 3 fails fast if not found."
+        },
+        "prompt_overrides": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Optional per-run overrides for prompt-template variables (e.g. tighten {{effective_max_turns}} or inject extra context). Treated as advisory hints by the host agent; never used to swap in a different LLM provider."
+        }
+      }
+    },
+    "global_turn_cap": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "default": 30,
+      "description": "Fallback hard upper bound on customer-employee exchanges per scenario, used when a test case does not specify turn_budget.hard_max_turns. STEP 3 chooses the smaller of (test_case.turn_budget.hard_max_turns, global_turn_cap) to enforce."
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "hirebot_api": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "HireBot 后端 API 配置，用于 STEP 10 上传评估结论（sync-verdict）和执行轨迹（sync-trace）。由后端在沙箱创建时注入，agent 不得手动修改。",
+      "required": ["base_url", "employee_id", "session_id"],
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "HireBot 后端 REST API 基础地址，例如 https://hire.example.com。对应旧版 runtime_context.ncrew_hire.base_url。"
+        },
+        "employee_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "HireBot 系统中的员工 ID，对应旧版 runtime_context.session.employee_id。"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "HireBot 系统中的评估会话 ID，对应旧版 runtime_context.session.session_id。"
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "HireBot REST API 鉴权配置。与 runtime-drivers/ws_jwt/auth_client.py 的 resolve_auth() 相同的 schema，支持 static_token / password / client_credentials 三种模式。缺省时自动 fallback 到 runtime_driver.driver_config.token（Keycloak JWT 在 HireBot 生产部署中同时授权 WebSocket 和 REST API）。"
+        }
+      }
+    }
+  }
+}

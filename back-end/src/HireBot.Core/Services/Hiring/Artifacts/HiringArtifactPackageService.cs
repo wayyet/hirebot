@@ -58,15 +58,6 @@ internal sealed class HiringArtifactPackageService(
         CancellationToken cancellationToken = default)
     {
         var normalizedHireId = NormalizeRequired(hireId, nameof(hireId));
-        var session = await dbContext.HiringSessions
-            .AsNoTracking()
-            .Where(item => item.HireId == normalizedHireId && item.DeletedAtUtc == null)
-            .Select(item => new { item.HireId, item.SessionId })
-            .FirstOrDefaultAsync(cancellationToken);
-        if (session is null)
-        {
-            return null;
-        }
 
         foreach (var kind in new[]
                  {
@@ -74,9 +65,18 @@ internal sealed class HiringArtifactPackageService(
                      HiringArtifactPackageKinds.IntermediatePackageZip
                  })
         {
+            var artifactEntity = await FindLatestArtifactEntityForHireAsync(
+                normalizedHireId,
+                kind,
+                cancellationToken);
+            if (artifactEntity is null)
+            {
+                continue;
+            }
+
             var snapshot = await LoadPackageSnapshotAsync(
-                session.HireId,
-                session.SessionId,
+                normalizedHireId,
+                artifactEntity.SessionId,
                 kind,
                 cancellationToken);
             if (snapshot is not null)
@@ -256,17 +256,42 @@ internal sealed class HiringArtifactPackageService(
         CancellationToken cancellationToken)
     {
         var normalizedHireId = NormalizeRequired(hireId, nameof(hireId));
-        var session = await dbContext.HiringSessions
-            .AsNoTracking()
-            .Where(item => item.HireId == normalizedHireId && item.DeletedAtUtc == null)
-            .Select(item => new { item.HireId, item.SessionId })
-            .FirstOrDefaultAsync(cancellationToken);
-        if (session is null)
+        var artifactEntity = await FindLatestArtifactEntityForHireAsync(
+            normalizedHireId,
+            kind,
+            cancellationToken);
+        if (artifactEntity is null)
         {
             return null;
         }
 
-        return await LoadPackageSnapshotAsync(session.HireId, session.SessionId, kind, cancellationToken);
+        return await LoadPackageSnapshotAsync(
+            normalizedHireId,
+            artifactEntity.SessionId,
+            kind,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// 按 hireId 查找指定 kind 的最新 artifact，避免仅依赖 HiringSessions 首条记录导致取错 session。
+    /// </summary>
+    private async Task<HiringArtifactEntity?> FindLatestArtifactEntityForHireAsync(
+        string hireId,
+        string kind,
+        CancellationToken cancellationToken)
+    {
+        return await (
+            from artifact in dbContext.HiringArtifacts.AsNoTracking()
+            join session in dbContext.HiringSessions.AsNoTracking()
+                on artifact.SessionId equals session.SessionId
+            where session.HireId == hireId
+                  && session.DeletedAtUtc == null
+                  && artifact.Kind == kind
+                  && artifact.DeletedAtUtc == null
+                  && !artifact.IsArchived
+            orderby artifact.UploadedAtUtc descending
+            select artifact)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task<HiringArtifactPackageSnapshotDto?> LoadPackageSnapshotAsync(

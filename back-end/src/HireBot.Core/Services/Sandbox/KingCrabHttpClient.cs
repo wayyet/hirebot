@@ -46,7 +46,7 @@ internal sealed class KingCrabHttpClient(
         var response = await SendAsync(client, request, cancellationToken, $"KingCrab 接口", path, method);
         if (!response.Success)
         {
-            return RemoteCallResult<T>.Failure(response.StatusCode, response.Message);
+            return RemoteCallResult<T>.Failure(response.StatusCode, response.Message ?? "Unknown error");
         }
 
         if (string.IsNullOrWhiteSpace(response.Content))
@@ -107,7 +107,7 @@ internal sealed class KingCrabHttpClient(
         var response = await SendAsync(client, request, cancellationToken, $"KingCrab multipart 接口", path);
         if (!response.Success)
         {
-            return RemoteCallResult<T>.Failure(response.StatusCode, response.Message);
+            return RemoteCallResult<T>.Failure(response.StatusCode, response.Message ?? "Unknown error");
         }
 
         if (string.IsNullOrWhiteSpace(response.Content))
@@ -150,7 +150,7 @@ internal sealed class KingCrabHttpClient(
         var response = await SendBinaryAsync(client, request, cancellationToken, $"KingCrab 二进制接口", path, method);
         if (!response.Success)
         {
-            return RemoteBinaryCallResult.Failure(response.StatusCode, response.Message);
+            return RemoteBinaryCallResult.Failure(response.StatusCode, response.Message ?? "Unknown error");
         }
 
         if (response.Data is null || response.Data.Length == 0)

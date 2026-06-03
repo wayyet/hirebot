@@ -1,0 +1,17 @@
+{
+  "role_id": "after-sales-agent",
+  "version": "1.0.0",
+  "display_name": "售后专员",
+  "description": "Post-sale support specialist handling returns, exchanges, warranty claims, and escalations. Inherits the e-commerce customer-service base profile.",
+  "industry": "ecommerce",
+  "responsibility_tags": [
+    "after_sales",
+    "warranty_handling",
+    "escalation_management"
+  ],
+  "parent_role": "customer-service-ecommerce",
+  "aliases": ["售后", "售后专员", "售后客服", "after sales", "after-sales", "aftersales agent"],
+  "display_names": ["售后专员"],
+  "recognized_levels": ["employee", "supervisor"],
+  "tags": ["service", "ecommerce", "after-sales"]
+}

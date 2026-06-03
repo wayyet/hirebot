@@ -1,0 +1,181 @@
+{
+  "$schema": "../../../../../docs/skill-projection-document.schema.json",
+  "template_type": "ontology_projection",
+  "projection_version": "1.0.0",
+  "projection": {
+    "projection_id": "evaluation-expert-consumer-metric-library-metric-catalog-v1",
+    "projection_type": "metric_catalog_projection",
+    "target_name": "EvaluationExpertConsumerMetricLibraryCatalog",
+    "target_format": "structured_metric_catalog",
+    "target_runtime": "evaluation_expert_consumer",
+    "projection_goal": "Declare the schema, governance, discovery rules, and roll-up policy for the hot-loadable evaluation metric registry consumed by evaluation-expert-consumer.",
+    "source_slice": {
+      "path": "../../../../metrics/",
+      "slice_topic": "evaluation sub-metric definitions (rubric / applicability / slice selector / aggregation / optional red-line)",
+      "schema_version": "1.0.0"
+    },
+    "intended_consumers": [
+      "evaluation_expert_consumer_skill",
+      "evaluation_expert_consumer"
+    ]
+  },
+  "mapping_policy": {
+    "preserve_source_trace": true,
+    "preserve_constraints": true,
+    "relation_flattening_policy": "disallow_by_default",
+    "unresolved_item_policy": "block_or_escalate",
+    "dropped_item_policy": "disallow_drop",
+    "prompt_assumption_policy": "disallow_unmapped_terms"
+  },
+  "concept_mappings": [
+    {
+      "concept_id": "C1",
+      "projection_action": "map",
+      "target_kind": "metric_registry",
+      "target_name": "MetricRegistry",
+      "source_ids": ["S1"],
+      "attributes": {
+        "discovery_method": "filesystem_scan",
+        "discovery_root_default": "evaluation-expert-consumer/metrics/",
+        "discovery_root_env_override": "EVALUATION_METRICS_DIR",
+        "file_glob": "*.metric.json",
+        "key_field": "metric_code",
+        "schema_path": "schemas/metric.schema.json",
+        "validation_policy": "drop_invalid_with_warning"
+      },
+      "notes": "Registry is populated at PRE step `loadMetricRegistry`. Files failing schema validation are dropped with a warning; the evaluation does not silently proceed if no valid metrics remain (block_or_escalate)."
+    },
+    {
+      "concept_id": "C2",
+      "projection_action": "map",
+      "target_kind": "sub_metric",
+      "target_name": "SubMetric",
+      "source_ids": ["S1"],
+      "attributes": {
+        "schema_ref": "schemas/metric.schema.json",
+        "required_fields": [
+          "metric_code",
+          "version",
+          "display_name",
+          "parent_dimension",
+          "applicable_roles",
+          "applicable_scenarios",
+          "scoring_rubric",
+          "runtime_slice_selector",
+          "aggregation_strategy"
+        ],
+        "parent_dimension_enum": [
+          "functional_completeness",
+          "interaction_quality",
+          "process_compliance",
+          "problem_resolution",
+          "tool_call_correctness"
+        ]
+      }
+    },
+    {
+      "concept_id": "C3",
+      "projection_action": "map",
+      "target_kind": "runtime_slice_selector",
+      "target_name": "RuntimeSliceSelector",
+      "source_ids": ["S1"],
+      "attributes": {
+        "include_paths_must_be_whitelisted": true,
+        "applied_at": "STEP 7 buildPerMetricRuntimeSlices"
+      },
+      "notes": "Each metric declares its own slice selector; STEP 7 uses it to assemble a per-(metric, scenario) prompt slice for fan-out scoring."
+    },
+    {
+      "concept_id": "C4",
+      "projection_action": "map",
+      "target_kind": "aggregation_strategy",
+      "target_name": "AggregationStrategy",
+      "source_ids": ["S1"],
+      "attributes": {
+        "enum": [
+          "weighted_average_by_difficulty",
+          "simple_average",
+          "worst_case",
+          "pass_rate",
+          "coverage"
+        ],
+        "applied_at": "STEP 5 aggregateAcrossScenarios",
+        "evaluator": "deterministic"
+      }
+    }
+  ],
+  "relation_mappings": [
+    {
+      "relation_id": "R1",
+      "projection_action": "map",
+      "target_kind": "rolls_up_to",
+      "from": "SubMetric",
+      "to": "ParentDimension",
+      "via_field": "parent_dimension",
+      "notes": "Used in STEP 6 rollUpToDimensions to map per-metric scores onto the 5 fixed parent dimensions for red-line and overall_score computation."
+    },
+    {
+      "relation_id": "R2",
+      "projection_action": "map",
+      "target_kind": "applies_to",
+      "from": "SubMetric",
+      "to": "EmployeeRoleAndScenario",
+      "via_fields": ["applicable_roles", "applicable_scenarios"],
+      "notes": "Used in STEP 2 enrichTestCases to bind metrics to test cases by role and scenario intersection."
+    }
+  ],
+  "constraint_mappings": [
+    {
+      "constraint_id": "K1",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "MetricFileNameMustEqualMetricCode",
+      "severity_mapping": "high -> blocking_validation",
+      "source_ids": ["S1"],
+      "notes": "The basename of each metric file (excluding `.metric.json`) MUST equal its `metric_code`. Mismatches are dropped at registry load time."
+    },
+    {
+      "constraint_id": "K2",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "ParentDimensionMustBeOneOfFive",
+      "severity_mapping": "critical -> blocking_validation",
+      "source_ids": ["S1"],
+      "notes": "Roll-up integrity: a metric whose `parent_dimension` is outside the five-fixed enum cannot participate in red-line or overall scoring and is rejected."
+    },
+    {
+      "constraint_id": "K3",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "RedLineMustBeDeterministic",
+      "severity_mapping": "critical -> blocking_validation",
+      "source_ids": ["S1"],
+      "notes": "If a metric carries `red_line`, its evaluation MUST be performed by the deterministic STEP 7 redLineCheck step. LLM-based red-line judgements are forbidden."
+    },
+    {
+      "constraint_id": "K4",
+      "projection_action": "map",
+      "target_kind": "governance_rule",
+      "target_name": "AggregationIsDeterministic",
+      "severity_mapping": "high -> blocking_validation",
+      "source_ids": ["S1"],
+      "notes": "Cross-scenario aggregation (STEP 5) MUST use the declared `aggregation_strategy` deterministically; LLM is not allowed to compute aggregated scores."
+    }
+  ],
+  "delivery_artifacts": [
+    {
+      "artifact_id": "A1",
+      "kind": "json_schema_file",
+      "path": "schemas/metric.schema.json",
+      "notes": "JSON Schema enforced on every loaded *.metric.json file."
+    }
+  ],
+  "dropped_items": [],
+  "open_questions": [],
+  "meta": {
+    "generated_at": "2026-05-27T00:00:00Z",
+    "generated_by": "metric-ontology",
+    "workspace": "kingcrab",
+    "notes": "Metric-catalog projection that declares the contract for the hot-loadable metric registry. Actual metric instances are NOT in this contract — they live as `*.metric.json` files in the data layer (`evaluation-expert-consumer/metrics/`), one metric per file."
+  }
+}

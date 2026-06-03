@@ -1,0 +1,22 @@
+SENTINEL — DO NOT REMOVE THIS FILE
+
+This simulator is a `llm_persona` profile (see `simulator.json` → `kind: "llm_persona"`).
+It has NO entry script:
+  - NO decide.py
+  - NO run.py
+  - NO *.py / *.sh / *.ts / *.js / *.mjs / *.ipynb / Makefile / *.cmd / *.ps1
+
+The host evaluation-expert agent itself plays the customer in-process using
+`system_prompt.md`, with its own LLM brain. There is NO subprocess, NO independent
+LLM api_key, NO HTTP call.
+
+If you find decide.py / run.py / any executable file in this directory, DELETE it
+immediately — it is a leftover from the pre-v2.0 architecture and will mislead the
+host agent into trying to spawn the simulator as a subprocess.
+
+Enforced by:
+  - SKILL.md / SKILL.zh.md → "Execution discipline (HARD RULES)"
+  - contracts/.../metric-selection.workflow-contract.projection.json → constraint K8
+    (NoAdhocOrchestratorScripts, extended to simulators/<simulator_id>/)
+
+This sentinel is the marker the K8 audit looks for. Removing it weakens the guard.

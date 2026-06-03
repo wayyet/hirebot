@@ -1,0 +1,32 @@
+{
+  "metric_code": "response_conciseness",
+  "version": "1.0.0",
+  "display_name": "回复简洁度",
+  "description": "Whether the digital employee delivers information without redundant verbiage, repetitive paraphrasing of the user's question, throat-clearing preambles, or padded conclusions. Penalizes both overly long answers AND artificially terse ones that drop necessary detail. Generic across all roles.",
+  "parent_dimension": "interaction_quality",
+  "applicable_roles": ["*"],
+  "applicable_scenarios": ["*"],
+  "evidence_signals": [
+    "absence of throat-clearing openers ('好的，关于您说的问题…' / 'Sure, regarding your question...')",
+    "absence of restating the user's question verbatim before answering",
+    "absence of repetitive synonyms ('确认 / 核实 / 查证' all in one sentence)",
+    "absence of padded closers ('希望这能帮到您！如有其他问题随时告诉我哦~')",
+    "every sentence carries new information",
+    "answer length is proportional to question complexity"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.opening_message",
+      "trace.dialog_turns"
+    ],
+    "exclude": ["trace.actual_tool_calls"]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "Every reply gets to the point with no preamble; sentences carry new information; answer length matches question complexity; no repetition of the user's wording, no padded closers, no synonym chains.",
+    "acceptable_60_79": "Generally concise with one or two minor instances of throat-clearing or a padded closer; no major restating of the user's question; total length is within 1.5x of the minimum needed.",
+    "poor_below_60": "Persistent throat-clearing or padded closers; user's question restated before being answered; synonym chains or repeated paraphrasing; total length more than 2x the minimum needed; OR the opposite extreme (so terse that necessary detail is dropped, forcing the user to re-ask)."
+  },
+  "aggregation_strategy": "weighted_average_by_difficulty",
+  "default_weight_within_dimension": 0.3,
+  "tags": ["conciseness", "generic", "cross-role", "soft-skill"]
+}

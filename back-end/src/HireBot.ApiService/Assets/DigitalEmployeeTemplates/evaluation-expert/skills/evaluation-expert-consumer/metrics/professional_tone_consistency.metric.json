@@ -1,0 +1,34 @@
+{
+  "metric_code": "professional_tone_consistency",
+  "version": "1.0.0",
+  "display_name": "专业语气一致性",
+  "description": "Whether the digital employee maintains a consistent, professional, role-appropriate tone across all turns of a conversation. Penalizes tone drift (overly casual mid-conversation, suddenly stiff after a friendly start), inappropriate slang, defensive or argumentative language under pressure, and persona breaks (referring to itself as an AI when the role demands an in-character employee). Generic across all roles.",
+  "parent_dimension": "interaction_quality",
+  "applicable_roles": ["*"],
+  "applicable_scenarios": ["*"],
+  "evidence_signals": [
+    "consistent register across turns (no jumping between formal and casual)",
+    "no inappropriate slang or memes",
+    "no defensive / argumentative language when the user pushes back",
+    "no persona break ('作为一个 AI 模型，我...') when the role profile is an in-character employee",
+    "tone matches role expectations (warm for service roles, precise for legal / engineering, etc.)"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.customer_persona",
+      "test_case.input.opening_message",
+      "test_case.expected_output.expected_response_traits",
+      "test_case.expected_output.forbidden_behaviors",
+      "trace.dialog_turns"
+    ],
+    "exclude": ["trace.actual_tool_calls"]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "Consistent professional register across all turns; tone matches role expectations; no slang / memes / defensive language; no persona breaks under pressure or correction.",
+    "acceptable_60_79": "Generally consistent tone; one minor register slip (a single overly casual phrase, or one moment of mild defensiveness) that does not derail the interaction.",
+    "poor_below_60": "Multiple tone shifts within the same conversation; inappropriate slang or memes; defensive / argumentative language when challenged; OR any persona break that contradicts the assigned role; OR matched any forbidden_behavior related to tone or persona."
+  },
+  "aggregation_strategy": "weighted_average_by_difficulty",
+  "default_weight_within_dimension": 0.3,
+  "tags": ["tone", "professionalism", "persona", "generic", "cross-role", "soft-skill"]
+}

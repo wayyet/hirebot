@@ -26,7 +26,6 @@ using Microsoft.Extensions.Logging;
 namespace HireBot.Core.Services.Evaluation;
 
 internal sealed partial class EvaluationService(
-    IEmployeeHiringService employeeHiringService,
     IHiringArtifactPackageService artifactPackageService,
     ISandboxService sandboxService,
     IRequestContextService requestContextService,
@@ -1118,14 +1117,14 @@ internal sealed partial class EvaluationService(
         }
 
         // 将 evaluation-context.json 直接上传到 evaluator workspace/runtime/ 目录，
-        // evaluator skill 可通过固定路径 workspace/runtime/evaluation-context.json 读取。
-        // token 由 verdict_uploader.py 通过 auth_client.resolve_auth() 自行获取，无需此处注入。
+        // consumer skill 通过固定路径读取 runtime driver、材料路径和目标沙箱访问 token。
         var runtimeContextJson = BuildRuntimeContextJson(
             employee,
             ctx,
             sessionEntity,
             targetGatewayEndpoint,
-            evaluatorMaterialsResult.Data);
+            evaluatorMaterialsResult.Data,
+            token);
         var runtimeContextBytes = System.Text.Encoding.UTF8.GetBytes(runtimeContextJson);
         var runtimeContextUploadResult = await sandboxService.UploadWorkspaceFileAsync(
             new SandboxWorkspaceUploadRequestDto

@@ -1,0 +1,34 @@
+{
+  "$schema": "../contracts/projections/metric-ontology/metric-library/schemas/metric.schema.json",
+  "metric_code": "tool_call_correctness",
+  "version": "1.0.0",
+  "display_name": "工具调用准确度",
+  "description": "Whether the employee invoked all required tools with correct timing and parameters as expected by the test case.",
+  "parent_dimension": "tool_call_correctness",
+  "applicable_roles": ["customer-service-ecommerce", "after-sales-agent", "*"],
+  "applicable_scenarios": ["*"],
+  "evidence_signals": [
+    "test_case.expected_output.expected_tool_calls vs trace.actual_tool_calls",
+    "tool parameter exact-match",
+    "tool invocation order"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.expected_output.expected_tool_calls",
+      "trace.actual_tool_calls"
+    ],
+    "exclude": ["trace.dialog_turns"]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "All must-criticality tools were invoked at the right moment with parameters exactly matching expectations.",
+    "acceptable_60_79": "All must-criticality tools were invoked, but with minor parameter deviations or slight ordering issues.",
+    "poor_below_60": "At least one must-criticality tool was missed or invoked with materially wrong parameters."
+  },
+  "aggregation_strategy": "worst_case",
+  "default_weight_within_dimension": 1.0,
+  "red_line": {
+    "trigger_kind": "missing_required_signal",
+    "notes": "If any must-criticality tool from any executed test case is absent in trace.actual_tool_calls, set red_line_triggered = true regardless of overall_score."
+  },
+  "tags": ["tool", "compliance", "fundamental"]
+}

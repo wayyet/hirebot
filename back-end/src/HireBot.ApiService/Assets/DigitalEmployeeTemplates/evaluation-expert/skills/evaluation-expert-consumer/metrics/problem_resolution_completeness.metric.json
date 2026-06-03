@@ -1,0 +1,32 @@
+{
+  "metric_code": "problem_resolution_completeness",
+  "version": "1.0.0",
+  "display_name": "问题解决完整性",
+  "description": "Whether the digital employee fully resolves every part of the user's request without leaving sub-questions unanswered, partial fixes in place, or unaddressed follow-ups. Generic across all roles.",
+  "parent_dimension": "problem_resolution",
+  "applicable_roles": ["*"],
+  "applicable_scenarios": ["*"],
+  "evidence_signals": [
+    "every distinct user concern is acknowledged",
+    "no sub-question is silently dropped",
+    "next-step or hand-off is offered when full resolution is impossible",
+    "the conversation ends with the user's primary goal addressed"
+  ],
+  "runtime_slice_selector": {
+    "include": [
+      "test_case.input.opening_message",
+      "test_case.input.goal",
+      "test_case.input.stop_conditions",
+      "test_case.expected_output.expected_outcomes",
+      "trace.dialog_turns"
+    ]
+  },
+  "scoring_rubric": {
+    "excellent_80_100": "Every user concern explicitly acknowledged and addressed; primary goal reached; remaining open items (if any) are explicitly flagged with a clear next step or hand-off owner.",
+    "acceptable_60_79": "Primary goal addressed; one minor sub-question deferred or only partially answered, but the user is not left guessing about what was skipped.",
+    "poor_below_60": "Primary goal not reached, or a non-trivial sub-question silently dropped, or the conversation ends with the user still confused about whether their problem was solved."
+  },
+  "aggregation_strategy": "weighted_average_by_difficulty",
+  "default_weight_within_dimension": 0.5,
+  "tags": ["completeness", "generic", "cross-role", "soft-skill"]
+}

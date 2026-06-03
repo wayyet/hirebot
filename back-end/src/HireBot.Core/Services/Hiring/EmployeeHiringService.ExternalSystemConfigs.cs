@@ -70,6 +70,20 @@ internal sealed partial class EmployeeHiringService
             ExternalSystemConfig = persistedState
         };
         runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
+
+        if (persistedState is not null)
+        {
+            if (IsCollectionStageBeforeReadyForPackaging(runtimeContext.CurrentStage))
+            {
+                runtimeContext = runtimeContext with
+                {
+                    CurrentStage = HiringCollectionStage.ReadyForPackaging
+                };
+            }
+
+            runtimeContext = MarkPackagingTestCasesWaitingConfirmIfNeeded(runtimeContext);
+        }
+
         hiringRuntimeStore.Upsert(runtimeContext);
 
         await UpsertExternalSystemConfigMetadataAsync(runtimeContext.SandboxId, persistedState, cancellationToken);
@@ -102,10 +116,24 @@ internal sealed partial class EmployeeHiringService
             return runtimeContext;
         }
 
-        var hydratedRuntimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext with
+        var hydratedRuntimeContext = runtimeContext with
         {
             ExternalSystemConfig = sandboxConfig
-        });
+        };
+        if (sandboxConfig.IsPersisted)
+        {
+            if (IsCollectionStageBeforeReadyForPackaging(hydratedRuntimeContext.CurrentStage))
+            {
+                hydratedRuntimeContext = hydratedRuntimeContext with
+                {
+                    CurrentStage = HiringCollectionStage.ReadyForPackaging
+                };
+            }
+
+            hydratedRuntimeContext = MarkPackagingTestCasesWaitingConfirmIfNeeded(hydratedRuntimeContext);
+        }
+
+        hydratedRuntimeContext = ApplyConversationProgressToTemplatePackage(hydratedRuntimeContext);
         hiringRuntimeStore.Upsert(hydratedRuntimeContext);
         return hydratedRuntimeContext;
     }

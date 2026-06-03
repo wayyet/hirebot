@@ -888,6 +888,11 @@ body.hb-body-hiring-prototype {
   color: inherit;
 }
 
+.hb-artifact-file-link:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .hb-artifact-file-name {
   flex: 1;
   font-size: 12px;

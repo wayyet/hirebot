@@ -13,7 +13,7 @@ namespace HireBot.Core.Tests;
 public class ImportPackageTestCasesTests
 {
     [Fact]
-    public async Task ImportPackageAsync_WhenSandboxZipHasNoTestcases_ShouldIncludeStagedTestcasesInFinal()
+    public async Task ImportPackageAsync_WhenSandboxZipHasNoTestcases_ShouldUseLocalFallbackWithoutInvokingSkill()
     {
         var artifactRecorder = new RecordingHiringArtifactPackageService();
         var context = CreateImportRuntimeContext();
@@ -39,15 +39,51 @@ public class ImportPackageTestCasesTests
         Assert.True(artifactRecorder.IntermediateFiles!.ContainsKey("testcases/evaluation-test-cases.json"));
 
         var finalJson = Encoding.UTF8.GetString(artifactRecorder.FinalFiles["testcases/evaluation-test-cases.json"]);
-        Assert.Contains("TC-001", finalJson);
-        Assert.Contains("TC-001", finalJson);
+        Assert.Contains("packaging-fallback", finalJson);
+        Assert.DoesNotContain("TC-001", finalJson);
+        Assert.Equal(0, sandbox.SendMessageCallCount);
+        Assert.Empty(sandbox.UploadedFileNames);
+    }
+
+    [Fact]
+    public async Task ImportPackageAsync_WhenMaterialStageAndSandboxZipHasNoTestcases_ShouldUseLocalFallback()
+    {
+        var artifactRecorder = new RecordingHiringArtifactPackageService();
+        var context = CreateImportRuntimeContext() with
+        {
+            CurrentStage = HiringCollectionStage.Material,
+            PackagingTestCasesStaged = false
+        };
+        var sandbox = PackagingTestCasesFromHistoryTests.CreateSandboxFake(
+            skillReply: PackagingTestCasesFromHistoryTests.BuildSkillSuccessReply(includeExtendedBundle: false));
+        var service = EmployeeHiringServicePackagingTestFactory.Create(
+            sandbox,
+            context,
+            artifactPackageService: artifactRecorder,
+            templateDataProvider: new EmployeeHiringServicePackagingTestFactory.StubTemplateDataProvider());
+
+        await using var packageStream = BuildSandboxPackageStream();
+        var result = await service.ImportPackageAsync(
+            context.HireId,
+            packageStream,
+            "sandbox-package.zip",
+            cancellationToken: CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        Assert.NotNull(artifactRecorder.FinalFiles);
+        Assert.True(artifactRecorder.FinalFiles!.ContainsKey("testcases/evaluation-test-cases.json"));
+
+        var finalJson = Encoding.UTF8.GetString(artifactRecorder.FinalFiles["testcases/evaluation-test-cases.json"]);
+        Assert.Contains("packaging-fallback", finalJson);
+        Assert.DoesNotContain("TC-001", finalJson);
+        Assert.Equal(0, sandbox.SendMessageCallCount);
     }
 
     [Fact]
     public async Task ImportPackageAsync_WhenMergedAlreadyHasSkillGuidedFallback_ShouldMergeNotOverwrite()
     {
         var artifactRecorder = new RecordingHiringArtifactPackageService();
-        var context = CreateImportRuntimeContext();
+        var context = CreateImportRuntimeContextWithStagedTestCases();
         var sandbox = PackagingTestCasesFromHistoryTests.CreateSandboxFake(
             skillReply: PackagingTestCasesFromHistoryTests.BuildSkillSuccessReply(includeExtendedBundle: false));
 
@@ -92,6 +128,33 @@ public class ImportPackageTestCasesTests
         Assert.Equal(2, cases.GetArrayLength());
         Assert.Contains("TC-001", finalJson);
         Assert.Contains("eval-case-001", finalJson);
+        Assert.Equal(0, sandbox.SendMessageCallCount);
+    }
+
+    [Fact]
+    public async Task BuildArtifactDownloadAsync_WhenOnlyIntermediatePackageExists_ShouldReturnConflict()
+    {
+        var artifactRecorder = new RecordingHiringArtifactPackageService();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await artifactRecorder.PersistIntermediatePackageAsync(
+            new HiringArtifactPackagePersistRequestDto(
+                "hire-packaging-import",
+                "session-import-001",
+                "hire-packaging-import_intermediate_package.zip",
+                new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["manifest.json"] = Encoding.UTF8.GetBytes("{\"name\":\"intermediate\"}")
+                }),
+            cancellationToken);
+        var sandbox = PackagingTestCasesFromHistoryTests.CreateSandboxFake();
+        var service = EmployeeHiringServicePackagingTestFactory.Create(
+            sandbox,
+            artifactPackageService: artifactRecorder);
+
+        var result = await service.BuildArtifactDownloadAsync("hire-packaging-import", cancellationToken);
+
+        Assert.False(result.Found);
+        Assert.Equal(409, result.Code);
     }
 
     private static HiringRuntimeContext CreateImportRuntimeContext()
@@ -140,6 +203,52 @@ public class ImportPackageTestCasesTests
                 Files: [],
                 StageRules: []),
             PackagingTestCasesStaged = false
+        };
+    }
+
+    private static HiringRuntimeContext CreateImportRuntimeContextWithStagedTestCases()
+    {
+        var context = CreateImportRuntimeContext();
+        var stagedTestCasesJson = PackagingTestCasesJsonValidator.AppendPackagingMetadata(
+            """
+            {
+              "description": "import staging",
+              "role": "digital_employee",
+              "industry": "general",
+              "test_cases": [
+                {
+                  "test_case_id": "TC-001",
+                  "scenario_name": "staged case",
+                  "input": { "user_request": "run", "context": {} },
+                  "expected_behavior_sequence": [
+                    { "step": 1, "action": "respond", "criteria": "ok" }
+                  ],
+                  "expected_output": {
+                    "resolution": "done",
+                    "user_satisfaction": "satisfied",
+                    "artifacts_created": []
+                  }
+                }
+              ]
+            }
+            """,
+            "kingcrab-history-llm");
+
+        var packageFiles = context.WorkingTemplatePackage.PackageFiles
+            .Append(new TemplatePackageFileAsset(
+                "testcases/evaluation-test-cases.json",
+                Encoding.UTF8.GetBytes(stagedTestCasesJson),
+                "hash-testcases"))
+            .ToArray();
+        var workingTemplatePackage = context.WorkingTemplatePackage with
+        {
+            PackageFiles = packageFiles
+        };
+
+        return context with
+        {
+            WorkingTemplatePackage = workingTemplatePackage,
+            PackagingTestCasesStaged = true
         };
     }
 
@@ -204,6 +313,19 @@ public class ImportPackageTestCasesTests
                     "sha-final",
                     BuildArchive(FinalFiles),
                     true));
+            }
+
+            if (IntermediateFiles is not null)
+            {
+                return Task.FromResult<HiringArtifactPackageSnapshotDto?>(new HiringArtifactPackageSnapshotDto(
+                    hireId,
+                    "session-import-001",
+                    HiringArtifactPackageKinds.IntermediatePackageZip,
+                    $"{hireId}_intermediate_package.zip",
+                    "packages/intermediate/package.zip",
+                    "sha-intermediate",
+                    BuildArchive(IntermediateFiles),
+                    false));
             }
 
             return Task.FromResult<HiringArtifactPackageSnapshotDto?>(null);

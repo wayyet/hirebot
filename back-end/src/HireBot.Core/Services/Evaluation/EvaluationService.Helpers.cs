@@ -29,6 +29,14 @@ namespace HireBot.Core.Services.Evaluation;
 
 internal sealed partial class EvaluationService
 {
+    private const string EvaluationConsumerSkillName = "evaluation-expert-consumer";
+    private const string EvaluationConsumerSkillWorkspaceRoot = "/workspace/skills/evaluation-expert-consumer";
+    private const string EvaluationConsumerMaterialUploadRoot = "uploads/evaluation-expert-consumer";
+    private const string EvaluationConsumerTestCasesTargetDir = $"{EvaluationConsumerMaterialUploadRoot}/test-cases";
+    private const string EvaluationConsumerOntologyTargetDir = $"{EvaluationConsumerMaterialUploadRoot}/ontology";
+    private const string DefaultEvaluationConsumerDriverId = "ws_jwt";
+    private const string DefaultEvaluationConsumerSimulatorId = "customer_realistic";
+
     private string? ResolvePhysicalAssetPath(string relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath))
@@ -661,6 +669,62 @@ internal sealed partial class EvaluationService
         return string.Empty;
     }
 
+    private static int NormalizeConsumerGlobalTurnCap(int configuredValue)
+    {
+        if (configuredValue <= 0)
+        {
+            return 30;
+        }
+
+        return Math.Clamp(configuredValue, 1, 50);
+    }
+
+    private static EvaluationRuntimeContextEmployeeProvenance ResolveEmployeeProvenance(EmployeeDetailDto employee)
+    {
+        if (!string.IsNullOrWhiteSpace(employee.FromInstanceId))
+        {
+            return new(Source: "instance_cloned", Reliability: "high",
+                Caveat: $"Cloned from instance {employee.FromInstanceId}.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(employee.SourceTemplateId))
+        {
+            return new(Source: "template_resolved", Reliability: "medium",
+                Caveat: $"Resolved from template {employee.SourceTemplateId}, no authoritative employee profile on file.");
+        }
+
+        return new(Source: "inferred_fallback", Reliability: "low",
+            Caveat: "employee_inferred_no_authoritative_source");
+    }
+
+    private static string NormalizeConsumerPathSegment(string value, string fallback)
+    {
+        var sanitized = value.Replace('\\', '/');
+        var segments = sanitized.Split('/');
+        if (segments.Any(static s => s is ".." or "..."))
+        {
+            return fallback;
+        }
+
+        var builder = new System.Text.StringBuilder(value.Length);
+        foreach (var c in value.Trim().ToLowerInvariant())
+        {
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+            {
+                builder.Append(c);
+                continue;
+            }
+
+            if (builder.Length > 0 && builder[^1] != '-')
+            {
+                builder.Append('-');
+            }
+        }
+
+        var normalized = builder.ToString().Trim('-');
+        return string.IsNullOrWhiteSpace(normalized) ? fallback : normalized;
+    }
+
     private static string? ExtractValueFromComment(string? comment, string key)
     {
         if (string.IsNullOrWhiteSpace(comment))
@@ -797,21 +861,44 @@ internal sealed partial class EvaluationService
 
     /// <summary>
     /// /workspace/runtime/evaluation-context.json 的内容对应模型。
-    /// evaluate.py 通过 --runtime-context 读取此文件，结构必须与 runtime_context.example.json 一致。
+    /// consumer skill 通过固定 runtime context 路径读取此文件，结构对齐 consumer runtime schema。
     /// </summary>
     private sealed record EvaluationRuntimeContext(
+        [property: JsonPropertyName("evaluation_id")] string EvaluationId,
+        [property: JsonPropertyName("created_at")] string CreatedAt,
         [property: JsonPropertyName("session")] EvaluationRuntimeContextSession Session,
+        [property: JsonPropertyName("employee")] EvaluationRuntimeContextEmployee Employee,
         [property: JsonPropertyName("materials")] EvaluationRuntimeContextMaterials Materials,
         [property: JsonPropertyName("target_sandbox")] EvaluationRuntimeContextTargetSandbox TargetSandbox,
         [property: JsonPropertyName("execution")] EvaluationRuntimeContextExecution Execution,
-        [property: JsonPropertyName("ncrew_hire")] EvaluationRuntimeContextNcrewHire NcrewHire);
+        [property: JsonPropertyName("hirebot_api")] EvaluationRuntimeContextHireBotApi HireBotApi,
+        [property: JsonPropertyName("paths")] EvaluationRuntimeContextPaths Paths,
+        [property: JsonPropertyName("runtime_driver")] EvaluationRuntimeContextDriver RuntimeDriver,
+        [property: JsonPropertyName("runtime_simulator")] EvaluationRuntimeContextSimulator RuntimeSimulator,
+        [property: JsonPropertyName("global_turn_cap")] int GlobalTurnCap);
 
     /// <summary>
-    /// NCrew Hire 业务后端连接配置，供 verdict_uploader.py 上传评估结果使用。
-    /// token 由 verdict_uploader.py 通过 auth_client.resolve_auth() 自行获取，无需此处注入。
+    /// HireBot 业务后端 API 配置，注入到 evaluation-context.json 的 hirebot_api 块。
+    /// STEP 3 (run.py) 用 auth.client_credentials 换 WebSocket 所需 token；
+    /// STEP 10 (verdict_uploader / trace_uploader) 用相同凭据换 REST API token。
+    /// 沙箱内所有出站请求统一通过 auth_client.py 自主换 token，不依赖 C# 注入的静态 token。
     /// </summary>
-    private sealed record EvaluationRuntimeContextNcrewHire(
-        [property: JsonPropertyName("base_url")] string BaseUrl);
+    private sealed record EvaluationRuntimeContextHireBotApi(
+        [property: JsonPropertyName("base_url")] string BaseUrl,
+        [property: JsonPropertyName("employee_id")] string EmployeeId,
+        [property: JsonPropertyName("session_id")] string SessionId,
+        [property: JsonPropertyName("auth")] EvaluationRuntimeContextAuth? Auth);
+
+    /// <summary>
+    /// 沙箱自主换 token 所需的 OAuth2 凭据，供 auth_client.py 的 client_credentials 模式使用。
+    /// 通过 OpenSandbox:KingCrab:ClientId / ClientSecret / OidcAuthority 配置注入。
+    /// 同时用于目标沙箱 WebSocket 连接和 HireBot REST API 调用（同一个 Keycloak realm）。
+    /// </summary>
+    private sealed record EvaluationRuntimeContextAuth(
+        [property: JsonPropertyName("mode")] string Mode,
+        [property: JsonPropertyName("token_url")] string TokenUrl,
+        [property: JsonPropertyName("client_id")] string ClientId,
+        [property: JsonPropertyName("client_secret")] string ClientSecret);
 
     private sealed record EvaluationRuntimeContextSession(
         [property: JsonPropertyName("session_id")] string SessionId,
@@ -819,8 +906,31 @@ internal sealed partial class EvaluationService
         [property: JsonPropertyName("employee_name")] string EmployeeName,
         [property: JsonPropertyName("iteration")] int Iteration);
 
+    private sealed record EvaluationRuntimeContextEmployee(
+        [property: JsonPropertyName("employee_id")] string EmployeeId,
+        [property: JsonPropertyName("display_name")] string DisplayName,
+        [property: JsonPropertyName("role")] EvaluationRuntimeContextEmployeeRole Role,
+        [property: JsonPropertyName("industry")] string Industry,
+        [property: JsonPropertyName("job_responsibilities")] string JobResponsibilities,
+        [property: JsonPropertyName("scenarios")] IReadOnlyList<string> Scenarios,
+        [property: JsonPropertyName("employee_provenance")] EvaluationRuntimeContextEmployeeProvenance EmployeeProvenance,
+        [property: JsonPropertyName("source_template_id")] string SourceTemplateId);
+
+    private sealed record EvaluationRuntimeContextEmployeeRole(
+        [property: JsonPropertyName("role_id")] string RoleId,
+        [property: JsonPropertyName("industry")] string Industry,
+        [property: JsonPropertyName("responsibility_tags")] IReadOnlyList<string> ResponsibilityTags);
+
+    private sealed record EvaluationRuntimeContextEmployeeProvenance(
+        [property: JsonPropertyName("source")] string Source,
+        [property: JsonPropertyName("reliability")] string Reliability,
+        [property: JsonPropertyName("caveat")] string Caveat);
+
     private sealed record EvaluationRuntimeContextMaterials(
-        [property: JsonPropertyName("workspace_root")] string WorkspaceRoot);
+        [property: JsonPropertyName("workspace_root")] string WorkspaceRoot,
+        [property: JsonPropertyName("consumer_root")] string ConsumerRoot,
+        [property: JsonPropertyName("test_cases_dir")] string TestCasesDir,
+        [property: JsonPropertyName("ontology_dir")] string OntologyDir);
 
     private sealed record EvaluationRuntimeContextTargetSandbox(
         [property: JsonPropertyName("sandbox_id")] string SandboxId,
@@ -830,6 +940,29 @@ internal sealed partial class EvaluationService
     private sealed record EvaluationRuntimeContextExecution(
         [property: JsonPropertyName("timeout_seconds")] int TimeoutSeconds,
         [property: JsonPropertyName("http_supplement")] bool HttpSupplement);
+
+    private sealed record EvaluationRuntimeContextPaths(
+        [property: JsonPropertyName("metrics_dir")] string MetricsDir,
+        [property: JsonPropertyName("test_cases_dir")] string TestCasesDir,
+        [property: JsonPropertyName("run_dir")] string RunDir,
+        [property: JsonPropertyName("drivers_dir")] string DriversDir,
+        [property: JsonPropertyName("simulators_dir")] string SimulatorsDir,
+        [property: JsonPropertyName("synthesized_cases_dir")] string SynthesizedCasesDir);
+
+    private sealed record EvaluationRuntimeContextDriver(
+        [property: JsonPropertyName("driver_id")] string DriverId,
+        [property: JsonPropertyName("driver_config")] EvaluationRuntimeContextDriverConfig DriverConfig);
+
+    private sealed record EvaluationRuntimeContextDriverConfig(
+        [property: JsonPropertyName("endpoint")] string Endpoint,
+        // 当 hirebot_api.auth 已配置 client_credentials 时，token 不写入 JSON（run.py 自行换 token）；
+        // 仅在无凭据配置的 fallback 场景下注入静态 token 供 run.py 兜底使用。
+        [property: JsonPropertyName("token")][property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Token,
+        [property: JsonPropertyName("timeout")] int Timeout,
+        [property: JsonPropertyName("auto_approve_tools")] bool AutoApproveTools);
+
+    private sealed record EvaluationRuntimeContextSimulator(
+        [property: JsonPropertyName("simulator_id")] string SimulatorId);
 
     private sealed record TargetArtifactWarmupResult(
         string WorkspacePath,
@@ -851,7 +984,8 @@ internal sealed partial class EvaluationService
         EvaluationWorkspaceContext ctx,
         EvaluationSessionEntity sessionEntity,
         string targetGatewayEndpoint,
-        string materialsWorkspaceDir)
+        string materialsWorkspaceDir,
+        string targetAccessToken)
     {
         // useTls：只要 Evaluation:GatewayUseTls=true 或 OpenSandbox:Protocol=Https 任一成立，就使用 TLS。
         // 这样生产环境只设置 OpenSandbox:Protocol=Https 也能让 evaluator 得到正确的 wss:// 端点。
@@ -859,23 +993,89 @@ internal sealed partial class EvaluationService
                      string.Equals(configuration["OpenSandbox:Protocol"], "Https", StringComparison.OrdinalIgnoreCase);
 
         // Evaluation:ApiBaseUrl 是 NCrew Hire 业务 API 的根地址，供 verdict_uploader.py 上传评估结果。
-        // token 由 verdict_uploader.py 通过 auth_client.resolve_auth() 自行获取，无需此处注入。
+        // 沙箱内脚本通过 hirebot_api.auth（client_credentials）自主换 token，同时用于 WebSocket 和 REST API。
         var apiBaseUrl = configuration.GetValue("Evaluation:ApiBaseUrl", "http://localhost:5000")!;
 
+        // 读取 KingCrab 凭据，注入到 hirebot_api.auth 供沙箱内脚本自主换 token。
+        // 与 KingCrabSandboxTokenProvider 使用相同的配置键，无需额外配置项。
+        var oidcAuthority = configuration["OpenSandbox:KingCrab:OidcAuthority"];
+        var sandboxClientId = configuration["OpenSandbox:KingCrab:ClientId"];
+        var sandboxClientSecret = configuration["OpenSandbox:KingCrab:ClientSecret"];
+        EvaluationRuntimeContextAuth? hireBotAuth = null;
+        if (!string.IsNullOrWhiteSpace(oidcAuthority) &&
+            !string.IsNullOrWhiteSpace(sandboxClientId) &&
+            !string.IsNullOrWhiteSpace(sandboxClientSecret))
+        {
+            var tokenUrl = $"{oidcAuthority.TrimEnd('/')}/protocol/openid-connect/token";
+            hireBotAuth = new(Mode: "client_credentials", TokenUrl: tokenUrl, ClientId: sandboxClientId, ClientSecret: sandboxClientSecret);
+        }
+        var consumerRoot = string.IsNullOrWhiteSpace(materialsWorkspaceDir)
+            ? "/workspace/uploads/evaluation-expert-consumer"
+            : materialsWorkspaceDir.TrimEnd('/');
+        var testCasesDir = $"{consumerRoot}/test-cases";
+        var ontologyDir = $"{consumerRoot}/ontology";
+        var runDir = $"{consumerRoot}/runs/{NormalizeConsumerPathSegment(sessionEntity.SessionId, "eval")}";
+        var globalTurnCap = NormalizeConsumerGlobalTurnCap(configuration.GetValue("Evaluation:ConsumerGlobalTurnCap", 30));
+        var driverId = FirstNonEmpty(configuration["Evaluation:ConsumerDriverId"], DefaultEvaluationConsumerDriverId);
+        var simulatorId = FirstNonEmpty(configuration["Evaluation:ConsumerSimulatorId"], DefaultEvaluationConsumerSimulatorId);
+        var roleId = FirstNonEmpty(employee.RoleName, employee.SourceTemplateId, "unknown-role");
+        var scenario = FirstNonEmpty(employee.SourceTemplate, employee.SourceTemplateId, employee.RoleName, "default");
+        var targetWsEndpoint = NormalizeGatewayWsEndpoint(targetGatewayEndpoint, useTls);
+
         var context = new EvaluationRuntimeContext(
+            EvaluationId: sessionEntity.SessionId,
+            CreatedAt: DateTimeOffset.UtcNow.ToString("o"),
             Session: new(
                 SessionId: sessionEntity.SessionId,
                 EmployeeId: employee.EmployeeId,
                 EmployeeName: employee.Nickname,
                 Iteration: sessionEntity.Iteration),
-            Materials: new(WorkspaceRoot: "/workspace"),
+            Employee: new(
+                EmployeeId: employee.EmployeeId,
+                DisplayName: employee.Nickname,
+                Role: new(
+                    RoleId: roleId,
+                    Industry: string.Empty,
+                    ResponsibilityTags: []),
+                Industry: string.Empty,
+                JobResponsibilities: FirstNonEmpty(employee.StageSummary, employee.CardIntro, employee.SourceTemplate),
+                Scenarios: [scenario],
+                EmployeeProvenance: ResolveEmployeeProvenance(employee),
+                SourceTemplateId: employee.SourceTemplateId),
+            Materials: new(
+                WorkspaceRoot: "/workspace",
+                ConsumerRoot: consumerRoot,
+                TestCasesDir: testCasesDir,
+                OntologyDir: ontologyDir),
             TargetSandbox: new(
                 SandboxId: ctx.TargetSandboxId,
                 // WebSocket 入口：确保使用 ws:// 或 wss:// scheme，避免 http→https 308 重定向导致 websockets 库抛 InvalidURI。
-                GatewayEndpoint: NormalizeGatewayWsEndpoint(targetGatewayEndpoint, useTls),
+                GatewayEndpoint: targetWsEndpoint,
                 HttpBaseUrl: NormalizeGatewayHttpBaseUrl(targetGatewayEndpoint, useTls)),
             Execution: new(TimeoutSeconds: 120, HttpSupplement: true),
-            NcrewHire: new(BaseUrl: apiBaseUrl.TrimEnd('/')));
+            HireBotApi: new(
+                BaseUrl: apiBaseUrl.TrimEnd('/'),
+                EmployeeId: employee.EmployeeId,
+                SessionId: sessionEntity.SessionId,
+                Auth: hireBotAuth),
+            Paths: new(
+                MetricsDir: $"{EvaluationConsumerSkillWorkspaceRoot}/metrics",
+                TestCasesDir: testCasesDir,
+                RunDir: runDir,
+                DriversDir: $"{EvaluationConsumerSkillWorkspaceRoot}/runtime-drivers",
+                SimulatorsDir: $"{EvaluationConsumerSkillWorkspaceRoot}/simulators",
+                SynthesizedCasesDir: $"{consumerRoot}/synthesized-test-cases"),
+            RuntimeDriver: new(
+                DriverId: driverId,
+                DriverConfig: new(
+                    Endpoint: targetWsEndpoint,
+                    // hireBotAuth 配置后由 run.py 自主换 token，无需注入静态 token；
+                    // 仅在凭据缺失时注入 targetAccessToken 作为兜底 fallback。
+                    Token: hireBotAuth is not null ? null : targetAccessToken,
+                    Timeout: 120,
+                    AutoApproveTools: true)),
+            RuntimeSimulator: new(SimulatorId: simulatorId),
+            GlobalTurnCap: globalTurnCap);
 
         return JsonSerializer.Serialize(context, JsonOptions);
     }
@@ -901,7 +1101,7 @@ internal sealed partial class EvaluationService
     }
 
     /// <summary>
-    /// 将 Gateway 节点地址规范化为 WebSocket URL（ws:// 或 wss://），供 evaluate.py 的 websockets 库使用。
+    /// 将 Gateway 节点地址规范化为 WebSocket URL（ws:// 或 wss://），供 consumer runtime driver 使用。
     /// 支持裸地址、ws:// / wss://、http:// / https:// 四种输入格式。
     /// 当 <paramref name="useTls"/> 为 true 或输入已含 https:///wss:// 时，强制使用 wss://。
     /// </summary>
@@ -935,17 +1135,20 @@ internal sealed partial class EvaluationService
     {
         var payload = new
         {
+            workflow = "evaluation_consumer",
+            skill_name = EvaluationConsumerSkillName,
             session_id = sessionEntity.SessionId,
             target_hire_id = ctx.TargetHireId,
             evaluator_sandbox_id = ctx.EvaluatorSandboxId,
             target_sandbox_id = ctx.TargetSandboxId,
             runtime_context_path = runtimeContextPath,
-            instruction = $"You are the live_evaluator skill running in the evaluation sandbox. " +
+            instruction = $"You are the {EvaluationConsumerSkillName} skill running in the evaluation sandbox. " +
                           $"The runtime context has been pre-loaded at {runtimeContextPath}. " +
-                          $"Please read the runtime context, verify materials are ready (testcases and ontology under uploads/materials/), " +
-                          $"then execute the live evaluation against the target sandbox for employee {employee.EmployeeId} ({employee.Nickname}). " +
+                          $"Read it first, use runtime_driver.driver_config for the target sandbox connection, " +
+                          $"load test cases from paths.test_cases_dir and run artifacts from paths.run_dir, " +
+                          $"then execute the deterministic consumer evaluation workflow for employee {employee.EmployeeId} ({employee.Nickname}). " +
                           $"Session ID: {sessionEntity.SessionId}. " +
-                          $"Use the live_evaluator skill (evaluate.py --mode execute) to drive test execution and collect traces."
+                          $"Do not invoke the legacy evaluation flow."
         };
 
         return JsonSerializer.Serialize(payload, JsonOptions);

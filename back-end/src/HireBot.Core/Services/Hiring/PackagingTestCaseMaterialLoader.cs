@@ -20,7 +20,7 @@ internal static class PackagingTestCaseMaterialLoader
         IReadOnlyList<string> allowedStorageRoots,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(hireId) || string.IsNullOrWhiteSpace(sessionId))
+        if (string.IsNullOrWhiteSpace(hireId))
         {
             return [];
         }
@@ -30,12 +30,17 @@ internal static class PackagingTestCaseMaterialLoader
             return [];
         }
 
-        var records = await dbContext.HiringMaterialFiles
+        var normalizedHireId = hireId.Trim();
+        var normalizedSessionId = sessionId.Trim();
+        var query = dbContext.HiringMaterialFiles
             .AsNoTracking()
-            .Where(item =>
-                item.HireId == hireId.Trim() &&
-                item.SessionId == sessionId.Trim() &&
-                item.DeletedAtUtc == null)
+            .Where(item => item.HireId == normalizedHireId && item.DeletedAtUtc == null);
+        if (!string.IsNullOrWhiteSpace(normalizedSessionId))
+        {
+            query = query.Where(item => item.SessionId == normalizedSessionId);
+        }
+
+        var records = await query
             .OrderBy(item => item.RequestedCategoryTitle)
             .ThenBy(item => item.RelativePath)
             .ToListAsync(cancellationToken);
