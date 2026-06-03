@@ -654,9 +654,12 @@ public sealed partial class EmployeeRuntimeService(
             EvalPhase: null,
             EvalIteration: null,
             EvalMaxIterations: null,
-            IsConfigured: false);
+            IsConfigured: false,
+            CardIntro: null,
+            Description: request.Description,
+            CreatedBy: null);
 
-        await UpsertInstanceRecordAsync(employee, currentVersion: "v_initial", cancellationToken: cancellationToken);
+        await UpsertInstanceRecordAsync(employee, currentVersion: "v_initial", description: request.Description, cancellationToken: cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(employee, "员工实例已创建");
     }
 

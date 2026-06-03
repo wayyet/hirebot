@@ -3,6 +3,13 @@ import { httpClient } from '../httpClient'
 import { tokenService } from '@/infra/auth/token-service'
 import type { HiringConversationMessage } from './hiringWorkflowApi'
 
+export interface CreatorRef {
+  username?: string
+  displayName?: string
+  familyName?: string
+  givenName?: string
+}
+
 export interface EmployeeCapability {
   name: string
   ready: boolean
@@ -31,6 +38,8 @@ export interface EmployeeSummary {
   pendingActions: string[]
   isConfigured: boolean
   cardIntro?: string | null
+  description?: string | null
+  createdBy?: CreatorRef | null
 }
 
 export interface EmployeeDetail extends EmployeeSummary {

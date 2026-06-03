@@ -49,6 +49,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
     }
 
     public DbSet<User> Users { get; set; }
+    public DbSet<AppUserEntity> AppUsers { get; set; }
     public DbSet<EvaluationSessionEntity> EvaluationSessions { get; set; }
     public DbSet<EvaluationAssetEntity> EvaluationAssets { get; set; }
     public DbSet<EvaluationReportEntity> EvaluationReports { get; set; }
@@ -82,6 +83,23 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.Property(e => e.UpdatedAt);
 
             entity.HasIndex(e => e.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<AppUserEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasMaxLength(256);
+            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.Username).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.DisplayName).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.FamilyName).HasMaxLength(256);
+            entity.Property(e => e.GivenName).HasMaxLength(256);
+            entity.Property(e => e.Email).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.LastSeenAt).IsRequired();
+
+            entity.HasIndex(e => e.TenantId);
+            entity.HasIndex(e => new { e.TenantId, e.Username });
         });
 
         modelBuilder.Entity<EvaluationSessionEntity>(entity =>
@@ -260,6 +278,7 @@ public sealed class HireBotDbContext(DbContextOptions<HireBotDbContext> options)
             entity.Property(e => e.DepartmentId).HasColumnName("department_id").IsRequired().HasMaxLength(128);
             entity.Property(e => e.CurrentVersion).HasColumnName("current_version").IsRequired().HasMaxLength(80);
             entity.Property(e => e.RuntimeSnapshotJson).HasColumnName("runtime_snapshot_json");
+            entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.DescribeDocument).HasColumnName("describe_document");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
