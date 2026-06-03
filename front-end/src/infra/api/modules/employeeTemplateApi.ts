@@ -162,7 +162,7 @@ export interface FixtureTemplateHireResult {
   employeeId: string
   templateId: string
   instanceType: 'department' | 'personal_clone' | 'private_branch'
-  status: 'hired' | 'interning_ai' | 'interning_human' | 'live' | 'failed' | 'retired'
+  status: 'hiring' | 'hired' | 'interning_ai' | 'interning_human' | 'live' | 'failed' | 'retired'
   createdByFixtureFallback: boolean
 }
 

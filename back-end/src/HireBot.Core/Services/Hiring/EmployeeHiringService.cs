@@ -400,6 +400,38 @@ internal sealed partial class EmployeeHiringService(
 
         await SetSandboxInitializedAsync(provisionResult.Data.SandboxId, cancellationToken);
 
+        // 沙箱初始化完成后创建雇佣中状态的实例，让用户可以在员工列表看到正在雇佣的记录
+        var capabilities = template.CoreAbilities ?? [];
+        using (var scope = serviceScopeFactory.CreateScope())
+        {
+            var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
+            var createResponse = await employeeRuntimeService.CreateFromHireAsync(
+                new CreateEmployeeFromHireRequestDto(
+                    HireId: call.Data.HireId,
+                    TemplateId: normalizedTemplateId,
+                    TemplateName: template.Name,
+                    OwnerSubject: ownerSubject,
+                    TenantId: tenantId,
+                    OperatorId: operatorId,
+                    Capabilities: capabilities),
+                cancellationToken);
+
+            if (createResponse.Success && createResponse.Data is not null)
+            {
+                logger.LogInformation(
+                    "Created hiring instance. HireId={HireId}, EmployeeId={EmployeeId}, Status=hiring",
+                    call.Data.HireId,
+                    createResponse.Data.EmployeeId);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Failed to create hiring instance (non-fatal). HireId={HireId}, Message={Message}",
+                    call.Data.HireId,
+                    createResponse.Message);
+            }
+        }
+
         logger.LogInformation(
             "Template hire setup completed. HireId={HireId}, TemplateId={TemplateId}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
             call.Data.HireId,
@@ -1373,28 +1405,96 @@ internal sealed partial class EmployeeHiringService(
             runtimeContext,
             finalizationCancellationToken);
 
-        // 创建数字员工实例（首次调用时）
-        // 直接从 DB 持久化的 runtimeContext 读取所有者信息，保证重启后依然有效。
+        // 查找或创建数字员工实例
+        // 1. 优先从 runtimeContext 获取已关联的 employeeId
+        // 2. 如果没有，尝试从数据库查找与该雇佣流程关联的 hiring 状态实例
+        //    (通过 OwnerUserId + TemplateId + Status='hiring' 组合查询)
+        // 3. 如果找到 hiring 实例，更新状态为 interning_ai（雇佣完成，进入评估阶段）
+        // 4. 如果都没有（兼容旧数据），创建新的 interning_ai 实例
         string? employeeId = runtimeContext.EmployeeId;
+        
+        if (string.IsNullOrWhiteSpace(employeeId) && !string.IsNullOrWhiteSpace(runtimeContext.TemplateId))
+        {
+            // 尝试从数据库查找此雇佣流程关联的 hiring 实例
+            var hiringInstance = await dbContext.Instances
+                .Where(i => i.Status == "hiring" 
+                    && i.OwnerUserId == runtimeContext.OwnerSubject 
+                    && i.BasedOnTemplateId == runtimeContext.TemplateId)
+                .OrderByDescending(i => i.CreatedAt)
+                .FirstOrDefaultAsync(finalizationCancellationToken);
+
+            if (hiringInstance is not null)
+            {
+                employeeId = hiringInstance.InstanceId;
+                
+                // 更新状态：从 hiring（雇佣中）→ interning_ai（待实习）
+                using var scope = serviceScopeFactory.CreateScope();
+                var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
+                await employeeRuntimeService.UpdateLifecycleAsync(
+                    employeeId,
+                    new UpdateEmployeeLifecycleRequestDto
+                    {
+                        Status = "interning_ai",
+                        LifecycleStatus = "待实习",
+                        StageSummary = "交付物已导入，可发起 AI 评估",
+                        PrimarySignal = "待操作：发起 AI 评估",
+                        SignalLevel = "ok"
+                    },
+                    finalizationCancellationToken);
+                
+                logger.LogInformation(
+                    "Updated employee status from hiring to interning_ai. HireId={HireId}, EmployeeId={EmployeeId}",
+                    normalizedHireId,
+                    employeeId);
+            }
+        }
+
+        // 如果仍然没有 employeeId，创建新实例（兼容旧流程）
         if (string.IsNullOrWhiteSpace(employeeId) && !string.IsNullOrWhiteSpace(runtimeContext.TemplateId))
         {
             var capabilities = (await templateDataProvider.GetByIdAsync(runtimeContext.TemplateId, finalizationCancellationToken))?.CoreAbilities ?? [];
+            
+            // 直接创建 interning_ai 状态的实例（兼容旧流程）
+            // 新流程已在 HireAsync 时创建 hiring 状态实例，这里仅为历史兼容
             using var scope = serviceScopeFactory.CreateScope();
             var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
-            var createResponse = await employeeRuntimeService.CreateFromHireAsync(
-                new CreateEmployeeFromHireRequestDto(
-                    HireId: normalizedHireId,
-                    TemplateId: runtimeContext.TemplateId,
-                    TemplateName: runtimeContext.TemplateName,
-                    OwnerSubject: runtimeContext.OwnerSubject,
-                    TenantId: runtimeContext.TenantId,
-                    OperatorId: runtimeContext.OperatorId,
-                    Capabilities: capabilities),
-                finalizationCancellationToken);
-
-            if (createResponse.Success && createResponse.Data is not null)
+            
+            var createRequest = new CreateEmployeeFromHireRequestDto(
+                HireId: normalizedHireId,
+                TemplateId: runtimeContext.TemplateId,
+                TemplateName: runtimeContext.TemplateName,
+                OwnerSubject: runtimeContext.OwnerSubject,
+                TenantId: runtimeContext.TenantId,
+                OperatorId: runtimeContext.OperatorId,
+                Capabilities: capabilities);
+            
+            var createResult = await employeeRuntimeService.CreateFromHireAsync(createRequest, finalizationCancellationToken);
+            if (!createResult.Success || createResult.Data is null)
             {
-                employeeId = createResponse.Data.EmployeeId;
+                logger.LogWarning(
+                    "Failed to create interning_ai instance (legacy path). HireId={HireId}",
+                    normalizedHireId);
+            }
+            else
+            {
+                // 将新创建的 hiring 实例立即更新为 interning_ai（兼容旧流程）
+                employeeId = createResult.Data.EmployeeId;
+                await employeeRuntimeService.UpdateLifecycleAsync(
+                    employeeId,
+                    new UpdateEmployeeLifecycleRequestDto
+                    {
+                        Status = "interning_ai",
+                        LifecycleStatus = "待实习",
+                        StageSummary = "交付物已导入，可发起 AI 评估",
+                        PrimarySignal = "待操作：发起 AI 评估",
+                        SignalLevel = "ok"
+                    },
+                    finalizationCancellationToken);
+                
+                logger.LogInformation(
+                    "Created interning_ai instance (legacy path). HireId={HireId}, EmployeeId={EmployeeId}",
+                    normalizedHireId,
+                    employeeId);
             }
         }
 

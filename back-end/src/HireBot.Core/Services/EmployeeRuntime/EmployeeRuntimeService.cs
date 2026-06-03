@@ -41,6 +41,7 @@ public sealed partial class EmployeeRuntimeService(
     /// </summary>
     private static readonly HashSet<string> SupportedStatuses =
     [
+        "hiring",
         "hired",
         "interning_ai",
         "interning_human",
@@ -55,6 +56,7 @@ public sealed partial class EmployeeRuntimeService(
     private static readonly Dictionary<string, HashSet<string>> AllowedStatusTransitions =
         new(StringComparer.OrdinalIgnoreCase)
         {
+            ["hiring"] = ["interning_ai", "failed", "retired"],
             ["hired"] = ["interning_ai", "failed", "retired"],
             ["interning_ai"] = ["interning_human", "failed", "retired"],
             ["interning_human"] = ["live", "failed", "retired"],
@@ -68,6 +70,7 @@ public sealed partial class EmployeeRuntimeService(
     /// </summary>
     private static readonly string[] FixtureStatusSeedOrder =
     [
+        "hiring",
         "hired",
         "interning_ai",
         "interning_human",
@@ -579,14 +582,14 @@ public sealed partial class EmployeeRuntimeService(
             SourceTemplate: request.TemplateName,
             SourceTemplateId: request.TemplateId,
             InstanceType: "department",
-            Status: "interning_ai",
+            Status: "hiring",
             BasedOnTemplateId: request.TemplateId,
             FromInstanceId: null,
             OwnerUserId: request.OwnerSubject,
             DepartmentId: string.IsNullOrWhiteSpace(request.TenantId) ? "department-default" : request.TenantId,
-            LifecycleStatus: "待实习",
-            StageSummary: "交付物已导入，可发起 AI 评估",
-            PrimarySignal: "待操作：发起 AI 评估",
+            LifecycleStatus: "雇佣中",
+            StageSummary: "正在收集材料与技能",
+            PrimarySignal: "等待用户完成雇佣流程",
             SignalLevel: "ok",
             OwningTeam: request.TenantId,
             CreatedAt: DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm"),
@@ -597,9 +600,9 @@ public sealed partial class EmployeeRuntimeService(
             SatisfactionScore: null,
             PendingActions: [],
             Capabilities: request.Capabilities.Select(item => new EmployeeCapabilityDto(item, false)).ToArray(),
-            EvalPhase: "pending_materials",
-            EvalIteration: 0,
-            EvalMaxIterations: 30,
+            EvalPhase: null,
+            EvalIteration: null,
+            EvalMaxIterations: null,
             IsConfigured: false);
 
         await UpsertInstanceRecordAsync(employee, currentVersion: "v_initial", cancellationToken: cancellationToken);

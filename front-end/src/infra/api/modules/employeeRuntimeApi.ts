@@ -15,7 +15,7 @@ export interface EmployeeSummary {
   sourceTemplate: string
   sourceTemplateId: string
   instanceType: 'department' | 'personal_clone' | 'private_branch'
-  status: 'hired' | 'interning_ai' | 'interning_human' | 'live' | 'failed' | 'retired'
+  status: 'hiring' | 'hired' | 'interning_ai' | 'interning_human' | 'live' | 'failed' | 'retired'
   basedOnTemplateId?: string | null
   fromInstanceId?: string | null
   ownerUserId: string
@@ -49,7 +49,7 @@ export interface EmployeeDetail extends EmployeeSummary {
 }
 
 export interface UpdateEmployeeLifecycleRequest {
-  status?: 'hired' | 'interning_ai' | 'interning_human' | 'live' | 'failed' | 'retired'
+  status?: 'hiring' | 'hired' | 'interning_ai' | 'interning_human' | 'live' | 'failed' | 'retired'
   lifecycleStatus?: string
   stageSummary?: string
   primarySignal?: string
