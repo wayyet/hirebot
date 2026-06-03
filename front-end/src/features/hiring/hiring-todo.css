@@ -1542,6 +1542,10 @@
   border-radius: 10px;
   background: rgba(74,108,247,0.12); color: var(--accent);
 }
+.hb-todo-tag.is-reason {
+  background: rgba(22, 163, 74, 0.10);
+  color: #15803d;
+}
 .hb-todo-tag-x { background: none; border: none; cursor: pointer; color: inherit; font-size: 13px; padding: 0; }
 
 /* 外部系统卡 */

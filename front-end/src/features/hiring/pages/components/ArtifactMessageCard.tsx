@@ -99,12 +99,18 @@ export function ArtifactMessageCard({
 
 function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
   // 类型优先：特定 artifactType 使用内置专用视图
-  if (artifact.artifactType === 'material_handoff_summary') return <MaterialHandoffView data={artifact.data} />
+  if (artifact.artifactType === 'material_collection_progress' || artifact.artifactType === 'material_handoff_summary') {
+    return <MaterialHandoffView data={artifact.data} />
+  }
   if (artifact.artifactType === 'ontology_extraction_done' || artifact.artifactType === 'ontology_extraction_progress') {
     return <OntologyExtractionView data={artifact.data} />
   }
-  if (artifact.artifactType === 'skill_workorder_summary') return <SkillWorkorderSummaryView data={artifact.data} />
-  if (artifact.artifactType === 'external_workorder_summary') return <ExternalWorkorderSummaryView data={artifact.data} />
+  if (artifact.artifactType === 'skill_workorder_progress' || artifact.artifactType === 'skill_workorder_summary') {
+    return <SkillWorkorderSummaryView data={artifact.data} />
+  }
+  if (artifact.artifactType === 'external_workorder_progress' || artifact.artifactType === 'external_workorder_summary') {
+    return <ExternalWorkorderSummaryView data={artifact.data} />
+  }
   if (
     artifact.artifactType === 'skill_generation_ready' ||
     artifact.artifactType === 'skill_generation_progress' ||
@@ -125,10 +131,10 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
   if (artifact.artifactType === 'stage4_packaging') return <Stage4PackagingView data={artifact.data} />
   // 结构化兜底：未命中类型但数据具备对应特征时自动使用专用视图
   const _d = asRecord(artifact.data)
-  if (_d && Array.isArray(_d.external_capabilities)) {
+  if (_d && hasExternalWorkorderShape(_d)) {
     return <ExternalWorkorderSummaryView data={artifact.data} />
   }
-  if (_d && Array.isArray(_d.skills) && (_d.workspace_root != null || _d.template_slug != null)) {
+  if (_d && hasSkillWorkorderShape(_d)) {
     return <SkillWorkorderSummaryView data={artifact.data} />
   }
   const hint = artifact.displayHint ?? 'text'
@@ -163,7 +169,8 @@ function ProgressView({ data }: { data: unknown }) {
 }
 
 function TableView({ data }: { data: unknown }) {
-  const rows = Array.isArray(data) ? data.filter(isRecord) : []
+  const sanitized = sanitizeArtifactDataForDisplay(data)
+  const rows = Array.isArray(sanitized) ? sanitized.filter(isRecord) : []
   if (rows.length === 0) return <CodeView data={data} />
   const columns = Array.from(new Set(rows.flatMap(r => Object.keys(r)))).slice(0, 8)
   return (
@@ -184,22 +191,23 @@ function TableView({ data }: { data: unknown }) {
 
 function BadgeView({ data }: { data: unknown }) {
   const rec = asRecord(data)
-  const value = stringify(rec?.value ?? rec?.status ?? data)
+  const value = stringify(rec?.value ?? rec?.status ?? sanitizeArtifactDataForDisplay(data))
   return (
     <span className="hb-artifact-badge">{value}</span>
   )
 }
 
 function CodeView({ data }: { data: unknown }) {
+  const sanitized = sanitizeArtifactDataForDisplay(data)
   return (
     <pre style={codeStyle}>
-      <code>{typeof data === 'string' ? data : JSON.stringify(data, null, 2)}</code>
+      <code>{typeof sanitized === 'string' ? sanitized : JSON.stringify(sanitized, null, 2)}</code>
     </pre>
   )
 }
 
 function TextView({ data }: { data: unknown }) {
-  return <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{stringify(data)}</div>
+  return <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{stringify(sanitizeArtifactDataForDisplay(data))}</div>
 }
 
 /** ontology_extraction_done / _progress 专用结构化视图 */
@@ -386,7 +394,7 @@ function SkillWorkorderSummaryView({ data }: { data: unknown }) {
 
   const summary = typeof rec.summary === 'string' ? rec.summary : ''
   const notes = typeof rec.notes === 'string' ? rec.notes : ''
-  const skills = Array.isArray(rec.skills) ? rec.skills.filter(isRecord) : []
+  const skills = getRecordArray(rec, 'items', 'skills')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -415,11 +423,18 @@ function SkillWorkorderSummaryView({ data }: { data: unknown }) {
 }
 
 function SkillCard({ skill }: { skill: Record<string, unknown> }) {
-  const name = String(skill.name ?? '')
-  const description = String(skill.description ?? '')
-  const generationAction = String(skill.generation_action ?? '')
-  const trigger = String(skill.trigger ?? '')
-  const expectedOutput = String(skill.expected_output ?? '')
+  const name = firstString(
+    skill.display_name,
+    skill.skill_name,
+    skill.title,
+    skill.name,
+    skill.skill_slug,
+    skill.skillSlug,
+  )
+  const description = firstString(skill.description, skill.summary)
+  const generationAction = firstString(skill.generation_action, skill.generationAction, skill.action)
+  const trigger = stringListText(skill.triggers ?? skill.trigger)
+  const expectedOutput = stringListText(skill.expected_outputs ?? skill.expected_output ?? skill.expectedOutput)
   const boundaries = Array.isArray(skill.boundaries)
     ? skill.boundaries.filter((b): b is string => typeof b === 'string')
     : []
@@ -429,10 +444,10 @@ function SkillCard({ skill }: { skill: Record<string, unknown> }) {
   const params = asRecord(skill.parameters)
   const deps = asRecord(skill.dependencies)
   const materials = Array.isArray(deps?.materials)
-    ? deps!.materials.filter((m): m is string => typeof m === 'string')
+    ? deps!.materials.filter((m): m is string => typeof m === 'string').map(toPublicPathLabel)
     : []
   const ontologySlices = Array.isArray(deps?.ontology_slices)
-    ? deps!.ontology_slices.filter((s): s is string => typeof s === 'string')
+    ? deps!.ontology_slices.filter((s): s is string => typeof s === 'string').map(toPublicPathLabel)
     : []
   const thresholds = Array.isArray(params?.default_thresholds)
     ? params!.default_thresholds.filter(isRecord)
@@ -647,10 +662,8 @@ function ExternalWorkorderSummaryView({ data }: { data: unknown }) {
   if (!rec) return <CodeView data={data} />
 
   const summary = typeof rec.summary === 'string' ? rec.summary : ''
-  const totalCapabilities = Number(rec.total_capabilities ?? 0)
-  const capabilities = Array.isArray(rec.external_capabilities)
-    ? rec.external_capabilities.filter(isRecord)
-    : []
+  const capabilities = getRecordArray(rec, 'external_capabilities', 'items')
+  const totalCapabilities = Number(rec.total_capabilities ?? rec.collected_count ?? capabilities.length)
 
   const realCaps = capabilities.filter(c => c.kind !== 'skip' && c.category !== 'skip')
   const allSkipped = capabilities.length > 0 && realCaps.length === 0
@@ -734,10 +747,10 @@ function ExternalWorkorderSummaryView({ data }: { data: unknown }) {
         )}
       </div>
       {capabilities.map((cap, i) => {
-        const kind = String(cap.kind ?? 'api')
+        const kind = String(cap.kind ?? cap.category ?? 'api')
         const kc = kindColor[kind] ?? kindColor.read
         const objective = String(cap.objective ?? '')
-        const targetSystem = cap.target_system != null ? String(cap.target_system) : ''
+        const targetSystem = firstString(cap.target_system, cap.display_name, cap.name)
         const methods = Array.isArray(cap.integration_methods)
           ? cap.integration_methods.filter((m): m is string => typeof m === 'string').filter(m => m !== 'none')
           : []
@@ -1120,7 +1133,7 @@ function MaterialHandoffView({ data }: { data: unknown }) {
   if (!rec) return <CodeView data={data} />
 
   const summary = typeof rec.summary === 'string' ? rec.summary : ''
-  const items = Array.isArray(rec.items) ? rec.items.filter(isRecord) : []
+  const items = getRecordArray(rec, 'items')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1180,20 +1193,20 @@ function MaterialHandoffView({ data }: { data: unknown }) {
 
 function ArtifactIcon({ artifact }: { artifact: ArtifactDisplayData }) {
   if (artifact.kind === 'file') return <span className="hb-artifact-icon">📄</span>
-  if (artifact.artifactType === 'skill_workorder_summary') return <span className="hb-artifact-icon">🧩</span>
+  if (artifact.artifactType === 'skill_workorder_progress' || artifact.artifactType === 'skill_workorder_summary') return <span className="hb-artifact-icon">🧩</span>
   if (
     artifact.artifactType === 'skill_generation_ready' ||
     artifact.artifactType === 'skill_generation_progress' ||
     artifact.artifactType === 'skill_generation_done'
   ) return <span className="hb-artifact-icon">⚙️</span>
-  if (
-    artifact.artifactType === 'packaging_testcases_ready' ||
-    artifact.artifactType === 'packaging_testcases_progress' ||
-    artifact.artifactType === 'packaging_testcases_done'
-  ) return <span className="hb-artifact-icon">🧪</span>
-  if (artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
+    if (
+        artifact.artifactType === 'packaging_testcases_ready' ||
+        artifact.artifactType === 'packaging_testcases_progress' ||
+        artifact.artifactType === 'packaging_testcases_done'
+    ) return <span className="hb-artifact-icon">🧪</span>
+    if (artifact.artifactType === 'material_collection_progress' || artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
   if (artifact.artifactType === 'ontology_extraction_done' || artifact.artifactType === 'ontology_extraction_progress') return <span className="hb-artifact-icon">🌿</span>
-  if (artifact.artifactType === 'external_workorder_summary' || artifact.artifactType === 'external_config_committed') return <span className="hb-artifact-icon">🔌</span>
+  if (artifact.artifactType === 'external_workorder_progress' || artifact.artifactType === 'external_workorder_summary' || artifact.artifactType === 'external_config_committed') return <span className="hb-artifact-icon">🔌</span>
   if (artifact.artifactType === 'stage4_packaging') return <span className="hb-artifact-icon">📦</span>
   const map: Record<string, string> = { table: '📊', code: '💻', tree: '🌿', badge: '✅', progress: '⏳' }
   return <span className="hb-artifact-icon">{map[artifact.displayHint ?? ''] ?? '📦'}</span>
@@ -1205,11 +1218,137 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function asRecord(v: unknown): Record<string, unknown> | null {
   return isRecord(v) ? v : null
 }
+function getRecordArray(record: Record<string, unknown>, ...keys: string[]): Record<string, unknown>[] {
+  for (const key of keys) {
+    const value = record[key]
+    if (Array.isArray(value)) {
+      return value.filter(isRecord)
+    }
+  }
+
+  return []
+}
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return ''
+}
+function stringListText(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .join('；')
+  }
+
+  return firstString(value)
+}
+function hasSkillWorkorderShape(record: Record<string, unknown>): boolean {
+  const items = getRecordArray(record, 'items', 'skills')
+  return items.some(item =>
+    item.generation_action != null ||
+    item.generationAction != null ||
+    item.expected_output != null ||
+    item.expected_outputs != null ||
+    item.trigger != null ||
+    item.triggers != null ||
+    item.skill_slug != null ||
+    item.skill_name != null,
+  )
+}
+function hasExternalWorkorderShape(record: Record<string, unknown>): boolean {
+  const items = getRecordArray(record, 'external_capabilities', 'items')
+  return items.some(item =>
+    item.target_system != null ||
+    item.auth_kind != null ||
+    item.linked_skills != null ||
+    item.required_fields != null ||
+    item.integration_methods != null,
+  )
+}
+function toPublicPathLabel(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+
+  const markerMatch = /\[FILE_URL:([^\]]+)\]/.exec(trimmed)
+  const pathLike = markerMatch?.[1]?.trim() || trimmed
+  const parts = pathLike.split(/[\\/]/).filter(Boolean)
+  return parts.at(-1) ?? trimmed
+}
 function stringify(v: unknown): string {
   if (v == null) return ''
   if (typeof v === 'string') return v
   if (typeof v === 'number' || typeof v === 'boolean') return String(v)
   return JSON.stringify(v)
+}
+const hiddenArtifactDataKeys = new Set([
+  'artifactroot',
+  'debug',
+  'generatedat',
+  'generatedby',
+  'metadata',
+  'raw',
+  'rootpath',
+  'sourcepath',
+  'storagepath',
+  'technicalartifact',
+  'templateslug',
+  'trace',
+  'workspacedir',
+  'workspacepath',
+  'workspaceroot',
+])
+const sensitiveArtifactDataKeyParts = [
+  'apikey',
+  'authorization',
+  'bearer',
+  'connectionstring',
+  'credential',
+  'env',
+  'header',
+  'metadata',
+  'password',
+  'privatekey',
+  'secret',
+  'token',
+]
+function normalizeArtifactDataKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+function shouldHideArtifactDataKey(key: string): boolean {
+  const normalized = normalizeArtifactDataKey(key)
+  return hiddenArtifactDataKeys.has(normalized) ||
+    sensitiveArtifactDataKeyParts.some(part => normalized.includes(part))
+}
+function sanitizeArtifactDataForDisplay(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (Array.isArray(value)) {
+    return value.map(item => sanitizeArtifactDataForDisplay(item, seen))
+  }
+
+  const record = asRecord(value)
+  if (!record) {
+    return value
+  }
+
+  if (seen.has(record)) {
+    return '[Circular]'
+  }
+  seen.add(record)
+
+  const sanitized: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(record)) {
+    if (shouldHideArtifactDataKey(key)) {
+      continue
+    }
+
+    sanitized[key] = sanitizeArtifactDataForDisplay(child, seen)
+  }
+
+  seen.delete(record)
+  return sanitized
 }
 function clamp(v: number) {
   return Math.max(0, Math.min(100, Math.round(Number.isFinite(v) ? v : 0)))

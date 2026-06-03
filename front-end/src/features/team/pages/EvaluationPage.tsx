@@ -124,6 +124,7 @@ export default function EvaluationPage() {
   const isPrivateBranchEvaluation = employee?.instanceType === 'private_branch'
   // 私有分支评估是特殊流程：实例保持 live 状态，不进入普通雇佣评估的 interning_ai 状态。
   // 这里仅允许 private_branch + live 放行，避免影响普通员工原有评估链路。
+  // hiring（雇佣中）状态不允许进入评估页面，需要先完成雇佣流程（ImportPackage）
   const canPrepare =
     employee?.status === 'hired' ||
     employee?.status === 'failed' ||

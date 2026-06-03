@@ -47,6 +47,41 @@ export interface StoreSkillListData {
   items: StoreSkillItem[]
 }
 
+export interface RecommendedStoreSkillItem extends StoreSkillItem {
+  score: number
+  matchedKeywords: string[]
+  reason: string
+  canDownload: boolean
+}
+
+interface RecommendedStoreSkillResponseItem {
+  skill_id: string
+  name: string
+  display_name: string
+  description: string
+  current_version: string
+  tags: string[]
+  score: number
+  matched_keywords: string[]
+  reason: string
+  can_download: boolean
+}
+
+function mapRecommendedSkill(item: RecommendedStoreSkillResponseItem): RecommendedStoreSkillItem {
+  return {
+    id: item.skill_id,
+    name: item.name,
+    displayName: item.display_name,
+    description: item.description,
+    currentVersion: item.current_version,
+    tags: item.tags ?? [],
+    score: item.score,
+    matchedKeywords: item.matched_keywords ?? [],
+    reason: item.reason,
+    canDownload: item.can_download,
+  }
+}
+
 export const skillCatalogApi = {
   /** 旧接口：内部 HireBot 技能目录（保留兼容） */
   getSkills(params: {
@@ -70,5 +105,18 @@ export const skillCatalogApi = {
     signal?: AbortSignal,
   ) {
     return storeRawClient.get<StoreSkillListData>('/api/store/skills', params, signal)
+  },
+
+  async getRecommendedStoreSkills(
+    templateId: string,
+    params: { limit?: number } = {},
+    signal?: AbortSignal,
+  ) {
+    const items = await httpClient.get<RecommendedStoreSkillResponseItem[]>(
+      `/api/v1/employee-templates/${encodeURIComponent(templateId)}/recommended-skills`,
+      { limit: params.limit ?? 5 },
+      signal,
+    )
+    return (items ?? []).map(mapRecommendedSkill)
   },
 }
