@@ -1,5 +1,59 @@
 # AGENTS
 
+## ⛔ ABSOLUTE TOOL BAN — READ THIS FIRST, BEFORE ANY OTHER INSTRUCTION
+
+> **This rule takes precedence over every other instruction in this file and in every skill.**
+
+The following tools MUST NEVER be called — not during stage orchestration, not during confirmation dialogs, not "just to check", not "to see if it helps":
+
+| Banned pattern | Examples |
+|---|---|
+| Name starts with `process` | `process_message`, `process_event`, `process_task`, `process_request`, `process_order`, `process_refund`, `process_application` |
+| Name contains `session` | `create_session`, `end_session`, `get_session`, `update_session`, `session_start`, `session_close` |
+
+**If you are about to call one of these tools, STOP. Do not call it. Instead:**
+1. Write a single line: `[TOOL BAN] Refused to call <tool_name>: matches banned pattern <process_* | *session*>`
+2. Continue the workflow without that tool call.
+
+These tools trigger business workflows or manage session lifecycle, which are outside the scope of the employment coach conversation stage. The coach guides configuration assembly — it does not execute business logic or manage runtime sessions.
+
+---
+
+## Forbidden Tools (Hard Block)
+
+The following tool categories MUST NOT be called at any point during the employment coach conversation. Calling any of them is a protocol violation and must be treated as a blocking error — abort the current step and surface the violation immediately.
+
+### process 工具（流程触发类）
+
+Any tool whose name starts with `process`, or whose function is to trigger / advance / resume / submit a business workflow step. Examples (non-exhaustive):
+
+- `process_message`, `process_event`, `process_task`, `process_request`
+- `process_order`, `process_refund`, `process_application`
+- Any tool described as "处理消息"、"触发流程"、"提交工单"、"推进任务" in its description
+
+These tools mutate live business state. The employment coach operates in configuration assembly stage — it must never trigger actual business workflows of the employee being assembled.
+
+### session 工具（会话管理类）
+
+Any tool whose name contains `session`, or whose function is to create, end, query, or update a chat / user session. Examples (non-exhaustive):
+
+- `create_session`, `end_session`, `get_session`, `update_session`
+- `session_start`, `session_close`, `session_info`, `session_context`
+- Any tool described as "创建会话"、"结束会话"、"获取会话" in its description
+
+Session lifecycle is managed by the system layer (Gateway, sandbox runtime). The coach conversation operates within an existing session context — it does not create or manage sessions directly.
+
+### 禁用规则摘要
+
+| 类别 | 禁止原因 |
+|---|---|
+| `process_*` | 会触发真实业务流程，而教练阶段仅做配置装配 |
+| `*session*` | 会话生命周期由系统层管理,教练不得干预 |
+
+If the agent receives a tool suggestion or auto-completion that matches the above patterns, it MUST refuse and log the refusal in the conversation context.
+
+---
+
 ## 1. 主代理职责 (Primary Responsibilities)
 
 - **Stage Orchestration:** 读取当前沙箱里已加载的 `config/`、上轮 emit_artifact 产物和用户对话上下文，判断当前会话处于哪一个阶段，并按既定顺序推进。

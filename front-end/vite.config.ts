@@ -23,7 +23,7 @@ export default defineConfig({
       },
       // 模板池请求转发到 BuildService（优先级高于下面的 /api 规则）
       '/api/store': {
-        target: 'https://ncrew-builder.ai4c.cn',
+        target: 'https://goodcrew-builder.ai4c.cn',
         changeOrigin: true,
       },
       '/api': {

@@ -568,6 +568,7 @@
       "interningHuman": "人工评估中",
       "failed": "评估失败",
       "retired": "已退役",
+      "hiring": "雇佣中",
       "hired": "已雇佣"
     },
     "ownership": {
@@ -580,7 +581,7 @@
       "kickerManager": "团队资产概览",
       "kickerMember": "部门可用资产",
       "title": "部门数字员工",
-      "copyManager": "从部门视角统一查看 {{department}} 的已雇佣、评估中和已上岗实例，所有后续动作都从详情页进入。",
+      "copyManager": "从部门视角统一查看 {{department}} 的雇佣中、评估中和已上岗实例，所有后续动作都从详情页进入。",
       "copyMember": "当前仅展示 {{department}} 已上岗的部门实例，你可以进入详情后继续复制为自己的资产。",
       "deleteDialogTitle": "确认删除数字员工",
       "confirmDelete": "确认删除数字员工「{{nickname}}」？此操作不可撤销，将同时清理沙箱、IM配置和所有相关文件。",
@@ -600,7 +601,7 @@
       "searchPlaceholder": "搜索员工名称、能力标签、所属场景",
       "clearFilters": "清空筛选",
       "tabs": {
-        "hired": "已雇佣",
+        "hiring": "雇佣中",
         "intern": "待实习",
         "live": "已上岗"
       },
@@ -618,6 +619,7 @@
         "uploadTemplate": "上传岗位员工",
         "hireFromPool": "从模板池雇佣",
         "more": "更多操作",
+        "continueHiring": "继续雇佣",
         "enterAiEvaluation": "进入 AI 评估",
         "enterHumanEvaluation": "进入人工评估",
         "createClone": "创建分身",
@@ -778,6 +780,7 @@
       "startChat": "开始对话",
       "createClone": "创建分身",
       "createMyClone": "复制为我的分身",
+      "continueHiring": "继续雇佣",
       "rehire": "重新雇佣",
       "rehiring": "重新雇佣中",
       "abandonBranch": "废弃私有分支",
