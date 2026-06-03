@@ -89,30 +89,35 @@ export function EvalWorkflowPanel({
 
           <div className="flex shrink-0 flex-wrap items-center gap-2 xl:ml-8 xl:self-start">
             {resetConfirm ? (
-              <div className="eval-reset-confirm">
-                <AlertCircle size={11} className="eval-reset-confirm-icon" />
-                <span className="whitespace-nowrap text-[11px] text-[var(--hb-danger)]">确认清理？</span>
-                <button
-                  type="button"
-                  disabled={resetting || submitting}
-                  className="eval-reset-confirm-action is-danger"
-                  onClick={onReset}
-                >
-                  {resetting ? (
-                    <span className="eval-reset-confirm-loading">
-                      <Loader2 size={10} className="animate-spin" />清理中...
-                    </span>
-                  ) : '确认'}
-                </button>
-                <span className="eval-reset-confirm-divider">/</span>
-                <button
-                  type="button"
-                  disabled={resetting}
-                  className="eval-reset-confirm-action"
-                  onClick={() => onSetResetConfirm(false)}
-                >
-                  取消
-                </button>
+              <div className="eval-reset-confirm" role="group" aria-label="确认清理评估数据">
+                <span className="eval-reset-confirm-icon-frame">
+                  <AlertCircle size={12} className="eval-reset-confirm-icon" />
+                </span>
+                <span className="eval-reset-confirm-copy">确认清理？</span>
+                <span className="eval-reset-confirm-actions">
+                  <button
+                    type="button"
+                    disabled={resetting || submitting}
+                    className="eval-reset-confirm-action is-danger"
+                    aria-label="确认清理评估数据"
+                    onClick={onReset}
+                  >
+                    {resetting ? (
+                      <span className="eval-reset-confirm-loading">
+                        <Loader2 size={11} className="animate-spin" />清理中
+                      </span>
+                    ) : '确认'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={resetting}
+                    className="eval-reset-confirm-action"
+                    aria-label="取消清理确认"
+                    onClick={() => onSetResetConfirm(false)}
+                  >
+                    取消
+                  </button>
+                </span>
               </div>
             ) : (
               <button
