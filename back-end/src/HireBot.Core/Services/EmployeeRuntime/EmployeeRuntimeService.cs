@@ -356,6 +356,31 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, $"非法状态流转：{currentStatus} -> {targetStatus}");
         }
 
+        // 校验：如果要上岗，检查该用户是否已有同模板的 live 员工
+        if (targetStatus.Equals("live", StringComparison.OrdinalIgnoreCase) &&
+            !currentStatus.Equals("live", StringComparison.OrdinalIgnoreCase))
+        {
+            var templateId = employee.BasedOnTemplateId ?? employee.SourceTemplateId;
+            if (!string.IsNullOrWhiteSpace(templateId))
+            {
+                var existingLiveEmployee = await dbContext.Instances
+                    .AsNoTracking()
+                    .Where(item => item.OwnerUserId == owner
+                        && item.BasedOnTemplateId == templateId.Trim()
+                        && item.InstanceType == "department"
+                        && item.Status == "live"
+                        && item.InstanceId != employeeId)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (existingLiveEmployee is not null)
+                {
+                    return ApiResponse<EmployeeDetailDto>.ErrorResponse(
+                        409,
+                        $"您已有该模板的正式员工（{existingLiveEmployee.InstanceId}），同一模板不能重复上岗");
+                }
+            }
+        }
+
         var updated = employee with
         {
             Status = targetStatus,
@@ -582,6 +607,23 @@ public sealed partial class EmployeeRuntimeService(
         if (request is null || string.IsNullOrWhiteSpace(request.HireId) || string.IsNullOrWhiteSpace(request.TemplateId))
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "hire 信息不完整");
+        }
+
+        // 校验：同一用户不能同时雇佣同一模板的多个员工
+        var normalizedTemplateId = request.TemplateId.Trim();
+        var existingEmployee = await dbContext.Instances
+            .AsNoTracking()
+            .Where(item => item.OwnerUserId == request.OwnerSubject
+                && item.BasedOnTemplateId == normalizedTemplateId
+                && item.InstanceType == "department"
+                && item.Status != "retired")
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (existingEmployee is not null)
+        {
+            return ApiResponse<EmployeeDetailDto>.ErrorResponse(
+                409,
+                $"该模板已有雇佣中的员工（{existingEmployee.InstanceId}），请先完成现有员工的雇佣流程或将其退役");
         }
 
         var employee = new EmployeeDetailDto(
