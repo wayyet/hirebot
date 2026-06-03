@@ -1,12 +1,12 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/HireBot.Abstraction/HireBot.Abstraction.csproj" />
-    <Project Path="src/HireBot.ApiService/HireBot.ApiService.csproj" />
-    <Project Path="src/HireBot.Core/HireBot.Core.csproj" />
-    <Project Path="src/HireBot.Repository/HireBot.Repository.csproj" />
+    <Project Path="HireBot.Abstraction/HireBot.Abstraction.csproj" />
+    <Project Path="HireBot.ApiService/HireBot.ApiService.csproj" />
+    <Project Path="HireBot.Core/HireBot.Core.csproj" />
+    <Project Path="HireBot.Repository/HireBot.Repository.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/HireBot.Core.Tests/HireBot.Core.Tests.csproj" />
+    <Project Path="HireBot.Core.Tests/HireBot.Core.Tests.csproj" />
   </Folder>
   <Project Path="HireBot.AppHost/HireBot.AppHost.csproj" />
   <Project Path="HireBot.ServiceDefaults/HireBot.ServiceDefaults.csproj" />

@@ -17,19 +17,22 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS api-builder
 WORKDIR /src
 
 # 先只复制 .csproj，利用 Docker 层缓存加速 NuGet 还原
-COPY back-end/src/HireBot.Abstraction/HireBot.Abstraction.csproj         ./src/HireBot.Abstraction/
-COPY back-end/src/HireBot.ApiService/HireBot.ApiService.csproj           ./src/HireBot.ApiService/
-COPY back-end/src/HireBot.Core/HireBot.Core.csproj                       ./src/HireBot.Core/
-COPY back-end/src/HireBot.Repository/HireBot.Repository.csproj           ./src/HireBot.Repository/
-COPY back-end/HireBot.ServiceDefaults/HireBot.ServiceDefaults.csproj     ./HireBot.ServiceDefaults/
+COPY back-end/HireBot.Abstraction/HireBot.Abstraction.csproj         ./HireBot.Abstraction/
+COPY back-end/HireBot.ApiService/HireBot.ApiService.csproj           ./HireBot.ApiService/
+COPY back-end/HireBot.Core/HireBot.Core.csproj                       ./HireBot.Core/
+COPY back-end/HireBot.Repository/HireBot.Repository.csproj           ./HireBot.Repository/
+COPY back-end/HireBot.ServiceDefaults/HireBot.ServiceDefaults.csproj ./HireBot.ServiceDefaults/
 
-RUN dotnet restore src/HireBot.ApiService/HireBot.ApiService.csproj
+RUN dotnet restore HireBot.ApiService/HireBot.ApiService.csproj
 
 # 复制所有源码并发布
-COPY back-end/src/           ./src/
+COPY back-end/HireBot.Abstraction/     ./HireBot.Abstraction/
+COPY back-end/HireBot.ApiService/      ./HireBot.ApiService/
+COPY back-end/HireBot.Core/            ./HireBot.Core/
+COPY back-end/HireBot.Repository/      ./HireBot.Repository/
 COPY back-end/HireBot.ServiceDefaults/ ./HireBot.ServiceDefaults/
 
-RUN dotnet publish src/HireBot.ApiService/HireBot.ApiService.csproj \
+RUN dotnet publish HireBot.ApiService/HireBot.ApiService.csproj \
     -c Release -o /app/publish --no-restore
 
 # ─── Stage 3: Runtime ─────────────────────────────────────────────────────────

@@ -18,12 +18,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Using Include="Xunit" />
+    <ProjectReference Include="..\HireBot.ApiService\HireBot.ApiService.csproj" />
+    <ProjectReference Include="..\HireBot.Core\HireBot.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\HireBot.ApiService\HireBot.ApiService.csproj" />
-    <ProjectReference Include="..\..\src\HireBot.Core\HireBot.Core.csproj" />
+    <Using Include="Xunit" />
   </ItemGroup>
 
 </Project>

@@ -28,11 +28,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\HireBot.Core\HireBot.Core.csproj" />
-    <ProjectReference Include="..\..\HireBot.ServiceDefaults\HireBot.ServiceDefaults.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <!-- 排除运行时数据目录，避免超长路径触发 MSB3030 -->
     <Content Remove="ncrew-hire-data\**" />
     <None Remove="ncrew-hire-data\**" />
@@ -52,6 +47,11 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HireBot.Core\HireBot.Core.csproj" />
+    <ProjectReference Include="..\HireBot.ServiceDefaults\HireBot.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>
