@@ -5,6 +5,7 @@ import {
   CopyPlus,
   Loader2,
   MessageCircle,
+  PlayCircle,
   RotateCcw,
   Settings,
   ShieldCheck,
@@ -336,6 +337,19 @@ export default function InstanceDetailPage() {
                     onClick={() => void abandonBranch()}
                   >
                     {t("instanceDetail.actions.abandonBranch")}
+                  </button>
+                ) : null}
+
+                {employeeView.mappedStatus === "hiring" && employee?.basedOnTemplateId ? (
+                  <button
+                    type="button"
+                    className="hb-btn-primary"
+                    onClick={() =>
+                      navigate(`/template-pool/hiring/${employee.basedOnTemplateId}`)
+                    }
+                  >
+                    <PlayCircle size={14} />
+                    {t("instanceDetail.actions.continueHiring")}
                   </button>
                 ) : null}
 

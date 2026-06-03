@@ -4,6 +4,7 @@ import {
   CopyPlus,
   Loader2,
   MoreHorizontal,
+  PlayCircle,
   Search,
   Trash2,
   X,
@@ -466,6 +467,7 @@ export default function DepartmentEmployeesPage() {
               const canClone =
                 employee.ownership === "department" &&
                 employee.mappedStatus === "live";
+              const isHiring = employee.mappedStatus === "hiring";
               const isInterningAi = employee.mappedStatus === "interning_ai";
               const isInterningHuman =
                 employee.mappedStatus === "interning_human";
@@ -548,7 +550,20 @@ export default function DepartmentEmployeesPage() {
                       })}
                     </span>
                     <div className="hb-employee-card-footer-actions">
-                      {isInterningAi ? (
+                      {isHiring && employee.basedOnTemplateId ? (
+                        <button
+                          type="button"
+                          className="hb-btn-primary hb-hub-btn-primary text-xs"
+                          onClick={() =>
+                            navigate(`/template-pool/hiring/${employee.basedOnTemplateId}`)
+                          }
+                        >
+                          <PlayCircle size={14} />
+                          {t(
+                            "employees.departmentPage.actions.continueHiring",
+                          )}
+                        </button>
+                      ) : isInterningAi ? (
                         <button
                           type="button"
                           className="hb-btn-primary hb-hub-btn-primary text-xs"
