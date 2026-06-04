@@ -14,6 +14,25 @@ public interface IEmployeeHiringService
     Task<ApiResponse<HiringExternalSystemConfigDto>> SaveExternalSystemConfigAsync(string hireId, HiringExternalSystemConfigDto request, CancellationToken cancellationToken = default);
     
     /// <summary>
+    /// 同步对话轮次，解析 AI 回复中的结构化数据标签并保存。
+    /// </summary>
+    Task<ApiResponse<HiringConversationSyncResultDto>> SyncConversationTurnAsync(string hireId, HiringConversationSyncRequestDto request, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// 获取已收集的结构化数据。
+    /// </summary>
+    Task<ApiResponse<Dictionary<string, string>>> GetStructuredDataAsync(string hireId, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// 保存运行时状态（阶段覆盖配置 + 下游运行记录，统一接口）。
+    /// </summary>
+    Task<ApiResponse<bool>> SaveRuntimeStateAsync(string hireId, SaveRuntimeStateRequestDto request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 获取运行时状态（阶段覆盖配置 + 下游运行记录）。
+    /// </summary>
+    Task<ApiResponse<RuntimeStateDto>> GetRuntimeStateAsync(string hireId, CancellationToken cancellationToken = default);
+    /// <summary>
     /// 前端从沙箱网关直接下载产物包后，调用此接口将包上传至后端，跳过 KingCrab 依赖。
     /// </summary>
     /// <param name="linkedStoreSkillIds">用户在前端 TODO 面板关联的 store skill UUID 列表；后端会从 ncrew-builder 下载并合并到最终产物。</param>

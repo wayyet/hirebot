@@ -245,6 +245,8 @@ public sealed class HireBotDbContext : DbContext
             entity.Property(e => e.TenantId).HasMaxLength(128);
             entity.Property(e => e.CurrentStage).IsRequired().HasMaxLength(40);
             entity.Property(e => e.PackagingTestCasesStatus).HasMaxLength(40);
+            entity.Property(e => e.StageOverridesJson).HasColumnType("jsonb");
+            entity.Property(e => e.DownstreamRunsJson).HasColumnType("jsonb");
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
             entity.Property(e => e.UpdatedBy).HasMaxLength(256);
 

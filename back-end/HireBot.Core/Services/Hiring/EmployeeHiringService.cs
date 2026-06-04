@@ -367,6 +367,177 @@ internal sealed class EmployeeHiringService(
         return ApiResponse<HiringExternalSystemConfigDto>.SuccessResponse(request);
     }
 
+    public async Task<ApiResponse<HiringConversationSyncResultDto>> SyncConversationTurnAsync(
+        string hireId,
+        HiringConversationSyncRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        // 解析 AI 回复中的结构化数据标签（如 <data key="goal">...</data>）
+        var extractedData = ParseStructuredDataTags(request.AssistantReply);
+        
+        if (extractedData.Count > 0)
+        {
+            logger.LogInformation("同步对话轮次，提取到 {Count} 个结构化数据字段: HireId={HireId}, Keys={Keys}", 
+                extractedData.Count, hireId, string.Join(", ", extractedData.Keys));
+
+            // 批量保存到数据库
+            await hiringStageService.SaveStructuredDataAsync(hireId, extractedData, cancellationToken);
+        }
+        else
+        {
+            logger.LogDebug("同步对话轮次，未提取到结构化数据: HireId={HireId}", hireId);
+        }
+
+        return ApiResponse<HiringConversationSyncResultDto>.SuccessResponse(
+            new HiringConversationSyncResultDto(
+                extractedData.Count,
+                extractedData.Keys.ToList()));
+    }
+
+    public async Task<ApiResponse<Dictionary<string, string>>> GetStructuredDataAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        var data = await hiringStageService.GetStructuredDataAsync(hireId, cancellationToken);
+        
+        // 转换为非空字典（过滤掉 null 值）
+        var result = data
+            .Where(kvp => kvp.Value is not null)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value!, StringComparer.OrdinalIgnoreCase);
+        
+        return ApiResponse<Dictionary<string, string>>.SuccessResponse(result);
+    }
+
+    /// <summary>
+    /// 解析 AI 回复中的结构化数据标签（支持单行和多行格式）。
+    /// 示例：&lt;data key="goal"&gt;提升销售转化率&lt;/data&gt;
+    /// </summary>
+    private static Dictionary<string, string> ParseStructuredDataTags(string assistantReply)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        
+        if (string.IsNullOrWhiteSpace(assistantReply))
+        {
+            return result;
+        }
+
+        // 正则匹配 <data key="xxx">...</data>（支持多行内容）
+        var regex = new System.Text.RegularExpressions.Regex(
+            @"<data\s+key\s*=\s*[""']([^""']+)[""']\s*>(.*?)</data>",
+            System.Text.RegularExpressions.RegexOptions.Singleline | 
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        var matches = regex.Matches(assistantReply);
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            if (match.Success && match.Groups.Count >= 3)
+            {
+                var key = match.Groups[1].Value.Trim();
+                var value = match.Groups[2].Value.Trim();
+                
+                if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(value))
+                {
+                    result[key] = value;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    public async Task<ApiResponse<bool>> SaveRuntimeStateAsync(
+        string hireId,
+        SaveRuntimeStateRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var progress = await dbContext.HiringStageProgresses
+            .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
+
+        if (progress is null)
+        {
+            logger.LogWarning("保存运行时状态失败，雇佣会话不存在: HireId={HireId}", hireId);
+            return ApiResponse<bool>.ErrorResponse(404, "雇佣会话不存在");
+        }
+
+        // 保存阶段覆盖配置
+        if (request.StageOverrides is not null)
+        {
+            progress.StageOverridesJson = System.Text.Json.JsonSerializer.Serialize(
+                request.StageOverrides,
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        }
+
+        // 保存下游运行记录
+        if (request.DownstreamRuns is not null)
+        {
+            progress.DownstreamRunsJson = System.Text.Json.JsonSerializer.Serialize(
+                request.DownstreamRuns,
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        }
+
+        progress.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        progress.UpdatedBy = userIdentity.OperatorId;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("保存运行时状态成功: HireId={HireId}, HasOverrides={HasOverrides}, HasRuns={HasRuns}",
+            hireId, request.StageOverrides is not null, request.DownstreamRuns is not null);
+
+        return ApiResponse<bool>.SuccessResponse(true);
+    }
+
+    public async Task<ApiResponse<RuntimeStateDto>> GetRuntimeStateAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        var progress = await dbContext.HiringStageProgresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
+
+        if (progress is null)
+        {
+            return ApiResponse<RuntimeStateDto>.SuccessResponse(new RuntimeStateDto());
+        }
+
+        // 反序列化阶段覆盖配置
+        IReadOnlyDictionary<string, object>? stageOverrides = null;
+        if (!string.IsNullOrWhiteSpace(progress.StageOverridesJson))
+        {
+            try
+            {
+                stageOverrides = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(
+                    progress.StageOverridesJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "反序列化阶段覆盖配置失败: HireId={HireId}", hireId);
+            }
+        }
+
+        // 反序列化下游运行记录
+        IReadOnlyDictionary<string, DownstreamRunInfo>? downstreamRuns = null;
+        if (!string.IsNullOrWhiteSpace(progress.DownstreamRunsJson))
+        {
+            try
+            {
+                downstreamRuns = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, DownstreamRunInfo>>(
+                    progress.DownstreamRunsJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "反序列化下游运行记录失败: HireId={HireId}", hireId);
+            }
+        }
+
+        return ApiResponse<RuntimeStateDto>.SuccessResponse(new RuntimeStateDto
+        {
+            StageOverrides = stageOverrides,
+            DownstreamRuns = downstreamRuns
+        });
+    }
+
     public Task<ApiResponse<HiringFinalizeResultDto>> ImportPackageAsync(
         string hireId,
         Stream packageStream,

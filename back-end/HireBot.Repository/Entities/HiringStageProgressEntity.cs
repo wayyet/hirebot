@@ -35,6 +35,18 @@ public sealed class HiringStageProgressEntity : ITenant
     public string? PackagingTestCasesStatus { get; set; }
 
     /// <summary>
+    /// 阶段覆盖配置（用户手动修改的阶段配置，JSON 格式）。
+    /// 格式：{ "goal_collection": {...}, "skill_design": {...} }
+    /// </summary>
+    public string? StageOverridesJson { get; set; }
+
+    /// <summary>
+    /// 下游运行记录（外部系统调用记录，JSON 格式）。
+    /// 格式：{ "runId1": { "status": "success", "result": {...} }, "runId2": {...} }
+    /// </summary>
+    public string? DownstreamRunsJson { get; set; }
+
+    /// <summary>
     /// 最后更新时间（UTC）。
     /// </summary>
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
