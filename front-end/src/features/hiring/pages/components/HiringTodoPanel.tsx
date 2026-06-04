@@ -74,6 +74,10 @@ export interface HiringTodoPanelProps {
   /** 触发生成实例包 */
   onGenerate?: () => void
   generated?: boolean
+  /** 生成完成后可下载最终产物包 */
+  canDownloadFinalPackage?: boolean
+  /** 下载最终产物包 */
+  onDownloadFinalPackage?: () => void
   /** 生成完成后跳转 AI 评估页 */
   onEnterEvaluation?: () => void
   /** 用户关联的 store skill UUID 列表变化时回调；用于在导入产物包时一并提交给后端。 */
@@ -297,6 +301,8 @@ export function HiringTodoPanel({
   onAfterStageMessage,
   onGenerate,
   generated = false,
+  canDownloadFinalPackage = false,
+  onDownloadFinalPackage,
   onEnterEvaluation,
   onLinkedSkillIdsChange,
   templateId,
@@ -427,6 +433,8 @@ export function HiringTodoPanel({
           onToggle={() => toggle('final')}
           onGenerate={onGenerate}
           onEnterEvaluation={onEnterEvaluation}
+          canDownload={canDownloadFinalPackage}
+          onDownload={onDownloadFinalPackage}
         />
       </div>
     </div>
@@ -2366,7 +2374,7 @@ function hasPersistedExternalConfig(config?: HiringExternalSystemConfig | null):
 // ── Final 卡片（生成实例包） ──────────────────────────────────────────────────
 
 function FinalCard({
-  canGenerate, generated, expanded, isFocus, onToggle, onGenerate, onEnterEvaluation,
+  canGenerate, generated, expanded, isFocus, onToggle, onGenerate, onEnterEvaluation, canDownload, onDownload,
 }: {
   canGenerate: boolean
   generated: boolean
@@ -2375,6 +2383,8 @@ function FinalCard({
   onToggle: () => void
   onGenerate?: () => void
   onEnterEvaluation?: () => void
+  canDownload?: boolean
+  onDownload?: () => void
 }) {
   const { t } = useTranslation()
   return (
@@ -2398,12 +2408,23 @@ function FinalCard({
           <p className="hb-todo-stage-hint">
             {t('hiring.todo.final.hint')}
           </p>
-          <button type="button"
-            className={clsx('hb-todo-row-btn', canGenerate && !generated ? 'is-primary' : 'is-ghost')}
-            disabled={!canGenerate || generated}
-            onClick={onGenerate}>
-            {generated ? t('hiring.todo.final.generatedBtn') : t('hiring.todo.final.generateBtn')}
-          </button>
+          <div className="hb-todo-actions-row">
+            <button type="button"
+              className={clsx('hb-todo-row-btn', canGenerate && !generated ? 'is-primary' : 'is-ghost')}
+              disabled={!canGenerate || generated}
+              onClick={onGenerate}>
+              {generated ? t('hiring.todo.final.generatedBtn') : t('hiring.todo.final.generateBtn')}
+            </button>
+            {generated && canDownload && onDownload && (
+              <button
+                type="button"
+                className="hb-todo-row-btn is-primary"
+                onClick={onDownload}
+              >
+                {t('hiring.todo.final.downloadPackageBtn')}
+              </button>
+            )}
+          </div>
           {generated && onEnterEvaluation && (
             <button
               type="button"

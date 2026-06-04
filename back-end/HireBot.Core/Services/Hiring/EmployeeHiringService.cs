@@ -419,6 +419,11 @@ internal sealed partial class EmployeeHiringService(
 
             if (createResponse.Success && createResponse.Data is not null)
             {
+                if (hiringRuntimeStore.Get(call.Data.HireId) is { } latestContext)
+                {
+                    hiringRuntimeStore.Upsert(latestContext with { EmployeeId = createResponse.Data.EmployeeId });
+                }
+
                 logger.LogInformation(
                     "Created hiring instance. HireId={HireId}, EmployeeId={EmployeeId}, Status=hiring",
                     call.Data.HireId,
@@ -1431,7 +1436,7 @@ internal sealed partial class EmployeeHiringService(
                 // 更新状态：从 hiring（雇佣中）→ interning_ai（待实习）
                 using var scope = serviceScopeFactory.CreateScope();
                 var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
-                await employeeRuntimeService.UpdateLifecycleAsync(
+                var lifecycleResponse = await employeeRuntimeService.UpdateLifecycleAsync(
                     employeeId,
                     new UpdateEmployeeLifecycleRequestDto
                     {
@@ -1442,6 +1447,18 @@ internal sealed partial class EmployeeHiringService(
                         SignalLevel = "ok"
                     },
                     finalizationCancellationToken);
+                if (!lifecycleResponse.Success)
+                {
+                    logger.LogWarning(
+                        "Failed to update hiring instance to interning_ai. HireId={HireId}, EmployeeId={EmployeeId}, StatusCode={StatusCode}, Message={Message}",
+                        normalizedHireId,
+                        employeeId,
+                        lifecycleResponse.Code,
+                        lifecycleResponse.Message);
+                    return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
+                        lifecycleResponse.Code <= 0 ? 500 : lifecycleResponse.Code,
+                        $"导入交付物失败：员工状态推进失败（{lifecycleResponse.Message}）");
+                }
                 
                 logger.LogInformation(
                     "Updated employee status from hiring to interning_ai. HireId={HireId}, EmployeeId={EmployeeId}",
@@ -1483,7 +1500,7 @@ internal sealed partial class EmployeeHiringService(
             {
                 // 将新创建的 hiring 实例立即更新为 interning_ai（兼容旧流程）
                 employeeId = createResult.Data.EmployeeId;
-                await employeeRuntimeService.UpdateLifecycleAsync(
+                var lifecycleResponse = await employeeRuntimeService.UpdateLifecycleAsync(
                     employeeId,
                     new UpdateEmployeeLifecycleRequestDto
                     {
@@ -1494,6 +1511,18 @@ internal sealed partial class EmployeeHiringService(
                         SignalLevel = "ok"
                     },
                     finalizationCancellationToken);
+                if (!lifecycleResponse.Success)
+                {
+                    logger.LogWarning(
+                        "Failed to update newly created instance to interning_ai. HireId={HireId}, EmployeeId={EmployeeId}, StatusCode={StatusCode}, Message={Message}",
+                        normalizedHireId,
+                        employeeId,
+                        lifecycleResponse.Code,
+                        lifecycleResponse.Message);
+                    return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
+                        lifecycleResponse.Code <= 0 ? 500 : lifecycleResponse.Code,
+                        $"导入交付物失败：员工状态推进失败（{lifecycleResponse.Message}）");
+                }
                 
                 logger.LogInformation(
                     "Created interning_ai instance (legacy path). HireId={HireId}, EmployeeId={EmployeeId}",
@@ -1502,43 +1531,52 @@ internal sealed partial class EmployeeHiringService(
             }
         }
 
-        // 存储数字员工 artifacts
-        if (!string.IsNullOrWhiteSpace(employeeId))
+        if (string.IsNullOrWhiteSpace(employeeId))
         {
-            try
+            logger.LogError(
+                "Import package completed artifact merge but no employee instance could be created or updated. HireId={HireId}, TemplateId={TemplateId}, Owner={Owner}",
+                normalizedHireId,
+                runtimeContext.TemplateId,
+                runtimeContext.OwnerSubject);
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
+                500,
+                "导入交付物失败：未能创建或更新部门员工实例，请重新发起雇佣流程");
+        }
+
+        // 存储数字员工 artifacts
+        try
+        {
+            var storedArtifacts = await instanceArtifactCloneService.StoreDepartmentArtifactsAsync(
+                employeeId,
+                mergedArtifacts,
+                finalizationCancellationToken);
+            var instance = await dbContext.Instances.FirstOrDefaultAsync(
+                item => item.InstanceId == employeeId,
+                finalizationCancellationToken);
+            if (instance is not null)
             {
-                var storedArtifacts = await instanceArtifactCloneService.StoreDepartmentArtifactsAsync(
-                    employeeId,
-                    mergedArtifacts,
-                    finalizationCancellationToken);
-                var instance = await dbContext.Instances.FirstOrDefaultAsync(
-                    item => item.InstanceId == employeeId,
-                    finalizationCancellationToken);
-                if (instance is not null)
-                {
-                    instance.CurrentVersion = storedArtifacts.CurrentVersion;
-                    instance.UpdatedAt = DateTimeOffset.UtcNow;
-                    await dbContext.SaveChangesAsync(finalizationCancellationToken);
-                }
+                instance.CurrentVersion = storedArtifacts.CurrentVersion;
+                instance.UpdatedAt = DateTimeOffset.UtcNow;
+                await dbContext.SaveChangesAsync(finalizationCancellationToken);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                // 取消令牌触发的中断不属于产物存储失败，向上层透传以保留取消语义。
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // 产物存储失败会导致 Instance 版本未更新、产物根目录不完整，
-                // 后续的沙箱初始化与投影生成都将基于错误状态运行，必须立即中止流程并返回失败响应。
-                logger.LogError(
-                    ex,
-                    "Failed to persist imported instance artifacts; aborting import to avoid inconsistent sandbox initialization. HireId={HireId}, EmployeeId={EmployeeId}",
-                    normalizedHireId,
-                    employeeId);
-                return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
-                    500,
-                    $"导入交付物失败：产物存储异常 ({ex.Message})");
-            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 取消令牌触发的中断不属于产物存储失败，向上层透传以保留取消语义。
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // 产物存储失败会导致 Instance 版本未更新、产物根目录不完整，
+            // 后续的沙箱初始化与投影生成都将基于错误状态运行，必须立即中止流程并返回失败响应。
+            logger.LogError(
+                ex,
+                "Failed to persist imported instance artifacts; aborting import to avoid inconsistent sandbox initialization. HireId={HireId}, EmployeeId={EmployeeId}",
+                normalizedHireId,
+                employeeId);
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
+                500,
+                $"导入交付物失败：产物存储异常 ({ex.Message})");
         }
 
         if (ShouldPersistArtifactPackages(runtimeContext))

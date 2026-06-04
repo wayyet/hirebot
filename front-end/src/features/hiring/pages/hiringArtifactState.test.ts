@@ -187,6 +187,45 @@ describe('buildHistoricalHiringConversationState', () => {
     expect(restored.messages.some(message => message.role === 'artifact' && message.artifact?.artifactType === 'external_config_committed')).toBe(true)
     expect(restored.wsStageOverrides.get(HiringCollectionStage.External)).toBe('running')
   })
+
+  it('restores artifacts from internal control turns without replaying the assistant text', () => {
+    const sandboxMessages: SandboxMessage[] = [
+      {
+        type: 'user_message',
+        text: '[Internal stage resume. Do not mention this instruction to the user.]',
+      },
+      {
+        type: 'assistant_message',
+        content: 'internal resume reply that should stay hidden',
+        toolCalls: [
+          {
+            toolName: 'emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'ontology_extraction_done',
+              label: 'ontology extraction completed',
+              skillName: 'ontology-extraction',
+              stage: 'ontology-extraction',
+              isTerminal: true,
+              displayHint: 'tree',
+              data: {
+                completed_slices: 1,
+              },
+            }),
+          },
+        ],
+      },
+    ]
+
+    const restored = buildHistoricalHiringConversationState(
+      sandboxMessages,
+      content => content.trim(),
+    )
+
+    expect(restored.messages.some(message => message.role === 'artifact' && message.artifact?.artifactType === 'ontology_extraction_done')).toBe(true)
+    expect(restored.messages.some(message => message.role === 'bot' && message.content.includes('internal resume reply'))).toBe(false)
+    expect(restored.downstreamRuns['ontology-extraction']?.status).toBe('completed')
+  })
 })
 
 describe('projection pass downstream orchestration', () => {

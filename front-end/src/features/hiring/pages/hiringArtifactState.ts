@@ -56,13 +56,30 @@ function parseHistoricalFileSize(label: string): number {
   return Math.round(value)
 }
 
+function shouldHideHistoricalUserMessage(content: string): boolean {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    return true
+  }
+
+  if (trimmed.startsWith('[Internal ') || trimmed.startsWith('[System ')) {
+    return true
+  }
+
+  if (!trimmed.startsWith('[FILE_URL:')) {
+    return false
+  }
+
+  return !/\[FILE_URL:[^\]]+\]\s*\r?\nAttached file:\s*(.+?)\s*\(([^)\r\n]+)\)\s*/i.test(trimmed)
+}
+
 function normalizeHistoricalUserMessage(content: string): { content: string; files?: ChatFile[] } | null {
   const trimmed = content.trim()
   if (!trimmed) {
     return null
   }
 
-  if (trimmed.startsWith('[Internal ') || trimmed.startsWith('[System ')) {
+  if (shouldHideHistoricalUserMessage(trimmed)) {
     return null
   }
 
@@ -271,9 +288,11 @@ export function buildHistoricalHiringConversationState(
   const wsStageOverrides = new Map<HiringUiStage, 'running' | 'completed' | 'failed'>()
   const downstreamRuns: DownstreamRunsSnapshot = {}
   let artifactIndex = 0
+  let suppressNextAssistantVisibleMessage = false
 
   for (const message of sandboxMessages) {
     if (message.type === 'user_message') {
+      suppressNextAssistantVisibleMessage = shouldHideHistoricalUserMessage(String(message.text ?? ''))
       const userMessage = normalizeHistoricalUserMessage(String(message.text ?? ''))
       if (userMessage) {
         messages.push({
@@ -335,13 +354,14 @@ export function buildHistoricalHiringConversationState(
     }
 
     const assistantContent = normalizeAssistantReply(String(message.content ?? ''))
-    if (assistantContent.length > 0) {
+    if (!suppressNextAssistantVisibleMessage && assistantContent.length > 0) {
       messages.push({
         id: mkHistoricalId('assistant', messages.length),
         role: 'bot',
         content: assistantContent,
       })
     }
+    suppressNextAssistantVisibleMessage = false
   }
 
   // skill_stage_gate 事件不存在于沙箱会话历史中，因此上方循环可能无法推断任何阶段状态。

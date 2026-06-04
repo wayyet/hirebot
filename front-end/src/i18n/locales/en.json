@@ -482,6 +482,7 @@
         "hint": "After completing all previous stages, materials, skills, and optional configurations will be integrated to generate an instance template package.",
         "generateBtn": "Generate Instance Package",
         "generatedBtn": "Generated",
+        "downloadPackageBtn": "Download Instance Package",
         "enterEvaluationBtn": "Enter AI Evaluation"
       }
     },
