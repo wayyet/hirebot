@@ -186,6 +186,9 @@ public sealed class EmployeeTemplateServiceTests
         Assert.Equal(
             "/workspace/uploads/evaluation-expert-consumer/runs/eval-session-abc",
             contextRoot.GetProperty("paths").GetProperty("run_dir").GetString());
+        Assert.Equal(
+            "/workspace/uploads/evaluation-expert-consumer/runs/eval-session-abc/synthesized-cases",
+            contextRoot.GetProperty("paths").GetProperty("synthesized_cases_dir").GetString());
         AssertDoesNotReferenceLegacyEvaluationFlow(runtimeContextJson);
 
         var bootstrapJson = (string)InvokeEvaluationStaticPrivate(
@@ -202,6 +205,11 @@ public sealed class EmployeeTemplateServiceTests
         Assert.Equal("evaluation_consumer", bootstrapRoot.GetProperty("workflow").GetString());
         Assert.Equal("evaluation-expert-consumer", bootstrapRoot.GetProperty("skill_name").GetString());
         Assert.Contains("runtime_driver.driver_config", bootstrapRoot.GetProperty("instruction").GetString(), StringComparison.Ordinal);
+        Assert.Contains("paths.run_dir/reports/evaluation_report.json", bootstrapRoot.GetProperty("instruction").GetString(), StringComparison.Ordinal);
+        Assert.Contains("paths.run_dir/traces/<test_case_id>.trace.json", bootstrapRoot.GetProperty("instruction").GetString(), StringComparison.Ordinal);
+        Assert.Contains("runtime-drivers/ws_jwt/requirements.txt", bootstrapRoot.GetProperty("instruction").GetString(), StringComparison.Ordinal);
+        Assert.Contains("never create read_one_event.py", bootstrapRoot.GetProperty("instruction").GetString(), StringComparison.Ordinal);
+        Assert.Contains("STEP 10 is the completion gate", bootstrapRoot.GetProperty("instruction").GetString(), StringComparison.Ordinal);
         AssertDoesNotReferenceLegacyEvaluationFlow(bootstrapJson);
     }
 

@@ -97,6 +97,7 @@ Each iteration:
 2. Render `simulators/<simulator_id>/system_prompt.md` against placeholders:
    - `customer_persona` / `goal` / `stop_conditions` / `context` / `current_emotion` / `dialog_so_far` / `effective_max_turns`
 3. The agent's own LLM consumes the rendered prompt and returns a `SimulatorDecision` JSON. Validate against `runtime-schemas/simulator_decision.schema.json` BEFORE writing anything to the driver. Validation failure blocks the scenario; do not write a malformed decision and do not patch the trace later.
+   If the driver returns `{"event":"error","recoverable":true,...}` after a malformed action, correct the action JSON and continue with the same driver process. Do not cleanup/spawn and do not count this as a scenario retry.
 4. Compute:
    ```
    effective_max_turns = min(tc.turn_budget.hard_max_turns, evaluation_context.global_turn_cap or 30)
@@ -128,7 +129,9 @@ The driver writes the final trace and exits. The trace file at `./runs/<eval_id>
 
 ### 7. On `{"event":"error", ...}`
 
-Surface the detail and abort the scenario. The driver writes a partial trace before exit.
+If `recoverable == true`, surface the detail in the internal run log, fix the malformed action, and send the corrected next action to the same driver process. Do not close stdin and do not restart the scenario.
+
+If `recoverable` is absent or false, surface the detail and abort the scenario. The driver writes a partial trace before exit.
 
 ## HARD RULE: no orchestrator scripts (K8)
 
@@ -285,6 +288,7 @@ A rejected trace taints the run; the affected `tc_id`s MUST appear in `Evaluatio
 | `while True:` loop bundling multiple turns into one execution | K8 | One round-trip per agent turn |
 | HTTP call to "the LLM" from a script you wrote | K8 | The simulator IS the host LLM |
 | `.sh` / `Makefile` chaining the spawn with anything else | K8 | Single shell command per turn |
+| Create `read_one_event.py` to poll driver stdout | K8 / K20 | Use `run_plan.scenarios[i].commands.read_one_event` verbatim; it is already the inline cursor-based shell poller |
 | Write one `send` and close stdin | K14 | Always write `end` before closing |
 | Self-cap turns below `effective_max_turns` for "demo" | K14 | Let the budget exhaust naturally |
 | Skip the final `send` when `should_continue=false` and `next_utterance` is non-empty | K14 (clause 4) | send-then-end pattern |

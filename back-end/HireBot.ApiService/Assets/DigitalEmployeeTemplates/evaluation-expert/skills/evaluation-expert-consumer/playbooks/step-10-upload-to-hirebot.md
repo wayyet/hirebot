@@ -6,6 +6,8 @@
 **Inputs**: `runs/<eval_id>/evaluation_context.json`、`runs/<eval_id>/reports/evaluation_report.json`、`runs/<eval_id>/traces/*.trace.json`
 **Outputs**: `runs/<eval_id>/upload_verdict_result.json`、`runs/<eval_id>/upload_trace_result.json`
 
+Compatibility: the upload scripts also tolerate legacy/ad-hoc names produced by older runs (`final_report.json`, `reports/final_report.json`, `evaluation_report_tainted.json`, `final_report_tainted.json`, and `traces/*.execution_trace.json`). New compliant runs MUST still write the standard paths above. Tainted runs are not valid for formal acceptance, but when the user explicitly asks to continue for reference, STEP 10 still syncs the trace bundle and syncs the tainted verdict as `FAIL` with a TAINTED summary so the right-side panel reflects what happened.
+
 ## 前提条件
 
 在执行 STEP 10 前，以下条件必须全部满足：
@@ -18,6 +20,8 @@
 | Python 解释器可用 | `python3` 可执行（沙箱内置，无需 venv）|
 
 若 `evaluation_context.hirebot_api` 缺失，本步骤跳过（评估仍然完整，只是不同步到 HireBot）。提示用户在 `evaluation_context.json` 中补充 `hirebot_api` 配置后可手动重跑。
+
+When `evaluation_context.hirebot_api` is present, STEP 10 is a completion gate for HireBot UI synchronization. The agent MUST NOT tell the user that the right-side report or trace panel is updated unless both output files exist and both contain `"status": "success"`. Raw `[FILE_URL:...]` attachments are not a substitute for STEP 10; they only prove files exist in the sandbox, not that HireBot has persisted the report and trace assets.
 
 ## Token / 鉴权说明
 

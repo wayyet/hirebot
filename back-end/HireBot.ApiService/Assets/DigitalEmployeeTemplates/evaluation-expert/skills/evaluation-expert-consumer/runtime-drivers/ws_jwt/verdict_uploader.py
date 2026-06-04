@@ -33,6 +33,13 @@ from typing import Any
 
 from auth_client import resolve_auth_from_eval_ctx
 
+_REPORT_CANDIDATE_NAMES = (
+    "evaluation_report.json",
+    "final_report.json",
+    "evaluation_report_tainted.json",
+    "final_report_tainted.json",
+)
+
 
 # ---------------------------------------------------------------------------
 # 配置解析
@@ -40,6 +47,63 @@ from auth_client import resolve_auth_from_eval_ctx
 
 def _load_json(path: str) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _report_candidates(
+    requested_path: Path,
+    evaluation_context_path: Path,
+    eval_ctx: dict[str, Any],
+) -> list[Path]:
+    paths = eval_ctx.get("paths") if isinstance(eval_ctx.get("paths"), dict) else {}
+    run_dir_value = str(paths.get("run_dir") or "").strip()
+
+    roots: list[Path] = []
+    if requested_path.is_dir():
+        roots.append(requested_path)
+    roots.append(requested_path.parent)
+    if run_dir_value:
+        roots.append(Path(run_dir_value))
+    roots.append(evaluation_context_path.parent)
+
+    result: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        if not str(root):
+            continue
+
+        candidates = [root / name for name in _REPORT_CANDIDATE_NAMES]
+        candidates.extend(root / "reports" / name for name in _REPORT_CANDIDATE_NAMES)
+        for candidate in candidates:
+            key = str(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(candidate)
+
+    return result
+
+
+def _resolve_report_path(
+    requested_report_path: str,
+    evaluation_context_path: str,
+    eval_ctx: dict[str, Any],
+) -> Path:
+    requested = Path(requested_report_path)
+    if requested.is_file():
+        return requested
+
+    context_path = Path(evaluation_context_path)
+    candidates = _report_candidates(requested, context_path, eval_ctx)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    rendered = "\n  - ".join(str(candidate) for candidate in candidates)
+    raise FileNotFoundError(
+        "evaluation report file not found. Checked:\n"
+        f"  - {requested}\n"
+        f"  - {rendered}"
+    )
 
 
 def _unwrap_report(data: dict[str, Any]) -> dict[str, Any]:
@@ -96,6 +160,29 @@ def _resolve_passed(report: dict[str, Any]) -> bool:
         return False
 
     return _resolve_overall_score(report) >= 60.0
+
+
+def _is_tainted_report(report: dict[str, Any], report_path: Path | None = None) -> bool:
+    if report_path is not None and "tainted" in report_path.name.lower():
+        return True
+
+    explicit = _coerce_bool(report.get("tainted") or report.get("is_tainted"))
+    if explicit is not None:
+        return bool(explicit)
+
+    for key in ("status", "run_status", "runStatus", "compliance_status", "complianceStatus"):
+        value = str(report.get(key) or "").strip().lower()
+        if "tainted" in value:
+            return True
+
+    violations = report.get("violations") or report.get("k_rule_violations")
+    if isinstance(violations, list):
+        for violation in violations:
+            text = json.dumps(violation, ensure_ascii=False).lower()
+            if "tainted" in text or "k8" in text:
+                return True
+
+    return False
 
 
 def resolve_hirebot_api_config(eval_ctx: dict[str, Any]) -> tuple[str, str, str]:
@@ -223,7 +310,13 @@ def _build_dimension_scores_for_upload(report: dict[str, Any]) -> list[dict[str,
     return result
 
 
-def _build_summary_for_upload(report: dict[str, Any]) -> str:
+def _with_tainted_prefix(summary: str, tainted: bool) -> str:
+    if tainted and not summary.upper().startswith("TAINTED"):
+        return f"TAINTED run: {summary}"
+    return summary
+
+
+def _build_summary_for_upload(report: dict[str, Any], *, tainted: bool = False) -> str:
     narrative = report.get("narrative") if isinstance(report.get("narrative"), dict) else {}
     for value in (
         narrative.get("executive_summary"),
@@ -234,7 +327,7 @@ def _build_summary_for_upload(report: dict[str, Any]) -> str:
     ):
         summary = str(value or "").strip()
         if summary:
-            return summary
+            return _with_tainted_prefix(summary, tainted)
 
     red_line = report.get("red_line") if isinstance(report.get("red_line"), dict) else {}
     if red_line.get("triggered"):
@@ -268,6 +361,8 @@ def _build_summary_for_upload(report: dict[str, Any]) -> str:
 def build_verdict_payload(
     session_id: str,
     report: dict[str, Any],
+    *,
+    tainted: bool = False,
 ) -> dict[str, Any]:
     """
     构造 EvaluationVerdictSyncRequestDto 字典。
@@ -283,7 +378,7 @@ def build_verdict_payload(
         }
       }
     """
-    passed = _resolve_passed(report)
+    passed = False if tainted else _resolve_passed(report)
     overall_score = _resolve_overall_score(report)
 
     return {
@@ -291,7 +386,7 @@ def build_verdict_payload(
         "verdict": {
             "verdict": "PASS" if passed else "FAIL",
             "overallScore": overall_score,
-            "summary": _build_summary_for_upload(report),
+            "summary": _build_summary_for_upload(report, tainted=tainted),
             "dimensionScores": _build_dimension_scores_for_upload(report),
         },
     }
@@ -372,7 +467,20 @@ def main() -> int:
     args = parser.parse_args()
 
     eval_ctx = _load_json(args.evaluation_context)
-    report = _unwrap_report(_load_json(args.evaluation_report))
+    try:
+        report_path = _resolve_report_path(
+            args.evaluation_report,
+            args.evaluation_context,
+            eval_ctx,
+        )
+        report = _unwrap_report(_load_json(str(report_path)))
+    except FileNotFoundError as exc:
+        print(f"[错误] {exc}")
+        _write_json(args.output, {
+            "status": "error",
+            "error": str(exc),
+        })
+        return 1
 
     try:
         base_url, employee_id, session_id = resolve_hirebot_api_config(eval_ctx)
@@ -381,11 +489,12 @@ def main() -> int:
         print(f"[错误] 配置解析失败: {exc}")
         return 1
 
+    tainted = _is_tainted_report(report, report_path)
     overall_score = _resolve_overall_score(report)
-    passed = _resolve_passed(report)
+    passed = False if tainted else _resolve_passed(report)
     verdict_str = "PASS" if passed else "FAIL"
 
-    payload = build_verdict_payload(session_id, report)
+    payload = build_verdict_payload(session_id, report, tainted=tainted)
 
     print(f"[上传] 目标地址:   {base_url}")
     print(f"[上传] 员工 ID:    {employee_id}")
@@ -400,6 +509,8 @@ def main() -> int:
         "status": "success" if upload_ok else "error",
         "employee_id": employee_id,
         "session_id": session_id,
+        "report_path": str(report_path),
+        "tainted": tainted,
         "verdict": verdict_str,
         "overall_score": overall_score,
         "request_payload": payload,

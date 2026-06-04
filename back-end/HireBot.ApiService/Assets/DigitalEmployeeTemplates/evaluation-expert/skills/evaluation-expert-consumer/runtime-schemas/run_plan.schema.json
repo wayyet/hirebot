@@ -172,9 +172,11 @@
                 "allOf": [
                   { "pattern": "sed -n" },
                   { "pattern": "\\$PAD/out" },
-                  { "pattern": "\\$PAD/cursor" }
+                  { "pattern": "\\$PAD/cursor" },
+                  { "not": { "pattern": "read_one_event\\.py" } },
+                  { "not": { "pattern": "python3?" } }
                 ],
-                "description": "Literal shell string that polls exactly one unread event line from `pad.out_file` using `pad.cursor`. Agent uses the same string for every event read in this scenario."
+                "description": "Literal inline shell string that polls exactly one unread event line from `pad.out_file` using `pad.cursor`. It MUST be the cursor-based sed poller, not a Python helper script. Agent uses the same string for every event read in this scenario."
               },
               "write_action_template": {
                 "type": "string",

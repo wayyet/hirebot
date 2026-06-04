@@ -54,12 +54,12 @@ It is **template-agnostic**: every employee role is evaluated through the **same
                                                                           │
                                                            JSON + HTML report
                                                                           │
-                                                  STEP 10 uploadToHireBot (optional, if hirebot_api configured)
+                                                  STEP 10 uploadToHireBot (required when hirebot_api configured)
                                                   ├── sync-verdict ──► POST /api/v1/employees/{id}/evaluation/sync-verdict
                                                   └── sync-trace   ──► POST /api/v1/employees/{id}/evaluation/sync-trace
 ```
 
-Legend: deterministic = white-box; **LLM** = STEP 1.5 (conditional), STEP 4 (fan-out), STEP 8 (per-scenario synthesis), STEP 9 (overall synthesis); **driver subprocess** in STEP 3 only; **STEP 10** and **STEP 1.6** are deterministic subprocesses (optional, skipped if `hirebot_api` absent).
+Legend: deterministic = white-box; **LLM** = STEP 1.5 (conditional), STEP 4 (fan-out), STEP 8 (per-scenario synthesis), STEP 9 (overall synthesis); **driver subprocess** in STEP 3 only; **STEP 10** and **STEP 1.6** are deterministic subprocesses (STEP 10 is required when `hirebot_api` is present; skipped only if `hirebot_api` is absent).
 
 ## Producer skill dependencies
 
@@ -80,7 +80,7 @@ The host agent executes this skill **by directly performing each STEP**, not by 
    - `./runtime-drivers/<driver_id>/run.py` and its sibling files inside the same driver directory
    - any future `runtime-*/<id>/` adapter directory shipped with the skill at creation time
 
-   The agent MUST NOT create ANY new `.py` / `.sh` / `.ts` / `.js` / `.mjs` / `.ipynb` / `Makefile` / `*.cmd` / `*.ps1` file ANYWHERE under the skill root. Full anti-pattern list and recovery: see [`playbooks/step-03-driver-and-simulator-loop.md`](./playbooks/step-03-driver-and-simulator-loop.md#hard-rule-no-orchestrator-scripts-k8).
+   The agent MUST NOT create ANY new `.py` / `.sh` / `.ts` / `.js` / `.mjs` / `.ipynb` / `Makefile` / `*.cmd` / `*.ps1` file ANYWHERE under the skill root. In particular, never create `runtime-drivers/ws_jwt/read_one_event.py`; `commands.read_one_event` is the inline cursor-based shell string from STEP 2.5. Full anti-pattern list and recovery: see [`playbooks/step-03-driver-and-simulator-loop.md`](./playbooks/step-03-driver-and-simulator-loop.md#hard-rule-no-orchestrator-scripts-k8).
 
 2. **Drivers are called, not reimplemented.** STEP 3 spawns the selected driver as a subprocess via shell and communicates over stdin/stdout line-JSON. The agent MUST NOT `import` driver modules into agent-authored code, and MUST NOT replicate WebSocket / JWT / trace-writing logic outside the driver directory.
 
@@ -167,7 +167,7 @@ The authoritative execution graph lives in `contracts/projections/ontology_extra
 | 7    | `redLineCheck` | deterministic, LLM-disallowed | same playbook |
 | 8    | `buildScenarioReports` | LLM synthesis (prose only, per scenario) | inline (numeric fields byte-copied from MetricScore; LLM only writes prose) |
 | 9    | `buildOverallReport` | LLM synthesis (prose only, exactly once) | [`step-09-overall-report.md`](./playbooks/step-09-overall-report.md) |
-| 10   | `uploadToHireBot`   | deterministic subprocess (optional, skipped if `hirebot_api` absent) | [`step-10-upload-to-hirebot.md`](./playbooks/step-10-upload-to-hirebot.md) |
+| 10   | `uploadToHireBot`   | deterministic subprocess (required when `hirebot_api` present; skipped only if absent) | [`step-10-upload-to-hirebot.md`](./playbooks/step-10-upload-to-hirebot.md) |
 
 Before any of the above runs, verify the [pre-flight invariants](./playbooks/pre-flight-invariants.md). When a HARD RULE or K-rule fails, follow the [tainted-run lifecycle](./playbooks/tainted-run-lifecycle.md).
 
