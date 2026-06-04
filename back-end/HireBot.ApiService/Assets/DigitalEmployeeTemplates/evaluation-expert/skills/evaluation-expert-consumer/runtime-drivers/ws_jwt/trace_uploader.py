@@ -1,6 +1,6 @@
 """
 trace_uploader.py - 把执行轨迹上传到 HireBot 后端
-D:\hirebot\back-end\src\HireBot.ApiService\Assets\DigitalEmployeeTemplates\evaluation-expert\skills\evaluation-expert-consumer\runtime-drivers\ws_jwt\trace_uploader.py
+Path: runtime-drivers/ws_jwt/trace_uploader.py
 职责：
   - 扫描 runs/<eval_id>/traces/ 目录下所有 *.trace.json 文件（STEP 3 ws_jwt driver 输出）
   - 读取 evaluation_context.json（与 verdict_uploader.py 共用同一文件）
@@ -120,9 +120,21 @@ def collect_traces(traces_dir: str) -> list[dict[str, Any]]:
     if not d.is_dir():
         raise FileNotFoundError(f"轨迹目录不存在: {traces_dir}")
 
-    trace_files = sorted(d.glob("*.trace.json"))
+    trace_files: list[Path] = []
+    seen: set[str] = set()
+    for pattern in ("*.trace.json", "*.execution_trace.json"):
+        for trace_file in sorted(d.glob(pattern)):
+            key = str(trace_file)
+            if key in seen:
+                continue
+            seen.add(key)
+            trace_files.append(trace_file)
+
     if not trace_files:
-        raise FileNotFoundError(f"轨迹目录中没有找到 *.trace.json 文件: {traces_dir}")
+        raise FileNotFoundError(
+            "trace directory contains no *.trace.json or "
+            f"*.execution_trace.json files: {traces_dir}"
+        )
 
     result: list[dict[str, Any]] = []
     for tf in trace_files:
@@ -134,6 +146,27 @@ def collect_traces(traces_dir: str) -> list[dict[str, Any]]:
             print(f"  [警告] 跳过无法解析的轨迹文件 {tf.name}: {exc}")
 
     return result
+
+
+def collect_tainted_notice(traces_dir: str) -> dict[str, Any] | None:
+    notice_path = Path(traces_dir).parent / "TAINTED.md"
+    if not notice_path.is_file():
+        return None
+
+    try:
+        content = notice_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        return {
+            "present": True,
+            "path": str(notice_path),
+            "read_error": str(exc),
+        }
+
+    return {
+        "present": True,
+        "path": str(notice_path),
+        "content_preview": content[:4000],
+    }
 
 
 def _parse_datetime(value: Any) -> Any:
@@ -325,6 +358,7 @@ def build_trace_bundle(
     eval_ctx: dict[str, Any],
     traces: list[dict[str, Any]],
     synthesized_testcases: list[dict[str, Any]] | None = None,
+    tainted_notice: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     将多个场景轨迹和合成测试用例合并为一个 bundle 文档。
@@ -355,6 +389,7 @@ def build_trace_bundle(
             "iteration": session.get("iteration"),
             "collected_at": datetime.now(timezone.utc).isoformat(),
             "target_sandbox_id": target_sandbox.get("sandbox_id") or "",
+            "tainted": tainted_notice is not None,
         },
         "turns": frontend_turns,
         "trace_count": len(traces),
@@ -368,6 +403,9 @@ def build_trace_bundle(
     if synthesized_testcases:
         bundle["test_cases"] = synthesized_testcases
         bundle["test_case_count"] = len(synthesized_testcases)
+
+    if tainted_notice is not None:
+        bundle["tainted"] = tainted_notice
 
     return {
         "sessionId": session_id,
@@ -468,6 +506,7 @@ def main() -> int:
     print(f"[采集] 扫描轨迹目录: {args.traces_dir}")
     try:
         traces = collect_traces(args.traces_dir)
+        tainted_notice = collect_tainted_notice(args.traces_dir)
     except FileNotFoundError as exc:
         print(f"[错误] {exc}")
         return 1
@@ -487,6 +526,7 @@ def main() -> int:
         eval_ctx,
         traces,
         synthesized_testcases=synthesized_testcases if synthesized_testcases else None,
+        tainted_notice=tainted_notice,
     )
 
     trace_json_bytes = len(payload["traceJson"].encode("utf-8"))
@@ -506,6 +546,7 @@ def main() -> int:
         "evaluation_id": evaluation_id,
         "trace_count": len(traces),
         "test_case_count": len(synthesized_testcases),
+        "tainted": tainted_notice is not None,
         "response": response,
     })
 

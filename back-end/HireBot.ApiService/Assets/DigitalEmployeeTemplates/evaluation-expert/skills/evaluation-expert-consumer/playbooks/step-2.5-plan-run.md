@@ -30,6 +30,7 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
 2. Sanity-check (fail-fast unless a self-heal is defined below; any unrecovered failure ⇒ DO NOT write run_plan.json):
    - run_py_path exists and is executable
    - `python3` is available (`which python3`); if not found, fail-fast
+   - dependency handling is fully automatic: if `websockets` is missing, install `runtime-drivers/ws_jwt/requirements.txt` once and continue; `ws_jwt/run.py` also performs the same one-shot fallback, so STEP 3 MUST NOT pause for user confirmation on `ModuleNotFoundError: websockets`
    - **websockets dependency prep (AUTOMATIC — do NOT ask the user)**: run `python3 -c "import websockets"` (single shell call); if exit-code ≠ 0, silently run `pip install -r runtime-drivers/ws_jwt/requirements.txt` once and continue; this is a sandbox-local operation that does not touch the evaluatee or business data; if pip fails, fail-fast with the install error
    - cwd ends with "/evaluation-expert-consumer"
    - len(scenarios_inputs) ≥ 1
@@ -92,6 +93,9 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
      # Polls pad/out (regular file) for line N. Writes N+1 to cursor on success.
      # No FIFO involved — never blocks on open. Times out after 60 s with a synthetic error event.
      # Shell variable ${N} is runtime shell; only {pad.dir} is substituted at plan-generation time.
+     # This MUST remain an inline shell string. Do not reference read_one_event.py,
+     # python, python3, or any helper file. Creating such a helper during a run is
+     # a K8 violation and taints the run.
 
    commands.write_action_template =
      f"printf '%s\\n' '<<JSON_PAYLOAD>>' >> {pad.in_fifo}"
@@ -122,7 +126,7 @@ All MUST hold; any failure means STEP 2.5 has not run cleanly and STEP 3 MUST NO
 - every `run_plan.scenarios[].commands.spawn` contains literal substrings that match `pad.dir`, canonical `$PAD/in`, `$PAD/out`, `$PAD/err`, `$PAD/pid`, `python_bin`, `driver.run_py_path`, `--evaluation-context`, `--enriched-test-case`, and `--output` from the same entry (no `<placeholder>` left; no legacy `--test-case-id` / `--endpoint` / `--pad-in` / `--pad-out`);
 - every `run_plan.scenarios[].commands.spawn` uses `tail -f "$1" 2>/dev/null | exec ...` pattern (NOT `<> "$PAD/in"` which is the deprecated O_RDWR FIFO approach);
 - every `run_plan.scenarios[].commands.spawn` contains no `&;` token (background `&` must be followed by the next command, not by an extra semicolon);
-- every `run_plan.scenarios[].commands.read_one_event` contains literal substrings that match `pad.dir`, canonical `$PAD/out`, `$PAD/cursor`, and `sed -n`;
+- every `run_plan.scenarios[].commands.read_one_event` contains literal substrings that match `pad.dir`, canonical `$PAD/out`, `$PAD/cursor`, and `sed -n`, and contains no `read_one_event.py`, `python`, or `python3`;
 - every `run_plan.scenarios[].commands.write_action_template` contains exactly one occurrence of the marker `<<JSON_PAYLOAD>>`;
 - no two scenarios share the same `pad.dir` (deterministic isolation between tc runs);
 - `run_plan.generated_by_step == "STEP 2.5 planRun"` (guards against hand-written or LLM-written plans).
@@ -156,4 +160,5 @@ If anything in the inputs changes after STEP 2.5 has written `run_plan.json` (dr
 | Two scenarios share the same `pad.dir` | Second scenario inherits first scenario's stale files; nondeterministic hangs | `pad.dir = /tmp/eval-driver/<eval_id>/<tc_id>` is structurally unique; K20 self-check rejects duplicates |
 | Hand-edit `run_plan.json` between scenarios | Audit chain broken; reproducibility lost | Treat run_plan.json as read-only post STEP 2.5; any change ⇒ regenerate |
 | Generate `run_plan.json` via an agent-authored script `scripts/make_plan.py` | K8 violation on top of K20 | STEP 2.5 logic runs inline in the conversation (deterministic file ops + string templates) |
+| Generate or reference `runtime-drivers/ws_jwt/read_one_event.py` | K8 violation; stale plan self-heal creates a tainted run | Regenerate `commands.read_one_event` as the inline cursor-based `sed -n` shell string from this playbook |
 | Use `<> "$PAD/in"` or `mkfifo` in spawn/pre_spawn_cleanup | "stdin closed before 'end' action received" with turns_used=0 | Use `tail -f` pipe pattern from this playbook; FIFO O_RDWR races cause premature stdin EOF on container kernels |

@@ -19,7 +19,8 @@ Wire protocol (line-delimited JSON, one JSON object per line):
     {"event":"ready","driver_id":"ws_jwt","effective_max_turns":N}
     {"event":"evaluatee_turn","turn_index":N,"content":"...","tool_calls":[...],"raw_messages":[...]}
     {"event":"trace_written","path":"..."}
-    {"event":"error","detail":"..."}                  # any unrecoverable failure
+    {"event":"error","detail":"...","recoverable":true} # malformed host action; fix and continue
+    {"event":"error","detail":"..."}                  # unrecoverable failure
 
   agent -> driver (stdin):
     {"action":"send","turn_index":N,"text":"...","decision":{...full SimulatorDecision...}}
@@ -35,8 +36,9 @@ Lifecycle:
          evaluatee turn; emit "evaluatee_turn".
        - on "end": cache final decision; assemble ExecutionTrace; write to
          --output; emit "trace_written"; close WS; exit 0.
-  4. Any I/O / protocol error is surfaced as {"event":"error","detail":...},
-     a best-effort partial trace is still written, and the driver exits 2.
+  4. Malformed host actions are surfaced as recoverable error events and do
+     not mutate the trace. I/O / evaluatee failures still write a best-effort
+     partial trace and exit 2.
 
 This file remains the ONLY runtime entry that talks to the evaluatee for
 protocol=websocket+jwt. It still does not score, never raises observed_signals,
@@ -47,6 +49,7 @@ import argparse
 import asyncio
 import json
 import os
+import subprocess
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -54,7 +57,48 @@ from pathlib import Path
 from typing import Any
 
 from auth_client import resolve_auth, resolve_auth_from_eval_ctx
-from ws_client import WsCollector
+
+
+def _install_driver_requirements() -> bool:
+    requirements_path = Path(__file__).with_name("requirements.txt")
+    if not requirements_path.is_file():
+        print(
+            f"[driver bootstrap] requirements.txt not found: {requirements_path}",
+            file=sys.stderr,
+        )
+        return False
+
+    command = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        "-r",
+        str(requirements_path),
+    ]
+    print(
+        f"[driver bootstrap] installing missing dependencies from {requirements_path}",
+        file=sys.stderr,
+    )
+    completed = subprocess.run(
+        command,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if completed.stdout:
+        print(completed.stdout, file=sys.stderr, end="" if completed.stdout.endswith("\n") else "\n")
+    return completed.returncode == 0
+
+
+try:
+    from ws_client import WsCollector
+except ModuleNotFoundError as exc:
+    if exc.name != "websockets" or not _install_driver_requirements():
+        raise
+    from ws_client import WsCollector
 
 
 # ---------------------------------------------------------------------------
@@ -84,8 +128,11 @@ def _emit(obj: dict) -> None:
     sys.stdout.flush()
 
 
-def _emit_error(detail: str) -> None:
-    _emit({"event": "error", "detail": detail})
+def _emit_error(detail: str, *, recoverable: bool = False) -> None:
+    event = {"event": "error", "detail": detail}
+    if recoverable:
+        event["recoverable"] = True
+    _emit(event)
 
 
 
@@ -481,7 +528,10 @@ async def _serve(
                 try:
                     cmd = json.loads(line)
                 except json.JSONDecodeError as e:
-                    _emit_error(f"invalid JSON on stdin: {e}; raw={line[:200]!r}")
+                    _emit_error(
+                        f"invalid JSON on stdin: {e}; raw={line[:200]!r}",
+                        recoverable=True,
+                    )
                     continue
 
                 action = cmd.get("action")
@@ -489,25 +539,23 @@ async def _serve(
                 if action == "send":
                     raw_turn_index = cmd.get("turn_index", len(simulator_trail))
                     if type(raw_turn_index) is not int:
-                        termination_reason = "evaluatee_error"
-                        termination_detail = "'send' action turn_index must be an integer"
-                        _emit_error(termination_detail)
-                        exit_code = 2
-                        break
+                        _emit_error(
+                            "'send' action turn_index must be an integer",
+                            recoverable=True,
+                        )
+                        continue
 
                     turn_index = raw_turn_index
                     text = (cmd.get("text") or "").strip()
                     decision = cmd.get("decision")
 
                     if not isinstance(decision, dict):
-                        termination_reason = "evaluatee_error"
-                        termination_detail = (
+                        _emit_error(
                             f"'send' action requires object decision at "
-                            f"turn_index={turn_index}"
+                            f"turn_index={turn_index}",
+                            recoverable=True,
                         )
-                        _emit_error(termination_detail)
-                        exit_code = 2
-                        break
+                        continue
 
                     trail_entry = dict(decision)
                     decision_errors = _validate_simulator_decision(
@@ -515,28 +563,24 @@ async def _serve(
                         expected_turn_index=turn_index,
                     )
                     if decision_errors:
-                        termination_reason = "evaluatee_error"
-                        termination_detail = (
+                        _emit_error(
                             "invalid SimulatorDecision on send: "
-                            + "; ".join(decision_errors)
+                            + "; ".join(decision_errors),
+                            recoverable=True,
                         )
-                        _emit_error(termination_detail)
-                        exit_code = 2
-                        break
+                        continue
 
                     # 校验通过后才写入 simulator_trail，避免后续靠补丁修 trace。
+                    if not text:
+                        _emit_error(
+                            f"'send' action with empty text at turn_index={turn_index}",
+                            recoverable=True,
+                        )
+                        continue
+
                     trail_entry["decided_at"] = _now_iso()
                     simulator_trail.append(trail_entry)
                     final_emotion = decision.get("internal_emotion") or final_emotion
-
-                    if not text:
-                        _emit_error(
-                            f"'send' action with empty text at turn_index={turn_index}"
-                        )
-                        termination_reason = "evaluatee_error"
-                        termination_detail = "host agent issued empty 'send' utterance"
-                        exit_code = 2
-                        break
 
                     # record the customer turn
                     dialog_turns.append({
@@ -612,11 +656,11 @@ async def _serve(
                 elif action == "end":
                     decision = cmd.get("decision")
                     if not isinstance(decision, dict):
-                        termination_reason = "evaluatee_error"
-                        termination_detail = "'end' action requires object decision"
-                        _emit_error(termination_detail)
-                        exit_code = 2
-                        break
+                        _emit_error(
+                            "'end' action requires object decision",
+                            recoverable=True,
+                        )
+                        continue
 
                     expected_turn_index = len(simulator_trail)
                     trail_entry = dict(decision)
@@ -625,14 +669,12 @@ async def _serve(
                         expected_turn_index=expected_turn_index,
                     )
                     if decision_errors:
-                        termination_reason = "evaluatee_error"
-                        termination_detail = (
+                        _emit_error(
                             "invalid SimulatorDecision on end: "
-                            + "; ".join(decision_errors)
+                            + "; ".join(decision_errors),
+                            recoverable=True,
                         )
-                        _emit_error(termination_detail)
-                        exit_code = 2
-                        break
+                        continue
 
                     # 终止动作同样先校验再落盘，确保 trace 首次生成即满足 schema。
                     trail_entry["decided_at"] = _now_iso()
@@ -665,7 +707,10 @@ async def _serve(
                             "See step-03-driver-and-simulator-loop.md §4 for the exact shape."
                         )
                     else:
-                        _emit_error(f"unknown action {action!r}; expected 'send' or 'end'")
+                        _emit_error(
+                            f"unknown action {action!r}; expected 'send' or 'end'",
+                            recoverable=True,
+                        )
                     continue
 
     except asyncio.TimeoutError:

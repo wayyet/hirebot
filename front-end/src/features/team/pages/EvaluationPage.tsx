@@ -98,6 +98,7 @@ export default function EvaluationPage() {
   const autoInitFiredRef = useRef(false)
   // 仅在当前会话内有效：点击「执行评估」后置为 true，刷新页面自动重置为 false
   const [hasTriggeredEval, setHasTriggeredEval] = useState(false)
+  const [artifactRefreshKey, setArtifactRefreshKey] = useState(0)
 
   async function loadData() {
     if (!id) return
@@ -483,7 +484,41 @@ export default function EvaluationPage() {
       void loadTraceContent(sessionId)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artifactTab, evaluation?.sessionId])
+  }, [artifactTab, evaluation?.sessionId, traceAssets.length])
+
+  useEffect(() => {
+    if (!id || artifactRefreshKey === 0) return
+
+    let cancelled = false
+    let timer: number | undefined
+    let attempts = 0
+    const maxAttempts = 120
+
+    async function refreshEvaluationAssets() {
+      if (cancelled) return
+      attempts += 1
+      try {
+        const nextState = await api.employeeRuntime.getEvaluationState(id!)
+        if (!cancelled) {
+          setEvaluation(nextState)
+        }
+      } catch {
+        // Keep polling; transient sync lag should not break the evaluation chat.
+      }
+
+      if (!cancelled && attempts < maxAttempts) {
+        timer = window.setTimeout(refreshEvaluationAssets, 5000)
+      }
+    }
+
+    timer = window.setTimeout(refreshEvaluationAssets, 3000)
+    return () => {
+      cancelled = true
+      if (timer !== undefined) {
+        window.clearTimeout(timer)
+      }
+    }
+  }, [artifactRefreshKey, id])
 
   // 倒计时：每秒 -1，到 0 时自动触发初始化
   useEffect(() => {
@@ -682,6 +717,7 @@ export default function EvaluationPage() {
                     ])
                     setEvaluation(evalState)
                     setEmployee(employeeState)
+                    setArtifactRefreshKey((current) => current + 1)
                   } catch {
                     // 刷新失败不影响主流程
                   }
@@ -802,6 +838,9 @@ export default function EvaluationPage() {
       setEvaluation(null)
       setWsStatusLoaded(false)
       setHasTriggeredEval(false)
+      setArtifactRefreshKey(0)
+      setTraceDataCache({})
+      setExpandedTraceUrls([])
       // 阻止 auto-init effect 弹出倒计时遮罩，由下方直接调用 submitAiDecision 接管
       autoInitFiredRef.current = true
       await loadData()  // 刷新 employee 状态，确保 submitAiDecision 基于最新数据
@@ -827,6 +866,9 @@ export default function EvaluationPage() {
       // RUN: 沙箱环境已在 START 阶段就绪，直接通过聊天 WS 发送评估触发消息，不再重复调用后端接口
       if (decision === 'RUN') {
         setHasTriggeredEval(true)
+        setArtifactRefreshKey((current) => current + 1)
+        setTraceDataCache({})
+        setExpandedTraceUrls([])
         setSubmitting(false)
         void sendEvaluatorMessage('评估材料已就绪，请开始执行 AI 评估。')
         return

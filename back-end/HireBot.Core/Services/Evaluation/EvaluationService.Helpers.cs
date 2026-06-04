@@ -1078,7 +1078,7 @@ internal sealed partial class EvaluationService
                 RunDir: runDir,
                 DriversDir: $"{EvaluationConsumerSkillWorkspaceRoot}/runtime-drivers",
                 SimulatorsDir: $"{EvaluationConsumerSkillWorkspaceRoot}/simulators",
-                SynthesizedCasesDir: $"{consumerRoot}/synthesized-test-cases"),
+                SynthesizedCasesDir: $"{runDir}/synthesized-cases"),
             RuntimeDriver: new(
                 DriverId: driverId,
                 DriverConfig: new(
@@ -1161,6 +1161,12 @@ internal sealed partial class EvaluationService
                           $"Read it first, use runtime_driver.driver_config for the target sandbox connection, " +
                           $"load test cases from paths.test_cases_dir and run artifacts from paths.run_dir, " +
                           $"then execute the deterministic consumer evaluation workflow for employee {employee.EmployeeId} ({employee.Nickname}). " +
+                          $"Write STEP 9 reports to paths.run_dir/reports/evaluation_report.json and paths.run_dir/reports/evaluation_report.html, " +
+                          $"write STEP 3 traces to paths.run_dir/traces/<test_case_id>.trace.json, and write synthesized STEP 1.5 cases to paths.synthesized_cases_dir. " +
+                          $"Before STEP 3, install missing ws_jwt requirements automatically from runtime-drivers/ws_jwt/requirements.txt without asking the user; " +
+                          $"never create read_one_event.py or any other helper script, because run_plan.commands.read_one_event must be the inline cursor-based sed poller. " +
+                          $"When hirebot_api is present in the runtime context, STEP 10 is the completion gate: run verdict_uploader.py and trace_uploader.py, " +
+                          $"verify upload_verdict_result.json and upload_trace_result.json both have status 'success', and do not claim the right-side panel is updated until both uploads succeed. " +
                           $"Session ID: {sessionEntity.SessionId}. " +
                           $"Do not invoke the legacy evaluation flow."
         };
