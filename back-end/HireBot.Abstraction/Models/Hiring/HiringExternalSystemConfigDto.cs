@@ -15,6 +15,11 @@ public sealed record HiringExternalSystemConfigDto
 
     public IReadOnlyList<HiringCliToolConfigDto> CliTools { get; init; } = [];
 
+    /// <summary>MCP 服务列表（支持多项）。</summary>
+    public IReadOnlyList<HiringMcpServerConfigDto> McpServers { get; init; } = [];
+
+    /// <summary>已废弃，仅用于向后兼容旧数据反序列化，新写入请使用 McpServers。</summary>
+    [Obsolete("Use McpServers instead.")]
     public HiringMcpServerConfigDto? McpServer { get; init; }
 
     public DateTimeOffset? UpdatedAtUtc { get; init; }

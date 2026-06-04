@@ -246,6 +246,9 @@ export interface HiringMcpServerConfig {
 export interface HiringExternalSystemConfig {
   submissionMode?: 'pending' | 'configured' | 'skipped' | string
   cliTools: HiringCliToolConfig[]
+  /** MCP 服务列表（新格式）。 */
+  mcpServers?: HiringMcpServerConfig[]
+  /** @deprecated 旧单项字段，仅用于向后兼容旧数据读取，新代码请使用 mcpServers。 */
   mcpServer?: HiringMcpServerConfig | null
   updatedAtUtc?: string | null
 }

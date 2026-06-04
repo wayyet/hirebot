@@ -1759,6 +1759,163 @@
   color: var(--ink-1, #0f172a);
 }
 
+/* ── MCP 列表视图 ── */
+
+/* 加载中占位 */
+.hb-todo-mcp-list-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 0;
+  font-size: 13px;
+  color: var(--ink-3, #94a3b8);
+}
+
+/* 配置列表 */
+.hb-todo-mcp-config-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hb-todo-mcp-config-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.7);
+  transition: border-color 0.15s, background 0.15s;
+}
+.hb-todo-mcp-config-item:hover {
+  border-color: rgba(99, 102, 241, 0.3);
+  background: rgba(238, 242, 255, 0.5);
+}
+.hb-todo-mcp-config-item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hb-todo-mcp-config-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-1, #0f172a);
+}
+.hb-todo-mcp-config-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hb-todo-mcp-config-item-extra {
+  font-size: 12px;
+  color: var(--ink-3, #94a3b8);
+}
+
+/* 新增/修改配置按钮（虚线样式） */
+.hb-todo-mcp-add-config-btn {
+  appearance: none;
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+  background: transparent;
+  color: var(--ink-3, #94a3b8);
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  margin-top: 8px;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.hb-todo-mcp-add-config-btn:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+  color: var(--hb-accent, #6366f1);
+  background: rgba(238, 242, 255, 0.4);
+}
+
+/* ── MCP 历史配置视图 ── */
+.hb-todo-mcp-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 20px 22px 22px;
+}
+.hb-todo-mcp-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.hb-todo-mcp-history-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-1, #0f172a);
+}
+.hb-todo-mcp-close-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink-3, #94a3b8);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.hb-todo-mcp-close-btn:hover {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--ink-1, #0f172a);
+}
+.hb-todo-mcp-history-record {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.7);
+}
+.hb-todo-mcp-record-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.hb-todo-mcp-record-label {
+  flex-shrink: 0;
+  width: 120px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3, #94a3b8);
+  padding-top: 1px;
+}
+.hb-todo-mcp-record-value {
+  flex: 1;
+  font-size: 13px;
+  color: var(--ink-1, #0f172a);
+  word-break: break-all;
+}
+.hb-todo-mcp-record-mono {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+}
+.hb-todo-mcp-history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 0 16px;
+  gap: 4px;
+  color: var(--ink-3, #94a3b8);
+  font-size: 13px;
+  text-align: center;
+}
+
 /* 底部保存 */
 .hb-todo-mcp-footer {
   display: flex;

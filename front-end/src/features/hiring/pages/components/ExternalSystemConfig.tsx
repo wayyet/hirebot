@@ -73,11 +73,6 @@ function createEmptyKeyValueEntry(): McpKeyValueEntry {
   return { id: `kv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, key: '', value: '' }
 }
 
-function hasMeaningfulMcpConfig(config: McpConfigDraft): boolean {
-  if (!config.name.trim()) return false
-  return config.url.trim().length > 0
-}
-
 function recordToEntries(record?: Record<string, string> | null): McpKeyValueEntry[] {
   if (!record) return []
   return Object.entries(record).map(([key, value]) => ({
@@ -112,6 +107,16 @@ function createMcpConfigDraftFromConfig(mcpConfig?: HiringExternalSystemConfig['
     bearerTokenEnv: mcpConfig.bearerTokenEnv ?? '',
     headerEntries: recordToEntries(mcpConfig.headers),
   }
+}
+
+function createMcpConfigDraftsFromPersistedConfig(config?: HiringExternalSystemConfig | null): McpConfigDraft[] {
+  // 优先使用新字段 mcpServers；旧数据回退到 mcpServer 单项
+  const list = config?.mcpServers && config.mcpServers.length > 0
+    ? config.mcpServers
+    : config?.mcpServer
+      ? [config.mcpServer]
+      : []
+  return list.map(createMcpConfigDraftFromConfig)
 }
 
 // ── 组件定义 ──────────────────────────────────────────────────────────────────
@@ -150,8 +155,12 @@ export function ExternalCardBody({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [mcpConfig, setMcpConfig] = useState<McpConfigDraft>(createMcpConfigDraft())
+  // mcpConfigs: 已保存的 MCP 服务列表（与后端同步）
+  const [mcpConfigs, setMcpConfigs] = useState<McpConfigDraft[]>([])
+  // editingIndex: 正在编辑列表中第几项；null 表示新增
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [activeModal, setActiveModal] = useState<ExternalConfigModalType | null>(null)
+  const [mcpModalView, setMcpModalView] = useState<'history' | 'form'>('history')
   const [mcpDraftConfig, setMcpDraftConfig] = useState<McpConfigDraft>(createMcpConfigDraft())
   const [saveError, setSaveError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -165,11 +174,14 @@ export function ExternalCardBody({
     data: persistedExternalConfig,
     error: persistedExternalConfigError,
     isLoading: isExternalConfigLoading,
+    isFetching: isMcpConfigFetching,
+    isFetched: isMcpConfigFetched,
     refetch: refetchExternalConfig,
   } = useQuery({
     queryKey: externalConfigQueryKey,
     queryFn: () => api.hiringWorkflow.getExternalConfig(hireId),
-    enabled: Boolean(hireId),
+    // 懒加载：不在页面挂载时请求，打开弹窗时才触发
+    enabled: false,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   })
@@ -186,15 +198,14 @@ export function ExternalCardBody({
     })
   }
 
-  const hasMcpConfig = hasMeaningfulMcpConfig(mcpConfig)
+  const hasMcpConfig = mcpConfigs.length > 0
 
   useEffect(() => {
     if (!persistedExternalConfig || hasHydratedExternalConfigRef.current) {
       return
     }
 
-    setMcpConfig(createMcpConfigDraftFromConfig(persistedExternalConfig.mcpServer))
-    setMcpDraftConfig(createMcpConfigDraftFromConfig(persistedExternalConfig.mcpServer))
+    setMcpConfigs(createMcpConfigDraftsFromPersistedConfig(persistedExternalConfig))
     onConfigChange?.(persistedExternalConfig, 'hydrate')
 
     hasHydratedExternalConfigRef.current = true
@@ -202,24 +213,26 @@ export function ExternalCardBody({
 
   // 判断 MCP 弹窗是否有未保存的草稿修改
   function hasDraftChanges(): boolean {
-    if (activeModal === 'mcp') {
-      return JSON.stringify(mcpDraftConfig) !== JSON.stringify(mcpConfig)
-    }
-    return false
+    if (activeModal !== 'mcp') return false
+    const base = editingIndex !== null ? mcpConfigs[editingIndex] : createMcpConfigDraft()
+    return JSON.stringify(mcpDraftConfig) !== JSON.stringify(base)
   }
 
-  // 统一的模态框关闭入口：有草稿变化时先弹出丢弃确认条
+  // 统一的模态框关闭入口：处于 form 视图且有草稿变化时先弹出丢弃确认条
   function handleCloseModal() {
-    if (hasDraftChanges()) {
+    if (mcpModalView === 'form' && hasDraftChanges()) {
       setShowDiscardConfirm(true)
     } else {
       setActiveModal(null)
+      setMcpModalView('history')
       setShowDiscardConfirm(false)
     }
   }
 
   function confirmDiscard() {
     setActiveModal(null)
+    setMcpModalView('history')
+    setEditingIndex(null)
     setShowDiscardConfirm(false)
   }
 
@@ -231,11 +244,10 @@ export function ExternalCardBody({
       const savedConfig = await api.hiringWorkflow.saveExternalConfig(hireId, {
         submissionMode: 'pending',
         cliTools: [],
-        mcpServer: null,
+        mcpServers: [],
       })
       queryClient.setQueryData(externalConfigQueryKey, savedConfig)
-      setMcpConfig(createMcpConfigDraftFromConfig(savedConfig.mcpServer))
-      setMcpDraftConfig(createMcpConfigDraftFromConfig(savedConfig.mcpServer))
+      setMcpConfigs([])
       onConfigChange?.(null, 'clear')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '重置外部系统配置失败')
@@ -251,11 +263,10 @@ export function ExternalCardBody({
       const savedConfig = await api.hiringWorkflow.saveExternalConfig(hireId, {
         submissionMode: 'skipped',
         cliTools: [],
-        mcpServer: null,
+        mcpServers: [],
       })
       queryClient.setQueryData(externalConfigQueryKey, savedConfig)
-      setMcpConfig(createMcpConfigDraftFromConfig(savedConfig.mcpServer))
-      setMcpDraftConfig(createMcpConfigDraftFromConfig(savedConfig.mcpServer))
+      setMcpConfigs([])
       onConfigChange?.(savedConfig, 'skip')
       onAfterSave(i18n.t('hiring.todo.external.skipMessage'), 'skip')
     } catch (error) {
@@ -267,18 +278,43 @@ export function ExternalCardBody({
 
   // 继续：触发阶段推进确认流程
   function handleContinue() {
-    const transportLabel = MCP_TRANSPORT_LABELS[mcpConfig.transport]
-    const summary = `MCP ${mcpConfig.name.trim()}（${transportLabel}）URL: ${mcpConfig.url.trim()} 已配置，外部阶段完成，请继续下一步。`
+    const firstMcp = mcpConfigs[0]
+    const summary = firstMcp
+      ? `MCP 共 ${mcpConfigs.length} 项（${firstMcp.name.trim()} 等）已配置，外部阶段完成，请继续下一步。`
+      : '外部阶段完成，请继续下一步。'
     onAfterSave(summary, 'ready_to_advance')
   }
 
   function handleOpenMcpModal() {
-    setMcpDraftConfig(cloneMcpConfig(mcpConfig))
     setSaveError('')
+    setMcpModalView('history')
+    setEditingIndex(null)
     setActiveModal('mcp')
+    // 首次打开时发起请求；后续打开使用缓存（staleTime 内不重复请求）
+    if (!isMcpConfigFetched) {
+      void refetchExternalConfig()
+    }
   }
 
-  // MCP 弹窗内的保存：调用接口后关闭弹窗
+  // 编辑已有配置：预填对应项的数据
+  function handleOpenMcpForm(index: number) {
+    setMcpDraftConfig(cloneMcpConfig(mcpConfigs[index]))
+    setEditingIndex(index)
+    setSaveError('')
+    setFieldErrors({})
+    setMcpModalView('form')
+  }
+
+  // 新增配置：从空白表单开始
+  function handleOpenMcpFormEmpty() {
+    setMcpDraftConfig(createMcpConfigDraft())
+    setEditingIndex(null)
+    setSaveError('')
+    setFieldErrors({})
+    setMcpModalView('form')
+  }
+
+  // MCP 弹窗内保存成功后回到 history 视图
   async function handleSaveMcpToApi() {
     const url = mcpDraftConfig.url.trim()
     const name = mcpDraftConfig.name.trim()
@@ -295,25 +331,37 @@ export function ExternalCardBody({
       return
     }
 
+    // 将当前草稿合并入列表：编辑时替换对应项，新增时附加到末尾
+    const draftItem: McpConfigDraft = {
+      ...mcpDraftConfig,
+      name,
+      url,
+      bearerTokenEnv: mcpDraftConfig.bearerTokenEnv.trim(),
+    }
+    const nextConfigs = editingIndex !== null
+      ? mcpConfigs.map((item, i) => i === editingIndex ? draftItem : item)
+      : [...mcpConfigs, draftItem]
+
     setSaveError('')
     setIsSaving(true)
     try {
       const savedConfig = await api.hiringWorkflow.saveExternalConfig(hireId, {
         submissionMode: 'configured',
         cliTools: persistedExternalConfig?.cliTools ?? [],
-        mcpServer: {
-          transport: mcpDraftConfig.transport,
-          name,
-          url,
-          bearerTokenEnv: mcpDraftConfig.bearerTokenEnv.trim() || undefined,
-          headers: mcpDraftConfig.headerEntries.length > 0
-            ? entriesToRecord(mcpDraftConfig.headerEntries)
+        mcpServers: nextConfigs.map(cfg => ({
+          transport: cfg.transport,
+          name: cfg.name.trim(),
+          url: cfg.url.trim(),
+          bearerTokenEnv: cfg.bearerTokenEnv.trim() || undefined,
+          headers: cfg.headerEntries.length > 0
+            ? entriesToRecord(cfg.headerEntries)
             : undefined,
-        },
+        })),
       })
       queryClient.setQueryData(externalConfigQueryKey, savedConfig)
-      setMcpConfig(cloneMcpConfig(mcpDraftConfig))
-      setActiveModal(null)
+      setMcpConfigs(createMcpConfigDraftsFromPersistedConfig(savedConfig))
+      setEditingIndex(null)
+      setMcpModalView('history')
       setShowDiscardConfirm(false)
       onConfigChange?.(savedConfig, 'save')
     } catch (error) {
@@ -321,9 +369,6 @@ export function ExternalCardBody({
     } finally {
       setIsSaving(false)
     }
-  }
-
-  function handleAddHeaderEntry() {
   }
 
   function handleAddHeaderEntry() {
@@ -347,15 +392,8 @@ export function ExternalCardBody({
     }))
   }
 
-  function buildSaveSummary() {
-    if (hasMcpConfig) {
-      const transportLabel = MCP_TRANSPORT_LABELS[mcpConfig.transport]
-      return `MCP ${mcpConfig.name.trim()}（${transportLabel}）URL: ${mcpConfig.url.trim()} 已配置，外部阶段完成，请继续下一步。`
-    }
-    return '外部阶段完成，请继续下一步。'
-  }
-
   if (isExternalConfigLoading) {
+    // 理论上不会触发（enabled:false），保留作为防御性 fallback
     return (
       <div className="hb-todo-external">
         <p className="hb-todo-hint-muted">{t('hiring.todo.external.hint')}</p>
@@ -416,13 +454,7 @@ export function ExternalCardBody({
                   <div className="hb-todo-external-card-title">{t('hiring.todo.external.mcpTitle')}</div>
                   <p className="hb-todo-external-card-copy">
                     {hasMcpConfig
-                      ? (
-                        <>
-                          {'已配置 MCP「'}
-                          <span className="hb-todo-truncate" title={mcpConfig.name.trim()} style={{ display: 'inline-block', verticalAlign: 'bottom' }}>{mcpConfig.name.trim()}</span>
-                          {`」（${MCP_TRANSPORT_LABELS[mcpConfig.transport]}）${mcpConfig.url.trim()}`}
-                        </>
-                      )
+                      ? `已配置 ${mcpConfigs.length} 项 MCP 服务：${mcpConfigs.map(c => c.name.trim()).join('、')}`
                       : t('hiring.todo.external.mcpDescription')}
                   </p>
                 </div>
@@ -473,148 +505,245 @@ export function ExternalCardBody({
                 aria-label="MCP 配置"
                 onClick={e => e.stopPropagation()}
               >
-                <div className="hb-todo-mcp-form">
-                  {/* 名称 */}
-                  <label className="hb-todo-field hb-todo-mcp-field">
-                    <span>名称</span>
-                    <input
-                      type="text"
-                      className={`hb-todo-input${fieldErrors['mcpName'] ? ' is-error' : ''}`}
-                      value={mcpDraftConfig.name}
-                      onChange={e => {
-                        setMcpDraftConfig(prev => ({ ...prev, name: e.target.value }))
-                        if (fieldErrors['mcpName']) clearFieldError('mcpName')
-                      }}
-                      placeholder="MCP server name"
-                    />
-                    {fieldErrors['mcpName'] && <p className="hb-todo-field-error">{fieldErrors['mcpName']}</p>}
-                  </label>
+                {mcpModalView === 'history' ? (
+                  /* ── 列表视图：加载完成后显示已保存的配置 ── */
+                  <div className="hb-todo-mcp-history">
+                    <div className="hb-todo-mcp-history-header">
+                      <span className="hb-todo-mcp-history-title">MCP 配置</span>
+                      <button type="button" className="hb-todo-mcp-close-btn" aria-label="关闭" onClick={handleCloseModal}>×</button>
+                    </div>
 
-                  {/* 传输方式 Tab 切换（仅支持 SSE 和 Streamable HTTP） */}
-                  <div className="hb-todo-mcp-tabs" role="tablist" aria-label="MCP 传输方式">
-                    {(['streamable-http', 'sse'] as const).map(transport => {
-                      const selected = mcpDraftConfig.transport === transport
-                      return (
+                    {isMcpConfigFetching ? (
+                      /* 加载中 */
+                      <div className="hb-todo-mcp-list-loading">
+                        <Loader2 size={20} style={{ animation: 'spin 1s linear infinite', color: 'var(--ink-3, #94a3b8)' }} />
+                        <span>加载中…</span>
+                      </div>
+                    ) : persistedExternalConfigError ? (
+                      /* 加载失败 */
+                      <div className="hb-todo-mcp-history-empty">
+                        <p style={{ color: 'var(--hb-error, #ef4444)' }}>
+                          {persistedExternalConfigError instanceof Error ? persistedExternalConfigError.message : '加载失败'}
+                        </p>
                         <button
-                          key={transport}
                           type="button"
-                          role="tab"
-                          aria-selected={selected}
-                          className={clsx('hb-todo-mcp-tab', selected && 'is-active')}
-                          onClick={() => setMcpDraftConfig(prev => ({ ...prev, transport }))}
+                          className="hb-todo-row-btn is-ghost"
+                          style={{ marginTop: 8 }}
+                          onClick={() => { void refetchExternalConfig() }}
                         >
-                          {MCP_TRANSPORT_LABELS[transport]}
+                          重试
                         </button>
-                      )
-                    })}
-                  </div>
-
-                  {/* URL */}
-                  <label className="hb-todo-field hb-todo-mcp-field">
-                    <span>URL</span>
-                    <input
-                      type="text"
-                      className={`hb-todo-input hb-todo-input-mono${fieldErrors['mcpUrl'] ? ' is-error' : ''}`}
-                      value={mcpDraftConfig.url}
-                      onChange={e => {
-                        setMcpDraftConfig(prev => ({ ...prev, url: e.target.value }))
-                        if (fieldErrors['mcpUrl']) clearFieldError('mcpUrl')
-                      }}
-                      onBlur={e => {
-                        const val = e.target.value.trim()
-                        if (val && !/^https?:\/\/.+/.test(val)) {
-                          setFieldErrors(prev => ({ ...prev, mcpUrl: t('hiring.todo.external.urlInvalid') }))
-                        }
-                      }}
-                      placeholder="https://mcp.example.com/mcp"
-                    />
-                    {fieldErrors['mcpUrl'] && <p className="hb-todo-field-error">{fieldErrors['mcpUrl']}</p>}
-                  </label>
-
-                  {/* Bearer 令牌环境变量 */}
-                  <label className="hb-todo-field hb-todo-mcp-field">
-                    <span>Bearer 令牌环境变量</span>
-                    <input
-                      type="text"
-                      className="hb-todo-input hb-todo-input-mono"
-                      value={mcpDraftConfig.bearerTokenEnv}
-                      onChange={e => setMcpDraftConfig(prev => ({ ...prev, bearerTokenEnv: e.target.value }))}
-                      placeholder="例如：MCP_BEARER_TOKEN"
-                    />
-                  </label>
-
-                  {/* 固定 Header */}
-                  <div className="hb-todo-field hb-todo-mcp-field">
-                    <span>固定 Header</span>
-                    {mcpDraftConfig.headerEntries.length > 0 && (
-                      <div className="hb-todo-mcp-list">
-                        {mcpDraftConfig.headerEntries.map(entry => (
-                          <div key={entry.id} className="hb-todo-mcp-row hb-todo-mcp-row-kv">
-                            <input
-                              type="text"
-                              className="hb-todo-input hb-todo-input-mono"
-                              value={entry.key}
-                              onChange={e => handleUpdateHeaderEntry(entry.id, { key: e.target.value })}
-                              placeholder="Header 名"
-                            />
-                            <div className="hb-todo-input-toggle-wrap">
-                              <input
-                                type={visibleSecrets[`header-${entry.id}`] ? 'text' : 'password'}
-                                className="hb-todo-input"
-                                value={entry.value}
-                                onChange={e => handleUpdateHeaderEntry(entry.id, { value: e.target.value })}
-                                placeholder="值"
-                              />
+                      </div>
+                    ) : hasMcpConfig ? (
+                      /* 已有配置：以列表条目展示，底部统一显示"添加配置" */
+                      <>
+                        <ul className="hb-todo-mcp-config-list">
+                          {mcpConfigs.map((cfg, idx) => (
+                            <li key={`${cfg.name}-${idx}`} className="hb-todo-mcp-config-item">
+                              <div className="hb-todo-mcp-config-item-body">
+                                <div className="hb-todo-mcp-config-item-name">{cfg.name.trim()}</div>
+                                <div className="hb-todo-mcp-config-item-meta">
+                                  <span className="hb-todo-external-type-pill" style={{ fontSize: 11 }}>{MCP_TRANSPORT_LABELS[cfg.transport]}</span>
+                                  <span className="hb-todo-mcp-record-mono" style={{ fontSize: 12, color: 'var(--ink-2, #475569)' }}>{cfg.url.trim()}</span>
+                                </div>
+                                {cfg.bearerTokenEnv.trim() && (
+                                  <div className="hb-todo-mcp-config-item-extra">Bearer 令牌：{cfg.bearerTokenEnv.trim()}</div>
+                                )}
+                                {cfg.headerEntries.length > 0 && (
+                                  <div className="hb-todo-mcp-config-item-extra">固定 Header：{cfg.headerEntries.length} 项</div>
+                                )}
+                              </div>
                               <button
                                 type="button"
-                                className="hb-todo-input-toggle-btn"
-                                onClick={() => toggleSecretVisibility(`header-${entry.id}`)}
-                                aria-label={visibleSecrets[`header-${entry.id}`] ? '隐藏' : '显示'}
+                                className="hb-todo-row-btn is-ghost"
+                                style={{ flexShrink: 0 }}
+                                onClick={() => handleOpenMcpForm(idx)}
                               >
-                                {visibleSecrets[`header-${entry.id}`] ? <EyeOff size={14} /> : <Eye size={14} />}
+                                编辑
                               </button>
-                            </div>
-                            <button
-                              type="button"
-                              className="hb-todo-mcp-icon-btn"
-                              aria-label="删除 Header"
-                              onClick={() => handleRemoveHeaderEntry(entry.id)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        ))}
+                            </li>
+                          ))}
+                        </ul>
+                        <button
+                          type="button"
+                          className="hb-todo-mcp-add-config-btn"
+                          onClick={handleOpenMcpFormEmpty}
+                        >
+                          + 添加配置
+                        </button>
+                      </>
+                    ) : (
+                      /* 暂无配置 */
+                      <div className="hb-todo-mcp-history-empty">
+                        <p>暂无 MCP 配置，点击下方按钮添加。</p>
+                        <button
+                          type="button"
+                          className="hb-todo-mcp-add-config-btn"
+                          style={{ marginTop: 12 }}
+                          onClick={handleOpenMcpFormEmpty}
+                        >
+                          + 添加配置
+                        </button>
                       </div>
                     )}
-                    <button type="button" className="hb-todo-mcp-add-btn" onClick={handleAddHeaderEntry}>
-                      + 添加 Header
-                    </button>
                   </div>
+                ) : (
+                  /* ── 配置表单视图 ── */
+                  <div className="hb-todo-mcp-form">
+                    <div className="hb-todo-mcp-history-header">
+                      <button
+                        type="button"
+                        className="hb-todo-row-btn is-ghost"
+                        style={{ fontSize: 12, padding: '2px 8px' }}
+                        onClick={() => { setMcpModalView('history'); setShowDiscardConfirm(false) }}
+                      >
+                        ← 返回
+                      </button>
+                      <button type="button" className="hb-todo-mcp-close-btn" aria-label="关闭" onClick={handleCloseModal}>×</button>
+                    </div>
 
-                  {saveError && <p className="hb-todo-field-error" style={{ marginTop: 4 }}>{saveError}</p>}
+                    {/* 名称 */}
+                    <label className="hb-todo-field hb-todo-mcp-field">
+                      <span>名称</span>
+                      <input
+                        type="text"
+                        className={`hb-todo-input${fieldErrors['mcpName'] ? ' is-error' : ''}`}
+                        value={mcpDraftConfig.name}
+                        onChange={e => {
+                          setMcpDraftConfig(prev => ({ ...prev, name: e.target.value }))
+                          if (fieldErrors['mcpName']) clearFieldError('mcpName')
+                        }}
+                        placeholder="MCP server name"
+                      />
+                      {fieldErrors['mcpName'] && <p className="hb-todo-field-error">{fieldErrors['mcpName']}</p>}
+                    </label>
 
-                  <div className="hb-todo-mcp-footer">
-                    <button
-                      type="button"
-                      className="hb-todo-mcp-save-btn"
-                      disabled={isSaving}
-                      onClick={() => { void handleSaveMcpToApi() }}
-                    >
-                      {isSaving
-                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />保存中…</span>
-                        : '保存'}
-                    </button>
-                  </div>
-                </div>
-                {showDiscardConfirm && (
-                  <div className="hb-todo-discard-confirm">
-                    <span style={{ flex: 1 }}>{t('hiring.todo.external.discardDraftMessage')}</span>
-                    <button type="button" className="hb-todo-row-btn is-ghost" onClick={() => setShowDiscardConfirm(false)}>
-                      {t('hiring.todo.external.discardDraftCancel')}
-                    </button>
-                    <button type="button" className="hb-todo-row-btn is-primary" onClick={confirmDiscard}>
-                      {t('hiring.todo.external.discardDraftConfirm')}
-                    </button>
+                    {/* 传输方式 Tab 切换（仅支持 SSE 和 Streamable HTTP） */}
+                    <div className="hb-todo-mcp-tabs" role="tablist" aria-label="MCP 传输方式">
+                      {(['streamable-http', 'sse'] as const).map(transport => {
+                        const selected = mcpDraftConfig.transport === transport
+                        return (
+                          <button
+                            key={transport}
+                            type="button"
+                            role="tab"
+                            aria-selected={selected}
+                            className={clsx('hb-todo-mcp-tab', selected && 'is-active')}
+                            onClick={() => setMcpDraftConfig(prev => ({ ...prev, transport }))}
+                          >
+                            {MCP_TRANSPORT_LABELS[transport]}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* URL */}
+                    <label className="hb-todo-field hb-todo-mcp-field">
+                      <span>URL</span>
+                      <input
+                        type="text"
+                        className={`hb-todo-input hb-todo-input-mono${fieldErrors['mcpUrl'] ? ' is-error' : ''}`}
+                        value={mcpDraftConfig.url}
+                        onChange={e => {
+                          setMcpDraftConfig(prev => ({ ...prev, url: e.target.value }))
+                          if (fieldErrors['mcpUrl']) clearFieldError('mcpUrl')
+                        }}
+                        onBlur={e => {
+                          const val = e.target.value.trim()
+                          if (val && !/^https?:\/\/.+/.test(val)) {
+                            setFieldErrors(prev => ({ ...prev, mcpUrl: t('hiring.todo.external.urlInvalid') }))
+                          }
+                        }}
+                        placeholder="https://mcp.example.com/mcp"
+                      />
+                      {fieldErrors['mcpUrl'] && <p className="hb-todo-field-error">{fieldErrors['mcpUrl']}</p>}
+                    </label>
+
+                    {/* Bearer 令牌环境变量 */}
+                    <label className="hb-todo-field hb-todo-mcp-field">
+                      <span>Bearer 令牌环境变量</span>
+                      <input
+                        type="text"
+                        className="hb-todo-input hb-todo-input-mono"
+                        value={mcpDraftConfig.bearerTokenEnv}
+                        onChange={e => setMcpDraftConfig(prev => ({ ...prev, bearerTokenEnv: e.target.value }))}
+                        placeholder="例如：MCP_BEARER_TOKEN"
+                      />
+                    </label>
+
+                    {/* 固定 Header */}
+                    <div className="hb-todo-field hb-todo-mcp-field">
+                      <span>固定 Header</span>
+                      {mcpDraftConfig.headerEntries.length > 0 && (
+                        <div className="hb-todo-mcp-list">
+                          {mcpDraftConfig.headerEntries.map(entry => (
+                            <div key={entry.id} className="hb-todo-mcp-row hb-todo-mcp-row-kv">
+                              <input
+                                type="text"
+                                className="hb-todo-input hb-todo-input-mono"
+                                value={entry.key}
+                                onChange={e => handleUpdateHeaderEntry(entry.id, { key: e.target.value })}
+                                placeholder="Header 名"
+                              />
+                              <div className="hb-todo-input-toggle-wrap">
+                                <input
+                                  type={visibleSecrets[`header-${entry.id}`] ? 'text' : 'password'}
+                                  className="hb-todo-input"
+                                  value={entry.value}
+                                  onChange={e => handleUpdateHeaderEntry(entry.id, { value: e.target.value })}
+                                  placeholder="值"
+                                />
+                                <button
+                                  type="button"
+                                  className="hb-todo-input-toggle-btn"
+                                  onClick={() => toggleSecretVisibility(`header-${entry.id}`)}
+                                  aria-label={visibleSecrets[`header-${entry.id}`] ? '隐藏' : '显示'}
+                                >
+                                  {visibleSecrets[`header-${entry.id}`] ? <EyeOff size={14} /> : <Eye size={14} />}
+                                </button>
+                              </div>
+                              <button
+                                type="button"
+                                className="hb-todo-mcp-icon-btn"
+                                aria-label="删除 Header"
+                                onClick={() => handleRemoveHeaderEntry(entry.id)}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button type="button" className="hb-todo-mcp-add-btn" onClick={handleAddHeaderEntry}>
+                        + 添加 Header
+                      </button>
+                    </div>
+
+                    {saveError && <p className="hb-todo-field-error" style={{ marginTop: 4 }}>{saveError}</p>}
+
+                    <div className="hb-todo-mcp-footer">
+                      <button
+                        type="button"
+                        className="hb-todo-mcp-save-btn"
+                        disabled={isSaving}
+                        onClick={() => { void handleSaveMcpToApi() }}
+                      >
+                        {isSaving
+                          ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />保存中…</span>
+                          : '保存'}
+                      </button>
+                    </div>
+                    {showDiscardConfirm && (
+                      <div className="hb-todo-discard-confirm">
+                        <span style={{ flex: 1 }}>{t('hiring.todo.external.discardDraftMessage')}</span>
+                        <button type="button" className="hb-todo-row-btn is-ghost" onClick={() => setShowDiscardConfirm(false)}>
+                          {t('hiring.todo.external.discardDraftCancel')}
+                        </button>
+                        <button type="button" className="hb-todo-row-btn is-primary" onClick={confirmDiscard}>
+                          {t('hiring.todo.external.discardDraftConfirm')}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

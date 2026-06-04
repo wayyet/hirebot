@@ -7,14 +7,14 @@ namespace HireBot.Core.Services.Hiring;
 internal sealed record HiringExternalSystemConfigState(
     string SubmissionMode,
     IReadOnlyList<HiringCliToolConfigState> CliTools,
-    HiringMcpServerConfigState? McpServer,
+    IReadOnlyList<HiringMcpServerConfigState> McpServers,
     DateTimeOffset UpdatedAtUtc)
 {
     public bool IsSkipped => string.Equals(SubmissionMode, HiringExternalSystemSubmissionModes.Skipped, StringComparison.OrdinalIgnoreCase);
 
     public bool HasConfiguredSystems =>
-        CliTools.Count > 0
-        || (McpServer is not null && McpServer.HasAnyConfig);
+        (CliTools?.Count ?? 0) > 0
+        || (McpServers?.Count ?? 0) > 0;
 
     public bool IsPersisted => IsSkipped || HasConfiguredSystems;
 
@@ -22,10 +22,12 @@ internal sealed record HiringExternalSystemConfigState(
         => new()
         {
             SubmissionMode = ResolveSubmissionMode(this),
-            CliTools = CliTools
+            CliTools = (CliTools ?? [])
                 .Select(static tool => tool.ToDto())
                 .ToArray(),
-            McpServer = McpServer?.ToDto(secretProtector),
+            McpServers = (McpServers ?? [])
+                .Select(mcp => mcp.ToDto(secretProtector))
+                .ToArray(),
             UpdatedAtUtc = UpdatedAtUtc
         };
 
@@ -39,11 +41,26 @@ internal sealed record HiringExternalSystemConfigState(
             .Select(static tool => tool!)
             .ToArray();
 
-        var normalizedMcpServer = HiringMcpServerConfigState.FromDto(dto?.McpServer, secretProtector);
+        // 新数据来自 McpServers 列表；旧数据来自 McpServer 单项（向后兼容）
+#pragma warning disable CS0618
+        var legacyMcpServer = dto?.McpServer;
+#pragma warning restore CS0618
+        var mcpServerDtos = dto?.McpServers is { Count: > 0 }
+            ? dto.McpServers
+            : legacyMcpServer is not null
+                ? [legacyMcpServer]
+                : [];
+
+        var normalizedMcpServers = mcpServerDtos
+            .Select(mcp => HiringMcpServerConfigState.FromDto(mcp, secretProtector))
+            .Where(static mcp => mcp is not null && mcp.HasAnyConfig)
+            .Select(static mcp => mcp!)
+            .ToArray();
+
         var provisionalState = new HiringExternalSystemConfigState(
             SubmissionMode: HiringExternalSystemSubmissionModes.Pending,
             CliTools: normalizedCliTools,
-            McpServer: normalizedMcpServer,
+            McpServers: normalizedMcpServers,
             UpdatedAtUtc: dto?.UpdatedAtUtc ?? DateTimeOffset.UtcNow);
 
         return provisionalState with
