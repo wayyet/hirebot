@@ -153,7 +153,6 @@ public static class ServiceExtensions
 
     private static void AddProviders(IServiceCollection services, IConfiguration configuration)
     {
-        services.AddScoped<IRequestContextService, RequestContextService>();
         services.AddDataProtection();
 
         services.AddScoped<IHiringRuntimeStore, PersistentHiringRuntimeStore>();
@@ -179,6 +178,10 @@ public static class ServiceExtensions
 
     private static void AddDomainServices(IServiceCollection services)
     {
+        // ── Identity & Context Services ────────────────────────────────────────────
+        services.AddScoped<HireBot.Abstraction.Infrastructure.Identity.IUserIdentity, HireBot.Core.Infrastructure.Identity.HireBotUserIdentity>();
+
+        // ── Domain Services ────────────────────────────────────────────────────────
         services.AddScoped<IEmployeeTemplateService, EmployeeTemplateService>();
         services.AddScoped<ITemplateSkillRecommendationService, TemplateSkillRecommendationService>();
         services.AddScoped<IEmployeeHiringService, EmployeeHiringService>();

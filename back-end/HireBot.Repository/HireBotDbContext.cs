@@ -90,7 +90,9 @@ public sealed class HireBotDbContext : DbContext
     public DbSet<EvaluationWorkspaceStateEntity> EvaluationWorkspaceStates { get; set; }
 
     public DbSet<HiringSessionEntity> HiringSessions { get; set; }
-    public DbSet<HiringRuntimeStateEntity> HiringRuntimeStates { get; set; }
+    public DbSet<HiringStageProgressEntity> HiringStageProgresses { get; set; }
+    public DbSet<HiringStructuredDataEntity> HiringStructuredData { get; set; }
+    public DbSet<HiringExternalConfigEntity> HiringExternalConfigs { get; set; }
     public DbSet<HiringArtifactEntity> HiringArtifacts { get; set; }
     public DbSet<HiringMaterialFileEntity> HiringMaterialFiles { get; set; }
     public DbSet<HiringArtifactUploadEntity> HiringArtifactUploads { get; set; }
@@ -236,22 +238,41 @@ public sealed class HireBotDbContext : DbContext
             entity.HasIndex(e => e.CreatedAtUtc);
         });
 
-        modelBuilder.Entity<HiringRuntimeStateEntity>(entity =>
+        modelBuilder.Entity<HiringStageProgressEntity>(entity =>
         {
             entity.HasKey(e => e.HireId);
-            entity.Property(e => e.SessionId).IsRequired().HasMaxLength(64);
-            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
             entity.Property(e => e.HireId).IsRequired().HasMaxLength(64);
-            entity.Property(e => e.CurrentStage).IsRequired().HasMaxLength(64);
-            entity.Property(e => e.CollectionPhase).IsRequired().HasMaxLength(64);
-            entity.Property(e => e.PayloadJson).IsRequired();
-            entity.Property(e => e.PackagesJson).IsRequired().HasDefaultValue("{}");
-            entity.Property(e => e.WorkflowStateJson).IsRequired().HasDefaultValue("{}");
-            entity.Property(e => e.ConversationCacheJson).IsRequired().HasDefaultValue("{}");
-            entity.Property(e => e.CreatedAtUtc).IsRequired();
+            entity.Property(e => e.TenantId).HasMaxLength(128);
+            entity.Property(e => e.CurrentStage).IsRequired().HasMaxLength(40);
+            entity.Property(e => e.PackagingTestCasesStatus).HasMaxLength(40);
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
+            entity.Property(e => e.UpdatedBy).HasMaxLength(256);
 
-            entity.HasIndex(e => new { e.TenantId, e.SessionId });
+            entity.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
+        });
+
+        modelBuilder.Entity<HiringStructuredDataEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.HireId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.TenantId).HasMaxLength(128);
+            entity.Property(e => e.FieldKey).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.FieldValue);
+            entity.Property(e => e.CollectedAtUtc).IsRequired();
+
+            entity.HasIndex(e => e.HireId);
+            entity.HasIndex(e => new { e.HireId, e.FieldKey });
+        });
+
+        modelBuilder.Entity<HiringExternalConfigEntity>(entity =>
+        {
+            entity.HasKey(e => e.HireId);
+            entity.Property(e => e.HireId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.TenantId).HasMaxLength(128);
+            entity.Property(e => e.ConfigJson).IsRequired().HasDefaultValue("{}");
+            entity.Property(e => e.UpdatedAtUtc).IsRequired();
+            entity.Property(e => e.UpdatedBy).HasMaxLength(256);
+
             entity.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
         });
 

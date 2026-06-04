@@ -28,7 +28,7 @@ namespace HireBot.Core.Services.Evaluation;
 internal sealed partial class EvaluationService(
     IHiringArtifactPackageService artifactPackageService,
     ISandboxService sandboxService,
-    IRequestContextService requestContextService,
+    HireBot.Abstraction.Infrastructure.Identity.IUserIdentity userIdentity,
     HireBotDbContext dbContext,
     IEvaluationAssetStore evaluationAssetStore,
     IHostEnvironment hostEnvironment,
@@ -214,7 +214,7 @@ internal sealed partial class EvaluationService(
         CancellationToken cancellationToken)
     {
         var normalizedEmployeeId = employeeId.Trim();
-        var requestOwner = requestContextService.ResolveOwnerSubject();
+        var requestOwner = userIdentity.OwnerSubject;
         var employee = await GetEmployeeFromDbAsync(requestOwner, normalizedEmployeeId, cancellationToken);
         if (employee is not null)
         {
@@ -224,7 +224,7 @@ internal sealed partial class EvaluationService(
                 ResolveEvaluationPersistenceScope(employee, requestOwner));
         }
 
-        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        var tenantId = userIdentity.TenantId;
         if (string.IsNullOrWhiteSpace(tenantId))
         {
             return null;
@@ -249,7 +249,7 @@ internal sealed partial class EvaluationService(
             return requestOwner;
         }
 
-        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        var tenantId = userIdentity.TenantId;
         return string.IsNullOrWhiteSpace(tenantId) ? requestOwner : tenantId.Trim();
     }
 
@@ -785,7 +785,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId and decision are required");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var employee = await GetEmployeeFromDbAsync(owner, employeeId.Trim(), cancellationToken);
         if (employee is null)
         {
@@ -846,7 +846,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationFetchTestcasesResultDto>.ErrorResponse(400, "employeeId cannot be empty");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var normalizedEmployeeId = employeeId.Trim();
         var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
         if (employee is null)
@@ -934,7 +934,7 @@ internal sealed partial class EvaluationService(
             return ApiResponse<EvaluationOntologyQueryResultDto>.ErrorResponse(400, "employeeId cannot be empty");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var normalizedEmployeeId = employeeId.Trim();
         var employee = await GetEmployeeFromDbAsync(owner, normalizedEmployeeId, cancellationToken);
         if (employee is null)

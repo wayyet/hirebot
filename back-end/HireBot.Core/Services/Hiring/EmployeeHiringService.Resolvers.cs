@@ -93,8 +93,9 @@ internal sealed partial class EmployeeHiringService
             return ownerContext;
         }
 
-        var ownerSubject = ResolveOwnerSubject();
-        var (tenantId, operatorId) = ResolveTenantAndOperator(null, null);
+        var ownerSubject = userIdentity.OwnerSubject;
+        var tenantId = userIdentity.TenantId ?? "default";
+        var operatorId = userIdentity.OperatorId;
         return new HireOwnerContext(
             OwnerSubject: ownerSubject,
             TenantId: tenantId,
@@ -149,79 +150,10 @@ internal sealed partial class EmployeeHiringService
             return ownerContext.OwnerSubject;
         }
 
-        return ResolveOwnerSubject();
+        return userIdentity.OwnerSubject;
     }
 
-    /// <summary>
-    /// 解析当前请求的所有者标识（ownerSubject）。
-    /// 优先级：JWT sub claim > X-HireBot-Owner header > tenant:operator fallback。
-    /// 注意：fallback 格式包含冒号，需要在传递给 Kubernetes 时进行转义（见 OpenSandboxProvisioner.ToK8sLabelValue）。
-    /// </summary>
-    /// <param name="tenantId">可选的租户 ID，用于 fallback</param>
-    /// <param name="operatorId">可选的操作员 ID，用于 fallback</param>
-    /// <returns>所有者标识字符串</returns>
-    private string ResolveOwnerSubject(string? tenantId = null, string? operatorId = null)
-    {
-        var user = httpContextAccessor.HttpContext?.User;
-        var sub =
-            user?.FindFirst("sub")?.Value ??
-            user?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!string.IsNullOrWhiteSpace(sub))
-        {
-            return sub.Trim();
-        }
 
-        var ownerHeader = httpContextAccessor.HttpContext?.Request.Headers["X-HireBot-Owner"].ToString();
-        if (!string.IsNullOrWhiteSpace(ownerHeader))
-        {
-            return ownerHeader.Trim();
-        }
-
-        var (resolvedTenantId, resolvedOperatorId) = ResolveTenantAndOperator(tenantId, operatorId);
-        return $"{resolvedTenantId}:{resolvedOperatorId}";
-    }
-
-    /// <summary>
-    /// 解析租户 ID 和操作员 ID。
-    /// 优先从参数、JWT claims 中提取，最后 fallback 到默认值。
-    /// </summary>
-    /// <param name="tenantId">可选的租户 ID</param>
-    /// <param name="operatorId">可选的操作员 ID</param>
-    /// <returns>租户 ID 和操作员 ID 的元组</returns>
-    private (string TenantId, string OperatorId) ResolveTenantAndOperator(string? tenantId, string? operatorId)
-    {
-        var user = httpContextAccessor.HttpContext?.User;
-
-        var resolvedTenantId = FirstNonEmpty(
-            tenantId,
-            user?.FindFirst("tenant_id")?.Value,
-            user?.FindFirst("tenant")?.Value,
-            user?.FindFirst("tid")?.Value,
-            "tenant-default");
-
-        var resolvedOperatorId = FirstNonEmpty(
-            operatorId,
-            user?.FindFirst("operator_id")?.Value,
-            user?.FindFirst("preferred_username")?.Value,
-            user?.FindFirst(ClaimTypes.Name)?.Value,
-            user?.FindFirst(ClaimTypes.NameIdentifier)?.Value,
-            "operator-default");
-
-        return (resolvedTenantId, resolvedOperatorId);
-    }
-
-    private static string FirstNonEmpty(params string?[] candidates)
-    {
-        foreach (var candidate in candidates)
-        {
-            if (!string.IsNullOrWhiteSpace(candidate))
-            {
-                return candidate.Trim();
-            }
-        }
-
-        return string.Empty;
-    }
 
     private static bool TryNormalizeArtifactPath(string artifactPath, out string normalizedArtifactPath, out string error)
     {

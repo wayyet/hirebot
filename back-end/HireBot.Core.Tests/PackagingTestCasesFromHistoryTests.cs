@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction;
+using HireBot.Abstraction.Infrastructure.Identity;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
@@ -548,6 +549,7 @@ internal static class EmployeeHiringServicePackagingTestFactory
             hiringRuntimeStore,
             new NotSupportedKingCrabHttpClient(),
             sandboxService,
+            new TestUserIdentity("test-tenant:test-operator", "test-tenant", "test-operator"),
             new HttpContextAccessor(),
             new NotSupportedServiceScopeFactory(),
             dbContext,
@@ -729,6 +731,24 @@ internal static class EmployeeHiringServicePackagingTestFactory
     }
 
     private static Task<T> Throw<T>() => throw new NotSupportedException();
+
+    private sealed class TestUserIdentity(string ownerSubject, string tenantId, string operatorId) : IUserIdentity
+    {
+        public string Id => ownerSubject;
+        public string Email => "test@example.com";
+        public string UserName => "testuser";
+        public string FirstName => "Test";
+        public string LastName => "User";
+        public string FullName => "Test User";
+        public string DisplayName => "Test User";
+        public string? TenantId => tenantId;
+        public string? TenantName => "Test Tenant";
+        public string OperatorId => operatorId;
+        public string OwnerSubject => ownerSubject;
+        public string? Role => "admin";
+        public bool IsAuthenticated => true;
+        public string? DepartmentId => null;
+    }
 }
 
 file sealed class TestHostEnvironment : IHostEnvironment

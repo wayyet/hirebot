@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction;
+using HireBot.Abstraction.Infrastructure.Identity;
 using HireBot.Abstraction.Models.EmployeeTemplate;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
@@ -45,6 +46,7 @@ internal sealed partial class EmployeeHiringService(
     IHiringRuntimeStore hiringRuntimeStore,
     IKingCrabHttpClient kingCrabHttpClient,
     ISandboxService sandboxService,
+    IUserIdentity userIdentity,
     IHttpContextAccessor httpContextAccessor,
     IServiceScopeFactory serviceScopeFactory,
     HireBotDbContext dbContext,
@@ -67,7 +69,7 @@ internal sealed partial class EmployeeHiringService(
     private readonly ConcurrentDictionary<string, byte> conversationInFlight = new(StringComparer.OrdinalIgnoreCase);
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
         string templateId,
-        HireTemplateRequestDto request,
+        string? useCase = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(templateId))
@@ -75,8 +77,8 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(400, "templateId 不能为空");
         }
 
-        request ??= new HireTemplateRequestDto();
-        var (tenantId, operatorId) = ResolveTenantAndOperator(request.TenantId, request.OperatorId);
+        var tenantId = userIdentity.TenantId ?? "default";
+        var operatorId = userIdentity.OperatorId;
 
         var normalizedTemplateId = templateId.Trim();
         EmployeeTemplateDefinition? template;
@@ -112,7 +114,7 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, "模板资产或 discovery skill 读取失败");
         }
 
-        var ownerSubject = ResolveOwnerSubject(tenantId, operatorId);
+        var ownerSubject = userIdentity.OwnerSubject;
 
         var existingInstance = await sandboxService.FindActiveByOwnerAndTemplateAsync(
             ownerSubject, normalizedTemplateId, "hiring", cancellationToken);
@@ -149,7 +151,7 @@ internal sealed partial class EmployeeHiringService(
                     return await ReinitializeRebuiltHireSandboxAsync(
                         existingInstance,
                         ownerSubject, tenantId, operatorId,
-                        normalizedTemplateId, request.UseCase,
+                        normalizedTemplateId, useCase,
                         roleTemplatePackage, workingTemplatePackage,
                         discoverySkill, referenceTemplatePackage,
                         template, cancellationToken);
@@ -241,7 +243,7 @@ internal sealed partial class EmployeeHiringService(
             tenantId,
             operatorId,
             normalizedTemplateId,
-            request.UseCase,
+            useCase,
             cancellationToken);
         if (!provisionResult.Success || provisionResult.Data is null)
         {

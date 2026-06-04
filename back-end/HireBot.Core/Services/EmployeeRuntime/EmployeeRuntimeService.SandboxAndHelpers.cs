@@ -226,8 +226,9 @@ public sealed partial class EmployeeRuntimeService
                 return ApiResponse<string>.ErrorResponse(404, "instance not found");
             }
 
-            var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(instance.TenantId, instance.OwnerUserId);
-            var ownerSubject = requestContextService.ResolveOwnerSubject();
+            var tenantId = instance.TenantId ?? userIdentity.TenantId ?? "default";
+            var operatorId = instance.OwnerUserId ?? userIdentity.OperatorId;
+            var ownerSubject = userIdentity.OwnerSubject;
             var scopeKey = BuildRuntimeScopeKey(instanceId);
 
             // runtime sandbox 记录缺失，自动重建（PVC 持久保留，容器重建后工作区数据自动恢复）
@@ -609,7 +610,7 @@ public sealed partial class EmployeeRuntimeService
 
         try
         {
-            var ownerSubject = requestContextService.ResolveOwnerSubject();
+            var ownerSubject = userIdentity.OwnerSubject;
             using var cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cleanupCts.CancelAfter(RetirementCleanupTimeout);
             await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(

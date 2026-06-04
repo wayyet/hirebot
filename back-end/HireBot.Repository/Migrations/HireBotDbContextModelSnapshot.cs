@@ -57,7 +57,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.AppUserEntity", b =>
@@ -115,7 +115,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("TenantId", "Username");
 
-                    b.ToTable("AppUsers");
+                    b.ToTable("AppUsers", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.ConversationEntity", b =>
@@ -220,7 +220,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("SessionEntityId", "AssetType");
 
-                    b.ToTable("EvaluationAssets");
+                    b.ToTable("EvaluationAssets", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationReportEntity", b =>
@@ -272,7 +272,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("SessionEntityId", "Iteration");
 
-                    b.ToTable("EvaluationReports");
+                    b.ToTable("EvaluationReports", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationSessionEntity", b =>
@@ -348,7 +348,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("TenantId", "OwnerSubject", "EmployeeId", "UpdatedAtUtc");
 
-                    b.ToTable("EvaluationSessions");
+                    b.ToTable("EvaluationSessions", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationWorkspaceStateEntity", b =>
@@ -389,7 +389,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("TenantId", "OwnerSubject", "EmployeeId")
                         .IsUnique();
 
-                    b.ToTable("EvaluationWorkspaceStates");
+                    b.ToTable("EvaluationWorkspaceStates", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringArtifactEntity", b =>
@@ -461,7 +461,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("TenantId", "SessionId", "Kind", "LogicalPath")
                         .IsUnique();
 
-                    b.ToTable("HiringArtifacts");
+                    b.ToTable("HiringArtifacts", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringArtifactUploadEntity", b =>
@@ -528,7 +528,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("TenantId", "SessionId", "Kind", "LogicalPath", "CompletedAtUtc");
 
-                    b.ToTable("HiringArtifactUploads");
+                    b.ToTable("HiringArtifactUploads", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringArtifactUploadPartEntity", b =>
@@ -570,7 +570,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("UploadId", "PartNumber")
                         .IsUnique();
 
-                    b.ToTable("HiringArtifactUploadParts");
+                    b.ToTable("HiringArtifactUploadParts", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringAuditLogEntity", b =>
@@ -633,7 +633,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("TenantId", "SessionId", "TimestampUtc");
 
-                    b.ToTable("HiringAuditLogs");
+                    b.ToTable("HiringAuditLogs", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringMaterialFileEntity", b =>
@@ -788,7 +788,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("TenantId", "UpdatedAtUtc");
 
-                    b.ToTable("HiringRuntimeStates");
+                    b.ToTable("HiringRuntimeStates", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringSessionEntity", b =>
@@ -861,7 +861,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("HireId")
                         .IsUnique();
 
-                    b.ToTable("HiringSessions");
+                    b.ToTable("HiringSessions", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.InstanceEntity", b =>
@@ -1081,7 +1081,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("SandboxInstanceEntityId", "CreatedAtUtc");
 
-                    b.ToTable("SandboxAssets");
+                    b.ToTable("SandboxAssets", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.SandboxInstanceEntity", b =>
@@ -1177,7 +1177,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("OwnerSubject", "TemplateId", "SandboxRole", "State");
 
-                    b.ToTable("SandboxInstances");
+                    b.ToTable("SandboxInstances", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.SandboxSessionEntity", b =>
@@ -1248,7 +1248,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("TenantId", "OwnerSubject", "ScopeType", "ScopeKey", "SandboxRole", "SessionKey")
                         .IsUnique();
 
-                    b.ToTable("SandboxSessions");
+                    b.ToTable("SandboxSessions", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationAssetEntity", b =>

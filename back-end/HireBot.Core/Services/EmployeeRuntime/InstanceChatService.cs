@@ -20,7 +20,7 @@ public sealed class InstanceChatService(
     IInstanceRuntimeConversationService runtimeConversationService,
     IKingCrabHttpClient kingCrabHttpClient,
     HireBotDbContext dbContext,
-    IRequestContextService requestContextService) : IInstanceChatService
+    HireBot.Abstraction.Infrastructure.Identity.IUserIdentity userIdentity) : IInstanceChatService
 {
     private const string InAppChannel = "inapp";
     private const string FeishuChannelUpdatePath = "/admin/channels/feishu/update";
@@ -105,7 +105,7 @@ public sealed class InstanceChatService(
             return ApiResponse<ImConfigResultDto>.ErrorResponse(access.Code, access.Message);
         }
 
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var ownerSubject = userIdentity.OwnerSubject;
         var remoteResult = await SendFeishuChannelConfigAsync(
             new FeishuChannelConfig
             {
@@ -162,7 +162,7 @@ public sealed class InstanceChatService(
             return ApiResponse<FeishuChannelEffectiveConfigDto>.ErrorResponse(access.Code, access.Message);
         }
 
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var ownerSubject = userIdentity.OwnerSubject;
         var remoteResult = await kingCrabHttpClient.SendForJsonAsync<FeishuChannelEffectiveConfigDto>(
             HttpMethod.Get,
             "/admin/channels/feishu",
@@ -196,7 +196,7 @@ public sealed class InstanceChatService(
             return ApiResponse<bool>.ErrorResponse(access.Code, access.Message);
         }
 
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var ownerSubject = userIdentity.OwnerSubject;
         var remoteResult = await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
             HttpMethod.Delete,
             FeishuChannelOverrideDeletePath,
@@ -269,7 +269,7 @@ public sealed class InstanceChatService(
             return ApiResponse<DingTalkChannelConfig>.ErrorResponse(access.Code, access.Message);
         }
 
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var ownerSubject = userIdentity.OwnerSubject;
         var remoteResult = await kingCrabHttpClient.SendForJsonAsync<DingTalkChannelConfig>(
             HttpMethod.Get,
             "/admin/channels/dingtalk",
@@ -307,7 +307,7 @@ public sealed class InstanceChatService(
             return ApiResponse<ImConfigResultDto>.ErrorResponse(access.Code, access.Message);
         }
 
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var ownerSubject = userIdentity.OwnerSubject;
         var remoteResult = await SendDingTalkChannelConfigAsync(request, ownerSubject, cancellationToken);
 
         if (!remoteResult.Success || remoteResult.Data is null)
@@ -362,7 +362,7 @@ public sealed class InstanceChatService(
             return ApiResponse<bool>.ErrorResponse(access.Code, access.Message);
         }
 
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var ownerSubject = userIdentity.OwnerSubject;
         var remoteResult = await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
             HttpMethod.Delete,
             DingTalkChannelOverrideDeletePath,
@@ -416,7 +416,7 @@ public sealed class InstanceChatService(
             return ApiResponse<WeComChannelEffectiveConfigDto>.ErrorResponse(access.Code, access.Message);
         }
 
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var ownerSubject = userIdentity.OwnerSubject;
         var remoteResult = await kingCrabHttpClient.SendForJsonAsync<WeComChannelEffectiveConfigDto>(
             HttpMethod.Get,
             "/admin/channels/wecom",
@@ -454,7 +454,7 @@ public sealed class InstanceChatService(
             return ApiResponse<ImConfigResultDto>.ErrorResponse(access.Code, access.Message);
         }
 
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var ownerSubject = userIdentity.OwnerSubject;
         var remoteResult = await SendWeComChannelConfigAsync(
             new WeComChannelConfig
             {
@@ -495,7 +495,7 @@ public sealed class InstanceChatService(
             return ApiResponse<bool>.ErrorResponse(access.Code, access.Message);
         }
 
-        var ownerSubject = requestContextService.ResolveOwnerSubject();
+        var ownerSubject = userIdentity.OwnerSubject;
         var remoteResult = await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
             HttpMethod.Delete,
             WeComChannelOverrideDeletePath,
@@ -587,7 +587,7 @@ public sealed class InstanceChatService(
             return ConfigAccessResult.Fail(409, "部门员工不配置 IM，请先创建个人分身");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         if (!string.Equals(instance.OwnerUserId, owner, StringComparison.OrdinalIgnoreCase))
         {
             return ConfigAccessResult.Fail(403, "无权配置该实例 IM");

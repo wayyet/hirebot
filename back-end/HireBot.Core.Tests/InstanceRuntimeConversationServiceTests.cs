@@ -116,7 +116,7 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
     {
         return new InstanceRuntimeConversationService(
             dbContext,
-            new FakeRequestContextService("owner-1"),
+            new TestUserIdentity("owner-1", "tenant-1", "operator-1"),
             sandbox ?? new FakeSandboxService("assistant"),
             NullLogger<InstanceRuntimeConversationService>.Instance);
     }
@@ -254,15 +254,22 @@ public sealed class InstanceRuntimeConversationServiceTests : IDisposable
             => new(Guid.NewGuid(), sandboxId, scopeType, scopeKey, sandboxRole, "managed", ownerSubject, tenantId, operatorId, "Running", "http://localhost:18789", null, null, null, null, false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null);
     }
 
-    private sealed class FakeRequestContextService(string ownerSubject) : IRequestContextService
+    private sealed class TestUserIdentity(string ownerSubject, string tenantId, string operatorId) : HireBot.Abstraction.Infrastructure.Identity.IUserIdentity
     {
-        public string ResolveOwnerSubject(string? tenantId = null, string? operatorId = null) => ownerSubject;
-
-        public (string TenantId, string OperatorId) ResolveTenantAndOperator(string? tenantId, string? operatorId)
-        {
-            return (tenantId ?? "tenant-1", operatorId ?? "operator-1");
-        }
+        public string Id => ownerSubject;
+        public string Email => "test@example.com";
+        public string UserName => "testuser";
+        public string FirstName => "Test";
+        public string LastName => "User";
+        public string FullName => "Test User";
+        public string DisplayName => "Test User";
+        public string? TenantId => tenantId;
+        public string? TenantName => "Test Tenant";
+        public string OperatorId => operatorId;
+        public string OwnerSubject => ownerSubject;
+        public string? Role => "admin";
+        public bool IsAuthenticated => true;
+        public string? DepartmentId => null;
     }
-
 }
 

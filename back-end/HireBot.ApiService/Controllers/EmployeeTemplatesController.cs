@@ -46,27 +46,14 @@ public sealed class EmployeeTemplatesController(
     [HttpPost("{templateId}/hire")]
     public async Task<IActionResult> HireTemplate(
         string templateId,
-        [FromBody] HireTemplateRequestDto request,
+        [FromBody] HireUseCase? request = null,
         CancellationToken cancellationToken = default)
     {
-        if (!ModelState.IsValid)
-        {
-            var errorMessages = ModelState.Values
-                .SelectMany(value => value.Errors)
-                .Select(error => error.ErrorMessage)
-                .Where(message => !string.IsNullOrWhiteSpace(message));
-
-            var message = string.Join("; ", errorMessages);
-            var badRequestResponse = ApiResponse<HireTemplateResultDto>.ErrorResponse(
-                400,
-                string.IsNullOrWhiteSpace(message) ? "请求参数校验失败" : message);
-
-            return BadRequest(badRequestResponse);
-        }
-
-        var response = await employeeHiringService.HireAsync(templateId, request, cancellationToken);
+        var response = await employeeHiringService.HireAsync(templateId, request?.UseCase, cancellationToken);
         return StatusCode(response.Code, response);
     }
+
+    public sealed record HireUseCase(string? UseCase = null);
 
     [HttpPost("{templateId}/fixture-hire")]
     public async Task<IActionResult> HireFromFixtureTemplate(

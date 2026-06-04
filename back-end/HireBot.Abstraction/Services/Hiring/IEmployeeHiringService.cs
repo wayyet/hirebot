@@ -5,7 +5,7 @@ namespace HireBot.Abstraction.Services.Hiring;
 
 public interface IEmployeeHiringService
 {
-    Task<ApiResponse<HireTemplateResultDto>> HireAsync(string templateId, HireTemplateRequestDto request, CancellationToken cancellationToken = default);
+    Task<ApiResponse<HireTemplateResultDto>> HireAsync(string templateId, string? useCase = null, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringStatusDto>> GetHiringStatusAsync(string hireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<StartHiringConversationResultDto>> StartConversationAsync(string hireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringConversationControlResultDto>> PauseConversationAsync(string hireId, CancellationToken cancellationToken = default);
