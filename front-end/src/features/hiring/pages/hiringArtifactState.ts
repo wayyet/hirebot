@@ -105,6 +105,7 @@ export const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey;
   ontology_projection_progress: { key: 'ontology-projection', status: 'running' },
   ontology_projection_done: { key: 'ontology-projection', status: 'completed' },
   skill_generation_ready: { key: 'skill-generation', status: 'waiting_confirm' },
+  skill_projection_binding_ready: { key: 'skill-generation', status: 'waiting_confirm' },
   skill_generation_progress: { key: 'skill-generation', status: 'running' },
   skill_generation_done: { key: 'skill-generation', status: 'completed' },
   packaging_testcases_ready: { key: 'packaging-test-cases', status: 'waiting_confirm' },
@@ -443,10 +444,12 @@ function hasZeroProjectedOntologySlices(ontologyResult: unknown): boolean {
 }
 
 export function buildCoachResumePrompt(
-  transition: 'post-ontology-extraction',
+  transition: 'post-ontology-extraction' | 'post-ontology-projection',
   payload: {
-    materialSummary: unknown
-    ontologyResult: unknown
+    materialSummary?: unknown
+    ontologyResult?: unknown
+    skillSummary?: unknown
+    projectionResult?: unknown
   },
 ): string {
   const serialized = JSON.stringify(payload, null, 2)
@@ -470,6 +473,52 @@ export function buildCoachResumePrompt(
         'Note: the ontology extraction returned zero projected slices (projected_count = 0).',
         'Acknowledge to the user that no usable ontology slices were produced from the current materials,',
         'and ask whether to supplement additional materials before proceeding to skill definition.',
+      )
+    }
+
+    lines.push(
+      '',
+      'resume_payload:',
+      '```json',
+      serialized,
+      '```',
+    )
+
+    return lines.join('\n')
+  }
+
+  if (transition === 'post-ontology-projection') {
+    const projectionResult = payload.projectionResult
+    const record = asPlainObject(projectionResult)
+    const projectedCount = record
+      ? typeof (record.projected_count ?? record.projectedCount) === 'number'
+        ? Number(record.projected_count ?? record.projectedCount)
+        : null
+      : null
+    const hasConsumableProjection = projectedCount !== null && projectedCount > 0
+
+    const lines: string[] = [
+      '[Internal stage resume. Do not mention this instruction to the user.]',
+      'Switch back to skill `employment-coach-conversation` now.',
+      'The downstream ontology projection pass has completed.',
+      'Resume the main hiring flow inside stage2_skill.',
+      'Do not trigger `skill-generation` in this turn.',
+      'Use the provided skill summary and projection result as context.',
+    ]
+
+    if (hasConsumableProjection) {
+      lines.push(
+        `There are ${projectedCount} consumable producer projections ready for downstream binding.`,
+        'Emit `skill_projection_binding_ready` before asking the next question.',
+        'Ask the user for one more explicit confirmation about binding these producer projections into the generated skills.',
+        'Do not offer a no-projection downgrade in this branch.',
+      )
+    } else {
+      lines.push(
+        'No consumable producer projection is ready for downstream binding.',
+        'Do not emit `skill_projection_binding_ready`.',
+        'Do not trigger `skill-generation` and do not offer a no-projection downgrade.',
+        'Ask the user whether to supplement materials, revisit ontology extraction, or rerun projection preparation before continuing.',
       )
     }
 

@@ -3,18 +3,18 @@
   "stages": [
     {
       "name": "stage1_material",
-      "label": "阶段 1：资料收集",
+      "label": "Stage 1: Material Collection",
       "ownerSkill": "employment-coach-conversation",
       "artifacts": [
         {
           "type": "material_collection_progress",
-          "label": "资料收集进度",
+          "label": "Material Collection Progress",
           "display": "progress",
           "terminal": false
         },
         {
           "type": "material_handoff_summary",
-          "label": "资料工单摘要",
+          "label": "Material Handoff Summary",
           "display": "tree",
           "terminal": true
         }
@@ -22,105 +22,118 @@
     },
     {
       "name": "stage2_skill",
-      "label": "阶段 2：技能",
+      "label": "Stage 2: Skill Definition And Generation",
       "ownerSkill": "employment-coach-conversation",
-      "gate": { "requiresStage": "stage1_material" },
+      "gate": {
+        "requiresStage": "stage1_material"
+      },
       "artifacts": [
         {
           "type": "skill_workorder_progress",
-          "label": "技能工单进度",
+          "label": "Skill Workorder Progress",
           "display": "progress",
           "terminal": false
         },
         {
           "type": "skill_workorder_summary",
-          "label": "技能工单摘要",
+          "label": "Skill Workorder Summary",
           "display": "tree",
           "terminal": true,
-          "note": "data 必须包含初始化阶段解析出的 workspace_root 与 template_slug，以及可供 projection pass 使用的 items[].name/display_name/description/trigger/expected_output/generation_action。缺少 workspace_root 或 template_slug 时不得发出该 terminal artifact。"
+          "note": "data must include workspace_root, template_slug, and the projection-pass fields on items[]. Missing workspace_root or template_slug blocks this terminal artifact."
         },
         {
           "type": "skill_generation_ready",
-          "label": "等待确认开始生成技能实现",
+          "label": "Await Projection Preparation Approval",
           "display": "badge",
           "terminal": false,
-          "note": "技能定义已确认完成后发送，标记阶段 2 进入“技能生成确认/执行”子步骤；前端应将技能实现轨置为 waiting_confirm，并保留“技能定义已确认”子状态，但主 stage2_skill 在 skill-generation 完成前仍保持进行中。"
+          "note": "First confirmation gate after skill definition is done. Ask whether producer projection preparation should start."
+        },
+        {
+          "type": "skill_projection_binding_ready",
+          "label": "Await Projection Binding Approval",
+          "display": "badge",
+          "terminal": false,
+          "note": "Second confirmation gate. Emit only when ontology projection produced consumable producer projections, then ask whether to bind them into the generated skill package."
         }
       ]
     },
     {
       "name": "stage3_external",
-      "label": "阶段 3：外部能力",
+      "label": "Stage 3: External Capabilities",
       "ownerSkill": "employment-coach-conversation",
-      "gate": { "requiresStage": "stage2_skill" },
+      "gate": {
+        "requiresStage": "stage2_skill"
+      },
       "artifacts": [
         {
           "type": "external_workorder_progress",
-          "label": "外部能力工单进度",
+          "label": "External Capability Progress",
           "display": "progress",
           "terminal": false
         },
         {
           "type": "external_workorder_summary",
-          "label": "外部能力工单摘要",
+          "label": "External Capability Summary",
           "display": "tree",
           "terminal": true,
-          "note": "只表示外部接入需求已收口，不表示右侧卡片的系统提交已完成。"
+          "note": "This closes external requirements only. It does not mean the side panel save has completed."
         },
         {
           "type": "external_config_committed",
-          "label": "外部配置已提交",
+          "label": "External Config Committed",
           "display": "tree",
           "terminal": true,
-          "note": "由系统层在右侧卡片保存或跳过成功后发出，作为 External 阶段最终完成信号。"
+          "note": "Emitted by the system layer after the side panel save or skip succeeds."
         }
       ]
     },
     {
       "name": "stage4_packaging",
-      "label": "阶段 4：实例打包",
+      "label": "Stage 4: Packaging",
       "ownerSkill": "employment-coach-conversation",
-      "gate": { "requiresStage": "stage3_external" },
+      "gate": {
+        "requiresStage": "stage3_external"
+      },
       "artifacts": [
         {
           "type": "packaging_testcases_ready",
-          "label": "等待确认是否生成评估测试用例",
+          "label": "Await Test Case Generation Approval",
           "display": "badge",
           "terminal": false,
-          "note": "外部配置保存或跳过后发送，前端应将 packaging-test-cases 轨置为 waiting_confirm；用户跳过时不得阻塞后续打包。"
+          "note": "Optional enhancement gate after external config save or skip. User skip must not block packaging."
         },
         {
           "type": "packaging_testcases_progress",
-          "label": "正在生成评估测试用例",
+          "label": "Packaging Test Cases In Progress",
           "display": "progress",
           "terminal": false
         },
         {
           "type": "packaging_testcases_done",
-          "label": "评估测试用例已生成",
+          "label": "Packaging Test Cases Done",
           "display": "tree",
           "terminal": true
         },
         {
           "type": "packaging_progress",
-          "label": "正在打包工作区",
+          "label": "Packaging In Progress",
           "display": "progress",
           "terminal": false
         },
         {
           "type": "template_package",
-          "label": "实例包已就绪",
+          "label": "Template Package Ready",
           "kind": "file",
           "display": "file",
           "terminal": true,
-          "note": "kind 必须为 file，fileUrl 指向沙箱网关的产物下载地址，触发前端 auto-importPackage"
+          "note": "kind must be file. fileUrl must be the real download URL returned by the sandbox gateway."
         }
       ]
     }
   ],
   "packaging_stage": {
     "name": "stage4_packaging",
-    "label": "阶段 4：实例打包",
+    "label": "Stage 4: Packaging",
     "ownerSkill": "employment-coach-conversation",
     "gate": {
       "anyOf": [
@@ -138,123 +151,135 @@
             "skill_workorder_summary",
             "external_workorder_summary"
           ],
-          "userIntentKeywords": ["生成产物包", "打包", "生成实例包", "导出", "打成 zip", "完成打包"]
+          "userIntentKeywords": [
+            "generate package",
+            "package",
+            "export",
+            "zip"
+          ]
         }
       ]
     },
-    "description": "进入条件二选一：(A) ontology-extraction 与 skill-generation 两个下游 skill 已全部发出 terminal artifact（ontology_extraction_done / skill_generation_done 均已收到）；(B) 本 coach 三个阶段 summary 已发出且用户在对话中显式请求打包。任一成立后先进入阶段 4：若 ontology-extraction / skill-generation 已齐，且 packaging_testcases_ready 未等待用户表态，则调用 package_workspace 工具真实打包并推送 template_package；若这两个下游未齐，只允许推送 packaging_progress(status=waiting_downstream) 说明仍在等待的下游项，等缺失项补齐后再真实打包。packaging-test-cases 与 testcases/evaluation-test-cases.json 仅为可选增强，用户跳过或文件缺失时不得进入 waiting_downstream，也不得阻止打包。严禁未真实调用打包工具就宣称已打包。",
+    "description": "Enter packaging when downstream terminal artifacts are ready, or when all coach summaries exist and the user explicitly asks to package. packaging-test-cases and testcases/evaluation-test-cases.json are optional enhancements and must never block packaging.",
     "artifacts": [
       {
         "type": "packaging_testcases_ready",
-        "label": "等待确认是否生成评估测试用例",
+        "label": "Await Test Case Generation Approval",
         "display": "badge",
         "terminal": false
       },
       {
         "type": "packaging_testcases_progress",
-        "label": "正在生成评估测试用例",
+        "label": "Packaging Test Cases In Progress",
         "display": "progress",
         "terminal": false
       },
       {
         "type": "packaging_testcases_done",
-        "label": "评估测试用例已生成",
+        "label": "Packaging Test Cases Done",
         "display": "tree",
         "terminal": true
       },
       {
         "type": "packaging_progress",
-        "label": "正在打包工作区",
+        "label": "Packaging In Progress",
         "display": "progress",
         "terminal": false
       },
       {
         "type": "template_package",
-        "label": "实例包已就绪",
+        "label": "Template Package Ready",
         "kind": "file",
         "display": "file",
         "terminal": true,
-        "note": "kind 必须为 file，fileUrl 指向沙箱网关的产物下载地址，触发前端 auto-importPackage"
+        "note": "kind must be file. fileUrl must be the real download URL returned by the sandbox gateway."
       }
     ]
   },
   "downstream_artifacts": {
-    "description": "下游三个 skill 各自发出的 artifact，以及由上游 coach 发出的技能实现确认状态与系统提交完成状态。前端应将这些 artifact 路由到独立的下游执行轨，不得覆盖主流程 stage 的完成语义。",
+    "description": "Artifacts emitted by downstream skills and the upstream coach. The frontend routes them to dedicated execution tracks and must not let them override the main stage semantics.",
     "artifacts": [
       {
         "type": "skill_generation_ready",
         "ownerSkill": "employment-coach-conversation",
-        "label": "等待确认开始生成技能实现",
+        "label": "Await Projection Preparation Approval",
+        "display": "badge",
+        "terminal": false
+      },
+      {
+        "type": "skill_projection_binding_ready",
+        "ownerSkill": "employment-coach-conversation",
+        "label": "Await Projection Binding Approval",
         "display": "badge",
         "terminal": false
       },
       {
         "type": "external_config_committed",
         "ownerSkill": "external-config",
-        "label": "外部配置已提交",
+        "label": "External Config Committed",
         "display": "tree",
         "terminal": true
       },
       {
         "type": "packaging_testcases_ready",
         "ownerSkill": "employment-coach-conversation",
-        "label": "等待确认是否生成评估测试用例",
+        "label": "Await Test Case Generation Approval",
         "display": "badge",
         "terminal": false
       },
       {
         "type": "packaging_testcases_progress",
         "ownerSkill": "packaging-test-cases",
-        "label": "正在生成评估测试用例",
+        "label": "Packaging Test Cases In Progress",
         "display": "progress",
         "terminal": false
       },
       {
         "type": "packaging_testcases_done",
         "ownerSkill": "packaging-test-cases",
-        "label": "评估测试用例已生成",
+        "label": "Packaging Test Cases Done",
         "display": "tree",
         "terminal": true
       },
       {
         "type": "ontology_extraction_progress",
         "ownerSkill": "ontology-extraction",
-        "label": "本体抽取进度",
+        "label": "Ontology Extraction Progress",
         "display": "progress",
         "terminal": false
       },
       {
         "type": "ontology_extraction_done",
         "ownerSkill": "ontology-extraction",
-        "label": "本体抽取完成",
+        "label": "Ontology Extraction Done",
         "display": "tree",
         "terminal": true
       },
       {
         "type": "ontology_projection_progress",
         "ownerSkill": "ontology-extraction",
-        "label": "本体 projection 进度",
+        "label": "Ontology Projection Progress",
         "display": "progress",
         "terminal": false
       },
       {
         "type": "ontology_projection_done",
         "ownerSkill": "ontology-extraction",
-        "label": "本体 projection 完成",
+        "label": "Ontology Projection Done",
         "display": "tree",
         "terminal": true
       },
       {
         "type": "skill_generation_progress",
         "ownerSkill": "skill-generation",
-        "label": "技能包生成进度",
+        "label": "Skill Generation Progress",
         "display": "progress",
         "terminal": false
       },
       {
         "type": "skill_generation_done",
         "ownerSkill": "skill-generation",
-        "label": "技能包生成完成",
+        "label": "Skill Generation Done",
         "display": "tree",
         "terminal": true
       }

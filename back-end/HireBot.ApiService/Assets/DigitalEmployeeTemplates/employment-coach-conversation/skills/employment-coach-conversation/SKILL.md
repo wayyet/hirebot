@@ -73,9 +73,10 @@ metadata:
 |------|-------------|-------|------------|-------------|
 | 收到第一批技能描述后 | `skill_workorder_progress` | `stage2_skill` | `false` | `progress` |
 | 用户确认技能清单，技能定义子步骤收尾 | `skill_workorder_summary` | `stage2_skill` | `true` | `tree` |
-| 技能定义已确认，等待用户确认是否开始技能生成 | `skill_generation_ready` | `stage2_skill` | `false` | `badge` |
-| 用户确认技能生成后，projection pass 启动 | `ontology_projection_progress` | `ontology-projection` | `false` | `progress` |
-| projection pass 完成，可触发技能生成 | `ontology_projection_done` | `ontology-projection` | `true` | `tree` |
+| 技能定义已确认，等待用户确认是否开始准备 producer projection | `skill_generation_ready` | `stage2_skill` | `false` | `badge` |
+| 用户确认开始准备 producer projection 后，projection pass 启动 | `ontology_projection_progress` | `ontology-projection` | `false` | `progress` |
+| projection pass 完成，回到 coach 判断是否进入投影绑定确认门 | `ontology_projection_done` | `ontology-projection` | `true` | `tree` |
+| producer projection 已可消费，等待用户确认是否绑定到技能包 | `skill_projection_binding_ready` | `stage2_skill` | `false` | `badge` |
 
 **阶段 3 外部 — 发出时机与参数**
 
@@ -402,13 +403,21 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 > 「技能定义已经确认完成。是否现在开始生成这些技能的实现内容？」
 
 - 等待用户明确回应：
-  - 用户**肯定**：**先触发 `ontology-extraction` 的 Projection Pass 模式**（输入：`trigger_mode: "projection_pass"`、`workspace_root`、`skills` 列表来自 `skill_workorder_summary.data.items`），等待 `ontology_projection_done` 到达后，再把本轮技能清单交给下游 `skill-generation`，由下游先发 `skill_generation_progress`，再开始真正生成 / 复用落盘。
+  - 用户**肯定**：**先触发 `ontology-extraction` 的 Projection Pass 模式**（输入：`trigger_mode: "projection_pass"`、`workspace_root`、`skills` 列表来自 `skill_workorder_summary.data.items`）。`ontology_projection_done` 到达后，必须先回到本 coach，基于 projection 结果决定是否进入第二道确认门；**本回合不得自动触发 `skill-generation`**。
   - 用户**否定 / 暂停**：保留 `skill_generation_ready` 状态，不启动 projection pass 也不启动 `skill-generation`，等用户后续明确同意后再开始。
   - 用户**补充或修改技能定义**：回到阶段 2，更新 `skill_workorder_progress` / `skill_workorder_summary`，然后重新发出上述确认门询问。
+- **Projection 绑定确认门（强制）**：
+  - 若 `ontology_projection_done.data.projected_count > 0`，且结果表明确实存在可消费的 producer projection，必须先发出 `skill_projection_binding_ready` artifact，再向用户询问：
+
+> 「producer projection 已准备好。是否将这些投影绑定进即将生成的技能包？」
+
+  - 用户**肯定**：才允许触发 `skill-generation`，并在输入 payload 中显式带上 `projection_binding_confirmed: true`、`projection_contract_mode: "required"` 以及最新 `projection_result`。
+  - 用户**否定 / 暂停**：保留 `skill_projection_binding_ready` 状态，不触发 `skill-generation`，等待用户后续明确同意。
+  - 用户**补充或修改技能定义**：回到阶段 2，重新生成 `skill_workorder_summary`，并清空上一轮 projection 结果与确认门状态。
 - **Projection Pass 等待规则**：
-  - `ontology_projection_done` 到达之前，不得触发 `skill-generation`
-  - 若 `ontology_projection_done.data.projected_count === 0`（全部跳过），skill-generation 正常触发，无 projection 降级运行
-  - 若 projection pass 因异常未能发出 `ontology_projection_done`，超时后向用户提示异常，降级直接触发 skill-generation
+  - `ontology_projection_done` 到达之前，不得触发 `skill-generation`。
+  - 若 `ontology_projection_done.data.projected_count === 0`、producer projection source 无效、或结果不足以 materialize consumer contracts，**不得**触发 `skill-generation`，**不得**提供“无 projection 降级”选项。必须如实告知用户当前没有可消费的 producer projection，并引导其补材料、回到 ontology extraction，或重新准备 projection。
+  - 若 projection pass 因异常未能发出 `ontology_projection_done`，超时后向用户提示异常，保持在阶段 2，等待用户决定重试或补充输入；**不得**降级直触发 `skill-generation`。
 - **禁止话术**：只要 `skill-generation` 尚未完成，就**不得**对用户说"可进入外部能力配置"、"下一步是外部系统"或任何等价表述。
 - **进入阶段 3 的前置条件**：只有 `skill-generation` 已完成，且用户明确同意继续外部阶段时，才允许进入外部阶段。
 
@@ -434,7 +443,7 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 **阶段 3 完成后的强制阶段门动作**：发出 `external_workorder_summary` 后，按以下顺序判断：
 
-- 若仍处于 `skill_generation_ready`（等待用户确认是否开始生成技能实现），**必须先复用阶段 2 的确认门询问**，不要直接进入打包询问。
+- 若仍处于 `skill_generation_ready` 或 `skill_projection_binding_ready`（阶段 2 的第一道 / 第二道确认门），**必须先复用阶段 2 的确认门询问**，不要直接进入打包询问。
 - 若 ontology-extraction 或 skill-generation 任一仍未发出 terminal artifact，先用一行简短状态同步告诉用户"下游生成仍在执行，完成后即可打包"，不要提前承诺已打包，也不要发 `template_package`。
 - 只有当 ontology-extraction、skill-generation 均已完成，且右侧外部配置已保存或明确跳过（系统层发出 `external_config_committed`）后，先进入测试用例确认门：发出或等待 `packaging_testcases_ready`，并询问是否生成评估测试用例。
 

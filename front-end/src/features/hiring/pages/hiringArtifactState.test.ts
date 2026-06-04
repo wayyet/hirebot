@@ -200,6 +200,11 @@ describe('projection pass downstream orchestration', () => {
       key: 'ontology-projection',
       status: 'completed',
     })
+
+    expect(resolveDownstreamRunFromArtifact('skill_projection_binding_ready')).toEqual({
+      key: 'skill-generation',
+      status: 'waiting_confirm',
+    })
   })
 
   it('maps packaging testcase artifacts onto the packaging downstream track', () => {
@@ -244,5 +249,26 @@ describe('buildCoachResumePrompt', () => {
     expect(prompt).toContain('Switch back to skill `employment-coach-conversation` now.')
     expect(prompt).toContain('ask whether to enter skill definition now')
     expect(prompt).toContain('"completed_slices": 1')
+  })
+
+  it('builds a projection-binding confirmation prompt when consumable producer projections exist', () => {
+    const prompt = buildCoachResumePrompt('post-ontology-projection', {
+      skillSummary: { items: [{ name: 'incident-triage' }] },
+      projectionResult: { projected_count: 2 },
+    })
+
+    expect(prompt).toContain('Emit `skill_projection_binding_ready` before asking the next question.')
+    expect(prompt).toContain('binding these producer projections into the generated skills')
+    expect(prompt).toContain('"projected_count": 2')
+  })
+
+  it('blocks no-projection downgrade when producer projections are unavailable', () => {
+    const prompt = buildCoachResumePrompt('post-ontology-projection', {
+      skillSummary: { items: [{ name: 'incident-triage' }] },
+      projectionResult: { projected_count: 0, diagnostic: 'slices_not_ready' },
+    })
+
+    expect(prompt).toContain('Do not emit `skill_projection_binding_ready`.')
+    expect(prompt).toContain('do not offer a no-projection downgrade')
   })
 })

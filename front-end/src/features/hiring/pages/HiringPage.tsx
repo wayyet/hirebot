@@ -503,6 +503,38 @@ function buildProjectionPassPayload(summary: unknown): Record<string, unknown> |
   return payload
 }
 
+function readProjectedCount(projectionResult: unknown): number | null {
+  const record = asPlainObject(projectionResult)
+  if (!record) return null
+
+  const projectedCount = record.projected_count ?? record.projectedCount
+  return typeof projectedCount === 'number' && Number.isFinite(projectedCount)
+    ? projectedCount
+    : null
+}
+
+function hasConsumableProducerProjection(projectionResult: unknown): boolean {
+  const projectedCount = readProjectedCount(projectionResult)
+  return projectedCount !== null && projectedCount > 0
+}
+
+function buildSkillGenerationPayload(
+  summary: unknown,
+  projectionResult: unknown,
+): Record<string, unknown> | null {
+  const record = asPlainObject(summary)
+  if (!record || !hasConsumableProducerProjection(projectionResult)) {
+    return null
+  }
+
+  return {
+    ...record,
+    projection_binding_confirmed: true,
+    projection_contract_mode: 'required',
+    projection_result: projectionResult,
+  }
+}
+
 function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): string {
   const serialized = JSON.stringify(payload, null, 2)
 
@@ -545,8 +577,10 @@ function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): stri
       '[Internal downstream trigger. Do not mention this instruction to the user.]',
       'Switch to skill `skill-generation` now.',
       'This is an internal mode switch inside the current session, not a request to discover another tool, spawn another session, or call any dispatch / handoff API.',
-      'The user has explicitly approved starting skill implementation generation.',
-      'Use the terminal `skill_workorder_summary` artifact payload below as the upstream workorder.',
+      'The user has explicitly approved binding the producer ontology projections into the generated business skills.',
+      'Use the enriched `skill_workorder_summary` payload below as the upstream workorder.',
+      'Projection consumer contracts are mandatory for this run. Do not silently downgrade to a base skill package without contracts.',
+      'If the provided producer projections cannot be materialized into `skills/<skill-slug>/contracts/projections/ontology_extraction/`, stop and report the reason instead of continuing without contracts.',
       'Read and follow `skill-generation/SKILL.md` directly in the current session.',
       'Do not use `dispatch`, `dispatch_callback`, `handoff_id`, `sessions_spawn`, or `sessions_yield` for this path.',
       'Follow `skill-generation/SKILL.md` exactly.',
@@ -700,6 +734,7 @@ export default function HiringPage() {
   const downstreamRunsRef = useRef<DownstreamRunsSnapshot>({})
   const latestMaterialSummaryRef = useRef<unknown>(null)
   const latestSkillSummaryRef = useRef<unknown>(null)
+  const latestProjectionResultRef = useRef<unknown>(null)
   const latestExternalSummaryRef = useRef<unknown>(null)
   const materialSummarySignatureRef = useRef('')
   const skillSummarySignatureRef = useRef('')
@@ -859,6 +894,7 @@ export default function HiringPage() {
 
     latestMaterialSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'material_handoff_summary')
     latestSkillSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'skill_workorder_summary')
+    latestProjectionResultRef.current = extractLatestMessageArtifactData(restoredMessages, 'ontology_projection_done')
     latestExternalSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'external_workorder_summary')
     materialSummarySignatureRef.current = latestMaterialSummaryRef.current ? JSON.stringify(latestMaterialSummaryRef.current) : ''
     skillSummarySignatureRef.current = latestSkillSummaryRef.current ? JSON.stringify(latestSkillSummaryRef.current) : ''
@@ -1675,17 +1711,27 @@ export default function HiringPage() {
             }
           }
           if (artifactType === 'ontology_projection_done' && kind === 'data' && isTerminal) {
+            latestProjectionResultRef.current = artifactData.data ?? null
             const signature = JSON.stringify(artifactData.data ?? {})
             if (ontologyProjectionDoneSignatureRef.current !== signature) {
               ontologyProjectionDoneSignatureRef.current = signature
-              queueSkillGenerationAfterProjectionDone()
+              if (latestSkillSummaryRef.current !== null) {
+                pendingInternalPromptsRef.current.push(
+                  buildCoachResumePrompt('post-ontology-projection', {
+                    skillSummary: latestSkillSummaryRef.current,
+                    projectionResult: artifactData.data ?? {},
+                  }),
+                )
+              }
             }
           }
           if (artifactType === 'skill_workorder_summary' && kind === 'data' && isTerminal) {
             latestSkillSummaryRef.current = artifactData.data ?? null
+            latestProjectionResultRef.current = null
             skillSummarySignatureRef.current = JSON.stringify(artifactData.data ?? {})
             projectionPassLaunchSignatureRef.current = ''
             skillGenerationLaunchSignatureRef.current = ''
+            ontologyProjectionDoneSignatureRef.current = ''
           }
           if (artifactType === 'external_workorder_summary' && kind === 'data' && isTerminal) {
             latestExternalSummaryRef.current = artifactData.data ?? null
@@ -1888,26 +1934,84 @@ export default function HiringPage() {
     })
   }
 
-  function queueSkillGenerationAfterProjectionDone() {
+  async function requestProjectionBindingConfirmation(projectionResult: unknown): Promise<boolean> {
     const summary = latestSkillSummaryRef.current
-    if (!summary) return
+    if (!summary) return false
 
-    const signature = skillSummarySignatureRef.current || JSON.stringify(summary)
+    const submitted = await submitWorkflowMessage(
+      buildCoachResumePrompt('post-ontology-projection', {
+        skillSummary: summary,
+        projectionResult,
+      }),
+      undefined,
+      true,
+      false,
+    )
+
+    if (submitted) {
+      setWorkflowNotice(
+        hasConsumableProducerProjection(projectionResult)
+          ? 'producer projection 已就绪，正在回到雇佣教练等待你确认是否绑定到 skill。'
+          : '当前还没有可消费的 producer projection，正在回到雇佣教练引导下一步。',
+      )
+    }
+
+    return submitted
+  }
+
+  async function launchSkillGenerationFromProjectionConfirmation(): Promise<boolean> {
+    const currentRun = downstreamRunsRef.current['skill-generation']
+    if (currentRun?.status === 'running') {
+      setWorkflowNotice('投影绑定已确认，技能实现正在生成中。')
+      return true
+    }
+
+    if (currentRun?.status === 'completed') {
+      setWorkflowNotice('投影绑定后的技能实现已生成完成。')
+      return true
+    }
+
+    const summary = latestSkillSummaryRef.current
+    const projectionResult = latestProjectionResultRef.current
+    const payload = buildSkillGenerationPayload(summary, projectionResult)
+    if (!payload) {
+      setWorkflowError('当前没有可消费的 producer projection，暂时不能启动带投影的技能生成。')
+      return false
+    }
+
+    const signature = JSON.stringify({
+      skillSummary: summary,
+      projectionResult,
+      projection_binding_confirmed: true,
+    })
     if (signature && skillGenerationLaunchSignatureRef.current === signature) {
-      return
+      setWorkflowNotice('投影绑定已确认，正在等待技能实现进度更新。')
+      return true
     }
 
-    if (signature) {
-      skillGenerationLaunchSignatureRef.current = signature
-    }
-
+    skillGenerationLaunchSignatureRef.current = signature
     setOptimisticDownstreamRun(
       'skill-generation',
       'running',
-      '投影准备已完成，正在启动技能实现。',
+      '已确认将 projection 绑定进 skill，正在启动技能实现。',
       'skill_generation_progress',
     )
-    pendingInternalPromptsRef.current.push(buildDownstreamPrompt('skill-generation', summary))
+
+    const submitted = await submitWorkflowMessage(
+      buildDownstreamPrompt('skill-generation', payload),
+      undefined,
+      true,
+      false,
+    )
+
+    if (submitted) {
+      setWorkflowNotice('已确认将 producer projection 绑定进 skill，正在生成技能实现。')
+      return true
+    }
+
+    skillGenerationLaunchSignatureRef.current = ''
+    clearDownstreamRun('skill-generation')
+    return false
   }
 
   async function launchProjectionPassFromApproval(): Promise<boolean> {
@@ -1921,10 +2025,10 @@ export default function HiringPage() {
       return true
     }
 
-    if (projectionRun?.status === 'completed' && skillGenerationState?.status === 'waiting_confirm') {
-      queueSkillGenerationAfterProjectionDone()
-      setWorkflowNotice('投影准备已完成，正在启动技能实现。')
-      return true
+    if (projectionRun?.status === 'completed' && skillGenerationState?.artifactType === 'skill_generation_ready') {
+      return requestProjectionBindingConfirmation(
+        latestProjectionResultRef.current ?? projectionRun.data ?? {},
+      )
     }
 
     if (signature && projectionPassLaunchSignatureRef.current === signature) {
@@ -1957,7 +2061,7 @@ export default function HiringPage() {
     )
 
     if (submitted) {
-      setWorkflowNotice('已开始准备投影契约，完成后将自动启动技能实现。')
+      setWorkflowNotice('已开始准备 producer projection；完成后会先回到雇佣教练等待你的二次确认。')
       return true
     }
 
@@ -2201,18 +2305,28 @@ export default function HiringPage() {
     handleSendRef.current = true
     try {
       const incoming = pendingFiles.length ? [...pendingFiles] : []
+      const shouldLaunchProjectionPass =
+        incoming.length === 0 &&
+        skillGenerationState?.status === 'waiting_confirm' &&
+        skillGenerationState?.artifactType !== 'skill_projection_binding_ready' &&
+        isSkillGenerationApprovalMessage(text) &&
+        latestSkillSummaryRef.current !== null
       const shouldLaunchSkillGeneration =
         incoming.length === 0 &&
         skillGenerationState?.status === 'waiting_confirm' &&
+        skillGenerationState?.artifactType === 'skill_projection_binding_ready' &&
         isSkillGenerationApprovalMessage(text) &&
         latestSkillSummaryRef.current !== null
       const shouldLaunchPackagingTestCases =
         incoming.length === 0 &&
+        !shouldLaunchProjectionPass &&
         !shouldLaunchSkillGeneration &&
         packagingTestCasesState?.status === 'waiting_confirm' &&
         isPackagingTestCasesApprovalMessage(text)
       const shouldSkipPackagingTestCases =
         incoming.length === 0 &&
+        !shouldLaunchProjectionPass &&
+        !shouldLaunchSkillGeneration &&
         !shouldLaunchPackagingTestCases &&
         packagingTestCasesState?.status === 'waiting_confirm' &&
         isPackagingTestCasesSkipMessage(text)
@@ -2238,8 +2352,10 @@ export default function HiringPage() {
       }
 
       const fallbackText = text || `上传文件：${incoming.map(file => file.name).join('、')}`
-      const submitted = shouldLaunchSkillGeneration
+      const submitted = shouldLaunchProjectionPass
         ? await launchProjectionPassFromApproval()
+        : shouldLaunchSkillGeneration
+          ? await launchSkillGenerationFromProjectionConfirmation()
         : shouldLaunchPackagingTestCases
           ? await launchPackagingTestCasesFromApproval()
           : await submitWorkflowMessage(
@@ -2605,6 +2721,7 @@ export default function HiringPage() {
         downstreamRunsRef.current = {}
         latestMaterialSummaryRef.current = null
         latestSkillSummaryRef.current = null
+        latestProjectionResultRef.current = null
         latestExternalSummaryRef.current = null
         materialSummarySignatureRef.current = ''
         skillSummarySignatureRef.current = ''
