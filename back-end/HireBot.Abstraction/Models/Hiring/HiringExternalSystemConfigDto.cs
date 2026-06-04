@@ -35,7 +35,7 @@ public sealed record HiringCliToolConfigDto
 
 public sealed record HiringMcpServerConfigDto
 {
-    public string Transport { get; init; } = "http";
+    public string Transport { get; init; } = "streamable-http";
 
     public string Name { get; init; } = string.Empty;
 

@@ -146,11 +146,10 @@ internal sealed record HiringMcpServerConfigState(
     IReadOnlyDictionary<string, string> ProtectedHeaders,
     IReadOnlyDictionary<string, string> HeadersFromEnv)
 {
+    // SSE 和 Streamable HTTP 均基于 URL，仅校验名称与 URL
     public bool HasAnyConfig =>
         !string.IsNullOrWhiteSpace(Name)
-        && (string.Equals(Transport, "stdio", StringComparison.OrdinalIgnoreCase)
-            ? !string.IsNullOrWhiteSpace(Command)
-            : !string.IsNullOrWhiteSpace(Url));
+        && !string.IsNullOrWhiteSpace(Url);
 
     public HiringMcpServerConfigDto ToDto(ISecretProtector secretProtector)
         => new()
@@ -179,38 +178,32 @@ internal sealed record HiringMcpServerConfigState(
 
         var transport = NormalizeTransport(dto.Transport);
         var name = dto.Name?.Trim() ?? string.Empty;
-        var command = transport == "stdio" ? dto.Command?.Trim() ?? string.Empty : string.Empty;
-        var url = transport == "http" ? dto.Url?.Trim() ?? string.Empty : string.Empty;
+        // SSE 和 Streamable HTTP 均基于 URL，不再支持 stdio 本地进程模式
+        var url = dto.Url?.Trim() ?? string.Empty;
         var normalized = new HiringMcpServerConfigState(
             Transport: transport,
             Name: name,
-            Command: command,
-            Args: transport == "stdio"
-                ? NormalizeStringList(dto.Args)
-                : [],
-            ProtectedEnv: transport == "stdio"
-                ? ProtectMap(dto.Env, secretProtector)
-                : EmptyMap(),
-            EnvPassThrough: transport == "stdio"
-                ? NormalizeStringList(dto.EnvPassThrough)
-                : [],
-            Cwd: transport == "stdio" ? dto.Cwd?.Trim() ?? string.Empty : string.Empty,
+            Command: string.Empty,
+            Args: [],
+            ProtectedEnv: EmptyMap(),
+            EnvPassThrough: [],
+            Cwd: string.Empty,
             Url: url,
-            BearerTokenEnv: transport == "http" ? dto.BearerTokenEnv?.Trim() ?? string.Empty : string.Empty,
-            ProtectedHeaders: transport == "http"
-                ? ProtectMap(dto.Headers, secretProtector)
-                : EmptyMap(),
-            HeadersFromEnv: transport == "http"
-                ? NormalizeMap(dto.HeadersFromEnv)
-                : EmptyMap());
+            BearerTokenEnv: dto.BearerTokenEnv?.Trim() ?? string.Empty,
+            ProtectedHeaders: ProtectMap(dto.Headers, secretProtector),
+            HeadersFromEnv: NormalizeMap(dto.HeadersFromEnv));
 
         return normalized.HasAnyConfig ? normalized : null;
     }
 
     private static string NormalizeTransport(string? transport)
-        => string.Equals(transport, "stdio", StringComparison.OrdinalIgnoreCase)
-            ? "stdio"
-            : "http";
+        => transport?.ToLowerInvariant() switch
+        {
+            "sse" => "sse",
+            // http 是旧别名，stdio 为遗留传输，均规范化为 streamable-http
+            "streamable-http" or "http" or "stdio" => "streamable-http",
+            _ => "streamable-http",
+        };
 
     private static IReadOnlyList<string> NormalizeStringList(IReadOnlyList<string>? values)
         => (values ?? [])

@@ -331,7 +331,14 @@ export function ExternalConfigCommittedView({ data }: ExternalConfigCommittedVie
                     background: 'var(--hb-surface-2, #f3f4f6)',
                     padding: '1px 6px', borderRadius: 4,
                   }}>
-                    {stringify(mcpServer.transport) || 'http'}
+                    {/* 规范化传输类型显示：http/stdio 旧数据映射到新标签 */}
+                    {(() => {
+                      const t = stringify(mcpServer.transport)
+                      if (t === 'sse') return 'SSE'
+                      if (t === 'streamable-http' || t === 'http') return 'Streamable HTTP'
+                      if (t === 'stdio') return 'STDIO'
+                      return t || 'Streamable HTTP'
+                    })()}
                   </div>
                 </div>
                 {mcpServer.command != null && String(mcpServer.command).trim().length > 0 && (
