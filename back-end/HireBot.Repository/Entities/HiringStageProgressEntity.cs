@@ -46,8 +46,16 @@ public sealed class HiringStageProgressEntity : ITenant
     /// </summary>
     public string? DownstreamRunsJson { get; set; }
 
+    /// <summary>    /// 对话上传文件列表（仅元数据，JSON 格式）。
+    /// </summary>
+    public string? UploadedFilesJson { get; set; }
+
     /// <summary>
-    /// 最后更新时间（UTC）。
+    /// 最新产物包结构（文件名 + 包内文件列表，JSON 格式）。
+    /// </summary>
+    public string? PackageStructureJson { get; set; }
+
+    /// <summary>    /// 最后更新时间（UTC）。
     /// </summary>
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 

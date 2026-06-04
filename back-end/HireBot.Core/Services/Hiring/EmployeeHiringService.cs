@@ -613,13 +613,30 @@ internal sealed class EmployeeHiringService(
                 new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
         }
 
+        // 保存对话上传文件列表
+        if (request.UploadedFiles is not null)
+        {
+            progress.UploadedFilesJson = System.Text.Json.JsonSerializer.Serialize(
+                request.UploadedFiles,
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        }
+
+        // 保存最新产物包结构
+        if (request.PackageStructure is not null)
+        {
+            progress.PackageStructureJson = System.Text.Json.JsonSerializer.Serialize(
+                request.PackageStructure,
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        }
+
         progress.UpdatedAtUtc = DateTimeOffset.UtcNow;
         progress.UpdatedBy = userIdentity.OperatorId;
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        logger.LogInformation("保存运行时状态成功: HireId={HireId}, HasOverrides={HasOverrides}, HasRuns={HasRuns}",
-            hireId, request.StageOverrides is not null, request.DownstreamRuns is not null);
+        logger.LogInformation("保存运行时状态成功: HireId={HireId}, HasOverrides={HasOverrides}, HasRuns={HasRuns}, HasFiles={HasFiles}, HasPackage={HasPackage}",
+            hireId, request.StageOverrides is not null, request.DownstreamRuns is not null,
+            request.UploadedFiles is not null, request.PackageStructure is not null);
 
         return ApiResponse<bool>.SuccessResponse(true);
     }
@@ -669,10 +686,44 @@ internal sealed class EmployeeHiringService(
             }
         }
 
+        // 反序列化对话上传文件列表
+        IReadOnlyList<PersistedChatFileDto>? uploadedFiles = null;
+        if (!string.IsNullOrWhiteSpace(progress.UploadedFilesJson))
+        {
+            try
+            {
+                uploadedFiles = System.Text.Json.JsonSerializer.Deserialize<List<PersistedChatFileDto>>(
+                    progress.UploadedFilesJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "反序列化上传文件列表失败: HireId={HireId}", hireId);
+            }
+        }
+
+        // 反序列化最新产物包结构
+        PersistedPackageStructureDto? packageStructure = null;
+        if (!string.IsNullOrWhiteSpace(progress.PackageStructureJson))
+        {
+            try
+            {
+                packageStructure = System.Text.Json.JsonSerializer.Deserialize<PersistedPackageStructureDto>(
+                    progress.PackageStructureJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "反序列化产物包结构失败: HireId={HireId}", hireId);
+            }
+        }
+
         return ApiResponse<RuntimeStateDto>.SuccessResponse(new RuntimeStateDto
         {
             StageOverrides = stageOverrides,
-            DownstreamRuns = downstreamRuns
+            DownstreamRuns = downstreamRuns,
+            UploadedFiles = uploadedFiles,
+            PackageStructure = packageStructure,
         });
     }
 
@@ -718,10 +769,10 @@ internal sealed class EmployeeHiringService(
 
             // TODO: 验证 ZIP 格式和必要文件
 
-            // 查找或更新数字员工实例状态
-            // 从 hiring（雇佣中）→ interning_ai（待AI评估）
+            // 查找关联的数字员工实例：优先查 Hiring 状态（首次导入），
+            // 已导入过时实例状态为 InterningAi，同样匹配——确保重复导入时仍能返回 EmployeeId。
             var hiringInstance = await dbContext.Instances
-                .Where(i => i.Status == EmployeeStatus.Hiring
+                .Where(i => (i.Status == EmployeeStatus.Hiring || i.Status == EmployeeStatus.InterningAi)
                     && i.OwnerUserId == userIdentity.OwnerSubject
                     && i.BasedOnTemplateId == session.TemplateId)
                 .OrderByDescending(i => i.CreatedAt)
@@ -731,39 +782,50 @@ internal sealed class EmployeeHiringService(
             {
                 var employeeId = hiringInstance.InstanceId;
 
-                // 更新状态：从 hiring（雇佣中）→ interning_ai（AI评估阶段）
-                var updateResult = await employeeRuntimeService.UpdateLifecycleAsync(
-                    employeeId,
-                    new UpdateEmployeeLifecycleRequestDto
-                    {
-                        Status = EmployeeStatus.InterningAi,
-                        LifecycleStatus = "待AI评估",
-                        StageSummary = "候选包已导入，可发起 AI 评估",
-                        PrimarySignal = "待操作：发起 AI 评估",
-                        SignalLevel = "ok"
-                    },
-                    cancellationToken);
-
-                if (updateResult.Success)
+                // 仅在 Hiring 状态时才做状态迁移；InterningAi 表示已导入过，跳过重复更新
+                if (hiringInstance.Status == EmployeeStatus.Hiring)
                 {
-                    logger.LogInformation(
-                        "员工状态已更新: HireId={HireId}, EmployeeId={EmployeeId}, Status=hiring→interning_ai",
-                        hireId,
-                        employeeId);
+                    var updateResult = await employeeRuntimeService.UpdateLifecycleAsync(
+                        employeeId,
+                        new UpdateEmployeeLifecycleRequestDto
+                        {
+                            Status = EmployeeStatus.InterningAi,
+                            LifecycleStatus = "待AI评估",
+                            StageSummary = "候选包已导入，可发起 AI 评估",
+                            PrimarySignal = "待操作：发起 AI 评估",
+                            SignalLevel = "ok"
+                        },
+                        cancellationToken);
+
+                    if (updateResult.Success)
+                    {
+                        logger.LogInformation(
+                            "员工状态已更新: HireId={HireId}, EmployeeId={EmployeeId}, Status=hiring→interning_ai",
+                            hireId,
+                            employeeId);
+                    }
+                    else
+                    {
+                        logger.LogWarning(
+                            "员工状态更新失败（非致命错误）: HireId={HireId}, EmployeeId={EmployeeId}, Error={Error}",
+                            hireId,
+                            employeeId,
+                            updateResult.Message);
+                    }
                 }
                 else
                 {
-                    logger.LogWarning(
-                        "员工状态更新失败（非致命错误）: HireId={HireId}, EmployeeId={EmployeeId}, Error={Error}",
+                    logger.LogInformation(
+                        "员工实例已处于 {Status} 状态，跳过重复状态迁移: HireId={HireId}, EmployeeId={EmployeeId}",
+                        hiringInstance.Status,
                         hireId,
-                        employeeId,
-                        updateResult.Message);
+                        employeeId);
                 }
             }
             else
             {
                 logger.LogWarning(
-                    "未找到hiring状态的员工实例: HireId={HireId}, TemplateId={TemplateId}",
+                    "未找到 Hiring/InterningAi 状态的员工实例: HireId={HireId}, TemplateId={TemplateId}",
                     hireId,
                     session.TemplateId);
             }

@@ -483,7 +483,8 @@
         "generateBtn": "Generate Instance Package",
         "generatedBtn": "Generated",
         "downloadPackageBtn": "Download Instance Package",
-        "enterEvaluationBtn": "Enter AI Evaluation"
+        "enterEvaluationBtn": "Enter AI Evaluation",
+        "moreFiles": "more files"
       }
     },
     "employee": {

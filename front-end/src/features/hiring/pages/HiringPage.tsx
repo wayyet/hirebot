@@ -127,6 +127,7 @@ export default function HiringPage() {
     workflowInitAttempted,
     artifactArchive,
     artifactFileNames,
+    restoredPackageFileName,
     materialRequestedCategories,
     pendingPackageArtifact,
     pendingStageConfirmation,
@@ -159,6 +160,7 @@ export default function HiringPage() {
     setWorkflowInitAttempted,
     setArtifactArchive,
     setArtifactFileNames,
+    setRestoredPackageFileName,
     setMaterialRequestedCategories,
     setPendingPackageArtifact,
     setPendingStageConfirmation,
@@ -403,7 +405,7 @@ export default function HiringPage() {
     appendExternalConfigCommittedArtifact(latestExternalConfigRef.current)
   }
 
-  // 从后端恢复运行时状态（只恢复 stageOverrides 和 downstreamRuns）
+  // 从后端恢复运行时状态（stageOverrides、downstreamRuns、uploadedFiles、packageStructure）
   async function restoreRuntimeState(hireId: string): Promise<boolean> {
     try {
       const state = await api.hiringWorkflow.getRuntimeState(hireId)
@@ -421,6 +423,35 @@ export default function HiringPage() {
         const merged: DownstreamRunsSnapshot = { ...downstreamRunsRef.current, ...state.downstreamRuns }
         downstreamRunsRef.current = merged
         setDownstreamRuns(merged)
+        restored = true
+      }
+
+      // 恢复对话上传文件列表（rawFile 丢失无影响，仅用于 MaterialCard 显示计数）
+      if (state.uploadedFiles && state.uploadedFiles.length > 0) {
+        const restoredFiles: ChatFile[] = state.uploadedFiles.map(f => ({
+          id: f.id,
+          name: f.name,
+          size: f.size,
+          status: f.status as ChatFile['status'],
+          type: f.type as ChatFile['type'],
+          mimeType: f.mimeType,
+          metadata: f.metadata,
+        }))
+        setAllFiles(restoredFiles)
+        restored = true
+      }
+
+      // 恢复最新产物包结构（不恢复 blob，仅恢复显示用的文件名和结构数据）
+      if (state.packageStructure?.fileName) {
+        setArtifactFileNames(state.packageStructure.fileNames ?? [])
+        // 无 blob 时仅设 fileName 以便 FinalCard 显示包名；artifactArchive blob 留 null
+        // canDownloadFinalPackage 依赖 artifactArchive.blob，刷新后不可下载但可显示包名
+        setRestoredPackageFileName(state.packageStructure.fileName)
+        // 恢复员工实例 ID：如果包内储了 employeeId，则恢复评估入口
+        if (state.packageStructure.employeeId) {
+          setCreatedId(state.packageStructure.employeeId)
+          setInstanceCreated(true)
+        }
         restored = true
       }
 
@@ -466,6 +497,7 @@ export default function HiringPage() {
       setPendingPackageArtifact(null)
       setArtifactArchive(null)
       setArtifactFileNames([])
+      setRestoredPackageFileName('')
       setRequiresFreshPackaging(true)
       setWorkflowError('')
       setWorkflowNotice(EXTERNAL_CONFIG_REPACKAGE_NOTICE)
@@ -551,7 +583,7 @@ export default function HiringPage() {
   useBodyClassAndCleanup(wsRef)
   useTemplateDetail(templateId, setTemplate, setTemplateLoading, setTemplateError, t, normalizeErrorMessage)
   useSyncMessagesRef(messages, messagesRef)
-  useRuntimeStateSync(workflowHireId, wsStageOverrides, downstreamRuns)
+  useRuntimeStateSync(workflowHireId, wsStageOverrides, downstreamRuns, allFiles, artifactArchive, artifactFileNames, createdId)
   useAutoFocusStage(journeyGuideVisible, focusedStage, workflowCurrentStage, setFocusedStage)
 
   // 工作流自动初始化
@@ -2073,6 +2105,7 @@ export default function HiringPage() {
         setRequiresFreshPackaging(false)
         setArtifactArchive(null)
         setArtifactFileNames([])
+        setRestoredPackageFileName('')
         setLinkedStoreSkillIds([])
         downstreamRunsRef.current = {}
         latestMaterialSummaryRef.current = null
@@ -2280,6 +2313,13 @@ export default function HiringPage() {
             onDownloadFinalPackage={() => { void downloadTemplatePackageFinal() }}
             onEnterEvaluation={createdId ? () => navigate(`/department-employees/instances/${createdId}/evaluation`) : undefined}
             onLinkedSkillIdsChange={setLinkedStoreSkillIds}
+            packageStructure={
+              artifactArchive
+                ? { fileName: artifactArchive.fileName, fileNames: artifactFileNames }
+                : restoredPackageFileName
+                  ? { fileName: restoredPackageFileName, fileNames: artifactFileNames }
+                  : null
+            }
           />
         </div>
       </div>

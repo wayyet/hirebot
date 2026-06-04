@@ -259,11 +259,38 @@ export interface DownstreamRunInfo {
 export interface RuntimeStateSnapshot {
   stageOverrides?: Record<string, unknown>
   downstreamRuns?: Record<string, DownstreamRunInfo>
+  /** 对话上传文件列表（仅元数据，不含 rawFile/content） */
+  uploadedFiles?: PersistedChatFile[]
+  /** 最新产物包结构 */
+  packageStructure?: PersistedPackageStructure
 }
 
 export interface RuntimeStateSaveRequest {
   stageOverrides?: Record<string, unknown>
   downstreamRuns?: Record<string, DownstreamRunInfo>
+  /** 对话上传文件列表（仅元数据） */
+  uploadedFiles?: PersistedChatFile[]
+  /** 最新产物包结构 */
+  packageStructure?: PersistedPackageStructure
+}
+
+/** 持久化的对话上传文件元数据（不含 rawFile / content 等大字段） */
+export interface PersistedChatFile {
+  id: string
+  name: string
+  size: number
+  status: string
+  type?: string
+  mimeType?: string
+  metadata?: Record<string, string>
+}
+
+/** 持久化的产物包结构 */
+export interface PersistedPackageStructure {
+  fileName: string
+  fileNames: string[]
+  /** importPackage 返回的员工实例 ID，用于刷新后恢复 AI 评估入口 */
+  employeeId?: string
 }
 
 export interface StartHiringConversationResult {

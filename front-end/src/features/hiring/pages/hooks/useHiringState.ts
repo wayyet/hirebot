@@ -50,6 +50,8 @@ export interface HiringState {
   // ── Artifact 相关状态 ───────────────────────────────────────────────────────
   artifactArchive: { fileName: string; blob: Blob } | null
   artifactFileNames: string[]
+  /** 从后端恢复的产物包文件名（无 blob 时仅用于显示）*/
+  restoredPackageFileName: string
   materialRequestedCategories: MaterialRequestedCategory[]
   pendingPackageArtifact: { fileUrl: string; fileName: string } | null
   pendingStageConfirmation: PendingStageAdvanceConfirmation | null
@@ -100,6 +102,8 @@ export interface HiringStateActions {
   // ── Artifact 相关操作 ───────────────────────────────────────────────────────
   setArtifactArchive: (archive: { fileName: string; blob: Blob } | null) => void
   setArtifactFileNames: (names: string[]) => void
+  /** 设置从后端恢复的产物包文件名 */
+  setRestoredPackageFileName: (name: string) => void
   setMaterialRequestedCategories: (categories: MaterialRequestedCategory[]) => void
   setPendingPackageArtifact: (artifact: { fileUrl: string; fileName: string } | null) => void
   setPendingStageConfirmation: (confirmation: PendingStageAdvanceConfirmation | null) => void
@@ -159,6 +163,7 @@ export function useHiringState(): [HiringState, HiringStateActions] {
   // ── Artifact 相关状态 ───────────────────────────────────────────────────────
   const [artifactArchive, setArtifactArchive] = useState<{ fileName: string; blob: Blob } | null>(null)
   const [artifactFileNames, setArtifactFileNames] = useState<string[]>([])
+  const [restoredPackageFileName, setRestoredPackageFileName] = useState('')
   const [materialRequestedCategories, setMaterialRequestedCategories] = useState<MaterialRequestedCategory[]>([])
   const [pendingPackageArtifact, setPendingPackageArtifact] = useState<{ fileUrl: string; fileName: string } | null>(null)
   const [pendingStageConfirmation, setPendingStageConfirmation] = useState<PendingStageAdvanceConfirmation | null>(null)
@@ -200,6 +205,7 @@ export function useHiringState(): [HiringState, HiringStateActions] {
     workflowInitAttempted,
     artifactArchive,
     artifactFileNames,
+    restoredPackageFileName,
     materialRequestedCategories,
     pendingPackageArtifact,
     pendingStageConfirmation,
@@ -234,6 +240,7 @@ export function useHiringState(): [HiringState, HiringStateActions] {
     setWorkflowInitAttempted,
     setArtifactArchive,
     setArtifactFileNames,
+    setRestoredPackageFileName,
     setMaterialRequestedCategories,
     setPendingPackageArtifact,
     setPendingStageConfirmation,

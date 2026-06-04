@@ -85,6 +85,8 @@ export type {
   HiringWorkflowState,
   HiringArtifactsDownloadData,
   HandoffItem,
+  PersistedChatFile,
+  PersistedPackageStructure,
 } from './modules/hiringWorkflowApi'
 
 export type {

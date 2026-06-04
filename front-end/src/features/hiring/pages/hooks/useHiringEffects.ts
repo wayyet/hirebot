@@ -1,6 +1,7 @@
 import { useEffect, useRef, type RefObject } from 'react'
 import { api, type EmployeeTemplateDetail } from '@/infra/api'
-import type { ChatMessage, DownstreamRunsSnapshot, ToolStep } from '../hiringPageTypes'
+import type { PersistedChatFile, PersistedPackageStructure } from '@/infra/api'
+import type { ChatFile, ChatMessage, DownstreamRunsSnapshot, ToolStep } from '../hiringPageTypes'
 import type { HiringUiStage } from '../hiringWorkflowViewModel'
 import type { GatewayWs } from '@/infra/sandbox/gateway-ws'
 
@@ -101,30 +102,56 @@ export function useSyncMessagesRef(
 
 /**
  * 保存运行时状态到后端（防抖 2 秒）
+ * 同时持久化：stageOverrides、downstreamRuns、uploadedFiles、packageStructure
  */
 export function useRuntimeStateSync(
   workflowHireId: string,
   wsStageOverrides: Map<HiringUiStage, 'running' | 'completed' | 'failed'>,
   downstreamRuns: DownstreamRunsSnapshot,
+  allFiles: ChatFile[],
+  artifactArchive: { fileName: string; blob: Blob } | null,
+  artifactFileNames: string[],
+  createdId: string,
 ) {
   useEffect(() => {
     if (!workflowHireId) return
-    
+
     // 如果没有任何状态需要保存，跳过
-    if (wsStageOverrides.size === 0 && Object.keys(downstreamRuns).length === 0) {
-      return
-    }
+    const hasStage = wsStageOverrides.size > 0
+    const hasRuns = Object.keys(downstreamRuns).length > 0
+    const hasFiles = allFiles.length > 0
+    const hasPackage = artifactArchive !== null
+    if (!hasStage && !hasRuns && !hasFiles && !hasPackage) return
 
     const timer = setTimeout(() => {
+      // 将 ChatFile[] 转为 PersistedChatFile[]（剥离 rawFile / content）
+      const uploadedFiles: PersistedChatFile[] | undefined = hasFiles
+        ? allFiles.map(f => ({
+            id: f.id,
+            name: f.name,
+            size: f.size,
+            status: f.status,
+            type: f.type,
+            mimeType: f.mimeType,
+            metadata: f.metadata,
+          }))
+        : undefined
+
+      const packageStructure: PersistedPackageStructure | undefined = hasPackage
+        ? { fileName: artifactArchive!.fileName, fileNames: artifactFileNames, employeeId: createdId || undefined }
+        : undefined
+
       const state = {
-        stageOverrides: wsStageOverrides.size > 0 ? Object.fromEntries(wsStageOverrides) : undefined,
-        downstreamRuns: Object.keys(downstreamRuns).length > 0 ? downstreamRuns : undefined,
+        stageOverrides: hasStage ? Object.fromEntries(wsStageOverrides) : undefined,
+        downstreamRuns: hasRuns ? downstreamRuns : undefined,
+        uploadedFiles,
+        packageStructure,
       }
       api.hiringWorkflow.saveRuntimeState(workflowHireId, state).catch(() => {})
     }, 2000)
-    
+
     return () => clearTimeout(timer)
-  }, [wsStageOverrides, downstreamRuns, workflowHireId])
+  }, [wsStageOverrides, downstreamRuns, allFiles, artifactArchive, artifactFileNames, createdId, workflowHireId])
 }
 
 /**

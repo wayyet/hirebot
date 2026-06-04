@@ -716,11 +716,6 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
-                    b.Property<string>("WorkspaceRelativePath")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)")
-                        .HasColumnName("workspace_relative_path");
-
                     b.HasKey("MaterialFileId");
 
                     b.HasIndex("Sha256");
@@ -901,10 +896,6 @@ namespace HireBot.Repository.Migrations
 
                     b.Property<string>("Description")
                         .HasColumnType("text");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text")
-                        .HasColumnName("description");
 
                     b.Property<string>("EvalReportId")
                         .HasMaxLength(120)

@@ -58,6 +58,8 @@ export interface HiringTodoPanelProps {
   onDownloadFinalPackage?: () => void
   /** 生成完成后跳转 AI 评估页 */
   onEnterEvaluation?: () => void
+  /** 已生成的产物包结构（刷新后从后端恢复，无 blob）*/
+  packageStructure?: { fileName: string; fileNames: string[] } | null
   /** 用户关联的 store skill UUID 列表变化时回调；用于在导入产物包时一并提交给后端。 */
   onLinkedSkillIdsChange?: (skillIds: string[]) => void
   templateId?: string
@@ -100,6 +102,7 @@ export function HiringTodoPanel({
   onDownloadFinalPackage,
   onEnterEvaluation,
   onLinkedSkillIdsChange,
+  packageStructure = null,
   templateId,
   templatePackageSkills = [],
   requestedMaterialCategories = [],
@@ -230,6 +233,7 @@ export function HiringTodoPanel({
           onEnterEvaluation={onEnterEvaluation}
           canDownload={canDownloadFinalPackage}
           onDownload={onDownloadFinalPackage}
+          packageStructure={packageStructure}
         />
       </div>
     </div>
@@ -282,7 +286,7 @@ function StageCard({
 
 
 function FinalCard({
-  canGenerate, generated, expanded, isFocus, onToggle, onGenerate, onEnterEvaluation, canDownload, onDownload,
+  canGenerate, generated, expanded, isFocus, onToggle, onGenerate, onEnterEvaluation, canDownload, onDownload, packageStructure,
 }: {
   canGenerate: boolean
   generated: boolean
@@ -293,6 +297,7 @@ function FinalCard({
   onEnterEvaluation?: () => void
   canDownload?: boolean
   onDownload?: () => void
+  packageStructure?: { fileName: string; fileNames: string[] } | null
 }) {
   const { t } = useTranslation()
   return (
@@ -333,7 +338,25 @@ function FinalCard({
               </button>
             )}
           </div>
-          {generated && onEnterEvaluation && (
+          {packageStructure && (
+            <div className="hb-todo-package-info">
+              <div className="hb-todo-package-name">
+                <span className="hb-todo-package-icon">📦</span>
+                <span className="hb-todo-package-filename">{packageStructure.fileName}</span>
+              </div>
+              {packageStructure.fileNames.length > 0 && (
+                <ul className="hb-todo-package-files">
+                  {packageStructure.fileNames.slice(0, 8).map((name, i) => (
+                    <li key={i} className="hb-todo-package-file">{name}</li>
+                  ))}
+                  {packageStructure.fileNames.length > 8 && (
+                    <li className="hb-todo-package-file is-more">+{packageStructure.fileNames.length - 8} {t('hiring.todo.final.moreFiles')}</li>
+                  )}
+                </ul>
+              )}
+            </div>
+          )}
+          {(generated || packageStructure) && onEnterEvaluation && (
             <button
               type="button"
               className="hb-todo-row-btn is-primary"
