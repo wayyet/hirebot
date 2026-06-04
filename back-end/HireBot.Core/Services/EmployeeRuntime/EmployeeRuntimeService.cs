@@ -610,21 +610,21 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "hire 信息不完整");
         }
 
-        // 校验：同一用户不能同时雇佣同一模板的多个员工
+        // 同一模板可以有多个评估/实习中的候选实例，但不应重复开启同一个模板的雇佣流程。
         var normalizedTemplateId = request.TemplateId.Trim();
         var existingEmployee = await dbContext.Instances
             .AsNoTracking()
             .Where(item => item.OwnerUserId == request.OwnerSubject
                 && item.BasedOnTemplateId == normalizedTemplateId
                 && item.InstanceType == "department"
-                && item.Status != "retired")
+                && item.Status == "hiring")
             .FirstOrDefaultAsync(cancellationToken);
 
         if (existingEmployee is not null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(
                 409,
-                $"该模板已有雇佣中的员工（{existingEmployee.InstanceId}），请先完成现有员工的雇佣流程或将其退役");
+                $"该模板已有雇佣流程进行中（{existingEmployee.InstanceId}），请先完成现有雇佣流程或继续原流程");
         }
 
         var employee = new EmployeeDetailDto(

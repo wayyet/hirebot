@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Infrastructure.Identity;
 using HireBot.Abstraction.Models.EmployeeRuntime;
@@ -101,7 +101,7 @@ internal sealed class EmployeeHiringService(
                         .FirstOrDefaultAsync(cancellationToken);
 
                     var isRunning = string.Equals(existingInstance.State, "Running", StringComparison.OrdinalIgnoreCase);
-                    
+
                     logger.LogInformation("复用现有沙箱: HireId={HireId}, SandboxId={SandboxId}, SessionId={SessionId}, Status={Status}",
                         existingHireId, existingInstance.SandboxId, existingSessionId, isRunning ? "READY" : existingInstance.State);
 
@@ -180,15 +180,15 @@ internal sealed class EmployeeHiringService(
             // 步骤 1: 上传雇佣对话教练模板 (employment-coach-conversation)
             logger.LogInformation("加载雇佣对话教练模板 (employment-coach-conversation)");
             var discoveryRolePackage = await discoveryRoleTemplatePackageProvider.LoadAsync(cancellationToken);
-            
-            logger.LogInformation("构建雇佣对话教练模板存档: PackageId={PackageId}, FileCount={FileCount}", 
+
+            logger.LogInformation("构建雇佣对话教练模板存档: PackageId={PackageId}, FileCount={FileCount}",
                 discoveryRolePackage.PackageId, discoveryRolePackage.PackageFiles.Count);
             var discoveryArchiveBytes = TemplatePackageArchiveBuilder.BuildArchive(discoveryRolePackage);
-            
+
             // 显式释放模板包引用，帮助 GC 尽快回收大对象
             discoveryRolePackage = null!;
-            
-            logger.LogInformation("上传雇佣对话教练模板到沙箱: SandboxId={SandboxId}, Size={Size}KB", 
+
+            logger.LogInformation("上传雇佣对话教练模板到沙箱: SandboxId={SandboxId}, Size={Size}KB",
                 sandboxId, discoveryArchiveBytes.Length / 1024);
             var discoveryUploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
                 new DigitalEmployeeTemplateUploadRequestDto
@@ -207,16 +207,16 @@ internal sealed class EmployeeHiringService(
             {
                 var errorMsg = discoveryUploadResult.Data?.Error ?? discoveryUploadResult.Message;
                 logger.LogError("上传雇佣对话教练模板失败: {Error}", errorMsg);
-                
+
                 // 上传失败，删除沙箱
                 await TryDeleteSandboxAsync(sandboxId, cancellationToken);
-                
+
                 return ApiResponse<HireTemplateResultDto>.ErrorResponse(
                     discoveryUploadResult.Code > 0 ? discoveryUploadResult.Code : 500,
                     $"上传雇佣对话教练模板失败: {errorMsg}");
             }
 
-            logger.LogInformation("雇佣对话教练模板上传成功: SkillsInstalled={SkillsInstalled}", 
+            logger.LogInformation("雇佣对话教练模板上传成功: SkillsInstalled={SkillsInstalled}",
                 discoveryUploadResult.Data.SkillsInstalled);
 
             // 步骤 2: 上传 MCP 配置（如果启用）
@@ -299,10 +299,10 @@ internal sealed class EmployeeHiringService(
         catch (Exception ex)
         {
             logger.LogError(ex, "雇佣流程初始化异常: HireId={HireId}, SandboxId={SandboxId}", hireId, sandboxId);
-            
+
             // 异常发生，尝试删除沙箱
             await TryDeleteSandboxAsync(sandboxId, cancellationToken);
-            
+
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, $"雇佣流程初始化失败: {ex.Message}");
         }
     }
@@ -325,7 +325,7 @@ internal sealed class EmployeeHiringService(
         // 轮询等待，最多 36 次，每次间隔 5 秒（总计 3 分钟）
         for (var attempt = 1; attempt <= 36; attempt++)
         {
-            logger.LogDebug("等待沙箱启动，第 {Attempt}/36 次尝试: SandboxId={SandboxId}, CurrentState={State}", 
+            logger.LogDebug("等待沙箱启动，第 {Attempt}/36 次尝试: SandboxId={SandboxId}, CurrentState={State}",
                 attempt, instance.SandboxId, instance.State);
 
             await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
@@ -346,7 +346,7 @@ internal sealed class EmployeeHiringService(
             if (string.Equals(refreshResult.Data.State, "Running", StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint))
             {
-                logger.LogInformation("沙箱已启动: SandboxId={SandboxId}, 耗时 {Seconds} 秒", 
+                logger.LogInformation("沙箱已启动: SandboxId={SandboxId}, 耗时 {Seconds} 秒",
                     instance.SandboxId, attempt * 5);
                 return ApiResponse<SandboxInstanceDto>.SuccessResponse(refreshResult.Data);
             }
@@ -354,7 +354,7 @@ internal sealed class EmployeeHiringService(
             // 如果状态是 Failed 或其他终止状态，提前退出
             if (string.Equals(refreshResult.Data.State, "Failed", StringComparison.OrdinalIgnoreCase))
             {
-                logger.LogError("沙箱启动失败: SandboxId={SandboxId}, State={State}", 
+                logger.LogError("沙箱启动失败: SandboxId={SandboxId}, State={State}",
                     instance.SandboxId, refreshResult.Data.State);
                 return ApiResponse<SandboxInstanceDto>.ErrorResponse(500, $"沙箱启动失败，状态: {refreshResult.Data.State}");
             }
@@ -512,10 +512,10 @@ internal sealed class EmployeeHiringService(
     {
         // 解析 AI 回复中的结构化数据标签（如 <data key="goal">...</data>）
         var extractedData = ParseStructuredDataTags(request.AssistantReply);
-        
+
         if (extractedData.Count > 0)
         {
-            logger.LogInformation("同步对话轮次，提取到 {Count} 个结构化数据字段: HireId={HireId}, Keys={Keys}", 
+            logger.LogInformation("同步对话轮次，提取到 {Count} 个结构化数据字段: HireId={HireId}, Keys={Keys}",
                 extractedData.Count, hireId, string.Join(", ", extractedData.Keys));
 
             // 批量保存到数据库
@@ -537,12 +537,12 @@ internal sealed class EmployeeHiringService(
         CancellationToken cancellationToken = default)
     {
         var data = await hiringStageService.GetStructuredDataAsync(hireId, cancellationToken);
-        
+
         // 转换为非空字典（过滤掉 null 值）
         var result = data
             .Where(kvp => kvp.Value is not null)
             .ToDictionary(kvp => kvp.Key, kvp => kvp.Value!, StringComparer.OrdinalIgnoreCase);
-        
+
         return ApiResponse<Dictionary<string, string>>.SuccessResponse(result);
     }
 
@@ -553,7 +553,7 @@ internal sealed class EmployeeHiringService(
     private static Dictionary<string, string?> ParseStructuredDataTags(string assistantReply)
     {
         var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        
+
         if (string.IsNullOrWhiteSpace(assistantReply))
         {
             return result;
@@ -562,7 +562,7 @@ internal sealed class EmployeeHiringService(
         // 正则匹配 <data key="xxx">...</data>（支持多行内容）
         var regex = new System.Text.RegularExpressions.Regex(
             @"<data\s+key\s*=\s*[""']([^""']+)[""']\s*>(.*?)</data>",
-            System.Text.RegularExpressions.RegexOptions.Singleline | 
+            System.Text.RegularExpressions.RegexOptions.Singleline |
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         var matches = regex.Matches(assistantReply);
@@ -572,7 +572,7 @@ internal sealed class EmployeeHiringService(
             {
                 var key = match.Groups[1].Value.Trim();
                 var value = match.Groups[2].Value.Trim();
-                
+
                 if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(value))
                 {
                     result[key] = value;
@@ -847,13 +847,13 @@ internal sealed class EmployeeHiringService(
     {
         var instance = await dbContext.SandboxInstances
             .FirstOrDefaultAsync(item => item.SandboxId == sandboxId, cancellationToken);
-        
+
         if (instance is not null && !instance.IsInitialized)
         {
             instance.IsInitialized = true;
             instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
             await dbContext.SaveChangesAsync(cancellationToken);
-            
+
             logger.LogInformation("沙箱已标记为已初始化: SandboxId={SandboxId}", sandboxId);
         }
     }
@@ -871,7 +871,7 @@ internal sealed class EmployeeHiringService(
         {
             // 1. 从配置文件读取全局 MCP 配置（项目默认配置）
             var mcpConfig = ReadMcpConfig();
-            
+
             // 2. 如果配置未启用或无有效服务器，跳过上传
             if (mcpConfig is null || !mcpConfig.Enabled || mcpConfig.Servers.Count == 0)
             {
@@ -882,7 +882,7 @@ internal sealed class EmployeeHiringService(
             // 3. 获取沙箱的 Gateway 端点
             var sandbox = await dbContext.SandboxInstances.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.SandboxId == sandboxId, cancellationToken);
-            
+
             if (sandbox is null)
             {
                 logger.LogWarning("未找到沙箱实例: SandboxId={SandboxId}", sandboxId);

@@ -717,9 +717,12 @@ export default function HiringPage() {
   // 用户在 TODO 面板关联的 store skill UUID 列表；导入产物包时一并提交给后端用于合并
   const [linkedStoreSkillIds, setLinkedStoreSkillIds] = useState<string[]>([])
   const [submittingMessage, setSubmittingMessage] = useState(false)
+  const [streamingTurnInternal, setStreamingTurnInternal] = useState(false)
   const typewriterStream = useTypewriterStream()
   // WS 流式展示内容：raw 文本由 typewriterStream.rawTextRef 保存，避免 UI 节奏影响同步端点。
   const streamingContent = typewriterStream.displayText
+  const visibleStreamingContent = streamingTurnInternal ? null : streamingContent
+  const visibleTyping = typing && !streamingTurnInternal
   /**
    * 当前轮次累积的 MCP 工具调甈步骤。
    * - ref 作为权威数据源，避免 setState 异步造成 tool_result 丢失
@@ -768,8 +771,10 @@ export default function HiringPage() {
   const lastWsUserMessageRef = useRef<string>('')
   // 记录最近一次 WS 发送时的附件材料
   const lastWsMaterialsRef = useRef<ReturnType<typeof toConversationMaterials> | undefined>(undefined)
+  const lastWsTurnInternalRef = useRef(false)
   /** 等待本轮 conversation/sync 完成后再 import-package，避免 final 包早于 testcase staging */
   const turnSyncBarrierRef = useRef<Promise<void>>(Promise.resolve())
+  const internalPromptFlushInFlightRef = useRef(false)
   // 存储原始 File 对象，供 WS 路径上传到 Gateway 使用
   const rawFileMapRef = useRef<Map<string, File>>(new Map())
   // 避免同一会话重复触发“自动上传模板并引导”
@@ -869,9 +874,13 @@ export default function HiringPage() {
       return
     }
 
+    const prompt = buildExternalConfigCommittedSandboxPrompt(artifact)
+    lastWsUserMessageRef.current = prompt
+    lastWsMaterialsRef.current = undefined
+    lastWsTurnInternalRef.current = true
     ws.send({
       type: 'user_message',
-      text: buildExternalConfigCommittedSandboxPrompt(artifact),
+      text: prompt,
       sessionId,
     })
   }
@@ -1113,10 +1122,10 @@ export default function HiringPage() {
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: streamingContent !== null ? 'auto' : 'smooth' })
+      chatEndRef.current?.scrollIntoView({ behavior: visibleStreamingContent !== null ? 'auto' : 'smooth' })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [messages, typing, streamingContent, streamingToolSteps])
+  }, [messages, visibleTyping, visibleStreamingContent, streamingToolSteps])
 
   useEffect(() => {
     document.body.classList.add('hb-body-hiring-prototype')
@@ -1562,6 +1571,7 @@ export default function HiringPage() {
         // AI 开始思考，切换到流式展示
         typewriterStream.start()
         setTyping(true)
+        setStreamingTurnInternal(lastWsTurnInternalRef.current)
         // 重置本轮工具步骤累积
         pendingToolStepsRef.current = []
         setStreamingToolSteps([])
@@ -1575,13 +1585,14 @@ export default function HiringPage() {
         // typing_stop 只做软结束等待，assistant_done 可带完整正文并立即固化。
         const userMessage = lastWsUserMessageRef.current
         const materials = lastWsMaterialsRef.current
+        const isInternalTurn = lastWsTurnInternalRef.current
         const fallbackReply = String(msg.content ?? msg.text ?? '')
         const finishOptions = type === 'typing_stop'
           ? { deferMs: TYPEWRITER_SOFT_FINISH_DEFER_MS }
           : undefined
         typewriterStream.finish(fallbackReply, (rawReply) => {
           // 直接从 hook 的 raw 文本提交正式消息，避免 React StrictMode 双重调用导致重复气泡。
-          if (rawReply && rawReply.trim().length > 0) {
+          if (!isInternalTurn && rawReply && rawReply.trim().length > 0) {
             const cleaned = normalizeAssistantReply(rawReply)
             if (cleaned.length > 0) {
               // 将本轮累积的工具调用步骤附到 bot 消息，与 Markdown 正文合并呈现。
@@ -1593,6 +1604,8 @@ export default function HiringPage() {
           pendingToolStepsRef.current = []
           setStreamingToolSteps([])
           setTyping(false)
+          setStreamingTurnInternal(false)
+          lastWsTurnInternalRef.current = false
 
           // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等
           const hireId = workflowHireIdRef.current
@@ -1894,14 +1907,25 @@ export default function HiringPage() {
   }
 
   async function flushQueuedInternalPrompt() {
-    if (typing || messageSubmitRef.current || pendingInternalPromptsRef.current.length === 0) {
+    if (internalPromptFlushInFlightRef.current) {
       return
     }
 
-    const prompt = pendingInternalPromptsRef.current.shift()
-    if (!prompt) return
+    internalPromptFlushInFlightRef.current = true
+    try {
+      await turnSyncBarrierRef.current
 
-    await submitWorkflowMessage(prompt, undefined, true, false)
+      if (typing || messageSubmitRef.current || pendingInternalPromptsRef.current.length === 0) {
+        return
+      }
+
+      const prompt = pendingInternalPromptsRef.current.shift()
+      if (!prompt) return
+
+      await submitWorkflowMessage(prompt, undefined, true, false, true)
+    } finally {
+      internalPromptFlushInFlightRef.current = false
+    }
   }
 
   function setOptimisticDownstreamRun(
@@ -2134,6 +2158,7 @@ export default function HiringPage() {
      * - false：调用方已经 setMessages（handleSend / 技能上传弹窗），避免重复气泡
      */
     displayInChat = true,
+    isInternalTurn = false,
   ): Promise<boolean> {
     if (messageSubmitRef.current) {
       setWorkflowError(t('hiring.error.generationInProgress'))
@@ -2188,6 +2213,7 @@ export default function HiringPage() {
         // 记录本次发送的用户消息和材料，供 WS 终止事件中调用同步端点使用。
         lastWsUserMessageRef.current = messageText
         lastWsMaterialsRef.current = toConversationMaterials(incoming)
+        lastWsTurnInternalRef.current = isInternalTurn
         if (!ws.isOpen()) {
           throw new Error('沙箱 WebSocket 尚未连接，请稍后重试')
         }
@@ -2208,7 +2234,9 @@ export default function HiringPage() {
       } catch (error: unknown) {
         setWorkflowError(normalizeErrorMessage(error))
         setTyping(false)
+        setStreamingTurnInternal(false)
         typewriterStream.reset()
+        lastWsTurnInternalRef.current = false
         // 错误回退时清理本轮工具步骤累积
         pendingToolStepsRef.current = []
         setStreamingToolSteps([])
@@ -2235,7 +2263,7 @@ export default function HiringPage() {
       }
 
       const assistantContent = normalizeAssistantReply(response.assistantMessage.content)
-      if (assistantContent) {
+      if (!isInternalTurn && assistantContent) {
         typewriterStream.start()
         await new Promise<void>((resolve) => {
           typewriterStream.finish(assistantContent, (displayedReply) => {
@@ -2263,7 +2291,9 @@ export default function HiringPage() {
       return false
     } finally {
       setTyping(false)
+      setStreamingTurnInternal(false)
       typewriterStream.reset()
+      lastWsTurnInternalRef.current = false
       messageSubmitRef.current = false
       setSubmittingMessage(false)
     }
@@ -2464,13 +2494,17 @@ export default function HiringPage() {
     }
   }
 
-  async function triggerCreate(packageArtifact?: { fileUrl: string; fileName: string }) {
-    if (!canCreate || instanceCreated) return
+  async function triggerCreate(
+    packageArtifact?: { fileUrl: string; fileName: string },
+    options?: { forceManual?: boolean },
+  ) {
+    const forceManual = options?.forceManual === true
+    if (!forceManual && (!canCreate || instanceCreated)) return
     await turnSyncBarrierRef.current
     const hireId = await ensureWorkflowReady()
     if (!hireId) return
 
-    if (requiresFreshPackaging) {
+    if (!forceManual && requiresFreshPackaging) {
       setWorkflowError('')
       setWorkflowNotice(EXTERNAL_CONFIG_REPACKAGE_NOTICE)
       return
@@ -2708,6 +2742,7 @@ export default function HiringPage() {
         setAllFiles([])
         typewriterStream.reset()
         setTyping(false)
+        setStreamingTurnInternal(false)
         setJourneyGuideVisible(false)
         setFocusedStage(null)
         setWorkflowError('')
@@ -2735,6 +2770,9 @@ export default function HiringPage() {
         ontologyExtractionDoneSignatureRef.current = ''
         ontologyProjectionDoneSignatureRef.current = ''
         pendingInternalPromptsRef.current = []
+        lastWsTurnInternalRef.current = false
+        internalPromptFlushInFlightRef.current = false
+        turnSyncBarrierRef.current = Promise.resolve()
 
         // 清除后端运行时状态，确保重置后刷新页面不会恢复旧记录
         api.hiringWorkflow.saveRuntimeState(hireId, {}).catch(() => {})
@@ -2850,8 +2888,8 @@ export default function HiringPage() {
           introName={introName}
           introAbilities={introAbilities}
           messages={messages}
-          typing={typing}
-          streamingContent={streamingContent}
+          typing={visibleTyping}
+          streamingContent={visibleStreamingContent}
           streamingToolSteps={streamingToolSteps}
           pendingFiles={pendingFiles}
           input={input}
@@ -2873,7 +2911,7 @@ export default function HiringPage() {
             }
             void downloadGatewayFile(url, fileName)
           }}
-          onArtifactManualUpload={(url, fileName) => { void triggerCreate({ fileUrl: url, fileName }) }}
+          onArtifactManualUpload={(url, fileName) => { void triggerCreate({ fileUrl: url, fileName }, { forceManual: true }) }}
           templatePackageDownloadFileName={finalPackageFileName || undefined}
           templatePackageDownloadDisabled={hasTemplatePackageArtifact && !canDownloadFinalPackage}
           templatePackageDownloadDisabledTitle={t('hiring.artifact.waitForFinalPackage')}
@@ -2921,6 +2959,8 @@ export default function HiringPage() {
             onAfterStageMessage={handleAfterStageMessage}
             onGenerate={() => { void handleRequestPackaging() }}
             generated={instanceCreated}
+            canDownloadFinalPackage={canDownloadFinalPackage}
+            onDownloadFinalPackage={() => { void downloadTemplatePackageFinal() }}
             onEnterEvaluation={createdId ? () => navigate(`/department-employees/instances/${createdId}/evaluation`) : undefined}
             onLinkedSkillIdsChange={setLinkedStoreSkillIds}
           />
