@@ -175,6 +175,8 @@ skills/<skill_slug>/
 
 **Projection Pass 预生成检查**：若 `ontology/projections/<skill-slug>/` 目录已存在（由上游 `ontology-extraction` projection pass 预生成），Phase 3 将直接读取该目录中的 projection 文件来生成 consumer contract 结构，无需重新推导；consumer 侧仍统一落盘到 `contracts/projections/ontology_extraction/`。
 
+**Projection 绑定强制覆盖规则**：若输入 payload 中包含 `projection_binding_confirmed: true` 或 `projection_contract_mode: "required"`，则本轮运行视为“用户已确认把 producer projection 绑定进 skill”。此时 consumer contract 为**强制产物**：必须从 `<workspace_root>/ontology/projections/<skill-slug>/` 成功 materialize 出 `contracts/projections/ontology_extraction/contract-index.json` 与 4 个标准 view 文件；若 source 缺失、source 无效、结构校验失败，或无法完成落盘确认，则本轮 `skill-generation` **必须阻断并返回失败原因**，不得以“仅基础 skill 文件”作为成功结果，也不得发出 `skill_generation_done`。
+
 ### Phase 1: 输入采集与来源归档
 
 对不同输入执行不同采集策略：
@@ -183,7 +185,9 @@ skills/<skill_slug>/
 - 会话描述：保留用户原话，写入 `references/source-digest.md` 的 conversation source 区块。
 - 上传文件：解析 Markdown、文本、JSON、YAML；zip 递归读取候选 skill 文件；保留文件清单、解析结论和不可解析项。**当由上游 `employment-coach-conversation` 触发时，输入以 `skill_workorder_summary` 为主工单；若工单条目中附带 `source_path` 或来源文件提示，直接按这些真实路径读取，不要运行 `shell: ls` 探索文件系统。** `source_path` 为 `null` 的条目是纯文本描述，无对应文件。`skill_workorder_summary` 的 `data.workspace_root` 是雇佣教练会话初始化时由沙箱解压工具创建并锁定的真实绝对路径（运行时确定，本 skill 当作不透明字符串使用），本 skill 的所有产物必须写入 `<workspace_root>/skills/<skill-slug>/`（用 artifact 收到的真实路径替换 `<workspace_root>`）；若 `workspace_root` 缺失，停下来报错，不要靠 `ls /workspace` 推断或自行拼接 `/workspace/<slug>`。
 - 混合输入：上传文件作为基线，会话描述作为增量补充，不用会话描述覆盖文件里更明确的能力定义。
-- **Projection 发现（可选）**：当 `workspace_root` 可用时，对每个待生成 skill 检查 `<workspace_root>/ontology/projections/<skill-slug>/` 目录是否存在。若存在，扫描其中的 `*.projection.json` 文件；按 `domain-slug` 聚合已有 view，读取每个文件内的 `open_questions` 字段：为空或 null 则视为 **READY projection**，非空则视为 **WARNING projection**。记录已有 view 列表与路径，供 Phase 3 使用。若目录不存在，继续正常流程（Phase 3 按原逻辑判断信息是否充足）。
+- **Projection 发现（可选 / 条件阻断）**：当 `workspace_root` 可用时，对每个待生成 skill 检查 `<workspace_root>/ontology/projections/<skill-slug>/` 目录是否存在。若存在，扫描其中的 `*.projection.json` 文件；按 `domain-slug` 聚合已有 view，读取每个文件内的 `open_questions` 字段：为空或 null 则视为 **READY projection**，非空则视为 **WARNING projection**。记录已有 view 列表与路径，供 Phase 3 使用。若目录不存在：
+  - 当本轮未要求绑定 projection 时，可继续正常流程；
+  - 当 `projection_binding_confirmed: true` 或 `projection_contract_mode: "required"` 时，立即记为阻断原因，Phase 3 Step 2 不得降级跳过。
   - 若发现有效 projection source，Phase 3 Step 2 必须优先使用 `scripts/materialize-consumer-projection-contract.py` 将 source 稳定展开为 consumer 侧 4 个标准 view；如果当前环境无法运行 Python，则按该脚本算法等价手动写入，不得退化为只写 1 个 view。
 
 来源归档必须记录：来源类型、可信度、抽取到的能力、未决问题和被丢弃内容。不要把 token、密钥、密码、连接串写入归档。
@@ -227,9 +231,14 @@ skills/<skill_slug>/
 
 **写入确认**：每个文件写入后，用 read_file 确认文件已落盘且内容非空。若写入失败，立即重试。**在 Step 1 全部 5 个文件确认落盘之前，不得进入 Step 2，也不得发出任何 "生成完毕" 的 artifact。**
 
-#### Step 2: 写入投影契约（条件必做：只要发现有效 projection source 就必须执行）
+#### Step 2: 写入投影契约（条件必做；若 projection_binding_confirmed=true，则本步骤为强制阻断门）
 
 Step 1 全部确认落盘后，按以下三条路径处理投影契约：
+
+- **强制覆盖规则（优先于路径 A/B/C）**：若输入 payload 包含 `projection_binding_confirmed: true` 或 `projection_contract_mode: "required"`：
+  - 路径 B 和路径 C 只能用于定位失败原因，**不能**作为成功完成路径；
+  - 只有当路径 A 成功落出完整 consumer contracts 并通过读取确认后，才允许继续本轮 skill 生成；
+  - 任何“source 目录不存在 / source 无效 / 无法补全 4 个标准 view / 结构校验失败 / 写入确认失败”都必须阻断本轮运行，向上游返回失败原因，并明确指出需要回到 projection pass 或前置材料阶段处理。
 
 - **路径 A（projection pass 预生成 — 优先）**：若 Phase 1 发现了来自 `ontology/projections/<skill-slug>/` 的 projection 文件：
   0. **优先使用确定性脚本落盘**：运行：
@@ -301,9 +310,9 @@ Step 1 全部确认落盘后，按以下三条路径处理投影契约：
   7. 只有在第 6 步全部通过后，才允许回写 `skills/<skill-slug>/SKILL.md` 中的 `{{projection_contracts_section}}`，把 Projection Contracts 章节真正展开；若任一 contract 文件缺失、为空或结构不完整，必须：
      - 删除或回退不完整的 contract 文件；
      - 把 `SKILL.md` 中的 `{{projection_contracts_section}}` 替换为空字符串；
-     - 在 `references/quality-report.md` 记录“发现 projection source，但 consumer contract 落盘失败，已降级为无 contracts 基础技能”。
-- **路径 B（原有推导逻辑 — 兜底）**：Phase 1 未发现任何 projection 文件时，**或路径 A 源文件无效时**，沿用原逻辑：信息足够则生成 READY contract，否则写 draft/notes。**无论路径 B 结果如何，都不阻断 Step 1 已写入的基础 skill 产物。**
-- **路径 C（无投影信息）**：Phase 1 未发现投影且无法从上下文推导足够信息时，**跳过 contracts/ 目录**，Step 1 的基础文件即为本次完整产物。不需要为此阻塞或发出错误。
+     - 在 `references/quality-report.md` 记录“发现 projection source，但 consumer contract 落盘失败，本轮 skill-generation 已阻断，等待回到 projection 准备阶段修复”。
+- **路径 B（原有推导逻辑 — 仅限未绑定模式）**：Phase 1 未发现任何 projection 文件时，**或路径 A 源文件无效时**，仅当本轮**未**要求绑定 projection，才允许沿用原逻辑：信息足够则生成 READY contract，否则写 draft/notes。若本轮要求绑定 projection，则路径 B 只能输出诊断信息，不能视为成功。
+- **路径 C（无投影信息 — 仅限未绑定模式）**：Phase 1 未发现投影且无法从上下文推导足够信息时，仅当本轮**未**要求绑定 projection，才允许跳过 `contracts/` 目录并把 Step 1 基础文件作为完整产物；若本轮要求绑定 projection，则必须阻断并返回“没有可消费 producer projection”的失败原因。
 
 模板参考文件位于本技能目录：
 
@@ -464,7 +473,7 @@ This skill may be augmented by bound `ontology_extraction` projection contracts 
 - 对 `mapping_policy.unresolved_item_policy` 使用 `block_or_escalate`。
 - 将 `delivery_artifacts.path` 限定到该业务 skill 真实会产出的文件或响应结构。
 - 4 个 view 都要生成，但保持薄文件：`workflow-contract` 为主视图；`prompt-constraint`、`json-schema`、`domain-model` 只承载各自层级的最小职责。
-- 如果用户输入中没有足够信息生成 READY projection，生成 WARNING/草稿摘要但不要伪造 READY contract，也不要阻断基础业务 skill 落盘。
+- 如果用户输入中没有足够信息生成 READY projection，生成 WARNING/草稿摘要但不要伪造 READY contract；仅当本轮**未**要求绑定 projection 时，才允许不阻断基础业务 skill 落盘。若本轮要求绑定 projection，则必须阻断并要求回到 projection pass 或前置材料阶段补足信息。
 
 ## 伴随文件模板
 
@@ -488,9 +497,10 @@ This skill may be augmented by bound `ontology_extraction` projection contracts 
 - 自包含性：来源摘要、提炼说明、质量报告必须随生成 skill 一起落在 `skills/<skill_slug>/`。
 - 落盘确认：5 个基础文件全部通过 read_file 确认存在且非空。
 
-**投影契约检查（Step 2 产物，仅当 contracts/ 存在时执行）**：
+**投影契约检查（Step 2 产物）**：
 - 可消费性：如生成 READY projection contract，`contracts/projections/ontology_extraction/contract-index.json` 必须存在，且每个 topic 固定包含 4 个标准 view，并全部指向 `contracts/projections/ontology_extraction/` 下的真实文件。
-- 如 contracts/ 不存在（Step 2 跳过或降级为无投影），此检查项自动通过，不阻断基础文件落盘。
+- 若本轮输入包含 `projection_binding_confirmed: true` 或 `projection_contract_mode: "required"`，则 `contracts/projections/ontology_extraction/contract-index.json` 与 4 个标准 view 文件为**必需产物**；缺任一项都必须判定本轮失败，不得让“只有基础 skill 文件”的结果通过。
+- 仅当本轮**未**要求绑定 projection 时，`contracts/` 不存在才可视为非阻断状态。
 
 如检测到敏感明文即将写入，拒绝写入并输出安全告警。敏感内容应替换为 `[REDACTED]`，但不要把真实值写入任何产物。
 
@@ -508,6 +518,7 @@ This skill may be augmented by bound `ontology_extraction` projection contracts 
 - 上传文件不可解析：不覆盖旧技能，返回可读错误，并建议用户改用会话描述补全。
 - 必填字段严重缺失：生成草稿 SkillSpec，但不落盘正式技能，在 `user_summary` 中列出待补全项。
 - 模板渲染异常：保留写入前状态，返回异常上下文。
+- 用户已确认绑定 projection，但 producer projection 无法 materialize 为 consumer contracts：阻断本轮 skill-generation，返回缺失目录、无效 source、校验失败或写入失败的具体原因。
 - 校验失败：阻止落盘，返回失败项列表。
 
 ## 输出格式
