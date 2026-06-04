@@ -781,8 +781,6 @@ export default function HiringPage() {
   const autoTemplateBootstrapSessionRef = useRef<string | null>(null)
   const latestExternalConfigRef = useRef<HiringExternalSystemConfig | null>(null)
   const externalConfigCommittedSignatureRef = useRef('')
-  /** 刷新页面后仅尝试一次从后端预热 final 包元数据 */
-  const artifactArchiveHydrateAttemptedRef = useRef(false)
 
   /**
    * 将外部系统配置提交事件以 artifact 形式追加到本地消息列表，
@@ -1168,35 +1166,6 @@ export default function HiringPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPackageArtifact, workflowHireId, instanceCreated, pendingStageConfirmation, downstreamRuns])
-
-  // 刷新后若对话中已有 template_package 且后端已有 final，恢复下载态
-  useEffect(() => {
-    if (!workflowHireId || artifactArchive || artifactArchiveHydrateAttemptedRef.current) {
-      return
-    }
-    if (!instanceCreated && !hasTemplatePackageArtifact) {
-      return
-    }
-
-    artifactArchiveHydrateAttemptedRef.current = true
-    let cancelled = false
-    void (async () => {
-      try {
-        const archive = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
-        if (cancelled) {
-          return
-        }
-        setArtifactArchive(archive)
-        setInstanceCreated(true)
-      } catch {
-        // final 尚未生成（import 未完成）时保持禁用
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [workflowHireId, instanceCreated, artifactArchive, hasTemplatePackageArtifact])
 
   // 对话状态变化时防抖保存到后端（messages 或 wsStageOverrides 变化时触发）
   useEffect(() => {
@@ -2592,7 +2561,8 @@ export default function HiringPage() {
       if (finalizeResult.employeeId) {
         setCreatedId(finalizeResult.employeeId)
       }
-      setArtifactArchive(await api.hiringWorkflow.downloadArtifacts(hireId))
+      // 直接使用已下载的产物包，无需再从后端下载
+      setArtifactArchive({ fileName: artifact.fileName, blob: packageBlob })
       setInstanceCreated(true)
       setWorkflowError('')
       setWorkflowNotice('')
@@ -2623,15 +2593,8 @@ export default function HiringPage() {
       setWorkflowNotice('')
       return
     }
-    try {
-      const archive = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
-      setArtifactArchive(archive)
-      downloadBlob(archive.blob, archive.fileName)
-      setWorkflowError('')
-      setWorkflowNotice('')
-    } catch (error: unknown) {
-      setWorkflowError(normalizeErrorMessage(error))
-    }
+    // 页面刷新后产物包 Blob 会丢失,需要重新从沙箱下载并导入
+    setWorkflowNotice('产物包未缓存,请从对话产物中重新导入')
   }
 
   /**
@@ -2754,7 +2717,6 @@ export default function HiringPage() {
         setPendingStageConfirmation(null)
         setRequiresFreshPackaging(false)
         setArtifactArchive(null)
-        artifactArchiveHydrateAttemptedRef.current = false
         setArtifactFileNames([])
         setLinkedStoreSkillIds([])
         downstreamRunsRef.current = {}
