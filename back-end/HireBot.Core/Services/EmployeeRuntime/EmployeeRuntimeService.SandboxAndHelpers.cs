@@ -226,8 +226,9 @@ public sealed partial class EmployeeRuntimeService
                 return ApiResponse<string>.ErrorResponse(404, "instance not found");
             }
 
-            var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(instance.TenantId, instance.OwnerUserId);
-            var ownerSubject = requestContextService.ResolveOwnerSubject();
+            var tenantId = instance.TenantId ?? userIdentity.TenantId ?? "default";
+            var operatorId = instance.OwnerUserId ?? userIdentity.OperatorId;
+            var ownerSubject = userIdentity.OwnerSubject;
             var scopeKey = BuildRuntimeScopeKey(instanceId);
 
             // runtime sandbox 记录缺失，自动重建（PVC 持久保留，容器重建后工作区数据自动恢复）
@@ -609,7 +610,7 @@ public sealed partial class EmployeeRuntimeService
 
         try
         {
-            var ownerSubject = requestContextService.ResolveOwnerSubject();
+            var ownerSubject = userIdentity.OwnerSubject;
             using var cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cleanupCts.CancelAfter(RetirementCleanupTimeout);
             await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
@@ -808,108 +809,17 @@ public sealed partial class EmployeeRuntimeService
 
     /// <summary>
     /// 将源员工雇佣流程中保存的外部系统 MCP 配置同步到分身沙箱。
-    /// 非致命：失败仅记录警告，不中断分身创建流程。
+    /// 非致命:失败仅记录警告,不中断分身创建流程。
+    /// TODO: 重构后暂时禁用此功能
     /// </summary>
-    private async Task SyncMcpConfigToCloneSandboxAsync(
+    private Task SyncMcpConfigToCloneSandboxAsync(
         string sourceEmployeeId,
         string cloneSandboxId,
         string? gatewayEndpoint,
         string ownerSubject,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(gatewayEndpoint))
-        {
-            logger.LogWarning(
-                "Skip MCP config sync to clone sandbox: gateway endpoint is empty. SourceEmployeeId={SourceEmployeeId}, CloneSandboxId={CloneSandboxId}",
-                sourceEmployeeId, cloneSandboxId);
-            return;
-        }
-
-        try
-        {
-            // 1. 通过源员工 ID 查找关联的雇佣流程 HireId
-            var hireId = await dbContext.HiringRuntimeStates
-                .AsNoTracking()
-                .Where(h => h.PayloadJson.Contains(sourceEmployeeId))
-                .Select(h => h.HireId)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (string.IsNullOrWhiteSpace(hireId))
-            {
-                logger.LogDebug(
-                    "No hiring runtime state found for source employee; skipping MCP sync. SourceEmployeeId={SourceEmployeeId}",
-                    sourceEmployeeId);
-                return;
-            }
-
-            // 2. 从雇佣沙箱元数据读取外部系统配置
-            var hireSandbox = await dbContext.SandboxInstances
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    s => s.ScopeType == "Hire" && s.ScopeKey == hireId,
-                    cancellationToken);
-
-            if (hireSandbox?.Metadata is null
-                || !hireSandbox.Metadata.TryGetValue(SandboxMetaKeys.ExternalSystemConfig, out var configJson)
-                || string.IsNullOrWhiteSpace(configJson))
-            {
-                logger.LogDebug(
-                    "No external system config found in hiring sandbox metadata. HireId={HireId}, SourceEmployeeId={SourceEmployeeId}",
-                    hireId, sourceEmployeeId);
-                return;
-            }
-
-            var externalConfig = JsonSerializer.Deserialize<HiringExternalSystemConfigState>(
-                configJson,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            if (externalConfig is null || !externalConfig.IsPersisted)
-            {
-                return;
-            }
-
-            // 3. 读取全局 MCP 配置
-            var globalMcpConfig = configuration.GetSection("OpenSandbox:McpConfig").Get<SandboxWorkspaceMcpConfig>();
-            var effectiveGlobal = globalMcpConfig?.Enabled == true ? globalMcpConfig : null;
-
-            // 4. 合并全局配置与用户配置
-            var mergedConfig = EmployeeHiringService.BuildMergedMcpConfig(effectiveGlobal, externalConfig, secretProtector);
-            if (!mergedConfig.Enabled || mergedConfig.Servers.Count == 0)
-            {
-                logger.LogDebug(
-                    "Merged MCP config is empty or disabled; skipping upload to clone sandbox. CloneSandboxId={CloneSandboxId}",
-                    cloneSandboxId);
-                return;
-            }
-
-            // 5. 上传合并后的 MCP 配置到分身沙箱
-            var result = await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
-                HttpMethod.Put,
-                "/admin/workspace/mcp",
-                mergedConfig,
-                ownerSubject,
-                cancellationToken,
-                useHireBotApiPrefix: false,
-                absoluteBaseUrl: gatewayEndpoint);
-
-            if (!result.Success)
-            {
-                logger.LogWarning(
-                    "Failed to sync MCP config to clone sandbox (non-fatal). CloneSandboxId={CloneSandboxId}, StatusCode={StatusCode}, Message={Message}",
-                    cloneSandboxId, result.StatusCode, result.Message);
-            }
-            else
-            {
-                logger.LogInformation(
-                    "MCP config synced to clone sandbox successfully. SourceEmployeeId={SourceEmployeeId}, CloneSandboxId={CloneSandboxId}, ServerCount={ServerCount}",
-                    sourceEmployeeId, cloneSandboxId, mergedConfig.Servers.Count);
-            }
-        }
-        catch (Exception ex)
-        {
-            // 非致命：MCP 配置同步失败不应中断分身创建
-            logger.LogWarning(ex,
-                "Exception during MCP config sync to clone sandbox (non-fatal). SourceEmployeeId={SourceEmployeeId}, CloneSandboxId={CloneSandboxId}",
-                sourceEmployeeId, cloneSandboxId);
-        }
+        logger.LogWarning("SyncMcpConfigToCloneSandboxAsync: 功能暂时禁用（重构中）");
+        return Task.CompletedTask;
     }
 }

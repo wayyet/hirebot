@@ -1,8 +1,9 @@
 using System.ComponentModel.DataAnnotations;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class SandboxInstanceEntity
+public sealed class SandboxInstanceEntity : ITenant
 {
     [Key]
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -31,9 +32,8 @@ public sealed class SandboxInstanceEntity
     [MaxLength(256)]
     public string OwnerSubject { get; set; } = string.Empty;
 
-    [Required]
     [MaxLength(128)]
-    public string TenantId { get; set; } = string.Empty;
+    public string? TenantId { get; set; }
 
     [Required]
     [MaxLength(128)]

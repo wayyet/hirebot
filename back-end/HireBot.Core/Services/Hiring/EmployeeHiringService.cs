@@ -1,14 +1,6 @@
-﻿using System.Collections.Concurrent;
-using System.IO.Compression;
-using System.IO;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction;
-using HireBot.Abstraction.Models.EmployeeTemplate;
+using HireBot.Abstraction.Infrastructure.Identity;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
@@ -16,58 +8,35 @@ using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
-using HireBot.Abstraction.Services.Security;
-using HireBot.Core.Services.Hiring.Artifacts;
-using HireBot.Core.Services.Hiring.Discovery;
-using HireBot.Core.Services.Hiring.Storage;
-using HireBot.Core.Services.Hiring.StoreSkills;
 using HireBot.Core.Services.Hiring.TemplatePackages;
-using HireBot.Core.Services.EmployeeRuntime;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Hiring;
 
-internal sealed partial class EmployeeHiringService(
+/// <summary>
+/// 雇佣服务（简化版：基于轻量表设计，移除 HiringRuntimeContext）。
+/// </summary>
+internal sealed class EmployeeHiringService(
     ITemplateDataProvider templateDataProvider,
     ITemplatePackageProvider templatePackageProvider,
     IDiscoveryRoleTemplatePackageProvider discoveryRoleTemplatePackageProvider,
-    IWorkingTemplatePackageProvider workingTemplatePackageProvider,
-    IDiscoveryRuleProvider discoveryRuleProvider,
-    HiringStageCompletionEvaluator stageCompletionEvaluator,
-    IHiringRuntimeStore hiringRuntimeStore,
-    IKingCrabHttpClient kingCrabHttpClient,
     ISandboxService sandboxService,
-    IHttpContextAccessor httpContextAccessor,
-    IServiceScopeFactory serviceScopeFactory,
+    IHiringStageService hiringStageService,
+    IEmployeeRuntimeService employeeRuntimeService,
+    IUserIdentity userIdentity,
     HireBotDbContext dbContext,
-    IHiringFileStore hiringFileStore,
-    IInstanceArtifactCloneService instanceArtifactCloneService,
-    IHiringArtifactPackageService artifactPackageService,
-    IStoreSkillPackageDownloader storeSkillPackageDownloader,
-    ISecretProtector secretProtector,
+    IKingCrabHttpClient kingCrabHttpClient,
     IConfiguration configuration,
-    IHostEnvironment hostEnvironment,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
-    private const string EvaluationWorkspaceTemplateId = "evaluation-expert";
-
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
-    private readonly ConcurrentDictionary<string, byte> conversationInFlight = new(StringComparer.OrdinalIgnoreCase);
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
         string templateId,
-        HireTemplateRequestDto request,
+        string? useCase = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(templateId))
@@ -75,340 +44,220 @@ internal sealed partial class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(400, "templateId 不能为空");
         }
 
-        request ??= new HireTemplateRequestDto();
-        var (tenantId, operatorId) = ResolveTenantAndOperator(request.TenantId, request.OperatorId);
+        var tenantId = userIdentity.TenantId ?? "default";
+        var operatorId = userIdentity.OperatorId ?? "anonymous";
+        var ownerSubject = userIdentity.OwnerSubject ?? $"{tenantId}:{operatorId}";
 
-        var normalizedTemplateId = templateId.Trim();
-        EmployeeTemplateDefinition? template;
-        try
+        logger.LogInformation("开始雇佣流程: TemplateId={TemplateId}, TenantId={TenantId}", templateId, tenantId);
+
+        var template = await templateDataProvider.GetByIdAsync(templateId, cancellationToken);
+        if (template is null)
         {
-            template = await templateDataProvider.GetByIdAsync(normalizedTemplateId, cancellationToken);
-        }
-        catch (InvalidOperationException ex)
-        {
-            logger.LogWarning(ex, "Template metadata unavailable from upstream source. TemplateId={TemplateId}", normalizedTemplateId);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(502, ex.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(404, $"模板 {templateId} 不存在");
         }
 
-        if (template is null || !template.IsAvailable)
-        {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(404, "模板不存在或已下架");
-        }
-
-        TemplatePackageDefinition referenceTemplatePackage;
-        TemplatePackageDefinition roleTemplatePackage;
-        TemplatePackageDefinition workingTemplatePackage;
-        DiscoverySkillDefinition discoverySkill;
-        try
-        {
-            referenceTemplatePackage = await templatePackageProvider.LoadAsync(normalizedTemplateId, cancellationToken);
-            roleTemplatePackage = await discoveryRoleTemplatePackageProvider.LoadAsync(cancellationToken);
-            workingTemplatePackage = await workingTemplatePackageProvider.LoadAsync(cancellationToken);
-            discoverySkill = await discoveryRuleProvider.LoadAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to load template/discovery assets. TemplateId={TemplateId}", normalizedTemplateId);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, "模板资产或 discovery skill 读取失败");
-        }
-
-        var ownerSubject = ResolveOwnerSubject(tenantId, operatorId);
-
+        // 检查是否存在现有的活跃沙箱（沙箱恢复逻辑）
         var existingInstance = await sandboxService.FindActiveByOwnerAndTemplateAsync(
-            ownerSubject, normalizedTemplateId, "hiring", cancellationToken);
+            ownerSubject, templateId, "candidate-conversation", cancellationToken);
+
         if (existingInstance is not null)
         {
+            logger.LogInformation("找到现有沙箱: SandboxId={SandboxId}, HireId={HireId}, State={State}, IsInitialized={IsInitialized}",
+                existingInstance.SandboxId, existingInstance.ScopeKey, existingInstance.State, existingInstance.IsInitialized);
+
+            // 如果沙箱已暂停，尝试恢复
             if (string.Equals(existingInstance.State, "Paused", StringComparison.OrdinalIgnoreCase))
             {
+                logger.LogInformation("沙箱已暂停，尝试恢复: SandboxId={SandboxId}", existingInstance.SandboxId);
                 await sandboxService.ResumeAsync(
                     new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
                     cancellationToken);
             }
 
+            // 如果沙箱已初始化，直接复用
             if (existingInstance.IsInitialized)
             {
-                // 在复用前先 Refresh，验证沙箱在 OpenSandbox 中确实存活。
-                // 若沙箱已被意外删除，RefreshAsync 会自动重建并将 IsInitialized 重置为 false，
-                // 此时 fall-through 到下方的清理重建流程。
+                // 刷新沙箱状态，验证沙箱在 OpenSandbox 中确实存活
                 var refreshed = await sandboxService.RefreshAsync(
                     new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
                     cancellationToken);
+
                 if (refreshed.Success && refreshed.Data is not null)
                 {
                     existingInstance = refreshed.Data;
                 }
 
-                if (!existingInstance.IsInitialized)
+                // 如果刷新后沙箱仍已初始化，直接复用
+                if (existingInstance.IsInitialized)
                 {
-                    logger.LogWarning(
-                        "Existing initialized sandbox was rebuilt (sandbox deleted externally), reinitializing with same hireId. SandboxId={SandboxId}, HireId={HireId}",
-                        existingInstance.SandboxId, existingInstance.ScopeKey);
-                    // 沙箱被自动超时删除后，RefreshAsync 已用相同 ScopeKey (hireId) 重建并挂载原 PVC。
-                    // 不走 reinitialize: 路径（会删除 PVC 并生成新 hireId），直接复用原 hireId 完成初始化，
-                    // 确保工作区数据和 DB 会话历史关联不丢失。
-                    return await ReinitializeRebuiltHireSandboxAsync(
-                        existingInstance,
-                        ownerSubject, tenantId, operatorId,
-                        normalizedTemplateId, request.UseCase,
-                        roleTemplatePackage, workingTemplatePackage,
-                        discoverySkill, referenceTemplatePackage,
-                        template, cancellationToken);
-                }
+                    var existingHireId = existingInstance.ScopeKey;
 
-                var existingHireId = existingInstance.ScopeKey;
-
-                // 直接从持久化 runtime 读取 sessionId；缺失时再从 DB 会话表补全
-                var existingRuntime = hiringRuntimeStore.Get(existingHireId);
-                if (existingRuntime?.ExternalSystemConfig is null)
-                {
-                    var sandboxExternalConfig = DeserializeExternalSystemConfig(existingInstance.Metadata);
-                    if (sandboxExternalConfig is not null && existingRuntime is not null)
-                    {
-                        existingRuntime = ApplyConversationProgressToTemplatePackage(existingRuntime with
-                        {
-                            ExternalSystemConfig = sandboxExternalConfig
-                        });
-                        hiringRuntimeStore.Upsert(existingRuntime);
-                    }
-                }
-
-                var existingSessionId = existingRuntime?.SessionId;
-                if (string.IsNullOrWhiteSpace(existingSessionId))
-                {
-                    existingSessionId = await dbContext.HiringSessions
+                    // 从数据库查询会话 ID
+                    var existingSessionId = await dbContext.HiringSessions
                         .AsNoTracking()
                         .Where(s => s.HireId == existingHireId && s.DeletedAtUtc == null)
                         .OrderByDescending(s => s.CreatedAtUtc)
                         .Select(s => s.SessionId)
                         .FirstOrDefaultAsync(cancellationToken);
-                }
 
-                // 若持久化 runtime 中无运行时上下文，用 DB 补全的 sessionId 重建最小上下文，
-                // 确保后续 syncConversationTurn 等调用能正常找到 HireId 对应的运行时
-                if (existingRuntime is null && !string.IsNullOrWhiteSpace(existingSessionId))
+                    var isRunning = string.Equals(existingInstance.State, "Running", StringComparison.OrdinalIgnoreCase);
+
+                    logger.LogInformation("复用现有沙箱: HireId={HireId}, SandboxId={SandboxId}, SessionId={SessionId}, Status={Status}",
+                        existingHireId, existingInstance.SandboxId, existingSessionId, isRunning ? "READY" : existingInstance.State);
+
+                    return ApiResponse<HireTemplateResultDto>.SuccessResponse(
+                        new HireTemplateResultDto(
+                            HireId: existingHireId,
+                            SandboxId: existingInstance.SandboxId,
+                            Status: isRunning ? "READY" : existingInstance.State,
+                            NextAction: "continue_conversation",
+                            SessionId: existingSessionId,
+                            GatewayEndpoint: isRunning ? existingInstance.GatewayEndpoint : null,
+                            TemplatePrimingRequired: false),
+                        "已复用现有沙箱");
+                }
+                else
                 {
-                    var restoredStageCompletion = stageCompletionEvaluator.Evaluate(
-                        discoverySkill.StageRules,
-                        new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
-                    hiringRuntimeStore.Upsert(new HiringRuntimeContext
-                    {
-                        HireId = existingHireId,
-                        TemplateId = normalizedTemplateId,
-                        TemplateName = template.Name,
-                        OwnerSubject = ownerSubject,
-                        TenantId = tenantId,
-                        OperatorId = operatorId,
-                        SandboxId = existingInstance.SandboxId,
-                        SessionId = existingSessionId,
-                        CurrentStage = HiringCollectionStage.Material,
-                        CollectionPhase = HiringCollectionPhase.NotStarted,
-                        IsConversationPaused = false,
-                        IsConversationResponding = false,
-                            RoleTemplatePackage = roleTemplatePackage,
-                        WorkingTemplatePackage = workingTemplatePackage,
-                        DiscoverySkill = discoverySkill,
-                        StageCompletion = restoredStageCompletion,
-                        ExternalSystemConfig = DeserializeExternalSystemConfig(existingInstance.Metadata)
-                    });
+                    // 沙箱被外部删除后重建，IsInitialized 被重置为 false
+                    logger.LogWarning("现有沙箱已被外部删除并重建，需要重新初始化: SandboxId={SandboxId}, HireId={HireId}",
+                        existingInstance.SandboxId, existingInstance.ScopeKey);
+                    // 继续使用现有的 hireId 和 sandboxId，重新初始化
                 }
-
-                // 沙箱 Running 时直接带回 gatewayEndpoint + sessionId，前端可跳过状态轮询和 startConversation() 调用
-                var isRunning = string.Equals(existingInstance.State, "Running", StringComparison.OrdinalIgnoreCase);
-                return ApiResponse<HireTemplateResultDto>.SuccessResponse(
-                    new HireTemplateResultDto(
-                        existingHireId,
-                        existingInstance.SandboxId,
-                        isRunning ? "READY" : existingInstance.State,
-                        "continue_conversation",
-                        SessionId: string.IsNullOrWhiteSpace(existingSessionId) ? null : existingSessionId,
-                        GatewayEndpoint: isRunning ? existingInstance.GatewayEndpoint : null),
-                    "已复用现有沙箱");
             }
 
-            // 沙箱存在但从未完成初始化（非自动超时重建路径），清理后走正常创建流程。
-            logger.LogInformation(
-                "Existing sandbox is not initialized, cleaning up and provisioning fresh. OldSandboxId={OldSandboxId}, HireId={HireId}",
-                existingInstance.SandboxId,
-                existingInstance.ScopeKey);
-            await sandboxService.DeleteAsync(
-                new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
-                cancellationToken);
+            // 沙箱存在但未初始化，清理后重新创建
+            if (!existingInstance.IsInitialized)
+            {
+                logger.LogInformation("现有沙箱未初始化，清理后重新创建: SandboxId={SandboxId}, HireId={HireId}",
+                    existingInstance.SandboxId, existingInstance.ScopeKey);
+                await sandboxService.DeleteAsync(
+                    new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
+                    cancellationToken);
+            }
         }
 
-        var provisionResult = await ProvisionManagedHireSandboxAsync(
-            sandboxRole: "hiring",
-            ownerSubject,
-            tenantId,
-            operatorId,
-            normalizedTemplateId,
-            request.UseCase,
-            cancellationToken);
-        if (!provisionResult.Success || provisionResult.Data is null)
+        // 创建新的雇佣流程和沙箱
+        var hireId = $"hire-{Guid.NewGuid():N}";
+        var sessionId = $"session-{Guid.NewGuid():N}";
+
+        logger.LogInformation("创建雇佣沙箱: HireId={HireId}", hireId);
+        var sandboxResult = await sandboxService.CreateAsync(new SandboxCreateRequestDto
         {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(provisionResult.Code, provisionResult.Message);
-        }
-
-        var call = RemoteCallResult<HireTemplateResultDto>.Ok(new HireTemplateResultDto(
-            provisionResult.Data.HireId,
-            provisionResult.Data.SandboxId,
-            string.Equals(provisionResult.Data.State, "Running", StringComparison.OrdinalIgnoreCase)
-                ? "READY"
-                : provisionResult.Data.State,
-            "start_conversation"));
-
-        var initialStageCompletion = stageCompletionEvaluator.Evaluate(
-            discoverySkill.StageRules,
-            new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
-
-        hiringRuntimeStore.Upsert(new HiringRuntimeContext
-        {
-            HireId = provisionResult.Data.HireId,
-            TemplateId = normalizedTemplateId,
-            TemplateName = template.Name,
+            ScopeType = "Hire",
+            ScopeKey = hireId,
+            SandboxRole = "candidate-conversation",
             OwnerSubject = ownerSubject,
             TenantId = tenantId,
             OperatorId = operatorId,
-            SandboxId = provisionResult.Data.SandboxId,
-            SessionId = string.Empty,
-            CurrentStage = HiringCollectionStage.Material,
-            CollectionPhase = HiringCollectionPhase.NotStarted,
-            IsConversationPaused = false,
-            IsConversationResponding = false,
-            RoleTemplatePackage = roleTemplatePackage,
-            WorkingTemplatePackage = workingTemplatePackage,
-            DiscoverySkill = discoverySkill,
-            StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
-            Materials = [],
-            StageCompletion = initialStageCompletion,
-            IsTemplateUploadPending = false,
-            TemplateUploadRetryCount = 0,
-            TemplateUploadLastError = null,
-            TemplateUploadLastAttemptAt = null
-        });
+            ProvisioningMode = "managed",
+            UseCase = useCase ?? "hiring",
+            TemplateId = templateId,
+            IsInitialized = false
+        }, cancellationToken);
 
-        var conversationStartResponse = await sandboxService.EnsureSessionAsync(
-            new SandboxEnsureSessionRequestDto
-            {
-                ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = call.Data!.HireId,
-                SandboxRole = "hiring",
-                OwnerSubject = ownerSubject,
-                TenantId = tenantId,
-                OperatorId = operatorId,
-                SandboxId = call.Data.SandboxId,
-                SessionKey = "default"
-            },
-            cancellationToken);
-        if (!conversationStartResponse.Success || conversationStartResponse.Data is null || string.IsNullOrWhiteSpace(conversationStartResponse.Data.SessionId))
+        if (!sandboxResult.Success || sandboxResult.Data is null)
         {
-            logger.LogWarning(
-                "Failed to create hiring session. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
-                call.Data.HireId,
-                normalizedTemplateId,
-                conversationStartResponse.Code,
-                conversationStartResponse.Message);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
-                conversationStartResponse.Code <= 0 ? 502 : conversationStartResponse.Code,
-                string.IsNullOrWhiteSpace(conversationStartResponse.Message) ? "雇佣会话创建失败" : conversationStartResponse.Message);
+            logger.LogError("创建沙箱失败: {Message}", sandboxResult.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, $"创建沙箱失败: {sandboxResult.Message}");
         }
 
-        hiringRuntimeStore.Upsert(hiringRuntimeStore.Get(call.Data.HireId) is { } runtimeWithNewSession
-            ? runtimeWithNewSession with { SessionId = conversationStartResponse.Data.SessionId }
-            : new HiringRuntimeContext
-            {
-                HireId = call.Data.HireId,
-                TemplateId = normalizedTemplateId,
-                TemplateName = template.Name,
-                OwnerSubject = ownerSubject,
-                TenantId = tenantId,
-                OperatorId = operatorId,
-                SandboxId = call.Data.SandboxId,
-                SessionId = conversationStartResponse.Data.SessionId,
-                CurrentStage = HiringCollectionStage.Material,
-                CollectionPhase = HiringCollectionPhase.NotStarted,
-                IsConversationPaused = false,
-                IsConversationResponding = false,
-                RoleTemplatePackage = roleTemplatePackage,
-                WorkingTemplatePackage = workingTemplatePackage,
-                DiscoverySkill = discoverySkill,
-                StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
-                Materials = [],
-                StageCompletion = initialStageCompletion
-            });
+        var sandboxId = sandboxResult.Data.SandboxId;
 
         try
         {
-            await PersistSessionAndSourceZipAsync(
-                call.Data.HireId,
-                conversationStartResponse.Data.SessionId,
-                normalizedTemplateId,
-                referenceTemplatePackage,
-                ownerSubject,
-                tenantId,
-                operatorId,
+            // 等待沙箱启动到 Running 状态
+            logger.LogInformation("等待沙箱启动: SandboxId={SandboxId}", sandboxId);
+            var readyResult = await WaitForSandboxReadyAsync(sandboxResult.Data, cancellationToken);
+            if (!readyResult.Success || readyResult.Data is null)
+            {
+                logger.LogError("沙箱启动失败: {Message}", readyResult.Message);
+                await TryDeleteSandboxAsync(sandboxId, cancellationToken);
+                return ApiResponse<HireTemplateResultDto>.ErrorResponse(readyResult.Code, $"沙箱启动失败: {readyResult.Message}");
+            }
+
+            var gatewayEndpoint = readyResult.Data.GatewayEndpoint;
+
+            // 步骤 1: 上传雇佣对话教练模板 (employment-coach-conversation)
+            logger.LogInformation("加载雇佣对话教练模板 (employment-coach-conversation)");
+            var discoveryRolePackage = await discoveryRoleTemplatePackageProvider.LoadAsync(cancellationToken);
+
+            logger.LogInformation("构建雇佣对话教练模板存档: PackageId={PackageId}, FileCount={FileCount}",
+                discoveryRolePackage.PackageId, discoveryRolePackage.PackageFiles.Count);
+            var discoveryArchiveBytes = TemplatePackageArchiveBuilder.BuildArchive(discoveryRolePackage);
+
+            // 显式释放模板包引用，帮助 GC 尽快回收大对象
+            discoveryRolePackage = null!;
+
+            logger.LogInformation("上传雇佣对话教练模板到沙箱: SandboxId={SandboxId}, Size={Size}KB",
+                sandboxId, discoveryArchiveBytes.Length / 1024);
+            var discoveryUploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+                new DigitalEmployeeTemplateUploadRequestDto
+                {
+                    SandboxId = sandboxId,
+                    OwnerSubject = ownerSubject,
+                    ArchiveBytes = discoveryArchiveBytes,
+                    FileName = "employment-coach-conversation.zip"
+                },
                 cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(
-                ex,
-                "Persist session/source zip failed. HireId={HireId}, SessionId={SessionId}",
-                call.Data.HireId,
-                conversationStartResponse.Data.SessionId);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, "雇佣会话初始化持久化失败");
-        }
 
-        // 上传 employment-coach-conversation 角色模板包到沙箱，安装数字员工引导角色；
-        // 模板包 ZIP 内已包含 skills/ 子目录，Gateway 上传后会自动装载技能，无需单独上传 skill archive；
-        // 前端后续会把目标雇佣模板包作为媒体附件上传，触发 coach 解析引导流程
-        var roleTemplateUploadResult = await UploadTemplatePackageAsync(
-            call.Data.HireId,
-            roleTemplatePackage,
-            ownerSubject,
-            cancellationToken);
-        if (!roleTemplateUploadResult.Success)
-        {
-            logger.LogWarning(
-                "Role template package upload failed. HireId={HireId}, PackageId={PackageId}, StatusCode={StatusCode}, Message={Message}",
-                call.Data.HireId,
-                roleTemplatePackage.PackageId,
-                roleTemplateUploadResult.StatusCode,
-                roleTemplateUploadResult.Message);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
-                roleTemplateUploadResult.StatusCode <= 0 ? 502 : roleTemplateUploadResult.StatusCode,
-                string.IsNullOrWhiteSpace(roleTemplateUploadResult.Message) ? "雇佣角色模板包上传失败" : roleTemplateUploadResult.Message);
-        }
+            // 释放存档字节数组引用
+            discoveryArchiveBytes = null!;
 
-        // 上传 MCP 配置到沙箱，让沙箱内的数字员工可以访问配置的 MCP 服务；
-        // 此步骤为非致命操作，失败时只记录警告，不阻断初始化流程；
-        // 合并全局 MCP 配置与用户已保存的 MCP 配置（首次创建场景下用户配置通常为空）
-        var runtimeContextForMcp = hiringRuntimeStore.Get(call.Data.HireId);
-        var mergedMcpConfig = BuildMergedMcpConfig(runtimeContextForMcp?.ExternalSystemConfig);
-        if (mergedMcpConfig.Enabled && mergedMcpConfig.Servers.Count > 0)
-        {
-            var mcpUploadResult = await UploadSandboxMcpConfigAsync(
-                call.Data.HireId, ownerSubject, mergedMcpConfig, cancellationToken);
+            if (!discoveryUploadResult.Success || discoveryUploadResult.Data is null || !discoveryUploadResult.Data.Success)
+            {
+                var errorMsg = discoveryUploadResult.Data?.Error ?? discoveryUploadResult.Message;
+                logger.LogError("上传雇佣对话教练模板失败: {Error}", errorMsg);
+
+                // 上传失败，删除沙箱
+                await TryDeleteSandboxAsync(sandboxId, cancellationToken);
+
+                return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                    discoveryUploadResult.Code > 0 ? discoveryUploadResult.Code : 500,
+                    $"上传雇佣对话教练模板失败: {errorMsg}");
+            }
+
+            logger.LogInformation("雇佣对话教练模板上传成功: SkillsInstalled={SkillsInstalled}",
+                discoveryUploadResult.Data.SkillsInstalled);
+
+            // 步骤 2: 上传 MCP 配置（如果启用）
+            // 注：目标模板包由前端通过其他接口上传到 workspace/uploads/
+            var mcpUploadResult = await TryUploadMcpConfigAsync(sandboxId, ownerSubject, cancellationToken);
             if (!mcpUploadResult.Success)
             {
-                logger.LogWarning(
-                    "MCP config upload failed (non-fatal). HireId={HireId}, StatusCode={StatusCode}, Message={Message}",
-                    call.Data.HireId,
-                    mcpUploadResult.StatusCode,
-                    mcpUploadResult.Message);
+                logger.LogWarning("上传 MCP 配置失败（非致命错误）: {Error}", mcpUploadResult.Message);
+                // MCP 配置上传失败不阻止流程继续
             }
-        }
+            else if (mcpUploadResult.Data)
+            {
+                logger.LogInformation("MCP 配置已上传到沙箱: SandboxId={SandboxId}", sandboxId);
+            }
+            else
+            {
+                logger.LogDebug("MCP 配置未启用或未配置，跳过上传: SandboxId={SandboxId}", sandboxId);
+            }
 
-        await SetSandboxInitializedAsync(provisionResult.Data.SandboxId, cancellationToken);
+            // 标记沙箱已初始化（模板包已上传，可以使用）
+            await SetSandboxInitializedAsync(sandboxId, cancellationToken);
 
-        // 沙箱初始化完成后创建雇佣中状态的实例，让用户可以在员工列表看到正在雇佣的记录
-        var capabilities = template.CoreAbilities ?? [];
-        using (var scope = serviceScopeFactory.CreateScope())
-        {
-            var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
+            // 创建雇佣会话记录
+            dbContext.HiringSessions.Add(new HiringSessionEntity
+            {
+                SessionId = sessionId,
+                HireId = hireId,
+                TemplateId = templateId,
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                CreatedAtUtc = DateTimeOffset.UtcNow
+            });
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            // 沙箱初始化完成后创建雇佣中状态的员工实例，让用户可以在员工列表看到正在雇佣的记录
+            var capabilities = template.CoreAbilities ?? [];
             var createResponse = await employeeRuntimeService.CreateFromHireAsync(
                 new CreateEmployeeFromHireRequestDto(
-                    HireId: call.Data.HireId,
-                    TemplateId: normalizedTemplateId,
+                    HireId: hireId,
+                    TemplateId: templateId,
                     TemplateName: template.Name,
                     Description: template.Description,
                     OwnerSubject: ownerSubject,
@@ -419,1210 +268,619 @@ internal sealed partial class EmployeeHiringService(
 
             if (createResponse.Success && createResponse.Data is not null)
             {
-                if (hiringRuntimeStore.Get(call.Data.HireId) is { } latestContext)
-                {
-                    hiringRuntimeStore.Upsert(latestContext with { EmployeeId = createResponse.Data.EmployeeId });
-                }
-
                 logger.LogInformation(
-                    "Created hiring instance. HireId={HireId}, EmployeeId={EmployeeId}, Status=hiring",
-                    call.Data.HireId,
+                    "已创建hiring状态的员工实例: HireId={HireId}, EmployeeId={EmployeeId}, Status=hiring",
+                    hireId,
                     createResponse.Data.EmployeeId);
             }
             else
             {
                 logger.LogWarning(
-                    "Failed to create hiring instance (non-fatal). HireId={HireId}, Message={Message}",
-                    call.Data.HireId,
+                    "创建hiring实例失败（非致命错误）: HireId={HireId}, Message={Message}",
+                    hireId,
                     createResponse.Message);
             }
-        }
 
-        logger.LogInformation(
-            "Template hire setup completed. HireId={HireId}, TemplateId={TemplateId}, PackageId={PackageId}, PackageVersion={PackageVersion}, Owner={Owner}",
-            call.Data.HireId,
-            normalizedTemplateId,
-            roleTemplatePackage.PackageId,
-            roleTemplatePackage.PackageVersion,
-            ownerSubject);
+            // 初始化阶段进度（模板已上传，进入素材收集阶段）
+            await hiringStageService.UpdateStageProgressAsync(hireId, "material", null, cancellationToken);
 
-        return ApiResponse<HireTemplateResultDto>.SuccessResponse(
-            call.Data with { SessionId = conversationStartResponse.Data.SessionId, TemplatePrimingRequired = true },
-            "雇佣任务已创建");
-    }
+            logger.LogInformation("雇佣流程初始化成功: HireId={HireId}, SandboxId={SandboxId}", hireId, sandboxId);
 
-    /// <summary>
-    /// 对已被自动删除并由 RefreshAsync 以相同 hireId/ScopeKey 重建的沙箱执行再初始化。
-    /// 不删除 PVC、不变更 hireId，保留工作区数据；仅等待沙箱就绪后补全会话和模板上传等初始化步骤。
-    /// </summary>
-    private async Task<ApiResponse<HireTemplateResultDto>> ReinitializeRebuiltHireSandboxAsync(
-        SandboxInstanceDto existingInstance,
-        string ownerSubject,
-        string tenantId,
-        string operatorId,
-        string normalizedTemplateId,
-        string? useCase,
-        TemplatePackageDefinition roleTemplatePackage,
-        TemplatePackageDefinition workingTemplatePackage,
-        DiscoverySkillDefinition discoverySkill,
-        TemplatePackageDefinition referenceTemplatePackage,
-        EmployeeTemplateDefinition template,
-        CancellationToken cancellationToken)
-    {
-        var hireId = existingInstance.ScopeKey;
-
-        // 等待沙箱就绪（RefreshAsync 刚创建的沙箱状态可能仍为 Creating）
-        var readyResult = await WaitForManagedSandboxReadyAsync(existingInstance, cancellationToken);
-        if (!readyResult.Success || readyResult.Data is null)
-        {
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(readyResult.Code, readyResult.Message);
-        }
-
-        var readySandbox = readyResult.Data;
-        var call = RemoteCallResult<HireTemplateResultDto>.Ok(new HireTemplateResultDto(
-            hireId,
-            readySandbox.SandboxId,
-            string.Equals(readySandbox.State, "Running", StringComparison.OrdinalIgnoreCase) ? "READY" : readySandbox.State,
-            "start_conversation"));
-
-        var initialStageCompletion = stageCompletionEvaluator.Evaluate(
-            discoverySkill.StageRules,
-            new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
-
-        hiringRuntimeStore.Upsert(new HiringRuntimeContext
-        {
-            HireId = hireId,
-            TemplateId = normalizedTemplateId,
-            TemplateName = template.Name,
-            OwnerSubject = ownerSubject,
-            TenantId = tenantId,
-            OperatorId = operatorId,
-            SandboxId = readySandbox.SandboxId,
-            SessionId = string.Empty,
-            CurrentStage = HiringCollectionStage.Material,
-            CollectionPhase = HiringCollectionPhase.NotStarted,
-            IsConversationPaused = false,
-            IsConversationResponding = false,
-            RoleTemplatePackage = roleTemplatePackage,
-            WorkingTemplatePackage = workingTemplatePackage,
-            DiscoverySkill = discoverySkill,
-            StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
-            Materials = [],
-            StageCompletion = initialStageCompletion,
-            IsTemplateUploadPending = false,
-            TemplateUploadRetryCount = 0,
-            TemplateUploadLastError = null,
-            TemplateUploadLastAttemptAt = null
-        });
-
-        // EnsureSessionAsync 会从 DB 查找同 ScopeKey + SessionKey 的已有 sessionId 并复用，
-        // 使重建后的沙箱能继续使用原会话上下文（PVC 中的 memory 数据与 sessionId 对应）
-        var conversationStartResponse = await sandboxService.EnsureSessionAsync(
-            new SandboxEnsureSessionRequestDto
-            {
-                ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = hireId,
-                SandboxRole = "hiring",
-                OwnerSubject = ownerSubject,
-                TenantId = tenantId,
-                OperatorId = operatorId,
-                SandboxId = readySandbox.SandboxId,
-                SessionKey = "default"
-            },
-            cancellationToken);
-        if (!conversationStartResponse.Success || conversationStartResponse.Data is null || string.IsNullOrWhiteSpace(conversationStartResponse.Data.SessionId))
-        {
-            logger.LogWarning(
-                "Failed to create hiring session during reinitialize. HireId={HireId}, TemplateId={TemplateId}, StatusCode={StatusCode}, Message={Message}",
-                hireId, normalizedTemplateId, conversationStartResponse.Code, conversationStartResponse.Message);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
-                conversationStartResponse.Code <= 0 ? 502 : conversationStartResponse.Code,
-                string.IsNullOrWhiteSpace(conversationStartResponse.Message) ? "雇佣会话创建失败" : conversationStartResponse.Message);
-        }
-
-        hiringRuntimeStore.Upsert(hiringRuntimeStore.Get(hireId) is { } runtimeWithSession
-            ? runtimeWithSession with { SessionId = conversationStartResponse.Data.SessionId }
-            : new HiringRuntimeContext
-            {
-                HireId = hireId,
-                TemplateId = normalizedTemplateId,
-                TemplateName = template.Name,
-                OwnerSubject = ownerSubject,
-                TenantId = tenantId,
-                OperatorId = operatorId,
-                SandboxId = readySandbox.SandboxId,
-                SessionId = conversationStartResponse.Data.SessionId,
-                CurrentStage = HiringCollectionStage.Material,
-                CollectionPhase = HiringCollectionPhase.NotStarted,
-                IsConversationPaused = false,
-                IsConversationResponding = false,
-                RoleTemplatePackage = roleTemplatePackage,
-                WorkingTemplatePackage = workingTemplatePackage,
-                DiscoverySkill = discoverySkill,
-                StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
-                Materials = [],
-                StageCompletion = initialStageCompletion
-            });
-
-        try
-        {
-            // PersistSessionAndSourceZipAsync 内部会检测 hireId 对应的 session 是否已存在，
-            // 重建场景下原 session 记录仍在 DB 中，方法会直接返回已有记录，不重复插入。
-            await PersistSessionAndSourceZipAsync(
-                hireId,
-                conversationStartResponse.Data.SessionId,
-                normalizedTemplateId,
-                referenceTemplatePackage,
-                ownerSubject, tenantId, operatorId,
-                cancellationToken);
+            return ApiResponse<HireTemplateResultDto>.SuccessResponse(new HireTemplateResultDto(
+                HireId: hireId,
+                SandboxId: sandboxId,
+                Status: "READY",
+                NextAction: "start_conversation",
+                SessionId: sessionId,
+                GatewayEndpoint: gatewayEndpoint,
+                TemplatePrimingRequired: false
+            ));
         }
         catch (Exception ex)
         {
-            logger.LogError(
-                ex,
-                "Persist session/source zip failed during reinitialize. HireId={HireId}, SessionId={SessionId}",
-                hireId, conversationStartResponse.Data.SessionId);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, "雇佣会话初始化持久化失败");
+            logger.LogError(ex, "雇佣流程初始化异常: HireId={HireId}, SandboxId={SandboxId}", hireId, sandboxId);
+
+            // 异常发生，尝试删除沙箱
+            await TryDeleteSandboxAsync(sandboxId, cancellationToken);
+
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, $"雇佣流程初始化失败: {ex.Message}");
         }
-
-        // 重新上传角色模板包到新沙箱（原沙箱已删除，新沙箱需要重装）
-        var roleTemplateUploadResult = await UploadTemplatePackageAsync(hireId, roleTemplatePackage, ownerSubject, cancellationToken);
-        if (!roleTemplateUploadResult.Success)
-        {
-            logger.LogWarning(
-                "Role template package upload failed during reinitialize. HireId={HireId}, PackageId={PackageId}, StatusCode={StatusCode}, Message={Message}",
-                hireId, roleTemplatePackage.PackageId, roleTemplateUploadResult.StatusCode, roleTemplateUploadResult.Message);
-            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
-                roleTemplateUploadResult.StatusCode <= 0 ? 502 : roleTemplateUploadResult.StatusCode,
-                string.IsNullOrWhiteSpace(roleTemplateUploadResult.Message) ? "雇佣角色模板包上传失败" : roleTemplateUploadResult.Message);
-        }
-
-        // 沙箱重建场景下需重新合并并上传 MCP 配置（PVC 数据保留但 Kingcrab 内存配置已丢失）；
-        // 从 runtime store 获取已保存的用户 MCP 配置一并合并到全局配置
-        var runtimeContextForMcp = hiringRuntimeStore.Get(hireId);
-        var mergedMcpConfig = BuildMergedMcpConfig(runtimeContextForMcp?.ExternalSystemConfig);
-        if (mergedMcpConfig.Enabled && mergedMcpConfig.Servers.Count > 0)
-        {
-            var mcpUploadResult = await UploadSandboxMcpConfigAsync(hireId, ownerSubject, mergedMcpConfig, cancellationToken);
-            if (!mcpUploadResult.Success)
-            {
-                logger.LogWarning(
-                    "MCP config upload failed (non-fatal) during reinitialize. HireId={HireId}, StatusCode={StatusCode}, Message={Message}",
-                    hireId, mcpUploadResult.StatusCode, mcpUploadResult.Message);
-            }
-        }
-
-        await SetSandboxInitializedAsync(readySandbox.SandboxId, cancellationToken);
-
-        logger.LogInformation(
-            "Sandbox reinitialize with same hireId completed. HireId={HireId}, NewSandboxId={SandboxId}",
-            hireId, readySandbox.SandboxId);
-
-        return ApiResponse<HireTemplateResultDto>.SuccessResponse(
-            call.Data! with { SessionId = conversationStartResponse.Data.SessionId, TemplatePrimingRequired = true },
-            "沙箱重建初始化完成");
     }
 
-    private async Task<PersistedSourceZipInfo?> PersistSessionAndSourceZipAsync(
-        string hireId,
-        string sessionId,
-        string templateId,
-        TemplatePackageDefinition templatePackage,
-        string ownerSubject,
-        string tenantId,
-        string operatorId,
+    /// <summary>
+    /// 等待沙箱启动到 Running 状态（最多等待 3 分钟）。
+    /// </summary>
+    private async Task<ApiResponse<SandboxInstanceDto>> WaitForSandboxReadyAsync(
+        SandboxInstanceDto instance,
         CancellationToken cancellationToken)
     {
-        logger.LogInformation(
-            "PersistSessionAndSourceZip: HireId={HireId}, SessionId={SessionId}, PackageId={PackageId}, PackageVersion={PackageVersion}, SourceArchiveBytes={SourceBytes}",
-            hireId,
-            sessionId,
-            templatePackage.PackageId,
-            templatePackage.PackageVersion,
-            templatePackage.SourceArchive?.LongLength ?? 0);
-
-        var normalizedHireId = hireId.Trim();
-        var normalizedSessionId = sessionId.Trim();
-
-        var existing = await dbContext.HiringSessions
-            .AsNoTracking()
-            .FirstOrDefaultAsync(item => item.HireId == normalizedHireId, cancellationToken);
-        if (existing is not null)
+        // 如果已经是 Running 状态，直接返回
+        if (string.Equals(instance.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(instance.GatewayEndpoint))
         {
-            var existingArtifact = await dbContext.HiringArtifacts
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    item => item.SessionId == existing.SessionId && item.Kind == HiringArtifactPackageKinds.SourceZip,
-                    cancellationToken);
-            return existingArtifact is null
-                ? null
-                : new PersistedSourceZipInfo(
-                    existingArtifact.FileName,
-                    existingArtifact.StoragePath,
-                    existingArtifact.Sha256,
-                    existingArtifact.SizeBytes);
+            logger.LogInformation("沙箱已就绪: SandboxId={SandboxId}", instance.SandboxId);
+            return ApiResponse<SandboxInstanceDto>.SuccessResponse(instance);
         }
 
-        string? sourceFileName = null;
-        string? sourceStoragePath = null;
-        string? sourceSha = null;
-        long? sourceSize = null;
-
-        if (templatePackage.SourceArchive is not null && templatePackage.SourceArchive.Length > 0)
+        // 轮询等待，最多 36 次，每次间隔 5 秒（总计 3 分钟）
+        for (var attempt = 1; attempt <= 36; attempt++)
         {
-            sourceSha = Convert.ToHexStringLower(SHA256.HashData(templatePackage.SourceArchive));
-            sourceSize = templatePackage.SourceArchive.LongLength;
-            await using var stream = new MemoryStream(templatePackage.SourceArchive, writable: false);
-            sourceFileName = $"{templatePackage.PackageId}-{templatePackage.PackageVersion}.zip";
-            sourceStoragePath = await hiringFileStore.SaveAsync(
-                normalizedSessionId,
-                "source",
-                sourceFileName,
-                stream,
+            logger.LogDebug("等待沙箱启动，第 {Attempt}/36 次尝试: SandboxId={SandboxId}, CurrentState={State}",
+                attempt, instance.SandboxId, instance.State);
+
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+
+            var refreshResult = await sandboxService.RefreshAsync(
+                new SandboxInstanceLookupRequestDto
+                {
+                    SandboxId = instance.SandboxId
+                },
                 cancellationToken);
 
-            dbContext.HiringArtifacts.Add(new HiringArtifactEntity
+            if (!refreshResult.Success || refreshResult.Data is null)
             {
-                SessionId = normalizedSessionId,
-                Kind = HiringArtifactPackageKinds.SourceZip,
-                LogicalPath = $"source/{sourceFileName}",
-                FileName = sourceFileName,
-                SizeBytes = sourceSize.Value,
-                Sha256 = sourceSha,
-                StoragePath = sourceStoragePath,
-                IsFinal = false,
-                IsArchived = false,
-                UploadedAtUtc = DateTimeOffset.UtcNow
-            });
+                logger.LogWarning("刷新沙箱状态失败: {Message}", refreshResult.Message);
+                return ApiResponse<SandboxInstanceDto>.ErrorResponse(refreshResult.Code, refreshResult.Message);
+            }
+
+            if (string.Equals(refreshResult.Data.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint))
+            {
+                logger.LogInformation("沙箱已启动: SandboxId={SandboxId}, 耗时 {Seconds} 秒",
+                    instance.SandboxId, attempt * 5);
+                return ApiResponse<SandboxInstanceDto>.SuccessResponse(refreshResult.Data);
+            }
+
+            // 如果状态是 Failed 或其他终止状态，提前退出
+            if (string.Equals(refreshResult.Data.State, "Failed", StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogError("沙箱启动失败: SandboxId={SandboxId}, State={State}",
+                    instance.SandboxId, refreshResult.Data.State);
+                return ApiResponse<SandboxInstanceDto>.ErrorResponse(500, $"沙箱启动失败，状态: {refreshResult.Data.State}");
+            }
         }
 
-        dbContext.HiringSessions.Add(new HiringSessionEntity
-        {
-            SessionId = normalizedSessionId,
-            HireId = normalizedHireId,
-            TemplateId = templateId.Trim(),
-            PackageId = string.IsNullOrWhiteSpace(templatePackage.PackageId) ? null : templatePackage.PackageId.Trim(),
-            PackageVersion = string.IsNullOrWhiteSpace(templatePackage.PackageVersion) ? null : templatePackage.PackageVersion.Trim(),
-            PackageHash = string.IsNullOrWhiteSpace(templatePackage.PackageHash) ? null : templatePackage.PackageHash.Trim(),
-            SourceZipSha256 = sourceSha,
-            SourceZipStoragePath = sourceStoragePath,
-            SourceZipSizeBytes = sourceSize,
-            OwnerSubject = ownerSubject,
-            TenantId = tenantId,
-            OperatorId = operatorId,
-            CreatedAtUtc = DateTimeOffset.UtcNow
-        });
-
-        dbContext.HiringAuditLogs.Add(new HiringAuditLogEntity
-        {
-            SessionId = normalizedSessionId,
-            HireId = normalizedHireId,
-            Action = "create_session",
-            Actor = ownerSubject,
-            Ip = httpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString(),
-            BeforeSha256 = null,
-            AfterSha256 = sourceSha,
-            DetailJson = $"{{\"templateId\":\"{templateId}\"}}",
-            TimestampUtc = DateTimeOffset.UtcNow
-        });
-
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        logger.LogInformation(
-            "PersistSessionAndSourceZip completed. HireId={HireId}, SessionId={SessionId}, SourceZipSha256={Sha}, SourceZipPath={Path}",
-            hireId,
-            sessionId,
-            sourceSha ?? string.Empty,
-            sourceStoragePath ?? string.Empty);
-
-        return string.IsNullOrWhiteSpace(sourceStoragePath) || string.IsNullOrWhiteSpace(sourceFileName) || string.IsNullOrWhiteSpace(sourceSha) || sourceSize is null
-            ? null
-            : new PersistedSourceZipInfo(
-                sourceFileName,
-                sourceStoragePath,
-                sourceSha,
-                sourceSize.Value);
+        logger.LogError("沙箱启动超时: SandboxId={SandboxId}, 已等待 3 分钟", instance.SandboxId);
+        return ApiResponse<SandboxInstanceDto>.ErrorResponse(504, "沙箱启动超时（已等待 3 分钟）");
     }
 
     /// <summary>
-    /// 获取雇佣流程的沙箱状态。
-    /// 前端通过轮询此接口等待沙箱就绪（status == "READY"）后再调用 StartConversation。
-    /// 注意：OpenSandbox 的就绪状态为 "Running"，此方法会将其映射为前端期望的 "READY"。
+    /// 加载模板包（每次从提供者加载，不缓存，用完即释放）。
     /// </summary>
-    public async Task<ApiResponse<HiringStatusDto>> GetHiringStatusAsync(string hireId, CancellationToken cancellationToken = default)
+    private Task<TemplatePackageDefinition> LoadTemplatePackageAsync(
+        string templateId,
+        CancellationToken cancellationToken)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
-        {
-            return ApiResponse<HiringStatusDto>.ErrorResponse(400, error);
-        }
-
-        var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        var refreshResult = await sandboxService.RefreshAsync(
-            new SandboxInstanceLookupRequestDto
-            {
-                SandboxId = runtimeContext?.SandboxId,
-                ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = normalizedHireId,
-                SandboxRole = ResolveSandboxRole(normalizedHireId),
-                OwnerSubject = ownerContext.OwnerSubject,
-                TenantId = ownerContext.TenantId,
-                OperatorId = ownerContext.OperatorId,
-                TemplateId = ownerContext.TemplateId
-            },
-            cancellationToken);
-        if (!refreshResult.Success || refreshResult.Data is null)
-        {
-            return ApiResponse<HiringStatusDto>.ErrorResponse(refreshResult.Code, refreshResult.Message);
-        }
-
-        // RefreshAsync 可能在沙箱被外部删除后重建了沙箱（新 SandboxId），同步到内存上下文。
-        // 如果沙箱未初始化（被删除后重建的空壳），则触发重新初始化（上传模板包 + 冷启动提示词）。
-        if (runtimeContext is not null)
-        {
-            if (!string.Equals(runtimeContext.SandboxId, refreshResult.Data.SandboxId, StringComparison.Ordinal))
-            {
-                runtimeContext = runtimeContext with { SandboxId = refreshResult.Data.SandboxId };
-                hiringRuntimeStore.Upsert(runtimeContext);
-            }
-
-            if (!refreshResult.Data.IsInitialized)
-            {
-                runtimeContext = await EnsureSandboxReinitializedAsync(runtimeContext, cancellationToken);
-            }
-
-            runtimeContext = await EnsureExternalSystemConfigHydratedAsync(runtimeContext!, cancellationToken);
-        }
-
-        runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken) ?? runtimeContext;
-
-        // 前端轮询等待 "READY" 信号。
-        // OpenSandbox 就绪状态为 "Running" + GatewayEndpoint 非空，此时对前端统一映射为 "READY"。
-        var sandboxState = refreshResult.Data.State;
-        var frontendStatus = string.Equals(sandboxState, "Running", StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint)
-            ? "READY"
-            : sandboxState;
-
-        return ApiResponse<HiringStatusDto>.SuccessResponse(
-            new HiringStatusDto(
-                normalizedHireId,
-                refreshResult.Data.SandboxId,
-                frontendStatus,
-                GatewayEndpoint: refreshResult.Data.GatewayEndpoint,
-                ErrorCode: null,
-                ErrorMessage: refreshResult.Data.LastError,
-                CollectionPhase: runtimeContext?.CollectionPhase,
-                CurrentStage: runtimeContext?.CurrentStage));
-    }
-
-    public async Task<ApiResponse<StartHiringConversationResultDto>> StartConversationAsync(
-        string hireId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
-        {
-            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(400, error);
-        }
-
-        var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
-
-        // 如果沙箱被删除后重建为空壳，先完成初始化（上传模板包 + 冷启动提示词）
-        var runtimeBeforeSession = hiringRuntimeStore.Get(normalizedHireId);
-        if (runtimeBeforeSession is not null)
-        {
-            runtimeBeforeSession = await EnsureSandboxReinitializedAsync(runtimeBeforeSession, cancellationToken);
-        }
-
-        var sessionResult = await sandboxService.EnsureSessionAsync(
-            new SandboxEnsureSessionRequestDto
-            {
-                ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = normalizedHireId,
-                SandboxRole = ResolveSandboxRole(normalizedHireId),
-                OwnerSubject = ownerContext.OwnerSubject,
-                TenantId = ownerContext.TenantId,
-                OperatorId = ownerContext.OperatorId,
-                SandboxId = runtimeBeforeSession?.SandboxId ?? hiringRuntimeStore.Get(normalizedHireId)?.SandboxId,
-                SessionKey = "default"
-            },
-            cancellationToken);
-
-        if (!sessionResult.Success || sessionResult.Data is null)
-        {
-            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(sessionResult.Code, sessionResult.Message);
-        }
-
-        var call = RemoteCallResult<StartHiringConversationResultDto>.Ok(sessionResult.Data);
-
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        if (runtimeContext is not null)
-        {
-            runtimeContext = ApplyWorkflowProgress(runtimeContext with
-            {
-                SessionId = call.Data!.SessionId
-            });
-            hiringRuntimeStore.Upsert(runtimeContext);
-            var requiresAudit = BuildLocalStagePreview(
-                normalizedHireId,
-                runtimeContext.DiscoverySkill,
-                runtimeContext.StageCompletion,
-                runtimeContext.CurrentStage,
-                runtimeContext.CollectionPhase,
-                runtimeContext.StructuredData,
-                summaryOverride: null).ReadyForAudit;
-            call = RemoteCallResult<StartHiringConversationResultDto>.Ok(call.Data with
-            {
-                CurrentStage = runtimeContext.CurrentStage,
-                RequiresAudit = requiresAudit,
-                StageSkills = BuildStageSkills(runtimeContext.DiscoverySkill),
-                IsConversationPaused = runtimeContext.IsConversationPaused,
-                IsConversationResponding = IsConversationResponding(normalizedHireId, runtimeContext)
-            });
-        }
-
-        return ApiResponse<StartHiringConversationResultDto>.SuccessResponse(call.Data);
-    }
-
-    public async Task<ApiResponse<StartHiringConversationResultDto>> ResetConversationAsync(
-        string hireId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
-        {
-            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(400, error);
-        }
-
-        var ownerContext = ResolveOwnerContextByHireId(normalizedHireId);
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        var sandboxId = runtimeContext?.SandboxId;
-
-        // 使用唯一 session key 强制创建新会话
-        var newSessionKey = $"default-reset-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
-        var sessionResult = await sandboxService.EnsureSessionAsync(
-            new SandboxEnsureSessionRequestDto
-            {
-                ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = normalizedHireId,
-                SandboxRole = ResolveSandboxRole(normalizedHireId),
-                OwnerSubject = ownerContext.OwnerSubject,
-                TenantId = ownerContext.TenantId,
-                OperatorId = ownerContext.OperatorId,
-                SandboxId = sandboxId,
-                SessionKey = newSessionKey
-            },
-            cancellationToken);
-
-        if (!sessionResult.Success || sessionResult.Data is null)
-        {
-            return ApiResponse<StartHiringConversationResultDto>.ErrorResponse(sessionResult.Code, sessionResult.Message);
-        }
-
-        if (runtimeContext is not null)
-        {
-            runtimeContext = runtimeContext with
-            {
-                SessionId = sessionResult.Data.SessionId,
-                HandoffItems = [],
-                Materials = [],
-                StructuredData = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
-                CurrentStage = HiringCollectionStage.Material,
-                CollectionPhase = HiringCollectionPhase.InProgress,
-                IsConversationPaused = false,
-                LatestDispatches = [],
-                ConfigGovernance = null
-            };
-            hiringRuntimeStore.Upsert(runtimeContext);
-        }
-
-        return ApiResponse<StartHiringConversationResultDto>.SuccessResponse(sessionResult.Data);
-    }
-
-    public Task<ApiResponse<HiringConversationControlResultDto>> PauseConversationAsync(
-        string hireId,
-        CancellationToken cancellationToken = default)
-    {
-        return SetConversationPausedAsync(hireId, isPaused: true);
-    }
-
-    public Task<ApiResponse<HiringConversationControlResultDto>> ResumeConversationAsync(
-        string hireId,
-        CancellationToken cancellationToken = default)
-    {
-        return SetConversationPausedAsync(hireId, isPaused: false);
-    }
-
-    public async Task<ApiResponse<HiringConversationResultDto>> SendConversationMessageAsync(
-        string hireId,
-        HiringConversationMessageRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var idError))
-        {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, idError);
-        }
-
-        if (request is null ||
-            (string.IsNullOrWhiteSpace(request.Content) &&
-             (request.Materials is null || request.Materials.Count == 0)))
-        {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, "content 与 materials 不能同时为空");
-        }
-
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        if (runtimeContext?.IsConversationPaused == true)
-        {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "对话已暂停，请先恢复后再继续发送消息");
-        }
-
-        if (!conversationInFlight.TryAdd(normalizedHireId, 0))
-        {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "上一轮回复仍在生成中，请稍候");
-        }
-
-        try
-        {
-            runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-            if (runtimeContext?.IsConversationPaused == true)
-            {
-                return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "对话已暂停，请先恢复后再继续发送消息");
-            }
-
-            if (runtimeContext is not null)
-            {
-                runtimeContext = runtimeContext with { IsConversationResponding = true };
-                hiringRuntimeStore.Upsert(runtimeContext);
-            }
-
-            if (runtimeContext is null)
-            {
-                return ApiResponse<HiringConversationResultDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
-            }
-
-            // 如果沙箱被删除后重建为空壳，先完成初始化再发送消息
-            runtimeContext = await EnsureSandboxReinitializedAsync(runtimeContext, cancellationToken) ?? runtimeContext;
-
-            var requestMaterials = BuildMaterialsFromRequest(request);
-            if (HiringWorkflowSupport.ContainsSensitiveValue(request.Content))
-            {
-                var now = DateTimeOffset.UtcNow;
-                var assistantMessage = new HiringConversationMessageDto(
-                    $"assistant-{Guid.NewGuid():N}",
-                    "assistant",
-                    "检测到你在对话里输入了凭据或密钥，这类信息不会进入会话。请改用右侧凭据表单提交。",
-                    now);
-
-                runtimeContext = runtimeContext with
-                {
-                    Materials = MergeMaterials(runtimeContext.Materials, requestMaterials)
-                };
-                runtimeContext = ApplyWorkflowProgress(runtimeContext);
-                runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
-                if (ShouldPersistArtifactPackages(runtimeContext))
-                {
-                    await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
-                }
-
-                hiringRuntimeStore.Upsert(runtimeContext);
-                var blockedPreview = BuildLocalStagePreview(
-                    normalizedHireId,
-                    runtimeContext.DiscoverySkill,
-                    runtimeContext.StageCompletion,
-                    runtimeContext.CurrentStage,
-                    runtimeContext.CollectionPhase,
-                    runtimeContext.StructuredData,
-                    assistantMessage.Content);
-
-                return ApiResponse<HiringConversationResultDto>.SuccessResponse(
-                    new HiringConversationResultDto(
-                        normalizedHireId,
-                        runtimeContext.SessionId,
-                        runtimeContext.CurrentStage,
-                        blockedPreview.ReadyForAudit,
-                        assistantMessage,
-                        blockedPreview,
-                        runtimeContext.IsConversationPaused,
-                        true));
-            }
-
-            var packagingTestCasesConfirmation = await HandlePackagingTestCasesConfirmationAsync(
-                runtimeContext,
-                request.Content,
-                requestMaterials,
-                cancellationToken);
-            runtimeContext = packagingTestCasesConfirmation.RuntimeContext;
-            if (packagingTestCasesConfirmation.ShouldPersistRuntimeContext)
-            {
-                hiringRuntimeStore.Upsert(runtimeContext);
-            }
-
-            if (packagingTestCasesConfirmation.Response is not null)
-            {
-                return packagingTestCasesConfirmation.Response;
-            }
-
-            var sendResponse = await SendSandboxConversationMessageAsync(
-                runtimeContext,
-                request.Content,
-                requestMaterials,
-                cancellationToken);
-
-            if (!sendResponse.Success || sendResponse.Data is null)
-            {
-                return ApiResponse<HiringConversationResultDto>.ErrorResponse(sendResponse.Code, sendResponse.Message);
-            }
-
-            runtimeContext = runtimeContext with { SessionId = sendResponse.Data.SessionId };
-            return await ProcessConversationTurnAsync(
-                runtimeContext,
-                request.Content?.Trim(),
-                sendResponse.Data.AssistantMessage.Content,
-                requestMaterials,
-                request.StructuredAnswers?.ToDictionary(kv => kv.Key, kv => (string?)kv.Value),
-                cancellationToken);
-        }
-        finally
-        {
-            conversationInFlight.TryRemove(normalizedHireId, out _);
-
-            var latestContext = hiringRuntimeStore.Get(normalizedHireId);
-            if (latestContext?.IsConversationResponding == true)
-            {
-                hiringRuntimeStore.Upsert(latestContext with { IsConversationResponding = false });
-            }
-        }
+        // 直接从提供者加载，不走缓存，确保大对象能及时回收
+        return templatePackageProvider.LoadAsync(templateId, cancellationToken);
     }
 
     /// <summary>
-    /// 前端通过 WebSocket 直连沙箱完成一轮对话后，调用此接口将对话轮次同步到后端，
-    /// 使后端工作流引擎能够解析 AI 结构化标签、推进阶段状态、执行 dispatch 命令等。
+    /// 尝试删除沙箱（用于错误回滚）。
     /// </summary>
-    public async Task<ApiResponse<HiringConversationResultDto>> SyncConversationTurnAsync(
-        string hireId,
-        HiringConversationSyncRequestDto request,
-        CancellationToken cancellationToken = default)
+    private async Task TryDeleteSandboxAsync(string sandboxId, CancellationToken cancellationToken)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var idError))
-        {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, idError);
-        }
-
-        if (request is null || (string.IsNullOrWhiteSpace(request.UserMessage) && string.IsNullOrWhiteSpace(request.AssistantReply)))
-        {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(400, "userMessage 与 assistantReply 不能同时为空");
-        }
-
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        if (runtimeContext is null)
-        {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
-        }
-
-        if (runtimeContext.IsConversationPaused)
-        {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "对话已暂停，请先恢复后再继续发送消息");
-        }
-
-        if (!conversationInFlight.TryAdd(normalizedHireId, 0))
-        {
-            return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "上一轮回复仍在生成中，请稍候");
-        }
-
         try
         {
-            runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-            if (runtimeContext is null)
+            logger.LogWarning("尝试删除沙箱: SandboxId={SandboxId}", sandboxId);
+            await sandboxService.DeleteAsync(new SandboxInstanceLookupRequestDto
             {
-                return ApiResponse<HiringConversationResultDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
-            }
-
-            if (runtimeContext.IsConversationPaused)
-            {
-                return ApiResponse<HiringConversationResultDto>.ErrorResponse(409, "对话已暂停，请先恢复后再继续发送消息");
-            }
-
-            runtimeContext = runtimeContext with { IsConversationResponding = true };
-            hiringRuntimeStore.Upsert(runtimeContext);
-
-            var materials = request.Materials ?? Array.Empty<HiringConversationMaterialDto>();
-
-            if (HiringWorkflowSupport.ContainsSensitiveValue(request.UserMessage))
-            {
-                var now = DateTimeOffset.UtcNow;
-                var assistantMessage = new HiringConversationMessageDto(
-                    $"assistant-{Guid.NewGuid():N}",
-                    "assistant",
-                    "检测到你在对话里输入了凭据或密钥，这类信息不会进入会话。请改用右侧凭据表单提交。",
-                    now);
-
-                runtimeContext = runtimeContext with
-                {
-                    Materials = MergeMaterials(runtimeContext.Materials, materials)
-                };
-                runtimeContext = ApplyWorkflowProgress(runtimeContext);
-                runtimeContext = ApplyConversationProgressToTemplatePackage(runtimeContext);
-                if (ShouldPersistArtifactPackages(runtimeContext))
-                {
-                    await PersistIntermediatePackageAsync(runtimeContext, cancellationToken);
-                }
-
-                hiringRuntimeStore.Upsert(runtimeContext);
-                var blockedPreview = BuildLocalStagePreview(
-                    normalizedHireId,
-                    runtimeContext.DiscoverySkill,
-                    runtimeContext.StageCompletion,
-                    runtimeContext.CurrentStage,
-                    runtimeContext.CollectionPhase,
-                    runtimeContext.StructuredData,
-                    assistantMessage.Content);
-
-                return ApiResponse<HiringConversationResultDto>.SuccessResponse(
-                    new HiringConversationResultDto(
-                        normalizedHireId,
-                        runtimeContext.SessionId,
-                        runtimeContext.CurrentStage,
-                        blockedPreview.ReadyForAudit,
-                        assistantMessage,
-                        blockedPreview,
-                        runtimeContext.IsConversationPaused,
-                        true));
-            }
-
-            return await ProcessConversationTurnAsync(
-                runtimeContext,
-                string.IsNullOrWhiteSpace(request.UserMessage) ? null : request.UserMessage.Trim(),
-                request.AssistantReply,
-                materials,
-                structuredAnswers: null,
-                cancellationToken);
+                SandboxId = sandboxId
+            }, cancellationToken);
         }
-        finally
+        catch (Exception ex)
         {
-            conversationInFlight.TryRemove(normalizedHireId, out _);
-
-            var latestContext = hiringRuntimeStore.Get(normalizedHireId);
-            if (latestContext?.IsConversationResponding == true)
-            {
-                hiringRuntimeStore.Upsert(latestContext with { IsConversationResponding = false });
-            }
+            logger.LogError(ex, "删除沙箱失败: SandboxId={SandboxId}", sandboxId);
         }
     }
 
-    public async Task<ApiResponse<HiringConversationTimelineDto>> GetConversationTimelineAsync(
+    public async Task<ApiResponse<HiringStatusDto>> GetHiringStatusAsync(
         string hireId,
         CancellationToken cancellationToken = default)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        var session = await dbContext.HiringSessions.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
+
+        if (session is null)
         {
-            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(400, error);
+            return ApiResponse<HiringStatusDto>.ErrorResponse(404, $"找不到雇佣流程 {hireId}");
         }
 
-        var runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken);
-        if (runtimeContext is null)
-        {
-            return ApiResponse<HiringConversationTimelineDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
-        }
+        // 从沙箱表查询沙箱信息
+        var sandbox = await dbContext.SandboxInstances.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.ScopeType == "Hire" && x.ScopeKey == hireId, cancellationToken);
 
-        var timelinePreview = BuildLocalStagePreview(
-            normalizedHireId,
-            runtimeContext.DiscoverySkill,
-            runtimeContext.StageCompletion,
-            runtimeContext.CurrentStage,
-            runtimeContext.CollectionPhase,
-            runtimeContext.StructuredData,
-            summaryOverride: null);
+        var stageProgress = await hiringStageService.GetStageProgressAsync(hireId, cancellationToken);
 
-        return ApiResponse<HiringConversationTimelineDto>.SuccessResponse(
-            new HiringConversationTimelineDto(
-                normalizedHireId,
-                runtimeContext.SessionId,
-                runtimeContext.CurrentStage,
-                timelinePreview.ReadyForAudit,
-                runtimeContext.CollectionPhase,
-                [],
-                BuildStageSkills(runtimeContext.DiscoverySkill)));
+        // 将沙箱物理状态映射为雇佣流程逻辑状态（前端期望的格式）
+        var hiringStatus = MapSandboxStateToHiringStatus(sandbox);
+
+        return ApiResponse<HiringStatusDto>.SuccessResponse(new HiringStatusDto(
+            HireId: hireId,
+            SandboxId: sandbox?.SandboxId ?? "",
+            Status: hiringStatus,
+            GatewayEndpoint: sandbox?.GatewayEndpoint,
+            ErrorCode: null,
+            ErrorMessage: null,
+            CollectionPhase: "material",
+            CurrentStage: stageProgress?.CurrentStage ?? "material"
+        ));
     }
 
-    public async Task<ApiResponse<HiringStagePreviewDto>> GetStagePreviewAsync(
+    /// <summary>
+    /// 将沙箱物理状态映射为雇佣流程逻辑状态。
+    /// </summary>
+    private static string MapSandboxStateToHiringStatus(SandboxInstanceEntity? sandbox)
+    {
+        if (sandbox is null)
+        {
+            return "PENDING";
+        }
+
+        // Running + 有网关端点 = 雇佣流程就绪
+        if (string.Equals(sandbox.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(sandbox.GatewayEndpoint))
+        {
+            return "READY";
+        }
+
+        // Failed = 雇佣流程失败
+        if (string.Equals(sandbox.State, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "FAILED";
+        }
+
+        // 其他过渡状态（Allocated, Paused, Stopped 等）= 等待中
+        return "PENDING";
+    }
+
+    public Task<ApiResponse<HiringStagePreviewDto>> GetStagePreviewAsync(
         string hireId,
         string? stage,
         CancellationToken cancellationToken = default)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
-        {
-            return ApiResponse<HiringStagePreviewDto>.ErrorResponse(400, error);
-        }
-
-        var runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken);
-        if (runtimeContext is null)
-        {
-            return ApiResponse<HiringStagePreviewDto>.ErrorResponse(404, "雇佣上下文不存在，请重新发起流程");
-        }
-
-        var targetStage = string.IsNullOrWhiteSpace(stage)
-            ? runtimeContext.CurrentStage
-            : NormalizeRequestedStage(stage);
-        var preview = BuildLocalStagePreview(
-            normalizedHireId,
-            runtimeContext.DiscoverySkill,
-            runtimeContext.StageCompletion,
-            targetStage,
-            runtimeContext.CollectionPhase,
-            runtimeContext.StructuredData,
-            summaryOverride: null);
-
-        return ApiResponse<HiringStagePreviewDto>.SuccessResponse(preview);
+        logger.LogWarning("GetStagePreviewAsync: 功能暂未实现");
+        return Task.FromResult(ApiResponse<HiringStagePreviewDto>.ErrorResponse(501, "功能暂未实现"));
     }
 
-    public async Task<ApiResponse<HiringAuditDecisionResultDto>> SubmitAuditDecisionAsync(
+    public Task<ApiResponse<HiringAuditDecisionResultDto>> SubmitAuditDecisionAsync(
         string hireId,
         HiringAuditDecisionRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var idError))
-        {
-            return ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(400, idError);
-        }
-
-        if (request is null || string.IsNullOrWhiteSpace(request.Stage) || string.IsNullOrWhiteSpace(request.Decision))
-        {
-            return ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(400, "stage 与 decision 为必填项");
-        }
-
-        var call = await SendForJsonAsync<HiringAuditDecisionResultDto>(
-            HttpMethod.Post,
-            $"/hirings/{Uri.EscapeDataString(normalizedHireId)}/audit-decisions",
-            request,
-            ResolveOwnerByHireId(normalizedHireId),
-            cancellationToken);
-
-        if (!call.Success || call.Data is null)
-        {
-            return ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(call.StatusCode, call.Message);
-        }
-
-        var runtimeContext = hiringRuntimeStore.Get(normalizedHireId);
-        if (runtimeContext is not null)
-        {
-            runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken) ?? runtimeContext;
-            call = RemoteCallResult<HiringAuditDecisionResultDto>.Ok(call.Data with
-            {
-                CurrentStage = runtimeContext.CurrentStage,
-                CollectionPhase = runtimeContext.CollectionPhase
-            });
-        }
-
-        return ApiResponse<HiringAuditDecisionResultDto>.SuccessResponse(call.Data);
+        logger.LogWarning("SubmitAuditDecisionAsync: 功能暂未实现");
+        return Task.FromResult(ApiResponse<HiringAuditDecisionResultDto>.ErrorResponse(501, "功能暂未实现"));
     }
 
-    public async Task<ApiResponse<IReadOnlyList<HiringAuditLogDto>>> GetAuditLogsAsync(
+    public Task<ApiResponse<IReadOnlyList<HiringAuditLogDto>>> GetAuditLogsAsync(
         string hireId,
         CancellationToken cancellationToken = default)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        return Task.FromResult(ApiResponse<IReadOnlyList<HiringAuditLogDto>>.SuccessResponse(
+            Array.Empty<HiringAuditLogDto>().ToList()));
+    }
+
+    public async Task<ApiResponse<HiringExternalSystemConfigDto>> GetExternalSystemConfigAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        var config = await hiringStageService.GetExternalConfigAsync(hireId, cancellationToken);
+        return ApiResponse<HiringExternalSystemConfigDto>.SuccessResponse(
+            config ?? new HiringExternalSystemConfigDto());
+    }
+
+    public async Task<ApiResponse<HiringExternalSystemConfigDto>> SaveExternalSystemConfigAsync(
+        string hireId,
+        HiringExternalSystemConfigDto request,
+        CancellationToken cancellationToken = default)
+    {
+        await hiringStageService.SaveExternalConfigAsync(hireId, request, cancellationToken);
+
+        var stageProgress = await hiringStageService.GetStageProgressAsync(hireId, cancellationToken);
+        if (stageProgress is not null && stageProgress.CurrentStage is "material" or "skill" or "external")
         {
-            return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.ErrorResponse(400, error);
+            await hiringStageService.UpdateStageProgressAsync(hireId, "ready_for_packaging", null, cancellationToken);
         }
 
-        return ApiResponse<IReadOnlyList<HiringAuditLogDto>>.SuccessResponse([]);
+        return ApiResponse<HiringExternalSystemConfigDto>.SuccessResponse(request);
+    }
+
+    public async Task<ApiResponse<HiringConversationSyncResultDto>> SyncConversationTurnAsync(
+        string hireId,
+        HiringConversationSyncRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        // 解析 AI 回复中的结构化数据标签（如 <data key="goal">...</data>）
+        var extractedData = ParseStructuredDataTags(request.AssistantReply);
+
+        if (extractedData.Count > 0)
+        {
+            logger.LogInformation("同步对话轮次，提取到 {Count} 个结构化数据字段: HireId={HireId}, Keys={Keys}",
+                extractedData.Count, hireId, string.Join(", ", extractedData.Keys));
+
+            // 批量保存到数据库
+            await hiringStageService.SaveStructuredDataAsync(hireId, extractedData, cancellationToken);
+        }
+        else
+        {
+            logger.LogDebug("同步对话轮次，未提取到结构化数据: HireId={HireId}", hireId);
+        }
+
+        return ApiResponse<HiringConversationSyncResultDto>.SuccessResponse(
+            new HiringConversationSyncResultDto(
+                extractedData.Count,
+                extractedData.Keys.ToList()));
+    }
+
+    public async Task<ApiResponse<Dictionary<string, string>>> GetStructuredDataAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        var data = await hiringStageService.GetStructuredDataAsync(hireId, cancellationToken);
+
+        // 转换为非空字典（过滤掉 null 值）
+        var result = data
+            .Where(kvp => kvp.Value is not null)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value!, StringComparer.OrdinalIgnoreCase);
+
+        return ApiResponse<Dictionary<string, string>>.SuccessResponse(result);
+    }
+
+    /// <summary>
+    /// 解析 AI 回复中的结构化数据标签（支持单行和多行格式）。
+    /// 示例：&lt;data key="goal"&gt;提升销售转化率&lt;/data&gt;
+    /// </summary>
+    private static Dictionary<string, string?> ParseStructuredDataTags(string assistantReply)
+    {
+        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+        if (string.IsNullOrWhiteSpace(assistantReply))
+        {
+            return result;
+        }
+
+        // 正则匹配 <data key="xxx">...</data>（支持多行内容）
+        var regex = new System.Text.RegularExpressions.Regex(
+            @"<data\s+key\s*=\s*[""']([^""']+)[""']\s*>(.*?)</data>",
+            System.Text.RegularExpressions.RegexOptions.Singleline |
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        var matches = regex.Matches(assistantReply);
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            if (match.Success && match.Groups.Count >= 3)
+            {
+                var key = match.Groups[1].Value.Trim();
+                var value = match.Groups[2].Value.Trim();
+
+                if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(value))
+                {
+                    result[key] = value;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    public async Task<ApiResponse<bool>> SaveRuntimeStateAsync(
+        string hireId,
+        SaveRuntimeStateRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var progress = await dbContext.HiringStageProgresses
+            .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
+
+        if (progress is null)
+        {
+            logger.LogWarning("保存运行时状态失败，雇佣会话不存在: HireId={HireId}", hireId);
+            return ApiResponse<bool>.ErrorResponse(404, "雇佣会话不存在");
+        }
+
+        // 保存阶段覆盖配置
+        if (request.StageOverrides is not null)
+        {
+            progress.StageOverridesJson = System.Text.Json.JsonSerializer.Serialize(
+                request.StageOverrides,
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        }
+
+        // 保存下游运行记录
+        if (request.DownstreamRuns is not null)
+        {
+            progress.DownstreamRunsJson = System.Text.Json.JsonSerializer.Serialize(
+                request.DownstreamRuns,
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        }
+
+        // 保存对话上传文件列表
+        if (request.UploadedFiles is not null)
+        {
+            progress.UploadedFilesJson = System.Text.Json.JsonSerializer.Serialize(
+                request.UploadedFiles,
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        }
+
+        // 保存最新产物包结构
+        if (request.PackageStructure is not null)
+        {
+            progress.PackageStructureJson = System.Text.Json.JsonSerializer.Serialize(
+                request.PackageStructure,
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        }
+
+        progress.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        progress.UpdatedBy = userIdentity.OperatorId;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("保存运行时状态成功: HireId={HireId}, HasOverrides={HasOverrides}, HasRuns={HasRuns}, HasFiles={HasFiles}, HasPackage={HasPackage}",
+            hireId, request.StageOverrides is not null, request.DownstreamRuns is not null,
+            request.UploadedFiles is not null, request.PackageStructure is not null);
+
+        return ApiResponse<bool>.SuccessResponse(true);
+    }
+
+    public async Task<ApiResponse<RuntimeStateDto>> GetRuntimeStateAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        var progress = await dbContext.HiringStageProgresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
+
+        if (progress is null)
+        {
+            return ApiResponse<RuntimeStateDto>.SuccessResponse(new RuntimeStateDto());
+        }
+
+        // 反序列化阶段覆盖配置
+        IReadOnlyDictionary<string, object>? stageOverrides = null;
+        if (!string.IsNullOrWhiteSpace(progress.StageOverridesJson))
+        {
+            try
+            {
+                stageOverrides = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(
+                    progress.StageOverridesJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "反序列化阶段覆盖配置失败: HireId={HireId}", hireId);
+            }
+        }
+
+        // 反序列化下游运行记录
+        IReadOnlyDictionary<string, DownstreamRunInfo>? downstreamRuns = null;
+        if (!string.IsNullOrWhiteSpace(progress.DownstreamRunsJson))
+        {
+            try
+            {
+                downstreamRuns = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, DownstreamRunInfo>>(
+                    progress.DownstreamRunsJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "反序列化下游运行记录失败: HireId={HireId}", hireId);
+            }
+        }
+
+        // 反序列化对话上传文件列表
+        IReadOnlyList<PersistedChatFileDto>? uploadedFiles = null;
+        if (!string.IsNullOrWhiteSpace(progress.UploadedFilesJson))
+        {
+            try
+            {
+                uploadedFiles = System.Text.Json.JsonSerializer.Deserialize<List<PersistedChatFileDto>>(
+                    progress.UploadedFilesJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "反序列化上传文件列表失败: HireId={HireId}", hireId);
+            }
+        }
+
+        // 反序列化最新产物包结构
+        PersistedPackageStructureDto? packageStructure = null;
+        if (!string.IsNullOrWhiteSpace(progress.PackageStructureJson))
+        {
+            try
+            {
+                packageStructure = System.Text.Json.JsonSerializer.Deserialize<PersistedPackageStructureDto>(
+                    progress.PackageStructureJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "反序列化产物包结构失败: HireId={HireId}", hireId);
+            }
+        }
+
+        return ApiResponse<RuntimeStateDto>.SuccessResponse(new RuntimeStateDto
+        {
+            StageOverrides = stageOverrides,
+            DownstreamRuns = downstreamRuns,
+            UploadedFiles = uploadedFiles,
+            PackageStructure = packageStructure,
+        });
     }
 
     public async Task<ApiResponse<HiringFinalizeResultDto>> ImportPackageAsync(
         string hireId,
         Stream packageStream,
         string fileName,
-        IReadOnlyList<string>? linkedStoreSkillIds = null,
+        IReadOnlyList<string>? linkedStoreSkillIds,
         CancellationToken cancellationToken = default)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        logger.LogInformation("开始导入候选包: HireId={HireId}, FileName={FileName}, LinkedSkills={SkillCount}",
+            hireId, fileName, linkedStoreSkillIds?.Count ?? 0);
+
+        // 验证雇佣会话是否存在
+        var session = await dbContext.HiringSessions.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
+
+        if (session is null)
         {
-            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(400, error);
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(404, $"找不到雇佣流程 {hireId}");
         }
 
-        var runtimeContext = await RefreshRuntimeProgressAsync(normalizedHireId, cancellationToken);
-        if (runtimeContext is null)
+        // 查询关联的沙箱信息
+        var sandbox = await dbContext.SandboxInstances.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.ScopeType == "Hire" && x.ScopeKey == hireId, cancellationToken);
+
+        if (sandbox is null)
         {
-            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(409, "本地雇佣上下文不存在，请重新发起雇佣流程");
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(404, $"找不到雇佣流程 {hireId} 关联的沙箱");
         }
 
-        runtimeContext = await EnsureExternalSystemConfigHydratedAsync(runtimeContext, cancellationToken);
-
-        // 将前端直传的产物包读取为字节数组
-        byte[] packageBytes;
-        using (var ms = new MemoryStream())
-        {
-            await packageStream.CopyToAsync(ms, cancellationToken);
-            packageBytes = ms.ToArray();
-        }
-
-        if (packageBytes.Length == 0)
-        {
-            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(400, "上传的产物包为空");
-        }
-
-        // 上传包已读入内存后进入 final 包落盘关键区，避免浏览器断连导致最终产物目录半途缺失。
-        var finalizationCancellationToken = CancellationToken.None;
-        var extractedArtifacts = ExtractZipEntries(packageBytes);
-        if (extractedArtifacts.Count == 0)
-        {
-            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包为空或无法解析，请确认上传的是有效 ZIP 文件");
-        }
-
-        // import 只做确定性兜底补齐；沙箱技能生成必须发生在 package_workspace 前，不能阻塞最终包落盘。
-        if (!runtimeContext.PackagingTestCasesStaged)
-        {
-            runtimeContext = EnsurePackagingTestCasesFallbackStagedForImport(runtimeContext);
-        }
-
-        hiringRuntimeStore.Upsert(runtimeContext);
-
-        if (ShouldPersistArtifactPackages(runtimeContext))
-        {
-            await PersistIntermediatePackageAsync(runtimeContext, finalizationCancellationToken);
-        }
-
-        // 用户在前端 TODO 面板关联的 store skill：先从 ncrew-builder 拉取并解压，作为产物的"中层"基底。
-        // 优先级：沙箱产物（最高）> store skill > 原始模板包（最低），保证用户显式选择的技能不会被陈旧模板覆盖。
-        IReadOnlyDictionary<string, byte[]> storeSkillArtifacts;
         try
         {
-            storeSkillArtifacts = linkedStoreSkillIds is { Count: > 0 }
-                ? await storeSkillPackageDownloader.DownloadSkillsAsync(linkedStoreSkillIds, finalizationCancellationToken)
-                : new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Linked store skills download failed; proceeding without them. HireId={HireId}", normalizedHireId);
-            storeSkillArtifacts = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        }
+            // 将包文件内容读取到内存（用于持久化和后续处理）
+            byte[] packageBytes;
+            using (var ms = new MemoryStream())
+            {
+                await packageStream.CopyToAsync(ms, cancellationToken);
+                packageBytes = ms.ToArray();
+            }
 
-        var mergedArtifacts = MergeTemplatePackageArtifacts(
-            extractedArtifacts,
-            storeSkillArtifacts,
-            runtimeContext.WorkingTemplatePackage);
-        OverlayManagedExternalPackageArtifacts(mergedArtifacts, runtimeContext.ExternalSystemConfig);
-        if (mergedArtifacts.Count == 0)
-        {
-            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(422, "产物包合并后无有效文件");
-        }
+            logger.LogInformation("候选包已读取到内存: Size={Size}KB", packageBytes.Length / 1024);
 
-        mergedArtifacts = await EnrichMergedArtifactsWithPackagingTestCasesAsync(
-            mergedArtifacts,
-            runtimeContext,
-            finalizationCancellationToken);
+            // TODO: 验证 ZIP 格式和必要文件
 
-        // 查找或创建数字员工实例
-        // 1. 优先从 runtimeContext 获取已关联的 employeeId
-        // 2. 如果没有，尝试从数据库查找与该雇佣流程关联的 hiring 状态实例
-        //    (通过 OwnerUserId + TemplateId + Status='hiring' 组合查询)
-        // 3. 如果找到 hiring 实例，更新状态为 interning_ai（雇佣完成，进入评估阶段）
-        // 4. 如果都没有（兼容旧数据），创建新的 interning_ai 实例
-        string? employeeId = runtimeContext.EmployeeId;
-        
-        if (string.IsNullOrWhiteSpace(employeeId) && !string.IsNullOrWhiteSpace(runtimeContext.TemplateId))
-        {
-            // 尝试从数据库查找此雇佣流程关联的 hiring 实例
+            // 查找关联的数字员工实例：优先查 Hiring 状态（首次导入），
+            // 已导入过时实例状态为 InterningAi，同样匹配——确保重复导入时仍能返回 EmployeeId。
             var hiringInstance = await dbContext.Instances
-                .Where(i => i.Status == "hiring" 
-                    && i.OwnerUserId == runtimeContext.OwnerSubject 
-                    && i.BasedOnTemplateId == runtimeContext.TemplateId)
+                .Where(i => (i.Status == EmployeeStatus.Hiring || i.Status == EmployeeStatus.InterningAi)
+                    && i.OwnerUserId == userIdentity.OwnerSubject
+                    && i.BasedOnTemplateId == session.TemplateId)
                 .OrderByDescending(i => i.CreatedAt)
-                .FirstOrDefaultAsync(finalizationCancellationToken);
+                .FirstOrDefaultAsync(cancellationToken);
 
             if (hiringInstance is not null)
             {
-                employeeId = hiringInstance.InstanceId;
-                
-                // 更新状态：从 hiring（雇佣中）→ interning_ai（待实习）
-                using var scope = serviceScopeFactory.CreateScope();
-                var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
-                var lifecycleResponse = await employeeRuntimeService.UpdateLifecycleAsync(
-                    employeeId,
-                    new UpdateEmployeeLifecycleRequestDto
-                    {
-                        Status = "interning_ai",
-                        LifecycleStatus = "待实习",
-                        StageSummary = "交付物已导入，可发起 AI 评估",
-                        PrimarySignal = "待操作：发起 AI 评估",
-                        SignalLevel = "ok"
-                    },
-                    finalizationCancellationToken);
-                if (!lifecycleResponse.Success)
-                {
-                    logger.LogWarning(
-                        "Failed to update hiring instance to interning_ai. HireId={HireId}, EmployeeId={EmployeeId}, StatusCode={StatusCode}, Message={Message}",
-                        normalizedHireId,
-                        employeeId,
-                        lifecycleResponse.Code,
-                        lifecycleResponse.Message);
-                    return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
-                        lifecycleResponse.Code <= 0 ? 500 : lifecycleResponse.Code,
-                        $"导入交付物失败：员工状态推进失败（{lifecycleResponse.Message}）");
-                }
-                
-                logger.LogInformation(
-                    "Updated employee status from hiring to interning_ai. HireId={HireId}, EmployeeId={EmployeeId}",
-                    normalizedHireId,
-                    employeeId);
-            }
-        }
+                var employeeId = hiringInstance.InstanceId;
 
-        // 如果仍然没有 employeeId，创建新实例（兼容旧流程）
-        if (string.IsNullOrWhiteSpace(employeeId) && !string.IsNullOrWhiteSpace(runtimeContext.TemplateId))
-        {
-            var template = await templateDataProvider.GetByIdAsync(runtimeContext.TemplateId, finalizationCancellationToken);
-            var capabilities = template?.CoreAbilities ?? [];
-            var templateDescription = template?.Description;
-            
-            // 直接创建 interning_ai 状态的实例（兼容旧流程）
-            // 新流程已在 HireAsync 时创建 hiring 状态实例，这里仅为历史兼容
-            using var scope = serviceScopeFactory.CreateScope();
-            var employeeRuntimeService = scope.ServiceProvider.GetRequiredService<IEmployeeRuntimeService>();
-            
-            var createRequest = new CreateEmployeeFromHireRequestDto(
-                HireId: normalizedHireId,
-                TemplateId: runtimeContext.TemplateId,
-                TemplateName: runtimeContext.TemplateName,
-                Description: templateDescription,
-                OwnerSubject: runtimeContext.OwnerSubject,
-                TenantId: runtimeContext.TenantId,
-                OperatorId: runtimeContext.OperatorId,
-                Capabilities: capabilities);
-            
-            var createResult = await employeeRuntimeService.CreateFromHireAsync(createRequest, finalizationCancellationToken);
-            if (!createResult.Success || createResult.Data is null)
-            {
-                logger.LogWarning(
-                    "Failed to create interning_ai instance (legacy path). HireId={HireId}",
-                    normalizedHireId);
+                // 仅在 Hiring 状态时才做状态迁移；InterningAi 表示已导入过，跳过重复更新
+                if (hiringInstance.Status == EmployeeStatus.Hiring)
+                {
+                    var updateResult = await employeeRuntimeService.UpdateLifecycleAsync(
+                        employeeId,
+                        new UpdateEmployeeLifecycleRequestDto
+                        {
+                            Status = EmployeeStatus.InterningAi,
+                            LifecycleStatus = "待AI评估",
+                            StageSummary = "候选包已导入，可发起 AI 评估",
+                            PrimarySignal = "待操作：发起 AI 评估",
+                            SignalLevel = "ok"
+                        },
+                        cancellationToken);
+
+                    if (updateResult.Success)
+                    {
+                        logger.LogInformation(
+                            "员工状态已更新: HireId={HireId}, EmployeeId={EmployeeId}, Status=hiring→interning_ai",
+                            hireId,
+                            employeeId);
+                    }
+                    else
+                    {
+                        logger.LogWarning(
+                            "员工状态更新失败（非致命错误）: HireId={HireId}, EmployeeId={EmployeeId}, Error={Error}",
+                            hireId,
+                            employeeId,
+                            updateResult.Message);
+                    }
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "员工实例已处于 {Status} 状态，跳过重复状态迁移: HireId={HireId}, EmployeeId={EmployeeId}",
+                        hiringInstance.Status,
+                        hireId,
+                        employeeId);
+                }
             }
             else
             {
-                // 将新创建的 hiring 实例立即更新为 interning_ai（兼容旧流程）
-                employeeId = createResult.Data.EmployeeId;
-                var lifecycleResponse = await employeeRuntimeService.UpdateLifecycleAsync(
-                    employeeId,
-                    new UpdateEmployeeLifecycleRequestDto
-                    {
-                        Status = "interning_ai",
-                        LifecycleStatus = "待实习",
-                        StageSummary = "交付物已导入，可发起 AI 评估",
-                        PrimarySignal = "待操作：发起 AI 评估",
-                        SignalLevel = "ok"
-                    },
-                    finalizationCancellationToken);
-                if (!lifecycleResponse.Success)
-                {
-                    logger.LogWarning(
-                        "Failed to update newly created instance to interning_ai. HireId={HireId}, EmployeeId={EmployeeId}, StatusCode={StatusCode}, Message={Message}",
-                        normalizedHireId,
-                        employeeId,
-                        lifecycleResponse.Code,
-                        lifecycleResponse.Message);
-                    return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
-                        lifecycleResponse.Code <= 0 ? 500 : lifecycleResponse.Code,
-                        $"导入交付物失败：员工状态推进失败（{lifecycleResponse.Message}）");
-                }
-                
-                logger.LogInformation(
-                    "Created interning_ai instance (legacy path). HireId={HireId}, EmployeeId={EmployeeId}",
-                    normalizedHireId,
-                    employeeId);
+                logger.LogWarning(
+                    "未找到 Hiring/InterningAi 状态的员工实例: HireId={HireId}, TemplateId={TemplateId}",
+                    hireId,
+                    session.TemplateId);
             }
-        }
 
-        if (string.IsNullOrWhiteSpace(employeeId))
-        {
-            logger.LogError(
-                "Import package completed artifact merge but no employee instance could be created or updated. HireId={HireId}, TemplateId={TemplateId}, Owner={Owner}",
-                normalizedHireId,
-                runtimeContext.TemplateId,
-                runtimeContext.OwnerSubject);
-            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
-                500,
-                "导入交付物失败：未能创建或更新部门员工实例，请重新发起雇佣流程");
-        }
-
-        // 存储数字员工 artifacts
-        try
-        {
-            var storedArtifacts = await instanceArtifactCloneService.StoreDepartmentArtifactsAsync(
-                employeeId,
-                mergedArtifacts,
-                finalizationCancellationToken);
-            var instance = await dbContext.Instances.FirstOrDefaultAsync(
-                item => item.InstanceId == employeeId,
-                finalizationCancellationToken);
-            if (instance is not null)
+            // 保存导入元数据到结构化数据
+            var importMetadata = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
             {
-                instance.CurrentVersion = storedArtifacts.CurrentVersion;
-                instance.UpdatedAt = DateTimeOffset.UtcNow;
-                await dbContext.SaveChangesAsync(finalizationCancellationToken);
+                ["imported_package_file"] = fileName,
+                ["imported_package_size"] = packageBytes.Length.ToString(),
+                ["imported_at"] = DateTimeOffset.UtcNow.ToString("O"),
+                ["import_method"] = "direct_upload",
+                ["employee_status"] = EmployeeStatus.InterningAi // 标记为AI评估阶段
+            };
+
+            if (linkedStoreSkillIds is { Count: > 0 })
+            {
+                importMetadata["linked_store_skills"] = string.Join(",", linkedStoreSkillIds);
             }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // 取消令牌触发的中断不属于产物存储失败，向上层透传以保留取消语义。
-            throw;
+
+            // 合并现有结构化数据
+            var existingData = await hiringStageService.GetStructuredDataAsync(hireId, cancellationToken);
+            var mergedData = new Dictionary<string, string?>(existingData, StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, value) in importMetadata)
+            {
+                mergedData[key] = value;
+            }
+
+            await hiringStageService.SaveStructuredDataAsync(hireId, mergedData, cancellationToken);
+
+            logger.LogInformation("候选包导入成功: HireId={HireId}, 员工状态已更新为interning_ai", hireId);
+
+            // 返回成功结果
+            return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(
+                new HiringFinalizeResultDto(
+                    HireId: hireId,
+                    CurrentStage: HiringCollectionStage.ReadyForPackaging,
+                    CollectionPhase: "finalized",
+                    GeneratedFiles: Array.Empty<string>(),
+                    DownloadUrl: $"/api/v1/hirings/{hireId}/artifacts/download",
+                    EmployeeId: hiringInstance?.InstanceId),
+                "候选包导入成功");
         }
         catch (Exception ex)
         {
-            // 产物存储失败会导致 Instance 版本未更新、产物根目录不完整，
-            // 后续的沙箱初始化与投影生成都将基于错误状态运行，必须立即中止流程并返回失败响应。
-            logger.LogError(
-                ex,
-                "Failed to persist imported instance artifacts; aborting import to avoid inconsistent sandbox initialization. HireId={HireId}, EmployeeId={EmployeeId}",
-                normalizedHireId,
-                employeeId);
-            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(
-                500,
-                $"导入交付物失败：产物存储异常 ({ex.Message})");
+            logger.LogError(ex, "导入候选包失败: HireId={HireId}, FileName={FileName}", hireId, fileName);
+            return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(500, $"导入候选包失败: {ex.Message}");
         }
-
-        if (ShouldPersistArtifactPackages(runtimeContext))
-        {
-            await artifactPackageService.PersistFinalPackageAsync(
-                new HiringArtifactPackagePersistRequestDto(
-                    runtimeContext.HireId,
-                    runtimeContext.SessionId,
-                    BuildFinalPackageFileName(normalizedHireId, fileName),
-                    mergedArtifacts),
-                finalizationCancellationToken);
-        }
-
-        runtimeContext = runtimeContext with
-        {
-            CurrentStage = HiringCollectionStage.ReadyForPackaging,
-            CollectionPhase = HiringCollectionPhase.Finalized,
-            EmployeeId = employeeId
-        };
-        runtimeContext = ApplyWorkflowProgress(runtimeContext);
-        hiringRuntimeStore.Upsert(runtimeContext);
-
-        var result = new HiringFinalizeResultDto(
-            HireId: normalizedHireId,
-            CurrentStage: runtimeContext.CurrentStage,
-            CollectionPhase: runtimeContext.CollectionPhase,
-            GeneratedFiles: mergedArtifacts.Keys.ToArray(),
-            DownloadUrl: $"/api/v1/hirings/{normalizedHireId}/artifacts/download",
-            EmployeeId: employeeId);
-
-        return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(result, "交付物已导入");
     }
 
-    public async Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
+    public Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
         string hireId,
         CancellationToken cancellationToken = default)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
-        {
-            return HiringArtifactDownloadResult.Error(400, error);
-        }
-
-        var result = await artifactPackageService.BuildFinalPackageDownloadAsync(normalizedHireId, cancellationToken);
-        return result.Found || result.Code != 409
-            ? result
-            : HiringArtifactDownloadResult.Error(409, "最终交付包尚未生成，请先执行 finalize");
+        logger.LogWarning("BuildArtifactDownloadAsync: 功能暂未实现");
+        return Task.FromResult(HiringArtifactDownloadResult.Error(501, "功能暂未实现"));
     }
 
     public Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(
@@ -1630,65 +888,126 @@ internal sealed partial class EmployeeHiringService(
         string artifactName,
         CancellationToken cancellationToken = default)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
-        {
-            return Task.FromResult(HiringArtifactDownloadResult.Error(400, error));
-        }
-
-        return artifactPackageService.BuildFinalPackageFileDownloadAsync(
-            normalizedHireId,
-            artifactName,
-            cancellationToken);
+        logger.LogWarning("BuildArtifactFileDownloadAsync: 功能暂未实现");
+        return Task.FromResult(HiringArtifactDownloadResult.Error(501, "功能暂未实现"));
     }
 
-    public async Task<ApiResponse<bool>> SaveConversationCacheAsync(
+    public Task<ApiResponse<HiringTemplatePackageUploadResultDto>> UploadTemplatePackageFromClientAsync(
         string hireId,
-        JsonElement cache,
+        Stream packageStream,
+        string fileName,
         CancellationToken cancellationToken = default)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
-        {
-            return ApiResponse<bool>.ErrorResponse(400, error);
-        }
-
-        var entity = await dbContext.HiringRuntimeStates
-            .Where(e => e.HireId == normalizedHireId)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (entity is null)
-        {
-            return ApiResponse<bool>.ErrorResponse(404, "未找到该雇佣流程的运行时状态");
-        }
-
-        entity.ConversationCacheJson = cache.GetRawText();
-        entity.UpdatedAtUtc = DateTimeOffset.UtcNow;
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        return ApiResponse<bool>.SuccessResponse(true);
+        logger.LogWarning("UploadTemplatePackageFromClientAsync: 功能暂未实现");
+        return Task.FromResult(ApiResponse<HiringTemplatePackageUploadResultDto>.ErrorResponse(501, "功能暂未实现"));
     }
 
-    public async Task<ApiResponse<JsonElement?>> GetConversationCacheAsync(
-        string hireId,
-        CancellationToken cancellationToken = default)
+    /// <summary>
+    /// 标记沙箱已完全初始化（模板包已上传，配置已设置，可以使用）。
+    /// </summary>
+    private async Task SetSandboxInitializedAsync(string sandboxId, CancellationToken cancellationToken)
     {
-        if (!TryNormalizeHireId(hireId, out var normalizedHireId, out var error))
+        var instance = await dbContext.SandboxInstances
+            .FirstOrDefaultAsync(item => item.SandboxId == sandboxId, cancellationToken);
+
+        if (instance is not null && !instance.IsInitialized)
         {
-            return ApiResponse<JsonElement?>.ErrorResponse(400, error);
+            instance.IsInitialized = true;
+            instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            logger.LogInformation("沙箱已标记为已初始化: SandboxId={SandboxId}", sandboxId);
         }
-
-        var entity = await dbContext.HiringRuntimeStates
-            .AsNoTracking()
-            .Where(e => e.HireId == normalizedHireId)
-            .Select(e => e.ConversationCacheJson)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (entity is null)
-        {
-            return ApiResponse<JsonElement?>.ErrorResponse(404, "未找到该雇佣流程的运行时状态");
-        }
-
-        var json = JsonSerializer.Deserialize<JsonElement>(entity);
-        return ApiResponse<JsonElement?>.SuccessResponse(json);
     }
 
+    /// <summary>
+    /// 尝试上传全局 MCP 配置到沙箱（从 appsettings.json 读取）。
+    /// 此方法仅处理项目默认 MCP 配置，不涉及用户自定义配置。
+    /// </summary>
+    private async Task<ApiResponse<bool>> TryUploadMcpConfigAsync(
+        string sandboxId,
+        string ownerSubject,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // 1. 从配置文件读取全局 MCP 配置（项目默认配置）
+            var mcpConfig = ReadMcpConfig();
+
+            // 2. 如果配置未启用或无有效服务器，跳过上传
+            if (mcpConfig is null || !mcpConfig.Enabled || mcpConfig.Servers.Count == 0)
+            {
+                logger.LogDebug("MCP 配置未启用或未配置服务器，跳过上传: SandboxId={SandboxId}", sandboxId);
+                return ApiResponse<bool>.SuccessResponse(false, "MCP 配置未启用");
+            }
+
+            // 3. 获取沙箱的 Gateway 端点
+            var sandbox = await dbContext.SandboxInstances.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.SandboxId == sandboxId, cancellationToken);
+
+            if (sandbox is null)
+            {
+                logger.LogWarning("未找到沙箱实例: SandboxId={SandboxId}", sandboxId);
+                return ApiResponse<bool>.ErrorResponse(404, "未找到沙箱实例");
+            }
+
+            if (string.IsNullOrWhiteSpace(sandbox.GatewayEndpoint))
+            {
+                logger.LogWarning("沙箱 Gateway 端点尚未就绪: SandboxId={SandboxId}", sandboxId);
+                return ApiResponse<bool>.ErrorResponse(409, "沙箱 Gateway 端点尚未就绪");
+            }
+
+            // 4. 通过 HTTP PUT 请求上传 MCP 配置到沙箱
+            var uploadResult = await kingCrabHttpClient.SendForJsonAsync<SandboxMcpConfigResponse>(
+                HttpMethod.Put,
+                "/admin/workspace/mcp",
+                mcpConfig,
+                ownerSubject,
+                cancellationToken,
+                useHireBotApiPrefix: false,
+                absoluteBaseUrl: sandbox.GatewayEndpoint);
+
+            if (!uploadResult.Success || uploadResult.Data is null)
+            {
+                logger.LogWarning(
+                    "MCP 配置上传失败（非致命错误）: SandboxId={SandboxId}, StatusCode={StatusCode}, Message={Message}",
+                    sandboxId,
+                    uploadResult.StatusCode,
+                    uploadResult.Message);
+                return ApiResponse<bool>.ErrorResponse(
+                    uploadResult.StatusCode > 0 ? uploadResult.StatusCode : 502,
+                    uploadResult.Message ?? "MCP 配置上传失败");
+            }
+
+            logger.LogInformation(
+                "MCP 配置已上传到沙箱: SandboxId={SandboxId}, ServerCount={ServerCount}",
+                sandboxId,
+                mcpConfig.Servers.Count);
+
+            return ApiResponse<bool>.SuccessResponse(true, "MCP 配置上传成功");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "上传全局 MCP 配置异常: SandboxId={SandboxId}", sandboxId);
+            return ApiResponse<bool>.ErrorResponse(500, $"上传 MCP 配置异常: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 从配置文件读取全局 MCP 配置（项目默认配置）。
+    /// 配置路径：OpenSandbox:McpConfig
+    /// 仅当 Enabled=true 时返回配置对象，否则返回 null。
+    /// </summary>
+    private SandboxWorkspaceMcpConfig? ReadMcpConfig()
+    {
+        var config = configuration.GetSection("OpenSandbox:McpConfig").Get<SandboxWorkspaceMcpConfig>();
+        return config?.Enabled == true ? config : null;
+    }
+
+    /// <summary>
+    /// MCP 配置上传响应模型（与 OpenSandbox Gateway 的响应格式对齐）。
+    /// </summary>
+    private sealed record SandboxMcpConfigResponse(
+        bool Success,
+        string? Message = null);
 }

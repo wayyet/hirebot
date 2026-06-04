@@ -1,12 +1,19 @@
 using System.ComponentModel.DataAnnotations;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class EvaluationWorkspaceStateEntity
+public sealed class EvaluationWorkspaceStateEntity : ITenant
 {
+    [Key]
+    public Guid Id { get; set; } = Guid.NewGuid();
+
     [Required]
     [MaxLength(120)]
     public string OwnerSubject { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string? TenantId { get; set; }
 
     [Required]
     [MaxLength(120)]

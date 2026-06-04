@@ -272,6 +272,10 @@ internal sealed partial class EvaluationService
             }
         }
 
+        // 从 userIdentity 获取租户ID和操作员ID，避免硬编码
+        var tenantId = userIdentity.TenantId ?? "default";
+        var operatorId = userIdentity.OperatorId ?? "anonymous";
+
         var createResult = await sandboxService.CreateAsync(
             new SandboxCreateRequestDto
             {
@@ -279,8 +283,8 @@ internal sealed partial class EvaluationService
                 ScopeKey = runtimeId,
                 SandboxRole = sandboxRole,
                 OwnerSubject = owner,
-                TenantId = "tenant-default",
-                OperatorId = "operator-default",
+                TenantId = tenantId,
+                OperatorId = operatorId,
                 ProvisioningMode = "managed",
                 UseCase = $"evaluation-{sandboxRole}-for:{employeeId}",
                 Metadata = new Dictionary<string, string>
@@ -489,7 +493,7 @@ internal sealed partial class EvaluationService
             return ApiResponse<bool>.ErrorResponse(422, "evaluation template package has no files");
         }
 
-        var archiveBytes = EmployeeHiringService.BuildDigitalEmployeeArchive(templatePackage);
+        var archiveBytes = TemplatePackageArchiveBuilder.BuildArchive(templatePackage);
         if (archiveBytes.Length == 0)
         {
             return ApiResponse<bool>.ErrorResponse(422, "evaluation template package archive is empty");
@@ -739,7 +743,7 @@ internal sealed partial class EvaluationService
             return ApiResponse<HiringTemplateArchive?>.SuccessResponse(null, "target template upload skipped: package has no files");
         }
 
-        var archiveBytes = EmployeeHiringService.BuildDigitalEmployeeArchive(templatePackage);
+        var archiveBytes = TemplatePackageArchiveBuilder.BuildArchive(templatePackage);
         if (archiveBytes.Length == 0)
         {
             logger.LogError("[Eval] Template archive is empty for templateId={TemplateId}", templateId);

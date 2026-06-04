@@ -25,7 +25,7 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 /// 员工运行时服务，管理员工实例的生命周期、状态流转和配置。
 /// </summary>
 public sealed partial class EmployeeRuntimeService(
-    IRequestContextService requestContextService,
+    HireBot.Abstraction.Infrastructure.Identity.IUserIdentity userIdentity,
     HireBotDbContext dbContext,
     IInstanceArtifactCloneService artifactCloneService,
     IInstanceArtifactResolver instanceArtifactResolver,
@@ -101,7 +101,7 @@ public sealed partial class EmployeeRuntimeService(
     /// <returns>员工摘要列表</returns>
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default)
     {
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var employees = await ResolveOwnerEmployeesAsync(owner, cancellationToken);
         var summaries = employees.Select(ToSummary).ToArray();
 
@@ -116,8 +116,8 @@ public sealed partial class EmployeeRuntimeService(
     /// </summary>
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetDepartmentEmployeesAsync(CancellationToken cancellationToken = default)
     {
-        var owner = requestContextService.ResolveOwnerSubject();
-        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        var owner = userIdentity.OwnerSubject;
+        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
         
         // 查询条件：部门类型 + (已上岗 OR 当前用户创建的)
         var query = dbContext.Instances
@@ -145,18 +145,15 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId 不能为空");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var scope = owner;
         var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
-            var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
-            if (!string.IsNullOrWhiteSpace(tenantId))
-            {
-                employee = await ResolveDepartmentEmployeeForTenantAsync(tenantId.Trim(), employeeId, cancellationToken);
-                if (employee is not null)
-                    scope = tenantId.Trim();
-            }
+            var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
+            employee = await ResolveDepartmentEmployeeForTenantAsync(tenantId.Trim(), employeeId, cancellationToken);
+            if (employee is not null)
+                scope = tenantId.Trim();
         }
 
         if (employee is null)
@@ -236,7 +233,7 @@ public sealed partial class EmployeeRuntimeService(
     /// <returns>导入结果</returns>
     public async Task<ApiResponse<ImportFixtureInstancesResultDto>> ImportFixtureInstancesAsync(CancellationToken cancellationToken = default)
     {
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var fixtureBundle = await LoadFixtureBundleAsync(owner, cancellationToken);
         if (fixtureBundle.Employees.Count == 0)
         {
@@ -271,7 +268,7 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var normalizedTemplateId = templateId.Trim();
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var fixtureBinding = ResolveFixtureTemplateBinding(normalizedTemplateId);
 
         var existingEmployees = await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
@@ -331,7 +328,7 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId 与状态信息为必填项");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
@@ -420,7 +417,7 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId 不能为空");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
@@ -462,7 +459,8 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, ex.Message);
         }
 
-        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(employee.DepartmentId, employee.OwnerUserId);
+        var tenantId = employee.DepartmentId ?? userIdentity.TenantId ?? "default";
+        var operatorId = employee.OwnerUserId ?? userIdentity.OperatorId;
         var sandboxSetup = await InitializeRuntimeSandboxAsync(
             employee,
             artifactResolution.ArtifactRoot,
@@ -511,7 +509,7 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId 与 capabilities 为必填项");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
@@ -566,7 +564,7 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "employeeId 与 actionId 为必填项");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
@@ -681,8 +679,8 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(400, "仅支持 .zip 格式的模板包");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
-        var (tenantId, _) = requestContextService.ResolveTenantAndOperator(null, null);
+        var owner = userIdentity.OwnerSubject;
+        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
 
         // 读取 zip 到内存
         byte[] zipBytes;
@@ -998,7 +996,7 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var normalizedId = employeeId.Trim();
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
 
         var instance = await dbContext.Instances
             .AsNoTracking()
@@ -1080,9 +1078,9 @@ public sealed partial class EmployeeRuntimeService(
 
         var normalizedSourceId = sourceEmployeeId.Trim();
         var displayName = request.DisplayName.Trim();
-        var owner = requestContextService.ResolveOwnerSubject();
-        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(null, null);
-
+        var owner = userIdentity.OwnerSubject;
+        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
+        var operatorId = userIdentity.OperatorId;
 
         var ownerEmployees = await ResolveOwnerEmployeesAsync(owner, cancellationToken);
         var activePersonalCloneCount = ownerEmployees.Count(item =>
@@ -1209,7 +1207,7 @@ public sealed partial class EmployeeRuntimeService(
 
         var normalizedSourceId = sourceInstanceId.Trim();
         var displayName = request.DisplayName.Trim();
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
         var source = await ResolveEmployeeForOwnerAsync(owner, normalizedSourceId, cancellationToken);
         if (source is null)
         {
@@ -1297,7 +1295,7 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var normalizedBranchId = branchId.Trim();
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
 
         var branch = await ResolveEmployeeForOwnerAsync(owner, normalizedBranchId, cancellationToken);
         if (branch is null)
@@ -1367,7 +1365,7 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<LocalStateMigrationResultDto>.ErrorResponse(400, "请求体不能为空");
         }
 
-        var owner = requestContextService.ResolveOwnerSubject();
+        var owner = userIdentity.OwnerSubject;
 
         var employees = request.Employees?
             .Where(item => !string.IsNullOrWhiteSpace(item.EmployeeId))

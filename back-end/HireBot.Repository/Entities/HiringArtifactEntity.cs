@@ -1,14 +1,18 @@
 using System.ComponentModel.DataAnnotations;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class HiringArtifactEntity
+public sealed class HiringArtifactEntity : ITenant
 {
     [Key]
     public Guid ArtifactId { get; set; } = Guid.NewGuid();
 
     [MaxLength(64)]
     public required string SessionId { get; set; }
+
+    [MaxLength(128)]
+    public string? TenantId { get; set; }
 
     [MaxLength(32)]
     public required string Kind { get; set; } // source_zip | intermediate | intermediate_package_zip | final_package_zip

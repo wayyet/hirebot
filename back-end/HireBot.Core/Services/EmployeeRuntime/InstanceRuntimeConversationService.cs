@@ -18,7 +18,7 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 /// </summary>
 public sealed class InstanceRuntimeConversationService(
     HireBotDbContext dbContext,
-    IRequestContextService requestContextService,
+    HireBot.Abstraction.Infrastructure.Identity.IUserIdentity userIdentity,
     ISandboxService sandboxService,
     ILogger<InstanceRuntimeConversationService> logger) : IInstanceRuntimeConversationService
 {
@@ -251,7 +251,8 @@ public sealed class InstanceRuntimeConversationService(
         string content,
         CancellationToken cancellationToken)
     {
-        var (tenantId, operatorId) = requestContextService.ResolveTenantAndOperator(instance.TenantId, instance.OwnerUserId);
+        var tenantId = instance.TenantId ?? userIdentity.TenantId ?? "default";
+        var operatorId = instance.OwnerUserId ?? userIdentity.OperatorId;
         var scopeKey = BuildRuntimeScopeKey(instance.InstanceId);
         var sandboxId = await ResolveRuntimeSandboxIdAsync(ownerSubject, scopeKey, cancellationToken);
         if (string.IsNullOrWhiteSpace(sandboxId))
@@ -369,7 +370,7 @@ public sealed class InstanceRuntimeConversationService(
 
         var normalizedInstanceId = instanceId.Trim();
         var owner = string.IsNullOrWhiteSpace(ownerUserId)
-            ? requestContextService.ResolveOwnerSubject()
+            ? userIdentity.OwnerSubject
             : ownerUserId.Trim();
 
         var instance = await dbContext.Instances

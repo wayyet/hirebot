@@ -57,16 +57,16 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.AppUserEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("DisplayName")
@@ -79,6 +79,11 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<string>("ExternalUserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("FamilyName")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
@@ -87,11 +92,10 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
-                    b.Property<DateTime>("LastSeenAt")
+                    b.Property<DateTimeOffset>("LastSeenAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("TenantId")
-                        .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
@@ -102,51 +106,49 @@ namespace HireBot.Repository.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ExternalUserId");
+
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ExternalUserId")
+                        .IsUnique();
 
                     b.HasIndex("TenantId", "Username");
 
-                    b.ToTable("AppUsers");
+                    b.ToTable("AppUsers", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.ConversationEntity", b =>
                 {
                     b.Property<string>("ConversationId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("conversation_id");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("Channel")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("channel");
+                        .HasColumnType("character varying(40)");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("InstanceId")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("instance_id");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("OwnerUserId")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("owner_user_id");
+                        .HasColumnType("character varying(256)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("tenant_id");
+                        .HasColumnType("character varying(128)");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("ConversationId");
 
@@ -206,13 +208,19 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<string>("TenantId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("RelativePath");
 
+                    b.HasIndex("TenantId");
+
                     b.HasIndex("SessionEntityId", "AssetType");
 
-                    b.ToTable("EvaluationAssets");
+                    b.ToTable("EvaluationAssets", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationReportEntity", b =>
@@ -250,15 +258,21 @@ namespace HireBot.Repository.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("TenantId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ReportHtmlAssetId");
 
                     b.HasIndex("ReportJsonAssetId");
 
+                    b.HasIndex("TenantId");
+
                     b.HasIndex("SessionEntityId", "Iteration");
 
-                    b.ToTable("EvaluationReports");
+                    b.ToTable("EvaluationReports", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationSessionEntity", b =>
@@ -317,6 +331,11 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -325,38 +344,52 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("SessionId")
                         .IsUnique();
 
-                    b.HasIndex("EvaluatorHireId", "TargetHireId");
+                    b.HasIndex("TenantId", "EvaluatorHireId", "TargetHireId");
 
-                    b.HasIndex("OwnerSubject", "EmployeeId", "UpdatedAtUtc");
+                    b.HasIndex("TenantId", "OwnerSubject", "EmployeeId", "UpdatedAtUtc");
 
-                    b.ToTable("EvaluationSessions");
+                    b.ToTable("EvaluationSessions", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationWorkspaceStateEntity", b =>
                 {
-                    b.Property<string>("OwnerSubject")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<string>("EmployeeId")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EmployeeId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("OwnerSubject")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("PayloadJson")
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("OwnerSubject", "EmployeeId");
+                    b.HasKey("Id");
 
                     b.HasIndex("UpdatedAtUtc");
 
-                    b.ToTable("EvaluationWorkspaceStates");
+                    b.HasIndex("TenantId", "OwnerSubject", "EmployeeId")
+                        .IsUnique();
+
+                    b.ToTable("EvaluationWorkspaceStates", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringArtifactEntity", b =>
@@ -411,6 +444,11 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<DateTimeOffset>("UploadedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -418,12 +456,12 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("UploadedAtUtc");
 
-                    b.HasIndex("SessionId", "IsFinal");
+                    b.HasIndex("TenantId", "SessionId", "IsFinal");
 
-                    b.HasIndex("SessionId", "Kind", "LogicalPath")
+                    b.HasIndex("TenantId", "SessionId", "Kind", "LogicalPath")
                         .IsUnique();
 
-                    b.ToTable("HiringArtifacts");
+                    b.ToTable("HiringArtifacts", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringArtifactUploadEntity", b =>
@@ -473,6 +511,11 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<int>("TotalParts")
                         .HasColumnType("integer");
 
@@ -483,9 +526,9 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("CreatedAtUtc");
 
-                    b.HasIndex("SessionId", "Kind", "LogicalPath", "CompletedAtUtc");
+                    b.HasIndex("TenantId", "SessionId", "Kind", "LogicalPath", "CompletedAtUtc");
 
-                    b.ToTable("HiringArtifactUploads");
+                    b.ToTable("HiringArtifactUploads", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringArtifactUploadPartEntity", b =>
@@ -510,6 +553,10 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<string>("TenantId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<Guid>("UploadId")
                         .HasColumnType("uuid");
 
@@ -518,10 +565,12 @@ namespace HireBot.Repository.Migrations
 
                     b.HasKey("PartId");
 
+                    b.HasIndex("TenantId");
+
                     b.HasIndex("UploadId", "PartNumber")
                         .IsUnique();
 
-                    b.ToTable("HiringArtifactUploadParts");
+                    b.ToTable("HiringArtifactUploadParts", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringAuditLogEntity", b =>
@@ -570,115 +619,102 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<DateTimeOffset>("TimestampUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("AuditId");
 
-                    b.HasIndex("HireId", "TimestampUtc");
+                    b.HasIndex("TenantId", "HireId", "TimestampUtc");
 
-                    b.HasIndex("SessionId", "TimestampUtc");
+                    b.HasIndex("TenantId", "SessionId", "TimestampUtc");
 
-                    b.ToTable("HiringAuditLogs");
+                    b.ToTable("HiringAuditLogs", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringMaterialFileEntity", b =>
                 {
                     b.Property<Guid>("MaterialFileId")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("material_file_id");
+                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("DeletedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("deleted_at_utc");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Format")
                         .IsRequired()
                         .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("format");
+                        .HasColumnType("character varying(32)");
 
                     b.Property<string>("HireId")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("hire_id");
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("MimeType")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("mime_type");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("OperatorId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("operator_id");
+                        .HasColumnType("character varying(128)");
 
                     b.Property<string>("OriginalFileName")
                         .IsRequired()
                         .HasMaxLength(512)
-                        .HasColumnType("character varying(512)")
-                        .HasColumnName("original_file_name");
+                        .HasColumnType("character varying(512)");
 
                     b.Property<string>("RelativePath")
                         .IsRequired()
                         .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)")
-                        .HasColumnName("relative_path");
+                        .HasColumnType("character varying(1024)");
 
                     b.Property<string>("RequestedCategoryTitle")
                         .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("requested_category_title");
+                        .HasColumnType("character varying(160)");
 
                     b.Property<string>("SessionId")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("session_id");
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("Sha256")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("sha256");
+                        .HasColumnType("character varying(64)");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint")
-                        .HasColumnName("size_bytes");
+                        .HasColumnType("bigint");
 
                     b.Property<string>("StoragePath")
                         .IsRequired()
                         .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)")
-                        .HasColumnName("storage_path");
+                        .HasColumnType("character varying(1024)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("tenant_id");
+                        .HasColumnType("character varying(128)");
 
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at_utc");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("UploadedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("uploaded_at_utc");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("UploadedBy")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("uploaded_by");
+                        .HasColumnType("character varying(256)");
 
                     b.Property<string>("WorkspaceRelativePath")
                         .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)")
-                        .HasColumnName("workspace_relative_path");
+                        .HasColumnType("character varying(1024)");
 
                     b.HasKey("MaterialFileId");
 
@@ -689,7 +725,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("HireId", "SessionId", "UploadedAtUtc");
 
-                    b.ToTable("hiring_material_files", (string)null);
+                    b.ToTable("HiringMaterialFiles", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringRuntimeStateEntity", b =>
@@ -732,6 +768,11 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -743,11 +784,11 @@ namespace HireBot.Repository.Migrations
 
                     b.HasKey("HireId");
 
-                    b.HasIndex("SessionId");
+                    b.HasIndex("TenantId", "SessionId");
 
-                    b.HasIndex("UpdatedAtUtc");
+                    b.HasIndex("TenantId", "UpdatedAtUtc");
 
-                    b.ToTable("HiringRuntimeStates");
+                    b.ToTable("HiringRuntimeStates", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringSessionEntity", b =>
@@ -810,7 +851,6 @@ namespace HireBot.Repository.Migrations
                         .HasColumnType("character varying(128)");
 
                     b.Property<string>("TenantId")
-                        .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
@@ -821,91 +861,75 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("HireId")
                         .IsUnique();
 
-                    b.ToTable("HiringSessions");
+                    b.ToTable("HiringSessions", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.InstanceEntity", b =>
                 {
                     b.Property<string>("InstanceId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("instance_id");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("ActiveBranchId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("active_branch_id");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("BasedOnTemplateId")
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("based_on_template_id");
+                        .HasColumnType("character varying(128)");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("CurrentVersion")
                         .IsRequired()
                         .HasMaxLength(80)
-                        .HasColumnType("character varying(80)")
-                        .HasColumnName("current_version");
+                        .HasColumnType("character varying(80)");
 
                     b.Property<string>("DepartmentId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("department_id");
+                        .HasColumnType("character varying(128)");
 
                     b.Property<string>("DescribeDocument")
-                        .HasColumnType("text")
-                        .HasColumnName("describe_document");
+                        .HasColumnType("text");
 
                     b.Property<string>("Description")
-                        .HasColumnType("text")
-                        .HasColumnName("description");
+                        .HasColumnType("text");
 
                     b.Property<string>("EvalReportId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("eval_report_id");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("FromInstanceId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("from_instance_id");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("InstanceType")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("instance_type");
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("OwnerUserId")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("owner_user_id");
+                        .HasColumnType("character varying(256)");
 
                     b.Property<string>("RuntimeSnapshotJson")
-                        .HasColumnType("text")
-                        .HasColumnName("runtime_snapshot_json");
+                        .HasColumnType("text");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("status");
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("tenant_id");
+                        .HasColumnType("character varying(128)");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("InstanceId");
 
@@ -924,71 +948,58 @@ namespace HireBot.Repository.Migrations
                 {
                     b.Property<string>("MessageId")
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("message_id");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("Channel")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("channel");
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("Content")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("content");
+                        .HasColumnType("text");
 
                     b.Property<string>("ConversationId")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("conversation_id");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("DeliveryStatus")
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("delivery_status");
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("ErrorMessage")
                         .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)")
-                        .HasColumnName("error_message");
+                        .HasColumnType("character varying(1024)");
 
                     b.Property<string>("ExternalMessageId")
                         .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("external_message_id");
+                        .HasColumnType("character varying(160)");
 
                     b.Property<string>("ExternalUserId")
                         .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("external_user_id");
+                        .HasColumnType("character varying(160)");
 
                     b.Property<string>("InstanceId")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("instance_id");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("MetadataJson")
-                        .HasColumnType("text")
-                        .HasColumnName("metadata_json");
+                        .HasColumnType("text");
 
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("role");
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("tenant_id");
+                        .HasColumnType("character varying(128)");
 
                     b.HasKey("MessageId");
 
@@ -1050,6 +1061,10 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<string>("TenantId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<string>("Url")
                         .IsRequired()
                         .HasMaxLength(512)
@@ -1062,9 +1077,11 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("SandboxSessionEntityId");
 
+                    b.HasIndex("TenantId");
+
                     b.HasIndex("SandboxInstanceEntityId", "CreatedAtUtc");
 
-                    b.ToTable("SandboxAssets");
+                    b.ToTable("SandboxAssets", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.SandboxInstanceEntity", b =>
@@ -1160,7 +1177,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("OwnerSubject", "TemplateId", "SandboxRole", "State");
 
-                    b.ToTable("SandboxInstances");
+                    b.ToTable("SandboxInstances", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.SandboxSessionEntity", b =>
@@ -1213,6 +1230,11 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1223,10 +1245,10 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("SessionId")
                         .IsUnique();
 
-                    b.HasIndex("OwnerSubject", "ScopeType", "ScopeKey", "SandboxRole", "SessionKey")
+                    b.HasIndex("TenantId", "OwnerSubject", "ScopeType", "ScopeKey", "SandboxRole", "SessionKey")
                         .IsUnique();
 
-                    b.ToTable("SandboxSessions");
+                    b.ToTable("SandboxSessions", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationAssetEntity", b =>

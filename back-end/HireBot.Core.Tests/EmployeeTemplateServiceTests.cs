@@ -125,7 +125,7 @@ public sealed class EmployeeTemplateServiceTests
         Assert.Contains(package.RequiredSkills, skill => skill.Name == "evaluation-expert-consumer");
         Assert.DoesNotContain(package.Skills, skill => skill.Name == "live_evaluation_coordinator");
 
-        var archiveBytes = EmployeeHiringService.BuildDigitalEmployeeArchive(package);
+        var archiveBytes = TemplatePackageArchiveBuilder.BuildArchive(package);
         using var zip = new ZipArchive(new MemoryStream(archiveBytes), ZipArchiveMode.Read);
         var entries = zip.Entries.Select(entry => entry.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -718,7 +718,7 @@ public sealed class EmployeeTemplateServiceTests
         return new EvaluationService(
             artifactPackageService ?? new EmptyArtifactPackageService(),
             sandbox ?? new CapturingSandboxService(),
-            new TestRequestContextService(),
+            new TestUserIdentity("owner-1", "tenant-1", "operator-1"),
             dbContext,
             assetStore ?? new ThrowingEvaluationAssetStore(),
             hostEnvironment,
@@ -1099,10 +1099,22 @@ public sealed class EmployeeTemplateServiceTests
         public Task<TemplatePackageDefinition> LoadAsync(string templateId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
-    private sealed class TestRequestContextService : IRequestContextService
+    private sealed class TestUserIdentity(string ownerSubject, string tenantId, string operatorId) : HireBot.Abstraction.Infrastructure.Identity.IUserIdentity
     {
-        public string ResolveOwnerSubject(string? tenantId = null, string? operatorId = null) => "owner-1";
-        public (string TenantId, string OperatorId) ResolveTenantAndOperator(string? tenantId, string? operatorId) => ("tenant-1", "operator-1");
+        public string Id => ownerSubject;
+        public string Email => "test@example.com";
+        public string UserName => "testuser";
+        public string FirstName => "Test";
+        public string LastName => "User";
+        public string FullName => "Test User";
+        public string DisplayName => "Test User";
+        public string? TenantId => tenantId;
+        public string? TenantName => "Test Tenant";
+        public string OperatorId => operatorId;
+        public string OwnerSubject => ownerSubject;
+        public string? Role => "admin";
+        public bool IsAuthenticated => true;
+        public string? DepartmentId => null;
     }
 
     private sealed class TestHttpClientFactory : IHttpClientFactory

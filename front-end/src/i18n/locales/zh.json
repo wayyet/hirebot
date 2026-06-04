@@ -483,7 +483,8 @@
         "generateBtn": "生成实例包",
         "generatedBtn": "已生成",
         "downloadPackageBtn": "下载实例包",
-        "enterEvaluationBtn": "进入 AI 评估"
+        "enterEvaluationBtn": "进入 AI 评估",
+        "moreFiles": "个文件"
       }
     },
     "employee": {

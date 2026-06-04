@@ -8,7 +8,7 @@ public sealed record SandboxInstanceDto(
     string SandboxRole,
     string ProvisioningMode,
     string OwnerSubject,
-    string TenantId,
+    string? TenantId,
     string OperatorId,
     string State,
     string? GatewayEndpoint,

@@ -1,8 +1,9 @@
 using System.ComponentModel.DataAnnotations;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class ConversationEntity
+public sealed class ConversationEntity : ITenant
 {
     [Key]
     [MaxLength(120)]
@@ -12,7 +13,7 @@ public sealed class ConversationEntity
     public required string InstanceId { get; set; }
 
     [MaxLength(128)]
-    public required string TenantId { get; set; }
+    public string? TenantId { get; set; }
 
     [MaxLength(256)]
     public required string OwnerUserId { get; set; }

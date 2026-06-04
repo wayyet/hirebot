@@ -250,6 +250,49 @@ export interface HiringExternalSystemConfig {
   updatedAtUtc?: string | null
 }
 
+export interface DownstreamRunInfo {
+  status: string
+  result?: unknown
+  error?: string
+}
+
+export interface RuntimeStateSnapshot {
+  stageOverrides?: Record<string, unknown>
+  downstreamRuns?: Record<string, DownstreamRunInfo>
+  /** 对话上传文件列表（仅元数据，不含 rawFile/content） */
+  uploadedFiles?: PersistedChatFile[]
+  /** 最新产物包结构 */
+  packageStructure?: PersistedPackageStructure
+}
+
+export interface RuntimeStateSaveRequest {
+  stageOverrides?: Record<string, unknown>
+  downstreamRuns?: Record<string, DownstreamRunInfo>
+  /** 对话上传文件列表（仅元数据） */
+  uploadedFiles?: PersistedChatFile[]
+  /** 最新产物包结构 */
+  packageStructure?: PersistedPackageStructure
+}
+
+/** 持久化的对话上传文件元数据（不含 rawFile / content 等大字段） */
+export interface PersistedChatFile {
+  id: string
+  name: string
+  size: number
+  status: string
+  type?: string
+  mimeType?: string
+  metadata?: Record<string, string>
+}
+
+/** 持久化的产物包结构 */
+export interface PersistedPackageStructure {
+  fileName: string
+  fileNames: string[]
+  /** importPackage 返回的员工实例 ID，用于刷新后恢复 AI 评估入口 */
+  employeeId?: string
+}
+
 export interface StartHiringConversationResult {
   hireId: string
   sessionId: string
@@ -646,14 +689,14 @@ export const hiringWorkflowApi = {
     return envelope.data
   },
 
-  /** 获取前端对话状态缓存（刷新页面后用于恢复对话历史）。*/
-  async getConversationCache(hireId: string): Promise<unknown> {
-    return httpClient.get<unknown>(`/api/v1/hirings/${encodeURIComponent(hireId)}/conversation/cache`)
+  /** 获取运行时状态（阶段覆盖 + 下游运行记录）。*/
+  async getRuntimeState(hireId: string): Promise<RuntimeStateSnapshot> {
+    return httpClient.get<RuntimeStateSnapshot>(`/api/v1/hirings/${encodeURIComponent(hireId)}/runtime-state`)
   },
 
-  /** 保存前端对话状态缓存（messages + stageOverrides）。*/
-  async saveConversationCache(hireId: string, cache: unknown): Promise<void> {
-    await httpClient.put<boolean>(`/api/v1/hirings/${encodeURIComponent(hireId)}/conversation/cache`, cache)
+  /** 保存运行时状态（阶段覆盖 + 下游运行记录）。*/
+  async saveRuntimeState(hireId: string, state: RuntimeStateSaveRequest): Promise<void> {
+    await httpClient.put<boolean>(`/api/v1/hirings/${encodeURIComponent(hireId)}/runtime-state`, state)
   },
 
   async getExternalConfig(hireId: string): Promise<HiringExternalSystemConfig> {

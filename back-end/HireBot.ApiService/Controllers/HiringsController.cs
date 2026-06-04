@@ -19,73 +19,6 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    [HttpPost("{hireId}/conversation/start")]
-    public async Task<IActionResult> StartConversation(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.StartConversationAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/conversation/pause")]
-    public async Task<IActionResult> PauseConversation(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.PauseConversationAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/conversation/resume")]
-    public async Task<IActionResult> ResumeConversation(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.ResumeConversationAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/conversation/reset")]
-    public async Task<IActionResult> ResetConversation(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.ResetConversationAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/conversation/messages")]
-    public async Task<IActionResult> SendConversationMessage(
-        string hireId,
-        [FromBody] HiringConversationMessageRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<HiringConversationResultDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await employeeHiringService.SendConversationMessageAsync(hireId, request, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/conversation/sync")]
-    public async Task<IActionResult> SyncConversationTurn(
-        string hireId,
-        [FromBody] HiringConversationSyncRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<HiringConversationResultDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await employeeHiringService.SyncConversationTurnAsync(hireId, request, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpGet("{hireId}/conversation/messages")]
-    public async Task<IActionResult> GetConversationTimeline(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.GetConversationTimelineAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
     [HttpGet("{hireId}/stage-preview")]
     public async Task<IActionResult> GetStagePreview(
         string hireId,
@@ -142,8 +75,52 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
+    /// <summary>同步对话轮次，解析 AI 回复中的结构化数据标签并保存。</summary>
+    [HttpPost("{hireId}/conversation/sync")]
+    public async Task<IActionResult> SyncConversationTurn(
+        string hireId,
+        [FromBody] HiringConversationSyncRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<HiringConversationSyncResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeHiringService.SyncConversationTurnAsync(hireId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    /// <summary>获取已收集的结构化数据。</summary>
+    [HttpGet("{hireId}/structured-data")]
+    public async Task<IActionResult> GetStructuredData(string hireId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.GetStructuredDataAsync(hireId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    /// <summary>保存运行时状态（阶段覆盖配置 + 下游运行记录，统一接口）。</summary>
+    [HttpPut("{hireId}/runtime-state")]
+    public async Task<IActionResult> SaveRuntimeState(
+        string hireId,
+        [FromBody] SaveRuntimeStateRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.SaveRuntimeStateAsync(hireId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    /// <summary>获取运行时状态（阶段覆盖配置 + 下游运行记录）。</summary>
+    [HttpGet("{hireId}/runtime-state")]
+    public async Task<IActionResult> GetRuntimeState(string hireId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.GetRuntimeStateAsync(hireId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     /// <summary>
-    /// 前端从沙箱网关直接下载产物包后上传至此接口，跳过后端对 KingCrab 的依赖，完成数字员工创建。
+    /// 前端从沙箱网关直接下载产物包后上传至此接口,跳过后端对 KingCrab 的依赖，完成数字员工创建。
     /// </summary>
     /// <param name="hireId">雇佣会话 ID。</param>
     /// <param name="packageFile">沙箱生成的产物 zip（multipart 文件字段）。</param>
@@ -198,24 +175,6 @@ public sealed class HiringsController(
         return BuildDownloadResponse(result);
     }
 
-    /// <summary>获取前端对话状态缓存（刷新页面后用于恢复对话历史）。</summary>
-    [HttpGet("{hireId}/conversation/cache")]
-    public async Task<IActionResult> GetConversationCache(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.GetConversationCacheAsync(hireId, cancellationToken);
-        return Ok(response);
-    }
-
-    /// <summary>保存前端对话状态缓存（messages + stageOverrides）。</summary>
-    [HttpPut("{hireId}/conversation/cache")]
-    public async Task<IActionResult> SaveConversationCache(
-        string hireId,
-        [FromBody] JsonElement cache,
-        CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.SaveConversationCacheAsync(hireId, cache, cancellationToken);
-        return Ok(response);
-    }
     /// <summary>获取该雇佣流程的所有 TODO 事项（供前端 TODO 面板初始化加载）。</summary>
     [HttpGet("{hireId}/todos")]
     public async Task<IActionResult> GetTodos(string hireId, CancellationToken cancellationToken = default)

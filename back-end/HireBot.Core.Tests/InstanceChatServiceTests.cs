@@ -79,7 +79,7 @@ public sealed class InstanceChatServiceTests
                     NullLogger<KingCrabSandboxTokenProvider>.Instance),
                 NullLogger<KingCrabHttpClient>.Instance),
             dbContext,
-            new RequestContextService(httpContextAccessor));
+            new TestUserIdentity("owner-1", "tenant-1", "operator-1"));
 
         var response = await service.ClearFeishuChannelOverrideAsync("pc_1");
 
@@ -151,7 +151,7 @@ public sealed class InstanceChatServiceTests
                     NullLogger<KingCrabSandboxTokenProvider>.Instance),
                 NullLogger<KingCrabHttpClient>.Instance),
             dbContext,
-            new RequestContextService(httpContextAccessor));
+            new TestUserIdentity("owner-1", "tenant-1", "operator-1"));
 
         var response = await service.UpdateDingTalkChannelConfigAsync("pc_1", new HireBot.Abstraction.Models.EmployeeRuntime.DingTalkChannelConfig
         {
@@ -256,4 +256,22 @@ public sealed class InstanceChatServiceTests
         string? Authorization,
         string? OwnerHeader,
         string? Body);
+
+    private sealed class TestUserIdentity(string ownerSubject, string tenantId, string operatorId) : HireBot.Abstraction.Infrastructure.Identity.IUserIdentity
+    {
+        public string Id => ownerSubject;
+        public string Email => "test@example.com";
+        public string UserName => "testuser";
+        public string FirstName => "Test";
+        public string LastName => "User";
+        public string FullName => "Test User";
+        public string DisplayName => "Test User";
+        public string? TenantId => tenantId;
+        public string? TenantName => "Test Tenant";
+        public string OperatorId => operatorId;
+        public string OwnerSubject => ownerSubject;
+        public string? Role => "admin";
+        public bool IsAuthenticated => true;
+        public string? DepartmentId => null;
+    }
 }

@@ -1,14 +1,18 @@
 using System.ComponentModel.DataAnnotations;
+using HireBot.Abstraction.Contracts;
 
 namespace HireBot.Repository.Entities;
 
-public sealed class HiringAuditLogEntity
+public sealed class HiringAuditLogEntity : ITenant
 {
     [Key]
     public Guid AuditId { get; set; } = Guid.NewGuid();
 
     [MaxLength(64)]
     public required string SessionId { get; set; }
+
+    [MaxLength(128)]
+    public string? TenantId { get; set; }
 
     [MaxLength(64)]
     public required string HireId { get; set; }
