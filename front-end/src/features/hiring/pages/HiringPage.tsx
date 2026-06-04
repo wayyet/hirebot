@@ -1,14 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Upload, X } from 'lucide-react'
 import i18n from '@/i18n'
 
 import { api, HiringAuditDecision, HiringCollectionStage } from '@/infra/api'
 import type {
-  EmployeeTemplateDetail,
   HiringCollectionStageType,
-  HiringConversationMaterial,
   HiringExternalSystemConfig,
 } from '@/infra/api'
 import { GatewayWs, type GatewayMessage } from '@/infra/sandbox/gateway-ws'
@@ -34,21 +31,41 @@ import {
   useAutoFocusStage,
 } from './hooks/useHiringEffects'
 import { mkId, sleep, normalizeErrorMessage, normalizeAssistantReply } from './utils/hiringPageHelpers'
+import {
+  EXTERNAL_CONFIG_REPACKAGE_NOTICE,
+  downloadBlob,
+  fileToChatFile,
+  toConversationMaterials,
+  normalizeCollectionStage,
+  formatFileSize,
+} from './utils/hiringFileUtils'
+import {
+  type CachedStageOverride,
+  hasPendingDownstreamRuns,
+} from './utils/hiringCacheNormalizers'
+import {
+  buildProjectionPassPayload,
+  hasConsumableProducerProjection,
+  buildSkillGenerationPayload,
+  buildDownstreamPrompt,
+  isSkillGenerationApprovalMessage,
+  isPackagingTestCasesApprovalMessage,
+  isPackagingTestCasesSkipMessage,
+} from './utils/hiringDownstreamTriggers'
 import { HiringConversationPanel } from './components/HiringConversationPanel'
 import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
 import { HiringTodoPanel } from './components/HiringTodoPanel'
 import { HiringStagePills } from './components/HiringStagePills'
+import { SkillUploadModal } from './components/SkillUploadModal'
 import type {
   ArtifactDisplayData,
   ChatFile,
   ChatMessage,
-  DefinedSkillItem,
   DownstreamRunKey,
   DownstreamRunsSnapshot,
   DownstreamRunState,
   DownstreamRunStatus,
-  MaterialRequestedCategory,
   SkillUploadPayload,
   StageGateData,
   ToolStep,
@@ -56,7 +73,6 @@ import type {
 import {
   buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
-  buildUiStageOverrides,
   deriveStageOverridesFromDownstreamRuns,
   shouldHoldExternalStageUntilSkillImplementation,
   resolveDownstreamRunFromArtifact,
@@ -78,507 +94,10 @@ import {
 import {
   buildPendingStageAdvanceConfirmation,
   shouldRequireStageAdvanceConfirmation,
-  type PendingStageAdvanceConfirmation,
   type StageAdvanceIntent,
 } from './stageAdvanceConfirmation'
-import { extractConversationMaterialFiles } from './materialUploadMatching'
-import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
+import { type HiringUiStage } from './hiringWorkflowViewModel'
 import { extractLatestMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
-
-const EXTERNAL_CONFIG_REPACKAGE_NOTICE = '外部系统配置已更新，旧产物包已失效。请重新生成实例包后再继续导入。'
-
-function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = fileName
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
-
-const MAX_MATERIAL_CHARS = 120_000
-
-async function fileToChatFile(file: File, type: 'file' | 'skill' = 'file', metadata?: Record<string, string>): Promise<ChatFile> {
-  const content = type === 'file' ? await readFileText(file) : undefined
-  return {
-    id: mkId(),
-    name: file.name,
-    size: file.size,
-    status: i18n.t('hiring.file.parsed') as '已解析',
-    type,
-    mimeType: file.type || undefined,
-    content,
-    metadata,
-    rawFile: file,
-  }
-}
-
-function readFileText(file: File): Promise<string | undefined> {
-  if (file.size > MAX_MATERIAL_CHARS * 4) {
-    return Promise.resolve(i18n.t('hiring.file.tooLarge', { name: file.name, size: file.size }))
-  }
-
-  return new Promise(resolve => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const value = typeof reader.result === 'string' ? reader.result : undefined
-      resolve(value && value.length > MAX_MATERIAL_CHARS ? `${value.slice(0, MAX_MATERIAL_CHARS)}\n...[truncated]` : value)
-    }
-    reader.onerror = () => resolve(i18n.t('hiring.file.readFailed', { name: file.name }))
-    reader.readAsText(file)
-  })
-}
-
-function toConversationMaterials(files?: ChatFile[]): HiringConversationMaterial[] | undefined {
-  if (!files?.length) return undefined
-
-  return files.map(file => ({
-    type: file.type ?? 'file',
-    name: file.name,
-    content: file.content,
-    size: file.size,
-    mimeType: file.mimeType,
-    metadata: {
-      status: file.status,
-      ...(file.metadata ?? {}),
-    },
-  }))
-}
-
-function normalizeCollectionStage(value: string): HiringCollectionStageType {
-  if (value === HiringCollectionStage.Material) return HiringCollectionStage.Material
-  if (value === HiringCollectionStage.Skill) return HiringCollectionStage.Skill
-  if (value === HiringCollectionStage.External) return HiringCollectionStage.External
-  if (value === HiringCollectionStage.ReadyForPackaging) return HiringCollectionStage.ReadyForPackaging
-  return HiringCollectionStage.Material
-}
-
-function formatFileSize(bytes: number) {
-  return bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`
-}
-
-function hasPendingDownstreamRuns(runs: DownstreamRunsSnapshot): boolean {
-  return Object.values(runs).some(run => run?.status === 'waiting_confirm' || run?.status === 'running')
-}
-
-function asPlainObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null
-}
-
-function asStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map(item => typeof item === 'string' ? item.trim() : '')
-      .filter(item => item.length > 0)
-  }
-
-  if (typeof value === 'string' && value.trim().length > 0) {
-    return [value.trim()]
-  }
-
-  return []
-}
-
-type CachedStageOverride = [HiringUiStage, 'running' | 'completed' | 'failed']
-
-function sanitizeFileForCache(file: ChatFile): ChatFile {
-  return {
-    id: file.id,
-    name: file.name,
-    size: file.size,
-    status: file.status,
-    type: file.type,
-    mimeType: file.mimeType,
-    metadata: file.metadata,
-  }
-}
-
-function sanitizeMessagesForCache(messages: ChatMessage[]): ChatMessage[] {
-  return messages.map(message => ({
-    ...message,
-    files: message.files?.map(sanitizeFileForCache),
-  }))
-}
-
-function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
-  const record = asPlainObject(value)
-  if (!record) return undefined
-
-  const entries = Object.entries(record)
-    .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined
-}
-
-function normalizeCachedFiles(value: unknown): ChatFile[] | undefined {
-  if (!Array.isArray(value)) return undefined
-
-  const files = value
-    .map((item, index): ChatFile | null => {
-      const record = asPlainObject(item)
-      const name = typeof record?.name === 'string' ? record.name.trim() : ''
-      if (!name) return null
-
-      const size = typeof record?.size === 'number' && Number.isFinite(record.size)
-        ? Math.max(0, record.size)
-        : 0
-      const rawStatus = record?.status
-      const rawType = record?.type
-      return {
-        id: typeof record?.id === 'string' && record.id ? record.id : `cached_file_${index}`,
-        name,
-        size,
-        status: rawStatus === '解析中' ? '解析中' : '已解析',
-        type: rawType === 'skill' ? 'skill' : 'file',
-        mimeType: typeof record?.mimeType === 'string' ? record.mimeType : undefined,
-        metadata: normalizeStringRecord(record?.metadata),
-      }
-    })
-    .filter((file): file is ChatFile => file !== null)
-
-  return files.length > 0 ? files : undefined
-}
-
-function normalizeCachedToolSteps(value: unknown): ToolStep[] | undefined {
-  if (!Array.isArray(value)) return undefined
-
-  const steps = value
-    .map((item, index): ToolStep | null => {
-      const record = asPlainObject(item)
-      const name = typeof record?.name === 'string' ? record.name.trim() : ''
-      if (!name) return null
-
-      const status = record?.status === 'error'
-        ? 'error'
-        : record?.status === 'done'
-          ? 'done'
-          : 'running'
-      return {
-        id: typeof record?.id === 'string' && record.id ? record.id : `cached_tool_${index}`,
-        name,
-        status,
-        args: typeof record?.args === 'string' ? record.args : undefined,
-        result: typeof record?.result === 'string' ? record.result : undefined,
-      }
-    })
-    .filter((step): step is ToolStep => step !== null)
-
-  return steps.length > 0 ? steps : undefined
-}
-
-function normalizeCachedMessages(value: unknown): ChatMessage[] {
-  if (!Array.isArray(value)) return []
-
-  return value
-    .map((item, index): ChatMessage | null => {
-      const record = asPlainObject(item)
-      if (!record) return null
-
-      const role = record.role
-      if (role !== 'bot' && role !== 'user' && role !== 'artifact' && role !== 'stage_gate') {
-        return null
-      }
-
-      const message: ChatMessage = {
-        id: typeof record.id === 'string' && record.id ? record.id : `cached_message_${index}`,
-        role,
-        content: typeof record.content === 'string' ? record.content : '',
-      }
-
-      const files = normalizeCachedFiles(record.files)
-      if (files) message.files = files
-
-      const artifact = asPlainObject(record.artifact)
-      if (artifact) message.artifact = artifact as unknown as ArtifactDisplayData
-
-      const stageGate = asPlainObject(record.stageGate)
-      if (stageGate) message.stageGate = stageGate as unknown as StageGateData
-
-      const toolSteps = normalizeCachedToolSteps(record.toolSteps)
-      if (toolSteps) message.toolSteps = toolSteps
-
-      return message
-    })
-    .filter((message): message is ChatMessage => message !== null)
-}
-
-function normalizeCachedStageOverrides(value: unknown): CachedStageOverride[] {
-  if (!Array.isArray(value)) return []
-
-  return value
-    .map((item): CachedStageOverride | null => {
-      if (!Array.isArray(item) || item.length < 2) return null
-      const stage = item[0]
-      const status = item[1]
-      const validStage =
-        stage === HiringCollectionStage.Material ||
-        stage === HiringCollectionStage.Skill ||
-        stage === HiringCollectionStage.External ||
-        stage === HiringCollectionStage.ReadyForPackaging
-      const validStatus = status === 'running' || status === 'completed' || status === 'failed'
-      return validStage && validStatus ? [stage, status] : null
-    })
-    .filter((item): item is CachedStageOverride => item !== null)
-}
-
-type DownstreamTarget = 'ontology-extraction' | 'ontology-projection' | 'skill-generation' | 'packaging-test-cases'
-
-function extractSkillWorkorderItems(summary: unknown): Record<string, unknown>[] {
-  const record = asPlainObject(summary)
-  if (!record) return []
-
-  const items = Array.isArray(record.items)
-    ? record.items
-    : Array.isArray(record.skills)
-      ? record.skills
-      : []
-
-  return items
-    .map(item => asPlainObject(item))
-    .filter((item): item is Record<string, unknown> => item !== null)
-}
-
-function buildProjectionPassPayload(summary: unknown): Record<string, unknown> | null {
-  const record = asPlainObject(summary)
-  if (!record) return null
-
-  const workspaceRoot = typeof record.workspace_root === 'string' ? record.workspace_root.trim() : ''
-  if (!workspaceRoot) return null
-
-  const skills = extractSkillWorkorderItems(summary)
-    .map((item) => {
-      const skillSlug = typeof item.name === 'string'
-        ? item.name.trim()
-        : typeof item.skill_slug === 'string'
-          ? item.skill_slug.trim()
-          : typeof item.skillName === 'string'
-            ? item.skillName.trim()
-            : ''
-      const skillName = typeof item.display_name === 'string'
-        ? item.display_name.trim()
-        : typeof item.skill_name === 'string'
-          ? item.skill_name.trim()
-          : typeof item.title === 'string'
-            ? item.title.trim()
-            : skillSlug
-      const triggers = Array.isArray(item.triggers)
-        ? asStringArray(item.triggers)
-        : asStringArray(item.trigger)
-      const description = typeof item.description === 'string' ? item.description.trim() : ''
-
-      if (!skillSlug || !skillName) {
-        return null
-      }
-
-      const normalized: Record<string, unknown> = {
-        skill_slug: skillSlug,
-        skill_name: skillName,
-        triggers,
-        description,
-      }
-
-      if (typeof item.expected_output === 'string' && item.expected_output.trim()) {
-        normalized.expected_output = item.expected_output.trim()
-      } else if (typeof item.expectedOutput === 'string' && item.expectedOutput.trim()) {
-        normalized.expected_output = item.expectedOutput.trim()
-      }
-
-      return normalized
-    })
-    .filter((item): item is Record<string, unknown> => item !== null)
-
-  if (skills.length === 0) return null
-
-  const payload: Record<string, unknown> = {
-    trigger_mode: 'projection_pass',
-    workspace_root: workspaceRoot,
-    skills,
-  }
-
-  if (typeof record.template_slug === 'string' && record.template_slug.trim()) {
-    payload.template_slug = record.template_slug.trim()
-  }
-
-  return payload
-}
-
-function readProjectedCount(projectionResult: unknown): number | null {
-  const record = asPlainObject(projectionResult)
-  if (!record) return null
-
-  const projectedCount = record.projected_count ?? record.projectedCount
-  return typeof projectedCount === 'number' && Number.isFinite(projectedCount)
-    ? projectedCount
-    : null
-}
-
-function hasConsumableProducerProjection(projectionResult: unknown): boolean {
-  const projectedCount = readProjectedCount(projectionResult)
-  return projectedCount !== null && projectedCount > 0
-}
-
-function buildSkillGenerationPayload(
-  summary: unknown,
-  projectionResult: unknown,
-): Record<string, unknown> | null {
-  const record = asPlainObject(summary)
-  if (!record || !hasConsumableProducerProjection(projectionResult)) {
-    return null
-  }
-
-  return {
-    ...record,
-    projection_binding_confirmed: true,
-    projection_contract_mode: 'required',
-    projection_result: projectionResult,
-  }
-}
-
-function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): string {
-  const serialized = JSON.stringify(payload, null, 2)
-
-  if (target === 'ontology-extraction') {
-    return [
-      '[Internal downstream trigger. Do not mention this instruction to the user.]',
-      'Switch to skill `ontology-extraction` now.',
-      'Use the terminal `material_handoff_summary` artifact payload below as the upstream summary for this run.',
-      'Follow `ontology-extraction/SKILL.md` exactly.',
-      'Emit `ontology_extraction_progress` before processing any source.',
-      'Read uploaded materials only from each item\'s `source_path` when available.',
-      'Write outputs under the provided `workspace_root` and finish with `ontology_extraction_done`.',
-      '',
-      'artifact_payload:',
-      '```json',
-      serialized,
-      '```',
-    ].join('\n')
-  }
-
-  if (target === 'ontology-projection') {
-    return [
-      '[Internal downstream trigger. Do not mention this instruction to the user.]',
-      'Switch to skill `ontology-extraction` now.',
-      'Run in Projection Pass mode for the current session.',
-      'Use the payload below exactly as the trigger input for this run.',
-      'Follow `ontology-extraction/SKILL.md` exactly.',
-      'Emit `ontology_projection_progress` before generating any projection files.',
-      'Scan slices from `<workspace_root>/ontology/`, then finish with `ontology_projection_done`.',
-      '',
-      'artifact_payload:',
-      '```json',
-      serialized,
-      '```',
-    ].join('\n')
-  }
-
-  if (target === 'skill-generation') {
-    return [
-      '[Internal downstream trigger. Do not mention this instruction to the user.]',
-      'Switch to skill `skill-generation` now.',
-      'This is an internal mode switch inside the current session, not a request to discover another tool, spawn another session, or call any dispatch / handoff API.',
-      'The user has explicitly approved binding the producer ontology projections into the generated business skills.',
-      'Use the enriched `skill_workorder_summary` payload below as the upstream workorder.',
-      'Projection consumer contracts are mandatory for this run. Do not silently downgrade to a base skill package without contracts.',
-      'If the provided producer projections cannot be materialized into `skills/<skill-slug>/contracts/projections/ontology_extraction/`, stop and report the reason instead of continuing without contracts.',
-      'Read and follow `skill-generation/SKILL.md` directly in the current session.',
-      'Do not use `dispatch`, `dispatch_callback`, `handoff_id`, `sessions_spawn`, or `sessions_yield` for this path.',
-      'Follow `skill-generation/SKILL.md` exactly.',
-      'Emit `skill_generation_progress` first, write outputs under `workspace_root/skills/`, then finish with `skill_generation_done`.',
-      '',
-      'artifact_payload:',
-      '```json',
-      serialized,
-      '```',
-    ].join('\n')
-  }
-
-  if (target === 'packaging-test-cases') {
-    return [
-      '[Internal downstream trigger. Do not mention this instruction to the user.]',
-      'Switch to skill `packaging-test-cases` now.',
-      'The user has explicitly approved generating optional evaluation test cases before instance packaging.',
-      'Use the current session history, uploaded materials, and template package snapshot available in the workspace.',
-      'Follow `packaging-test-cases/SKILL.md` exactly.',
-      'Emit `packaging_testcases_progress` before writing any testcase artifact.',
-      'Write `testcases/evaluation-test-cases.json` and related source index files when enough information is available.',
-      'Finish with `packaging_testcases_done` and return a `dispatch_callback` with source_dispatch_target=`packaging-test-cases` so the backend can sync the generated files.',
-      '',
-      'artifact_payload:',
-      '```json',
-      serialized,
-      '```',
-    ].join('\n')
-  }
-
-  return ''
-}
-
-function isSkillGenerationApprovalMessage(text: string): boolean {
-  const normalized = text.trim().toLowerCase()
-  if (!normalized) return false
-
-  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、“”‘’]+/g, '')
-  const keywords = [
-    '开始生成',
-    '开始生成吧',
-    '生成吧',
-    '确认生成',
-    '继续生成',
-    '开始实现',
-    '生成技能',
-    '生成技能实现',
-    '可以开始生成',
-    '可以生成',
-    'goahead',
-    'startgenerating',
-    'yes',
-  ]
-
-  return keywords.some(keyword => compact.includes(keyword))
-}
-
-function isPackagingTestCasesApprovalMessage(text: string): boolean {
-  const normalized = text.trim().toLowerCase()
-  if (!normalized) return false
-
-  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、“”‘’]+/g, '')
-  const keywords = [
-    '生成测试用例',
-    '生成评估用例',
-    '开始生成测试用例',
-    '进行测试用例生成',
-    '需要测试用例',
-    '可以生成测试用例',
-    '确认生成测试用例',
-    'testcase',
-    'testcases',
-    'yes',
-  ]
-
-  return keywords.some(keyword => compact.includes(keyword))
-}
-
-function isPackagingTestCasesSkipMessage(text: string): boolean {
-  const normalized = text.trim().toLowerCase()
-  if (!normalized) return false
-
-  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、“”‘’]+/g, '')
-  const keywords = [
-    '跳过',
-    '不生成',
-    '不用',
-    '不需要',
-    '先不管',
-    '直接打包',
-    '直接生成包',
-    '直接生成实例包',
-    'skip',
-    'no',
-  ]
-
-  return keywords.some(keyword => compact.includes(keyword))
-}
 
 export default function HiringPage() {
   const { templateId } = useParams()
@@ -684,8 +203,6 @@ export default function HiringPage() {
     uploadedConversationFiles,
     uploadedFileCount,
     isInteractionLocked,
-    wsStagesAllCompleted,
-    wsCanFinalize,
     canCreate,
     canDownloadFinalPackage,
     viewModel,
@@ -2788,150 +2305,3 @@ function CenterState({ message }: { message: string }) {
   )
 }
 
-function SkillUploadModal({
-  open,
-  disabled,
-  onClose,
-  onSubmit,
-}: {
-  open: boolean
-  disabled: boolean
-  onClose: () => void
-  onSubmit: (payload: SkillUploadPayload) => void
-}) {
-  const { t } = useTranslation()
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [dragOver, setDragOver] = useState(false)
-  const [file, setFile] = useState<File | null>(null)
-  const [form, setForm] = useState({ name: '', releaseNote: '', description: '' })
-
-  if (!open) return null
-
-  function handleFile(nextFile: File) {
-    const lowerName = nextFile.name.toLowerCase()
-    if (lowerName.endsWith('.zip') || lowerName.endsWith('.tar.gz') || lowerName.endsWith('.gz')) {
-      setFile(nextFile)
-    }
-  }
-
-  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
-    event.preventDefault()
-    setDragOver(false)
-    if (disabled) return
-    const dropped = event.dataTransfer.files[0]
-    if (dropped) handleFile(dropped)
-  }
-
-  const canSubmit = Boolean(file && form.name.trim() && form.description.trim() && !disabled)
-
-  return (
-    <div className="hb-modal-mask">
-      <div className="hb-modal hb-hiring-modal">
-        <div className="hb-modal-head hb-hiring-modal-head">
-          <div>
-            <h2 className="hb-modal-title">{t('hiring.skillUpload.title')}</h2>
-            <p className="hb-modal-sub">{t('hiring.skillUpload.desc')}</p>
-          </div>
-          <button onClick={onClose} disabled={disabled} className="hb-modal-close" aria-label={t('hiring.skillUpload.title')}>
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="hb-modal-body space-y-5">
-          <div className="hb-hiring-form-field">
-            <label className="hb-hiring-form-label">{t('hiring.skillUpload.package')} <span className="text-red-500">*</span></label>
-            <div
-              className={`hb-hiring-dropzone ${dragOver ? 'is-active' : file ? 'is-filled' : ''}`}
-              onClick={() => { if (!disabled) fileInputRef.current?.click() }}
-              onDragOver={(event) => { event.preventDefault(); if (!disabled) setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
-            >
-              <Upload size={22} className={`mx-auto mb-2 ${file ? 'text-violet-500' : 'text-slate-400'}`} />
-              {file ? (
-                <>
-                  <p className="hb-hiring-dropzone-file text-sm font-medium">{file.name}</p>
-                  <p className="hb-hiring-dropzone-sub mt-1 text-xs">{t('hiring.skillUpload.selectAgain')}</p>
-                </>
-              ) : (
-                <>
-                  <p className="hb-hiring-dropzone-copy text-sm">{t('hiring.skillUpload.dragHint')}</p>
-                  <p className="hb-hiring-dropzone-sub mt-1 text-xs">{t('hiring.skillUpload.supportedFormats')}</p>
-                </>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".zip,.tar.gz,.gz"
-                className="hidden"
-                disabled={disabled}
-                onChange={(event) => {
-                  const selected = event.target.files?.[0]
-                  if (selected) handleFile(selected)
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="hb-hiring-form-field">
-            <label className="hb-hiring-form-label">{t('hiring.skillUpload.name')} <span className="text-red-500">*</span></label>
-            <input
-              type="text"
-              disabled={disabled}
-              value={form.name}
-              onChange={(event) => setForm(prev => ({ ...prev, name: event.target.value }))}
-              placeholder={t('hiring.skillUpload.namePlaceholder')}
-              className="hb-hiring-form-input"
-            />
-          </div>
-
-          <div className="hb-hiring-form-field">
-            <label className="hb-hiring-form-label">
-              {t('hiring.skillUpload.releaseNote')}
-              <span className="hb-hiring-hint ml-1 font-normal">{t('hiring.skillUpload.releaseNoteOptional')}</span>
-            </label>
-            <textarea
-              disabled={disabled}
-              value={form.releaseNote}
-              onChange={(event) => setForm(prev => ({ ...prev, releaseNote: event.target.value.slice(0, 500) }))}
-              placeholder={t('hiring.skillUpload.releaseNotePlaceholder')}
-              rows={3}
-              className="hb-hiring-form-textarea"
-            />
-          </div>
-
-          <div className="hb-hiring-form-field">
-            <label className="hb-hiring-form-label">{t('hiring.skillUpload.description')} <span className="text-red-500">*</span></label>
-            <textarea
-              disabled={disabled}
-              value={form.description}
-              onChange={(event) => setForm(prev => ({ ...prev, description: event.target.value.slice(0, 1000) }))}
-              placeholder={t('hiring.skillUpload.descriptionPlaceholder')}
-              rows={4}
-              className="hb-hiring-form-textarea"
-            />
-          </div>
-        </div>
-
-        <div className="hb-modal-foot">
-          <button onClick={onClose} disabled={disabled} className="hb-btn-ghost">{t('hiring.button.cancel')}</button>
-          <button
-            disabled={!canSubmit}
-            onClick={() => {
-              if (!file) return
-              onSubmit({
-                file,
-                name: form.name.trim(),
-                releaseNote: form.releaseNote.trim(),
-                description: form.description.trim(),
-              })
-            }}
-            className="hb-btn-primary"
-          >
-            {t('hiring.button.submit')}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
