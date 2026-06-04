@@ -6,10 +6,10 @@ using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
+using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Hiring;
@@ -19,11 +19,11 @@ namespace HireBot.Core.Services.Hiring;
 /// </summary>
 internal sealed class EmployeeHiringService(
     ITemplateDataProvider templateDataProvider,
+    ITemplatePackageProvider templatePackageProvider,
     ISandboxService sandboxService,
     IHiringStageService hiringStageService,
     IUserIdentity userIdentity,
     HireBotDbContext dbContext,
-    IMemoryCache memoryCache,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
@@ -52,6 +52,7 @@ internal sealed class EmployeeHiringService(
         var sessionId = $"session-{Guid.NewGuid():N}";
 
         // 创建沙箱
+        logger.LogInformation("创建雇佣沙箱: HireId={HireId}", hireId);
         var sandboxResult = await sandboxService.CreateAsync(new SandboxCreateRequestDto
         {
             ScopeType = "Hire",
@@ -74,33 +75,185 @@ internal sealed class EmployeeHiringService(
 
         var sandboxId = sandboxResult.Data.SandboxId;
 
-        // 创建雇佣会话记录
-        dbContext.HiringSessions.Add(new HiringSessionEntity
+        try
         {
-            SessionId = sessionId,
-            HireId = hireId,
-            TemplateId = templateId,
-            OwnerSubject = ownerSubject,
-            TenantId = tenantId,
-            OperatorId = operatorId,
-            CreatedAtUtc = DateTimeOffset.UtcNow
-        });
-        await dbContext.SaveChangesAsync(cancellationToken);
+            // 等待沙箱启动到 Running 状态
+            logger.LogInformation("等待沙箱启动: SandboxId={SandboxId}", sandboxId);
+            var readyResult = await WaitForSandboxReadyAsync(sandboxResult.Data, cancellationToken);
+            if (!readyResult.Success || readyResult.Data is null)
+            {
+                logger.LogError("沙箱启动失败: {Message}", readyResult.Message);
+                await TryDeleteSandboxAsync(sandboxId, cancellationToken);
+                return ApiResponse<HireTemplateResultDto>.ErrorResponse(readyResult.Code, $"沙箱启动失败: {readyResult.Message}");
+            }
 
-        // 初始化阶段进度
-        await hiringStageService.UpdateStageProgressAsync(hireId, "material", null, cancellationToken);
+            var gatewayEndpoint = readyResult.Data.GatewayEndpoint;
 
-        logger.LogInformation("雇佣流程创建成功: HireId={HireId}, SandboxId={SandboxId}", hireId, sandboxId);
+            // 加载并上传数字员工模板到沙箱
+            logger.LogInformation("加载模板包: TemplateId={TemplateId}", templateId);
+            var templatePackage = await LoadTemplatePackageAsync(templateId, cancellationToken);
+            
+            logger.LogInformation("构建模板包存档: PackageId={PackageId}, FileCount={FileCount}", 
+                templatePackage.PackageId, templatePackage.PackageFiles.Count);
+            var archiveBytes = TemplatePackageArchiveBuilder.BuildArchive(templatePackage);
+            
+            // 显式释放模板包引用，帮助 GC 尽快回收大对象
+            templatePackage = null!;
+            
+            logger.LogInformation("上传模板包到沙箱: SandboxId={SandboxId}, Size={Size}KB", 
+                sandboxId, archiveBytes.Length / 1024);
+            var uploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+                new DigitalEmployeeTemplateUploadRequestDto
+                {
+                    SandboxId = sandboxId,
+                    OwnerSubject = ownerSubject,
+                    ArchiveBytes = archiveBytes,
+                    FileName = $"{templateId}-hiring.zip"
+                },
+                cancellationToken);
 
-        return ApiResponse<HireTemplateResultDto>.SuccessResponse(new HireTemplateResultDto(
-            HireId: hireId,
-            SandboxId: sandboxId,
-            Status: "created",
-            NextAction: "start_conversation",
-            SessionId: sessionId,
-            GatewayEndpoint: sandboxResult.Data.GatewayEndpoint,
-            TemplatePrimingRequired: true
-        ));
+            // 释放存档字节数组引用
+            archiveBytes = null!;
+
+            if (!uploadResult.Success || uploadResult.Data is null || !uploadResult.Data.Success)
+            {
+                var errorMsg = uploadResult.Data?.Error ?? uploadResult.Message;
+                logger.LogError("上传模板包失败: {Error}", errorMsg);
+                
+                // 上传失败，删除沙箱
+                await TryDeleteSandboxAsync(sandboxId, cancellationToken);
+                
+                return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                    uploadResult.Code > 0 ? uploadResult.Code : 500,
+                    $"上传模板包失败: {errorMsg}");
+            }
+
+            logger.LogInformation("模板包上传成功: SkillsInstalled={SkillsInstalled}", uploadResult.Data.SkillsInstalled);
+
+            // 创建雇佣会话记录
+            dbContext.HiringSessions.Add(new HiringSessionEntity
+            {
+                SessionId = sessionId,
+                HireId = hireId,
+                TemplateId = templateId,
+                OwnerSubject = ownerSubject,
+                TenantId = tenantId,
+                OperatorId = operatorId,
+                CreatedAtUtc = DateTimeOffset.UtcNow
+            });
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            // 初始化阶段进度（模板已上传，进入素材收集阶段）
+            await hiringStageService.UpdateStageProgressAsync(hireId, "material", null, cancellationToken);
+
+            logger.LogInformation("雇佣流程初始化成功: HireId={HireId}, SandboxId={SandboxId}", hireId, sandboxId);
+
+            return ApiResponse<HireTemplateResultDto>.SuccessResponse(new HireTemplateResultDto(
+                HireId: hireId,
+                SandboxId: sandboxId,
+                Status: "READY",
+                NextAction: "start_conversation",
+                SessionId: sessionId,
+                GatewayEndpoint: gatewayEndpoint,
+                TemplatePrimingRequired: false
+            ));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "雇佣流程初始化异常: HireId={HireId}, SandboxId={SandboxId}", hireId, sandboxId);
+            
+            // 异常发生，尝试删除沙箱
+            await TryDeleteSandboxAsync(sandboxId, cancellationToken);
+            
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, $"雇佣流程初始化失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 等待沙箱启动到 Running 状态（最多等待 3 分钟）。
+    /// </summary>
+    private async Task<ApiResponse<SandboxInstanceDto>> WaitForSandboxReadyAsync(
+        SandboxInstanceDto instance,
+        CancellationToken cancellationToken)
+    {
+        // 如果已经是 Running 状态，直接返回
+        if (string.Equals(instance.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(instance.GatewayEndpoint))
+        {
+            logger.LogInformation("沙箱已就绪: SandboxId={SandboxId}", instance.SandboxId);
+            return ApiResponse<SandboxInstanceDto>.SuccessResponse(instance);
+        }
+
+        // 轮询等待，最多 36 次，每次间隔 5 秒（总计 3 分钟）
+        for (var attempt = 1; attempt <= 36; attempt++)
+        {
+            logger.LogDebug("等待沙箱启动，第 {Attempt}/36 次尝试: SandboxId={SandboxId}, CurrentState={State}", 
+                attempt, instance.SandboxId, instance.State);
+
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+
+            var refreshResult = await sandboxService.RefreshAsync(
+                new SandboxInstanceLookupRequestDto
+                {
+                    SandboxId = instance.SandboxId
+                },
+                cancellationToken);
+
+            if (!refreshResult.Success || refreshResult.Data is null)
+            {
+                logger.LogWarning("刷新沙箱状态失败: {Message}", refreshResult.Message);
+                return ApiResponse<SandboxInstanceDto>.ErrorResponse(refreshResult.Code, refreshResult.Message);
+            }
+
+            if (string.Equals(refreshResult.Data.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(refreshResult.Data.GatewayEndpoint))
+            {
+                logger.LogInformation("沙箱已启动: SandboxId={SandboxId}, 耗时 {Seconds} 秒", 
+                    instance.SandboxId, attempt * 5);
+                return ApiResponse<SandboxInstanceDto>.SuccessResponse(refreshResult.Data);
+            }
+
+            // 如果状态是 Failed 或其他终止状态，提前退出
+            if (string.Equals(refreshResult.Data.State, "Failed", StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogError("沙箱启动失败: SandboxId={SandboxId}, State={State}", 
+                    instance.SandboxId, refreshResult.Data.State);
+                return ApiResponse<SandboxInstanceDto>.ErrorResponse(500, $"沙箱启动失败，状态: {refreshResult.Data.State}");
+            }
+        }
+
+        logger.LogError("沙箱启动超时: SandboxId={SandboxId}, 已等待 3 分钟", instance.SandboxId);
+        return ApiResponse<SandboxInstanceDto>.ErrorResponse(504, "沙箱启动超时（已等待 3 分钟）");
+    }
+
+    /// <summary>
+    /// 加载模板包（每次从提供者加载，不缓存，用完即释放）。
+    /// </summary>
+    private Task<TemplatePackageDefinition> LoadTemplatePackageAsync(
+        string templateId,
+        CancellationToken cancellationToken)
+    {
+        // 直接从提供者加载，不走缓存，确保大对象能及时回收
+        return templatePackageProvider.LoadAsync(templateId, cancellationToken);
+    }
+
+    /// <summary>
+    /// 尝试删除沙箱（用于错误回滚）。
+    /// </summary>
+    private async Task TryDeleteSandboxAsync(string sandboxId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            logger.LogWarning("尝试删除沙箱: SandboxId={SandboxId}", sandboxId);
+            await sandboxService.DeleteAsync(new SandboxInstanceLookupRequestDto
+            {
+                SandboxId = sandboxId
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "删除沙箱失败: SandboxId={SandboxId}", sandboxId);
+        }
     }
 
     public async Task<ApiResponse<HiringStatusDto>> GetHiringStatusAsync(
@@ -121,16 +274,46 @@ internal sealed class EmployeeHiringService(
 
         var stageProgress = await hiringStageService.GetStageProgressAsync(hireId, cancellationToken);
 
+        // 将沙箱物理状态映射为雇佣流程逻辑状态（前端期望的格式）
+        var hiringStatus = MapSandboxStateToHiringStatus(sandbox);
+
         return ApiResponse<HiringStatusDto>.SuccessResponse(new HiringStatusDto(
             HireId: hireId,
             SandboxId: sandbox?.SandboxId ?? "",
-            Status: sandbox?.State ?? "unknown",
+            Status: hiringStatus,
             GatewayEndpoint: sandbox?.GatewayEndpoint,
             ErrorCode: null,
             ErrorMessage: null,
             CollectionPhase: "material",
             CurrentStage: stageProgress?.CurrentStage ?? "material"
         ));
+    }
+
+    /// <summary>
+    /// 将沙箱物理状态映射为雇佣流程逻辑状态。
+    /// </summary>
+    private static string MapSandboxStateToHiringStatus(SandboxInstanceEntity? sandbox)
+    {
+        if (sandbox is null)
+        {
+            return "PENDING";
+        }
+
+        // Running + 有网关端点 = 雇佣流程就绪
+        if (string.Equals(sandbox.State, "Running", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(sandbox.GatewayEndpoint))
+        {
+            return "READY";
+        }
+
+        // Failed = 雇佣流程失败
+        if (string.Equals(sandbox.State, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "FAILED";
+        }
+
+        // 其他过渡状态（Allocated, Paused, Stopped 等）= 等待中
+        return "PENDING";
     }
 
     public Task<ApiResponse<HiringStagePreviewDto>> GetStagePreviewAsync(

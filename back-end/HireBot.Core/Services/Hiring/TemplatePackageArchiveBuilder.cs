@@ -14,15 +14,21 @@ internal static class TemplatePackageArchiveBuilder
     public static byte[] BuildArchive(TemplatePackageDefinition templatePackage)
     {
         using var memoryStream = new MemoryStream();
-        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
-        {
-            foreach (var file in templatePackage.PackageFiles)
-            {
-                var entry = archive.CreateEntry(file.RelativePath, CompressionLevel.Optimal);
-                using var entryStream = entry.Open();
-                entryStream.Write(file.Content, 0, file.Content.Length);
-            }
-        }
+        BuildArchiveToStream(templatePackage, memoryStream);
         return memoryStream.ToArray();
+    }
+
+    /// <summary>
+    /// 将模板包定义构建为 ZIP 存档并写入指定流（流式处理，减少内存占用）。
+    /// </summary>
+    public static void BuildArchiveToStream(TemplatePackageDefinition templatePackage, Stream outputStream)
+    {
+        using var archive = new ZipArchive(outputStream, ZipArchiveMode.Create, leaveOpen: true);
+        foreach (var file in templatePackage.PackageFiles)
+        {
+            var entry = archive.CreateEntry(file.RelativePath, CompressionLevel.Optimal);
+            using var entryStream = entry.Open();
+            entryStream.Write(file.Content, 0, file.Content.Length);
+        }
     }
 }
