@@ -23,6 +23,17 @@ import { inferGatewayProtocol } from '@/infra/sandbox/sandbox-utils'
 import { tokenService } from '@/infra/auth/token-service'
 import { TYPEWRITER_SOFT_FINISH_DEFER_MS, useTypewriterStream } from '@/shared/hooks/useTypewriterStream'
 
+import { useHiringState } from './hooks/useHiringState'
+import { useHiringComputed } from './hooks/useHiringComputed'
+import {
+  useScrollToBottom,
+  useBodyClassAndCleanup,
+  useTemplateDetail,
+  useSyncMessagesRef,
+  useRuntimeStateSync,
+  useAutoFocusStage,
+} from './hooks/useHiringEffects'
+import { mkId, sleep, normalizeErrorMessage, normalizeAssistantReply } from './utils/hiringPageHelpers'
 import { HiringConversationPanel } from './components/HiringConversationPanel'
 import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
@@ -73,29 +84,6 @@ import {
 import { extractConversationMaterialFiles } from './materialUploadMatching'
 import { type HiringUiStage, buildHiringWorkflowViewModel } from './hiringWorkflowViewModel'
 import { extractLatestMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
-
-function mkId() {
-  return `${Date.now()}_${Math.random().toString(36).slice(2)}`
-}
-
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, ms)
-  })
-}
-
-function normalizeErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return i18n.t('hiring.error.networkFailure')
-}
-
-function normalizeAssistantReply(content: string) {
-  const cleaned = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
-  return cleaned.length > 0 ? cleaned : content.trim()
-}
 
 const EXTERNAL_CONFIG_REPACKAGE_NOTICE = '外部系统配置已更新，旧产物包已失效。请重新生成实例包后再继续导入。'
 
@@ -194,15 +182,6 @@ function asStringArray(value: unknown): string[] {
 }
 
 type CachedStageOverride = [HiringUiStage, 'running' | 'completed' | 'failed']
-
-// 运行时状态快照（不包含 messages，从沙箱恢复）
-interface DownstreamRunsSnapshot {
-  [runId: string]: {
-    status: string
-    result?: unknown
-    error?: string
-  }
-}
 
 function sanitizeFileForCache(file: ChatFile): ChatFile {
   return {
@@ -341,88 +320,6 @@ function normalizeCachedStageOverrides(value: unknown): CachedStageOverride[] {
       return validStage && validStatus ? [stage, status] : null
     })
     .filter((item): item is CachedStageOverride => item !== null)
-}
-
-function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[] {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const artifact = messages[i].artifact
-    if (!artifact) continue
-    if (artifact.artifactType !== 'skill_workorder_summary' && artifact.artifactType !== 'skill_workorder_progress') {
-      continue
-    }
-    const payload = asPlainObject(artifact.data)
-    // 兼容两种 schema：
-    // - 历史前端约定：data.skills[]
-    // - stage-data-schema 实际定义 + AI 真实输出：data.items[]
-    const rawSkills = Array.isArray(payload?.skills)
-      ? payload.skills
-      : Array.isArray(payload?.items)
-        ? payload.items
-        : null
-    if (!rawSkills) return []
-
-    return rawSkills
-      .map(item => {
-        const record = asPlainObject(item)
-        if (!record) return null
-
-        // 单条字段同时兼容：
-        // - 前端历史字段：skill_name / skillName
-        // - schema 字段：display_name（可读名）/ name（slug）
-        const skillName = typeof record.skill_name === 'string'
-          ? record.skill_name.trim()
-          : typeof record.skillName === 'string'
-            ? record.skillName.trim()
-            : typeof record.display_name === 'string'
-              ? record.display_name.trim()
-              : typeof record.displayName === 'string'
-                ? record.displayName.trim()
-                : typeof record.name === 'string'
-                  ? record.name.trim()
-                  : ''
-        if (!skillName) return null
-
-        const capabilities = asStringArray(record.capabilities)
-        const capabilityText = typeof record.capability === 'string' && record.capability.trim().length > 0
-          ? record.capability.trim()
-          : ''
-        const description = typeof record.description === 'string' && record.description.trim().length > 0
-          ? record.description.trim()
-          : typeof record.capability_description === 'string' && record.capability_description.trim().length > 0
-            ? record.capability_description.trim()
-            : (capabilityText || capabilities[0] || '')
-
-        const skill: DefinedSkillItem = {
-          skillName,
-          generationAction: typeof record.generation_action === 'string'
-            ? record.generation_action
-            : typeof record.generationAction === 'string'
-              ? record.generationAction
-              : undefined,
-          description: description || undefined,
-          expectedOutput: typeof record.expected_output === 'string'
-            ? record.expected_output
-            : typeof record.expectedOutput === 'string'
-              ? record.expectedOutput
-              : typeof record.outputs === 'string'
-                ? record.outputs
-                : typeof record.output === 'string'
-                  ? record.output
-              : undefined,
-          triggers: asStringArray(record.trigger ?? record.triggers),
-          capabilities: capabilities.length > 0
-            ? capabilities
-            : capabilityText
-              ? [capabilityText]
-              : [],
-        }
-
-        return skill
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null)
-  }
-
-  return []
 }
 
 type DownstreamTarget = 'ontology-extraction' | 'ontology-projection' | 'skill-generation' | 'packaging-test-cases'
@@ -688,55 +585,119 @@ export default function HiringPage() {
   const navigate = useNavigate()
   const { t } = useTranslation()
 
-  const [template, setTemplate] = useState<EmployeeTemplateDetail | null>(null)
-  const [templateLoading, setTemplateLoading] = useState(true)
-  const [templateError, setTemplateError] = useState('')
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const messagesRef = useRef<ChatMessage[]>([])
-  const [typing, setTyping] = useState(false)
-  const [input, setInput] = useState('')
-  const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([])
-  const [allFiles, setAllFiles] = useState<ChatFile[]>([])
-  const [showSkillUploadModal, setShowSkillUploadModal] = useState(false)
-  const [journeyGuideVisible, setJourneyGuideVisible] = useState(false)
-  const [focusedStage, setFocusedStage] = useState<HiringUiStage | null>(null)
-  const [instanceCreated, setInstanceCreated] = useState(false)
-  const [createdId, setCreatedId] = useState('')
-  const [workflowHireId, setWorkflowHireId] = useState('')
-  const [workflowBooting, setWorkflowBooting] = useState(false)
-  const [workflowError, setWorkflowError] = useState('')
-  const [workflowNotice, setWorkflowNotice] = useState('')
-  const [workflowInitAttempted, setWorkflowInitAttempted] = useState(false)
-  const [artifactArchive, setArtifactArchive] = useState<{ fileName: string; blob: Blob } | null>(null)
-  const [artifactFileNames, setArtifactFileNames] = useState<string[]>([])
-  const [materialRequestedCategories, setMaterialRequestedCategories] = useState<MaterialRequestedCategory[]>([])
-  // template_package artifact 到达时暂存，触发 triggerCreate() 后消费
-  const [pendingPackageArtifact, setPendingPackageArtifact] = useState<{ fileUrl: string; fileName: string } | null>(null)
-  const [pendingStageConfirmation, setPendingStageConfirmation] = useState<PendingStageAdvanceConfirmation | null>(null)
-  const [requiresFreshPackaging, setRequiresFreshPackaging] = useState(false)
-  // 用户在 TODO 面板关联的 store skill UUID 列表；导入产物包时一并提交给后端用于合并
-  const [linkedStoreSkillIds, setLinkedStoreSkillIds] = useState<string[]>([])
-  const [submittingMessage, setSubmittingMessage] = useState(false)
-  const [streamingTurnInternal, setStreamingTurnInternal] = useState(false)
+  // ── 状态管理（使用自定义 Hook） ────────────────────────────────────────────
+  const [state, actions] = useHiringState()
+  const {
+    template,
+    templateLoading,
+    templateError,
+    messages,
+    typing,
+    input,
+    pendingFiles,
+    allFiles,
+    showSkillUploadModal,
+    journeyGuideVisible,
+    focusedStage,
+    instanceCreated,
+    createdId,
+    workflowHireId,
+    workflowBooting,
+    workflowError,
+    workflowNotice,
+    workflowInitAttempted,
+    artifactArchive,
+    artifactFileNames,
+    materialRequestedCategories,
+    pendingPackageArtifact,
+    pendingStageConfirmation,
+    requiresFreshPackaging,
+    linkedStoreSkillIds,
+    submittingMessage,
+    streamingTurnInternal,
+    resetting,
+    wsStageOverrides,
+    downstreamRuns,
+  } = state
+  const {
+    setTemplate,
+    setTemplateLoading,
+    setTemplateError,
+    setMessages,
+    setTyping,
+    setInput,
+    setPendingFiles,
+    setAllFiles,
+    setShowSkillUploadModal,
+    setJourneyGuideVisible,
+    setFocusedStage,
+    setInstanceCreated,
+    setCreatedId,
+    setWorkflowHireId,
+    setWorkflowBooting,
+    setWorkflowError,
+    setWorkflowNotice,
+    setWorkflowInitAttempted,
+    setArtifactArchive,
+    setArtifactFileNames,
+    setMaterialRequestedCategories,
+    setPendingPackageArtifact,
+    setPendingStageConfirmation,
+    setRequiresFreshPackaging,
+    setLinkedStoreSkillIds,
+    setSubmittingMessage,
+    setStreamingTurnInternal,
+    setResetting,
+    setWsStageOverrides,
+    setDownstreamRuns,
+  } = actions
+
+  // ── Typewriter 流式效果 ────────────────────────────────────────────────────
   const typewriterStream = useTypewriterStream()
-  // WS 流式展示内容：raw 文本由 typewriterStream.rawTextRef 保存，避免 UI 节奏影响同步端点。
   const streamingContent = typewriterStream.displayText
   const visibleStreamingContent = streamingTurnInternal ? null : streamingContent
   const visibleTyping = typing && !streamingTurnInternal
-  /**
-   * 当前轮次累积的 MCP 工具调甈步骤。
-   * - ref 作为权威数据源，避免 setState 异步造成 tool_result 丢失
-   * - streamingToolSteps 状态镜像仅用于驱动 React 重渲染
-   * - 终止事件完成后将 ref 附到最终 bot 消息上，并同时清空
-   */
+
+  // ── 计算属性（使用自定义 Hook） ────────────────────────────────────────────
+  const computed = useHiringComputed({
+    messages,
+    wsStageOverrides,
+    downstreamRuns,
+    latestSkillSummary: null, // 将在后续 ref 中填充
+    focusedStage,
+    t,
+    workflowHireId,
+    instanceCreated,
+    artifactArchive,
+    typing,
+    workflowBooting,
+    submittingMessage,
+    resetting,
+    allFiles,
+    pendingPackageArtifact,
+  })
+  const {
+    uiStageOverrides,
+    definedSkills,
+    finalPackageFileName,
+    hasTemplatePackageArtifact,
+    uploadedConversationFiles,
+    uploadedFileCount,
+    isInteractionLocked,
+    wsStagesAllCompleted,
+    wsCanFinalize,
+    canCreate,
+    canDownloadFinalPackage,
+    viewModel,
+    mergedStepPills,
+    mergedActionState,
+  } = computed
+
+  // ── Refs（保持独立，不纳入状态管理） ───────────────────────────────────────
+  const messagesRef = useRef<ChatMessage[]>([])
   const pendingToolStepsRef = useRef<ToolStep[]>([])
   const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([])
-  const [resetting, setResetting] = useState(false)
   const resettingRef = useRef(false)
-  /** WS 实时推送的阶段状态覆盖，优先级高于 REST 轮询的 dispatchStatus */
-  const [wsStageOverrides, setWsStageOverrides] = useState<Map<HiringUiStage, 'running' | 'completed' | 'failed'>>(new Map())
-  /** 下游执行轨状态：例如技能实现生成、外部配置生成等，不再与主阶段状态复用。 */
-  const [downstreamRuns, setDownstreamRuns] = useState<DownstreamRunsSnapshot>({})
   const downstreamRunsRef = useRef<DownstreamRunsSnapshot>({})
   const latestMaterialSummaryRef = useRef<unknown>(null)
   const latestSkillSummaryRef = useRef<unknown>(null)
@@ -974,16 +935,10 @@ export default function HiringPage() {
     setDownstreamRuns(restored.downstreamRuns)
     return true
   }
+
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
   const packagingTestCasesState = downstreamRuns['packaging-test-cases'] ?? null
-  const holdExternalStage = shouldHoldExternalStageUntilSkillImplementation(
-    latestSkillSummaryRef.current,
-    skillGenerationState,
-  )
-  const uiStageOverrides = useMemo(
-    () => buildUiStageOverrides(wsStageOverrides, skillGenerationState, holdExternalStage),
-    [wsStageOverrides, skillGenerationState, holdExternalStage],
-  )
+
   const handleExternalConfigChange = useCallback((
     config: HiringExternalSystemConfig | null,
     source: ExternalConfigChangeSource = 'hydrate',
@@ -1073,68 +1028,16 @@ export default function HiringPage() {
       return HiringCollectionStage.ReadyForPackaging
     })(),
   )
-  const definedSkills = useMemo(
-    () => extractLatestDefinedSkills(messages),
-    [messages],
-  )
-  const viewModel = buildHiringWorkflowViewModel(null, focusedStage, t)
-  // 将 WS 实时推送的阶段状态合并到阶段胶囊
-  const mergedStepPills = viewModel.stepPills.map(pill => {
-    const wsStatus = uiStageOverrides.get(pill.stage)
-    if (!wsStatus) return pill
-    return { ...pill, dispatchStatus: wsStatus }
-  })
-  // 三个收集阶段全部通过 WS 标记为 completed 时，允许触发打包（不依赖后端 workflowState 轮询）
-  // 仅当沙箱已推送 template_package artifact（pendingPackageArtifact 不为 null）才能点击生成实例，
-  // 否则后端无可导入的产物包。
-  const wsStagesAllCompleted = (
-    uiStageOverrides.get(HiringCollectionStage.Material) === 'completed' &&
-    uiStageOverrides.get(HiringCollectionStage.Skill) === 'completed' &&
-    uiStageOverrides.get(HiringCollectionStage.External) === 'completed'
-  )
-  const wsCanFinalize = wsStagesAllCompleted
-  const mergedActionState = wsCanFinalize
-    ? { ...viewModel.actionState, canFinalize: true }
-    : viewModel.actionState
-  const canCreate = Boolean(workflowHireId) && !instanceCreated
-  const canDownloadFinalPackage = instanceCreated && Boolean(workflowHireId)
-  const finalPackageFileName = useMemo(() => {
-    if (artifactArchive?.fileName) {
-      return artifactArchive.fileName
-    }
-    if (workflowHireId) {
-      return `${workflowHireId}_final_package.zip`
-    }
-    return ''
-  }, [artifactArchive?.fileName, workflowHireId])
-  const hasTemplatePackageArtifact = useMemo(
-    () => messages.some(message => message.artifact?.artifactType === 'template_package'),
-    [messages],
-  )
-  const isInteractionLocked = typing || workflowBooting || submittingMessage || resetting
-  const uploadedConversationFiles = useMemo(
-    () => extractConversationMaterialFiles(messages),
-    [messages],
-  )
-  const uploadedFileCount = Math.max(allFiles.length, uploadedConversationFiles.length)
 
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: visibleStreamingContent !== null ? 'auto' : 'smooth' })
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [messages, visibleTyping, visibleStreamingContent, streamingToolSteps])
+  // ── 副作用 Hooks ────────────────────────────────────────────────────────────
+  useScrollToBottom(chatEndRef, messages, visibleTyping, visibleStreamingContent, streamingToolSteps)
+  useBodyClassAndCleanup(wsRef)
+  useTemplateDetail(templateId, setTemplate, setTemplateLoading, setTemplateError, t, normalizeErrorMessage)
+  useSyncMessagesRef(messages, messagesRef)
+  useRuntimeStateSync(workflowHireId, wsStageOverrides, downstreamRuns)
+  useAutoFocusStage(journeyGuideVisible, focusedStage, workflowCurrentStage, setFocusedStage)
 
-  useEffect(() => {
-    document.body.classList.add('hb-body-hiring-prototype')
-    return () => {
-      document.body.classList.remove('hb-body-hiring-prototype')
-      // 离开页面时断开沙箱 WebSocket
-      wsRef.current?.disconnect()
-      wsRef.current = null
-    }
-  }, [])
-
+  // 工作流自动初始化
   useEffect(() => {
     if (templateLoading || templateError || !templateId) {
       return
@@ -1166,71 +1069,6 @@ export default function HiringPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPackageArtifact, workflowHireId, instanceCreated, pendingStageConfirmation, downstreamRuns])
-
-  // 对话状态变化时防抖保存到后端（messages 或 wsStageOverrides 变化时触发）
-  useEffect(() => {
-    messagesRef.current = messages
-  }, [messages])
-
-  // 保存运行时状态（只保存 stageOverrides 和 downstreamRuns，messages 从沙箱恢复）
-  useEffect(() => {
-    if (!workflowHireId) return
-    
-    // 如果没有任何状态需要保存，跳过
-    if (wsStageOverrides.size === 0 && Object.keys(downstreamRuns).length === 0) {
-      return
-    }
-
-    const timer = setTimeout(() => {
-      const state = {
-        stageOverrides: wsStageOverrides.size > 0 ? Object.fromEntries(wsStageOverrides) : undefined,
-        downstreamRuns: Object.keys(downstreamRuns).length > 0 ? downstreamRuns : undefined,
-      }
-      api.hiringWorkflow.saveRuntimeState(workflowHireId, state).catch(() => {})
-    }, 2000)
-    
-    return () => clearTimeout(timer)
-  }, [wsStageOverrides, downstreamRuns, workflowHireId])
-
-  useEffect(() => {
-    if (journeyGuideVisible && !focusedStage) {
-      setFocusedStage(workflowCurrentStage)
-    }
-  }, [focusedStage, journeyGuideVisible, workflowCurrentStage])
-
-  useEffect(() => {
-    if (!templateId) {
-      setTemplate(null)
-      setTemplateLoading(false)
-      setTemplateError(t('hiring.error.templateParamMissing'))
-      return
-    }
-
-    let mounted = true
-    setTemplateLoading(true)
-    setTemplateError('')
-    api.employeeTemplate.getDetail(templateId)
-      .then((detail) => {
-        if (mounted) {
-          setTemplate(detail)
-        }
-      })
-      .catch((error: unknown) => {
-        if (mounted) {
-          setTemplate(null)
-          setTemplateError(normalizeErrorMessage(error))
-        }
-      })
-      .finally(() => {
-        if (mounted) {
-          setTemplateLoading(false)
-        }
-      })
-
-    return () => {
-      mounted = false
-    }
-  }, [templateId])
 
   const introName = template?.name ?? t('hiring.intro.digitalEmployee')
   const introAbilities = template?.coreAbilities.slice(0, 3).join('、') || t('hiring.intro.defaultAbilities')
