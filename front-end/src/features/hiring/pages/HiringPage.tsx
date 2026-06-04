@@ -195,10 +195,13 @@ function asStringArray(value: unknown): string[] {
 
 type CachedStageOverride = [HiringUiStage, 'running' | 'completed' | 'failed']
 
-interface ConversationCacheSnapshot {
-  messages?: unknown
-  stageOverrides?: unknown
-  downstreamRuns?: DownstreamRunsSnapshot
+// 运行时状态快照（不包含 messages，从沙箱恢复）
+interface DownstreamRunsSnapshot {
+  [runId: string]: {
+    status: string
+    result?: unknown
+    error?: string
+  }
 }
 
 function sanitizeFileForCache(file: ChatFile): ChatFile {
@@ -879,33 +882,31 @@ export default function HiringPage() {
     appendExternalConfigCommittedArtifact(latestExternalConfigRef.current)
   }
 
-  async function restoreConversationFromBackendCache(
-    hireId: string,
-    mode: 'always' | 'if-longer' = 'if-longer',
-  ): Promise<boolean> {
-    const cached = await api.hiringWorkflow.getConversationCache(hireId) as ConversationCacheSnapshot | null
-    let restored = false
+  // 从后端恢复运行时状态（只恢复 stageOverrides 和 downstreamRuns）
+  async function restoreRuntimeState(hireId: string): Promise<boolean> {
+    try {
+      const state = await api.hiringWorkflow.getRuntimeState(hireId)
+      let restored = false
 
-    const cachedMessages = normalizeCachedMessages(cached?.messages)
-    if (cachedMessages.length > 0 && (mode === 'always' || cachedMessages.length >= messagesRef.current.length)) {
-      applyRestoredMessages(cachedMessages)
-      restored = true
+      // 恢复阶段覆盖配置
+      if (state.stageOverrides && Object.keys(state.stageOverrides).length > 0) {
+        const stageOverridesEntries = Object.entries(state.stageOverrides) as CachedStageOverride[]
+        setWsStageOverrides(new Map(stageOverridesEntries))
+        restored = true
+      }
+
+      // 恢复下游运行记录
+      if (state.downstreamRuns && Object.keys(state.downstreamRuns).length > 0) {
+        const merged: DownstreamRunsSnapshot = { ...downstreamRunsRef.current, ...state.downstreamRuns }
+        downstreamRunsRef.current = merged
+        setDownstreamRuns(merged)
+        restored = true
+      }
+
+      return restored
+    } catch {
+      return false
     }
-
-    const cachedStageOverrides = normalizeCachedStageOverrides(cached?.stageOverrides)
-    if (cachedStageOverrides.length > 0) {
-      setWsStageOverrides(new Map(cachedStageOverrides))
-      restored = true
-    }
-
-    if (cached?.downstreamRuns && Object.keys(cached.downstreamRuns).length > 0) {
-      const merged: DownstreamRunsSnapshot = { ...downstreamRunsRef.current, ...cached.downstreamRuns }
-      downstreamRunsRef.current = merged
-      setDownstreamRuns(merged)
-      restored = true
-    }
-
-    return restored
   }
 
   async function restoreConversationFromSandboxHistory(
@@ -1157,22 +1158,25 @@ export default function HiringPage() {
     messagesRef.current = messages
   }, [messages])
 
+  // 保存运行时状态（只保存 stageOverrides 和 downstreamRuns，messages 从沙箱恢复）
   useEffect(() => {
     if (!workflowHireId) return
-    const timer = setTimeout(() => {
-      if (messagesRef.current.length === 0 && wsStageOverrides.size === 0 && Object.keys(downstreamRuns).length === 0) {
-        return
-      }
+    
+    // 如果没有任何状态需要保存，跳过
+    if (wsStageOverrides.size === 0 && Object.keys(downstreamRuns).length === 0) {
+      return
+    }
 
-      const cache = {
-        messages: sanitizeMessagesForCache(messagesRef.current),
-        stageOverrides: Array.from(wsStageOverrides.entries()),
-        downstreamRuns,
+    const timer = setTimeout(() => {
+      const state = {
+        stageOverrides: wsStageOverrides.size > 0 ? Object.fromEntries(wsStageOverrides) : undefined,
+        downstreamRuns: Object.keys(downstreamRuns).length > 0 ? downstreamRuns : undefined,
       }
-      api.hiringWorkflow.saveConversationCache(workflowHireId, cache).catch(() => {})
+      api.hiringWorkflow.saveRuntimeState(workflowHireId, state).catch(() => {})
     }, 2000)
+    
     return () => clearTimeout(timer)
-  }, [messages, wsStageOverrides, downstreamRuns, workflowHireId])
+  }, [wsStageOverrides, downstreamRuns, workflowHireId])
 
   useEffect(() => {
     if (journeyGuideVisible && !focusedStage) {
@@ -1367,7 +1371,8 @@ export default function HiringPage() {
     const hireIdForCache = currentHireId || workflowHireId
     if (existingMessages.length === 0 && hireIdForCache) {
       try {
-        const restoredFromCache = await restoreConversationFromBackendCache(hireIdForCache, 'if-longer')
+        // 尝试恢复运行时状态
+        const restoredFromCache = await restoreRuntimeState(hireIdForCache)
         if (restoredFromCache) {
           autoTemplateBootstrapSessionRef.current = sessionId
           return
@@ -1381,12 +1386,11 @@ export default function HiringPage() {
       // 1. 先从沙箱会话历史恢复消息，同时得到从 artifact tool call 派生的基础阶段状态
       await restoreConversationFromSandboxHistory(endpoint, sessionId, 'always')
 
-      // 2. 再从后端缓存加载完整 UI 快照，补齐沙箱历史无法表达的本地状态。
-      //    原因：wsStageOverrides 中 WS stage_update 事件不在沙箱消息历史里，无法从历史重建；
-      //          messages 缓存可兜底恢复历史接口过滤或丢失的用户附件气泡。
+      // 2. 从后端恢复运行时状态（wsStageOverrides + downstreamRuns）。
+      //    原因：wsStageOverrides 中 WS stage_update 事件不在沙箱消息历史里，无法从历史重建。
       if (hireIdForCache) {
         try {
-          await restoreConversationFromBackendCache(hireIdForCache, 'if-longer')
+          await restoreRuntimeState(hireIdForCache)
         } catch {
           // 缓存读取失败时静默忽略，保留历史派生值
         }
@@ -2615,8 +2619,8 @@ export default function HiringPage() {
         ontologyProjectionDoneSignatureRef.current = ''
         pendingInternalPromptsRef.current = []
 
-        // 清除后端对话缓存，确保重置后刷新页面不会恢复旧记录
-        api.hiringWorkflow.saveConversationCache(hireId, {}).catch(() => {})
+        // 清除后端运行时状态，确保重置后刷新页面不会恢复旧记录
+        api.hiringWorkflow.saveRuntimeState(hireId, {}).catch(() => {})
 
         // 重新连接 WebSocket
         const endpoint = gatewayEndpointRef.current

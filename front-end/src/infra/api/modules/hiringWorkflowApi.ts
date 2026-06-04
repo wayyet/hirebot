@@ -250,6 +250,22 @@ export interface HiringExternalSystemConfig {
   updatedAtUtc?: string | null
 }
 
+export interface DownstreamRunInfo {
+  status: string
+  result?: unknown
+  error?: string
+}
+
+export interface RuntimeStateSnapshot {
+  stageOverrides?: Record<string, unknown>
+  downstreamRuns?: Record<string, DownstreamRunInfo>
+}
+
+export interface RuntimeStateSaveRequest {
+  stageOverrides?: Record<string, unknown>
+  downstreamRuns?: Record<string, DownstreamRunInfo>
+}
+
 export interface StartHiringConversationResult {
   hireId: string
   sessionId: string
@@ -646,14 +662,14 @@ export const hiringWorkflowApi = {
     return envelope.data
   },
 
-  /** 获取前端对话状态缓存（刷新页面后用于恢复对话历史）。*/
-  async getConversationCache(hireId: string): Promise<unknown> {
-    return httpClient.get<unknown>(`/api/v1/hirings/${encodeURIComponent(hireId)}/conversation/cache`)
+  /** 获取运行时状态（阶段覆盖 + 下游运行记录）。*/
+  async getRuntimeState(hireId: string): Promise<RuntimeStateSnapshot> {
+    return httpClient.get<RuntimeStateSnapshot>(`/api/v1/hirings/${encodeURIComponent(hireId)}/runtime-state`)
   },
 
-  /** 保存前端对话状态缓存（messages + stageOverrides）。*/
-  async saveConversationCache(hireId: string, cache: unknown): Promise<void> {
-    await httpClient.put<boolean>(`/api/v1/hirings/${encodeURIComponent(hireId)}/conversation/cache`, cache)
+  /** 保存运行时状态（阶段覆盖 + 下游运行记录）。*/
+  async saveRuntimeState(hireId: string, state: RuntimeStateSaveRequest): Promise<void> {
+    await httpClient.put<boolean>(`/api/v1/hirings/${encodeURIComponent(hireId)}/runtime-state`, state)
   },
 
   async getExternalConfig(hireId: string): Promise<HiringExternalSystemConfig> {
