@@ -224,12 +224,7 @@ internal sealed partial class EvaluationService(
                 ResolveEvaluationPersistenceScope(employee, requestOwner));
         }
 
-        var tenantId = userIdentity.TenantId;
-        if (string.IsNullOrWhiteSpace(tenantId))
-        {
-            return null;
-        }
-
+        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
         employee = await GetEmployeeFromDbAsync(tenantId.Trim(), normalizedEmployeeId, cancellationToken);
         if (employee is null || !string.Equals(employee.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
         {
@@ -249,8 +244,8 @@ internal sealed partial class EvaluationService(
             return requestOwner;
         }
 
-        var tenantId = userIdentity.TenantId;
-        return string.IsNullOrWhiteSpace(tenantId) ? requestOwner : tenantId.Trim();
+        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
+        return tenantId.Trim();
     }
 
     /// <summary>

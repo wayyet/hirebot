@@ -117,7 +117,7 @@ public sealed partial class EmployeeRuntimeService(
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetDepartmentEmployeesAsync(CancellationToken cancellationToken = default)
     {
         var owner = userIdentity.OwnerSubject;
-        var tenantId = userIdentity.TenantId;
+        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
         
         // 查询条件：部门类型 + (已上岗 OR 当前用户创建的)
         var query = dbContext.Instances
@@ -150,13 +150,10 @@ public sealed partial class EmployeeRuntimeService(
         var employee = await ResolveEmployeeForOwnerAsync(owner, employeeId, cancellationToken);
         if (employee is null)
         {
-            var tenantId = userIdentity.TenantId;
-            if (!string.IsNullOrWhiteSpace(tenantId))
-            {
-                employee = await ResolveDepartmentEmployeeForTenantAsync(tenantId.Trim(), employeeId, cancellationToken);
-                if (employee is not null)
-                    scope = tenantId.Trim();
-            }
+            var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
+            employee = await ResolveDepartmentEmployeeForTenantAsync(tenantId.Trim(), employeeId, cancellationToken);
+            if (employee is not null)
+                scope = tenantId.Trim();
         }
 
         if (employee is null)
@@ -683,7 +680,7 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var owner = userIdentity.OwnerSubject;
-        var tenantId = userIdentity.TenantId;
+        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
 
         // 读取 zip 到内存
         byte[] zipBytes;
@@ -1082,7 +1079,7 @@ public sealed partial class EmployeeRuntimeService(
         var normalizedSourceId = sourceEmployeeId.Trim();
         var displayName = request.DisplayName.Trim();
         var owner = userIdentity.OwnerSubject;
-        var tenantId = userIdentity.TenantId;
+        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
         var operatorId = userIdentity.OperatorId;
 
         var ownerEmployees = await ResolveOwnerEmployeesAsync(owner, cancellationToken);
