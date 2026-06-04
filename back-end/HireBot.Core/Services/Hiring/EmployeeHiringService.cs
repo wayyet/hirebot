@@ -9,9 +9,11 @@ using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Core.Services.Hiring.TemplatePackages;
+using HireBot.Core.Services.Sandbox;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Hiring;
@@ -22,11 +24,14 @@ namespace HireBot.Core.Services.Hiring;
 internal sealed class EmployeeHiringService(
     ITemplateDataProvider templateDataProvider,
     ITemplatePackageProvider templatePackageProvider,
+    IDiscoveryRoleTemplatePackageProvider discoveryRoleTemplatePackageProvider,
     ISandboxService sandboxService,
     IHiringStageService hiringStageService,
     IEmployeeRuntimeService employeeRuntimeService,
     IUserIdentity userIdentity,
     HireBotDbContext dbContext,
+    IKingCrabHttpClient kingCrabHttpClient,
+    IConfiguration configuration,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
@@ -172,46 +177,64 @@ internal sealed class EmployeeHiringService(
 
             var gatewayEndpoint = readyResult.Data.GatewayEndpoint;
 
-            // 加载并上传数字员工模板到沙箱
-            logger.LogInformation("加载模板包: TemplateId={TemplateId}", templateId);
-            var templatePackage = await LoadTemplatePackageAsync(templateId, cancellationToken);
+            // 步骤 1: 上传雇佣对话教练模板 (employment-coach-conversation)
+            logger.LogInformation("加载雇佣对话教练模板 (employment-coach-conversation)");
+            var discoveryRolePackage = await discoveryRoleTemplatePackageProvider.LoadAsync(cancellationToken);
             
-            logger.LogInformation("构建模板包存档: PackageId={PackageId}, FileCount={FileCount}", 
-                templatePackage.PackageId, templatePackage.PackageFiles.Count);
-            var archiveBytes = TemplatePackageArchiveBuilder.BuildArchive(templatePackage);
+            logger.LogInformation("构建雇佣对话教练模板存档: PackageId={PackageId}, FileCount={FileCount}", 
+                discoveryRolePackage.PackageId, discoveryRolePackage.PackageFiles.Count);
+            var discoveryArchiveBytes = TemplatePackageArchiveBuilder.BuildArchive(discoveryRolePackage);
             
             // 显式释放模板包引用，帮助 GC 尽快回收大对象
-            templatePackage = null!;
+            discoveryRolePackage = null!;
             
-            logger.LogInformation("上传模板包到沙箱: SandboxId={SandboxId}, Size={Size}KB", 
-                sandboxId, archiveBytes.Length / 1024);
-            var uploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+            logger.LogInformation("上传雇佣对话教练模板到沙箱: SandboxId={SandboxId}, Size={Size}KB", 
+                sandboxId, discoveryArchiveBytes.Length / 1024);
+            var discoveryUploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
                 new DigitalEmployeeTemplateUploadRequestDto
                 {
                     SandboxId = sandboxId,
                     OwnerSubject = ownerSubject,
-                    ArchiveBytes = archiveBytes,
-                    FileName = $"{templateId}-hiring.zip"
+                    ArchiveBytes = discoveryArchiveBytes,
+                    FileName = "employment-coach-conversation.zip"
                 },
                 cancellationToken);
 
             // 释放存档字节数组引用
-            archiveBytes = null!;
+            discoveryArchiveBytes = null!;
 
-            if (!uploadResult.Success || uploadResult.Data is null || !uploadResult.Data.Success)
+            if (!discoveryUploadResult.Success || discoveryUploadResult.Data is null || !discoveryUploadResult.Data.Success)
             {
-                var errorMsg = uploadResult.Data?.Error ?? uploadResult.Message;
-                logger.LogError("上传模板包失败: {Error}", errorMsg);
+                var errorMsg = discoveryUploadResult.Data?.Error ?? discoveryUploadResult.Message;
+                logger.LogError("上传雇佣对话教练模板失败: {Error}", errorMsg);
                 
                 // 上传失败，删除沙箱
                 await TryDeleteSandboxAsync(sandboxId, cancellationToken);
                 
                 return ApiResponse<HireTemplateResultDto>.ErrorResponse(
-                    uploadResult.Code > 0 ? uploadResult.Code : 500,
-                    $"上传模板包失败: {errorMsg}");
+                    discoveryUploadResult.Code > 0 ? discoveryUploadResult.Code : 500,
+                    $"上传雇佣对话教练模板失败: {errorMsg}");
             }
 
-            logger.LogInformation("模板包上传成功: SkillsInstalled={SkillsInstalled}", uploadResult.Data.SkillsInstalled);
+            logger.LogInformation("雇佣对话教练模板上传成功: SkillsInstalled={SkillsInstalled}", 
+                discoveryUploadResult.Data.SkillsInstalled);
+
+            // 步骤 2: 上传 MCP 配置（如果启用）
+            // 注：目标模板包由前端通过其他接口上传到 workspace/uploads/
+            var mcpUploadResult = await TryUploadMcpConfigAsync(sandboxId, ownerSubject, cancellationToken);
+            if (!mcpUploadResult.Success)
+            {
+                logger.LogWarning("上传 MCP 配置失败（非致命错误）: {Error}", mcpUploadResult.Message);
+                // MCP 配置上传失败不阻止流程继续
+            }
+            else if (mcpUploadResult.Data)
+            {
+                logger.LogInformation("MCP 配置已上传到沙箱: SandboxId={SandboxId}", sandboxId);
+            }
+            else
+            {
+                logger.LogDebug("MCP 配置未启用或未配置，跳过上传: SandboxId={SandboxId}", sandboxId);
+            }
 
             // 标记沙箱已初始化（模板包已上传，可以使用）
             await SetSandboxInitializedAsync(sandboxId, cancellationToken);
@@ -834,4 +857,95 @@ internal sealed class EmployeeHiringService(
             logger.LogInformation("沙箱已标记为已初始化: SandboxId={SandboxId}", sandboxId);
         }
     }
+
+    /// <summary>
+    /// 尝试上传全局 MCP 配置到沙箱（从 appsettings.json 读取）。
+    /// 此方法仅处理项目默认 MCP 配置，不涉及用户自定义配置。
+    /// </summary>
+    private async Task<ApiResponse<bool>> TryUploadMcpConfigAsync(
+        string sandboxId,
+        string ownerSubject,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // 1. 从配置文件读取全局 MCP 配置（项目默认配置）
+            var mcpConfig = ReadMcpConfig();
+            
+            // 2. 如果配置未启用或无有效服务器，跳过上传
+            if (mcpConfig is null || !mcpConfig.Enabled || mcpConfig.Servers.Count == 0)
+            {
+                logger.LogDebug("MCP 配置未启用或未配置服务器，跳过上传: SandboxId={SandboxId}", sandboxId);
+                return ApiResponse<bool>.SuccessResponse(false, "MCP 配置未启用");
+            }
+
+            // 3. 获取沙箱的 Gateway 端点
+            var sandbox = await dbContext.SandboxInstances.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.SandboxId == sandboxId, cancellationToken);
+            
+            if (sandbox is null)
+            {
+                logger.LogWarning("未找到沙箱实例: SandboxId={SandboxId}", sandboxId);
+                return ApiResponse<bool>.ErrorResponse(404, "未找到沙箱实例");
+            }
+
+            if (string.IsNullOrWhiteSpace(sandbox.GatewayEndpoint))
+            {
+                logger.LogWarning("沙箱 Gateway 端点尚未就绪: SandboxId={SandboxId}", sandboxId);
+                return ApiResponse<bool>.ErrorResponse(409, "沙箱 Gateway 端点尚未就绪");
+            }
+
+            // 4. 通过 HTTP PUT 请求上传 MCP 配置到沙箱
+            var uploadResult = await kingCrabHttpClient.SendForJsonAsync<SandboxMcpConfigResponse>(
+                HttpMethod.Put,
+                "/admin/workspace/mcp",
+                mcpConfig,
+                ownerSubject,
+                cancellationToken,
+                useHireBotApiPrefix: false,
+                absoluteBaseUrl: sandbox.GatewayEndpoint);
+
+            if (!uploadResult.Success || uploadResult.Data is null)
+            {
+                logger.LogWarning(
+                    "MCP 配置上传失败（非致命错误）: SandboxId={SandboxId}, StatusCode={StatusCode}, Message={Message}",
+                    sandboxId,
+                    uploadResult.StatusCode,
+                    uploadResult.Message);
+                return ApiResponse<bool>.ErrorResponse(
+                    uploadResult.StatusCode > 0 ? uploadResult.StatusCode : 502,
+                    uploadResult.Message ?? "MCP 配置上传失败");
+            }
+
+            logger.LogInformation(
+                "MCP 配置已上传到沙箱: SandboxId={SandboxId}, ServerCount={ServerCount}",
+                sandboxId,
+                mcpConfig.Servers.Count);
+
+            return ApiResponse<bool>.SuccessResponse(true, "MCP 配置上传成功");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "上传全局 MCP 配置异常: SandboxId={SandboxId}", sandboxId);
+            return ApiResponse<bool>.ErrorResponse(500, $"上传 MCP 配置异常: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 从配置文件读取全局 MCP 配置（项目默认配置）。
+    /// 配置路径：OpenSandbox:McpConfig
+    /// 仅当 Enabled=true 时返回配置对象，否则返回 null。
+    /// </summary>
+    private SandboxWorkspaceMcpConfig? ReadMcpConfig()
+    {
+        var config = configuration.GetSection("OpenSandbox:McpConfig").Get<SandboxWorkspaceMcpConfig>();
+        return config?.Enabled == true ? config : null;
+    }
+
+    /// <summary>
+    /// MCP 配置上传响应模型（与 OpenSandbox Gateway 的响应格式对齐）。
+    /// </summary>
+    private sealed record SandboxMcpConfigResponse(
+        bool Success,
+        string? Message = null);
 }
