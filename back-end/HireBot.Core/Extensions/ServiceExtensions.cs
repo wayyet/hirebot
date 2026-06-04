@@ -155,7 +155,7 @@ public static class ServiceExtensions
     {
         services.AddDataProtection();
 
-        services.AddScoped<IHiringRuntimeStore, PersistentHiringRuntimeStore>();
+        services.AddScoped<IHiringStageService, HiringStageService>();
         services.AddSingleton<FileSystemSystemSkillRegistry>();
         services.AddSingleton<ISystemSkillRegistry>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());
         services.AddSingleton<ISkillCatalogProvider>(sp => sp.GetRequiredService<FileSystemSystemSkillRegistry>());

@@ -125,7 +125,7 @@ public sealed class EmployeeTemplateServiceTests
         Assert.Contains(package.RequiredSkills, skill => skill.Name == "evaluation-expert-consumer");
         Assert.DoesNotContain(package.Skills, skill => skill.Name == "live_evaluation_coordinator");
 
-        var archiveBytes = EmployeeHiringService.BuildDigitalEmployeeArchive(package);
+        var archiveBytes = TemplatePackageArchiveBuilder.BuildArchive(package);
         using var zip = new ZipArchive(new MemoryStream(archiveBytes), ZipArchiveMode.Read);
         var entries = zip.Entries.Select(entry => entry.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
 

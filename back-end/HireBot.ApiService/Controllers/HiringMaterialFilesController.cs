@@ -282,23 +282,21 @@ public sealed class HiringMaterialFilesController(
 
         var normalizedHireId = hireId.Trim();
         var normalizedSessionId = sessionId.Trim();
-        var runtime = await dbContext.HiringRuntimeStates
-            .AsNoTracking()
-            .FirstOrDefaultAsync(item => item.HireId == normalizedHireId, cancellationToken);
-        if (runtime is null)
-            return ContextResult<MaterialUploadContext>.Failure(404, "雇佣上下文不存在，请重新发起流程");
-
-        if (string.IsNullOrWhiteSpace(runtime.SessionId))
-            return ContextResult<MaterialUploadContext>.Failure(409, "雇佣会话尚未就绪");
-
-        if (!string.Equals(runtime.SessionId, normalizedSessionId, StringComparison.Ordinal))
-            return ContextResult<MaterialUploadContext>.Failure(409, "session_id 与当前雇佣会话不匹配");
 
         var session = await dbContext.HiringSessions
             .AsNoTracking()
             .FirstOrDefaultAsync(item => item.HireId == normalizedHireId && item.DeletedAtUtc == null, cancellationToken);
+        
         if (session is null)
-            return ContextResult<MaterialUploadContext>.Failure(404, "雇佣会话不存在");
+            return ContextResult<MaterialUploadContext>.Failure(404, "雇佣会话不存在，请重新发起流程");
+
+        if (!string.Equals(session.SessionId, normalizedSessionId, StringComparison.Ordinal))
+            return ContextResult<MaterialUploadContext>.Failure(409, "session_id 与当前雇佣会话不匹配");
+
+        // 查找关联的沙箱
+        var sandbox = await dbContext.SandboxInstances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.ScopeType == "Hire" && s.ScopeKey == normalizedHireId, cancellationToken);
 
         return ContextResult<MaterialUploadContext>.Ok(new MaterialUploadContext(
             normalizedHireId,
@@ -306,8 +304,8 @@ public sealed class HiringMaterialFilesController(
             session.TenantId,
             session.OperatorId,
             session.OwnerSubject,
-            TryResolveSandboxId(runtime.PayloadJson),
-            TryResolveWorkspaceRoot(runtime.WorkflowStateJson)));
+            sandbox?.SandboxId ?? "",
+            null)); // workspaceRoot 暂不需要
     }
 
     private string ResolveFilePath(string sessionId, string relativePath)

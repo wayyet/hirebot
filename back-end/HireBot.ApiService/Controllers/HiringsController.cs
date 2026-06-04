@@ -19,73 +19,6 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    [HttpPost("{hireId}/conversation/start")]
-    public async Task<IActionResult> StartConversation(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.StartConversationAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/conversation/pause")]
-    public async Task<IActionResult> PauseConversation(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.PauseConversationAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/conversation/resume")]
-    public async Task<IActionResult> ResumeConversation(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.ResumeConversationAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/conversation/reset")]
-    public async Task<IActionResult> ResetConversation(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.ResetConversationAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/conversation/messages")]
-    public async Task<IActionResult> SendConversationMessage(
-        string hireId,
-        [FromBody] HiringConversationMessageRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<HiringConversationResultDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await employeeHiringService.SendConversationMessageAsync(hireId, request, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpPost("{hireId}/conversation/sync")]
-    public async Task<IActionResult> SyncConversationTurn(
-        string hireId,
-        [FromBody] HiringConversationSyncRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var invalidResponse = BuildModelValidationError<HiringConversationResultDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        var response = await employeeHiringService.SyncConversationTurnAsync(hireId, request, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    [HttpGet("{hireId}/conversation/messages")]
-    public async Task<IActionResult> GetConversationTimeline(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.GetConversationTimelineAsync(hireId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
     [HttpGet("{hireId}/stage-preview")]
     public async Task<IActionResult> GetStagePreview(
         string hireId,
@@ -198,24 +131,6 @@ public sealed class HiringsController(
         return BuildDownloadResponse(result);
     }
 
-    /// <summary>获取前端对话状态缓存（刷新页面后用于恢复对话历史）。</summary>
-    [HttpGet("{hireId}/conversation/cache")]
-    public async Task<IActionResult> GetConversationCache(string hireId, CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.GetConversationCacheAsync(hireId, cancellationToken);
-        return Ok(response);
-    }
-
-    /// <summary>保存前端对话状态缓存（messages + stageOverrides）。</summary>
-    [HttpPut("{hireId}/conversation/cache")]
-    public async Task<IActionResult> SaveConversationCache(
-        string hireId,
-        [FromBody] JsonElement cache,
-        CancellationToken cancellationToken = default)
-    {
-        var response = await employeeHiringService.SaveConversationCacheAsync(hireId, cache, cancellationToken);
-        return Ok(response);
-    }
     /// <summary>获取该雇佣流程的所有 TODO 事项（供前端 TODO 面板初始化加载）。</summary>
     [HttpGet("{hireId}/todos")]
     public async Task<IActionResult> GetTodos(string hireId, CancellationToken cancellationToken = default)

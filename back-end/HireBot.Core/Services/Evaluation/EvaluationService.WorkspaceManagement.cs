@@ -489,7 +489,7 @@ internal sealed partial class EvaluationService
             return ApiResponse<bool>.ErrorResponse(422, "evaluation template package has no files");
         }
 
-        var archiveBytes = EmployeeHiringService.BuildDigitalEmployeeArchive(templatePackage);
+        var archiveBytes = TemplatePackageArchiveBuilder.BuildArchive(templatePackage);
         if (archiveBytes.Length == 0)
         {
             return ApiResponse<bool>.ErrorResponse(422, "evaluation template package archive is empty");
@@ -739,7 +739,7 @@ internal sealed partial class EvaluationService
             return ApiResponse<HiringTemplateArchive?>.SuccessResponse(null, "target template upload skipped: package has no files");
         }
 
-        var archiveBytes = EmployeeHiringService.BuildDigitalEmployeeArchive(templatePackage);
+        var archiveBytes = TemplatePackageArchiveBuilder.BuildArchive(templatePackage);
         if (archiveBytes.Length == 0)
         {
             logger.LogError("[Eval] Template archive is empty for templateId={TemplateId}", templateId);
