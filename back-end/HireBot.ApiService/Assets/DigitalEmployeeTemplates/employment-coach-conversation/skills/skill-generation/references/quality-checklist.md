@@ -23,6 +23,7 @@ Run these checks before writing a generated skill package.
 ## Projection Consumer Contract
 
 - [ ] If valid source projections exist under `ontology/projections/<skill-slug>/`, `scripts/materialize-consumer-projection-contract.py` was run or the same algorithm was applied manually.
+- [ ] If `projection_binding_confirmed: true` or `projection_contract_mode: "required"` is present in the payload, producer projection materialization is treated as mandatory rather than optional.
 - [ ] If a READY projection contract is generated, generated `SKILL.md` includes the Projection Contracts section.
 - [ ] If `SKILL.md` includes the Projection Contracts section, `contracts/projections/ontology_extraction/contract-index.json` exists and is non-empty.
 - [ ] If a READY projection contract is generated, `contracts/projections/ontology_extraction/contract-index.json` exists with `producer_skill`, `consumer_skill`, and `topics[]`.
@@ -30,8 +31,9 @@ Run these checks before writing a generated skill package.
 - [ ] If a READY projection contract is generated, every topic view's `path` points to an existing file under `contracts/projections/ontology_extraction/<domain-slug>/`.
 - [ ] If a READY projection contract is generated, every topic includes exactly the 4 standard views: `domain-model`, `json-schema`, `prompt-constraint`, and `workflow-contract`.
 - [ ] If a READY projection contract is generated, each projection document uses the consumer flat shape and contains top-level `projection_type`, `source_slice`, `intended_consumers`, `mapping_policy`, `prompt_projection`, `delivery_artifacts`, `dropped_items`, and `open_questions`.
-- [ ] If projection sources are recorded in `metadata.json` but contract files are absent, `SKILL.md` must omit the Projection Contracts section and `references/quality-report.md` must explain why consumer contracts were skipped.
-- [ ] If ontology projection information is insufficient, draft notes are written instead of a READY contract, and the base skill write is not blocked for that reason alone.
+- [ ] If `projection_binding_confirmed: true` or `projection_contract_mode: "required"` is present, `contracts/projections/ontology_extraction/contract-index.json` and the 4 standard view files must all exist; otherwise the run fails.
+- [ ] If projection sources are recorded in `metadata.json` but contract files are absent, the run must be treated as blocked, and `references/quality-report.md` must explain the blocking reason.
+- [ ] If ontology projection information is insufficient, draft notes are allowed only when projection binding was not confirmed; confirmed binding must fail instead of downgrading to a base skill-only result.
 - [ ] `open_questions` is empty before marking a projection READY.
 
 ## Safety

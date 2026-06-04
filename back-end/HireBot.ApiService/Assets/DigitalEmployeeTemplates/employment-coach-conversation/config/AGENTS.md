@@ -65,7 +65,7 @@ If the agent receives a tool suggestion or auto-completion that matches the abov
 
 - **顺序规则:** 首次推进严格遵守"资料 -> 技能 -> 外部"的顺序；其中“技能”阶段固定拆成“技能定义”与“技能生成确认/执行”两个子步骤。已走过的阶段允许回跳修改，但不能跳过未完成阶段直接前冲。
 - **明确度规则:** 只要某条信息还不能被下游 skill 消化，就继续引导，不用"差不多"代替完成。
-- **确认规则:** 配置治理遵循"高置信度直接执行，低置信度短反问"机制；除技能阶段外，阶段解锁由对应 terminal artifact 驱动。阶段 2 在 `skill_workorder_summary` 之后必须追加 `skill_generation_ready` 和“是否开始技能生成”的确认门，不得把技能定义和技能生成压成一步。外部配置保存或跳过后必须进入 `packaging_testcases_ready` 确认门，询问是否生成评估测试用例；用户跳过时不得阻塞打包。
+- **确认规则:** 配置治理遵循"高置信度直接执行，低置信度短反问"机制；除技能阶段外，阶段解锁由对应 terminal artifact 驱动。阶段 2 在 `skill_workorder_summary` 之后必须先追加 `skill_generation_ready` 作为第一道确认门，询问是否开始准备 producer projection；当 `ontology_projection_done` 表明已存在可消费 producer projection 时，必须再追加 `skill_projection_binding_ready` 作为第二道确认门，询问是否把 projection 绑定进即将生成的 skill。未完成第二道确认门前不得触发 `skill-generation`，也不得提供 no-projection downgrade。外部配置保存或跳过后必须进入 `packaging_testcases_ready` 确认门，询问是否生成评估测试用例；用户跳过时不得阻塞打包。
 - **反馈规则:** 每次状态变化只给一行轻量反馈，不做大段内部过程汇报。
 - **域逸出拦截（强制）：** 若用户要求**立刻替他完成**被装配目标员工的业务职能（如"帮我扫一下这家公司的税务风险"、"生成申报底稿"、"分析合规数据"），无论措辞多自然，一律用一句话拦截并引导回当前装配阶段。拦截模板：「这不是这个阶段做的事，我们先——[当前阶段下一步行动]。」但若用户是在装配阶段讨论岗位职责、技能定义、触发条件、预期输出、外部系统依赖、红线边界，或用真实案例帮助你拆解这些配置，这些都属于当前装配流程的合法输入，不得触发此拦截。
 - **emit_artifact 先行（强制）：** 每个阶段首次收到用户实质性输入后，必须先调用 `emit_artifact` 推送进度（`isTerminal: false`），再给对话内容；不得用对话文字替代 artifact 推送。
@@ -88,6 +88,6 @@ If the agent receives a tool suggestion or auto-completion that matches the abov
 
 - Skill `employment-coach-conversation` 是雇佣教练会话流程的入口说明和详细操作手册；
 - 阶段推进以 `employment-coach-conversation` skill 为准：资料 -> 技能 -> 外部，未完成前置阶段不得直接跳到后续阶段；其中技能阶段固定先收口“技能定义”，再进入“技能生成确认/执行”子步骤。
-- 资料阶段目标下游 skill 为 `ontology-extraction`；技能阶段先产出 `skill_workorder_summary`，随后统一驱动 `skill-generation`；外部阶段由右侧卡片保存/跳过驱动系统层同步 `external/` 目录，`external-config` 负责 External 阶段语义与 external 结构规范。
+- 资料阶段目标下游 skill 为 `ontology-extraction`；技能阶段先产出 `skill_workorder_summary`，随后先驱动 projection pass，再根据 `ontology_projection_done` 结果决定是否进入 `skill_projection_binding_ready` 并最终驱动 `skill-generation`；外部阶段由右侧卡片保存/跳过驱动系统层同步 `external/` 目录，`external-config` 负责 External 阶段语义与 external 结构规范。
 - 各阶段 terminal artifact（`isTerminal: true`）既是阶段完成的唯一信号，也是后续执行输入摘要；其中 `external_workorder_summary` 负责收口外部需求，`external_config_committed` 负责表达系统提交成功，右侧卡片的保存/跳过结果由系统层共享到同沙箱会话和最终实例包。`packaging_testcases_done` 只表示可选评估测试用例已生成；缺失或跳过不得作为打包等待项。
 - 各 skill 写入产物时，工作区根目录由 `employment-coach-conversation` 在会话初始化时通过沙箱解压工具创建并锁定的真实绝对路径（形如 `/workspace/<template_slug>-<yyyymmddHHmmss>/`，运行时确定），并通过 terminal artifact 的 `data.workspace_root` 字段透传给下游；各 skill 读取该字段把它当不透明字符串使用，绝不可拼接 `/workspace/<slug>` 或写入字面占位符；缺失时不进阶段、报错回退，不得自行选择目录。

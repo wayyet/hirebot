@@ -113,6 +113,7 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
   }
   if (
     artifact.artifactType === 'skill_generation_ready' ||
+    artifact.artifactType === 'skill_projection_binding_ready' ||
     artifact.artifactType === 'skill_generation_progress' ||
     artifact.artifactType === 'skill_generation_done'
   ) {
@@ -290,6 +291,11 @@ function SkillGenerationStatusView({
   const statusConfig: Record<string, { label: string; bg: string; color: string; border: string }> = {
     skill_generation_ready: {
       label: '☕ 等待确认',
+      bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
+      border: 'rgba(245,158,11,0.30)',
+    },
+    skill_projection_binding_ready: {
+      label: '☕ 等待确认投影绑定',
       bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
       border: 'rgba(245,158,11,0.30)',
     },
@@ -1196,6 +1202,7 @@ function ArtifactIcon({ artifact }: { artifact: ArtifactDisplayData }) {
   if (artifact.artifactType === 'skill_workorder_progress' || artifact.artifactType === 'skill_workorder_summary') return <span className="hb-artifact-icon">🧩</span>
   if (
     artifact.artifactType === 'skill_generation_ready' ||
+    artifact.artifactType === 'skill_projection_binding_ready' ||
     artifact.artifactType === 'skill_generation_progress' ||
     artifact.artifactType === 'skill_generation_done'
   ) return <span className="hb-artifact-icon">⚙️</span>

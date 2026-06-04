@@ -177,7 +177,9 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
     return {
       label: i18n.t('hiring.todo.status.pendingConfirm'),
       tone: 'is-waiting',
-      description: i18n.t('hiring.todo.skill.pendingConfirmDesc'),
+      description: run.artifactType === 'skill_projection_binding_ready'
+        ? i18n.t('hiring.todo.skill.projectionConfirmDesc')
+        : i18n.t('hiring.todo.skill.pendingConfirmDesc'),
     }
   }
 
