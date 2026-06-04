@@ -473,7 +473,12 @@
         "retryLoad": "重试",
         "sensitiveHint": "如果值包含敏感信息（如 API Key），建议改用环境变量映射",
         "urlInvalid": "请输入有效的 URL 地址（以 http:// 或 https:// 开头）",
+        "urlRequired": "请填写 URL",
         "jsonSchemaInvalid": "JSON 格式无效"
+      },
+      "confirmation": {
+        "continueCollection": "继续补齐",
+        "confirmAdvance": "确认推进"
       },
       "final": {
         "title": "生成实例包",

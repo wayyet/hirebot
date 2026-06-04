@@ -473,7 +473,12 @@
         "retryLoad": "Retry",
         "sensitiveHint": "If the value contains sensitive information (e.g., API Key), consider using environment variable mapping instead",
         "urlInvalid": "Please enter a valid URL (starting with http:// or https://)",
+        "urlRequired": "Please enter a URL",
         "jsonSchemaInvalid": "Invalid JSON format"
+      },
+      "confirmation": {
+        "continueCollection": "Continue Filling",
+        "confirmAdvance": "Confirm Advance"
       },
       "final": {
         "title": "Generate Instance Package",
