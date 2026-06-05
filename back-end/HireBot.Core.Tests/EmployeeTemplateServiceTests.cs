@@ -980,6 +980,9 @@ public sealed class EmployeeTemplateServiceTests
         public Task<HiringArtifactPackageSnapshotDto?> GetLatestPackageAsync(string hireId, CancellationToken cancellationToken = default)
             => Task.FromResult<HiringArtifactPackageSnapshotDto?>(null);
 
+        public Task<HiringArtifactPackageSnapshotDto?> GetLatestPackageByEmployeeIdAsync(string employeeId, CancellationToken cancellationToken = default)
+            => Task.FromResult<HiringArtifactPackageSnapshotDto?>(null);
+
         public Task<HiringArtifactPackageSnapshotDto?> GetPackageByKindAsync(string hireId, string kind, CancellationToken cancellationToken = default)
             => Task.FromResult<HiringArtifactPackageSnapshotDto?>(null);
 
@@ -1024,6 +1027,9 @@ public sealed class EmployeeTemplateServiceTests
                 finalArchive,
                 true));
         }
+
+        public Task<HiringArtifactPackageSnapshotDto?> GetLatestPackageByEmployeeIdAsync(string employeeId, CancellationToken cancellationToken = default)
+            => Task.FromResult<HiringArtifactPackageSnapshotDto?>(null);
 
         public Task<HiringArtifactPackageSnapshotDto> PersistIntermediatePackageAsync(HiringArtifactPackagePersistRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<HiringArtifactPackageSnapshotDto> PersistFinalPackageAsync(HiringArtifactPackagePersistRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();

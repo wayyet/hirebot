@@ -16,6 +16,14 @@ public interface IHiringArtifactPackageService
         string hireId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 通过员工实例 ID 反查关联的最终产物包。
+    /// 导入时在结构化数据中写入 linked_employee_id 字段，此处做反向查找。
+    /// </summary>
+    Task<HiringArtifactPackageSnapshotDto?> GetLatestPackageByEmployeeIdAsync(
+        string employeeId,
+        CancellationToken cancellationToken = default);
+
     Task<HiringArtifactPackageSnapshotDto?> GetPackageByKindAsync(
         string hireId,
         string kind,

@@ -636,7 +636,8 @@ internal sealed partial class EvaluationService
             return ApiResponse<TargetArtifactBundle>.ErrorResponse(404, $"explicit artifact path not found: {normalizedPath}");
         }
 
-        var packageSnapshot = await artifactPackageService.GetLatestPackageAsync(employee.EmployeeId, cancellationToken);
+        // 通过 employeeId 反查导入时关联的 hireId，进而取到 artifact 包
+        var packageSnapshot = await artifactPackageService.GetLatestPackageByEmployeeIdAsync(employee.EmployeeId, cancellationToken);
         if (packageSnapshot?.Content is { Length: > 0 })
         {
             return ApiResponse<TargetArtifactBundle>.SuccessResponse(
@@ -676,6 +677,59 @@ internal sealed partial class EvaluationService
         EmployeeDetailDto employee,
         CancellationToken cancellationToken)
     {
+        // 优先使用雇佣流程导入后的最终包：employeeId -> Instance.(HireId, FinalPackageId, TenantId)
+        // 这样 target 沙箱拿到的是用户反复修正后的当前版本，而不是原始 SourceTemplate。
+        var finalPackageSnapshot = await artifactPackageService.GetLatestPackageByEmployeeIdAsync(
+            employee.EmployeeId,
+            cancellationToken);
+        if (finalPackageSnapshot?.Content is { Length: > 0 })
+        {
+            var finalFileName = string.IsNullOrWhiteSpace(finalPackageSnapshot.FileName)
+                ? $"{employee.EmployeeId}-final.zip"
+                : finalPackageSnapshot.FileName;
+            var finalLocalCachePath = await PersistUploadedTemplatePackageArchiveAsync(
+                finalFileName,
+                finalPackageSnapshot.Content,
+                cancellationToken);
+
+            var finalUploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+                new DigitalEmployeeTemplateUploadRequestDto
+                {
+                    SandboxId = targetSandboxId,
+                    OwnerSubject = owner,
+                    ArchiveBytes = finalPackageSnapshot.Content,
+                    FileName = finalFileName
+                },
+                cancellationToken);
+            if (!finalUploadResult.Success || finalUploadResult.Data is null)
+            {
+                logger.LogError(
+                    "[Eval] Failed to upload final hiring package to target sandboxId={SandboxId} employeeId={EmployeeId} code={Code} msg={Message}",
+                    targetSandboxId,
+                    employee.EmployeeId,
+                    finalUploadResult.Code,
+                    finalUploadResult.Message);
+                return ApiResponse<HiringTemplateArchive?>.ErrorResponse(
+                    finalUploadResult.Code,
+                    $"failed to upload final hiring package to target sandbox: {finalUploadResult.Message}");
+            }
+
+            logger.LogInformation(
+                "[Eval] Final hiring package uploaded to target sandboxId={SandboxId} employeeId={EmployeeId} installed={Count}",
+                targetSandboxId,
+                employee.EmployeeId,
+                finalUploadResult.Data.SkillsInstalled);
+
+            var finalMaterialFiles = ExtractMaterialFilesFromArchive(finalPackageSnapshot.Content);
+            logger.LogInformation(
+                "[Eval] Extracted material files from final hiring package count={Count} employeeId={EmployeeId}",
+                finalMaterialFiles.Count,
+                employee.EmployeeId);
+
+            return ApiResponse<HiringTemplateArchive?>.SuccessResponse(
+                new HiringTemplateArchive(finalPackageSnapshot.Content, finalFileName, finalLocalCachePath, finalMaterialFiles));
+        }
+
         var templateId = employee.SourceTemplateId?.Trim();
         if (string.IsNullOrWhiteSpace(templateId))
         {
@@ -835,6 +889,61 @@ internal sealed partial class EvaluationService
                     "ontology",
                     sliceFileName,
                     System.Text.Encoding.UTF8.GetBytes(slice.Content)));
+            }
+        }
+
+        return results;
+    }
+
+    private static IReadOnlyList<TemplateMaterialFile> ExtractMaterialFilesFromArchive(byte[] archiveBytes)
+    {
+        var results = new List<TemplateMaterialFile>();
+
+        using var stream = new MemoryStream(archiveBytes, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+        foreach (var entry in archive.Entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Name))
+            {
+                continue;
+            }
+
+            var normalizedPath = entry.FullName.Replace('\\', '/').ToLowerInvariant();
+            var fileName = entry.Name;
+            var fileNameLower = fileName.ToLowerInvariant();
+            var extension = Path.GetExtension(fileNameLower);
+
+            using var entryStream = entry.Open();
+            using var buffer = new MemoryStream();
+            entryStream.CopyTo(buffer);
+            var content = buffer.ToArray();
+
+            if (content.Length == 0)
+            {
+                continue;
+            }
+
+            if (extension == ".json" && (
+                normalizedPath.Contains("/testcases/") ||
+                normalizedPath.StartsWith("testcases/") ||
+                fileNameLower.Contains("testcase") ||
+                fileNameLower.Contains("test-case") ||
+                fileNameLower.Contains("evaluation-test")))
+            {
+                results.Add(new TemplateMaterialFile("testcases", fileName, content));
+                continue;
+            }
+
+            if (extension is ".json" or ".md" or ".txt" &&
+                !fileNameLower.Contains("testcase") &&
+                !fileNameLower.Contains("test-case") &&
+                (normalizedPath.Contains("/ontology/") ||
+                 normalizedPath.StartsWith("ontology/") ||
+                 fileNameLower.Contains("ontology") ||
+                 fileNameLower.Contains("rubric") ||
+                 fileNameLower.Contains("evaluation")))
+            {
+                results.Add(new TemplateMaterialFile("ontology", fileName, content));
             }
         }
 
