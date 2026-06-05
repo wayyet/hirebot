@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Infrastructure.Identity;
@@ -28,6 +29,7 @@ internal sealed class EmployeeHiringService(
     ISandboxService sandboxService,
     IHiringStageService hiringStageService,
     IEmployeeRuntimeService employeeRuntimeService,
+    IHiringArtifactPackageService artifactPackageService,
     IUserIdentity userIdentity,
     HireBotDbContext dbContext,
     IKingCrabHttpClient kingCrabHttpClient,
@@ -767,7 +769,28 @@ internal sealed class EmployeeHiringService(
 
             logger.LogInformation("候选包已读取到内存: Size={Size}KB", packageBytes.Length / 1024);
 
-            // TODO: 验证 ZIP 格式和必要文件
+            // 解压 ZIP，提取文件条目后持久化到文件系统和数据库
+            IReadOnlyDictionary<string, byte[]> extractedFiles;
+            try
+            {
+                extractedFiles = ExtractZipEntries(packageBytes);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "候选包 ZIP 格式无效，无法解压: HireId={HireId}, FileName={FileName}", hireId, fileName);
+                return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(400, $"候选包 ZIP 格式无效: {ex.Message}");
+            }
+
+            await artifactPackageService.PersistFinalPackageAsync(
+                new HiringArtifactPackagePersistRequestDto(
+                    HireId: hireId,
+                    SessionId: session.SessionId,
+                    FileName: fileName,
+                    Files: extractedFiles),
+                cancellationToken);
+
+            logger.LogInformation("候选包已持久化: HireId={HireId}, SessionId={SessionId}, FileCount={FileCount}",
+                hireId, session.SessionId, extractedFiles.Count);
 
             // 查找关联的数字员工实例：优先查 Hiring 状态（首次导入），
             // 已导入过时实例状态为 InterningAi，同样匹配——确保重复导入时仍能返回 EmployeeId。
@@ -937,8 +960,7 @@ internal sealed class EmployeeHiringService(
         string hireId,
         CancellationToken cancellationToken = default)
     {
-        logger.LogWarning("BuildArtifactDownloadAsync: 功能暂未实现");
-        return Task.FromResult(HiringArtifactDownloadResult.Error(501, "功能暂未实现"));
+        return artifactPackageService.BuildFinalPackageDownloadAsync(hireId, cancellationToken);
     }
 
     public Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(
@@ -946,8 +968,7 @@ internal sealed class EmployeeHiringService(
         string artifactName,
         CancellationToken cancellationToken = default)
     {
-        logger.LogWarning("BuildArtifactFileDownloadAsync: 功能暂未实现");
-        return Task.FromResult(HiringArtifactDownloadResult.Error(501, "功能暂未实现"));
+        return artifactPackageService.BuildFinalPackageFileDownloadAsync(hireId, artifactName, cancellationToken);
     }
 
     public Task<ApiResponse<HiringTemplatePackageUploadResultDto>> UploadTemplatePackageFromClientAsync(
@@ -1068,4 +1089,30 @@ internal sealed class EmployeeHiringService(
     private sealed record SandboxMcpConfigResponse(
         bool Success,
         string? Message = null);
+
+    /// <summary>
+    /// 从 ZIP 字节数组中提取所有文件条目，返回 路径→内容 字典。
+    /// 目录条目（Name 为空）会被跳过。
+    /// </summary>
+    private static IReadOnlyDictionary<string, byte[]> ExtractZipEntries(byte[] zipBytes)
+    {
+        var files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        using var stream = new MemoryStream(zipBytes, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+        foreach (var entry in archive.Entries)
+        {
+            // 跳过目录条目（Name 为空时表示目录）
+            if (string.IsNullOrEmpty(entry.Name))
+            {
+                continue;
+            }
+
+            using var entryStream = entry.Open();
+            using var buffer = new MemoryStream();
+            entryStream.CopyTo(buffer);
+            files[entry.FullName] = buffer.ToArray();
+        }
+
+        return files;
+    }
 }
