@@ -1,13 +1,4 @@
-/**
- * SkillCard — 技能阶段卡片组件
- *
- * 功能：
- * - 搜索并关联技能商店的技能
- * - 显示模板内置技能
- * - 显示已定义技能及其生成状态
- * - 支持防抖搜索和推荐技能
- */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -18,12 +9,11 @@ import type {
   RecommendedStoreSkillItem,
   StoreSkillItem,
 } from '@/infra/api'
+import type { HiringLinkedSkillItem } from '@/infra/api/modules/hiringWorkflowApi'
 import type {
   DefinedSkillItem,
   DownstreamRunState,
 } from '../hiringPageTypes'
-
-// ── 类型 ──────────────────────────────────────────────────────────────────────
 
 export type StageStatus = 'running' | 'completed' | 'failed'
 
@@ -34,6 +24,7 @@ interface LinkedSkill {
 }
 
 export interface SkillCardBodyProps {
+  hireId: string
   templateId?: string
   templatePackageSkills: EmployeeTemplatePackageSkill[]
   onAfterLink: (summary: string) => void
@@ -43,8 +34,6 @@ export interface SkillCardBodyProps {
   definedSkills: DefinedSkillItem[]
 }
 
-// ── 工具函数 ─────────────────────────────────────────────────────────────────
-
 function readArtifactNumber(data: unknown, key: string): number | null {
   if (!data || typeof data !== 'object') return null
   const val = (data as Record<string, unknown>)[key]
@@ -52,8 +41,8 @@ function readArtifactNumber(data: unknown, key: string): number | null {
 }
 
 function getSkillDefinitionStatusMeta(status: StageStatus | null): { label: string; tone: string } {
-  if (!status) return { label: '待开始', tone: 'is-neutral' }
-  if (status === 'running') return { label: '定义中…', tone: 'is-running' }
+  if (!status) return { label: '未开始', tone: 'is-neutral' }
+  if (status === 'running') return { label: '定义中', tone: 'is-running' }
   if (status === 'completed') return { label: '已完成', tone: 'is-completed' }
   return { label: '异常', tone: 'is-error' }
 }
@@ -63,7 +52,7 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
   tone: string
   description: string
 } {
-  if (!run || run.status === 'not_started') {
+  if (!run || run.status === 'idle') {
     return {
       label: '未启动',
       tone: 'is-neutral',
@@ -84,12 +73,13 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
   if (run.status === 'running') {
     const total = readArtifactNumber(run.data, 'total_skills')
     const completed = readArtifactNumber(run.data, 'completed_skills')
-    let msg = '正在生成技能定义…'
+    let msg = '正在生成技能定义。'
     if (total && completed != null) {
-      msg = `正在生成 (${completed}/${total})…`
+      msg = `正在生成 (${completed}/${total})`
     } else if (total) {
-      msg = `将生成 ${total} 个技能…`
+      msg = `将生成 ${total} 个技能。`
     }
+
     return {
       label: '实现中',
       tone: 'is-running',
@@ -106,6 +96,7 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
     } else if (total) {
       msg = `共 ${total} 个技能定义已生成。`
     }
+
     return {
       label: '已完成',
       tone: 'is-completed',
@@ -116,29 +107,22 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
   return {
     label: '失败',
     tone: 'is-error',
-    description: run.error ?? '生成过程出错，请稍后重试或联系管理员。',
+    description: '生成过程出错，请稍后重试或联系管理员。',
   }
 }
 
 function getDefinedSkillGenerationMeta(
-  skill: DefinedSkillItem,
+  _skill: DefinedSkillItem,
   skillGenerationState: DownstreamRunState | null,
 ): { label: string; tone: string } {
-  // 如果全局状态为 not_started/running, 统一显示"待生成"
-  if (!skillGenerationState || skillGenerationState.status === 'not_started' || skillGenerationState.status === 'running') {
-    return { label: '待生成', tone: 'is-neutral' }
+  if (!skillGenerationState || skillGenerationState.status === 'idle') {
+    return { label: '未启动', tone: 'is-neutral' }
   }
 
-  // 如果全局状态为 completed，根据单个技能状态判断
-  if (skillGenerationState.status === 'completed') {
-    if (skill.implementationStatus === 'completed') {
-      return { label: '已生成', tone: 'is-completed' }
-    }
-    if (skill.implementationStatus === 'failed') {
-      return { label: '生成失败', tone: 'is-error' }
-    }
-    return { label: '未生成', tone: 'is-neutral' }
-  }
+  if (skillGenerationState.status === 'waiting_confirm') return { label: '待确认', tone: 'is-waiting' }
+  if (skillGenerationState.status === 'running') return { label: '生成中', tone: 'is-running' }
+  if (skillGenerationState.status === 'completed') return { label: '已生成', tone: 'is-completed' }
+  if (skillGenerationState.status === 'failed') return { label: '生成失败', tone: 'is-error' }
 
   return { label: '未知', tone: 'is-neutral' }
 }
@@ -147,9 +131,27 @@ function isRecommendedSkill(skill: StoreSkillItem | RecommendedStoreSkillItem): 
   return 'matchedKeywords' in skill
 }
 
-// ── SkillCardBody 组件 ───────────────────────────────────────────────────────
+function mapConfigSkillToLinkedSkill(skill: HiringLinkedSkillItem): LinkedSkill {
+  return {
+    skillId: skill.skillId,
+    name: skill.displayName || skill.name || skill.skillId,
+    version: skill.currentVersion || '',
+  }
+}
+
+function mapLinkedSkillToConfigSkill(skill: LinkedSkill): HiringLinkedSkillItem {
+  return {
+    skillId: skill.skillId,
+    name: skill.name,
+    displayName: skill.name,
+    versionId: '',
+    currentVersion: skill.version,
+    bindingMode: 'manual',
+  }
+}
 
 export function SkillCardBody({
+  hireId,
   templateId,
   templatePackageSkills,
   onAfterLink,
@@ -159,13 +161,23 @@ export function SkillCardBody({
   definedSkills,
 }: SkillCardBodyProps) {
   const { t } = useTranslation()
+  const hydratedHireIdRef = useRef<string | null>(null)
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<StoreSkillItem[]>([])
   const [searchTotal, setSearchTotal] = useState(0)
   const [linked, setLinked] = useState<LinkedSkill[]>([])
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState('')
+  const [persisting, setPersisting] = useState(false)
+  const [persistError, setPersistError] = useState('')
   const trimmedQuery = query.trim()
+
+  const { data: skillLinkConfig } = useQuery({
+    queryKey: ['hiring-skill-link-config', hireId],
+    queryFn: () => api.hiringWorkflow.getSkillLinkConfig(hireId),
+    enabled: Boolean(hireId),
+    staleTime: 30 * 1000,
+  })
 
   const {
     data: recommendedSkillData = [] as RecommendedStoreSkillItem[],
@@ -179,12 +191,29 @@ export function SkillCardBody({
     gcTime: 30 * 60 * 1000,
   })
 
-  // 每次 linked 变更都向父组件同步 store skill UUID 列表，供 import-package 请求使用
   useEffect(() => {
-    onLinkedIdsChange?.(linked.map(l => l.skillId))
+    hydratedHireIdRef.current = null
+    setLinked([])
+    setPersistError('')
+  }, [hireId])
+
+  useEffect(() => {
+    if (!hireId || !skillLinkConfig) {
+      return
+    }
+
+    if (hydratedHireIdRef.current === hireId) {
+      return
+    }
+
+    hydratedHireIdRef.current = hireId
+    setLinked((skillLinkConfig.linkedSkills ?? []).map(mapConfigSkillToLinkedSkill))
+  }, [hireId, skillLinkConfig])
+
+  useEffect(() => {
+    onLinkedIdsChange?.(linked.map(item => item.skillId))
   }, [linked, onLinkedIdsChange])
 
-  // 防抖搜索：对接模板池同源接口 /api/store/skills?page=1&pageSize=12&q=...
   useEffect(() => {
     if (!trimmedQuery) {
       setSearchResults([])
@@ -205,17 +234,21 @@ export function SkillCardBody({
         setSearchResults(data?.items ?? [])
         setSearchTotal(data?.total ?? data?.items?.length ?? 0)
         setSearchError('')
-      } catch (e) {
-        if ((e as { name?: string })?.name === 'AbortError') return
-        setSearchError(e instanceof Error ? e.message : t('hiring.todo.skill.errorSearchFailed'))
+      } catch (error) {
+        if ((error as { name?: string })?.name === 'AbortError') return
+        setSearchError(error instanceof Error ? error.message : t('hiring.todo.skill.errorSearchFailed'))
       } finally {
         setSearching(false)
       }
     }, 300)
-    return () => { window.clearTimeout(timer); controller.abort() }
+
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
   }, [trimmedQuery, t])
 
-  const isLinked = useCallback((id: string) => linked.some(l => l.skillId === id), [linked])
+  const isLinked = useCallback((id: string) => linked.some(item => item.skillId === id), [linked])
   const currentResults = trimmedQuery ? searchResults : recommendedSkillData
   const currentTotal = trimmedQuery ? searchTotal : recommendedSkillData.length
   const currentSearching = trimmedQuery ? searching : isRecommendationLoading
@@ -225,6 +258,31 @@ export function SkillCardBody({
       ? t('hiring.todo.skill.recommendUnavailable')
       : ''
 
+  const saveLinkedSkills = useCallback(async (nextLinked: LinkedSkill[]) => {
+    if (!hireId) {
+      return null
+    }
+
+    setPersisting(true)
+    setPersistError('')
+
+    try {
+      const saved = await api.hiringWorkflow.saveSkillLinkConfig(hireId, {
+        submissionMode: nextLinked.length > 0 ? 'configured' : 'pending',
+        linkedSkills: nextLinked.map(mapLinkedSkillToConfigSkill),
+      })
+
+      hydratedHireIdRef.current = hireId
+      setLinked((saved.linkedSkills ?? []).map(mapConfigSkillToLinkedSkill))
+      return saved
+    } catch (error) {
+      setPersistError(error instanceof Error ? error.message : t('common.requestFailed'))
+      throw error
+    } finally {
+      setPersisting(false)
+    }
+  }, [hireId, t])
+
   const searchStatusLabel = currentSearching
     ? t('hiring.todo.skill.statusSearching')
     : linked.length > 0
@@ -233,7 +291,7 @@ export function SkillCardBody({
         ? t('hiring.todo.skill.statusRecommendedCount', { count: currentResults.length })
         : currentResults.length > 0
           ? t('hiring.todo.skill.statusResultCount', { count: currentResults.length })
-      : t('hiring.todo.skill.statusPending')
+          : t('hiring.todo.skill.statusPending')
 
   const definitionMeta = useMemo(
     () => getSkillDefinitionStatusMeta(definitionStageStatus),
@@ -244,16 +302,37 @@ export function SkillCardBody({
     [skillGenerationState],
   )
 
-  function handleLink(s: StoreSkillItem) {
-    if (isLinked(s.id)) return
-    const next = [...linked, { skillId: s.id, name: s.displayName ?? s.name, version: s.currentVersion ?? '' }]
-    setLinked(next)
-    const names = next.map(l => l.name).join('、')
-    onAfterLink(`已关联技能：${names}。请继续。`)
+  async function handleLink(skill: StoreSkillItem) {
+    if (persisting || isLinked(skill.id)) return
+
+    const next = [
+      ...linked,
+      {
+        skillId: skill.id,
+        name: skill.displayName ?? skill.name,
+        version: skill.currentVersion ?? '',
+      },
+    ]
+
+    try {
+      await saveLinkedSkills(next)
+      const names = next.map(item => item.name).join('、')
+      onAfterLink(`已关联技能：${names}。请继续。`)
+    } catch {
+      // 错误已在界面展示
+    }
   }
 
-  function handleUnlink(id: string) {
-    setLinked(prev => prev.filter(l => l.skillId !== id))
+  async function handleUnlink(skillId: string) {
+    if (persisting) return
+
+    const next = linked.filter(item => item.skillId !== skillId)
+
+    try {
+      await saveLinkedSkills(next)
+    } catch {
+      // 错误已在界面展示
+    }
   }
 
   return (
@@ -292,7 +371,7 @@ export function SkillCardBody({
             className="hb-todo-input"
             placeholder={t('hiring.todo.skill.searchPlaceholder')}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={event => setQuery(event.target.value)}
           />
         </label>
         <span
@@ -305,6 +384,8 @@ export function SkillCardBody({
           {searchStatusLabel}
         </span>
       </div>
+
+      {persistError && <p className="hb-todo-error">{persistError}</p>}
 
       {definedSkills.length > 0 && (
         <section className="hb-todo-skill-section is-defined" aria-label="已定义技能">
@@ -353,22 +434,22 @@ export function SkillCardBody({
               <p className="hb-todo-hint-muted">{t('hiring.todo.skill.resultsSummary', { total: currentTotal, count: currentResults.length })}</p>
             )}
             <ul className="hb-todo-skill-list">
-              {currentResults.map(s => {
-                const displayName = s.displayName ?? s.name
-                const linkedNow = isLinked(s.id)
-                const recommendation = isRecommendedSkill(s) ? s : null
+              {currentResults.map(skill => {
+                const displayName = skill.displayName ?? skill.name
+                const linkedNow = isLinked(skill.id)
+                const recommendation = isRecommendedSkill(skill) ? skill : null
 
                 return (
-                  <li key={s.id} className="hb-todo-skill-item">
+                  <li key={skill.id} className="hb-todo-skill-item">
                     <div className="hb-todo-skill-main">
                       <div className="hb-todo-skill-title-row">
                         <strong>{displayName}</strong>
                         <div className="hb-todo-skill-chips">
-                          {s.currentVersion && <span className="hb-todo-skill-chip is-meta">{`v${s.currentVersion}`}</span>}
-                          {s.level && <span className="hb-todo-skill-chip is-meta">{s.level}</span>}
+                          {skill.currentVersion && <span className="hb-todo-skill-chip is-meta">{`v${skill.currentVersion}`}</span>}
+                          {skill.level && <span className="hb-todo-skill-chip is-meta">{skill.level}</span>}
                         </div>
                       </div>
-                      {s.description && <p className="hb-todo-skill-desc">{s.description}</p>}
+                      {skill.description && <p className="hb-todo-skill-desc">{skill.description}</p>}
                       {recommendation?.matchedKeywords?.length && !trimmedQuery ? (
                         <ul className="hb-todo-tag-list">
                           {recommendation.matchedKeywords.slice(0, 5).map(keyword => (
@@ -376,9 +457,9 @@ export function SkillCardBody({
                           ))}
                         </ul>
                       ) : null}
-                      {s.tags && s.tags.length > 0 && (
+                      {skill.tags && skill.tags.length > 0 && (
                         <ul className="hb-todo-tag-list">
-                          {s.tags.slice(0, 5).map(t => <li key={t} className="hb-todo-tag is-mini">{t}</li>)}
+                          {skill.tags.slice(0, 5).map(tag => <li key={tag} className="hb-todo-tag is-mini">{tag}</li>)}
                         </ul>
                       )}
                     </div>
@@ -386,10 +467,10 @@ export function SkillCardBody({
                       <button
                         type="button"
                         className={clsx('hb-todo-row-btn', linkedNow ? 'is-ghost' : 'is-primary')}
-                        disabled={linkedNow}
-                        onClick={() => handleLink(s)}
+                        disabled={linkedNow || persisting}
+                        onClick={() => handleLink(skill)}
                       >
-                        {linkedNow ? t('hiring.todo.skill.linked') : t('hiring.todo.skill.link')}
+                        {linkedNow ? t('hiring.todo.skill.linked') : persisting ? t('common.saving') : t('hiring.todo.skill.link')}
                       </button>
                     </div>
                   </li>
@@ -408,13 +489,13 @@ export function SkillCardBody({
           </div>
           <p className="hb-todo-hint-muted">{t('hiring.todo.skill.linkedDesc')}</p>
           <ul className="hb-todo-skill-linked-list">
-            {linked.map(l => (
-              <li key={l.skillId} className="hb-todo-skill-linked-item">
+            {linked.map(skill => (
+              <li key={skill.skillId} className="hb-todo-skill-linked-item">
                 <div className="hb-todo-skill-main">
                   <div className="hb-todo-skill-title-row">
-                    <strong>{l.name}</strong>
+                    <strong>{skill.name}</strong>
                     <div className="hb-todo-skill-chips">
-                      {l.version && <span className="hb-todo-skill-chip is-meta">{`v${l.version}`}</span>}
+                      {skill.version && <span className="hb-todo-skill-chip is-meta">{`v${skill.version}`}</span>}
                     </div>
                   </div>
                 </div>
@@ -422,9 +503,10 @@ export function SkillCardBody({
                   <button
                     type="button"
                     className="hb-todo-row-btn is-ghost"
-                    onClick={() => handleUnlink(l.skillId)}
+                    disabled={persisting}
+                    onClick={() => handleUnlink(skill.skillId)}
                   >
-                    {t('hiring.todo.skill.unlink')}
+                    {persisting ? t('common.saving') : t('hiring.todo.skill.unlink')}
                   </button>
                 </div>
               </li>

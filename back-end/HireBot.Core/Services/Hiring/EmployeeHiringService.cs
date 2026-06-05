@@ -9,6 +9,7 @@ using HireBot.Abstraction.Providers;
 using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Hiring;
 using HireBot.Abstraction.Services.Sandbox;
+using HireBot.Core.Services.Hiring.StoreSkills;
 using HireBot.Core.Services.Hiring.TemplatePackages;
 using HireBot.Core.Services.Sandbox;
 using HireBot.Repository;
@@ -30,6 +31,7 @@ internal sealed class EmployeeHiringService(
     IHiringStageService hiringStageService,
     IEmployeeRuntimeService employeeRuntimeService,
     IHiringArtifactPackageService artifactPackageService,
+    IStoreSkillPackageDownloader storeSkillPackageDownloader,
     IUserIdentity userIdentity,
     HireBotDbContext dbContext,
     IKingCrabHttpClient kingCrabHttpClient,
@@ -507,6 +509,26 @@ internal sealed class EmployeeHiringService(
         return ApiResponse<HiringExternalSystemConfigDto>.SuccessResponse(request);
     }
 
+    public async Task<ApiResponse<HiringSkillLinkConfigDto>> GetSkillLinkConfigAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        var config = await hiringStageService.GetSkillLinkConfigAsync(hireId, cancellationToken);
+        return ApiResponse<HiringSkillLinkConfigDto>.SuccessResponse(
+            config ?? new HiringSkillLinkConfigDto());
+    }
+
+    public async Task<ApiResponse<HiringSkillLinkConfigDto>> SaveSkillLinkConfigAsync(
+        string hireId,
+        HiringSkillLinkConfigDto request,
+        CancellationToken cancellationToken = default)
+    {
+        await hiringStageService.SaveSkillLinkConfigAsync(hireId, request, cancellationToken);
+        var saved = await hiringStageService.GetSkillLinkConfigAsync(hireId, cancellationToken);
+        return ApiResponse<HiringSkillLinkConfigDto>.SuccessResponse(
+            saved ?? new HiringSkillLinkConfigDto());
+    }
+
     public async Task<ApiResponse<HiringConversationSyncResultDto>> SyncConversationTurnAsync(
         string hireId,
         HiringConversationSyncRequestDto request,
@@ -770,10 +792,13 @@ internal sealed class EmployeeHiringService(
             logger.LogInformation("候选包已读取到内存: Size={Size}KB", packageBytes.Length / 1024);
 
             // 解压 ZIP，提取文件条目后持久化到文件系统和数据库
-            IReadOnlyDictionary<string, byte[]> extractedFiles;
+            var extractedFiles = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                extractedFiles = ExtractZipEntries(packageBytes);
+                foreach (var (path, content) in ExtractZipEntries(packageBytes))
+                {
+                    extractedFiles[path] = content;
+                }
             }
             catch (Exception ex)
             {
@@ -782,6 +807,24 @@ internal sealed class EmployeeHiringService(
             }
 
             // 每次导入生成唯一包版本 ID，确保多次导入的包不互相覆盖
+            var effectiveSkillLinkConfig = await ResolveEffectiveSkillLinkConfigAsync(
+                hireId,
+                linkedStoreSkillIds,
+                cancellationToken);
+            var linkedStoreSkillRequests = BuildStoreSkillDownloadRequests(effectiveSkillLinkConfig);
+            if (linkedStoreSkillRequests.Count > 0)
+            {
+                var downloadedSkillFiles = await storeSkillPackageDownloader.DownloadSkillsAsync(
+                    linkedStoreSkillRequests,
+                    cancellationToken);
+                foreach (var (path, content) in downloadedSkillFiles)
+                {
+                    extractedFiles[path] = content;
+                }
+            }
+
+            extractedFiles["skills/linked-store-skills.index.json"] = BuildSkillLinkIndexFile(effectiveSkillLinkConfig);
+
             var packageId = Guid.NewGuid().ToString("N");
 
             await artifactPackageService.PersistFinalPackageAsync(
@@ -929,9 +972,11 @@ internal sealed class EmployeeHiringService(
                 importMetadata["linked_employee_id"] = resolvedEmployeeId;
             }
 
-            if (linkedStoreSkillIds is { Count: > 0 })
+            if (effectiveSkillLinkConfig.LinkedSkills.Count > 0)
             {
-                importMetadata["linked_store_skills"] = string.Join(",", linkedStoreSkillIds);
+                importMetadata["linked_store_skills"] = string.Join(
+                    ",",
+                    effectiveSkillLinkConfig.LinkedSkills.Select(static item => item.SkillId));
             }
 
             // 合并现有结构化数据
@@ -1002,6 +1047,120 @@ internal sealed class EmployeeHiringService(
     /// <summary>
     /// 标记沙箱已完全初始化（模板包已上传，配置已设置，可以使用）。
     /// </summary>
+    private async Task<HiringSkillLinkConfigDto> ResolveEffectiveSkillLinkConfigAsync(
+        string hireId,
+        IReadOnlyList<string>? fallbackSkillIds,
+        CancellationToken cancellationToken)
+    {
+        var persistedConfig = await hiringStageService.GetSkillLinkConfigAsync(hireId, cancellationToken);
+        if (persistedConfig is { LinkedSkills.Count: > 0 })
+        {
+            return persistedConfig;
+        }
+
+        if (fallbackSkillIds is not { Count: > 0 })
+        {
+            return new HiringSkillLinkConfigDto();
+        }
+
+        var linkedSkills = fallbackSkillIds
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Select(static id => new HiringLinkedSkillItemDto
+            {
+                SkillId = id.Trim(),
+                BindingMode = "manual"
+            })
+            .GroupBy(static item => item.SkillId, StringComparer.OrdinalIgnoreCase)
+            .Select(static group => group.First())
+            .ToArray();
+
+        return new HiringSkillLinkConfigDto
+        {
+            SubmissionMode = linkedSkills.Length > 0
+                ? HiringSkillLinkSubmissionModes.Configured
+                : HiringSkillLinkSubmissionModes.Pending,
+            LinkedSkills = linkedSkills
+        };
+    }
+
+    private static IReadOnlyList<StoreSkillDownloadRequest> BuildStoreSkillDownloadRequests(HiringSkillLinkConfigDto config)
+    {
+        if (config.LinkedSkills.Count == 0)
+        {
+            return [];
+        }
+
+        return config.LinkedSkills
+            .Where(static item => !string.IsNullOrWhiteSpace(item.SkillId))
+            .Select(static item => new StoreSkillDownloadRequest(
+                SkillId: item.SkillId.Trim(),
+                VersionId: string.IsNullOrWhiteSpace(item.VersionId) ? null : item.VersionId.Trim(),
+                PreferredSlug: string.IsNullOrWhiteSpace(item.Name) ? null : item.Name.Trim()))
+            .ToArray();
+    }
+
+    private static byte[] BuildSkillLinkIndexFile(HiringSkillLinkConfigDto config)
+    {
+        var skills = config.LinkedSkills
+            .Where(static item => !string.IsNullOrWhiteSpace(item.SkillId))
+            .Select(item => new
+            {
+                skillId = item.SkillId.Trim(),
+                name = item.Name?.Trim() ?? string.Empty,
+                displayName = item.DisplayName?.Trim() ?? string.Empty,
+                versionId = item.VersionId?.Trim() ?? string.Empty,
+                currentVersion = item.CurrentVersion?.Trim() ?? string.Empty,
+                bindingMode = string.IsNullOrWhiteSpace(item.BindingMode) ? "manual" : item.BindingMode.Trim(),
+                path = BuildLinkedSkillPath(item)
+            })
+            .ToArray();
+
+        var indexDocument = new
+        {
+            schemaVersion = "1.0.0",
+            artifactType = "linked_store_skills_index",
+            submissionMode = skills.Length > 0
+                ? HiringSkillLinkSubmissionModes.Configured
+                : HiringSkillLinkSubmissionModes.Pending,
+            skills,
+            summary = new
+            {
+                total = skills.Length
+            }
+        };
+
+        return JsonSerializer.SerializeToUtf8Bytes(indexDocument, new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            WriteIndented = true
+        });
+    }
+
+    private static string BuildLinkedSkillPath(HiringLinkedSkillItemDto item)
+    {
+        var preferredName = item.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(preferredName))
+        {
+            preferredName = item.SkillId?.Trim();
+        }
+
+        return $"skills/{SanitizeSkillSlug(preferredName)}/";
+    }
+
+    private static string SanitizeSkillSlug(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return "skill";
+        }
+
+        var chars = raw.Select(ch =>
+            char.IsLetterOrDigit(ch) || ch == '-' || ch == '_' || ch == '.'
+                ? ch
+                : '-').ToArray();
+        var slug = new string(chars).Trim('-', '.');
+        return string.IsNullOrWhiteSpace(slug) ? "skill" : slug;
+    }
+
     private async Task SetSandboxInitializedAsync(string sandboxId, CancellationToken cancellationToken)
     {
         var instance = await dbContext.SandboxInstances

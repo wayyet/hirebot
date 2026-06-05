@@ -238,6 +238,7 @@ export default function HiringPage() {
   const projectionPassLaunchSignatureRef = useRef('')
   const skillGenerationLaunchSignatureRef = useRef('')
   const packagingTestCasesReadySignatureRef = useRef('')
+  const packagingTestCasesDoneSignatureRef = useRef('')
   const packagingTestCasesLaunchSignatureRef = useRef('')
   const pendingInternalPromptsRef = useRef<string[]>([])
 
@@ -407,6 +408,10 @@ export default function HiringPage() {
       .at(-1) ?? ''
     ontologyProjectionDoneSignatureRef.current = restoredMessages
       .filter(message => message.artifact?.artifactType === 'ontology_projection_done' && message.artifact.isTerminal)
+      .map(message => JSON.stringify(message.artifact?.data ?? {}))
+      .at(-1) ?? ''
+    packagingTestCasesDoneSignatureRef.current = restoredMessages
+      .filter(message => message.artifact?.artifactType === 'packaging_testcases_done' && message.artifact.isTerminal)
       .map(message => JSON.stringify(message.artifact?.data ?? {}))
       .at(-1) ?? ''
 
@@ -1117,6 +1122,17 @@ export default function HiringPage() {
           if (artifactType === 'external_workorder_summary' && kind === 'data' && isTerminal) {
             latestExternalSummaryRef.current = artifactData.data ?? null
             externalSummarySignatureRef.current = JSON.stringify(artifactData.data ?? {})
+          }
+          if (artifactType === 'packaging_testcases_done' && kind === 'data' && isTerminal) {
+            const signature = JSON.stringify(artifactData.data ?? {})
+            if (packagingTestCasesDoneSignatureRef.current !== signature) {
+              packagingTestCasesDoneSignatureRef.current = signature
+              pendingInternalPromptsRef.current.push(
+                buildCoachResumePrompt('post-packaging-test-cases', {
+                  packagingTestCasesResult: artifactData.data ?? {},
+                }),
+              )
+            }
           }
           const downstreamRun = resolveDownstreamRunFromArtifact(artifactType)
           const duplicateExternalConfigCommitted = artifactType === 'external_config_committed'
@@ -2127,6 +2143,7 @@ export default function HiringPage() {
         skillGenerationLaunchSignatureRef.current = ''
         ontologyExtractionDoneSignatureRef.current = ''
         ontologyProjectionDoneSignatureRef.current = ''
+        packagingTestCasesDoneSignatureRef.current = ''
         pendingInternalPromptsRef.current = []
         lastWsTurnInternalRef.current = false
         internalPromptFlushInFlightRef.current = false

@@ -96,7 +96,7 @@ export interface HiringStateActions {
   setWorkflowHireId: (id: string) => void
   setWorkflowBooting: (booting: boolean) => void
   setWorkflowError: (error: string) => void
-  setWorkflowNotice: (notice: string) => void
+  setWorkflowNotice: (notice: string | ((prev: string) => string)) => void
   setWorkflowInitAttempted: (attempted: boolean) => void
 
   // ── Artifact 相关操作 ───────────────────────────────────────────────────────
@@ -106,11 +106,13 @@ export interface HiringStateActions {
   setRestoredPackageFileName: (name: string) => void
   setMaterialRequestedCategories: (categories: MaterialRequestedCategory[]) => void
   setPendingPackageArtifact: (artifact: { fileUrl: string; fileName: string } | null) => void
-  setPendingStageConfirmation: (confirmation: PendingStageAdvanceConfirmation | null) => void
+  setPendingStageConfirmation: (
+    confirmation: PendingStageAdvanceConfirmation | null | ((prev: PendingStageAdvanceConfirmation | null) => PendingStageAdvanceConfirmation | null)
+  ) => void
   setRequiresFreshPackaging: (requires: boolean) => void
 
   // ── 技能相关操作 ────────────────────────────────────────────────────────────
-  setLinkedStoreSkillIds: (ids: string[]) => void
+  setLinkedStoreSkillIds: (ids: string[] | ((prev: string[]) => string[])) => void
 
   // ── 提交/流式操作 ──────────────────────────────────────────────────────────
   setSubmittingMessage: (submitting: boolean) => void

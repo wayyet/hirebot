@@ -2,7 +2,6 @@ using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Services.Hiring;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
 
 namespace HireBot.ApiService.Controllers;
 
@@ -75,7 +74,29 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    /// <summary>同步对话轮次，解析 AI 回复中的结构化数据标签并保存。</summary>
+    [HttpGet("{hireId}/skill-link-config")]
+    public async Task<IActionResult> GetSkillLinkConfig(string hireId, CancellationToken cancellationToken = default)
+    {
+        var response = await employeeHiringService.GetSkillLinkConfigAsync(hireId, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    [HttpPut("{hireId}/skill-link-config")]
+    public async Task<IActionResult> SaveSkillLinkConfig(
+        string hireId,
+        [FromBody] HiringSkillLinkConfigDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<HiringSkillLinkConfigDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeHiringService.SaveSkillLinkConfigAsync(hireId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpPost("{hireId}/conversation/sync")]
     public async Task<IActionResult> SyncConversationTurn(
         string hireId,
@@ -92,7 +113,6 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    /// <summary>获取已收集的结构化数据。</summary>
     [HttpGet("{hireId}/structured-data")]
     public async Task<IActionResult> GetStructuredData(string hireId, CancellationToken cancellationToken = default)
     {
@@ -100,7 +120,6 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    /// <summary>保存运行时状态（阶段覆盖配置 + 下游运行记录，统一接口）。</summary>
     [HttpPut("{hireId}/runtime-state")]
     public async Task<IActionResult> SaveRuntimeState(
         string hireId,
@@ -111,7 +130,6 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    /// <summary>获取运行时状态（阶段覆盖配置 + 下游运行记录）。</summary>
     [HttpGet("{hireId}/runtime-state")]
     public async Task<IActionResult> GetRuntimeState(string hireId, CancellationToken cancellationToken = default)
     {
@@ -119,13 +137,6 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    /// <summary>
-    /// 前端从沙箱网关直接下载产物包后上传至此接口,跳过后端对 KingCrab 的依赖，完成数字员工创建。
-    /// </summary>
-    /// <param name="hireId">雇佣会话 ID。</param>
-    /// <param name="packageFile">沙箱生成的产物 zip（multipart 文件字段）。</param>
-    /// <param name="skillIds">可选：用户在 TODO 面板关联的 store skill UUID 列表（multipart 重复字段），后端会从 ncrew-builder 下载并合并。</param>
-    /// <param name="cancellationToken">取消令牌。</param>
     [HttpPost("{hireId}/import-package")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> ImportPackage(
@@ -175,7 +186,6 @@ public sealed class HiringsController(
         return BuildDownloadResponse(result);
     }
 
-    /// <summary>获取该雇佣流程的所有 TODO 事项（供前端 TODO 面板初始化加载）。</summary>
     [HttpGet("{hireId}/todos")]
     public async Task<IActionResult> GetTodos(string hireId, CancellationToken cancellationToken = default)
     {
@@ -183,7 +193,6 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    /// <summary>用户确认或撤销一个 TODO 事项。</summary>
     [HttpPatch("{hireId}/todos/{handoffId}")]
     public async Task<IActionResult> UpdateTodoStatus(
         string hireId,
@@ -195,10 +204,6 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    /// <summary>
-    /// 接收前端直传的模板包 ZIP，上传到雇佣沙箱工作区。
-    /// 返回沙箱内文件路径和可嵌入 WebSocket 消息的 [FILE_URL:...] 标记。
-    /// </summary>
     [HttpPost("{hireId}/template-package")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(250_000_000)]

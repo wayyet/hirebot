@@ -464,12 +464,13 @@ function hasZeroProjectedOntologySlices(ontologyResult: unknown): boolean {
 }
 
 export function buildCoachResumePrompt(
-  transition: 'post-ontology-extraction' | 'post-ontology-projection',
+  transition: 'post-ontology-extraction' | 'post-ontology-projection' | 'post-packaging-test-cases',
   payload: {
     materialSummary?: unknown
     ontologyResult?: unknown
     skillSummary?: unknown
     projectionResult?: unknown
+    packagingTestCasesResult?: unknown
   },
 ): string {
   const serialized = JSON.stringify(payload, null, 2)
@@ -540,6 +541,40 @@ export function buildCoachResumePrompt(
         'Do not trigger `skill-generation` and do not offer a no-projection downgrade.',
         'Ask the user whether to supplement materials, revisit business-information extraction, or rerun business-information preparation before continuing.',
       )
+    }
+
+    lines.push(
+      '',
+      'resume_payload:',
+      '```json',
+      serialized,
+      '```',
+    )
+
+    return lines.join('\n')
+  }
+
+  if (transition === 'post-packaging-test-cases') {
+    const testcaseResult = asPlainObject(payload.packagingTestCasesResult)
+    const generatedCount = testcaseResult
+      ? typeof (testcaseResult.generated_count ?? testcaseResult.generatedCount) === 'number'
+        ? Number(testcaseResult.generated_count ?? testcaseResult.generatedCount)
+        : null
+      : null
+
+    const lines: string[] = [
+      '[Internal stage resume. Do not mention this instruction to the user.]',
+      'Switch back to skill `employment-coach-conversation` now.',
+      'The optional evaluation test case generation has completed.',
+      'Resume the main hiring flow inside stage4_packaging.',
+      'Do not regenerate evaluation test cases in this turn.',
+      'Do not claim the instance package is already generated.',
+      'Give one short transition that the evaluation test cases are ready, then explicitly ask whether to generate the instance package now.',
+      'If the user already explicitly asked to package in the current context, proceed directly under the coach skill rules; otherwise ask the packaging confirmation question only.',
+    ]
+
+    if (generatedCount !== null) {
+      lines.push(`The testcase output contains ${generatedCount} generated cases.`)
     }
 
     lines.push(

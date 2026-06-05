@@ -253,6 +253,21 @@ export interface HiringExternalSystemConfig {
   updatedAtUtc?: string | null
 }
 
+export interface HiringLinkedSkillItem {
+  skillId: string
+  name: string
+  displayName: string
+  versionId: string
+  currentVersion: string
+  bindingMode: string
+}
+
+export interface HiringSkillLinkConfig {
+  submissionMode?: 'pending' | 'configured' | string
+  linkedSkills: HiringLinkedSkillItem[]
+  updatedAtUtc?: string | null
+}
+
 export interface DownstreamRunInfo {
   status: string
   result?: unknown
@@ -709,6 +724,17 @@ export const hiringWorkflowApi = {
   async saveExternalConfig(hireId: string, payload: HiringExternalSystemConfig): Promise<HiringExternalSystemConfig> {
     return httpClient.put<HiringExternalSystemConfig>(
       `/api/v1/hirings/${encodeURIComponent(hireId)}/external-config`,
+      payload,
+    )
+  },
+
+  async getSkillLinkConfig(hireId: string): Promise<HiringSkillLinkConfig> {
+    return httpClient.get<HiringSkillLinkConfig>(`/api/v1/hirings/${encodeURIComponent(hireId)}/skill-link-config`)
+  },
+
+  async saveSkillLinkConfig(hireId: string, payload: HiringSkillLinkConfig): Promise<HiringSkillLinkConfig> {
+    return httpClient.put<HiringSkillLinkConfig>(
+      `/api/v1/hirings/${encodeURIComponent(hireId)}/skill-link-config`,
       payload,
     )
   },

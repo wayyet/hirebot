@@ -199,6 +199,7 @@ export function HiringTodoPanel({
           >
             {stage.key === HiringCollectionStage.Skill && (
               <SkillCardBody
+                hireId={hireId}
                 templateId={templateId}
                 templatePackageSkills={templatePackageSkills}
                 onAfterLink={summary => onAfterStageMessage?.(HiringCollectionStage.Skill, summary, 'collecting')}
