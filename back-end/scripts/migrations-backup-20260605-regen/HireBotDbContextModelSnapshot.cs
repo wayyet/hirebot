@@ -57,7 +57,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.AppUserEntity", b =>
@@ -115,7 +115,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("TenantId", "Username");
 
-                    b.ToTable("AppUsers");
+                    b.ToTable("AppUsers", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.ConversationEntity", b =>
@@ -220,7 +220,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("SessionEntityId", "AssetType");
 
-                    b.ToTable("EvaluationAssets");
+                    b.ToTable("EvaluationAssets", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationReportEntity", b =>
@@ -272,7 +272,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("SessionEntityId", "Iteration");
 
-                    b.ToTable("EvaluationReports");
+                    b.ToTable("EvaluationReports", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationSessionEntity", b =>
@@ -348,7 +348,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("TenantId", "OwnerSubject", "EmployeeId", "UpdatedAtUtc");
 
-                    b.ToTable("EvaluationSessions");
+                    b.ToTable("EvaluationSessions", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationWorkspaceStateEntity", b =>
@@ -389,7 +389,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("TenantId", "OwnerSubject", "EmployeeId")
                         .IsUnique();
 
-                    b.ToTable("EvaluationWorkspaceStates");
+                    b.ToTable("EvaluationWorkspaceStates", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringArtifactEntity", b =>
@@ -458,6 +458,8 @@ namespace HireBot.Repository.Migrations
 
                     b.HasKey("ArtifactId");
 
+                    b.HasIndex("PackageId");
+
                     b.HasIndex("UploadedAtUtc");
 
                     b.HasIndex("TenantId", "SessionId", "IsFinal");
@@ -465,7 +467,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("TenantId", "SessionId", "Kind", "LogicalPath")
                         .IsUnique();
 
-                    b.ToTable("HiringArtifacts");
+                    b.ToTable("HiringArtifacts", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringArtifactUploadEntity", b =>
@@ -532,7 +534,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("TenantId", "SessionId", "Kind", "LogicalPath", "CompletedAtUtc");
 
-                    b.ToTable("HiringArtifactUploads");
+                    b.ToTable("HiringArtifactUploads", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringArtifactUploadPartEntity", b =>
@@ -574,7 +576,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("UploadId", "PartNumber")
                         .IsUnique();
 
-                    b.ToTable("HiringArtifactUploadParts");
+                    b.ToTable("HiringArtifactUploadParts", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringAuditLogEntity", b =>
@@ -637,37 +639,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("TenantId", "SessionId", "TimestampUtc");
 
-                    b.ToTable("HiringAuditLogs");
-                });
-
-            modelBuilder.Entity("HireBot.Repository.Entities.HiringExternalConfigEntity", b =>
-                {
-                    b.Property<string>("HireId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ConfigJson")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("{}");
-
-                    b.Property<string>("TenantId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.HasKey("HireId");
-
-                    b.HasIndex("TenantId", "UpdatedAtUtc");
-
-                    b.ToTable("HiringExternalConfigs");
+                    b.ToTable("HiringAuditLogs", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.HiringMaterialFileEntity", b =>
@@ -762,6 +734,69 @@ namespace HireBot.Repository.Migrations
                     b.ToTable("HiringMaterialFiles", (string)null);
                 });
 
+            modelBuilder.Entity("HireBot.Repository.Entities.HiringRuntimeStateEntity", b =>
+                {
+                    b.Property<string>("HireId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("CollectionPhase")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ConversationCacheJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("{}");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrentStage")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PackagesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("{}");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WorkflowStateJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("{}");
+
+                    b.HasKey("HireId");
+
+                    b.HasIndex("TenantId", "SessionId");
+
+                    b.HasIndex("TenantId", "UpdatedAtUtc");
+
+                    b.ToTable("HiringRuntimeStates", (string)null);
+                });
+
             modelBuilder.Entity("HireBot.Repository.Entities.HiringSessionEntity", b =>
                 {
                     b.Property<string>("SessionId")
@@ -832,89 +867,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("HireId")
                         .IsUnique();
 
-                    b.ToTable("HiringSessions");
-                });
-
-            modelBuilder.Entity("HireBot.Repository.Entities.HiringStageProgressEntity", b =>
-                {
-                    b.Property<string>("HireId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("CurrentStage")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<string>("DownstreamRunsJson")
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("PackageStructureJson")
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("PackagingTestCasesStatus")
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<string>("StageOverridesJson")
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("TenantId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("UploadedFilesJson")
-                        .HasColumnType("jsonb");
-
-                    b.HasKey("HireId");
-
-                    b.HasIndex("TenantId", "UpdatedAtUtc");
-
-                    b.ToTable("HiringStageProgresses");
-                });
-
-            modelBuilder.Entity("HireBot.Repository.Entities.HiringStructuredDataEntity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTimeOffset>("CollectedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FieldKey")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("FieldValue")
-                        .HasColumnType("text");
-
-                    b.Property<string>("HireId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("TenantId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("HireId");
-
-                    b.HasIndex("HireId", "FieldKey");
-
-                    b.ToTable("HiringStructuredData");
+                    b.ToTable("HiringSessions", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.InstanceEntity", b =>
@@ -930,6 +883,10 @@ namespace HireBot.Repository.Migrations
                     b.Property<string>("BasedOnTemplateId")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
+
+                    b.Property<string>("HireId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -962,10 +919,6 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
-                    b.Property<string>("HireId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<string>("InstanceType")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -996,7 +949,11 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("BasedOnTemplateId");
 
+                    b.HasIndex("FinalPackageId");
+
                     b.HasIndex("FromInstanceId");
+
+                    b.HasIndex("HireId");
 
                     b.HasIndex("OwnerUserId", "InstanceType", "Status");
 
@@ -1142,7 +1099,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("SandboxInstanceEntityId", "CreatedAtUtc");
 
-                    b.ToTable("SandboxAssets");
+                    b.ToTable("SandboxAssets", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.SandboxInstanceEntity", b =>
@@ -1238,7 +1195,7 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("OwnerSubject", "TemplateId", "SandboxRole", "State");
 
-                    b.ToTable("SandboxInstances");
+                    b.ToTable("SandboxInstances", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.SandboxSessionEntity", b =>
@@ -1309,7 +1266,7 @@ namespace HireBot.Repository.Migrations
                     b.HasIndex("TenantId", "OwnerSubject", "ScopeType", "ScopeKey", "SandboxRole", "SessionKey")
                         .IsUnique();
 
-                    b.ToTable("SandboxSessions");
+                    b.ToTable("SandboxSessions", (string)null);
                 });
 
             modelBuilder.Entity("HireBot.Repository.Entities.EvaluationAssetEntity", b =>
