@@ -7,14 +7,14 @@ namespace HireBot.Core.Services.Hiring;
 internal sealed record HiringExternalSystemConfigState(
     string SubmissionMode,
     IReadOnlyList<HiringCliToolConfigState> CliTools,
-    HiringMcpServerConfigState? McpServer,
+    IReadOnlyList<HiringMcpServerConfigState> McpServers,
     DateTimeOffset UpdatedAtUtc)
 {
     public bool IsSkipped => string.Equals(SubmissionMode, HiringExternalSystemSubmissionModes.Skipped, StringComparison.OrdinalIgnoreCase);
 
     public bool HasConfiguredSystems =>
-        CliTools.Count > 0
-        || (McpServer is not null && McpServer.HasAnyConfig);
+        (CliTools?.Count ?? 0) > 0
+        || (McpServers?.Count ?? 0) > 0;
 
     public bool IsPersisted => IsSkipped || HasConfiguredSystems;
 
@@ -22,10 +22,12 @@ internal sealed record HiringExternalSystemConfigState(
         => new()
         {
             SubmissionMode = ResolveSubmissionMode(this),
-            CliTools = CliTools
+            CliTools = (CliTools ?? [])
                 .Select(static tool => tool.ToDto())
                 .ToArray(),
-            McpServer = McpServer?.ToDto(secretProtector),
+            McpServers = (McpServers ?? [])
+                .Select(mcp => mcp.ToDto(secretProtector))
+                .ToArray(),
             UpdatedAtUtc = UpdatedAtUtc
         };
 
@@ -39,11 +41,26 @@ internal sealed record HiringExternalSystemConfigState(
             .Select(static tool => tool!)
             .ToArray();
 
-        var normalizedMcpServer = HiringMcpServerConfigState.FromDto(dto?.McpServer, secretProtector);
+        // 新数据来自 McpServers 列表；旧数据来自 McpServer 单项（向后兼容）
+#pragma warning disable CS0618
+        var legacyMcpServer = dto?.McpServer;
+#pragma warning restore CS0618
+        var mcpServerDtos = dto?.McpServers is { Count: > 0 }
+            ? dto.McpServers
+            : legacyMcpServer is not null
+                ? [legacyMcpServer]
+                : [];
+
+        var normalizedMcpServers = mcpServerDtos
+            .Select(mcp => HiringMcpServerConfigState.FromDto(mcp, secretProtector))
+            .Where(static mcp => mcp is not null && mcp.HasAnyConfig)
+            .Select(static mcp => mcp!)
+            .ToArray();
+
         var provisionalState = new HiringExternalSystemConfigState(
             SubmissionMode: HiringExternalSystemSubmissionModes.Pending,
             CliTools: normalizedCliTools,
-            McpServer: normalizedMcpServer,
+            McpServers: normalizedMcpServers,
             UpdatedAtUtc: dto?.UpdatedAtUtc ?? DateTimeOffset.UtcNow);
 
         return provisionalState with
@@ -146,11 +163,10 @@ internal sealed record HiringMcpServerConfigState(
     IReadOnlyDictionary<string, string> ProtectedHeaders,
     IReadOnlyDictionary<string, string> HeadersFromEnv)
 {
+    // SSE 和 Streamable HTTP 均基于 URL，仅校验名称与 URL
     public bool HasAnyConfig =>
         !string.IsNullOrWhiteSpace(Name)
-        && (string.Equals(Transport, "stdio", StringComparison.OrdinalIgnoreCase)
-            ? !string.IsNullOrWhiteSpace(Command)
-            : !string.IsNullOrWhiteSpace(Url));
+        && !string.IsNullOrWhiteSpace(Url);
 
     public HiringMcpServerConfigDto ToDto(ISecretProtector secretProtector)
         => new()
@@ -179,38 +195,32 @@ internal sealed record HiringMcpServerConfigState(
 
         var transport = NormalizeTransport(dto.Transport);
         var name = dto.Name?.Trim() ?? string.Empty;
-        var command = transport == "stdio" ? dto.Command?.Trim() ?? string.Empty : string.Empty;
-        var url = transport == "http" ? dto.Url?.Trim() ?? string.Empty : string.Empty;
+        // SSE 和 Streamable HTTP 均基于 URL，不再支持 stdio 本地进程模式
+        var url = dto.Url?.Trim() ?? string.Empty;
         var normalized = new HiringMcpServerConfigState(
             Transport: transport,
             Name: name,
-            Command: command,
-            Args: transport == "stdio"
-                ? NormalizeStringList(dto.Args)
-                : [],
-            ProtectedEnv: transport == "stdio"
-                ? ProtectMap(dto.Env, secretProtector)
-                : EmptyMap(),
-            EnvPassThrough: transport == "stdio"
-                ? NormalizeStringList(dto.EnvPassThrough)
-                : [],
-            Cwd: transport == "stdio" ? dto.Cwd?.Trim() ?? string.Empty : string.Empty,
+            Command: string.Empty,
+            Args: [],
+            ProtectedEnv: EmptyMap(),
+            EnvPassThrough: [],
+            Cwd: string.Empty,
             Url: url,
-            BearerTokenEnv: transport == "http" ? dto.BearerTokenEnv?.Trim() ?? string.Empty : string.Empty,
-            ProtectedHeaders: transport == "http"
-                ? ProtectMap(dto.Headers, secretProtector)
-                : EmptyMap(),
-            HeadersFromEnv: transport == "http"
-                ? NormalizeMap(dto.HeadersFromEnv)
-                : EmptyMap());
+            BearerTokenEnv: dto.BearerTokenEnv?.Trim() ?? string.Empty,
+            ProtectedHeaders: ProtectMap(dto.Headers, secretProtector),
+            HeadersFromEnv: NormalizeMap(dto.HeadersFromEnv));
 
         return normalized.HasAnyConfig ? normalized : null;
     }
 
     private static string NormalizeTransport(string? transport)
-        => string.Equals(transport, "stdio", StringComparison.OrdinalIgnoreCase)
-            ? "stdio"
-            : "http";
+        => transport?.ToLowerInvariant() switch
+        {
+            "sse" => "sse",
+            // http 是旧别名，stdio 为遗留传输，均规范化为 streamable-http
+            "streamable-http" or "http" or "stdio" => "streamable-http",
+            _ => "streamable-http",
+        };
 
     private static IReadOnlyList<string> NormalizeStringList(IReadOnlyList<string>? values)
         => (values ?? [])
