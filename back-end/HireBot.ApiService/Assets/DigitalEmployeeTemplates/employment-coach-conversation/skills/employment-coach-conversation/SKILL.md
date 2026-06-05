@@ -540,7 +540,7 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
   "data": {
     "status": "waiting_downstream",
     "pending_downstream_skills": ["skill-generation"],
-    "included": ["ontology/", "skills/", "external/", "config/", "manifest.json"]
+    "included": ["ontology/", "skills/", "external/", "config/", "manifest.json", "README.md", "describe.md", "evaluation.md"]
   }
 }
 ```
@@ -558,7 +558,7 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
   "displayHint": "progress",
   "data": {
     "status": "packing",
-    "included": ["ontology/", "skills/", "external/", "config/", "manifest.json"]
+    "included": ["ontology/", "skills/", "external/", "config/", "manifest.json", "README.md", "describe.md", "evaluation.md"]
   }
 }
 ```
@@ -806,6 +806,76 @@ org-health-analyst-20260514094434/config/SOUL.md    ← workspace 目录名混�
 - 不暴露平台架构、orchestrator、hooks、沙箱机制等内部概念给用户
 
 ## References 索引
+
+## Packaging Addendum
+
+### Root Docs Must Exist Before Packaging
+
+When stage 4 packaging starts, the workspace root **must contain real files**:
+- `README.md`
+- `describe.md`
+- `evaluation.md`
+
+Do not treat the `included` array in `packaging_progress` as evidence that these files exist. The files must be created or updated in the workspace before calling the packaging tool.
+
+### Initial Template Sync
+
+If the original uploaded template package already contained root docs, they should be treated as the first source of truth instead of being ignored.
+
+Before generating new root docs from scratch, check these paths first:
+- `<workspace_root>/uploads/describe.md`
+- `<workspace_root>/uploads/evaluation.md`
+- `<workspace_root>/uploads/README.md`
+
+Sync rule:
+1. If the workspace root file is missing and the corresponding file exists under `uploads/`, copy it to the workspace root first.
+2. If both exist, treat the `uploads/` version as the original baseline and refresh the workspace-root version from that baseline plus current runtime facts.
+3. Never package docs that exist only under `uploads/` without syncing them to the workspace root.
+
+This means the final instance package should inherit the user's original template documentation when available, then update it to reflect the current generated `ontology/`, `skills/`, `external/`, and `testcases/` state.
+
+### Required Content
+
+**`README.md`**
+- Package overview
+- Directory map for `manifest.json`, `config/`, `ontology/`, `skills/`, `external/`, `testcases/`
+- Suggested reading order for human reviewers
+
+**`describe.md`**
+- Employee positioning
+- Target users and scenarios
+- Core capabilities
+- Typical inputs and outputs
+- Operational boundaries and explicit non-goals
+
+**`evaluation.md`**
+- Recommended verification path
+- Key success criteria
+- Important behaviors to observe
+- Whether `testcases/evaluation-test-cases.json` exists
+- If testcase JSON is missing, the file must still be created and must explicitly say the package currently relies on import-time fallback for evaluation testcase structure
+
+### Verification Before Packaging
+
+Before calling the packaging tool:
+1. Check whether the three root docs exist.
+2. If any root doc is missing, first try to sync it from the corresponding file under `<workspace_root>/uploads/`.
+3. Create missing files or refresh stale files from the current workspace truth.
+4. Read the files back and verify they are non-empty and not placeholder-only content.
+5. If any file is missing, empty, or still placeholder text, stop packaging and do not emit `template_package`.
+
+### Preferred Sources
+
+Use the current workspace as the source of truth, in this order:
+1. Original root docs under `<workspace_root>/uploads/` when they exist
+2. `manifest.json`
+3. `config/SOUL.md`
+4. `config/IDENTITY.md`
+5. Generated `skills/*/SKILL.md`
+6. Saved `external/` summaries
+7. `testcases/evaluation-test-cases.json` when present
+
+Never invent capabilities, external integrations, or evaluation assets that do not exist in the workspace.
 
 | 文件 | 何时读 |
 |---|---|

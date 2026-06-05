@@ -34,6 +34,88 @@ function getFileIcon(filename: string): ReactNode {
   return <FileText size={14} />
 }
 
+type ChatRenderItem =
+  | { kind: 'artifact'; key: string; artifactMessage: ChatMessage }
+  | { kind: 'stage_gate'; key: string; stageGateMessage: ChatMessage }
+  | { kind: 'message'; key: string; message: ChatMessage; leadingArtifacts?: ChatMessage[] }
+
+function buildChatRenderItems(messages: ChatMessage[]): ChatRenderItem[] {
+  const items: ChatRenderItem[] = []
+  let pendingArtifacts: ChatMessage[] = []
+
+  const flushPendingArtifacts = () => {
+    for (const artifactMessage of pendingArtifacts) {
+      items.push({
+        kind: 'artifact',
+        key: artifactMessage.id,
+        artifactMessage,
+      })
+    }
+    pendingArtifacts = []
+  }
+
+  for (const message of messages) {
+    if (message.role === 'artifact' && message.artifact) {
+      pendingArtifacts.push(message)
+      continue
+    }
+
+    if (message.role === 'bot') {
+      items.push({
+        kind: 'message',
+        key: message.id,
+        message,
+        leadingArtifacts: pendingArtifacts.length > 0 ? pendingArtifacts : undefined,
+      })
+      pendingArtifacts = []
+      continue
+    }
+
+    flushPendingArtifacts()
+
+    if (message.role === 'stage_gate' && message.stageGate) {
+      items.push({
+        kind: 'stage_gate',
+        key: message.id,
+        stageGateMessage: message,
+      })
+      continue
+    }
+
+    items.push({
+      kind: 'message',
+      key: message.id,
+      message,
+    })
+  }
+
+  flushPendingArtifacts()
+  return items
+}
+
+function appendArtifactMarkdown(lines: string[], artifactMessage: ChatMessage) {
+  if (!artifactMessage.artifact) {
+    return
+  }
+
+  const artifact = artifactMessage.artifact
+  lines.push(i18n.t('hiring.export.artifactHeader', { label: artifact.label ?? artifact.artifactType }))
+  lines.push(``)
+
+  if (artifact.kind === 'file') {
+    lines.push(i18n.t('hiring.export.fileName', { name: artifact.fileName ?? '未知' }))
+    if (artifact.sizeLabel) lines.push(i18n.t('hiring.export.fileSize', { size: artifact.sizeLabel }))
+  } else if (artifact.kind === 'data') {
+    lines.push(`\`\`\`json`)
+    lines.push(JSON.stringify(artifact.data, null, 2))
+    lines.push(`\`\`\``)
+  }
+
+  lines.push(``)
+  lines.push(`---`)
+  lines.push(``)
+}
+
 /** 将对话消息列表转换为 Markdown 字符串，便于粘贴给其他 LLM 分析 */
 function chatToMarkdown(messages: ChatMessage[], botName: string): string {
   const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -47,7 +129,34 @@ function chatToMarkdown(messages: ChatMessage[], botName: string): string {
     ``,
   ]
 
-  for (const msg of messages) {
+  for (const item of buildChatRenderItems(messages)) {
+    if (item.kind === 'artifact') {
+      appendArtifactMarkdown(lines, item.artifactMessage)
+      continue
+    }
+
+    if (item.kind === 'stage_gate') {
+      const sg = item.stageGateMessage.stageGate
+      if (!sg) {
+        continue
+      }
+
+      lines.push(i18n.t('hiring.export.stageGate', { from: sg.completedStage, to: sg.nextStage }))
+      lines.push(``)
+      if (!sg.canProceed && sg.blockedReason) {
+        lines.push(i18n.t('hiring.export.blockedReason', { reason: sg.blockedReason }))
+      }
+      lines.push(``)
+      lines.push(`---`)
+      lines.push(``)
+      continue
+    }
+
+    for (const artifactMessage of item.leadingArtifacts ?? []) {
+      appendArtifactMarkdown(lines, artifactMessage)
+    }
+
+    const msg = item.message
     if (msg.role === 'user') {
       lines.push(i18n.t('hiring.export.userHeader'))
       lines.push(``)
@@ -168,6 +277,7 @@ export function HiringConversationPanel({
 }: HiringConversationPanelProps) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
+  const renderItems = buildChatRenderItems(messages)
 
   const handleCopyAsMarkdown = useCallback(() => {
     if (messages.length === 0) return
@@ -208,7 +318,13 @@ export function HiringConversationPanel({
           }
         />
 
-        {messages.map((message) => {
+        {renderItems.map((item) => {
+          const message = item.kind === 'message'
+            ? item.message
+            : item.kind === 'artifact'
+              ? item.artifactMessage
+              : item.stageGateMessage
+
           // artifact 产物卡片：不受 role 方向影响，居左展示
           if (message.role === 'artifact' && message.artifact) {
             return (
@@ -263,6 +379,31 @@ export function HiringConversationPanel({
               {message.role === 'user' ? t('hiring.intro.userAvatar') : introName.slice(0, 1).toUpperCase()}
             </div>
             <div className={`hb-hiring-msg-stack ${message.role === 'user' ? 'is-user' : ''}`}>
+              {item.kind === 'message' && item.leadingArtifacts?.map((artifactMessage) => (
+                artifactMessage.artifact ? (
+                  <ArtifactMessageCard
+                    key={artifactMessage.id}
+                    artifact={artifactMessage.artifact}
+                    onFileDownload={onArtifactFileDownload}
+                    onManualUpload={onArtifactManualUpload}
+                    packageDownloadFileName={
+                      artifactMessage.artifact.artifactType === 'template_package'
+                        ? templatePackageDownloadFileName
+                        : undefined
+                    }
+                    packageDownloadDisabled={
+                      artifactMessage.artifact.artifactType === 'template_package'
+                        ? templatePackageDownloadDisabled
+                        : undefined
+                    }
+                    packageDownloadDisabledTitle={
+                      artifactMessage.artifact.artifactType === 'template_package'
+                        ? templatePackageDownloadDisabledTitle
+                        : undefined
+                    }
+                  />
+                ) : null
+              ))}
               {message.role === 'bot' && message.toolSteps && message.toolSteps.length > 0 ? (
                 <div className="hb-chat-toolsteps">
                   <HiringToolStepsBlock steps={message.toolSteps} />
