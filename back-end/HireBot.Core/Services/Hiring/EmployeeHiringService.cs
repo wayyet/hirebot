@@ -781,23 +781,25 @@ internal sealed class EmployeeHiringService(
                 return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(400, $"候选包 ZIP 格式无效: {ex.Message}");
             }
 
+            // 每次导入生成唯一包版本 ID，确保多次导入的包不互相覆盖
+            var packageId = Guid.NewGuid().ToString("N");
+
             await artifactPackageService.PersistFinalPackageAsync(
                 new HiringArtifactPackagePersistRequestDto(
                     HireId: hireId,
                     SessionId: session.SessionId,
                     FileName: fileName,
-                    Files: extractedFiles),
+                    Files: extractedFiles,
+                    PackageId: packageId),
                 cancellationToken);
 
-            logger.LogInformation("候选包已持久化: HireId={HireId}, SessionId={SessionId}, FileCount={FileCount}",
-                hireId, session.SessionId, extractedFiles.Count);
+            logger.LogInformation("候选包已持久化: HireId={HireId}, SessionId={SessionId}, FileCount={FileCount}, PackageId={PackageId}",
+                hireId, session.SessionId, extractedFiles.Count, packageId);
 
-            // 查找关联的数字员工实例：优先查 Hiring 状态（首次导入），
-            // 已导入过时实例状态为 InterningAi，同样匹配——确保重复导入时仍能返回 EmployeeId。
+            // 通过 HireId 精确查找关联的数字员工实例，避免同一模板多个并发流程时找错实例
             var hiringInstance = await dbContext.Instances
-                .Where(i => (i.Status == EmployeeStatus.Hiring || i.Status == EmployeeStatus.InterningAi)
-                    && i.OwnerUserId == userIdentity.OwnerSubject
-                    && i.BasedOnTemplateId == session.TemplateId)
+                .Where(i => i.HireId == hireId &&
+                            (i.Status == EmployeeStatus.Hiring || i.Status == EmployeeStatus.InterningAi))
                 .OrderByDescending(i => i.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
 
@@ -921,6 +923,12 @@ internal sealed class EmployeeHiringService(
                 ["employee_status"] = EmployeeStatus.InterningAi // 标记为AI评估阶段
             };
 
+            // 写入员工实例 ID 反向索引，评估服务通过 employeeId 可反查到本 hireId 的 artifact
+            if (!string.IsNullOrWhiteSpace(resolvedEmployeeId))
+            {
+                importMetadata["linked_employee_id"] = resolvedEmployeeId;
+            }
+
             if (linkedStoreSkillIds is { Count: > 0 })
             {
                 importMetadata["linked_store_skills"] = string.Join(",", linkedStoreSkillIds);
@@ -935,6 +943,16 @@ internal sealed class EmployeeHiringService(
             }
 
             await hiringStageService.SaveStructuredDataAsync(hireId, mergedData, cancellationToken);
+
+            // 将当前版本包 ID 写入实例表，供评估服务按版本精确查找
+            if (!string.IsNullOrWhiteSpace(resolvedEmployeeId))
+            {
+                await dbContext.Instances
+                    .Where(i => i.InstanceId == resolvedEmployeeId)
+                    .ExecuteUpdateAsync(
+                        s => s.SetProperty(i => i.FinalPackageId, packageId),
+                        cancellationToken);
+            }
 
             logger.LogInformation("候选包导入成功: HireId={HireId}, 员工状态已更新为interning_ai", hireId);
 

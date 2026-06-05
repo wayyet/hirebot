@@ -29,6 +29,7 @@ internal sealed class HiringArtifactPackageService(
             IntermediateCategory,
             logicalPath: "packages/intermediate/package.zip",
             isFinal: false,
+            packageId: null,
             cancellationToken);
     }
 
@@ -36,12 +37,17 @@ internal sealed class HiringArtifactPackageService(
         HiringArtifactPackagePersistRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        // 每次导入使用唯一 packageId，确保多次导入不互相覆盖；调用方也可自行提供以实现幂等性
+        var packageId = !string.IsNullOrWhiteSpace(request.PackageId)
+            ? request.PackageId.Trim()
+            : Guid.NewGuid().ToString("N");
         return PersistPackageAsync(
             request,
             HiringArtifactPackageKinds.FinalPackageZip,
-            FinalCategory,
-            logicalPath: "packages/final/package.zip",
+            category: $"packages/final/{packageId}",
+            logicalPath: $"packages/final/{packageId}/package.zip",
             isFinal: true,
+            packageId: packageId,
             cancellationToken);
     }
 
@@ -83,6 +89,70 @@ internal sealed class HiringArtifactPackageService(
             {
                 return snapshot;
             }
+        }
+
+        return null;
+    }
+
+    public async Task<HiringArtifactPackageSnapshotDto?> GetLatestPackageByEmployeeIdAsync(
+        string employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId))
+        {
+            return null;
+        }
+
+        var normalizedEmployeeId = employeeId.Trim();
+
+        // employeeId → Instance.(HireId, FinalPackageId, TenantId) → 直接拼语义路径读文件
+        // 无需 HiringArtifacts 关联查询
+        var instance = await dbContext.Instances
+            .AsNoTracking()
+            .Where(i => i.InstanceId == normalizedEmployeeId)
+            .Select(i => new { i.HireId, i.FinalPackageId, i.TenantId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (instance is not null
+            && !string.IsNullOrWhiteSpace(instance.HireId)
+            && !string.IsNullOrWhiteSpace(instance.FinalPackageId))
+        {
+            var tenantId = string.IsNullOrWhiteSpace(instance.TenantId) ? "default" : instance.TenantId;
+            if (await hiringFileStore.FinalPackageExistsAsync(tenantId, instance.HireId, instance.FinalPackageId, cancellationToken))
+            {
+                await using var stream = await hiringFileStore.OpenFinalPackageAsync(
+                    tenantId, instance.HireId, instance.FinalPackageId, cancellationToken);
+                using var mem = new MemoryStream();
+                await stream.CopyToAsync(mem, cancellationToken);
+                var content = mem.ToArray();
+                return new HiringArtifactPackageSnapshotDto(
+                    HireId: instance.HireId,
+                    SessionId: string.Empty,
+                    Kind: HiringArtifactPackageKinds.FinalPackageZip,
+                    FileName: $"{instance.FinalPackageId}.zip",
+                    LogicalPath: $"packages/final/{instance.FinalPackageId}/package.zip",
+                    Sha256: Convert.ToHexStringLower(SHA256.HashData(content)),
+                    Content: content,
+                    IsFinal: true);
+            }
+        }
+
+        // FinalPackageId 未设置（旧数据/首次导入前）：退化到按时间取最新包
+        if (!string.IsNullOrWhiteSpace(instance?.HireId))
+        {
+            return await GetLatestPackageAsync(instance.HireId, cancellationToken);
+        }
+
+        // 兼容最旧数据：HireId 未写入实例时，通过 HiringStructuredData 反向索引兜底
+        var record = await dbContext.HiringStructuredData
+            .AsNoTracking()
+            .Where(d => d.FieldKey == "linked_employee_id" && d.FieldValue == normalizedEmployeeId)
+            .OrderByDescending(d => d.CollectedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(record?.HireId))
+        {
+            return await GetLatestPackageAsync(record.HireId, cancellationToken);
         }
 
         return null;
@@ -154,6 +224,7 @@ internal sealed class HiringArtifactPackageService(
         string category,
         string logicalPath,
         bool isFinal,
+        string? packageId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -183,32 +254,47 @@ internal sealed class HiringArtifactPackageService(
         var sha256 = Convert.ToHexStringLower(SHA256.HashData(archive));
         var uploadedAtUtc = DateTimeOffset.UtcNow;
 
+        // 最终包使用语义路径：{root}/{tenantId}/{hireId}/{packageId}/package.zip
+        // 中间包沿用 sessions/{sessionId}/{category}/package.zip 旧路径
         await using var archiveStream = new MemoryStream(archive, writable: false);
-        var storagePath = await hiringFileStore.SaveAsync(
-            normalizedSessionId,
-            category,
-            PackageStorageFileName,
-            archiveStream,
-            cancellationToken);
-
-        var entity = await dbContext.HiringArtifacts
-            .FirstOrDefaultAsync(
-                item => item.SessionId == normalizedSessionId &&
-                        item.Kind == kind &&
-                        item.LogicalPath == logicalPath &&
-                        item.DeletedAtUtc == null,
+        string storagePath;
+        string effectiveLogicalPath;
+        HiringArtifactEntity entity;
+        if (isFinal && packageId is not null)
+        {
+            var tenantId = session.TenantId ?? "default";
+            storagePath = await hiringFileStore.SaveFinalPackageAsync(
+                tenantId,
+                normalizedHireId,
+                packageId,
+                archiveStream,
                 cancellationToken);
+            effectiveLogicalPath = $"packages/final/{packageId}/package.zip";
+        }
+        else
+        {
+            storagePath = await hiringFileStore.SaveAsync(
+                normalizedSessionId,
+                category,
+                PackageStorageFileName,
+                archiveStream,
+                cancellationToken);
+            effectiveLogicalPath = logicalPath;
+        }
 
-        if (entity is null)
+        // 最终包：每次新增一条记录（不做 upsert），旧包可审计
+        // 中间包：按 sessionId+kind+logicalPath 做 upsert（保持原有行为）
+        if (isFinal && packageId is not null)
         {
             entity = new HiringArtifactEntity
             {
                 SessionId = normalizedSessionId,
                 Kind = kind,
-                LogicalPath = logicalPath,
+                LogicalPath = effectiveLogicalPath,
                 FileName = normalizedFileName,
                 SizeBytes = archive.LongLength,
                 Sha256 = sha256,
+                PackageId = packageId,
                 StoragePath = storagePath,
                 IsFinal = isFinal,
                 IsArchived = false,
@@ -218,24 +304,54 @@ internal sealed class HiringArtifactPackageService(
         }
         else
         {
-            entity.FileName = normalizedFileName;
-            entity.SizeBytes = archive.LongLength;
-            entity.Sha256 = sha256;
-            entity.StoragePath = storagePath;
-            entity.IsFinal = isFinal;
-            entity.IsArchived = false;
-            entity.UploadedAtUtc = uploadedAtUtc;
-            entity.DeletedAtUtc = null;
-            entity.DeletedBy = null;
+            entity = (await dbContext.HiringArtifacts
+                .FirstOrDefaultAsync(
+                    item => item.SessionId == normalizedSessionId &&
+                            item.Kind == kind &&
+                            item.LogicalPath == effectiveLogicalPath &&
+                            item.DeletedAtUtc == null,
+                    cancellationToken))!;
+
+            if (entity is null)
+            {
+                entity = new HiringArtifactEntity
+                {
+                    SessionId = normalizedSessionId,
+                    Kind = kind,
+                    LogicalPath = effectiveLogicalPath,
+                    FileName = normalizedFileName,
+                    SizeBytes = archive.LongLength,
+                    Sha256 = sha256,
+                    PackageId = packageId,
+                    StoragePath = storagePath,
+                    IsFinal = isFinal,
+                    IsArchived = false,
+                    UploadedAtUtc = uploadedAtUtc
+                };
+                dbContext.HiringArtifacts.Add(entity);
+            }
+            else
+            {
+                entity.FileName = normalizedFileName;
+                entity.SizeBytes = archive.LongLength;
+                entity.Sha256 = sha256;
+                entity.StoragePath = storagePath;
+                entity.IsFinal = isFinal;
+                entity.IsArchived = false;
+                entity.UploadedAtUtc = uploadedAtUtc;
+                entity.DeletedAtUtc = null;
+                entity.DeletedBy = null;
+            }
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation(
-            "Persisted hiring artifact package. HireId={HireId}, SessionId={SessionId}, Kind={Kind}, FileCount={FileCount}, Sha256={Sha256}",
+            "Persisted hiring artifact package. HireId={HireId}, SessionId={SessionId}, Kind={Kind}, PackageId={PackageId}, FileCount={FileCount}, Sha256={Sha256}",
             normalizedHireId,
             normalizedSessionId,
             kind,
+            packageId ?? "(none)",
             normalizedFiles.Count,
             sha256);
 

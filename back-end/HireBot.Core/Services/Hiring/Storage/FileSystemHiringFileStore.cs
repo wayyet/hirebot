@@ -56,6 +56,57 @@ public sealed class FileSystemHiringFileStore(
         return Task.FromResult(File.Exists(storagePath));
     }
 
+    public async Task<string> SaveFinalPackageAsync(
+        string tenantId,
+        string hireId,
+        string packageId,
+        Stream content,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId)) throw new ArgumentException("tenantId is required.", nameof(tenantId));
+        if (string.IsNullOrWhiteSpace(hireId)) throw new ArgumentException("hireId is required.", nameof(hireId));
+        if (string.IsNullOrWhiteSpace(packageId)) throw new ArgumentException("packageId is required.", nameof(packageId));
+
+        var dir = Path.Combine(ResolveRoot(), Sanitize(tenantId), Sanitize(hireId), Sanitize(packageId));
+        Directory.CreateDirectory(dir);
+
+        var targetPath = Path.Combine(dir, "package.zip");
+        await using var target = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 128, useAsync: true);
+        await content.CopyToAsync(target, cancellationToken);
+
+        return targetPath;
+    }
+
+    public Task<Stream> OpenFinalPackageAsync(
+        string tenantId,
+        string hireId,
+        string packageId,
+        CancellationToken cancellationToken = default)
+    {
+        var path = ResolveFinalPackagePath(tenantId, hireId, packageId);
+        Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 128, useAsync: true);
+        return Task.FromResult(stream);
+    }
+
+    public Task<bool> FinalPackageExistsAsync(
+        string tenantId,
+        string hireId,
+        string packageId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(hireId) || string.IsNullOrWhiteSpace(packageId))
+        {
+            return Task.FromResult(false);
+        }
+
+        return Task.FromResult(File.Exists(ResolveFinalPackagePath(tenantId, hireId, packageId)));
+    }
+
+    private string ResolveFinalPackagePath(string tenantId, string hireId, string packageId)
+    {
+        return Path.Combine(ResolveRoot(), Sanitize(tenantId), Sanitize(hireId), Sanitize(packageId), "package.zip");
+    }
+
     private static string Sanitize(string value)
     {
         var trimmed = value.Trim();

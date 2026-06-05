@@ -426,6 +426,10 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<string>("PackageId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("SessionId")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -453,6 +457,8 @@ namespace HireBot.Repository.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("ArtifactId");
+
+                    b.HasIndex("PackageId");
 
                     b.HasIndex("UploadedAtUtc");
 
@@ -878,6 +884,10 @@ namespace HireBot.Repository.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<string>("HireId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -900,6 +910,10 @@ namespace HireBot.Repository.Migrations
                     b.Property<string>("EvalReportId")
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
+
+                    b.Property<string>("FinalPackageId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("FromInstanceId")
                         .HasMaxLength(120)
@@ -935,7 +949,11 @@ namespace HireBot.Repository.Migrations
 
                     b.HasIndex("BasedOnTemplateId");
 
+                    b.HasIndex("FinalPackageId");
+
                     b.HasIndex("FromInstanceId");
+
+                    b.HasIndex("HireId");
 
                     b.HasIndex("OwnerUserId", "InstanceType", "Status");
 

@@ -82,7 +82,8 @@ internal sealed partial class EvaluationService
         string targetHireId,
         CancellationToken cancellationToken)
     {
-        var packageSnapshot = await artifactPackageService.GetLatestPackageAsync(targetHireId, cancellationToken);
+        // targetHireId 实际传入的是 employee.EmployeeId，通过反向索引查 hireId
+        var packageSnapshot = await artifactPackageService.GetLatestPackageByEmployeeIdAsync(targetHireId, cancellationToken);
         if (packageSnapshot?.Content is not { Length: > 0 })
         {
             return [];

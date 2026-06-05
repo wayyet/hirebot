@@ -636,7 +636,8 @@ internal sealed partial class EvaluationService
             return ApiResponse<TargetArtifactBundle>.ErrorResponse(404, $"explicit artifact path not found: {normalizedPath}");
         }
 
-        var packageSnapshot = await artifactPackageService.GetLatestPackageAsync(employee.EmployeeId, cancellationToken);
+        // 通过 employeeId 反查导入时关联的 hireId，进而取到 artifact 包
+        var packageSnapshot = await artifactPackageService.GetLatestPackageByEmployeeIdAsync(employee.EmployeeId, cancellationToken);
         if (packageSnapshot?.Content is { Length: > 0 })
         {
             return ApiResponse<TargetArtifactBundle>.SuccessResponse(

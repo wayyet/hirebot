@@ -37,6 +37,7 @@ public sealed partial class EmployeeRuntimeService
         string? currentVersion = null,
         string? description = null,
         string? describeDocument = null,
+        string? hireId = null,
         CancellationToken cancellationToken = default)
     {
         var now = DateTimeOffset.UtcNow;
@@ -68,6 +69,7 @@ public sealed partial class EmployeeRuntimeService
                 InstanceType = string.IsNullOrWhiteSpace(employee.InstanceType) ? "department" : employee.InstanceType,
                 Status = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired",
                 BasedOnTemplateId = employee.BasedOnTemplateId,
+                HireId = string.IsNullOrWhiteSpace(hireId) ? null : hireId.Trim(),
                 FromInstanceId = employee.FromInstanceId,
                 EvalReportId = null,
                 OwnerUserId = string.IsNullOrWhiteSpace(employee.OwnerUserId) ? "unknown" : employee.OwnerUserId,
@@ -87,6 +89,11 @@ public sealed partial class EmployeeRuntimeService
             existing.Status = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? existing.Status;
             existing.BasedOnTemplateId = employee.BasedOnTemplateId;
             existing.FromInstanceId = employee.FromInstanceId;
+            // 若首次写入时 HireId 为空而本次提供了值，则补齐（仅允许从无到有，不允许覆盖）
+            if (string.IsNullOrWhiteSpace(existing.HireId) && !string.IsNullOrWhiteSpace(hireId))
+            {
+                existing.HireId = hireId.Trim();
+            }
             existing.OwnerUserId = string.IsNullOrWhiteSpace(employee.OwnerUserId) ? existing.OwnerUserId : employee.OwnerUserId;
             existing.DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? existing.DepartmentId : employee.DepartmentId;
             existing.CurrentVersion = version;

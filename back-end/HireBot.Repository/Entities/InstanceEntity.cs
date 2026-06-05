@@ -21,6 +21,13 @@ public sealed class InstanceEntity : ITenant
     [MaxLength(128)]
     public string? BasedOnTemplateId { get; set; }
 
+    /// <summary>
+    /// 创建此实例的雇佣流程 ID（仅通过雇佣流程创建的实例才有值）。
+    /// 用于评估阶段通过 employeeId 反查 artifact 包。
+    /// </summary>
+    [MaxLength(64)]
+    public string? HireId { get; set; }
+
     [MaxLength(120)]
     public string? FromInstanceId { get; set; }
 
@@ -32,6 +39,13 @@ public sealed class InstanceEntity : ITenant
 
     [MaxLength(120)]
     public string? EvalReportId { get; set; }
+
+    /// <summary>
+    /// 当前活跃的候选包版本 ID（与 HiringArtifactEntity.PackageId 对应）。
+    /// 每次 ImportPackageAsync 成功后更新，评估服务据此精确加载对应版本的包。
+    /// </summary>
+    [MaxLength(64)]
+    public string? FinalPackageId { get; set; }
 
     [MaxLength(256)]
     public required string OwnerUserId { get; set; }
