@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Infrastructure.Identity;
@@ -28,6 +29,7 @@ internal sealed class EmployeeHiringService(
     ISandboxService sandboxService,
     IHiringStageService hiringStageService,
     IEmployeeRuntimeService employeeRuntimeService,
+    IHiringArtifactPackageService artifactPackageService,
     IUserIdentity userIdentity,
     HireBotDbContext dbContext,
     IKingCrabHttpClient kingCrabHttpClient,
@@ -767,26 +769,51 @@ internal sealed class EmployeeHiringService(
 
             logger.LogInformation("候选包已读取到内存: Size={Size}KB", packageBytes.Length / 1024);
 
-            // TODO: 验证 ZIP 格式和必要文件
+            // 解压 ZIP，提取文件条目后持久化到文件系统和数据库
+            IReadOnlyDictionary<string, byte[]> extractedFiles;
+            try
+            {
+                extractedFiles = ExtractZipEntries(packageBytes);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "候选包 ZIP 格式无效，无法解压: HireId={HireId}, FileName={FileName}", hireId, fileName);
+                return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(400, $"候选包 ZIP 格式无效: {ex.Message}");
+            }
 
-            // 查找关联的数字员工实例：优先查 Hiring 状态（首次导入），
-            // 已导入过时实例状态为 InterningAi，同样匹配——确保重复导入时仍能返回 EmployeeId。
+            // 每次导入生成唯一包版本 ID，确保多次导入的包不互相覆盖
+            var packageId = Guid.NewGuid().ToString("N");
+
+            await artifactPackageService.PersistFinalPackageAsync(
+                new HiringArtifactPackagePersistRequestDto(
+                    HireId: hireId,
+                    SessionId: session.SessionId,
+                    FileName: fileName,
+                    Files: extractedFiles,
+                    PackageId: packageId),
+                cancellationToken);
+
+            logger.LogInformation("候选包已持久化: HireId={HireId}, SessionId={SessionId}, FileCount={FileCount}, PackageId={PackageId}",
+                hireId, session.SessionId, extractedFiles.Count, packageId);
+
+            // 通过 HireId 精确查找关联的数字员工实例，避免同一模板多个并发流程时找错实例
             var hiringInstance = await dbContext.Instances
-                .Where(i => (i.Status == EmployeeStatus.Hiring || i.Status == EmployeeStatus.InterningAi)
-                    && i.OwnerUserId == userIdentity.OwnerSubject
-                    && i.BasedOnTemplateId == session.TemplateId)
+                .Where(i => i.HireId == hireId &&
+                            (i.Status == EmployeeStatus.Hiring || i.Status == EmployeeStatus.InterningAi))
                 .OrderByDescending(i => i.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
 
+            string? resolvedEmployeeId = null;
+
             if (hiringInstance is not null)
             {
-                var employeeId = hiringInstance.InstanceId;
+                resolvedEmployeeId = hiringInstance.InstanceId;
 
                 // 仅在 Hiring 状态时才做状态迁移；InterningAi 表示已导入过，跳过重复更新
                 if (hiringInstance.Status == EmployeeStatus.Hiring)
                 {
                     var updateResult = await employeeRuntimeService.UpdateLifecycleAsync(
-                        employeeId,
+                        resolvedEmployeeId,
                         new UpdateEmployeeLifecycleRequestDto
                         {
                             Status = EmployeeStatus.InterningAi,
@@ -802,14 +829,14 @@ internal sealed class EmployeeHiringService(
                         logger.LogInformation(
                             "员工状态已更新: HireId={HireId}, EmployeeId={EmployeeId}, Status=hiring→interning_ai",
                             hireId,
-                            employeeId);
+                            resolvedEmployeeId);
                     }
                     else
                     {
                         logger.LogWarning(
                             "员工状态更新失败（非致命错误）: HireId={HireId}, EmployeeId={EmployeeId}, Error={Error}",
                             hireId,
-                            employeeId,
+                            resolvedEmployeeId,
                             updateResult.Message);
                     }
                 }
@@ -819,15 +846,71 @@ internal sealed class EmployeeHiringService(
                         "员工实例已处于 {Status} 状态，跳过重复状态迁移: HireId={HireId}, EmployeeId={EmployeeId}",
                         hiringInstance.Status,
                         hireId,
-                        employeeId);
+                        resolvedEmployeeId);
                 }
             }
             else
             {
+                // 员工实例不存在（可能已被删除），重新创建并直接置为待AI评估状态
                 logger.LogWarning(
-                    "未找到 Hiring/InterningAi 状态的员工实例: HireId={HireId}, TemplateId={TemplateId}",
+                    "未找到 Hiring/InterningAi 状态的员工实例，将重新创建: HireId={HireId}, TemplateId={TemplateId}",
                     hireId,
                     session.TemplateId);
+
+                var templateForRecreate = await templateDataProvider.GetByIdAsync(session.TemplateId, cancellationToken);
+                var recreateCapabilities = templateForRecreate?.CoreAbilities ?? [];
+
+                var recreateResponse = await employeeRuntimeService.CreateFromHireAsync(
+                    new CreateEmployeeFromHireRequestDto(
+                        HireId: hireId,
+                        TemplateId: session.TemplateId,
+                        TemplateName: templateForRecreate?.Name ?? session.TemplateId,
+                        Description: templateForRecreate?.Description,
+                        OwnerSubject: session.OwnerSubject,
+                        TenantId: session.TenantId ?? "default",
+                        OperatorId: session.OperatorId,
+                        Capabilities: recreateCapabilities),
+                    cancellationToken);
+
+                if (recreateResponse.Success && recreateResponse.Data is not null)
+                {
+                    resolvedEmployeeId = recreateResponse.Data.EmployeeId;
+
+                    var updateResult = await employeeRuntimeService.UpdateLifecycleAsync(
+                        resolvedEmployeeId,
+                        new UpdateEmployeeLifecycleRequestDto
+                        {
+                            Status = EmployeeStatus.InterningAi,
+                            LifecycleStatus = "待AI评估",
+                            StageSummary = "候选包已导入，可发起 AI 评估",
+                            PrimarySignal = "待操作：发起 AI 评估",
+                            SignalLevel = "ok"
+                        },
+                        cancellationToken);
+
+                    if (updateResult.Success)
+                    {
+                        logger.LogInformation(
+                            "已重新创建员工实例并更新为待AI评估: HireId={HireId}, EmployeeId={EmployeeId}",
+                            hireId,
+                            resolvedEmployeeId);
+                    }
+                    else
+                    {
+                        logger.LogWarning(
+                            "重新创建的员工实例状态更新失败（非致命错误）: HireId={HireId}, EmployeeId={EmployeeId}, Error={Error}",
+                            hireId,
+                            resolvedEmployeeId,
+                            updateResult.Message);
+                    }
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "重新创建员工实例失败（非致命错误）: HireId={HireId}, Message={Message}",
+                        hireId,
+                        recreateResponse.Message);
+                }
             }
 
             // 保存导入元数据到结构化数据
@@ -839,6 +922,12 @@ internal sealed class EmployeeHiringService(
                 ["import_method"] = "direct_upload",
                 ["employee_status"] = EmployeeStatus.InterningAi // 标记为AI评估阶段
             };
+
+            // 写入员工实例 ID 反向索引，评估服务通过 employeeId 可反查到本 hireId 的 artifact
+            if (!string.IsNullOrWhiteSpace(resolvedEmployeeId))
+            {
+                importMetadata["linked_employee_id"] = resolvedEmployeeId;
+            }
 
             if (linkedStoreSkillIds is { Count: > 0 })
             {
@@ -855,6 +944,16 @@ internal sealed class EmployeeHiringService(
 
             await hiringStageService.SaveStructuredDataAsync(hireId, mergedData, cancellationToken);
 
+            // 将当前版本包 ID 写入实例表，供评估服务按版本精确查找
+            if (!string.IsNullOrWhiteSpace(resolvedEmployeeId))
+            {
+                await dbContext.Instances
+                    .Where(i => i.InstanceId == resolvedEmployeeId)
+                    .ExecuteUpdateAsync(
+                        s => s.SetProperty(i => i.FinalPackageId, packageId),
+                        cancellationToken);
+            }
+
             logger.LogInformation("候选包导入成功: HireId={HireId}, 员工状态已更新为interning_ai", hireId);
 
             // 返回成功结果
@@ -865,7 +964,7 @@ internal sealed class EmployeeHiringService(
                     CollectionPhase: "finalized",
                     GeneratedFiles: Array.Empty<string>(),
                     DownloadUrl: $"/api/v1/hirings/{hireId}/artifacts/download",
-                    EmployeeId: hiringInstance?.InstanceId),
+                    EmployeeId: resolvedEmployeeId),
                 "候选包导入成功");
         }
         catch (Exception ex)
@@ -879,8 +978,7 @@ internal sealed class EmployeeHiringService(
         string hireId,
         CancellationToken cancellationToken = default)
     {
-        logger.LogWarning("BuildArtifactDownloadAsync: 功能暂未实现");
-        return Task.FromResult(HiringArtifactDownloadResult.Error(501, "功能暂未实现"));
+        return artifactPackageService.BuildFinalPackageDownloadAsync(hireId, cancellationToken);
     }
 
     public Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(
@@ -888,8 +986,7 @@ internal sealed class EmployeeHiringService(
         string artifactName,
         CancellationToken cancellationToken = default)
     {
-        logger.LogWarning("BuildArtifactFileDownloadAsync: 功能暂未实现");
-        return Task.FromResult(HiringArtifactDownloadResult.Error(501, "功能暂未实现"));
+        return artifactPackageService.BuildFinalPackageFileDownloadAsync(hireId, artifactName, cancellationToken);
     }
 
     public Task<ApiResponse<HiringTemplatePackageUploadResultDto>> UploadTemplatePackageFromClientAsync(
@@ -1010,4 +1107,30 @@ internal sealed class EmployeeHiringService(
     private sealed record SandboxMcpConfigResponse(
         bool Success,
         string? Message = null);
+
+    /// <summary>
+    /// 从 ZIP 字节数组中提取所有文件条目，返回 路径→内容 字典。
+    /// 目录条目（Name 为空）会被跳过。
+    /// </summary>
+    private static IReadOnlyDictionary<string, byte[]> ExtractZipEntries(byte[] zipBytes)
+    {
+        var files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        using var stream = new MemoryStream(zipBytes, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+        foreach (var entry in archive.Entries)
+        {
+            // 跳过目录条目（Name 为空时表示目录）
+            if (string.IsNullOrEmpty(entry.Name))
+            {
+                continue;
+            }
+
+            using var entryStream = entry.Open();
+            using var buffer = new MemoryStream();
+            entryStream.CopyTo(buffer);
+            files[entry.FullName] = buffer.ToArray();
+        }
+
+        return files;
+    }
 }

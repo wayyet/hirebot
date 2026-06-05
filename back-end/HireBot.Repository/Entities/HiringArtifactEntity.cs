@@ -28,6 +28,13 @@ public sealed class HiringArtifactEntity : ITenant
     [MaxLength(64)]
     public required string Sha256 { get; set; }
 
+    /// <summary>
+    /// 包版本 ID（最终包每次导入生成唯一值，中间包为 null）。
+    /// 可通过 InstanceEntity.FinalPackageId 快速定位当前活跃版本。
+    /// </summary>
+    [MaxLength(64)]
+    public string? PackageId { get; set; }
+
     [MaxLength(1024)]
     public required string StoragePath { get; set; }
 

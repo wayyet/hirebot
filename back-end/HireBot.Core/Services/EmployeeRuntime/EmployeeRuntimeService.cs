@@ -657,7 +657,7 @@ public sealed partial class EmployeeRuntimeService(
             Description: request.Description,
             CreatedBy: null);
 
-        await UpsertInstanceRecordAsync(employee, currentVersion: "v_initial", description: request.Description, cancellationToken: cancellationToken);
+        await UpsertInstanceRecordAsync(employee, currentVersion: "v_initial", description: request.Description, hireId: request.HireId, cancellationToken: cancellationToken);
         return ApiResponse<EmployeeDetailDto>.SuccessResponse(employee, "员工实例已创建");
     }
 
