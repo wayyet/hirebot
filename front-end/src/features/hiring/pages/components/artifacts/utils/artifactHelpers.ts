@@ -99,7 +99,13 @@ export function toPublicPathLabel(value: string): string {
   const markerMatch = /\[FILE_URL:([^\]]+)\]/.exec(trimmed)
   const pathLike = markerMatch?.[1]?.trim() || trimmed
   const parts = pathLike.split(/[\\/]/).filter(Boolean)
-  return parts.at(-1) ?? trimmed
+  const fileName = parts.at(-1) ?? trimmed
+
+  if (fileName.endsWith('.slice.json') || fileName.endsWith('.slice.md')) {
+    return `${fileName.replace(/\.slice\.(json|md)$/i, '')}（业务资料）`
+  }
+
+  return fileName
 }
 
 /**

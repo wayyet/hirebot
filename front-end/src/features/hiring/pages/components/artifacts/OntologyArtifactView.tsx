@@ -5,7 +5,7 @@
  */
 
 import { CodeView } from './BaseArtifactViews'
-import { asRecord } from './utils/artifactHelpers'
+import { asRecord, toPublicPathLabel } from './utils/artifactHelpers'
 import { statChipStyle } from './utils/artifactStyles'
 
 interface OntologyArtifactViewProps {
@@ -22,7 +22,7 @@ export function OntologyExtractionView({ data }: OntologyArtifactViewProps) {
   const totalSources = Number(rec.total_sources ?? 0)
   const completedSlices = Number(rec.completed_slices ?? 0)
   const slicePaths = Array.isArray(rec.slice_paths)
-    ? rec.slice_paths.filter((p): p is string => typeof p === 'string')
+    ? rec.slice_paths.filter((p): p is string => typeof p === 'string').map(toPublicPathLabel)
     : []
   const validation = typeof rec.validation === 'string' ? rec.validation.toUpperCase() : ''
   const status = typeof rec.status === 'string' ? rec.status : ''
@@ -40,7 +40,7 @@ export function OntologyExtractionView({ data }: OntologyArtifactViewProps) {
         )}
         {completedSlices > 0 && (
           <span style={statChipStyle}>
-            {'✂️ '}切片 <b style={{ marginLeft: 3 }}>{completedSlices}</b>
+            {'✂️ '}结果 <b style={{ marginLeft: 3 }}>{completedSlices}</b>
           </span>
         )}
         {validation && (
@@ -59,7 +59,7 @@ export function OntologyExtractionView({ data }: OntologyArtifactViewProps) {
         )}
       </div>
 
-      {/* 输出切片路径列表 */}
+      {/* 输出结果列表 */}
       {slicePaths.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           {slicePaths.map((p, i) => (

@@ -123,7 +123,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 {
   "kind": "data",
   "artifactType": "ontology_extraction_progress",
-  "label": "正在从资料中抽取本体切片，共 {N} 条资料待处理",
+  "label": "正在从资料中整理业务信息，共 {N} 条资料待处理",
   "skillName": "ontology-extraction",
   "stage": "ontology-extraction",
   "isTerminal": false,
@@ -144,7 +144,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 {
   "kind": "data",
   "artifactType": "ontology_extraction_done",
-  "label": "本体切片已完成，共产出 {N} 份 slice，准备进入技能定义阶段",
+  "label": "业务信息已整理完成，共产出 {N} 份材料，准备进入技能定义阶段",
   "skillName": "ontology-extraction",
   "stage": "ontology-extraction",
   "isTerminal": true,
@@ -191,7 +191,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 {
   "kind": "data",
   "artifactType": "ontology_projection_progress",
-  "label": "正在为 {N} 个技能生成本体投影...",
+  "label": "正在为 {N} 个技能准备业务资料...",
   "skillName": "ontology-extraction",
   "stage": "ontology-projection",
   "isTerminal": false,
@@ -212,7 +212,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 {
   "kind": "data",
   "artifactType": "ontology_projection_done",
-  "label": "本体投影已完成，{M}/{N} 个技能获得 READY 投影，可开始技能生成",
+  "label": "技能所需业务资料已准备完成，{M}/{N} 个技能可开始生成",
   "skillName": "ontology-extraction",
   "stage": "ontology-projection",
   "isTerminal": true,
@@ -242,7 +242,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 {
   "kind": "data",
   "artifactType": "ontology_projection_done",
-  "label": "本体投影已完成，0/3 个技能获得 READY 投影，可开始技能生成（降级模式）",
+  "label": "技能所需业务资料已整理完成，但当前资料暂不足以支撑技能生成",
   "skillName": "ontology-extraction",
   "stage": "ontology-projection",
   "isTerminal": true,

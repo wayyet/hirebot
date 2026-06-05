@@ -43,14 +43,14 @@
         },
         {
           "type": "skill_generation_ready",
-          "label": "Await Projection Preparation Approval",
+          "label": "等待确认是否开始准备业务资料",
           "display": "badge",
           "terminal": false,
           "note": "First confirmation gate after skill definition is done. Ask whether producer projection preparation should start."
         },
         {
           "type": "skill_projection_binding_ready",
-          "label": "Await Projection Binding Approval",
+          "label": "业务资料已准备好，等待确认是否采用",
           "display": "badge",
           "terminal": false,
           "note": "Second confirmation gate. Emit only when ontology projection produced consumable producer projections, then ask whether to bind them into the generated skill package."
@@ -202,14 +202,14 @@
       {
         "type": "skill_generation_ready",
         "ownerSkill": "employment-coach-conversation",
-        "label": "Await Projection Preparation Approval",
+        "label": "等待确认是否开始准备业务资料",
         "display": "badge",
         "terminal": false
       },
       {
         "type": "skill_projection_binding_ready",
         "ownerSkill": "employment-coach-conversation",
-        "label": "Await Projection Binding Approval",
+        "label": "业务资料已准备好，等待确认是否采用",
         "display": "badge",
         "terminal": false
       },
@@ -258,14 +258,14 @@
       {
         "type": "ontology_projection_progress",
         "ownerSkill": "ontology-extraction",
-        "label": "Ontology Projection Progress",
+        "label": "技能准备进度",
         "display": "progress",
         "terminal": false
       },
       {
         "type": "ontology_projection_done",
         "ownerSkill": "ontology-extraction",
-        "label": "Ontology Projection Done",
+        "label": "技能准备结果",
         "display": "tree",
         "terminal": true
       },

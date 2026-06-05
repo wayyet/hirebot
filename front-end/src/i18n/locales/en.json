@@ -414,7 +414,7 @@
         "generated": "Generated",
         "notStartedDesc": "After skill definition is confirmed, the system will ask whether to start generating skill implementations.",
         "pendingConfirmDesc": "Skill definition confirmed, please confirm whether to start generating skill implementations in the chat.",
-        "projectionConfirmDesc": "Producer projections are ready. Please confirm in the chat whether they should be bound into the generated skill package.",
+        "projectionConfirmDesc": "The business information needed for skill generation is ready. Please confirm in the chat whether these prepared materials should be used.",
         "currentStatus": "Current Status",
         "definitionStatus": "Definition Status",
         "implementationStatus": "Implementation Status",

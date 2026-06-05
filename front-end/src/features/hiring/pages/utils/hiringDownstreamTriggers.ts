@@ -158,7 +158,7 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
       'The user has explicitly approved binding the producer ontology projections into the generated business skills.',
       'Use the enriched `skill_workorder_summary` payload below as the upstream workorder.',
       'Projection consumer contracts are mandatory for this run. Do not silently downgrade to a base skill package without contracts.',
-      'If the provided producer projections cannot be materialized into `skills/<skill-slug>/contracts/projections/ontology_extraction/`, stop and report the reason instead of continuing without contracts.',
+      'If the provided business-information packages cannot be materialized into `skills/<skill-slug>/contracts/projections/ontology_extraction/`, stop and report the reason instead of continuing without contracts.',
       'Read and follow `skill-generation/SKILL.md` directly in the current session.',
       'Do not use `dispatch`, `dispatch_callback`, `handoff_id`, `sessions_spawn`, or `sessions_yield` for this path.',
       'Follow `skill-generation/SKILL.md` exactly.',

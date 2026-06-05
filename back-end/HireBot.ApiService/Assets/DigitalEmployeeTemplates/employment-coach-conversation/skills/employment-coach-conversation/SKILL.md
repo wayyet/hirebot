@@ -73,10 +73,10 @@ metadata:
 |------|-------------|-------|------------|-------------|
 | 收到第一批技能描述后 | `skill_workorder_progress` | `stage2_skill` | `false` | `progress` |
 | 用户确认技能清单，技能定义子步骤收尾 | `skill_workorder_summary` | `stage2_skill` | `true` | `tree` |
-| 技能定义已确认，等待用户确认是否开始准备 producer projection | `skill_generation_ready` | `stage2_skill` | `false` | `badge` |
-| 用户确认开始准备 producer projection 后，projection pass 启动 | `ontology_projection_progress` | `ontology-projection` | `false` | `progress` |
-| projection pass 完成，回到 coach 判断是否进入投影绑定确认门 | `ontology_projection_done` | `ontology-projection` | `true` | `tree` |
-| producer projection 已可消费，等待用户确认是否绑定到技能包 | `skill_projection_binding_ready` | `stage2_skill` | `false` | `badge` |
+| 技能定义已确认，等待用户确认是否开始准备业务资料 | `skill_generation_ready` | `stage2_skill` | `false` | `badge` |
+| 用户确认开始准备业务资料后，资料准备流程启动 | `ontology_projection_progress` | `ontology-projection` | `false` | `progress` |
+| 资料准备完成，回到 coach 判断是否进入资料采用确认门 | `ontology_projection_done` | `ontology-projection` | `true` | `tree` |
+| 技能所需业务资料已准备好，等待用户确认是否采用 | `skill_projection_binding_ready` | `stage2_skill` | `false` | `badge` |
 
 **阶段 3 外部 — 发出时机与参数**
 
@@ -362,7 +362,7 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 **最低门槛**：每个 skill 同时具备**明确的名称 + 明确的能力描述**，并且能说清触发条件和期望输出。
 
-**进入阶段的强制动作**：资料阶段 terminal artifact 已发出、`ontology-extraction` 已发出 `ontology_extraction_done` 后，先发出技能阶段进度 emit_artifact（`skill_workorder_progress`），再开始引导技能定义。若 `ontology-extraction` 仍在执行，可以向用户说一句"本体正在整理，稍后进入技能定义"，但不得发 `skill_workorder_progress`。
+**进入阶段的强制动作**：资料阶段 terminal artifact 已发出、`ontology-extraction` 已发出 `ontology_extraction_done` 后，先发出技能阶段进度 emit_artifact（`skill_workorder_progress`），再开始引导技能定义。若 `ontology-extraction` 仍在执行，可以向用户说一句"业务信息正在整理，稍后进入技能定义"，但不得发 `skill_workorder_progress`。
 
 **阶段完成条件**：
 - 默认技能基线已经盘清（哪些直接复用，哪些需要新增）
@@ -407,16 +407,16 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
   - 用户**否定 / 暂停**：保留 `skill_generation_ready` 状态，不启动 projection pass 也不启动 `skill-generation`，等用户后续明确同意后再开始。
   - 用户**补充或修改技能定义**：回到阶段 2，更新 `skill_workorder_progress` / `skill_workorder_summary`，然后重新发出上述确认门询问。
 - **Projection 绑定确认门（强制）**：
-  - 若 `ontology_projection_done.data.projected_count > 0`，且结果表明确实存在可消费的 producer projection，必须先发出 `skill_projection_binding_ready` artifact，再向用户询问：
+  - 若 `ontology_projection_done.data.projected_count > 0`，且结果表明确实存在可用于技能生成的业务资料，必须先发出 `skill_projection_binding_ready` artifact，再向用户询问：
 
-> 「producer projection 已准备好。是否将这些投影绑定进即将生成的技能包？」
+> 「技能所需业务资料已准备好。是否采用这些资料生成即将创建的技能包？」
 
   - 用户**肯定**：才允许触发 `skill-generation`，并在输入 payload 中显式带上 `projection_binding_confirmed: true`、`projection_contract_mode: "required"` 以及最新 `projection_result`。
   - 用户**否定 / 暂停**：保留 `skill_projection_binding_ready` 状态，不触发 `skill-generation`，等待用户后续明确同意。
   - 用户**补充或修改技能定义**：回到阶段 2，重新生成 `skill_workorder_summary`，并清空上一轮 projection 结果与确认门状态。
 - **Projection Pass 等待规则**：
   - `ontology_projection_done` 到达之前，不得触发 `skill-generation`。
-  - 若 `ontology_projection_done.data.projected_count === 0`、producer projection source 无效、或结果不足以 materialize consumer contracts，**不得**触发 `skill-generation`，**不得**提供“无 projection 降级”选项。必须如实告知用户当前没有可消费的 producer projection，并引导其补材料、回到 ontology extraction，或重新准备 projection。
+  - 若 `ontology_projection_done.data.projected_count === 0`、资料来源无效、或结果不足以生成可用 contracts，**不得**触发 `skill-generation`，**不得**提供降级选项。必须如实告知用户当前没有可用于技能生成的业务资料，并引导其补材料、回到业务信息整理，或重新准备业务资料。
   - 若 projection pass 因异常未能发出 `ontology_projection_done`，超时后向用户提示异常，保持在阶段 2，等待用户决定重试或补充输入；**不得**降级直触发 `skill-generation`。
 - **禁止话术**：只要 `skill-generation` 尚未完成，就**不得**对用户说"可进入外部能力配置"、"下一步是外部系统"或任何等价表述。
 - **进入阶段 3 的前置条件**：只有 `skill-generation` 已完成，且用户明确同意继续外部阶段时，才允许进入外部阶段。
