@@ -3,17 +3,17 @@
   "stages": [
     {
       "name": "ontology-extraction",
-      "label": "本体抽取",
+      "label": "业务整理",
       "artifacts": [
         {
           "type": "ontology_extraction_progress",
-          "label": "本体抽取进度",
+          "label": "业务整理进度",
           "display": "progress",
           "terminal": false
         },
         {
           "type": "ontology_extraction_done",
-          "label": "本体切片结果",
+          "label": "业务整理结果",
           "display": "tree",
           "terminal": true
         }
@@ -21,17 +21,17 @@
     },
     {
       "name": "ontology-projection",
-      "label": "本体投影",
+      "label": "技能准备",
       "artifacts": [
         {
           "type": "ontology_projection_progress",
-          "label": "本体投影进度",
+          "label": "技能准备进度",
           "display": "progress",
           "terminal": false
         },
         {
           "type": "ontology_projection_done",
-          "label": "本体投影结果",
+          "label": "技能准备结果",
           "display": "tree",
           "terminal": true
         }

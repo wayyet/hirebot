@@ -44,7 +44,7 @@ export function SkillGenerationStatusView({
       border: 'rgba(245,158,11,0.30)',
     },
     skill_projection_binding_ready: {
-      label: '☕ 等待确认投影绑定',
+      label: '☕ 等待确认资料采用',
       bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
       border: 'rgba(245,158,11,0.30)',
     },
@@ -282,10 +282,10 @@ function SkillCard({ skill }: { skill: Record<string, unknown> }) {
         </div>
       )}
 
-      {/* 依赖材料 & 本体切片 */}
+      {/* 依赖材料 & 业务资料 */}
       {(materials.length > 0 || ontologySlices.length > 0) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={sectionLabelStyle}>依赖材料 &amp; 本体切片</div>
+          <div style={sectionLabelStyle}>依赖材料 &amp; 业务资料</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {materials.map((m, i) => (
               <span key={i} style={{

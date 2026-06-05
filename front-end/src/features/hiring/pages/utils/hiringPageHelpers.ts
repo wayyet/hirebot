@@ -1,6 +1,14 @@
 import i18n from '@/i18n'
 
-const HIDDEN_ASSISTANT_TAG_REGEX = /<(think|dispatch|dispatch_callback|diagnostic_report|config_governance_patch)\b[^>]*>[\s\S]*?<\/\1>/gi
+const HIDDEN_ASSISTANT_TAG_PATTERN = 'think|dispatch|dispatch_callback|diagnostic_report|config_governance_patch'
+const HIDDEN_ASSISTANT_TAG_REGEX = new RegExp(
+  `<(${HIDDEN_ASSISTANT_TAG_PATTERN})\\b[^>]*>[\\s\\S]*?<\\/\\1>`,
+  'gi',
+)
+const HIDDEN_ASSISTANT_OPEN_TAG_REGEX = new RegExp(
+  `<(${HIDDEN_ASSISTANT_TAG_PATTERN})\\b[^>]*>`,
+  'gi',
+)
 
 /**
  * 生成唯一 ID（时间戳 + 随机字符串）
@@ -36,4 +44,29 @@ export function normalizeAssistantReply(content: string): string {
   return content
     .replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
     .trim()
+}
+
+/**
+ * 规范化流式预览内容。
+ * 流式阶段可能只收到内部标签的开头，此时需要从标签起始处立刻截断，
+ * 避免 technical artifact 的 JSON 在打字机过程中闪到界面上。
+ */
+export function normalizeAssistantStreamingPreview(content: string): string {
+  const withoutClosedTags = content.replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
+  const lowerContent = withoutClosedTags.toLowerCase()
+  HIDDEN_ASSISTANT_OPEN_TAG_REGEX.lastIndex = 0
+
+  let match: RegExpExecArray | null = null
+  while ((match = HIDDEN_ASSISTANT_OPEN_TAG_REGEX.exec(withoutClosedTags)) !== null) {
+    const tagName = match[1].toLowerCase()
+    const closingTag = `</${tagName}>`
+    const closingIndex = lowerContent.indexOf(closingTag, match.index + match[0].length)
+    if (closingIndex >= 0) {
+      continue
+    }
+
+    return withoutClosedTags.slice(0, match.index).trim()
+  }
+
+  return withoutClosedTags.trim()
 }

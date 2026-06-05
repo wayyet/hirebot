@@ -30,7 +30,13 @@ import {
   useRuntimeStateSync,
   useAutoFocusStage,
 } from './hooks/useHiringEffects'
-import { mkId, sleep, normalizeErrorMessage, normalizeAssistantReply } from './utils/hiringPageHelpers'
+import {
+  mkId,
+  sleep,
+  normalizeErrorMessage,
+  normalizeAssistantReply,
+  normalizeAssistantStreamingPreview,
+} from './utils/hiringPageHelpers'
 import {
   EXTERNAL_CONFIG_REPACKAGE_NOTICE,
   downloadBlob,
@@ -176,7 +182,9 @@ export default function HiringPage() {
   // ── Typewriter 流式效果 ────────────────────────────────────────────────────
   const typewriterStream = useTypewriterStream()
   const streamingContent = typewriterStream.displayText
-  const visibleStreamingContent = streamingTurnInternal ? null : streamingContent
+  const visibleStreamingContent = streamingTurnInternal || streamingContent === null
+    ? null
+    : normalizeAssistantStreamingPreview(streamingContent)
   const visibleTyping = typing && !streamingTurnInternal
 
   // ── 计算属性（使用自定义 Hook） ────────────────────────────────────────────
@@ -1335,8 +1343,8 @@ export default function HiringPage() {
     if (submitted) {
       setWorkflowNotice(
         hasConsumableProducerProjection(projectionResult)
-          ? 'producer projection 已就绪，正在回到雇佣教练等待你确认是否绑定到 skill。'
-          : '当前还没有可消费的 producer projection，正在回到雇佣教练引导下一步。',
+          ? '技能所需业务资料已准备好，正在回到雇佣教练等待你确认是否采用。'
+          : '当前还没有可用于技能生成的业务资料，正在回到雇佣教练引导下一步。',
       )
     }
 
@@ -1346,12 +1354,12 @@ export default function HiringPage() {
   async function launchSkillGenerationFromProjectionConfirmation(): Promise<boolean> {
     const currentRun = downstreamRunsRef.current['skill-generation']
     if (currentRun?.status === 'running') {
-      setWorkflowNotice('投影绑定已确认，技能实现正在生成中。')
+      setWorkflowNotice('资料采用已确认，技能实现正在生成中。')
       return true
     }
 
     if (currentRun?.status === 'completed') {
-      setWorkflowNotice('投影绑定后的技能实现已生成完成。')
+      setWorkflowNotice('采用已整理资料的技能实现已生成完成。')
       return true
     }
 
@@ -1359,7 +1367,7 @@ export default function HiringPage() {
     const projectionResult = latestProjectionResultRef.current
     const payload = buildSkillGenerationPayload(summary, projectionResult)
     if (!payload) {
-      setWorkflowError('当前没有可消费的 producer projection，暂时不能启动带投影的技能生成。')
+      setWorkflowError('当前没有可用于技能生成的业务资料，暂时不能启动本轮技能生成。')
       return false
     }
 
@@ -1369,7 +1377,7 @@ export default function HiringPage() {
       projection_binding_confirmed: true,
     })
     if (signature && skillGenerationLaunchSignatureRef.current === signature) {
-      setWorkflowNotice('投影绑定已确认，正在等待技能实现进度更新。')
+      setWorkflowNotice('资料采用已确认，正在等待技能实现进度更新。')
       return true
     }
 
@@ -1377,7 +1385,7 @@ export default function HiringPage() {
     setOptimisticDownstreamRun(
       'skill-generation',
       'running',
-      '已确认将 projection 绑定进 skill，正在启动技能实现。',
+      '已确认采用已整理业务资料，正在启动技能实现。',
       'skill_generation_progress',
     )
 
@@ -1389,7 +1397,7 @@ export default function HiringPage() {
     )
 
     if (submitted) {
-      setWorkflowNotice('已确认将 producer projection 绑定进 skill，正在生成技能实现。')
+      setWorkflowNotice('已确认采用已整理业务资料，正在生成技能实现。')
       return true
     }
 
@@ -1405,7 +1413,7 @@ export default function HiringPage() {
     const projectionRun = downstreamRunsRef.current['ontology-projection']
     const signature = skillSummarySignatureRef.current || JSON.stringify(summary)
     if (projectionRun?.status === 'running') {
-      setWorkflowNotice('投影准备已启动，请等待进度更新。')
+      setWorkflowNotice('正在为技能准备业务资料，请等待进度更新。')
       return true
     }
 
@@ -1416,13 +1424,13 @@ export default function HiringPage() {
     }
 
     if (signature && projectionPassLaunchSignatureRef.current === signature) {
-      setWorkflowNotice('投影准备已启动，请等待进度更新。')
+      setWorkflowNotice('正在为技能准备业务资料，请等待进度更新。')
       return true
     }
 
     const projectionPayload = buildProjectionPassPayload(summary)
     if (!projectionPayload) {
-      setWorkflowError('技能定义摘要缺少 projection pass 所需字段，暂时无法启动。')
+      setWorkflowError('技能定义摘要缺少业务资料准备所需字段，暂时无法启动。')
       return false
     }
 
@@ -1433,7 +1441,7 @@ export default function HiringPage() {
     setOptimisticDownstreamRun(
       'ontology-projection',
       'running',
-      '投影准备已启动，正在等待下游进度。',
+      '正在为技能准备业务资料，等待下游进度更新。',
       'ontology_projection_progress',
     )
 
@@ -1445,7 +1453,7 @@ export default function HiringPage() {
     )
 
     if (submitted) {
-      setWorkflowNotice('已开始准备 producer projection；完成后会先回到雇佣教练等待你的二次确认。')
+      setWorkflowNotice('已开始为技能准备业务资料；完成后会先回到雇佣教练等待你的二次确认。')
       return true
     }
 

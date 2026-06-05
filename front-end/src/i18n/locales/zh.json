@@ -414,7 +414,7 @@
         "generated": "已生成",
         "notStartedDesc": "技能定义确认后，系统会先询问是否开始生成技能实现。",
         "pendingConfirmDesc": "技能定义已确认，请在对话区确认是否开始生成技能实现。",
-        "projectionConfirmDesc": "producer projection 已就绪，请在对话区确认是否将 projection 绑定进即将生成的 skill。",
+        "projectionConfirmDesc": "技能所需业务资料已准备好，请在对话区确认是否采用这些资料生成技能。",
         "currentStatus": "当前状态",
         "definitionStatus": "定义状态",
         "implementationStatus": "实现状态",

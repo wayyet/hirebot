@@ -390,7 +390,7 @@ export function buildHistoricalHiringConversationState(
  * - skill-generation 存在 → Skill 阶段已完成或进行中；同时隐式蕴含 ontology-extraction 已完成
  * - External 阶段优先由右侧卡片保存/跳过结果驱动；不再依赖 external-config 下游运行
  *
- * 容错：WebSocket 投影事件可能丢失，导致 ontology-extraction 轨道缺席。
+ * 容错：WebSocket 相关事件可能丢失，导致 ontology-extraction 轨道缺席。
  * 利用 skill-generation 必须在 ontology-extraction 完成后才能启动这一约束，反向恢复 Material 阶段进度。
  */
 export function deriveStageOverridesFromDownstreamRuns(
@@ -454,7 +454,7 @@ function hasZeroProjectedOntologySlices(ontologyResult: unknown): boolean {
     return false
   }
 
-  // 若 diagnostic 为 slices_not_ready 或 scan_error，说明不是真正的零投影
+  // 若 diagnostic 为 slices_not_ready 或 scan_error，说明不是真正的零结果
   const diagnostic = record.diagnostic
   if (diagnostic === 'slices_not_ready' || diagnostic === 'scan_error') {
     return false
@@ -484,14 +484,14 @@ export function buildCoachResumePrompt(
       'Resume the main hiring flow at the boundary between stage1_material and stage2_skill.',
       'Do not trigger ontology extraction again.',
       'Use the provided upstream material summary and ontology result as context.',
-      'First give a short transition that the ontology slices are ready, then explicitly ask whether to enter skill definition now.',
+      'First give a short transition that the business information is ready, then explicitly ask whether to enter skill definition now.',
       'If the user already explicitly asked to continue into skill definition in the current context, proceed directly under the coach skill rules; otherwise ask the confirmation question only.',
     ]
 
     if (zeroProjected) {
       lines.push(
-        'Note: the ontology extraction returned zero projected slices (projected_count = 0).',
-        'Acknowledge to the user that no usable ontology slices were produced from the current materials,',
+        'Note: the business-information extraction returned zero projected slices (projected_count = 0).',
+        'Acknowledge to the user that no usable business information was produced from the current materials,',
         'and ask whether to supplement additional materials before proceeding to skill definition.',
       )
     }
@@ -528,17 +528,17 @@ export function buildCoachResumePrompt(
 
     if (hasConsumableProjection) {
       lines.push(
-        `There are ${projectedCount} consumable producer projections ready for downstream binding.`,
+        `There are ${projectedCount} ready business-information packages available for skill generation.`,
         'Emit `skill_projection_binding_ready` before asking the next question.',
-        'Ask the user for one more explicit confirmation about binding these producer projections into the generated skills.',
+        'Ask the user for one more explicit confirmation about adopting these prepared business-information packages for the generated skills.',
         'Do not offer a no-projection downgrade in this branch.',
       )
     } else {
       lines.push(
-        'No consumable producer projection is ready for downstream binding.',
+        'No usable prepared business-information package is ready for skill generation.',
         'Do not emit `skill_projection_binding_ready`.',
         'Do not trigger `skill-generation` and do not offer a no-projection downgrade.',
-        'Ask the user whether to supplement materials, revisit ontology extraction, or rerun projection preparation before continuing.',
+        'Ask the user whether to supplement materials, revisit business-information extraction, or rerun business-information preparation before continuing.',
       )
     }
 

@@ -59,7 +59,7 @@ export function ArtifactMessageCard({
           <span className="hb-artifact-title">{title}</span>
           {(artifact.skillName || artifact.stage) && (
             <span className="hb-artifact-subtitle">
-              {[artifact.skillName, artifact.stage, artifact.isTerminal ? t('hiring.artifact.terminal') : null]
+              {[toArtifactSubtitleLabel(artifact.skillName), toArtifactSubtitleLabel(artifact.stage), artifact.isTerminal ? t('hiring.artifact.terminal') : null]
                 .filter(Boolean)
                 .join(' · ')}
             </span>
@@ -114,6 +114,27 @@ export function ArtifactMessageCard({
       )}
     </div>
   )
+}
+
+function toArtifactSubtitleLabel(value: string | undefined): string | undefined {
+  if (!value) {
+    return value
+  }
+
+  const labelMap: Record<string, string> = {
+    'employment-coach-conversation': '雇佣教练',
+    stage1_material: '资料阶段',
+    stage2_skill: '技能阶段',
+    stage3_external: '外部阶段',
+    stage4_packaging: '打包阶段',
+    'ontology-extraction': '业务整理',
+    'ontology-projection': '技能准备',
+    'skill-generation': '技能生成',
+    'external-config': '外部配置',
+    'packaging-test-cases': '评估用例准备',
+  }
+
+  return labelMap[value] ?? value
 }
 
 function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
