@@ -778,15 +778,17 @@ internal sealed class EmployeeHiringService(
                 .OrderByDescending(i => i.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
 
+            string? resolvedEmployeeId = null;
+
             if (hiringInstance is not null)
             {
-                var employeeId = hiringInstance.InstanceId;
+                resolvedEmployeeId = hiringInstance.InstanceId;
 
                 // 仅在 Hiring 状态时才做状态迁移；InterningAi 表示已导入过，跳过重复更新
                 if (hiringInstance.Status == EmployeeStatus.Hiring)
                 {
                     var updateResult = await employeeRuntimeService.UpdateLifecycleAsync(
-                        employeeId,
+                        resolvedEmployeeId,
                         new UpdateEmployeeLifecycleRequestDto
                         {
                             Status = EmployeeStatus.InterningAi,
@@ -802,14 +804,14 @@ internal sealed class EmployeeHiringService(
                         logger.LogInformation(
                             "员工状态已更新: HireId={HireId}, EmployeeId={EmployeeId}, Status=hiring→interning_ai",
                             hireId,
-                            employeeId);
+                            resolvedEmployeeId);
                     }
                     else
                     {
                         logger.LogWarning(
                             "员工状态更新失败（非致命错误）: HireId={HireId}, EmployeeId={EmployeeId}, Error={Error}",
                             hireId,
-                            employeeId,
+                            resolvedEmployeeId,
                             updateResult.Message);
                     }
                 }
@@ -819,15 +821,71 @@ internal sealed class EmployeeHiringService(
                         "员工实例已处于 {Status} 状态，跳过重复状态迁移: HireId={HireId}, EmployeeId={EmployeeId}",
                         hiringInstance.Status,
                         hireId,
-                        employeeId);
+                        resolvedEmployeeId);
                 }
             }
             else
             {
+                // 员工实例不存在（可能已被删除），重新创建并直接置为待AI评估状态
                 logger.LogWarning(
-                    "未找到 Hiring/InterningAi 状态的员工实例: HireId={HireId}, TemplateId={TemplateId}",
+                    "未找到 Hiring/InterningAi 状态的员工实例，将重新创建: HireId={HireId}, TemplateId={TemplateId}",
                     hireId,
                     session.TemplateId);
+
+                var templateForRecreate = await templateDataProvider.GetByIdAsync(session.TemplateId, cancellationToken);
+                var recreateCapabilities = templateForRecreate?.CoreAbilities ?? [];
+
+                var recreateResponse = await employeeRuntimeService.CreateFromHireAsync(
+                    new CreateEmployeeFromHireRequestDto(
+                        HireId: hireId,
+                        TemplateId: session.TemplateId,
+                        TemplateName: templateForRecreate?.Name ?? session.TemplateId,
+                        Description: templateForRecreate?.Description,
+                        OwnerSubject: session.OwnerSubject,
+                        TenantId: session.TenantId ?? "default",
+                        OperatorId: session.OperatorId,
+                        Capabilities: recreateCapabilities),
+                    cancellationToken);
+
+                if (recreateResponse.Success && recreateResponse.Data is not null)
+                {
+                    resolvedEmployeeId = recreateResponse.Data.EmployeeId;
+
+                    var updateResult = await employeeRuntimeService.UpdateLifecycleAsync(
+                        resolvedEmployeeId,
+                        new UpdateEmployeeLifecycleRequestDto
+                        {
+                            Status = EmployeeStatus.InterningAi,
+                            LifecycleStatus = "待AI评估",
+                            StageSummary = "候选包已导入，可发起 AI 评估",
+                            PrimarySignal = "待操作：发起 AI 评估",
+                            SignalLevel = "ok"
+                        },
+                        cancellationToken);
+
+                    if (updateResult.Success)
+                    {
+                        logger.LogInformation(
+                            "已重新创建员工实例并更新为待AI评估: HireId={HireId}, EmployeeId={EmployeeId}",
+                            hireId,
+                            resolvedEmployeeId);
+                    }
+                    else
+                    {
+                        logger.LogWarning(
+                            "重新创建的员工实例状态更新失败（非致命错误）: HireId={HireId}, EmployeeId={EmployeeId}, Error={Error}",
+                            hireId,
+                            resolvedEmployeeId,
+                            updateResult.Message);
+                    }
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "重新创建员工实例失败（非致命错误）: HireId={HireId}, Message={Message}",
+                        hireId,
+                        recreateResponse.Message);
+                }
             }
 
             // 保存导入元数据到结构化数据
@@ -865,7 +923,7 @@ internal sealed class EmployeeHiringService(
                     CollectionPhase: "finalized",
                     GeneratedFiles: Array.Empty<string>(),
                     DownloadUrl: $"/api/v1/hirings/{hireId}/artifacts/download",
-                    EmployeeId: hiringInstance?.InstanceId),
+                    EmployeeId: resolvedEmployeeId),
                 "候选包导入成功");
         }
         catch (Exception ex)
