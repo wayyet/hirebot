@@ -927,12 +927,13 @@ public sealed partial class EmployeeRuntimeService
                         resolvedHeaders[k] = v;
                 }
 
-                // b. BearerTokenEnv → Authorization: Bearer {Env[BearerTokenEnv]}
-                if (!string.IsNullOrWhiteSpace(mcp.BearerTokenEnv)
-                    && mcp.Env.TryGetValue(mcp.BearerTokenEnv, out var bearerToken)
-                    && !string.IsNullOrWhiteSpace(bearerToken))
+                // b. BearerTokenEnv — 前端填入的是 token 本身（不是环境变量名），
+                //    直接组装为 Authorization: Bearer {token}。
+                //    注意：后端 FromDto 存储时 ProtectedEnv 永远为空，
+                //    因此无法通过 Env 字典查找，BearerTokenEnv 字段值即为明文 token。
+                if (!string.IsNullOrWhiteSpace(mcp.BearerTokenEnv))
                 {
-                    resolvedHeaders["Authorization"] = $"Bearer {bearerToken}";
+                    resolvedHeaders["Authorization"] = $"Bearer {mcp.BearerTokenEnv}";
                 }
 
                 // c. HeadersFromEnv → {headerName: Env[envKey]}
