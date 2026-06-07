@@ -12,6 +12,8 @@ public interface IEmployeeHiringService
     Task<ApiResponse<IReadOnlyList<HiringAuditLogDto>>> GetAuditLogsAsync(string hireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringExternalSystemConfigDto>> GetExternalSystemConfigAsync(string hireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringExternalSystemConfigDto>> SaveExternalSystemConfigAsync(string hireId, HiringExternalSystemConfigDto request, CancellationToken cancellationToken = default);
+    Task<ApiResponse<HiringSkillLinkConfigDto>> GetSkillLinkConfigAsync(string hireId, CancellationToken cancellationToken = default);
+    Task<ApiResponse<HiringSkillLinkConfigDto>> SaveSkillLinkConfigAsync(string hireId, HiringSkillLinkConfigDto request, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// 同步对话轮次，解析 AI 回复中的结构化数据标签并保存。

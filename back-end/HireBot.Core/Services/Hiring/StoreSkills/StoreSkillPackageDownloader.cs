@@ -21,17 +21,12 @@ internal sealed class StoreSkillPackageDownloader(
     private const string BuildServiceClientName = "BuildService";
     private const string DefaultApiPrefix = "/api/store";
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     public async Task<IReadOnlyDictionary<string, byte[]>> DownloadSkillsAsync(
-        IReadOnlyList<string> skillIds,
+        IReadOnlyList<StoreSkillDownloadRequest> skillRequests,
         CancellationToken cancellationToken = default)
     {
         var result = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        if (skillIds.Count == 0)
+        if (skillRequests.Count == 0)
         {
             return result;
         }
@@ -43,9 +38,9 @@ internal sealed class StoreSkillPackageDownloader(
         }
 
         var seenSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var rawSkillId in skillIds)
+        foreach (var skillRequest in skillRequests)
         {
-            var skillId = rawSkillId?.Trim();
+            var skillId = skillRequest.SkillId?.Trim();
             if (string.IsNullOrWhiteSpace(skillId))
             {
                 continue;
@@ -60,8 +55,8 @@ internal sealed class StoreSkillPackageDownloader(
                     continue;
                 }
 
-                var slug = ResolveSkillSlug(detail);
-                var versionId = ResolveLatestVersionId(detail);
+                var slug = ResolveRequestedSlug(skillRequest.PreferredSlug, detail);
+                var versionId = ResolveRequestedVersionId(skillRequest.VersionId, detail);
                 if (string.IsNullOrWhiteSpace(slug) || string.IsNullOrWhiteSpace(versionId))
                 {
                     logger.LogWarning(
@@ -100,6 +95,26 @@ internal sealed class StoreSkillPackageDownloader(
         return result;
     }
 
+    private static string? ResolveRequestedSlug(string? preferredSlug, JsonElement? detail)
+    {
+        if (!string.IsNullOrWhiteSpace(preferredSlug))
+        {
+            return SanitizeSlug(preferredSlug.Trim());
+        }
+
+        return ResolveSkillSlug(detail);
+    }
+
+    private static string? ResolveRequestedVersionId(string? requestedVersionId, JsonElement? detail)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedVersionId))
+        {
+            return requestedVersionId.Trim();
+        }
+
+        return ResolveLatestVersionId(detail);
+    }
+
     private async Task<JsonElement?> FetchSkillDetailAsync(HttpClient client, string skillId, CancellationToken cancellationToken)
     {
         using var request = CreateRequest(BuildApiPath($"/skills/{Uri.EscapeDataString(skillId)}"));
@@ -120,7 +135,10 @@ internal sealed class StoreSkillPackageDownloader(
         }
 
         using var doc = JsonDocument.Parse(payload);
-        return doc.RootElement.Clone();
+        var root = doc.RootElement.Clone();
+
+        // 解包常见 envelope 格式：{ code, data: { ... } } / { success, result: { ... } }
+        return UnwrapEnvelope(root);
     }
 
     private async Task<byte[]?> DownloadSkillPackageAsync(
@@ -152,11 +170,11 @@ internal sealed class StoreSkillPackageDownloader(
             return null;
         }
 
-        // 优先使用 name（技能 slug，如 report-synthesis），回退到 displayName
+        // 优先使用 name（技能 slug，如 report-synthesis），回退到 displayName / display_name
         var slug = TryGetString(detail.Value, "name");
         if (string.IsNullOrWhiteSpace(slug))
         {
-            slug = TryGetString(detail.Value, "displayName");
+            slug = TryGetString(detail.Value, "displayName", "display_name");
         }
 
         return string.IsNullOrWhiteSpace(slug)
@@ -171,29 +189,72 @@ internal sealed class StoreSkillPackageDownloader(
             return null;
         }
 
-        if (detail.Value.TryGetProperty("latestVersion", out var latestVersion) &&
-            latestVersion.ValueKind == JsonValueKind.Object)
+        // 兼容 camelCase / snake_case：latestVersion / latest_version / currentVersionInfo
+        var latestVersion = FindProperty(detail.Value, "latestVersion", "latest_version", "currentVersionInfo");
+        if (latestVersion.ValueKind != JsonValueKind.Object)
         {
-            var id = TryGetString(latestVersion, "id");
-            if (!string.IsNullOrWhiteSpace(id))
-            {
-                return id;
-            }
+            return null;
         }
 
-        return null;
+        var id = TryGetString(latestVersion, "id");
+        return string.IsNullOrWhiteSpace(id) ? null : id;
     }
 
-    private static string? TryGetString(JsonElement element, string propertyName)
+    private static string? TryGetString(JsonElement element, params string[] propertyNames)
     {
         if (element.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
 
-        return element.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.String
-            ? prop.GetString()
-            : null;
+        foreach (var propertyName in propertyNames)
+        {
+            if (element.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.String)
+            {
+                return prop.GetString();
+            }
+        }
+
+        return null;
+    }
+
+    private static JsonElement FindProperty(JsonElement element, params string[] propertyNames)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return default;
+        }
+
+        foreach (var propertyName in propertyNames)
+        {
+            if (element.TryGetProperty(propertyName, out var value))
+            {
+                return value;
+            }
+        }
+
+        return default;
+    }
+
+    /// <summary>
+    /// 解包 build service API 常见的 <c>{ code, data: { ... } }</c> / <c>{ success, result: { ... } }</c> 信封格式。
+    /// </summary>
+    private static JsonElement UnwrapEnvelope(JsonElement payload)
+    {
+        var current = payload;
+        while (current.ValueKind == JsonValueKind.Object)
+        {
+            var data = FindProperty(current, "data", "result");
+            if (data is { ValueKind: JsonValueKind.Object or JsonValueKind.Array })
+            {
+                current = data;
+                continue;
+            }
+
+            break;
+        }
+
+        return current;
     }
 
     /// <summary>

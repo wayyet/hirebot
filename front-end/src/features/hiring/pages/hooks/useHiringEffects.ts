@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, type RefObject } from 'react'
 import { api, type EmployeeTemplateDetail } from '@/infra/api'
 import type { PersistedChatFile, PersistedPackageStructure } from '@/infra/api'
 import type { ChatFile, ChatMessage, DownstreamRunsSnapshot, ToolStep } from '../hiringPageTypes'
@@ -9,9 +9,9 @@ import type { GatewayWs } from '@/infra/sandbox/gateway-ws'
  * 滚动到聊天底部
  */
 export function useScrollToBottom(
-  chatEndRef: RefObject<HTMLDivElement>,
+  chatEndRef: RefObject<HTMLDivElement | null>,
   messages: ChatMessage[],
-  visibleTyping: string | null,
+  visibleTyping: boolean,
   visibleStreamingContent: string | null,
   streamingToolSteps: ToolStep[],
 ) {

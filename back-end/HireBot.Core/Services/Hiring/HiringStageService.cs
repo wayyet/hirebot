@@ -168,4 +168,61 @@ internal sealed class HiringStageService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<HiringSkillLinkConfigDto?> GetSkillLinkConfigAsync(
+        string hireId,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await dbContext.HiringSkillLinkConfigs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
+
+        if (entity is null || entity.ConfigJson == "{}")
+        {
+            return null;
+        }
+
+        try
+        {
+            var state = JsonSerializer.Deserialize<HiringSkillLinkConfigState>(entity.ConfigJson, JsonOptions);
+            return state?.ToDto();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to deserialize skill link config for HireId={HireId}", hireId);
+            return null;
+        }
+    }
+
+    public async Task SaveSkillLinkConfigAsync(
+        string hireId,
+        HiringSkillLinkConfigDto config,
+        CancellationToken cancellationToken = default)
+    {
+        var state = HiringSkillLinkConfigState.FromDto(config);
+        var configJson = JsonSerializer.Serialize(state, JsonOptions);
+
+        var entity = await dbContext.HiringSkillLinkConfigs
+            .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+
+        if (entity is null)
+        {
+            dbContext.HiringSkillLinkConfigs.Add(new HiringSkillLinkConfigEntity
+            {
+                HireId = hireId,
+                ConfigJson = configJson,
+                UpdatedAtUtc = now,
+                UpdatedBy = "system"
+            });
+        }
+        else
+        {
+            entity.ConfigJson = configJson;
+            entity.UpdatedAtUtc = now;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

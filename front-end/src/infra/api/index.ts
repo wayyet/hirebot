@@ -91,6 +91,7 @@ export type {
 
 export type {
   EmployeeCapability,
+  CreatorRef,
   EmployeeSummary,
   EmployeeDetail,
   ImPlatformId,

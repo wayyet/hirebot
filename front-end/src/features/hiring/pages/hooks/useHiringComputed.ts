@@ -1,7 +1,13 @@
 import { useMemo } from 'react'
-import { HiringCollectionStage, type HiringExternalSystemConfig } from '@/infra/api'
+import {
+  HiringCollectionPhase,
+  HiringCollectionStage,
+  HiringStageReadinessStatus,
+  type HiringWorkflowState,
+  type StageReadiness,
+} from '@/infra/api'
 import type {
-  ArtifactArchive,
+  ChatFile,
   ChatMessage,
   DefinedSkillItem,
   DownstreamRunsSnapshot,
@@ -12,6 +18,166 @@ import {
 } from '../hiringArtifactState'
 import { extractConversationMaterialFiles } from '../materialUploadMatching'
 import { buildHiringWorkflowViewModel, type HiringUiStage } from '../hiringWorkflowViewModel'
+
+type UiStageRuntimeStatus = 'running' | 'completed' | 'failed'
+
+const CORE_STAGE_ORDER: HiringUiStage[] = [
+  HiringCollectionStage.Material,
+  HiringCollectionStage.Skill,
+  HiringCollectionStage.External,
+]
+
+function buildDerivedStageReadiness(
+  stage: HiringUiStage,
+  currentStage: HiringUiStage,
+  uiStageOverrides: Map<HiringUiStage, UiStageRuntimeStatus>,
+  finalized: boolean,
+): StageReadiness {
+  const runtimeStatus = uiStageOverrides.get(stage)
+  const currentStageIndex = [
+    ...CORE_STAGE_ORDER,
+    HiringCollectionStage.ReadyForPackaging,
+  ].indexOf(currentStage)
+  const stageIndex = [
+    ...CORE_STAGE_ORDER,
+    HiringCollectionStage.ReadyForPackaging,
+  ].indexOf(stage)
+
+  if (stage === HiringCollectionStage.ReadyForPackaging) {
+    if (finalized) {
+      return {
+        stage,
+        status: HiringStageReadinessStatus.Complete,
+        reason: '打包已完成，可进入后续训练或评估。',
+        blockingTodoIds: [],
+      }
+    }
+
+    if (currentStage === HiringCollectionStage.ReadyForPackaging) {
+      return {
+        stage,
+        status: HiringStageReadinessStatus.Partial,
+        reason: '资料、技能和外部连接已就绪，可以发起打包。',
+        blockingTodoIds: [],
+      }
+    }
+
+    return {
+      stage,
+      status: HiringStageReadinessStatus.Missing,
+      reason: '等待资料、技能和外部连接全部完成后解锁打包。',
+      blockingTodoIds: [],
+    }
+  }
+
+  if (runtimeStatus === 'completed' || stageIndex < currentStageIndex) {
+    return {
+      stage,
+      status: HiringStageReadinessStatus.Complete,
+      reason: '当前阶段已产出。',
+      blockingTodoIds: [],
+    }
+  }
+
+  if (stage === currentStage) {
+    const reason = runtimeStatus === 'failed'
+      ? '当前阶段产出失败，请检查本阶段结果后重试。'
+      : runtimeStatus === 'running'
+        ? '当前阶段正在产出，请等待结果更新。'
+        : '已满足进入当前阶段的条件，可以继续补齐当前内容。'
+
+    return {
+      stage,
+      status: HiringStageReadinessStatus.Partial,
+      reason,
+      blockingTodoIds: [],
+    }
+  }
+
+  return {
+    stage,
+    status: HiringStageReadinessStatus.Missing,
+    reason: '等待前序阶段完成后解锁。',
+    blockingTodoIds: [],
+  }
+}
+
+export function deriveCurrentStageFromOverrides(
+  uiStageOverrides: Map<HiringUiStage, UiStageRuntimeStatus>,
+  finalized = false,
+): HiringUiStage {
+  if (finalized) {
+    return HiringCollectionStage.ReadyForPackaging
+  }
+
+  const runningStage = CORE_STAGE_ORDER.find((stage) => {
+    const status = uiStageOverrides.get(stage)
+    return status === 'running' || status === 'failed'
+  })
+  if (runningStage) {
+    return runningStage
+  }
+
+  const nextIncompleteStage = CORE_STAGE_ORDER.find(stage => uiStageOverrides.get(stage) !== 'completed')
+  return nextIncompleteStage ?? HiringCollectionStage.ReadyForPackaging
+}
+
+export function buildDerivedWorkflowStateFromStageOverrides(
+  uiStageOverrides: Map<HiringUiStage, UiStageRuntimeStatus>,
+  finalized = false,
+): HiringWorkflowState {
+  const currentStage = deriveCurrentStageFromOverrides(uiStageOverrides, finalized)
+  const coreStagesCompleted = CORE_STAGE_ORDER.every(stage => uiStageOverrides.get(stage) === 'completed')
+  const collectionPhase = finalized
+    ? HiringCollectionPhase.Finalized
+    : coreStagesCompleted
+      ? HiringCollectionPhase.ReadyForFinalize
+      : uiStageOverrides.size > 0
+        ? HiringCollectionPhase.InProgress
+        : HiringCollectionPhase.NotStarted
+
+  const stageReadiness = [
+    HiringCollectionStage.Material,
+    HiringCollectionStage.Skill,
+    HiringCollectionStage.External,
+    HiringCollectionStage.ReadyForPackaging,
+  ].map(stage => buildDerivedStageReadiness(stage, currentStage, uiStageOverrides, finalized))
+
+  return {
+    hireId: '',
+    sessionId: '',
+    currentStage,
+    requiresAudit: false,
+    collectionPhase,
+    stageSkills: [],
+    auditLogs: [],
+    stageCompletion: [],
+    workflowTodos: [],
+    handoffItems: [],
+    latestDispatches: [],
+    latestDiagnosticReport: coreStagesCompleted || finalized
+      ? {
+        status: 'pass',
+        confidence: 'medium',
+        currentStage,
+        readyForPackaging: true,
+        stageReadiness,
+        diagnosticTodos: [],
+        todoCorrelation: [],
+        openQuestions: [],
+        userSummary: finalized
+          ? '打包已完成。'
+          : '资料、技能与外部连接已就绪，可以继续打包。',
+        generatedAtUtc: new Date(0).toISOString(),
+      }
+      : null,
+    configGovernance: null,
+    stageReadiness,
+    runtimeFacts: null,
+    isConversationPaused: false,
+    isConversationResponding: false,
+  }
+}
 
 /**
  * 从消息列表提取已定义的技能列表
@@ -124,7 +290,7 @@ export interface HiringComputedProps {
   t: (key: string) => string
   workflowHireId: string
   instanceCreated: boolean
-  artifactArchive: ArtifactArchive | null
+  artifactArchive: { fileName: string; blob: Blob } | null
   typing: boolean
   workflowBooting: boolean
   submittingMessage: boolean
@@ -138,7 +304,7 @@ export interface HiringComputedValues {
   definedSkills: DefinedSkillItem[]
   finalPackageFileName: string
   hasTemplatePackageArtifact: boolean
-  uploadedConversationFiles: { name: string; size: number }[]
+  uploadedConversationFiles: ChatFile[]
   uploadedFileCount: number
   isInteractionLocked: boolean
   wsStagesAllCompleted: boolean
@@ -166,7 +332,6 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
     submittingMessage,
     resetting,
     allFiles,
-    pendingPackageArtifact,
   } = props
 
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
@@ -180,12 +345,17 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
     [wsStageOverrides, skillGenerationState, holdExternalStage],
   )
 
+  const derivedWorkflowState = useMemo(
+    () => buildDerivedWorkflowStateFromStageOverrides(uiStageOverrides, instanceCreated),
+    [instanceCreated, uiStageOverrides],
+  )
+
   const definedSkills = useMemo(
     () => extractLatestDefinedSkills(messages),
     [messages],
   )
 
-  const viewModel = buildHiringWorkflowViewModel(null, focusedStage, t)
+  const viewModel = buildHiringWorkflowViewModel(derivedWorkflowState, focusedStage, t)
   
   const mergedStepPills = viewModel.stepPills.map(pill => {
     const wsStatus = uiStageOverrides.get(pill.stage)

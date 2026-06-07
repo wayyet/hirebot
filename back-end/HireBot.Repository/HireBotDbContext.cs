@@ -93,6 +93,7 @@ public sealed class HireBotDbContext : DbContext
     public DbSet<HiringStageProgressEntity> HiringStageProgresses { get; set; }
     public DbSet<HiringStructuredDataEntity> HiringStructuredData { get; set; }
     public DbSet<HiringExternalConfigEntity> HiringExternalConfigs { get; set; }
+    public DbSet<HiringSkillLinkConfigEntity> HiringSkillLinkConfigs { get; set; }
     public DbSet<HiringArtifactEntity> HiringArtifacts { get; set; }
     public DbSet<HiringMaterialFileEntity> HiringMaterialFiles { get; set; }
     public DbSet<HiringArtifactUploadEntity> HiringArtifactUploads { get; set; }
@@ -269,6 +270,18 @@ public sealed class HireBotDbContext : DbContext
         });
 
         modelBuilder.Entity<HiringExternalConfigEntity>(entity =>
+        {
+            entity.HasKey(e => e.HireId);
+            entity.Property(e => e.HireId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.TenantId).HasMaxLength(128);
+            entity.Property(e => e.ConfigJson).IsRequired().HasDefaultValue("{}");
+            entity.Property(e => e.UpdatedAtUtc).IsRequired();
+            entity.Property(e => e.UpdatedBy).HasMaxLength(256);
+
+            entity.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
+        });
+
+        modelBuilder.Entity<HiringSkillLinkConfigEntity>(entity =>
         {
             entity.HasKey(e => e.HireId);
             entity.Property(e => e.HireId).IsRequired().HasMaxLength(64);

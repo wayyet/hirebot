@@ -3,6 +3,7 @@ import { Loader2, RefreshCw, Trash2, AlertCircle, Server, Layers, Clock, Palette
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '@/app/theme/ThemeProvider'
 import { api, type HiringSandboxItem } from '@/infra/api'
+import { buildSandboxSelectionViewState } from './utils/settingsPageSelection'
 
 // ── 沙箱状态 → hb-pill 颜色映射 ──
 function statePillClass(state: string): string {
@@ -107,9 +108,17 @@ interface SandboxRowProps {
   onSelectionChange: (sandboxId: string, selected: boolean) => void
   deletingIds: ReadonlySet<string>
   selected: boolean
+  selectionDisabled?: boolean
 }
 
-function SandboxRow({ item, onDelete, onSelectionChange, deletingIds, selected }: SandboxRowProps) {
+function SandboxRow({
+  item,
+  onDelete,
+  onSelectionChange,
+  deletingIds,
+  selected,
+  selectionDisabled = false,
+}: SandboxRowProps) {
   const { t } = useTranslation()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const isDeleting = deletingIds.has(item.sandboxId)
@@ -131,7 +140,7 @@ function SandboxRow({ item, onDelete, onSelectionChange, deletingIds, selected }
             type="checkbox"
             className="hb-row-checkbox"
             checked={selected}
-            disabled={isDeleting}
+            disabled={isDeleting || selectionDisabled}
             aria-label={t('settings.sandboxes.selectRow', { sandboxId: item.sandboxId })}
             onChange={(event) => onSelectionChange(item.sandboxId, event.target.checked)}
           />
@@ -224,9 +233,18 @@ export default function SettingsPage() {
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   const sandboxIds = useMemo(() => sandboxes.map(item => item.sandboxId), [sandboxes])
-  const selectedCount = selectedSandboxIds.size
+  const selectionViewState = useMemo(
+    () => buildSandboxSelectionViewState(sandboxIds, selectedSandboxIds, batchConfirmMode),
+    [batchConfirmMode, sandboxIds, selectedSandboxIds],
+  )
+  const {
+    allSelected,
+    displaySelectedSandboxIds,
+    indeterminate,
+    selectedCount,
+    selectionDisabled,
+  } = selectionViewState
   const isBusyDeleting = deletingIds.size > 0
-  const allSelected = sandboxes.length > 0 && selectedCount === sandboxes.length
   const batchTargetIds = batchConfirmMode === 'all' ? sandboxIds : [...selectedSandboxIds]
   const brandOptions = useMemo(() => [
     {
@@ -258,8 +276,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!selectAllRef.current) return
-    selectAllRef.current.indeterminate = selectedCount > 0 && selectedCount < sandboxes.length
-  }, [sandboxes.length, selectedCount])
+    selectAllRef.current.indeterminate = indeterminate
+  }, [indeterminate])
 
   // 列表刷新或删除后，清理已经不存在的选中项，避免后续批量操作误带旧 ID。
   useEffect(() => {
@@ -535,7 +553,7 @@ export default function SettingsPage() {
                         type="checkbox"
                         className="hb-row-checkbox"
                         checked={allSelected}
-                        disabled={isBusyDeleting}
+                        disabled={isBusyDeleting || selectionDisabled}
                         aria-label={t('settings.sandboxes.selectAll')}
                         onChange={(event) => handleSelectAll(event.target.checked)}
                       />
@@ -557,7 +575,8 @@ export default function SettingsPage() {
                       onDelete={handleDelete}
                       onSelectionChange={handleSelectRow}
                       deletingIds={deletingIds}
-                      selected={selectedSandboxIds.has(item.sandboxId)}
+                      selected={displaySelectedSandboxIds.has(item.sandboxId)}
+                      selectionDisabled={selectionDisabled}
                     />
                   ))}
                 </tbody>
