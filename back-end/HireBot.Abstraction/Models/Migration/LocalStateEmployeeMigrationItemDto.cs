@@ -11,7 +11,7 @@ public sealed record LocalStateEmployeeMigrationItemDto(
     string PrimarySignal,
     string SignalLevel,
     string OwningTeam,
-    string CreatedAt,
+    DateTimeOffset CreatedAt,
     string? InternshipStartAt,
     string? GraduatedAt,
     int TasksDone,

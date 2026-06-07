@@ -759,7 +759,7 @@ public sealed class EmployeeTemplateServiceTests
             PrimarySignal: "ready",
             SignalLevel: "normal",
             OwningTeam: "support",
-            CreatedAt: DateTimeOffset.UtcNow.ToString("o"),
+            CreatedAt: DateTimeOffset.UtcNow,
             InternshipStartAt: null,
             GraduatedAt: null,
             TasksDone: 0,

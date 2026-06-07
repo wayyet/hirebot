@@ -80,7 +80,7 @@ public sealed partial class EmployeeRuntimeService
                 RuntimeSnapshotJson = JsonSerializer.Serialize(employee),
                 Description = finalDescription,
                 DescribeDocument = describeDocument,
-                CreatedAt = ParseDate(employee.CreatedAt) ?? now,
+                CreatedAt = employee.CreatedAt,
                 UpdatedAt = now
             });
         }

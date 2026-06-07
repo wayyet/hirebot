@@ -19,7 +19,7 @@ public sealed record EmployeeSummaryDto(
     string PrimarySignal,
     string SignalLevel,
     string OwningTeam,
-    string CreatedAt,
+    DateTimeOffset CreatedAt,
     int TasksDone,
     int TasksTotal,
     IReadOnlyList<string> PendingActions,

@@ -276,7 +276,7 @@ public sealed partial class EmployeeRuntimeService(
             .Where(item => string.Equals(item.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
             .Where(item => IsFixtureTemplateMatch(item, normalizedTemplateId, fixtureBinding))
             .Where(IsUploadSkillReadyInstance)
-            .OrderBy(item => item.CreatedAt, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item.CreatedAt)
             .ThenBy(item => item.EmployeeId, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
 
@@ -295,7 +295,7 @@ public sealed partial class EmployeeRuntimeService(
         selected = existingEmployees
             .Where(item => string.Equals(item.InstanceType, "department", StringComparison.OrdinalIgnoreCase))
             .Where(item => IsFixtureTemplateMatch(item, normalizedTemplateId, fixtureBinding))
-            .OrderByDescending(item => item.CreatedAt, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(item => item.CreatedAt)
             .ThenBy(item => item.EmployeeId, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
 
@@ -641,7 +641,7 @@ public sealed partial class EmployeeRuntimeService(
             PrimarySignal: "等待用户完成雇佣流程",
             SignalLevel: "ok",
             OwningTeam: request.TenantId,
-            CreatedAt: DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm"),
+            CreatedAt: DateTimeOffset.UtcNow,
             InternshipStartAt: null,
             GraduatedAt: null,
             TasksDone: 0,
@@ -836,7 +836,6 @@ public sealed partial class EmployeeRuntimeService(
 
         // 构造 EmployeeDetailDto — 直接上岗状态
         var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
-        var now = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm");
         var capabilities = skillNames.Count > 0
             ? skillNames.Select(skillName => new EmployeeCapabilityDto(skillName, true)).ToArray()
             : [new EmployeeCapabilityDto("站内对话", true)];
@@ -860,7 +859,7 @@ public sealed partial class EmployeeRuntimeService(
             PrimarySignal: "运行正常",
             SignalLevel: "ok",
             OwningTeam: tenantId,
-            CreatedAt: now,
+            CreatedAt: DateTimeOffset.UtcNow,
             InternshipStartAt: today,
             GraduatedAt: today,
             TasksDone: 0,
@@ -1138,7 +1137,6 @@ public sealed partial class EmployeeRuntimeService(
         }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
-        var now = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm");
         var clone = new EmployeeDetailDto(
             EmployeeId: cloneId,
             Nickname: displayName,
@@ -1158,7 +1156,7 @@ public sealed partial class EmployeeRuntimeService(
             PrimarySignal: "运行正常",
             SignalLevel: "ok",
             OwningTeam: source.OwningTeam,
-            CreatedAt: now,
+            CreatedAt: DateTimeOffset.UtcNow,
             InternshipStartAt: today,
             GraduatedAt: today,
             TasksDone: 0,

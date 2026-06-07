@@ -316,7 +316,7 @@ public sealed class InstanceArtifactCloneServiceTests
             "ok",
             "ok",
             "tenant-a",
-            "2026-04-30",
+            DateTimeOffset.Parse("2026-04-30T00:00:00Z"),
             null,
             null,
             0,

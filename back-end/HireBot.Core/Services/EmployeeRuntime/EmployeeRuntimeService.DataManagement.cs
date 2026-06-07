@@ -90,7 +90,7 @@ public sealed partial class EmployeeRuntimeService
             }
 
             // 始终使用 DB 实体的 CreatedAt 覆盖快照中的值，避免历史快照缺少时间精度
-            employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+            employee = employee with { CreatedAt = instance.CreatedAt };
             
             // 填充描述信息（优先使用 Description 字段，如果为空则从 DescribeDocument 提取）
             string? description = instance.Description;
@@ -177,7 +177,7 @@ public sealed partial class EmployeeRuntimeService
             // 始终使用 DB 实体的 CreatedAt 覆盖快照中的值，避免历史快照缺少时间精度
             if (employee is not null)
             {
-                employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+                employee = employee with { CreatedAt = instance.CreatedAt };
                 
                 // 填充描述信息（优先从 DescribeDocument 提取简短描述，备用 CardIntro，最后截取原文）
                 string? description = null;
@@ -285,7 +285,7 @@ public sealed partial class EmployeeRuntimeService
         // 始终使用 DB 实体的 CreatedAt 覆盖快照中的值，避免历史快照缺少时间精度
         if (employee is not null)
         {
-            employee = employee with { CreatedAt = instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") };
+            employee = employee with { CreatedAt = instance.CreatedAt };
             
             // 填充描述信息（优先从 DescribeDocument 提取简短描述，备用 CardIntro，最后截取原文）
             string? description = null;
@@ -420,7 +420,7 @@ public sealed partial class EmployeeRuntimeService
             PrimarySignal: BuildPrimarySignal(status),
             SignalLevel: status is "hired" or "interning_ai" ? "warn" : "ok",
             OwningTeam: instance.DepartmentId,
-            CreatedAt: instance.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm"),
+            CreatedAt: instance.CreatedAt,
             InternshipStartAt: status is "live" ? DateOnly.FromDateTime(instance.CreatedAt.UtcDateTime).ToString("yyyy-MM-dd") : null,
             GraduatedAt: status is "live" ? DateOnly.FromDateTime(instance.UpdatedAt.UtcDateTime).ToString("yyyy-MM-dd") : null,
             TasksDone: 0,
@@ -709,14 +709,14 @@ public sealed partial class EmployeeRuntimeService
     /// <summary>
     /// 解析创建时间。
     /// </summary>
-    private static string ResolveCreatedAt(string generatedAtUtc, int seedOffset)
+    private static DateTimeOffset ResolveCreatedAt(string generatedAtUtc, int seedOffset)
     {
-        if (DateTime.TryParse(generatedAtUtc, out var parsed))
+        if (DateTimeOffset.TryParse(generatedAtUtc, out var parsed))
         {
-            return parsed.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            return parsed.ToUniversalTime();
         }
 
-        return DateTime.UtcNow.AddDays(-seedOffset).ToString("yyyy-MM-dd HH:mm");
+        return DateTimeOffset.UtcNow.AddDays(-seedOffset);
     }
 
     /// <summary>

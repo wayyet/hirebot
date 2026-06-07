@@ -208,7 +208,7 @@ public sealed class RuntimeApiControllerTests
             "ok",
             "ok",
             "team",
-            "2026-04-29",
+            DateTimeOffset.Parse("2026-04-29T00:00:00Z"),
             null,
             null,
             0,
