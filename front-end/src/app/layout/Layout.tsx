@@ -25,7 +25,7 @@ import {
 import { useTheme } from "@/app/theme/ThemeProvider";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { isAuthBypassed } from "@/infra/auth/auth-mode";
-import { signOut, getAuthUser, getUserDisplayName } from "@/infra/auth/oidc";
+import { signOut, getAuthUser, getUserDisplayName, type OidcUser } from "@/infra/auth/oidc";
 
 const ROLE_STORAGE_KEY = "hirebot_user_role_v1";
 
@@ -96,8 +96,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const originalBrandWordmarkSrc = resolveBrandWordmarkSrc(currentLang);
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
   const [logoutLoading, setLogoutLoading] = useState(false);
-  const [userDisplayName, setUserDisplayName] = useState<string>("");
+  const [authUser, setAuthUser] = useState<OidcUser | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
+
+  // 响应式计算显示名：语言切换时自动更新
+  const userDisplayName = useMemo(
+    () => (authUser ? getUserDisplayName(authUser, currentLang) : ''),
+    [authUser, currentLang],
+  );
 
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [navStacked, setNavStacked] = useState(false);
@@ -204,7 +210,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       try {
         const user = await getAuthUser();
         if (user) {
-          setUserDisplayName(getUserDisplayName(user));
+          setAuthUser(user);
         }
       } catch (error) {
         console.warn("Failed to load user info:", error);

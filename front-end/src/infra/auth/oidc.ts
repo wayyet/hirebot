@@ -378,7 +378,17 @@ export async function signOut(): Promise<void> {
   await userManager.signoutRedirect()
 }
 
-export function getUserDisplayName(user: OidcUser): string {
+export function getUserDisplayName(user: OidcUser, locale = 'zh'): string {
   const p = user.profile
-  return String(p.name ?? p.nickname ?? p.preferred_username ?? p.given_name ?? 'User')
+  const givenName = p.given_name ? String(p.given_name) : ''
+  const familyName = p.family_name ? String(p.family_name) : ''
+
+  if (givenName || familyName) {
+    // 根据 locale 决定姓名顺序：中文姓在前，英文名在前
+    const isZh = locale.toLowerCase().startsWith('zh')
+    if (isZh) return `${familyName}${givenName}`
+    return [givenName, familyName].filter(Boolean).join(' ')
+  }
+
+  return String(p.name ?? p.nickname ?? p.preferred_username ?? 'User')
 }
