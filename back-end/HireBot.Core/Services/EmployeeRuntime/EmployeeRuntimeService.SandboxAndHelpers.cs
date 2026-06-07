@@ -15,6 +15,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
@@ -883,8 +884,11 @@ public sealed partial class EmployeeRuntimeService
             }
 
             // 4. 读取克隆沙箱中已有的 MCP 配置（克隆时从源沙箱继承的配置）
+            // GET /admin/workspace/mcp 返回 { builtin: {...}, user: {...} }，
+            // PUT /admin/workspace/mcp 只接受 user 层的 SandboxWorkspaceMcpConfig，
+            // 所以读时从 user 字段提取，写时直接提交合并后的 SandboxWorkspaceMcpConfig。
             var mergedServers = new Dictionary<string, SandboxMcpServerEntry>(StringComparer.OrdinalIgnoreCase);
-            var getResult = await kingCrabHttpClient.SendForJsonAsync<SandboxWorkspaceMcpConfig>(
+            var getResult = await kingCrabHttpClient.SendForJsonAsync<SandboxWorkspaceMcpGetResponse>(
                 HttpMethod.Get,
                 "/admin/workspace/mcp",
                 null,
@@ -893,20 +897,51 @@ public sealed partial class EmployeeRuntimeService
                 useHireBotApiPrefix: false,
                 absoluteBaseUrl: gatewayEndpoint);
 
-            if (getResult.Success && getResult.Data?.Servers is { Count: > 0 })
+            if (getResult.Success && getResult.Data?.User?.Servers is { Count: > 0 })
             {
-                foreach (var (key, entry) in getResult.Data.Servers)
+                foreach (var (key, entry) in getResult.Data.User.Servers)
                 {
                     mergedServers[key] = entry;
                 }
             }
 
             // 5. 将用户 DB 配置的 MCP 服务器合并（DB 配置按 Name 覆盖沙箱已有同名条目）
+            // HiringMcpServerConfigDto 有三种 token 传递方式，全部展开为 Headers：
+            //   a. Headers           — 直接使用，原样保留
+            //   b. BearerTokenEnv    — 从 Env[BearerTokenEnv] 取值，组装为 Authorization: Bearer {token}
+            //   c. HeadersFromEnv    — {headerName: envKey} 映射，从 Env[envKey] 取值补入 Headers
             foreach (var mcp in userMcpServers)
             {
                 if (string.IsNullOrWhiteSpace(mcp.Name) || string.IsNullOrWhiteSpace(mcp.Url))
                 {
                     continue;
+                }
+
+                // 展开所有 token/header 来源为最终 Headers 字典
+                var resolvedHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                // a. 直接 Headers
+                foreach (var (k, v) in mcp.Headers)
+                {
+                    if (!string.IsNullOrWhiteSpace(k) && !string.IsNullOrWhiteSpace(v))
+                        resolvedHeaders[k] = v;
+                }
+
+                // b. BearerTokenEnv → Authorization: Bearer {Env[BearerTokenEnv]}
+                if (!string.IsNullOrWhiteSpace(mcp.BearerTokenEnv)
+                    && mcp.Env.TryGetValue(mcp.BearerTokenEnv, out var bearerToken)
+                    && !string.IsNullOrWhiteSpace(bearerToken))
+                {
+                    resolvedHeaders["Authorization"] = $"Bearer {bearerToken}";
+                }
+
+                // c. HeadersFromEnv → {headerName: Env[envKey]}
+                foreach (var (headerName, envKey) in mcp.HeadersFromEnv)
+                {
+                    if (string.IsNullOrWhiteSpace(headerName) || string.IsNullOrWhiteSpace(envKey))
+                        continue;
+                    if (mcp.Env.TryGetValue(envKey, out var envVal) && !string.IsNullOrWhiteSpace(envVal))
+                        resolvedHeaders[headerName] = envVal;
                 }
 
                 mergedServers[mcp.Name] = new SandboxMcpServerEntry
@@ -915,9 +950,7 @@ public sealed partial class EmployeeRuntimeService
                     Url = mcp.Url,
                     Enabled = true,
                     Name = mcp.Name,
-                    Headers = mcp.Headers.Count > 0
-                        ? new Dictionary<string, string>(mcp.Headers, StringComparer.OrdinalIgnoreCase)
-                        : null,
+                    Headers = resolvedHeaders.Count > 0 ? resolvedHeaders : null,
                 };
             }
 
@@ -960,5 +993,16 @@ public sealed partial class EmployeeRuntimeService
                 "SyncMcpConfigToCloneSandboxAsync: 同步 MCP 配置异常（非致命）: CloneSandboxId={CloneSandboxId}",
                 cloneSandboxId);
         }
+    }
+
+    /// <summary>
+    /// GET /admin/workspace/mcp 返回的外层包装结构：
+    /// { builtin: { Enabled, Servers: {...} }, user: { Enabled, Servers: {...} } }
+    /// PUT /admin/workspace/mcp 只写 user 部分，所以读时只取 user。
+    /// </summary>
+    private sealed class SandboxWorkspaceMcpGetResponse
+    {
+        [JsonPropertyName("user")]
+        public SandboxWorkspaceMcpConfig? User { get; init; }
     }
 }
