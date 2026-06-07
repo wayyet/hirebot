@@ -7,7 +7,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HireBot.Repository.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate_20260605 : Migration
+    public partial class InitialCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -30,23 +30,6 @@ namespace HireBot.Repository.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_AppUsers", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Conversations",
-                columns: table => new
-                {
-                    ConversationId = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
-                    InstanceId = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
-                    TenantId = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                    OwnerUserId = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-                    Channel = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Conversations", x => x.ConversationId);
                 });
 
             migrationBuilder.CreateTable(
@@ -113,48 +96,6 @@ namespace HireBot.Repository.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_HiringArtifacts", x => x.ArtifactId);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "HiringArtifactUploadParts",
-                columns: table => new
-                {
-                    PartId = table.Column<Guid>(type: "uuid", nullable: false),
-                    TenantId = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
-                    UploadId = table.Column<Guid>(type: "uuid", nullable: false),
-                    PartNumber = table.Column<int>(type: "integer", nullable: false),
-                    SizeBytes = table.Column<long>(type: "bigint", nullable: false),
-                    Sha256 = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                    StoragePath = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: false),
-                    UploadedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_HiringArtifactUploadParts", x => x.PartId);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "HiringArtifactUploads",
-                columns: table => new
-                {
-                    UploadId = table.Column<Guid>(type: "uuid", nullable: false),
-                    SessionId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                    TenantId = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                    Kind = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
-                    LogicalPath = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: false),
-                    FileName = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false),
-                    TotalSizeBytes = table.Column<long>(type: "bigint", nullable: false),
-                    PartSizeBytes = table.Column<int>(type: "integer", nullable: false),
-                    TotalParts = table.Column<int>(type: "integer", nullable: false),
-                    ExpectedSha256 = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
-                    TempStorageDirectory = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: false),
-                    CreatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    CompletedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    AbortedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_HiringArtifactUploads", x => x.UploadId);
                 });
 
             migrationBuilder.CreateTable(
@@ -248,6 +189,21 @@ namespace HireBot.Repository.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "HiringSkillLinkConfigs",
+                columns: table => new
+                {
+                    HireId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    TenantId = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
+                    ConfigJson = table.Column<string>(type: "text", nullable: false, defaultValue: "{}"),
+                    UpdatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    UpdatedBy = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_HiringSkillLinkConfigs", x => x.HireId);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "HiringStageProgresses",
                 columns: table => new
                 {
@@ -313,29 +269,6 @@ namespace HireBot.Repository.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Messages",
-                columns: table => new
-                {
-                    MessageId = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
-                    ConversationId = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
-                    InstanceId = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
-                    TenantId = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                    Role = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                    Content = table.Column<string>(type: "text", nullable: false),
-                    Channel = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                    ExternalMessageId = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: true),
-                    ExternalUserId = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: true),
-                    DeliveryStatus = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
-                    ErrorMessage = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: true),
-                    MetadataJson = table.Column<string>(type: "text", nullable: true),
-                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Messages", x => x.MessageId);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "SandboxInstances",
                 columns: table => new
                 {
@@ -362,23 +295,6 @@ namespace HireBot.Repository.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_SandboxInstances", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Users",
-                columns: table => new
-                {
-                    Id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    Name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
-                    Email = table.Column<string>(type: "character varying(100)", unicode: false, maxLength: 100, nullable: false),
-                    PasswordHash = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Users", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -534,16 +450,6 @@ namespace HireBot.Repository.Migrations
                 columns: new[] { "TenantId", "Username" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Conversations_InstanceId_OwnerUserId_Channel",
-                table: "Conversations",
-                columns: new[] { "InstanceId", "OwnerUserId", "Channel" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Conversations_TenantId_UpdatedAt",
-                table: "Conversations",
-                columns: new[] { "TenantId", "UpdatedAt" });
-
-            migrationBuilder.CreateIndex(
                 name: "IX_EvaluationAssets_RelativePath",
                 table: "EvaluationAssets",
                 column: "RelativePath");
@@ -622,27 +528,6 @@ namespace HireBot.Repository.Migrations
                 column: "UploadedAtUtc");
 
             migrationBuilder.CreateIndex(
-                name: "IX_HiringArtifactUploadParts_TenantId",
-                table: "HiringArtifactUploadParts",
-                column: "TenantId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_HiringArtifactUploadParts_UploadId_PartNumber",
-                table: "HiringArtifactUploadParts",
-                columns: new[] { "UploadId", "PartNumber" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_HiringArtifactUploads_CreatedAtUtc",
-                table: "HiringArtifactUploads",
-                column: "CreatedAtUtc");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_HiringArtifactUploads_TenantId_SessionId_Kind_LogicalPath_C~",
-                table: "HiringArtifactUploads",
-                columns: new[] { "TenantId", "SessionId", "Kind", "LogicalPath", "CompletedAtUtc" });
-
-            migrationBuilder.CreateIndex(
                 name: "IX_HiringAuditLogs_TenantId_HireId_TimestampUtc",
                 table: "HiringAuditLogs",
                 columns: new[] { "TenantId", "HireId", "TimestampUtc" });
@@ -685,6 +570,11 @@ namespace HireBot.Repository.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_HiringSkillLinkConfigs_TenantId_UpdatedAtUtc",
+                table: "HiringSkillLinkConfigs",
+                columns: new[] { "TenantId", "UpdatedAtUtc" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_HiringStageProgresses_TenantId_UpdatedAtUtc",
                 table: "HiringStageProgresses",
                 columns: new[] { "TenantId", "UpdatedAtUtc" });
@@ -718,27 +608,6 @@ namespace HireBot.Repository.Migrations
                 name: "IX_Instances_TenantId_DepartmentId_InstanceType_Status",
                 table: "Instances",
                 columns: new[] { "TenantId", "DepartmentId", "InstanceType", "Status" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Messages_Channel_ExternalMessageId",
-                table: "Messages",
-                columns: new[] { "Channel", "ExternalMessageId" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Messages_ConversationId_CreatedAt",
-                table: "Messages",
-                columns: new[] { "ConversationId", "CreatedAt" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Messages_InstanceId_Channel_CreatedAt",
-                table: "Messages",
-                columns: new[] { "InstanceId", "Channel", "CreatedAt" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Messages_InstanceId_CreatedAt",
-                table: "Messages",
-                columns: new[] { "InstanceId", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_SandboxAssets_MediaId",
@@ -798,12 +667,6 @@ namespace HireBot.Repository.Migrations
                 table: "SandboxSessions",
                 columns: new[] { "TenantId", "OwnerSubject", "ScopeType", "ScopeKey", "SandboxRole", "SessionKey" },
                 unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Users_Email",
-                table: "Users",
-                column: "Email",
-                unique: true);
         }
 
         /// <inheritdoc />
@@ -813,9 +676,6 @@ namespace HireBot.Repository.Migrations
                 name: "AppUsers");
 
             migrationBuilder.DropTable(
-                name: "Conversations");
-
-            migrationBuilder.DropTable(
                 name: "EvaluationReports");
 
             migrationBuilder.DropTable(
@@ -823,12 +683,6 @@ namespace HireBot.Repository.Migrations
 
             migrationBuilder.DropTable(
                 name: "HiringArtifacts");
-
-            migrationBuilder.DropTable(
-                name: "HiringArtifactUploadParts");
-
-            migrationBuilder.DropTable(
-                name: "HiringArtifactUploads");
 
             migrationBuilder.DropTable(
                 name: "HiringAuditLogs");
@@ -843,6 +697,9 @@ namespace HireBot.Repository.Migrations
                 name: "HiringSessions");
 
             migrationBuilder.DropTable(
+                name: "HiringSkillLinkConfigs");
+
+            migrationBuilder.DropTable(
                 name: "HiringStageProgresses");
 
             migrationBuilder.DropTable(
@@ -852,13 +709,7 @@ namespace HireBot.Repository.Migrations
                 name: "Instances");
 
             migrationBuilder.DropTable(
-                name: "Messages");
-
-            migrationBuilder.DropTable(
                 name: "SandboxAssets");
-
-            migrationBuilder.DropTable(
-                name: "Users");
 
             migrationBuilder.DropTable(
                 name: "EvaluationAssets");

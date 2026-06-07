@@ -138,3 +138,32 @@
 3. **可维护性**
 4. **性能**（以数据和指标驱动）
 5. **开发效率**
+
+## EF Core 迁移规范
+
+### 迁移文件位置
+- 迁移文件输出到 `back-end/HireBot.Repository/Migrations/`
+- SQL 脚本输出到 `back-end/scripts/`，命名风格：`migrate-<描述>.sql`
+
+### 项目结构约定
+- `HireBot.Repository` 只作为迁移的 `--project`（存放迁移文件）
+- `HireBot.ApiService` 作为 `--startup-project`（提供 DI 配置和连接串）
+- **不使用** `IDesignTimeDbContextFactory`，依赖 ApiService 的 `appsettings.json` 中的 `ConnectionStrings:DefaultConnection`
+
+### 标准迁移命令
+
+```powershell
+# 新增迁移（在 back-end 目录下执行）
+dotnet ef migrations add <迁移名> --project HireBot.Repository --startup-project HireBot.ApiService
+
+# 移除最后一次迁移
+dotnet ef migrations remove --project HireBot.Repository --startup-project HireBot.ApiService --force
+
+# 导出纯 SQL 脚本
+dotnet ef migrations script --project HireBot.Repository --startup-project HireBot.ApiService --output scripts\migrate-<描述>.sql
+```
+
+### 注意事项
+- 生成 SQL 时**不加** `--idempotent`，保持纯通用 SQL 格式
+- 每次 Entity 或 `OnModelCreating` 变更后必须生成新迁移，不得直接修改已有迁移文件
+- 迁移命名应语义化，如 `AddHiringAuditLog`、`AddEvaluationWorkspace`
