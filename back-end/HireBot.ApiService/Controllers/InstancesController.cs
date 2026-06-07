@@ -18,60 +18,6 @@ public sealed class InstancesController(
     IEmployeeRuntimeService employeeRuntimeService) : ControllerBase
 {
     /// <summary>
-    /// 获取实例的应用内聊天消息列表
-    /// </summary>
-    /// <param name="instanceId">员工实例 ID</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>聊天消息列表</returns>
-    [HttpGet("{instanceId}/inapp-chat/messages")]
-    public async Task<IActionResult> GetInAppChatMessages(string instanceId, CancellationToken cancellationToken = default)
-    {
-        var response = await instanceChatService.GetMessagesAsync(instanceId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-
-    
-
-    /// <summary>
-    /// 发送应用内聊天消息
-    /// </summary>
-    /// <param name="instanceId">员工实例 ID</param>
-    /// <param name="request">消息发送请求</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>消息发送结果</returns>
-    [HttpPost("{instanceId}/inapp-chat/messages")]
-    public async Task<IActionResult> SendInAppChatMessage(
-        string instanceId,
-        [FromBody] SendInstanceChatMessageRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        // 参数校验
-        var invalidResponse = BuildModelValidationError<InstanceChatResultDto>();
-        if (invalidResponse is not null)
-        {
-            return invalidResponse;
-        }
-
-        // 发送消息
-        var response = await instanceChatService.SendMessageAsync(instanceId, request, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    /// <summary>
-    /// 清空实例的应用内聊天消息
-    /// </summary>
-    /// <param name="instanceId">员工实例 ID</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>操作结果</returns>
-    [HttpDelete("{instanceId}/inapp-chat/messages")]
-    public async Task<IActionResult> ClearInAppChatMessages(string instanceId, CancellationToken cancellationToken = default)
-    {
-        var response = await instanceChatService.ClearMessagesAsync(instanceId, cancellationToken);
-        return StatusCode(response.Code, response);
-    }
-
-    /// <summary>
     /// 更新或创建实例的 IM 配置
     /// </summary>
     /// <param name="instanceId">员工实例 ID</param>

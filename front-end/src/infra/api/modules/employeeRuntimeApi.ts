@@ -98,23 +98,6 @@ export interface InstanceChatMessage {
   createdAt: string
 }
 
-export interface InstanceChatTimeline {
-  instanceId: string
-  conversationId: string
-  messages: InstanceChatMessage[]
-  gatewayEndpoint?: string | null
-}
-
-export interface InstanceChatResult {
-  instanceId: string
-  conversationId: string
-  assistantMessage: InstanceChatMessage
-}
-
-export interface SendInstanceChatMessageRequest {
-  content: string
-}
-
 export type ImPlatformId = 'feishu' | 'dingtalk' | 'wecom'
 export type ImConnectionMode = 'websocket' | 'url_callback'
 
@@ -450,32 +433,6 @@ export const employeeRuntimeApi = {
     return httpClient.post<EmployeeDetail>(`/api/v1/instances/${branchId}/abandon-branch`)
   },
 
-  getInAppChatMessages(instanceId: string) {
-    return httpClient.get<InstanceChatTimeline>(`/api/v1/instances/${instanceId}/inapp-chat/messages`)
-  },
-
-  sendInAppChatMessage(instanceId: string, payload: SendInstanceChatMessageRequest) {
-    return httpClient.post<InstanceChatResult, SendInstanceChatMessageRequest>(
-      `/api/v1/instances/${instanceId}/inapp-chat/messages`,
-      payload,
-    )
-  },
-
-  getInstanceChatMessages(instanceId: string) {
-    return httpClient.get<InstanceChatTimeline>(`/api/v1/instances/${instanceId}/inapp-chat/messages`)
-  },
-
-  sendInstanceChatMessage(instanceId: string, payload: SendInstanceChatMessageRequest) {
-    return httpClient.post<InstanceChatResult, SendInstanceChatMessageRequest>(
-      `/api/v1/instances/${instanceId}/inapp-chat/messages`,
-      payload,
-    )
-  },
-
-  clearInAppChatMessages(instanceId: string) {
-    return httpClient.delete<InstanceChatTimeline>(`/api/v1/instances/${instanceId}/inapp-chat/messages`)
-  },
-
   updateLifecycle(employeeId: string, payload: UpdateEmployeeLifecycleRequest) {
     return httpClient.post<EmployeeDetail, UpdateEmployeeLifecycleRequest>(
       `/api/v1/employees/${employeeId}/lifecycle`,
@@ -526,10 +483,6 @@ export const employeeRuntimeApi = {
 
   deleteDingTalkImConfig(instanceId: string) {
     return httpClient.delete<boolean>(`/api/v1/instances/${instanceId}/im-config/dingtalk`)
-  },
-
-  clearInstanceChatMessages(instanceId: string) {
-    return httpClient.delete<boolean>(`/api/v1/instances/${instanceId}/inapp-chat/messages`)
   },
 
   completePendingAction(employeeId: string, actionId: string) {

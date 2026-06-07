@@ -50,83 +50,6 @@ public sealed class RuntimeApiControllerTests
     }
 
     [Fact]
-    public async Task GetInAppChatMessages_ReturnsTimelineFromService()
-    {
-        var chat = new FakeInstanceChatService
-        {
-            GetResponse = ApiResponse<InstanceChatTimelineDto>.SuccessResponse(
-                new InstanceChatTimelineDto("pc_1", "conv_1", [new InstanceChatMessageDto("msg_1", "user", "hi", DateTimeOffset.UtcNow)]))
-        };
-        var controller = new InstancesController(chat, new FakeEmployeeRuntimeService());
-
-        var result = await controller.GetInAppChatMessages("pc_1");
-
-        var objectResult = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(200, objectResult.StatusCode);
-        var response = Assert.IsType<ApiResponse<InstanceChatTimelineDto>>(objectResult.Value);
-        Assert.True(response.Success);
-        Assert.Equal("pc_1", response.Data!.InstanceId);
-        Assert.Equal("pc_1", chat.GetInstanceId);
-    }
-
-    [Fact]
-    public async Task SendInAppChatMessage_ReturnsAssistantMessageFromService()
-    {
-        var chat = new FakeInstanceChatService
-        {
-            SendResponse = ApiResponse<InstanceChatResultDto>.SuccessResponse(
-                new InstanceChatResultDto("pc_1", "conv_1", new InstanceChatMessageDto("msg_2", "assistant", "reply", DateTimeOffset.UtcNow)))
-        };
-        var controller = new InstancesController(chat, new FakeEmployeeRuntimeService());
-        var request = new SendInstanceChatMessageRequestDto("hello");
-
-        var result = await controller.SendInAppChatMessage("pc_1", request);
-
-        var objectResult = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(200, objectResult.StatusCode);
-        var response = Assert.IsType<ApiResponse<InstanceChatResultDto>>(objectResult.Value);
-        Assert.True(response.Success);
-        Assert.Equal("reply", response.Data!.AssistantMessage.Content);
-        Assert.Equal("pc_1", chat.SendInstanceId);
-        Assert.Same(request, chat.SendRequest);
-    }
-
-    [Fact]
-    public async Task SendInAppChatMessage_WhenModelStateInvalid_ReturnsBadRequestAndDoesNotCallService()
-    {
-        var chat = new FakeInstanceChatService();
-        var controller = new InstancesController(chat, new FakeEmployeeRuntimeService());
-        controller.ModelState.AddModelError("content", "content is required");
-
-        var result = await controller.SendInAppChatMessage("pc_1", new SendInstanceChatMessageRequestDto(""));
-
-        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
-        var response = Assert.IsType<ApiResponse<InstanceChatResultDto>>(badRequest.Value);
-        Assert.False(response.Success);
-        Assert.Equal(400, response.Code);
-        Assert.Null(chat.SendInstanceId);
-    }
-
-    [Fact]
-    public async Task ClearInAppChatMessages_ReturnsServiceResult()
-    {
-        var chat = new FakeInstanceChatService
-        {
-            ClearResponse = ApiResponse<bool>.SuccessResponse(true, "对话已清空")
-        };
-        var controller = new InstancesController(chat, new FakeEmployeeRuntimeService());
-
-        var result = await controller.ClearInAppChatMessages("pc_1");
-
-        var objectResult = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(200, objectResult.StatusCode);
-        var response = Assert.IsType<ApiResponse<bool>>(objectResult.Value);
-        Assert.True(response.Success);
-        Assert.True(response.Data);
-        Assert.Equal("pc_1", chat.ClearInstanceId);
-    }
-
-    [Fact]
     public async Task GetEffectiveImConfig_ForFeishu_ReturnsServiceResult()
     {
         var chat = new FakeInstanceChatService
@@ -224,25 +147,12 @@ public sealed class RuntimeApiControllerTests
 
     private sealed class FakeInstanceChatService : IInstanceChatService
     {
-        public string? GetInstanceId { get; private set; }
-        public string? SendInstanceId { get; private set; }
-        public SendInstanceChatMessageRequestDto? SendRequest { get; private set; }
-        public string? ClearInstanceId { get; private set; }
         public string? GetEffectiveFeishuInstanceId { get; private set; }
         public string? ClearFeishuOverrideInstanceId { get; private set; }
         public string? UpdateDingTalkInstanceId { get; private set; }
         public DingTalkChannelConfig? UpdateDingTalkRequest { get; private set; }
         public string? GetEffectiveDingTalkInstanceId { get; private set; }
         public string? ClearDingTalkOverrideInstanceId { get; private set; }
-
-        public ApiResponse<InstanceChatTimelineDto> GetResponse { get; init; } =
-            ApiResponse<InstanceChatTimelineDto>.ErrorResponse(500, "not configured");
-
-        public ApiResponse<InstanceChatResultDto> SendResponse { get; init; } =
-            ApiResponse<InstanceChatResultDto>.ErrorResponse(500, "not configured");
-
-        public ApiResponse<bool> ClearResponse { get; init; } =
-            ApiResponse<bool>.ErrorResponse(500, "not configured");
 
         public ApiResponse<FeishuChannelEffectiveConfigDto> GetEffectiveFeishuResponse { get; init; } =
             ApiResponse<FeishuChannelEffectiveConfigDto>.ErrorResponse(500, "not configured");
@@ -258,25 +168,6 @@ public sealed class RuntimeApiControllerTests
 
         public ApiResponse<bool> ClearDingTalkOverrideResponse { get; init; } =
             ApiResponse<bool>.ErrorResponse(500, "not configured");
-
-        public Task<ApiResponse<InstanceChatTimelineDto>> GetMessagesAsync(string instanceId, CancellationToken cancellationToken = default)
-        {
-            GetInstanceId = instanceId;
-            return Task.FromResult(GetResponse);
-        }
-
-        public Task<ApiResponse<InstanceChatResultDto>> SendMessageAsync(string instanceId, SendInstanceChatMessageRequestDto request, CancellationToken cancellationToken = default)
-        {
-            SendInstanceId = instanceId;
-            SendRequest = request;
-            return Task.FromResult(SendResponse);
-        }
-
-        public Task<ApiResponse<bool>> ClearMessagesAsync(string instanceId, CancellationToken cancellationToken = default)
-        {
-            ClearInstanceId = instanceId;
-            return Task.FromResult(ClearResponse);
-        }
 
         public Task<ApiResponse<ImConfigResultDto>> UpdateFeishuChannelConfigAsync(
             string instanceId,

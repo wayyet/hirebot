@@ -876,16 +876,12 @@ export default function InstanceChatPage() {
       pendingToolStepsRef.current = [];
       setStreamingToolSteps([]);
       setTyping(false);
-
-      await api.employeeRuntime.clearInstanceChatMessages(id);
       setMessages([]);
 
       const endpoint = gatewayEndpointRef.current;
       if (endpoint && sessionIdRef.current) {
         void connectSandboxWsWithRecovery(endpoint);
       }
-    } catch (requestError: unknown) {
-      setError(normalizeErrorMessage(requestError));
     } finally {
       setClearing(false);
     }

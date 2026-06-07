@@ -189,7 +189,6 @@ public static class ServiceExtensions
         services.AddScoped<IInstanceArtifactCloneService, InstanceArtifactCloneService>();
         services.AddScoped<IInstanceArtifactResolver, InstanceArtifactResolver>();
       
-        services.AddScoped<IInstanceRuntimeConversationService, InstanceRuntimeConversationService>();
         services.AddScoped<IHiringArtifactPackageService, HiringArtifactPackageService>();
         services.AddScoped<IHiringTodoService, HiringTodoService>();
         services.AddScoped<IEmployeeRuntimeService, EmployeeRuntimeService>();

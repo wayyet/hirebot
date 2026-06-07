@@ -69,7 +69,6 @@ public sealed class InstanceChatServiceTests
         ], "test"));
 
         var service = new InstanceChatService(
-            new NoopInstanceRuntimeConversationService(),
             new KingCrabHttpClient(
                 new StubHttpClientFactory(httpClient),
                 configuration,
@@ -141,7 +140,6 @@ public sealed class InstanceChatServiceTests
         ], "test"));
 
         var service = new InstanceChatService(
-            new NoopInstanceRuntimeConversationService(),
             new KingCrabHttpClient(
                 new StubHttpClientFactory(httpClient),
                 configuration,
@@ -191,34 +189,6 @@ public sealed class InstanceChatServiceTests
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
-    }
-
-    private sealed class NoopInstanceRuntimeConversationService : IInstanceRuntimeConversationService
-    {
-        public Task<ApiResponse<InstanceChatTimelineDto>> GetMessagesAsync(
-            string instanceId,
-            string channel,
-            string? ownerUserId = null,
-            int limit = 50,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<ApiResponse<InstanceChatResultDto>> SendMessageAsync(
-            string instanceId,
-            string channel,
-            string content,
-            string? ownerUserId = null,
-            string? externalMessageId = null,
-            string? externalUserId = null,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<ApiResponse<bool>> ClearMessagesAsync(
-            string instanceId,
-            string channel,
-            string? ownerUserId = null,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
     }
 
     private sealed class StubHttpClientFactory(HttpClient client) : IHttpClientFactory

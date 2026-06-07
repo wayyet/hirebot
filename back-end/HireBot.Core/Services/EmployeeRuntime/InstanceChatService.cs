@@ -17,72 +17,15 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 /// 主要服务于IM的配置
 /// </summary>
 public sealed class InstanceChatService(
-    IInstanceRuntimeConversationService runtimeConversationService,
     IKingCrabHttpClient kingCrabHttpClient,
     HireBotDbContext dbContext,
     HireBot.Abstraction.Infrastructure.Identity.IUserIdentity userIdentity) : IInstanceChatService
 {
-    private const string InAppChannel = "inapp";
     private const string FeishuChannelUpdatePath = "/admin/channels/feishu/update";
     private const string FeishuChannelOverrideDeletePath = "/admin/channels/feishu/override";
     private const string DingTalkChannelUpdatePath = "/admin/channels/dingtalk/update";
     private const string DingTalkChannelOverrideDeletePath = "/admin/channels/dingtalk/override";
     
-    /// <summary>
-    /// 获取实例的聊天消息列表。
-    /// </summary>
-    /// <param name="instanceId">实例ID</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>聊天时间线</returns>
-    public async Task<ApiResponse<InstanceChatTimelineDto>> GetMessagesAsync(
-        string instanceId,
-        CancellationToken cancellationToken = default)
-    {
-        return await runtimeConversationService.GetMessagesAsync(instanceId, InAppChannel, cancellationToken: cancellationToken);
-    }
-
-    #region 站内
-
-    /// <summary>
-    /// 发送消息给实例。站内用
-    /// </summary>
-    /// <param name="instanceId">实例ID</param>
-    /// <param name="request">消息请求</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>聊天结果</returns>
-    public async Task<ApiResponse<InstanceChatResultDto>> SendMessageAsync(
-        string instanceId,
-        SendInstanceChatMessageRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (request is null || string.IsNullOrWhiteSpace(request.Content))
-        {
-            return ApiResponse<InstanceChatResultDto>.ErrorResponse(400, "content 不能为空");
-        }
-
-        return await runtimeConversationService.SendMessageAsync(
-            instanceId,
-            InAppChannel,
-            request.Content,
-            cancellationToken: cancellationToken);
-    }
-
-    /// <summary>
-    /// 清空实例的聊天消息。
-    /// </summary>
-    /// <param name="instanceId">实例ID</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>操作结果</returns>
-    public async Task<ApiResponse<bool>> ClearMessagesAsync(
-        string instanceId,
-        CancellationToken cancellationToken = default)
-    {
-        return await runtimeConversationService.ClearMessagesAsync(instanceId, InAppChannel, cancellationToken: cancellationToken);
-    }
-
-    #endregion
-
-
     #region 飞书
 
 

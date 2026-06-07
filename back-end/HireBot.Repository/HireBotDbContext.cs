@@ -96,8 +96,6 @@ public sealed class HireBotDbContext : DbContext
     public DbSet<HiringMaterialFileEntity> HiringMaterialFiles { get; set; }
     public DbSet<HiringAuditLogEntity> HiringAuditLogs { get; set; }
     public DbSet<InstanceEntity> Instances { get; set; }
-    public DbSet<ConversationEntity> Conversations { get; set; }
-    public DbSet<MessageEntity> Messages { get; set; }
     public DbSet<SandboxInstanceEntity> SandboxInstances { get; set; }
     public DbSet<SandboxSessionEntity> SandboxSessions { get; set; }
     public DbSet<SandboxAssetEntity> SandboxAssets { get; set; }
@@ -346,46 +344,6 @@ public sealed class HireBotDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.InstanceType, e.Status });
             entity.HasIndex(e => e.FromInstanceId);
             entity.HasIndex(e => e.BasedOnTemplateId);
-        });
-
-        modelBuilder.Entity<ConversationEntity>(entity =>
-        {
-            entity.ToTable("Conversations");
-            entity.HasKey(e => e.ConversationId);
-            entity.Property(e => e.ConversationId).IsRequired().HasMaxLength(120);
-            entity.Property(e => e.InstanceId).IsRequired().HasMaxLength(120);
-            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
-            entity.Property(e => e.OwnerUserId).IsRequired().HasMaxLength(256);
-            entity.Property(e => e.Channel).IsRequired().HasMaxLength(40);
-            entity.Property(e => e.CreatedAt).IsRequired();
-            entity.Property(e => e.UpdatedAt).IsRequired();
-
-            entity.HasIndex(e => new { e.InstanceId, e.OwnerUserId, e.Channel });
-            entity.HasIndex(e => new { e.TenantId, e.UpdatedAt });
-        });
-
-        modelBuilder.Entity<MessageEntity>(entity =>
-        {
-            entity.ToTable("Messages");
-            entity.HasKey(e => e.MessageId);
-            entity.Property(e => e.MessageId).IsRequired().HasMaxLength(120);
-            entity.Property(e => e.ConversationId).IsRequired().HasMaxLength(120);
-            entity.Property(e => e.InstanceId).IsRequired().HasMaxLength(120);
-            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
-            entity.Property(e => e.Role).IsRequired().HasMaxLength(40);
-            entity.Property(e => e.Content).IsRequired();
-            entity.Property(e => e.Channel).IsRequired().HasMaxLength(40);
-            entity.Property(e => e.ExternalMessageId).HasMaxLength(160);
-            entity.Property(e => e.ExternalUserId).HasMaxLength(160);
-            entity.Property(e => e.DeliveryStatus).HasMaxLength(40);
-            entity.Property(e => e.ErrorMessage).HasMaxLength(1024);
-            entity.Property(e => e.MetadataJson);
-            entity.Property(e => e.CreatedAt).IsRequired();
-
-            entity.HasIndex(e => new { e.ConversationId, e.CreatedAt });
-            entity.HasIndex(e => new { e.InstanceId, e.CreatedAt });
-            entity.HasIndex(e => new { e.Channel, e.ExternalMessageId }).IsUnique();
-            entity.HasIndex(e => new { e.InstanceId, e.Channel, e.CreatedAt });
         });
 
         modelBuilder.Entity<SandboxInstanceEntity>(entity =>
