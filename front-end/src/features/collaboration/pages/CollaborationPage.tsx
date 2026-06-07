@@ -85,7 +85,7 @@ function formatRelativeDay(dateText: string): string {
   if (hours < 24) return `${hours} 小时前`
   const days = Math.floor(hours / 24)
   if (days <= 7) return `${days} 天前`
-  return dateText
+  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
 function buildRecentTask(employee: ActiveEmployee): RecentTask | null {

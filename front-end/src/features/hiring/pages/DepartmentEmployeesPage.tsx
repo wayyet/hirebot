@@ -22,6 +22,17 @@ import { firstCharacter, withEmployeeView } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 import { CreatorDisplay } from "@/shared/components/CreatorDisplay";
 
+function formatDate(value?: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+}
+
 type StageTab = "hiring" | "intern" | "live";
 type InternSubTab = "ai" | "human";
 
@@ -527,7 +538,7 @@ export default function DepartmentEmployeesPage() {
                       )}
                       <span className="whitespace-nowrap">
                         {t("employees.departmentPage.createdAt", {
-                          date: employee.createdAt,
+                          date: formatDate(employee.createdAt),
                         })}
                       </span>
                     </div>
