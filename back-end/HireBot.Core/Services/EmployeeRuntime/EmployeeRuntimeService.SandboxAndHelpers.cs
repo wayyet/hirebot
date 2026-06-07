@@ -21,7 +21,7 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 
 public sealed partial class EmployeeRuntimeService
 {
-    private static readonly TimeSpan RetirementCleanupTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan RetirementSandboxCleanupTimeout = TimeSpan.FromSeconds(30);
 
     private int ResolveMaxActivePersonalClonesPerOwner()
     {
@@ -549,14 +549,15 @@ public sealed partial class EmployeeRuntimeService
 
     /// <summary>
     /// 退役时清理该实例的运行时资源。
+    /// IM 渠道覆盖配置存储在 KingCrab 网关层（按 ownerSubject 全局生效），由沙箱容器自身管理，
+    /// 沙箱删除后 KingCrab 路由失败会自愈，无需 HireBot 主动清理（否则可能误伤同 owner 下其他在线员工）。
     /// </summary>
-    private async Task CleanupRetiredInstanceArtifactsAsync(
+    private Task CleanupRetiredInstanceArtifactsAsync(
         string ownerSubject,
         string instanceId,
         CancellationToken cancellationToken)
     {
-        await TryDeleteRuntimeSandboxAsync(ownerSubject, instanceId, cancellationToken);
-        await RemoveInstanceImConfigsAsync(instanceId, cancellationToken);
+        return TryDeleteRuntimeSandboxAsync(ownerSubject, instanceId, cancellationToken);
     }
 
     /// <summary>
@@ -570,7 +571,7 @@ public sealed partial class EmployeeRuntimeService
         try
         {
             using var cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cleanupCts.CancelAfter(RetirementCleanupTimeout);
+            cleanupCts.CancelAfter(RetirementSandboxCleanupTimeout);
             await sandboxService.DeleteAsync(
                 new SandboxInstanceLookupRequestDto
                 {
@@ -587,67 +588,6 @@ public sealed partial class EmployeeRuntimeService
             logger.LogWarning(ex, "退役时删除运行时沙箱失败（instanceId={InstanceId}, ownerSubject={OwnerSubject}），已忽略",
                 instanceId, ownerSubject);
         }
-    }
-
-    /// <summary>
-    /// 删除该实例已配置的 IM 绑定。
-    /// </summary>
-    private async Task RemoveInstanceImConfigsAsync(string instanceId, CancellationToken cancellationToken)
-    {
-        foreach (var platform in new[] { "feishu", "dingtalk", "wecom" })
-        {
-            await TryDeleteChannelOverrideAsync(platform, cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// 删除沙箱内指定频道的运行时覆盖配置。
-    /// </summary>
-    private async Task TryDeleteChannelOverrideAsync(string platform, CancellationToken cancellationToken)
-    {
-        var normalizedPlatform = platform.Trim().ToLowerInvariant();
-        var path = normalizedPlatform switch
-        {
-            "feishu" => "/admin/channels/feishu/override",
-            "dingtalk" => "/admin/channels/dingtalk/override",
-            "wecom" => "/admin/channels/wecom/override",
-            _ => null
-        };
-
-        if (path is null)
-        {
-            return;
-        }
-
-        try
-        {
-            var ownerSubject = userIdentity.OwnerSubject;
-            using var cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cleanupCts.CancelAfter(RetirementCleanupTimeout);
-            await kingCrabHttpClient.SendForJsonAsync<KingCrabOperationStatusResult>(
-                HttpMethod.Delete,
-                path,
-                body: null,
-                ownerSubject,
-                cleanupCts.Token,
-                useHireBotApiPrefix: false);
-        }
-        catch (Exception ex)
-        {
-            // Best-effort cleanup only.
-            logger.LogWarning(ex, "退役时删除 IM 渠道覆盖配置失败（platform={Platform}），已忽略", normalizedPlatform);
-        }
-    }
-
-    /// <summary>
-    /// KingCrab 管理接口的通用操作结果。
-    /// </summary>
-    private sealed class KingCrabOperationStatusResult
-    {
-        public bool Success { get; set; }
-        public string? Message { get; set; }
-        public string? Error { get; set; }
-        public string? Mode { get; set; }
     }
 
     /// <summary>
