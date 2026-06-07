@@ -1021,8 +1021,13 @@ public sealed partial class EmployeeRuntimeService(
 
         // 创建人限制已移除，后续统一改造为基于权限的访问控制
 
-        // 最大努力清理：运行时沙箱 + IM 渠道配置
-        await CleanupRetiredInstanceArtifactsAsync(owner, normalizedId, cancellationToken);
+        // 最大努力清理：运行时沙箱 + IM 渠道配置。
+        // 已退役的实例在执行退役操作时已完成清理，此处跳过，避免重复触发并产生无效的 404 警告日志。
+        // 未退役的实例（如 department 类型直接删除）则需要在此补充清理。
+        if (!string.Equals(instance.Status, "retired", StringComparison.OrdinalIgnoreCase))
+        {
+            await CleanupRetiredInstanceArtifactsAsync(owner, normalizedId, cancellationToken);
+        }
 
         // 1. 删除 DB InstanceEntity
         await dbContext.Instances

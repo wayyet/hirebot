@@ -21,7 +21,7 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 
 public sealed partial class EmployeeRuntimeService
 {
-    private static readonly TimeSpan RetirementCleanupTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan RetirementCleanupTimeout = TimeSpan.FromSeconds(30);
 
     private int ResolveMaxActivePersonalClonesPerOwner()
     {
@@ -574,16 +574,18 @@ public sealed partial class EmployeeRuntimeService
             await sandboxService.DeleteAsync(
                 new SandboxInstanceLookupRequestDto
                 {
-                    ScopeType = SandboxScopeTypes.Hire,
+                    ScopeType = SandboxScopeTypes.Runtime,
                     ScopeKey = BuildRuntimeScopeKey(instanceId),
                     SandboxRole = RuntimeSandboxRole,
                     OwnerSubject = ownerSubject
                 },
                 cleanupCts.Token);
         }
-        catch
+        catch (Exception ex)
         {
             // Best-effort cleanup only.
+            logger.LogWarning(ex, "退役时删除运行时沙箱失败（instanceId={InstanceId}, ownerSubject={OwnerSubject}），已忽略",
+                instanceId, ownerSubject);
         }
     }
 
@@ -630,9 +632,10 @@ public sealed partial class EmployeeRuntimeService
                 cleanupCts.Token,
                 useHireBotApiPrefix: false);
         }
-        catch
+        catch (Exception ex)
         {
             // Best-effort cleanup only.
+            logger.LogWarning(ex, "退役时删除 IM 渠道覆盖配置失败（platform={Platform}），已忽略", normalizedPlatform);
         }
     }
 
