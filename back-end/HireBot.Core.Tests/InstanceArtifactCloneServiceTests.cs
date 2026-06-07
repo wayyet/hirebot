@@ -66,7 +66,8 @@ public sealed class InstanceArtifactCloneServiceTests
                     ContentRootPath = tempRoot,
                     ContentRootFileProvider = new PhysicalFileProvider(tempRoot)
                 },
-                dbContext);
+                dbContext,
+                null!);
             var source = BuildEmployee("source-001", "sales-coach");
 
             var result = await service.CloneArtifactsAsync(source, "clone-001");
@@ -120,7 +121,8 @@ public sealed class InstanceArtifactCloneServiceTests
                     ContentRootPath = tempRoot,
                     ContentRootFileProvider = new PhysicalFileProvider(tempRoot)
                 },
-                dbContext);
+                dbContext,
+                null!);
 
             var result = await service.CloneArtifactsAsync(BuildEmployee("source-001", "sales-coach"), "clone-001");
 
