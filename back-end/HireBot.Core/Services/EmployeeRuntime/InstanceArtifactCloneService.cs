@@ -1,10 +1,12 @@
 using HireBot.Abstraction.Models.EmployeeRuntime;
+using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.IO.Compression;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
@@ -15,6 +17,7 @@ public sealed class InstanceArtifactCloneService(
     IConfiguration configuration,
     IHostEnvironment hostEnvironment,
     HireBotDbContext dbContext,
+    IHiringFileStore hiringFileStore,
     ILogger<InstanceArtifactCloneService>? logger = null) : IInstanceArtifactCloneService
 {
     // 关键产物子目录：缺失这些目录通常意味着沙箱无法完成 ontology-extraction 等下游环节
@@ -45,9 +48,13 @@ public sealed class InstanceArtifactCloneService(
         }
 
         var sourceRoot = await ResolveSourceRootAsync(source, cancellationToken);
+
+        // 目录路径均未命中时，直接从雇佣文件库 ZIP 解压到 personal-clone 目标目录，
+        // 无需经过 instances/ 中转。
         if (sourceRoot is null)
         {
-            throw new InvalidOperationException("源部门员工未找到可复制的实例包，请先完成雇佣交付或重新导入实例产物");
+            return await CloneFromHiringFileStoreAsync(source, targetInstanceId, cancellationToken)
+                ?? throw new InvalidOperationException("源部门员工未找到可复制的实例包，请先完成雇佣交付或重新导入实例产物");
         }
 
         // 如果当前源仅含元数据文件，则尝试回退到模板包；保持原回退逻辑不变
@@ -537,6 +544,103 @@ public sealed class InstanceArtifactCloneService(
     private static string BuildVersion()
     {
         return $"v_{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
+    }
+
+    /// <summary>
+    /// 当 ResolveSourceRootAsync 未命中任何目录时的兜底路径：
+    /// 直接从雇佣文件库（artifact-store/{tenantId}/{hireId}/{packageId}/package.zip）
+    /// 解压到 personal-clone-artifacts/{sourceId}/{cloneId}/versions/{ver}/，
+    /// 无需经过 instances/ 中转目录。
+    /// </summary>
+    private async Task<InstanceArtifactCloneResult?> CloneFromHiringFileStoreAsync(
+        EmployeeDetailDto source,
+        string targetInstanceId,
+        CancellationToken cancellationToken)
+    {
+        var instanceRecord = await dbContext.Instances
+            .AsNoTracking()
+            .Where(i => i.InstanceId == source.EmployeeId)
+            .Select(i => new { i.HireId, i.FinalPackageId, i.TenantId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (instanceRecord is null
+            || string.IsNullOrWhiteSpace(instanceRecord.HireId)
+            || string.IsNullOrWhiteSpace(instanceRecord.FinalPackageId))
+        {
+            logger?.LogDebug(
+                "CloneFromHiringFileStore: 实例无 HireId/FinalPackageId，无法从文件库克隆: EmployeeId={EmployeeId}",
+                source.EmployeeId);
+            return null;
+        }
+
+        var tenantId = string.IsNullOrWhiteSpace(instanceRecord.TenantId) ? "default" : instanceRecord.TenantId;
+
+        if (!await hiringFileStore.FinalPackageExistsAsync(
+                tenantId, instanceRecord.HireId, instanceRecord.FinalPackageId, cancellationToken))
+        {
+            logger?.LogWarning(
+                "CloneFromHiringFileStore: 雇佣文件库中未找到候选包: EmployeeId={EmployeeId}, TenantId={TenantId}, HireId={HireId}, FinalPackageId={FinalPackageId}",
+                source.EmployeeId, tenantId, instanceRecord.HireId, instanceRecord.FinalPackageId);
+            return null;
+        }
+
+        var version = BuildVersion();
+        var targetRoot = BuildPersonalCloneVersionRoot(source.EmployeeId, targetInstanceId, version);
+        Directory.CreateDirectory(targetRoot);
+
+        var copied = new List<string>();
+        try
+        {
+            await using var zipStream = await hiringFileStore.OpenFinalPackageAsync(
+                tenantId, instanceRecord.HireId, instanceRecord.FinalPackageId, cancellationToken);
+
+            using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: false);
+            foreach (var entry in archive.Entries)
+            {
+                if (string.IsNullOrEmpty(entry.Name)) continue;
+
+                var relativePath = NormalizeRelativePath(entry.FullName);
+                if (string.IsNullOrWhiteSpace(relativePath)) continue;
+
+                var targetPath = Path.Combine(targetRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                var targetDir = Path.GetDirectoryName(targetPath);
+                if (!string.IsNullOrWhiteSpace(targetDir))
+                {
+                    Directory.CreateDirectory(targetDir);
+                }
+
+                await using var entryStream = entry.Open();
+                await using var fileStream = new FileStream(
+                    targetPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 64, useAsync: true);
+                await entryStream.CopyToAsync(fileStream, cancellationToken);
+                copied.Add(relativePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex,
+                "CloneFromHiringFileStore: 解压候选包失败: EmployeeId={EmployeeId}, TargetRoot={TargetRoot}",
+                source.EmployeeId, targetRoot);
+            try { Directory.Delete(targetRoot, recursive: true); } catch { /* best-effort */ }
+            return null;
+        }
+
+        if (copied.Count == 0)
+        {
+            Directory.Delete(targetRoot, recursive: true);
+            logger?.LogWarning(
+                "CloneFromHiringFileStore: 解压后目标目录为空: EmployeeId={EmployeeId}",
+                source.EmployeeId);
+            return null;
+        }
+
+        WarnIfArtifactStructureIncomplete(targetRoot, source.EmployeeId, "hiring-file-store");
+
+        logger?.LogInformation(
+            "CloneFromHiringFileStore: 已从雇佣文件库直接克隆到 personal-clone-artifacts: EmployeeId={EmployeeId}, Version={Version}, FileCount={FileCount}",
+            source.EmployeeId, version, copied.Count);
+
+        return new InstanceArtifactCloneResult(version, targetRoot, copied);
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
+using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Migration;
 using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Services.EmployeeRuntime;
@@ -814,19 +815,150 @@ public sealed partial class EmployeeRuntimeService
         return meta;
     }
 
+    // JSON 选项：用于反序列化 HiringExternalSystemConfigState
+    private static readonly JsonSerializerOptions McpSyncJsonOptions = new(JsonSerializerDefaults.Web);
+
     /// <summary>
-    /// 将源员工雇佣流程中保存的外部系统 MCP 配置同步到分身沙箱。
-    /// 非致命:失败仅记录警告,不中断分身创建流程。
-    /// TODO: 重构后暂时禁用此功能
+    /// 将源员工雇佣流程中保存的外部系统 MCP 配置与克隆沙箱已有配置合并后写回沙箱。
+    /// 合并策略：克隆沙箱现有配置为基础，数据库用户自定义 MCP 服务按 Name 覆盖（优先级更高）。
+    /// 非致命：失败仅记录警告，不中断分身创建流程。
     /// </summary>
-    private Task SyncMcpConfigToCloneSandboxAsync(
+    private async Task SyncMcpConfigToCloneSandboxAsync(
         string sourceEmployeeId,
         string cloneSandboxId,
         string? gatewayEndpoint,
         string ownerSubject,
         CancellationToken cancellationToken)
     {
-        logger.LogWarning("SyncMcpConfigToCloneSandboxAsync: 功能暂时禁用（重构中）");
-        return Task.CompletedTask;
+        try
+        {
+            // 1. 验证克隆沙箱 Gateway 端点
+            if (string.IsNullOrWhiteSpace(gatewayEndpoint))
+            {
+                logger.LogWarning(
+                    "SyncMcpConfigToCloneSandboxAsync: 克隆沙箱 GatewayEndpoint 为空，跳过 MCP 配置同步: CloneSandboxId={CloneSandboxId}",
+                    cloneSandboxId);
+                return;
+            }
+
+            // 2. 从源员工实例获取关联的 HireId
+            var sourceInstance = await dbContext.Instances
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.InstanceId == sourceEmployeeId, cancellationToken);
+
+            if (string.IsNullOrWhiteSpace(sourceInstance?.HireId))
+            {
+                logger.LogDebug(
+                    "SyncMcpConfigToCloneSandboxAsync: 源员工 {SourceEmployeeId} 无关联 HireId，跳过 MCP 配置同步",
+                    sourceEmployeeId);
+                return;
+            }
+
+            var hireId = sourceInstance.HireId;
+
+            // 3. 从数据库读取用户配置的 MCP 服务（HiringExternalConfigs 表）
+            IReadOnlyList<HiringMcpServerConfigDto> userMcpServers = [];
+            var externalConfigEntity = await dbContext.HiringExternalConfigs
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
+
+            if (externalConfigEntity is not null && externalConfigEntity.ConfigJson != "{}")
+            {
+                try
+                {
+                    var state = JsonSerializer.Deserialize<HiringExternalSystemConfigState>(
+                        externalConfigEntity.ConfigJson, McpSyncJsonOptions);
+                    var dto = state?.ToDto(secretProtector);
+                    if (dto?.McpServers is { Count: > 0 })
+                    {
+                        userMcpServers = dto.McpServers;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex,
+                        "SyncMcpConfigToCloneSandboxAsync: 反序列化外部系统 MCP 配置失败，跳过用户自定义配置: HireId={HireId}",
+                        hireId);
+                }
+            }
+
+            // 4. 读取克隆沙箱中已有的 MCP 配置（克隆时从源沙箱继承的配置）
+            var mergedServers = new Dictionary<string, SandboxMcpServerEntry>(StringComparer.OrdinalIgnoreCase);
+            var getResult = await kingCrabHttpClient.SendForJsonAsync<SandboxWorkspaceMcpConfig>(
+                HttpMethod.Get,
+                "/admin/workspace/mcp",
+                null,
+                ownerSubject,
+                cancellationToken,
+                useHireBotApiPrefix: false,
+                absoluteBaseUrl: gatewayEndpoint);
+
+            if (getResult.Success && getResult.Data?.Servers is { Count: > 0 })
+            {
+                foreach (var (key, entry) in getResult.Data.Servers)
+                {
+                    mergedServers[key] = entry;
+                }
+            }
+
+            // 5. 将用户 DB 配置的 MCP 服务器合并（DB 配置按 Name 覆盖沙箱已有同名条目）
+            foreach (var mcp in userMcpServers)
+            {
+                if (string.IsNullOrWhiteSpace(mcp.Name) || string.IsNullOrWhiteSpace(mcp.Url))
+                {
+                    continue;
+                }
+
+                mergedServers[mcp.Name] = new SandboxMcpServerEntry
+                {
+                    Transport = mcp.Transport,
+                    Url = mcp.Url,
+                    Enabled = true,
+                    Name = mcp.Name,
+                    Headers = mcp.Headers.Count > 0
+                        ? new Dictionary<string, string>(mcp.Headers, StringComparer.OrdinalIgnoreCase)
+                        : null,
+                };
+            }
+
+            if (mergedServers.Count == 0)
+            {
+                logger.LogDebug(
+                    "SyncMcpConfigToCloneSandboxAsync: 合并后无有效 MCP 服务器配置，跳过上传: CloneSandboxId={CloneSandboxId}",
+                    cloneSandboxId);
+                return;
+            }
+
+            // 6. 上传合并后的 MCP 配置到克隆沙箱
+            var mergedConfig = new SandboxWorkspaceMcpConfig { Enabled = true, Servers = mergedServers };
+            var uploadResult = await kingCrabHttpClient.SendForJsonAsync<JsonElement>(
+                HttpMethod.Put,
+                "/admin/workspace/mcp",
+                mergedConfig,
+                ownerSubject,
+                cancellationToken,
+                useHireBotApiPrefix: false,
+                absoluteBaseUrl: gatewayEndpoint);
+
+            if (!uploadResult.Success)
+            {
+                logger.LogWarning(
+                    "SyncMcpConfigToCloneSandboxAsync: MCP 配置上传失败（非致命）: CloneSandboxId={CloneSandboxId}, Message={Message}",
+                    cloneSandboxId,
+                    uploadResult.Message);
+                return;
+            }
+
+            logger.LogInformation(
+                "SyncMcpConfigToCloneSandboxAsync: 已将合并后的 MCP 配置同步到克隆沙箱: CloneSandboxId={CloneSandboxId}, ServerCount={ServerCount}",
+                cloneSandboxId,
+                mergedServers.Count);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "SyncMcpConfigToCloneSandboxAsync: 同步 MCP 配置异常（非致命）: CloneSandboxId={CloneSandboxId}",
+                cloneSandboxId);
+        }
     }
 }
