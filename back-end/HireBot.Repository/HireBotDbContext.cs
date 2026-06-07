@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using HireBot.Abstraction.Infrastructure.Multitenancy;
-using HireBot.Abstraction.Models.User;
 using HireBot.Repository.Entities;
 using HireBot.Repository.Extensions;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -82,7 +81,6 @@ public sealed class HireBotDbContext : DbContext
         }
     }
 
-    public DbSet<User> Users { get; set; }
     public DbSet<AppUserEntity> AppUsers { get; set; }
     public DbSet<EvaluationSessionEntity> EvaluationSessions { get; set; }
     public DbSet<EvaluationAssetEntity> EvaluationAssets { get; set; }
@@ -96,8 +94,6 @@ public sealed class HireBotDbContext : DbContext
     public DbSet<HiringSkillLinkConfigEntity> HiringSkillLinkConfigs { get; set; }
     public DbSet<HiringArtifactEntity> HiringArtifacts { get; set; }
     public DbSet<HiringMaterialFileEntity> HiringMaterialFiles { get; set; }
-    public DbSet<HiringArtifactUploadEntity> HiringArtifactUploads { get; set; }
-    public DbSet<HiringArtifactUploadPartEntity> HiringArtifactUploadParts { get; set; }
     public DbSet<HiringAuditLogEntity> HiringAuditLogs { get; set; }
     public DbSet<InstanceEntity> Instances { get; set; }
     public DbSet<ConversationEntity> Conversations { get; set; }
@@ -109,18 +105,6 @@ public sealed class HireBotDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-
-        modelBuilder.Entity<User>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.Email).IsRequired().HasMaxLength(100).IsUnicode(false);
-            entity.Property(e => e.PasswordHash).IsRequired().HasMaxLength(256);
-            entity.Property(e => e.CreatedAt).IsRequired();
-            entity.Property(e => e.UpdatedAt);
-
-            entity.HasIndex(e => e.Email).IsUnique();
-        });
 
         // AppUser (多租户用户表：同一 Keycloak 用户在不同租户下有独立记录)
         modelBuilder.Entity<AppUserEntity>(entity =>
@@ -327,22 +311,6 @@ public sealed class HireBotDbContext : DbContext
             entity.HasIndex(e => new { e.SessionId, e.RelativePath }).IsUnique();
             entity.HasIndex(e => new { e.HireId, e.SessionId, e.UploadedAtUtc });
             entity.HasIndex(e => e.Sha256);
-        });
-
-        modelBuilder.Entity<HiringArtifactUploadEntity>(entity =>
-        {
-            entity.HasKey(e => e.UploadId);
-            entity.Property(e => e.TenantId).IsRequired().HasMaxLength(128);
-            entity.HasIndex(e => new { e.TenantId, e.SessionId, e.Kind, e.LogicalPath, e.CompletedAtUtc });
-            entity.HasIndex(e => e.CreatedAtUtc);
-        });
-
-        modelBuilder.Entity<HiringArtifactUploadPartEntity>(entity =>
-        {
-            entity.HasKey(e => e.PartId);
-            entity.Property(e => e.TenantId).HasMaxLength(128);
-            entity.HasIndex(e => e.TenantId);
-            entity.HasIndex(e => new { e.UploadId, e.PartNumber }).IsUnique();
         });
 
         modelBuilder.Entity<HiringAuditLogEntity>(entity =>
