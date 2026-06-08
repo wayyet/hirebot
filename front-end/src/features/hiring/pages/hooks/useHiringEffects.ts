@@ -1,12 +1,13 @@
-import { useEffect, type RefObject } from 'react'
-import { api, type EmployeeTemplateDetail } from '@/infra/api'
-import type { PersistedChatFile, PersistedPackageStructure } from '@/infra/api'
+import { useEffect, useRef, type RefObject } from 'react'
+import { api, HiringCollectionStage, type EmployeeTemplateDetail } from '@/infra/api'
+import type { PersistedPackageStructure, RuntimeStateSaveRequest, RuntimeStateStage } from '@/infra/api'
+import type { GatewayWs } from '@/infra/sandbox/gateway-ws'
 import type { ChatFile, ChatMessage, DownstreamRunsSnapshot, ToolStep } from '../hiringPageTypes'
 import type { HiringUiStage } from '../hiringWorkflowViewModel'
-import type { GatewayWs } from '@/infra/sandbox/gateway-ws'
+import { buildRuntimeStatePayloadByStage, hasRuntimeStatePayloadContent } from '../utils/hiringRuntimeState'
 
 /**
- * 滚动到聊天底部
+ * 滚动到底部。
  */
 export function useScrollToBottom(
   chatEndRef: RefObject<HTMLDivElement | null>,
@@ -24,7 +25,7 @@ export function useScrollToBottom(
 }
 
 /**
- * 页面挂载时添加 body class，卸载时清理（含 WebSocket 断开）
+ * 页面挂载时增加 body class，卸载时清理。
  */
 export function useBodyClassAndCleanup(
   wsRef: RefObject<GatewayWs | null>,
@@ -33,7 +34,6 @@ export function useBodyClassAndCleanup(
     document.body.classList.add('hb-body-hiring-prototype')
     return () => {
       document.body.classList.remove('hb-body-hiring-prototype')
-      // 离开页面时断开沙箱 WebSocket
       wsRef.current?.disconnect()
       wsRef.current = null
     }
@@ -41,7 +41,7 @@ export function useBodyClassAndCleanup(
 }
 
 /**
- * 加载模板详情
+ * 加载模板详情。
  */
 export function useTemplateDetail(
   templateId: string | undefined,
@@ -87,7 +87,7 @@ export function useTemplateDetail(
 }
 
 /**
- * 同步 messages 到 ref
+ * 同步 messages 到 ref。
  */
 export function useSyncMessagesRef(
   messages: ChatMessage[],
@@ -101,8 +101,7 @@ export function useSyncMessagesRef(
 }
 
 /**
- * 保存运行时状态到后端（防抖 2 秒）
- * 同时持久化：stageOverrides、downstreamRuns、uploadedFiles、packageStructure
+ * 分阶段保存运行时状态，避免每次都走整包持久化。
  */
 export function useRuntimeStateSync(
   workflowHireId: string,
@@ -113,49 +112,61 @@ export function useRuntimeStateSync(
   artifactFileNames: string[],
   createdId: string,
 ) {
+  const packageStructure: PersistedPackageStructure | undefined = artifactArchive
+    ? { fileName: artifactArchive.fileName, fileNames: artifactFileNames, employeeId: createdId || undefined }
+    : undefined
+
+  useRuntimeStateStageSync(
+    workflowHireId,
+    HiringCollectionStage.Material,
+    buildRuntimeStatePayloadByStage(HiringCollectionStage.Material, wsStageOverrides, downstreamRuns, allFiles, packageStructure),
+  )
+  useRuntimeStateStageSync(
+    workflowHireId,
+    HiringCollectionStage.Skill,
+    buildRuntimeStatePayloadByStage(HiringCollectionStage.Skill, wsStageOverrides, downstreamRuns, allFiles, packageStructure),
+  )
+  useRuntimeStateStageSync(
+    workflowHireId,
+    HiringCollectionStage.External,
+    buildRuntimeStatePayloadByStage(HiringCollectionStage.External, wsStageOverrides, downstreamRuns, allFiles, packageStructure),
+  )
+  useRuntimeStateStageSync(
+    workflowHireId,
+    HiringCollectionStage.ReadyForPackaging,
+    buildRuntimeStatePayloadByStage(HiringCollectionStage.ReadyForPackaging, wsStageOverrides, downstreamRuns, allFiles, packageStructure),
+  )
+}
+
+function useRuntimeStateStageSync(
+  workflowHireId: string,
+  stage: RuntimeStateStage,
+  state: RuntimeStateSaveRequest,
+) {
+  const lastSnapshotRef = useRef<string | null>(null)
+  const snapshot = JSON.stringify(state)
+  const hasContent = hasRuntimeStatePayloadContent(state)
+
   useEffect(() => {
     if (!workflowHireId) return
 
-    // 如果没有任何状态需要保存，跳过
-    const hasStage = wsStageOverrides.size > 0
-    const hasRuns = Object.keys(downstreamRuns).length > 0
-    const hasFiles = allFiles.length > 0
-    const hasPackage = artifactArchive !== null
-    if (!hasStage && !hasRuns && !hasFiles && !hasPackage) return
+    // 首次空状态不落库，避免在恢复前把服务端已有缓存清掉。
+    if (!hasContent && lastSnapshotRef.current === null) return
 
     const timer = setTimeout(() => {
-      // 将 ChatFile[] 转为 PersistedChatFile[]（剥离 rawFile / content）
-      const uploadedFiles: PersistedChatFile[] | undefined = hasFiles
-        ? allFiles.map(f => ({
-            id: f.id,
-            name: f.name,
-            size: f.size,
-            status: f.status,
-            type: f.type,
-            mimeType: f.mimeType,
-            metadata: f.metadata,
-          }))
-        : undefined
-
-      const packageStructure: PersistedPackageStructure | undefined = hasPackage
-        ? { fileName: artifactArchive!.fileName, fileNames: artifactFileNames, employeeId: createdId || undefined }
-        : undefined
-
-      const state = {
-        stageOverrides: hasStage ? Object.fromEntries(wsStageOverrides) : undefined,
-        downstreamRuns: hasRuns ? downstreamRuns : undefined,
-        uploadedFiles,
-        packageStructure,
-      }
-      api.hiringWorkflow.saveRuntimeState(workflowHireId, state).catch(() => {})
+      api.hiringWorkflow.saveRuntimeStateByStage(workflowHireId, stage, state)
+        .then(() => {
+          lastSnapshotRef.current = hasContent ? snapshot : null
+        })
+        .catch(() => {})
     }, 2000)
 
     return () => clearTimeout(timer)
-  }, [wsStageOverrides, downstreamRuns, allFiles, artifactArchive, artifactFileNames, createdId, workflowHireId])
+  }, [hasContent, snapshot, stage, state, workflowHireId])
 }
 
 /**
- * 自动设置焦点阶段
+ * 自动设置焦点阶段。
  */
 export function useAutoFocusStage(
   journeyGuideVisible: boolean,

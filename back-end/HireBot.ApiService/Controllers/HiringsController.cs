@@ -120,20 +120,24 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
-    [HttpPut("{hireId}/runtime-state")]
-    public async Task<IActionResult> SaveRuntimeState(
+    [HttpPut("{hireId}/runtime-state/{stage}")]
+    public async Task<IActionResult> SaveRuntimeStateByStage(
         string hireId,
+        string stage,
         [FromBody] SaveRuntimeStateRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var response = await employeeHiringService.SaveRuntimeStateAsync(hireId, request, cancellationToken);
+        var response = await employeeHiringService.SaveRuntimeStateByStageAsync(hireId, stage, request, cancellationToken);
         return StatusCode(response.Code, response);
     }
 
-    [HttpGet("{hireId}/runtime-state")]
-    public async Task<IActionResult> GetRuntimeState(string hireId, CancellationToken cancellationToken = default)
+    [HttpGet("{hireId}/runtime-state/{stage}")]
+    public async Task<IActionResult> GetRuntimeStateByStage(
+        string hireId,
+        string stage,
+        CancellationToken cancellationToken = default)
     {
-        var response = await employeeHiringService.GetRuntimeStateAsync(hireId, cancellationToken);
+        var response = await employeeHiringService.GetRuntimeStateByStageAsync(hireId, stage, cancellationToken);
         return StatusCode(response.Code, response);
     }
 

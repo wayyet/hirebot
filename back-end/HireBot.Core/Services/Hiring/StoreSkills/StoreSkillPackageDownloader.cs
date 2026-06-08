@@ -80,7 +80,11 @@ internal sealed class StoreSkillPackageDownloader(
                     continue;
                 }
 
-                MergeSkillPackageEntries(result, slug, packageBytes);
+                var beforeCount = result.Count;
+                MergeSkillPackageEntries(result, slug, packageBytes, logger);
+                var mergedCount = result.Count - beforeCount;
+                logger.LogInformation("Store skill merged: SkillId={SkillId}, Slug={Slug}, VersionId={VersionId}, FilesMerged={MergedCount}, TotalFiles={TotalCount}",
+                    skillId, slug, versionId, mergedCount, result.Count);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -264,7 +268,8 @@ internal sealed class StoreSkillPackageDownloader(
     private static void MergeSkillPackageEntries(
         Dictionary<string, byte[]> target,
         string slug,
-        byte[] packageBytes)
+        byte[] packageBytes,
+        ILogger logger)
     {
         using var memoryStream = new MemoryStream(packageBytes, writable: false);
         using var archive = new ZipArchive(memoryStream, ZipArchiveMode.Read, leaveOpen: false);
@@ -289,8 +294,13 @@ internal sealed class StoreSkillPackageDownloader(
 
         if (rawEntries.Count == 0)
         {
+            logger.LogWarning("Store skill package contains no valid entries after filtering. Slug={Slug}, PackageSize={Size}KB",
+                slug, packageBytes.Length / 1024);
             return;
         }
+
+        logger.LogDebug("Store skill package entries: Slug={Slug}, TotalEntries={TotalEntries}, ValidEntries={ValidEntries}",
+            slug, archive.Entries.Count, rawEntries.Count);
 
         // 探测公共顶层目录（store skill 包通常以 <slug>/ 作为顶层）
         var commonRoot = DetectCommonTopLevelDirectory(rawEntries.Select(item => item.Path).ToList());

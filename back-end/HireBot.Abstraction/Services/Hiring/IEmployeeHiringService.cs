@@ -26,14 +26,14 @@ public interface IEmployeeHiringService
     Task<ApiResponse<Dictionary<string, string>>> GetStructuredDataAsync(string hireId, CancellationToken cancellationToken = default);
     
     /// <summary>
-    /// 保存运行时状态（阶段覆盖配置 + 下游运行记录，统一接口）。
+    /// 按阶段保存运行时状态（阶段覆盖配置 + 下游运行记录）。
     /// </summary>
-    Task<ApiResponse<bool>> SaveRuntimeStateAsync(string hireId, SaveRuntimeStateRequestDto request, CancellationToken cancellationToken = default);
+    Task<ApiResponse<bool>> SaveRuntimeStateByStageAsync(string hireId, string stage, SaveRuntimeStateRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 获取运行时状态（阶段覆盖配置 + 下游运行记录）。
+    /// 按阶段获取运行时状态（阶段覆盖配置 + 下游运行记录）。
     /// </summary>
-    Task<ApiResponse<RuntimeStateDto>> GetRuntimeStateAsync(string hireId, CancellationToken cancellationToken = default);
+    Task<ApiResponse<RuntimeStateDto>> GetRuntimeStateByStageAsync(string hireId, string stage, CancellationToken cancellationToken = default);
     /// <summary>
     /// 前端从沙箱网关直接下载产物包后，调用此接口将包上传至后端，跳过 KingCrab 依赖。
     /// </summary>
