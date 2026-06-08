@@ -106,6 +106,36 @@ import {
 import { type HiringUiStage } from './hiringWorkflowViewModel'
 import { extractLatestMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
 
+/**
+ * 规范化模板包的下载文件名。
+ * AI 生成的 fileName 遵循 `<template_slug>-artifacts.zip` 模式，
+ * 当 AI 未能正确解析 template_slug 时会产生只含下划线/连字符的垃圾名。
+ * 这里用模板名称或雇佣 ID 作为回退。
+ */
+function normalizePackageFileName(rawName: string, templateName?: string, hireId?: string): string {
+  const cleaned = rawName.trim()
+  // 检查是否包含有意义的文字内容（至少 2 个字母/数字/中文）
+  const hasRealName = /[a-zA-Z一-鿿0-9]{2,}/.test(cleaned)
+
+  if (!hasRealName) {
+    if (templateName) {
+      const slug = templateName
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-]/g, '')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+      if (slug) return `${slug}-instance-package.zip`
+    }
+    if (hireId) return `${hireId}-instance-package.zip`
+    return 'instance-package.zip'
+  }
+
+  // 确保以 .zip 结尾
+  if (!/\.zip$/i.test(cleaned)) return `${cleaned}.zip`
+  return cleaned
+}
+
 export default function HiringPage() {
   const { templateId } = useParams()
   const navigate = useNavigate()
@@ -140,6 +170,7 @@ export default function HiringPage() {
     pendingStageConfirmation,
     requiresFreshPackaging,
     linkedStoreSkillIds,
+    latestSkillSummary,
     submittingMessage,
     streamingTurnInternal,
     resetting,
@@ -173,6 +204,7 @@ export default function HiringPage() {
     setPendingStageConfirmation,
     setRequiresFreshPackaging,
     setLinkedStoreSkillIds,
+    setLatestSkillSummary,
     setSubmittingMessage,
     setStreamingTurnInternal,
     setResetting,
@@ -186,14 +218,14 @@ export default function HiringPage() {
   const visibleStreamingContent = streamingTurnInternal || streamingContent === null
     ? null
     : normalizeAssistantStreamingPreview(streamingContent)
-  const visibleTyping = typing && !streamingTurnInternal
+  const visibleTyping = typing
 
   // ── 计算属性（使用自定义 Hook） ────────────────────────────────────────────
   const computed = useHiringComputed({
     messages,
     wsStageOverrides,
     downstreamRuns,
-    latestSkillSummary: null, // 将在后续 ref 中填充
+    latestSkillSummary,
     focusedStage,
     t,
     workflowHireId,
@@ -1070,6 +1102,12 @@ export default function HiringPage() {
           if (kind === 'file') {
             artifactData.fileUrl = String(raw.fileUrl ?? raw.file_url ?? '')
             artifactData.fileName = String(raw.fileName ?? raw.file_name ?? label ?? 'file')
+            // template_package 的 fileName 来自 AI 生成的 <template_slug>-artifacts.zip，
+            // 当 AI 未能正确解析 template_slug 时会产生类似 "______-artifacts.zip" 的垃圾名。
+            // 这里用模板名称或雇佣 ID 作为回退，确保下载文件名可读。
+            if (artifactType === 'template_package') {
+              artifactData.fileName = normalizePackageFileName(artifactData.fileName, template?.name, workflowHireIdRef.current)
+            }
             artifactData.mimeType = String(raw.mimeType ?? raw.mime_type ?? '')
             const sizeBytes = typeof raw.fileSizeBytes === 'number' ? raw.fileSizeBytes : typeof raw.file_size_bytes === 'number' ? raw.file_size_bytes : null
             artifactData.sizeLabel = sizeBytes !== null ? formatFileSize(sizeBytes) : ''
@@ -1132,6 +1170,7 @@ export default function HiringPage() {
           }
           if (artifactType === 'skill_workorder_summary' && kind === 'data' && isTerminal) {
             latestSkillSummaryRef.current = artifactData.data ?? null
+            setLatestSkillSummary(artifactData.data ?? null)
             latestProjectionResultRef.current = null
             skillSummarySignatureRef.current = JSON.stringify(artifactData.data ?? {})
             projectionPassLaunchSignatureRef.current = ''
@@ -1198,7 +1237,9 @@ export default function HiringPage() {
               const next = new Map(prev)
               // External 阶段的需求收口和系统提交是两件事：
               // `external_workorder_summary` 仅表示需求已收口，仍需等待右侧卡片提交完成。
-              if ((artifactType === 'external_workorder_summary' || artifactType === 'external_config_committed') && isTerminal) {
+              // Skill 阶段的技能定义完成（skill_workorder_summary）不等于技能阶段完成；
+              // 必须等待下游 skill-generation 完成（skill_generation_done）才算阶段结束。
+              if ((artifactType === 'external_workorder_summary' || artifactType === 'external_config_committed' || artifactType === 'skill_workorder_summary') && isTerminal) {
                 if (next.get(hiringStage) !== 'completed') {
                   next.set(hiringStage, 'running')
                 }
@@ -1217,7 +1258,7 @@ export default function HiringPage() {
           setRequiresFreshPackaging(false)
           setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
           if (hasPendingDownstreamRuns(downstreamRunsRef.current)) {
-            setWorkflowNotice('已收到产物包，下游生成完成后将自动导入。')
+            setWorkflowNotice('已收到数字员工包，下游生成完成后将自动导入。')
             }
           }
         }
@@ -1505,7 +1546,7 @@ export default function HiringPage() {
     }
 
     if (currentRun?.status === 'completed') {
-      setWorkflowNotice('评估测试用例已生成，可以继续生成实例包。')
+      setWorkflowNotice('评估测试用例已生成，可以继续生成数字员工。')
       return true
     }
 
@@ -1538,7 +1579,7 @@ export default function HiringPage() {
     )
 
     if (submitted) {
-      setWorkflowNotice('已开始生成评估测试用例，完成后可继续生成实例包。')
+      setWorkflowNotice('已开始生成评估测试用例，完成后可继续生成数字员工。')
       return true
     }
 
@@ -1967,7 +2008,7 @@ export default function HiringPage() {
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       })
       if (!dlResp.ok) {
-        throw new Error(`从沙箱网关下载产物包失败（HTTP ${dlResp.status}）`)
+        throw new Error(`从沙箱网关下载数字员工包失败（HTTP ${dlResp.status}）`)
       }
       // 校验 Content-Type，防止网关返回 JSON / HTML 被误当 ZIP 上传
       const contentType = dlResp.headers.get('content-type') ?? ''
@@ -1978,7 +2019,7 @@ export default function HiringPage() {
       const packageBlob = await dlResp.blob()
       if (packageBlob.size < 22) {
         // ZIP 最小合法大小（End of Central Directory = 22 字节）
-        throw new Error(`从沙箱网关下载的产物包过小（${packageBlob.size} 字节），可能不是有效 ZIP 文件`)
+        throw new Error(`从沙箱网关下载的数字员工包过小（${packageBlob.size} 字节），可能不是有效 ZIP 文件`)
       }
       const finalizeResult = await api.hiringWorkflow.importPackage(
         hireId,
@@ -2020,8 +2061,11 @@ export default function HiringPage() {
 
     try {
       const artifact = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
-      setArtifactArchive(artifact)
-      downloadBlob(artifact.blob, artifact.fileName)
+      // 兜底：纠正历史上已存储的异常文件名（如 ______-artifacts.zip）
+      const safeFileName = normalizePackageFileName(artifact.fileName, template?.name, workflowHireId)
+      const safeArtifact = { fileName: safeFileName, blob: artifact.blob }
+      setArtifactArchive(safeArtifact)
+      downloadBlob(artifact.blob, safeFileName)
       setWorkflowError('')
       setWorkflowNotice('')
     } catch (error: unknown) {
@@ -2043,7 +2087,7 @@ export default function HiringPage() {
       return
     }
     // 页面刷新后产物包 Blob 会丢失,需要重新从沙箱下载并导入
-    setWorkflowNotice('产物包未缓存,请从对话产物中重新导入')
+    setWorkflowNotice('数字员工包未缓存,请从对话产物中重新导入')
   }
 
   /**
@@ -2114,7 +2158,7 @@ export default function HiringPage() {
       void triggerCreate()
       return
     }
-    await submitWorkflowMessage('三个阶段均已确认完成，请开始生成产物包', undefined, true, true)
+    await submitWorkflowMessage('三个阶段均已确认完成，请开始生成数字员工', undefined, true, true)
   }
 
   function handlePrototypeContinue() {    setJourneyGuideVisible(true)
@@ -2169,6 +2213,7 @@ export default function HiringPage() {
         setArtifactFileNames([])
         setRestoredPackageFileName('')
         setLinkedStoreSkillIds([])
+        setLatestSkillSummary(null)
         downstreamRunsRef.current = {}
         latestMaterialSummaryRef.current = null
         latestSkillSummaryRef.current = null

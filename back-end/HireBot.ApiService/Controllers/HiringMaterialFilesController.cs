@@ -7,6 +7,7 @@ using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.ApiService.McpTools;
+using HireBot.ApiService.Services;
 using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
@@ -41,7 +42,10 @@ public sealed class HiringMaterialFilesController(
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".md",
-        ".json"
+        ".json",
+        ".pdf",
+        ".docx",
+        ".doc"
     };
 
     public sealed record HiringMaterialFileDto(
@@ -89,7 +93,7 @@ public sealed class HiringMaterialFilesController(
             {
                 return BadRequest(ApiResponse<object>.ErrorResponse(
                     400,
-                    $"不支持的格式：{file.FileName}，仅允许 .md 和 .json"));
+                    $"不支持的格式：{file.FileName}，仅允许 .md / .json / .pdf / .docx / .doc"));
             }
         }
 
@@ -187,6 +191,15 @@ public sealed class HiringMaterialFilesController(
                 mimeType,
                 cancellationToken);
             var workspaceRelativePath = syncedWorkspaceRelativePath ?? existing?.WorkspaceRelativePath;
+
+            // 对 PDF / DOCX 文件提取文本作为伴生 .md 同步到 workspace，
+            // 使 AI 能通过 hiring.parse_uploaded_files 读取二进制资料的内容。
+            var ext = Path.GetExtension(safeFileName);
+            if (MaterialTextExtractor.RequiresTextExtraction(ext))
+            {
+                await TrySyncCompanionMarkdownAsync(
+                    uploadContext, safeFolder, safeFileName, targetPath, ext, cancellationToken);
+            }
 
             var now = DateTimeOffset.UtcNow;
             if (existing is null)
@@ -435,6 +448,69 @@ public sealed class HiringMaterialFilesController(
         return workspaceRelativePath;
     }
 
+    /// <summary>
+    /// 对 PDF/DOCX 文件提取文本并作为伴生 .md 同步到 sandbox workspace。
+    /// 失败时仅记录日志，不阻断主上传流程。
+    /// </summary>
+    private async Task TrySyncCompanionMarkdownAsync(
+        MaterialUploadContext uploadContext,
+        string safeFolder,
+        string safeFileName,
+        string localPath,
+        string ext,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var workspaceRoot = NormalizeWorkspaceRoot(uploadContext.WorkspaceRoot);
+            if (workspaceRoot is null) return;
+            var workspaceRootDir = TryConvertWorkspaceRootToTargetDir(workspaceRoot);
+            if (workspaceRootDir is null)
+            {
+                logger.LogWarning(
+                    "[MaterialFiles] Workspace root unavailable, skip companion .md sync. HireId={HireId}",
+                    uploadContext.HireId);
+                return;
+            }
+
+            await using var readStream = System.IO.File.OpenRead(localPath);
+            var extractedText = MaterialTextExtractor.ExtractText(readStream, ext);
+            if (string.IsNullOrWhiteSpace(extractedText)) return;
+
+            var companionFileName = MaterialTextExtractor.BuildCompanionMarkdownFileName(safeFileName);
+            var companionContent = Encoding.UTF8.GetBytes(extractedText);
+            var targetDir = BuildWorkspaceTargetDir(workspaceRootDir, safeFolder);
+
+            var syncResult = await sandboxService.UploadWorkspaceFileAsync(
+                new SandboxWorkspaceUploadRequestDto
+                {
+                    ScopeType = SandboxScopeTypes.Hire,
+                    ScopeKey = uploadContext.HireId,
+                    SandboxRole = HiringSandboxRole,
+                    OwnerSubject = uploadContext.UploadedBy,
+                    SandboxId = uploadContext.SandboxId,
+                    TargetDir = targetDir,
+                    FileName = companionFileName,
+                    Content = companionContent,
+                    ContentType = "text/markdown"
+                },
+                cancellationToken);
+
+            if (!syncResult.Success)
+            {
+                logger.LogWarning(
+                    "[MaterialFiles] Failed to sync companion .md into workspace. HireId={HireId} File={FileName} Message={Message}",
+                    uploadContext.HireId, companionFileName, syncResult.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "[MaterialFiles] Companion .md extraction failed. HireId={HireId} File={FileName}",
+                uploadContext.HireId, safeFileName);
+        }
+    }
+
     private static string? BackupExistingFile(string targetPath)
     {
         if (!System.IO.File.Exists(targetPath)) return null;
@@ -603,6 +679,9 @@ public sealed class HiringMaterialFilesController(
         return Path.GetExtension(safeFileName).ToLowerInvariant() switch
         {
             ".json" => "application/json",
+            ".pdf" => "application/pdf",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".doc" => "application/msword",
             _ => "text/markdown"
         };
     }

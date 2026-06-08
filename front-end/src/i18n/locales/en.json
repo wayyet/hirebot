@@ -178,7 +178,7 @@
     "header": {
       "breadcrumbTemplatePool": "Template Pool",
       "breadcrumbProcess": "Hiring Flow",
-      "summary": "Materials, skills, external systems, and delivery package — all in one workflow",
+      "summary": "Materials, skills, external systems, and digital employee delivery — all in one workflow",
       "resetProcess": "Reset Flow",
       "resetting": "Resetting...",
       "continueCurrent": "Continue from Current Stage"
@@ -209,11 +209,11 @@
       "gatewayNotAvailable": "Unable to get file upload gateway, please try again",
       "cannotGetFileData": "Cannot get raw file data: {{name}}",
       "conversationInProgress": "Conversation in progress, please wait before uploading Skill",
-      "pleaseRequestPackaging": "Please tell the assistant 'All confirmations done, please generate the artifact package', then click Generate Instance after the sandbox finishes packaging.",
+      "pleaseRequestPackaging": "Please tell the assistant 'All confirmations done, please generate the digital employee', then click Generate after the sandbox finishes packaging.",
       "noGatewayEndpoint": "Cannot get sandbox gateway address. Please refresh the page and try again.",
-      "downloadPackageFailed": "Failed to download artifact package from sandbox gateway (HTTP {{status}})",
+      "downloadPackageFailed": "Failed to download digital employee package from sandbox gateway (HTTP {{status}})",
       "invalidPackageResponse": "Sandbox gateway returned a non-binary response",
-      "packageTooSmall": "Downloaded artifact package is too small ({{size}} bytes), may not be a valid ZIP file",
+      "packageTooSmall": "Downloaded digital employee package is too small ({{size}} bytes), may not be a valid ZIP file",
       "downloadFileFailed": "Failed to download file (HTTP {{status}})"
     },
     "notice": {
@@ -263,7 +263,7 @@
       "labelReleaseNote": "Release notes: {{note}}",
       "labelDescription": "Skill description: {{desc}}",
       "uploaded": "Skill package uploaded and info submitted",
-      "requestPackaging": "All three stages confirmed. Please generate the artifact package."
+      "requestPackaging": "All three stages confirmed. Please generate the digital employee."
     },
     "tool": {
       "calling": "Calling {{name}}",
@@ -289,9 +289,10 @@
     },
     "artifact": {
       "terminal": "Terminal",
-      "downloadFile": "Download Package",
+      "downloadFile": "Download Digital Employee Package",
+      "downloadPackage": "Download Digital Employee Package",
       "manualImport": "Import to System",
-      "waitForFinalPackage": "The package is being imported. You can download the final delivery package after import completes.",
+      "waitForFinalPackage": "The digital employee package is being imported. You can download the final delivery package after import completes.",
       "finalPackageLabel": "Final delivery package"
     },
     "dispatch": {
@@ -383,7 +384,7 @@
         "unmatchedTitle": "Uploaded Files",
         "unmatchedCount": "{{count}} Unmatched",
         "errorNotReady": "Session not ready, please try again later",
-        "errorInvalidExt": "Only .md and .json files are supported: {{preview}}",
+        "errorInvalidExt": "Only .md / .json / .pdf / .docx / .doc files are supported: {{preview}}",
         "errorInvalidExtMore": " etc",
         "errorUploadFailed": "Upload failed",
         "categoryPrefix": " under \"{{category}}\"",
@@ -408,7 +409,7 @@
         "generationProgress": "Generating skill implementation, {{completed}}/{{total}} skills done.",
         "generatingDesc": "Skill implementation in progress.",
         "generationComplete": "Skill implementation saved. {{total}} skills processed, {{generated}} newly generated.",
-        "generationCompleteDesc": "Skill implementation saved and will be included in the final instance package.",
+        "generationCompleteDesc": "Skill implementation saved and will be included in the final digital employee package.",
         "generationFailed": "Skill implementation generation failed. Please continue troubleshooting in the chat.",
         "reused": "Reused",
         "generated": "Generated",
@@ -437,7 +438,7 @@
         "link": "Link",
         "linked": "Linked",
         "linkedTitle": "Linked Skills",
-        "linkedDesc": "These skills will be included in the final artifact package for this hiring flow.",
+        "linkedDesc": "These skills will be included in the final digital employee package for this hiring flow.",
         "unlink": "Remove",
         "templateTitle": "Template Built-in Skills",
         "templateDesc": "The target employee template package has {{count}} built-in skills, excluding the hiring coach role package.",
@@ -481,13 +482,13 @@
         "confirmAdvance": "Confirm Advance"
       },
       "final": {
-        "title": "Generate Instance Package",
+        "title": "Generate Digital Employee",
         "generatedBadge": "Generated",
         "canGenerateBadge": "Ready",
-        "hint": "After completing all previous stages, materials, skills, and optional configurations will be integrated to generate an instance template package.",
-        "generateBtn": "Generate Instance Package",
+        "hint": "After completing all previous stages, materials, skills, and optional configurations will be integrated to generate a digital employee package.",
+        "generateBtn": "Generate Digital Employee",
         "generatedBtn": "Generated",
-        "downloadPackageBtn": "Download Instance Package",
+        "downloadPackageBtn": "Download Digital Employee Package",
         "enterEvaluationBtn": "Enter AI Evaluation",
         "moreFiles": "more files"
       }

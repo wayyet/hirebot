@@ -71,7 +71,10 @@ function buildChatRenderItems(messages: ChatMessage[]): ChatRenderItem[] {
       continue
     }
 
-    flushPendingArtifacts()
+    // user 消息出现时不 flush 暂存的 artifact，而是继续向前携带，
+    // 等到下一个 bot 消息时作为 leadingArtifacts 附在 bot 气泡上方。
+    // 这样可以避免内部轮次产出的 artifact 卡片出现在用户消息之前，
+    // 造成"卡片在用户输入前弹出"的错位感。
 
     if (message.role === 'stage_gate' && message.stageGate) {
       items.push({

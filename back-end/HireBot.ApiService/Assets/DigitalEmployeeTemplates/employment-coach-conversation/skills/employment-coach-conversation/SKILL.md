@@ -142,7 +142,7 @@ metadata:
 
 | 工具名 | 用途 |
 |--------|------|
-| `hiring.parse_uploaded_files` | 读取并解析当前会话用户已上传的 .md/.json 文件，供 AI 抽取本体或推断技能 |
+| `hiring.parse_uploaded_files` | 读取并解析当前会话用户已上传的 .md/.json/.pdf/.docx/.doc 文件（PDF/Word 会自动提取文本为伴生 .md），供 AI 抽取本体或推断技能 |
 
 > ⚠️ 旧版本曾提供的 `hiring.upsert_todo` / `hiring.list_todos` / `hiring.request_file_upload` / `hiring.request_skill_upload` / `hiring.request_external_config` 等 **全部已下线**。右侧面板的阶段卡片由 artifact 阶段事件直接控制，**不再需要、也无法通过 MCP 工具触发**。所有阶段推进信息都通过 `emit_artifact` 推送，所有用户输入（上传文件 / 选择技能 / 填写外部系统）通过前端表单回流为下一轮用户消息。
 
@@ -150,7 +150,7 @@ metadata:
 
 | 时机 | 工具 | 关键参数 |
 |------|------|---------|
-| 用户通过后台 todo-files 入口上传 .md/.json，且消息中没有 Gateway media 标记时 | `hiring.parse_uploaded_files` | 不传参或传 `maxBytes`；返回目录树 + .md/.json 全文 |
+| 用户通过后台 todo-files 入口上传 .md/.json/.pdf/.docx/.doc，且消息中没有 Gateway media 标记时 | `hiring.parse_uploaded_files` | 不传参或传 `maxBytes`；返回目录树 + 全文（PDF/Word 的伴生 .pdf.md/.docx.md 也会一并返回） |
 | 消息中出现 `[FILE_URL:/app/memory/media-cache/...]` 或 `/media/media_xxx` 时 | 沙箱 `read_file` | 不调用 `hiring.parse_uploaded_files`；按下方 Gateway media-cache 规则先读 `{mediaId}.json`，再读元数据 `path` |
 
 **分支选择红线**：只有在当前消息里**明确出现** `[FILE_URL:/app/memory/media-cache/...]` 或 `/media/media_xxx` 标记时，才走 Gateway media-cache 读取分支。若当前消息只是“已上传 X 份资料，请基于这些资料继续后续阶段”这类纯文本摘要，或仅出现文件名 / `source_path`，则必须优先走 `hiring.parse_uploaded_files` 或直接使用已给出的 `source_path`；不要猜测 `/app/memory/media-cache` 目录，也不要只读取 `/workspace/.../uploads` 根目录来碰运气。
@@ -551,7 +551,7 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 {
   "kind": "data",
   "artifactType": "packaging_progress",
-  "label": "正在将工作区打包为实例包，请稍候",
+  "label": "正在将工作区打包为<模板名称>数字员工，请稍候",
   "skillName": "employment-coach-conversation",
   "stage": "stage4_packaging",
   "isTerminal": false,
@@ -755,7 +755,7 @@ org-health-analyst-20260514094434/config/SOUL.md    ← workspace 目录名混�
 {
   "kind": "file",
   "artifactType": "template_package",
-  "label": "实例包已就绪，正在导入系统",
+  "label": "<模板名称>数字员工已就绪，正在导入系统",
   "skillName": "employment-coach-conversation",
   "stage": "stage4_packaging",
   "isTerminal": true,
@@ -772,7 +772,7 @@ org-health-analyst-20260514094434/config/SOUL.md    ← workspace 目录名混�
 
 ### 5. 告知用户
 
-发出 artifact 后，**仅给用户一句话**：「好的，产物包已生成，系统正在自动导入，完成后就可以进入培训流程了。」
+发出 artifact 后，**仅给用户一句话**：「好的，<模板名称>数字员工已生成，系统正在自动导入，完成后就可以进入培训流程了。」
 
 **严格禁止**在此处：
 - 输出文件路径（如 `/workspace/xxx/yyy.zip`）
