@@ -32,6 +32,10 @@ export interface SkillCardBodyProps {
   definitionStageStatus: StageStatus | null
   skillGenerationState: DownstreamRunState | null
   definedSkills: DefinedSkillItem[]
+  /** skill-generation 等待确认时，用户点击确认生成 */
+  onConfirmSkillGeneration?: () => void
+  /** skill-generation 完成后，用户点击推进到外部系统 */
+  onConfirmSkillStageDone?: () => void
 }
 
 function readArtifactNumber(data: unknown, key: string): number | null {
@@ -159,6 +163,8 @@ export function SkillCardBody({
   definitionStageStatus,
   skillGenerationState,
   definedSkills,
+  onConfirmSkillGeneration,
+  onConfirmSkillStageDone,
 }: SkillCardBodyProps) {
   const { t } = useTranslation()
   const hydratedHireIdRef = useRef<string | null>(null)
@@ -363,6 +369,32 @@ export function SkillCardBody({
           </div>
         </div>
       </section>
+
+      {/* 技能阶段快捷推进按钮 */}
+      {skillGenerationState?.status === 'waiting_confirm' && onConfirmSkillGeneration ? (
+        <div className="hb-todo-confirmation-panel" aria-label="确认生成技能">
+          <p className="hb-todo-confirmation-text">
+            {skillGenerationState?.artifactType === 'skill_projection_binding_ready'
+              ? t('hiring.todo.skill.projectionConfirmDesc')
+              : t('hiring.todo.skill.pendingConfirmDesc')}
+          </p>
+          <div className="hb-todo-confirmation-actions">
+            <button type="button" className="hb-todo-row-btn is-primary" onClick={onConfirmSkillGeneration}>
+              {t('hiring.todo.skill.confirmGenerate')}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {skillGenerationState?.status === 'completed' && onConfirmSkillStageDone ? (
+        <div className="hb-todo-confirmation-panel" aria-label="推进到外部系统">
+          <p className="hb-todo-confirmation-text">{t('hiring.todo.skill.generationCompleteDesc')}</p>
+          <div className="hb-todo-confirmation-actions">
+            <button type="button" className="hb-todo-row-btn is-primary" onClick={onConfirmSkillStageDone}>
+              {t('hiring.todo.skill.confirmStageDone')}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="hb-todo-skill-toolbar">
         <label className="hb-todo-skill-search-field">

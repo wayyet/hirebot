@@ -74,6 +74,10 @@ export interface HiringTodoPanelProps {
   onContinueStageCollection?: () => void
   onConfirmStageAdvance?: () => void
   stageConfirmationBusy?: boolean
+  /** 技能阶段：确认生成技能 */
+  onConfirmSkillGeneration?: () => void
+  /** 技能阶段：推进到外部系统 */
+  onConfirmSkillStageDone?: () => void
 }
 
 interface StageConfig {
@@ -115,6 +119,8 @@ export function HiringTodoPanel({
   onContinueStageCollection,
   onConfirmStageAdvance,
   stageConfirmationBusy = false,
+  onConfirmSkillGeneration,
+  onConfirmSkillStageDone,
 }: HiringTodoPanelProps) {
   const { t } = useTranslation()
   // 用户是否手动覆盖了某张卡片的展开状态；未手动覆盖的走"活跃阶段自动展开"逻辑
@@ -207,6 +213,8 @@ export function HiringTodoPanel({
                 definitionStageStatus={skillDefinitionStageStatus}
                 skillGenerationState={skillGenerationState}
                 definedSkills={definedSkills}
+                onConfirmSkillGeneration={onConfirmSkillGeneration}
+                onConfirmSkillStageDone={onConfirmSkillStageDone}
               />
             )}
             {stage.key === HiringCollectionStage.External && (

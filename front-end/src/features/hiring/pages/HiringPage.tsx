@@ -1482,6 +1482,41 @@ export default function HiringPage() {
     return false
   }
 
+  /** 技能阶段快捷按钮：确认生成技能 */
+  async function handleConfirmSkillGeneration() {
+    const state = downstreamRunsRef.current['skill-generation']
+    if (state?.status === 'running') {
+      setWorkflowNotice('技能实现正在生成中。')
+      return
+    }
+    if (state?.status === 'completed') {
+      setWorkflowNotice('技能实现已生成完成。')
+      return
+    }
+
+    // 有 projection binding ready 时走完整启动流程
+    if (state?.artifactType === 'skill_projection_binding_ready') {
+      await launchSkillGenerationFromProjectionConfirmation()
+      return
+    }
+
+    // 兜底：直接发送确认消息
+    await submitWorkflowMessage('确认生成技能，请基于当前已定义的技能和业务资料开始生成。', undefined, true, true)
+  }
+
+  /** 技能阶段快捷按钮：推进到外部系统 */
+  async function handleConfirmSkillStageDone() {
+    const summary = '技能生成已完成，请推进到外部系统阶段。'
+    const submitted = await submitWorkflowMessage(summary)
+    if (submitted) {
+      setWsStageOverrides(prev => {
+        const next = new Map(prev)
+        next.set(HiringCollectionStage.Skill, 'completed')
+        return next
+      })
+    }
+  }
+
   async function launchProjectionPassFromApproval(): Promise<boolean> {
     const summary = latestSkillSummaryRef.current
     if (!summary) return false
@@ -2421,6 +2456,8 @@ export default function HiringPage() {
             onDownloadFinalPackage={() => { void downloadTemplatePackageFinal() }}
             onEnterEvaluation={createdId ? () => navigate(`/department-employees/instances/${createdId}/evaluation`) : undefined}
             onLinkedSkillIdsChange={setLinkedStoreSkillIds}
+            onConfirmSkillGeneration={() => { void handleConfirmSkillGeneration() }}
+            onConfirmSkillStageDone={() => { void handleConfirmSkillStageDone() }}
             packageStructure={
               artifactArchive
                 ? { fileName: artifactArchive.fileName, fileNames: artifactFileNames }
