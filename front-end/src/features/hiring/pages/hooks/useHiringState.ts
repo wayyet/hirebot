@@ -59,6 +59,7 @@ export interface HiringState {
 
   // ── 技能相关状态 ────────────────────────────────────────────────────────────
   linkedStoreSkillIds: string[]
+  latestSkillSummary: unknown
 
   // ── 提交/流式状态 ──────────────────────────────────────────────────────────
   submittingMessage: boolean
@@ -113,6 +114,7 @@ export interface HiringStateActions {
 
   // ── 技能相关操作 ────────────────────────────────────────────────────────────
   setLinkedStoreSkillIds: (ids: string[] | ((prev: string[]) => string[])) => void
+  setLatestSkillSummary: (summary: unknown) => void
 
   // ── 提交/流式操作 ──────────────────────────────────────────────────────────
   setSubmittingMessage: (submitting: boolean) => void
@@ -173,6 +175,7 @@ export function useHiringState(): [HiringState, HiringStateActions] {
 
   // ── 技能相关状态 ────────────────────────────────────────────────────────────
   const [linkedStoreSkillIds, setLinkedStoreSkillIds] = useState<string[]>([])
+  const [latestSkillSummary, setLatestSkillSummary] = useState<unknown>(null)
 
   // ── 提交/流式状态 ──────────────────────────────────────────────────────────
   const [submittingMessage, setSubmittingMessage] = useState(false)
@@ -213,6 +216,7 @@ export function useHiringState(): [HiringState, HiringStateActions] {
     pendingStageConfirmation,
     requiresFreshPackaging,
     linkedStoreSkillIds,
+    latestSkillSummary,
     submittingMessage,
     streamingTurnInternal,
     resetting,
@@ -248,6 +252,7 @@ export function useHiringState(): [HiringState, HiringStateActions] {
     setPendingStageConfirmation,
     setRequiresFreshPackaging,
     setLinkedStoreSkillIds,
+    setLatestSkillSummary,
     setSubmittingMessage,
     setStreamingTurnInternal,
     setResetting,

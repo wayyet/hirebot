@@ -250,7 +250,7 @@ export function isPackagingTestCasesSkipMessage(text: string): boolean {
     '先不管',
     '直接打包',
     '直接生成包',
-    '直接生成实例包',
+    '直接生成数字员工',
     'skip',
     'no',
   ]

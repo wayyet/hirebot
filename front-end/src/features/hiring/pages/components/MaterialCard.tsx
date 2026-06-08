@@ -46,15 +46,8 @@ interface MaterialCategoryCard {
 
 // ── 常量 ──────────────────────────────────────────────────────────────────────
 
-const ALLOWED_EXTS = new Set(['.md', '.json'])
+const ALLOWED_EXTS = new Set(['.md', '.json', '.pdf', '.docx', '.doc'])
 
-const MATERIAL_FORMAT_HINTS: Array<{ label: string; pattern: RegExp }> = [
-  { label: 'PDF', pattern: /\bpdf\b/i },
-  { label: 'DOCX', pattern: /\bdocx\b|\bdoc\b|\bword\b/i },
-  { label: 'XLSX', pattern: /\bxlsx\b|\bxls\b|\bexcel\b/i },
-  { label: 'JSON', pattern: /\bjson\b/i },
-  { label: 'MD', pattern: /\bmarkdown\b|\bmd\b/i },
-]
 
 const MATERIAL_CONTEXT_HINTS = [
   '知识库',
@@ -66,6 +59,7 @@ const MATERIAL_CONTEXT_HINTS = [
   '话术',
   '表单',
   '模板',
+  '方案',
 ]
 
 // ── 辅助函数 ──────────────────────────────────────────────────────────────────
@@ -83,14 +77,8 @@ function formatMaterialFileSize(bytes: number | null): string {
 }
 
 function inferMaterialFormatLabel(category: MaterialRequestedCategory): string {
-  const haystack = [category.title, category.description, ...(category.examples ?? [])]
-    .filter(Boolean)
-    .join(' ')
-
-  for (const item of MATERIAL_FORMAT_HINTS) {
-    if (item.pattern.test(haystack)) return item.label
-  }
-
+  const ctx = inferMaterialContextLabel(category)
+  if (ctx) return ctx
   return '资料'
 }
 
@@ -460,7 +448,7 @@ export function MaterialCardBody({
           // @ts-expect-error webkitdirectory 为浏览器扩展属性，React 类型未声明。
           webkitdirectory=""
           directory=""
-          accept=".md,.json,application/json,text/markdown"
+          accept=".md,.json,.pdf,.docx,.doc,application/json,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
           onChange={event => {
             if (event.target.files) void handleFiles(event.target.files)
             event.target.value = ''
@@ -471,7 +459,7 @@ export function MaterialCardBody({
           type="file"
           hidden
           multiple
-          accept=".md,.json,application/json,text/markdown"
+          accept=".md,.json,.pdf,.docx,.doc,application/json,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
           onChange={event => {
             if (event.target.files) void handleFiles(event.target.files, categoryUploadRef.current)
             categoryUploadRef.current = null

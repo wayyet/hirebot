@@ -209,11 +209,11 @@
       "gatewayNotAvailable": "无法获取文件上传网关，请稍后重试",
       "cannotGetFileData": "无法获取文件原始数据：{{name}}",
       "conversationInProgress": "当前对话处理中，请稍候后再上传 Skill",
-      "pleaseRequestPackaging": "请在聊天中告知助手「已完成全部确认，请生成产物包」，等沙箱推送打包完成后再点击生成实例。",
-      "noGatewayEndpoint": "未获取到沙箱网关地址，无法下载产物包，请刷新页面重试。",
-      "downloadPackageFailed": "从沙箱网关下载产物包失败（HTTP {{status}}）",
+      "pleaseRequestPackaging": "请在聊天中告知助手「已完成全部确认，请生成数字员工」，等沙箱推送打包完成后再点击生成。",
+      "noGatewayEndpoint": "未获取到沙箱网关地址，无法下载数字员工包，请刷新页面重试。",
+      "downloadPackageFailed": "从沙箱网关下载数字员工包失败（HTTP {{status}}）",
       "invalidPackageResponse": "沙箱网关返回了非二进制响应",
-      "packageTooSmall": "从沙箱网关下载的产物包过小（{{size}} 字节），可能不是有效 ZIP 文件",
+      "packageTooSmall": "从沙箱网关下载的数字员工包过小（{{size}} 字节），可能不是有效 ZIP 文件",
       "downloadFileFailed": "下载文件失败（HTTP {{status}}）"
     },
     "notice": {
@@ -263,7 +263,7 @@
       "labelReleaseNote": "版本说明：{{note}}",
       "labelDescription": "技能描述：{{desc}}",
       "uploaded": "已上传 Skill 包并提交信息",
-      "requestPackaging": "三个阶段均已确认完成，请开始生成产物包"
+      "requestPackaging": "三个阶段均已确认完成，请开始生成数字员工"
     },
     "tool": {
       "calling": "正在调用 {{name}}",
@@ -289,9 +289,10 @@
     },
     "artifact": {
       "terminal": "终态",
-      "downloadFile": "下载产物包",
+      "downloadFile": "下载数字员工包",
+      "downloadPackage": "点击下载数字员工包",
       "manualImport": "手动导入系统",
-      "waitForFinalPackage": "实例包正在导入系统，导入完成后可下载正式交付包（final）。",
+      "waitForFinalPackage": "数字员工包正在导入系统，导入完成后可下载正式交付包。",
       "finalPackageLabel": "正式交付包"
     },
     "dispatch": {
@@ -383,7 +384,7 @@
         "unmatchedTitle": "已上传文件",
         "unmatchedCount": "未匹配 {{count}}",
         "errorNotReady": "会话尚未就绪，请稍后再试",
-        "errorInvalidExt": "仅支持 .md 与 .json 文件：{{preview}}",
+        "errorInvalidExt": "仅支持 .md / .json / .pdf / .docx / .doc 文件：{{preview}}",
         "errorInvalidExtMore": " 等",
         "errorUploadFailed": "上传失败",
         "categoryPrefix": "「{{category}}」分类下",
@@ -408,7 +409,7 @@
         "generationProgress": "正在生成技能实现，当前已完成 {{completed}}/{{total}} 个技能。",
         "generatingDesc": "技能实现正在生成中。",
         "generationComplete": "技能实现已落盘，本轮共处理 {{total}} 个技能，其中新增生成 {{generated}} 个。",
-        "generationCompleteDesc": "技能实现已落盘，将随最终实例包一起导入。",
+        "generationCompleteDesc": "技能实现已落盘，将随数字员工包一起导入。",
         "generationFailed": "技能实现生成失败，请在对话区继续排查。",
         "reused": "已复用",
         "generated": "已生成",
@@ -437,7 +438,7 @@
         "link": "关联",
         "linked": "已关联",
         "linkedTitle": "已关联技能",
-        "linkedDesc": "这些技能会随当前雇佣流程一起进入后续产物包。",
+        "linkedDesc": "这些技能会随当前雇佣流程一起进入后续数字员工包。",
         "unlink": "移除",
         "templateTitle": "模板内置技能",
         "templateDesc": "当前目标员工模板包已内置 {{count}} 个 skill，不包含雇佣教练角色包。",
@@ -481,13 +482,13 @@
         "confirmAdvance": "确认推进"
       },
       "final": {
-        "title": "生成实例包",
+        "title": "生成数字员工",
         "generatedBadge": "已生成",
         "canGenerateBadge": "可生成",
-        "hint": "前序阶段完成后，将整合资料、技能与可选配置，生成可下发到员工待上岗界面的实例模板包。",
-        "generateBtn": "生成实例包",
+        "hint": "前序阶段完成后，将整合资料、技能与可选配置，生成可下发到员工待上岗界面的数字员工包。",
+        "generateBtn": "生成数字员工",
         "generatedBtn": "已生成",
-        "downloadPackageBtn": "下载实例包",
+        "downloadPackageBtn": "下载数字员工包",
         "enterEvaluationBtn": "进入 AI 评估",
         "moreFiles": "个文件"
       }

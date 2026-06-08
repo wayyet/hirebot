@@ -191,7 +191,9 @@ export function buildUiStageOverrides(
     }
   }
 
-  if (skillGenerationState?.status === 'failed') {
+  if (skillGenerationState?.status === 'completed') {
+    next.set(HiringCollectionStage.Skill, 'completed')
+  } else if (skillGenerationState?.status === 'failed') {
     next.set(HiringCollectionStage.Skill, 'failed')
   }
 

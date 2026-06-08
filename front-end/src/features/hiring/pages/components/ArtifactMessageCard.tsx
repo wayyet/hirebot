@@ -86,8 +86,14 @@ export function ArtifactMessageCard({
                 onFileDownload(artifact.fileUrl!, displayFileName, artifact.artifactType)
               }}
             >
-              <span className="hb-artifact-file-name">{displayFileName}</span>
-              {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
+              {isPackage ? (
+                <span className="hb-artifact-file-name">{t('hiring.artifact.downloadPackage')}</span>
+              ) : (
+                <>
+                  <span className="hb-artifact-file-name">{displayFileName}</span>
+                  {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
+                </>
+              )}
             </button>
           ) : (
             <a
@@ -95,8 +101,14 @@ export function ArtifactMessageCard({
               download={displayFileName}
               className="hb-artifact-file-link"
             >
-              <span className="hb-artifact-file-name">{displayFileName}</span>
-              {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
+              {isPackage ? (
+                <span className="hb-artifact-file-name">{t('hiring.artifact.downloadPackage')}</span>
+              ) : (
+                <>
+                  <span className="hb-artifact-file-name">{displayFileName}</span>
+                  {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
+                </>
+              )}
             </a>
           )}
           {isPackage && onManualUpload && artifact.fileUrl && (

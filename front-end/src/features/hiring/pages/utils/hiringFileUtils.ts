@@ -4,7 +4,7 @@ import type { HiringCollectionStageType, HiringConversationMaterial } from '@/in
 import { mkId } from './hiringPageHelpers'
 import type { ChatFile } from '../hiringPageTypes'
 
-export const EXTERNAL_CONFIG_REPACKAGE_NOTICE = '外部系统配置已更新，旧产物包已失效。请重新生成实例包后再继续导入。'
+export const EXTERNAL_CONFIG_REPACKAGE_NOTICE = '外部系统配置已更新，旧数字员工包已失效。请重新生成数字员工后再继续导入。'
 
 export function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob)

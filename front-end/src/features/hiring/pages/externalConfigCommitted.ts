@@ -106,7 +106,7 @@ export function buildPackagingTestCasesReadyArtifact(
       submissionMode: payload.submissionMode,
       updatedAtUtc: payload.updatedAtUtc,
       optional: true,
-      message: '生成实例包前可选择生成评估测试用例，也可以跳过直接打包。',
+      message: '生成数字员工前可选择生成评估测试用例，也可以跳过直接打包。',
     },
   }
 }
