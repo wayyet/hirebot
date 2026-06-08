@@ -390,8 +390,8 @@
         "categoryPrefix": " under \"{{category}}\"",
         "uploadSuffix": " and {{count}} more",
         "uploadSummary": "Uploaded {{total}} materials{{categoryPrefix}}: {{preview}}{{suffix}}. Please continue to the next stage.",
-        "uploadSourcePathLead": "These files have been synced into the current workspace. Use the following source_path values directly:",
-        "uploadSourcePathItem": "- {{name}} (source_path: {{path}})"
+        "uploadSourcePathLead": "Use hiring.parse_uploaded_files to read the following uploaded files:",
+        "uploadSourcePathItem": "- {{name}}"
       },
       "status": {
         "confirmed": "Confirmed",

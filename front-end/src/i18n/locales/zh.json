@@ -390,8 +390,8 @@
         "categoryPrefix": "「{{category}}」分类下",
         "uploadSuffix": " 等 {{count}} 份",
         "uploadSummary": "已上传{{categoryPrefix}}{{total}} 份资料：{{preview}}{{suffix}}。请基于这些资料继续后续阶段。",
-        "uploadSourcePathLead": "这些文件已同步到当前工作区，请直接使用以下 source_path：",
-        "uploadSourcePathItem": "- {{name}}（source_path: {{path}}）"
+        "uploadSourcePathLead": "请使用 hiring.parse_uploaded_files 工具读取以下文件内容：",
+        "uploadSourcePathItem": "- {{name}}"
       },
       "status": {
         "confirmed": "已确认",
