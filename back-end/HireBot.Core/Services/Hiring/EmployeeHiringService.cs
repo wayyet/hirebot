@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Infrastructure.Identity;
@@ -607,50 +607,48 @@ internal sealed class EmployeeHiringService(
         return result;
     }
 
-    public async Task<ApiResponse<bool>> SaveRuntimeStateAsync(
+    private static readonly JsonSerializerOptions RuntimeStateSerializerOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
+    public async Task<ApiResponse<bool>> SaveRuntimeStateByStageAsync(
         string hireId,
+        string stage,
         SaveRuntimeStateRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        if (!IsSupportedRuntimeStateStage(stage))
+        {
+            return ApiResponse<bool>.ErrorResponse(400, $"Unsupported runtime state stage: {stage}");
+        }
+
         var progress = await dbContext.HiringStageProgresses
             .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
 
         if (progress is null)
         {
-            logger.LogWarning("保存运行时状态失败，雇佣会话不存在: HireId={HireId}", hireId);
-            return ApiResponse<bool>.ErrorResponse(404, "雇佣会话不存在");
+            logger.LogWarning("Runtime state stage save failed because hiring progress was not found. HireId={HireId}, Stage={Stage}", hireId, stage);
+            return ApiResponse<bool>.ErrorResponse(404, "Hiring progress not found.");
         }
 
-        // 保存阶段覆盖配置
-        if (request.StageOverrides is not null)
+        var stageOverrides = DeserializeRuntimeStateDictionary(progress.StageOverridesJson);
+        var downstreamRuns = DeserializeDownstreamRuns(progress.DownstreamRunsJson);
+
+        ApplyStageOverridePatch(stageOverrides, stage, request.StageOverrides);
+        ApplyDownstreamRunPatch(downstreamRuns, stage, request.DownstreamRuns);
+
+        progress.StageOverridesJson = SerializeOrNull(stageOverrides);
+        progress.DownstreamRunsJson = SerializeOrNull(downstreamRuns);
+
+        if (string.Equals(stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase))
         {
-            progress.StageOverridesJson = System.Text.Json.JsonSerializer.Serialize(
-                request.StageOverrides,
-                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+            progress.UploadedFilesJson = SerializeListOrNull(request.UploadedFiles);
         }
 
-        // 保存下游运行记录
-        if (request.DownstreamRuns is not null)
+        if (string.Equals(stage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase))
         {
-            progress.DownstreamRunsJson = System.Text.Json.JsonSerializer.Serialize(
-                request.DownstreamRuns,
-                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
-        }
-
-        // 保存对话上传文件列表
-        if (request.UploadedFiles is not null)
-        {
-            progress.UploadedFilesJson = System.Text.Json.JsonSerializer.Serialize(
-                request.UploadedFiles,
-                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
-        }
-
-        // 保存最新产物包结构
-        if (request.PackageStructure is not null)
-        {
-            progress.PackageStructureJson = System.Text.Json.JsonSerializer.Serialize(
-                request.PackageStructure,
-                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+            progress.PackageStructureJson = SerializePackageStructureOrNull(request.PackageStructure);
         }
 
         progress.UpdatedAtUtc = DateTimeOffset.UtcNow;
@@ -658,17 +656,21 @@ internal sealed class EmployeeHiringService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        logger.LogInformation("保存运行时状态成功: HireId={HireId}, HasOverrides={HasOverrides}, HasRuns={HasRuns}, HasFiles={HasFiles}, HasPackage={HasPackage}",
-            hireId, request.StageOverrides is not null, request.DownstreamRuns is not null,
-            request.UploadedFiles is not null, request.PackageStructure is not null);
+        logger.LogInformation("Runtime state stage saved. HireId={HireId}, Stage={Stage}", hireId, stage);
 
         return ApiResponse<bool>.SuccessResponse(true);
     }
 
-    public async Task<ApiResponse<RuntimeStateDto>> GetRuntimeStateAsync(
+    public async Task<ApiResponse<RuntimeStateDto>> GetRuntimeStateByStageAsync(
         string hireId,
+        string stage,
         CancellationToken cancellationToken = default)
     {
+        if (!IsSupportedRuntimeStateStage(stage))
+        {
+            return ApiResponse<RuntimeStateDto>.ErrorResponse(400, $"Unsupported runtime state stage: {stage}");
+        }
+
         var progress = await dbContext.HiringStageProgresses
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.HireId == hireId, cancellationToken);
@@ -678,77 +680,215 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<RuntimeStateDto>.SuccessResponse(new RuntimeStateDto());
         }
 
-        // 反序列化阶段覆盖配置
-        IReadOnlyDictionary<string, object>? stageOverrides = null;
-        if (!string.IsNullOrWhiteSpace(progress.StageOverridesJson))
-        {
-            try
-            {
-                stageOverrides = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(
-                    progress.StageOverridesJson,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "反序列化阶段覆盖配置失败: HireId={HireId}", hireId);
-            }
-        }
+        var stageOverrides = FilterStageOverridesByStage(DeserializeRuntimeStateDictionary(progress.StageOverridesJson), stage);
+        var downstreamRuns = FilterDownstreamRunsByStage(DeserializeDownstreamRuns(progress.DownstreamRunsJson), stage);
 
-        // 反序列化下游运行记录
-        IReadOnlyDictionary<string, DownstreamRunInfo>? downstreamRuns = null;
-        if (!string.IsNullOrWhiteSpace(progress.DownstreamRunsJson))
-        {
-            try
-            {
-                downstreamRuns = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, DownstreamRunInfo>>(
-                    progress.DownstreamRunsJson,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "反序列化下游运行记录失败: HireId={HireId}", hireId);
-            }
-        }
-
-        // 反序列化对话上传文件列表
         IReadOnlyList<PersistedChatFileDto>? uploadedFiles = null;
-        if (!string.IsNullOrWhiteSpace(progress.UploadedFilesJson))
+        if (string.Equals(stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase))
         {
-            try
-            {
-                uploadedFiles = System.Text.Json.JsonSerializer.Deserialize<List<PersistedChatFileDto>>(
-                    progress.UploadedFilesJson,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "反序列化上传文件列表失败: HireId={HireId}", hireId);
-            }
+            uploadedFiles = DeserializeUploadedFiles(progress.UploadedFilesJson);
         }
 
-        // 反序列化最新产物包结构
         PersistedPackageStructureDto? packageStructure = null;
-        if (!string.IsNullOrWhiteSpace(progress.PackageStructureJson))
+        if (string.Equals(stage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase))
         {
-            try
-            {
-                packageStructure = System.Text.Json.JsonSerializer.Deserialize<PersistedPackageStructureDto>(
-                    progress.PackageStructureJson,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "反序列化产物包结构失败: HireId={HireId}", hireId);
-            }
+            packageStructure = DeserializePackageStructure(progress.PackageStructureJson);
         }
 
         return ApiResponse<RuntimeStateDto>.SuccessResponse(new RuntimeStateDto
         {
-            StageOverrides = stageOverrides,
-            DownstreamRuns = downstreamRuns,
+            StageOverrides = stageOverrides.Count > 0 ? stageOverrides : null,
+            DownstreamRuns = downstreamRuns.Count > 0 ? downstreamRuns : null,
             UploadedFiles = uploadedFiles,
             PackageStructure = packageStructure,
         });
+    }
+
+    private static bool IsSupportedRuntimeStateStage(string stage)
+    {
+        return string.Equals(stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(stage, HiringCollectionStage.External, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(stage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<string, object> DeserializeRuntimeStateDictionary(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, object>>(json, RuntimeStateSerializerOptions) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static Dictionary<string, DownstreamRunInfo> DeserializeDownstreamRuns(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, DownstreamRunInfo>>(json, RuntimeStateSerializerOptions) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private IReadOnlyList<PersistedChatFileDto>? DeserializeUploadedFiles(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<PersistedChatFileDto>>(json, RuntimeStateSerializerOptions);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "反序列化上传文件列表失败");
+            return null;
+        }
+    }
+
+    private PersistedPackageStructureDto? DeserializePackageStructure(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<PersistedPackageStructureDto>(json, RuntimeStateSerializerOptions);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "反序列化产物包结构失败");
+            return null;
+        }
+    }
+
+    private static IReadOnlyCollection<string> GetDownstreamRunKeys(string stage)
+    {
+        if (string.Equals(stage, HiringCollectionStage.Material, StringComparison.OrdinalIgnoreCase))
+        {
+            return ["ontology-extraction", "ontology-projection"];
+        }
+
+        if (string.Equals(stage, HiringCollectionStage.Skill, StringComparison.OrdinalIgnoreCase))
+        {
+            return ["skill-generation"];
+        }
+
+        if (string.Equals(stage, HiringCollectionStage.ReadyForPackaging, StringComparison.OrdinalIgnoreCase))
+        {
+            return ["packaging-test-cases"];
+        }
+
+        return [];
+    }
+
+    private static Dictionary<string, object> FilterStageOverridesByStage(
+        Dictionary<string, object> stageOverrides,
+        string stage)
+    {
+        if (stageOverrides.TryGetValue(stage, out var value))
+        {
+            return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            {
+                [stage] = value,
+            };
+        }
+
+        return [];
+    }
+
+    private static Dictionary<string, DownstreamRunInfo> FilterDownstreamRunsByStage(
+        Dictionary<string, DownstreamRunInfo> downstreamRuns,
+        string stage)
+    {
+        var keys = GetDownstreamRunKeys(stage);
+        return downstreamRuns
+            .Where(entry => keys.Contains(entry.Key, StringComparer.OrdinalIgnoreCase))
+            .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void ApplyStageOverridePatch(
+        Dictionary<string, object> current,
+        string stage,
+        IReadOnlyDictionary<string, object>? incoming)
+    {
+        current.Remove(stage);
+
+        if (incoming is null)
+        {
+            return;
+        }
+
+        if (incoming.TryGetValue(stage, out var value))
+        {
+            current[stage] = value;
+        }
+    }
+
+    private static void ApplyDownstreamRunPatch(
+        Dictionary<string, DownstreamRunInfo> current,
+        string stage,
+        IReadOnlyDictionary<string, DownstreamRunInfo>? incoming)
+    {
+        var allowedKeys = GetDownstreamRunKeys(stage);
+        foreach (var key in allowedKeys)
+        {
+            current.Remove(key);
+        }
+
+        if (incoming is null)
+        {
+            return;
+        }
+
+        foreach (var entry in incoming)
+        {
+            if (allowedKeys.Contains(entry.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                current[entry.Key] = entry.Value;
+            }
+        }
+    }
+
+    private static string? SerializeOrNull<TValue>(Dictionary<string, TValue> value)
+    {
+        return value.Count == 0
+            ? null
+            : JsonSerializer.Serialize(value, RuntimeStateSerializerOptions);
+    }
+
+    private static string? SerializeListOrNull<TValue>(IReadOnlyList<TValue>? value)
+    {
+        return value is { Count: > 0 }
+            ? JsonSerializer.Serialize(value, RuntimeStateSerializerOptions)
+            : null;
+    }
+
+    private static string? SerializePackageStructureOrNull(PersistedPackageStructureDto? value)
+    {
+        return value is not null && !string.IsNullOrWhiteSpace(value.FileName)
+            ? JsonSerializer.Serialize(value, RuntimeStateSerializerOptions)
+            : null;
     }
 
     public async Task<ApiResponse<HiringFinalizeResultDto>> ImportPackageAsync(

@@ -87,6 +87,8 @@ export type {
   HandoffItem,
   PersistedChatFile,
   PersistedPackageStructure,
+  RuntimeStateSaveRequest,
+  RuntimeStateStage,
 } from './modules/hiringWorkflowApi'
 
 export type {

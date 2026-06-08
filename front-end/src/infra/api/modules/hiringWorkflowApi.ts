@@ -292,6 +292,8 @@ export interface RuntimeStateSaveRequest {
   packageStructure?: PersistedPackageStructure
 }
 
+export type RuntimeStateStage = HiringCollectionStageType
+
 /** 持久化的对话上传文件元数据（不含 rawFile / content 等大字段） */
 export interface PersistedChatFile {
   id: string
@@ -707,14 +709,19 @@ export const hiringWorkflowApi = {
     return envelope.data
   },
 
-  /** 获取运行时状态（阶段覆盖 + 下游运行记录）。*/
-  async getRuntimeState(hireId: string): Promise<RuntimeStateSnapshot> {
-    return httpClient.get<RuntimeStateSnapshot>(`/api/v1/hirings/${encodeURIComponent(hireId)}/runtime-state`)
+  /** 按阶段获取运行时状态。*/
+  async getRuntimeStateByStage(hireId: string, stage: RuntimeStateStage): Promise<RuntimeStateSnapshot> {
+    return httpClient.get<RuntimeStateSnapshot>(
+      `/api/v1/hirings/${encodeURIComponent(hireId)}/runtime-state/${encodeURIComponent(stage)}`,
+    )
   },
 
-  /** 保存运行时状态（阶段覆盖 + 下游运行记录）。*/
-  async saveRuntimeState(hireId: string, state: RuntimeStateSaveRequest): Promise<void> {
-    await httpClient.put<boolean>(`/api/v1/hirings/${encodeURIComponent(hireId)}/runtime-state`, state)
+  /** 按阶段保存运行时状态。*/
+  async saveRuntimeStateByStage(hireId: string, stage: RuntimeStateStage, state: RuntimeStateSaveRequest): Promise<void> {
+    await httpClient.put<boolean>(
+      `/api/v1/hirings/${encodeURIComponent(hireId)}/runtime-state/${encodeURIComponent(stage)}`,
+      state,
+    )
   },
 
   async getExternalConfig(hireId: string): Promise<HiringExternalSystemConfig> {

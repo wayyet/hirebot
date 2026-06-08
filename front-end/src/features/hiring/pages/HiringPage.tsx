@@ -58,6 +58,7 @@ import {
   isPackagingTestCasesApprovalMessage,
   isPackagingTestCasesSkipMessage,
 } from './utils/hiringDownstreamTriggers'
+import { RUNTIME_STATE_STAGE_SEQUENCE } from './utils/hiringRuntimeState'
 import { HiringConversationPanel } from './components/HiringConversationPanel'
 import { HiringJourneyHeader } from './components/HiringJourneyHeader'
 import { HiringProgressLedger } from './components/HiringProgressLedger'
@@ -421,51 +422,69 @@ export default function HiringPage() {
   // 从后端恢复运行时状态（stageOverrides、downstreamRuns、uploadedFiles、packageStructure）
   async function restoreRuntimeState(hireId: string): Promise<boolean> {
     try {
-      const state = await api.hiringWorkflow.getRuntimeState(hireId)
       let restored = false
+      const restoredStageOverrides: CachedStageOverride[] = []
+      let restoredDownstreamRuns: DownstreamRunsSnapshot | null = null
 
       // 恢复阶段覆盖配置
-      if (state.stageOverrides && Object.keys(state.stageOverrides).length > 0) {
-        const stageOverridesEntries = Object.entries(state.stageOverrides) as CachedStageOverride[]
-        setWsStageOverrides(new Map(stageOverridesEntries))
-        restored = true
-      }
+      for (const stage of RUNTIME_STATE_STAGE_SEQUENCE) {
+        const state = await api.hiringWorkflow.getRuntimeStateByStage(hireId, stage)
+
+        if (state.stageOverrides && Object.keys(state.stageOverrides).length > 0) {
+          restoredStageOverrides.push(...Object.entries(state.stageOverrides) as CachedStageOverride[])
+          restored = true
+        }
 
       // 恢复下游运行记录
-      if (state.downstreamRuns && Object.keys(state.downstreamRuns).length > 0) {
-        const merged: DownstreamRunsSnapshot = { ...downstreamRunsRef.current, ...state.downstreamRuns }
-        downstreamRunsRef.current = merged
-        setDownstreamRuns(merged)
-        restored = true
-      }
+        if (state.downstreamRuns && Object.keys(state.downstreamRuns).length > 0) {
+          restoredDownstreamRuns = { ...(restoredDownstreamRuns ?? downstreamRunsRef.current), ...state.downstreamRuns }
+          restored = true
+        }
 
       // 恢复对话上传文件列表（rawFile 丢失无影响，仅用于 MaterialCard 显示计数）
-      if (state.uploadedFiles && state.uploadedFiles.length > 0) {
-        const restoredFiles: ChatFile[] = state.uploadedFiles.map(f => ({
-          id: f.id,
-          name: f.name,
-          size: f.size,
-          status: f.status as ChatFile['status'],
-          type: f.type as ChatFile['type'],
-          mimeType: f.mimeType,
-          metadata: f.metadata,
-        }))
-        setAllFiles(restoredFiles)
-        restored = true
-      }
+        if (state.uploadedFiles && state.uploadedFiles.length > 0) {
+          const restoredFiles: ChatFile[] = state.uploadedFiles.map(f => ({
+            id: f.id,
+            name: f.name,
+            size: f.size,
+            status: f.status as ChatFile['status'],
+            type: f.type as ChatFile['type'],
+            mimeType: f.mimeType,
+            metadata: f.metadata,
+          }))
+          setAllFiles(restoredFiles)
+          restored = true
+        }
 
       // 恢复最新产物包结构（不恢复 blob，仅恢复显示用的文件名和结构数据）
-      if (state.packageStructure?.fileName) {
-        setArtifactFileNames(state.packageStructure.fileNames ?? [])
+        if (state.packageStructure?.fileName) {
+          setArtifactFileNames(state.packageStructure.fileNames ?? [])
         // 无 blob 时仅设 fileName 以便 FinalCard 显示包名；artifactArchive blob 留 null
         // canDownloadFinalPackage 依赖 artifactArchive.blob，刷新后不可下载但可显示包名
-        setRestoredPackageFileName(state.packageStructure.fileName)
+          setRestoredPackageFileName(state.packageStructure.fileName)
         // 恢复员工实例 ID：如果包内储了 employeeId，则恢复评估入口
-        if (state.packageStructure.employeeId) {
-          setCreatedId(state.packageStructure.employeeId)
-          setInstanceCreated(true)
+          if (state.packageStructure.employeeId) {
+            setCreatedId(state.packageStructure.employeeId)
+            setInstanceCreated(true)
+          }
+          restored = true
         }
-        restored = true
+
+      }
+
+      if (restoredStageOverrides.length > 0) {
+        setWsStageOverrides(prev => {
+          const next = new Map(prev)
+          for (const entry of restoredStageOverrides) {
+            next.set(entry[0], entry[1])
+          }
+          return next
+        })
+      }
+
+      if (restoredDownstreamRuns) {
+        downstreamRunsRef.current = restoredDownstreamRuns
+        setDownstreamRuns(restoredDownstreamRuns)
       }
 
       return restored
@@ -1972,8 +1991,8 @@ export default function HiringPage() {
       if (finalizeResult.employeeId) {
         setCreatedId(finalizeResult.employeeId)
       }
-      // 直接使用已下载的产物包，无需再从后端下载
-      setArtifactArchive({ fileName: artifact.fileName, blob: packageBlob })
+      // 后续下载统一走后端 final_package_zip，避免继续使用沙箱原始 ZIP 缓存。
+      setArtifactArchive(null)
       setInstanceCreated(true)
       setWorkflowError('')
       setWorkflowNotice('')
@@ -1993,14 +2012,33 @@ export default function HiringPage() {
     }
   }
 
+  async function downloadPersistedFinalPackage() {
+    if (!workflowHireId) {
+      setWorkflowNotice(t('hiring.artifact.waitForFinalPackage'))
+      return
+    }
+
+    try {
+      const artifact = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
+      setArtifactArchive(artifact)
+      downloadBlob(artifact.blob, artifact.fileName)
+      setWorkflowError('')
+      setWorkflowNotice('')
+    } catch (error: unknown) {
+      setWorkflowError(normalizeErrorMessage(error))
+    }
+  }
+
   /** template_package 卡片：仅下载后端 final 交付包 */
   async function downloadTemplatePackageFinal() {
     if (!canDownloadFinalPackage || !workflowHireId) {
       setWorkflowNotice(t('hiring.artifact.waitForFinalPackage'))
       return
     }
+    await downloadPersistedFinalPackage()
+    return
     if (artifactArchive) {
-      downloadBlob(artifactArchive.blob, artifactArchive.fileName)
+      downloadBlob(artifactArchive!.blob, artifactArchive!.fileName)
       setWorkflowNotice('')
       return
     }
@@ -2150,7 +2188,11 @@ export default function HiringPage() {
         turnSyncBarrierRef.current = Promise.resolve()
 
         // 清除后端运行时状态，确保重置后刷新页面不会恢复旧记录
-        api.hiringWorkflow.saveRuntimeState(hireId, {}).catch(() => {})
+        await Promise.all(
+          RUNTIME_STATE_STAGE_SEQUENCE.map(stage =>
+            api.hiringWorkflow.saveRuntimeStateByStage(hireId, stage, {}).catch(() => {}),
+          ),
+        )
 
         // 重新连接 WebSocket
         const endpoint = gatewayEndpointRef.current
@@ -2302,16 +2344,12 @@ export default function HiringPage() {
             createdId={createdId}
             summaryItems={[{ label: '已上传文件', value: String(uploadedFileCount) }]}
             artifactFileNames={artifactFileNames}
-            hasArtifactArchive={Boolean(artifactArchive)}
+            hasArtifactArchive={canDownloadFinalPackage}
             onContinue={handlePrototypeContinue}
             onFinalize={() => { void handleRequestPackaging() }}
             onEnterTraining={(employeeId) => navigate(`/department-employees/instances/${employeeId}/training`)}
             onDownloadArtifact={(artifactName) => { void downloadBackendArtifact(artifactName) }}
-            onDownloadArchive={() => {
-              if (artifactArchive) {
-                downloadBlob(artifactArchive.blob, artifactArchive.fileName)
-              }
-            }}
+            onDownloadArchive={() => { void downloadPersistedFinalPackage() }}
           />
 
           {/* MCP TODO 交互面板：完全由 WS artifact 事件驱动阶段亮灯 */}
