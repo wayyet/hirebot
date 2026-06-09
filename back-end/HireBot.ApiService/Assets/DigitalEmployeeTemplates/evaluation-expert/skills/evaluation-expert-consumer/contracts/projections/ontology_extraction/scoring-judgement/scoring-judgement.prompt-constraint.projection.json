@@ -10,7 +10,7 @@
     "target_runtime": "llm_orchestrator",
     "projection_goal": "Provide the evaluation-expert-consumer skill with a prompt-side judgement contract that enforces strict, evidence-driven scoring with explicit red-line triggers and a 50-point baseline.",
     "source_slice": {
-      "path": "../../../../SKILL.md",
+      "path": "SKILL.md",
       "slice_topic": "strict scoring judgement, red-line triggers, evidence-driven adjustments, anti-leniency stance",
       "schema_version": "1.0.0"
     },

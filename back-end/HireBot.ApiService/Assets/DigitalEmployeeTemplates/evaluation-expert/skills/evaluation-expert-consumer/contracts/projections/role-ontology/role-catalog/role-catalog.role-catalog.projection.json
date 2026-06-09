@@ -9,7 +9,7 @@
     "target_runtime": "evaluation_expert_consumer",
     "projection_goal": "Declare the schema, governance, discovery rules, inheritance policy, and canonicalization contract for the hot-loadable role registry consumed by evaluation-expert-consumer STEP 0 resolveEmployee.",
     "source_slice": {
-      "path": "../../../../role-catalog/",
+      "path": "role-catalog/",
       "slice_topic": "authoritative employee role definitions (role_id / industry / responsibility_tags / parent_role inheritance / aliases for canonicalization)",
       "schema_version": "1.0.0"
     },

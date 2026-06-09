@@ -1,38 +1,16 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 
 namespace HireBot.Core.Services.Hiring.TemplatePackages;
 
-internal sealed class FileSystemTemplatePackageProvider(
-    IHostEnvironment hostEnvironment,
-    IConfiguration configuration) : ITemplatePackageProvider
+internal sealed class FileSystemTemplatePackageProvider
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
     };
-
-    public async Task<TemplatePackageDefinition> LoadAsync(string templateId, CancellationToken cancellationToken = default)
-    {
-        var normalizedTemplateId = string.IsNullOrWhiteSpace(templateId) ? "default" : templateId.Trim();
-        var configuredRoot = configuration["HireBot:TemplatePackagesRoot"];
-        var packagesRoot = HiringAssetFileSystem.ResolveDirectory(
-            hostEnvironment.ContentRootPath,
-            configuredRoot,
-            Path.Combine("Assets", "TemplatePackages"));
-
-        var candidatePath = Path.Combine(packagesRoot, HiringAssetFileSystem.SanitizePathSegment(normalizedTemplateId));
-        if (!Directory.Exists(candidatePath))
-        {
-            candidatePath = Path.Combine(packagesRoot, "default");
-        }
-
-        return await LoadFromDirectoryAsync(candidatePath, normalizedTemplateId, cancellationToken);
-    }
 
     internal async Task<TemplatePackageDefinition> LoadFromDirectoryAsync(
         string directoryPath,
@@ -52,8 +30,8 @@ internal sealed class FileSystemTemplatePackageProvider(
         string requestedTemplateId,
         CancellationToken cancellationToken)
     {
-        // 兼容历史目录：当 packageRoot 下没有 manifest.json，但只存在唯一一个子目录且该子目录是真正的包根时，
-        // 自动下沉一层，避免产物里多出 <wrapper>/ 顶层包裹目录。
+        // 鍏煎鍘嗗彶鐩綍锛氬綋 packageRoot 涓嬫病鏈?manifest.json锛屼絾鍙瓨鍦ㄥ敮涓€涓€涓瓙鐩綍涓旇瀛愮洰褰曟槸鐪熸鐨勫寘鏍规椂锛?
+        // 鑷姩涓嬫矇涓€灞傦紝閬垮厤浜х墿閲屽鍑?<wrapper>/ 椤跺眰鍖呰９鐩綍銆?
         packageRoot = ResolveEffectivePackageRoot(packageRoot);
 
         var manifestPath = Path.Combine(packageRoot, "manifest.json");
@@ -109,7 +87,7 @@ internal sealed class FileSystemTemplatePackageProvider(
             var content = await File.ReadAllTextAsync(fullPath, cancellationToken);
             var normalizedRelativePath = relativePath.Replace('\\', '/').TrimStart('/');
             skills.Add(new TemplateSkillAsset(
-                // manifest 未声明 name 时，从 skills/<slug>/... 提取更稳妥。
+                // manifest 鏈０鏄?name 鏃讹紝浠?skills/<slug>/... 鎻愬彇鏇寸ǔ濡ャ€?
                 Name: FirstNonEmpty(skill.Name, ExtractSkillName(normalizedRelativePath), Path.GetFileNameWithoutExtension(fullPath)),
                 RelativePath: normalizedRelativePath,
                 Required: skill.Required ?? false,
@@ -355,8 +333,8 @@ internal sealed class FileSystemTemplatePackageProvider(
         return segments.Length >= 2 ? segments[1] : Path.GetFileNameWithoutExtension(relativePath);
     }
 
-    // 当 packageRoot 下没有 manifest.json，但仅存在单个子目录且该子目录里有 manifest.json 或 skills/、ontology/、config/ 等约定子目录时，
-    // 视作包裹目录，自动下沉到该子目录。这样可以让 Assets/TemplatePackages/default/NCrewTemplate/ 也被识别为真正的包根。
+    // 褰?packageRoot 涓嬫病鏈?manifest.json锛屼絾浠呭瓨鍦ㄥ崟涓瓙鐩綍涓旇瀛愮洰褰曢噷鏈?manifest.json 鎴?skills/銆乷ntology/銆乧onfig/ 绛夌害瀹氬瓙鐩綍鏃讹紝
+    // 瑙嗕綔鍖呰９鐩綍锛岃嚜鍔ㄤ笅娌夊埌璇ュ瓙鐩綍锛屽吋瀹瑰灞傚寘瑁呯洰褰曠粨鏋勩€?
     private static string ResolveEffectivePackageRoot(string packageRoot)
     {
         if (!Directory.Exists(packageRoot))
@@ -364,7 +342,7 @@ internal sealed class FileSystemTemplatePackageProvider(
             return packageRoot;
         }
 
-        // 根目录已经有 manifest 或常见包内容文件 → 不需要下沉。
+        // 鏍圭洰褰曞凡缁忔湁 manifest 鎴栧父瑙佸寘鍐呭鏂囦欢 鈫?涓嶉渶瑕佷笅娌夈€?
         if (File.Exists(Path.Combine(packageRoot, "manifest.json")))
         {
             return packageRoot;
@@ -524,3 +502,5 @@ internal sealed class FileSystemTemplatePackageProvider(
         [property: JsonPropertyName("description")] string? Description,
         [property: JsonPropertyName("required_fields")] IReadOnlyList<string>? RequiredFields);
 }
+
+

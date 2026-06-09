@@ -10,7 +10,7 @@
     "target_runtime": "evaluation_expert_consumer",
     "projection_goal": "Declare the schema, governance, discovery rules, and provenance policy for the hot-loadable evaluation test case catalog consumed by evaluation-expert-consumer.",
     "source_slice": {
-      "path": "../../../../test-cases/",
+      "path": "test-cases/",
       "slice_topic": "evaluation test cases (input + expected_output + applicable_roles + applicable_scenarios + provenance)",
       "schema_version": "1.0.0"
     },

@@ -108,11 +108,7 @@ public static class HireBotPathResolver
             Path.Combine(Directory.GetCurrentDirectory(), DefaultDataRoot, DefaultInstanceFixturesSubdir),
             Path.Combine(Directory.GetCurrentDirectory(), "src", "HireBot.ApiService", DefaultDataRoot, DefaultInstanceFixturesSubdir),
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", DefaultDataRoot, DefaultInstanceFixturesSubdir)),
-            Path.Combine(AppContext.BaseDirectory, DefaultDataRoot, DefaultInstanceFixturesSubdir),
-            Path.Combine(Directory.GetCurrentDirectory(), "Assets", "InstanceFixtures"),
-            Path.Combine(Directory.GetCurrentDirectory(), "src", "HireBot.ApiService", "Assets", "InstanceFixtures"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "InstanceFixtures")),
-            Path.Combine(AppContext.BaseDirectory, "Assets", "InstanceFixtures")
+            Path.Combine(AppContext.BaseDirectory, DefaultDataRoot, DefaultInstanceFixturesSubdir)
         };
 
         return candidates.FirstOrDefault(Directory.Exists);

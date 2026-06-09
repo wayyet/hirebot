@@ -18,83 +18,6 @@ public sealed class InstanceArtifactCloneServiceTests
         public IFileProvider ContentRootFileProvider { get; set; } = new PhysicalFileProvider(Directory.GetCurrentDirectory());
     }
     [Fact]
-    public async Task CloneArtifactsAsync_ShouldFallbackToTemplatePackage_WhenSourceHasOnlyMetadata()
-    {
-        var tempRoot = Path.Combine(Path.GetTempPath(), "hirebot-artifact-clone-tests", Guid.NewGuid().ToString("N"));
-        var artifactRoot = Path.Combine(tempRoot, "artifacts");
-        var templateRoot = Path.Combine(tempRoot, "templates");
-        Directory.CreateDirectory(artifactRoot);
-        Directory.CreateDirectory(templateRoot);
-
-        try
-        {
-            CreateMetadataOnlySourcePackage(artifactRoot);
-            CreateTemplatePackage(templateRoot);
-
-            var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(
-                [
-                    new KeyValuePair<string, string?>("HireBot:ArtifactStoreRoot", artifactRoot),
-                    new KeyValuePair<string, string?>("HireBot:TemplatePackagesRoot", templateRoot),
-                    new KeyValuePair<string, string?>("HireBot:DataRoot", "data"),
-                    new KeyValuePair<string, string?>("HireBot:PersonalCloneArtifactsRoot", "personal-clone-artifacts")
-                ])
-                .Build();
-
-            await using var dbContext = CreateDbContext();
-            dbContext.Instances.Add(new Repository.Entities.InstanceEntity
-            {
-                InstanceId = "source-001",
-                TenantId = "tenant-a",
-                InstanceType = "department",
-                Status = "live",
-                BasedOnTemplateId = "sales-coach",
-                FromInstanceId = null,
-                EvalReportId = null,
-                OwnerUserId = "owner-a",
-                DepartmentId = "tenant-a",
-                CurrentVersion = "v_meta",
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow,
-            });
-            await dbContext.SaveChangesAsync();
-
-            var service = new InstanceArtifactCloneService(
-                configuration,
-                new TestHostingEnvironment
-                {
-                    ContentRootPath = tempRoot,
-                    ContentRootFileProvider = new PhysicalFileProvider(tempRoot)
-                },
-                dbContext,
-                null!);
-            var source = BuildEmployee("source-001", "sales-coach");
-
-            var result = await service.CloneArtifactsAsync(source, "clone-001");
-
-            Assert.NotEmpty(result.CopiedFiles);
-            Assert.Contains("manifest.json", result.CopiedFiles);
-            Assert.Contains("README.md", result.CopiedFiles);
-            Assert.Contains(Path.Combine("skills", "pipeline-qualifier", "SKILL.md").Replace('\\', '/'), result.CopiedFiles);
-
-            var copiedFile = Path.Combine(result.TargetRootPath, "manifest.json");
-            Assert.True(File.Exists(copiedFile));
-            Assert.Equal("{\"name\":\"template\"}", await File.ReadAllTextAsync(copiedFile));
-            Assert.StartsWith(
-                Path.Combine(tempRoot, "data", "personal-clone-artifacts", "source-001", "clone-001"),
-                result.TargetRootPath,
-                StringComparison.OrdinalIgnoreCase);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRoot))
-            {
-                Directory.Delete(tempRoot, recursive: true);
-            }
-        }
-    }
-
-    [Fact]
     public async Task CloneArtifactsAsync_ShouldReadSourceFromDigitalWorkforceRoot_AndStoreCloneUnderDataRoot()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "hirebot-artifact-clone-tests", Guid.NewGuid().ToString("N"));
@@ -286,17 +209,6 @@ public sealed class InstanceArtifactCloneServiceTests
         Directory.CreateDirectory(sourceRoot);
         File.WriteAllText(Path.Combine(sourceRoot, "instance.json"), "{\"employeeId\":\"source-001\"}");
         File.WriteAllText(Path.Combine(sourceRoot, "manifest.json"), "{\"name\":\"source\"}");
-    }
-
-    private static void CreateTemplatePackage(string templateRoot)
-    {
-        var packageRoot = Path.Combine(templateRoot, "sales-coach");
-        Directory.CreateDirectory(Path.Combine(packageRoot, "skills", "pipeline-qualifier"));
-        Directory.CreateDirectory(Path.Combine(packageRoot, "ontology"));
-        File.WriteAllText(Path.Combine(packageRoot, "manifest.json"), "{\"name\":\"template\"}");
-        File.WriteAllText(Path.Combine(packageRoot, "README.md"), "template readme");
-        File.WriteAllText(Path.Combine(packageRoot, "ontology", "sales-discovery-slice.md"), "slice");
-        File.WriteAllText(Path.Combine(packageRoot, "skills", "pipeline-qualifier", "SKILL.md"), "skill");
     }
 
     private static EmployeeDetailDto BuildEmployee(string employeeId, string templateId)

@@ -10,7 +10,7 @@
     "target_runtime": "evaluation_expert_consumer",
     "projection_goal": "Provide the deterministic, role-agnostic 11-step evaluation workflow that drives an employee through scenarios, fans out per-metric LLM scoring, aggregates deterministically with red-line enforcement, and produces both per-scenario reports (STEP 8) and a final consolidated report (STEP 9).",
     "source_slice": {
-      "path": "../../../../SKILL.md",
+      "path": "SKILL.md",
       "slice_topic": "evaluation orchestration steps, fan-out scoring boundary, deterministic aggregation and red-line enforcement",
       "schema_version": "1.0.0"
     },

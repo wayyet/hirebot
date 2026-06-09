@@ -10,7 +10,7 @@
     "target_runtime": "evaluation_expert_consumer",
     "projection_goal": "Provide the evaluation-expert-consumer skill with a workflow contract for evaluating e-commerce customer-service employees, covering red-line gating, dimension scoring, ticket-creation expectations, and closing confirmation.",
     "source_slice": {
-      "path": "../../../../SKILL.md",
+      "path": "SKILL.md",
       "slice_topic": "e-commerce customer-service evaluation pipeline with red-line gating and evidence-driven scoring",
       "schema_version": "1.0.0"
     },

@@ -10,7 +10,7 @@
     "target_runtime": "evaluation_expert_consumer",
     "projection_goal": "Declare the schema, governance, discovery rules, and roll-up policy for the hot-loadable evaluation metric registry consumed by evaluation-expert-consumer.",
     "source_slice": {
-      "path": "../../../../metrics/",
+      "path": "metrics/",
       "slice_topic": "evaluation sub-metric definitions (rubric / applicability / slice selector / aggregation / optional red-line)",
       "schema_version": "1.0.0"
     },
