@@ -21,6 +21,7 @@ internal sealed record SandboxProvisioningSettings(
     string OidcAuthority,
     string OidcAudience,
     string ToolTimeoutSeconds,
+    string LlmProvider,
     string LlmModel,
     string LlmEndpoint,
     string LlmApiKey,
@@ -124,6 +125,7 @@ internal sealed record SandboxProvisioningSettings(
             configuration["OpenSandbox:KingCrab:OidcAuthority"] ?? string.Empty,
             configuration["OpenSandbox:KingCrab:OidcAudience"] ?? "account",
             configuration["OpenSandbox:KingCrab:ToolTimeoutSeconds"] ?? "300",
+            configuration["OpenSandbox:KingCrab:LlmProvider"] ?? "openai",
             configuration["OpenSandbox:KingCrab:LlmModel"] ?? string.Empty,
             configuration["OpenSandbox:KingCrab:LlmEndpoint"] ?? string.Empty,
             configuration["OpenSandbox:KingCrab:LlmApiKey"] ?? string.Empty,
@@ -177,6 +179,9 @@ internal sealed record SandboxProvisioningSettings(
             ["OpenClaw__Security__AllowUnsafeToolingOnPublicBind"] = "true",
             ["OpenClaw__Security__AllowPluginBridgeOnPublicBind"] = "true",
             ["OpenClaw__Security__AllowRawSecretRefsOnPublicBind"] = "true",
+            // Canvas 默认 Enabled=true，但 AllowOnPublicBind=false，绑定 0.0.0.0 时会触发启动拒绝异常。
+            // 沙箱容器场景下显式 opt-in，保留 Canvas 功能。
+            ["OpenClaw__Canvas__AllowOnPublicBind"] = "true",
             ["OpenClaw__Plugins__Enabled"] = "true",
             ["OpenClaw__Plugins__Mcp__Enabled"] = "true",
             ["OpenClaw__Tooling__AllowShell"] = "true",
@@ -198,7 +203,7 @@ internal sealed record SandboxProvisioningSettings(
             ["MODEL_PROVIDER_MODEL"] = LlmModel,
             ["MODEL_PROVIDER_ENDPOINT"] = LlmEndpoint,
             // 通过 ASP.NET Core 配置覆盖沙箱容器内置的 appsettings.Production.json LLM 配置
-            ["OpenClaw__Llm__Provider"] = "openai",
+            ["OpenClaw__Llm__Provider"] = LlmProvider,
             ["OpenClaw__Llm__Model"] = LlmModel,
             ["OpenClaw__Llm__ApiKey"] = LlmApiKey,
             ["OpenClaw__Llm__Endpoint"] = LlmEndpoint,
