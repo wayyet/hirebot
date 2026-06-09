@@ -246,6 +246,7 @@ public sealed class HiringMaterialFilesController(
             dbContext.HiringAuditLogs.Add(new HiringAuditLogEntity
             {
                 SessionId = uploadContext.SessionId,
+                TenantId = uploadContext.TenantId,
                 HireId = uploadContext.HireId,
                 Action = "upload_material_file",
                 Actor = uploadContext.UploadedBy,
@@ -306,7 +307,13 @@ public sealed class HiringMaterialFilesController(
         if (!string.Equals(session.SessionId, normalizedSessionId, StringComparison.Ordinal))
             return ContextResult<MaterialUploadContext>.Failure(409, "session_id 与当前雇佣会话不匹配");
 
-        // 查找关联的沙箱
+        var tenantId = session.TenantId ?? dbContext.TenantId ?? "default";
+        // Recover the workspace root recorded during template bootstrap so uploads can be mirrored into the session workspace.
+        var progress = await dbContext.HiringStageProgresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.HireId == normalizedHireId, cancellationToken);
+        var workspaceRoot = TryResolveWorkspaceRoot(progress?.UploadedFilesJson);
+
         var sandbox = await dbContext.SandboxInstances
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.ScopeType == "Hire" && s.ScopeKey == normalizedHireId, cancellationToken);
@@ -314,11 +321,11 @@ public sealed class HiringMaterialFilesController(
         return ContextResult<MaterialUploadContext>.Ok(new MaterialUploadContext(
             normalizedHireId,
             normalizedSessionId,
-            session.TenantId,
+            tenantId,
             session.OperatorId,
             session.OwnerSubject,
             sandbox?.SandboxId ?? "",
-            null)); // workspaceRoot 暂不需要
+            workspaceRoot));
     }
 
     private string ResolveFilePath(string sessionId, string relativePath)
@@ -449,7 +456,9 @@ public sealed class HiringMaterialFilesController(
     }
 
     /// <summary>
-    /// 对 PDF/DOCX 文件提取文本并作为伴生 .md 同步到 sandbox workspace。
+    /// 对 PDF / DOCX 文件提取文本并落盘为伴生 .md。
+    /// 伴生文件保存到本地 todo-files 目录（供 hiring.parse_uploaded_files 读取），
+    /// 同时尝试同步到 sandbox workspace（workspaceRoot 不可用时仅跳过，不报错）。
     /// 失败时仅记录日志，不阻断主上传流程。
     /// </summary>
     private async Task TrySyncCompanionMarkdownAsync(
@@ -462,51 +471,50 @@ public sealed class HiringMaterialFilesController(
     {
         try
         {
-            var workspaceRoot = NormalizeWorkspaceRoot(uploadContext.WorkspaceRoot);
-            if (workspaceRoot is null) return;
-            var workspaceRootDir = TryConvertWorkspaceRootToTargetDir(workspaceRoot);
-            if (workspaceRootDir is null)
-            {
-                logger.LogWarning(
-                    "[MaterialFiles] Workspace root unavailable, skip companion .md sync. HireId={HireId}",
-                    uploadContext.HireId);
-                return;
-            }
-
             await using var readStream = System.IO.File.OpenRead(localPath);
             var extractedText = MaterialTextExtractor.ExtractText(readStream, ext);
             if (string.IsNullOrWhiteSpace(extractedText)) return;
 
             var companionFileName = MaterialTextExtractor.BuildCompanionMarkdownFileName(safeFileName);
             var companionContent = Encoding.UTF8.GetBytes(extractedText);
-            var targetDir = BuildWorkspaceTargetDir(workspaceRootDir, safeFolder);
 
-            var syncResult = await sandboxService.UploadWorkspaceFileAsync(
-                new SandboxWorkspaceUploadRequestDto
-                {
-                    ScopeType = SandboxScopeTypes.Hire,
-                    ScopeKey = uploadContext.HireId,
-                    SandboxRole = HiringSandboxRole,
-                    OwnerSubject = uploadContext.UploadedBy,
-                    SandboxId = uploadContext.SandboxId,
-                    TargetDir = targetDir,
-                    FileName = companionFileName,
-                    Content = companionContent,
-                    ContentType = "text/markdown"
-                },
-                cancellationToken);
+            // 1) 落盘到本地 todo-files 目录，与原始文件同路径
+            var companionRelativePath = string.IsNullOrWhiteSpace(safeFolder)
+                ? companionFileName
+                : $"{safeFolder}/{companionFileName}";
+            var companionLocalPath = ResolveFilePath(uploadContext.SessionId, companionRelativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(companionLocalPath)!);
+            await System.IO.File.WriteAllBytesAsync(companionLocalPath, companionContent, cancellationToken);
 
-            if (!syncResult.Success)
+            // 2) 尝试同步到 sandbox workspace（best-effort）
+            var workspaceRoot = NormalizeWorkspaceRoot(uploadContext.WorkspaceRoot);
+            if (workspaceRoot is not null)
             {
-                logger.LogWarning(
-                    "[MaterialFiles] Failed to sync companion .md into workspace. HireId={HireId} File={FileName} Message={Message}",
-                    uploadContext.HireId, companionFileName, syncResult.Message);
+                var workspaceRootDir = TryConvertWorkspaceRootToTargetDir(workspaceRoot);
+                if (workspaceRootDir is not null)
+                {
+                    var targetDir = BuildWorkspaceTargetDir(workspaceRootDir, safeFolder);
+                    await sandboxService.UploadWorkspaceFileAsync(
+                        new SandboxWorkspaceUploadRequestDto
+                        {
+                            ScopeType = SandboxScopeTypes.Hire,
+                            ScopeKey = uploadContext.HireId,
+                            SandboxRole = HiringSandboxRole,
+                            OwnerSubject = uploadContext.UploadedBy,
+                            SandboxId = uploadContext.SandboxId,
+                            TargetDir = targetDir,
+                            FileName = companionFileName,
+                            Content = companionContent,
+                            ContentType = "text/markdown"
+                        },
+                        cancellationToken);
+                }
             }
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "[MaterialFiles] Companion .md extraction failed. HireId={HireId} File={FileName}",
+                "[MaterialFiles] Companion .md extraction/sync failed. HireId={HireId} File={FileName}",
                 uploadContext.HireId, safeFileName);
         }
     }
@@ -591,21 +599,45 @@ public sealed class HiringMaterialFilesController(
         }
     }
 
-    private static string? TryResolveWorkspaceRoot(string workflowStateJson)
+    private static string? TryResolveWorkspaceRoot(string? uploadedFilesJson)
     {
-        if (string.IsNullOrWhiteSpace(workflowStateJson))
+        if (string.IsNullOrWhiteSpace(uploadedFilesJson))
         {
             return null;
         }
-
         try
         {
-            var state = JsonSerializer.Deserialize<PersistedWorkflowStateProjection>(workflowStateJson, JsonOptions);
+            var uploadedFiles = JsonSerializer.Deserialize<IReadOnlyList<PersistedChatFileDto>>(uploadedFilesJson, JsonOptions);
+            if (uploadedFiles is not null)
+            {
+                for (var index = uploadedFiles.Count - 1; index >= 0; index--)
+                {
+                    var metadata = uploadedFiles[index].Metadata;
+                    if (metadata is null ||
+                        !metadata.TryGetValue("workspaceDir", out var workspaceDir) ||
+                        string.IsNullOrWhiteSpace(workspaceDir))
+                    {
+                        continue;
+                    }
+                    var normalized = NormalizeWorkspaceRoot(workspaceDir);
+                    if (normalized is not null)
+                    {
+                        return normalized;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall back to the legacy persisted shape for older runtime-state payloads.
+        }
+        try
+        {
+            var state = JsonSerializer.Deserialize<PersistedWorkflowStateProjection>(uploadedFilesJson, JsonOptions);
             if (state?.Materials is null)
             {
                 return null;
             }
-
             for (var index = state.Materials.Count - 1; index >= 0; index--)
             {
                 var material = state.Materials[index];
@@ -615,14 +647,12 @@ public sealed class HiringMaterialFilesController(
                 {
                     continue;
                 }
-
                 var normalized = NormalizeWorkspaceRoot(workspaceDir);
                 if (normalized is not null)
                 {
                     return normalized;
                 }
             }
-
             return null;
         }
         catch (JsonException)
@@ -630,7 +660,6 @@ public sealed class HiringMaterialFilesController(
             return null;
         }
     }
-
     private static string? NormalizeWorkspaceRoot(string? workspaceRoot)
     {
         if (string.IsNullOrWhiteSpace(workspaceRoot))

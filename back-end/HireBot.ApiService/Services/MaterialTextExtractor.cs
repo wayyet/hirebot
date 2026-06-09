@@ -98,7 +98,7 @@ internal static class MaterialTextExtractor
         var sb = new StringBuilder();
 
         using var wordDoc = WordprocessingDocument.Open(stream, false);
-        var body = wordDoc.MainDocumentPart?.Document.Body;
+        var body = wordDoc.MainDocumentPart?.Document?.Body;
         if (body is null) return "[此文件未包含可提取的文本内容]";
 
         foreach (var element in body.Elements())

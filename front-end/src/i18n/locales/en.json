@@ -390,8 +390,8 @@
         "categoryPrefix": " under \"{{category}}\"",
         "uploadSuffix": " and {{count}} more",
         "uploadSummary": "Uploaded {{total}} materials{{categoryPrefix}}: {{preview}}{{suffix}}. Please continue to the next stage.",
-        "uploadSourcePathLead": "These files have been synced into the current workspace. Use the following source_path values directly:",
-        "uploadSourcePathItem": "- {{name}} (source_path: {{path}})"
+        "uploadSourcePathLead": "Use hiring.parse_uploaded_files to read the following uploaded files:",
+        "uploadSourcePathItem": "- {{name}}"
       },
       "status": {
         "confirmed": "Confirmed",
@@ -415,6 +415,8 @@
         "generated": "Generated",
         "notStartedDesc": "After skill definition is confirmed, the system will ask whether to start generating skill implementations.",
         "pendingConfirmDesc": "Skill definition confirmed, please confirm whether to start generating skill implementations in the chat.",
+        "confirmGenerate": "Confirm Skill Generation",
+        "confirmStageDone": "Advance to External Systems",
         "projectionConfirmDesc": "The business information needed for skill generation is ready. Please confirm in the chat whether these prepared materials should be used.",
         "currentStatus": "Current Status",
         "definitionStatus": "Definition Status",
