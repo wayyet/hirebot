@@ -1,4 +1,4 @@
-using HireBot.Abstraction.Models.EmployeeRuntime;
+﻿using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Core.Services.Internal;
 using HireBot.Repository;
@@ -55,13 +55,6 @@ public sealed class InstanceArtifactCloneService(
         {
             return await CloneFromHiringFileStoreAsync(source, targetInstanceId, cancellationToken)
                 ?? throw new InvalidOperationException("源部门员工未找到可复制的实例包，请先完成雇佣交付或重新导入实例产物");
-        }
-
-        // 如果当前源仅含元数据文件，则尝试回退到模板包；保持原回退逻辑不变
-        var fallbackRoot = ResolveCloneSourceFallback(source, sourceRoot);
-        if (fallbackRoot is not null)
-        {
-            sourceRoot = fallbackRoot;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -207,61 +200,6 @@ public sealed class InstanceArtifactCloneService(
             currentVersion,
             source.FromInstanceId);
         return null;
-    }
-
-    /// <summary>
-    /// 解析克隆源的回退路径。
-    /// 若候选模板自身也缺少关键产物结构，会记录告警但仍按既有顺序返回（保持向后兼容）。
-    /// </summary>
-    private string? ResolveCloneSourceFallback(EmployeeDetailDto source, string sourceRoot)
-    {
-        if (!LooksLikeMetadataOnlyPackage(sourceRoot))
-        {
-            return null;
-        }
-
-        // 优先使用 SourceTemplateId 指向的模板包
-        var templateRoot = ResolveTemplatePackageRoot(source.SourceTemplateId);
-        if (!string.IsNullOrWhiteSpace(templateRoot) && Directory.Exists(templateRoot))
-        {
-            WarnIfArtifactStructureIncomplete(templateRoot, source.EmployeeId, "fallback-source-template");
-            return templateRoot;
-        }
-
-        // 其次使用 BasedOnTemplateId 指向的模板包
-        var basedOnRoot = ResolveTemplatePackageRoot(source.BasedOnTemplateId);
-        if (!string.IsNullOrWhiteSpace(basedOnRoot) && Directory.Exists(basedOnRoot))
-        {
-            WarnIfArtifactStructureIncomplete(basedOnRoot, source.EmployeeId, "fallback-based-on-template");
-            return basedOnRoot;
-        }
-
-        logger?.LogWarning(
-            "源仅包含元数据文件且未找到可用模板包：EmployeeId={EmployeeId}, SourceTemplateId={SourceTemplateId}, BasedOnTemplateId={BasedOnTemplateId}, SourceRoot={SourceRoot}",
-            source.EmployeeId,
-            source.SourceTemplateId,
-            source.BasedOnTemplateId,
-            sourceRoot);
-        return null;
-    }
-
-    /// <summary>
-    /// 解析模板包根路径。
-    /// </summary>
-    private string? ResolveTemplatePackageRoot(string? templateId)
-    {
-        if (string.IsNullOrWhiteSpace(templateId))
-        {
-            return null;
-        }
-
-        var configured = configuration["HireBot:TemplatePackagesRoot"];
-        if (string.IsNullOrWhiteSpace(configured))
-        {
-            return null;
-        }
-
-        return Path.GetFullPath(Path.Combine(configured.Trim(), templateId.Trim()));
     }
 
     /// <summary>

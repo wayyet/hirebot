@@ -76,7 +76,7 @@ metadata:
 | 技能定义已确认，等待用户确认是否开始准备业务资料 | `skill_generation_ready` | `stage2_skill` | `false` | `badge` |
 | 用户确认开始准备业务资料后，资料准备流程启动 | `ontology_projection_progress` | `ontology-projection` | `false` | `progress` |
 | 资料准备完成，回到 coach 判断是否进入资料采用确认门 | `ontology_projection_done` | `ontology-projection` | `true` | `tree` |
-| 技能所需业务资料已准备好，等待用户确认是否采用 | `skill_projection_binding_ready` | `stage2_skill` | `false` | `badge` |
+| 技能所需业务资料已准备好（projection 成功时自动衔接 skill-generation，不再询问；projection 无数据时才等待用户补充） | `skill_projection_binding_ready` | `stage2_skill` | `false` | `badge` |
 
 **阶段 3 外部 — 发出时机与参数**
 
@@ -93,9 +93,17 @@ metadata:
 | 用户确认生成后，测试用例生成中 | `packaging_testcases_progress` | `stage4_packaging` | `false` | `progress` |
 | 测试用例已生成并回写工作区 | `packaging_testcases_done` | `stage4_packaging` | `true` | `tree` |
 
+**打包前完整性审查 — 发出时机与参数**
+
+| 时机 | artifactType | stage | isTerminal | displayHint |
+|------|-------------|-------|------------|-------------|
+| Manifest 同步完成，等待用户确认是否进行完整性审查 | `review_readiness` | `stage4_packaging` | `false` | `badge` |
+| 用户确认审查后，审查脚本执行中 | `review_progress` | `stage4_packaging` | `false` | `progress` |
+| 审查报告完成（含 P0/P1/P2 摘要与修复建议） | `review_report` | `stage4_packaging` | `true` | `tree` |
+
 所有 emit_artifact 调用：
 - `skillName` 固定为 `employment-coach-conversation`
-- `kind` 固定为 `data`
+- `kind` 固定为 `data`（`review_report` 和 `template_package` 除外，后者为 `file`）
 - `label` 用对用户可读的一句话描述当前进度或成果
 
 ### 正确调用示例（资料阶段完成）
@@ -397,29 +405,44 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 若拿不到真实 `workspace_root` 或 `template_slug`，不得发出 `skill_workorder_summary`，必须先回到会话初始化记录中恢复这两个值；禁止只发 `items` 清单让前端自行补齐。
 
 **阶段 2 完成后的强制动作（技能实现确认门）**：
-- 发出 `skill_workorder_summary` 后，必须立刻发出 `skill_generation_ready` artifact，用于标记"技能定义已确认，等待用户确认是否开始生成技能实现"。这个 artifact **只驱动技能实现轨状态**；前端仍应保留“技能定义已确认”的子步骤状态，但主 `stage2_skill` 在 `skill-generation` 完成前必须保持进行中。
+- 发出 `skill_workorder_summary` 后，必须立刻发出 `skill_generation_ready` artifact，用于标记”技能定义已确认，等待用户确认是否开始生成技能实现”。这个 artifact **只驱动技能实现轨状态**；前端仍应保留”技能定义已确认”的子步骤状态，但主 `stage2_skill` 在 `skill-generation` 完成前必须保持进行中。
 - 紧接着必须主动询问用户：
 
 > 「技能定义已经确认完成。是否现在开始生成这些技能的实现内容？」
 
 - 等待用户明确回应：
-  - 用户**肯定**：**先触发 `ontology-extraction` 的 Projection Pass 模式**（输入：`trigger_mode: "projection_pass"`、`workspace_root`、`skills` 列表来自 `skill_workorder_summary.data.items`）。`ontology_projection_done` 到达后，必须先回到本 coach，基于 projection 结果决定是否进入第二道确认门；**本回合不得自动触发 `skill-generation`**。
-  - 用户**否定 / 暂停**：保留 `skill_generation_ready` 状态，不启动 projection pass 也不启动 `skill-generation`，等用户后续明确同意后再开始。
+  - 用户**肯定**（「开始生成」「好」「可以」「是」「行」「生成」「继续」「确认」「采用」等）：**立即**按以下顺序执行，不得再次询问、不得输出 meta 解释（如”这一步不是我能手动切换的””你先回复我一句”等）：
+    1. 触发 `ontology-extraction` 的 Projection Pass 模式（输入：`trigger_mode: “projection_pass”`、`workspace_root`、`skills` 列表来自 `skill_workorder_summary.data.items`）
+    2. 等待 `ontology_projection_done` 到达
+    3. 若 `projected_count > 0`：发出 `skill_projection_binding_ready` artifact 作为进度通知（展示发现的资料数量），然后**立即**触发 `skill-generation`，不得再次询问用户是否采用。skill-generation 的输入 payload 中带上 `projection_binding_confirmed: true`、`projection_contract_mode: “required”` 以及最新 `projection_result`。
+    4. 若 `projected_count === 0` 或结果无效：发出 `skill_projection_binding_ready` artifact，如实告知用户没有可用于技能生成的业务资料，引导补材料或回到业务信息整理。此时才需要等待用户操作。
+  - 用户**否定 / 暂停**：保留 `skill_generation_ready` 状态，不启动 projection pass，等用户后续明确同意。
   - 用户**补充或修改技能定义**：回到阶段 2，更新 `skill_workorder_progress` / `skill_workorder_summary`，然后重新发出上述确认门询问。
-- **Projection 绑定确认门（强制）**：
-  - 若 `ontology_projection_done.data.projected_count > 0`，且结果表明确实存在可用于技能生成的业务资料，必须先发出 `skill_projection_binding_ready` artifact，再向用户询问：
 
-> 「技能所需业务资料已准备好。是否采用这些资料生成即将创建的技能包？」
+- **反停滞红线（最高优先级）**：
+  - 用户说出肯定词后，**必须立即执行下一步动作**（触发 projection pass 或 skill-generation），**严禁**输出以下类型的回复：
+    - “这一步不是我在对话里手动切换就能做的”
+    - “你先回复我一句……”
+    - “准备好了吗？那我开始了”
+    - “收到，我将按这份资料来生成”（然后不实际触发）
+    - 任何要求用户重复确认的表述
+  - 用户只需确认**一次**（在 `skill_generation_ready` 询问时）。projection 成功后自动衔接 skill-generation，不设第二道确认门。
 
-  - 用户**肯定**：才允许触发 `skill-generation`，并在输入 payload 中显式带上 `projection_binding_confirmed: true`、`projection_contract_mode: "required"` 以及最新 `projection_result`。
-  - 用户**否定 / 暂停**：保留 `skill_projection_binding_ready` 状态，不触发 `skill-generation`，等待用户后续明确同意。
-  - 用户**补充或修改技能定义**：回到阶段 2，重新生成 `skill_workorder_summary`，并清空上一轮 projection 结果与确认门状态。
-- **Projection Pass 等待规则**：
+- **Projection Pass 异常处理**：
   - `ontology_projection_done` 到达之前，不得触发 `skill-generation`。
-  - 若 `ontology_projection_done.data.projected_count === 0`、资料来源无效、或结果不足以生成可用 contracts，**不得**触发 `skill-generation`，**不得**提供降级选项。必须如实告知用户当前没有可用于技能生成的业务资料，并引导其补材料、回到业务信息整理，或重新准备业务资料。
   - 若 projection pass 因异常未能发出 `ontology_projection_done`，超时后向用户提示异常，保持在阶段 2，等待用户决定重试或补充输入；**不得**降级直触发 `skill-generation`。
-- **禁止话术**：只要 `skill-generation` 尚未完成，就**不得**对用户说"可进入外部能力配置"、"下一步是外部系统"或任何等价表述。
+- **禁止话术**：只要 `skill-generation` 尚未完成，就**不得**对用户说”可进入外部能力配置”、”下一步是外部系统”或任何等价表述。
 - **进入阶段 3 的前置条件**：只有 `skill-generation` 已完成，且用户明确同意继续外部阶段时，才允许进入外部阶段。
+
+- **`skill_generation_done` 到达后的强制下一步引导**：收到 `skill_generation_done` 后，**必须**在回复末尾附带明确的下一步操作提示，不得让用户猜测接下来该做什么。引导语示例：
+
+> 「技能包已生成完毕（共 N 个技能）。接下来配置外部系统对接，也可以跳过直接打包。回复”继续”进入外部配置，或回复”跳过外部，直接打包」。」
+
+  关键要求：
+  - 引导语**必须**出现在回复的末尾（不是中间），让用户一眼看到
+  - **必须**给出具体的操作选项（如”回复继续”或”回复跳过”）
+  - **不得**只说”已写入工作区”就结束——这是死胡同，用户不知道下一步做什么
+  - 如果 `external_workorder_summary` 已经发出过（外部阶段已完成），则引导语改为指向打包：> 「技能包已更新。回复”打包”即可生成最终产物包。」
 
 > 阶段 2 引导话术、story-driven 推进、字段明确度对照 → 进入阶段 2 之前，读 [references/flow-constraints.md](references/flow-constraints.md) 阶段 2 部分。
 
@@ -443,7 +466,7 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 **阶段 3 完成后的强制阶段门动作**：发出 `external_workorder_summary` 后，按以下顺序判断：
 
-- 若仍处于 `skill_generation_ready` 或 `skill_projection_binding_ready`（阶段 2 的第一道 / 第二道确认门），**必须先复用阶段 2 的确认门询问**，不要直接进入打包询问。
+- 若仍处于 `skill_generation_ready`（阶段 2 的确认门尚未通过），**必须先复用阶段 2 的确认门询问**，不要直接进入打包询问。
 - 若 ontology-extraction 或 skill-generation 任一仍未发出 terminal artifact，先用一行简短状态同步告诉用户"下游生成仍在执行，完成后即可打包"，不要提前承诺已打包，也不要发 `template_package`。
 - 只有当 ontology-extraction、skill-generation 均已完成，且右侧外部配置已保存或明确跳过（系统层发出 `external_config_committed`）后，先进入测试用例确认门：发出或等待 `packaging_testcases_ready`，并询问是否生成评估测试用例。
 
@@ -451,9 +474,9 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 等待用户明确回应（肯定：「是」「好的」「开始」「打包」「生成」等；否定：「等一下」「先暂停」等）：
 - 用户明确要**生成测试用例**：触发 `packaging-test-cases`，等待 `packaging_testcases_done` 后再回到打包询问。
-- 用户明确**跳过测试用例**或直接要求打包：立即进入阶段 4，按"强制执行顺序"开始打包动作；测试用例缺失不得阻塞打包。
+- 用户明确**跳过测试用例**或直接要求打包：**立即**进入阶段 4 的强制执行顺序，从步骤 1 开始逐条执行。**严禁**在此时输出"好的，我将直接进入打包""收到，开始打包准备"等纯确认性回复后停住——跳过确认 = 开始执行，不得在确认和执行之间插入等待用户再输入的空隙。测试用例缺失不得阻塞打包。
 - 用户**否定或补充修改意见**：回到对应阶段补充，补充完后再次发出 terminal artifact，再重复本阶段门询问。
-- 前端点击了「发起打包」按钮（消息内含关键词"生成产物包"/"打包"/"发起打包"等）：视同用户肯定确认。若下游已齐，则**立即**进入阶段 4；若下游未齐，则进入阶段 4 的等待分支，先发 `packaging_progress` 告知缺失项，不得抢先发最终包。
+- 前端点击了「发起打包」按钮（消息内含关键词"生成产物包"/"打包"/"发起打包"等）：视同用户肯定确认。若下游已齐，则**立即**进入阶段 4 强制执行顺序；若下游未齐，则进入阶段 4 的等待分支，先发 `packaging_progress` 告知缺失项，不得抢先发最终包。
 
 > 阶段 3 引导话术、紧扣已有 skills 的套路、跳过分支 → 进入阶段 3 之前，读 [references/flow-constraints.md](references/flow-constraints.md) 阶段 3 部分。
 
@@ -484,11 +507,11 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 A. **下游就绪触发**：ontology-extraction、skill-generation 两个下游 skill 全部发出 terminal artifact（`ontology_extraction_done` / `skill_generation_done` 均已收到）。
 
 B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 terminal summary（`material_handoff_summary` / `skill_workorder_summary` / `external_workorder_summary`，其中外部阶段允许是 skip 形态），**且**用户在对话中显式请求打包（关键词：「生成产物包」「打包」「生成实例包」「导出」「打成 zip」「完成打包」等），进入阶段 4 的等待 / 执行分支：
-- 若下游 terminal artifact 已全部到位，立即执行真实打包。
-- 若下游 terminal artifact 尚未全部到位，只允许发 `packaging_progress`（`status = "waiting_downstream"`）告知缺失项，等待缺失项补齐后再执行真实打包。
-- 若仍处于 `packaging_testcases_ready` 且用户尚未表态，先询问是否生成评估测试用例；用户跳过或已收到 `packaging_testcases_done` 后，测试用例不再影响打包。
+- 若下游 terminal artifact 已全部到位，**立即进入强制执行顺序**（从步骤1开始逐条执行，不可跳过任何步骤）。
+- 若下游 terminal artifact 尚未全部到位，只允许发 `packaging_progress`（`status = "waiting_downstream"`）告知缺失项，等待缺失项补齐后再进入强制执行顺序。
+- 若仍处于 `packaging_testcases_ready` 且用户尚未表态，先询问是否生成评估测试用例；用户跳过或已收到 `packaging_testcases_done` 后，测试用例不再影响打包。**注意：跳过测试用例仅跳过测试用例本身，不跳过强制执行顺序中的任何步骤。**
 
-> 任一触发条件成立时，立刻进入阶段 4；若下游已齐，按"强制执行顺序"开始真实打包；若下游未齐，进入等待分支。**禁止只在对话里复述"已完成配置 / 请点击生成实例"而不进入实际打包或明确等待状态**。
+> 任一触发条件成立时，立刻进入阶段 4；若下游已齐，**必须**按"强制执行顺序"逐条执行（共7步，不可跳过任何一步）；若下游未齐，进入等待分支。**强制执行顺序中的每一步都必须实际执行**——审查门（步骤4）是其中不可跳过的环节。**禁止**跳过审查门直接调用打包工具。
 
 ### ⛔ 反伪造红线（最高优先级）
 
@@ -503,7 +526,12 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 
 **强制执行顺序**（每一步都必须实际执行，不可省略、不可调换）：
 
-**打包前置条件边界**：`testcases/evaluation-test-cases.json` 与 `packaging-test-cases` 只属于可选增强，**不得**作为打包前置条件。用户明确要求打包且 ontology-extraction / skill-generation 已满足阶段条件时，即使工作区缺少 `testcases/evaluation-test-cases.json`，也必须继续真实打包；不得回复“等待评估用例生成”“先生成测试用例再打包”或类似阻塞话术。后端 import 阶段会在缺失时用 fallback 结构补齐 final 包。
+**⛔ 反跳过红线**：本清单共 7 步（等待分支 4 步，真实打包分支 7 步）。无论用户以何种方式进入阶段 4（下游就绪触发、显式请求打包、跳过测试用例后自动进入），**都必须从步骤 1 开始逐条执行，直到步骤 7 完成**。”跳过测试用例”只跳过 `packaging-test-cases` 的执行，**不跳过**强制执行顺序中的任何步骤（特别是步骤 4 审查门）。以下情况视为违反红线：
+- 用户说”跳过测试用例”/”b”/”直接打包”后，直接调用打包工具而不经过审查门
+- 用户说”打包”后，跳过预检和审查直接发 `template_package`
+- 在任何情况下，步骤 4（审查门）被省略或合并到其他步骤中
+
+**打包前置条件边界**：`testcases/evaluation-test-cases.json` 与 `packaging-test-cases` 只属于可选增强，**不得**作为打包前置条件。用户明确要求打包且 ontology-extraction / skill-generation 已满足阶段条件时，即使工作区缺少 `testcases/evaluation-test-cases.json`，也必须继续真实打包；不得回复”等待评估用例生成””先生成测试用例再打包”或类似阻塞话术。后端 import 阶段会在缺失时用 fallback 结构补齐 final 包。
 
 若下游**尚未全部就绪**，先执行等待分支：
 
@@ -514,15 +542,16 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 
 若下游**已经全部就绪**，执行真实打包分支：
 
-1. 发 `packaging_progress`（isTerminal: false, `data.status = "packing"`）
+1. 发 `packaging_progress`（isTerminal: false, `data.status = “packing”`）
 2. **Projection-consumer 一致性预检（强制）**：打包前逐个检查 `skills/<skill-slug>/`：
    - 若 `SKILL.md` 包含 `## Projection Contracts`，则必须存在 `skills/<skill-slug>/contracts/projections/ontology_extraction/contract-index.json`
-   - 若 `metadata.json` 中记录了 projection source（如 `sources[].type == "projection"` 或 `projection.source_projection_paths` 非空），则要么存在上述 contract-index 与 4 个标准 view 文件，要么 `SKILL.md` 不得保留 Projection Contracts 章节，并且 `references/quality-report.md` 要明确写出跳过原因
-   - 一旦发现“文案/metadata 声称有 projection，但 contracts 缺失”的情况：**停止打包**，不给 `template_package`，先提示用户技能生成产物不完整，需要回到 `skill-generation` 补齐或重生成
-3. **Manifest 同步（强制）**：调用打包工具前，必须先将运行时产出回写到 `manifest.json`（详见下文"Manifest 同步规则"）
-4. 调用沙箱打包工具，等待返回 `fileUrl`
-5. 发 `template_package`（kind: file, isTerminal: true），`fileUrl` 字段填写第 4 步真实返回值
-6. 给用户一句简短反馈
+   - 若 `metadata.json` 中记录了 projection source（如 `sources[].type == “projection”` 或 `projection.source_projection_paths` 非空），则要么存在上述 contract-index 与 4 个标准 view 文件，要么 `SKILL.md` 不得保留 Projection Contracts 章节，并且 `references/quality-report.md` 要明确写出跳过原因
+   - 一旦发现”文案/metadata 声称有 projection，但 contracts 缺失”的情况：**停止打包**，不给 `template_package`，先提示用户技能生成产物不完整，需要回到 `skill-generation` 补齐或重生成
+3. **Manifest 同步（强制）**：调用打包工具前，必须先将运行时产出回写到 `manifest.json`（详见下文”Manifest 同步规则”）
+4. **打包前完整性审查（可选）**：Manifest 同步完成后，发出 `review_readiness` artifact 询问用户是否对工作区进行完整性审查。详见下文”打包前完整性审查门”
+5. 调用沙箱打包工具，等待返回 `fileUrl`
+6. 发 `template_package`（kind: file, isTerminal: true），`fileUrl` 字段填写第 5 步真实返回值
+7. 给用户一句简短反馈
 
 ### 1. 打包进度（isTerminal: false）
 
@@ -635,6 +664,8 @@ ls <workspace_root>/skills/*/SKILL.md
 - `ontology-extraction`
 - `skill-generation`
 - `external-config`
+- `packaging-test-cases`
+- `digital-employee-package-completeness-review`
 
 #### 同步约束
 
@@ -697,6 +728,117 @@ ls <workspace_root>/skills/*/SKILL.md
   ]
 }
 ```
+
+### 打包前完整性审查门（可选）
+
+Manifest 同步完成后（强制执行顺序步骤 3），在调用打包工具之前，**必须**询问用户是否对工作区产物进行完整性审查。
+
+#### 审查询问
+
+发出 `review_readiness` artifact：
+
+```json
+{
+  "kind": "data",
+  "artifactType": "review_readiness",
+  "label": "产物已就绪，是否需要完整性审查？",
+  "skillName": "employment-coach-conversation",
+  "stage": "stage4_packaging",
+  "isTerminal": false,
+  "displayHint": "badge",
+  "data": {
+    "status": "ready_for_review_decision"
+  }
+}
+```
+
+然后问用户：
+
+> 「我现在可以开始打包。打包前是否需要先做一次完整性审查（检查技能文件、业务资料、配置信息是否齐全）？回复"审查"或"跳过审查，直接打包」。」
+
+等待用户回应：
+- 用户确认审查（「审查」「检查」「review」「好」「开始」等）：进入审查执行分支
+- 用户跳过（「跳过」「不用」「直接打包」「打包」「跳过审查」等）：**立即**进入步骤 5（调用打包工具），**不得**输出"好的，我将直接进入打包"等纯确认性回复后停住等待。跳过 = 执行，不是说"好的"然后等用户再说"继续"。
+- 用户否定或补充修改意见：回到对应阶段补充，补充完后重新执行步骤 2→3→4
+
+#### 审查执行
+
+用户确认审查后：
+
+1. 发 `review_progress` artifact（isTerminal: false, status: "running"）
+2. 调用沙箱中安装的 `digital-employee-package-completeness-review` skill，传入当前 `workspace_root` 路径作为 `<package-root>`
+3. 审查 skill 会运行 `scripts/validate_digital_employee_package.py` 扫描工作区，再对自动化无法判定的事项做人工审查
+
+```json
+{
+  "kind": "data",
+  "artifactType": "review_progress",
+  "label": "正在审查产物完整性，请稍候",
+  "skillName": "employment-coach-conversation",
+  "stage": "stage4_packaging",
+  "isTerminal": false,
+  "displayHint": "progress",
+  "data": {
+    "status": "running"
+  }
+}
+```
+
+#### 审查完成
+
+审查 skill 完成后：
+
+1. 读取审查报告（位于工作区 `reports/package-completeness-review.md` 或 skill 返回的内容）
+2. 发 `review_report` terminal artifact（isTerminal: true），data 中携带关键发现摘要：
+
+```json
+{
+  "kind": "data",
+  "artifactType": "review_report",
+  "label": "完整性审查完成：<PASS/PASS_WITH_CONCERNS/FAIL>",
+  "skillName": "employment-coach-conversation",
+  "stage": "stage4_packaging",
+  "isTerminal": true,
+  "displayHint": "tree",
+  "data": {
+    "status": "<PASS | PASS_WITH_CONCERNS | FAIL>",
+    "release_readiness": "<release-ready | beta-ready | not-production-ready | incomplete>",
+    "score_average": 8.5,
+    "p0_blockers": [],
+    "p1_warnings": ["skill.metadata_projection_path.missing"],
+    "summary": "产物包整体结构完整，1 个 P1 警告建议修复但不阻塞打包",
+    "report_path": "reports/package-completeness-review.md"
+  }
+}
+```
+
+3. 向用户展示关键发现：
+   - **PASS**（无 P0，无严重警告）：「审查通过，产物包完整可用。是否继续打包？」
+   - **PASS_WITH_CONCERNS**（无 P0，有 P1/P2 警告）：列出警告项，询问「有一些建议修复的问题，是否需要回去调整？还是继续打包？」
+   - **FAIL**（有 P0 阻断项）：列出所有 P0 问题，明确建议修复后重审，但最终由用户决定是否强制继续打包
+
+#### 审查后分支
+
+| 审查结果 | 用户操作 | 系统行为 |
+|---------|---------|---------|
+| PASS | 用户确认继续 | 进入步骤 5（调用打包工具） |
+| PASS_WITH_CONCERNS | 用户选择修复 | 回到对应阶段修复 → 修复完成重新执行步骤 2→3→4 |
+| PASS_WITH_CONCERNS | 用户选择继续 | 进入步骤 5，但在 `packaging_progress` 中附带警告摘要 |
+| FAIL | 用户选择修复 | 回到对应阶段修复 → 修复完成重新执行步骤 2→3→4 |
+| FAIL | 用户强制继续 | 进入步骤 5，但在 `packaging_progress` 中附带 P0 阻断摘要作为风险提示 |
+| 任意 | 用户跳过审查 | 直接进入步骤 5，不附带审查信息 |
+
+#### 审查不阻塞原则
+
+**审查结果不影响打包和导入的执行权**。即使用户面对 P0 阻断项仍选择继续，打包和导入流程照常进行。审查报告的价值在于**可见性**：让用户在导入前清楚知道产物包的质量状况，而非强制设卡。
+
+#### 与 packaging-test-cases 的关系
+
+`packaging-test-cases` 和 `digital-employee-package-completeness-review` 是两个独立可选步骤，互不依赖：
+- 测试用例生成在前（外部阶段完成后询问）
+- 完整性审查在后（Manifest 同步完成后询问）
+- 用户可以只做测试用例不做审查，也可以只做审查不生成测试用例
+- 审查 skill 会检查 `testcases/` 目录是否存在及其内容质量（如果用户跳过了测试用例生成，审查会标注 `evaluation.stale_skill_binding` 等发现，但不作为 P0 阻断）
 
 ### 3. 调用打包工具
 

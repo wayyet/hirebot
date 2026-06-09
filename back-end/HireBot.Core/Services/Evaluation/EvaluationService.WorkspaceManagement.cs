@@ -1,4 +1,4 @@
-using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Core.Services.Hiring;
@@ -738,57 +738,16 @@ internal sealed partial class EvaluationService
         }
 
         TemplatePackageDefinition templatePackage;
-        var fixtureBinding = ResolveFixtureTemplateBinding(templateId);
-        if (fixtureBinding is not null)
+        try
         {
-            var fixtureTemplateRoot = ResolveBoundFixtureTemplatePackageRoot(templateId, employee, fixtureBinding);
-            if (string.IsNullOrWhiteSpace(fixtureTemplateRoot))
-            {
-                logger.LogError(
-                    "[Eval] Fixture template binding exists but local package root was not found templateId={TemplateId} employeeId={EmployeeId}",
-                    templateId,
-                    employee.EmployeeId);
-                return ApiResponse<HiringTemplateArchive?>.ErrorResponse(
-                    404,
-                    $"fixture template package not found for templateId: {templateId}");
-            }
-
-            try
-            {
-                templatePackage = await fileSystemTemplatePackageProvider.LoadFromDirectoryAsync(
-                    fixtureTemplateRoot,
-                    templateId,
-                    cancellationToken);
-                logger.LogInformation(
-                    "[Eval] Loaded template package from fixture binding templateId={TemplateId} packageRoot={PackageRoot}",
-                    templateId,
-                    fixtureTemplateRoot);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(
-                    ex,
-                    "[Eval] Failed to load bound fixture template package templateId={TemplateId} packageRoot={PackageRoot}",
-                    templateId,
-                    fixtureTemplateRoot);
-                return ApiResponse<HiringTemplateArchive?>.ErrorResponse(
-                    422,
-                    $"failed to load fixture template package: {templateId}");
-            }
+            templatePackage = await templatePackageProvider.LoadAsync(templateId, cancellationToken);
         }
-        else
+        catch (Exception ex)
         {
-            try
-            {
-                templatePackage = await templatePackageProvider.LoadAsync(templateId, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "[Eval] Failed to load template package templateId={TemplateId}", templateId);
-                return ApiResponse<HiringTemplateArchive?>.ErrorResponse(
-                    502,
-                    $"failed to load template package: {templateId}");
-            }
+            logger.LogError(ex, "[Eval] Failed to load template package templateId={TemplateId}", templateId);
+            return ApiResponse<HiringTemplateArchive?>.ErrorResponse(
+                502,
+                $"failed to load template package: {templateId}");
         }
 
         if (templatePackage.PackageFiles.Count == 0)
@@ -1366,42 +1325,6 @@ internal sealed partial class EvaluationService
         }
     }
 
-    /// <summary>
-    /// 根据 fixture 绑定关系解析员工模板包的本地目录路径。
-    /// 优先查找 TemplatePackages root 中的目录，回退到 InstanceFixtures 中 fixture 实例的 template 子目录。
-    /// </summary>
-    private string? ResolveBoundFixtureTemplatePackageRoot(
-        string templateId,
-        EmployeeDetailDto employee,
-        FixtureTemplateBinding fixtureBinding)
-    {
-        var effectiveTemplateId = fixtureBinding.FixtureTemplateId ?? templateId;
-        var configuredRoot = configuration["HireBot:TemplatePackagesRoot"];
-        var packagesRoot = HiringAssetFileSystem.ResolveDirectory(
-            hostEnvironment.ContentRootPath,
-            configuredRoot,
-            Path.Combine("Assets", "TemplatePackages"));
-
-        var candidatePath = Path.Combine(
-            packagesRoot,
-            HiringAssetFileSystem.SanitizePathSegment(effectiveTemplateId));
-        if (Directory.Exists(candidatePath))
-            return candidatePath;
-
-        // 回退：在 InstanceFixtures 中查找 fixture 实例自带的 template 子目录
-        var fixtureRoot = ResolveFixtureRoot();
-        if (fixtureRoot is not null && !string.IsNullOrWhiteSpace(fixtureBinding.FixtureEmployeeId))
-        {
-            var fixtureInstanceTemplatePath = Path.Combine(
-                fixtureRoot,
-                fixtureBinding.FixtureEmployeeId.Trim(),
-                "template");
-            if (Directory.Exists(fixtureInstanceTemplatePath))
-                return fixtureInstanceTemplatePath;
-        }
-
-        return null;
-    }
 
     /// <summary>
     /// 将测试用例和本体规则打包成 ZIP，上传到 evaluator sandbox 的 consumer 材料目录。

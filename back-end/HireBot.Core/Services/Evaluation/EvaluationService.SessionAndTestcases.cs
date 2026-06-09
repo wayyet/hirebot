@@ -335,52 +335,18 @@ internal sealed partial class EvaluationService
         }
 
         TemplatePackageDefinition templatePackage;
-        var fixtureBinding = ResolveFixtureTemplateBinding(templateId);
-        if (fixtureBinding is not null)
+        try
         {
-            var fixtureTemplateRoot = ResolveBoundFixtureTemplatePackageRoot(templateId, employee, fixtureBinding);
-            if (string.IsNullOrWhiteSpace(fixtureTemplateRoot))
-            {
-                logger.LogWarning(
-                    "[Eval] Fixture template root not found when loading testcase sources. EmployeeId={EmployeeId}, TemplateId={TemplateId}",
-                    employee.EmployeeId,
-                    templateId);
-                return [];
-            }
-
-            try
-            {
-                templatePackage = await fileSystemTemplatePackageProvider.LoadFromDirectoryAsync(
-                    fixtureTemplateRoot,
-                    templateId,
-                    cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    ex,
-                    "[Eval] Failed to load fixture-bound template package for testcase sources. EmployeeId={EmployeeId}, TemplateId={TemplateId}, PackageRoot={PackageRoot}",
-                    employee.EmployeeId,
-                    templateId,
-                    fixtureTemplateRoot);
-                return [];
-            }
+            templatePackage = await templatePackageProvider.LoadAsync(templateId, cancellationToken);
         }
-        else
+        catch (Exception ex)
         {
-            try
-            {
-                templatePackage = await templatePackageProvider.LoadAsync(templateId, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    ex,
-                    "[Eval] Failed to load template package for testcase sources. EmployeeId={EmployeeId}, TemplateId={TemplateId}",
-                    employee.EmployeeId,
-                    templateId);
-                return [];
-            }
+            logger.LogWarning(
+                ex,
+                "[Eval] Failed to load template package for testcase sources. EmployeeId={EmployeeId}, TemplateId={TemplateId}",
+                employee.EmployeeId,
+                templateId);
+            return [];
         }
 
         if (templatePackage.PackageFiles.Count == 0)

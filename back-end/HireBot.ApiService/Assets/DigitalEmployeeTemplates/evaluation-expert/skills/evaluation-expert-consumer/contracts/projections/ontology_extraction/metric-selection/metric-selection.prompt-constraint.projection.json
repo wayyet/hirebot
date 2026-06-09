@@ -10,7 +10,7 @@
     "target_runtime": "llm_orchestrator",
     "projection_goal": "Provide the evaluation-expert-consumer skill with a prompt-side contract for selecting evaluation dimensions and weights so that metric selection stays bounded to mapped dimensions and weight rationales.",
     "source_slice": {
-      "path": "../../../../SKILL.md",
+      "path": "SKILL.md",
       "slice_topic": "evaluation dimension catalog and weighting rationale",
       "schema_version": "1.0.0"
     },

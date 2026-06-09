@@ -93,24 +93,48 @@ public sealed class EmployeeTemplateServiceTests
     [Fact]
     public async Task FileSystemTemplatePackageProvider_ShouldKeepOptionalSkillsInManifest()
     {
-        var provider = new FileSystemTemplatePackageProvider(
-            new TestHostingEnvironment(),
-            new ConfigurationBuilder().Build());
-        var packageRoot = Path.Combine(FindBackendRoot(), "src", "HireBot.ApiService", "Assets", "TemplatePackages", "default");
+        var tempRoot = Path.Combine(Path.GetTempPath(), "hirebot-template-package-tests", Guid.NewGuid().ToString("N"));
+        var packageRoot = Path.Combine(tempRoot, "default", "NCrewTemplate");
+        Directory.CreateDirectory(Path.Combine(packageRoot, "skills", "bridge-to-forge"));
+        Directory.CreateDirectory(Path.Combine(packageRoot, "skills", "context-priming"));
 
-        var package = await provider.LoadFromDirectoryAsync(packageRoot, "default");
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(packageRoot, "manifest.json"),
+                """
+                {
+                  "name": "default",
+                  "skills": [
+                    { "name": "bridge-to-forge", "path": "skills/bridge-to-forge", "required": false },
+                    { "name": "context-priming", "path": "skills/context-priming", "required": true }
+                  ]
+                }
+                """);
+            await File.WriteAllTextAsync(Path.Combine(packageRoot, "skills", "bridge-to-forge", "SKILL.md"), "optional");
+            await File.WriteAllTextAsync(Path.Combine(packageRoot, "skills", "context-priming", "SKILL.md"), "required");
 
-        Assert.True(package.Skills.Count > package.RequiredSkills.Count);
-        Assert.Contains(package.Skills, skill => skill.Name == "bridge-to-forge" && !skill.Required);
-        Assert.Contains(package.RequiredSkills, skill => skill.Name == "context-priming" && skill.Required);
+            var provider = new FileSystemTemplatePackageProvider();
+
+            var package = await provider.LoadFromDirectoryAsync(Path.Combine(tempRoot, "default"), "default");
+
+            Assert.True(package.Skills.Count > package.RequiredSkills.Count);
+            Assert.Contains(package.Skills, skill => skill.Name == "bridge-to-forge" && !skill.Required);
+            Assert.Contains(package.RequiredSkills, skill => skill.Name == "context-priming" && skill.Required);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
     }
 
     [Fact]
     public async Task FileSystemTemplatePackageProvider_ShouldExposeEvaluationConsumerAsEvaluationEntry()
     {
-        var provider = new FileSystemTemplatePackageProvider(
-            new TestHostingEnvironment(),
-            new ConfigurationBuilder().Build());
+        var provider = new FileSystemTemplatePackageProvider();
         var packageRoot = Path.Combine(
             FindBackendRoot(),
             "src",
@@ -695,7 +719,7 @@ public sealed class EmployeeTemplateServiceTests
         var current = new DirectoryInfo(AppContext.BaseDirectory);
         while (current is not null)
         {
-            var candidate = Path.Combine(current.FullName, "src", "HireBot.ApiService", "Assets", "TemplatePackages");
+            var candidate = Path.Combine(current.FullName, "src", "HireBot.ApiService", "Assets", "DigitalEmployeeTemplates");
             if (Directory.Exists(candidate))
             {
                 return current.FullName;
@@ -729,7 +753,7 @@ public sealed class EmployeeTemplateServiceTests
                 configuration,
                 NullLogger<KingCrabSandboxTokenProvider>.Instance),
             new ThrowingEvaluationTemplatePackageProvider(),
-            new FileSystemTemplatePackageProvider(hostEnvironment, configuration));
+            new FileSystemTemplatePackageProvider());
     }
 
     private static HireBotDbContext CreateDbContext()

@@ -615,7 +615,80 @@ public sealed partial class EmployeeRuntimeService(
                 && item.BasedOnTemplateId == normalizedTemplateId
                 && item.InstanceType == "department"
                 && item.Status == "hiring")
+            .OrderByDescending(item => item.UpdatedAt)
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (existingEmployee is not null)
+        {
+            var trackedExistingEmployee = await dbContext.Instances
+                .FirstAsync(item => item.InstanceId == existingEmployee.InstanceId, cancellationToken);
+            var reusedEmployee = !string.IsNullOrWhiteSpace(trackedExistingEmployee.RuntimeSnapshotJson)
+                ? DeserializeEmployeeSnapshot(trackedExistingEmployee.RuntimeSnapshotJson)
+                : await BuildEmployeeFromInstanceRecordAsync(trackedExistingEmployee, cancellationToken);
+
+            reusedEmployee = (reusedEmployee ?? new EmployeeDetailDto(
+                EmployeeId: trackedExistingEmployee.InstanceId,
+                Nickname: request.TemplateName,
+                RoleName: request.TemplateName,
+                SourceTemplate: request.TemplateName,
+                SourceTemplateId: request.TemplateId,
+                InstanceType: "department",
+                Status: EmployeeStatus.Hiring,
+                BasedOnTemplateId: request.TemplateId,
+                FromInstanceId: null,
+                OwnerUserId: request.OwnerSubject,
+                DepartmentId: string.IsNullOrWhiteSpace(request.TenantId) ? "department-default" : request.TenantId,
+                LifecycleStatus: MapStatusToLifecycleLabel(EmployeeStatus.Hiring),
+                StageSummary: "Hiring flow is collecting materials and skills",
+                PrimarySignal: "Waiting for the hiring flow to complete",
+                SignalLevel: "ok",
+                OwningTeam: request.TenantId,
+                CreatedAt: trackedExistingEmployee.CreatedAt,
+                InternshipStartAt: null,
+                GraduatedAt: null,
+                TasksDone: 0,
+                TasksTotal: 0,
+                SatisfactionScore: null,
+                PendingActions: [],
+                Capabilities: request.Capabilities.Select(item => new EmployeeCapabilityDto(item, false)).ToArray(),
+                EvalPhase: null,
+                EvalIteration: null,
+                EvalMaxIterations: null,
+                IsConfigured: false,
+                CardIntro: null,
+                Description: request.Description,
+                CreatedBy: null)) with
+            {
+                Status = EmployeeStatus.Hiring,
+                LifecycleStatus = MapStatusToLifecycleLabel(EmployeeStatus.Hiring),
+                BasedOnTemplateId = request.TemplateId,
+                OwnerUserId = request.OwnerSubject,
+                DepartmentId = string.IsNullOrWhiteSpace(request.TenantId)
+                    ? trackedExistingEmployee.DepartmentId
+                    : request.TenantId,
+                OwningTeam = request.TenantId,
+                Description = string.IsNullOrWhiteSpace(request.Description)
+                    ? reusedEmployee?.Description
+                    : request.Description
+            };
+
+            // Rebind the single in-progress hiring card to the newly created sandbox/session.
+            trackedExistingEmployee.TenantId = ResolveTenantId(reusedEmployee);
+            trackedExistingEmployee.HireId = request.HireId.Trim();
+            trackedExistingEmployee.Status = EmployeeStatus.Hiring;
+            trackedExistingEmployee.BasedOnTemplateId = normalizedTemplateId;
+            trackedExistingEmployee.OwnerUserId = request.OwnerSubject;
+            trackedExistingEmployee.DepartmentId = reusedEmployee.DepartmentId;
+            trackedExistingEmployee.RuntimeSnapshotJson = JsonSerializer.Serialize(reusedEmployee);
+            if (!string.IsNullOrWhiteSpace(request.Description))
+            {
+                trackedExistingEmployee.Description = request.Description;
+            }
+            trackedExistingEmployee.UpdatedAt = DateTimeOffset.UtcNow;
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            return ApiResponse<EmployeeDetailDto>.SuccessResponse(reusedEmployee, "Reused existing hiring instance");
+        }
 
         if (existingEmployee is not null)
         {

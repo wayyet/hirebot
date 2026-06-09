@@ -163,7 +163,6 @@ public static class ServiceExtensions
         services.AddSingleton<ITemplateDataProvider, BuildServiceTemplateDataProvider>();
         services.AddSingleton<ITemplatePackageProvider, BuildServiceTemplatePackageProvider>();
         services.AddSingleton<IDiscoveryRoleTemplatePackageProvider, FileSystemDiscoveryRoleTemplatePackageProvider>();
-        services.AddSingleton<IWorkingTemplatePackageProvider, FileSystemWorkingTemplatePackageProvider>();
         services.AddSingleton<IDiscoveryRuleProvider, FileSystemDiscoveryRuleProvider>();
         services.AddSingleton<HiringStageCompletionEvaluator>();
         services.AddSingleton<IArtifactSerializer, PlaceholderArtifactSerializer>();

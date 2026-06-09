@@ -987,6 +987,18 @@ internal sealed class EmployeeHiringService(
                 .FirstOrDefaultAsync(cancellationToken);
 
             string? resolvedEmployeeId = null;
+            var sessionTenantId = string.IsNullOrWhiteSpace(session.TenantId) ? "default" : session.TenantId.Trim();
+            var reusableHiringInstance = hiringInstance is null
+                ? await dbContext.Instances
+                    .AsNoTracking()
+                    .Where(i => i.TenantId == sessionTenantId &&
+                                i.OwnerUserId == session.OwnerSubject &&
+                                i.BasedOnTemplateId == session.TemplateId &&
+                                i.InstanceType == "department" &&
+                                i.Status == EmployeeStatus.Hiring)
+                    .OrderByDescending(i => i.UpdatedAt)
+                    .FirstOrDefaultAsync(cancellationToken)
+                : null;
 
             if (hiringInstance is not null)
             {
@@ -1030,6 +1042,51 @@ internal sealed class EmployeeHiringService(
                         hiringInstance.Status,
                         hireId,
                         resolvedEmployeeId);
+                }
+            }
+            else if (reusableHiringInstance is not null)
+            {
+                resolvedEmployeeId = reusableHiringInstance.InstanceId;
+                logger.LogWarning(
+                    "Import package found reusable hiring instance with stale HireId. CurrentHireId={HireId}, OldHireId={OldHireId}, EmployeeId={EmployeeId}",
+                    hireId,
+                    reusableHiringInstance.HireId,
+                    resolvedEmployeeId);
+
+                var updateResult = await employeeRuntimeService.UpdateLifecycleAsync(
+                    resolvedEmployeeId,
+                    new UpdateEmployeeLifecycleRequestDto
+                    {
+                        Status = EmployeeStatus.InterningAi,
+                        LifecycleStatus = "待AI评估",
+                        StageSummary = "候选包已导入，可发起 AI 评估",
+                        PrimarySignal = "待操作：发起 AI 评估",
+                        SignalLevel = "ok"
+                    },
+                    cancellationToken);
+
+                if (updateResult.Success)
+                {
+                    await dbContext.Instances
+                        .Where(i => i.InstanceId == resolvedEmployeeId)
+                        .ExecuteUpdateAsync(
+                            s => s
+                                .SetProperty(i => i.HireId, hireId)
+                                .SetProperty(i => i.FinalPackageId, packageId),
+                            cancellationToken);
+
+                    logger.LogInformation(
+                        "Reusable hiring instance rebound and moved to interning_ai. HireId={HireId}, EmployeeId={EmployeeId}",
+                        hireId,
+                        resolvedEmployeeId);
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Reusable hiring instance lifecycle update failed. HireId={HireId}, EmployeeId={EmployeeId}, Error={Error}",
+                        hireId,
+                        resolvedEmployeeId,
+                        updateResult.Message);
                 }
             }
             else

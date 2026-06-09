@@ -107,12 +107,18 @@ stage 与前端胶囊的对应关系：
 | 外部配置已保存或跳过，等待用户确认是否生成评估测试用例 | `packaging_testcases_ready` | `false` | `badge` |
 | 用户确认生成后，测试用例生成中 | `packaging_testcases_progress` | `false` | `progress` |
 | 测试用例已生成并回写工作区 | `packaging_testcases_done` | `true` | `tree` |
+| Manifest 同步完成，等待用户确认是否进行完整性审查 | `review_readiness` | `false` | `badge` |
+| 用户确认审查后，审查脚本执行中 | `review_progress` | `false` | `progress` |
+| 审查报告完成（含 P0/P1/P2 摘要与修复建议） | `review_report` | `true` | `tree` |
 | 打包请求已收到，等待下游或正在打包 | `packaging_progress` | `false` | `progress` |
 | 打包工具成功返回 fileUrl，实例包可导入 | `template_package` | `true` | `file` |
 
 补充约束：
 - `template_package` 必须使用 `kind: "file"`，且 `fileUrl` 必须是打包工具真实返回值。
 - `packaging_progress.data.status` 仅允许 `waiting_downstream` / `packing`。
+- `review_readiness` 在 Manifest 同步完成后发出，用户可选择审查或跳过。
+- `review_report.data` 必须包含 `status`（PASS / PASS_WITH_CONCERNS / FAIL）、`release_readiness`、`p0_blockers`、`p1_warnings`、`score_average`、`summary` 字段。
+- 审查结果不影响打包执行权：即使 `review_report.data.status == "FAIL"`，用户仍可选择强制继续打包。
 
 ## 调用约束
 

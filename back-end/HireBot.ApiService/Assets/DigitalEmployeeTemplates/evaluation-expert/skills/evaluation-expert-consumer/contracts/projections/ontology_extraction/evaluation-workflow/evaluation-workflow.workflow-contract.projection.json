@@ -10,7 +10,7 @@
     "target_runtime": "evaluation_expert_consumer",
     "projection_goal": "Provide the evaluation-expert-consumer skill with a template-agnostic evaluation pipeline contract: red-line check, dimension scoring, weighted aggregation, and report assembly. Dimension set and weights are runtime-injected rather than hard-coded.",
     "source_slice": {
-      "path": "../../../../SKILL.md",
+      "path": "SKILL.md",
       "slice_topic": "generic evaluation pipeline with red-line gating and evidence-driven scoring (template-agnostic)",
       "schema_version": "1.0.0"
     },
