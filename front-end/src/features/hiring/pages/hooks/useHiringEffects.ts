@@ -108,12 +108,14 @@ export function useRuntimeStateSync(
   wsStageOverrides: Map<HiringUiStage, 'running' | 'completed' | 'failed'>,
   downstreamRuns: DownstreamRunsSnapshot,
   allFiles: ChatFile[],
-  artifactArchive: { fileName: string; blob: Blob } | null,
+  packageFileName: string,
   artifactFileNames: string[],
   createdId: string,
+  instanceCreated: boolean,
 ) {
-  const packageStructure: PersistedPackageStructure | undefined = artifactArchive
-    ? { fileName: artifactArchive.fileName, fileNames: artifactFileNames, employeeId: createdId || undefined }
+  const normalizedPackageFileName = packageFileName.trim()
+  const packageStructure: PersistedPackageStructure | undefined = instanceCreated && normalizedPackageFileName
+    ? { fileName: normalizedPackageFileName, fileNames: artifactFileNames, employeeId: createdId || undefined }
     : undefined
 
   useRuntimeStateStageSync(

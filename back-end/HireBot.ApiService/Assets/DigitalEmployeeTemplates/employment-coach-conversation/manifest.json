@@ -38,6 +38,11 @@
       "name": "packaging-test-cases",
       "path": "skills/packaging-test-cases/SKILL.md",
       "required": true
+    },
+    {
+      "name": "digital-employee-package-completeness-review",
+      "path": "skills/digital-employee-package-completeness-review/SKILL.md",
+      "required": false
     }
   ],
   "stage_rules": [
@@ -63,6 +68,12 @@
       "stage": "ready_for_packaging",
       "skill_name": "packaging-test-cases",
       "description": "外部系统配置保存或跳过后，先询问用户是否生成评估测试用例；用户确认时根据会话历史、上传资料与模板快照生成 testcases/evaluation-test-cases.json 及来源 index，用户跳过或文件缺失不得阻止 instance_packaging",
+      "required_fields": []
+    },
+    {
+      "stage": "ready_for_packaging",
+      "skill_name": "digital-employee-package-completeness-review",
+      "description": "可选打包前审查门：Manifest 同步完成后询问用户是否对工作区产物进行完整性审查，通过自动化脚本扫描 + AI 审查输出 P0/P1/P2 级别问题报告，审查通过或跳过后再执行打包",
       "required_fields": []
     }
   ]

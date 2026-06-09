@@ -339,24 +339,18 @@ function FinalCard({
               </button>
             )}
           </div>
-          {packageStructure && (
+          {packageStructure?.fileNames.length ? (
             <div className="hb-todo-package-info">
-              <div className="hb-todo-package-name">
-                <span className="hb-todo-package-icon">📦</span>
-                <span className="hb-todo-package-filename">{packageStructure.fileName}</span>
-              </div>
-              {packageStructure.fileNames.length > 0 && (
-                <ul className="hb-todo-package-files">
-                  {packageStructure.fileNames.slice(0, 8).map((name, i) => (
-                    <li key={i} className="hb-todo-package-file">{name}</li>
-                  ))}
-                  {packageStructure.fileNames.length > 8 && (
-                    <li className="hb-todo-package-file is-more">+{packageStructure.fileNames.length - 8} {t('hiring.todo.final.moreFiles')}</li>
-                  )}
-                </ul>
-              )}
+              <ul className="hb-todo-package-files">
+                {packageStructure.fileNames.slice(0, 8).map((name, i) => (
+                  <li key={i} className="hb-todo-package-file">{name}</li>
+                ))}
+                {packageStructure.fileNames.length > 8 && (
+                  <li className="hb-todo-package-file is-more">+{packageStructure.fileNames.length - 8} {t('hiring.todo.final.moreFiles')}</li>
+                )}
+              </ul>
             </div>
-          )}
+          ) : null}
           {(generated || packageStructure) && onEnterEvaluation && (
             <button
               type="button"

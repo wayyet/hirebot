@@ -647,7 +647,16 @@ export default function HiringPage() {
   useBodyClassAndCleanup(wsRef)
   useTemplateDetail(templateId, setTemplate, setTemplateLoading, setTemplateError, t, normalizeErrorMessage)
   useSyncMessagesRef(messages, messagesRef)
-  useRuntimeStateSync(workflowHireId, wsStageOverrides, downstreamRuns, allFiles, artifactArchive, artifactFileNames, createdId)
+  useRuntimeStateSync(
+    workflowHireId,
+    wsStageOverrides,
+    downstreamRuns,
+    allFiles,
+    instanceCreated ? (restoredPackageFileName || finalPackageFileName) : '',
+    artifactFileNames,
+    createdId,
+    instanceCreated,
+  )
   useAutoFocusStage(journeyGuideVisible, focusedStage, workflowCurrentStage, setFocusedStage)
 
   // 工作流自动初始化
@@ -667,7 +676,6 @@ export default function HiringPage() {
   // downstreamRuns 加入依赖：下游任务完成后重新检查，确保延迟暂存的产物包也能自动导入
   useEffect(() => {
     if (!pendingPackageArtifact || !workflowHireId || instanceCreated) return
-    if (pendingStageConfirmation) return
     if (hasPendingDownstreamRuns(downstreamRunsRef.current)) return
 
     let cancelled = false
@@ -681,7 +689,7 @@ export default function HiringPage() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingPackageArtifact, workflowHireId, instanceCreated, pendingStageConfirmation, downstreamRuns])
+  }, [pendingPackageArtifact, workflowHireId, instanceCreated, downstreamRuns])
 
   const introName = template?.name ?? t('hiring.intro.digitalEmployee')
   const introAbilities = template?.coreAbilities.slice(0, 3).join('、') || t('hiring.intro.defaultAbilities')
@@ -1253,6 +1261,8 @@ export default function HiringPage() {
           }
           // template_package artifact 表示沙箱已完成打包，暂存 fileUrl 后自动触发 import-package
           if (artifactType === 'template_package' && kind === 'file' && artifactData.fileUrl) {
+            // 既然已经收到最终包，说明阶段推进已实际完成，清掉陈旧的确认提示，避免阻塞自动导入。
+            setPendingStageConfirmation(null)
             // 无论是否有下游任务未完成，均暂存产物包信息；
           // useEffect 会在 downstreamRuns 全部完成后自动触发 triggerCreate。
           setRequiresFreshPackaging(false)
@@ -2032,9 +2042,12 @@ export default function HiringPage() {
       if (finalizeResult.employeeId) {
         setCreatedId(finalizeResult.employeeId)
       }
+      // 导入完成后立即持久化一个稳定的最终包名，刷新页面也能恢复评估入口。
+      setRestoredPackageFileName(`${hireId}_final_package.zip`)
       // 后续下载统一走后端 final_package_zip，避免继续使用沙箱原始 ZIP 缓存。
       setArtifactArchive(null)
       setInstanceCreated(true)
+      setPendingStageConfirmation(null)
       setWorkflowError('')
       setWorkflowNotice('')
     } catch (error: unknown) {
@@ -2065,6 +2078,7 @@ export default function HiringPage() {
       const safeFileName = normalizePackageFileName(artifact.fileName, template?.name, workflowHireId)
       const safeArtifact = { fileName: safeFileName, blob: artifact.blob }
       setArtifactArchive(safeArtifact)
+      setRestoredPackageFileName(safeFileName)
       downloadBlob(artifact.blob, safeFileName)
       setWorkflowError('')
       setWorkflowNotice('')

@@ -43,6 +43,18 @@ Do not use for:
 - 单独评审普通业务文档
 - 不含 `manifest.json`、`config/`、`skills/`、`ontology/` 的普通项目目录
 
+## Invocation by Employment Coach (雇佣教练调用)
+
+This skill is also invoked by the `employment-coach-conversation` skill during the `ready_for_packaging` stage as an optional pre-packaging review gate.
+
+When invoked by the coach:
+
+- **Input**: The coach provides the `workspace_root` path as `<package-root>`. This is the sandbox workspace directory containing all staged files (manifest.json, config/, skills/, ontology/, external/, testcases/).
+- **Script location**: The validator script is at `<skill-directory>/scripts/validate_digital_employee_package.py` relative to this skill's installation path. In the sandbox, use the skill's own directory to locate the script.
+- **Output**: The review report MUST be written to `<workspace_root>/reports/package-completeness-review.md`. Create the `reports/` directory if it doesn't exist.
+- **Progress reporting**: During execution, call `emit_artifact` with `skillName: "employment-coach-conversation"` to push progress updates (see Handoff Protocol below).
+- **Completion**: On completion, output a structured summary containing `status`, `release_readiness`, `p0_blockers`, `p1_warnings`, `score_average`, and `summary` so the coach can emit `review_report`.
+
 ## Required Input
 
 You need one package root directory:
@@ -354,6 +366,66 @@ Correct:
 ```text
 Require machine-readable field definitions or a traceable source digest for all claimed fields.
 ```
+
+## Handoff Protocol (for Employment Coach)
+
+When invoked by `employment-coach-conversation`, follow this protocol to ensure the coach can track progress and receive results.
+
+### Progress Reporting
+
+During the review execution, use `emit_artifact` with the coach's skillName:
+
+```json
+{
+  "name": "emit_artifact",
+  "parameters": {
+    "kind": "data",
+    "artifactType": "review_progress",
+    "label": "正在审查产物完整性，已执行自动化校验",
+    "skillName": "employment-coach-conversation",
+    "stage": "stage4_packaging",
+    "isTerminal": false,
+    "displayHint": "progress",
+    "data": {
+      "status": "running",
+      "step": "automated_validation"
+    }
+  }
+}
+```
+
+### Completion Signal
+
+On completion, output a structured summary block that the coach can read to emit `review_report`. The summary MUST include:
+
+```text
+REVIEW_COMPLETE:
+  status: <PASS | PASS_WITH_CONCERNS | FAIL>
+  release_readiness: <release-ready | beta-ready | not-production-ready | incomplete>
+  score_average: <0-10>
+  p0_blockers: [<list of P0 finding codes>]
+  p1_warnings: [<list of P1 finding codes>]
+  summary: <one-line verdict in business language>
+  report_path: reports/package-completeness-review.md
+```
+
+The coach reads this summary and emits the `review_report` terminal artifact on behalf of the review skill. The review report file at `reports/package-completeness-review.md` is included in the final package if the user proceeds with packaging.
+
+### Report File
+
+The full review report MUST be written to `<workspace_root>/reports/package-completeness-review.md`. Required sections:
+- Verdict (status, release readiness, one-line summary)
+- Automated Validator Result (command, exit code, P0 blockers, findings, score)
+- Package Surface (manifest, config, ontology, skills discovered)
+- P0 Blockers (script P0 + manual P0)
+- Skill Matrix (per-skill status)
+- Ontology and Projection Findings
+- Workflow Closure
+- Rule Consistency
+- Evaluation Coverage
+- Security and Authority Boundaries
+- Score (10 dimensions)
+- Recommended Fix Order
 
 ## Search Keywords
 
