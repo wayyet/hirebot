@@ -298,42 +298,27 @@ def _resolve_driver_config(eval_ctx: dict) -> dict:
 
 def _resolve_ws_token(eval_ctx: dict, cfg: dict) -> str:
     """
-    Resolve the WebSocket Bearer token.
-
-    Priority:
-      1. evaluation_context.hirebot_api.auth with mode=client_credentials
-         -> fresh token fetched at runtime; same Keycloak realm as HireBot REST API.
-      2. driver_config.token (injected by C# at sandbox creation; may have expired).
-
-    Exits with code 2 if neither source yields a token.
+    通过 evaluation_context.hirebot_api.auth（client_credentials）换取 WebSocket Bearer token。
+    必须配置 OpenSandbox:KingCrab 凭据，不支持静态 token 注入。
     """
     hirebot_auth_cfg = (eval_ctx.get("hirebot_api") or {}).get("auth")
-    if hirebot_auth_cfg:
-        try:
-            resolved = resolve_auth(hirebot_auth_cfg)
-            print(
-                f"[ws_jwt] WebSocket token resolved via hirebot_api.auth ({resolved.source})",
-                file=sys.stderr,
-            )
-            return resolved.access_token
-        except Exception as exc:  # noqa: BLE001
-            _emit_error(f"hirebot_api.auth token resolution failed: {exc}")
-            sys.exit(2)
+    if not hirebot_auth_cfg:
+        _emit_error(
+            "evaluation_context.hirebot_api.auth 未配置。"
+            "请确保 C# 侧已注入 OpenSandbox:KingCrab 凭据（client_credentials 模式）。"
+        )
+        sys.exit(2)
 
-    static_token = str(cfg.get("token") or "").strip()
-    if static_token:
+    try:
+        resolved = resolve_auth(hirebot_auth_cfg)
         print(
-            "[ws_jwt] WebSocket token from driver_config.token (static fallback)",
+            f"[ws_jwt] WebSocket token resolved via hirebot_api.auth ({resolved.source})",
             file=sys.stderr,
         )
-        return static_token
-
-    _emit_error(
-        "No WebSocket token available: hirebot_api.auth is not configured and "
-        "driver_config.token is empty. Configure OpenSandbox:KingCrab credentials "
-        "so the evaluator sandbox can obtain its own token."
-    )
-    sys.exit(2)
+        return resolved.access_token
+    except Exception as exc:  # noqa: BLE001
+        _emit_error(f"hirebot_api.auth token resolution failed: {exc}")
+        sys.exit(2)
 
 
 def _resolve_simulator_id(eval_ctx: dict) -> str:

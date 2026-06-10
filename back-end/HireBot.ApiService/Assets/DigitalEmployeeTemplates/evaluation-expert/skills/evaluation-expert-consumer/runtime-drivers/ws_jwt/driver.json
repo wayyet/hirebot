@@ -1,6 +1,6 @@
 {
   "driver_id": "ws_jwt",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "protocol": "websocket+jwt",
   "entry": "run.py",
   "language": "python",
@@ -25,11 +25,6 @@
         "minLength": 1,
         "description": "Gateway address. Either bare HOST:PORT, http(s)://..., or ws(s)://..."
       },
-      "token": {
-        "type": "string",
-        "minLength": 1,
-        "description": "Static JWT bearer token for the WebSocket connection. Optional when evaluation_context.hirebot_api.auth is configured with client_credentials — the driver will obtain a fresh token at startup via auth_client.py."
-      },
       "timeout": {
         "type": "integer",
         "minimum": 1,
@@ -43,5 +38,5 @@
       }
     }
   },
-  "notes": "v2.0: long-lived stdin/stdout JSON protocol. Spawned ONCE per scenario; the host evaluation-expert agent (acting as the customer simulator with its OWN LLM) drives turns by writing {\"action\":\"send\",...} / {\"action\":\"end\",...} lines to the driver's stdin and reads {\"event\":\"ready\"} / {\"event\":\"evaluatee_turn\",...} / {\"event\":\"trace_written\",...} / {\"event\":\"error\",...} lines on stdout. The legacy 'max_turns' and 'simulator_timeout' fields have been removed: the per-scenario hard cap now comes from min(test_case.turn_budget.hard_max_turns, evaluation_context.global_turn_cap), and there is no simulator subprocess to time out (the simulator is the host agent itself, NOT a subprocess). Reuses ws_client.py untouched."
+  "notes": "v2.1: token acquisition is exclusively via evaluation_context.hirebot_api.auth (client_credentials mode). The legacy driver_config.token static-token field has been removed. The host C# must inject OpenSandbox:KingCrab credentials into hirebot_api.auth so the driver can obtain a fresh Keycloak token at startup. Long-lived stdin/stdout JSON protocol unchanged from v2.0."
 }

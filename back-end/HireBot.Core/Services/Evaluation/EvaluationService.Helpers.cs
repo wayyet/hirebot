@@ -969,9 +969,6 @@ internal sealed partial class EvaluationService
 
     private sealed record EvaluationRuntimeContextDriverConfig(
         [property: JsonPropertyName("endpoint")] string Endpoint,
-        // 当 hirebot_api.auth 已配置 client_credentials 时，token 不写入 JSON（run.py 自行换 token）；
-        // 仅在无凭据配置的 fallback 场景下注入静态 token 供 run.py 兜底使用。
-        [property: JsonPropertyName("token")][property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Token,
         [property: JsonPropertyName("timeout")] int Timeout,
         [property: JsonPropertyName("auto_approve_tools")] bool AutoApproveTools);
 
@@ -1083,9 +1080,6 @@ internal sealed partial class EvaluationService
                 DriverId: driverId,
                 DriverConfig: new(
                     Endpoint: targetWsEndpoint,
-                    // hireBotAuth 配置后由 run.py 自主换 token，无需注入静态 token；
-                    // 仅在凭据缺失时注入 targetAccessToken 作为兜底 fallback。
-                    Token: hireBotAuth is not null ? null : targetAccessToken,
                     Timeout: 120,
                     AutoApproveTools: true)),
             RuntimeSimulator: new(SimulatorId: simulatorId),
