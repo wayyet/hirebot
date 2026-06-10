@@ -42,39 +42,6 @@
    4. 消息气泡
    ══════════════════════════════════════════════════ */
 
-/* 用户气泡：蓝色渐变 */
-.ic-bubble-user {
-  border-radius: 18px 18px 4px 18px;
-  background: linear-gradient(135deg, #4a6cf7 0%, #3a5be0 100%);
-  color: #ffffff;
-  padding: 10px 14px;
-  font-size: 14px;
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-  box-shadow: 0 4px 14px rgba(74, 108, 247, 0.28);
-}
-.dark .ic-bubble-user {
-  background: linear-gradient(135deg, #4f8ef7 0%, #3d7fd9 100%);
-  box-shadow: 0 4px 16px rgba(79, 142, 247, 0.30);
-}
-
-/* 分身气泡：浅色卡片 */
-.ic-bubble-assistant {
-  border-radius: 4px 18px 18px 18px;
-  border: 1px solid var(--hb-border);
-  background: var(--hb-surface-card);
-  color: var(--hb-body);
-  padding: 10px 14px;
-  font-size: 14px;
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-}
-.dark .ic-bubble-assistant {
-  border-color: rgba(255, 255, 255, 0.10);
-  background: rgba(255, 255, 255, 0.05);
-  color: #a8b5cc;
-}
-
 /* ══════════════════════════════════════════════════
    5. 消息元信息（时间戳）
    ══════════════════════════════════════════════════ */
@@ -227,4 +194,76 @@
   border-color: rgba(255, 255, 255, 0.10);
   background: rgba(255, 255, 255, 0.04);
   color: #7a8fa8;
+}
+
+.hb-chat-bubble.ic-bubble-assistant {
+  border-color: var(--hb-border);
+  border-top-left-radius: 6px;
+  background: var(--hb-surface-card);
+  color: var(--hb-body);
+}
+
+.ic-avatar-user {
+  border: 1px solid var(--hb-border-input);
+  background: var(--hb-surface-soft);
+  color: var(--hb-soft);
+}
+
+.ic-empty-icon,
+.ic-inactive-notice,
+.ic-switching-bar {
+  border-color: var(--hb-border);
+  background: var(--hb-surface-card);
+  color: var(--hb-soft);
+}
+
+.ic-badge-connected {
+  border-color: rgba(16, 185, 129, 0.22);
+  background: rgba(16, 185, 129, 0.10);
+  color: var(--hb-text-green);
+}
+
+.ic-badge-disconnected {
+  border-color: var(--hb-border);
+  background: var(--hb-surface-soft);
+  color: var(--hb-soft);
+}
+
+.hb-chat-compose textarea {
+  border-color: var(--hb-border-input);
+  background: var(--hb-input-bg);
+  color: var(--hb-near-black);
+}
+
+.hb-chat-compose textarea:focus {
+  border-color: var(--hb-input-focus-border);
+  box-shadow: var(--hb-focus);
+}
+
+.hb-chat-compose textarea::placeholder,
+.hb-chat-file-chip-meta {
+  color: var(--hb-caption);
+}
+
+.hb-chat-attach-btn {
+  border-color: var(--hb-border-input);
+  background: var(--hb-surface-card);
+  color: var(--hb-soft);
+}
+
+.hb-chat-attach-btn:hover:not(:disabled),
+.hb-chat-expand-btn:hover {
+  border-color: var(--hb-accent-border-strong);
+  background: var(--hb-accent-soft-bg);
+  color: var(--hb-accent-text);
+}
+
+/* User message bubbles must match every chat surface. */
+.ic-bubble-user,
+.hb-chat-bubble.ic-bubble-user {
+  border-color: var(--hb-chat-user-bubble-border);
+  border-radius: 16px 6px 16px 16px;
+  background: var(--hb-chat-user-bubble-bg);
+  color: var(--hb-chat-user-bubble-text);
+  box-shadow: var(--hb-chat-user-bubble-shadow);
 }

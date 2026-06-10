@@ -1158,7 +1158,7 @@ export default function InstanceChatPage() {
                               <HiringToolStepsBlock steps={message.toolSteps} />
                             </div>
                           )}
-                        <div className={isUser ? "ic-bubble-user" : "ic-bubble-assistant"}>
+                        <div className={`hb-chat-bubble ${isUser ? "is-user ic-bubble-user" : "is-assistant ic-bubble-assistant"}`}>
                           <InstanceChatMessageBody
                             content={message.content}
                             role={
@@ -1194,7 +1194,7 @@ export default function InstanceChatPage() {
                         <HiringToolStepsBlock steps={streamingToolSteps} />
                       </div>
                     )}
-                    <div className="ic-bubble-assistant">
+                    <div className="hb-chat-bubble is-assistant ic-bubble-assistant">
                       {streamingContent !== null &&
                       streamingContent.length > 0 ? (
                         <InstanceChatMessageBody
@@ -1399,8 +1399,10 @@ export default function InstanceChatPage() {
                 ) : (
                   <button
                     type="button"
-                    className="hb-btn-primary hb-chat-send-btn"
+                    className="hb-chat-send-action hb-btn-primary hb-chat-send-btn"
                     onClick={() => void handleSend()}
+                    aria-label="发送"
+                    title="发送"
                     disabled={
                       sending ||
                       sessionSwitching ||
