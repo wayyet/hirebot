@@ -291,7 +291,7 @@ def _resolve_driver_config(eval_ctx: dict) -> dict:
         sys.exit(2)
     # token is optional when hirebot_api.auth provides client_credentials;
     # _resolve_ws_token() in main() resolves it before WsCollector is opened.
-    cfg.setdefault("timeout", 60)
+    cfg.setdefault("timeout", 180)  # 180 s WebSocket collect timeout — keep larger than read_one_event's 210 s - 30 s margin
     cfg.setdefault("auto_approve_tools", True)
     return cfg
 

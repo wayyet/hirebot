@@ -25,14 +25,9 @@ When `evaluation_context.hirebot_api` is present, STEP 10 is a completion gate f
 
 ## Token / 鉴权说明
 
-`verdict_uploader.py` 和 `trace_uploader.py` 均通过 `runtime-drivers/ws_jwt/auth_client.py` 的 `resolve_auth_from_eval_ctx()` 获取 Token，优先级如下：
+`verdict_uploader.py` 和 `trace_uploader.py` 均通过 `runtime-drivers/ws_jwt/auth_client.py` 的 `resolve_auth_from_eval_ctx()` 获取 Token。Token 来自 `evaluation_context.hirebot_api.auth`（`client_credentials` 模式），由 C# 在沙箱创建时注入 `OpenSandbox:KingCrab` 凭据，与 ws_jwt driver 换取 WebSocket Bearer Token 使用同一条路径。
 
-1. **`evaluation_context.hirebot_api.auth`**（显式配置，支持 `static_token` / `password` / `client_credentials` 三种模式）
-2. **Fallback**：`evaluation_context.runtime_driver.driver_config.token`（与目标沙箱 WebSocket 相同的 Keycloak JWT）
-
-在 HireBot 生产部署中，Keycloak 颁发的 JWT 同时授权目标沙箱 WebSocket 连接和 HireBot REST API，因此 fallback 无需额外配置即可工作。
-
-若需要独立的 API Token（如 client_credentials 模式），在 `evaluation_context.hirebot_api.auth` 中配置：
+配置示例（由 C# 自动注入，无需手动填写）：
 
 ```jsonc
 "hirebot_api": {
@@ -131,7 +126,7 @@ python3 runtime-drivers/ws_jwt/trace_uploader.py \
 | 错误类型 | 表现 | 处理方式 |
 |---|---|---|
 | `hirebot_api` 配置缺失 | 解析失败，脚本退出码 1 | 在 `evaluation_context.json` 中补充 `hirebot_api` 配置后重跑 |
-| HTTP 401 / 403 | response._error 含 "HTTP 401"/"HTTP 403" | Token 过期或权限不足；刷新 Token 后重跑（更新 `driver_config.token` 或 `hirebot_api.auth`） |
+| HTTP 401 / 403 | response._error 含 "HTTP 401"/"HTTP 403" | Token 过期或权限不足；确认 `hirebot_api.auth` 中的 `client_secret` 有效后重跑 |
 | HTTP 404 | response._error 含 "HTTP 404" | `employee_id` 或 `session_id` 在 HireBot 中不存在；确认会话是否已创建 |
 | HTTP 5xx | response._error 含 "HTTP 5xx" | HireBot 后端内部错误；稍后重跑 |
 | 网络超时 | response._error 含 "urlopen error" | 检查网络连通性后重跑 |
@@ -145,7 +140,7 @@ python3 runtime-drivers/ws_jwt/trace_uploader.py \
 | 员工 ID | `runtime_context.session.employee_id` | `evaluation_context.hirebot_api.employee_id` |
 | 会话 ID | `runtime_context.session.session_id` | `evaluation_context.hirebot_api.session_id` |
 | API 地址 | `runtime_context.ncrew_hire.base_url` | `evaluation_context.hirebot_api.base_url` |
-| API 鉴权 | `runtime_context.target_sandbox.auth` → `auth_config.json` | `evaluation_context.hirebot_api.auth` → fallback `driver_config.token` |
+| API 鉴权 | `runtime_context.target_sandbox.auth` → `auth_config.json` | `evaluation_context.hirebot_api.auth`（client_credentials） |
 | 评估报告输入 | `evaluation_result.json`（evaluator skill 输出） | `evaluation_report.json`（STEP 9 输出） |
 | 轨迹输入 | `trace_result.json`（单文件，含 `turns[*].execution_trace`） | `traces/*.trace.json`（每场景一文件，含 `dialog_turns` / `actual_tool_calls` / `simulator_trail`） |
 | 维度分数来源 | evaluator 输出的 `dimension_scores`（含 `adjustments`） | STEP 6 byte-copy `dimension_scores`（扁平 dict） |

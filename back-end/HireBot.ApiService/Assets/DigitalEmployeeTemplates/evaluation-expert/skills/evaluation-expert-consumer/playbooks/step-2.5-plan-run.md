@@ -89,9 +89,12 @@ STEP 2 生成所有 `enriched-cases/<tc_id>.json`，且 `evaluation_context.runt
      # returns EOF on a regular file, and the pipe stays open as long as tail -f is alive.
 
    commands.read_one_event =
-     f'PAD={pad.dir}; N=$(cat "$PAD/cursor" 2>/dev/null || echo 1); DEADLINE=$(($(date +%s)+60)); while [ "$(date +%s)" -lt "$DEADLINE" ]; do L=$(sed -n "${N}p" "$PAD/out" 2>/dev/null); if [ -n "$L" ]; then printf "%d\n" $((N+1)) > "$PAD/cursor"; printf "%s\n" "$L"; exit 0; fi; sleep 0.3; done; printf \'{{"event":"error","detail":"read_one_event timeout after 60s"}}\n\''
+     f'PAD={pad.dir}; N=$(cat "$PAD/cursor" 2>/dev/null || echo 1); DEADLINE=$(($(date +%s)+210)); while [ "$(date +%s)" -lt "$DEADLINE" ]; do L=$(sed -n "${N}p" "$PAD/out" 2>/dev/null); if [ -n "$L" ]; then printf "%d\n" $((N+1)) > "$PAD/cursor"; printf "%s\n" "$L"; exit 0; fi; if [ -f "$PAD/pid" ] && ! kill -0 "$(cat \"$PAD/pid\")" 2>/dev/null; then printf \'{{{"event":"error","detail":"driver process died"}}}\'\n\'; exit 1; fi; sleep 0.3; done; printf \'{{{"event":"error","detail":"read_one_event timeout after 210s"}}}\'\n\''
      # Polls pad/out (regular file) for line N. Writes N+1 to cursor on success.
-     # No FIFO involved — never blocks on open. Times out after 60 s with a synthetic error event.
+     # No FIFO involved — never blocks on open.
+     # Times out after 210 s (driver WS timeout 180 s + 30 s safety margin) with a synthetic error event.
+     # Driver liveness check: if pad/pid exists but the process is gone, exit immediately
+     # instead of waiting the full 210 s — gives fast-fail on driver crashes.
      # Shell variable ${N} is runtime shell; only {pad.dir} is substituted at plan-generation time.
      # This MUST remain an inline shell string. Do not reference read_one_event.py,
      # python, python3, or any helper file. Creating such a helper during a run is

@@ -14,7 +14,7 @@ Agent 必须以内联方式运行此检查清单（文件系统读取 + 算术�
 | 4 | `evaluation_context.runtime_simulator.simulator_id` 解析为 `EVALUATION_SIMULATORS_DIR` 下的目录 | 检查 `./simulators/<simulator_id>/simulator.json` 存在且通过 `simulator.schema.json` 验证 | `fail_fast` — 禁止静默默认 |
 | 5 | 所选 simulator 目录包含 `.no-decide-script` 哨兵文件 | stat `./simulators/<simulator_id>/.no-decide-script` | 警告；若目录中存在任何 `.py` / `.sh` / 可执行文件，视为 K8 违规并预先污染 |
 | 6 | `evaluation_context.runtime_driver.driver_config` 通过 `driver.json#/config_schema` 验证 | JSON Schema 验证 | `fail_fast` |
-| 6a | **`driver_config.token` 缺失不是失败**——ws_jwt driver（`run.py`）在启动时通过 `client_credentials` 流程从 `evaluation_context.hirebot_api.auth` 解析 Bearer Token。只有当两者都缺失时才阻断。 | 检查：若 `driver_config.token` 缺失，确认 `hirebot_api.auth` 存在且 `mode`/`token_url`/`client_id`/`client_secret` 均非空 | 仅在两条路径均不可用时 `fail_fast` |
+| 6a | `evaluation_context.hirebot_api.auth` 存在且完整（`mode == "client_credentials"`、`token_url`/`client_id`/`client_secret` 均非空）。ws_jwt driver 在启动时通过此配置从 Keycloak 换取 Bearer Token，是唯一的 Token 来源。 | 检查 `hirebot_api.auth` 存在且以上字段均非空 | `fail_fast` |
 | 7 | `evaluation_context.global_turn_cap` 已设置（缺失时默认 30）且 `1 <= cap <= 50` | 边界检查 | `fail_fast` |
 | 8 | 至少一个指标的 `applicable_roles` 覆盖规范化员工的 `role_id`（或 `*`） | 内联过滤 | K9 路径——若 STEP 1 后 `candidate_metrics` 为空则 `block_or_escalate` |
 | 9 | `./runs/<eval_id>/` 不存在（不覆盖）或已有目录包含 `TAINTED.md` 且用户明确选择重试 | 路径检查 | `fail_fast`，防止静默覆盖 |
