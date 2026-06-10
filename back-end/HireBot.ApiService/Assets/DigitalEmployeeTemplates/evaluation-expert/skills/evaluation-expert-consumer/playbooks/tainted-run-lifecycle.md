@@ -1,90 +1,90 @@
-# Tainted run lifecycle
+# 污染运行生命周期
 
-A run becomes **tainted** when a HARD RULE is violated or a K-rule fails its input-gate validator. Tainted runs are not silently aborted — they continue under restricted rules so the audit trail is preserved.
+当硬性规则被违反或 K 规则的输入门验证器失败时，运行变为**污染**状态。污染运行不会被静默中止——它们在受限规则下继续运行，以保留审计轨迹。
 
-## When does a run become tainted?
+## 运行何时变为污染？
 
-| Trigger | K-rule | Detected by |
+| 触发条件 | K 规则 | 检测方 |
 |---|---|---|
-| Agent authors any executable under the skill root outside the whitelist | K8 | Pre-flight invariant 10; in-step audit |
-| `selected_metrics` is the full registry (role filter skipped) | K9 | STEP 1 self-check |
-| Inline `enriched_test_cases[]` diverges from persisted `enriched-cases/<tc_id>.json` | K10 | STEP 2 / 3 / 4 input gate |
-| STEP 5 / 6 / 7 artifact missing or invalid | K12 | STEP 9 input gate |
-| `dimension_scores.json` keys ≠ `{ parent_dimension for m ∈ selected_metrics }` | K13 | STEP 6 self-check |
-| Trace fails the four-clause rejection rule | K14 | STEP 4 input gate |
-| Multiple `<tc>__<metric>.json` files share `scored_at` | K16 | STEP 5 input gate |
-| `MetricScore.scoring_reasoning` cites no trace evidence | K16 | STEP 5 input gate (per-file) |
-| `employee.employee_provenance` missing/invalid, or `reliability=low` with no `caveat`, or a later step mutated `employee.role.role_id` | K17 | STEP 0 self-check; STEP 9 input gate |
-| A curate decision has empty `evidence`, a missing `curate_log` entry, or a citation failing the source-field-and-substring check | K18 | STEP 1.2 self-check; STEP 2 input gate |
+| Agent 在白名单之外的技能根目录下创建了任何可执行文件 | K8 | 飞前检查不变式 10；步骤内审计 |
+| `selected_metrics` 是完整注册表（跳过角色过滤） | K9 | STEP 1 自检 |
+| 内联 `enriched_test_cases[]` 与持久化 `enriched-cases/<tc_id>.json` 不一致 | K10 | STEP 2 / 3 / 4 输入门 |
+| STEP 5 / 6 / 7 产物缺失或无效 | K12 | STEP 9 输入门 |
+| `dimension_scores.json` 键集合 ≠ `{ parent_dimension for m ∈ selected_metrics }` | K13 | STEP 6 自检 |
+| 轨迹未通过四条款拒绝规则 | K14 | STEP 4 输入门 |
+| 多个 `<tc>__<metric>.json` 文件共享 `scored_at` | K16 | STEP 5 输入门 |
+| `MetricScore.scoring_reasoning` 未引用任何轨迹证据 | K16 | STEP 5 输入门（每文件） |
+| `employee.employee_provenance` 缺失/无效，或 `reliability=low` 没有 `caveat`，或后续步骤修改了 `employee.role.role_id` | K17 | STEP 0 自检；STEP 9 输入门 |
+| 某个精选决策的 `evidence` 为空、`curate_log` 条目缺失，或引用未通过源字段和子字符串检查 | K18 | STEP 1.2 自检；STEP 2 输入门 |
 
-## What happens when tainted
+## 污染时发生什么
 
-1. **Stop scoring on the tainted output immediately.** Do NOT cite partial outputs as valid.
-2. **Drop a `TAINTED.md`** under `./runs/<eval_id>/` (or at the skill root if no run dir exists yet) describing:
-   - which K-rule was violated
-   - what file or step triggered the violation
-   - what the next safe action is
-3. **Decide step-by-step what continues:**
+1. **立即停止对污染输出的评分。** 不得将部分输出引用为有效结果。
+2. **在 `./runs/<eval_id>/` 下写入 `TAINTED.md`**（若尚无运行目录则写在技能根目录），内容包括：
+   - 违反了哪条 K 规则
+   - 哪个文件或步骤触发了违规
+   - 下一个安全操作是什么
+3. **逐步决定哪些继续：**
 
-   | Tainted scope | What continues | What stops |
+   | 污染范围 | 继续的内容 | 停止的内容 |
    |---|---|---|
-   | One trace (K14) | Other scenarios continue; their scores valid | STEP 4 skipped for the tainted `tc_id`; STEP 9 lists tc in `open_questions` |
-   | One score file (K16 reasoning) | Other (case, metric) pairs continue; that one is regenerated | None — the score file is regenerated, not skipped |
-   | All score files (K16 duplicate timestamps) | Nothing — every score file is suspect | STEP 5 / 6 / 7 / 8 / 9 must wait for re-scoring |
-   | STEP 1 metric filter (K9) | Nothing | Entire run halts; restart from STEP 1 with a fresh `eval_id` |
-   | STEP 6 dimension fabrication (K13) | Nothing | Re-run STEP 6 deterministically |
-   | Agent-authored script (K8) | Nothing | Delete the script, restart from STEP 0 with a fresh `eval_id` |
-   | Employee provenance (K17) | **Nothing — atomic-fail** | The whole run fails: we no longer know who was evaluated, so the report is meaningless. Restart from STEP 0 with a fresh `eval_id` |
-   | Curate audit gap (K18) | **Other scoring continues** (partial-success): the scores are valid; only the curation transparency is in question | Surface the offending decision; if the three taint-actions partially succeed, continue + record failed actions in `open_questions`; if none succeed, halt |
+   | 一个轨迹（K14） | 其他场景继续；其评分有效 | 污染 `tc_id` 的 STEP 4 被跳过；STEP 9 在 `open_questions` 中列出该 tc |
+   | 一个评分文件（K16 推理） | 其他 (用例, 指标) 对继续；该文件被重新生成 | 无——评分文件被重新生成，不被跳过 |
+   | 所有评分文件（K16 重复时间戳） | 无——每个评分文件都可疑 | STEP 5 / 6 / 7 / 8 / 9 必须等待重新评分 |
+   | STEP 1 指标过滤（K9） | 无 | 整个运行停止；从 STEP 1 重新开始，使用新的 `eval_id` |
+   | STEP 6 维度伪造（K13） | 无 | 以确定性方式重新运行 STEP 6 |
+   | Agent 编写了脚本（K8） | 无 | 删除脚本，从 STEP 0 重新开始，使用新的 `eval_id` |
+   | 员工来源（K17） | **无——原子失败** | 整个运行失败：我们不再知道谁被评估了，所以报告毫无意义。从 STEP 0 重新开始，使用新的 `eval_id` |
+   | 精选审计缺口（K18） | **其他评分继续**（部分成功）：分数有效；只是精选透明度存疑 | 暴露有问题的决策；若三个污染操作部分成功，继续并在 `open_questions` 中记录失败的操作；若全部失败则停止 |
 
-## K17 recovery procedure
+## K17 恢复流程
 
-- **Trigger**: STEP 0 produced no `employee_provenance`, or `reliability=low` without a `caveat`, or a step after STEP 0 changed `employee.role.role_id`.
-- **Corrective action**: re-run STEP 0 to produce a valid provenance block (re-resolve from file / user-dialog / inferred-fallback as available); fix the offending step that mutated `role_id`.
-- **Resume**: K17 is atomic-fail — create a **fresh `eval_id`** and re-run from PRE.A / STEP 0. Do not patch provenance into a half-scored run; the identity uncertainty invalidates everything downstream.
-- **Atomicity**: the three taint-actions (write `TAINTED.md`, stop scoring, surface in `open_questions`) are one atomic outcome. If any fails, the entire run fails with a non-success status and emits no successful EvaluationReport. If the `TAINTED.md` write itself fails, still halt scoring and emit the violation to run logs.
+- **触发条件**：STEP 0 没有产生 `employee_provenance`，或 `reliability=low` 但没有 `caveat`，或 STEP 0 之后的某个步骤更改了 `employee.role.role_id`。
+- **纠正措施**：重新运行 STEP 0 以产生有效的来源块（从文件 / 用户对话 / 推断回退重新解析）；修复修改了 `role_id` 的步骤。
+- **恢复**：K17 是原子失败——创建**新的 `eval_id`** 并从 PRE.A / STEP 0 重新运行。不要将来源补丁应用到半评分的运行中；身份不确定性使下游所有内容失效。
+- **原子性**：三个污染操作（写入 `TAINTED.md`、停止评分、在 `open_questions` 中暴露）是一个原子结果。若任何一个失败，整个运行以非成功状态失败，且不产生成功的 EvaluationReport。若 `TAINTED.md` 写入本身失败，仍要停止评分并将违规写入运行日志。
 
-## K18 recovery procedure
+## K18 恢复流程
 
-- **Trigger**: a `curate_log` entry with empty `evidence`, a `removed`/`added` decision with no matching entry, or a citation that does not quote a real substring of the named source field.
-- **Corrective action**: re-run STEP 1.2 to regenerate the curate decisions with proper evidence citations; OR, if STEP 1.2 itself is unreliable, set `metric_selection_policy.mode = "never"` so `selected_metrics = candidate_metrics` (the deterministic baseline) and re-run from STEP 1.2.
-- **Resume**: K18 is partial-success-tolerant — the already-computed `candidate_metrics` and any valid scores remain usable. Re-run STEP 1.2 forward in the same `eval_id` once the curate decisions are fixed, then continue to STEP 2.
-- **Partial-failure rule**: if at least one of the three taint-actions succeeds, accept partial state, continue the evaluation, and record the failed actions in `evaluation_context.open_questions`. If none succeeds, halt with a non-success status and no successful EvaluationReport.
+- **触发条件**：`curate_log` 条目的 `evidence` 为空，`removed`/`added` 决策没有匹配条目，或引用未能正确引用命名源字段的真实子字符串。
+- **纠正措施**：重新运行 STEP 1.2 以生成带有正确证据引用的精选决策；或者，若 STEP 1.2 本身不可靠，设置 `metric_selection_policy.mode = "never"` 使 `selected_metrics = candidate_metrics`（确定性基线），从 STEP 1.2 重新运行。
+- **恢复**：K18 是部分成功容忍的——已计算的 `candidate_metrics` 和任何有效分数仍可使用。一旦精选决策修复，在同一 `eval_id` 中从 STEP 1.2 向后运行即可，然后继续 STEP 2。
+- **部分失败规则**：若三个污染操作中至少一个成功，接受部分状态，继续评估，并在 `evaluation_context.open_questions` 中记录失败的操作。若全部失败，以非成功状态停止，且不产生成功的 EvaluationReport。
 
-4. **STEP 9 surfaces the violation.** `EvaluationReport.open_questions` MUST list every tainted artifact with severity `critical`, and the language for findings derived from tainted scope MUST be downgraded.
+4. **STEP 9 暴露违规。** `EvaluationReport.open_questions` 必须以严重级别 `critical` 列出每个污染产物，且从污染范围得出的结论语言必须降级。
 
-5. **HTML report shows a red banner** above the radar chart whenever any `open_questions` entry is severity `critical`.
+5. **HTML 报告显示红色横幅** 当任何 `open_questions` 条目严重级别为 `critical` 时，在雷达图上方显示红色横幅。
 
-## How to recover
+## 如何恢复
 
-A tainted run is **not** auto-deleted. Audit it, then choose a recovery path:
+污染运行**不会**被自动删除。先审计它，然后选择恢复路径：
 
-### A. Local fix (one trace / one score file)
+### A. 本地修复（一个轨迹 / 一个评分文件）
 
-If only a single artifact is tainted, you can:
+若只有单个产物被污染，可以：
 
-- regenerate that artifact (e.g. re-score a single (case, metric) pair to fix K16 reasoning)
-- mark the original tainted artifact in `TAINTED.md` with `superseded_by: <new file>`
-- re-run STEP 5 onwards if the regeneration affected aggregated values
+- 重新生成该产物（例如重新评分单个 (用例, 指标) 对以修复 K16 推理）
+- 在 `TAINTED.md` 中用 `superseded_by: <新文件>` 标记原始污染产物
+- 若重新生成影响了聚合值，从 STEP 5 开始重新运行
 
-### B. Partial restart (one step's output set)
+### B. 部分重启（一个步骤的输出集）
 
-If a deterministic step's output (STEP 5 / 6 / 7) is tainted but its inputs are clean:
+若某个确定性步骤的输出（STEP 5 / 6 / 7）被污染但其输入是干净的：
 
-- delete the tainted artifact
-- re-run that step inline
-- re-run all downstream steps (STEP 9 picks up new inputs)
+- 删除污染产物
+- 内联重新运行该步骤
+- 重新运行所有下游步骤（STEP 9 接收新输入）
 
-### C. Full restart (K8 / K9 / mass fabrication)
+### C. 完全重启（K8 / K9 / 大规模伪造）
 
-If the violation indicates the agent's process itself broke (authored a script, copied the full registry, or fabricated all scores in a batch):
+若违规表明 Agent 的流程本身崩溃（编写了脚本、复制了完整注册表、或批量伪造了所有分数）：
 
-- create a new `eval_id`
-- copy the `evaluation_context.json` if its inputs are still valid
-- start from PRE / STEP 1 with a fresh run directory
-- keep the tainted directory for audit; do NOT delete it
+- 创建新的 `eval_id`
+- 若其输入仍然有效，复制 `evaluation_context.json`
+- 从 PRE / STEP 1 开始，使用全新的运行目录
+- 保留污染目录用于审计；**不得**删除它
 
-## What `TAINTED.md` should contain
+## `TAINTED.md` 应包含的内容
 
 ```markdown
 # TAINTED — <eval_id>

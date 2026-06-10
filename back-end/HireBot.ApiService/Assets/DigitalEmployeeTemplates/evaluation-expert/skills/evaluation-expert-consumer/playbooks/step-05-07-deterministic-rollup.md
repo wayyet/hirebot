@@ -1,54 +1,54 @@
-# STEP 5 / 6 / 7 — deterministic roll-up + red-line check
+# STEP 5 / 6 / 7 — 确定性汇总 + 红线检查
 
-**Kind**: deterministic, LLM-disallowed
-**Authority**: workflow contract `S5` / `S6` / `S7` + K4 + K12 + K13
-**Inputs**: per-(case, metric) MetricScore files from STEP 4
-**Outputs**: three persisted JSON artifacts (see below)
+**类型**：确定性，禁止 LLM
+**依据**：工作流合同 `S5` / `S6` / `S7` + K4 + K12 + K13
+**输入**：STEP 4 生成的每 (用例, 指标) MetricScore 文件
+**输出**：三个持久化的 JSON 产物（见下文）
 
-These three steps are pure functions over numeric inputs. The agent performs them inline (read files, compute, write JSON). No LLM call is allowed.
+这三个步骤是对数值输入的纯函数。Agent 以内联方式执行（读文件、计算、写 JSON）。不允许 LLM 调用。
 
-## Required persistence (K12)
+## 必须持久化（K12）
 
-Each step MUST persist a typed JSON artifact under `./runs/<eval_id>/` BEFORE the next step begins. STEP 9 byte-copies values from these files (per K7) and MUST NOT run if any is missing.
+每个步骤必须在下一步开始**之前**在 `./runs/<eval_id>/` 下持久化一个类型化 JSON 产物。STEP 9 从这些文件字节拷贝数值（K7），若任何文件缺失则不得运行。
 
-| Step | Artifact | Key constraint |
+| 步骤 | 产物 | 关键约束 |
 |---|---|---|
-| 5 | `aggregated_metric_scores.json` | keys ⊇ `{ m.metric_code for m ∈ selected_metrics }` |
-| 6 | `dimension_scores.json` | keys **==** `{ m.parent_dimension for m ∈ selected_metrics }` (K13) |
-| 7 | `red_line_check.json` | one entry per metric whose `red_line` config is non-null |
+| 5 | `aggregated_metric_scores.json` | 键集合 ⊇ `{ m.metric_code for m ∈ selected_metrics }` |
+| 6 | `dimension_scores.json` | 键集合**等于** `{ m.parent_dimension for m ∈ selected_metrics }`（K13） |
+| 7 | `red_line_check.json` | `red_line` 配置非空的每个指标各一条 |
 
 ## STEP 5 — aggregateAcrossScenarios
 
-For each metric `m ∈ selected_metrics`:
+对每个指标 `m ∈ selected_metrics`：
 
-1. Collect all per-case scores: `{ tc_id → MetricScore }` from `./runs/<eval_id>/scores/<tc_id>__<m.metric_code>.json`
-2. Apply `m.aggregation_strategy` to collapse the matrix row into a single per-metric score:
-   - `worst_case` → take the lowest `overall_score`
-   - `simple_average` → arithmetic mean
-   - `weighted_average_by_difficulty` → use `test_case.difficulty` as weight
-   - `pass_rate` → fraction of cases at or above the implicit pass threshold
-   - `coverage` → fraction of required signals/elements actually observed
-3. Persist to `aggregated_metric_scores.json` keyed by `metric_code`.
+1. 收集所有每用例分数：从 `./runs/<eval_id>/scores/<tc_id>__<m.metric_code>.json` 获取 `{ tc_id → MetricScore }`
+2. 应用 `m.aggregation_strategy` 将矩阵行折叠为单个每指标分数：
+   - `worst_case` → 取最低 `overall_score`
+   - `simple_average` → 算术平均
+   - `weighted_average_by_difficulty` → 使用 `test_case.difficulty` 作为权重
+   - `pass_rate` → 达到或超过隐式通过阈值的用例比例
+   - `coverage` → 实际观察到的必要信号/元素比例
+3. 按 `metric_code` 为键持久化到 `aggregated_metric_scores.json`。
 
-## STEP 6 — rollUpToDimensions (K13)
+## STEP 6 — rollUpToDimensions（K13）
 
-`dimension_scores.json` key set MUST equal `{ m.parent_dimension for m ∈ selected_metrics }`. Concretely:
+`dimension_scores.json` 的键集合必须等于 `{ m.parent_dimension for m ∈ selected_metrics }`。具体而言：
 
-- **No key may appear** that is not the `parent_dimension` of any selected metric. Fabricating scores for parent dimensions whose sub-metrics were dropped at STEP 1 is forbidden.
-- **Every parent_dimension contributed by `selected_metrics` MUST appear.**
-- Each value is a deterministic roll-up of upstream MetricScore values. LLM-disallowed (K4).
-- `EvaluationReport.dimension_scores` is a byte-copy (K7) and inherits the same key constraints.
+- **任何键**都不得出现在没有任何已选指标的 `parent_dimension` 中。为 STEP 1 丢弃的子指标的父维度伪造分数是被禁止的。
+- **`selected_metrics` 贡献的每个 `parent_dimension` 必须出现。**
+- 每个值是上游 MetricScore 值的确定性汇总。禁止 LLM（K4）。
+- `EvaluationReport.dimension_scores` 是字节拷贝（K7），继承相同的键约束。
 
-### Validation
+### 验证
 
 ```
 expected_dims = { m.parent_dimension for m in selected_metrics }
 assert set(dimension_scores.keys()) == expected_dims
 ```
 
-### What NOT to do (the `runs/eval-xiaofu-001/` fabrication bug)
+### 不应做的事（`runs/eval-xiaofu-001/` 伪造 bug）
 
-If `selected_metrics` covers only `{interaction_empathy, order_refund_policy_accuracy, tool_call_correctness}` (e.g. `customer-service-ecommerce` after STEP 1 filtering), `dimension_scores.json` MUST contain exactly the parent dimensions those three roll up to:
+如果 `selected_metrics` 仅包含 `{interaction_empathy, order_refund_policy_accuracy, tool_call_correctness}`（例如 `customer-service-ecommerce` 经 STEP 1 过滤后），`dimension_scores.json` 必须恰好包含这三个指标汇入的父维度：
 
 ```
 {
@@ -58,11 +58,11 @@ If `selected_metrics` covers only `{interaction_empathy, order_refund_policy_acc
 }
 ```
 
-Inserting `process_compliance=87`, `problem_resolution=82`, etc. when no selected metric rolls up to those dimensions is the **K13 violation observed in `runs/eval-xiaofu-001/`** — the LLM in STEP 9 invented numeric scores for dimensions with no upstream evidence. K13 hard-blocks this; STEP 9 MUST reject any `dimension_scores.json` whose key set is a strict superset.
+当没有已选指标汇入这些维度时，插入 `process_compliance=87`、`problem_resolution=82` 等，正是 **`runs/eval-xiaofu-001/` 中观察到的 K13 违规**——STEP 9 的 LLM 为没有上游证据的维度伪造了数值分数。K13 硬性阻断此行为；STEP 9 必须拒绝任何键集合为严格超集的 `dimension_scores.json`。
 
-## STEP 7 — redLineCheck (K4)
+## STEP 7 — redLineCheck（K4）
 
-STEP 7 is pure code — no LLM, no rationalization. The exact algorithm:
+STEP 7 是纯代码——无 LLM，无理由化。精确算法：
 
 ```
 red_line_check = {}
@@ -102,27 +102,27 @@ for m in selected_metrics:
     }
 ```
 
-### The LLM is not allowed to overwrite `triggered`
+### LLM 不允许覆写 `triggered`
 
-Narrative justifications such as *"tool_call_correctness scored 10/100 but red_line is not triggered because the agent had reasonable substitute behavior"* are **K4 violations** — the `runs/eval-xiaofu-001/` bug. The LLM in STEP 9 may surface the triggered red lines in `executive_summary` prose, but the `red_line.triggered` field is byte-copied from `red_line_check.json` (per K7).
+诸如*"tool_call_correctness 得 10/100，但由于 agent 有合理的替代行为，红线未触发"*这类叙述性理由，属于 **K4 违规**——即 `runs/eval-xiaofu-001/` 的 bug。STEP 9 的 LLM 可以在 `executive_summary` 散文中呈现已触发的红线，但 `red_line.triggered` 字段是从 `red_line_check.json` 字节拷贝的（K7）。
 
-## Built-in red-line floors (customer-service-ecommerce template)
+## 内置红线下限（customer-service-ecommerce 模板）
 
-These trigger automatic failure regardless of weighted total:
+以下任一触发均自动导致失败，不论加权总分：
 
-- `tool_call_correctness = 0` (a metric with `criticality = must` had no matching call in the trace)
+- `tool_call_correctness = 0`（`criticality = must` 的指标在轨迹中没有匹配的调用）
 - `process_compliance ≤ 30`
 - `interaction_quality ≤ 30`
 - `functional_completeness ≤ 40`
 
-Per-metric `red_line` blocks declared in `*.metric.json` are unioned with these floors at STEP 7.
+`*.metric.json` 中声明的每指标 `red_line` 块在 STEP 7 与上述下限合并。
 
-## Anti-patterns
+## 反模式
 
-| Anti-pattern | K-rule | Failure mode |
+| 反模式 | K 规则 | 失败模式 |
 |---|---|---|
-| Skip persisting `aggregated_metric_scores.json` and let STEP 9 LLM compute it | K12 | Run tainted; STEP 9 input-gate rejects |
-| Fabricate `dimension_scores` for parent dimensions whose sub-metrics were dropped at STEP 1 | K13 | Run tainted at STEP 6 |
-| Call the LLM to "double-check" red-line triggers and let it flip `triggered` | K4 | Run tainted at STEP 7 |
-| LLM-rationalize a triggered red line into "not really triggered" in EvaluationReport | K4 + K7 | Report MUST be regenerated |
-| STEP 9 begins before all three of `aggregated_metric_scores.json` / `dimension_scores.json` / `red_line_check.json` exist | K12 | STEP 9 refuses to run |
+| 跳过持久化 `aggregated_metric_scores.json`，让 STEP 9 的 LLM 计算 | K12 | 运行被污染；STEP 9 输入门拒绝 |
+| 为 STEP 1 丢弃子指标的父维度伪造 `dimension_scores` | K13 | 运行在 STEP 6 被污染 |
+| 调用 LLM "双重检查"红线触发，让其翻转 `triggered` | K4 | 运行在 STEP 7 被污染 |
+| LLM 将已触发的红线合理化为"其实没触发"并写入 EvaluationReport | K4 + K7 | 报告必须重新生成 |
+| STEP 9 在三个产物（`aggregated_metric_scores.json` / `dimension_scores.json` / `red_line_check.json`）全部存在之前开始 | K12 | STEP 9 拒绝运行 |

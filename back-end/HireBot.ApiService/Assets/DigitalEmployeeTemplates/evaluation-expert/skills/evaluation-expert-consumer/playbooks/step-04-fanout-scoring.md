@@ -1,40 +1,40 @@
-# STEP 4 — scoreScenario (LLM fan-out)
+# STEP 4 — scoreScenario（LLM 并行扇出）
 
-**Kind**: LLM fan-out
-**Authority**: workflow contract `S4` + K3 + K16 + scoring-judgement prompt-constraint K1–K4 (per_metric_fanout_prompt layer)
-**Inputs**: ExecutionTrace per scenario, enriched test case, metric definition, scoring-judgement rules slice
-**Output**: `./runs/<eval_id>/scores/<tc_id>__<metric_code>.json` per (case, metric) pair
+**类型**：LLM 并行扇出
+**依据**：工作流合同 `S4` + K3 + K16 + scoring-judgement 提示约束 K1–K4（per_metric_fanout_prompt 层）
+**输入**：每场景 ExecutionTrace、丰富测试用例、指标定义、scoring-judgement 规则切片
+**输出**：每 (用例, 指标) 对应 `./runs/<eval_id>/scores/<tc_id>__<metric_code>.json`
 
-## Why fan-out (not bundled)
+## 为什么扇出（而非批处理）
 
-A single prompt that bundles "all metrics + all rubrics + full trace + output schema" explodes token usage and dilutes attention. STEP 4 instead runs **one slim LLM call per `(test_case, metric)` pair**, where each prompt is built from:
+将"所有指标 + 所有评分标准 + 完整轨迹 + 输出模式"打包到单个提示词会导致 token 用量爆炸并分散注意力。STEP 4 改为**每个 `(测试用例, 指标)` 对运行一次轻量 LLM 调用**，每次提示词由以下内容构建：
 
-- the relevant slice of `scoring-judgement.prompt-constraint.projection.json` (only constraints whose `applies_to_layer = per_metric_fanout_prompt`)
-- the single metric's `scoring_rubric` and `runtime_slice_selector`
-- the runtime data filtered through that selector (typically: this test case's expected output + this scenario's trace, scoped further per metric)
-- the strict response schema `metric_score.schema.json`
+- `scoring-judgement.prompt-constraint.projection.json` 中的相关切片（仅 `applies_to_layer = per_metric_fanout_prompt` 的约束）
+- 单个指标的 `scoring_rubric` 和 `runtime_slice_selector`
+- 通过该选择器过滤的运行时数据（通常为：该测试用例的预期输出 + 该场景的轨迹，并按指标进一步范围化）
+- 严格的响应模式 `metric_score.schema.json`
 
-K3 enforces this: exactly one LLM invocation per `(test_case, metric)` pair where `metric_code ∈ enriched_test_cases[tc].applicable_metrics`. Batching multiple metrics or scenarios into a single call is forbidden.
+K3 强制要求：每个 `(测试用例, 指标)` 对恰好一次 LLM 调用，其中 `metric_code ∈ enriched_test_cases[tc].applicable_metrics`。禁止将多个指标或场景批处理到单次调用中。
 
-## Why red-line judgement is deterministic, not LLM (K4)
+## 为什么红线判断是确定性的而非 LLM（K4）
 
-LLMs may underweight red lines under social/empathy pressure. STEP 4 LLM calls may only **raise `observed_signals`** (e.g. `missing_required_tool_call`). The final pass/fail decision is computed in STEP 7 by deterministic code, using each metric's declared `red_line` config. The LLM never sees `red_line_passed` and cannot return it.
+LLM 可能在社交/同理心压力下低估红线权重。STEP 4 的 LLM 调用只能**触发 `observed_signals`**（如 `missing_required_tool_call`）。最终通过/失败决策在 STEP 7 由确定性代码计算，使用每个指标声明的 `red_line` 配置。LLM 看不到 `red_line_passed`，也不能返回该字段。
 
-Note: `metric_score.schema.json` deliberately does NOT include a `red_line_passed` or `pass_fail` field.
+注意：`metric_score.schema.json` 中故意不包含 `red_line_passed` 或 `pass_fail` 字段。
 
-## Hard rules (K16)
+## 硬性规则（K16）
 
-1. **No batch fabrication.** The agent MUST NOT compute scores from its own knowledge of the trace and metric definitions, then emit all score files at once with a uniform timestamp. Each prompt is built from (i) that exact trace + (ii) that exact metric definition + (iii) the rubric/red-line config + (iv) per-case `stop_conditions`, and submitted independently to the evaluator LLM.
+1. **禁止批量伪造。** Agent 不得从自己对轨迹和指标定义的认知中计算分数，然后一次性以统一时间戳输出所有评分文件。每个提示词由（i）该轨迹 +（ii）该指标定义 +（iii）评分标准/红线配置 +（iv）每用例 `stop_conditions` 构建，并独立提交给评估 LLM。
 
-2. **Real `scored_at`.** `MetricScore.scored_at` MUST be the real ISO8601 timestamp captured at LLM-response receipt time, accurate to at least the second, and **different across distinct LLM calls** (millisecond/microsecond drift expected).
+2. **真实的 `scored_at`。** `MetricScore.scored_at` 必须是 LLM 响应接收时的真实 ISO8601 时间戳，精确到至少秒级，且**不同 LLM 调用之间值不同**（预期有毫秒/微秒漂移）。
 
-3. **Duplicate-timestamp taint.** If MORE THAN ONE score file in the same run shares an identical `scored_at` value (string equality), the run is marked tainted and STEP 9 MUST list every duplicate-timestamp pair in `open_questions` with severity `critical`. This catches the **`runs/eval-soul-001/`** pattern where all 10 score files carried `scored_at = "2026-05-29T14:30:00Z"` verbatim.
+3. **重复时间戳污染。** 如果同一运行中**超过一个**评分文件具有相同的 `scored_at` 值（字符串相等），则运行被标记为污染，STEP 9 必须在 `open_questions` 中以严重级别 `critical` 列出每对重复时间戳。这用于捕获 **`runs/eval-soul-001/`** 中所有 10 个评分文件都带有 `scored_at = "2026-05-29T14:30:00Z"` 的模式。
 
-4. **Reasoning must cite evidence.** `MetricScore.scoring_reasoning` MUST quote at least one concrete substring from `dialog_turns` or `actual_tool_calls` of the trace being scored. Reasoning that consists only of generic phrases ("based on standards", "reasonable demonstration result", "as a typical case", "基于评估标准生成") with no observable evidence is rejected as fabrication; the score file MUST be regenerated.
+4. **推理必须引用证据。** `MetricScore.scoring_reasoning` 必须引用被评分轨迹的 `dialog_turns` 或 `actual_tool_calls` 中至少一个具体的子字符串。仅由通用短语（"based on standards"、"reasonable demonstration result"、"as a typical case"、"基于评估标准生成"）组成而没有可观察证据的推理被视为伪造；评分文件必须重新生成。
 
-5. **Forbidden shortcut (mirror of K14).** The agent MUST NOT skip the per-(case, metric) LLM call citing "demonstration", "preview", "sample run", "illustrative scoring", "time pressure", or any other reason. There is no demonstration mode — every metric on every case requires a real evaluator LLM call.
+5. **禁止的捷径（K14 的镜像）。** Agent 不得以"演示"、"预览"、"示例运行"、"说明性评分"、"时间压力"或任何其他理由跳过每 (用例, 指标) 的 LLM 调用。没有演示模式——每个用例的每个指标都需要真实的评估 LLM 调用。
 
-## Validation pseudo-code (applied at STEP 5 input gate)
+## 验证伪代码（在 STEP 5 输入门处应用）
 
 ```
 scored_at_set = { read(f).scored_at for f in scores/*.json }
@@ -47,25 +47,25 @@ for f in scores/*.json:
            traces[score.test_case_id].dialog_turns OR actual_tool_calls
 ```
 
-## scoring-judgement K-rules baked into the per-metric prompt
+## 注入每指标扇出提示词的 scoring-judgement K 规则
 
-The per-metric fan-out prompt MUST inject `scoring-judgement.prompt-constraint.projection.json` constraints whose `applies_to_layer == "per_metric_fanout_prompt"`:
+每指标扇出提示词必须注入 `scoring-judgement.prompt-constraint.projection.json` 中 `applies_to_layer == "per_metric_fanout_prompt"` 的约束：
 
-| scoring-judgement K# | Rule | Effect on scoring |
+| scoring-judgement K# | 规则 | 对评分的影响 |
 |---|---|---|
-| K1 | `BaselineIsFiftyAndEvidenceDriven` | Every dimension starts at 50; up only with concrete evidence; down only with quotable issues; no vibe-based scoring |
-| K3 | `HighScoresMustBeRare` | Scores ≥ 80 must be exceptional; most acceptable employees land in 70–75 range |
-| K4 | `EveryAdjustmentNeedsEvidence` | Every adjustment cites the conversation snippet or tool call that supports it; un-evidenced adjustments removed |
+| K1 | `BaselineIsFiftyAndEvidenceDriven` | 每个维度从 50 分开始；只有具体证据才能加分；只有可引用的问题才能减分；禁止"感觉"评分 |
+| K3 | `HighScoresMustBeRare` | 分数 ≥ 80 必须是例外；大多数合格员工得分在 70–75 范围内 |
+| K4 | `EveryAdjustmentNeedsEvidence` | 每次调整引用支持它的对话片段或工具调用；无证据的调整被移除 |
 
-scoring-judgement K2 (`RedLineTriggersAreNonNegotiable`) and K5 (`AllIssuesMustBeReported`) live elsewhere — see `step-05-07-deterministic-rollup.md` and `step-09-overall-report.md` respectively.
+scoring-judgement K2（`RedLineTriggersAreNonNegotiable`）和 K5（`AllIssuesMustBeReported`）在其他地方——参见 `step-05-07-deterministic-rollup.md` 和 `step-09-overall-report.md`。
 
-## Anti-patterns
+## 反模式
 
-| Anti-pattern | K-rule | Failure mode |
+| 反模式 | K 规则 | 失败模式 |
 |---|---|---|
-| Bundle all metrics for one trace into a single LLM call | K3 | Run tainted at STEP 4 |
-| Emit all `<tc>__<metric>.json` files with the same `scored_at` timestamp | K16 | Run tainted; STEP 5 input-gate rejects |
-| Compute scores from your own analysis without invoking the LLM | K16 | Run tainted; reasoning lacks trace quotes |
-| Set `red_line_passed` or `pass_fail` in MetricScore | K4 | Schema rejects the field |
-| Use generic boilerplate ("based on rubric") as `scoring_reasoning` | K16 | Score file MUST be regenerated |
-| Skip a (case, metric) pair because "this metric obviously doesn't apply" | K3 / K16 | All `applicable_metrics` are mandatory at STEP 4 |
+| 将一个轨迹的所有指标打包到单次 LLM 调用 | K3 | 运行在 STEP 4 被污染 |
+| 所有 `<tc>__<metric>.json` 文件使用相同的 `scored_at` 时间戳 | K16 | 运行被污染；STEP 5 输入门拒绝 |
+| 不调用 LLM 而根据自己的分析计算分数 | K16 | 运行被污染；推理缺乏轨迹引用 |
+| 在 MetricScore 中设置 `red_line_passed` 或 `pass_fail` | K4 | 模式拒绝该字段 |
+| 将通用样板（"基于评分标准"）用作 `scoring_reasoning` | K16 | 评分文件必须重新生成 |
+| 以"该指标明显不适用"为由跳过某 (用例, 指标) 对 | K3 / K16 | 所有 `applicable_metrics` 在 STEP 4 均为强制项 |

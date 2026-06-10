@@ -1,28 +1,28 @@
-# STEP 1.5 — parseTestCases (consult user FIRST, SOP only as fallback)
+# STEP 1.5 — parseTestCases（优先咨询用户，仅在无法获取时才回退到 SOP 合成）
 
-**Kind**: LLM, conditional (only when `test_case_status == "missing"`)
-**Authority**: workflow contract `S1_5` + K5 + K11 + K15 (design facet)
-**Outputs**: `./runs/<eval_id>/synthesized-cases/<tc_id>.json` files + `evaluation_context.user_consultation_log`
+**类型**：LLM，条件性触发（仅当 `test_case_status == "missing"` 时）
+**依据**：工作流合同 `S1_5` + K5 + K11 + K15（设计切面）
+**输出**：`./runs/<eval_id>/synthesized-cases/<tc_id>.json` 文件 + `evaluation_context.user_consultation_log`
 
-Real-world scenarios from the user are the **highest-fidelity grounding** for an evaluation. SOPs only describe how the employee SHOULD behave — they do NOT tell us what cases the employee ACTUALLY meets.
+来自用户的真实场景是评估**最高保真度的基准**。SOP 只描述员工**应该**如何行事——无法告诉我们员工**实际**处理哪些用例。
 
-## The user-first protocol
+## 用户优先协议
 
-When STEP 1.5 fires, **STOP and ask the user before any LLM synthesis.**
+STEP 1.5 触发时，**先暂停，在进行任何 LLM 合成之前向用户确认**。
 
-### 1. Send a single consultation message (suggested template)
+### 1. 发送一条咨询消息（建议模板）
 
 > 我即将为员工 `<employee_id>`（role=`<role>`）生成测试用例。为了让评估贴近真实业务，请提供该员工在生产环境中实际处理的代表性场景（1–7 个）。每个场景请说明：(a) 场景名称与频率；(b) 客户典型开场话术与诉求；(c) 需要员工调用的关键工具 / 查询 / 决策；(d) 隐含红线。若你明确表示「没有」「你自己合成即可」，我才会退回 SOP 合成并标 caveat。
 
-### 2. Classify the response into one of three branches
+### 2. 将响应归入三个分支之一
 
-| Branch | Trigger | Tier | provenance.source | reliability | Notes |
+| 分支 | 触发条件 | 层级 | provenance.source | reliability | 说明 |
 |---|---|---|---|---|---|
-| (A) supplies | user provides scenarios | Tier 1 | `user_provided_scenarios` | `high` | LLM only renders user text into `test-case.schema.json` v2.0; MUST NOT invent scenario types not mentioned |
-| (B) declines | "你自己合成" / "没有" / "skip" | Tier 2 | `synthesized_from_sop` | `low` (must carry `reliability_caveat`) | STEP 9 surfaces caveat in `open_questions`; language downgraded to "indicative" / "preliminary" |
-| (C) partial | user gives 1–2 seeds, asks you to fill rest | mixed | `mixed` | per-case (`high` for seeds, `low` for SOP expansion) | Each case attributed individually |
+| (A) 提供 | 用户提供场景 | Tier 1 | `user_provided_scenarios` | `high` | LLM 仅将用户文本渲染为 `test-case.schema.json` v2.0；不得发明用户未提及的场景类型 |
+| (B) 拒绝 | "你自己合成" / "没有" / "skip" | Tier 2 | `synthesized_from_sop` | `low`（必须携带 `reliability_caveat`） | STEP 9 在 `open_questions` 中显示 caveat；措辞降级为"指示性"/"初步" |
+| (C) 部分提供 | 用户给出 1–2 个种子，要求补全其余 | 混合 | `mixed` | 逐用例（种子为 `high`，SOP 扩展为 `low`） | 每个用例单独归因 |
 
-### 3. Persist the consultation
+### 3. 持久化咨询记录
 
 ```jsonc
 evaluation_context.user_consultation_log = [
@@ -30,48 +30,48 @@ evaluation_context.user_consultation_log = [
 ]
 ```
 
-This is the auditable evidence the consultation actually happened.
+这是咨询确实发生过的可审计证据。
 
-### 4. Tier 3 (block)
+### 4. Tier 3（阻断）
 
-If user declined AND `employee.sop_documents` is empty → `block_or_escalate`. Do **NOT** fabricate scenarios out of thin air.
+如果用户拒绝，且 `employee.sop_documents` 为空 → `block_or_escalate`。**不得**凭空捏造场景。
 
-## Required `provenance` shape (schema-enforced)
+## 必需的 `provenance` 结构（由模式强制）
 
 ```jsonc
 {
   "source": "user_provided_scenarios" | "synthesized_from_sop" | "mixed",
   "reliability": "high" | "medium" | "low",
-  "reliability_caveat": "synthesized_from_sop_only_no_user_grounding"  // required when reliability == "low"
+  "reliability_caveat": "synthesized_from_sop_only_no_user_grounding"  // reliability == "low" 时必填
 }
 ```
 
-Cases without `provenance` MUST fail validation BEFORE being written to `./runs/<eval_id>/synthesized-cases/`.
+不含 `provenance` 的用例在写入 `./runs/<eval_id>/synthesized-cases/` **之前**必须通过验证失败拦截。
 
-## v2.0 simulator-driven required fields
+## v2.0 simulator 驱动所需字段
 
-Every synthesized case MUST include:
+每个合成用例必须包含：
 
-- `input.opening_message` (verbatim user-supplied or rendered from SOP — NEVER use the deprecated `user_message`)
-- `input.customer_persona` (`name`, `age_band`, `personality[]`, `communication_style`, `patience_level`)
-- `input.initial_emotion` (one of `angry` / `anxious` / `neutral` / `curious` / `satisfied` / `skeptical` / `frustrated`)
-- `input.goal` (`primary` required, `secondary` and `bottom_line` recommended)
-- `input.context` (free-form scenario context the employee will see)
-- `input.stop_conditions` (`success` / `failure` / `deadlock` plain-language descriptions)
-- `turn_budget.hard_max_turns` (5–30 typical, 50 max)
-- `provenance` (per above)
+- `input.opening_message`（用户提供的原文或从 SOP 渲染——**绝对不要**使用已废弃的 `user_message`）
+- `input.customer_persona`（`name`、`age_band`、`personality[]`、`communication_style`、`patience_level`）
+- `input.initial_emotion`（`angry` / `anxious` / `neutral` / `curious` / `satisfied` / `skeptical` / `frustrated` 之一）
+- `input.goal`（`primary` 必填，`secondary` 和 `bottom_line` 建议填写）
+- `input.context`（员工可见的自由形式场景上下文）
+- `input.stop_conditions`（`success` / `failure` / `deadlock` 通俗语言描述）
+- `turn_budget.hard_max_turns`（典型值 5–30，最大 50）
+- `provenance`（见上文）
 
-Forbidden in v2.0: `input.user_message`, `input.follow_up_messages`. STEP 3 ignores them.
+v2.0 禁止字段：`input.user_message`、`input.follow_up_messages`。STEP 3 会忽略它们。
 
-## stop_conditions ↔ expected_tool_calls alignment (K15 design facet)
+## stop_conditions ↔ expected_tool_calls 对齐（K15 设计切面）
 
-Before STEP 3 begins, **every** synthesized/enriched case MUST pass three self-checks:
+STEP 3 开始前，**每个**已合成/已丰富化的用例必须通过三项自检：
 
-1. **Must-tools imply observable outcome.** If `expected_tool_calls` contains any `criticality="must"` entries, ask: *"Can `stop_conditions.success` be true if those tools were NEVER called?"* If yes, the case has an internal contradiction. Rewrite `stop_conditions.success` to require an outcome that implies the must-tools fired.
-2. **Required info handoff.** If `context` carries info the evaluatee will need (e.g. `order_reference`) but `opening_message` intentionally omits it, ask: *"Does `stop_conditions.success` assume the customer provided that info?"* If not, rewrite the success condition to include the info-handoff step.
-3. **Actionable closure.** `stop_conditions.success` MUST describe an outcome where the customer's problem is **on track to resolution** (action taken or in progress), not merely passive reception of a process explanation.
+1. **必要工具应有可观察的结果。** 如果 `expected_tool_calls` 包含 `criticality="must"` 的条目，请进行如下考量：*"如果这些工具一次都未被调用，`stop_conditions.success` 还能为 `true` 吗？"* 如果是，该用例内部存在矛盾。重写 `stop_conditions.success`，要求的结果应隐含必要工具已被调用。
+2. **必要信息交接。** 如果 `context` 携带被评估者需要的信息（如 `order_reference`），但 `opening_message` 有意略去该信息，请考虑：*"如果客户未提供该信息，`stop_conditions.success` 是否仍成立？"* 如果不是，重写成功条件，让其包含信息交接步骤。
+3. **可执行的闭合。** `stop_conditions.success` 必须描述客户问题**正在解决过程中**（已采取或正在推进的行动），而不仅仅是被动接收流程说明。
 
-  Template: `"<verb: 已提交 / 已确认 / 已发起> + <object: 退款申请 / 催派工单 / 订单查询结果>"`
+  模板：`"<动词: 已提交 / 已确认 / 已发起> + <对象: 退款申请 / 催派工单 / 订单查询结果>"`
 
 ### Worked example (`runs/eval-xiaofu-001/` tc-004-refund-request bug)
 
@@ -85,23 +85,23 @@ Before STEP 3 begins, **every** synthesized/enriched case MUST pass three self-c
 + stop_conditions.success = "员工已查询订单并确认符合退款条件，或已为客户发起退货退款申请"
 ```
 
-The original lets the simulator declare `goal_achieved` at turn 2 (after the employee lists steps), so the employee never receives the order number, never calls the must-tools, and the red-line trips even though the conversation followed the success script. **K15 design facet** catches this before STEP 3.
+原始版本允许 simulator 在第 2 轮（员工列出步骤后）宣告 `goal_achieved`，导致员工从未收到订单号、从未调用必要工具，红线触发——尽管对话遵循了成功脚本。**K15 设计切面**在 STEP 3 之前捕获此类问题。
 
-## Negative case coverage (mandatory, K21)
+## 负向用例覆盖（强制，K21）
 
-Real evaluations need **adversarial / restricted-path** scenarios, not only happy paths. STEP 1.5 MUST synthesize negative-polarity cases alongside positive ones, at a target ratio of `positive : negative ≈ 80 : 20`. This is no longer best practice; it is **K21**.
+真实评估需要**对抗性 / 受限路径**场景，不能只有正向路径。STEP 1.5 必须在合成正向用例的同时合成负向极性用例，目标比例为 `positive : negative ≈ 80 : 20`。这不再是最佳实践，而是 **K21** 强制要求。
 
-### Polarity definitions
+### 极性定义
 
-| polarity | Meaning | Example (refund threshold = 500) |
+| polarity | 含义 | 示例（退款阈值 = 500） |
 |---|---|---|
-| `positive` | Within the normal / allowed / happy path | `order_amount=350`, direct refund approved |
-| `negative` | Crosses a restriction / escalation / refusal / failure path | `order_amount=899`, must hand off to human; or customer requests refund after 7-day window; or customer asks for confidential info the employee MUST refuse |
-| `boundary` | Exactly at the threshold (optional, excluded from ratio counting) | `order_amount=500`, edge-case behavior |
+| `positive` | 正常 / 允许 / 正向路径 | `order_amount=350`，直接通过退款 |
+| `negative` | 跨越限制 / 升级 / 拒绝 / 失败路径 | `order_amount=899`，必须转接人工；或客户在 7 天窗口期后申请退款；或客户索取员工必须拒绝的机密信息 |
+| `boundary` | 恰好在阈值边界（可选，排除在比例统计之外） | `order_amount=500`，边界情况行为 |
 
-`negative` is NOT just "a different positive case". It is a case where the **expected correct behavior is to refuse / escalate / decline / hand off / quote a policy limit**. The `expected_tool_calls` of a negative case typically differ from its positive counterpart (e.g. `create_handoff_ticket` instead of `process_refund`) and its `red_line` triggers are typically different.
+`negative` **不是**"换了个数值的正向用例"，而是**预期正确行为为拒绝 / 升级 / 婉拒 / 转接 / 引用策略限制**的用例。负向用例的 `expected_tool_calls` 通常与对应正向用例不同（例如 `create_handoff_ticket` 而非 `process_refund`），其 `red_line` 触发条件也通常不同。
 
-### K21 ratio rule
+### K21 比例规则
 
 Let `N = #cases where polarity ∈ {positive, negative}` (cases marked `polarity = "boundary"` are excluded from this count). Then:
 
@@ -111,46 +111,46 @@ Let `N = #cases where polarity ∈ {positive, negative}` (cases marked `polarity
 | `2 – 4` | `≥ 1` |
 | `≥ 5` | `≥ ceil(0.20 * N)` |
 
-Every `negative` case MUST carry `paired_case_id` pointing to the `positive` case that exercises the **same** decision boundary from the opposite side (and vice versa for the positive when the pair is explicit). Unpaired negatives are allowed only when the negative path has no symmetric positive counterpart (e.g. a pure refusal scenario like "customer asks for another employee's salary") — in that case, omit `paired_case_id` and add `polarity_rationale` describing why no pair exists.
+每个 `negative` 用例必须携带 `paired_case_id`，指向从对立面行使**相同**决策边界的 `positive` 用例（当配对是显式的，正向用例也应反向指向负向用例）。仅当负向路径没有对称正向对应用例时（例如纯拒绝场景，如"客户询问另一名员工的薪资"），才允许无配对负向用例——此时省略 `paired_case_id`，并添加 `polarity_rationale` 说明无配对的原因。
 
-### Mandatory self-check before writing `synthesized-cases/`
+### 写入 `synthesized-cases/` 前的强制自检
 
 ```
 N = count(cases where polarity in {"positive", "negative"})
 N_neg = count(cases where polarity == "negative")
 
 if N == 1:
-    # exemption path
+    # 豁免路径
     assert evaluation_context.negative_coverage_exemption is set, \
-        "K21: single-case run requires exemption rationale"
+        "K21: 单用例运行需要豁免理由"
 elif 2 <= N <= 4:
-    assert N_neg >= 1, f"K21: need ≥1 negative, got {N_neg}/{N}"
+    assert N_neg >= 1, f"K21: 需要 ≥1 个负向用例，当前 {N_neg}/{N}"
 else:  # N >= 5
     import math
     required = math.ceil(0.20 * N)
-    assert N_neg >= required, f"K21: need ≥{required} negatives ({N=}), got {N_neg}"
+    assert N_neg >= required, f"K21: 需要 ≥{required} 个负向用例（{N=}），当前 {N_neg}"
 
 for c in cases:
     assert c.polarity in {"positive", "negative", "boundary"}, \
-        "K21: every case MUST set polarity"
+        "K21: 每个用例必须设置 polarity"
     if c.polarity == "negative" and not c.paired_case_id:
         assert c.polarity_rationale, \
-            "K21: unpaired negative requires polarity_rationale"
+            "K21: 无配对的负向用例需要 polarity_rationale"
 ```
 
-### How to generate negatives from the same scenario seed
+### 如何从同一场景种子生成负向用例
 
-For each `positive` case you draft, ask three questions; any "yes" yields a candidate `negative` partner:
+对于每个草拟的 `positive` 用例，询问三个问题；任意"是"都能产生一个候选 `negative` 配对：
 
-1. **Boundary flip**: is there a numeric / temporal / categorical threshold? → generate the case on the OTHER side of the threshold (`order_amount=899` instead of `350`; `day_10` instead of `day_3`; `electronics` instead of `non-electronics`).
-2. **Authority flip**: does the customer ask for something the employee SHOULD refuse / escalate / quote-policy-on? → generate that refusal case (asking for someone else's data; demanding a refund outside policy; pressuring the employee to bypass approval).
-3. **Failure-mode flip**: what happens when an upstream tool returns empty / errors / contradicts the customer's claim? → generate that case (`query_order_status` returns "not found" while customer insists they ordered).
+1. **边界反转**：是否存在数值 / 时间 / 类别阈值？→ 生成阈值**另一侧**的用例（`order_amount=899` 而非 `350`；`day_10` 而非 `day_3`；`electronics` 而非 `non-electronics`）。
+2. **权限反转**：客户是否要求员工**应当**拒绝 / 升级 / 引用政策的内容？→ 生成该拒绝用例（索取他人数据；要求超出政策的退款；向员工施压绕过审批）。
+3. **故障模式反转**：当上游工具返回空值 / 报错 / 与客户声明矛盾时会发生什么？→ 生成该用例（`query_order_status` 返回"未找到"，而客户坚称已下单）。
 
-Target mix per scenario seed: 1–2 positives + 1 negative is the floor that satisfies K21 at `N ≥ 2`.
+每个场景种子的目标组合：1–2 个正向 + 1 个负向，是满足 `N ≥ 2` 时 K21 的最低要求。
 
-### Exemption protocol (the ONLY way to ship with `#negative == 0`)
+### 豁免协议（唯一允许 `#negative == 0` 的方式）
 
-If and only if **every** scenario seed is a pure information-query with no decision boundary, no authority asymmetry, and no failure mode (rare — e.g. "FAQ-style lookup of public schedule"), record:
+当且仅当**所有**场景种子都是无决策边界、无权限不对称、无故障模式的纯信息查询时（罕见——例如"FAQ 式公开日程查询"），记录：
 
 ```json
 "negative_coverage_exemption": {
@@ -160,43 +160,43 @@ If and only if **every** scenario seed is a pure information-query with no decis
 }
 ```
 
-into `evaluation_context.json`. STEP 9 MUST surface this exemption in `open_questions` so reviewers can challenge it.
+写入 `evaluation_context.json`。STEP 9 必须在 `open_questions` 中展示此豁免，以便审核人员提出质疑。
 
-### Worked example (eval-soul-002, customer-service-ecommerce, 5 cases)
+### 工作示例（eval-soul-002，customer-service-ecommerce，5 个用例）
 
-N = 5. Required `#negative ≥ ceil(0.20 * 5) = 1` (floor) — with `80 : 20` target, aim for `#negative = 1` (20%) or `2` (40% if scenarios warrant it).
+N = 5。要求 `#negative ≥ ceil(0.20 * 5) = 1`（最低要求）——以 `80 : 20` 为目标，期望 `#negative = 1`（20%）或 `2`（如果场景需要，则为 40%）。
 
-| tc_id | polarity | paired_case_id | rationale |
+| tc_id | polarity | paired_case_id | 说明 |
 |---|---|---|---|
-| tc-refund-eligible-300 | `positive` | tc-refund-handoff-899 | within threshold |
-| tc-refund-handoff-899 | `negative` | tc-refund-eligible-300 | exceeds 500 → must handoff |
-| tc-return-day3 | `positive` | tc-return-day10-refused | within 7-day window |
-| tc-return-day10-refused | `negative` | tc-return-day3 | outside window → must quote policy + refuse |
-| tc-status-lookup | `positive` | (no pair) | pure info query, no boundary; allowed as standalone positive |
+| tc-refund-eligible-300 | `positive` | tc-refund-handoff-899 | 在阈值以内 |
+| tc-refund-handoff-899 | `negative` | tc-refund-eligible-300 | 超过 500 → 必须转接 |
+| tc-return-day3 | `positive` | tc-return-day10-refused | 在 7 天窗口期内 |
+| tc-return-day10-refused | `negative` | tc-return-day3 | 超过窗口期 → 必须引用政策 + 拒绝 |
+| tc-status-lookup | `positive` | （无配对） | 纯信息查询，无边界；允许作为独立正向用例 |
 
-Result: `N = 5`, `#negative = 2`, ratio `60 : 40` (within ≥ 20% requirement, slightly heavier on negatives). ✅ K21 satisfied.
+结果：`N = 5`，`#negative = 2`，比例 `60 : 40`（满足 ≥ 20% 要求，负向稍多）。✅ K21 满足。
 
-## Boundary coverage (legacy section, now subsumed by K21)
+## 边界覆盖（遗留章节，现已纳入 K21）
 
-Apply equivalence-class partitioning when the scenario seed contains a decision boundary (amount thresholds, time limits, category restrictions, customer tier gates). The pairing mechanics described above are now mandatory under K21; `polarity = "boundary"` is reserved for cases that sit exactly on the threshold (e.g. `order_amount=500`) and is **excluded** from the K21 ratio count.
+当场景种子包含决策边界时（金额阈值、时限、类别限制、客户层级门控），应用等价类划分。上述配对机制现在是 K21 的强制要求；`polarity = "boundary"` 保留用于恰好在阈值边界的用例（例如 `order_amount=500`），**排除**在 K21 比例统计之外。
 
-## Anti-patterns
+## 反模式
 
-| Anti-pattern | K-rule | Failure mode |
+| 反模式 | K规则 | 失败模式 |
 |---|---|---|
-| Detect `test_case_status == "missing"` and immediately call LLM to synthesize from SOP | K11 | EvaluationReport flags missing consultation |
-| Ask the user but proceed with SOP synthesis BEFORE the user has answered | K11 | Same as above |
-| Tag SOP-derived cases as `reliability="high"` or omit `reliability_caveat` | K11 | EvaluationReport flagged |
-| Write synthesized cases into `./test-cases/` instead of `./runs/<eval-id>/synthesized-cases/` | K5 | block_or_escalate |
-| `stop_conditions.success` satisfiable without firing must-tools | K15 (design) | Case rejected at STEP 3 input gate |
-| STEP 9 omits `synthesized_from_sop_only_no_user_grounding` caveat when run has any Tier-2 case | K11 | Report flagged |
-| Ship 5 synthesized cases all with `polarity="positive"` (or missing `polarity`) and no `negative_coverage_exemption` | **K21** | STEP 1.5 output rejected; must re-synthesize with negatives |
-| Tag a case `polarity="negative"` only because it has a different amount, while expected behavior is still the same happy-path refund | **K21** | Case mis-classified; treated as positive at audit; K21 ratio recomputed |
-| `negative` case without `paired_case_id` AND without `polarity_rationale` | **K21** | STEP 1.5 output rejected |
+| 检测到 `test_case_status == "missing"` 后立即调用 LLM 从 SOP 合成 | K11 | EvaluationReport 标记缺少咨询 |
+| 询问用户但在用户回复前就开始 SOP 合成 | K11 | 同上 |
+| 将 SOP 衍生用例标记为 `reliability="high"` 或省略 `reliability_caveat` | K11 | EvaluationReport 被标记 |
+| 将合成用例写入 `./test-cases/` 而非 `./runs/<eval-id>/synthesized-cases/` | K5 | block_or_escalate |
+| `stop_conditions.success` 不需要触发必要工具即可满足 | K15（设计） | 用例在 STEP 3 输入门被拒绝 |
+| 运行包含 Tier-2 用例时，STEP 9 省略 `synthesized_from_sop_only_no_user_grounding` caveat | K11 | 报告被标记 |
+| 交付 5 个合成用例，全部标记为 `polarity="positive"`（或缺少 `polarity`），且无 `negative_coverage_exemption` | **K21** | STEP 1.5 输出被拒绝；必须重新合成并加入负向用例 |
+| 仅因金额不同就将用例标记为 `polarity="negative"`，但预期行为仍是正向路径退款 | **K21** | 用例分类错误；审计时视为正向；K21 比例重新计算 |
+| `negative` 用例既无 `paired_case_id` 又无 `polarity_rationale` | **K21** | STEP 1.5 输出被拒绝 |
 
-## After synthesis: STEP 1.6 pushSynthesizedTestCases
+## 合成后：STEP 1.6 pushSynthesizedTestCases
 
-Once all `*.tc.json` files are written to `./runs/<eval_id>/synthesized-cases/`,
-proceed to **STEP 1.6** — push them to HireBot so the frontend right panel shows
+所有 `*.tc.json` 文件写入 `./runs/<eval_id>/synthesized-cases/` 后，
+继续执行 **STEP 1.6**——将其推送到 HireBot，以便前端右侧面板立即显示
 Question Cards immediately (before STEP 3 begins). If `hirebot_api` is absent,
 skip (the cards will be embedded in the trace bundle at STEP 10 as a fallback).

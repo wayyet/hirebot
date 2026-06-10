@@ -1,21 +1,21 @@
-# STEP 2.5 — planRun (materialise the execution plan-of-record)
+# STEP 2.5 — planRun（将执行计划记录落盘）
 
-**Kind**: deterministic (NO LLM)
-**Authority**: workflow contract `S2.5` (new) + K20
-**Inputs**: `evaluation_context.json` (post-STEP-6 materialisation OR post-STEP-2 enrich, see ordering note), every `runs/<eval_id>/enriched-cases/<tc_id>.json`
-**Output**: `runs/<eval_id>/run_plan.json` (validated against `runtime-schemas/run_plan.schema.json`)
+**类型**：确定性（无 LLM）
+**依据**：工作流合同 `S2.5`（新增）+ K20
+**输入**：`evaluation_context.json`（STEP-6 落盘后或 STEP-2 enrichment 后，见排序说明），以及所有 `runs/<eval_id>/enriched-cases/<tc_id>.json`
+**输出**：`runs/<eval_id>/run_plan.json`（根据 `runtime-schemas/run_plan.schema.json` 验证）
 
-## Why this step exists
+## 本步骤存在的原因
 
-STEP 3 used to ask the agent to **invent shell commands per turn**: pick a pipe name, decide a Python interpreter, format a `--enriched-test-case` argument, retry when the pipe name didn't match between commands, etc. That improvisation is the root cause of the recurring `cat: /tmp/eval-stdout.txt: No such file or directory` / stale-PID / 144-exit-code class of failures.
+STEP 3 过去要求 Agent **在每一轮临时拼写 shell 命令**：选择管道名、决定 Python 解释器、格式化 `--enriched-test-case` 参数、在命令间管道名不匹配时重试，等等。这种临时发挥正是反复出现的 `cat: /tmp/eval-stdout.txt: No such file or directory` / 陈旧 PID / 144 退出码等失败的根源。
 
-STEP 2.5 removes that surface entirely. After STEP 2 has enriched every test case, every piece of information needed to launch every scenario's driver is already known and deterministic. STEP 2.5 freezes that information into a single file of **literal shell strings**. STEP 3 then becomes a thin executor: for each scenario it runs `commands.pre_spawn_cleanup` verbatim, then `commands.spawn` verbatim, reads with `commands.read_one_event` verbatim, writes with `commands.write_action_template` (substituting only the JSON payload), and ends with `commands.post_scenario_cleanup` verbatim.
+STEP 2.5 彻底消除了这个问题面。STEP 2 完成所有测试用例的丰富化之后，启动每个场景 driver 所需的所有信息已经已知且确定。STEP 2.5 将这些信息冻结到一个**字面 shell 字符串**文件中。STEP 3 随后变为一个轻量执行器：对每个场景，原文执行 `commands.pre_spawn_cleanup`，再原文执行 `commands.spawn`，用 `commands.read_one_event` 原文读取，用 `commands.write_action_template`（只替换 JSON 负载）写入，最后原文执行 `commands.post_scenario_cleanup`。
 
-## When STEP 2.5 runs
+## STEP 2.5 的运行时机
 
-Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND after `evaluation_context.runtime_driver.driver_id` / `runtime_simulator.simulator_id` / `global_turn_cap` are fixed. If `evaluation_context.json` is materialised later (STEP 6 in some flows), STEP 2.5 still depends only on the subset listed under **Inputs** above — `runtime_driver.driver_id`, `runtime_driver.driver_config` (for sanity check), and `global_turn_cap`. The plan-writing has no dependency on metric registries, scores, or reports.
+STEP 2 生成所有 `enriched-cases/<tc_id>.json`，且 `evaluation_context.runtime_driver.driver_id` / `runtime_simulator.simulator_id` / `global_turn_cap` 均已确定后，立即运行。如果 `evaluation_context.json` 在更晚时（某些流程中为 STEP 6）才落盘，STEP 2.5 仍仅依赖 **Inputs** 中列出的子集——`runtime_driver.driver_id`、`runtime_driver.driver_config`（用于健全性检查）和 `global_turn_cap`。计划写入不依赖指标注册表、分数或报告。
 
-## Procedure
+## 执行流程
 
 ```
 1. Read:
@@ -117,48 +117,48 @@ Immediately after STEP 2 has produced every `enriched-cases/<tc_id>.json` AND af
    then write to `runs/<eval_id>/run_plan.json`.
 ```
 
-## Self-check before STEP 3 may begin (K20)
+## STEP 3 开始前的自检（K20）
 
-All MUST hold; any failure means STEP 2.5 has not run cleanly and STEP 3 MUST NOT start:
+以下所有条件必须成立；任何失败均意味着 STEP 2.5 未能干净运行，STEP 3 不得开始：
 
-- `runs/<eval_id>/run_plan.json` exists, is valid JSON, and validates against `runtime-schemas/run_plan.schema.json`;
-- `run_plan.scenarios[].tc_id` is the exact set of `enriched-cases/*.json` filenames (no missing tc, no orphan tc);
-- every `run_plan.scenarios[].commands.spawn` contains literal substrings that match `pad.dir`, canonical `$PAD/in`, `$PAD/out`, `$PAD/err`, `$PAD/pid`, `python_bin`, `driver.run_py_path`, `--evaluation-context`, `--enriched-test-case`, and `--output` from the same entry (no `<placeholder>` left; no legacy `--test-case-id` / `--endpoint` / `--pad-in` / `--pad-out`);
-- every `run_plan.scenarios[].commands.spawn` uses `tail -f "$1" 2>/dev/null | exec ...` pattern (NOT `<> "$PAD/in"` which is the deprecated O_RDWR FIFO approach);
-- every `run_plan.scenarios[].commands.spawn` contains no `&;` token (background `&` must be followed by the next command, not by an extra semicolon);
-- every `run_plan.scenarios[].commands.read_one_event` contains literal substrings that match `pad.dir`, canonical `$PAD/out`, `$PAD/cursor`, and `sed -n`, and contains no `read_one_event.py`, `python`, or `python3`;
-- every `run_plan.scenarios[].commands.write_action_template` contains exactly one occurrence of the marker `<<JSON_PAYLOAD>>`;
-- no two scenarios share the same `pad.dir` (deterministic isolation between tc runs);
-- `run_plan.generated_by_step == "STEP 2.5 planRun"` (guards against hand-written or LLM-written plans).
+- `runs/<eval_id>/run_plan.json` 存在、是合法 JSON，且通过 `runtime-schemas/run_plan.schema.json` 验证；
+- `run_plan.scenarios[].tc_id` 是 `enriched-cases/*.json` 文件名的精确集合（无缺失 tc，无孤立 tc）；
+- 每个 `run_plan.scenarios[].commands.spawn` 包含与同一条目中 `pad.dir`、规范的 `$PAD/in`、`$PAD/out`、`$PAD/err`、`$PAD/pid`、`python_bin`、`driver.run_py_path`、`--evaluation-context`、`--enriched-test-case` 和 `--output` 匹配的字面子字符串（无残留 `<placeholder>`；无遗留 `--test-case-id` / `--endpoint` / `--pad-in` / `--pad-out`）；
+- 每个 `run_plan.scenarios[].commands.spawn` 使用 `tail -f "$1" 2>/dev/null | exec ...` 模式（**不得**使用废弃的 `<> "$PAD/in"` O_RDWR FIFO 方式）；
+- 每个 `run_plan.scenarios[].commands.spawn` 不含 `&;` 标记（后台 `&` 本身已是命令分隔符）；
+- 每个 `run_plan.scenarios[].commands.read_one_event` 包含与 `pad.dir`、规范的 `$PAD/out`、`$PAD/cursor` 和 `sed -n` 匹配的字面子字符串，且不含 `read_one_event.py`、`python` 或 `python3`；
+- 每个 `run_plan.scenarios[].commands.write_action_template` 恰好包含一个标记 `<<JSON_PAYLOAD>>`；
+- 没有两个场景共享相同的 `pad.dir`（tc 运行间确定性隔离）；
+- `run_plan.generated_by_step == "STEP 2.5 planRun"`（防止手写或 LLM 生成的计划）。
 
-## How STEP 3 consumes this (binding contract)
+## STEP 3 消费此计划的方式（绑定合同）
 
-In STEP 3, for each scenario in `run_plan.scenarios`, the agent:
+在 STEP 3 中，对 `run_plan.scenarios` 中的每个场景，Agent：
 
-| Phase | What the agent runs |
+| 阶段 | Agent 执行内容 |
 |---|---|
-| 1 | Execute `commands.pre_spawn_cleanup` **verbatim** (single shell tool-call) |
-| 2 | Execute `commands.spawn` **verbatim** (single shell tool-call) |
-| 3 | Execute `commands.read_one_event` **verbatim**; parse the returned line as JSON; expect `{"event":"ready",...}` |
-| 4 | Build the first action JSON `{"action":"send","turn_index":0,"text":<opening_message verbatim>,"decision":<deterministic turn-0 decision>}`; produce a single-line JSON string; substitute it into `commands.write_action_template` at the `<<JSON_PAYLOAD>>` marker; execute the resulting string |
-| 5 | Loop: execute `commands.read_one_event` → parse → simulator decision → substitute into `commands.write_action_template` → execute. Continue until the read returns `{"event":"trace_written",...}` or `{"event":"error",...}` |
-| 6 | Execute `commands.post_scenario_cleanup` **verbatim**, regardless of outcome |
+| 1 | 原文执行 `commands.pre_spawn_cleanup`（单次 shell 工具调用） |
+| 2 | 原文执行 `commands.spawn`（单次 shell 工具调用） |
+| 3 | 原文执行 `commands.read_one_event`；将返回行解析为 JSON；期望 `{"event":"ready",...}` |
+| 4 | 构建首个动作 JSON `{"action":"send","turn_index":0,"text":<run_plan 中的 opening_message 原文>,"decision":<确定性第 0 轮决策>}`；序列化为单行 JSON 字符串；在 `<<JSON_PAYLOAD>>` 标记处替换到 `commands.write_action_template`；执行结果字符串 |
+| 5 | 循环：执行 `commands.read_one_event` → 解析 → simulator 决策 → 替换 `<<JSON_PAYLOAD>>` 到 `commands.write_action_template` → 执行。直到读取返回 `{"event":"trace_written",...}` 或 `{"event":"error",...}` 时停止 |
+| 6 | 原文执行 `commands.post_scenario_cleanup`，无论结果如何 |
 
-The agent MUST NOT rebuild or modify any string from `commands.*` other than substituting the single `<<JSON_PAYLOAD>>` marker. Adding `2>&1`, changing the redirection, replacing the cursor-based `sed -n "${N}p"` poller with `cat` / `tail`, or splitting the spawn into two tool-calls is a K20 violation.
+Agent 不得重构或修改 `commands.*` 中任何字符串，只能替换单个 `<<JSON_PAYLOAD>>` 标记。添加 `2>&1`、改变重定向、用 `cat` / `tail` 替换游标式 `sed -n "${N}p"` 轮询器，或将 spawn 拆分为两次工具调用，均为 K20 违规。
 
-## Re-plan rules
+## 重新计划规则
 
-If anything in the inputs changes after STEP 2.5 has written `run_plan.json` (driver_id swap, new enriched tc added, evaluation_context renamed, ...), STEP 2.5 MUST be re-run end-to-end. Partial editing of `run_plan.json` by hand is forbidden (the `generated_by_step` literal + the `generated_at` timestamp anchor the audit chain).
+如果 STEP 2.5 写入 `run_plan.json` 后输入发生任何变化（driver_id 替换、新增丰富 tc、evaluation_context 重命名等），STEP 2.5 必须端到端重新运行。禁止手动部分编辑 `run_plan.json`（`generated_by_step` 字面量 + `generated_at` 时间戳锚定审计链）。
 
-## Anti-patterns (each is a K20 violation)
+## 反模式（每种均为 K20 违规）
 
-| Anti-pattern | Symptom | Cure |
+| 反模式 | 症状 | 解决方式 |
 |---|---|---|
-| STEP 3 begins without `run_plan.json` present | Same "ad-hoc shell" recurrence | STEP 2.5 input gate; fail fast |
-| Agent rewrites `commands.spawn` to add `--verbose` / change redirection | Driver behaves differently across scenarios; one-off bugs | Re-run STEP 2.5 with the desired change wired into the plan generator |
-| Plan contains residual `<placeholder>` (other than the one allowed `<<JSON_PAYLOAD>>`) | Driver exits 1 because of literal angle-brackets in argv | Schema `pattern: "<<JSON_PAYLOAD>>"` rejects; STEP 2.5 must regenerate |
-| Two scenarios share the same `pad.dir` | Second scenario inherits first scenario's stale files; nondeterministic hangs | `pad.dir = /tmp/eval-driver/<eval_id>/<tc_id>` is structurally unique; K20 self-check rejects duplicates |
-| Hand-edit `run_plan.json` between scenarios | Audit chain broken; reproducibility lost | Treat run_plan.json as read-only post STEP 2.5; any change ⇒ regenerate |
-| Generate `run_plan.json` via an agent-authored script `scripts/make_plan.py` | K8 violation on top of K20 | STEP 2.5 logic runs inline in the conversation (deterministic file ops + string templates) |
-| Generate or reference `runtime-drivers/ws_jwt/read_one_event.py` | K8 violation; stale plan self-heal creates a tainted run | Regenerate `commands.read_one_event` as the inline cursor-based `sed -n` shell string from this playbook |
-| Use `<> "$PAD/in"` or `mkfifo` in spawn/pre_spawn_cleanup | "stdin closed before 'end' action received" with turns_used=0 | Use `tail -f` pipe pattern from this playbook; FIFO O_RDWR races cause premature stdin EOF on container kernels |
+| STEP 3 在 `run_plan.json` 不存在时开始 | 复现同样的"临时 shell"问题 | STEP 2.5 输入门；快速失败 |
+| Agent 重写 `commands.spawn` 以添加 `--verbose` / 更改重定向 | Driver 跨场景行为不同；一次性 bug | 将所需变更纳入计划生成器后重新运行 STEP 2.5 |
+| 计划包含残留的 `<placeholder>`（除唯一允许的 `<<JSON_PAYLOAD>>` 外） | Driver 因 argv 中有字面尖括号而退出 1 | 模式 `pattern: "<<JSON_PAYLOAD>>"` 拒绝；STEP 2.5 必须重新生成 |
+| 两个场景共享相同的 `pad.dir` | 第二个场景继承第一个场景的陈旧文件；非确定性挂起 | `pad.dir = /tmp/eval-driver/<eval_id>/<tc_id>` 结构上唯一；K20 自检拒绝重复 |
+| 场景间手动编辑 `run_plan.json` | 审计链断裂；可重现性丧失 | STEP 2.5 后将 run_plan.json 视为只读；任何变更 ⇒ 重新生成 |
+| 通过 Agent 编写的脚本 `scripts/make_plan.py` 生成 `run_plan.json` | K8 违规叠加 K20 | STEP 2.5 逻辑在对话中内联运行（确定性文件操作 + 字符串模板） |
+| 生成或引用 `runtime-drivers/ws_jwt/read_one_event.py` | K8 违规；陈旧计划自愈会创建污染运行 | 按本操作手册将 `commands.read_one_event` 重新生成为内联游标式 `sed -n` shell 字符串 |
+| 在 spawn/pre_spawn_cleanup 中使用 `<> "$PAD/in"` 或 `mkfifo` | "stdin closed before 'end' action received"，turns_used=0 | 使用本操作手册中的 `tail -f` 管道模式；FIFO O_RDWR 竞争在容器内核上导致提前 stdin EOF |
