@@ -75,41 +75,38 @@ Agent 不得：
 
 ### 4. 第 0 轮（确定性，无 LLM）
 
-> **driver stdin 协议 vs WebSocket 协议 — 层级不要混淆**
+> ⚠️ **两层协议绝对不能混淆（最常见错误来源）**
 >
-> driver 的 stdin（`pad/in`）使用 `{"action":"send",...}` / `{"action":"end",...}` 协议，由本文件定义。  
-> WebSocket 层（`ws_client.py` → evaluatee）使用 `{"type":"user_message",...}` 协议，在 driver 内部处理，**宿主 Agent 不得直接写入**。
+> | 层 | 格式 | 谁写 | 谁消费 |
+> |---|---|---|---|
+> | **agent → driver stdin**（`pad/in`） | `{"action":"send","turn_index":N,"text":"...","decision":{...}}` | 宿主 Agent | `run.py` |
+> | **driver → evaluatee WebSocket** | `{"type":"user_message","text":"..."}` | `ws_client.py` 内部自动 | Gateway / 目标沙箱 |
 >
-> 写入 `pad/in` 前必须满足的最低要求：
->
-> | 字段 | 必填 | 写错时 driver 报错 |
-> |---|---|---|
-> | `action` | `"send"` 或 `"end"` | `unknown action None; expected 'send' or 'end'` |
-> | `turn_index` | int（`send` 必填） | recoverable error |
-> | `text` | 非空字符串（`send` 必填） | recoverable error |
-> | `decision` | object（`send` 和 `end` 均必填） | `'send' action requires object decision` |
-> | `decision.turn_index` | int，等于外层 `turn_index` | recoverable error |
-> | `decision.should_continue` | bool（`true`/`false`，不是字符串） | recoverable error |
-> | `decision.internal_emotion` | enum 之一 | recoverable error |
-> | `decision.perceived_progress` | enum 之一 | recoverable error |
->
-> 写错最常见的三种情况（均来自实际运行日志）：
->
-> ❌ `{"text": "你好", "turn_index": 0}` — 缺少 `action` 字段 → driver 报 `unknown action None`  
-> ❌ `{"action": "send", "turn_index": 0, "text": "你好"}` — 缺少 `decision` → driver 报 `requires object decision`  
-> ❌ `{"type": "user_message", "content": "你好"}` — 写入了 WebSocket 层协议 → driver 报 `wrong protocol layer`
+> **Agent 绝不直接写 WebSocket 层格式到 `pad/in`。**  
+> ❌ `{"type":"user_message","content":"你好"}` → driver 报 `wrong protocol layer`  
+> ❌ `{"action":"send","turn_index":0,"text":"你好"}` （无 `decision`）→ driver 报 `'send' action requires object decision`  
+> ❌ `{"action":"send","role":"user","content":"你好"}` → driver 报 `unknown action None`（缺 `decision`，`role`/`content` 字段无效）
 
-使用**精确**如下的 JSON 格式写入第一个 `send` 动作（字段名是字面量——不要使用 `type`、`user_message` 或任何其他键）：
+第 0 轮精确格式（字段名是字面量，写成**单行 JSON**，通过 `printf '%s\n' '...' >> pad/in` 写入）：
 
 ```json
-{"action":"send","turn_index":0,"text":"<tc.input.opening_message verbatim>","decision":{"turn_index":0,"should_continue":true,"next_utterance":"<opening_message>","internal_emotion":"neutral","perceived_progress":"none","stop_reason":null}}
+{"action":"send","turn_index":0,"text":"<tc.input.opening_message 原文>","decision":{"turn_index":0,"should_continue":true,"next_utterance":"<同 text 字段>","internal_emotion":"neutral","perceived_progress":"none","stop_reason":null}}
 ```
 
-将其生成为**单行 JSON 字符串**，然后在 `<<JSON_PAYLOAD>>` 标记处替换到 `commands.write_action_template`。
+`decision` 完整字段约束（所有 `send` 和 `end` 动作通用）：
 
-**单引号安全**：`write_action_template` 将负载包裹在单引号中（`printf '%s\n' '...'`）。如果文本包含 `'` 字符，shell 命令会中断。替换前，将 JSON 字符串中的每个 `'` 替换为 `'\''`（结束引号、转义引号、开始引号）。示例：
-- 原始文本：`I can't find the report`
-- 安全负载片段：`I can\'\''t find the report`
+| 字段 | 类型 | `should_continue=true` | `should_continue=false` |
+|---|---|---|---|
+| `turn_index` | int，等于外层 `turn_index` | 必填 | 必填 |
+| `should_continue` | bool（`true`/`false`，非字符串） | `true` | `false` |
+| `internal_emotion` | `angry`/`anxious`/`neutral`/`curious`/`satisfied`/`skeptical`/`frustrated` | 必填 | 必填 |
+| `perceived_progress` | `none`/`partial`/`resolved`/`regressed` | 必填 | 必填 |
+| `next_utterance` | string | 必填 | 可选 |
+| `stop_reason` | null | 必须为 `null` | 必须为非 null enum |
+
+`stop_reason` 合法值：`goal_achieved`、`bottom_line_violated`、`deadlock_detected`、`customer_gave_up`。
+
+**单引号安全**：`printf '%s\n' '...'` 将负载包裹在单引号中。文本含 `'` 时转义为 `'\''`。示例：`I can't` → `I can'\''t`。
 
 第 0 轮不得调用 LLM。
 

@@ -100,8 +100,61 @@ echo $! > "$PAD/pid"; sleep 0.5; echo "driver pid=$(cat $PAD/pid)"
 ```bash
 printf '%s\n' '<SINGLE_LINE_ACTION_JSON>' >> /tmp/eval-driver/<eval_id>/<tc_id>/in
 ```
-- `<SINGLE_LINE_ACTION_JSON>` 直接替换为完整的 `send` 或 `end` 动作 JSON 字符串
 - 如果文本含有单引号 `'`，转义为 `'\''`
+
+> ⚠️ **两层协议不要混淆**  
+> - `pad/in`（agent → driver stdin）：使用 `action` 字段，格式见下方  
+> - WebSocket 层（driver → 沙箱）：`{"type":"user_message","text":"..."}` 由 `ws_client.py` 内部处理，**agent 绝不直接写**
+
+**`send` 动作完整格式（精确字段，缺任何一个 driver 报 recoverable error）：**
+```json
+{
+  "action": "send",
+  "turn_index": 0,
+  "text": "<customer 说的话，原文>",
+  "decision": {
+    "turn_index": 0,
+    "should_continue": true,
+    "next_utterance": "<同 text 字段>",
+    "internal_emotion": "neutral",
+    "perceived_progress": "none",
+    "stop_reason": null
+  }
+}
+```
+
+`decision` 字段约束：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `turn_index` | int | 必须与外层 `turn_index` 相等 |
+| `should_continue` | bool（`true`/`false`，不是字符串） | 是否继续对话 |
+| `internal_emotion` | enum | `angry`/`anxious`/`neutral`/`curious`/`satisfied`/`skeptical`/`frustrated` |
+| `perceived_progress` | enum | `none`/`partial`/`resolved`/`regressed` |
+| `next_utterance` | string | `should_continue=true` 时必填 |
+| `stop_reason` | null 或 enum | `should_continue=true` 时必须为 `null`；`false` 时必须为 `goal_achieved`/`bottom_line_violated`/`deadlock_detected`/`customer_gave_up` 之一 |
+
+**`end` 动作完整格式：**
+```json
+{
+  "action": "end",
+  "decision": {
+    "turn_index": <N>,
+    "should_continue": false,
+    "internal_emotion": "neutral",
+    "perceived_progress": "resolved",
+    "stop_reason": "goal_achieved"
+  },
+  "termination": {
+    "reason": "completed_normally",
+    "detail": null,
+    "final_emotion": "neutral",
+    "turns_used": <N>
+  }
+}
+```
+
+`termination.reason` 映射：`goal_achieved` → `completed_normally`；`bottom_line_violated` → `bottom_line_violated`；`deadlock_detected`/`customer_gave_up` → `deadlock_detected`；轮次到达上限 → `max_turns_reached`。
 
 **步骤 5 — 清理（`shell`）**
 ```bash
