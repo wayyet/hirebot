@@ -1,42 +1,42 @@
 # ws_jwt driver
 
-The built-in **WebSocket + JWT** runtime driver for STEP 3 (`driveEmployeeOnScenario`). It lives inside this consumer's hot-pluggable `runtime-drivers/` layer.
+`evaluation-expert-consumer` 内置的 **WebSocket + JWT** 运行时 Driver，用于 STEP 3（`driveEmployeeOnScenario`）。它位于本 consumer 的热插拔 `runtime-drivers/` 层中。
 
-## What this driver does (v2.0, long-lived stdin/stdout protocol)
+## 此 Driver 的职责（v2.0，长连接 stdin/stdout 协议）
 
-STEP 3 is **dual-role with asymmetric execution**:
+STEP 3 采用**非对称执行的双角色**模式：
 
-| Role | Execution model | Lives in |
+| 角色 | 执行模型 | 位于 |
 |---|---|---|
-| **driver_role** (this directory) | A long-lived subprocess (`python run.py …`) | `./runtime-drivers/ws_jwt/` |
-| **simulator_role** | The host evaluation-expert agent itself, using its OWN LLM brain. **NOT a subprocess.** | `./simulators/<simulator_id>/` (role profile only) |
+| **driver_role**（本目录） | 长连接子进程（`python run.py …`） | `./runtime-drivers/ws_jwt/` |
+| **simulator_role** | 宿主评估专家 Agent 本身，使用其**自有** LLM 大脑。**非子进程。** | `./simulators/<simulator_id>/`（仅角色配置文件） |
 
-This driver is the long-lived I/O subprocess. It owns the WebSocket+JWT wire, sends customer utterances to the evaluatee, collects the evaluatee's replies, and writes the final `ExecutionTrace`. It makes **no** decision about what the customer says or when to stop — those decisions belong to the host agent (acting as the customer simulator with its own LLM, the same brain that runs STEP 1.5 / STEP 4 / STEP 8 / STEP 9).
+本 Driver 是长连接 I/O 子进程，负责持有 WebSocket+JWT 连接、向被评估者发送客户话语、收集被评估者回复，并写入最终的 `ExecutionTrace`。它**不**决定客户说什么或何时停止——这些决策属于宿主 Agent（以其自有 LLM 扮演客户模拟器，即运行 STEP 1.5 / STEP 4 / STEP 8 / STEP 9 的同一个大脑）。
 
-`run.py` connects once per scenario, emits `{"event":"ready",...}` on stdout, then enters a loop:
+`run.py` 每个场景连接一次，在 stdout 上输出 `{"event":"ready",...}`，然后进入循环：
 
-- **On `{"action":"send","turn_index":N,"text":"...","decision":{...}}` from stdin**: cache `decision` into `simulator_trail[]`, send `text` over WS, collect the evaluatee turn until `assistant_done`, append `dialog_turns[]` + `actual_tool_calls[]`, and emit `{"event":"evaluatee_turn","turn_index":N,"content":"...","tool_calls":[...],"raw_messages":[...]}` on stdout.
-- **On `{"action":"end","decision":{...},"termination":{...}}` from stdin**: cache the final decision, assemble `ExecutionTrace`, write to `--output`, emit `{"event":"trace_written","path":"..."}` on stdout, close WS, exit 0.
-- **On any I/O error**: emit `{"event":"error","detail":"..."}`, write a best-effort partial trace, exit 2.
+- **从 stdin 收到 `{"action":"send","turn_index":N,"text":"...","decision":{...}}`**：将 `decision` 缓存到 `simulator_trail[]`，通过 WS 发送 `text`，收集被评估者的回复直到 `assistant_done`，追加 `dialog_turns[]` + `actual_tool_calls[]`，并在 stdout 上输出 `{"event":"evaluatee_turn","turn_index":N,"content":"...","tool_calls":[...],"raw_messages":[]}`。
+- **从 stdin 收到 `{"action":"end","decision":{...},"termination":{...}}`**：缓存最终决策，组装 `ExecutionTrace`，写入 `--output`，在 stdout 上输出 `{"event":"trace_written","path":"..."}`，关闭 WS，以 0 退出。
+- **发生任何 I/O 错误**：输出 `{"event":"error","detail":"..."}`，尽力写入部分 trace，以 2 退出。
 
-Auto-approves any `approval_required` from the evaluatee when `auto_approve_tools=true`. The output `ExecutionTrace` validates against `runtime-schemas/execution_trace.schema.json`.
+当 `auto_approve_tools=true` 时，自动审批被评估者发出的任何 `approval_required`。输出的 `ExecutionTrace` 根据 `runtime-schemas/execution_trace.schema.json` 验证。
 
-It does **not** score, judge red lines, raise `observed_signals`, or filter signals. STEP 4 fan-out is the only place where any of that happens.
+本 Driver **不**评分、不判断红线、不生成 `observed_signals`、不过滤信号。这些操作只在 STEP 4 扇出 + STEP 7 redLineCheck 中执行。
 
-## Files
+## 文件说明
 
-| File | Role |
+| 文件 | 职责 |
 |---|---|
-| `driver.json` | Manifest, validated against `runtime-schemas/runtime_driver.schema.json` |
-| `run.py` | STEP-3-conformant long-lived stdin/stdout orchestrator |
-| `ws_client.py` | Low-level WebSocket connect + per-turn collection (unchanged) |
+| `driver.json` | 清单文件，根据 `runtime-schemas/runtime_driver.schema.json` 验证 |
+| `run.py` | 符合 STEP-3 规范的长连接 stdin/stdout 编排器 |
+| `ws_client.py` | 低层 WebSocket 连接 + 逐轮收集（未变更） |
 | `requirements.txt` | `websockets>=12.0` |
 
-There is no simulator binary in this directory or anywhere else under `evaluation-expert-consumer/`. The simulator role is played by the host agent's own LLM; `evaluation_context.paths.simulators_dir / runtime_simulator.simulator_id / simulator.json` is just a role profile that the host agent reads.
+本目录及 `evaluation-expert-consumer/` 下任何其他位置均**没有** simulator 二进制文件。Simulator 角色由宿主 Agent 自身的 LLM 扮演；`evaluation_context.paths.simulators_dir / runtime_simulator.simulator_id / simulator.json` 只是宿主 Agent 读取的角色配置文件。
 
-## Invocation contract
+## 调用合同
 
-STEP 3 spawns this driver once per scenario:
+STEP 3 每个场景启动一次本 Driver：
 
 ```bash
 python run.py \
@@ -45,11 +45,11 @@ python run.py \
   --output             ./runs/<eval_id>/traces/<test_case_id>.trace.json
 ```
 
-`run.py` reads `driver_config` from `evaluation_context.runtime_driver.driver_config`. STEP 3 is responsible for validating that block against `driver.json#/config_schema` BEFORE spawning us; `run.py` only re-checks the absolute minimum (`endpoint` and `token` non-empty).
+`run.py` 从 `evaluation_context.runtime_driver.driver_config` 读取 `driver_config`。STEP 3 负责在启动本 Driver **之前**根据 `driver.json#/config_schema` 验证该块；`run.py` 只重新检查绝对最小值（`endpoint` 和 `token` 非空）。
 
-## Wire protocol (line-delimited JSON)
+## 通信协议（行分隔 JSON）
 
-### driver → host agent (stdout, one JSON object per line)
+### driver → 宿主 Agent（stdout，每行一个 JSON 对象）
 
 ```json
 {"event":"ready","driver_id":"ws_jwt","effective_max_turns":15,"evaluation_id":"eval-001","test_case_id":"tc-..."}
@@ -58,13 +58,13 @@ python run.py \
 {"event":"trace_written","path":"./runs/.../traces/tc-....trace.json","termination":{"reason":"completed_normally","turns_used":4}}
 ```
 
-On unrecoverable failure:
+不可恢复故障时：
 
 ```json
 {"event":"error","detail":"<diagnostic>"}
 ```
 
-### host agent → driver (stdin, one JSON object per line)
+### 宿主 Agent → driver（stdin，每行一个 JSON 对象）
 
 ```json
 {"action":"send","turn_index":0,"text":"我已经等了一星期了 …","decision":{...full SimulatorDecision...}}
@@ -73,9 +73,9 @@ On unrecoverable failure:
  "termination":{"reason":"completed_normally","detail":"...","final_emotion":"satisfied","turns_used":4}}
 ```
 
-The host agent MAY end early (e.g. `bottom_line_violated`, `goal_achieved`) at any turn. The driver does **not** auto-end on `effective_max_turns` — when the cap is reached the driver simply stops accepting further `send` actions; the host agent is expected to issue an `end` action with `termination.reason=max_turns_reached`.
+宿主 Agent 可在任意轮次提前结束（例如 `bottom_line_violated`、`goal_achieved`）。Driver **不会**在 `effective_max_turns` 到达时自动结束——当轮次上限到达时，Driver 只是停止接受后续 `send` 动作；宿主 Agent 需要发出 `termination.reason=max_turns_reached` 的 `end` 动作。
 
-## driver_config + runtime_simulator example
+## driver_config + runtime_simulator 示例
 
 ```json
 {
@@ -95,31 +95,31 @@ The host agent MAY end early (e.g. `bottom_line_violated`, `goal_achieved`) at a
 }
 ```
 
-Notes:
+说明：
 
-- The legacy `max_turns` field has been **removed**. The per-scenario hard cap now comes from `min(test_case.turn_budget.hard_max_turns, evaluation_context.global_turn_cap)`.
-- The legacy `simulator_timeout` field has been **removed**. There is no simulator subprocess to time out — the simulator runs inside the host agent.
-- `runtime_simulator.simulator_config` is gone too (no `model`, no `api_key_env`). The LLM that powers the customer role is the host agent's own LLM, configured at the agent runtime level — never inside this contract.
+- 遗留字段 `max_turns` 已**移除**。每场景硬性上限现在来自 `min(test_case.turn_budget.hard_max_turns, evaluation_context.global_turn_cap)`。
+- 遗留字段 `simulator_timeout` 已**移除**。不再有需要超时的 simulator 子进程——Simulator 运行在宿主 Agent 内部。
+- `runtime_simulator.simulator_config` 也已移除（不再有 `model`、`api_key_env`）。驱动客户角色的 LLM 是宿主 Agent 自己的 LLM，在 Agent 运行时层面配置——绝不在本合同内部配置。
 
-## Termination semantics
+## 终止语义
 
-| Condition (driven by the host agent's `end` action unless noted) | `termination.reason` |
+| 条件（除注明外，均由宿主 Agent 的 `end` 动作驱动） | `termination.reason` |
 |---|---|
-| Host agent ends with `stop_reason=goal_achieved` | `completed_normally` |
-| Host agent ends with `stop_reason=bottom_line_violated` | `bottom_line_violated` |
-| Host agent ends with `stop_reason=deadlock_detected` or `customer_gave_up` | `deadlock_detected` |
-| Host agent ends with `reason=max_turns_reached` after `effective_max_turns` exchanges | `max_turns_reached` |
-| Any `error` message from the evaluatee | `evaluatee_error` |
-| Per-turn timeout exhausted (no `assistant_done`) | `timeout` |
-| stdin closed before `end` action / unhandled exception | `evaluatee_error` (with detail) |
+| 宿主 Agent 以 `stop_reason=goal_achieved` 结束 | `completed_normally` |
+| 宿主 Agent 以 `stop_reason=bottom_line_violated` 结束 | `bottom_line_violated` |
+| 宿主 Agent 以 `stop_reason=deadlock_detected` 或 `customer_gave_up` 结束 | `deadlock_detected` |
+| 宿主 Agent 在 `effective_max_turns` 轮后以 `reason=max_turns_reached` 结束 | `max_turns_reached` |
+| 被评估者发出任意 `error` 消息 | `evaluatee_error` |
+| 逐轮超时耗尽（无 `assistant_done`） | `timeout` |
+| `end` 动作到达前 stdin 已关闭 / 未处理异常 | `evaluatee_error`（含详情） |
 
-This mapping is intentional: the driver does NOT decide that a missing tool call is an error. STEP 4 fan-out + STEP 7 redLineCheck do that.
+此映射是有意为之：Driver **不**决定缺少工具调用是否为错误。那是 STEP 4 扇出 + STEP 7 redLineCheck 的职责。
 
-## Setup
+## 安装
 
 ```bash
 cd evaluation-expert-consumer/runtime-drivers/ws_jwt
 pip install -r requirements.txt
 ```
 
-There are no simulator-side dependencies to install. The customer role is the host agent itself; it does not call any external LLM API or read any extra environment variable on this driver's behalf.
+无需安装 simulator 侧依赖。客户角色就是宿主 Agent 本身；它不会以本 Driver 的名义调用任何外部 LLM API 或读取任何额外的环境变量。

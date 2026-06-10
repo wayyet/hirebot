@@ -1,45 +1,45 @@
 # runtime-drivers
 
-The third hot-pluggable data layer of `evaluation-expert-consumer`, alongside `./metrics/` and `./test-cases/`.
+`evaluation-expert-consumer` 的第三个热插拔数据层，与 `./metrics/` 和 `./test-cases/` 并列。
 
-A **runtime driver** is the deterministic I/O adapter STEP 3 (`driveEmployeeOnScenario`) uses to talk to the evaluatee sandbox. The contract layer (`contracts/projections/**`) is protocol-agnostic; protocol-specific code (WebSocket, HTTP, stdio, mock, …) lives **only** inside a driver directory.
+**运行时 Driver** 是 STEP 3（`driveEmployeeOnScenario`）用于与被评估沙箱通信的确定性 I/O 适配器。合同层（`contracts/projections/**`）与协议无关；协议专用代码（WebSocket、HTTP、stdio、mock 等）**只**存在于 driver 目录内。
 
-## Hot-plug rule
+## 热插拔规则
 
-Adding a new protocol (or stubbing one for tests) is **a directory drop**:
+添加新协议（或为测试桩接口）只需**放入一个目录**：
 
 ```
 runtime-drivers/
 └── <driver_id>/
-    ├── driver.json     ← required, validated against runtime-schemas/runtime_driver.schema.json
-    ├── <entry>         ← required, the executable named in driver.json.entry
-    └── ...             ← any helper modules
+    ├── driver.json     ← 必需，根据 runtime-schemas/runtime_driver.schema.json 验证
+    ├── <entry>         ← 必需，driver.json.entry 中命名的可执行文件
+    └── ...             ← 任意辅助模块
 ```
 
-You do **NOT** edit any `*.projection.json`, `SKILL.md`, or workflow contract when adding a new driver.
+添加新 driver 时，**不需要**编辑任何 `*.projection.json`、`SKILL.md` 或工作流合同。
 
-## Required input/output contract
+## 必需的输入/输出合同
 
-Every driver, regardless of protocol, MUST honor the same contract:
+每个 driver 无论使用何种协议，都**必须**遵守相同的合同：
 
-| Direction | Shape | Schema |
+| 方向 | 格式 | 模式 |
 |---|---|---|
-| **Input** | One enriched test case per invocation, plus the run's evaluation context (for paths and `driver_config`) | `runtime-schemas/enriched_test_case.schema.json` + `runtime-schemas/evaluation_context.schema.json` |
-| **Output** | Exactly one ExecutionTrace per invocation, written to `./runs/<eval_id>/traces/<test_case_id>.trace.json` | `runtime-schemas/execution_trace.schema.json` |
+| **输入** | 每次调用一个已丰富化的测试用例，加上运行的 evaluation context（用于路径和 `driver_config`） | `runtime-schemas/enriched_test_case.schema.json` + `runtime-schemas/evaluation_context.schema.json` |
+| **输出** | 每次调用恰好一个 ExecutionTrace，写入 `./runs/<eval_id>/traces/<test_case_id>.trace.json` | `runtime-schemas/execution_trace.schema.json` |
 
-If the produced JSON does not validate against `execution_trace.schema.json`, STEP 3 MUST fail fast for that scenario; downstream STEP 4 fan-out is then skipped for the failed `(test_case, *)` pairs.
+如果生成的 JSON 未通过 `execution_trace.schema.json` 验证，STEP 3 **必须**对该场景快速失败；下游 STEP 4 扇出对失败的 `(test_case, *)` 对随后跳过。
 
-## Selecting a driver at runtime
+## 运行时选择 driver
 
-`evaluation_context.runtime_driver.driver_id` decides which directory under `./runtime-drivers/` is invoked. Resolution order:
+`evaluation_context.runtime_driver.driver_id` 决定调用 `./runtime-drivers/` 下的哪个目录。解析顺序：
 
-1. `EvaluationContext.runtime_driver.driver_id` (materialized at STEP 0/1; usually copied from user input)
-2. Environment variable `EVALUATION_DRIVER_ID`
-3. Hard fail (no implicit default — drivers are evaluatee-specific and silent fallbacks would corrupt traces)
+1. `EvaluationContext.runtime_driver.driver_id`（在 STEP 0/1 落盘；通常从用户输入复制）
+2. 环境变量 `EVALUATION_DRIVER_ID`
+3. 硬性失败（无隐式默认值——driver 与被评估者相关，静默回退会损坏 trace）
 
-The directory `./runtime-drivers/` itself can be relocated via `EVALUATION_DRIVERS_DIR`.
+`./runtime-drivers/` 目录本身可通过 `EVALUATION_DRIVERS_DIR` 重定位。
 
-## `driver.json` minimum
+## `driver.json` 最小结构
 
 ```json
 {
@@ -62,28 +62,28 @@ The directory `./runtime-drivers/` itself can be relocated via `EVALUATION_DRIVE
     "type": "object",
     "required": ["endpoint", "token"],
     "properties": {
-      "endpoint": { "type": "string", "description": "HOST:PORT or full ws:// URL" },
-      "token":    { "type": "string", "description": "JWT bearer token" },
+      "endpoint": { "type": "string", "description": "HOST:PORT 或完整的 ws:// URL" },
+      "token":    { "type": "string", "description": "JWT Bearer Token" },
       "timeout":  { "type": "integer", "default": 60 }
     }
   }
 }
 ```
 
-This file is validated against `runtime-schemas/runtime_driver.schema.json`. STEP 3 reads it once per evaluation run, then validates `evaluation_context.runtime_driver.driver_config` against the embedded `config_schema` before invoking `entry`.
+该文件根据 `runtime-schemas/runtime_driver.schema.json` 验证。STEP 3 每次评估运行读取一次，然后在调用 `entry` 前根据内嵌的 `config_schema` 验证 `evaluation_context.runtime_driver.driver_config`。
 
-## Hard rules for driver authors
+## Driver 编写者的硬性规则
 
-1. **Output must be ExecutionTrace, not a raw transcript.** If your protocol produces something else, your `entry` must transform it before writing.
-2. **No evaluation logic.** Drivers observe and persist; they MUST NOT score, judge red lines, or filter signals.
-3. **No silent dropping.** Unknown messages from the evaluatee should land in `actual_tool_calls` / `dialog_turns` / `actual_artifacts` (with sensible enum-compatible classification) or trigger an `evaluatee_error` termination — never be discarded.
-4. **No writes outside `./runs/<eval_id>/`.** All on-disk effects belong to the run directory.
-5. **One ExecutionTrace per invocation.** Multi-test-case batching is the workflow's responsibility, not the driver's.
+1. **输出必须是 ExecutionTrace，而非原始会话记录。** 如果你的协议产生其他内容，你的 `entry` 必须在写入前将其转换。
+2. **不含评估逻辑。** Driver 只负责观察和持久化；**不得**评分、判断红线或过滤信号。
+3. **不得静默丢弃。** 来自被评估者的未知消息应落入 `actual_tool_calls` / `dialog_turns` / `actual_artifacts`（使用合理的枚举兼容分类），或触发 `evaluatee_error` 终止——绝不丢弃。
+4. **不得写入 `./runs/<eval_id>/` 以外的位置。** 所有磁盘操作均属于运行目录。
+5. **每次调用只生成一个 ExecutionTrace。** 多测试用例批处理是工作流的职责，不是 driver 的。
 
-## Built-in drivers
+## 内置 driver
 
-| `driver_id` | Protocol | Notes |
+| `driver_id` | 协议 | 说明 |
 |---|---|---|
-| `ws_jwt` | `websocket+jwt` | Connects to an OpenClaw Gateway over WS, JWT in URL query. Multi-turn capable; auto-approves tool calls. Implemented inside the consumer runtime-driver layer. |
+| `ws_jwt` | `websocket+jwt` | 通过 WS 连接到 OpenClaw Gateway，JWT 放在 URL query 参数中。支持多轮；自动审批工具调用。实现在 consumer runtime-driver 层内部。 |
 
-Add new drivers by dropping a sibling directory with its own `driver.json`.
+通过放入同级目录（含自己的 `driver.json`）来添加新 driver。

@@ -1,72 +1,72 @@
 # simulators
 
-The fourth hot-pluggable data layer of `evaluation-expert-consumer`, alongside `./metrics/`, `./test-cases/`, and `./runtime-drivers/`.
+`evaluation-expert-consumer` 的第四个热插拔数据层，与 `./metrics/`、`./test-cases/` 和 `./runtime-drivers/` 并列。
 
-A **user simulator** is the **role profile** the evaluation-expert agent itself plays in STEP 3 (`driveEmployeeOnScenario`) to impersonate a customer. Together with a runtime driver (the I/O subprocess), the simulator forms the **dual-role STEP 3**:
+**用户模拟器**是评估专家 Agent 在 STEP 3（`driveEmployeeOnScenario`）中扮演客户时所使用的**角色配置文件**。模拟器与运行时 driver（I/O 子进程）共同构成 **STEP 3 的双角色**：
 
-| Role | Execution model | Responsibility | Lives in |
+| 角色 | 执行模型 | 职责 | 位于 |
 |---|---|---|---|
-| `runtime-drivers/<driver_id>/` | **Subprocess** (e.g. `python run.py …`) | Wire-level I/O — talking to the evaluatee, applying JWT, sending/receiving frames | `./runtime-drivers/` |
-| `simulators/<simulator_id>/` | **NOT a subprocess.** Prompt template + manifest consumed by the host agent's own LLM | Customer brain — decide next utterance + when/why to stop | `./simulators/` |
+| `runtime-drivers/<driver_id>/` | **子进程**（例如 `python run.py …`） | 连接层 I/O——与被评估者通信、应用 JWT、发送/接收帧 | `./runtime-drivers/` |
+| `simulators/<simulator_id>/` | **非子进程。** 由宿主 Agent 自身 LLM 消费的提示词模板 + 清单 | 客户大脑——决定下一句话以及何时/为何停止 | `./simulators/` |
 
-> ⚠️ Critical asymmetry. **Drivers are subprocesses** because protocol I/O (WebSocket / JWT / TLS / tool-approval) is not something an LLM can perform itself. **Simulators are not subprocesses**: deciding what a customer would say next is exactly the kind of dialogue task the evaluation-expert agent's own LLM is built for — same brain that runs STEP 1.5 / STEP 4 / STEP 8 / STEP 9. Spawning a second LLM with its own API key just to talk to ourselves would duplicate cost, complicate ops, and break parity with how every other LLM step in this skill works.
+> ⚠️ 关键不对称性。**Driver 是子进程**，因为协议 I/O（WebSocket / JWT / TLS / 工具审批）不是 LLM 能自行完成的。**模拟器不是子进程**：决定客户下一步说什么，正是评估专家 Agent 自身 LLM 所擅长的对话任务——与运行 STEP 1.5 / STEP 4 / STEP 8 / STEP 9 的是同一个大脑。为了跟自己对话而再启动一个带独立 API 密钥的 LLM，只会重复消费、增加运维复杂度，并破坏本技能中所有其他 LLM 步骤的一致性。
 
-The contract layer (`contracts/projections/**`) is **provider-agnostic**: it never references a specific LLM, model, or prompt. Persona-specific prompt templates live **only** inside a simulator directory; the LLM that consumes them is whatever brain is hosting the evaluation-expert agent at runtime.
+合同层（`contracts/projections/**`）是**提供商无关的**：它从不引用特定的 LLM、模型或提示词。人格专用提示词模板**只**存在于模拟器目录中；消费这些模板的 LLM 是运行时托管评估专家 Agent 的任意大脑。
 
-## Hot-plug rule
+## 热插拔规则
 
-Adding a new persona is **a directory drop**:
+添加新人格只需**放入一个目录**：
 
 ```
 simulators/
 └── <simulator_id>/
-    ├── simulator.json        ← required, validated against runtime-schemas/simulator.schema.json
-    ├── system_prompt.md      ← required, template file named in simulator.json.system_prompt
-    ├── .no-decide-script     ← required SENTINEL (see below)
-    └── ...                   ← few-shot examples, optional helpers (no executables)
+    ├── simulator.json        ← 必需，根据 runtime-schemas/simulator.schema.json 验证
+    ├── system_prompt.md      ← 必需，simulator.json.system_prompt 中命名的模板文件
+    ├── .no-decide-script     ← 必需的哨兵文件（见下文）
+    └── ...                   ← 少量 few-shot 示例、可选辅助文件（无可执行文件）
 ```
 
-You do **NOT** edit any `*.projection.json`, `SKILL.md`, or workflow contract when adding a new simulator. You also do **NOT** add any `decide.py` / entry script — there is no subprocess to invoke.
+添加新模拟器时，**不需要**编辑任何 `*.projection.json`、`SKILL.md` 或工作流合同，也**不需要**添加任何 `decide.py` / 入口脚本——没有需要调用的子进程。
 
-### The `.no-decide-script` sentinel
+### `.no-decide-script` 哨兵文件
 
-Every simulator directory MUST contain a hidden file named `.no-decide-script`. It serves three purposes:
+每个模拟器目录**必须**包含一个名为 `.no-decide-script` 的隐藏文件，它有三个用途：
 
-1. **Self-documenting marker** that this directory is `kind: "llm_persona"` and has NO entry script.
-2. **K8 audit anchor** — the workflow contract's K8 (`NoAdhocOrchestratorScripts`) extends to `./simulators/<simulator_id>/`. The audit looks for this sentinel to confirm the directory is intentionally script-free; removing it weakens the guard.
-3. **Onboarding hint** — anyone adding a new simulator copies `customer_realistic/.no-decide-script` so the contract is reaffirmed in every new persona.
+1. **自文档标记**，表明此目录的 `kind: "llm_persona"` 且**没有**入口脚本。
+2. **K8 审计锚**——工作流合同的 K8（`NoAdhocOrchestratorScripts`）延伸至 `./simulators/<simulator_id>/`。审计查找此哨兵以确认目录有意不含脚本；删除它会削弱防护。
+3. **入门提示**——新增模拟器时，复制 `customer_realistic/.no-decide-script`，让每个新人格都重申这一合同。
 
-Sample content (copy verbatim when creating a new simulator):
+示例内容（创建新模拟器时原文复制）：
 
 > SENTINEL — DO NOT REMOVE THIS FILE
 >
 > This simulator is a `llm_persona` profile (see `simulator.json` → `kind: "llm_persona"`).
 > It has NO entry script (no `decide.py` / `run.py` / `*.py` / `*.sh` / `*.ts` / `*.js` / `*.mjs` / `*.ipynb` / Makefile / `*.cmd` / `*.ps1`). The host evaluation-expert agent itself plays the customer in-process using `system_prompt.md`, with its own LLM brain. There is NO subprocess, NO independent LLM api_key, NO HTTP call.
 
-If pre-flight invariant 5 finds an executable file in a simulator directory, it is treated as a K8 violation immediately — the run is tainted before STEP 3 starts.
+如果飞行前不变量第 5 条在模拟器目录中发现了可执行文件，会立即视为 K8 违规——运行在 STEP 3 启动前就已被污染。
 
-## Required input/output contract
+## 必需的输入/输出合同
 
-Every simulator, regardless of which model the host agent uses, MUST honor the same contract:
+每个模拟器，无论宿主 Agent 使用何种模型，都**必须**遵守相同的合同：
 
-| Direction | Shape | Schema |
+| 方向 | 格式 | 模式 |
 |---|---|---|
-| **Input** (consumed by the host agent's LLM via prompt expansion) | The enriched test case (persona/goal/stop_conditions/opening_message) + the in-progress execution trace (dialog_turns + previous simulator_trail) | `runtime-schemas/enriched_test_case.schema.json` + `runtime-schemas/execution_trace.schema.json` |
-| **Output** (produced by the host agent's LLM, validated locally before append) | Exactly one `SimulatorDecision` per turn | `runtime-schemas/simulator_decision.schema.json` |
+| **输入**（由宿主 Agent 的 LLM 通过提示词展开消费） | 已丰富化的测试用例（人格/目标/停止条件/开场话语）+ 进行中的执行 trace（对话轮次 + 前序 simulator_trail） | `runtime-schemas/enriched_test_case.schema.json` + `runtime-schemas/execution_trace.schema.json` |
+| **输出**（由宿主 Agent 的 LLM 生成，本地验证后追加） | 每轮恰好一个 `SimulatorDecision` | `runtime-schemas/simulator_decision.schema.json` |
 
-If the produced JSON does not validate against `simulator_decision.schema.json`, STEP 3 MUST fail fast for that turn; the scenario terminates with `reason=evaluatee_error` and `detail` records the validation failure.
+如果生成的 JSON 未通过 `simulator_decision.schema.json` 验证，STEP 3 必须对该轮次快速失败；场景以 `reason=evaluatee_error` 终止，`detail` 记录验证失败信息。
 
-## Selecting a simulator at runtime
+## 运行时选择模拟器
 
-`evaluation_context.runtime_simulator.simulator_id` decides which directory under `./simulators/` is loaded by the host agent. Resolution order (mirrors driver resolution):
+`evaluation_context.runtime_simulator.simulator_id` 决定宿主 Agent 加载 `./simulators/` 下的哪个目录。解析顺序（与 driver 解析一致）：
 
 1. `EvaluationContext.runtime_simulator.simulator_id`
-2. Environment variable `EVALUATION_SIMULATOR_ID`
-3. Hard fail (no implicit default — wrong persona corrupts evaluation just as silently as wrong protocol).
+2. 环境变量 `EVALUATION_SIMULATOR_ID`
+3. 硬性失败（无隐式默认值——错误的人格会像错误的协议一样悄无声息地损坏评估）。
 
-The directory `./simulators/` itself can be relocated via `EVALUATION_SIMULATORS_DIR`.
+`./simulators/` 目录本身可通过 `EVALUATION_SIMULATORS_DIR` 重定位。
 
-## `simulator.json` minimum
+## `simulator.json` 最小结构
 
 ```json
 {
@@ -87,17 +87,17 @@ The directory `./simulators/` itself can be relocated via `EVALUATION_SIMULATORS
 }
 ```
 
-This file is validated against `runtime-schemas/simulator.schema.json`. STEP 3 reads it once per evaluation run.
+该文件根据 `runtime-schemas/simulator.schema.json` 验证。STEP 3 每次评估运行读取一次。
 
-There are **no** `entry`, `language`, `config_schema`, `model`, or `api_key_env` fields anywhere in the simulator layer. Those concepts belong to drivers, not simulators.
+模拟器层中**没有** `entry`、`language`、`config_schema`、`model` 或 `api_key_env` 字段。这些概念属于 driver，不属于模拟器。
 
-## Hard rules for simulator authors
+## 模拟器编写者的硬性规则
 
-1. **One SimulatorDecision per turn.** The host agent calls its LLM once per customer turn, expanding the rendered system prompt + context.
-2. **Conversation state lives in the trace.** The host agent re-derives `current_emotion` / `dialog_so_far` from `execution_trace.simulator_trail` + `dialog_turns` each turn — never from hidden agent memory.
-3. **Honor `goal.bottom_line`.** If the latest evaluatee response falls below the customer's bottom line, the decision MUST be `should_continue=false`, `stop_reason=bottom_line_violated`, `violated_bottom_line=true`. STEP 3 trusts the customer brain on this.
-4. **Honor `stop_conditions.success`.** Don't keep talking once the customer's primary goal is met. Emit `should_continue=false` with `stop_reason=goal_achieved`.
-5. **Don't drift the persona.** Emotion may evolve (`calmer` / `more_upset`), but `customer_persona.personality` is fixed for the scenario. Don't suddenly turn an "急性子" customer into a patient one.
+1. **每轮一个 SimulatorDecision。** 宿主 Agent 每次客户轮次调用一次 LLM，展开渲染后的系统提示词 + 上下文。
+2. **对话状态存在于 trace 中。** 宿主 Agent 每轮从 `execution_trace.simulator_trail` + `dialog_turns` 重新推导 `current_emotion` / `dialog_so_far`——绝不依赖隐藏的 Agent 记忆。
+3. **遵守 `goal.bottom_line`。** 如果被评估者的最新回复低于客户底线，决策**必须**为 `should_continue=false`、`stop_reason=bottom_line_violated`、`violated_bottom_line=true`。STEP 3 信任客户大脑的判断。
+4. **遵守 `stop_conditions.success`。** 一旦客户的主要目标达成，不要继续说话。以 `stop_reason=goal_achieved` 发出 `should_continue=false`。
+5. **不要偏离人格。** 情绪可以演变（`calmer` / `more_upset`），但 `customer_persona.personality` 在场景期间是固定的。不要突然把"急性子"客户变成耐心的人。
 6. **No evaluation logic.** Simulators play the customer; they MUST NOT score the employee, mention metrics, or judge red lines. Scoring is STEP 4's job.
 7. **`internal_emotion` and `rationale` are NEVER shown to the evaluatee.** Only `next_utterance` is forwarded to the driver. Everything else is audit-only and lives in `simulator_trail`.
 
