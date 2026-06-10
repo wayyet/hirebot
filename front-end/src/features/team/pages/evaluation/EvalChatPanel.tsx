@@ -274,8 +274,8 @@ export function EvalChatPanel({
                             <HiringToolStepsBlock steps={message.toolSteps} />
                           )}
                           <div
-                            className={`rounded-2xl px-3 py-2.5 text-sm leading-6 ${
-                              isUser ? 'eval-bubble-user' : 'border eval-bubble-bot'
+                            className={`hb-chat-bubble rounded-2xl px-3 py-2.5 text-sm leading-6 ${
+                              isUser ? 'is-user eval-bubble-user' : 'is-assistant border eval-bubble-bot'
                             }`}
                           >
                             <div className={`mb-1 text-[11px] ${isUser ? 'eval-bubble-meta-user' : 'eval-bubble-meta-bot'}`}>
@@ -309,7 +309,7 @@ export function EvalChatPanel({
                         <HiringToolStepsBlock steps={streamingToolSteps} />
                       )}
                       {chatTyping && streamingContent === '' ? (
-                        <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
+                        <div className="hb-chat-bubble hb-hiring-bubble is-assistant is-bot hb-hiring-bubble-loading">
                           {[0, 1, 2].map((i) => (
                             <span
                               key={i}
@@ -319,7 +319,7 @@ export function EvalChatPanel({
                           ))}
                         </div>
                       ) : streamingContent ? (
-                        <div className="rounded-2xl border eval-bubble-bot px-3 py-2.5 text-sm leading-6">
+                        <div className="hb-chat-bubble is-assistant rounded-2xl border eval-bubble-bot px-3 py-2.5 text-sm leading-6">
                           <div className="mb-1 text-[11px] eval-bubble-meta-bot">评估沙箱 · 正在回复</div>
                           <InstanceChatMessageBody content={streamingContent} role="assistant" streaming />
                         </div>
@@ -333,7 +333,7 @@ export function EvalChatPanel({
 
               {/* 输入框 */}
               <div className="border-t eval-chat-footer px-4 py-4">
-                <div className="eval-composer-shell flex items-end gap-3 rounded-[24px] border px-4 py-3">
+                <div className="hb-chat-composer-box eval-composer-shell flex items-end gap-3 rounded-[24px] border px-4 py-3">
                   <textarea
                     ref={chatInputRef}
                     value={chatInput}
@@ -347,7 +347,9 @@ export function EvalChatPanel({
                   <button
                     type="button"
                     disabled={chatSending || !chatInput.trim()}
-                    className="hb-btn-primary mb-1 !h-11 !w-11 !rounded-full !px-0 !py-0 disabled:!bg-[#d4d4d8]"
+                    className="hb-chat-send-action hb-btn-primary mb-1"
+                    aria-label="发送"
+                    title="发送"
                     onClick={() => onSendMessage()}
                   >
                     {chatSending ? <Loader2 size={12} className="animate-spin" /> : <SendHorizontal size={12} />}

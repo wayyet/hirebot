@@ -1,7 +1,7 @@
 import type { ReactNode, RefObject } from 'react'
 import { useState, useCallback } from 'react'
 
-import { Check, ChevronDown, ChevronUp, Copy, Download, FileCode, FileText, Paperclip, Package, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Copy, Download, FileCode, FileText, Paperclip, Package, SendHorizontal, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { InstanceChatMessageBody } from '@/features/team/components/InstanceChatMessageBody'
@@ -238,7 +238,7 @@ export function HiringConversationPanel({
                 </div>
               ) : null}
               {messageText ? (
-                <div className={`hb-hiring-bubble ${message.role === 'user' ? 'is-user' : 'is-bot'}`}>
+                <div className={`hb-chat-bubble hb-hiring-bubble ${message.role === 'user' ? 'is-user' : 'is-assistant is-bot'}`}>
                   <InstanceChatMessageBody
                     content={messageText}
                     role={message.role === 'user' ? 'user' : 'assistant'}
@@ -284,7 +284,7 @@ export function HiringConversationPanel({
                   <HiringToolStepsBlock steps={streamingToolSteps} />
                 </div>
               ) : null}
-              <div className="hb-hiring-bubble is-bot">
+              <div className="hb-chat-bubble hb-hiring-bubble is-assistant is-bot">
                 <InstanceChatMessageBody
                   content={streamingContent}
                   role="assistant"
@@ -302,7 +302,7 @@ export function HiringConversationPanel({
                   <HiringToolStepsBlock steps={streamingToolSteps} />
                 </div>
               ) : null}
-              <div className="hb-hiring-bubble is-bot hb-hiring-bubble-loading">
+              <div className="hb-chat-bubble hb-hiring-bubble is-assistant is-bot hb-hiring-bubble-loading">
                 {[0, 1, 2].map((index) => (
                   <span
                     key={index}
@@ -331,7 +331,7 @@ export function HiringConversationPanel({
         </div>
       ) : null}
 
-      <div className="hb-hiring-composer">
+      <div className="hb-chat-compose hb-hiring-composer">
         <input
           ref={fileInputRef}
           type="file"
@@ -396,9 +396,11 @@ export function HiringConversationPanel({
                 type="button"
                 onClick={onSend}
                 disabled={disabled || (!input.trim() && pendingFiles.length === 0)}
-                className="hb-hiring-send"
+                className="hb-chat-send-action hb-hiring-send"
+                aria-label={t('hiring.button.send')}
+                title={t('hiring.button.send')}
               >
-                {t('hiring.button.send')}
+                <SendHorizontal size={16} />
               </button>
             </div>
           </div>
@@ -420,7 +422,7 @@ function InfoCard({ title, body, detail, actions }: InfoCardProps) {
   const [collapsed, setCollapsed] = useState(false)
   return (
     <article className="hb-hiring-info-card">
-      <div className="hb-hiring-bubble is-bot is-panel">
+      <div className="hb-chat-bubble hb-hiring-bubble is-assistant is-bot is-panel">
         <div className="hb-hiring-info-header">
           <h3 className="hb-hiring-info-title">{title}</h3>
           <button

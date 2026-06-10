@@ -248,11 +248,6 @@
   background: var(--surface);
 }
 
-.hb-hiring-bubble.is-user {
-  border-top-right-radius: 10px;
-  background: var(--hb-near-black);
-}
-
 .hb-hiring-file-chip {
   display: inline-flex;
   align-items: center;
@@ -329,28 +324,6 @@
   background: var(--hb-surface-card);
   border-color: var(--hb-blue);
   box-shadow: var(--hb-focus);
-}
-
-.hb-hiring-send {
-  width: 48px;
-  height: 48px;
-  border: none;
-  border-radius: 16px;
-  background: var(--hb-black);
-  color: #fff;
-  display: grid;
-  place-items: center;
-  box-shadow: var(--hb-shadow-cta);
-}
-
-.hb-hiring-send:hover {
-  background: var(--hb-hover-black);
-}
-
-.hb-hiring-send:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-  box-shadow: none;
 }
 
 .hb-hiring-side-body {
@@ -1211,11 +1184,6 @@ body.hb-body-hiring-prototype {
   color: var(--hb-near-black);
 }
 
-.hb-hiring-bubble.is-user {
-  background: var(--hb-near-black);
-  color: #fff;
-}
-
 .hb-hiring-bubble p,
 .hb-hiring-bubble ul,
 .hb-hiring-bubble ol {
@@ -1443,26 +1411,7 @@ body.hb-body-hiring-prototype {
   color: var(--hb-blue);
 }
 
-.hb-hiring-send {
-  min-width: 72px;
-  height: 38px;
-  padding: 8px 18px;
-  border: 0;
-  border-radius: 10px;
-  background: #000;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.hb-hiring-send:hover:not(:disabled) {
-  background: var(--hb-hover-black);
-}
-
 .hb-hiring-tool-btn:disabled,
-.hb-hiring-send:disabled,
 .hb-hiring-inline-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -2239,10 +2188,6 @@ body.hb-body-hiring-prototype {
     width: 100%;
   }
 
-  .hb-hiring-send {
-    width: 100%;
-  }
-
   .hb-hiring-msg-stack {
     max-width: 100%;
   }
@@ -2462,12 +2407,6 @@ body.hb-body-hiring-prototype {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-.dark .hb-hiring-bubble.is-user {
-  /* 鏆楄壊涓?--hb-near-black 鍙樹负杩戠櫧鑹诧紝鏀圭敤鍝佺墝钃濅綔涓虹敤鎴锋皵娉¤儗鏅?*/
-  background: var(--hb-blue);
-  color: #fff;
-}
-
 /* 鈹€鈹€ 鏂囦欢鍗＄墖 鈹€鈹€ */
 .dark .hb-hiring-file-chip {
   background: rgba(255, 255, 255, 0.06);
@@ -2489,15 +2428,6 @@ body.hb-body-hiring-prototype {
 /* 鈹€鈹€ 杈撳叆妗嗗簳閮ㄥ尯鍩?鈹€鈹€ */
 .dark .hb-hiring-composer {
   background: linear-gradient(180deg, rgba(8, 14, 28, 0.72) 0%, rgba(8, 14, 28, 0.98) 100%);
-}
-
-/* 鈹€鈹€ 鍙戦€佹寜閽?鈹€鈹€ */
-.dark .hb-hiring-send {
-  background: var(--hb-blue);
-}
-
-.dark .hb-hiring-send:hover:not(:disabled) {
-  background: #3b6de8;
 }
 
 /* 鈹€鈹€ 宸ュ叿鎸夐挳 hover 鈹€鈹€ */
@@ -3081,13 +3011,6 @@ html[data-mode="light"][data-skin="warm"] .hb-hiring-avatar.is-user {
   color: var(--hb-accent-solid);
 }
 
-html[data-mode="light"][data-skin="warm"] .hb-hiring-bubble.is-user {
-  border: 1px solid rgba(var(--hb-accent-rgb), 0.24);
-  background: linear-gradient(180deg, #ff8a4c 0%, var(--hb-accent-solid) 100%);
-  color: #fffaf5;
-  box-shadow: 0 10px 24px rgba(var(--hb-accent-rgb), 0.22);
-}
-
 html[data-mode="light"][data-skin="warm"] .hb-hiring-input-wrap {
   border-color: rgba(30, 41, 59, 0.08);
   border-radius: 18px;
@@ -3114,7 +3037,6 @@ html[data-mode="light"][data-skin="warm"] .hb-hiring-card-action.ghost:hover {
   color: #c2410c;
 }
 
-html[data-mode="light"][data-skin="warm"] .hb-hiring-send,
 html[data-mode="light"][data-skin="warm"] .hb-hiring-primary-btn,
 html[data-mode="light"][data-skin="warm"] .hb-hiring-card-action.primary,
 html[data-mode="light"][data-skin="warm"] .hb-hiring-artifact-btn.is-primary {
@@ -3125,7 +3047,6 @@ html[data-mode="light"][data-skin="warm"] .hb-hiring-artifact-btn.is-primary {
   box-shadow: 0 8px 20px rgba(255, 94, 15, 0.32);
 }
 
-html[data-mode="light"][data-skin="warm"] .hb-hiring-send:hover:not(:disabled),
 html[data-mode="light"][data-skin="warm"] .hb-hiring-primary-btn:hover,
 html[data-mode="light"][data-skin="warm"] .hb-hiring-card-action.primary:hover,
 html[data-mode="light"][data-skin="warm"] .hb-hiring-artifact-btn.is-primary:hover {
@@ -3171,6 +3092,163 @@ html[data-mode="light"][data-skin="warm"] .hb-hiring-proto-note.is-orange {
 
 html[data-mode="light"][data-skin="warm"] .hb-hiring-modal {
   max-width: 760px;
+}
+
+/* Unified chat surface overrides. Keep behavior classes intact; normalize only visuals. */
+.hb-hiring-chat,
+.hb-hiring-side {
+  border-color: var(--hb-card-border);
+  background: var(--hb-surface);
+  box-shadow: var(--hb-shadow-card);
+}
+
+.hb-hiring-chat-body {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hb-surface-soft) 78%, transparent) 0%, transparent 34%),
+    var(--hb-surface);
+}
+
+.hb-hiring-avatar {
+  border: 1px solid var(--hb-accent-border);
+  background: var(--hb-accent-soft-bg);
+  color: var(--hb-accent-text);
+  font-weight: 700;
+}
+
+.hb-hiring-avatar.is-user {
+  border-color: var(--hb-border-input);
+  background: var(--hb-surface-soft);
+  color: var(--hb-soft);
+}
+
+.hb-chat-bubble.hb-hiring-bubble {
+  border-radius: 16px;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.65;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.hb-chat-bubble.hb-hiring-bubble.is-bot,
+.hb-chat-bubble.hb-hiring-bubble.is-panel {
+  border-color: var(--hb-border);
+  border-top-left-radius: 6px;
+  background: var(--hb-surface-card);
+  color: var(--hb-body);
+}
+
+.hb-hiring-composer {
+  border-top: 1px solid var(--hb-border);
+  background: color-mix(in srgb, var(--hb-surface) 88%, transparent);
+}
+
+.hb-hiring-input-wrap {
+  border-color: var(--hb-border-input);
+  border-radius: 18px;
+  background: var(--hb-input-bg);
+}
+
+.hb-hiring-input-wrap:focus-within {
+  border-color: var(--hb-input-focus-border);
+  box-shadow: var(--hb-focus);
+}
+
+.hb-hiring-tool-btn {
+  border-color: var(--hb-border-input);
+  background: var(--hb-surface-soft);
+  color: var(--hb-soft);
+}
+
+.hb-hiring-tool-btn:hover:not(:disabled) {
+  border-color: var(--hb-accent-border-strong);
+  background: var(--hb-accent-soft-bg);
+  color: var(--hb-accent-text);
+}
+
+.hb-chat-send-action.hb-hiring-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 14px;
+  transform: translateY(4px);
+}
+
+.hb-chat-send-action.hb-hiring-send:disabled,
+.hb-chat-send-action.hb-hiring-send:disabled:hover {
+  border-color: var(--hb-chat-send-disabled-border);
+  background: var(--hb-chat-send-disabled-bg);
+  color: var(--hb-chat-send-disabled-text);
+  opacity: 1;
+  box-shadow: none;
+}
+
+.hb-hiring-file-chip,
+.hb-hiring-inline-file-chip {
+  border-color: var(--hb-border);
+  background: var(--hb-surface-card);
+  color: var(--hb-body);
+}
+
+.hb-hiring-inline-file-chip:hover {
+  border-color: var(--hb-accent-border-strong);
+  background: var(--hb-accent-soft-bg);
+  color: var(--hb-accent-text);
+}
+
+.hb-hiring-chat-status {
+  border-bottom-color: var(--hb-border);
+  background: var(--hb-surface-soft);
+}
+
+.hb-hiring-chat-status.is-blue {
+  background: var(--hb-accent-soft-bg);
+  color: var(--hb-accent-text);
+}
+
+.hb-hiring-chat-status.is-green {
+  background: rgba(16, 185, 129, 0.10);
+  color: var(--hb-text-green);
+}
+
+.hb-hiring-chat-status.is-pink {
+  background: rgba(248, 113, 113, 0.10);
+  color: var(--hb-text-red);
+}
+
+/* Dark hiring page should stay flat; remove the old blue ambient wash. */
+.dark body.hb-body-hiring-prototype {
+  background: #0b0f17;
+}
+
+.dark .hb-workflow-page::before {
+  background: none;
+  opacity: 0;
+}
+
+.dark .hb-hiring-shell {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: #0b0f17;
+}
+
+.dark .hb-hiring-journey,
+.dark .hb-hiring-steps-card {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.66);
+  box-shadow: none;
+}
+
+/* User message bubbles must match every chat surface. */
+.hb-hiring-bubble.is-user,
+.hb-chat-bubble.hb-hiring-bubble.is-user {
+  border-color: var(--hb-chat-user-bubble-border);
+  border-radius: 16px 6px 16px 16px;
+  background: var(--hb-chat-user-bubble-bg);
+  color: var(--hb-chat-user-bubble-text);
+  box-shadow: var(--hb-chat-user-bubble-shadow);
 }
 
 

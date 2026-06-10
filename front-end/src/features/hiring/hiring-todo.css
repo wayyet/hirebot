@@ -2405,3 +2405,197 @@ html[data-mode="light"][data-skin="warm"] .hb-todo-stage-badge.is-active {
   border-color: var(--hb-error, #ef4444);
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.08);
 }
+
+/* Unified todo panel surfaces for the hiring chat sidebar. */
+.hb-todo-panel {
+  --ink-2: var(--hb-body);
+}
+
+.hb-todo-stage-card,
+.hb-todo-stage-card.is-accent-shell,
+.hb-todo-material-shell,
+.hb-todo-skill-section.is-template,
+.hb-todo-mcp-inline-panel,
+.hb-todo-mcp-transport-card {
+  border-color: var(--hb-border);
+  background: var(--hb-surface-card);
+  box-shadow: none;
+}
+
+.hb-todo-stage-card.is-active,
+.hb-todo-stage-card.is-accent-shell {
+  border-color: var(--hb-accent-border-strong);
+  box-shadow: inset 0 0 0 1px var(--hb-accent-border);
+}
+
+.hb-todo-stage-card.is-complete {
+  border-color: rgba(16, 185, 129, 0.24);
+}
+
+.hb-todo-stage-card.is-failed {
+  border-color: rgba(248, 113, 113, 0.30);
+}
+
+.hb-todo-stage-head:hover,
+.hb-todo-stage-card.is-accent-shell .hb-todo-stage-head:hover,
+.hb-todo-category-item:hover {
+  background: var(--hb-surface-soft);
+}
+
+.hb-todo-stage-num {
+  border-color: var(--hb-accent-border);
+  background: var(--hb-accent-soft-bg);
+  color: var(--hb-accent-text);
+}
+
+.hb-todo-stage-badge,
+.hb-todo-row-tag,
+.hb-todo-category-chip,
+.hb-todo-material-head-pill,
+.hb-todo-skill-state-pill {
+  border: 1px solid var(--hb-border);
+  background: var(--hb-surface-soft);
+  color: var(--hb-soft);
+}
+
+.hb-todo-stage-badge.is-active,
+.hb-todo-category-status.is-busy {
+  color: var(--hb-accent-text);
+}
+
+.hb-todo-stage-badge.is-active {
+  border-color: var(--hb-accent-border);
+  background: var(--hb-accent-soft-bg);
+}
+
+.hb-todo-stage-badge.is-complete,
+.hb-todo-category-status.is-complete {
+  color: var(--hb-text-green);
+}
+
+.hb-todo-stage-badge.is-complete {
+  border-color: rgba(16, 185, 129, 0.22);
+  background: rgba(16, 185, 129, 0.10);
+}
+
+.hb-todo-row,
+.hb-todo-category-item,
+.hb-todo-file-item {
+  border-color: var(--hb-border);
+  background: var(--hb-surface-soft);
+}
+
+.hb-todo-row.is-confirmed {
+  border-color: rgba(16, 185, 129, 0.22);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.hb-todo-row-btn.is-primary,
+.hb-todo-final-btn {
+  background: var(--hb-accent-solid);
+  color: #ffffff;
+}
+
+.hb-todo-row-btn.is-primary:hover:not(:disabled),
+.hb-todo-final-btn:hover:not(:disabled) {
+  background: var(--hb-accent-solid-hover);
+}
+
+.hb-todo-row-btn.is-secondary,
+.hb-todo-row-btn.is-ghost {
+  border-color: var(--hb-border-input);
+  background: var(--hb-surface-card);
+  color: var(--hb-body);
+}
+
+.hb-todo-row-btn.is-secondary:hover:not(:disabled),
+.hb-todo-row-btn.is-ghost:hover:not(:disabled) {
+  border-color: var(--hb-accent-border-strong);
+  background: var(--hb-accent-soft-bg);
+  color: var(--hb-accent-text);
+}
+
+/* Dark todo polish: flat surfaces, no heavy gradients. */
+.dark .hb-todo-stage-card,
+.dark .hb-todo-stage-card.is-accent-shell,
+.dark .hb-todo-material-shell,
+.dark .hb-todo-material-shell.is-filled,
+.dark .hb-todo-skill-section.is-template {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.72);
+  box-shadow: none;
+}
+
+.dark .hb-todo-stage-card.is-active,
+.dark .hb-todo-stage-card.is-accent-shell {
+  border-color: rgba(96, 165, 250, 0.24);
+  background: rgba(15, 23, 42, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.08);
+}
+
+.dark .hb-todo-stage-card.is-complete {
+  border-color: rgba(52, 211, 153, 0.24);
+}
+
+.dark .hb-todo-stage-card.is-failed {
+  border-color: rgba(248, 113, 113, 0.28);
+}
+
+.dark .hb-todo-stage-head:hover,
+.dark .hb-todo-stage-card.is-accent-shell .hb-todo-stage-head:hover,
+.dark .hb-todo-category-item:hover {
+  background: rgba(30, 41, 59, 0.58);
+}
+
+.dark .hb-todo-stage-num {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+}
+
+.dark .hb-todo-stage-badge,
+.dark .hb-todo-row-tag,
+.dark .hb-todo-category-chip,
+.dark .hb-todo-material-head-pill,
+.dark .hb-todo-skill-state-pill {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(30, 41, 59, 0.72);
+  color: #cbd5e1;
+}
+
+.dark .hb-todo-stage-badge.is-active {
+  border-color: rgba(96, 165, 250, 0.24);
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+}
+
+.dark .hb-todo-stage-badge.is-complete {
+  border-color: rgba(52, 211, 153, 0.22);
+  background: rgba(16, 185, 129, 0.10);
+  color: #6ee7b7;
+}
+
+.dark .hb-todo-row,
+.dark .hb-todo-category-item,
+.dark .hb-todo-file-item {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.52);
+}
+
+.dark .hb-todo-category-item {
+  border-bottom-color: rgba(148, 163, 184, 0.16);
+}
+
+.dark .hb-todo-category-actions .hb-todo-row-btn.is-primary,
+.dark .hb-todo-row-btn.is-primary,
+.dark .hb-todo-final-btn {
+  background: #4f8ef7;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.dark .hb-todo-category-actions .hb-todo-row-btn.is-primary:hover:not(:disabled),
+.dark .hb-todo-row-btn.is-primary:hover:not(:disabled),
+.dark .hb-todo-final-btn:hover:not(:disabled) {
+  background: #6aa3ff;
+}
