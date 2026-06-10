@@ -1,28 +1,28 @@
-# metric-library topic
+# metric-library 主题
 
-The `metric-library` topic provides the **enumerated catalog of evaluation sub-metrics** plus its governance rules.
+`metric-library` 主题提供**评估子指标的枚举目录**及其治理规则。
 
-## Files
+## 文件说明
 
-- `metric-library.metric-catalog.projection.json` — the contract declaring how metric files must look and how they are discovered
-- `schemas/metric.schema.json` — JSON Schema for a single hot-loadable metric file
-- `REVIEW.md` — review notes and current status
+- `metric-library.metric-catalog.projection.json` — 声明指标文件结构与发现方式的契约
+- `schemas/metric.schema.json` — 单个可热加载指标文件的 JSON Schema
+- `REVIEW.md` — 评审备注与当前状态
 
-## How the registry is populated
+## 注册表的填充方式
 
-1. At evaluation start (PRE step `loadMetricRegistry`), the runtime scans `evaluation-expert-consumer/metrics/*.metric.json`
-2. Each file is validated against `schemas/metric.schema.json`
-3. Files passing validation are loaded into `metric_registry`, keyed by `metric_code`
-4. New metrics are added by **dropping a new `*.metric.json` file** into the data layer — no code or contract change required
+1. 评估开始时（PRE 步骤 `loadMetricRegistry`），runtime 扫描 `evaluation-expert-consumer/metrics/*.metric.json`
+2. 每个文件通过 `schemas/metric.schema.json` 校验
+3. 通过校验的文件以 `metric_code` 为键加载到 `metric_registry`
+4. 新增指标只需**向数据层投入一个新的 `*.metric.json` 文件**——无需修改代码或契约
 
-## Trigger signals (this topic is selected when a request contains)
+## 触发信号（满足以下条件时选择本主题）
 
 - 指标库 / 指标清单 / 可选指标 / catalog / metric registry
-- Combined with explicit artifacts: `metric_code`, `.metric.json`, `applicable_roles`, `scoring_rubric`
+- 结合显式产物：`metric_code`、`.metric.json`、`applicable_roles`、`scoring_rubric`
 
-## Reading order
+## 推荐读取顺序
 
-1. Read this README
-2. Read `REVIEW.md` for governance status
-3. Read the projection JSON for the formal contract
-4. Read `schemas/metric.schema.json` for the per-file structure
+1. 读本 README
+2. 读 `REVIEW.md` 了解治理状态
+3. 读 projection JSON 获取正式契约
+4. 读 `schemas/metric.schema.json` 了解单文件结构

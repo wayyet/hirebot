@@ -1,40 +1,40 @@
-# testcase-library topic
+# testcase-library 主题
 
-The `testcase-library` topic provides the **enumerated catalog of evaluation test cases** plus its governance rules.
+`testcase-library` 主题提供**评估测试用例的枚举目录**及其治理规则。
 
-## Files
+## 文件说明
 
-- `testcase-library.test-case-catalog.projection.json` — the contract declaring how test case files must look and how they are discovered
-- `schemas/test-case.schema.json` — JSON Schema for a single hot-loadable test case file
-- `REVIEW.md` — review notes and current status
+- `testcase-library.test-case-catalog.projection.json` — 声明测试用例文件结构与发现方式的契约
+- `schemas/test-case.schema.json` — 单个可热加载测试用例文件的 JSON Schema
+- `REVIEW.md` — 评审备注与当前状态
 
-## How the test case set is populated
+## 用例集的填充方式
 
-1. Step 1 first checks the curated catalog (`evaluation-expert-consumer/test-cases/`) for files matching the employee's role and scenarios
-2. If matches exist, they are used directly
-3. If no matches and SOP / user_scenarios are available, **STEP 1.5 parseTestCases** auto-synthesizes new cases (under SOP-first fallback chain) and writes them to `./runs/<eval-id>/synthesized-cases/`
-4. STEP 2 (enrichTestCases) **always runs**, ensuring every selected test case has `applicable_metrics` bound
+1. STEP 1 首先在精选目录（`evaluation-expert-consumer/test-cases/`）中查找与员工角色和场景匹配的文件
+2. 若存在匹配，则直接使用
+3. 若无匹配且存在 SOP / user_scenarios，**STEP 1.5 parseTestCases** 将自动合成新用例（遵循 SOP 优先回退链），写入 `./runs/<eval-id>/synthesized-cases/`
+4. STEP 2（enrichTestCases）**始终执行**，确保每个选定用例都已绑定 `applicable_metrics`
 
-## Provenance
+## 溯源字段
 
-Every test case carries a `provenance.source` field:
+每个测试用例携带一个 `provenance.source` 字段：
 
-| source | meaning |
+| 取值 | 含义 |
 |---|---|
-| `manual_curation` | Curated by humans for regression / golden set |
-| `regression_baseline` | Pinned baseline used to detect regressions |
-| `employee_sop` | Auto-synthesized from the employee's SOP document |
-| `synthesized_from_user_scenarios` | Auto-synthesized when SOP missing but user provides scenarios |
+| `manual_curation` | 人工精选，用于回归 / golden set |
+| `regression_baseline` | 固定基线，用于检测回归 |
+| `employee_sop` | 从员工 SOP 文档自动合成 |
+| `synthesized_from_user_scenarios` | SOP 缺失但用户提供场景时自动合成 |
 
-Only `manual_curation` and `regression_baseline` are stored in the catalog. Synthesized cases live in run-scoped directories.
+只有 `manual_curation` 和 `regression_baseline` 存入目录；合成用例存放在运行时隔离目录中。
 
-## Trigger signals
+## 触发信号
 
 - 测试用例 / 用例库 / test case / scenario / SOP-derived cases / regression set
 
-## Reading order
+## 推荐读取顺序
 
-1. Read this README
-2. Read `REVIEW.md`
-3. Read the projection JSON
-4. Read `schemas/test-case.schema.json`
+1. 读本 README
+2. 读 `REVIEW.md`
+3. 读 projection JSON
+4. 读 `schemas/test-case.schema.json`

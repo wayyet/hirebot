@@ -1,36 +1,36 @@
-# metric-ontology projection contracts (consumer-side mirror)
+# metric-ontology 投影契约（consumer 侧镜像）
 
-This directory mirrors the projection contracts produced by the `metric-ontology` skill, consumed by `evaluation-expert-consumer`.
+本目录镜像 `metric-ontology` skill 生成的投影契约，由 `evaluation-expert-consumer` 消费。
 
-## Layout
+## 目录结构
 
 ```
 metric-ontology/
 ├── README.md
-├── contract-index.json           # route selection index
+├── contract-index.json           # 路由选择索引
 └── metric-library/
     ├── README.md
     ├── REVIEW.md
-    ├── metric-library.metric-catalog.projection.json    # contract for the metric registry
+    ├── metric-library.metric-catalog.projection.json    # 指标注册表契约
     └── schemas/
-        └── metric.schema.json    # JSON Schema for a single hot-loadable .metric.json file
+        └── metric.schema.json    # 单个可热加载 .metric.json 文件的 JSON Schema
 ```
 
-## Boundaries
+## 边界划分
 
-- **Contract layer (this directory)**: declares the schema, governance rules, and routing for evaluation metric definitions.
-- **Data layer (`evaluation-expert-consumer/metrics/`)**: holds the actual `*.metric.json` instances (one metric per file), hot-loadable.
+- **契约层（本目录）**：声明评估指标定义的 schema、治理规则和路由。
+- **数据层（`evaluation-expert-consumer/metrics/`）**：存放实际的 `*.metric.json` 实例（每个指标一个文件），可热加载。
 
-The data layer must validate against `metric-library/schemas/metric.schema.json`. The contract layer is stable; the data layer is what business stakeholders extend.
+数据层必须通过 `metric-library/schemas/metric.schema.json` 校验。契约层保持稳定；数据层才是业务方扩展的目标。
 
-## Producer skill
+## 生产者 skill
 
-The notional producer skill is `metric-ontology`. If the producer skill is later created as a standalone skill, this directory becomes a synced mirror of its `contracts/projections/exports/` output.
+名义上的生产者 skill 为 `metric-ontology`。若该 skill 后续作为独立 skill 创建，本目录将成为其 `contracts/projections/exports/` 输出的同步镜像。
 
-## Topics
+## 主题列表
 
-- **`metric-library`**: enumerated catalog of evaluation sub-metrics. Default target view: `metric-catalog`.
+- **`metric-library`**：评估子指标的枚举目录，默认目标视图：`metric-catalog`。
 
-## Trigger signals
+## 触发信号
 
 - `指标` / `指标库` / `指标清单` / `metric` / `catalog` / `挑选指标` / `evaluation dimension`
