@@ -25,7 +25,7 @@ STEP 2 生成所有 `enriched-cases/<tc_id>.json`，且 `evaluation_context.runt
    - global_cap ← evaluation_context.global_turn_cap or 30
    - python_bin ← `python3`   # sandbox always provides python3; do NOT switch per-scenario
    - cwd ← <absolute path to the evaluation-expert-consumer directory>
-   - scenarios_inputs ← list of every persisted enriched-cases/<tc_id>.json
+   - scenarios_inputs ← list of every persisted enriched-cases/<tc_id>.enriched.json
 
 2. Sanity-check (fail-fast unless a self-heal is defined below; any unrecovered failure ⇒ DO NOT write run_plan.json):
    - run_py_path exists and is executable
@@ -38,7 +38,7 @@ STEP 2 生成所有 `enriched-cases/<tc_id>.json`，且 `evaluation_context.runt
 
 3. For each enriched tc, compute the scenario plan entry:
    tc_id                    ← tc.test_case_id
-   enriched_tc_path         = f"runs/{eval_id}/enriched-cases/{tc_id}.json"
+   enriched_tc_path         = f"runs/{eval_id}/enriched-cases/{tc_id}.enriched.json"   # 注意 .enriched.json 后缀
    evaluation_context_path  = "/workspace/runtime/evaluation-context.json"
    # ALWAYS use the original runtime context — never a run_dir copy.
    # Any copy the agent makes may have credentials sanitized (e.g. client_secret → "REDACTED"),
@@ -120,12 +120,77 @@ STEP 2 生成所有 `enriched-cases/<tc_id>.json`，且 `evaluation_context.runt
    then write to `runs/<eval_id>/run_plan.json`.
 ```
 
+## 输出格式：run_plan.json 完整骨架（必须严格遵守字段名）
+
+> **K20 核心要求**：`run_plan.json` 是唯一的字面命令来源。STEP 3 仅凭 `commands.*` 字段名访问命令，**任何字段名拼写错误都会导致 STEP 3 静默跳过该命令**。
+>
+> 下方 `<COMPUTED_*>` 占位符必须全部替换为步骤 3–4 计算出的字面值，生成文件中**不得出现任何 `<placeholder>`**。
+
+```jsonc
+{
+  "schema_version": "1.0",          // 固定字符串，不可改
+  "eval_id": "<eval_id>",
+  "generated_at": "<ISO 8601 timestamp>",
+  "generated_by_step": "STEP 2.5 planRun",   // 固定字符串，不可改
+  "driver": {
+    "driver_id": "<driver_id>",               // e.g. "ws_jwt"
+    "run_py_path": "runtime-drivers/<driver_id>/run.py"
+  },
+  "python_bin": "python3",
+  "cwd": "<absolute path ending with /evaluation-expert-consumer>",
+  "scenarios": [
+    {
+      "tc_id": "<tc_id>",                      // ← 字段名必须是 tc_id，不是 test_case_id
+      "enriched_tc_path": "/workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/enriched-cases/<tc_id>.enriched.json",
+      "evaluation_context_path": "/workspace/runtime/evaluation-context.json",
+      //                         ↑ 必须指向 C# 写入的原始文件，绝不使用 run_dir 副本
+      //                           run_dir 副本可能已被 Agent 过滤掉 client_secret
+      "trace_path": "/workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/traces/<tc_id>.trace.json",
+      //            ↑ driver --output 的目标路径；必须在 workspace 内，不是 /tmp
+      "effective_max_turns": <COMPUTED_INT>,
+      "opening_message": "<COMPUTED_opening_message verbatim>",
+      "pad": {
+        "dir":      "/tmp/eval-driver/<eval_id>/<tc_id>",
+        "in_fifo":  "/tmp/eval-driver/<eval_id>/<tc_id>/in",
+        "out_file": "/tmp/eval-driver/<eval_id>/<tc_id>/out",
+        "cursor":   "/tmp/eval-driver/<eval_id>/<tc_id>/cursor",
+        "err_file": "/tmp/eval-driver/<eval_id>/<tc_id>/err",
+        "pid_file": "/tmp/eval-driver/<eval_id>/<tc_id>/pid"
+      },
+      "commands": {
+        "pre_spawn_cleanup": "<COMPUTED — see §4 commands.pre_spawn_cleanup>",
+        //                    ↑ 字段名必须是 pre_spawn_cleanup，不是 setup_pad
+        "spawn": "<COMPUTED — see §4 commands.spawn>",
+        "read_one_event": "<COMPUTED — see §4 commands.read_one_event>",
+        //                 ↑ 必须是 shell sed 轮询；禁止使用 python3 或 heredoc inline 脚本
+        "write_action_template": "<COMPUTED — see §4 commands.write_action_template>",
+        //                        ↑ 必须包含且只包含一个 <<JSON_PAYLOAD>> 标记
+        "post_scenario_cleanup": "<COMPUTED — see §4 commands.post_scenario_cleanup>"
+        //                        ↑ 字段名必须是 post_scenario_cleanup，不是 teardown_pad
+      }
+    }
+    // …每个 enriched tc 一条
+  ]
+}
+```
+
+### 常见字段名错误速查（来自实际运行日志）
+
+| 错误写法 | 正确写法 | 后果 |
+|---|---|---|
+| `test_case_id` | `tc_id` | schema 验证失败；STEP 3 找不到 tc_id |
+| `setup_pad` | `pre_spawn_cleanup` | STEP 3 执行 `commands.pre_spawn_cleanup` → undefined → 报错 |
+| `teardown_pad` | `post_scenario_cleanup` | STEP 3 执行 `commands.post_scenario_cleanup` → undefined → 不清理 |
+| `read_one_event` 用 Python inline | `read_one_event` 必须是 shell sed | schema 显式禁止 `python3?`；且 Python 脚本无超时循环，事件未就绪时静默返回空，导致 STEP 3 卡死 |
+| `--output /tmp/.../driver_output.jsonl` | `--output runs/<eval_id>/traces/<tc_id>.trace.json` | trace 写入 /tmp，STEP 4 找不到 |
+| `--evaluation-context runs/.../evaluation_context.json` | `--evaluation-context /workspace/runtime/evaluation-context.json` | 使用 run_dir 副本（client_secret 可能已被 REDACTED） |
+
 ## STEP 3 开始前的自检（K20）
 
 以下所有条件必须成立；任何失败均意味着 STEP 2.5 未能干净运行，STEP 3 不得开始：
 
 - `runs/<eval_id>/run_plan.json` 存在、是合法 JSON，且通过 `runtime-schemas/run_plan.schema.json` 验证；
-- `run_plan.scenarios[].tc_id` 是 `enriched-cases/*.json` 文件名的精确集合（无缺失 tc，无孤立 tc）；
+- `run_plan.scenarios[].tc_id` 是 `enriched-cases/*.enriched.json` 文件名的精确集合（无缺失 tc，无孤立 tc）；
 - 每个 `run_plan.scenarios[].commands.spawn` 包含与同一条目中 `pad.dir`、规范的 `$PAD/in`、`$PAD/out`、`$PAD/err`、`$PAD/pid`、`python_bin`、`driver.run_py_path`、`--evaluation-context`、`--enriched-test-case` 和 `--output` 匹配的字面子字符串（无残留 `<placeholder>`；无遗留 `--test-case-id` / `--endpoint` / `--pad-in` / `--pad-out`）；
 - 每个 `run_plan.scenarios[].commands.spawn` 使用 `tail -f "$1" 2>/dev/null | exec ...` 模式（**不得**使用废弃的 `<> "$PAD/in"` O_RDWR FIFO 方式）；
 - 每个 `run_plan.scenarios[].commands.spawn` 不含 `&;` 标记（后台 `&` 本身已是命令分隔符）；

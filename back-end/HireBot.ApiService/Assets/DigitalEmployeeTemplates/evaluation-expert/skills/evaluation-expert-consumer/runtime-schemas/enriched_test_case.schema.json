@@ -37,9 +37,17 @@
     "input": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["user_message"],
+      "required": ["opening_message"],
       "properties": {
-        "user_message": { "type": "string", "minLength": 1 },
+        "opening_message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The customer's first utterance. STEP 2 MUST copy or rename user_message→opening_message when enriching curated cases that still use the old field name."
+        },
+        "user_message": {
+          "type": "string",
+          "description": "(DEPRECATED v2.0) Alias for opening_message used in pre-v2 test cases. STEP 2 must map this to opening_message. ws_jwt driver accepts either field but opening_message takes precedence."
+        },
         "context": { "type": "object", "additionalProperties": true },
         "follow_up_messages": {
           "type": "array",

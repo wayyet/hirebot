@@ -75,6 +75,30 @@ Agent 不得：
 
 ### 4. 第 0 轮（确定性，无 LLM）
 
+> **driver stdin 协议 vs WebSocket 协议 — 层级不要混淆**
+>
+> driver 的 stdin（`pad/in`）使用 `{"action":"send",...}` / `{"action":"end",...}` 协议，由本文件定义。  
+> WebSocket 层（`ws_client.py` → evaluatee）使用 `{"type":"user_message",...}` 协议，在 driver 内部处理，**宿主 Agent 不得直接写入**。
+>
+> 写入 `pad/in` 前必须满足的最低要求：
+>
+> | 字段 | 必填 | 写错时 driver 报错 |
+> |---|---|---|
+> | `action` | `"send"` 或 `"end"` | `unknown action None; expected 'send' or 'end'` |
+> | `turn_index` | int（`send` 必填） | recoverable error |
+> | `text` | 非空字符串（`send` 必填） | recoverable error |
+> | `decision` | object（`send` 和 `end` 均必填） | `'send' action requires object decision` |
+> | `decision.turn_index` | int，等于外层 `turn_index` | recoverable error |
+> | `decision.should_continue` | bool（`true`/`false`，不是字符串） | recoverable error |
+> | `decision.internal_emotion` | enum 之一 | recoverable error |
+> | `decision.perceived_progress` | enum 之一 | recoverable error |
+>
+> 写错最常见的三种情况（均来自实际运行日志）：
+>
+> ❌ `{"text": "你好", "turn_index": 0}` — 缺少 `action` 字段 → driver 报 `unknown action None`  
+> ❌ `{"action": "send", "turn_index": 0, "text": "你好"}` — 缺少 `decision` → driver 报 `requires object decision`  
+> ❌ `{"type": "user_message", "content": "你好"}` — 写入了 WebSocket 层协议 → driver 报 `wrong protocol layer`
+
 使用**精确**如下的 JSON 格式写入第一个 `send` 动作（字段名是字面量——不要使用 `type`、`user_message` 或任何其他键）：
 
 ```json
