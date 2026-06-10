@@ -17,6 +17,7 @@
 | `materials` 字段（顶层） | 旧格式 | 改用 `items[]` |
 | `scene_hint` 字段 | 旧格式 | 不需要，schema 中无此字段 |
 | `dispatch_payload` / `handoff_todos` / `dispatch_target` | 旧 dispatch 协议 | 全部删除 |
+| `stage2_analysis` / `stage3_skills` / `skills_pipeline` | 自造阶段 / 自造技能流水线 | 用 `material_handoff_summary`、`skill_workorder_progress`、`skill_workorder_summary` 等协议内 artifact |
 
 **data 字段的合法顶层 key 只有下方各 artifactType 示例中明确列出的字段。任何不在示例中的 key 均视为错误。**
 

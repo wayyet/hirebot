@@ -1,6 +1,6 @@
 ---
 name: digital-employee-package-completeness-review
-description: Use when evaluating a digital employee package, GoodCrew template, agent template, skill bundle, ontology slice package, or uploaded workspace package for completeness, installability, runtime readiness, or release acceptance
+description: Use for explicit package review of a digital employee package, GoodCrew/NCrew template, agent template, skill bundle, ontology slice package, or uploaded workspace package when the task is completeness, installability, runtime readiness, or release acceptance. In a HireBot hiring conversation, use only as the internal pre-packaging review gate after employment-coach-conversation has completed the required downstream stages; do not use to advance material collection, ontology extraction, skill generation, external configuration, or ordinary user-facing hiring dialogue.
 ---
 
 # Digital Employee Package Completeness Review

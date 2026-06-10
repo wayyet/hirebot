@@ -1,6 +1,6 @@
 ---
 name: ontology-extraction
-description: 当用户提到 ontology、本体、slice、schema/projection/mapping、taxonomy 或概念关系建模时，从文档、schema 或代码中抽取当前任务所需的最小可验证 slice，保留 concepts、relations、constraints 与 sources，供评审、codegen 和 prompt 编排使用。
+description: Internal HireBot downstream skill for ontology slice extraction. Use only when the current message is an internal downstream trigger from employment-coach-conversation with a valid artifact_payload containing material_handoff_summary data, or an internal projection_pass payload after skill_workorder_summary confirmation. Do not use directly for user-facing requests that merely mention ontology、本体、slice、projection、mapping、taxonomy, schema, or concept modeling; route those requests through employment-coach-conversation so stage gates and artifacts stay consistent.
 compatibility: HireBot employment-coach-conversation v1.0
 metadata:
   openclaw:
@@ -15,6 +15,17 @@ metadata:
 # ontology-extraction
 
 Task-scoped ontology slicing for extracting the smallest verifiable subgraph needed by the current job.
+
+## 入口门禁
+
+本 skill 是雇佣流程内部下游执行器，不是用户可直接点名调用的对话入口。
+
+仅在收到以下任一内部 payload 时继续执行：
+
+- `employment-coach-conversation` 注入的 internal downstream trigger，且 `artifact_payload` 包含资料阶段 terminal 摘要字段：`workspace_root`、`template_slug`、`items` 或 `total_items`。
+- `employment-coach-conversation` 注入的 Projection Pass trigger，且 `artifact_payload.trigger_mode == "projection_pass"`，同时包含 `workspace_root` 与 `skills`。
+
+如果当前消息只是用户在聊天里提到“本体 / ontology / slice / projection / mapping”等词，或缺少上述 `artifact_payload`，不得发出 `ontology_extraction_progress` / `ontology_extraction_done`，不得写入 `ontology/`。只回复一句：「本体抽取需要先完成资料阶段收口，我先回到资料阶段帮你把可抽取来源整理清楚。」
 
 ## Core Concept
 
@@ -400,6 +411,8 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 - `workspace_root`：工作区绝对路径（来自会话常量）
 - `skills`：技能清单，每项含 `skill_slug`、`skill_name`、`triggers`、`description`（来自 `skill_workorder_summary.data.items`）
 
+**Skill slug 不可变规则**：`skills[].skill_slug` 是雇佣流程确认后的业务技能主键，Projection Pass 必须逐字原样使用它。禁止把 `skill_slug` 按语义改写、同义替换、重新排序词根或重新生成新 slug。所有 projection 文件路径必须写入 `<workspace_root>/ontology/projections/<skill_slug>/...`，`projection.intended_consumers` 也必须只包含该原始 `skill_slug`。如果发现输入中同一技能存在多个候选 slug，必须阻断并向上游说明 slug 冲突，不能自行选择一个新目录继续。
+
 **Slice 发现**：不由 employment-coach 传入 slice 路径，而是由本 skill 自行扫描 `<workspace_root>/ontology/` 目录下的 `*.slice.json` 文件。这样无需 employment-coach 持久存储 `ontology_extraction_done.data.slice_paths`，对"阶段 1 被跳过"或"incremental 更新"的情况也更鲁棒。
 
 ### 执行流程
@@ -431,7 +444,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
    - `projection.intended_consumers`：填入当前 `skill_slug`
    - 在 `concept_mappings`、`relation_mappings`、`constraint_mappings` 中只保留与该 skill 能力域直接相关的项（最小闭包原则，不相关的项写入 `dropped_items` 并附 reason）
    - `open_questions`：若 slice validation 为 WARNING 且原 slice 有 open_questions，透传到此处；否则置为空数组
-   - **调用 `write_file` 工具写入**完整 projection JSON 到 `<workspace_root>/ontology/projections/<skill-slug>/<domain-slug>.<type-short>.projection.json`
+   - **调用 `write_file` 工具写入**完整 projection JSON 到 `<workspace_root>/ontology/projections/<skill-slug>/<domain-slug>.<type-short>.projection.json`；其中 `<skill-slug>` 必须等于输入 `skills[].skill_slug`，不能使用 display_name、英文同义词或重新生成的 slug。
      - `domain-slug`：由 slice 的 `slice_request.topic` 衍生（转小写、空格换短横线、保留字母数字短横线）
      - `type-short`：`workflow-contract` 或 `prompt-constraint`
    - **写入后验证**：立即读取刚写入的文件，确认其包含完整的 projection 结构（至少含 `projection_type`、`source_slice`、`intended_consumers`、`concept_mappings`）。若验证失败，重新写入

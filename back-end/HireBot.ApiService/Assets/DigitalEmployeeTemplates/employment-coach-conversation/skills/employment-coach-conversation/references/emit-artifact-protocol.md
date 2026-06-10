@@ -124,6 +124,7 @@ stage 与前端胶囊的对应关系：
 
 - **调用优先于对话输出**：同一轮次识别到可推送的阶段事件时，先调用 `emit_artifact`，再给用户一句简短的业务反馈
 - **data 字段必须严格遵循 schema**：`data` 内容必须完全符合 [stage-data-schema.md](stage-data-schema.md) 中对应 `artifactType` 的示例结构；不得添加任何 schema 中未列出的字段（如 `capabilities`、`materials`、`scene_hint` 等）
+- **禁止自造阶段 / artifact**：不得发出 `stage2_analysis`、`stage3_skills`、`skills_pipeline`、`analysis_result` 或任何未在本协议列出的 `artifactType` / `stage`。用户要求“推进到技能阶段”时，资料阶段只能先用 `material_handoff_summary` 收口，再由系统触发 `ontology-extraction`。
 - **顶层 status 语义**：仅打包相关 artifact（`packaging_progress`、`packaging_testcases_progress`、`packaging_testcases_done`）允许 `data.status`；其他 artifact 禁止顶层 `data.status`
 - **禁止旧 dispatch 字段**：`data` 中绝不出现 `status: "ready_to_dispatch"`、`dispatch_payload`、`handoff_todos` 等旧状态机字段；阶段完成用 `isTerminal: true` 表达
 - **不暴露字段值**：不在对话中展示 `artifactType`、`stage`、`isTerminal`、`data` 的原始 JSON 内容

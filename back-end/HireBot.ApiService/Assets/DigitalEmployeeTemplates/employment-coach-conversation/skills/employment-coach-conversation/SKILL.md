@@ -1,6 +1,6 @@
 ---
 name: employment-coach-conversation
-description: "雇佣教练的阶段化对话引导核心。用于业务用户在沙箱内雇佣 / 装配数字员工时，按『资料 → 技能（先定义，再生成）→ 外部』顺序引导对话，通过 emit_artifact 工具在关键节点推送流程产物（进度与阶段完成），驱动前端阶段胶囊实时更新；同时承担 soul / identity / agent 三份配置文件的对话监听与混合反问治理。当用户已选定模板进入会话窗口、需要按阶段引导对话、需要为本体提取 / 技能生成 / 外部配置准备可执行输入时，必须使用本 skill。不要用于一次性方案咨询（请用专用咨询 skill 或 ncrew-discovery）、还没初始化沙箱的场景、或需要直接执行诊断 / 打包的场景。"
+description: "HireBot 雇佣会话唯一用户入口。用于业务用户已选定模板并正在雇佣、训练、配置或装配数字员工时，始终以雇佣教练身份按『资料 → 技能（先定义，再生成）→ 外部 → 打包』推进对话，发出 emit_artifact 阶段产物并在合适阶段内部触发 ontology-extraction、skill-generation、external-config、packaging-test-cases 等下游 skill。即使用户提到本体、skill、projection、打包、外部系统或目标员工角色名，也优先使用本 skill 进行阶段门控；不要把目标数字员工名称（如 visitor-experience-pilot）当成可切换 skill，也不要直接扮演目标员工执行业务任务。"
 compatibility: HireBot employment-coach-conversation v1.0
 license: Proprietary. NCrew employment-coach internal flow.
 metadata:
@@ -59,6 +59,8 @@ metadata:
 本 skill 在三个阶段各有两类产物事件：**进度更新**（`isTerminal: false`，将前端胶囊置为 running）和**阶段完成**（`isTerminal: true`，将前端胶囊置为 completed）。
 
 详细字段协议见 [references/emit-artifact-protocol.md](references/emit-artifact-protocol.md)；各阶段 data payload 结构见 [references/stage-data-schema.md](references/stage-data-schema.md)。
+
+**artifact 白名单硬约束**：只能发出下表和本节后续打包/审查小节列出的 `artifactType` 与 `stage`。禁止自造 `stage2_analysis`、`stage3_skills`、`skills_pipeline`、`analysis_result` 等任何未声明阶段或字段；也禁止在对话里把“技能阶段”解释成“技能流水线 / dry run / 业务求解流水线”。技能阶段只做目标数字员工的 skill 定义与生成确认，不执行目标员工上岗后的业务分析或排产求解。
 
 **阶段 1 资料 — 发出时机与参数**
 
@@ -362,6 +364,11 @@ mv "<workspace_root>/workspace.json" "<workspace_root>/config/" 2>/dev/null || t
 
 > ⛔ 如果任何上传条目缺少 `source_path`、或已知内容不可读，则**不得**发出 `material_handoff_summary`，也就**不得**触发 `ontology-extraction`。先修复资料可读性，再谈下一阶段。
 
+当用户说“推进到技能阶段 / 下一阶段 / 先基于这些资料继续”等等价表述时：
+- 如果资料阶段已达成完成条件，先发 `material_handoff_summary` terminal artifact，并触发 `ontology-extraction`。
+- 如果资料尚未达标，只说明缺口并继续资料阶段。
+- 禁止输出“案例分析与规则提取”“技能流水线初始化”等非协议阶段 artifact，也禁止用目标员工业务产物替代资料阶段收口。
+
 > 第一批资料怎么按场景类型开口要、scene_hint 推断与静默修正、阶段 1 story-driven 推进 → 进入阶段 1 之前，读 [references/scene-types.md](references/scene-types.md)。
 
 ### 阶段 2：技能
@@ -544,6 +551,9 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 
 1. 发 `packaging_progress`（isTerminal: false, `data.status = “packing”`）
 2. **Projection-consumer 一致性预检（强制）**：打包前逐个检查 `skills/<skill-slug>/`：
+   - 先从最近一次 `skill_generation_done.data.skill_slugs` 取得当前业务技能白名单；若缺失，则从最近一次 `skill_workorder_summary.data.items[].name` 取得。该白名单是本轮业务技能唯一合法目录集合。
+   - 扫描 `<workspace_root>/skills/`，排除下文内置 skill 白名单后，若发现不在白名单中的业务技能目录（例如早期生成留下的同义旧 slug），必须先移除或隔离到 `reports/stale-skills/`，并在 `reports/package-stale-skill-cleanup.md` 记录目录名、原因和处理结果。不能让陈旧目录留在最终 `skills/` 包面。
+   - 如果无法清理陈旧目录，停止打包并告知用户具体目录名；不得继续调用打包工具，也不得用“强制打包”绕过目录污染。
    - 若 `SKILL.md` 包含 `## Projection Contracts`，则必须存在 `skills/<skill-slug>/contracts/projections/ontology_extraction/contract-index.json`
    - 若 `metadata.json` 中记录了 projection source（如 `sources[].type == “projection”` 或 `projection.source_projection_paths` 非空），则要么存在上述 contract-index 与 4 个标准 view 文件，要么 `SKILL.md` 不得保留 Projection Contracts 章节，并且 `references/quality-report.md` 要明确写出跳过原因
    - 一旦发现”文案/metadata 声称有 projection，但 contracts 缺失”的情况：**停止打包**，不给 `template_package`，先提示用户技能生成产物不完整，需要回到 `skill-generation` 补齐或重生成
@@ -601,7 +611,7 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 | 字段 | 动作 | 来源 |
 |------|------|------|
 | `ontology_slices` | 追加运行时产出的 slice 条目 | 扫描 `<workspace_root>/ontology/*.slice.json` |
-| `skills` | 追加 skill-generation 产出的业务 skill 条目 | 扫描 `<workspace_root>/skills/*/SKILL.md`（排除模板内置 skill） |
+| `skills` | 同步本轮 skill-generation 产出的业务 skill 条目 | 只使用最近一次 `skill_generation_done.data.skill_slugs`（缺失时回退 `skill_workorder_summary.data.items[].name`），排除模板内置 skill |
 
 #### 执行步骤
 
@@ -634,16 +644,16 @@ ls <workspace_root>/ontology/*.slice.json
 }
 ```
 
-**步骤 C：扫描 generated skills**
+**步骤 C：同步 generated skills**
 
-```bash
-ls <workspace_root>/skills/*/SKILL.md
-```
+不要以 `ls <workspace_root>/skills/*/SKILL.md` 的完整扫描结果作为新增依据；这会把历史运行残留目录重新写入 manifest。必须按当前业务技能白名单逐项处理：
 
-对每个发现的 skill 目录（`skills/<slug>/SKILL.md` 存在）：
-1. 提取 `<slug>` 作为 skill name
-2. 若 `manifest.skills` 中已有 `name` 完全匹配的条目（模板内置 skill），跳过
-3. 否则追加条目：
+1. 取得当前业务技能白名单：
+   - 首选：最近一次 `skill_generation_done.data.skill_slugs`
+   - 回退：最近一次 `skill_workorder_summary.data.items[].name`
+2. 对白名单中每个 `<slug>` 检查 `skills/<slug>/SKILL.md` 是否存在；不存在则停止同步并提示该技能生成不完整。
+3. 若 `manifest.skills` 中已有同名条目，更新其 `path` 为 `skills/<slug>/SKILL.md` 并保留 `required: true`。
+4. 若不存在同名条目，追加条目：
 
 ```json
 {
@@ -652,6 +662,7 @@ ls <workspace_root>/skills/*/SKILL.md
   "required": true
 }
 ```
+5. 对 `manifest.skills` 中由旧运行生成、但不在当前业务技能白名单且不属于内置 skill 白名单的条目，必须移除或标记为不参与打包；禁止继续保留指向陈旧目录的 required 条目。
 
 **步骤 D：回写 manifest.json**
 
@@ -669,7 +680,7 @@ ls <workspace_root>/skills/*/SKILL.md
 
 #### 同步约束
 
-- **只追加不删除**：不移除 manifest 中已有的条目（即使对应文件不存在，可能是被用户手动管理的）
+- **当前白名单优先**：业务技能条目必须与当前 skill-generation 白名单一致；旧运行残留的业务技能 manifest 条目要移除或禁用，不能继续参与打包
 - **幂等安全**：多次执行 manifest 同步结果一致，不产生重复条目
 - **ontology-slice.md 保留**：模板原始的 `ontology-slice.md` 条目保持不变（它是约定文档，不是运行时 slice）
 - **不修改其他字段**：`name`、`display_name`、`positioning`、`description`、`version`、`config`、`stage_rules` 等字段原样保留

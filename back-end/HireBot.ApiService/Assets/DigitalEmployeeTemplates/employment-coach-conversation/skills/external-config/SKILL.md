@@ -1,6 +1,6 @@
 ---
 name: external-config
-description: 定义 External 阶段的语义边界、完成条件和 external/ 目录结构约束。该 skill 负责外部系统接入需求的收口规范与提交完成语义，不负责真实凭据收集、系统保存、密钥加密或 external/ 目录落盘。
+description: Internal HireBot reference and stage contract skill for the External phase. Use only when employment-coach-conversation or the system layer needs the external capability schema, completion semantics, or external/ directory contract after skill-generation is complete. Do not use directly for user-facing requests about external systems, credentials, API integration, OAuth, tokens, or connectors; route those through employment-coach-conversation and the right-side external configuration form.
 compatibility: HireBot employment-coach-conversation v1.0
 license: Proprietary. NCrew employment-coach internal flow.
 metadata:
@@ -16,6 +16,12 @@ metadata:
 # External Config
 
 `external-config` 是 External 阶段的语义规范包。
+
+## 入口边界
+
+本 skill 不是外部系统配置的用户对话入口。用户在雇佣会话里提到“接 CRM / 配 API / OAuth / token / 外部系统”时，必须由 `employment-coach-conversation` 继续做阶段门控和需求收口；真实凭据只进入右侧表单。
+
+如果当前消息没有来自 `employment-coach-conversation` 或系统层的外部阶段上下文，不得发出外部阶段 artifact，不得写入 `external/`。只回复一句：「外部系统配置需要在技能生成完成后进入外部阶段，我先回到雇佣教练流程继续推进。」
 
 它负责 4 件事：
 

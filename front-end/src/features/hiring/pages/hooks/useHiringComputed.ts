@@ -278,6 +278,13 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
   return []
 }
 
+function hasTerminalArtifact(messages: ChatMessage[], artifactType: string): boolean {
+  return messages.some(message =>
+    message.artifact?.artifactType === artifactType &&
+    message.artifact.isTerminal === true,
+  )
+}
+
 /**
  * 雇佣页计算属性 hook
  */
@@ -339,10 +346,19 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
     latestSkillSummary,
     skillGenerationState,
   )
+  const externalConfigCommitted = useMemo(
+    () => hasTerminalArtifact(messages, 'external_config_committed'),
+    [messages],
+  )
 
   const uiStageOverrides = useMemo(
-    () => buildUiStageOverrides(wsStageOverrides, skillGenerationState, holdExternalStage),
-    [wsStageOverrides, skillGenerationState, holdExternalStage],
+    () => buildUiStageOverrides(
+      wsStageOverrides,
+      skillGenerationState,
+      holdExternalStage,
+      externalConfigCommitted,
+    ),
+    [wsStageOverrides, skillGenerationState, holdExternalStage, externalConfigCommitted],
   )
 
   const derivedWorkflowState = useMemo(

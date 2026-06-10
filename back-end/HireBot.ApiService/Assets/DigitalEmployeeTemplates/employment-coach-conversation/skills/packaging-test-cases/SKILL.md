@@ -1,6 +1,6 @@
 ---
 name: packaging-test-cases
-description: 在打包前根据雇佣会话历史、待办上传资料与实例包模板快照生成 live_evaluator 兼容的 evaluation-test-cases.json，写入 testcases/ 与来源 index/子文件，并返回 dispatch_callback 供后端同步。
+description: Internal HireBot downstream skill for optional pre-packaging evaluation testcase generation. Use only after external_config_committed or a backend <invoke_packaging_testcases> request, with an internal artifact_payload containing current session history, uploaded materials, and template snapshot context. Do not use directly for user-facing requests that merely mention tests, evaluation, packaging, or 打包; route those requests through employment-coach-conversation so the packaging and optional testcase gates remain consistent.
 compatibility: HireBot employment-coach-conversation v1.0
 metadata:
   category: generation
@@ -11,6 +11,17 @@ metadata:
 ---
 
 # 打包前评估测试用例生成
+
+## 入口门禁
+
+本 skill 只在打包前测试用例确认门之后执行。
+
+继续执行前必须满足以下任一条件：
+
+- 收到后端注入的 `<invoke_packaging_testcases>...</invoke_packaging_testcases>`；
+- 收到前端确认后注入的 internal downstream trigger，且 `artifact_payload.trigger_after == "external_config_committed"`。
+
+如果当前消息只是用户说“生成测试 / 评估 / 打包”，或缺少上述内部 payload，不得发出 `packaging_testcases_progress` / `packaging_testcases_done`，不得写入 `testcases/`。只回复一句：「测试用例生成需要先完成外部配置保存或跳过，我先回到雇佣教练流程继续推进。」
 
 ## 何时使用
 
