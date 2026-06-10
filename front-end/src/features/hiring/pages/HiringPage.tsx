@@ -81,6 +81,7 @@ import {
   buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
   deriveStageOverridesFromDownstreamRuns,
+  extractArtifactFromToolCall,
   shouldHoldExternalStageUntilSkillImplementation,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
@@ -105,7 +106,6 @@ import {
 } from './stageAdvanceConfirmation'
 import { type HiringUiStage } from './hiringWorkflowViewModel'
 import {
-  buildFallbackMaterialRequestedCategories,
   extractLatestMaterialRequestedCategories,
   normalizeMaterialRequestedCategories,
 } from './materialRequestedCategories'
@@ -139,6 +139,20 @@ function normalizePackageFileName(rawName: string, templateName?: string, hireId
   // 确保以 .zip 结尾
   if (!/\.zip$/i.test(cleaned)) return `${cleaned}.zip`
   return cleaned
+}
+
+function buildArtifactEventSignature(artifact: ArtifactDisplayData): string {
+  return JSON.stringify({
+    kind: artifact.kind,
+    artifactType: artifact.artifactType,
+    label: artifact.label,
+    skillName: artifact.skillName,
+    stage: artifact.stage,
+    isTerminal: artifact.isTerminal,
+    fileUrl: artifact.fileUrl,
+    fileName: artifact.fileName,
+    data: artifact.data,
+  })
 }
 
 export default function HiringPage() {
@@ -278,6 +292,7 @@ export default function HiringPage() {
   const packagingTestCasesReadySignatureRef = useRef('')
   const packagingTestCasesDoneSignatureRef = useRef('')
   const packagingTestCasesLaunchSignatureRef = useRef('')
+  const processedArtifactSignaturesRef = useRef<Set<string>>(new Set())
   const pendingInternalPromptsRef = useRef<string[]>([])
 
   const fileRef = useRef<HTMLInputElement>(null)
@@ -302,6 +317,7 @@ export default function HiringPage() {
   /** 等待本轮 conversation/sync 完成后再 import-package，避免 final 包早于 testcase staging */
   const turnSyncBarrierRef = useRef<Promise<void>>(Promise.resolve())
   const internalPromptFlushInFlightRef = useRef(false)
+  const postTurnHistoryRefreshRef = useRef<Promise<boolean> | null>(null)
   // 存储原始 File 对象，供 WS 路径上传到 Gateway 使用
   const rawFileMapRef = useRef<Map<string, File>>(new Map())
   // 避免同一会话重复触发“自动上传模板并引导”
@@ -428,45 +444,53 @@ export default function HiringPage() {
     return null
   }
 
-  function applyRestoredMessages(
-    restoredMessages: ChatMessage[],
-    requestedCategories = extractLatestMaterialRequestedCategories(restoredMessages),
+  function syncArtifactStateFromMessages(
+    sourceMessages: ChatMessage[],
+    requestedCategories = extractLatestMaterialRequestedCategories(sourceMessages),
   ) {
-    const effectiveRequestedCategories = requestedCategories.length > 0
-      ? requestedCategories
-      : buildFallbackMaterialRequestedCategories(
-        template?.name ?? '',
-        template?.successCases?.length ? template.successCases : template?.coreAbilities ?? [],
-      )
-    setMessages(restoredMessages)
-    messagesRef.current = restoredMessages
-    setMaterialRequestedCategories(effectiveRequestedCategories)
+    setMaterialRequestedCategories(requestedCategories)
+    processedArtifactSignaturesRef.current = new Set(
+      sourceMessages
+        .map(message => message.artifact)
+        .filter((artifact): artifact is ArtifactDisplayData => Boolean(artifact))
+        .map(buildArtifactEventSignature),
+    )
 
-    latestMaterialSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'material_handoff_summary')
-    latestSkillSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'skill_workorder_summary')
-    latestProjectionResultRef.current = extractLatestMessageArtifactData(restoredMessages, 'ontology_projection_done')
-    latestExternalSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'external_workorder_summary')
+    latestMaterialSummaryRef.current = extractLatestMessageArtifactData(sourceMessages, 'material_handoff_summary')
+    latestSkillSummaryRef.current = extractLatestMessageArtifactData(sourceMessages, 'skill_workorder_summary')
+    setLatestSkillSummary(latestSkillSummaryRef.current)
+    latestProjectionResultRef.current = extractLatestMessageArtifactData(sourceMessages, 'ontology_projection_done')
+    latestExternalSummaryRef.current = extractLatestMessageArtifactData(sourceMessages, 'external_workorder_summary')
     materialSummarySignatureRef.current = latestMaterialSummaryRef.current ? JSON.stringify(latestMaterialSummaryRef.current) : ''
     skillSummarySignatureRef.current = latestSkillSummaryRef.current ? JSON.stringify(latestSkillSummaryRef.current) : ''
     externalSummarySignatureRef.current = latestExternalSummaryRef.current ? JSON.stringify(latestExternalSummaryRef.current) : ''
-    externalConfigCommittedSignatureRef.current = restoredMessages
+    externalConfigCommittedSignatureRef.current = sourceMessages
       .filter(message => message.artifact?.artifactType === 'external_config_committed' && message.artifact.isTerminal)
       .map(message => JSON.stringify(message.artifact?.data ?? {}))
       .at(-1) ?? ''
-    ontologyExtractionDoneSignatureRef.current = restoredMessages
+    ontologyExtractionDoneSignatureRef.current = sourceMessages
       .filter(message => message.artifact?.artifactType === 'ontology_extraction_done' && message.artifact.isTerminal)
       .map(message => JSON.stringify(message.artifact?.data ?? {}))
       .at(-1) ?? ''
-    ontologyProjectionDoneSignatureRef.current = restoredMessages
+    ontologyProjectionDoneSignatureRef.current = sourceMessages
       .filter(message => message.artifact?.artifactType === 'ontology_projection_done' && message.artifact.isTerminal)
       .map(message => JSON.stringify(message.artifact?.data ?? {}))
       .at(-1) ?? ''
-    packagingTestCasesDoneSignatureRef.current = restoredMessages
+    packagingTestCasesDoneSignatureRef.current = sourceMessages
       .filter(message => message.artifact?.artifactType === 'packaging_testcases_done' && message.artifact.isTerminal)
       .map(message => JSON.stringify(message.artifact?.data ?? {}))
       .at(-1) ?? ''
 
     appendExternalConfigCommittedArtifact(latestExternalConfigRef.current)
+  }
+
+  function applyRestoredMessages(
+    restoredMessages: ChatMessage[],
+    requestedCategories = extractLatestMaterialRequestedCategories(restoredMessages),
+  ) {
+    setMessages(restoredMessages)
+    messagesRef.current = restoredMessages
+    syncArtifactStateFromMessages(restoredMessages, requestedCategories)
   }
 
   // 从后端恢复运行时状态（stageOverrides、downstreamRuns、uploadedFiles、packageStructure）
@@ -546,7 +570,7 @@ export default function HiringPage() {
   async function restoreConversationFromSandboxHistory(
     endpoint: string,
     sessionId: string,
-    mode: 'always' | 'if-longer' = 'always',
+    mode: 'always' | 'if-longer' | 'merge-artifacts' = 'always',
   ): Promise<boolean> {
     const sandboxMessages = await fetchSandboxSessionMessages(endpoint, sessionId)
     if (sandboxMessages.length === 0) {
@@ -554,6 +578,42 @@ export default function HiringPage() {
     }
 
     const restored = buildHistoricalHiringConversationState(sandboxMessages, normalizeAssistantReply)
+    const hasUnseenArtifact = restored.messages
+      .map(message => message.artifact)
+      .filter((artifact): artifact is ArtifactDisplayData => Boolean(artifact))
+      .some(artifact => !processedArtifactSignaturesRef.current.has(buildArtifactEventSignature(artifact)))
+    if (mode === 'merge-artifacts') {
+      if (!hasUnseenArtifact) {
+        return false
+      }
+
+      const restoredArtifacts = restored.messages
+        .filter(message => {
+          if (!message.artifact) return false
+          return !processedArtifactSignaturesRef.current.has(buildArtifactEventSignature(message.artifact))
+        })
+        .map(message => ({ ...message, id: mkId() }))
+      if (restoredArtifacts.length === 0) {
+        return false
+      }
+
+      const mergedMessages = [...messagesRef.current, ...restoredArtifacts]
+      setMessages(mergedMessages)
+      messagesRef.current = mergedMessages
+      syncArtifactStateFromMessages(mergedMessages, extractLatestMaterialRequestedCategories(mergedMessages))
+      setWsStageOverrides(prev => {
+        const next = new Map(prev)
+        for (const [stage, status] of restored.wsStageOverrides) {
+          next.set(stage, status)
+        }
+        return next
+      })
+      const nextDownstreamRuns = { ...downstreamRunsRef.current, ...restored.downstreamRuns }
+      downstreamRunsRef.current = nextDownstreamRuns
+      setDownstreamRuns(nextDownstreamRuns)
+      return true
+    }
+
     const shouldReplace = mode === 'always' || restored.messages.length >= messagesRef.current.length
     if (!shouldReplace) {
       return false
@@ -564,6 +624,26 @@ export default function HiringPage() {
     downstreamRunsRef.current = restored.downstreamRuns
     setDownstreamRuns(restored.downstreamRuns)
     return true
+  }
+
+  async function refreshConversationFromSandboxHistoryAfterTurn(
+    endpoint: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    const retryDelaysMs = [250, 750, 1500]
+    for (const delayMs of retryDelaysMs) {
+      await sleep(delayMs)
+      if (gatewayEndpointRef.current !== endpoint || sessionIdRef.current !== sessionId) {
+        return false
+      }
+
+      const restored = await restoreConversationFromSandboxHistory(endpoint, sessionId, 'merge-artifacts')
+      if (restored) {
+        return true
+      }
+    }
+
+    return false
   }
 
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
@@ -944,10 +1024,6 @@ export default function HiringPage() {
       packageFile,
       dir,
     )
-    setMaterialRequestedCategories(buildFallbackMaterialRequestedCategories(
-      storeDetail.name || template?.name || '数字员工模板',
-      Array.isArray(storeDetail.useCases) ? storeDetail.useCases : [],
-    ))
     const prompt = buildTemplateBootstrapPrompt(
       storeDetail.name || template?.name || '数字员工模板',
       Array.isArray(storeDetail.useCases) ? storeDetail.useCases : [],
@@ -1069,6 +1145,8 @@ export default function HiringPage() {
 
           // 将对话轮次同步到后端，使工作流引擎处理 AI 结构化标签、推进阶段等
           const hireId = workflowHireIdRef.current
+          const endpoint = gatewayEndpointRef.current
+          const sessionId = sessionIdRef.current
           if (hireId && rawReply) {
             const syncPromise = api.hiringWorkflow
               .syncConversationTurn(hireId, {
@@ -1079,6 +1157,16 @@ export default function HiringPage() {
               .then(() => undefined)
               .catch(() => undefined)
             turnSyncBarrierRef.current = syncPromise
+          }
+          if (endpoint && sessionId && !postTurnHistoryRefreshRef.current) {
+            const refreshPromise = refreshConversationFromSandboxHistoryAfterTurn(endpoint, sessionId)
+              .catch(() => false)
+              .finally(() => {
+                if (postTurnHistoryRefreshRef.current === refreshPromise) {
+                  postTurnHistoryRefreshRef.current = null
+                }
+              })
+            postTurnHistoryRefreshRef.current = refreshPromise
           }
           void flushQueuedInternalPrompt()
         }, finishOptions)
@@ -1101,6 +1189,11 @@ export default function HiringPage() {
         const rawName = String(rawMsg.tool_name ?? rawMsg.name ?? '')
         const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
         const textStr = String(rawMsg.text ?? '')
+        const fallbackArgs = rawMsg.arguments != null
+          ? (typeof rawMsg.arguments === 'string' ? rawMsg.arguments : JSON.stringify(rawMsg.arguments))
+          : undefined
+        let completedStep: ToolStep | null = null
+        let toolResultIsError = Boolean(rawMsg.is_error ?? rawMsg.isError)
         // 将返回填回本轮步骤：同名优先匹配最后一个 running；缺失工具名时回退到最后一个 running
         {
           const list = pendingToolStepsRef.current
@@ -1116,15 +1209,25 @@ export default function HiringPage() {
             }
           }
           if (targetIdx >= 0) {
-            const isError = Boolean(rawMsg.is_error ?? rawMsg.isError)
             const next = list.slice()
             next[targetIdx] = {
               ...next[targetIdx],
-              status: isError ? 'error' : 'done',
+              status: toolResultIsError ? 'error' : 'done',
               result: textStr || next[targetIdx].result,
             }
+            completedStep = next[targetIdx]
             pendingToolStepsRef.current = next
             setStreamingToolSteps([...next])
+          }
+        }
+        if (!toolResultIsError) {
+          const artifact = extractArtifactFromToolCall({
+            toolName: toolName || completedStep?.name || '',
+            arguments: completedStep?.args ?? fallbackArgs,
+            result: textStr,
+          })
+          if (artifact) {
+            ws.onMessage?.({ type: 'artifact', artifact })
           }
         }
       } else if (type === 'artifact') {
@@ -1179,6 +1282,11 @@ export default function HiringPage() {
             console.warn('[HiringPage] ignored gated artifact:', artifactType, blockedArtifactReason)
             return
           }
+          const artifactSignature = buildArtifactEventSignature(artifactData)
+          if (processedArtifactSignaturesRef.current.has(artifactSignature)) {
+            return
+          }
+          processedArtifactSignaturesRef.current.add(artifactSignature)
           if (artifactType === 'material_collection_progress') {
             const categories = normalizeMaterialRequestedCategories(artifactData.data)
             if (categories.length > 0) {
@@ -2326,9 +2434,11 @@ export default function HiringPage() {
         ontologyExtractionDoneSignatureRef.current = ''
         ontologyProjectionDoneSignatureRef.current = ''
         packagingTestCasesDoneSignatureRef.current = ''
+        processedArtifactSignaturesRef.current.clear()
         pendingInternalPromptsRef.current = []
         lastWsTurnInternalRef.current = false
         internalPromptFlushInFlightRef.current = false
+        postTurnHistoryRefreshRef.current = null
         turnSyncBarrierRef.current = Promise.resolve()
 
         // 清除后端运行时状态，确保重置后刷新页面不会恢复旧记录
