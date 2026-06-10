@@ -1161,8 +1161,7 @@ internal sealed partial class EvaluationService(
             ctx,
             sessionEntity,
             targetGatewayEndpoint,
-            evaluatorMaterialsResult.Data,
-            token);
+            evaluatorMaterialsResult.Data);
         var runtimeContextBytes = System.Text.Encoding.UTF8.GetBytes(runtimeContextJson);
         var runtimeContextUploadResult = await sandboxService.UploadWorkspaceFileAsync(
             new SandboxWorkspaceUploadRequestDto

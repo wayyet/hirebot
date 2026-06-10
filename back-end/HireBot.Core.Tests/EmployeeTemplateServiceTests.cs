@@ -137,7 +137,6 @@ public sealed class EmployeeTemplateServiceTests
         var provider = new FileSystemTemplatePackageProvider();
         var packageRoot = Path.Combine(
             FindBackendRoot(),
-            "src",
             "HireBot.ApiService",
             "Assets",
             "DigitalEmployeeTemplates",
@@ -191,15 +190,21 @@ public sealed class EmployeeTemplateServiceTests
             ctx,
             session,
             "target.example/ws",
-            "/workspace/uploads/evaluation-expert-consumer",
-            "target-token-123")!;
+            "/workspace/uploads/evaluation-expert-consumer")!;
 
         using var contextDoc = JsonDocument.Parse(runtimeContextJson);
         var contextRoot = contextDoc.RootElement;
         Assert.Equal("ws_jwt", contextRoot.GetProperty("runtime_driver").GetProperty("driver_id").GetString());
-        Assert.Equal("target-token-123", contextRoot.GetProperty("runtime_driver").GetProperty("driver_config").GetProperty("token").GetString());
+        // token 字段已移除：driver 通过 hirebot_api.auth (client_credentials) 自主换取，不再注入静态 token
+        Assert.False(contextRoot.GetProperty("runtime_driver").GetProperty("driver_config").TryGetProperty("token", out _));
         Assert.Equal("wss://target.example/ws", contextRoot.GetProperty("runtime_driver").GetProperty("driver_config").GetProperty("endpoint").GetString());
         Assert.Equal("customer_realistic", contextRoot.GetProperty("runtime_simulator").GetProperty("simulator_id").GetString());
+        // 测试配置无 KingCrab 凭据，hirebot_api.auth 应缺失
+        Assert.False(contextRoot.GetProperty("hirebot_api").TryGetProperty("auth", out _));
+        // employee_provenance 枚举值必须符合 evaluation_context.schema.json (K17)
+        var provenance = contextRoot.GetProperty("employee").GetProperty("employee_provenance");
+        Assert.Equal("inferred_fallback", provenance.GetProperty("source").GetString());
+        Assert.Equal("low", provenance.GetProperty("reliability").GetString());
         Assert.Equal(7, contextRoot.GetProperty("global_turn_cap").GetInt32());
         Assert.Equal(
             "/workspace/uploads/evaluation-expert-consumer/test-cases",
@@ -719,7 +724,7 @@ public sealed class EmployeeTemplateServiceTests
         var current = new DirectoryInfo(AppContext.BaseDirectory);
         while (current is not null)
         {
-            var candidate = Path.Combine(current.FullName, "src", "HireBot.ApiService", "Assets", "DigitalEmployeeTemplates");
+            var candidate = Path.Combine(current.FullName, "HireBot.ApiService", "Assets", "DigitalEmployeeTemplates");
             if (Directory.Exists(candidate))
             {
                 return current.FullName;
@@ -805,6 +810,7 @@ public sealed class EmployeeTemplateServiceTests
             Id = Guid.NewGuid(),
             SessionId = sessionId,
             OwnerSubject = "owner-1",
+            TenantId = "owner-1",
             EmployeeId = "emp-consumer-1",
             TargetHireId = "target-hire-1",
             TargetSandboxId = "target-sandbox-1",

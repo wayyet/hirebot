@@ -695,16 +695,20 @@ internal sealed partial class EvaluationService
 
     private static EvaluationRuntimeContextEmployeeProvenance ResolveEmployeeProvenance(EmployeeDetailDto employee)
     {
+        // schema 枚举: source ∈ {authoritative_file, user_dialog, inferred_fallback}
+        //              reliability ∈ {high, low}
         if (!string.IsNullOrWhiteSpace(employee.FromInstanceId))
         {
-            return new(Source: "instance_cloned", Reliability: "high",
+            // 从已有实例克隆：实例本身即权威来源
+            return new(Source: "authoritative_file", Reliability: "high",
                 Caveat: $"Cloned from instance {employee.FromInstanceId}.");
         }
 
         if (!string.IsNullOrWhiteSpace(employee.SourceTemplateId))
         {
-            return new(Source: "template_resolved", Reliability: "medium",
-                Caveat: $"Resolved from template {employee.SourceTemplateId}, no authoritative employee profile on file.");
+            // 从模板推导：无权威员工档案，属于推断回退
+            return new(Source: "inferred_fallback", Reliability: "low",
+                Caveat: $"Resolved from template {employee.SourceTemplateId}; no authoritative employee profile on file. role_id_no_catalog_entry may apply.");
         }
 
         return new(Source: "inferred_fallback", Reliability: "low",
@@ -901,7 +905,7 @@ internal sealed partial class EvaluationService
         [property: JsonPropertyName("base_url")] string BaseUrl,
         [property: JsonPropertyName("employee_id")] string EmployeeId,
         [property: JsonPropertyName("session_id")] string SessionId,
-        [property: JsonPropertyName("auth")] EvaluationRuntimeContextAuth? Auth);
+        [property: JsonPropertyName("auth")][property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EvaluationRuntimeContextAuth? Auth);
 
     /// <summary>
     /// 沙箱自主换 token 所需的 OAuth2 凭据，供 auth_client.py 的 client_credentials 模式使用。
@@ -989,14 +993,14 @@ internal sealed partial class EvaluationService
     /// <summary>
     /// 构建写入 /workspace/runtime/evaluation-context.json 的 JSON 内容。
     /// evaluator skill 通过此文件获取会话、材料路径、目标沙箱连接信息以及 HireBot API 配置。
+    /// Token 由 evaluator 沙箱内通过 hirebot_api.auth（client_credentials）自主换取，不再注入静态 token。
     /// </summary>
     private string BuildRuntimeContextJson(
         EmployeeDetailDto employee,
         EvaluationWorkspaceContext ctx,
         EvaluationSessionEntity sessionEntity,
         string targetGatewayEndpoint,
-        string materialsWorkspaceDir,
-        string targetAccessToken)
+        string materialsWorkspaceDir)
     {
         // useTls：只要 Evaluation:GatewayUseTls=true 或 OpenSandbox:Protocol=Https 任一成立，就使用 TLS。
         // 这样生产环境只设置 OpenSandbox:Protocol=Https 也能让 evaluator 得到正确的 wss:// 端点。
