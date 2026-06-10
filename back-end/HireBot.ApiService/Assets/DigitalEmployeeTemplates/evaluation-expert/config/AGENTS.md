@@ -8,11 +8,18 @@
 
 | 禁用模式 | 示例 |
 |---|---|
-| 名称以 `process` 开头 | `process_message`, `process_event`, `process_task`, `process_request`, `process_order`, `process_refund`, `process_application` |
-| 名称包含 `session` | `create_session`, `end_session`, `get_session`, `update_session`, `session_start`, `session_close` |
+| 名称匹配 `process_*`（含下划线的业务流程类） | `process_message`, `process_event`, `process_task`, `process_request`, `process_order`, `process_refund`, `process_application` |
+| 名称匹配 `*_session` 或 `*_session_*`（会话管理类） | `create_session`, `end_session`, `get_session`, `update_session`, `session_start`, `session_close` |
 
-**如果你即将调用上述工具，立即停止，不得调用。请改为执行：**
-1. 输出一行：`[TOOL BAN] Refused to call <tool_name>: matches banned pattern <process_* | *session*>`
+**⚠️ 明确豁免（以下工具可以正常使用）：**
+
+| 工具名 | 说明 | 用途 |
+|---|---|---|
+| `process` | 系统级本地进程管理器，管理本地子进程，不与被评估系统通信 | STEP 3 启动/读取/写入/终止 driver 子进程 |
+| `sessions` | Agent 间消息桥接，非会话生命周期管理 | 跨 Agent 通信（如需要） |
+
+**如果你即将调用真正禁止的工具，立即停止，不得调用。请改为执行：**
+1. 输出一行：`[TOOL BAN] Refused to call <tool_name>: matches banned pattern <process_* | *_session*>`
 2. 不调用该工具，继续执行工作流。
 
 这些工具会向被评估系统写入真实业务数据，污染测试结果。ws_jwt driver 负责与目标沙箱的所有通信——你永远不应直接调用业务或会话工具。
@@ -22,10 +29,22 @@
 ## 主要职责
 
 - 在评估沙箱中运行 `evaluation-expert-consumer` 工作流。
-- 在执行任何评估操作前，读取 `/workspace/runtime/evaluation-context.json`。
+- 在执行任何评估操作前，读取 `/workspace/runtime/evaluation-context.json`（**唯一权威来源，见下方说明**）。
 - 从 `paths.test_cases_dir` 加载测试用例，从 `materials.ontology_dir` 加载本体材料。
 - 使用 `runtime_driver.driver_config.endpoint` 和 `runtime_driver.driver_config.token` 连接目标沙箱。
 - 为 HireBot 生成结构化的运行产物、执行轨迹和评估报告。
+
+## ⛔ evaluation-context.json 权威来源（硬性规则，优先级仅次于工具禁令）
+
+**`/workspace/runtime/evaluation-context.json` 是唯一合法的运行时上下文文件。**
+
+| 路径 | 状态 | 原因 |
+|---|---|---|
+| `/workspace/runtime/evaluation-context.json` | ✅ 唯一合法来源 | C# 宿主在沙箱创建时写入，含完整凭据（`client_secret` 等） |
+| `runs/<eval_id>/evaluation_context.json` | ❌ 禁止使用 | Agent 写入的副本，`client_secret` 已被替换为 `"REDACTED"`，driver 无法完成 token 换取 |
+| `uploads/…/evaluation_context.json` | ❌ 禁止使用 | 同上，任何 run_dir 下的副本均不可信 |
+
+任何步骤（STEP 2.5、STEP 3 spawn、STEP 10 上传等）在需要传递 evaluation-context 路径时，**必须硬编码为 `/workspace/runtime/evaluation-context.json`**，不得从 `paths.run_dir` 或任何其他字段拼接。
 
 ## 执行规则
 
@@ -33,6 +52,68 @@
 - 评估沙箱驱动目标沙箱；不在本地模拟目标员工。
 - 每一项评分或结论都必须可追溯到测试用例、运行时证据、指标定义及本体或角色上下文。
 - 运行时凭据属于敏感信息，绝不在可见输出或产物中暴露 Token 或密钥。
+- **evaluation-context.json 只从 `/workspace/runtime/` 读取**，任何情况下不得使用 run_dir 副本。
+
+## ⚠️ STEP 3 执行方案（shell + read_file 工具，优先于 playbook 中的 run_plan.json 方案）
+
+> 沙箱提供 `shell`（同步 shell 命令）、`read_file`（读文件）、`write_file`（写文件）工具。  
+> **优先使用以下三步模式**，不需要预先生成 run_plan.json 也不需要 cursor 文件。
+
+### run.py 唯一合法参数（仅三个，缺一或多一均会导致 argparse exit 2）
+
+| 参数 | 值 |
+|---|---|
+| `--evaluation-context` | **硬编码为** `/workspace/runtime/evaluation-context.json`；这是 C# 宿主写入的原始文件，含完整 `client_secret`；run_dir 副本（`runs/…/evaluation_context.json`）的 `client_secret` 已被 REDACTED，传给 driver 会导致 401 |
+| `--enriched-test-case` | `runs/<eval_id>/enriched-cases/<tc_id>.enriched.json`（`.enriched.json` 后缀，非原始 `.tc.json`） |
+| `--output` | `runs/<eval_id>/traces/<tc_id>.trace.json`（workspace 内，非 `/tmp`） |
+
+禁止参数：`--testcase`、`--out`、`--err`、`--token`、`--endpoint`、`--pad-in`、`--pad-out`（均不存在于 run.py）。
+
+### 每场景执行模式（每步一次工具调用，顺序执行）
+
+**步骤 1 — 准备 pad（`shell`）**
+```bash
+PAD=/tmp/eval-driver/<eval_id>/<tc_id>
+mkdir -p "$PAD" && touch "$PAD/in" "$PAD/out" && echo "pad ready"
+```
+
+**步骤 2 — 启动 driver（`shell`，后台，stdout 重定向到 pad/out）**
+```bash
+PAD=/tmp/eval-driver/<eval_id>/<tc_id>
+nohup sh -c 'tail -f "$1" 2>/dev/null | python3 -u /workspace/skills/evaluation-expert-consumer/runtime-drivers/ws_jwt/run.py \
+  --evaluation-context /workspace/runtime/evaluation-context.json \
+  --enriched-test-case /workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/enriched-cases/<tc_id>.enriched.json \
+  --output /workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/traces/<tc_id>.trace.json' \
+  _ "$PAD/in" >> "$PAD/out" 2>> "$PAD/err" &
+echo $! > "$PAD/pid"; sleep 0.5; echo "driver pid=$(cat $PAD/pid)"
+```
+> ⚠️ 绝不使用 `> /dev/null`——会丢弃所有 driver 事件。
+
+**步骤 3 — 读取 driver 事件（`read_file` + Agent 内存行号跟踪）**
+
+- 调用 `read_file` 读取 `$PAD/out`，Agent 在内存中记录已读行数 `N`（初始为 0）
+- 如果文件总行数 > N，取第 N+1 行解析为 JSON 事件，N++
+- 如果行数未增加，执行 `shell: sleep 0.5` 后重试
+- 无需 cursor 文件，无需 sed 轮询脚本
+
+**步骤 4 — 写入动作到 driver（`shell`）**
+```bash
+printf '%s\n' '<SINGLE_LINE_ACTION_JSON>' >> /tmp/eval-driver/<eval_id>/<tc_id>/in
+```
+- `<SINGLE_LINE_ACTION_JSON>` 直接替换为完整的 `send` 或 `end` 动作 JSON 字符串
+- 如果文本含有单引号 `'`，转义为 `'\''`
+
+**步骤 5 — 清理（`shell`）**
+```bash
+PAD=/tmp/eval-driver/<eval_id>/<tc_id>
+PID=$(cat "$PAD/pid" 2>/dev/null); [ -n "$PID" ] && kill "$PID" 2>/dev/null; rm -rf "$PAD"; echo "cleaned"
+```
+
+### 无需 run_plan.json
+
+使用上述 `shell` + `read_file` 工具方式时，**STEP 2.5（planRun）可跳过**，不需要预生成 run_plan.json。若 run_plan.json 已存在，忽略其 `read_one_event` 和 `write_action_template` 字段——改用 `read_file` + 直接 `shell` 替代。
+
+---
 
 ## 自愈启动规则（必须遵守，无需等待用户确认）
 
@@ -95,25 +176,27 @@ driver 将 JSON 事件写入其 stdout。spawn 命令通过 `>> $PAD/out` 将 dr
 
 以下工具类别在评估运行的任何时刻均不得调用。调用其中任何一种均属协议违规，必须视为阻断性错误——立即中止当前步骤并上报违规情况。
 
-### process 工具（流程触发类）
+### process 工具（业务流程触发类）
 
-名称以 `process` 开头，或其功能为触发 / 推进 / 恢复 / 提交业务工作流步骤的任何工具。示例（非穷举）：
+名称匹配 `process_*`（含下划线前缀），其功能为触发 / 推进 / 恢复 / 提交业务工作流步骤的工具。示例（非穷举）：
 
 - `process_message`, `process_event`, `process_task`, `process_request`
 - `process_order`, `process_refund`, `process_application`
 - 任何描述中含有「处理消息」、「触发流程」、「提交工单」、「推进任务」的工具
 
-这些工具会修改目标系统中的实时业务状态。评估沙箱的职责是观察目标员工的行为——绝不能对业务领域产生副作用。
+**豁免：** 名称为 `process`（无下划线，精确匹配）的工具是系统级本地进程管理器，管理的是评估沙箱内的本地子进程。它**不**与被评估系统通信，允许在 STEP 3 中用于启动/读取/写入/终止 ws_jwt driver 子进程。
 
 ### session 工具（会话管理类）
 
-名称包含 `session`，或其功能为创建、结束、查询或更新聊天 / 用户会话的任何工具。示例（非穷举）：
+名称匹配 `*_session`、`session_*`、`*_session_*`（会话生命周期管理），或其功能为创建、结束、查询或更新聊天 / 用户会话的工具。示例（非穷举）：
 
 - `create_session`, `end_session`, `get_session`, `update_session`
 - `session_start`, `session_close`, `session_info`, `session_context`
 - 任何描述中含有「创建会话」、「结束会话」、「获取会话」的工具
 
 评估沙箱通过 WebSocket driver（ws_jwt）连接目标沙箱，不直接管理会话——会话生命周期由目标沙箱和 Gateway 负责，而非评估方。
+
+**豁免：** 名称为 `sessions`（精确匹配，Agent 间消息桥接工具）不属于会话生命周期管理，允许使用。
 
 ### 禁用规则摘要
 
