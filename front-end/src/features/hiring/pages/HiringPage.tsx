@@ -81,6 +81,7 @@ import {
   buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
   deriveStageOverridesFromDownstreamRuns,
+  extractArtifactFromToolCall,
   shouldHoldExternalStageUntilSkillImplementation,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
@@ -105,7 +106,6 @@ import {
 } from './stageAdvanceConfirmation'
 import { type HiringUiStage } from './hiringWorkflowViewModel'
 import {
-  buildFallbackMaterialRequestedCategories,
   extractLatestMaterialRequestedCategories,
   normalizeMaterialRequestedCategories,
 } from './materialRequestedCategories'
@@ -139,6 +139,20 @@ function normalizePackageFileName(rawName: string, templateName?: string, hireId
   // 确保以 .zip 结尾
   if (!/\.zip$/i.test(cleaned)) return `${cleaned}.zip`
   return cleaned
+}
+
+function buildArtifactEventSignature(artifact: ArtifactDisplayData): string {
+  return JSON.stringify({
+    kind: artifact.kind,
+    artifactType: artifact.artifactType,
+    label: artifact.label,
+    skillName: artifact.skillName,
+    stage: artifact.stage,
+    isTerminal: artifact.isTerminal,
+    fileUrl: artifact.fileUrl,
+    fileName: artifact.fileName,
+    data: artifact.data,
+  })
 }
 
 export default function HiringPage() {
@@ -278,6 +292,7 @@ export default function HiringPage() {
   const packagingTestCasesReadySignatureRef = useRef('')
   const packagingTestCasesDoneSignatureRef = useRef('')
   const packagingTestCasesLaunchSignatureRef = useRef('')
+  const processedArtifactSignaturesRef = useRef<Set<string>>(new Set())
   const pendingInternalPromptsRef = useRef<string[]>([])
 
   const fileRef = useRef<HTMLInputElement>(null)
@@ -432,15 +447,9 @@ export default function HiringPage() {
     restoredMessages: ChatMessage[],
     requestedCategories = extractLatestMaterialRequestedCategories(restoredMessages),
   ) {
-    const effectiveRequestedCategories = requestedCategories.length > 0
-      ? requestedCategories
-      : buildFallbackMaterialRequestedCategories(
-        template?.name ?? '',
-        template?.successCases?.length ? template.successCases : template?.coreAbilities ?? [],
-      )
     setMessages(restoredMessages)
     messagesRef.current = restoredMessages
-    setMaterialRequestedCategories(effectiveRequestedCategories)
+    setMaterialRequestedCategories(requestedCategories)
 
     latestMaterialSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'material_handoff_summary')
     latestSkillSummaryRef.current = extractLatestMessageArtifactData(restoredMessages, 'skill_workorder_summary')
@@ -944,10 +953,6 @@ export default function HiringPage() {
       packageFile,
       dir,
     )
-    setMaterialRequestedCategories(buildFallbackMaterialRequestedCategories(
-      storeDetail.name || template?.name || '数字员工模板',
-      Array.isArray(storeDetail.useCases) ? storeDetail.useCases : [],
-    ))
     const prompt = buildTemplateBootstrapPrompt(
       storeDetail.name || template?.name || '数字员工模板',
       Array.isArray(storeDetail.useCases) ? storeDetail.useCases : [],
@@ -1101,6 +1106,11 @@ export default function HiringPage() {
         const rawName = String(rawMsg.tool_name ?? rawMsg.name ?? '')
         const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
         const textStr = String(rawMsg.text ?? '')
+        const fallbackArgs = rawMsg.arguments != null
+          ? (typeof rawMsg.arguments === 'string' ? rawMsg.arguments : JSON.stringify(rawMsg.arguments))
+          : undefined
+        let completedStep: ToolStep | null = null
+        let toolResultIsError = Boolean(rawMsg.is_error ?? rawMsg.isError)
         // 将返回填回本轮步骤：同名优先匹配最后一个 running；缺失工具名时回退到最后一个 running
         {
           const list = pendingToolStepsRef.current
@@ -1116,15 +1126,25 @@ export default function HiringPage() {
             }
           }
           if (targetIdx >= 0) {
-            const isError = Boolean(rawMsg.is_error ?? rawMsg.isError)
             const next = list.slice()
             next[targetIdx] = {
               ...next[targetIdx],
-              status: isError ? 'error' : 'done',
+              status: toolResultIsError ? 'error' : 'done',
               result: textStr || next[targetIdx].result,
             }
+            completedStep = next[targetIdx]
             pendingToolStepsRef.current = next
             setStreamingToolSteps([...next])
+          }
+        }
+        if (!toolResultIsError) {
+          const artifact = extractArtifactFromToolCall({
+            toolName: toolName || completedStep?.name || '',
+            arguments: completedStep?.args ?? fallbackArgs,
+            result: textStr,
+          })
+          if (artifact) {
+            ws.onMessage?.({ type: 'artifact', artifact })
           }
         }
       } else if (type === 'artifact') {
@@ -1179,6 +1199,11 @@ export default function HiringPage() {
             console.warn('[HiringPage] ignored gated artifact:', artifactType, blockedArtifactReason)
             return
           }
+          const artifactSignature = buildArtifactEventSignature(artifactData)
+          if (processedArtifactSignaturesRef.current.has(artifactSignature)) {
+            return
+          }
+          processedArtifactSignaturesRef.current.add(artifactSignature)
           if (artifactType === 'material_collection_progress') {
             const categories = normalizeMaterialRequestedCategories(artifactData.data)
             if (categories.length > 0) {
@@ -2326,6 +2351,7 @@ export default function HiringPage() {
         ontologyExtractionDoneSignatureRef.current = ''
         ontologyProjectionDoneSignatureRef.current = ''
         packagingTestCasesDoneSignatureRef.current = ''
+        processedArtifactSignaturesRef.current.clear()
         pendingInternalPromptsRef.current = []
         lastWsTurnInternalRef.current = false
         internalPromptFlushInFlightRef.current = false
