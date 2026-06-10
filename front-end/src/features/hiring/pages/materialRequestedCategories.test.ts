@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildFallbackMaterialRequestedCategories, normalizeMaterialRequestedCategories } from './materialRequestedCategories'
+import { normalizeMaterialRequestedCategories } from './materialRequestedCategories'
 
 describe('normalizeMaterialRequestedCategories', () => {
   it('兼容字符串数组格式的资料分类', () => {
@@ -38,17 +38,4 @@ describe('normalizeMaterialRequestedCategories', () => {
     ])
   })
 
-  it('可基于模板信息生成兜底资料分类', () => {
-    const categories = buildFallbackMaterialRequestedCategories('化妆品排产员', [
-      '直播间脉冲式插单的可行性评估与最优排产方案生成',
-    ])
-
-    expect(categories).toHaveLength(3)
-    expect(categories[0]).toMatchObject({
-      title: '化妆品排产员历史案例与样例输入',
-      examples: ['直播间脉冲式插单的可行性评估与最优排产方案生成'],
-    })
-    expect(categories[1].title).toBe('化妆品排产员流程规则与边界条件')
-    expect(categories[2].title).toBe('化妆品排产员外部数据与系统接口')
-  })
 })

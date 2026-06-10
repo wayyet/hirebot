@@ -69,32 +69,3 @@ export function extractLatestMaterialRequestedCategories(messages: ChatMessage[]
 
   return []
 }
-
-export function buildFallbackMaterialRequestedCategories(
-  templateName: string,
-  useCases: string[] = [],
-): MaterialRequestedCategory[] {
-  const normalizedName = normalizeString(templateName, 40) || '目标员工'
-  const exampleUseCases = useCases
-    .map(item => normalizeString(item, 80))
-    .filter(Boolean)
-    .slice(0, 2)
-
-  return [
-    {
-      title: `${normalizedName}历史案例与样例输入`,
-      description: '已发生过的真实业务案例、典型输入、期望输出和异常处理记录，用于提炼工作方式与判断标准',
-      examples: exampleUseCases.length > 0 ? exampleUseCases : ['历史工单/对话记录', '样例输入输出', '异常复盘材料'],
-    },
-    {
-      title: `${normalizedName}流程规则与边界条件`,
-      description: '该岗位需要遵守的业务流程、审批规则、质量标准、不可违反的红线和人工介入条件',
-      examples: ['SOP/操作手册', '业务规则清单', '审批与升级规则'],
-    },
-    {
-      title: `${normalizedName}外部数据与系统接口`,
-      description: '执行任务时需要读取或写入的系统、字段口径、接口文档、权限范围和数据样例',
-      examples: ['系统字段说明', 'API/导出表样例', '权限与账号范围'],
-    },
-  ]
-}

@@ -20,6 +20,30 @@ function mkHistoricalId(prefix: string, index: number) {
 const HISTORICAL_FILE_ATTACHMENT_PATTERN =
   /\[FILE_URL:[^\]]+\]\s*\r?\nAttached file:\s*(.+?)\s*\(([^)\r\n]+)\)\s*/gi
 
+const ARTIFACT_META_KEYS = new Set([
+  'kind',
+  'artifactType',
+  'artifact_type',
+  'label',
+  'skillName',
+  'skill_name',
+  'stage',
+  'isTerminal',
+  'is_terminal',
+  'terminal',
+  'displayHint',
+  'display_hint',
+  'fileUrl',
+  'file_url',
+  'fileName',
+  'file_name',
+  'display_name',
+  'mimeType',
+  'mime_type',
+  'fileSizeBytes',
+  'file_size_bytes',
+])
+
 function asPlainObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -56,6 +80,22 @@ function parseHistoricalFileSize(label: string): number {
   return Math.round(value)
 }
 
+function hasHistoricalFileAttachment(content: string): boolean {
+  return /\[FILE_URL:[^\]]+\]\s*\r?\nAttached file:\s*(.+?)\s*\(([^)\r\n]+)\)\s*/i.test(content)
+}
+
+function isTemplateBootstrapPrompt(content: string): boolean {
+  if (!content.includes('[FILE_URL:')) {
+    return false
+  }
+
+  const hasBootstrapInstruction =
+    content.includes('请在雇佣教练入口规则下读取上述目标模板目录中的 manifest.json') ||
+    content.includes('请读取上述工作区目录中的 manifest.json')
+
+  return content.includes('模板包已解压到工作区目录') && hasBootstrapInstruction
+}
+
 function shouldHideHistoricalUserMessage(content: string): boolean {
   const trimmed = content.trim()
   if (!trimmed) {
@@ -66,11 +106,29 @@ function shouldHideHistoricalUserMessage(content: string): boolean {
     return true
   }
 
+  if (isTemplateBootstrapPrompt(trimmed)) {
+    return true
+  }
+
   if (!trimmed.startsWith('[FILE_URL:')) {
     return false
   }
 
-  return !/\[FILE_URL:[^\]]+\]\s*\r?\nAttached file:\s*(.+?)\s*\(([^)\r\n]+)\)\s*/i.test(trimmed)
+  return !hasHistoricalFileAttachment(trimmed)
+}
+
+function shouldSuppressAssistantAfterHistoricalUserMessage(content: string): boolean {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    return true
+  }
+
+  // 这些内部信号的回复只用于驱动流程，不应恢复成用户可见气泡。
+  if (trimmed.startsWith('[Internal ') || trimmed.startsWith('[System ')) {
+    return true
+  }
+
+  return false
 }
 
 function normalizeHistoricalUserMessage(content: string): { content: string; files?: ChatFile[] } | null {
@@ -210,21 +268,25 @@ export function buildUiStageOverrides(
 }
 
 function toArtifactDisplayData(raw: Record<string, unknown>): ArtifactDisplayData {
-  const kind = (String(raw.kind ?? 'data')) as 'file' | 'data'
-  const artifactType = String(raw.artifactType ?? raw.artifact_type ?? 'generic')
-  const label = raw.label != null ? String(raw.label) : undefined
-  const skillName = (raw.skillName ?? raw.skill_name) != null ? String(raw.skillName ?? raw.skill_name) : undefined
-  const stage = raw.stage != null ? String(raw.stage) : undefined
+  const parameters = asPlainObject(raw.parameters)
+  const artifactPayload = parameters && (parameters.artifactType || parameters.artifact_type)
+    ? parameters
+    : raw
+  const artifactKind = (String(artifactPayload.kind ?? 'data')) as 'file' | 'data'
+  const artifactType = String(artifactPayload.artifactType ?? artifactPayload.artifact_type ?? 'generic')
+  const label = artifactPayload.label != null ? String(artifactPayload.label) : undefined
+  const skillName = (artifactPayload.skillName ?? artifactPayload.skill_name) != null ? String(artifactPayload.skillName ?? artifactPayload.skill_name) : undefined
+  const stage = artifactPayload.stage != null ? String(artifactPayload.stage) : undefined
   // 兼容三种字段名：isTerminal（WS 实时）、is_terminal（snake_case）、terminal（历史 tool call arguments）
-  const isTerminal = Boolean(raw.isTerminal ?? raw.is_terminal ?? raw.terminal)
-  const displayHint = raw.displayHint != null
-    ? String(raw.displayHint)
-    : raw.display_hint != null
-      ? String(raw.display_hint)
+  const isTerminal = Boolean(artifactPayload.isTerminal ?? artifactPayload.is_terminal ?? artifactPayload.terminal)
+  const displayHint = artifactPayload.displayHint != null
+    ? String(artifactPayload.displayHint)
+    : artifactPayload.display_hint != null
+      ? String(artifactPayload.display_hint)
       : undefined
 
   const artifactData: ArtifactDisplayData = {
-    kind,
+    kind: artifactKind,
     artifactType,
     label,
     skillName,
@@ -233,25 +295,40 @@ function toArtifactDisplayData(raw: Record<string, unknown>): ArtifactDisplayDat
     displayHint,
   }
 
-  if (kind === 'file') {
-    artifactData.fileUrl = String(raw.fileUrl ?? raw.file_url ?? '')
+  if (artifactKind === 'file') {
+    artifactData.fileUrl = String(artifactPayload.fileUrl ?? artifactPayload.file_url ?? '')
     // 兼容历史 tool call 中的 display_name 字段（WS 实时用 fileName/file_name）
-    artifactData.fileName = String(raw.fileName ?? raw.file_name ?? raw.display_name ?? label ?? 'file')
-    artifactData.mimeType = String(raw.mimeType ?? raw.mime_type ?? '')
+    artifactData.fileName = String(artifactPayload.fileName ?? artifactPayload.file_name ?? artifactPayload.display_name ?? label ?? 'file')
+    artifactData.mimeType = String(artifactPayload.mimeType ?? artifactPayload.mime_type ?? '')
   } else {
-    artifactData.data = typeof raw.data === 'string' ? JSON.parse(raw.data) : raw.data
+    if (artifactPayload.data != null) {
+      artifactData.data = typeof artifactPayload.data === 'string' ? JSON.parse(artifactPayload.data) : artifactPayload.data
+    } else {
+      const fallback: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(artifactPayload)) {
+        if (!ARTIFACT_META_KEYS.has(key)) fallback[key] = value
+      }
+      artifactData.data = Object.keys(fallback).length > 0 ? fallback : undefined
+    }
   }
 
   return artifactData
 }
 
-function extractArtifactFromToolCall(toolCall: SandboxToolCall): ArtifactDisplayData | null {
-  if (!toolCall.toolName || !toolCall.toolName.endsWith('emit_artifact')) {
+export function extractArtifactFromToolCall(toolCall: SandboxToolCall): ArtifactDisplayData | null {
+  const payload = tryParseJsonRecord(toolCall.arguments)
+  if (!payload) {
     return null
   }
 
-  const payload = tryParseJsonRecord(toolCall.arguments)
-  if (!payload) {
+  const parameters = asPlainObject(payload.parameters)
+  const looksLikeArtifactPayload = Boolean(
+    payload.artifactType
+    || payload.artifact_type
+    || parameters?.artifactType
+    || parameters?.artifact_type,
+  )
+  if (!toolCall.toolName?.endsWith('emit_artifact') && !looksLikeArtifactPayload) {
     return null
   }
 
@@ -303,8 +380,9 @@ export function buildHistoricalHiringConversationState(
 
   for (const message of sandboxMessages) {
     if (message.type === 'user_message') {
-      suppressNextAssistantVisibleMessage = shouldHideHistoricalUserMessage(String(message.text ?? ''))
-      const userMessage = normalizeHistoricalUserMessage(String(message.text ?? ''))
+      const historicalUserText = String(message.text ?? '')
+      suppressNextAssistantVisibleMessage = shouldSuppressAssistantAfterHistoricalUserMessage(historicalUserText)
+      const userMessage = normalizeHistoricalUserMessage(historicalUserText)
       if (userMessage) {
         messages.push({
           id: mkHistoricalId('user', messages.length),
