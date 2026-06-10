@@ -26,6 +26,7 @@ internal sealed record SandboxProvisioningSettings(
     string LlmEndpoint,
     string LlmApiKey,
     float LlmTemperature,
+    bool LlmEnableThinking,
     IReadOnlyList<string> NetworkEgressAllowHosts,
     IReadOnlyDictionary<string, int> DefaultTimeoutSecondsByRole)
 {
@@ -130,6 +131,7 @@ internal sealed record SandboxProvisioningSettings(
             configuration["OpenSandbox:KingCrab:LlmEndpoint"] ?? string.Empty,
             configuration["OpenSandbox:KingCrab:LlmApiKey"] ?? string.Empty,
             configuration.GetValue("OpenSandbox:KingCrab:LlmTemperature", 0.7f),
+            configuration.GetValue("OpenSandbox:KingCrab:LlmEnableThinking", false),
             egressHosts,
             timeoutByRole);
     }
@@ -207,7 +209,8 @@ internal sealed record SandboxProvisioningSettings(
             ["OpenClaw__Llm__Model"] = LlmModel,
             ["OpenClaw__Llm__ApiKey"] = LlmApiKey,
             ["OpenClaw__Llm__Endpoint"] = LlmEndpoint,
-            ["OpenClaw__Llm__Temperature"] = LlmTemperature.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
+            ["OpenClaw__Llm__Temperature"] = LlmTemperature.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
+            ["OpenClaw__Llm__EnableThinking"] = LlmEnableThinking.ToString().ToLowerInvariant()
         };
 
         for (var i = 0; i < AllowedOrigins.Count; i++)
