@@ -177,6 +177,7 @@ export function buildUiStageOverrides(
   rawStageOverrides: Map<HiringUiStage, 'running' | 'completed' | 'failed'>,
   skillGenerationState: DownstreamRunState | null,
   holdExternalStage: boolean,
+  externalConfigCommitted = false,
 ): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
   const next = new Map(rawStageOverrides)
 
@@ -195,6 +196,14 @@ export function buildUiStageOverrides(
     next.set(HiringCollectionStage.Skill, 'completed')
   } else if (skillGenerationState?.status === 'failed') {
     next.set(HiringCollectionStage.Skill, 'failed')
+  }
+
+  if (externalConfigCommitted) {
+    // external_config_committed 是外部配置保存/跳过的终态信号。
+    // 能走到这里说明前序资料与技能阶段已经完成，允许补齐丢失的 WS 阶段事件。
+    next.set(HiringCollectionStage.Material, 'completed')
+    next.set(HiringCollectionStage.Skill, 'completed')
+    next.set(HiringCollectionStage.External, 'completed')
   }
 
   return next
@@ -344,7 +353,11 @@ export function buildHistoricalHiringConversationState(
         continue
       }
 
-      if (artifact.artifactType === 'external_workorder_summary' || artifact.artifactType === 'external_config_committed') {
+      if (artifact.artifactType === 'external_config_committed' && artifact.isTerminal) {
+        wsStageOverrides.set(HiringCollectionStage.Material, 'completed')
+        wsStageOverrides.set(HiringCollectionStage.Skill, 'completed')
+        wsStageOverrides.set(HiringCollectionStage.External, 'completed')
+      } else if (artifact.artifactType === 'external_workorder_summary') {
         if (wsStageOverrides.get(HiringCollectionStage.External) !== 'completed') {
           wsStageOverrides.set(HiringCollectionStage.External, 'running')
         }

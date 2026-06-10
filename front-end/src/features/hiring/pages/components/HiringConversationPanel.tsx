@@ -3,11 +3,11 @@ import { useState, useCallback } from 'react'
 
 import { Check, ChevronDown, ChevronUp, Copy, Download, FileCode, FileText, Paperclip, Package, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import i18n from '@/i18n'
 
 import { InstanceChatMessageBody } from '@/features/team/components/InstanceChatMessageBody'
 import type { ChatFile, ChatMessage, ToolStep } from '../hiringPageTypes'
 import { ArtifactMessageCard } from './ArtifactMessageCard'
+import { buildChatRenderItems, chatToMarkdown } from './hiringConversationMarkdown'
 import { HiringToolStepsBlock } from './HiringToolStepsBlock'
 import { StageGateCard } from './StageGateCard'
 
@@ -32,181 +32,6 @@ function getFileIcon(filename: string): ReactNode {
   if (ext === 'zip') return <Package size={14} />
   if (ext === 'json') return <FileCode size={14} />
   return <FileText size={14} />
-}
-
-type ChatRenderItem =
-  | { kind: 'artifact'; key: string; artifactMessage: ChatMessage }
-  | { kind: 'stage_gate'; key: string; stageGateMessage: ChatMessage }
-  | { kind: 'message'; key: string; message: ChatMessage; leadingArtifacts?: ChatMessage[] }
-
-function buildChatRenderItems(messages: ChatMessage[]): ChatRenderItem[] {
-  const items: ChatRenderItem[] = []
-  let pendingArtifacts: ChatMessage[] = []
-
-  const flushPendingArtifacts = () => {
-    for (const artifactMessage of pendingArtifacts) {
-      items.push({
-        kind: 'artifact',
-        key: artifactMessage.id,
-        artifactMessage,
-      })
-    }
-    pendingArtifacts = []
-  }
-
-  for (const message of messages) {
-    if (message.role === 'artifact' && message.artifact) {
-      pendingArtifacts.push(message)
-      continue
-    }
-
-    if (message.role === 'bot') {
-      items.push({
-        kind: 'message',
-        key: message.id,
-        message,
-        leadingArtifacts: pendingArtifacts.length > 0 ? pendingArtifacts : undefined,
-      })
-      pendingArtifacts = []
-      continue
-    }
-
-    // user 消息出现时不 flush 暂存的 artifact，而是继续向前携带，
-    // 等到下一个 bot 消息时作为 leadingArtifacts 附在 bot 气泡上方。
-    // 这样可以避免内部轮次产出的 artifact 卡片出现在用户消息之前，
-    // 造成"卡片在用户输入前弹出"的错位感。
-
-    if (message.role === 'stage_gate' && message.stageGate) {
-      items.push({
-        kind: 'stage_gate',
-        key: message.id,
-        stageGateMessage: message,
-      })
-      continue
-    }
-
-    items.push({
-      kind: 'message',
-      key: message.id,
-      message,
-    })
-  }
-
-  flushPendingArtifacts()
-  return items
-}
-
-function appendArtifactMarkdown(lines: string[], artifactMessage: ChatMessage) {
-  if (!artifactMessage.artifact) {
-    return
-  }
-
-  const artifact = artifactMessage.artifact
-  lines.push(i18n.t('hiring.export.artifactHeader', { label: artifact.label ?? artifact.artifactType }))
-  lines.push(``)
-
-  if (artifact.kind === 'file') {
-    lines.push(i18n.t('hiring.export.fileName', { name: artifact.fileName ?? '未知' }))
-    if (artifact.sizeLabel) lines.push(i18n.t('hiring.export.fileSize', { size: artifact.sizeLabel }))
-  } else if (artifact.kind === 'data') {
-    lines.push(`\`\`\`json`)
-    lines.push(JSON.stringify(artifact.data, null, 2))
-    lines.push(`\`\`\``)
-  }
-
-  lines.push(``)
-  lines.push(`---`)
-  lines.push(``)
-}
-
-/** 将对话消息列表转换为 Markdown 字符串，便于粘贴给其他 LLM 分析 */
-function chatToMarkdown(messages: ChatMessage[], botName: string): string {
-  const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-  const lines: string[] = [
-    `# ${i18n.t('hiring.export.title')}`,
-    ``,
-    `**AI 角色**: ${botName}`,
-    `**导出时间**: ${now}`,
-    ``,
-    `---`,
-    ``,
-  ]
-
-  for (const item of buildChatRenderItems(messages)) {
-    if (item.kind === 'artifact') {
-      appendArtifactMarkdown(lines, item.artifactMessage)
-      continue
-    }
-
-    if (item.kind === 'stage_gate') {
-      const sg = item.stageGateMessage.stageGate
-      if (!sg) {
-        continue
-      }
-
-      lines.push(i18n.t('hiring.export.stageGate', { from: sg.completedStage, to: sg.nextStage }))
-      lines.push(``)
-      if (!sg.canProceed && sg.blockedReason) {
-        lines.push(i18n.t('hiring.export.blockedReason', { reason: sg.blockedReason }))
-      }
-      lines.push(``)
-      lines.push(`---`)
-      lines.push(``)
-      continue
-    }
-
-    for (const artifactMessage of item.leadingArtifacts ?? []) {
-      appendArtifactMarkdown(lines, artifactMessage)
-    }
-
-    const msg = item.message
-    if (msg.role === 'user') {
-      lines.push(i18n.t('hiring.export.userHeader'))
-      lines.push(``)
-      lines.push(msg.content)
-      if (msg.files && msg.files.length > 0) {
-        lines.push(``)
-        lines.push(i18n.t('hiring.export.attachments', { files: msg.files.map((f) => f.name).join(', ') }))
-      }
-      lines.push(``)
-      lines.push(`---`)
-      lines.push(``)
-    } else if (msg.role === 'bot') {
-      lines.push(i18n.t('hiring.export.botHeader', { name: botName }))
-      lines.push(``)
-      lines.push(msg.content)
-      lines.push(``)
-      lines.push(`---`)
-      lines.push(``)
-    } else if (msg.role === 'artifact' && msg.artifact) {
-      const a = msg.artifact
-      lines.push(i18n.t('hiring.export.artifactHeader', { label: a.label ?? a.artifactType }))
-      lines.push(``)
-      if (a.kind === 'file') {
-        lines.push(i18n.t('hiring.export.fileName', { name: a.fileName ?? '未知' }))
-        if (a.sizeLabel) lines.push(i18n.t('hiring.export.fileSize', { size: a.sizeLabel }))
-      } else if (a.kind === 'data') {
-        lines.push(`\`\`\`json`)
-        lines.push(JSON.stringify(a.data, null, 2))
-        lines.push(`\`\`\``)
-      }
-      lines.push(``)
-      lines.push(`---`)
-      lines.push(``)
-    } else if (msg.role === 'stage_gate' && msg.stageGate) {
-      const sg = msg.stageGate
-      lines.push(i18n.t('hiring.export.stageGate', { from: sg.completedStage, to: sg.nextStage }))
-      lines.push(``)
-      if (!sg.canProceed && sg.blockedReason) {
-        lines.push(i18n.t('hiring.export.blockedReason', { reason: sg.blockedReason }))
-      }
-      lines.push(``)
-      lines.push(`---`)
-      lines.push(``)
-    }
-  }
-
-  return lines.join('\n')
 }
 
 type HiringConversationPanelProps = {
@@ -284,12 +109,12 @@ export function HiringConversationPanel({
 
   const handleCopyAsMarkdown = useCallback(() => {
     if (messages.length === 0) return
-    const md = chatToMarkdown(messages, introName)
+    const md = chatToMarkdown(messages, introName, { streamingContent, streamingToolSteps })
     void navigator.clipboard.writeText(md).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
-  }, [messages, introName])
+  }, [messages, introName, streamingContent, streamingToolSteps])
 
   return (
     <div className="hb-hiring-chat">

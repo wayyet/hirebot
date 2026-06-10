@@ -17,6 +17,56 @@ function extractSkillWorkorderItems(summary: unknown): Record<string, unknown>[]
     .filter((item): item is Record<string, unknown> => item !== null)
 }
 
+function extractConfirmedSkillSlugs(summary: unknown): string[] {
+  return extractSkillWorkorderItems(summary)
+    .map((item) => {
+      if (typeof item.name === 'string' && item.name.trim()) return item.name.trim()
+      if (typeof item.skill_slug === 'string' && item.skill_slug.trim()) return item.skill_slug.trim()
+      if (typeof item.skillName === 'string' && item.skillName.trim()) return item.skillName.trim()
+      return ''
+    })
+    .filter(slug => slug.length > 0)
+}
+
+function extractProjectionSkillSlug(path: string): string {
+  const parts = path.split(/[\\/]+/).filter(Boolean)
+  const ontologyIndex = parts.findIndex(part => part === 'ontology')
+  if (ontologyIndex < 0 || parts[ontologyIndex + 1] !== 'projections') {
+    return ''
+  }
+
+  return parts[ontologyIndex + 2] ?? ''
+}
+
+function extractProjectionSkillSlugs(projectionResult: unknown): string[] {
+  const record = asPlainObject(projectionResult)
+  const paths = Array.isArray(record?.projection_paths)
+    ? record.projection_paths
+    : Array.isArray(record?.projectionPaths)
+      ? record.projectionPaths
+      : []
+
+  return Array.from(new Set(
+    paths
+      .map(path => typeof path === 'string' ? extractProjectionSkillSlug(path) : '')
+      .filter(slug => slug.length > 0),
+  ))
+}
+
+function projectionSlugsMatchConfirmedSkills(summary: unknown, projectionResult: unknown): boolean {
+  const confirmedSlugs = new Set(extractConfirmedSkillSlugs(summary))
+  if (confirmedSlugs.size === 0) {
+    return false
+  }
+
+  const projectionSlugs = extractProjectionSkillSlugs(projectionResult)
+  if (projectionSlugs.length === 0) {
+    return false
+  }
+
+  return projectionSlugs.every(slug => confirmedSlugs.has(slug))
+}
+
 export function buildProjectionPassPayload(summary: unknown): Record<string, unknown> | null {
   const record = asPlainObject(summary)
   if (!record) return null
@@ -101,12 +151,18 @@ export function buildSkillGenerationPayload(
   projectionResult: unknown,
 ): Record<string, unknown> | null {
   const record = asPlainObject(summary)
-  if (!record || !hasConsumableProducerProjection(projectionResult)) {
+  if (
+    !record ||
+    !hasConsumableProducerProjection(projectionResult) ||
+    !projectionSlugsMatchConfirmedSkills(summary, projectionResult)
+  ) {
     return null
   }
 
   return {
     ...record,
+    confirmed_skill_slugs: extractConfirmedSkillSlugs(summary),
+    projection_skill_slugs: extractProjectionSkillSlugs(projectionResult),
     projection_binding_confirmed: true,
     projection_contract_mode: 'required',
     projection_result: projectionResult,
@@ -140,6 +196,7 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
       'Run in Projection Pass mode for the current session.',
       'Use the payload below exactly as the trigger input for this run.',
       'Follow `ontology-extraction/SKILL.md` exactly.',
+      'Treat every `artifact_payload.skills[].skill_slug` as an immutable identifier: projection files must be written under exactly `ontology/projections/<skill_slug>/`; do not rename or synonym-normalize skill slugs.',
       'Emit `ontology_projection_progress` before generating any projection files.',
       'Scan slices from `<workspace_root>/ontology/`, then finish with `ontology_projection_done`.',
       '',
@@ -157,6 +214,7 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
       'This is an internal mode switch inside the current session, not a request to discover another tool, spawn another session, or call any dispatch / handoff API.',
       'The user has explicitly approved binding the producer ontology projections into the generated business skills.',
       'Use the enriched `skill_workorder_summary` payload below as the upstream workorder.',
+      'Treat `artifact_payload.confirmed_skill_slugs` as the only allowed generated skill directory set; do not create or keep alternate/stale skill directories.',
       'Projection consumer contracts are mandatory for this run. Do not silently downgrade to a base skill package without contracts.',
       'If the provided business-information packages cannot be materialized into `skills/<skill-slug>/contracts/projections/ontology_extraction/`, stop and report the reason instead of continuing without contracts.',
       'Read and follow `skill-generation/SKILL.md` directly in the current session.',

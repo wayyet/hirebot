@@ -1,6 +1,6 @@
 ﻿---
 name: skill-generation
-description: 根据结构化工单输入、用户会话描述或上传的 skill 文件，抽取统一 SkillSpec，生成可直接运行的业务技能包，并仅写入当前沙箱 skills/ 目录。
+description: Internal HireBot downstream skill for generating business skill packages from a confirmed skill_workorder_summary. Use only after employment-coach-conversation emits an internal downstream trigger with artifact_payload containing workspace_root, confirmed skill items, projection_binding_confirmed=true, and a valid projection_result. Do not use directly for user-facing requests to create, generate, upload, modify, or discuss skills; route those requests through employment-coach-conversation for skill definition, confirmation, projection binding, and stage gating.
 compatibility: HireBot employment-coach-conversation v1.0
 metadata:
   openclaw:
@@ -13,6 +13,20 @@ metadata:
 ---
 
 # Skill Generation
+
+## 入口门禁
+
+本 skill 只接受雇佣教练注入的内部 downstream trigger。
+
+继续执行前必须同时满足：
+
+- 当前消息包含 internal downstream trigger 语义；
+- `artifact_payload.workspace_root` 非空；
+- `artifact_payload.items` 或等价技能清单非空；
+- `artifact_payload.projection_binding_confirmed == true`；
+- `artifact_payload.projection_result` 存在，且用于生成 projection consumer contracts。
+
+若缺少任一条件，不得发出 `skill_generation_progress` / `skill_generation_done`，不得写入 `skills/`。只回复一句：「技能实现生成需要先完成技能定义和业务资料采用确认，我先回到雇佣教练流程继续推进。」
 
 当用户要求根据技能工单、描述、Markdown、文本、JSON、YAML 或 zip 文件创建、更新、合并、规范化业务技能包时，使用本技能。输入可以是结构化的技能工单，也可以是非结构化的会话描述或上传文件；无论哪种输入，都必须先抽取为统一的 SkillSpec 中间模型，再映射到固定模板生成技能文件，最后通过质量校验后才落盘。整个过程中要严格区分输入来源、提炼说明、产物质量和消费契约，确保生成过程可审阅、可复盘、可迁移。
 
@@ -98,6 +112,7 @@ metadata:
 - **先调用后输出**：同一轮次识别到可推送的阶段事件时，先调用 `emit_artifact`，再继续文件生成或对话输出
 - **data 禁止凭据**：data 字段中不得写入 token / 密钥 / 密码 / API Key
 - **label 用业务语言**：描述对用户有意义的进度，不暴露内部字段名
+- **skill_slugs 精确性**：完成节点 `data.skill_slugs` 必须等于 Phase 0.25 的 confirmed skill slug set；不得包含旧目录、同义改名目录或 projection 中意外出现的 slug。若无法满足，不能发出 `skill_generation_done`。
 
 ## 统一中间模型
 
@@ -147,6 +162,25 @@ metadata:
 
 等待确认路径直接停止，不落盘任何技能文件。结构化工单路径和直接路径继续 Phase 0.5。模糊路径先做需求诊断：列出最多 3 个候选业务域、每个候选域的触发词和预计能力，要求用户确认后再落盘。
 
+### Phase 0.25: 技能 slug 白名单与陈旧目录清理
+
+在创建或更新任何技能目录前，必须先确定本轮唯一的 **confirmed skill slug set**：
+
+1. 优先读取 `artifact_payload.confirmed_skill_slugs`；若缺失，则从 `artifact_payload.items[].name` / `items[].skill_slug` / `items[].skillName` 中按顺序提取。
+2. 该集合是本轮唯一允许写入、保留和上报的业务技能目录集合。禁止根据 display_name、description、projection 文件名或英文同义词重新生成 slug。
+3. 读取 `artifact_payload.projection_skill_slugs` 或从 `projection_result.projection_paths[]` 解析 `ontology/projections/<slug>/...`。若任一 projection slug 不在 confirmed skill slug set 中，立即阻断本轮运行，说明“projection 目录与已确认技能 slug 不一致”，不得写入 `skills/`，不得发出 `skill_generation_done`。
+4. 扫描 `<workspace_root>/skills/` 下已有目录。排除雇佣教练内置 skill 白名单后，凡是不在 confirmed skill slug set 中的目录都视为陈旧运行时目录，必须在本轮生成前移除或隔离到 `<workspace_root>/reports/stale-skills/`；不能让它们继续留在最终 `skills/` 包面中。
+5. 清理完成后再次列出 `<workspace_root>/skills/`，确认业务技能目录只剩 confirmed skill slug set。若无法清理，必须阻断并报告具体目录名，不得继续生成或打包。
+
+内置 skill 白名单：
+
+- `employment-coach-conversation`
+- `ontology-extraction`
+- `skill-generation`
+- `external-config`
+- `packaging-test-cases`
+- `digital-employee-package-completeness-review`
+
 ### Phase 0.5: 创建自包含技能目录
 
 在解析和渲染前先确定目标目录；`contracts/` 仅在生成 READY projection contract 或 draft projection notes 时创建：
@@ -172,6 +206,8 @@ skills/<skill_slug>/
 ```
 
 目录必须自包含：生成 skill 所需的摘要、来源、质量报告都放在该 skill 目录内；如生成 projection contract 或 draft notes，也必须放在该 skill 目录内。不要把生成过程依赖散落到 `config/`、`ontology/`、`external/` 或临时目录。
+
+目标目录必须来自 Phase 0.25 的 confirmed skill slug set。若 `SkillSpec.name`、projection source 目录或旧 `metadata.json` 中出现其他 slug，只能作为冲突诊断记录，不能创建对应目录。
 
 **Projection Pass 预生成检查**：若 `ontology/projections/<skill-slug>/` 目录已存在（由上游 `ontology-extraction` projection pass 预生成），Phase 3 将直接读取该目录中的 projection 文件来生成 consumer contract 结构，无需重新推导；consumer 侧仍统一落盘到 `contracts/projections/ontology_extraction/`。
 
