@@ -1,19 +1,19 @@
 import { useEffect, useRef } from 'react'
-import { AlertCircle, Check, CheckCircle2, Copy, Download, FileCode, FileText, Loader2, MessageCircle, Package, SendHorizontal } from 'lucide-react'
+import { AlertCircle, Check, CheckCircle2, Copy, Download, FileCode, FileText, Loader2, MessageCircle, Package, Paperclip, SendHorizontal } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
 import { InstanceChatMessageBody } from '@/features/team/components/InstanceChatMessageBody'
 import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
 import type { EvaluationTestcaseOutline, EvaluationWorkspaceStatus } from '@/infra/api'
-import type { EvalChatMessage, ArtifactTab } from './evaluationTypes'
+import type { EvalChatMessage, EvaluationChatFile, ArtifactTab } from './evaluationTypes'
 import {
   evaluationStarterActions,
   evaluationSuggestionPrompts,
 } from './evaluationTypes'
 import { formatDateTime, shortSessionId } from './evaluationUtils'
 
-const FILE_URL_INLINE_REGEX = /\[FILE_URL:([^\]|]+)(?:\|([^\]]+))?\]/g
+const FILE_URL_INLINE_REGEX = /\[FILE_URL:([^\]|]+)(?:\|([^\]]+))?\](?:\s*\r?\nAttached file:\s*([^\r\n]+))?/g
 
 type EvalFileMarker = {
   path: string
@@ -28,16 +28,28 @@ function safeDecodeFileName(value: string): string {
   }
 }
 
+function normalizeAttachedFileName(value?: string): string {
+  if (!value) return ''
+  return value.replace(/\s*\([^)]*\)\s*$/, '').trim()
+}
+
 function parseEvalFileMarkers(content: string): { text: string; fileMarkers: EvalFileMarker[] } {
   const fileMarkers: EvalFileMarker[] = []
-  const text = content
-    .replace(FILE_URL_INLINE_REGEX, (_, rawPath: string, rawFileName?: string) => {
+  const textWithoutMarkers = content
+    .replace(FILE_URL_INLINE_REGEX, (_, rawPath: string, rawFileName?: string, rawAttachedFile?: string) => {
       const path = rawPath.trim()
       const fallbackName = path.split(/[\\/]/).pop() || 'file'
-      const fileName = safeDecodeFileName((rawFileName?.trim() || fallbackName).trim()) || 'file'
+      const attachedFileName = normalizeAttachedFileName(rawAttachedFile)
+      const fileName = safeDecodeFileName((rawFileName?.trim() || attachedFileName || fallbackName).trim()) || 'file'
       fileMarkers.push({ path, fileName })
       return ''
     })
+
+  const text = (fileMarkers.length > 0
+    ? textWithoutMarkers.replace(/(^|\r?\n)\s*上传文件[:：][^\r\n]*(?=\r?\n|$)/g, '\n')
+    : textWithoutMarkers
+  )
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 
   return { text, fileMarkers }
@@ -60,6 +72,7 @@ interface EvalChatPanelProps {
   chatTyping: boolean
   chatInput: string
   chatError: string
+  pendingFiles: EvaluationChatFile[]
   sessionSwitching: boolean
   sandboxConnected: boolean
   environmentStatus: { label: string; dotClassName: string }
@@ -78,6 +91,8 @@ interface EvalChatPanelProps {
   onSendMessage: (content?: string) => void
   onEnterHumanEval: () => void
   onSetChatInput: (value: string) => void
+  onAddPendingFiles: (files: FileList | File[]) => void
+  onRemovePendingFile: (fileId: string) => void
   onSetArtifactTab: (tab: ArtifactTab) => void
   onFileDownload: (url: string, fileName: string) => void
 }
@@ -92,6 +107,7 @@ export function EvalChatPanel({
   chatTyping,
   chatInput,
   chatError,
+  pendingFiles,
   sessionSwitching,
   sandboxConnected,
   environmentStatus,
@@ -110,11 +126,14 @@ export function EvalChatPanel({
   onSendMessage,
   onEnterHumanEval,
   onSetChatInput,
+  onAddPendingFiles,
+  onRemovePendingFile,
   onSetArtifactTab,
   onFileDownload,
 }: EvalChatPanelProps) {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const hasChatTimelineContent = chatLoading || chatMessages.length > 0 || streamingContent !== null || chatTyping
 
   // 消息更新时自动滚动到底部
@@ -130,6 +149,14 @@ export function EvalChatPanel({
       event.preventDefault()
       onSendMessage()
     }
+  }
+
+  function handleFileInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = event.target.files
+    if (files && files.length > 0) {
+      onAddPendingFiles(files)
+    }
+    event.target.value = ''
   }
 
   return (
@@ -303,9 +330,8 @@ export function EvalChatPanel({
                   // 消息列表
                   chatMessages.map((message) => {
                     const isUser = message.role.toLowerCase() === 'user'
-                    const { text: messageText, fileMarkers } = isUser
-                      ? { text: message.content, fileMarkers: [] as EvalFileMarker[] }
-                      : parseEvalFileMarkers(message.content)
+                    const { text: messageText, fileMarkers } = parseEvalFileMarkers(message.content)
+                    const hasMessageText = messageText.trim().length > 0
                     return (
                       <div key={message.messageId} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                         {!isUser && (
@@ -315,24 +341,26 @@ export function EvalChatPanel({
                           {!isUser && message.toolSteps && message.toolSteps.length > 0 && (
                             <HiringToolStepsBlock steps={message.toolSteps} />
                           )}
-                          <div
-                            className={`hb-chat-bubble rounded-2xl px-3 py-2.5 text-sm leading-6 ${
-                              isUser ? 'is-user eval-bubble-user' : 'is-assistant border eval-bubble-bot'
-                            }`}
-                          >
-                            <div className={`mb-1 text-[11px] ${isUser ? 'eval-bubble-meta-user' : 'eval-bubble-meta-bot'}`}>
-                              {isUser ? '你' : '评估沙箱'} · {formatDateTime(message.createdAt)}
-                            </div>
-                            {isUser ? (
-                              <div className="whitespace-pre-wrap break-words">{messageText}</div>
-                            ) : (
-                              <div className="hb-md prose prose-sm max-w-none break-words">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {messageText}
-                                </ReactMarkdown>
+                          {hasMessageText ? (
+                            <div
+                              className={`hb-chat-bubble rounded-2xl px-3 py-2.5 text-sm leading-6 ${
+                                isUser ? 'is-user eval-bubble-user' : 'is-assistant border eval-bubble-bot'
+                              }`}
+                            >
+                              <div className={`mb-1 text-[11px] ${isUser ? 'eval-bubble-meta-user' : 'eval-bubble-meta-bot'}`}>
+                                {isUser ? '你' : '评估沙箱'} · {formatDateTime(message.createdAt)}
                               </div>
-                            )}
-                          </div>
+                              {isUser ? (
+                                <div className="whitespace-pre-wrap break-words">{messageText}</div>
+                              ) : (
+                                <div className="hb-md prose prose-sm max-w-none break-words">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {messageText}
+                                  </ReactMarkdown>
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
                           {fileMarkers.length > 0 ? (
                             <div className="hb-hiring-inline-file-list">
                               {fileMarkers.map((marker, index) => (
@@ -392,7 +420,62 @@ export function EvalChatPanel({
 
               {/* 输入框 */}
               <div className="border-t eval-chat-footer px-4 py-4">
+                {pendingFiles.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {pendingFiles.map((file) => (
+                      <div
+                        key={file.id}
+                        className={`hb-chat-file-chip is-${
+                          file.status === '上传失败'
+                            ? 'error'
+                            : file.status === '上传中'
+                              ? 'loading'
+                              : 'ready'
+                        }`}
+                      >
+                        {file.status === '上传中' ? (
+                          <Loader2 size={12} className="hb-chat-file-chip-spin" />
+                        ) : file.status === '上传失败' ? (
+                          <AlertCircle size={12} className="text-[#dc2626]" />
+                        ) : (
+                          <FileText size={12} className="text-[#9ca3af]" />
+                        )}
+                        <span className="max-w-[200px] truncate">{file.name}</span>
+                        <span className="hb-chat-file-chip-meta">
+                          {file.status === '上传失败' ? file.uploadError || file.status : file.status}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onRemovePendingFile(file.id)}
+                          className="ml-1 text-[#9ca3af] hover:text-[#525252]"
+                          aria-label={`移除附件 ${file.name}`}
+                          title="移除附件"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="hb-chat-composer-box eval-composer-shell flex items-end gap-3 rounded-[24px] border px-4 py-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={handleFileInputChange}
+                    className="hidden"
+                    disabled={chatSending}
+                  />
+                  <button
+                    type="button"
+                    className="hb-chat-attach-btn mb-1 !h-11 !w-11"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={chatSending}
+                    title="上传文件"
+                    aria-label="上传文件"
+                  >
+                    <Paperclip size={16} />
+                  </button>
                   <textarea
                     ref={chatInputRef}
                     value={chatInput}
@@ -405,7 +488,7 @@ export function EvalChatPanel({
                   />
                   <button
                     type="button"
-                    disabled={chatSending || !chatInput.trim()}
+                    disabled={chatSending || (!chatInput.trim() && pendingFiles.length === 0)}
                     className="hb-chat-send-action hb-btn-primary mb-1"
                     aria-label="发送"
                     title="发送"
