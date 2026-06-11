@@ -24,18 +24,24 @@ Driver 负责协议 I/O（WebSocket / JWT / TLS / 工具审批）。Simulator �
 
 ### 2. 启动 driver 子进程
 
-**K20 覆盖——不要直接使用以下命令。** 概念性命令为：
+STEP 3 按以下固定模板直接构造 spawn 命令，路径取自 `run_plan.json` 对应 scenario 的字段（`eval_id`、`tc_id` 为具体值）：
 
-```
-python3 -u runtime-drivers/<driver_id>/run.py \
-  --evaluation-context <eval_ctx_path> \
-  --enriched-test-case <enriched_tc_path> \
-  --output ./runs/<eval_id>/traces/<tc_id>.trace.json
+```bash
+PAD=/tmp/eval-driver/<eval_id>/<tc_id>
+kill $(cat $PAD/pid 2>/dev/null) 2>/dev/null
+rm -rf $PAD && mkdir -p $PAD && touch $PAD/in $PAD/out $PAD/err
+nohup sh -c 'tail -f '"$PAD/in"' | python3 -u runtime-drivers/ws_jwt/run.py \
+  --evaluation-context /workspace/runtime/evaluation_context.json \
+  --enriched-test-case runs/<eval_id>/enriched-cases/<tc_id>.enriched.json \
+  --output runs/<eval_id>/traces/<tc_id>.trace.json \
+  >> '"$PAD/out"' 2>> '"$PAD/err"'' & echo $! > $PAD/pid
 ```
 
-但 STEP 3 不得组合此命令。而应原文执行 `run_plan.scenarios[i].commands.spawn`（来自预先落盘的 `run_plan.json`）。STEP 2.5 生成的 spawn 命令在上述基础上包装了：
-- `nohup ... <> "$PAD/in" >> "$PAD/out" 2>> "$PAD/err" &` — 后台运行 driver 并将其 stdin/stdout/stderr 重定向到 pad 文件
-- `echo $! > "$PAD/pid"` — 立即捕获后台 PID
+**pad 布局**（`/tmp/eval-driver/<eval_id>/<tc_id>/`，K19）：
+- `in` — 常规文件（非 FIFO）。Agent 向此文件追加 action JSON；`tail -f` 将新行管道传入 driver stdin
+- `out` — 常规文件。driver stdout 追加到此处；Agent 用 `read_file` 工具或 `sed -n "${N}p"` 轮询
+- `err` — driver stderr
+- `pid` — spawn 包装器的 PID，用于后续清理
 
 ### 通信通道工作原理（改动前请务必阅读）
 
@@ -50,7 +56,7 @@ driver process stdin ◄────┤
                            │
 driver process stdout ──(>> $PAD/out)──→  pad/out (regular file)
                                                    ▲
-                              agent polls with sed -n "${N}p" (commands.read_one_event)
+                              agent polls with sed -n "${N}p"
 
 agent writes action JSON ──(printf >> $PAD/in)──→  pad/in (regular file)
                                                           ▲
@@ -71,21 +77,9 @@ Agent 不得：
 
 ### 3. 读取首行 stdout（通过 pad/out 轮询）
 
-原文执行 `run_plan.scenarios[i].commands.read_one_event`。这会轮询 `$PAD/out` 获取下一个未读行（由 `$PAD/cursor` 跟踪）。将返回行解析为 JSON；期望 `{"event":"ready",...}`。其他任何结果 → 中止此场景的 STEP 3。
+使用 `read_file` 工具读取 `$PAD/out`，或执行 `sed -n "${N}p" $PAD/out`（N 从 1 开始，每次读取后加 1，跟踪已读行数）。将返回行解析为 JSON；期望 `{"event":"ready",...}`。其他任何结果 → 中止此场景的 STEP 3。
 
 ### 4. 第 0 轮（确定性，无 LLM）
-
-> ⚠️ **两层协议绝对不能混淆（最常见错误来源）**
->
-> | 层 | 格式 | 谁写 | 谁消费 |
-> |---|---|---|---|
-> | **agent → driver stdin**（`pad/in`） | `{"action":"send","turn_index":N,"text":"...","decision":{...}}` | 宿主 Agent | `run.py` |
-> | **driver → evaluatee WebSocket** | `{"type":"user_message","text":"..."}` | `ws_client.py` 内部自动 | Gateway / 目标沙箱 |
->
-> **Agent 绝不直接写 WebSocket 层格式到 `pad/in`。**  
-> ❌ `{"type":"user_message","content":"你好"}` → driver 报 `wrong protocol layer`  
-> ❌ `{"action":"send","turn_index":0,"text":"你好"}` （无 `decision`）→ driver 报 `'send' action requires object decision`  
-> ❌ `{"action":"send","role":"user","content":"你好"}` → driver 报 `unknown action None`（缺 `decision`，`role`/`content` 字段无效）
 
 第 0 轮精确格式（字段名是字面量，写成**单行 JSON**，通过 `printf '%s\n' '...' >> pad/in` 写入）：
 
@@ -173,81 +167,47 @@ Agent **不得**在技能根目录下的**任何地方**创建任何新的 `.py`
 
 可执行文件路径白名单：`./runtime-drivers/<driver_id>/**`、`./runtime-*/<id>/**`。其他任何位置都会污染运行。
 
-## Driver 子进程接线合同（K19 + K20——从 run_plan.json 读取字面命令）
+## Driver 子进程接线合同（K19）
 
-**K20 (HARD)**: STEP 3 MUST NOT compose shell commands at runtime. Before STEP 3 begins, STEP 2.5 (`planRun`, see `playbooks/step-2.5-plan-run.md`) has materialised every `(pre_spawn_cleanup, spawn, read_one_event, write_action_template, post_scenario_cleanup)` as **literal shell strings** under `runs/<eval_id>/run_plan.json`. The agent reads `run_plan.scenarios[i].commands.*` and executes the strings verbatim. The ONLY runtime substitution permitted is replacing the marker `<<JSON_PAYLOAD>>` inside `commands.write_action_template` with the current single-line `send`/`end` action JSON.
+**K19 (HARD)**：pad 布局为 `/tmp/eval-driver/<eval_id>/<tc_id>/`，包含：`in`（常规文件——Agent 用 `>>` 追加 action；`tail -f` 通过管道流入 driver stdin）、`out`（常规文件——driver stdout 追加到此；Agent 按行号轮询）、`err`（driver stderr）、`pid`（`sh -c` 包装器 PID）。所有 pad 文件均为常规文件——无 FIFO。这避免了容器内核上 O_RDWR FIFO 引用计数竞争导致过早 EOF 的问题。
 
-**K19 (HARD)**: The canonical pad layout `/tmp/eval-driver/<eval_id>/<tc_id>/` contains: `in` (regular file — agent appends actions with `>>`; `tail -f` streams into driver stdin via pipe), `out` (regular file — driver stdout appended here; agent polls by line number), `cursor` (regular file — tracks next unread line number), `err` (regular file — driver stderr), `pid` (regular file — `sh -c` wrapper PID). All pad files are regular files — no FIFOs. This avoids the O_RDWR FIFO reference-count race that caused premature EOF on container kernels. Agents inspecting failures should verify the pad layout matches K19; agents executing the loop should NOT inspect or modify the layout — just run the commands.
+### 路径约定（STEP 3 运行时构造）
 
-Repeated `cat: /tmp/eval-stdout.txt: No such file or directory`-class failures are now K20 violations (STEP 3 improvised instead of reading the plan), not Python instability.
+STEP 3 直接按以下规则构造各路径，不从 run_plan.json 读取命令：
 
-### Where the commands live (read-only)
+| 路径 | 规则 |
+|---|---|
+| `--evaluation-context` | **固定** `/workspace/runtime/evaluation_context.json`（含完整凭据的原始文件） |
+| `--enriched-test-case` | `runs/<eval_id>/enriched-cases/<tc_id>.enriched.json` |
+| `--output` | `runs/<eval_id>/traces/<tc_id>.trace.json` |
+| pad dir | `/tmp/eval-driver/<eval_id>/<tc_id>` |
 
-```
-runs/<eval_id>/run_plan.json
-   .scenarios[i].tc_id
-   .scenarios[i].pad.{dir,in_fifo,out_file,cursor,err_file,pid_file}
-   .scenarios[i].commands.pre_spawn_cleanup       ← 原文执行
-   .scenarios[i].commands.spawn                   ← 原文执行
-   .scenarios[i].commands.read_one_event          ← 原文执行（每个事件）
-   .scenarios[i].commands.write_action_template   ← 仅替换 <<JSON_PAYLOAD>>
-   .scenarios[i].commands.post_scenario_cleanup   ← 原文执行（成功或失败均执行）
-   .scenarios[i].opening_message                  ← 第 0 轮 send 的原文文本
-   .scenarios[i].effective_max_turns              ← 已预先计算；运行时不需要 min()
-```
+> `run_plan.json` 提供 `tc_id`、`opening_message`、`effective_max_turns`；路径按上表规则构造，不从 run_plan 读取。
 
-上述 pad 文件名由 STEP 2.5 **固定**。禁止临时命名：`/tmp/eval-stdin-pipe`、`/tmp/eval-stdout.txt`、`/tmp/eval_driver_in`、`/tmp/eval_driver_out`、`/tmp/eval-stdin`、`/tmp/eval-stdout`，或任何 Agent 临时发明的名称。
+### 每场景执行顺序
 
-### 每场景执行（六次字面字符串工具调用）
-
-| 阶段 | 工具调用 | Agent 执行内容 |
+| 阶段 | 执行方式 | 内容 |
 |---|---|---|
-| **1. 预启动清理** | shell | 原文执行 `run_plan.scenarios[i].commands.pre_spawn_cleanup`——不得修改、不得包裹、不得链接 |
-| **2. 启动（后台）** | shell | 原文执行 `run_plan.scenarios[i].commands.spawn`；在对话日志中记录 PID 行 |
-| **3. 读取首个事件** | shell | 原文执行 `run_plan.scenarios[i].commands.read_one_event`；将该行解析为 JSON；期望 `{"event":"ready",...}` |
-| **4. 发送第 0 轮** | shell | 构建 `{"action":"send","turn_index":0,"text":<run_plan 中的 opening_message 原文>,"decision":<确定性第 0 轮决策>}`；序列化为单行 JSON；在 `<<JSON_PAYLOAD>>` 处替换到 `commands.write_action_template`；执行 |
-| **5. 循环直到终止** | shell × N | 重复：使用 `commands.read_one_event` 读取 → simulator 决策（宿主 LLM）→ 替换 `<<JSON_PAYLOAD>>` 到 `commands.write_action_template` → 执行。当读取返回 `{"event":"trace_written",...}` 或 `{"event":"error",...}` 时停止 |
-| **6. 场景后清理** | shell | 原文执行 `run_plan.scenarios[i].commands.post_scenario_cleanup`，无论结果如何 |
+| **1. 预清理 + spawn** | shell | 按 section 2 的固定模板清理旧 pad、创建新 pad、后台启动 driver |
+| **2. 读取首个事件** | `read_file` 或 shell sed | 轮询 `$PAD/out`，期望 `{"event":"ready",...}` |
+| **3. 发送第 0 轮** | `write_file`（追加）或 shell `printf >>` | 将 turn-0 `send` action JSON 追加到 `$PAD/in` |
+| **4. 循环直到终止** | read/write 交替 | 读取 evaluatee_turn → simulator 决策 → 追加 action → 重复 |
+| **5. 场景后清理** | shell | `kill $(cat $PAD/pid 2>/dev/null); rm -rf $PAD`，无论结果如何 |
 
-所有六条命令均为字面字符串。Agent **绝不**在运行时决定管道名、解释器路径、`--flag`、重定向或清理顺序。
+### K19 自检（场景结束后强制执行）
 
-### K20 自检（STEP 3 进入阶段 1 前强制执行）
+- `ps` 确认 `runtime-drivers/.*run.py.*<tc_id>` 进程已退出
+- `$PAD/out` 末行为可解析的 `{"event":"trace_written",...}` 或 `{"event":"error",...}`
+- `runs/<eval_id>/traces/<tc_id>.trace.json` 存在且为合法 JSON
 
-对当前场景 `i`：
+### 反模式
 
-- `runs/<eval_id>/run_plan.json` 存在且通过 `runtime-schemas/run_plan.schema.json` 验证；
-- `run_plan.scenarios[i]` 存在于 Agent 即将运行的 tc；
-- 五个 `commands.*` 字符串各自非零长度；
-- `commands.spawn` 以场景 `pad.dir` 赋值开始，并使用规范的 `$PAD/in`、`$PAD/out`、`$PAD/err` 和 `$PAD/pid` 叶；
-- `commands.read_one_event` 以场景 `pad.dir` 赋值开始，并使用 `sed -n` 以及规范的 `$PAD/out` 和 `$PAD/cursor`；
-- `commands.spawn` 包含 `--evaluation-context`、`--enriched-test-case` 和 `--output`，且不含任何遗留的 `--test-case-id` / `--endpoint` / `--pad-in` / `--pad-out` 标志；
-- `commands.spawn` 不含 `&;` 标记；在 sh/bash 中，后台 `&` 本身就是命令分隔符；
-- `commands.write_action_template` 恰好包含一个 `<<JSON_PAYLOAD>>`；
-- 本次对话中没有使用不同命令字符串启动过相同 `tc_id` 的场景（在工具调用记录中搜索引用相同 `tc_id` 的先前 shell 调用）。
-
-### K19 自检（STEP 3 返回场景前强制执行）
-
-场景结束且 `commands.post_scenario_cleanup` 运行后：
-
-- `ps -ef | grep "runtime-drivers/.*run.py" | grep "<tc_id>"` 返回零行；
-- `pad.dir` 在磁盘上不再存在；
-- 首次 `commands.read_one_event` 返回了可解析的 `{"event":"ready",...}`（非空，非 Python traceback）；
-- 此场景的每次 shell 工具调用均引用 `run_plan.scenarios[i].pad.*` 中的精确 pad 路径（不出现其他 `/tmp/eval-*` 名称）。
-
-### 反模式（每种均为 K19 或 K20 违规——用户一直看到的症状）
-
-| 反模式 | 症状 | 解决方式 |
-|---|---|---|
-| 在 STEP 3 中从头组合 `mkfifo /tmp/eval-stdin-pipe; ... > /tmp/eval-stdout.txt` | `cat: /tmp/eval-stdout.txt: No such file or directory`；PID 泄漏 | 原文执行 `run_plan.json` 中的 `commands.*`；如果计划中没有，重新运行 STEP 2.5 |
-| Modify `commands.spawn` to add `2>&1` / change redirection / swap python binary | One scenario behaves differently than the rest; flaky runs | Re-run STEP 2.5 with the desired change wired into the plan generator |
-| Use `cat "$PAD/out"` instead of the plan's cursor-based `sed -n "${N}p" ...` poller | Tool-call can block or re-read stale events | Use `commands.read_one_event` verbatim |
-| 跳过 `commands.pre_spawn_cleanup` 或 `commands.post_scenario_cleanup` | `ps aux` 条目陈旧；pad 文件在 `/tmp/eval-driver/` 下泄漏 | 两次清理均为强制工具调用；它们在计划中是有原因的 |
-| 替换 `<<JSON_PAYLOAD>>` 以外的任何内容（例如替换不同的 `pad.in_fifo`） | Driver 未收到任何内容，因为写入了不存在的文件 | 只有标记是可变的；其他所有内容都是只读字面量 |
-| 在 `run_plan.json` 不存在时运行 STEP 3 | 临时发挥循环重现；用户再次看到"Exit code 1" | STEP 2.5 输入门：STEP 3 拒绝启动；先重新运行 STEP 2.5 |
-
-### 为什么这是合同而非建议
-
-Driver 协议（`ready` → `send`/`evaluatee_turn` × N → `end`/`trace_written`）是正确且稳定的。用户一直看到的每类错误（"Exit code 1"、"No such file or directory"、"PID still alive after cleanup"、144 噪声）都是由**运行时字符串组合**产生的，而非 `run.py` 的问题。在 STEP 2.5 中落盘命令并在 STEP 3 中原文读取，消除了整个失败面，并将每场景 STEP-3 的开销缩短为：每轮 `1 次读取 + 1 次替换 + 1 次执行`，无需逐轮编写 shell。
+| 反模式 | 问题 |
+|---|---|
+| 用 `<> $PAD/in`（O_RDWR FIFO）代替 `tail -f` | 容器内核上过早 EOF；driver 立即退出 |
+| 用 `cat $PAD/out` 代替按行轮询 | 可能重读历史事件或阻塞 |
+| `--evaluation-context runs/<eval_id>/evaluation_context.json` | 该副本可能已脱敏；凭据缺失导致 token 解析失败 |
+| 跳过场景后清理 | pid / pad 文件泄漏；下次运行同一 tc 时 kill 错进程 |
 
 ## 循环完整性（K14）
 
@@ -308,16 +268,13 @@ A simulator decision MUST NOT set `goal_progress = "goal_achieved"` or `stop_rea
 | `while True:` 循环将多轮合并为一次执行 | K8 | 每个 Agent 轮次一次往返 |
 | 从编写的脚本中向"LLM"发出 HTTP 调用 | K8 | Simulator 就是宿主 LLM |
 | `.sh` / `Makefile` 将 spawn 与其他内容链接 | K8 | 每轮单条 shell 命令 |
-| 创建 `read_one_event.py` 轮询 driver stdout | K8 / K20 | 原文使用 `run_plan.scenarios[i].commands.read_one_event`；它已经是内联游标式 shell 轮询器 |
+| 创建 `read_one_event.py` 轮询 driver stdout | K8 | 用 `read_file` 工具或 `sed -n "${N}p" $PAD/out` 内联轮询 |
 | 写一个 `send` 后关闭 stdin | K14 | 关闭前始终写 `end` |
 | 以"演示"为由将轮次自我截断至低于 `effective_max_turns` | K14 | 让预算自然耗尽 |
 | `should_continue=false` 且 `next_utterance` 非空时跳过最终 `send` | K14（条款 4） | 先 send 后 end 模式 |
 | Simulator 在客户必要信息到达被评估者前宣告 `goal_achieved` | K15 运行时 | 客户必须先说出必要信息 |
-| 每轮临时发明管道文件名（`/tmp/eval-stdin-pipe` + `/tmp/eval-stdout.txt` 等） | K19 / K20 | 从 `run_plan.json#scenarios[i].commands.*` 读取字面命令；不要在运行时编写 shell |
-| 将 driver stdout 重定向到临时 `*.txt` 文件而非计划中的 `pad.out_file` | K19 / K20 | 计划中的 `commands.spawn` 追加到 `pad.out_file`；原文执行 |
-| `cat "$PAD/out"`（可能阻塞或重读陈旧事件） | K19 / K20 | 原文使用 `commands.read_one_event`（游标式 `sed -n "${N}p"` 轮询） |
-| 在 spawn 命令中使用 `<> "$PAD/in"`（O_RDWR FIFO 打开） | K19 / K20 / 已废弃 | 使用 run_plan 中的 `tail -f "$PAD/in" \| exec python3 ...` 模式；O_RDWR FIFO 在容器内核上导致提前 stdin EOF |
-| 在 pre_spawn_cleanup 中使用 `mkfifo "$PAD/in"` | K19 / K20 / 已废弃 | 使用 `touch "$PAD/in"`——pad/in 对于 tail -f 必须是常规文件 |
-| 跳过预启动或场景后清理 | K19 / K20 | `commands.pre_spawn_cleanup` 和 `commands.post_scenario_cleanup` 均为强制工具调用 |
-| 在 `runs/<eval_id>/run_plan.json` 不存在时开始 STEP 3 | K20 | 先运行 STEP 2.5；计划缺失时 STEP 3 快速失败 |
-| 修改 `commands.*` 中除替换 `<<JSON_PAYLOAD>>` 外的任何字符串 | K20 | 将变更纳入计划生成器后重新运行 STEP 2.5 |
+| 每轮临时发明管道文件名（`/tmp/eval-stdin-pipe`、`/tmp/eval-stdout.txt` 等） | K19 | 按 section 2 固定模板使用 `/tmp/eval-driver/<eval_id>/<tc_id>/` 布局 |
+| `cat "$PAD/out"`（可能重读陈旧事件） | K19 | 用 `sed -n "${N}p" $PAD/out` 游标式轮询，自行跟踪已读行号 |
+| 在 spawn 中用 `<> "$PAD/in"`（O_RDWR FIFO） | K19 | 用 `tail -f "$PAD/in" \| python3 ...`；O_RDWR FIFO 在容器内核上导致提前 stdin EOF |
+| 对 `$PAD/in` 用 `mkfifo` 而非 `touch` | K19 | `pad/in` 必须是常规文件，`tail -f` 才不会返回 EOF |
+| 跳过预清理或场景后清理 | K19 | 两次清理均为强制步骤；pid / pad 文件泄漏会影响下次同 tc 运行 |

@@ -3,7 +3,7 @@
 **Kind**: deterministic (直接调用 driver 目录下的上传脚本)
 **Authority**: 本 playbook；不属于 workflow-contract K-rules 范畴（K-rules 覆盖 STEP 0–9）
 **Runs**: STEP 9 输出 `evaluation_report.json` 后，作为最终收尾步骤
-**Inputs**: `runs/<eval_id>/evaluation_context.json`、`runs/<eval_id>/reports/evaluation_report.json`、`runs/<eval_id>/traces/*.trace.json`
+**Inputs**: `/workspace/runtime/evaluation_context.json`、`runs/<eval_id>/reports/evaluation_report.json`、`runs/<eval_id>/traces/*.trace.json`
 **Outputs**: `runs/<eval_id>/upload_verdict_result.json`、`runs/<eval_id>/upload_trace_result.json`
 
 Compatibility: the upload scripts also tolerate legacy/ad-hoc names produced by older runs (`final_report.json`, `reports/final_report.json`, `evaluation_report_tainted.json`, `final_report_tainted.json`, and `traces/*.execution_trace.json`). New compliant runs MUST still write the standard paths above. Tainted runs are not valid for formal acceptance, but when the user explicitly asks to continue for reference, STEP 10 still syncs the trace bundle and syncs the tainted verdict as `FAIL` with a TAINTED summary so the right-side panel reflects what happened.
@@ -14,7 +14,7 @@ Compatibility: the upload scripts also tolerate legacy/ad-hoc names produced by 
 
 | 条件 | 检查方式 |
 |---|---|
-| `evaluation_context.hirebot_api` 块存在 | stat `runs/<eval_id>/evaluation_context.json`，确认 `hirebot_api.base_url`、`hirebot_api.employee_id`、`hirebot_api.session_id` 均非空 |
+| `evaluation_context.hirebot_api` 块存在 | stat `/workspace/runtime/evaluation_context.json`，确认 `hirebot_api.base_url`、`hirebot_api.employee_id`、`hirebot_api.session_id` 均非空 |
 | STEP 9 已完成 | `runs/<eval_id>/reports/evaluation_report.json` 存在且是合法 JSON |
 | STEP 3 已完成 | `runs/<eval_id>/traces/` 目录存在且包含至少一个 `*.trace.json` |
 | Python 解释器可用 | `python3` 可执行（沙箱内置，无需 venv）|
@@ -49,7 +49,7 @@ When `evaluation_context.hirebot_api` is present, STEP 10 is a completion gate f
 
 ```bash
 python3 runtime-drivers/ws_jwt/verdict_uploader.py \
-  --evaluation-context runs/<eval_id>/evaluation_context.json \
+  --evaluation-context /workspace/runtime/evaluation_context.json \
   --evaluation-report  runs/<eval_id>/reports/evaluation_report.json \
   --output             runs/<eval_id>/upload_verdict_result.json
 ```
@@ -78,7 +78,7 @@ python3 runtime-drivers/ws_jwt/verdict_uploader.py \
 
 ```bash
 python3 runtime-drivers/ws_jwt/trace_uploader.py \
-  --evaluation-context runs/<eval_id>/evaluation_context.json \
+  --evaluation-context /workspace/runtime/evaluation_context.json \
   --traces-dir         runs/<eval_id>/traces/ \
   --synthesized-dir    runs/<eval_id>/synthesized-cases/ \
   --output             runs/<eval_id>/upload_trace_result.json
