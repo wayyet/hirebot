@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   CopyPlus,
+  Download,
   ExternalLink,
   FileText,
   Loader2,
@@ -33,13 +34,17 @@ import {
   withEmployeeView,
 } from "@/features/hiring/pages/employeeView";
 import { api, type EmployeeDetail, type EvaluationState } from "@/infra/api";
+import { tokenService } from "@/infra/auth/token-service";
 import type { TraceJsonData } from "@/features/team/pages/evaluation/evaluationTypes";
+import { toAbsoluteApiUrl, verdictLabel, formatDateTime } from "@/features/team/pages/evaluation/evaluationUtils";
+import { downloadBlob } from "@/features/hiring/pages/utils/hiringFileUtils";
 import { Breadcrumb } from "@/shared/components/Breadcrumb";
 import { instanceBasePath } from "@/shared/utils/instancePath";
 import { CreatorDisplay } from "@/shared/components/CreatorDisplay";
 
 type DetailEvalTab = "overview" | "testcase" | "trace" | "report";
 
+// evaluationUtils 中已有通用版本，这里仅保留相对时间格式化
 function formatRelativeTime(dateStr: string, language: string): string {
   if (!dateStr) return "";
   const date = new Date(dateStr);
@@ -59,32 +64,6 @@ function formatRelativeTime(dateStr: string, language: string): string {
   const days = Math.floor(absMs / 86_400_000) * direction;
   if (absMs < 2_592_000_000) return formatter.format(days, "day");
   return dateStr;
-}
-
-function formatDateTime(value?: string | null): string {
-  if (!value) return "--";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("zh-CN", {
-    hour12: false,
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function toAbsoluteApiUrl(value?: string | null): string | null {
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) return value;
-  return value.startsWith("/") ? value : `/${value}`;
-}
-
-function verdictLabel(verdict?: string | null): string {
-  if (verdict === "passed") return "通过";
-  if (verdict === "failed") return "未通过";
-  if (verdict === "warning") return "待优化";
-  return "待判定";
 }
 
 function verdictPillClass(verdict?: string | null): string {
@@ -138,7 +117,7 @@ export default function InstanceDetailPage() {
     const cards = evaluation?.questionCards ?? [];
     return outlines.length > 0
       ? outlines
-      : cards.map((c) => ({ testcaseId: c.testcaseId, title: c.title, userRequest: "" }));
+      : cards.map((c) => ({ testcaseId: c.testcaseId, title: c.title, userRequest: c.prompt || "" }));
   }, [evaluation]);
   const questionCardMap = useMemo(
     () => new Map((evaluation?.questionCards ?? []).map((c) => [c.testcaseId, c])),
@@ -285,6 +264,45 @@ export default function InstanceDetailPage() {
       setTraceDataCache((prev) => ({ ...prev, [sessionId]: parsed }));
     } catch {
       setTraceDataCache((prev) => ({ ...prev, [sessionId]: "error" }));
+    }
+  }
+
+  // 报告文件（JSON/HTML）需要携带 Bearer Token 鉴权，不可使用裸 <a> 链接
+  async function handleReportAction(reportId: string, fileType: "json" | "html", fileName: string, action: "download" | "open") {
+    if (!id) return;
+    try {
+      const url = api.employeeRuntime.getReportFileDownloadUrl(id, reportId, fileType);
+      const token = await tokenService.ensureFresh();
+      const response = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!response.ok) throw new Error(`获取报告文件失败（HTTP ${response.status}）`);
+      const blob = await response.blob();
+      if (action === "download") {
+        downloadBlob(blob, fileName);
+      } else {
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, "_blank", "noreferrer");
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 15_000);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "获取报告文件失败");
+    }
+  }
+
+  // 轨迹原始文件同样需要鉴权下载（publicUrl 可能是相对 API 路径）
+  async function handleAssetDownload(publicUrl: string, fileName: string) {
+    try {
+      const absUrl = toAbsoluteApiUrl(publicUrl) ?? publicUrl;
+      const token = await tokenService.ensureFresh();
+      const response = await fetch(absUrl, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!response.ok) throw new Error(`下载文件失败（HTTP ${response.status}）`);
+      const blob = await response.blob();
+      downloadBlob(blob, fileName);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "下载文件失败");
     }
   }
 
@@ -650,16 +668,22 @@ export default function InstanceDetailPage() {
                       </summary>
                       <div className="eval-side-disclosure-body flex flex-wrap gap-2">
                         {reportJsonUrl ? (
-                          <a href={reportJsonUrl} target="_blank" rel="noreferrer"
-                            className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]"
+                            onClick={() => reportSummary && void handleReportAction(reportSummary.reportId, 'json', `evaluation-report-${reportSummary.reportId}.json`, 'open')}
+                          >
                             <ExternalLink size={10} /> 查看报告 JSON
-                          </a>
+                          </button>
                         ) : null}
                         {reportHtmlUrl ? (
-                          <a href={reportHtmlUrl} target="_blank" rel="noreferrer"
-                            className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]">
-                            <ExternalLink size={10} /> 下载报告 HTML
-                          </a>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]"
+                            onClick={() => reportSummary && void handleReportAction(reportSummary.reportId, 'html', `evaluation-report-${reportSummary.reportId}.html`, 'download')}
+                          >
+                            <Download size={10} /> 下载报告 HTML
+                          </button>
                         ) : null}
                       </div>
                     </details>
@@ -742,7 +766,7 @@ export default function InstanceDetailPage() {
                             {expanded && card ? (
                               <div className="mt-4 rounded-[18px] border eval-side-case-detail px-3 py-3">
                                 {card.prompt ? (
-                                  <div className="rounded-xl border eval-prompt-box px-3 py-2.5 text-[11px] leading-relaxed">{card.prompt}</div>
+                                  <div className="rounded-xl border eval-prompt-box px-3 py-2.5 text-[11px] leading-relaxed whitespace-pre-wrap">{card.prompt}</div>
                                 ) : null}
                                 {card.steps.length > 0 ? (
                                   <div className="mt-3 space-y-2">
@@ -813,8 +837,14 @@ export default function InstanceDetailPage() {
                               <div className="flex items-center gap-2">
                                 <a href={toAbsoluteApiUrl(asset.publicUrl) ?? asset.publicUrl} target="_blank" rel="noreferrer"
                                   className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-2.5 py-0.5 text-[11px]">
-                                  <ExternalLink size={10} /> 原始文件
+                                  <ExternalLink size={10} /> 原始文件（需登录）
                                 </a>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleAssetDownload(asset.publicUrl, `trace-${index + 1}.json`)}
+                                  className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-2.5 py-0.5 text-[11px]">
+                                  <Download size={10} /> 下载
+                                </button>
                                 {sessionId ? (
                                   <button type="button"
                                     onClick={() => void toggleTrace(sessionId)}
@@ -1031,16 +1061,22 @@ export default function InstanceDetailPage() {
                       {(reportJsonUrl || reportHtmlUrl) ? (
                         <div className="flex flex-wrap gap-2">
                           {reportJsonUrl ? (
-                            <a href={reportJsonUrl} target="_blank" rel="noreferrer"
-                              className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]">
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]"
+                              onClick={() => reportSummary && void handleReportAction(reportSummary.reportId, 'json', `evaluation-report-${reportSummary.reportId}.json`, 'open')}
+                            >
                               <ExternalLink size={10} /> 查看报告 JSON
-                            </a>
+                            </button>
                           ) : null}
                           {reportHtmlUrl ? (
-                            <a href={reportHtmlUrl} target="_blank" rel="noreferrer"
-                              className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]">
-                              <ExternalLink size={10} /> 下载报告 HTML
-                            </a>
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]"
+                              onClick={() => reportSummary && void handleReportAction(reportSummary.reportId, 'html', `evaluation-report-${reportSummary.reportId}.html`, 'download')}
+                            >
+                              <Download size={10} /> 下载报告 HTML
+                            </button>
                           ) : null}
                         </div>
                       ) : null}
