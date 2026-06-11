@@ -86,9 +86,13 @@ for m in selected_metrics:
                 triggered = True
                 evidence.append({"tc_id": tc_id, "score": score.overall_score, "threshold": cfg.threshold})
     elif cfg.trigger_kind == "forbidden_behavior":
-        # observed_signals raised by STEP 4 LLM call must include
-        # forbidden_behavior_observed; deterministic code only checks presence
-        ...
+        # STEP 4 评分推理若观察到禁止行为，会在 observed_signals 中写入
+        # "forbidden_behavior_observed" 信号；STEP 7 只做存在性检查，不调用 LLM。
+        for tc_id, score in per_metric_scores[m.metric_code].items():
+            signals = score.get("observed_signals") or []
+            if "forbidden_behavior_observed" in signals:
+                triggered = True
+                evidence.append({"tc_id": tc_id, "signal": "forbidden_behavior_observed"})
     elif cfg.trigger_kind == "dimension_floor":
         # consult dimension_scores.json (already persisted at STEP 6)
         if dimension_scores[m.parent_dimension] <= cfg.threshold:

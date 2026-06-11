@@ -7,32 +7,42 @@
 
 ## 为什么扇出（而非批处理）
 
-将"所有指标 + 所有评分标准 + 完整轨迹 + 输出模式"打包到单个提示词会导致 token 用量爆炸并分散注意力。STEP 4 改为**每个 `(测试用例, 指标)` 对运行一次轻量 LLM 调用**，每次提示词由以下内容构建：
+将"所有指标 + 所有评分标准 + 完整轨迹 + 输出模式"打包到单个提示词会导致 token 用量爆炸并分散注意力。STEP 4 改为**每个 `(测试用例, 指标)` 对运行一次独立评分推理**，每次推理由以下内容构建：
 
 - `scoring-judgement.prompt-constraint.projection.json` 中的相关切片（仅 `applies_to_layer = per_metric_fanout_prompt` 的约束）
 - 单个指标的 `scoring_rubric` 和 `runtime_slice_selector`
 - 通过该选择器过滤的运行时数据（通常为：该测试用例的预期输出 + 该场景的轨迹，并按指标进一步范围化）
 - 严格的响应模式 `metric_score.schema.json`
 
-K3 强制要求：每个 `(测试用例, 指标)` 对恰好一次 LLM 调用，其中 `metric_code ∈ enriched_test_cases[tc].applicable_metrics`。禁止将多个指标或场景批处理到单次调用中。
+K3 强制要求：每个 `(测试用例, 指标)` 对恰好一次独立评分推理，其中 `metric_code ∈ enriched_test_cases[tc].applicable_metrics`。禁止将多个指标或场景批处理合并。
+
+## "评估 LLM" 即宿主 Agent
+
+**宿主 Agent 本身就是评估 LLM。** 不需要外部评分服务或 OpenAI SDK。STEP 4 的正确执行方式是：
+
+> Agent 读取 trace 文件和指标定义 → 针对每个 `(tc_id, metric_code)` 独立推理 → 每次推理后立即落盘一个 `scores/*.json` 文件（`scored_at` 取当前真实时间戳） → 重复直到所有 applicable_metrics 覆盖完毕。
+
+每次推理是一个独立的 Agent 操作轮次，不是"批量填写"。
 
 ## 为什么红线判断是确定性的而非 LLM（K4）
 
-LLM 可能在社交/同理心压力下低估红线权重。STEP 4 的 LLM 调用只能**触发 `observed_signals`**（如 `missing_required_tool_call`）。最终通过/失败决策在 STEP 7 由确定性代码计算，使用每个指标声明的 `red_line` 配置。LLM 看不到 `red_line_passed`，也不能返回该字段。
+LLM 可能在社交/同理心压力下低估红线权重。STEP 4 的评分推理只能**触发 `observed_signals`**（如 `missing_required_tool_call`）。最终通过/失败决策在 STEP 7 由确定性代码计算，使用每个指标声明的 `red_line` 配置。评分推理不包含 `red_line_passed`，也不能返回该字段。
 
 注意：`metric_score.schema.json` 中故意不包含 `red_line_passed` 或 `pass_fail` 字段。
 
 ## 硬性规则（K16）
 
-1. **禁止批量伪造。** Agent 不得从自己对轨迹和指标定义的认知中计算分数，然后一次性以统一时间戳输出所有评分文件。每个提示词由（i）该轨迹 +（ii）该指标定义 +（iii）评分标准/红线配置 +（iv）每用例 `stop_conditions` 构建，并独立提交给评估 LLM。
+K16 的核心目的是**防止批量伪造**，不是强制外部调用。以下规则对宿主 Agent 自行评分同样适用：
 
-2. **真实的 `scored_at`。** `MetricScore.scored_at` 必须是 LLM 响应接收时的真实 ISO8601 时间戳，精确到至少秒级，且**不同 LLM 调用之间值不同**（预期有毫秒/微秒漂移）。
+1. **禁止批量伪造。** Agent 不得将所有 `(tc, metric)` 一次性以统一时间戳输出所有评分文件。每个 `(tc_id, metric_code)` 必须独立读取 trace + 指标定义后进行推理，并在推理完成后**立即**写入文件。
 
-3. **重复时间戳污染。** 如果同一运行中**超过一个**评分文件具有相同的 `scored_at` 值（字符串相等），则运行被标记为污染，STEP 9 必须在 `open_questions` 中以严重级别 `critical` 列出每对重复时间戳。这用于捕获 **`runs/eval-soul-001/`** 中所有 10 个评分文件都带有 `scored_at = "2026-05-29T14:30:00Z"` 的模式。
+2. **真实的 `scored_at`。** `MetricScore.scored_at` 必须在每个评分文件写入时取当前真实时间戳（`datetime.now(timezone.utc).isoformat()`），精确到至少秒级，且**不同评分文件之间值不同**（因为每次是独立操作，存在时间差）。
+
+3. **重复时间戳污染。** 如果同一运行中**超过一个**评分文件具有相同的 `scored_at` 值（字符串相等），则运行被标记为污染，STEP 9 必须在 `open_questions` 中以严重级别 `critical` 列出每对重复时间戳。
 
 4. **推理必须引用证据。** `MetricScore.scoring_reasoning` 必须引用被评分轨迹的 `dialog_turns` 或 `actual_tool_calls` 中至少一个具体的子字符串。仅由通用短语（"based on standards"、"reasonable demonstration result"、"as a typical case"、"基于评估标准生成"）组成而没有可观察证据的推理被视为伪造；评分文件必须重新生成。
 
-5. **禁止的捷径（K14 的镜像）。** Agent 不得以"演示"、"预览"、"示例运行"、"说明性评分"、"时间压力"或任何其他理由跳过每 (用例, 指标) 的 LLM 调用。没有演示模式——每个用例的每个指标都需要真实的评估 LLM 调用。
+5. **禁止的捷径（K14 的镜像）。** Agent 不得以"演示"、"预览"、"示例运行"、"说明性评分"、"时间压力"或任何其他理由跳过某 `(用例, 指标)` 的独立评分推理。没有演示模式——每个用例的每个 applicable_metric 都需要独立推理并落盘。
 
 ## 验证伪代码（在 STEP 5 输入门处应用）
 
@@ -63,9 +73,9 @@ scoring-judgement K2（`RedLineTriggersAreNonNegotiable`）和 K5（`AllIssuesMu
 
 | 反模式 | K 规则 | 失败模式 |
 |---|---|---|
-| 将一个轨迹的所有指标打包到单次 LLM 调用 | K3 | 运行在 STEP 4 被污染 |
+| 将一个轨迹的所有指标合并为一次推理批量输出 | K3 | 运行在 STEP 4 被污染 |
 | 所有 `<tc>__<metric>.json` 文件使用相同的 `scored_at` 时间戳 | K16 | 运行被污染；STEP 5 输入门拒绝 |
-| 不调用 LLM 而根据自己的分析计算分数 | K16 | 运行被污染；推理缺乏轨迹引用 |
+| 先推理完所有分数，再统一写文件（导致时间戳相同） | K16 | 运行被污染；每推理一个立即落盘 |
 | 在 MetricScore 中设置 `red_line_passed` 或 `pass_fail` | K4 | 模式拒绝该字段 |
 | 将通用样板（"基于评分标准"）用作 `scoring_reasoning` | K16 | 评分文件必须重新生成 |
 | 以"该指标明显不适用"为由跳过某 (用例, 指标) 对 | K3 / K16 | 所有 `applicable_metrics` 在 STEP 4 均为强制项 |

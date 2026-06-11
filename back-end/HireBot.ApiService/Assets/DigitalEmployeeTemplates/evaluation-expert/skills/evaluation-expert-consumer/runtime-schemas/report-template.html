@@ -465,5 +465,56 @@ function escapeHtml(text) {
   return d.innerHTML;
 }
 </script>
+
+<!-- 彩蛋：模板设计纪念 -->
+<style>
+.easter-egg {
+  position: fixed;
+  bottom: 16px;
+  right: 20px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #dadce0;
+  cursor: default;
+  opacity: 0.4;
+  transition: opacity 0.2s;
+  z-index: 9999;
+}
+.easter-egg:hover {
+  opacity: 1;
+}
+.easter-egg-tooltip {
+  position: absolute;
+  bottom: 18px;
+  right: 0;
+  background: #202124;
+  color: #fff;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+.easter-egg-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: 10px;
+  border: 5px solid transparent;
+  border-top-color: #202124;
+}
+.easter-egg:hover .easter-egg-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+</style>
+<div class="easter-egg">
+  <div class="easter-egg-tooltip">designed by gaoqian ✦</div>
+</div>
+
 </body>
 </html>
