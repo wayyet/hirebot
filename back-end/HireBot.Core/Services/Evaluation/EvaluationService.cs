@@ -1594,4 +1594,70 @@ internal sealed partial class EvaluationService(
         }, "评估数据已清理");
     }
 
+    public async Task<ApiResponse<EvaluationReportFileDto>> GetReportFileAsync(
+        string employeeId,
+        string reportId,
+        string fileType,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId))
+            return ApiResponse<EvaluationReportFileDto>.ErrorResponse(400, "employeeId cannot be empty");
+
+        if (string.IsNullOrWhiteSpace(reportId) || !Guid.TryParseExact(reportId.Trim(), "N", out var reportGuid))
+            return ApiResponse<EvaluationReportFileDto>.ErrorResponse(400, "reportId is invalid");
+
+        var normalizedFileType = fileType?.Trim().ToLowerInvariant();
+        if (normalizedFileType is not ("json" or "html"))
+            return ApiResponse<EvaluationReportFileDto>.ErrorResponse(400, "fileType must be 'json' or 'html'");
+
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
+            return ApiResponse<EvaluationReportFileDto>.ErrorResponse(404, "employee not found");
+
+        // 查找报告记录，并验证所有权（通过 session 的 OwnerSubject）
+        var reportEntity = await dbContext.EvaluationReports
+            .AsNoTracking()
+            .Include(r => r.Session)
+            .FirstOrDefaultAsync(r =>
+                r.Id == reportGuid &&
+                r.Session!.OwnerSubject == accessContext.PersistenceScope &&
+                r.Session.EmployeeId == employeeId.Trim(),
+                cancellationToken);
+
+        if (reportEntity is null)
+            return ApiResponse<EvaluationReportFileDto>.ErrorResponse(404, "report not found");
+
+        var assetId = normalizedFileType == "json"
+            ? reportEntity.ReportJsonAssetId
+            : reportEntity.ReportHtmlAssetId;
+
+        if (assetId is null)
+            return ApiResponse<EvaluationReportFileDto>.ErrorResponse(404, $"report {normalizedFileType} asset not found");
+
+        var assetEntity = await dbContext.EvaluationAssets
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == assetId, cancellationToken);
+
+        if (assetEntity is null)
+            return ApiResponse<EvaluationReportFileDto>.ErrorResponse(404, "asset record not found");
+
+        var physicalPath = ResolvePhysicalAssetPath(assetEntity.RelativePath);
+        if (physicalPath is null || !File.Exists(physicalPath))
+        {
+            logger.LogWarning(
+                "[Eval] GetReportFile: physical file not found. ReportId={ReportId}, AssetId={AssetId}, RelativePath={RelativePath}",
+                reportId, assetEntity.Id, assetEntity.RelativePath);
+            return ApiResponse<EvaluationReportFileDto>.ErrorResponse(404, "report file not found on disk");
+        }
+
+        var fileName = Path.GetFileName(physicalPath);
+
+        return ApiResponse<EvaluationReportFileDto>.SuccessResponse(
+            new EvaluationReportFileDto(
+                PhysicalPath: physicalPath,
+                MimeType: assetEntity.MimeType,
+                FileName: fileName),
+            "ok");
+    }
+
 }

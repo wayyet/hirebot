@@ -495,6 +495,11 @@ export const employeeRuntimeApi = {
     return httpClient.delete<object>(`/api/v1/employees/${employeeId}/evaluation/data`)
   },
 
+  /** 获取评估报告文件下载 URL（需携带 Bearer Token 访问，由 handleReportAction 使用） */
+  getReportFileDownloadUrl(employeeId: string, reportId: string, fileType: 'json' | 'html'): string {
+    return `/api/v1/employees/${encodeURIComponent(employeeId)}/evaluation/reports/${encodeURIComponent(reportId)}/files/${fileType}`
+  },
+
   getTraceContent(employeeId: string, sessionId: string) {
     return httpClient.get<EvaluationTraceContentResult>(
       `/api/v1/employees/${employeeId}/evaluation/trace-content?sessionId=${encodeURIComponent(sessionId)}`,

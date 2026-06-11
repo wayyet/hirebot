@@ -280,6 +280,27 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    /// <summary>
+    /// 下载评估报告文件（JSON 或 HTML）。
+    /// 通过 reportId 在数据库中验证归属，再从物理存储流式返回，
+    /// 未来迁移对象存储时只需修改服务层实现，接口契约不变。
+    /// </summary>
+    [HttpGet("{employeeId}/evaluation/reports/{reportId}/files/{fileType}")]
+    public async Task<IActionResult> DownloadEvaluationReportFile(
+        string employeeId,
+        string reportId,
+        string fileType,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await evaluationService.GetReportFileAsync(employeeId, reportId, fileType, cancellationToken);
+        if (!response.Success)
+            return StatusCode(response.Code, response);
+
+        var fileInfo = response.Data!;
+        var stream = new FileStream(fileInfo.PhysicalPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
+        return File(stream, fileInfo.MimeType, fileInfo.FileName);
+    }
+
     private IActionResult? BuildModelValidationError<T>()
     {
         if (ModelState.IsValid)

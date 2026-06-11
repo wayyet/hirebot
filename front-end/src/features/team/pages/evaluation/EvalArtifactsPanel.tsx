@@ -22,7 +22,7 @@ import type {
   EvaluationAssetRef,
 } from '@/infra/api'
 import type { ArtifactTab, TraceJsonData } from './evaluationTypes'
-import { formatDateTime, toAbsoluteApiUrl } from './evaluationUtils'
+import { formatDateTime } from './evaluationUtils'
 
 interface ReportMetric {
   label: string
@@ -54,6 +54,7 @@ interface EvalArtifactsPanelProps {
   onToggleQuestionCardDetails: (testcaseId: string) => void
   onRunSingleScenario: (testcaseId: string, title: string) => void
   onEnterHumanEval: () => void
+  onReportAction: (reportId: string, fileType: 'json' | 'html', fileName: string, action: 'download' | 'open') => void
 }
 
 export function EvalArtifactsPanel({
@@ -80,10 +81,12 @@ export function EvalArtifactsPanel({
   onToggleQuestionCardDetails,
   onRunSingleScenario,
   onEnterHumanEval,
+  onReportAction,
 }: EvalArtifactsPanelProps) {
   const dimensionScores = reportSummary?.dimensionScores ?? []
-  const reportJsonUrl = toAbsoluteApiUrl(reportSummary?.reportJsonUrl ?? null)
-  const reportHtmlUrl = toAbsoluteApiUrl(reportSummary?.reportHtmlUrl ?? null)
+  // 仅用于判断报告文件是否存在；实际下载通过后台鉴权接口完成，不需要绝对 URL
+  const reportJsonUrl = reportSummary?.reportJsonUrl ?? null
+  const reportHtmlUrl = reportSummary?.reportHtmlUrl ?? null
 
   const TABS: Array<{ key: ArtifactTab; label: string; icon: typeof BarChart2 }> = [
     { key: 'overview', label: '概览报告', icon: BarChart2 },
@@ -243,27 +246,24 @@ export function EvalArtifactsPanel({
                       {(reportJsonUrl || reportHtmlUrl) && (
                         <div className="flex flex-wrap gap-2">
                           {reportJsonUrl && (
-                            <a
-                              href={reportJsonUrl}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
                               className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]"
+                              onClick={() => reportSummary && onReportAction(reportSummary.reportId, 'json', `evaluation-report-${reportSummary.reportId}.json`, 'open')}
                             >
                               <ExternalLink size={10} />
                               查看报告 JSON
-                            </a>
+                            </button>
                           )}
                           {reportHtmlUrl && reportSummary && (
-                            <a
-                              href={reportHtmlUrl}
-                              download={`evaluation-report-${reportSummary.reportId}.html`}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
                               className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-3 py-1 text-[11px]"
+                              onClick={() => onReportAction(reportSummary.reportId, 'html', `evaluation-report-${reportSummary.reportId}.html`, 'download')}
                             >
                               <ExternalLink size={10} />
                               下载报告 HTML
-                            </a>
+                            </button>
                           )}
                         </div>
                       )}
@@ -700,27 +700,24 @@ export function EvalArtifactsPanel({
                       {(reportJsonUrl || reportHtmlUrl) && (
                         <div className="mt-4 flex flex-wrap gap-2">
                           {reportJsonUrl && (
-                            <a
-                              href={reportJsonUrl}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
                               className="inline-flex items-center gap-1.5 rounded-full border eval-pill-neutral px-3 py-1.5 text-[11px] font-medium"
+                              onClick={() => onReportAction(reportSummary.reportId, 'json', `evaluation-report-${reportSummary.reportId}.json`, 'open')}
                             >
                               <ExternalLink size={11} />
                               查看 JSON
-                            </a>
+                            </button>
                           )}
                           {reportHtmlUrl && (
-                            <a
-                              href={reportHtmlUrl}
-                              download={`evaluation-report-${reportSummary.reportId}.html`}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
                               className="inline-flex items-center gap-1.5 rounded-full border eval-pill-neutral px-3 py-1.5 text-[11px] font-medium"
+                              onClick={() => reportSummary && onReportAction(reportSummary.reportId, 'html', `evaluation-report-${reportSummary.reportId}.html`, 'download')}
                             >
                               <ExternalLink size={11} />
                               下载 HTML
-                            </a>
+                            </button>
                           )}
                         </div>
                       )}

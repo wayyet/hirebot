@@ -285,6 +285,34 @@ export default function EvaluationPage() {
     }
   }
 
+  // 报告文件（JSON / HTML）通过后台鉴权 API 以 Blob 方式打开或下载，
+  // 避免直接访问静态资源路径带来的跨域 download 属性失效及 Bearer Token 缺失问题。
+  // 接口路径：GET /api/v1/employees/{id}/evaluation/reports/{reportId}/files/{fileType}
+  async function handleReportAction(reportId: string, fileType: 'json' | 'html', fileName: string, action: 'download' | 'open') {
+    if (!id) return
+    try {
+      const relativeUrl = api.employeeRuntime.getReportFileDownloadUrl(id, reportId, fileType)
+      const accessToken = await tokenService.ensureFresh()
+      const response = await fetch(relativeUrl, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      })
+      if (!response.ok) {
+        throw new Error(`获取报告文件失败（HTTP ${response.status}）`)
+      }
+      const blob = await response.blob()
+      if (action === 'download') {
+        downloadBlob(blob, fileName)
+      } else {
+        const blobUrl = URL.createObjectURL(blob)
+        window.open(blobUrl, '_blank', 'noreferrer')
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 15_000)
+      }
+      setChatError('')
+    } catch (err: unknown) {
+      setChatError(err instanceof Error ? err.message : '获取报告文件失败')
+    }
+  }
+
   const addPendingFiles = useCallback((fileList: FileList | File[]) => {
     const files = Array.from(fileList)
     const endpoint = gatewayEndpointRef.current
@@ -1380,6 +1408,7 @@ export default function EvaluationPage() {
             onToggleQuestionCardDetails={toggleQuestionCardDetails}
             onRunSingleScenario={handleRunSingleScenario}
             onEnterHumanEval={handleEnterHumanEval}
+            onReportAction={(reportId, fileType, fileName, action) => void handleReportAction(reportId, fileType, fileName, action)}
           />
         </section>
       </div>
