@@ -1293,13 +1293,21 @@ internal sealed partial class EvaluationService(
 
         await UpdateSessionStatusAsync(sessionEntity, passed ? "passed" : "failed", null, cancellationToken);
 
+        // 推进员工 EvalPhase：ai_running → pending_human_review / pending_review
+        // 避免前端因 EvalPhase 未变化而持续向已销毁的沙箱发起 WebSocket 重连
+        var updatedEmployee = employee with
+        {
+            EvalPhase = passed ? "pending_human_review" : "pending_review",
+        };
+        await SaveEmployeeToDbAsync(updatedEmployee, cancellationToken);
+
         logger.LogInformation(
-            "[Eval] SyncVerdict persisted only. employeeId={EmployeeId} sessionId={SessionId} passed={Passed} currentStatus={Status} currentEvalPhase={EvalPhase}",
+            "[Eval] SyncVerdict persisted. employeeId={EmployeeId} sessionId={SessionId} passed={Passed} currentStatus={Status} newEvalPhase={EvalPhase}",
             employeeId,
             request.SessionId,
             passed,
             employee.Status,
-            employee.EvalPhase);
+            updatedEmployee.EvalPhase);
 
         var resultDto = new EvaluationVerdictSyncResultDto(
             employeeId.Trim(),
@@ -1307,7 +1315,7 @@ internal sealed partial class EvaluationService(
             passed,
             verdict.OverallScore,
             verdict.Summary ?? "",
-            employee.Status ?? "interning_ai",
+            updatedEmployee.Status ?? "interning_ai",
             new EvaluationReportSummaryDto(
                 reportResult.Data.ReportId,
                 reportResult.Data.Iteration,
