@@ -1998,3 +1998,259 @@ html[data-mode="light"][data-skin="warm"] .eval-human-confirm-modal {
   color: var(--hb-accent-text);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
 }
+
+/* Refined artifact panel for the evaluation sandbox side tabs. */
+.eval-artifacts-shell {
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hb-surface-card) 96%, transparent) 0%, var(--hb-surface) 100%);
+}
+
+.eval-artifact-pane-head {
+  border-bottom: 1px solid var(--hb-border);
+  padding: 14px 18px 13px;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--hb-accent-soft-bg) 55%, transparent), transparent 48%),
+    color-mix(in srgb, var(--hb-surface-card) 88%, transparent);
+}
+
+.eval-artifact-kicker {
+  color: var(--hb-caption);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.eval-artifact-status-chip {
+  display: inline-flex;
+  min-height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.eval-artifact-chip-neutral {
+  border-color: var(--hb-border);
+  background: var(--hb-surface-soft);
+  color: var(--hb-caption);
+}
+
+.eval-artifact-chip-success {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: color-mix(in srgb, #ecfdf5 82%, var(--hb-surface-card));
+  color: #047857;
+}
+
+.eval-artifact-chip-danger {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: color-mix(in srgb, #fff1f2 86%, var(--hb-surface-card));
+  color: #be123c;
+}
+
+.dark .eval-artifact-chip-success {
+  border-color: rgba(74, 222, 128, 0.22);
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+}
+
+.dark .eval-artifact-chip-danger {
+  border-color: rgba(248, 113, 113, 0.25);
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+}
+
+.eval-artifact-content {
+  scrollbar-gutter: stable;
+}
+
+.eval-tab-bar {
+  background: color-mix(in srgb, var(--hb-surface-card) 86%, transparent);
+}
+
+.eval-side-tab-button {
+  min-height: 40px;
+  border-color: transparent;
+  color: var(--hb-caption);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.eval-side-tab-button:hover {
+  border-color: var(--hb-border);
+  background: var(--hb-surface-soft);
+  color: var(--hb-near-black);
+}
+
+.eval-side-tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eval-tab-active {
+  border-color: var(--hb-accent-border-strong);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 82%, var(--hb-surface-card));
+  color: var(--hb-accent-text);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--hb-accent-border) 48%, transparent),
+    0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.eval-tab-inactive {
+  border-color: transparent;
+  color: var(--hb-caption);
+}
+
+.dark .eval-side-tab-button:hover,
+.dark .eval-tab-active {
+  border-color: var(--hb-accent-border-strong);
+  border-bottom-color: var(--hb-accent-border-strong);
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 54%, transparent);
+  color: var(--hb-accent-text);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--hb-accent-border) 30%, transparent),
+    0 8px 18px rgba(0, 0, 0, 0.16);
+}
+
+.eval-collapse-action {
+  border: 1px solid transparent;
+}
+
+.eval-collapse-action:hover {
+  border-color: var(--hb-border);
+}
+
+.eval-overview-hero,
+.eval-report-hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.eval-overview-hero::before,
+.eval-report-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 88% 12%, rgba(59, 130, 246, 0.14), transparent 32%),
+    radial-gradient(circle at 12% 8%, rgba(16, 185, 129, 0.12), transparent 30%);
+}
+
+.eval-overview-hero > *,
+.eval-report-hero > * {
+  position: relative;
+}
+
+.eval-score-orb {
+  display: flex;
+  width: 88px;
+  min-height: 96px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--hb-border);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hb-surface-card) 96%, transparent), var(--hb-surface-soft));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+.dark .eval-score-orb {
+  box-shadow: none;
+}
+
+.eval-metric-card {
+  border-color: var(--hb-border);
+  background: color-mix(in srgb, var(--hb-surface-card) 88%, transparent);
+}
+
+.eval-panel-empty {
+  min-height: 132px;
+  text-align: center;
+}
+
+.eval-tab-summary-card {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.eval-case-marker,
+.eval-trace-icon-frame {
+  display: inline-flex;
+  height: 26px;
+  width: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--hb-accent-soft-bg) 82%, var(--hb-surface-card));
+  color: var(--hb-accent-text);
+}
+
+.eval-case-id-chip {
+  max-width: 96px;
+  overflow: hidden;
+  border: 1px solid var(--hb-border);
+  border-radius: 999px;
+  background: var(--hb-surface-soft);
+  color: var(--hb-caption);
+  padding: 3px 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eval-side-action-button {
+  border: 1px solid var(--hb-border);
+  border-radius: 999px;
+  background: var(--hb-surface-card);
+  padding: 6px 10px;
+  color: var(--hb-body);
+}
+
+.eval-side-action-button:hover:not(:disabled) {
+  border-color: var(--hb-accent-border-strong);
+  background: var(--hb-accent-soft-bg);
+  color: var(--hb-accent-text);
+}
+
+.eval-side-action-button:disabled {
+  cursor: not-allowed;
+}
+
+.eval-trace-icon-frame {
+  background: color-mix(in srgb, #eff6ff 80%, var(--hb-surface-card));
+  color: #2563eb;
+}
+
+.dark .eval-trace-icon-frame {
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-artifact-pane-head {
+  background:
+    radial-gradient(circle at top right, rgba(255, 94, 15, 0.11), transparent 44%),
+    rgba(255, 255, 255, 0.38);
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-tab-active,
+html[data-mode="light"][data-skin="warm"] .eval-case-marker {
+  border-color: rgba(255, 94, 15, 0.22);
+  background: rgba(255, 94, 15, 0.10);
+  color: #c2410c;
+}
+
+html[data-mode="light"][data-skin="warm"] .eval-score-orb,
+html[data-mode="light"][data-skin="warm"] .eval-metric-card {
+  border-color: rgba(30, 41, 59, 0.08);
+  background: rgba(255, 255, 255, 0.52);
+}

@@ -33,16 +33,6 @@ export interface LocalStateMigrationResult {
 }
 
 export const migrationApi = {
-  importFixtureInstances() {
-    return httpClient.post<{
-      ownerSubject: string
-      fixtureDirectories: number
-      importedEmployees: number
-      importedImItems: number
-      employeeIds: string[]
-    }>('/api/v1/migrations/fixture-instances')
-  },
-
   migrateLocalState(payload: LocalStateMigrationRequest) {
     return httpClient.post<LocalStateMigrationResult, LocalStateMigrationRequest>(
       '/api/v1/migrations/local-state',

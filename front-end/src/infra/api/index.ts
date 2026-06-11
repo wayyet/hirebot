@@ -1,20 +1,16 @@
 ﻿import { employeeTemplateApi } from './modules/employeeTemplateApi'
 import { hiringWorkflowApi } from './modules/hiringWorkflowApi'
 import { employeeRuntimeApi } from './modules/employeeRuntimeApi'
-import { collaborationApi } from './modules/collaborationApi'
 import { skillCatalogApi } from './modules/skillCatalogApi'
 import { migrationApi } from './modules/migrationApi'
-import { teamImApi } from './modules/teamImApi'
 import { settingsApi } from './modules/settingsApi'
 
 export const api = {
   employeeTemplate: employeeTemplateApi,
   hiringWorkflow: hiringWorkflowApi,
   employeeRuntime: employeeRuntimeApi,
-  collaboration: collaborationApi,
   skillCatalog: skillCatalogApi,
   migration: migrationApi,
-  teamIm: teamImApi,
   settings: settingsApi,
 }
 
@@ -104,12 +100,8 @@ export type {
   ImConfigRequest,
   ImConfigResult,
   UpdateEmployeeLifecycleRequest,
-  UpdateEmployeeCapabilitiesRequest,
   CreatePersonalCloneRequest,
   InstanceChatMessage,
-  TrainingCheckpoint,
-  TrainingState,
-  TrainingDecisionRequest,
   EvaluationScenario,
   EvaluationReadiness,
   EvaluationQuestionCard,
@@ -129,19 +121,9 @@ export type {
   EvaluationWorkspaceStep,
   EvaluationWorkspaceStatus,
   EvaluationTraceContentResult,
-  ImportFixtureInstancesResult,
 } from './modules/employeeRuntimeApi'
 
 export type {
-  CollaborationGroupSummary,
-  CollaborationGroupMember,
-  CollaborationGroupDetail,
-  ArchiveCollaborationGroupRequest,
-} from './modules/collaborationApi'
-
-export type {
-  SkillSummary,
-  SkillDetail,
   StoreSkillItem,
   RecommendedStoreSkillItem,
   StoreSkillListData,
@@ -152,9 +134,3 @@ export type {
   LocalStateMigrationRequest,
   LocalStateMigrationResult,
 } from './modules/migrationApi'
-
-export type {
-  TeamImItem,
-  TeamImQuery,
-  ConfirmTeamImItemRequest,
-} from './modules/teamImApi'

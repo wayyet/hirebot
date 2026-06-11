@@ -2595,13 +2595,11 @@ export default function HiringPage() {
             overallProgress={viewModel.overallProgress}
             actionState={mergedActionState}
             instanceCreated={instanceCreated}
-            createdId={createdId}
             summaryItems={[{ label: '已上传文件', value: String(uploadedFileCount) }]}
             artifactFileNames={artifactFileNames}
             hasArtifactArchive={canDownloadFinalPackage}
             onContinue={handlePrototypeContinue}
             onFinalize={() => { void handleRequestPackaging() }}
-            onEnterTraining={(employeeId) => navigate(`/department-employees/instances/${employeeId}/training`)}
             onDownloadArtifact={(artifactName) => { void downloadBackendArtifact(artifactName) }}
             onDownloadArchive={() => { void downloadPersistedFinalPackage() }}
           />

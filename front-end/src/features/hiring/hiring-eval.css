@@ -2312,15 +2312,6 @@ body.hb-body-hiring-prototype {
     gap: 18px;
   }
 
-  .hb-stepper {
-    overflow-x: auto;
-    padding-bottom: 6px;
-  }
-
-  .hb-stepper-item {
-    min-width: 116px;
-  }
-
   .hb-hiring-composer-row {
     flex-wrap: wrap;
   }
