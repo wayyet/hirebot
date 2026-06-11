@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, AlertCircle } from 'lucide-react'
+import { CheckCircle2, Loader2, AlertCircle, TriangleAlert } from 'lucide-react'
 import { API_BASE_URL } from '@/infra/api/httpClient'
 import type { SandboxMessage } from '@/infra/sandbox/sandbox-api'
 import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
@@ -43,8 +43,8 @@ export function shortSandboxId(value?: string | null) {
 
 export function shortSessionId(value?: string | null) {
   if (!value) return '--'
-  if (value.length <= 18) return value
-  return `${value.slice(0, 8)}...${value.slice(-6)}`
+  if (value.length <= 28) return value
+  return `${value.slice(0, 12)}...${value.slice(-8)}`
 }
 
 export function resolveStageStatus(stepStatus?: string | null): WorkflowStageStatus {
@@ -67,6 +67,7 @@ export function workflowStageTone(status: WorkflowStageStatus) {
     case 'completed': return 'eval-tone-completed'
     case 'running':   return 'eval-tone-running'
     case 'failed':    return 'eval-tone-failed'
+    case 'warning':   return 'eval-tone-warning'
     default:          return 'eval-tone-pending'
   }
 }
@@ -79,6 +80,8 @@ export function workflowStageStatusLabel(status: WorkflowStageStatus, pendingLab
       return '进行中'
     case 'failed':
       return '失败'
+    case 'warning':
+      return '待补齐'
     default:
       return pendingLabel
   }
@@ -92,13 +95,15 @@ export function workflowStageTextTone(status: WorkflowStageStatus) {
       return 'eval-flow-step-text-running'
     case 'failed':
       return 'eval-flow-step-text-failed'
+    case 'warning':
+      return 'eval-flow-step-text-warning'
     default:
       return 'eval-flow-step-text-pending'
   }
 }
 
 export function findCurrentWorkflowStageIndex(stages: WorkflowStage[]) {
-  const runningOrFailedIndex = stages.findIndex((stage) => stage.status === 'running' || stage.status === 'failed')
+  const runningOrFailedIndex = stages.findIndex((stage) => stage.status === 'running' || stage.status === 'failed' || stage.status === 'warning')
   if (runningOrFailedIndex >= 0) return runningOrFailedIndex
 
   const pendingIndex = stages.findIndex((stage) => stage.status === 'pending')
@@ -115,6 +120,8 @@ export function renderWorkflowStageMarker(status: WorkflowStageStatus, order: nu
       return <Loader2 size={15} className="animate-spin" />
     case 'failed':
       return <AlertCircle size={15} />
+    case 'warning':
+      return <TriangleAlert size={15} />
     default:
       return <span className="text-[11px] font-semibold">{String(order).padStart(2, '0')}</span>
   }

@@ -381,14 +381,6 @@ export function EvalArtifactsPanel({
                                   {expanded ? '收起题卡' : '展开题卡'}
                                 </button>
                               )}
-                              <button
-                                type="button"
-                                disabled={!aiRunning || chatSending}
-                                className="eval-side-inline-action eval-side-action-button disabled:opacity-50"
-                                onClick={() => onRunSingleScenario(outline.testcaseId, outline.title)}
-                              >
-                                仅运行此场景
-                              </button>
                             </div>
 
                             {expanded && card && (

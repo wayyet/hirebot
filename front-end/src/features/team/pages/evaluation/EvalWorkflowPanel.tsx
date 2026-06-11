@@ -1,4 +1,4 @@
-import { Check, CheckCircle2, Loader2, AlertCircle, Trash2 } from 'lucide-react'
+import { Check, CheckCircle2, Loader2, AlertCircle, Trash2, TriangleAlert } from 'lucide-react'
 import type { WorkflowStage } from './evaluationTypes'
 import {
   workflowStageTone,
@@ -50,7 +50,9 @@ export function EvalWorkflowPanel({
                     ? 'eval-flow-step-line-running'
                     : stage.status === 'failed'
                       ? 'eval-flow-step-line-failed'
-                      : 'eval-flow-step-line-pending'
+                      : stage.status === 'warning'
+                        ? 'eval-flow-step-line-warning'
+                        : 'eval-flow-step-line-pending'
 
                 return (
                   <div key={stage.key} className="flex min-w-0 flex-1">
@@ -74,6 +76,8 @@ export function EvalWorkflowPanel({
                             <Loader2 size={12} className="animate-spin" />
                           ) : stage.status === 'failed' ? (
                             <AlertCircle size={12} />
+                          ) : stage.status === 'warning' ? (
+                            <TriangleAlert size={12} />
                           ) : (
                             <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
                           )}

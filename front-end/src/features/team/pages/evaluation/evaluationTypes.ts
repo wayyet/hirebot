@@ -89,7 +89,7 @@ export interface TraceJsonData {
 
 export type ArtifactTab = 'overview' | 'testcase' | 'trace' | 'report'
 
-export type WorkflowStageStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type WorkflowStageStatus = 'pending' | 'running' | 'completed' | 'failed' | 'warning'
 
 export type WorkflowStage = {
   key: string

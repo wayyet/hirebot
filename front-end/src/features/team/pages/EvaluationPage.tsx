@@ -348,14 +348,19 @@ export default function EvaluationPage() {
   const workflowStages = useMemo<WorkflowStage[]>(() => {
     const stepMap = new Map((workspaceStatus?.steps ?? []).map((step) => [step.step, step.status]))
     // 保持原有四步流程语义：材料阶段以测试用例就绪作为完成标志
+    const rawMaterialsStatus = mergeStageStatus([
+      stepMap.get('upload_skill'),
+      stepMap.get('upload_employee_template'),
+      stepMap.get('upload_artifacts'),
+      materialsReady ? 'completed' : stepMap.get('materials'),
+    ])
+    // 上传步骤已完成但后端明确反馈材料未就绪（缺测试用例 / 本体），
+    // 此时合并状态会误判为 running，转为 warning 停止进度条并以黄色警告提示用户补齐。
     const materialsStageStatus: WorkflowStageStatus = testcaseCount > 0
       ? 'completed'
-      : mergeStageStatus([
-          stepMap.get('upload_skill'),
-          stepMap.get('upload_employee_template'),
-          stepMap.get('upload_artifacts'),
-          materialsReady ? 'completed' : stepMap.get('materials'),
-        ])
+      : !materialsReady && rawMaterialsStatus === 'running'
+        ? 'warning'
+        : rawMaterialsStatus
     // 执行阶段：只有本次会话内点击「执行评估」才进入 running，刷新前未点击视为 pending；
     // 人工评估按钮出现（canNavigateToHumanEval）才算 completed
     const executionStatus: WorkflowStageStatus = canNavigateToHumanEval
@@ -382,9 +387,11 @@ export default function EvaluationPage() {
         title: '装载模板与材料',
         detail: testcaseCount > 0
           ? `测试用例已就绪（${testcaseCount} 个场景）`
-          : materialsReady
-            ? '模板材料已进入评估沙箱，等待测试用例生成'
-            : '上传评估技能包、目标模板和评估材料',
+          : !materialsReady && rawMaterialsStatus === 'running'
+            ? '测试用例不存在，请上传后重新执行 LOAD_SKILL'
+            : materialsReady
+              ? '模板材料已进入评估沙箱，等待测试用例生成'
+              : '上传评估技能包、目标模板和评估材料',
         status: materialsStageStatus,
       },
       {
@@ -446,16 +453,6 @@ export default function EvaluationPage() {
 
     const reportMetrics = useMemo(() => ([
     {
-      label: '会话 ID',
-      value: shortSessionId(workspaceStatus?.sessionId ?? reportSummary?.reportId ?? null),
-      tone: 'eval-text-indigo',
-    },
-    {
-      label: '题卡数量',
-      value: `${testcaseCount}`,
-      tone: 'eval-text-teal',
-    },
-    {
       label: 'Trace 产物',
       value: `${traceAssets.length}`,
       tone: 'eval-text-amber',
@@ -465,7 +462,7 @@ export default function EvaluationPage() {
       value: materialsReady ? '已就绪' : '待补齐',
       tone: materialsReady ? 'eval-text-green-bright' : 'eval-text-red',
     },
-  ]), [materialsReady, testcaseCount, reportSummary?.reportId, traceAssets.length, workspaceStatus?.sessionId])
+  ]), [materialsReady, testcaseCount, traceAssets.length])
 
   const workspaceProgressSummary = useMemo(() => {
     if (!workspaceStatus || workspaceStatus.overallStatus === 'not_started') {

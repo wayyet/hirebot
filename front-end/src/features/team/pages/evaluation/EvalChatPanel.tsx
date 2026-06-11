@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { AlertCircle, Check, CheckCircle2, Copy, Download, FileCode, FileText, Loader2, MessageCircle, Package, Paperclip, SendHorizontal } from 'lucide-react'
+import { AlertCircle, Check, CheckCircle2, Copy, Download, FileCode, FileText, Loader2, Package, Paperclip, PlayCircle, SendHorizontal } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
@@ -7,10 +7,6 @@ import { InstanceChatMessageBody } from '@/features/team/components/InstanceChat
 import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
 import type { EvaluationTestcaseOutline, EvaluationWorkspaceStatus } from '@/infra/api'
 import type { EvalChatMessage, EvaluationChatFile, ArtifactTab } from './evaluationTypes'
-import {
-  evaluationStarterActions,
-  evaluationSuggestionPrompts,
-} from './evaluationTypes'
 import { formatDateTime, shortSessionId } from './evaluationUtils'
 
 const FILE_URL_INLINE_REGEX = /\[FILE_URL:([^\]|]+)(?:\|([^\]]+))?\](?:\s*\r?\nAttached file:\s*([^\r\n]+))?/g
@@ -273,58 +269,20 @@ export function EvalChatPanel({
                     正在加载评估沙箱对话...
                   </div>
                 ) : chatMessages.length === 0 ? (
-                  // 空状态：引导页
-                  <div className="flex min-h-full items-center justify-center py-8">
-                    <section className="eval-chat-empty-stage flex w-full max-w-[760px] flex-col items-center">
-                      <div className="eval-empty-stage-icon">
-                        <MessageCircle size={20} />
-                      </div>
-                      <div className="mt-5 text-center">
-                        <h2 className="text-[28px] font-semibold tracking-[-0.02em] eval-text-strong">从一句话开始评估</h2>
-                        <p className="mx-auto mt-3 max-w-[560px] text-[14px] leading-7 eval-text-secondary">
-                          暂无对话。选一个起手动作直接向评估沙箱提问，所有答复、执行轨迹和评分结论都会同步回到当前面板。
-                        </p>
-                      </div>
-
-                      <div className="mt-9 grid w-full gap-3 md:grid-cols-3">
-                        {evaluationStarterActions.map((action, index) => (
-                          <button
-                            key={action.key}
-                            type="button"
-                            disabled={chatSending}
-                            className="eval-starter-card text-left disabled:cursor-not-allowed disabled:opacity-60"
-                            onClick={() => onSendMessage(action.prompt)}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="eval-starter-card-icon">
-                                <action.icon size={16} />
-                              </div>
-                              <span className="eval-starter-card-index">{index + 1}</span>
-                            </div>
-                            <div className="mt-6 text-[18px] font-semibold tracking-[-0.02em] eval-text-title">
-                              {action.title}
-                            </div>
-                            <p className="mt-2 text-[13px] leading-6 eval-text-secondary">
-                              {action.description}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-                        {evaluationSuggestionPrompts.map((prompt) => (
-                          <button
-                            key={prompt}
-                            type="button"
-                            disabled={chatSending}
-                            className="eval-suggestion-pill disabled:cursor-not-allowed disabled:opacity-60"
-                            onClick={() => onSendMessage(prompt)}
-                          >
-                            {prompt}
-                          </button>
-                        ))}
-                      </div>
-                    </section>
+                  <div className="flex min-h-full flex-col items-center justify-center gap-3 py-12 text-center">
+                    <div className="eval-empty-stage-icon">
+                      <PlayCircle size={20} />
+                    </div>
+                    <div className="mt-2">
+                      <p className="text-[14px] font-semibold eval-text-title">
+                        {aiRunning ? '评估正在进行中…' : '暂无对话'}
+                      </p>
+                      <p className="mx-auto mt-1.5 max-w-[320px] text-[12px] leading-6 eval-text-secondary">
+                        {aiRunning
+                          ? '评估 Agent 正在运行，对话记录将在完成后同步到此处。'
+                          : '点击左侧「执行评估」按钮启动评估流程，所有对话和评分结论将同步回此面板。'}
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   // 消息列表
