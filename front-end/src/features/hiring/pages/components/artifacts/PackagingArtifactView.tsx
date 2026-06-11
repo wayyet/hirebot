@@ -73,6 +73,75 @@ export function PackagingTestCasesStatusView({
 }
 
 /**
+ * 打包前完整性审查状态视图 - review_readiness / _progress / _report
+ */
+export function PackageReviewStatusView({
+  artifactType, data,
+}: PackagingArtifactViewProps) {
+  const rec = asRecord(data)
+  if (!rec) return <CodeView data={data} />
+
+  const summary = stringify(rec.summary ?? rec.message ?? '')
+  const status = stringify(rec.status ?? '')
+  const score = typeof rec.score_average === 'number' ? rec.score_average : null
+  const p0Count = Array.isArray(rec.p0_blockers) ? rec.p0_blockers.length : null
+  const p1Count = Array.isArray(rec.p1_warnings) ? rec.p1_warnings.length : null
+
+  const statusConfig: Record<string, { label: string; bg: string; color: string; border: string }> = {
+    review_readiness: {
+      label: '等待确认',
+      bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
+      border: 'rgba(245,158,11,0.30)',
+    },
+    review_progress: {
+      label: '审查中',
+      bg: 'rgba(37,99,235,0.10)', color: 'var(--hb-text-blue, #1d4ed8)',
+      border: 'rgba(37,99,235,0.25)',
+    },
+    review_report: {
+      label: status || '审查完成',
+      bg: status === 'FAIL' ? 'rgba(239,68,68,0.10)' : 'rgba(16,185,129,0.10)',
+      color: status === 'FAIL' ? 'var(--hb-danger, #dc2626)' : 'var(--hb-text-green, #059669)',
+      border: status === 'FAIL' ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.30)',
+    },
+  }
+  const st = statusConfig[artifactType] ?? statusConfig.review_readiness
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {score !== null && (
+          <span style={statChipStyle}>
+            {'评分'} <b style={{ marginLeft: 3 }}>{score}</b>
+          </span>
+        )}
+        {p0Count !== null && (
+          <span style={statChipStyle}>
+            {'P0'} <b style={{ marginLeft: 3 }}>{p0Count}</b>
+          </span>
+        )}
+        {p1Count !== null && (
+          <span style={statChipStyle}>
+            {'P1'} <b style={{ marginLeft: 3 }}>{p1Count}</b>
+          </span>
+        )}
+        <span style={{
+          fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600,
+          background: st.bg, color: st.color, border: `1px solid ${st.border}`,
+        }}>
+          {st.label}
+        </span>
+      </div>
+      {summary && (
+        <div style={{ fontSize: 12, color: 'var(--hb-text, #374151)', lineHeight: 1.65 }}>
+          {summary}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * 阶段4打包视图 - stage4_packaging
  */
 export function Stage4PackagingView({ data }: { data: unknown }) {
@@ -87,12 +156,14 @@ export function Stage4PackagingView({ data }: { data: unknown }) {
 
   const statusLabel: Record<string, string> = {
     waiting_downstream: '等待下游完成',
+    packing: '打包中',
     packaging: '打包中',
     done: '已完成',
     failed: '失败',
   }
   const statusColor: Record<string, string> = {
     waiting_downstream: 'var(--hb-text-amber, #b45309)',
+    packing: 'var(--hb-text-blue, #1d4ed8)',
     packaging: 'var(--hb-text-blue, #1d4ed8)',
     done: 'var(--hb-text-green, #059669)',
     failed: 'var(--hb-danger, #dc2626)',

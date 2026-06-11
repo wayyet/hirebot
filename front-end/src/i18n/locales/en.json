@@ -209,7 +209,7 @@
       "gatewayNotAvailable": "Unable to get file upload gateway, please try again",
       "cannotGetFileData": "Cannot get raw file data: {{name}}",
       "conversationInProgress": "Conversation in progress, please wait before uploading Skill",
-      "pleaseRequestPackaging": "Please tell the assistant 'All confirmations done, please generate the digital employee', then click Generate after the sandbox finishes packaging.",
+      "pleaseRequestPackaging": "Please tell the assistant 'All confirmations done, please generate the instance package as a ZIP', then click Generate after the sandbox finishes packaging.",
       "noGatewayEndpoint": "Cannot get sandbox gateway address. Please refresh the page and try again.",
       "downloadPackageFailed": "Failed to download digital employee package from sandbox gateway (HTTP {{status}})",
       "invalidPackageResponse": "Sandbox gateway returned a non-binary response",
@@ -234,10 +234,8 @@
     },
     "intro": {
       "digitalEmployee": "Digital Employee",
-      "defaultAbilities": "business understanding, skill configuration, external system integration",
       "title": "I am {{name}}",
       "subtitle": "We will complete a new department hiring flow based on the「{{name}}」template. I will proactively tell you what I still need.",
-      "detail": "Hello, I am digital employee {{name}}. This session will cover material discovery, skill organization, external system confirmation, and instance delivery around {{abilities}}.",
       "userAvatar": "You"
     },
     "file": {
@@ -263,7 +261,7 @@
       "labelReleaseNote": "Release notes: {{note}}",
       "labelDescription": "Skill description: {{desc}}",
       "uploaded": "Skill package uploaded and info submitted",
-      "requestPackaging": "All three stages confirmed. Please generate the digital employee."
+      "requestPackaging": "All three stages are confirmed. Please generate the instance package as a ZIP."
     },
     "tool": {
       "calling": "Calling {{name}}",
@@ -417,7 +415,6 @@
         "pendingConfirmDesc": "Skill definition confirmed, please confirm whether to start generating skill implementations in the chat.",
         "confirmGenerate": "Confirm Skill Generation",
         "confirmStageDone": "Advance to External Systems",
-        "projectionConfirmDesc": "The business information needed for skill generation is ready. Please confirm in the chat whether these prepared materials should be used.",
         "currentStatus": "Current Status",
         "definitionStatus": "Definition Status",
         "implementationStatus": "Implementation Status",

@@ -1,7 +1,64 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ChatMessage, ToolStep } from '../hiringPageTypes'
-import { chatToMarkdown } from './hiringConversationMarkdown'
+import { buildChatRenderItems, chatToMarkdown } from './hiringConversationMarkdown'
+
+describe('buildChatRenderItems', () => {
+  it('遇到下一条用户消息前先渲染暂存 artifact', () => {
+    const messages: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: '确认资料' },
+      {
+        id: 'a1',
+        role: 'artifact',
+        content: '资料进度',
+        artifact: {
+          kind: 'data',
+          artifactType: 'material_collection_progress',
+          label: '资料进度',
+          isTerminal: false,
+        },
+      },
+      { id: 'u2', role: 'user', content: '继续' },
+      { id: 'b1', role: 'bot', content: '继续处理。' },
+    ]
+
+    const renderItems = buildChatRenderItems(messages)
+
+    expect(renderItems.map(item => item.key)).toEqual(['u1', 'a1', 'u2', 'b1'])
+    expect(renderItems[1].kind).toBe('artifact')
+    expect(renderItems[3].kind).toBe('message')
+    if (renderItems[3].kind === 'message') {
+      expect(renderItems[3].leadingArtifacts).toBeUndefined()
+    }
+  })
+
+  it('不渲染非终态打包进度 artifact，避免展示内部 JSON', () => {
+    const messages: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: '继续' },
+      {
+        id: 'a1',
+        role: 'artifact',
+        content: '打包进度',
+        artifact: {
+          kind: 'data',
+          artifactType: 'packaging_progress',
+          label: '打包进度',
+          stage: 'stage4_packaging',
+          isTerminal: false,
+          data: { status: 'packing' },
+        },
+      },
+      { id: 'b1', role: 'bot', content: '正在生成数字员工包。' },
+    ]
+
+    const renderItems = buildChatRenderItems(messages)
+    const markdown = chatToMarkdown(messages, '化妆品排产员')
+
+    expect(renderItems.map(item => item.key)).toEqual(['u1', 'b1'])
+    expect(markdown).not.toContain('packaging_progress')
+    expect(markdown).not.toContain('"status":"packing"')
+  })
+})
 
 describe('chatToMarkdown', () => {
   it('导出已完成 bot 消息携带的工具调用参数和返回', () => {

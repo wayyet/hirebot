@@ -35,6 +35,13 @@
           "terminal": false
         },
         {
+          "type": "skill_definition_ready",
+          "label": "Await Skill Definition Approval",
+          "display": "badge",
+          "terminal": false,
+          "note": "Confirmation gate for the skill definition draft. User approval is required before emitting skill_workorder_summary."
+        },
+        {
           "type": "skill_workorder_summary",
           "label": "Skill Workorder Summary",
           "display": "tree",
@@ -42,18 +49,25 @@
           "note": "data must include workspace_root, template_slug, and the projection-pass fields on items[]. Missing workspace_root or template_slug blocks this terminal artifact."
         },
         {
-          "type": "skill_generation_ready",
-          "label": "等待确认是否开始准备业务资料",
+          "type": "ontology_projection_ready",
+          "label": "Await Business Information Preparation Approval",
           "display": "badge",
           "terminal": false,
-          "note": "First confirmation gate after skill definition is done. Ask whether producer projection preparation should start."
+          "note": "Confirmation gate after skill_workorder_summary. User approval is required before triggering ontology projection pass."
+        },
+        {
+          "type": "skill_generation_ready",
+          "label": "Await Skill Generation Approval",
+          "display": "badge",
+          "terminal": false,
+          "note": "Confirmation gate after consumable ontology_projection_done. User approval is required before triggering skill-generation."
         },
         {
           "type": "skill_projection_binding_ready",
-          "label": "业务资料已准备好，等待确认是否采用",
+          "label": "业务资料已准备好，正在生成技能实现",
           "display": "badge",
           "terminal": false,
-          "note": "Second confirmation gate. Emit only when ontology projection produced consumable producer projections, then ask whether to bind them into the generated skill package."
+          "note": "Optional progress notification only. Emit only when ontology projection produced consumable producer projections. It must not replace the skill_generation_ready confirmation gate."
         }
       ]
     },
@@ -113,6 +127,27 @@
           "label": "Packaging Test Cases Done",
           "display": "tree",
           "terminal": true
+        },
+        {
+          "type": "review_readiness",
+          "label": "Package Completeness Review Ready",
+          "display": "badge",
+          "terminal": false,
+          "note": "Optional pre-packaging review gate backed by digital-employee-package-completeness-review. User skip must not block packaging."
+        },
+        {
+          "type": "review_progress",
+          "label": "Package Completeness Review In Progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted when the optional package completeness review is running."
+        },
+        {
+          "type": "review_report",
+          "label": "Package Completeness Review Report",
+          "display": "tree",
+          "terminal": true,
+          "note": "Review result summary from digital-employee-package-completeness-review. It informs the user but does not remove packaging authority."
         },
         {
           "type": "packaging_progress",
@@ -181,6 +216,24 @@
         "terminal": true
       },
       {
+        "type": "review_readiness",
+        "label": "Package Completeness Review Ready",
+        "display": "badge",
+        "terminal": false
+      },
+      {
+        "type": "review_progress",
+        "label": "Package Completeness Review In Progress",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "review_report",
+        "label": "Package Completeness Review Report",
+        "display": "tree",
+        "terminal": true
+      },
+      {
         "type": "packaging_progress",
         "label": "Packaging In Progress",
         "display": "progress",
@@ -200,18 +253,33 @@
     "description": "Artifacts emitted by downstream skills and the upstream coach. The frontend routes them to dedicated execution tracks and must not let them override the main stage semantics.",
     "artifacts": [
       {
+        "type": "skill_definition_ready",
+        "ownerSkill": "employment-coach-conversation",
+        "label": "Await Skill Definition Approval",
+        "display": "badge",
+        "terminal": false
+      },
+      {
+        "type": "ontology_projection_ready",
+        "ownerSkill": "employment-coach-conversation",
+        "label": "Await Business Information Preparation Approval",
+        "display": "badge",
+        "terminal": false
+      },
+      {
         "type": "skill_generation_ready",
         "ownerSkill": "employment-coach-conversation",
-        "label": "等待确认是否开始准备业务资料",
+        "label": "Await Skill Generation Approval",
         "display": "badge",
         "terminal": false
       },
       {
         "type": "skill_projection_binding_ready",
         "ownerSkill": "employment-coach-conversation",
-        "label": "业务资料已准备好，等待确认是否采用",
+        "label": "业务资料已准备好，正在生成技能实现",
         "display": "badge",
-        "terminal": false
+        "terminal": false,
+        "note": "Optional progress notification only; not a confirmation gate."
       },
       {
         "type": "external_config_committed",
@@ -238,6 +306,27 @@
         "type": "packaging_testcases_done",
         "ownerSkill": "packaging-test-cases",
         "label": "Packaging Test Cases Done",
+        "display": "tree",
+        "terminal": true
+      },
+      {
+        "type": "review_readiness",
+        "ownerSkill": "employment-coach-conversation",
+        "label": "Package Completeness Review Ready",
+        "display": "badge",
+        "terminal": false
+      },
+      {
+        "type": "review_progress",
+        "ownerSkill": "employment-coach-conversation",
+        "label": "Package Completeness Review In Progress",
+        "display": "progress",
+        "terminal": false
+      },
+      {
+        "type": "review_report",
+        "ownerSkill": "employment-coach-conversation",
+        "label": "Package Completeness Review Report",
         "display": "tree",
         "terminal": true
       },

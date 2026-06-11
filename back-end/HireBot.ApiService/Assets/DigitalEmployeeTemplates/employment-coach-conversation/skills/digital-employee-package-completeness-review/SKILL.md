@@ -427,6 +427,13 @@ The full review report MUST be written to `<workspace_root>/reports/package-comp
 - Score (10 dimensions)
 - Recommended Fix Order
 
+## References
+
+| 文件 | 何时读 |
+|---|---|
+| [references/review-criteria.md](references/review-criteria.md) | 判定审查结果等级（PASS/PASS_WITH_CONCERNS/FAIL）时；需要查阅常见发现码含义与修复建议时；执行人工审查盲点检查时 |
+| [contracts/artifacts.json](contracts/artifacts.json) | 发出 `review_progress` / `review_report` artifact 前；需要确认字段格式时 |
+
 ## Search Keywords
 
 digital employee package, GoodCrew template, NCrew template, agent template, skill bundle, ontology slice, projection contract, contract-index.json, manifest.json, SKILL.md, metadata.json, config/AGENTS.md, SOUL.md, IDENTITY.md, MEMORY.md, evaluation/testcases.json, scripts/validate_digital_employee_package.py, --ontology-extensions, installability, runtime readiness, package completeness, template validation, skill completeness, ontology projection, business rule consistency, human review boundary, downstream push, audit log

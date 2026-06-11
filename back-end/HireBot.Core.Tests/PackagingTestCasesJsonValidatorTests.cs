@@ -13,8 +13,9 @@ public class PackagingTestCasesJsonValidatorTests
         {
             new HiringConversationMessageDto("1", "user", "hi", DateTimeOffset.UtcNow),
             new HiringConversationMessageDto("2", "user", "请开始生成产物包", DateTimeOffset.UtcNow),
-            new HiringConversationMessageDto("3", "user", "我需要查询订单物流状态", DateTimeOffset.UtcNow),
-            new HiringConversationMessageDto("4", "assistant", "好的，我来帮您查询物流。", DateTimeOffset.UtcNow)
+            new HiringConversationMessageDto("3", "user", "三个阶段均已确认完成，请开始生成数字员工", DateTimeOffset.UtcNow),
+            new HiringConversationMessageDto("4", "user", "我需要查询订单物流状态", DateTimeOffset.UtcNow),
+            new HiringConversationMessageDto("5", "assistant", "好的，我来帮您查询物流。", DateTimeOffset.UtcNow)
         };
 
         var transcript = PackagingTestCasesJsonValidator.PrepareHistoryTranscript(messages);
@@ -23,6 +24,26 @@ public class PackagingTestCasesJsonValidatorTests
         Assert.Equal("user", transcript[0].Role);
         Assert.Contains("物流", transcript[0].Content);
         Assert.Equal("assistant", transcript[1].Role);
+    }
+
+    [Theory]
+    [InlineData("三个阶段均已确认完成，请开始生成数字员工")]
+    [InlineData("已完成全部确认，请生成数字员工")]
+    [InlineData("请生成数字员工包")]
+    [InlineData("All three stages confirmed. Please generate the digital employee.")]
+    [InlineData("Please generate the digital employee package.")]
+    [InlineData("All three stages are confirmed. Please generate the instance package as a ZIP.")]
+    public void PackagingIntentSupport_WhenDigitalEmployeeGenerationWording_ShouldReturnTrue(string content)
+    {
+        Assert.True(PackagingIntentSupport.IsPackagingIntent(content));
+    }
+
+    [Theory]
+    [InlineData("这个数字员工需要支持排产")]
+    [InlineData("数字员工角色叫化妆品排产员")]
+    public void PackagingIntentSupport_WhenOnlyDescribingDigitalEmployee_ShouldReturnFalse(string content)
+    {
+        Assert.False(PackagingIntentSupport.IsPackagingIntent(content));
     }
 
     [Fact]

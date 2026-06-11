@@ -234,10 +234,8 @@
     },
     "intro": {
       "digitalEmployee": "数字员工",
-      "defaultAbilities": "业务理解、技能配置、外部系统连接",
       "title": "我是{{name}}",
       "subtitle": "我们会基于「{{name}}」模板完成一条新的部门版雇佣流程。这次我会像一位即将上岗的新同事一样，主动告诉你我还缺什么。",
-      "detail": "你好，我是数字员工{{name}}，本次会围绕 {{abilities}} 等能力完成资料发现、技能整理、外部系统确认和实例交付。",
       "userAvatar": "你"
     },
     "file": {
@@ -276,7 +274,7 @@
       "userHeader": "### 👤 用户",
       "attachments": "*附件: {{files}}*",
       "botHeader": "### 🤖 {{name}}",
-      "artifactHeader": "### 📦 产物 · {{label}}",
+      "artifactHeader": "### 📦 阶段结果 · {{label}}",
       "fileName": "- 文件名: {{name}}",
       "fileSize": "- 大小: {{size}}",
       "stageGate": "### 🚦 阶段推进 · {{from}} → {{to}}",
@@ -303,20 +301,20 @@
     "stage": {
       "material": {
         "title": "业务资料",
-        "description": "上传、分类与抚取目标",
+        "description": "上传、分类与抽取目标",
         "panelTitle": "补齐业务资料",
-        "panelDescription": "至少上传 1 份资料，并为每份资料写清楚后续要抚取什么。",
+        "panelDescription": "至少上传 1 份资料，并为每份资料写清楚后续要抽取什么。",
         "subtask": "资料分类",
         "pendingLabel": "待上传",
         "completeLabel": "已就绪",
-        "placeholder": "先发最能代表业务规则或真实案例的资料，我会继续追问分类和抚取目标。"
+        "placeholder": "先发最能代表业务规则或真实案例的资料，我会继续追问分类和抽取目标。"
       },
       "skill": {
         "title": "技能补齐",
         "description": "默认基线与补充能力",
-        "panelTitle": "确认技能工单",
+        "panelTitle": "确认技能定义",
         "panelDescription": "确认模板默认技能基线，为本轮需要新增或调整的能力项给出明确名称与描述。",
-        "subtask": "技能工单",
+        "subtask": "技能定义",
         "pendingLabel": "待补齐",
         "completeLabel": "已确认",
         "placeholder": "继续描述还缺哪些技能；如果默认基线已经够用，也可以直接确认推进第三阶段。"
@@ -417,7 +415,6 @@
         "pendingConfirmDesc": "技能定义已确认，请在对话区确认是否开始生成技能实现。",
         "confirmGenerate": "确认生成技能",
         "confirmStageDone": "推进到外部系统",
-        "projectionConfirmDesc": "技能所需业务资料已准备好，请在对话区确认是否采用这些资料生成技能。",
         "currentStatus": "当前状态",
         "definitionStatus": "定义状态",
         "implementationStatus": "实现状态",

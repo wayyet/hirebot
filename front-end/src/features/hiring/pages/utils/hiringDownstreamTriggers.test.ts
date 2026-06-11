@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildSkillGenerationPayload } from './hiringDownstreamTriggers'
+import {
+  buildDownstreamPrompt,
+  buildPackagingRequestPrompt,
+  buildSkillDefinitionConfirmationPrompt,
+  buildSkillGenerationPayload,
+  isSkillDefinitionApprovalMessage,
+  isOntologyProjectionApprovalMessage,
+  isSkillGenerationApprovalMessage,
+  isPackagingRequestMessage,
+  isPackagingTestCasesApprovalMessage,
+  isPackagingTestCasesSkipMessage,
+  resolveActiveSkillStageRun,
+  resolvePackagingRequestRoute,
+  resolveSkillStageApprovalRoute,
+} from './hiringDownstreamTriggers'
+import type { DownstreamRunState } from '../hiringPageTypes'
 
 describe('buildSkillGenerationPayload', () => {
   it('projection 目录 slug 与已确认技能 slug 不一致时不启动技能生成', () => {
@@ -38,5 +53,265 @@ describe('buildSkillGenerationPayload', () => {
       projection_binding_confirmed: true,
       projection_contract_mode: 'required',
     })
+  })
+
+  it('缺少 projected_count 但有 projection_paths 时仍可兼容启动', () => {
+    const payload = buildSkillGenerationPayload({
+      workspace_root: '/workspace/template-1',
+      items: [
+        { name: 'insert-order-feasibility', display_name: '插单可行性评估' },
+      ],
+    }, {
+      projection_paths: [
+        'ontology/projections/insert-order-feasibility/cosmetics.workflow-contract.projection.json',
+      ],
+    })
+
+    expect(payload).toMatchObject({
+      confirmed_skill_slugs: ['insert-order-feasibility'],
+      projection_skill_slugs: ['insert-order-feasibility'],
+    })
+  })
+
+  it('只有 slice_paths 时不启动技能生成', () => {
+    const payload = buildSkillGenerationPayload({
+      workspace_root: '/workspace/template-1',
+      items: [
+        { name: 'insert-order-feasibility', display_name: '插单可行性评估' },
+      ],
+    }, {
+      projected_count: 1,
+      slice_paths: [
+        'ontology/scheduling-and-insertion-evaluation.slice.json',
+      ],
+      validation: 'NOT_RUN',
+    })
+
+    expect(payload).toBeNull()
+  })
+})
+
+describe('isSkillGenerationApprovalMessage', () => {
+  it('识别采用并继续和继续类确认', () => {
+    expect(isSkillGenerationApprovalMessage('采用并继续')).toBe(true)
+    expect(isSkillGenerationApprovalMessage('继续')).toBe(true)
+    expect(isSkillGenerationApprovalMessage('开始生成')).toBe(true)
+  })
+})
+
+describe('skill stage approval messages', () => {
+  it('分别识别技能定义确认和业务资料准备确认', () => {
+    expect(isSkillDefinitionApprovalMessage('确认技能清单')).toBe(true)
+    expect(isSkillDefinitionApprovalMessage('没问题，继续')).toBe(true)
+    expect(isOntologyProjectionApprovalMessage('开始准备业务资料')).toBe(true)
+    expect(isOntologyProjectionApprovalMessage('继续整理业务资料')).toBe(true)
+  })
+})
+
+describe('resolveSkillStageApprovalRoute', () => {
+  const skillDefinitionReady: DownstreamRunState = {
+    key: 'skill-generation',
+    status: 'waiting_confirm',
+    artifactType: 'skill_definition_ready',
+    updatedAt: '2026-06-11T00:00:00.000Z',
+  }
+  const projectionReady: DownstreamRunState = {
+    key: 'ontology-projection',
+    status: 'waiting_confirm',
+    artifactType: 'ontology_projection_ready',
+    updatedAt: '2026-06-11T00:00:01.000Z',
+  }
+  const skillGenerationReady: DownstreamRunState = {
+    key: 'skill-generation',
+    status: 'waiting_confirm',
+    artifactType: 'skill_generation_ready',
+    updatedAt: '2026-06-11T00:00:02.000Z',
+  }
+
+  it('projection 确认门优先于残留的技能定义确认门', () => {
+    expect(resolveSkillStageApprovalRoute({
+      text: '继续',
+      incomingFileCount: 0,
+      skillGenerationState: skillDefinitionReady,
+      ontologyProjectionState: projectionReady,
+      hasSkillSummary: true,
+      hasProjectionResult: false,
+    })).toBe('launch_projection_pass')
+  })
+
+  it('技能生成确认门优先于残留的业务资料准备确认门', () => {
+    expect(resolveSkillStageApprovalRoute({
+      text: '继续',
+      incomingFileCount: 0,
+      skillGenerationState: skillGenerationReady,
+      ontologyProjectionState: projectionReady,
+      hasSkillSummary: true,
+      hasProjectionResult: true,
+    })).toBe('launch_skill_generation')
+  })
+
+  it('右侧技能卡展示当前有效确认门，不被旧业务资料准备门覆盖', () => {
+    expect(resolveActiveSkillStageRun(skillGenerationReady, projectionReady)?.artifactType)
+      .toBe('skill_generation_ready')
+    expect(resolveActiveSkillStageRun(skillDefinitionReady, projectionReady)?.artifactType)
+      .toBe('ontology_projection_ready')
+  })
+})
+
+describe('isPackagingTestCasesSkipMessage', () => {
+  it('把生成实例包请求识别为跳过测试用例并直接打包', () => {
+    expect(isPackagingTestCasesSkipMessage('三个阶段均已确认完成，请生成实例包并打成 ZIP')).toBe(true)
+    expect(isPackagingTestCasesSkipMessage('All three stages are confirmed. Please generate the instance package as a ZIP.')).toBe(true)
+  })
+})
+
+describe('isPackagingTestCasesApprovalMessage', () => {
+  it('treats short generation approvals as testcase confirmation only when exact', () => {
+    expect(isPackagingTestCasesApprovalMessage('生成')).toBe(true)
+    expect(isPackagingTestCasesApprovalMessage('开始生成')).toBe(true)
+    expect(isPackagingTestCasesApprovalMessage('生成实例包')).toBe(false)
+    expect(isPackagingTestCasesApprovalMessage('生成数字员工包')).toBe(false)
+  })
+})
+
+describe('isPackagingRequestMessage', () => {
+  it('识别生成数字员工和继续类打包请求', () => {
+    expect(isPackagingRequestMessage('三个阶段均已确认完成，请开始生成数字员工')).toBe(true)
+    expect(isPackagingRequestMessage('生成实例包')).toBe(true)
+    expect(isPackagingRequestMessage('直接打包')).toBe(true)
+    expect(isPackagingRequestMessage('继续')).toBe(true)
+    expect(isPackagingRequestMessage('Please generate the instance package.')).toBe(true)
+  })
+})
+
+describe('resolvePackagingRequestRoute', () => {
+  const baseInput = {
+    text: 'continue packaging',
+    incomingFileCount: 0,
+    isBlockedByRequiredConfirmation: false,
+    isBlockedByPackagingTestCaseGeneration: false,
+    hasPendingPackageArtifact: false,
+    packagingInProgress: false,
+    hasReviewReport: false,
+    hasPackagingContext: false,
+    hasCompletedCoreSummaries: false,
+  }
+
+  it('routes review_report + continue packaging to the R6 packaging prompt', () => {
+    expect(resolvePackagingRequestRoute({
+      ...baseInput,
+      hasReviewReport: true,
+    })).toBe('launch_packaging_request')
+  })
+
+  it('prefers importing an existing package over starting another packaging run', () => {
+    expect(resolvePackagingRequestRoute({
+      ...baseInput,
+      hasPendingPackageArtifact: true,
+      hasReviewReport: true,
+    })).toBe('import_existing_package')
+  })
+
+  it('does not steal confirmation messages from required skill gates', () => {
+    expect(resolvePackagingRequestRoute({
+      ...baseInput,
+      hasReviewReport: true,
+      isBlockedByRequiredConfirmation: true,
+    })).toBe('none')
+  })
+})
+
+describe('buildPackagingRequestPrompt', () => {
+  it('drives workspace ZIP packaging without asking for another trigger', () => {
+    const prompt = buildPackagingRequestPrompt('继续打包')
+
+    expect(prompt).toContain('Do not ask for a package trigger')
+    expect(prompt).toContain('workspace_root')
+    expect(prompt).toContain('use a zip tool to package the workspace')
+    expect(prompt).toContain('template_package')
+  })
+
+  it('review_report 已存在时要求直接进入 R6 打包', () => {
+    const prompt = buildPackagingRequestPrompt('继续打包', {
+      status: 'PASS_WITH_CONCERNS',
+      p1_warnings: ['manifest.entry_skill.missing'],
+    })
+
+    expect(prompt).toContain('A `review_report` already exists')
+    expect(prompt).toContain('Do not rerun review')
+    expect(prompt).toContain('packaging_progress')
+    expect(prompt).toContain('review_risk_summary')
+  })
+})
+
+describe('buildSkillDefinitionConfirmationPrompt', () => {
+  it('确认技能定义后只要求收口 summary 和业务资料准备确认门', () => {
+    const prompt = buildSkillDefinitionConfirmationPrompt('确认技能清单', {
+      items: [{ name: 'insert-order-feasibility' }],
+    })
+
+    expect(prompt).toContain('skill_workorder_summary')
+    expect(prompt).toContain('ontology_projection_ready')
+    expect(prompt).toContain('Do not trigger ontology projection')
+    expect(prompt).not.toContain('skill_generation_progress')
+  })
+})
+
+describe('buildDownstreamPrompt', () => {
+  const samplePayload = { workspace_root: '/workspace/template-1' }
+
+  it('ontology-extraction prompt 包含 use skill ontology-extraction 触发块', () => {
+    const prompt = buildDownstreamPrompt('ontology-extraction', samplePayload)
+
+    expect(prompt).toContain('use skill ontology-extraction')
+    expect(prompt).toContain('Switch to skill `ontology-extraction` now.')
+    expect(prompt).toContain('[Internal downstream trigger: use skill ontology-extraction]')
+    expect(prompt).toContain('trigger_reason: material_handoff_summary_completed')
+    expect(prompt).toContain('stage=`stage1_material`')
+    expect(prompt).toContain('artifact_payload:')
+    expect(prompt).toContain('required_artifacts:')
+    expect(prompt).toContain('ontology_extraction_progress')
+    expect(prompt).toContain('ontology_extraction_done')
+  })
+
+  it('ontology-projection prompt 包含 use skill ontology-extraction 触发块', () => {
+    const prompt = buildDownstreamPrompt('ontology-projection', samplePayload)
+
+    expect(prompt).toContain('use skill ontology-extraction')
+    expect(prompt).toContain('Switch to skill `ontology-extraction` now.')
+    expect(prompt).toContain('[Internal downstream trigger: use skill ontology-extraction]')
+    expect(prompt).toContain('trigger_reason: user_confirmed_ontology_projection')
+    expect(prompt).toContain('stage=`stage2_skill`')
+    expect(prompt).toContain('artifact_payload:')
+    expect(prompt).toContain('required_artifacts:')
+    expect(prompt).toContain('ontology_projection_progress')
+    expect(prompt).toContain('ontology_projection_done')
+    expect(prompt).toContain('Projection Pass')
+  })
+
+  it('skill-generation prompt 包含 use skill skill-generation 触发块', () => {
+    const prompt = buildDownstreamPrompt('skill-generation', samplePayload)
+
+    expect(prompt).toContain('use skill skill-generation')
+    expect(prompt).toContain('Switch to skill `skill-generation` now.')
+    expect(prompt).toContain('[Internal downstream trigger: use skill skill-generation]')
+    expect(prompt).toContain('stage=`stage2_skill`')
+    expect(prompt).toContain('artifact_payload:')
+    expect(prompt).toContain('required_artifacts:')
+    expect(prompt).toContain('skill_generation_progress')
+    expect(prompt).toContain('skill_generation_done')
+  })
+
+  it('packaging-test-cases prompt 包含 use skill packaging-test-cases 触发块', () => {
+    const prompt = buildDownstreamPrompt('packaging-test-cases', samplePayload)
+
+    expect(prompt).toContain('use skill packaging-test-cases')
+    expect(prompt).toContain('Switch to skill `packaging-test-cases` now.')
+    expect(prompt).toContain('[Internal downstream trigger: use skill packaging-test-cases]')
+    expect(prompt).toContain('stage=`stage4_packaging`')
+    expect(prompt).toContain('artifact_payload:')
+    expect(prompt).toContain('required_artifacts:')
+    expect(prompt).toContain('packaging_testcases_progress')
+    expect(prompt).toContain('packaging_testcases_done')
   })
 })

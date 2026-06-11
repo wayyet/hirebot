@@ -2,6 +2,10 @@
 
 本文件描述 `employment-coach-conversation` skill 在各阶段调用 `emit_artifact` 工具的时机、字段规范和前端行为。
 
+合法 artifact 类型以 `contracts/artifacts.json` 为准；本文只解释使用时机，不新增协议类型。
+
+注意：artifact 只负责阶段状态与产物传递，不会自动把下游 skill 正文加载进上下文。凡是需要 `ontology-extraction`、`skill-generation`、`packaging-test-cases` 或 `digital-employee-package-completeness-review` 实际执行的步骤，必须按 [downstream-handoff-registry.md](downstream-handoff-registry.md) 构造内部触发块，显式点名 `use skill <skill-name>`。
+
 ## 工具调用格式
 
 ```json
@@ -12,7 +16,7 @@
     "artifactType": "<见下方表格>",
     "label": "<对用户可读的一句话进度描述>",
     "skillName": "employment-coach-conversation",
-    "stage": "<stage1_material | stage2_skill | stage3_external | stage4_packaging | ontology-projection>",
+    "stage": "<stage1_material | stage2_skill | stage3_external | stage4_packaging>",
     "isTerminal": false,
     "displayHint": "<progress | tree | badge | file>",
     "data": { "<见 stage-data-schema.md>" },
@@ -26,7 +30,7 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `kind` | `"data" \| "file"` | `data` 表示结构化数据产物；`file` 表示文件产物（如实例包） |
+| `kind` | `"data" \| "file"` | `data` 表示结构化数据产物；`file` 表示文件产物（内部实例包，对用户称数字员工包） |
 | `artifactType` | string | 与 `contracts/artifacts.json` 中的 `type` 字段对应 |
 | `label` | string | 前端胶囊显示的进度文本，用业务语言描述当前状态 |
 | `skillName` | string | 固定为 `employment-coach-conversation` |
@@ -48,12 +52,12 @@ stage 与前端胶囊的对应关系：
 - `stage1_material` → 资料收集胶囊
 - `stage2_skill` → 技能配置胶囊
 - `stage3_external` → 外部能力胶囊
-- `stage4_packaging` → 实例打包胶囊
-- `ontology-projection` → 本体 projection 子轨道（下游执行态）
+- `stage4_packaging` → 生成数字员工胶囊（内部实例打包）
+- `ontology-projection` → 为技能准备业务资料执行轨道；这是前端运行轨道名，不是 `emit_artifact.stage` 合法值。projection 相关 artifact 的 `stage` 必须使用 `stage2_skill`。
 
 补充说明：
 - `stage2_skill` 是“技能”主阶段，其中固定先完成技能定义，再进入技能生成确认/执行子步骤。
-- `skill_workorder_summary` 发出后，必须额外发出 `skill_generation_ready`；该 artifact 只驱动下游 `skill-generation` 轨为 `waiting_confirm`。前端应保留“技能定义已确认”子状态，但主 `stage2_skill` 胶囊在 `skill-generation` 完成前仍保持进行中。
+- 技能阶段有三个显式确认门：`skill_definition_ready`、`ontology_projection_ready`、`skill_generation_ready`。`skill_workorder_summary` 只能在 `skill_definition_ready` 被用户确认后发出；`skill_generation_ready` 只能在 `ontology_projection_done` 可消费后发出。主 `stage2_skill` 胶囊在 `skill-generation` 完成前仍保持进行中。
 
 ## 各阶段发出时机
 
@@ -71,24 +75,28 @@ stage 与前端胶囊的对应关系：
 | 时机 | artifactType | isTerminal | displayHint |
 |------|-------------|------------|-------------|
 | 技能阶段开始，收到第一条技能描述 | `skill_workorder_progress` | `false` | `progress` |
+| 技能清单草案已足够，等待用户确认 | `skill_definition_ready` | `false` | `badge` |
 | 用户确认技能清单完整，技能定义子步骤收口 | `skill_workorder_summary` | `true` | `tree` |
-| 技能定义已确认，等待用户确认是否开始技能生成 | `skill_generation_ready` | `false` | `badge` |
+| 技能定义已确认，等待用户确认是否准备业务资料 | `ontology_projection_ready` | `false` | `badge` |
+| projection 可消费，等待用户确认是否开始技能生成 | `skill_generation_ready` | `false` | `badge` |
 
 补充约束：
 - `skill_workorder_summary` 只表示“技能定义”子步骤完成，不代表可以直接进入阶段 3。
 - `skill_workorder_summary.data` 必须包含会话初始化阶段锁定的真实 `workspace_root` 与 `template_slug`（缺一不可），供后续 projection pass 与 skill-generation 启动使用；缺少任一字段时不得发出 terminal summary。
 - 只有 `skill-generation` 已完成且用户明确同意继续时，才允许发出 `external_workorder_progress`。
 
-### Projection Pass 子轨（ontology-projection）
+### 为技能准备业务资料子轨（ontology-projection）
 
 | 时机 | artifactType | isTerminal | displayHint |
 |------|-------------|------------|-------------|
 | 用户确认开始技能生成后，projection pass 启动 | `ontology_projection_progress` | `false` | `progress` |
 | projection pass 完成，可触发 skill-generation | `ontology_projection_done` | `true` | `tree` |
+| projection pass 产出可消费 projection 结果，可选进度通知 | `skill_projection_binding_ready` | `false` | `badge` |
 
 补充约束：
-- 这两个 artifact 由下游 `ontology-extraction` 产出，`stage` 使用 `ontology-projection`。
+- `ontology_projection_progress` 与 `ontology_projection_done` 由下游 `ontology-extraction` 产出，`stage` 使用 `stage2_skill`；前端根据 artifactType 路由到 `ontology-projection` 运行轨。
 - `ontology_projection_done` 到达前，不得触发 `skill-generation`。
+- `skill_projection_binding_ready` 不是用户确认门；只有 `ontology_projection_done.data.projection_paths[]` 可被技能生成消费时才允许发出，且不得替代 `skill_generation_ready` 确认门。
 
 ### 阶段 3：外部（stage3_external）
 
@@ -100,7 +108,7 @@ stage 与前端胶囊的对应关系：
 进入前提：
 - 只有在 `skill_generation_done` 已到达后，才允许真正进入外部阶段。
 
-### 阶段 4：实例打包（stage4_packaging）
+### 阶段 4：生成数字员工（stage4_packaging）
 
 | 时机 | artifactType | isTerminal | displayHint |
 |------|-------------|------------|-------------|
@@ -111,7 +119,7 @@ stage 与前端胶囊的对应关系：
 | 用户确认审查后，审查脚本执行中 | `review_progress` | `false` | `progress` |
 | 审查报告完成（含 P0/P1/P2 摘要与修复建议） | `review_report` | `true` | `tree` |
 | 打包请求已收到，等待下游或正在打包 | `packaging_progress` | `false` | `progress` |
-| 打包工具成功返回 fileUrl，实例包可导入 | `template_package` | `true` | `file` |
+| 打包工具成功返回 fileUrl，数字员工包可导入 | `template_package` | `true` | `file` |
 
 补充约束：
 - `template_package` 必须使用 `kind: "file"`，且 `fileUrl` 必须是打包工具真实返回值。
@@ -124,10 +132,10 @@ stage 与前端胶囊的对应关系：
 
 - **调用优先于对话输出**：同一轮次识别到可推送的阶段事件时，先调用 `emit_artifact`，再给用户一句简短的业务反馈
 - **data 字段必须严格遵循 schema**：`data` 内容必须完全符合 [stage-data-schema.md](stage-data-schema.md) 中对应 `artifactType` 的示例结构；不得添加任何 schema 中未列出的字段（如 `capabilities`、`materials`、`scene_hint` 等）
-- **禁止自造阶段 / artifact**：不得发出 `stage2_analysis`、`stage3_skills`、`skills_pipeline`、`analysis_result` 或任何未在本协议列出的 `artifactType` / `stage`。用户要求“推进到技能阶段”时，资料阶段只能先用 `material_handoff_summary` 收口，再由系统触发 `ontology-extraction`。
+- **禁止自造阶段 / artifact**：不得发出 `skill_generation_trigger`、`stage2_analysis`、`stage3_skills`、`skills_pipeline`、`analysis_result` 或任何未在 `contracts/artifacts.json` 中声明的 `artifactType` / `stage`。用户要求“推进到技能阶段”时，资料阶段只能先用 `material_handoff_summary` 收口，再由系统触发 `ontology-extraction`。
 - **顶层 status 语义**：仅打包相关 artifact（`packaging_progress`、`packaging_testcases_progress`、`packaging_testcases_done`）允许 `data.status`；其他 artifact 禁止顶层 `data.status`
 - **禁止旧 dispatch 字段**：`data` 中绝不出现 `status: "ready_to_dispatch"`、`dispatch_payload`、`handoff_todos` 等旧状态机字段；阶段完成用 `isTerminal: true` 表达
 - **不暴露字段值**：不在对话中展示 `artifactType`、`stage`、`isTerminal`、`data` 的原始 JSON 内容
 - **凭据禁入 data**：`data` 字段中绝不写入 token / 密钥 / 密码 / API Key / 连接串；凭据形式（OAuth / Bearer / 长期 Key）可以写，凭据值不能写
-- **label 必须是业务语言**：例如"已记录 3 份业务资料，等待你确认"，而不是技术字段名
-- **对话文案禁用旧词**：对话回复中禁止出现"dispatch 闭环"、"dispatch 信号"、"handoff 工单"、"ready_to_dispatch"、"dispatch 给下游"等词语
+- **label 必须是业务语言**：例如"已记录 3 份业务资料，等待你确认"，而不是技术字段名；`template_package` 的 label 对用户称"数字员工/数字员工包"，不称"实例包/产物包"
+- **对话文案禁用旧词和内部词**：对话回复中禁止出现"dispatch 闭环"、"dispatch 信号"、"handoff 工单"、"ready_to_dispatch"、"dispatch 给下游"、"实例包"、"产物包"、"本体切片"、"ontology"、"projection"、"artifact"、"workorder"等词语

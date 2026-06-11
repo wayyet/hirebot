@@ -1,6 +1,7 @@
 import i18n from '@/i18n'
 
 import type { ChatMessage, ToolStep } from '../hiringPageTypes'
+import { shouldDisplayArtifactInConversation } from '../hiringArtifactGuards'
 
 export type ChatRenderItem =
   | { kind: 'artifact'; key: string; artifactMessage: ChatMessage }
@@ -24,6 +25,10 @@ export function buildChatRenderItems(messages: ChatMessage[]): ChatRenderItem[] 
 
   for (const message of messages) {
     if (message.role === 'artifact' && message.artifact) {
+      if (!shouldDisplayArtifactInConversation(message.artifact.artifactType, message.artifact.isTerminal)) {
+        continue
+      }
+
       pendingArtifacts.push(message)
       continue
     }
@@ -39,8 +44,8 @@ export function buildChatRenderItems(messages: ChatMessage[]): ChatRenderItem[] 
       continue
     }
 
-    // user 消息出现时不 flush 暂存的 artifact，而是继续向前携带，
-    // 等到下一条 bot 消息时作为 leadingArtifacts 附在 bot 气泡上方。
+    flushPendingArtifacts()
+
     if (message.role === 'stage_gate' && message.stageGate) {
       items.push({
         kind: 'stage_gate',
