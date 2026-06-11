@@ -1040,8 +1040,13 @@ internal sealed partial class EvaluationService(
             dimensionScores,
             generatedAtUtc = now.ToString("o")
         };
-        var reportJson = JsonSerializer.Serialize(payload, JsonOptions);
-        var reportHtml = BuildReportHtml(payload, dimensionScores);
+        // 优先使用上传方提供的原始文件内容（STEP 9 完整输出），回退到服务端自动生成的简化版
+        var reportJson = !string.IsNullOrWhiteSpace(request.ReportJsonContent)
+            ? request.ReportJsonContent
+            : JsonSerializer.Serialize(payload, JsonOptions);
+        var reportHtml = !string.IsNullOrWhiteSpace(request.ReportHtmlContent)
+            ? request.ReportHtmlContent
+            : BuildReportHtml(payload, dimensionScores);
 
         var reportJsonAsset = await PersistTextAssetAsync(
             sessionEntity,
@@ -1277,7 +1282,9 @@ internal sealed partial class EvaluationService(
                 OverallScore = verdict.OverallScore,
                 Passed = passed,
                 Summary = verdict.Summary,
-                DimensionScores = verdict.DimensionScores
+                DimensionScores = verdict.DimensionScores,
+                ReportJsonContent = request.ReportJsonContent,
+                ReportHtmlContent = request.ReportHtmlContent,
             },
             cancellationToken);
 

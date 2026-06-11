@@ -3,7 +3,7 @@
 **Kind**: deterministic (直接调用 driver 目录下的上传脚本)
 **Authority**: 本 playbook；不属于 workflow-contract K-rules 范畴（K-rules 覆盖 STEP 0–9）
 **Runs**: STEP 9 输出 `evaluation_report.json` 后，作为最终收尾步骤
-**Inputs**: `/workspace/runtime/evaluation_context.json`、`runs/<eval_id>/reports/evaluation_report.json`、`runs/<eval_id>/traces/*.trace.json`
+**Inputs**: `/workspace/runtime/evaluation_context.json`、`runs/<eval_id>/reports/evaluation_report.json`、`runs/<eval_id>/reports/evaluation_report.html`（可选）、`runs/<eval_id>/traces/*.trace.json`
 **Outputs**: `runs/<eval_id>/upload_verdict_result.json`、`runs/<eval_id>/upload_trace_result.json`
 
 Compatibility: the upload scripts also tolerate legacy/ad-hoc names produced by older runs (`final_report.json`, `reports/final_report.json`, `evaluation_report_tainted.json`, `final_report_tainted.json`, and `traces/*.execution_trace.json`). New compliant runs MUST still write the standard paths above. Tainted runs are not valid for formal acceptance, but when the user explicitly asks to continue for reference, STEP 10 still syncs the trace bundle and syncs the tainted verdict as `FAIL` with a TAINTED summary so the right-side panel reflects what happened.
@@ -70,9 +70,14 @@ python3 runtime-drivers/ws_jwt/verdict_uploader.py \
       { "dimension": "functional_completeness", "score": 75.0, "comment": "子指标: ...", "evidenceRefs": [] },
       ...
     ]
-  }
+  },
+  // 可选：STEP 9 生成的原始报告文件内容。有值时后端直接存储，取代自动生成的简化版。
+  "reportJsonContent": "<evaluation_report.json 文件完整内容字符串>",
+  "reportHtmlContent": "<evaluation_report.html 文件完整内容字符串>"
 }
 ```
+
+`verdict_uploader.py` 会自动读取 `evaluation_report.json` 的原始内容作为 `reportJsonContent`，并在同目录查找 `evaluation_report.html` 作为 `reportHtmlContent`（找不到时两个字段省略，后端回退到自动生成的简化版）。
 
 ### 步骤 B — 上传执行轨迹（sync-trace）+ 合成用例
 

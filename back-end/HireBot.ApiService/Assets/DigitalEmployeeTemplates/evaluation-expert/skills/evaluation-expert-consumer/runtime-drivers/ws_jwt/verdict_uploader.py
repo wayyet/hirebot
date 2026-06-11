@@ -363,6 +363,8 @@ def build_verdict_payload(
     report: dict[str, Any],
     *,
     tainted: bool = False,
+    report_json_content: str | None = None,
+    report_html_content: str | None = None,
 ) -> dict[str, Any]:
     """
     构造 EvaluationVerdictSyncRequestDto 字典。
@@ -375,13 +377,15 @@ def build_verdict_payload(
           overallScore: decimal,
           summary: string,
           dimensionScores: EvaluationDimensionScoreDto[]
-        }
+        },
+        reportJsonContent: string | null,   // STEP 9 evaluation_report.json 原始内容
+        reportHtmlContent: string | null,   // STEP 9 evaluation_report.html 原始内容
       }
     """
     passed = False if tainted else _resolve_passed(report)
     overall_score = _resolve_overall_score(report)
 
-    return {
+    payload: dict[str, Any] = {
         "sessionId": session_id,
         "verdict": {
             "verdict": "PASS" if passed else "FAIL",
@@ -390,6 +394,11 @@ def build_verdict_payload(
             "dimensionScores": _build_dimension_scores_for_upload(report),
         },
     }
+    if report_json_content is not None:
+        payload["reportJsonContent"] = report_json_content
+    if report_html_content is not None:
+        payload["reportHtmlContent"] = report_html_content
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +511,31 @@ def main() -> int:
 
     _log("REPORT", f"resolved → {report_path}")
 
+    # 尝试读取同目录的原始 HTML 报告（evaluation_report.html），存在则一并上传
+    report_json_content: str | None = None
+    report_html_content: str | None = None
+    try:
+        report_json_content = report_path.read_text(encoding="utf-8")
+        _log("REPORT", f"report json content loaded ({len(report_json_content)} chars)")
+    except Exception as exc:
+        _log("WARN", f"无法读取原始 JSON 内容，将由后端自动生成: {exc}")
+
+    html_candidates = [
+        report_path.with_suffix(".html"),
+        report_path.parent / "evaluation_report.html",
+        report_path.parent / "final_report.html",
+    ]
+    for html_path in html_candidates:
+        if html_path.is_file():
+            try:
+                report_html_content = html_path.read_text(encoding="utf-8")
+                _log("REPORT", f"report html content loaded ← {html_path} ({len(report_html_content)} chars)")
+            except Exception as exc:
+                _log("WARN", f"无法读取 HTML 报告 {html_path}: {exc}")
+            break
+    if report_html_content is None:
+        _log("REPORT", "evaluation_report.html 未找到，后端将使用自动生成的可视化页面")
+
     try:
         base_url, employee_id, session_id = resolve_hirebot_api_config(eval_ctx)
         auth = resolve_auth_from_eval_ctx(eval_ctx)
@@ -515,7 +549,13 @@ def main() -> int:
     passed = False if tainted else _resolve_passed(report)
     verdict_str = "PASS" if passed else "FAIL"
 
-    payload = build_verdict_payload(session_id, report, tainted=tainted)
+    payload = build_verdict_payload(
+        session_id,
+        report,
+        tainted=tainted,
+        report_json_content=report_json_content,
+        report_html_content=report_html_content,
+    )
 
     _log("UPLOAD", f"base_url={base_url}")
     _log("UPLOAD", f"employee_id={employee_id}")

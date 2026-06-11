@@ -44,6 +44,16 @@ public sealed record EvaluationReportUpsertRequestDto
     public string? Summary { get; init; }
 
     public IReadOnlyList<EvaluationDimensionScoreDto> DimensionScores { get; init; } = [];
+
+    /// <summary>
+    /// STEP 9 生成的 evaluation_report.json 完整内容。有值时直接存储，替代后端自动生成的简化版本。
+    /// </summary>
+    public string? ReportJsonContent { get; init; }
+
+    /// <summary>
+    /// STEP 9 生成的 evaluation_report.html 完整内容。有值时直接存储，替代后端自动生成的简化版本。
+    /// </summary>
+    public string? ReportHtmlContent { get; init; }
 }
 
 public sealed record EvaluationSandboxConnectionResultDto(
@@ -63,6 +73,16 @@ public sealed record EvaluationVerdictSyncRequestDto
 
     [Required]
     public EvaluationVerdictPayloadDto Verdict { get; init; } = null!;
+
+    /// <summary>
+    /// STEP 9 生成的 evaluation_report.json 完整内容（可选）。有值时直接存储为报告资产，替代后端自动生成的简化版本。
+    /// </summary>
+    public string? ReportJsonContent { get; init; }
+
+    /// <summary>
+    /// STEP 9 生成的 evaluation_report.html 完整内容（可选）。有值时直接存储为报告资产，替代后端自动生成的可视化页面。
+    /// </summary>
+    public string? ReportHtmlContent { get; init; }
 }
 
 public sealed record EvaluationVerdictPayloadDto(

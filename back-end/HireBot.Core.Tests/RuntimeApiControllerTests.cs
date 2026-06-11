@@ -283,6 +283,8 @@ public sealed class RuntimeApiControllerTests
         {
             throw new NotImplementedException();
         }
+
+        public Task<ApiResponse<EvaluationReportFileDto>> GetReportFileAsync(string employeeId, string reportId, string fileType, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
 
