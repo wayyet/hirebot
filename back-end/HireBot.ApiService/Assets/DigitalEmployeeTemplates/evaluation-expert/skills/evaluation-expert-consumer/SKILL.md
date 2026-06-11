@@ -239,8 +239,8 @@ Legend: deterministic（确定性）= 白盒；**LLM** = STEP 1.5（条件触发
 | `dimension_scores.json` | STEP 6 | STEP 7、STEP 9（字节拷贝 K7） | 父维度加权分 |
 | `red_line_check.json` | STEP 7 | STEP 9（字节拷贝 K7） | 红线触发结果 |
 | `reports/scenarios/<tc_id>.report.json` | STEP 8 | STEP 9（链接，不内联 K6） | 每场景散文报告 |
-| `reports/evaluation_report.json` | STEP 9 | STEP 10（verdict_uploader 读取此文件） | 最终机器可读报告（根据 `evaluation_report.schema.json` 验证） |
-| `reports/evaluation_report.html` | STEP 9 | 用户查看 | 自包含 HTML 报告（**必须**由 `report-template.html` 渲染，见 K17） |
+| `reports/evaluation_report.json` | STEP 9 | STEP 10（verdict_uploader 读取此文件） | 最终机器可读报告（根据 `evaluation_report.schema.json` 验证）；**绝对路径**：`/workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/reports/evaluation_report.json` |
+| `reports/evaluation_report.html` | STEP 9 | 用户查看 | 自包含 HTML 报告（**必须**由 `/workspace/uploads/evaluation-expert-consumer/runtime-schemas/report-template.html` 渲染，见 K17）；**绝对路径**：`/workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/reports/evaluation_report.html` |
 | `upload_trace_result.json` | STEP 10 | — | trace_uploader 回执 |
 | `upload_verdict_result.json` | STEP 10 | — | verdict_uploader 回执 |
 

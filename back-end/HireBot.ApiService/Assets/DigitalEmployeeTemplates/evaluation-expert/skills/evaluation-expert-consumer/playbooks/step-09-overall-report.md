@@ -5,12 +5,51 @@
 **输入**：`evaluation_context`、STEP 5/6/7 产物、所有 ScenarioReport 文件、`evaluation_report.schema.json`
 **输出**：两个文件（见下文）
 
+---
+
+## ⚡ STEP 9 执行前强制预飞检查（Pre-flight）
+
+**在生成任何报告内容之前，Agent 必须按以下顺序读取所有文件，否则 STEP 9 拒绝执行。**
+
+### 第一步：确定运行目录（绝对路径）
+
+```
+SKILL_ROOT = /workspace/uploads/evaluation-expert-consumer
+eval_id    = evaluation_context.json 中的 run_id 字段（如 eval-20260611064346-59d22062ad6e4678b07722860528bd58）
+RUN_DIR    = /workspace/uploads/evaluation-expert-consumer/runs/<eval_id>
+REPORT_DIR = /workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/reports
+```
+
+> 所有下文出现的 `<SKILL_ROOT>`、`<RUN_DIR>`、`<REPORT_DIR>` 均指上述绝对路径，不得使用 `./` 相对路径拼接。
+
+### 第二步：必须读取（按序）
+
+| # | 必读文件（绝对路径） | 用途 |
+|---|---|---|
+| 1 | `/workspace/runtime/evaluation-context.json` | 确认 `eval_id`、`employee_id`、模板目录 |
+| 2 | `/workspace/uploads/evaluation-expert-consumer/runtime-schemas/evaluation_report.schema.json` | **JSON 报告结构约束**；不读取不得开始构建 JSON |
+| 3 | `/workspace/uploads/evaluation-expert-consumer/runtime-schemas/report-template.html` | **HTML 渲染模板（K17 合同）**；必须逐字节读取，不得凭记忆生成 HTML |
+| 4 | `<RUN_DIR>/aggregated_metric_scores.json` | STEP 5 产物；字节拷贝源（K7） |
+| 5 | `<RUN_DIR>/dimension_scores.json` | STEP 6 产物；字节拷贝源（K7） |
+| 6 | `<RUN_DIR>/red_line_check.json` | STEP 7 产物；字节拷贝源（K7） |
+| 7 | `<RUN_DIR>/reports/scenarios/<tc_id>.report.json`（全部） | STEP 8 产物；每场景一个，链接到总报告 |
+| 8 | `<RUN_DIR>/traces/<tc_id>.trace.json`（全部） | 评分推理溯源，注入 `SCENARIOS_DATA` |
+| 9 | `/workspace/uploads/artifact/<template_dir>/config/SOUL.md` | 员工核心行为原则——`executive_summary` 叙述的基准框架 |
+| 10 | `/workspace/uploads/artifact/<template_dir>/skills/*/SKILL.md` | 技能口径——叙述中对"能力边界"描述的依据 |
+
+> **⚠️ 如果第 2、3 步骤文件未读取就生成了 JSON 或 HTML，运行自动被标记为污染（K17 违规），STEP 9 必须从预飞步骤重新执行。**
+
+---
+
 ## 两个输出文件
 
-| 文件 | 路径 | 用途 |
+| 文件 | 绝对路径 | 用途 |
 |---|---|---|
-| JSON | `./runs/<eval_id>/reports/evaluation_report.json` | 机器可读，根据 `evaluation_report.schema.json` 验证 |
-| HTML | `./runs/<eval_id>/reports/evaluation_report.html` | 人类可读，自包含单文件报告 |
+| JSON | `<REPORT_DIR>/evaluation_report.json` | 机器可读，根据 `evaluation_report.schema.json` 验证 |
+| HTML | `<REPORT_DIR>/evaluation_report.html` | 人类可读，自包含单文件报告 |
+
+> `<REPORT_DIR>` = `/workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/reports`
+> 目录不存在时 Agent 须先创建（`mkdir -p <REPORT_DIR>/scenarios`）。
 
 ## 数值字段为字节拷贝（K7）
 
@@ -59,14 +98,14 @@ Tier-2 / 污染发现的措辞**必须**降级：使用"指示性"/"初步"，�
 
 ## scenario_report 包含（K6）
 
-STEP 9 **必须**链接到 `./runs/<eval_id>/reports/scenarios/<tc_id>.report.json` 文件。**不得内联它们。** STEP 9 也**不得**在每个适用场景都有 ScenarioReport 文件之前开始。
+STEP 9 **必须**链接到 `<REPORT_DIR>/scenarios/<tc_id>.report.json`（即 `/workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/reports/scenarios/<tc_id>.report.json`）文件。**不得内联它们。** STEP 9 也**不得**在每个适用场景都有 ScenarioReport 文件之前开始。
 
 ## HTML 生成流程（K17——仅限模板，禁止自由编写 HTML）
 
-**K17（硬性）**：STEP 9 **必须**通过原文加载 `./runtime-schemas/report-template.html` 并仅替换三个合同占位符来渲染 HTML。Agent **不得**手工编写 HTML / CSS / `<script>`。任何未先逐字节读取模板就生成的 HTML 均为 K17 违规，运行被污染；报告**必须**从模板重新生成。
+**K17（硬性）**：STEP 9 **必须**通过原文加载 `/workspace/uploads/evaluation-expert-consumer/runtime-schemas/report-template.html`（即上方预飞步骤第 3 步已读取的模板），并仅替换三个合同占位符来渲染 HTML。Agent **不得**手工编写 HTML / CSS / `<script>`。任何未先逐字节读取模板就生成的 HTML 均为 K17 违规，运行被污染；报告**必须**从模板重新生成。
 
-1. 加载 `./runtime-schemas/report-template.html` 处的模板。
-2. 收集所有场景数据：对每个测试用例，收集 `{ report: <场景 .report.json>, trace: <.trace.json>, enriched: <enriched-case .json> }`。
+1. 读取 `/workspace/uploads/evaluation-expert-consumer/runtime-schemas/report-template.html`（预飞第 3 步已完成，此处确认）。
+2. 收集所有场景数据：对每个测试用例，收集 `{ report: <RUN_DIR>/reports/scenarios/<tc_id>.report.json, trace: <RUN_DIR>/traces/<tc_id>.trace.json, enriched: <RUN_DIR>/enriched-cases/<tc_id>.enriched.json }`。
 3. 替换模板中的占位符：
 
    | 占位符 | 替换内容 | 说明 |
@@ -75,7 +114,7 @@ STEP 9 **必须**链接到 `./runs/<eval_id>/reports/scenarios/<tc_id>.report.js
    | `{{SCENARIOS_DATA}}` | 场景对象数组作为 JSON 字符串 | 每个场景一个 Tab |
    | `{{EMPLOYEE_NAME}}` | 员工显示名称 | 在 `<title>` 和页面标题中 |
 
-4. 将最终 HTML 写入 `./runs/<eval_id>/reports/evaluation_report.html`。
+4. 将最终 HTML 写入 `<REPORT_DIR>/evaluation_report.html`（即 `/workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/reports/evaluation_report.html`）。
 
 这三个占位符**是合同**。如果修改模板，保持占位符名称稳定，或同时更新本操作手册 + `runtime-schemas/report-template.html`。
 
