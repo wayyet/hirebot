@@ -492,25 +492,50 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # 初始化文件日志 — 与 output 同目录，后缀 .log
+    log_path = Path(args.output).with_suffix(".log")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    _logf = open(log_path, "w", encoding="utf-8", buffering=1)
+
+    def _log(tag: str, msg: str) -> None:
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S.%f")[:-3]
+        line = f"{ts} [{tag:<8}] {msg}"
+        print(line)
+        _logf.write(line + "\n")
+
+    _log("STARTUP", f"--evaluation-context {args.evaluation_context}")
+    _log("STARTUP", f"--traces-dir         {args.traces_dir}")
+    _log("STARTUP", f"--output             {args.output}")
+    if args.synthesized_dir:
+        _log("STARTUP", f"--synthesized-dir    {args.synthesized_dir}")
+    _log("STARTUP", f"log → {log_path}")
+
     eval_ctx = _load_json(args.evaluation_context)
 
     try:
         base_url, employee_id, session_id = resolve_hirebot_api_config(eval_ctx)
         auth = resolve_auth_from_eval_ctx(eval_ctx)
     except (ValueError, RuntimeError) as exc:
-        print(f"[错误] 配置解析失败: {exc}")
+        _log("ERROR", f"配置解析失败: {exc}")
+        _logf.close()
         return 1
 
     evaluation_id = str(eval_ctx.get("evaluation_id") or "").strip()
+    _log("CONFIG", f"base_url={base_url}  employee_id={employee_id}  session_id={session_id}  auth_source={auth.source}")
 
+    _log("COLLECT", f"扫描轨迹目录: {args.traces_dir}")
     print(f"[采集] 扫描轨迹目录: {args.traces_dir}")
     try:
         traces = collect_traces(args.traces_dir)
         tainted_notice = collect_tainted_notice(args.traces_dir)
     except FileNotFoundError as exc:
+        _log("ERROR", str(exc))
         print(f"[错误] {exc}")
+        _logf.close()
         return 1
 
+    _log("COLLECT", f"共 {len(traces)} 个场景轨迹  tainted_notice={tainted_notice is not None}")
     print(f"[采集] 共 {len(traces)} 个场景轨迹")
 
     # 采集合成测试用例（可选）
@@ -518,6 +543,7 @@ def main() -> int:
     if args.synthesized_dir:
         synthesized_testcases = collect_synthesized_testcases(args.synthesized_dir)
         if synthesized_testcases:
+            _log("COLLECT", f"共 {len(synthesized_testcases)} 个合成用例")
             print(f"[采集] 共 {len(synthesized_testcases)} 个合成用例（将嵌入 bundle 供后端解析为 Question Cards）")
 
     payload = build_trace_bundle(
@@ -530,6 +556,7 @@ def main() -> int:
     )
 
     trace_json_bytes = len(payload["traceJson"].encode("utf-8"))
+    _log("UPLOAD", f"base_url={base_url}  employee_id={employee_id}  session_id={session_id}  bundle={trace_json_bytes / 1024:.1f}KB  auth_source={auth.source}")
     print(f"[上传] 目标地址:   {base_url}")
     print(f"[上传] 员工 ID:    {employee_id}")
     print(f"[上传] 会话 ID:    {session_id}")
@@ -551,12 +578,16 @@ def main() -> int:
     })
 
     if not upload_ok:
+        _log("ERROR", f"上传失败: {response['_error']}")
         print(f"[错误] 上传失败: {response['_error']}")
         print(f"[输出] {args.output}")
+        _logf.close()
         return 1
 
+    _log("SUCCESS", f"执行轨迹已上传  output={args.output}")
     print("[成功] 执行轨迹已上传到 HireBot 后端")
     print(f"[输出] {args.output}")
+    _logf.close()
     return 0
 
 

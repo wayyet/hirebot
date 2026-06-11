@@ -466,6 +466,23 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # 初始化文件日志 — 与 output 同目录，后缀 .log
+    log_path = Path(args.output).with_suffix(".log")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    _logf = open(log_path, "w", encoding="utf-8", buffering=1)
+
+    def _log(tag: str, msg: str) -> None:
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S.%f")[:-3]
+        line = f"{ts} [{tag:<8}] {msg}"
+        print(line)
+        _logf.write(line + "\n")
+
+    _log("STARTUP", f"--evaluation-context {args.evaluation_context}")
+    _log("STARTUP", f"--evaluation-report  {args.evaluation_report}")
+    _log("STARTUP", f"--output             {args.output}")
+    _log("STARTUP", f"log → {log_path}")
+
     eval_ctx = _load_json(args.evaluation_context)
     try:
         report_path = _resolve_report_path(
@@ -475,18 +492,22 @@ def main() -> int:
         )
         report = _unwrap_report(_load_json(str(report_path)))
     except FileNotFoundError as exc:
-        print(f"[错误] {exc}")
+        _log("ERROR", str(exc))
         _write_json(args.output, {
             "status": "error",
             "error": str(exc),
         })
+        _logf.close()
         return 1
+
+    _log("REPORT", f"resolved → {report_path}")
 
     try:
         base_url, employee_id, session_id = resolve_hirebot_api_config(eval_ctx)
         auth = resolve_auth_from_eval_ctx(eval_ctx)
     except (ValueError, RuntimeError) as exc:
-        print(f"[错误] 配置解析失败: {exc}")
+        _log("ERROR", f"配置解析失败: {exc}")
+        _logf.close()
         return 1
 
     tainted = _is_tainted_report(report, report_path)
@@ -495,6 +516,12 @@ def main() -> int:
     verdict_str = "PASS" if passed else "FAIL"
 
     payload = build_verdict_payload(session_id, report, tainted=tainted)
+
+    _log("UPLOAD", f"base_url={base_url}")
+    _log("UPLOAD", f"employee_id={employee_id}")
+    _log("UPLOAD", f"session_id={session_id}")
+    _log("UPLOAD", f"verdict={verdict_str}  score={overall_score}  tainted={tainted}")
+    _log("UPLOAD", f"auth_source={auth.source}")
 
     print(f"[上传] 目标地址:   {base_url}")
     print(f"[上传] 员工 ID:    {employee_id}")
@@ -518,12 +545,16 @@ def main() -> int:
     })
 
     if not upload_ok:
+        _log("ERROR", f"上传失败: {response['_error']}")
         print(f"[错误] 上传失败: {response['_error']}")
         print(f"[输出] {args.output}")
+        _logf.close()
         return 1
 
+    _log("SUCCESS", f"评估结论已上传  output={args.output}")
     print("[成功] 评估结论已上传到 HireBot 后端")
     print(f"[输出] {args.output}")
+    _logf.close()
     return 0
 
 

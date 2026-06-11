@@ -51,12 +51,63 @@ import json
 import os
 import subprocess
 import sys
+import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from auth_client import resolve_auth, resolve_auth_from_eval_ctx
+
+
+# ---------------------------------------------------------------------------
+# File logger — writes alongside the trace output for post-mortem analysis
+# ---------------------------------------------------------------------------
+
+class DriverLogger:
+    """Writes timestamped log lines to a file and stderr simultaneously.
+
+    The log file sits at ``output_path.with_suffix('.driver.log')`` so it
+    lives next to the trace JSON.  Line-buffered (``buffering=1``) so every
+    entry is flushed to disk immediately, surviving even hard crashes.
+    """
+
+    def __init__(self, log_path: Path) -> None:
+        self._path = log_path
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._f = open(log_path, "w", encoding="utf-8", buffering=1)
+        self("LOGGER", f"driver log opened: {log_path}")
+
+    def __call__(self, level: str, msg: str) -> None:
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S.%f")[:-3]
+        line = f"{ts} [{level:<8}] {msg}"
+        print(line, file=sys.stderr)
+        self._f.write(line + "\n")
+
+    def exception(self, msg: str) -> None:
+        """Log msg then the current exception traceback."""
+        self("ERROR", msg)
+        for line in traceback.format_exc().splitlines():
+            self("TRACE", line)
+
+    def close(self) -> None:
+        try:
+            self._f.flush()
+            self._f.close()
+        except OSError:
+            pass
+
+
+# Module-level logger — set in main() before asyncio.run(_serve(...)).
+_logger: DriverLogger | None = None
+
+
+def _log(level: str, msg: str) -> None:
+    """Log via file logger when available, otherwise fall back to stderr."""
+    if _logger is not None:
+        _logger(level, msg)
+    else:
+        print(f"[{level}] {msg}", file=sys.stderr)
 
 
 def _install_driver_requirements() -> bool:
@@ -276,23 +327,27 @@ def _validate_simulator_decision(decision: dict, expected_turn_index: int) -> li
 def _resolve_driver_config(eval_ctx: dict) -> dict:
     rd = eval_ctx.get("runtime_driver") or {}
     if rd.get("driver_id") != "ws_jwt":
-        _emit_error(
+        msg = (
             f"evaluation_context.runtime_driver.driver_id is "
             f"{rd.get('driver_id')!r}, expected 'ws_jwt'"
         )
+        _log("ERROR", msg)
+        _emit_error(msg)
         sys.exit(2)
     cfg = dict(rd.get("driver_config") or {})
     if not cfg.get("endpoint"):
-        _emit_error(
+        msg = (
             "driver_config.endpoint is missing. STEP 3 must validate "
             "driver_config against driver.json#/config_schema before "
             "spawning this driver."
         )
+        _log("ERROR", msg)
+        _emit_error(msg)
         sys.exit(2)
-    # token is optional when hirebot_api.auth provides client_credentials;
-    # _resolve_ws_token() in main() resolves it before WsCollector is opened.
-    cfg.setdefault("timeout", 180)  # 180 s WebSocket collect timeout — keep larger than read_one_event's 210 s - 30 s margin
+    # token is resolved later in main() via hirebot_api.auth (client_credentials).
+    cfg.setdefault("timeout", 180)
     cfg.setdefault("auto_approve_tools", True)
+    _log("CONFIG", f"endpoint={cfg['endpoint']}  timeout={cfg['timeout']}s  auto_approve={cfg['auto_approve_tools']}")
     return cfg
 
 
@@ -303,20 +358,21 @@ def _resolve_ws_token(eval_ctx: dict, cfg: dict) -> str:
     """
     hirebot_auth_cfg = (eval_ctx.get("hirebot_api") or {}).get("auth")
     if not hirebot_auth_cfg:
-        _emit_error(
+        msg = (
             "evaluation_context.hirebot_api.auth 未配置。"
             "请确保 C# 侧已注入 OpenSandbox:KingCrab 凭据（client_credentials 模式）。"
         )
+        _log("ERROR", msg)
+        _emit_error(msg)
         sys.exit(2)
 
+    _log("AUTH", "resolving WebSocket token via hirebot_api.auth (client_credentials)…")
     try:
         resolved = resolve_auth(hirebot_auth_cfg)
-        print(
-            f"[ws_jwt] WebSocket token resolved via hirebot_api.auth ({resolved.source})",
-            file=sys.stderr,
-        )
+        _log("AUTH", f"token resolved  source={resolved.source}  type={resolved.token_type}")
         return resolved.access_token
     except Exception as exc:  # noqa: BLE001
+        _log("ERROR", f"hirebot_api.auth token resolution failed: {exc}")
         _emit_error(f"hirebot_api.auth token resolution failed: {exc}")
         sys.exit(2)
 
@@ -450,6 +506,8 @@ async def _serve(
     output_path: Path,
 ) -> int:
     """Run the long-lived driver loop. Returns the process exit code."""
+    _log("STARTUP", f"evaluation_id={evaluation_id}  tc_id={test_case_id}  max_turns={effective_max_turns}  simulator={simulator_id}")
+    _log("OUTPUT", f"trace → {output_path}")
     started_at = _now_iso()
     dialog_turns: list[dict] = []
     actual_tool_calls: list[dict] = []
@@ -489,7 +547,9 @@ async def _serve(
             json.dump(trace, f, ensure_ascii=False, indent=2)
 
     try:
-        async with WsCollector(cfg["endpoint"], cfg["token"], timeout=int(cfg["timeout"])) as ws:
+        _log("WS", f"connecting endpoint={cfg['endpoint']}")
+        async with WsCollector(cfg["endpoint"], cfg["token"], timeout=int(cfg["timeout"]), log_fn=_logger) as ws:
+            _log("WS", "connected")
             _emit({
                 "event": "ready",
                 "driver_id": "ws_jwt",
@@ -497,6 +557,7 @@ async def _serve(
                 "evaluation_id": evaluation_id,
                 "test_case_id": test_case_id,
             })
+            _log("READY", f"effective_max_turns={effective_max_turns}")
 
             while True:
                 line = await _read_stdin_line(loop)
@@ -575,17 +636,23 @@ async def _serve(
                         "timestamp": _now_iso(),
                     })
 
+                    _log("SEND", f"turn={turn_index}  text={text[:80]!r}")
                     # drive the evaluatee
                     try:
                         raw = await ws.send_and_collect(text)
                     except asyncio.TimeoutError:
                         termination_reason = "timeout"
+                        _log("ERROR", f"evaluatee response timeout at turn_index={turn_index}")
                         _emit_error(f"evaluatee response timeout at turn_index={turn_index}")
                         exit_code = 2
                         break
                     except Exception as e:  # noqa: BLE001
                         termination_reason = "evaluatee_error"
                         termination_detail = f"{type(e).__name__}: {e}"
+                        if _logger:
+                            _logger.exception(f"ws.send_and_collect raised at turn_index={turn_index}")
+                        else:
+                            _log("ERROR", termination_detail)
                         _emit_error(termination_detail)
                         exit_code = 2
                         break
@@ -607,6 +674,7 @@ async def _serve(
                     new_tool_calls = _extract_tool_calls(raw, after_turn_index=turn_index)
                     actual_tool_calls.extend(new_tool_calls)
                     turns_used = turn_index + 1
+                    _log("RECV", f"turn={turn_index}  raw_msgs={len(raw)}  tool_calls={len(new_tool_calls)}  content={evaluatee_text[:80]!r}")
 
                     err, err_msg = _has_error(raw)
                     if err:
@@ -700,15 +768,21 @@ async def _serve(
 
     except asyncio.TimeoutError:
         termination_reason = "timeout"
+        _log("ERROR", f"outer asyncio.TimeoutError — turns_used={turns_used}")
         exit_code = 2
     except Exception as e:  # noqa: BLE001
         termination_reason = "evaluatee_error"
         termination_detail = f"{type(e).__name__}: {e}"
+        if _logger:
+            _logger.exception(f"unhandled exception in _serve: {termination_detail}")
+        else:
+            _log("ERROR", termination_detail)
         _emit_error(termination_detail)
         exit_code = 2
 
     # write trace regardless of how we got here (best-effort partial trace
     # on failure paths)
+    _log("END", f"turns_used={turns_used}  termination={termination_reason}  exit_code={exit_code}")
     try:
         _write_trace_file()
         _emit({
@@ -719,7 +793,12 @@ async def _serve(
                 "turns_used": turns_used,
             },
         })
+        _log("TRACE", f"trace written → {output_path}")
     except Exception as e:  # noqa: BLE001
+        if _logger:
+            _logger.exception(f"failed to write trace: {type(e).__name__}: {e}")
+        else:
+            _log("ERROR", f"failed to write trace: {type(e).__name__}: {e}")
         _emit_error(f"failed to write trace: {type(e).__name__}: {e}")
         exit_code = 2
 
@@ -746,6 +825,15 @@ def main() -> None:
                     help="output path; MUST validate against runtime-schemas/execution_trace.schema.json")
     args = ap.parse_args()
 
+    # Initialize file logger as early as possible so every subsequent _log()
+    # call is captured. Log sits next to the trace JSON for easy retrieval.
+    global _logger
+    _logger = DriverLogger(Path(args.output).with_suffix(".driver.log"))
+
+    _log("MAIN", f"--evaluation-context {args.evaluation_context}")
+    _log("MAIN", f"--enriched-test-case {args.enriched_test_case}")
+    _log("MAIN", f"--output {args.output}")
+
     eval_ctx = _load_json(args.evaluation_context)
     evaluation_id = eval_ctx.get("evaluation_id") or f"eval-{uuid.uuid4().hex[:8]}"
 
@@ -758,6 +846,8 @@ def main() -> None:
 
     test_case_id = tc.get("test_case_id") or Path(args.enriched_test_case).stem
     output_path = Path(args.output)
+
+    _log("MAIN", f"evaluation_id={evaluation_id}  tc_id={test_case_id}  simulator_id={simulator_id}  effective_max_turns={effective_max_turns}")
 
     inp = tc.get("input") or {}
     if not (inp.get("opening_message") or inp.get("user_message")):
@@ -776,6 +866,8 @@ def main() -> None:
         output_path=output_path,
     ))
 
+    _log("SHUTDOWN", f"exit_code={exit_code}")
+    _logger.close()
     sys.exit(exit_code)
 
 
