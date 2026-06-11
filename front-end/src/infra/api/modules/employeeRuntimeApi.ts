@@ -191,28 +191,6 @@ export interface DingTalkChannelConfigRequest {
   streamPollIntervalMs?: number | null
 }
 
-export interface TrainingCheckpoint {
-  key: string
-  label: string
-  status: string
-  detail?: string | null
-}
-
-export interface TrainingState {
-  employeeId: string
-  phase: string
-  evolutionRound: number
-  examScore: number
-  aiPassed: boolean
-  requiresHumanReview: boolean
-  checkpoints: TrainingCheckpoint[]
-}
-
-export interface TrainingDecisionRequest {
-  decision: 'APPROVE' | 'REJECT'
-  comment?: string
-}
-
 export interface EvaluationScenario {
   scenarioId: string
   scenarioName: string
@@ -460,17 +438,6 @@ export const employeeRuntimeApi = {
 
   deleteDingTalkImConfig(instanceId: string) {
     return httpClient.delete<boolean>(`/api/v1/instances/${instanceId}/im-config/dingtalk`)
-  },
-
-  getTrainingState(employeeId: string) {
-    return httpClient.get<TrainingState>(`/api/v1/employees/${employeeId}/training/state`)
-  },
-
-  submitTrainingDecision(employeeId: string, payload: TrainingDecisionRequest) {
-    return httpClient.post<EmployeeDetail, TrainingDecisionRequest>(
-      `/api/v1/employees/${employeeId}/training/decision`,
-      payload,
-    )
   },
 
   getEvaluationState(employeeId: string) {

@@ -21,11 +21,6 @@ import InstanceChatPage from "@/features/team/pages/InstanceChatPage";
 import InstanceImConfigPage from "@/features/team/pages/InstanceImConfigPage";
 import EvaluationPage from "@/features/team/pages/EvaluationPage";
 import HumanEvaluationPage from "@/features/team/pages/HumanEvaluationPage";
-import TrainingFlowPage from "@/features/team/pages/TrainingFlowPage";
-import CollaborationPage from "@/features/collaboration/pages/CollaborationPage";
-import SkillListPage from "@/features/skill/pages/SkillListPage";
-import RegisterSkillPage from "@/features/skill/pages/RegisterSkillPage";
-import SkillDetailPage from "@/features/skill/pages/SkillDetailPage";
 import SettingsPage from "@/features/hiring/pages/SettingsPage";
 
 const LOCAL_STATE_MIGRATION_FLAG = "ncrew_local_state_migrated_v1";
@@ -244,14 +239,6 @@ export default function App() {
             }
           />
           <Route
-            path="/my-employees/instances/:id/training"
-            element={
-              <ProtectedLayout>
-                <TrainingFlowPage />
-              </ProtectedLayout>
-            }
-          />
-          <Route
             path="/my-employees/instances/:id/review"
             element={
               <ProtectedLayout>
@@ -310,14 +297,6 @@ export default function App() {
             }
           />
           <Route
-            path="/department-employees/instances/:id/training"
-            element={
-              <ProtectedLayout>
-                <TrainingFlowPage />
-              </ProtectedLayout>
-            }
-          />
-          <Route
             path="/department-employees/instances/:id/review"
             element={
               <ProtectedLayout>
@@ -330,39 +309,6 @@ export default function App() {
             element={
               <ProtectedLayout>
                 <OnboardingPage />
-              </ProtectedLayout>
-            }
-          />
-
-          <Route
-            path="/collaboration"
-            element={
-              <ProtectedLayout>
-                <CollaborationPage />
-              </ProtectedLayout>
-            }
-          />
-          <Route
-            path="/skill"
-            element={
-              <ProtectedLayout>
-                <SkillListPage />
-              </ProtectedLayout>
-            }
-          />
-          <Route
-            path="/skill/register"
-            element={
-              <ProtectedLayout>
-                <RegisterSkillPage />
-              </ProtectedLayout>
-            }
-          />
-          <Route
-            path="/skill/:id"
-            element={
-              <ProtectedLayout>
-                <SkillDetailPage />
               </ProtectedLayout>
             }
           />

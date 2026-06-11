@@ -9,24 +9,6 @@ const storeApiBase =
 // Skills Hub 裸响应客户端（与模板池接口同源，响应不带 {code,success,data} 包装）
 const storeRawClient = createRawHttpClient(storeApiBase)
 
-export interface SkillSummary {
-  skillId: string
-  name: string
-  description: string
-  level: string
-  status: string
-  version: string
-  updatedAt: string
-}
-
-export interface SkillDetail extends SkillSummary {
-  inputExample: string
-  outputExample: string
-  tags: string[]
-  boundTemplates: string[]
-  files: string[]
-}
-
 /** Skills Hub（模板池同源）返回的技能列表项。字段命名与 /api/store/skills 对齐。 */
 export interface StoreSkillItem {
   id: string
@@ -83,19 +65,6 @@ function mapRecommendedSkill(item: RecommendedStoreSkillResponseItem): Recommend
 }
 
 export const skillCatalogApi = {
-  /** 旧接口：内部 HireBot 技能目录（保留兼容） */
-  getSkills(params: {
-    q?: string
-    level?: string
-    status?: string
-  }) {
-    return httpClient.get<SkillSummary[]>('/api/v1/skills', params)
-  },
-
-  getSkill(skillId: string) {
-    return httpClient.get<SkillDetail>(`/api/v1/skills/${skillId}`)
-  },
-
   /**
    * 从模板池/Skills Hub 搜索技能（与模板池接口同源）。
    * 端点：GET {TemplateApiBase}/api/store/skills?q=&page=&pageSize=

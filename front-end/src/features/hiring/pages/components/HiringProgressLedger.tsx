@@ -22,13 +22,11 @@ type HiringProgressLedgerProps = {
   overallProgress: number
   actionState: HiringActionVm
   instanceCreated: boolean
-  createdId: string
   summaryItems: SummaryItem[]
   artifactFileNames: string[]
   hasArtifactArchive: boolean
   onContinue: () => void
   onFinalize: () => void
-  onEnterTraining: (employeeId: string) => void
   onDownloadArtifact: (artifactName: string) => void
   onDownloadArchive: () => void
 }
@@ -38,13 +36,11 @@ export function HiringProgressLedger({
   overallProgress,
   actionState,
   instanceCreated,
-  createdId,
   summaryItems,
   artifactFileNames,
   hasArtifactArchive,
   onContinue,
   onFinalize,
-  onEnterTraining,
   onDownloadArtifact,
   onDownloadArchive,
 }: HiringProgressLedgerProps) {
@@ -83,15 +79,6 @@ export function HiringProgressLedger({
                 onClick={actionState.canFinalize ? onFinalize : onContinue}
               >
                 {actionState.canFinalize ? actionState.finalizeLabel : t('hiring.ledger.continueFill')}
-              </button>
-            ) : null}
-            {item.stage === HiringCollectionStage.ReadyForPackaging && instanceCreated && createdId ? (
-              <button
-                type="button"
-                className="hb-hiring-card-action primary"
-                onClick={() => onEnterTraining(createdId)}
-              >
-                {t('hiring.ledger.enterTraining')}
               </button>
             ) : null}
           </TodoItem>
