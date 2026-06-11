@@ -360,10 +360,10 @@ export function EvalArtifactsPanel({
                                   <Check size={12} />
                                 </span>
                                 <div className="min-w-0">
-                                  <div className="text-[14px] font-semibold leading-6 eval-text-title">
+                                  <div className="text-[15px] font-semibold leading-6 eval-text-title">
                                     {outline.title}
                                   </div>
-                                  <div className="mt-2 border-l-2 border-[rgba(148,163,184,0.18)] pl-3 text-[12px] leading-6 eval-text-body-2">
+                                  <div className="mt-2 border-l-2 border-[rgba(148,163,184,0.18)] pl-3 text-[13px] leading-6 eval-text-body-2">
                                     {outline.userRequest || '未提供用户请求。'}
                                   </div>
                                 </div>
@@ -386,7 +386,7 @@ export function EvalArtifactsPanel({
                             {expanded && card && (
                               <div className="mt-4 rounded-[18px] border eval-side-case-detail px-3 py-3">
                                 {card.prompt && (
-                                  <div className="rounded-xl border eval-prompt-box px-3 py-2.5 text-[11px] leading-relaxed">
+                                  <div className="rounded-xl border eval-prompt-box px-3 py-2.5 text-[12px] leading-relaxed">
                                     {card.prompt}
                                   </div>
                                 )}

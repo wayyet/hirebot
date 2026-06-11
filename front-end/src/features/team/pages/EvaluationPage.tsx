@@ -196,7 +196,7 @@ export default function EvaluationPage() {
       : questionCards.map((card) => ({
           testcaseId: card.testcaseId,
           title: card.title || card.testcaseId,
-          userRequest: '',
+          userRequest: card.prompt || '',
         })),
     [questionCards, testcaseOutlines],
   )
@@ -809,7 +809,6 @@ export default function EvaluationPage() {
       if (messageType === 'typing_stop' || messageType === 'assistant_done') {
         const endpointValue = gatewayEndpointRef.current
         const sessionIdValue = sessionIdRef.current
-        const completedToolSteps = [...streamingToolStepsRef.current]
         const fallbackReply = String(msg.content ?? msg.text ?? '')
         const finishOptions = messageType === 'typing_stop'
           ? { deferMs: TYPEWRITER_SOFT_FINISH_DEFER_MS }
@@ -821,17 +820,6 @@ export default function EvaluationPage() {
           if (endpointValue && sessionIdValue) {
             void syncSandboxHistory(endpointValue, sessionIdValue)
               .then(async () => {
-                // 把本轮工具步骤附加到最后一条 bot 消息。
-                if (completedToolSteps.length > 0) {
-                  setChatMessages((prev) => {
-                    const lastBotIdx = [...prev].reverse().findIndex((m) => m.role !== 'user')
-                    if (lastBotIdx === -1) return prev
-                    const idx = prev.length - 1 - lastBotIdx
-                    const updated = [...prev]
-                    updated[idx] = { ...updated[idx], toolSteps: completedToolSteps }
-                    return updated
-                  })
-                }
                 setSessionListRefreshKey((current) => current + 1)
                 // 每轮对话结束后刷新评估状态，检查是否有新报告产出。
                 if (id) {
