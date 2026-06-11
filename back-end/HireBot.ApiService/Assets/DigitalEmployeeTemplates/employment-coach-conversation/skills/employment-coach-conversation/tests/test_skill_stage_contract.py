@@ -1,4 +1,4 @@
-import json
+﻿import json
 import unittest
 from pathlib import Path
 
@@ -20,12 +20,26 @@ def read_text(path: Path) -> str:
 
 def assert_tokens_in_order(test_case: unittest.TestCase, text: str, tokens: list[str], source: str) -> None:
     positions: list[int] = []
+    search_from = 0
     for token in tokens:
-        position = text.find(token)
+        position = text.find(token, search_from)
         test_case.assertGreaterEqual(position, 0, f"{token} missing from {source}")
         positions.append(position)
+        search_from = position + len(token)
 
     test_case.assertEqual(positions, sorted(positions), f"tokens are out of order in {source}")
+
+
+def section_between(text: str, start_token: str, end_token: str) -> str:
+    start = text.find(start_token)
+    if start < 0:
+        raise AssertionError(f"{start_token} missing")
+
+    end = text.find(end_token, start)
+    if end < 0:
+        raise AssertionError(f"{end_token} missing")
+
+    return text[start:end]
 
 
 class SkillStageContractTests(unittest.TestCase):
@@ -47,6 +61,100 @@ class SkillStageContractTests(unittest.TestCase):
 
         assert_tokens_in_order(self, stage_schema, SKILL_STAGE_SEQUENCE, "stage-data-schema.md")
         assert_tokens_in_order(self, handoff_registry, SKILL_STAGE_SEQUENCE, "downstream-handoff-registry.md")
+
+    def test_material_to_skill_transition_requires_machine_signals_before_skill_dialog(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        transition_gate = section_between(skill, "跨阶段硬门", "详细字段协议")
+        stage1_closure = section_between(skill, "阶段 1 完成后的强制动作", "### 阶段 2：技能")
+
+        assert_tokens_in_order(self, transition_gate, [
+            "material_handoff_summary",
+            "ontology-slice-extraction",
+            "ontology_slice_extraction_done",
+            "skill_workorder_progress",
+        ], "SKILL.md 跨阶段硬门")
+
+        required_phrases = [
+            "自然语言只能解释进展，不能替代阶段完成事件",
+            "禁止出现\"对话已经进入技能阶段，但右侧 UI 仍停留在资料阶段\"的状态分叉",
+            "给出技能建议",
+            "任何具体技能建议或技能反问，必须排在 `ontology_slice_extraction_done` 之后",
+        ]
+        for phrase in required_phrases:
+            self.assertIn(phrase, skill)
+
+        self.assertIn("只说明阻断原因并留在资料阶段", transition_gate)
+        self.assertIn("只说明缺口并继续资料阶段", stage1_closure)
+
+    def test_skill_implementation_subflow_keeps_three_user_confirmation_gates(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        handoff_registry = read_text(SKILL_ROOT / "references" / "downstream-handoff-registry.md")
+        emit_protocol = read_text(SKILL_ROOT / "references" / "emit-artifact-protocol.md")
+        stage_schema = read_text(SKILL_ROOT / "references" / "stage-data-schema.md")
+        flow_constraints = read_text(SKILL_ROOT / "references" / "flow-constraints.md")
+        combined = "\n".join([skill, handoff_registry, emit_protocol, stage_schema, flow_constraints])
+
+        for text, source in [
+            (skill, "SKILL.md"),
+            (handoff_registry, "downstream-handoff-registry.md"),
+            (emit_protocol, "emit-artifact-protocol.md"),
+            (stage_schema, "stage-data-schema.md"),
+            (flow_constraints, "flow-constraints.md"),
+        ]:
+            self.assertIn("技能实现子流程", text, f"{source} must name the skill implementation subflow")
+
+        assert_tokens_in_order(self, combined, [
+            "skill_definition_ready",
+            "skill_workorder_summary",
+            "ontology_projection_ready",
+            "skill_generation_ready",
+        ], "skill implementation confirmation flow")
+
+        required_phrases = [
+            "三个显式确认门",
+            "用户确认后，才按 R2 触发业务资料准备",
+            "业务资料准备已完成，等待用户确认是否开始生成技能实现",
+            "不得向用户暴露 `slice`、`projection`、`projection_paths`、R1/R2/R3、结构化文件等内部术语",
+            "你只要回我一句",
+        ]
+        for phrase in required_phrases:
+            self.assertIn(phrase, combined)
+
+        forbidden_phrases = [
+            "立即自动触发 R2 projection pass",
+            "无需 `ontology_projection_ready` 确认门",
+            "业务资料准备：技能定义完成后**自动触发**",
+            "技能阶段有两个显式确认门",
+            "projection pass 自动启动",
+        ]
+        for phrase in forbidden_phrases:
+            self.assertNotIn(phrase, combined)
+
+    def test_package_root_terms_distinguish_coach_runtime_from_employee_package_root(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        sandbox_path_facts = section_between(skill, "沙箱真实路径事实", "#### 步骤 1")
+        path_guard = section_between(skill, "路径反伪造红线", "#### 失败兜底")
+        packaging_rules = section_between(skill, "### 3. 调用打包工具", "**正确示例")
+
+        self.assertIn("coach_runtime_root", sandbox_path_facts)
+        self.assertIn("employee_package_root", sandbox_path_facts)
+        self.assertIn("/workspace/<template_slug>-<yyyymmddHHmmss>", sandbox_path_facts)
+        self.assertIn("绝不能作为本次数字员工的工作目录、manifest 同步目录、审查目录或打包目录", sandbox_path_facts)
+
+        self.assertIn("workspace_root", path_guard)
+        self.assertIn("打包根目录", path_guard)
+        self.assertIn("会把雇佣教练系统 skill 混入数字员工包", path_guard)
+        self.assertIn("skills/employment-coach-conversation/SKILL.md", path_guard)
+
+        for system_skill_path in [
+            "skills/employment-coach-conversation/SKILL.md",
+            "skills/ontology-slice-extraction/SKILL.md",
+            "skills/skill-generation/SKILL.md",
+        ]:
+            self.assertIn(system_skill_path, packaging_rules)
+
+        self.assertIn("cd \"<employee_package_root>\"", packaging_rules)
+        self.assertIn("不得继续打包", packaging_rules)
 
     def test_agents_and_manifest_do_not_reintroduce_single_gate_or_auto_skill_generation_wording(self) -> None:
         combined = "\n".join([

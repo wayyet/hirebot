@@ -11,10 +11,20 @@ const HIDDEN_ASSISTANT_OPEN_TAG_REGEX = new RegExp(
 )
 const INTERNAL_INSTRUCTION_LINE_REGEX =
   /^.*(?:\[Internal (?:stage resume|downstream trigger|packaging trigger|skill definition confirmation|external config commit)[^\]]*\]|Internal stage resume|Internal downstream trigger|Internal packaging trigger|Internal skill definition confirmation).*$(?:\r?\n)?/gim
+const INTERNAL_PROTOCOL_MESSAGE_START_REGEX =
+  /^\s*(?:\[Internal (?:stage resume|downstream trigger|packaging trigger|skill definition confirmation|external config commit)\b|Internal stage resume|Internal downstream trigger|Internal packaging trigger|Internal skill definition confirmation)/i
+
+function isInternalProtocolMessage(content: string): boolean {
+  return INTERNAL_PROTOCOL_MESSAGE_START_REGEX.test(content)
+}
 
 function removeHiddenAssistantProtocol(content: string): string {
-  return content
-    .replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
+  const withoutClosedTags = content.replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
+  if (isInternalProtocolMessage(withoutClosedTags)) {
+    return ''
+  }
+
+  return withoutClosedTags
     .replace(INTERNAL_INSTRUCTION_LINE_REGEX, '')
     .trim()
 }
@@ -60,6 +70,10 @@ export function normalizeAssistantReply(content: string): string {
  */
 export function normalizeAssistantStreamingPreview(content: string): string {
   const withoutClosedTags = content.replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
+  if (isInternalProtocolMessage(withoutClosedTags)) {
+    return ''
+  }
+
   const lowerContent = withoutClosedTags.toLowerCase()
   HIDDEN_ASSISTANT_OPEN_TAG_REGEX.lastIndex = 0
 

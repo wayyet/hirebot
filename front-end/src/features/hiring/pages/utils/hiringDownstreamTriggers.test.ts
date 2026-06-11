@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 
 import {
   buildDownstreamPrompt,
@@ -227,7 +227,13 @@ describe('buildPackagingRequestPrompt', () => {
 
     expect(prompt).toContain('Do not ask for a package trigger')
     expect(prompt).toContain('workspace_root')
-    expect(prompt).toContain('use a zip tool to package the workspace')
+    expect(prompt).toContain('coach_runtime_root')
+    expect(prompt).toContain('employee_package_root')
+    expect(prompt).toContain('must never be packaged')
+    expect(prompt).toContain('not `/workspace`')
+    expect(prompt).toContain('skills/employment-coach-conversation/')
+    expect(prompt).toContain('stop and report the concrete root-resolution problem')
+    expect(prompt).toContain('use a zip tool to package that directory')
     expect(prompt).toContain('template_package')
   })
 
@@ -260,26 +266,26 @@ describe('buildSkillDefinitionConfirmationPrompt', () => {
 describe('buildDownstreamPrompt', () => {
   const samplePayload = { workspace_root: '/workspace/template-1' }
 
-  it('ontology-extraction prompt 包含 use skill ontology-extraction 触发块', () => {
-    const prompt = buildDownstreamPrompt('ontology-extraction', samplePayload)
+  it('ontology-extraction prompt 包含 use skill ontology-slice-extraction 触发块', () => {
+    const prompt = buildDownstreamPrompt('ontology-slice-extraction', samplePayload)
 
-    expect(prompt).toContain('use skill ontology-extraction')
-    expect(prompt).toContain('Switch to skill `ontology-extraction` now.')
-    expect(prompt).toContain('[Internal downstream trigger: use skill ontology-extraction]')
+    expect(prompt).toContain('use skill ontology-slice-extraction')
+    expect(prompt).toContain('Switch to skill `ontology-slice-extraction` now.')
+    expect(prompt).toContain('[Internal downstream trigger: use skill ontology-slice-extraction]')
     expect(prompt).toContain('trigger_reason: material_handoff_summary_completed')
     expect(prompt).toContain('stage=`stage1_material`')
     expect(prompt).toContain('artifact_payload:')
     expect(prompt).toContain('required_artifacts:')
-    expect(prompt).toContain('ontology_extraction_progress')
-    expect(prompt).toContain('ontology_extraction_done')
+    expect(prompt).toContain('ontology_slice_extraction_progress')
+    expect(prompt).toContain('ontology_slice_extraction_done')
   })
 
-  it('ontology-projection prompt 包含 use skill ontology-extraction 触发块', () => {
+  it('ontology-projection prompt 包含 use skill ontology-slice-extraction 触发块', () => {
     const prompt = buildDownstreamPrompt('ontology-projection', samplePayload)
 
-    expect(prompt).toContain('use skill ontology-extraction')
-    expect(prompt).toContain('Switch to skill `ontology-extraction` now.')
-    expect(prompt).toContain('[Internal downstream trigger: use skill ontology-extraction]')
+    expect(prompt).toContain('use skill ontology-slice-extraction')
+    expect(prompt).toContain('Switch to skill `ontology-slice-extraction` now.')
+    expect(prompt).toContain('[Internal downstream trigger: use skill ontology-slice-extraction]')
     expect(prompt).toContain('trigger_reason: user_confirmed_ontology_projection')
     expect(prompt).toContain('stage=`stage2_skill`')
     expect(prompt).toContain('artifact_payload:')

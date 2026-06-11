@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 
 import type { ChatMessage, ToolStep } from '../hiringPageTypes'
 import { buildChatRenderItems, chatToMarkdown } from './hiringConversationMarkdown'
@@ -73,7 +73,7 @@ describe('chatToMarkdown', () => {
             id: 't1',
             name: 'load_skill',
             status: 'done',
-            args: '{"skill":"ontology-extraction"}',
+            args: '{"skill":"ontology-slice-extraction"}',
             result: '<skill-instructions>\n## Skill: ontology-extraction',
           },
         ],

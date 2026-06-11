@@ -1,4 +1,4 @@
-# 下游 skill 渐进式披露交接注册表
+﻿# 下游 skill 渐进式披露交接注册表
 
 本文件是 `employment-coach-conversation` 唤起下游 skill 的唯一交接清单。主 skill 不得假设下游 skill 的完整规则已经在上下文里；每次进入下游步骤时，都必须用本表里的内部触发块显式唤起对应 skill，并等待指定 terminal artifact。
 
@@ -36,12 +36,12 @@
 
 **阶段摘要**
 - **目的**：把岗位动作和能力清单整理成结构化 skill 定义清单，每条都有明确的名称、触发条件和期望输出
-- **子步骤顺序**：技能定义收集 → skill_definition_ready 确认门 → skill_workorder_summary → ontology_projection_ready 确认门 → projection pass (R2) → skill_generation_ready 确认门 → skill-generation (R3) → skill_generation_done
-- **入场动作**：等待 `ontology_extraction_done` 到达 → 发出 `skill_workorder_progress` → 开始引导技能定义
+- **子步骤顺序**：技能定义收集 → skill_definition_ready 确认门 → skill_workorder_summary → 进入技能实现子流程 → ontology_projection_ready 确认门 → projection pass (R2，产出一系列 `ontology/projections/<skill-slug>/*.projection.json`) → skill_generation_ready 确认门 → skill-generation (R3，消费 `projection_result` 将投影物化为 `skills/<skill-slug>/contracts/projections/ontology_extraction/` 下的 4 视图 consumer contract) → skill_generation_done
+- **入场动作**：等待 `ontology_slice_extraction_done` 到达 → 发出 `skill_workorder_progress` → 开始引导技能定义
 - **最低门槛**：每个 skill 具备明确的 `name`（skill slug）+ `display_name` + `description` + `trigger` + `expected_output` + `generation_action`
-- **禁止**：`ontology_extraction_done` 到达前不得发 `skill_workorder_progress` 或进入技能定义收集；skill-generation 完成前不得提示"可进入外部阶段"
+- **禁止**：`ontology_slice_extraction_done` 到达前不得发 `skill_workorder_progress` 或进入技能定义收集；skill-generation 完成前不得提示"可进入外部阶段"
 
-**关联下游 R 条目**：R2（projection pass）、R3（skill-generation）
+**关联下游 R 条目**：R2（projection pass → 产出 projection 文件，供 skill-generation 消费）、R3（skill-generation → 消费 `projection_result` + projection 文件，物化为 consumer contract）
 
 ---
 
@@ -96,18 +96,18 @@
 
 ---
 
-## R1：资料收口后触发本体抽取
+## R1：资料收口后触发本体切片抽取
 
 **前置信号**
 - 刚发出 `material_handoff_summary`，且 data 中有真实 `workspace_root`、`template_slug`、`items[]`。
 
 **必须唤起**
-- `ontology-extraction`
+- `ontology-slice-extraction`
 
 **内部触发块**
 
 ````text
-[Internal downstream trigger: use skill ontology-extraction]
+[Internal downstream trigger: use skill ontology-slice-extraction]
 source_skill: employment-coach-conversation
 trigger_reason: material_handoff_summary_completed
 artifact_payload:
@@ -115,16 +115,16 @@ artifact_payload:
 <material_handoff_summary.data>
 ```
 required_artifacts:
-- ontology_extraction_progress
-- ontology_extraction_done
+- ontology_slice_extraction_progress
+- ontology_slice_extraction_done
 return_to: employment-coach-conversation
 ````
 
 **等待结果**
-- `ontology_extraction_done`
+- `ontology_slice_extraction_done`
 
 **禁止**
-- 不得在 `ontology_extraction_done` 前发 `skill_workorder_progress`。
+- 不得在 `ontology_slice_extraction_done` 前发 `skill_workorder_progress`。
 - 不得由主 skill 自己输出或写入本体切片文件。
 
 ## R2：业务资料准备确认后触发投影 (Projection Pass)
@@ -132,24 +132,24 @@ return_to: employment-coach-conversation
 **前置信号**
 - 已发出 `skill_workorder_summary`。
 - 已发出 `ontology_projection_ready`。
-- 用户对“是否开始为技能准备业务资料”给出肯定。
+- 用户对”是否开始为技能准备业务资料”给出肯定。
 
 **必须唤起**
-- `ontology-extraction` 的 projection pass 模式
+- `ontology-projection`
 
 **内部触发块**
 
 ````text
-[Internal downstream trigger: use skill ontology-extraction]
+[Internal downstream trigger: use skill ontology-projection]
 source_skill: employment-coach-conversation
 trigger_reason: user_confirmed_ontology_projection
 artifact_payload:
 ```json
 {
-  "trigger_mode": "projection_pass",
-  "workspace_root": "<skill_workorder_summary.data.workspace_root>",
-  "template_slug": "<skill_workorder_summary.data.template_slug>",
-  "skills": <skill_workorder_summary.data.items>
+  “workspace_root”: “<skill_workorder_summary.data.workspace_root>”,
+  “template_slug”: “<skill_workorder_summary.data.template_slug>”,
+  “skills”: <skill_workorder_summary.data.items>,
+  “business_rules”: <skill_workorder_summary.data.business_rules_captured_so_far>
 }
 ```
 required_artifacts:
@@ -158,7 +158,7 @@ required_artifacts:
 return_to: employment-coach-conversation
 ````
 
-> Projection Pass 模式下，`ontology-extraction` 自行扫描 `<workspace_root>/ontology/` 下的 `*.slice.json`，无需上游传入 `material_summary` 或 `ontology_result`。
+> `ontology-projection` 自行扫描 `<workspace_root>/ontology/` 下的 `*.slice.json`，无需上游传入 `material_summary` 或 `ontology_result`。`business_rules` 来自技能定义阶段已收集的业务规则，`ontology-projection` 必须先消费已有规则再判断是否需要提问。
 
 **等待结果**
 - `ontology_projection_done`
@@ -166,6 +166,83 @@ return_to: employment-coach-conversation
 **禁止**
 - 不得在 `ontology_projection_done` 前调用 `skill-generation`。
 - 不得把 `projection_binding_confirmed` 写进 `ontology_projection_ready` 或 `skill_generation_ready`；该字段只属于 R3 的内部触发 payload。
+- 不得在用户确认 `ontology_projection_ready` 前触发 R2。
+- 面向用户只说”准备业务资料”，不得暴露 projection pass、R2、slice、结构化文件等内部术语。
+
+---
+
+# ontology-slice-extraction / ontology-projection ↔ skill-generation 跨 skill 关系与执行顺序
+
+本节统一描述 `ontology-slice-extraction`、`ontology-projection` 与 `skill-generation` 三个下游 skill 之间的依赖关系、数据契约和执行顺序。R1/R2/R3 的单个触发规则见下方对应 R 条目，本节为**交叉索引**——从 producer-consumer 视角展示完整的数据管道。
+
+## 关系概述
+
+- **ontology-slice-extraction 是 slice producer**：从业务资料中抽取本体切片（R1）。所有产物写入 `<workspace_root>/ontology/` 目录。
+- **ontology-projection 是 projection producer**：读取本体切片，按已确认技能清单投影为每项技能专属的 projection 文件（R2）。产物写入 `<workspace_root>/ontology/projections/`。
+- **skill-generation 是 consumer**：读取 projection 文件生成完整技能包。Phase 3 Step 1 写入基础技能文件（`SKILL.md`、`metadata.json`、`references/`），Phase 3 Step 2 将 projection 文件物化（materialize）为 consumer 侧标准 4 视图 contract，写入 `<workspace_root>/skills/<slug>/contracts/projections/ontology_extraction/`。
+- **执行严格顺序**：R1（slice）→ 技能定义收集 → R2（projection pass）→ R3（skill-generation）。R2 必须先完成（emit `ontology_projection_done`）且 `projected_count > 0`，R3 才能触发。
+- **数据交接介质**：`ontology/projections/<skill-slug>/` 目录下的 `*.projection.json` 文件是 projection 与 skill-generation 之间的核心数据契约载体。
+
+## 执行顺序总览
+
+| 步骤 | 动作 | 负责 Skill | 触发规则 | Terminal Artifact | 产出数据 | 消费数据 |
+|------|------|-----------|---------|-------------------|---------|---------|
+| 1 | 本体切片抽取 | `ontology-slice-extraction` | R1 | `ontology_slice_extraction_done` | `ontology/<topic>.slice.json` + `.slice.md` | `material_handoff_summary.data`（workspace_root、items[]） |
+| 2 | 技能定义收集 | `employment-coach-conversation` | — | `skill_workorder_summary` | `items[]` 技能清单（含 name、description、trigger、expected_output、business_rules_captured_so_far） | 用户对话确认 |
+| 3 | 投影匹配 | `ontology-projection` | R2 | `ontology_projection_done` | `ontology/projections/<skill-slug>/<domain>.<type>.projection.json` | `skill_workorder_summary.data.items[]` + `business_rules_captured_so_far` + `ontology/*.slice.json`（自行扫描） |
+| 4 | 技能生成 | `skill-generation` | R3 | `skill_generation_done` | `skills/<slug>/SKILL.md` + 基础文件 + consumer contracts（4 视图） | R3 payload（含 `projection_result`、`items`、`projection_binding_confirmed: true`、`projection_contract_mode: “required”`） |
+
+## 数据契约字段映射（ontology-projection 产出 → skill-generation 消费）
+
+| # | 源字段 / 文件（ontology-projection 产出） | 中间位置 | 目标字段 / 逻辑（skill-generation 消费） | 消费阶段 | 校验规则 |
+|---|------------------------------------------|---------|----------------------------------------|---------|---------|
+| 1 | `ontology_projection_done.data.projection_paths[]` | R3 payload 的 `projection_result.projection_paths[]` | Phase 1 投影发现（扫描 `<workspace_root>/ontology/projections/<slug>/`） | Phase 1（输入采集） | 必须非空；`projected_count > 0` 才可触发 R3 |
+| 2 | `projection_paths[]` 中解析出的 `<skill-slug>` 部分 | R3 payload 的 `projection_skill_slugs[]` | Phase 0.25 slug 白名单校验 | Phase 0.25（slug 校验） | 必须全部在 `confirmed_skill_slugs` 中；若不匹配则阻断 |
+| 3 | `ontology/projections/<slug>/*.projection.json`（文件系统实体） | 文件系统（`<workspace_root>` 下） | Phase 3 Step 2 consumer contract 物化（优先运行 `materialize-consumer-projection-contract.py`） | Phase 3 Step 2（投影契约生成） | 文件必须存在且 JSON 顶层包含 `projection_type`、`source_slice`、`concept_mappings` 三个字段；仅含 `note`/`source_projection_path` 的 stub 引用视为无效 |
+| 4 | `projection.json` 的 `open_questions` 字段 | 透传 | Phase 3 Step 2 判定 view 状态：为空 → READY；非空 → WARNING（透传未决问题） | Phase 3 Step 2 | WARNING 不跳过 contract 生成，但状态标记为 WARNING |
+| 5 | `projection.json` 的 `intended_consumers` 字段 | 透传 | Phase 0.25 校验 projection 归属：确认该 projection 声明为当前 skill 消费 | Phase 0.25 | 必须包含当前 `skill_slug`；不匹配视为该 projection 不属于此 skill |
+| 6 | `projection.json` 的 `concept_mappings` / `relation_mappings` / `constraint_mappings` | 透传 | Phase 3 Step 2 物化为 4 个标准 view：`domain-model`、`json-schema`、`prompt-constraint`、`workflow-contract` | Phase 3 Step 2 | 4 个 view 都必须以 consumer flat shape 落盘；薄文件、分职责 |
+| 7 | `projection.json` 的 `mapping_policy` / `delivery_artifacts` / `dropped_items` / `prompt_projection` | 透传 | Phase 3 Step 2 写入对应 view 文件，供 runtime 发现和注入 | Phase 3 Step 2 | `delivery_artifacts.path` 限定到该业务 skill 真实会产出的文件或响应结构 |
+
+## 跨 skill 交接校验规则
+
+以下规则在构造 R3 内部触发块之前和 skill-generation 入口门禁处分别执行：
+
+### employment-coach 侧（构造 R3 payload 前）
+
+- `projection_result` 必须来自最近一次 `ontology_projection_done.data`，不得编造或从旧 artifact 拼接
+- `projection_result.projection_paths[]` 非空且 `projected_count > 0`
+- `projection_skill_slugs[]`（从 `projection_paths[]` 解析）必须全部为 `confirmed_skill_slugs` 子集
+- `projection_binding_confirmed` 硬编码为 `true`
+- `projection_contract_mode` 硬编码为 `”required”`
+
+### skill-generation 侧（Phase 0.25 门禁 + Phase 3 Step 2 阻断）
+
+- Phase 0.25：`projection_skill_slugs[]` 全部在 `confirmed_skill_slugs` 中，否则阻断本轮运行
+- Phase 1 投影发现：`ontology/projections/<slug>/` 目录必须存在且含 `*.projection.json`；当 `projection_binding_confirmed: true` 且该目录不存在时，记为阻断原因
+- Phase 3 Step 2：每个 projection 文件必须是非 stub 的完整 JSON；若源文件无效，当 `projection_contract_mode: “required”` 时必须阻断，不得降级为”仅基础 skill 文件”
+- Phase 4 Contract Check：`contracts/projections/ontology_extraction/contract-index.json` 存在且结构完整，每个 topic 固定包含 4 个标准 view 文件
+
+### 反 stub 验证（关键）
+
+Projection 源文件和 consumer contract 文件都**不得**为以下 stub 形态：
+
+```json
+{ “note”: “...”, “source_projection_path”: “...” }
+```
+
+合法文件必须包含完整 projection 结构：`projection_type`、`source_slice`、`intended_consumers`、`concept_mappings`、`relation_mappings`、`constraint_mappings`、`mapping_policy`、`prompt_projection`、`delivery_artifacts`、`dropped_items`、`open_questions`。若源 projection 文件仅为 stub 引用，等同于”projection 源无效”，在 `projection_binding_confirmed: true` 时阻断 R3。
+
+## 关联参考文档
+
+| 文档 | 位置 | 用途 |
+|------|------|------|
+| Projection 消费指南 | `ontology-projection/references/PROJECTION_CONSUMPTION_GUIDE.md` | 下游 skill（如 skill-generation）如何读取和使用 projection 文件 |
+| Consumer Projection 目录与命名规范 | `ontology-projection/references/CONSUMER_PROJECTION_LAYOUT_GUIDE.md` | consumer contract 的 4 视图结构、目录布局与命名约定 |
+| Skill 生成质量检查清单 | `skill-generation/references/quality-checklist.md` | 生成后质量校验，含 Contract Check 与 Projection Consistency Check 规则 |
+| Projection Contract 模板 | `skill-generation/references/projection-contract-template.md` | 生成 consumer projection contract 的最小结构模板 |
+
+---
 
 ## R3：技能生成确认后触发技能实现生成
 
@@ -206,6 +283,21 @@ return_to: employment-coach-conversation
 
 **等待结果**
 - `skill_generation_done`
+
+### R3 字段来源验证清单（ontology-projection → skill-generation 交接校验）
+
+构造 R3 内部触发 payload 前，**必须**逐项确认以下 ontology-projection 产出已就绪。本清单与上文"跨 skill 交接校验规则"互补：上文描述校验逻辑，本清单提供 employment-coach 侧构造 R3 payload 时的逐项核对表。
+
+| # | 校验项 | 来源 | 阻断级别 | 说明 |
+|---|--------|------|---------|------|
+| 1 | `projection_result.projection_paths[]` 非空 | `ontology_projection_done.data` | **阻断**（不可触发 R3） | 若为空或 `projected_count === 0`，停留在阶段 2，提示用户补充业务资料 |
+| 2 | `projection_skill_slugs[]` 全部在 `confirmed_skill_slugs` 中 | 从 `projection_paths[]` 解析 `<skill-slug>` 部分 | **阻断**（projection 目录与已确认技能不一致） | 若存在不匹配的 slug，不得自行创建新目录或改名，必须报告不一致 |
+| 3 | 每个 `projection_paths[]` 指向的 `.projection.json` 文件存在且可读 | 文件系统（`read_file` 验证） | **阻断**（projection 文件未落盘） | 若文件不存在，先执行有界等待（500ms 间隔，最长 5s）；超时仍未就绪则阻断 |
+| 4 | 每个 projection 文件的 JSON 顶层包含 `projection_type`、`source_slice`、`concept_mappings`（非 stub） | 文件内容（`read_file` + JSON 解析） | **阻断**（无效 projection 源） | 若文件仅含 `note`/`source_projection_path` 等 stub 字段，视为源文件无效；`projection_contract_mode: "required"` 时必须阻断 |
+| 5 | `projection_binding_confirmed` 显式为 `true`（布尔值，非字符串） | R3 payload 构造 | **阻断**（skill-generation 入口门禁条件 #4） | 该字段只在 R3 内部 payload 中出现，禁止写入 `skill_generation_ready` 或 `ontology_projection_ready` |
+| 6 | `projection_contract_mode` 显式为 `"required"`（字符串） | R3 payload 构造 | **阻断**（skill-generation 不执行投影绑定，Phase 3 Step 2 可能被跳过） | 该字段只在 R3 内部 payload 中出现，禁止写入 `skill_generation_ready` 或 `ontology_projection_ready` |
+
+> **与 SKILL.md 中 R3 字段来源检查清单的关系**：SKILL.md 中的检查清单（workspace_root、template_slug、items、confirmed_skill_slugs、projection_binding_confirmed、projection_contract_mode、projection_result、projection_skill_slugs）覆盖 R3 payload 的 8 个必要字段。本清单覆盖的是 projection 本身的质量和可消费性——两个清单互补，构造 R3 前必须同时通过。
 
 **失败分支**
 - 如果 projection 结果不可消费，停留在阶段 2，提示用户补业务资料或调整技能定义；不得降级直连 `skill-generation`。
@@ -297,3 +389,17 @@ return_to: employment-coach-conversation
 
 **禁止**
 - 未取得真实 `fileUrl` 前，不得声称数字员工包已生成。
+
+---
+
+# 关联文档索引
+
+以下文档不在本注册表中，但与本注册表的 R1-R3（ontology-slice-extraction / ontology-projection ↔ skill-generation）交接链路直接相关。除本表外，这些文档是构造 R1/R2/R3 内部触发块和理解 producer-consumer 数据契约的必要补充阅读。
+
+| 文档 | 相对于 skill 根目录的路径 | 用途 |
+|------|--------------------------|------|
+| Projection 消费指南 | `ontology-projection/references/PROJECTION_CONSUMPTION_GUIDE.md` | 下游 skill（如 skill-generation、evaluation-expert-consumer）如何读取和使用 projection 文件 |
+| Consumer Projection 目录与命名规范 | `ontology-projection/references/CONSUMER_PROJECTION_LAYOUT_GUIDE.md` | consumer contract 的标准 4 视图结构、目录布局与文件命名约定 |
+| Skill 生成质量检查清单 | `skill-generation/references/quality-checklist.md` | 生成后质量校验，含 Contract Check 与 Projection Consistency Check 规则 |
+| 下游映射指南 | `ontology-projection/references/DOWNSTREAM_MAPPING_GUIDE.md` | 投影如何映射到下游 codegen / prompt 编排 |
+| Projection Contract 模板 | `skill-generation/references/projection-contract-template.md` | 生成 consumer projection contract 的最小结构模板 |

@@ -1,4 +1,4 @@
-import { HiringCollectionStage } from '@/infra/api'
+﻿import { HiringCollectionStage } from '@/infra/api'
 import type { SandboxMessage, SandboxToolCall } from '@/infra/sandbox/sandbox-api'
 
 import type {
@@ -181,8 +181,8 @@ function normalizeHistoricalUserMessage(content: string): { content: string; fil
 }
 
 export const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey; status: DownstreamRunStatus }> = {
-  ontology_extraction_progress: { key: 'ontology-extraction', status: 'running' },
-  ontology_extraction_done: { key: 'ontology-extraction', status: 'completed' },
+  ontology_slice_extraction_progress: { key: 'ontology-slice-extraction', status: 'running' },
+  ontology_slice_extraction_done: { key: 'ontology-slice-extraction', status: 'completed' },
   skill_definition_ready: { key: 'skill-generation', status: 'waiting_confirm' },
   ontology_projection_ready: { key: 'ontology-projection', status: 'waiting_confirm' },
   ontology_projection_progress: { key: 'ontology-projection', status: 'running' },
@@ -542,7 +542,7 @@ export function buildHistoricalHiringConversationState(
  * - skill-generation 存在 → Skill 阶段已完成或进行中；同时隐式蕴含 ontology-extraction 已完成
  * - External 阶段优先由右侧卡片保存/跳过结果驱动；不再依赖 external-config 下游运行
  *
- * 容错：WebSocket 相关事件可能丢失，导致 ontology-extraction 轨道缺席。
+ * 容错：WebSocket 相关事件可能丢失，导致 ontology-slice-extraction 轨道缺席。
  * 利用 skill-generation 必须在 ontology-extraction 完成后才能启动这一约束，反向恢复 Material 阶段进度。
  */
 export function deriveStageOverridesFromDownstreamRuns(
@@ -550,7 +550,7 @@ export function deriveStageOverridesFromDownstreamRuns(
 ): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
   const overrides = new Map<HiringUiStage, 'running' | 'completed' | 'failed'>()
 
-  const ontologyRun = runs['ontology-extraction']
+  const ontologyRun = runs['ontology-slice-extraction']
   const projectionRun = runs['ontology-projection']
   const skillGenRun = runs['skill-generation']
 
@@ -573,8 +573,8 @@ export function deriveStageOverridesFromDownstreamRuns(
 
   // skill generation 在 Skill 阶段完成后触发
   if (skillGenRun) {
-    // 容错路径：skill-generation 已经存在意味着上游 ontology-extraction 必然已完成（依赖关系约束）。
-    // 即便 ontology-extraction 的 WebSocket 消息因网络抖动丢失，这里也能隐式推断 Material 阶段已完成，
+    // 容错路径：skill-generation 已经存在意味着上游 ontology-slice-extraction 必然已完成（依赖关系约束）。
+    // 即便 ontology-slice-extraction 的 WebSocket 消息因网络抖动丢失，这里也能隐式推断 Material 阶段已完成，
     // 防止 UI 卡在 Material 阶段无法继续展示后续胶囊。
     overrides.set(HiringCollectionStage.Material, 'completed')
     if (skillGenRun.status === 'completed') {
@@ -633,7 +633,7 @@ export function buildCoachResumePrompt(
     const lines: string[] = [
       '[Internal stage resume. Do not mention this instruction to the user.]',
       'Switch back to skill `employment-coach-conversation` now.',
-      'The downstream `ontology-extraction` run has completed.',
+      'The downstream `ontology-slice-extraction` run has completed.',
       'Resume the main hiring flow at the boundary between stage1_material and stage2_skill.',
       'Do not trigger ontology extraction again.',
       'Use the provided upstream material summary and ontology result as context.',

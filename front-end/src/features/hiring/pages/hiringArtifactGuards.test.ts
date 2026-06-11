@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import {
@@ -67,12 +67,12 @@ describe('getBlockedIncomingArtifactReason', () => {
   })
 
   it('阻止没有资料阶段收口的本体抽取进度', () => {
-    expect(getBlockedIncomingArtifactReason('ontology_extraction_progress', emptyState))
-      .toBe('ontology extraction requires material_handoff_summary')
+    expect(getBlockedIncomingArtifactReason('ontology_slice_extraction_progress', emptyState))
+      .toBe('ontology slice extraction requires material_handoff_summary')
   })
 
   it('允许资料阶段收口后的本体抽取进度', () => {
-    expect(getBlockedIncomingArtifactReason('ontology_extraction_progress', {
+    expect(getBlockedIncomingArtifactReason('ontology_slice_extraction_progress', {
       ...emptyState,
       hasMaterialSummary: true,
     })).toBeNull()
@@ -350,8 +350,8 @@ describe('getBlockedIncomingArtifactReason', () => {
     })).toBeNull()
   })
 
-  it('blocks ontology_extraction_progress with top-level status', () => {
-    expect(getBlockedIncomingArtifactReason('ontology_extraction_progress', {
+  it('blocks ontology_slice_extraction_progress with top-level status', () => {
+    expect(getBlockedIncomingArtifactReason('ontology_slice_extraction_progress', {
       ...emptyState,
       hasMaterialSummary: true,
     }, {
@@ -365,8 +365,8 @@ describe('getBlockedIncomingArtifactReason', () => {
     })).toBe('data.status is only allowed for packaging and review artifacts')
   })
 
-  it('allows ontology_extraction_progress without status', () => {
-    expect(getBlockedIncomingArtifactReason('ontology_extraction_progress', {
+  it('allows ontology_slice_extraction_progress without status', () => {
+    expect(getBlockedIncomingArtifactReason('ontology_slice_extraction_progress', {
       ...emptyState,
       hasMaterialSummary: true,
     }, {
@@ -379,8 +379,8 @@ describe('getBlockedIncomingArtifactReason', () => {
     })).toBeNull()
   })
 
-  it('blocks ontology_extraction_done with top-level status', () => {
-    expect(getBlockedIncomingArtifactReason('ontology_extraction_done', {
+  it('blocks ontology_slice_extraction_done with top-level status', () => {
+    expect(getBlockedIncomingArtifactReason('ontology_slice_extraction_done', {
       ...emptyState,
       hasMaterialSummary: true,
     }, {

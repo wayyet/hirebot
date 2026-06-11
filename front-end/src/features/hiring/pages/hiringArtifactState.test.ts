@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import { HiringCollectionStage } from '@/infra/api'
 
 import type { DownstreamRunState } from './hiringPageTypes'
@@ -224,7 +224,7 @@ describe('buildHistoricalHiringConversationState', () => {
               kind: 'data',
               artifactType: 'ontology_projection_done',
               label: '业务资料准备结果',
-              skillName: 'ontology-extraction',
+              skillName: 'ontology-slice-extraction',
               stage: 'stage2_skill',
               isTerminal: true,
               data: {
@@ -330,7 +330,7 @@ describe('buildHistoricalHiringConversationState', () => {
               kind: 'data',
               artifactType: 'ontology_projection_done',
               label: '业务资料已准备',
-              skillName: 'ontology-extraction',
+              skillName: 'ontology-slice-extraction',
               stage: 'stage2_skill',
               isTerminal: true,
               data: {

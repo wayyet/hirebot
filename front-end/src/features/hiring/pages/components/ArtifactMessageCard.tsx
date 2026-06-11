@@ -1,4 +1,4 @@
-import { useTranslation } from 'react-i18next'
+﻿import { useTranslation } from 'react-i18next'
 import type { ArtifactDisplayData } from '../hiringPageTypes'
 import { BadgeView, CodeView, ProgressView, TableView, TextView } from './artifacts/BaseArtifactViews'
 import {
@@ -140,7 +140,7 @@ function toArtifactSubtitleLabel(value: string | undefined): string | undefined 
     stage2_skill: '技能阶段',
     stage3_external: '外部阶段',
     stage4_packaging: '打包阶段',
-    'ontology-extraction': '业务整理',
+    'ontology-slice-extraction': '业务整理',
     'ontology-projection': '技能准备',
     'skill-generation': '技能生成',
     'external-config': '外部配置',
@@ -155,8 +155,13 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
   if (artifact.artifactType === 'material_collection_progress' || artifact.artifactType === 'material_handoff_summary') {
     return <MaterialHandoffView data={artifact.data} />
   }
-  if (artifact.artifactType === 'ontology_extraction_done' || artifact.artifactType === 'ontology_extraction_progress') {
-    return <OntologyExtractionView data={artifact.data} />
+  if (
+    artifact.artifactType === 'ontology_slice_extraction_done' ||
+    artifact.artifactType === 'ontology_slice_extraction_progress' ||
+    artifact.artifactType === 'ontology_projection_done' ||
+    artifact.artifactType === 'ontology_projection_progress'
+  ) {
+    return <OntologyExtractionView artifactType={artifact.artifactType} data={artifact.data} />
   }
   if (artifact.artifactType === 'skill_workorder_progress' || artifact.artifactType === 'skill_workorder_summary') {
     return <SkillWorkorderSummaryView data={artifact.data} />
@@ -232,7 +237,7 @@ function ArtifactIcon({ artifact }: { artifact: ArtifactDisplayData }) {
     artifact.artifactType === 'review_report'
   ) return <span className="hb-artifact-icon">🔎</span>
     if (artifact.artifactType === 'material_collection_progress' || artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
-  if (artifact.artifactType === 'ontology_extraction_done' || artifact.artifactType === 'ontology_extraction_progress') return <span className="hb-artifact-icon">🌿</span>
+  if (artifact.artifactType === 'ontology_slice_extraction_done' || artifact.artifactType === 'ontology_slice_extraction_progress' || artifact.artifactType === 'ontology_projection_done' || artifact.artifactType === 'ontology_projection_progress') return <span className="hb-artifact-icon">🌿</span>
   if (artifact.artifactType === 'external_workorder_progress' || artifact.artifactType === 'external_workorder_summary' || artifact.artifactType === 'external_config_committed') return <span className="hb-artifact-icon">🔌</span>
   if (artifact.artifactType === 'packaging_progress') return <span className="hb-artifact-icon">📦</span>
   const map: Record<string, string> = { table: '📊', code: '💻', tree: '🌿', badge: '✅', progress: '⏳' }
