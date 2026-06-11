@@ -54,9 +54,9 @@ upstream_producer_dependencies:
 ### 4. 预置测试用例（`/workspace/uploads/evaluation-expert-consumer/test-cases/`）
 
 - 若目录非空（且不只有 `default_connectivity_testcases.json`）：直接进入 STEP 1
-- 若目录为空或只有 default 文件：`test_case_status = "missing"`，将在 STEP 1.5 合成
+- 若目录为空或只有 default 文件：`test_case_status = "missing"`，将在 STEP 1.5 处理
 
-> **提示**：跳过上述读取步骤是导致测试用例偏离员工职责、评估结论跑偏的主要原因。每轮会话开始时务必完整执行此读取流程。
+> **重要**：`test_case_status == "missing"` 时，**STEP 1.5 会优先检查员工模板材料是否已读取**。若上述第 2 步的 5 类材料均已读取，STEP 1.5 直接根据模板自动合成测试用例（`reliability="medium"`），**不向用户发送任何问题**，评估流程不中断。只有模板未加载时才会暂停咨询用户。因此，**第 2 步的模板读取顺序对评估流畅性至关重要**——跳过会导致 STEP 1.5 误触发咨询流程。
 
 ## 高层流程
 
@@ -186,7 +186,7 @@ Legend: deterministic（确定性）= 白盒；**LLM** = STEP 1.5（条件触发
 | PRE  | `loadMetricRegistry` | 确定性 | 内联（扫描 `./metrics/*.metric.json` 文件系统；注册表为空时快速失败） |
 | 1    | `resolveEmployeeAndCheckTestCases` | 确定性 | [`step-01-resolve-and-filter.md`](./playbooks/step-01-resolve-and-filter.md) — 按角色过滤到 `candidate_metrics` |
 | 1.2  | `curateMetrics` | LLM，有界 + 可审计，条件触发 | [`step-1.2-curate-metrics.md`](./playbooks/step-1.2-curate-metrics.md) — `selected_metrics = (candidate − removed) ∪ added` |
-| 1.5  | `parseTestCases` | LLM，条件触发（仅当 `test_case_status == "missing"`） | [`step-1.5-consult-then-synthesize.md`](./playbooks/step-1.5-consult-then-synthesize.md) |
+| 1.5  | `parseTestCases` | LLM，条件触发（仅当 `test_case_status == "missing"`） | [`step-1.5-consult-then-synthesize.md`](./playbooks/step-1.5-consult-then-synthesize.md) — **优先走 P0 自动合成**：若会话已读取员工模板全部 5 类材料（IDENTITY、SOUL、AGENTS、SKILL、ontology），直接根据模板推导场景，不向用户追问，`reliability="medium"`；仅在模板未加载时才发送咨询消息（P2 SOP 回退） |
 | 1.6  | `pushSynthesizedTestCases` | 确定性子流程（可选，若 `hirebot_api` 缺失或无合成用例则跳过） | 内联 — 运行 `testcase_uploader.py --synthesized-dir .../synthesized-cases/`；将用例推送到 HireBot 以便前端右侧面板卡片立即显示 |
 | 2    | `enrichTestCases` | 确定性，始终运行 | 内联（附加每个 K10 的 `applicable_metrics ⊆ selected_metrics`；`*` 是通配符，非字面值） |
 | 2.5  | `planRun` | 确定性，无 LLM | [`step-2.5-plan-run.md`](./playbooks/step-2.5-plan-run.md) — 将 `runs/<eval_id>/run_plan.json` 落盘（根据 `runtime-schemas/run_plan.schema.json` 验证）：每场景包含整个 driver 生命周期的字面 shell 字符串。负责 **K20**。STEP 3 必须在该文件存在后方可开始。 |

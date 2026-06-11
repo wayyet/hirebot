@@ -1,4 +1,4 @@
-# STEP 1.5 — parseTestCases（优先咨询用户，仅在无法获取时才回退到 SOP 合成）
+# STEP 1.5 — parseTestCases（模板充分时自动合成；否则咨询用户）
 
 **类型**：LLM，条件性触发（仅当 `test_case_status == "missing"` 时）
 **依据**：工作流合同 `S1_5` + K5 + K11 + K15（设计切面）
@@ -11,15 +11,55 @@
 
 来自用户的真实场景是评估**最高保真度的基准**。SOP 只描述员工**应该**如何行事——无法告诉我们员工**实际**处理哪些用例。
 
-## 用户优先协议
+## 执行路径优先级（高 → 低）
 
-STEP 1.5 触发时，**先暂停，在进行任何 LLM 合成之前向用户确认**。
+STEP 1.5 触发时，按以下顺序判断走哪条路径，**命中第一条即停止**：
 
-### 1. 发送一条咨询消息（建议模板）
+| 优先级 | 路径名 | 触发条件 | provenance.source | reliability |
+|---|---|---|---|---|
+| **P0（首选）** | **模板自动合成** | 会话启动时已读取员工模板的全部 5 类材料（`IDENTITY.md`、`SOUL.md`、`AGENTS.md`、`skills/*/SKILL.md`、`ontology/*.slice.md`），且 SKILL.md 中包含至少一个可推导的业务场景（触发词、能力清单、边界） | `synthesized_from_template` | `medium` |
+| P1 | 用户提供场景 | 用户在本轮或上一轮消息中主动提供了具体场景 | `user_provided_scenarios` | `high` |
+| P2 | SOP 回退 | 不满足 P0/P1，且用户明确表示"你自己合成" / "没有" / "skip" | `synthesized_from_sop` | `low`（携带 caveat） |
+| P3（阻断） | 无法合成 | 不满足 P0/P1/P2，且 `employee.sop_documents` 为空 | — | `block_or_escalate` |
+
+> **K11 说明**：K11 的原始意图是"禁止在无任何业务上下文的情况下凭空合成"。当员工模板已充分加载（P0 条件满足）时，模板本身即为业务上下文，无需再向用户追问。**P0 路径不违反 K11**——K11 仅在 P2（SOP 回退）时仍然约束咨询记录的完整性。
+
+### P0：模板自动合成（无需暂停，无需追问用户）
+
+当且仅当满足以下全部条件时走 P0：
+
+1. 会话本轮已读取 `/workspace/uploads/artifact/<template_dir>/config/IDENTITY.md`
+2. 会话本轮已读取 `/workspace/uploads/artifact/<template_dir>/config/SOUL.md`  
+3. 会话本轮已读取 `/workspace/uploads/artifact/<template_dir>/config/AGENTS.md`
+4. 会话本轮已读取 `/workspace/uploads/artifact/<template_dir>/skills/*/SKILL.md`（至少一个技能文件）
+5. 会话本轮已读取 `/workspace/uploads/artifact/<template_dir>/ontology/*.slice.md`（至少一个本体切片）
+
+**如果上述任一文件尚未读取，必须先读取再判断。** 不得在未读取文件的情况下直接跳到 P2 咨询用户。
+
+P0 路径执行步骤：
+
+1. **直接根据模板内容推导场景**，不向用户发送任何问题消息。
+2. 生成测试用例时以员工 SKILL.md 的触发词、能力清单、"边界与不做"作为场景边界。
+3. 设置 `provenance.source = "synthesized_from_template"`，`reliability = "medium"`，`reliability_caveat = "synthesized_from_template_no_user_grounding"`。
+4. 记录到 `evaluation_context.user_consultation_log`：
+
+```jsonc
+{ "asked_at": "<iso>", "prompt": "n/a (P0: template-grounded auto-synthesis)", "user_response": "n/a", "decision": "auto_from_template" }
+```
+
+5. STEP 9 在 `open_questions` 中记录 caveat，措辞用"初步"/"基于模板推导"，严重级别 `info`（不是 `warning`/`critical`）。
+
+### P1：用户提供场景
+
+用户主动提供了具体场景（1–7 个）。LLM 仅将用户文本渲染为 `test-case.schema.json` v2.0；不得发明用户未提及的场景类型。
+
+### P2：SOP 回退（仍需发送咨询消息）
+
+仅在 P0/P1 均不满足时触发。发送一条咨询消息（建议模板）：
 
 > 我即将为员工 `<employee_id>`（role=`<role>`）生成测试用例。为了让评估贴近真实业务，请提供该员工在生产环境中实际处理的代表性场景（1–7 个）。每个场景请说明：(a) 场景名称与频率；(b) 客户典型开场话术与诉求；(c) 需要员工调用的关键工具 / 查询 / 决策；(d) 隐含红线。若你明确表示「没有」「你自己合成即可」，我才会退回 SOP 合成并标 caveat。
 
-### 2. 将响应归入三个分支之一
+### 将响应归入三个分支之一（仅 P1/P2 适用）
 
 | 分支 | 触发条件 | 层级 | provenance.source | reliability | 说明 |
 |---|---|---|---|---|---|
@@ -27,19 +67,17 @@ STEP 1.5 触发时，**先暂停，在进行任何 LLM 合成之前向用户确�
 | (B) 拒绝 | "你自己合成" / "没有" / "skip" | Tier 2 | `synthesized_from_sop` | `low`（必须携带 `reliability_caveat`） | STEP 9 在 `open_questions` 中显示 caveat；措辞降级为"指示性"/"初步" |
 | (C) 部分提供 | 用户给出 1–2 个种子，要求补全其余 | 混合 | `mixed` | 逐用例（种子为 `high`，SOP 扩展为 `low`） | 每个用例单独归因 |
 
-### 3. 持久化咨询记录
+### 持久化咨询记录（所有路径均须写入）
 
 ```jsonc
 evaluation_context.user_consultation_log = [
-  { "asked_at": "...", "prompt": "...", "user_response": "...", "decision": "tier1" | "tier2" | "tier3" }
+  { "asked_at": "...", "prompt": "...", "user_response": "...", "decision": "auto_from_template" | "tier1" | "tier2" | "tier3" }
 ]
 ```
 
-这是咨询确实发生过的可审计证据。
+### Tier 3（阻断）
 
-### 4. Tier 3（阻断）
-
-如果用户拒绝，且 `employee.sop_documents` 为空 → `block_or_escalate`。**不得**凭空捏造场景。
+如果用户拒绝，且 `employee.sop_documents` 为空，且 P0 条件不满足 → `block_or_escalate`。**不得**凭空捏造场景。
 
 ## 必需的 `provenance` 结构（由模式强制）
 
@@ -224,9 +262,12 @@ N = 5。要求 `#negative ≥ ceil(0.20 * 5) = 1`（最低要求）——以 `80
 
 | 反模式 | K规则 | 失败模式 |
 |---|---|---|
-| 检测到 `test_case_status == "missing"` 后立即调用 LLM 从 SOP 合成 | K11 | EvaluationReport 标记缺少咨询 |
+| 检测到 `test_case_status == "missing"` 后，**未检查模板材料是否已读取**，直接向用户发送咨询消息 | K11 | 不必要的暂停；若模板已加载应走 P0 自动合成路径 |
+| 模板材料已充分读取（P0 条件满足），仍向用户追问场景 | K11 | 阻断评估进度，用户体验差；P0 路径无需咨询 |
+| 检测到 `test_case_status == "missing"` 后立即从 SOP 凭空合成（未读模板，也未询问用户） | K11 | EvaluationReport 标记缺少咨询；若模板存在则应先走 P0 |
 | 询问用户但在用户回复前就开始 SOP 合成 | K11 | 同上 |
 | 将 SOP 衍生用例标记为 `reliability="high"` 或省略 `reliability_caveat` | K11 | EvaluationReport 被标记 |
+| 将模板合成用例（P0）标记为 `reliability="low"`（应为 `"medium"`） | K11 | 误降级；STEP 9 会以 `critical` 而非 `info` 展示 caveat |
 | 将合成用例写入 `./test-cases/` 而非 `./runs/<eval-id>/synthesized-cases/` | K5 | block_or_escalate |
 | 只写 `synthesized-cases/*.tc.json` 而不写对应 `enriched-cases/*.enriched.json`（当 `selected_metrics` 已可用时）| K5 | STEP 2 仍须处理；但若 STEP 2 也被跳过则 STEP 3 无输入 |
 | `stop_conditions.success` 不需要触发必要工具即可满足 | K15（设计） | 用例在 STEP 3 输入门被拒绝 |
