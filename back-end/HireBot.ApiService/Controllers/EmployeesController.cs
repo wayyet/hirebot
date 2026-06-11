@@ -23,6 +23,13 @@ public sealed class EmployeesController(
         return StatusCode(response.Code, response);
     }
 
+    [HttpGet("mine")]
+    public async Task<IActionResult> GetMyEmployees(CancellationToken cancellationToken = default)
+    {
+        var response = await employeeRuntimeService.GetMyEmployeesAsync(cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpGet("department")]
     public async Task<IActionResult> GetDepartmentEmployees(CancellationToken cancellationToken = default)
     {

@@ -361,6 +361,10 @@ export const employeeRuntimeApi = {
     return httpClient.get<EmployeeSummary[]>('/api/v1/employees')
   },
 
+  getMyEmployees() {
+    return httpClient.get<EmployeeSummary[]>('/api/v1/employees/mine')
+  },
+
   getDepartmentEmployees() {
     return httpClient.get<EmployeeSummary[]>('/api/v1/employees/department')
   },

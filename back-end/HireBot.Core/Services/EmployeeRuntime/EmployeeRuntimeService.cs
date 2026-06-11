@@ -95,14 +95,33 @@ public sealed partial class EmployeeRuntimeService(
         string? FixtureEmployeeId);
 
     /// <summary>
-    /// 获取员工列表。
+    /// 获取员工列表（当前用户拥有的全部员工，包含 department/personal_clone/private_branch）。
     /// </summary>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>员工摘要列表</returns>
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default)
     {
         var owner = userIdentity.OwnerSubject;
         var employees = await ResolveOwnerEmployeesAsync(owner, cancellationToken);
+        var summaries = employees.Select(ToSummary).ToArray();
+
+        return ApiResponse<IReadOnlyList<EmployeeSummaryDto>>.SuccessResponse(summaries);
+    }
+
+    /// <summary>
+    /// 获取当前用户的个人员工列表，仅包含 personal_clone 和 private_branch 类型。
+    /// </summary>
+    public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetMyEmployeesAsync(CancellationToken cancellationToken = default)
+    {
+        var owner = userIdentity.OwnerSubject;
+        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
+
+        var query = dbContext.Instances
+            .AsNoTracking()
+            .Where(item => item.TenantId == tenantId
+                && item.OwnerUserId == owner
+                && (item.InstanceType == "personal_clone" || item.InstanceType == "private_branch"))
+            .OrderByDescending(item => item.UpdatedAt);
+
+        var employees = await LoadInstancesAsEmployeesAsync(query, owner, cancellationToken);
         var summaries = employees.Select(ToSummary).ToArray();
 
         return ApiResponse<IReadOnlyList<EmployeeSummaryDto>>.SuccessResponse(summaries);

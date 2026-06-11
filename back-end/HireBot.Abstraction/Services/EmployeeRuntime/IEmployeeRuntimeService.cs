@@ -6,6 +6,7 @@ namespace HireBot.Abstraction.Services.EmployeeRuntime;
 public interface IEmployeeRuntimeService
 {
     Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default);
+    Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetMyEmployeesAsync(CancellationToken cancellationToken = default);
     Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetDepartmentEmployeesAsync(CancellationToken cancellationToken = default);
     Task<ApiResponse<EmployeeDetailDto>> GetEmployeeAsync(string employeeId, CancellationToken cancellationToken = default);
     Task<ApiResponse<string>> GetRuntimeSandboxGatewayEndpointAsync(string instanceId, CancellationToken cancellationToken = default);

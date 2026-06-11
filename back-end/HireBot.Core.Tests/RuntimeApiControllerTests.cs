@@ -245,6 +245,7 @@ public sealed class RuntimeApiControllerTests
         }
 
         public Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetEmployeesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetMyEmployeesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetDepartmentEmployeesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<EmployeeDetailDto>> GetEmployeeAsync(string employeeId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ApiResponse<string>> GetRuntimeSandboxGatewayEndpointAsync(string instanceId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

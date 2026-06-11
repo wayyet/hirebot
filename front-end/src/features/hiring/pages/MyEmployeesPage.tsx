@@ -24,6 +24,17 @@ type ConfirmAction =
 
 const PAGE_SIZE = 9;
 
+function formatDate(value?: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+}
+
 export default function MyEmployeesPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -140,7 +151,7 @@ export default function MyEmployeesPage() {
       setError("");
 
       try {
-        const items = await api.employeeRuntime.getEmployees();
+        const items = await api.employeeRuntime.getMyEmployees();
         if (!cancelled) {
           setEmployees(items);
         }
@@ -172,13 +183,9 @@ export default function MyEmployeesPage() {
     [employees],
   );
 
+  // 服务端已过滤为 personal_clone 和 private_branch，直接按创建时间排序
   const myEmployees = useMemo(() => {
     return viewedEmployees
-      .filter(
-        (item) =>
-          item.ownership === "personal_clone" ||
-          item.ownership === "private_branch",
-      )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [viewedEmployees]);
 
@@ -487,7 +494,7 @@ export default function MyEmployeesPage() {
                 <div className="hb-employee-card-footer">
                   <span>
                     {t("employees.myPage.updatedAt", {
-                      date: employee.createdAt,
+                      date: formatDate(employee.createdAt),
                     })}
                   </span>
                   <div className="hb-employee-card-footer-actions">
