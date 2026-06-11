@@ -49,7 +49,7 @@
 
 **前置信号**
 - `skill_generation_done` 已到达
-- 用户对"继续进入外部配置"或等价表述给出肯定回应
+- 用户对"继续进入外部配置"给出肯定回应（进入正常流程），或对"跳过外部，直接打包"给出肯定回应（进入跳过流程）
 
 **披露的技能与参考文件（LLM 必须在确认推进后读取）**
 
@@ -57,13 +57,14 @@
 |------|------|-----------|
 | `skills/employment-coach-conversation/SKILL.md` § 阶段 3（第 506-538 行） | 外部阶段主流程：目的、最低门槛、凭据红线、阶段完成条件、阶段门动作 | 必须 |
 | `skills/employment-coach-conversation/references/flow-constraints.md` § 阶段 3 引导细则 | 引导话术、紧扣已有 skills 的套路、跳过分支 | 必须 |
-| `skills/employment-coach-conversation/references/stage-data-schema.md` | `external_workorder_progress` / `external_workorder_summary` 的 data payload 结构 | 必须 |
+| `skills/employment-coach-conversation/references/stage-data-schema.md` | `external_workorder_progress` / `external_workorder_summary` 的 data payload 结构（含 skip 形态） | 必须 |
 | `skills/external-config/SKILL.md` | 外部配置写入规则、安全与校验 | 按需（系统层保存时触发） |
 | `skills/employment-coach-conversation/references/downstream-handoff-registry.md` R4 | 测试用例生成触发规则 | 按需（外部阶段完成后） |
 
 **阶段摘要**
 - **目的**：把支撑技能所需的外部能力和系统资源整理成有分类、有目标的外部能力清单
-- **入场动作**：发出 `external_workorder_progress` → 紧扣已确认 skills 逐条引导外部能力定义
+- **入场动作（正常）**：发出 `external_workorder_progress` → 紧扣已确认 skills 逐条引导外部能力定义
+- **入场动作（跳过）**：调用 `load_skill` 加载 `external-config`，读取 S2 参考文件后，**立即**发出 `external_workorder_summary`（isTerminal: true，stage: stage3_external），data 中 `skip: true`、`total_capabilities: 0`、`external_capabilities: []`。等待系统层发出 `external_config_committed` 后，再按 S3 进入阶段 4。**严禁**在 `external_workorder_summary` 发出前直接跳到打包询问
 - **最低门槛**：每个外部能力明确 `分类（read/write/notify/search/transform）+ 目标 + 目标系统 + 鉴权方式 + 关联 skill`；或用户明确表达"不需要外部系统"
 - **凭据红线**：token/密钥/密码/API Key 绝不在会话里收集，指引用户填写右侧表单
 - **禁止**：skill-generation 未完成时不得进入外部阶段

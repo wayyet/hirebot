@@ -624,13 +624,21 @@ return_to: employment-coach-conversation
   - 引导语**必须**出现在回复的末尾（不是中间），让用户一眼看到
   - **必须**给出具体的操作选项（如”回复继续”或”回复跳过”），同时简要披露阶段 3 的目的
   - **不得**只说”已写入工作区”就结束——这是死胡同，用户不知道下一步做什么
-  - 用户肯定后：
+  - 用户肯定（“继续”进入外部配置）后：
     0. **调用 `load_skill` 加载 `external-config`**（阶段 3 外部配置阶段需要）：
        ```json
        { "skill": "external-config" }
        ```
     1. 按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) **S2** 条目读取阶段 3 所需文件（SKILL.md § 阶段 3、flow-constraints.md § 阶段 3 引导细则、stage-data-schema.md 等）
-    2. 发出 `external_workorder_progress` 并开始引导
+    2. 发出 `external_workorder_progress`（isTerminal: false，stage: stage3_external）并开始引导外部能力定义
+  - 用户跳过（“跳过外部，直接打包”等）后：
+    0. **调用 `load_skill` 加载 `external-config`**：
+       ```json
+       { "skill": "external-config" }
+       ```
+    1. 按 S2 条目读取阶段 3 所需文件
+    2. **立即**发出 `external_workorder_summary`（isTerminal: true，stage: stage3_external），data 中 `skip: true`、`total_capabilities: 0`、`external_capabilities: []`，参见 [references/stage-data-schema.md](references/stage-data-schema.md) 跳过形态
+    3. 等待系统层发出 `external_config_committed` 后，再按 S3 进入阶段 4 的打包确认门（发出 `packaging_testcases_ready` 并询问是否生成评估测试用例）。**严禁**在 `external_workorder_summary` 发出前直接跳到打包询问。
   - 如果 `external_workorder_summary` 已经发出过（外部阶段已完成），则引导语改为指向打包：> 「技能包已更新。回复”生成数字员工”即可生成数字员工包。」
 
 > 阶段 2 引导话术、story-driven 推进、字段明确度对照 → 进入阶段 2 之前，读 [references/flow-constraints.md](references/flow-constraints.md) 阶段 2 部分。
