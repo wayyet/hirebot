@@ -191,16 +191,78 @@ Legend: deterministic（确定性）= 白盒；**LLM** = STEP 1.5（条件触发
 | 2    | `enrichTestCases` | 确定性，始终运行 | 内联（附加每个 K10 的 `applicable_metrics ⊆ selected_metrics`；`*` 是通配符，非字面值） |
 | 2.5  | `planRun` | 确定性，无 LLM | [`step-2.5-plan-run.md`](./playbooks/step-2.5-plan-run.md) — 将 `runs/<eval_id>/run_plan.json` 落盘（根据 `runtime-schemas/run_plan.schema.json` 验证）：每场景包含整个 driver 生命周期的字面 shell 字符串。负责 **K20**。STEP 3 必须在该文件存在后方可开始。 |
 | 3    | `driveEmployeeOnScenario` | 双角色（driver 子进程 + 宿主 LLM simulator） | [`step-03-driver-and-simulator-loop.md`](./playbooks/step-03-driver-and-simulator-loop.md) — **三种模式，优先级 C>A>B**：**Mode C（首选）** 每轮一次 `--utterance` 调用，首轮传 `tc.input.opening_message`，后续轮次由宿主 LLM 渲染 `simulators/customer_realistic/system_prompt.md` 生成 `SimulatorDecision.next_utterance`，动态追问直到 `should_continue=false`，最后 `--finalize-trace` 收尾；**Mode A** `--auto-simulate` 固定追问（冒烟用）；**Mode B** 长连接 stdin/stdout（遗留高级模式） |
-| 4    | `scoreScenario` | LLM 并行扇出 | [`step-04-fanout-scoring.md`](./playbooks/step-04-fanout-scoring.md) |
+| 4    | `scoreScenario` | LLM 并行扇出 | [`step-04-fanout-scoring.md`](./playbooks/step-04-fanout-scoring.md) — 每 `(tc_id, metric_code)` 独立评分，输出 `runs/<eval_id>/scores/<tc_id>__<metric_code>.json`；**评分前必须逐字读取该场景的 `runs/<eval_id>/traces/<tc_id>.trace.json` 和 `/workspace/uploads/artifact/<template_dir>/` 下员工模板材料** |
 | LOOP | （每场景 STEP 3、STEP 4） | — | 重复直至所有丰富用例完成 |
 | 5    | `aggregateAcrossScenarios` | 确定性 | [`step-05-07-deterministic-rollup.md`](./playbooks/step-05-07-deterministic-rollup.md) |
 | 6    | `rollUpToDimensions` | 确定性 | 同上 |
 | 7    | `redLineCheck` | 确定性，禁止 LLM | 同上 |
 | 8    | `buildScenarioReports` | LLM 综合（仅散文，每场景） | 内联（数值字段从 MetricScore 字节拷贝；LLM 仅撰写散文） |
-| 9    | `buildOverallReport` | LLM 综合（仅散文，执行一次） | [`step-09-overall-report.md`](./playbooks/step-09-overall-report.md) |
+| 9    | `buildOverallReport` | LLM 综合（仅散文，执行一次） | [`step-09-overall-report.md`](./playbooks/step-09-overall-report.md) — ⚠️ **K17 硬性规则**：HTML 报告**必须**通过原文读取 `./runtime-schemas/report-template.html` 并仅替换 `{{REPORT_DATA}}`/`{{SCENARIOS_DATA}}`/`{{EMPLOYEE_NAME}}` 三个占位符生成；**禁止自行编写 HTML**；未读模板直接输出 HTML = K17 违规，运行污染 |
 | 10   | `uploadToHireBot`   | 确定性子流程（`hirebot_api` 存在时必须；缺失时跳过） | [`step-10-upload-to-hirebot.md`](./playbooks/step-10-upload-to-hirebot.md) |
 
 在以上任何步骤运行之前，请验证[飞前检查不变式](./playbooks/pre-flight-invariants.md)。当 HARD RULE 或 K 规则失败时，遵循[污染运行生命周期](./playbooks/tainted-run-lifecycle.md)。
+
+## 运行时产物目录——STEP 4~10 文件路径速查
+
+> 以下路径均以 `runs/<eval_id>/` 为根。**Agent 在每个步骤执行前必须从对应路径读取输入；生成报告时必须读取模板，不得凭空编写 HTML。**
+
+### 沙箱内产物目录结构
+
+```
+/workspace/
+├── runtime/
+│   └── evaluation-context.json          ← 唯一权威上下文（base_url、auth、employee_id 均在此）
+├── uploads/
+│   ├── artifact/<template_dir>/         ← 被评估员工模板（STEP 4 评分时必须对照此材料）
+│   │   ├── config/IDENTITY.md
+│   │   ├── config/SOUL.md
+│   │   ├── config/AGENTS.md
+│   │   ├── skills/<skill>/SKILL.md
+│   │   └── ontology/*.slice.md / *.slice.json
+│   └── evaluation-expert-consumer/
+│       ├── ontology/                    ← 评估专用本体投影（STEP 1 / 1.5 参考）
+│       └── test-cases/                 ← 预置测试用例（STEP 1 读取）
+└── (其余)
+```
+
+### 运行时产物（`runs/<eval_id>/`）
+
+| 目录 / 文件 | 写入步骤 | 读取步骤 | 说明 |
+|---|---|---|---|
+| `evaluation_context.json` | STEP 0（拷贝） | 全程 | 运行时上下文快照 |
+| `run_plan.json` | STEP 2.5 | STEP 3 | 每场景完整 shell 字符串（K20） |
+| `enriched-cases/<tc_id>.enriched.json` | STEP 2 | STEP 3、4、8 | 含 `applicable_metrics` 的丰富用例 |
+| `synthesized-cases/<tc_id>.tc.json` | STEP 1.5 | STEP 1.6、2、3 | 合成测试用例（若 test_case_status == "missing"） |
+| `traces/<tc_id>.trace.json` | STEP 3 | **STEP 4（必须逐字读取）**、STEP 8、STEP 9 | 执行轨迹；评分推理引用轨迹内容是 K16 要求 |
+| `scores/<tc_id>__<metric_code>.json` | STEP 4 | STEP 5 | 每 (用例, 指标) 一个 MetricScore 文件 |
+| `aggregated_metric_scores.json` | STEP 5 | STEP 6、STEP 9（字节拷贝 K7） | 跨场景聚合分数 |
+| `dimension_scores.json` | STEP 6 | STEP 7、STEP 9（字节拷贝 K7） | 父维度加权分 |
+| `red_line_check.json` | STEP 7 | STEP 9（字节拷贝 K7） | 红线触发结果 |
+| `reports/scenarios/<tc_id>.report.json` | STEP 8 | STEP 9（链接，不内联 K6） | 每场景散文报告 |
+| `reports/evaluation_report.json` | STEP 9 | STEP 10（verdict_uploader 读取此文件） | 最终机器可读报告（根据 `evaluation_report.schema.json` 验证） |
+| `reports/evaluation_report.html` | STEP 9 | 用户查看 | 自包含 HTML 报告（**必须**由 `report-template.html` 渲染，见 K17） |
+| `upload_trace_result.json` | STEP 10 | — | trace_uploader 回执 |
+| `upload_verdict_result.json` | STEP 10 | — | verdict_uploader 回执 |
+
+### 报告生成——关键 Schema 与模板文件
+
+| 文件 | 用途 | 必读步骤 |
+|---|---|---|
+| [`runtime-schemas/evaluation_report.schema.json`](./runtime-schemas/evaluation_report.schema.json) | STEP 9 JSON 报告结构约束；`verdict_uploader.py` 按此 schema 解析字段（`overall_score`、`passed`、`dimension_scores` 路径与此一致才能被正确上传） | **STEP 9 生成 JSON 前必读** |
+| [`runtime-schemas/report-template.html`](./runtime-schemas/report-template.html) | STEP 9 HTML 渲染模板（K17 合同）；含雷达图、场景 Tab、指标表格；**必须**原文读取后仅替换三个占位符 | **STEP 9 生成 HTML 前必读** |
+| [`runtime-schemas/metric_score.schema.json`](./runtime-schemas/metric_score.schema.json) | STEP 4 每个评分文件结构约束 | STEP 4 |
+| [`runtime-schemas/scenario_score.schema.json`](./runtime-schemas/scenario_score.schema.json) | STEP 5 汇总结构 | STEP 5 |
+| [`runtime-schemas/scenario_report.schema.json`](./runtime-schemas/scenario_report.schema.json) | STEP 8 每场景报告结构 | STEP 8 |
+| [`runtime-schemas/execution_trace.schema.json`](./runtime-schemas/execution_trace.schema.json) | STEP 3 trace 文件结构（STEP 4 评分时理解字段含义的依据） | STEP 3、4 |
+
+> **⚠️ 常见失败模式与防止方法**
+>
+> | 失败现象 | 根因 | 防止方法 |
+> |---|---|---|
+> | verdict 上传后前端显示 FAIL / 0.0 | `evaluation_report.json` 字段路径不符合 `evaluation_report.schema.json`（`overall_score` 嵌套层级错误） | **STEP 9 前必读 `evaluation_report.schema.json`，不得凭记忆推测字段路径** |
+> | HTML 报告排版混乱 / 图表缺失 | Agent 自行编写 HTML 而非使用模板 | **STEP 9 前必须 `cat runtime-schemas/report-template.html` 获取原文，仅替换占位符** |
+> | 评分推理与员工实际能力偏离 | STEP 4 时未参照员工模板材料（SOUL.md / SKILL.md / 本体切片） | **STEP 4 每场景评分前，对照 `/workspace/uploads/artifact/<template_dir>/` 下材料，明确评估边界再打分** |
+> | 评估维度与技能口径不对齐 | 未读 `skills/*/SKILL.md` 中的"边界与不做"部分 | **STEP 1.2 指标精选时和 STEP 4 评分时均须引用技能口径作为评判基准** |
 
 ### STEP 1.6 内联流程
 
