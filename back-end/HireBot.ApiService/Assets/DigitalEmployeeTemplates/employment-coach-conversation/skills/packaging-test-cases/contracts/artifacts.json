@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "stages": [
+    {
+      "name": "stage4_packaging",
+      "label": "packaging-test-cases-track",
+      "artifacts": [
+        {
+          "type": "packaging_testcases_progress",
+          "label": "packaging-testcases-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted while evaluation test cases are being generated from session history, uploaded materials, and template snapshot."
+        },
+        {
+          "type": "packaging_testcases_done",
+          "label": "packaging-testcases-result",
+          "display": "tree",
+          "terminal": true,
+          "note": "Emitted when evaluation test cases have been written to testcases/evaluation-test-cases.json. data must include generated_count, target_path, and summary."
+        }
+      ]
+    }
+  ],
+  "output_contract": {
+    "main_file": "testcases/evaluation-test-cases.json",
+    "source_files": [
+      "ontology/hiring-session/testcases-sources-index.json",
+      "ontology/hiring-session/testcases-sources/history-derived.json",
+      "ontology/hiring-session/testcases-sources/materials-derived.json",
+      "ontology/hiring-session/testcases-sources/template-derived.json"
+    ],
+    "fallback_dispatch_callback": "packaging-fallback-dispatch-callback.json"
+  }
+}

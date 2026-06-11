@@ -18,24 +18,6 @@
           "terminal": true
         }
       ]
-    },
-    {
-      "name": "skill-generation",
-      "label": "skill-generation-track",
-      "artifacts": [
-        {
-          "type": "skill_generation_progress",
-          "label": "skill-generation-progress",
-          "display": "progress",
-          "terminal": false
-        },
-        {
-          "type": "skill_generation_done",
-          "label": "skill-generation-result",
-          "display": "tree",
-          "terminal": true
-        }
-      ]
     }
   ]
 }

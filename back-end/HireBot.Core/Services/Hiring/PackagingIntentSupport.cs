@@ -8,7 +8,7 @@ namespace HireBot.Core.Services.Hiring;
 internal static partial class PackagingIntentSupport
 {
     [GeneratedRegex(
-        @"生成(?:实例|产物)?包|开始(?:生成)?打包|产物包|template_package|package_workspace|ready_for_packaging|instance_packaging",
+        @"生成(?:实例|产物|数字员工)?包|(?:开始)?生成数字员工(?:包)?|开始(?:生成)?打包|产物包|template_package|package_workspace|ready_for_packaging|instance_packaging|generate\s+(?:the\s+)?(?:digital\s+employee|instance\s+package)(?:\s+package)?|digital\s+employee\s+package|instance\s+package",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled)]
     private static partial Regex PackagingIntentRegex();
 

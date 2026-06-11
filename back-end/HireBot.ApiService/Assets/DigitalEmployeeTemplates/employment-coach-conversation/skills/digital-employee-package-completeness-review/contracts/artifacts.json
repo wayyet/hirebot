@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "stages": [
+    {
+      "name": "stage4_packaging",
+      "label": "package-completeness-review-track",
+      "artifacts": [
+        {
+          "type": "review_progress",
+          "label": "package-review-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted during the completeness review execution. data.status must be 'running'. The review skill runs the validator script first, then supplements with manual review."
+        },
+        {
+          "type": "review_report",
+          "label": "package-review-report",
+          "display": "tree",
+          "terminal": true,
+          "note": "Emitted when the completeness review is complete. data must include status (PASS/PASS_WITH_CONCERNS/FAIL), release_readiness, score_average, p0_blockers, p1_warnings, summary, and report_path. Review result does not remove packaging authority — user may still choose to proceed regardless of verdict."
+        }
+      ]
+    }
+  ],
+  "output_contract": {
+    "report_file": "reports/package-completeness-review.md",
+    "report_sections": [
+      "Verdict",
+      "Automated Validator Result",
+      "Package Surface",
+      "P0 Blockers",
+      "Skill Matrix",
+      "Ontology and Projection Findings",
+      "Workflow Closure",
+      "Rule Consistency",
+      "Evaluation Coverage",
+      "Security and Authority Boundaries",
+      "Score",
+      "Recommended Fix Order"
+    ]
+  }
+}

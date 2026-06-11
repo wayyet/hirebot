@@ -15,6 +15,13 @@ export function hasPendingDownstreamRuns(runs: DownstreamRunsSnapshot): boolean 
   return Object.values(runs).some(run => run?.status === 'waiting_confirm' || run?.status === 'running')
 }
 
+export function hasPendingRequiredDownstreamRuns(runs: DownstreamRunsSnapshot): boolean {
+  return Object.entries(runs).some(([key, run]) => (
+    key !== 'packaging-test-cases' &&
+    (run?.status === 'waiting_confirm' || run?.status === 'running')
+  ))
+}
+
 export function asPlainObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>

@@ -35,18 +35,32 @@ export function SkillGenerationStatusView({
   if (!rec) return <CodeView data={data} />
 
   const summary = typeof rec.summary === 'string' ? rec.summary : ''
-  const totalSkills = typeof rec.total_skills === 'number' ? rec.total_skills : null
+  const totalSkills = typeof rec.total_skills === 'number'
+    ? rec.total_skills
+    : typeof rec.pending_skill_count === 'number'
+      ? rec.pending_skill_count
+      : null
 
   const statusConfig: Record<string, { label: string; bg: string; color: string; border: string }> = {
+    skill_definition_ready: {
+      label: '等待确认技能清单',
+      bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
+      border: 'rgba(245,158,11,0.30)',
+    },
+    ontology_projection_ready: {
+      label: '等待确认准备业务资料',
+      bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
+      border: 'rgba(245,158,11,0.30)',
+    },
     skill_generation_ready: {
-      label: '☕ 等待确认',
+      label: '等待确认生成技能',
       bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
       border: 'rgba(245,158,11,0.30)',
     },
     skill_projection_binding_ready: {
-      label: '☕ 等待确认资料采用',
-      bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
-      border: 'rgba(245,158,11,0.30)',
+      label: '⏳ 业务资料已准备，生成中',
+      bg: 'rgba(37,99,235,0.10)', color: 'var(--hb-text-blue, #1d4ed8)',
+      border: 'rgba(37,99,235,0.25)',
     },
     skill_generation_progress: {
       label: '⏳ 生成中',

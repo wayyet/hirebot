@@ -136,13 +136,12 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
   "artifactType": "ontology_extraction_progress",
   "label": "正在从资料中整理业务信息，共 {N} 条资料待处理",
   "skillName": "ontology-extraction",
-  "stage": "ontology-extraction",
+  "stage": "stage1_material",
   "isTerminal": false,
   "displayHint": "progress",
   "data": {
     "total_sources": 2,
-    "completed_slices": 0,
-    "status": "running"
+    "completed_slices": 0
   }
 }
 ```
@@ -157,15 +156,14 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
   "artifactType": "ontology_extraction_done",
   "label": "业务信息已整理完成，共产出 {N} 份材料，准备进入技能定义阶段",
   "skillName": "ontology-extraction",
-  "stage": "ontology-extraction",
+  "stage": "stage1_material",
   "isTerminal": true,
   "displayHint": "tree",
   "data": {
     "total_sources": 2,
     "completed_slices": 2,
     "slice_paths": ["ontology/return-policy.slice.json", "ontology/dialogue-style.slice.json"],
-    "validation": "PASS",
-    "status": "done"
+    "validation": "PASS"
   }
 }
 ```
@@ -204,13 +202,12 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
   "artifactType": "ontology_projection_progress",
   "label": "正在为 {N} 个技能准备业务资料...",
   "skillName": "ontology-extraction",
-  "stage": "ontology-projection",
+  "stage": "stage2_skill",
   "isTerminal": false,
   "displayHint": "progress",
   "data": {
     "total_skills": 3,
-    "completed_projections": 0,
-    "status": "running"
+    "completed_projections": 0
   }
 }
 ```
@@ -225,7 +222,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
   "artifactType": "ontology_projection_done",
   "label": "技能所需业务资料已准备完成，{M}/{N} 个技能可开始生成",
   "skillName": "ontology-extraction",
-  "stage": "ontology-projection",
+  "stage": "stage2_skill",
   "isTerminal": true,
   "displayHint": "tree",
   "data": {
@@ -239,8 +236,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
     "skipped_skills": ["appointment-booking"],
     "skip_reasons": {
       "appointment-booking": "no_matching_slice"
-    },
-    "status": "done"
+    }
   }
 }
 ```
@@ -255,7 +251,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
   "artifactType": "ontology_projection_done",
   "label": "技能所需业务资料已整理完成，但当前资料暂不足以支撑技能生成",
   "skillName": "ontology-extraction",
-  "stage": "ontology-projection",
+  "stage": "stage2_skill",
   "isTerminal": true,
   "displayHint": "tree",
   "data": {
@@ -270,8 +266,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
       "appointment-booking": "no_available_slices"
     },
     "diagnostic": "slices_not_ready",
-    "diagnostic_detail": "ontology/ 目录下未找到 *.slice.json 或含 slice_request 字段的 JSON 文件；请确认 ontology-extraction 阶段已将切片写入文件系统",
-    "status": "done"
+    "diagnostic_detail": "ontology/ 目录下未找到 *.slice.json 或含 slice_request 字段的 JSON 文件；请确认 ontology-extraction 阶段已将切片写入文件系统"
   }
 }
 ```
@@ -301,7 +296,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 
 - **先调用后输出**：同一轮次识别到可推送的阶段事件时，先调用 `emit_artifact`，再继续文件生成或对话输出
 - **data 禁止凭据**：data 字段中不得写入 token / 密钥 / 密码 / API Key
-- **无论 projected_count 是否为 0 都必须发 done**：即使全部 skill 跳过，也必须发出 `ontology_projection_done`，使 employment-coach 能继续触发 skill-generation
+- **无论 projected_count 是否为 0 都必须发 done**：即使全部 skill 跳过，也必须发出 `ontology_projection_done`，使 employment-coach 能继续进入技能生成确认门或提示补充资料
 - **projected_count > 0 时必须先通过落盘验证再发 done**：按上方"落盘验证"小节逐路径确认 `projection_paths` 中文件确实落盘，未通过验证前不得发出 done；若验证后仍有路径无法就绪，应剔除该路径并降级为 `slices_not_ready`，再发 done
 
 ## Workflow

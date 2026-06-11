@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "stages": [
     {
-      "name": "ontology-extraction",
+      "name": "stage1_material",
       "label": "业务整理",
       "artifacts": [
         {
@@ -20,7 +20,7 @@
       ]
     },
     {
-      "name": "ontology-projection",
+      "name": "stage2_skill",
       "label": "技能准备",
       "artifacts": [
         {

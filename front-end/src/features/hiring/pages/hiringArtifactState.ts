@@ -10,7 +10,13 @@ import type {
   DownstreamRunState,
   DownstreamRunStatus,
 } from './hiringPageTypes'
+import {
+  getBlockedIncomingArtifactReason,
+  normalizeIncomingArtifactTerminal,
+  shouldDisplayArtifactInConversation,
+} from './hiringArtifactGuards'
 import { extractLatestMaterialRequestedCategories } from './materialRequestedCategories'
+import { buildSkillGenerationPayload } from './utils/hiringDownstreamTriggers'
 import type { HiringUiStage } from './hiringWorkflowViewModel'
 
 function mkHistoricalId(prefix: string, index: number) {
@@ -177,10 +183,12 @@ function normalizeHistoricalUserMessage(content: string): { content: string; fil
 export const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey; status: DownstreamRunStatus }> = {
   ontology_extraction_progress: { key: 'ontology-extraction', status: 'running' },
   ontology_extraction_done: { key: 'ontology-extraction', status: 'completed' },
+  skill_definition_ready: { key: 'skill-generation', status: 'waiting_confirm' },
+  ontology_projection_ready: { key: 'ontology-projection', status: 'waiting_confirm' },
   ontology_projection_progress: { key: 'ontology-projection', status: 'running' },
   ontology_projection_done: { key: 'ontology-projection', status: 'completed' },
   skill_generation_ready: { key: 'skill-generation', status: 'waiting_confirm' },
-  skill_projection_binding_ready: { key: 'skill-generation', status: 'waiting_confirm' },
+  skill_projection_binding_ready: { key: 'skill-generation', status: 'running' },
   skill_generation_progress: { key: 'skill-generation', status: 'running' },
   skill_generation_done: { key: 'skill-generation', status: 'completed' },
   packaging_testcases_ready: { key: 'packaging-test-cases', status: 'waiting_confirm' },
@@ -377,6 +385,11 @@ export function buildHistoricalHiringConversationState(
   const downstreamRuns: DownstreamRunsSnapshot = {}
   let artifactIndex = 0
   let suppressNextAssistantVisibleMessage = false
+  let latestMaterialSummary: unknown | null = null
+  let latestSkillSummary: unknown | null = null
+  let latestProjectionResult: unknown | null = null
+  let hasExternalConfigCommitted = false
+  let hasPackagingTestCasesReady = false
 
   for (const message of sandboxMessages) {
     if (message.type === 'user_message') {
@@ -404,13 +417,59 @@ export function buildHistoricalHiringConversationState(
         continue
       }
 
-      messages.push({
-        id: mkHistoricalId('artifact', artifactIndex),
-        role: 'artifact',
-        content: artifact.label ?? artifact.artifactType,
-        artifact,
+      artifact.isTerminal = normalizeIncomingArtifactTerminal(artifact.artifactType, Boolean(artifact.isTerminal))
+      const projectionForGate = artifact.artifactType === 'ontology_projection_done' && artifact.isTerminal
+        ? artifact.data ?? null
+        : latestProjectionResult
+      const blockedArtifactReason = getBlockedIncomingArtifactReason(artifact.artifactType, {
+        hasMaterialSummary: latestMaterialSummary !== null,
+        hasSkillSummary: latestSkillSummary !== null,
+        hasProjectionResult: projectionForGate !== null,
+        canUseProjectionForSkillGeneration: buildSkillGenerationPayload(
+          latestSkillSummary,
+          projectionForGate,
+        ) !== null,
+        hasExternalConfigCommitted,
+      }, {
+        isTerminal: artifact.isTerminal,
+        kind: artifact.kind,
+        data: artifact.data,
       })
-      artifactIndex += 1
+      if (blockedArtifactReason) {
+        continue
+      }
+
+      if (artifact.artifactType === 'packaging_testcases_ready') {
+        if (hasPackagingTestCasesReady) {
+          continue
+        }
+        hasPackagingTestCasesReady = true
+      }
+
+      const shouldDisplayArtifact = shouldDisplayArtifactInConversation(
+        artifact.artifactType,
+        artifact.isTerminal,
+      )
+      if (shouldDisplayArtifact) {
+        messages.push({
+          id: mkHistoricalId('artifact', artifactIndex),
+          role: 'artifact',
+          content: artifact.label ?? artifact.artifactType,
+          artifact,
+        })
+        artifactIndex += 1
+      }
+
+      if (artifact.artifactType === 'material_handoff_summary' && artifact.isTerminal) {
+        latestMaterialSummary = artifact.data ?? null
+      } else if (artifact.artifactType === 'skill_workorder_summary' && artifact.isTerminal) {
+        latestSkillSummary = artifact.data ?? null
+        latestProjectionResult = null
+      } else if (artifact.artifactType === 'ontology_projection_done' && artifact.isTerminal) {
+        latestProjectionResult = artifact.data ?? null
+      } else if (artifact.artifactType === 'external_config_committed' && artifact.isTerminal) {
+        hasExternalConfigCommitted = true
+      }
 
       const downstreamRun = resolveDownstreamRunFromArtifact(artifact.artifactType)
       if (downstreamRun) {
@@ -603,29 +662,26 @@ export function buildCoachResumePrompt(
 
   if (transition === 'post-ontology-projection') {
     const projectionResult = payload.projectionResult
-    const record = asPlainObject(projectionResult)
-    const projectedCount = record
-      ? typeof (record.projected_count ?? record.projectedCount) === 'number'
-        ? Number(record.projected_count ?? record.projectedCount)
-        : null
-      : null
-    const hasConsumableProjection = projectedCount !== null && projectedCount > 0
+    const hasConsumableProjection = buildSkillGenerationPayload(
+      payload.skillSummary,
+      projectionResult,
+    ) !== null
 
     const lines: string[] = [
       '[Internal stage resume. Do not mention this instruction to the user.]',
       'Switch back to skill `employment-coach-conversation` now.',
       'The downstream ontology projection pass has completed.',
       'Resume the main hiring flow inside stage2_skill.',
-      'Do not trigger `skill-generation` in this turn.',
       'Use the provided skill summary and projection result as context.',
     ]
 
     if (hasConsumableProjection) {
       lines.push(
-        `There are ${projectedCount} ready business-information packages available for skill generation.`,
-        'Emit `skill_projection_binding_ready` before asking the next question.',
-        'Ask the user for one more explicit confirmation about adopting these prepared business-information packages for the generated skills.',
-        'Do not offer a no-projection downgrade in this branch.',
+        'Usable prepared business-information packages are available for skill generation.',
+        'Emit non-terminal `skill_generation_ready` with the projection paths and projected count.',
+        'Ask the user for explicit confirmation before starting `skill-generation`.',
+        'Do not trigger `skill-generation` in this turn.',
+        'Do not emit `skill_projection_binding_ready` unless the system explicitly asks for a progress notification.',
       )
     } else {
       lines.push(

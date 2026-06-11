@@ -60,11 +60,27 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
     return {
       label: '未启动',
       tone: 'is-neutral',
-      description: '等待技能定义完成后自动开始实现。',
+      description: '等待技能定义确认后进入业务资料准备。',
     }
   }
 
   if (run.status === 'waiting_confirm') {
+    if (run.artifactType === 'skill_definition_ready') {
+      return {
+        label: '等待确认技能清单',
+        tone: 'is-waiting',
+        description: '技能清单草案已整理，请确认后收口技能定义。',
+      }
+    }
+
+    if (run.artifactType === 'ontology_projection_ready') {
+      return {
+        label: '等待确认准备资料',
+        tone: 'is-waiting',
+        description: '技能定义已确认，请确认是否开始为技能准备业务资料。',
+      }
+    }
+
     const total = readArtifactNumber(run.data, 'total_skills')
     const msg = total ? `将生成 ${total} 个技能，` : ''
     return {
@@ -112,6 +128,27 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
     label: '失败',
     tone: 'is-error',
     description: '生成过程出错，请稍后重试或联系管理员。',
+  }
+}
+
+function getSkillConfirmationAction(run: DownstreamRunState | null): { text: string; button: string } {
+  if (run?.artifactType === 'skill_definition_ready') {
+    return {
+      text: '请确认当前技能清单是否完整，确认后会进入业务资料准备。',
+      button: '确认技能清单',
+    }
+  }
+
+  if (run?.artifactType === 'ontology_projection_ready') {
+    return {
+      text: '请确认是否开始为这些技能准备业务资料。',
+      button: '开始准备资料',
+    }
+  }
+
+  return {
+    text: '业务资料已准备好，请确认是否生成技能实现。',
+    button: '确认生成技能',
   }
 }
 
@@ -371,16 +408,14 @@ export function SkillCardBody({
       </section>
 
       {/* 技能阶段快捷推进按钮 */}
-      {skillGenerationState?.status === 'waiting_confirm' && onConfirmSkillGeneration ? (
+      {skillGenerationState?.status === 'waiting_confirm' && skillGenerationState.artifactType !== 'skill_projection_binding_ready' && onConfirmSkillGeneration ? (
         <div className="hb-todo-confirmation-panel" aria-label="确认生成技能">
           <p className="hb-todo-confirmation-text">
-            {skillGenerationState?.artifactType === 'skill_projection_binding_ready'
-              ? t('hiring.todo.skill.projectionConfirmDesc')
-              : t('hiring.todo.skill.pendingConfirmDesc')}
+            {getSkillConfirmationAction(skillGenerationState).text}
           </p>
           <div className="hb-todo-confirmation-actions">
             <button type="button" className="hb-todo-row-btn is-primary" onClick={onConfirmSkillGeneration}>
-              {t('hiring.todo.skill.confirmGenerate')}
+              {getSkillConfirmationAction(skillGenerationState).button}
             </button>
           </div>
         </div>
