@@ -2,7 +2,12 @@
 
 **类型**：LLM，条件性触发（仅当 `test_case_status == "missing"` 时）
 **依据**：工作流合同 `S1_5` + K5 + K11 + K15（设计切面）
-**输出**：`./runs/<eval_id>/synthesized-cases/<tc_id>.json` 文件 + `evaluation_context.user_consultation_log`
+**输出（双写）**：
+- `./runs/<eval_id>/synthesized-cases/<tc_id>.tc.json`（审计副本，供 STEP 1.6 推送 Question Cards）
+- `./runs/<eval_id>/enriched-cases/<tc_id>.enriched.json`（**直接可用的 enriched 文件**，含 `applicable_metrics` 绑定，STEP 3 直接消费）
+- `evaluation_context.user_consultation_log`
+
+> **为什么能一步到位**：STEP 1.2（选指标）在 STEP 1.5 **之前**完成，`selected_metrics` 在合成时已全部在手。不需要先落 `synthesized-cases/` 再跑 STEP 2 才能得到 enriched 文件。STEP 2 仍然运行，但只处理来自 `test-cases/*.tc.json` 的策展用例（及无对应 enriched 文件的遗留合成用例）。
 
 来自用户的真实场景是评估**最高保真度的基准**。SOP 只描述员工**应该**如何行事——无法告诉我们员工**实际**处理哪些用例。
 
@@ -46,7 +51,7 @@ evaluation_context.user_consultation_log = [
 }
 ```
 
-不含 `provenance` 的用例在写入 `./runs/<eval_id>/synthesized-cases/` **之前**必须通过验证失败拦截。
+不含 `provenance` 的用例在写出任何文件**之前**必须通过验证失败拦截。
 
 ## v2.0 simulator 驱动所需字段
 
@@ -113,9 +118,12 @@ Let `N = #cases where polarity ∈ {positive, negative}` (cases marked `polarity
 
 每个 `negative` 用例必须携带 `paired_case_id`，指向从对立面行使**相同**决策边界的 `positive` 用例（当配对是显式的，正向用例也应反向指向负向用例）。仅当负向路径没有对称正向对应用例时（例如纯拒绝场景，如"客户询问另一名员工的薪资"），才允许无配对负向用例——此时省略 `paired_case_id`，并添加 `polarity_rationale` 说明无配对的原因。
 
-### 写入 `synthesized-cases/` 前的强制自检
+### 写出文件前的强制自检（含 enriched 双写）
 
-```
+完成 K21 比例自检后，按下述流程**同时**写出两个文件：
+
+```python
+# ① K21 比例自检（同原逻辑，保持不变）
 N = count(cases where polarity in {"positive", "negative"})
 N_neg = count(cases where polarity == "negative")
 
@@ -136,6 +144,38 @@ for c in cases:
     if c.polarity == "negative" and not c.paired_case_id:
         assert c.polarity_rationale, \
             "K21: 无配对的负向用例需要 polarity_rationale"
+
+# ② 对每个通过自检的用例，双写文件
+for tc in cases:
+    # 审计副本（供 STEP 1.6 推送 Question Cards）
+    write_json(f"runs/{eval_id}/synthesized-cases/{tc.test_case_id}.tc.json", tc)
+
+    # 绑定指标（等同于 STEP 2 的 2c 逻辑，但在此一步完成）
+    applicable_metrics = []
+    for metric in selected_metrics:
+        roles_match  = "*" in metric.applicable_roles  or bool(set(metric.applicable_roles) & set(tc.applicable_roles or ["*"]))
+        scen_match   = "*" in metric.applicable_scenarios or bool(set(metric.applicable_scenarios) & set(tc.applicable_scenarios or ["*"]))
+        if roles_match and scen_match:
+            applicable_metrics.append({"metric_code": metric.metric_code, "binding_reason": "role_and_scenario_match"})
+
+    if not applicable_metrics:
+        warn(f"tc {tc.test_case_id}: no metrics matched — skipping enriched output")
+        # 仍写 synthesized-cases 审计副本，不写 enriched
+        continue
+
+    enriched = {
+        **tc,                        # 全量透传原始字段
+        "applicable_metrics": applicable_metrics,
+        "enrichment": {
+            "enriched_at": now_iso(),
+            "source": "step_1_5_inline_enrichment",
+            "added_metric_codes": [m["metric_code"] for m in applicable_metrics],
+        },
+    }
+    # input.user_message 已在合成时直接写为 opening_message，无需再映射
+    assert enriched["input"].get("opening_message"), "opening_message must be set before enriched write"
+    validate_json(enriched, "runtime-schemas/enriched_test_case.schema.json")
+    write_json(f"runs/{eval_id}/enriched-cases/{tc.test_case_id}.enriched.json", enriched)
 ```
 
 ### 如何从同一场景种子生成负向用例
@@ -188,6 +228,7 @@ N = 5。要求 `#negative ≥ ceil(0.20 * 5) = 1`（最低要求）——以 `80
 | 询问用户但在用户回复前就开始 SOP 合成 | K11 | 同上 |
 | 将 SOP 衍生用例标记为 `reliability="high"` 或省略 `reliability_caveat` | K11 | EvaluationReport 被标记 |
 | 将合成用例写入 `./test-cases/` 而非 `./runs/<eval-id>/synthesized-cases/` | K5 | block_or_escalate |
+| 只写 `synthesized-cases/*.tc.json` 而不写对应 `enriched-cases/*.enriched.json`（当 `selected_metrics` 已可用时）| K5 | STEP 2 仍须处理；但若 STEP 2 也被跳过则 STEP 3 无输入 |
 | `stop_conditions.success` 不需要触发必要工具即可满足 | K15（设计） | 用例在 STEP 3 输入门被拒绝 |
 | 运行包含 Tier-2 用例时，STEP 9 省略 `synthesized_from_sop_only_no_user_grounding` caveat | K11 | 报告被标记 |
 | 交付 5 个合成用例，全部标记为 `polarity="positive"`（或缺少 `polarity`），且无 `negative_coverage_exemption` | **K21** | STEP 1.5 输出被拒绝；必须重新合成并加入负向用例 |
@@ -196,7 +237,8 @@ N = 5。要求 `#negative ≥ ceil(0.20 * 5) = 1`（最低要求）——以 `80
 
 ## 合成后：STEP 1.6 pushSynthesizedTestCases
 
-所有 `*.tc.json` 文件写入 `./runs/<eval_id>/synthesized-cases/` 后，
-继续执行 **STEP 1.6**——将其推送到 HireBot，以便前端右侧面板立即显示
-Question Cards immediately (before STEP 3 begins). If `hirebot_api` is absent,
-skip (the cards will be embedded in the trace bundle at STEP 10 as a fallback).
+所有用例的 `*.tc.json`（synthesized-cases）和 `*.enriched.json`（enriched-cases）双写完成后，
+继续执行 **STEP 1.6**——将 `synthesized-cases/*.tc.json` 推送到 HireBot，以便前端右侧面板立即显示
+Question Cards（STEP 3 开始前）。若 `hirebot_api` 不存在则跳过（Question Cards 将在 STEP 10 通过 trace bundle 作为兜底嵌入）。
+
+> **STEP 2 是否仍然需要执行**：是。STEP 2 负责处理来自 `test-cases/*.tc.json` 的**策展用例**（以及 `selected_metrics` 不可用时遗留的合成用例）。对于 STEP 1.5 已双写的合成用例，STEP 2 检测到 `enriched-cases/<tc_id>.enriched.json` 已存在时跳过，不重复处理。

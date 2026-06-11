@@ -1,11 +1,14 @@
-# STEP 2 — enrichTestCases（为每个测试用例绑定指标集并填充 opening_message）
+# STEP 2 — enrichTestCases（为策展用例绑定指标集，跳过已由 STEP 1.5 处理的合成用例）
 
 **类型**：确定性（无 LLM）
 **依据**：工作流合同 `S2` + K5
 **输入**：
-- `runs/<eval_id>/synthesized-cases/<tc_id>.json`（STEP 1.5 生成）或 `test-cases/<tc_id>.tc.json`（策展用例）
-- `selected_metrics`（STEP 1.2 输出，包含 `metric_code` + `applicable_roles/scenarios` 信息）
+- `test-cases/<tc_id>.tc.json`（策展用例，由用户维护；STEP 2 的**主要**输入来源）
+- `runs/<eval_id>/synthesized-cases/<tc_id>.tc.json`（STEP 1.5 合成，仅在 **无**对应 enriched 文件时才处理）
+- `selected_metrics`（STEP 1.2 输出）
 **输出**：`runs/<eval_id>/enriched-cases/<tc_id>.enriched.json`（通过 `runtime-schemas/enriched_test_case.schema.json` 验证）
+
+> **STEP 1.5 快捷路径**：若 STEP 1.5 已成功运行（`selected_metrics` 可用），它会同时写出 `enriched-cases/*.enriched.json`。STEP 2 **不得**重复处理这些文件。仅当来自 `test-cases/*.tc.json` 的策展用例，或 `selected_metrics` 当时不可用而未完成 inline enrichment 的合成用例，才需要 STEP 2 介入。
 
 > 文件扩展名必须是 `.enriched.json`（不是 `.json`）。STEP 2.5 通过 `glob("enriched-cases/*.enriched.json")` 发现文件；步骤 2e 写出时必须加 `.enriched` 中缀。
 
@@ -18,11 +21,20 @@ enriched_test_case.input has neither opening_message nor (deprecated) user_messa
 
 ### 1. 收集待处理用例
 
+```python
+# 策展用例（永远需要 STEP 2 处理）
+sources = glob("test-cases/*.tc.json")
+
+# 合成用例：仅在 STEP 1.5 未写出对应 enriched 文件时才补处理
+for tc_file in glob(f"runs/{eval_id}/synthesized-cases/*.tc.json"):
+    tc_id = stem(tc_file)   # 去掉 .tc.json 后缀
+    enriched_path = f"runs/{eval_id}/enriched-cases/{tc_id}.enriched.json"
+    if not file_exists(enriched_path):
+        sources.append(tc_file)   # STEP 1.5 未完成 inline enrichment，交由 STEP 2 补全
+    # 否则跳过：STEP 1.5 已完成，不重复处理
 ```
-sources = []
-sources += glob("runs/<eval_id>/synthesized-cases/*.json")      # STEP 1.5 合成
-sources += glob("test-cases/*.tc.json")                          # 策展用例（已被 STEP 1.6 推送）
-```
+
+> 若 `sources` 为空（全部合成用例都已由 STEP 1.5 处理，且无策展用例），STEP 2 无需写出任何文件，直接打印 `"STEP 2: all synthesized cases already enriched by STEP 1.5, skipping"` 并继续 STEP 2.5。
 
 > **宽松的 applicable_roles/scenarios 策略**：如果 tc 文件缺少 `applicable_roles` 或 `applicable_scenarios`（老格式 tc 常见），使用 `["*"]` 作为通配符，并在 `enrichment.notes` 中注明 "applicable_roles inferred as wildcard — original tc lacks the field"。这样所有指标都会参与匹配，不会因字段缺失导致 `applicable_metrics` 为空而跳过用例。
 
