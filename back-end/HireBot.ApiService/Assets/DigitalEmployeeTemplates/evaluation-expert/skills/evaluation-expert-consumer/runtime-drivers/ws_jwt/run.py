@@ -58,6 +58,7 @@ from pathlib import Path
 from typing import Any
 
 from auth_client import resolve_auth, resolve_auth_from_eval_ctx
+from ws_client import WsCollector, fetch_ws_session_id
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +378,44 @@ def _resolve_ws_token(eval_ctx: dict, cfg: dict) -> str:
         sys.exit(2)
 
 
+def _resolve_ws_session_id(
+    eval_ctx: dict,
+    cfg: dict,
+    *,
+    cached: str | None = None,
+) -> str | None:
+    """Resolve the Gateway WS session ID needed for ``user_message.sessionId``.
+
+    Priority:
+    1. ``cached`` — value stored in a previous partial-trace ``_ws_session_id``
+       field (single-turn mode reuses it across invocations).
+    2. Query the Gateway ``/admin/sessions`` REST endpoint using the target
+       sandbox HTTP base URL and the already-resolved Bearer token.
+
+    Returns None only when no session exists yet (first-ever message to a
+    freshly created sandbox — in that case omitting sessionId is fine because
+    the Gateway creates a new session automatically).
+    """
+    if cached:
+        _log("SESSION", f"reusing cached ws_session_id={cached!r}")
+        return cached
+
+    # Derive HTTP base URL from target_sandbox block
+    ts = eval_ctx.get("target_sandbox") or {}
+    http_base = (ts.get("http_base_url") or "").strip()
+    if not http_base:
+        # Fallback: derive from gateway_endpoint
+        http_base = ts.get("gateway_endpoint") or cfg.get("endpoint") or ""
+
+    if not http_base:
+        _log("SESSION", "cannot resolve ws_session_id: no http_base_url in target_sandbox")
+        return None
+
+    token = cfg.get("token") or ""
+    session_id = fetch_ws_session_id(http_base, token, log_fn=_logger)
+    return session_id
+
+
 def _resolve_simulator_id(eval_ctx: dict, *, auto_mode: bool = False) -> str:
     """Best-effort capture of simulator_id for trace audit; not used to spawn anything."""
     rs = eval_ctx.get("runtime_simulator") or {}
@@ -532,6 +571,7 @@ async def _serve_auto(
     test_case_id: str,
     tc: dict,
     cfg: dict,
+    eval_ctx: dict,
     effective_max_turns: int,
     output_path: Path,
 ) -> int:
@@ -609,6 +649,8 @@ async def _serve_auto(
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(trace, f, ensure_ascii=False, indent=2)
 
+    ws_session_id = _resolve_ws_session_id(eval_ctx, cfg)
+
     try:
         _log("WS", f"[auto] connecting endpoint={cfg['endpoint']}")
         async with WsCollector(cfg["endpoint"], cfg["token"], timeout=int(cfg["timeout"]), log_fn=_logger) as ws:
@@ -628,7 +670,7 @@ async def _serve_auto(
                 })
 
                 try:
-                    raw = await ws.send_and_collect(text_to_send)
+                    raw = await ws.send_and_collect(text_to_send, ws_session_id)
                 except asyncio.TimeoutError:
                     termination_reason = "timeout"
                     _log("ERROR", f"[auto] evaluatee timeout at turn={turn_index}")
@@ -756,6 +798,7 @@ async def _serve(
     evaluation_id: str,
     test_case_id: str,
     cfg: dict,
+    eval_ctx: dict,
     simulator_id: str,
     effective_max_turns: int,
     output_path: Path,
@@ -773,6 +816,7 @@ async def _serve(
     turns_used = 0
 
     auto_approve = bool(cfg["auto_approve_tools"])
+    ws_session_id = _resolve_ws_session_id(eval_ctx, cfg)
     loop = asyncio.get_event_loop()
     exit_code = 0
 
@@ -894,7 +938,7 @@ async def _serve(
                     _log("SEND", f"turn={turn_index}  text={text[:80]!r}")
                     # drive the evaluatee
                     try:
-                        raw = await ws.send_and_collect(text)
+                        raw = await ws.send_and_collect(text, ws_session_id)
                     except asyncio.TimeoutError:
                         termination_reason = "timeout"
                         _log("ERROR", f"evaluatee response timeout at turn_index={turn_index}")
@@ -1061,14 +1105,282 @@ async def _serve(
 
 
 # ---------------------------------------------------------------------------
+# single-turn mode — one WS connection per utterance, for LLM-in-the-loop
+# ---------------------------------------------------------------------------
+
+def _infer_next_turn_index(output_path: Path) -> int:
+    """Infer next turn_index from an existing partial trace.
+
+    Returns 0 when no partial trace exists yet (i.e. this is the opening turn).
+    """
+    if not output_path.exists():
+        return 0
+    try:
+        with open(output_path, encoding="utf-8") as f:
+            trace = json.load(f)
+        last_idx = trace.get("_last_turn_index")
+        if isinstance(last_idx, int) and last_idx >= 0:
+            return last_idx + 1
+        # Fallback: count evaluatee dialog turns
+        return sum(1 for t in trace.get("dialog_turns", []) if t.get("actor") == "evaluatee")
+    except (json.JSONDecodeError, OSError):
+        return 0
+
+
+async def _serve_single_turn(
+    evaluation_id: str,
+    test_case_id: str,
+    cfg: dict,
+    eval_ctx: dict,
+    simulator_id: str,
+    utterance: str,
+    turn_index: int,
+    output_path: Path,
+) -> int:
+    """Single-turn mode: one WS connection per utterance, for LLM-in-the-loop simulation.
+
+    Design rationale
+    ----------------
+    The sandbox gateway maintains conversation history **server-side**, but each
+    ``user_message`` payload **must** include the ``sessionId`` field so the Gateway
+    routes the message to the existing conversation rather than creating a new one.
+    This mirrors the frontend behaviour in EvaluationPage.tsx:
+        activeWs.send({ type: 'user_message', text, sessionId: activeSessionId, ... })
+
+    The WS session ID is different from the evaluation session ID stored in
+    ``evaluation_context.session.session_id``.  It is resolved by querying the
+    Gateway ``/admin/sessions`` endpoint (same logic as ``fetchAdminSessions`` in
+    the frontend) and cached inside the partial trace as ``_ws_session_id`` so
+    subsequent single-turn invocations can reuse it without an extra HTTP call.
+
+    This lets the host evaluation-expert agent call run.py **once per turn**:
+      1. pass the customer utterance via ``--utterance``
+      2. run.py connects, sends (with sessionId), collects the evaluatee reply,
+         appends to partial trace, exits
+      3. host agent reads the partial trace, generates the next utterance using its
+         own LLM brain (simulators/customer_realistic/system_prompt.md)
+      4. host agent calls run.py again with the new utterance
+      5. repeat until done, then call ``--finalize-trace``
+
+    No long-lived subprocess or background process is needed between LLM calls.
+
+    Trace accumulation
+    ------------------
+    * Loads the existing partial trace from ``output_path`` if present (append mode).
+    * Writes back a partial trace with ``_partial=True``, ``_last_turn_index=N``,
+      and ``_ws_session_id`` for reuse.
+    * Call ``_finalize_partial_trace()`` (``--finalize-trace``) after the last turn
+      to produce a schema-valid final trace with a proper ``termination`` block.
+    """
+    _log("SINGLE", f"turn_index={turn_index}  utterance={utterance[:80]!r}")
+
+    # ── Load existing partial trace (append mode) ───────────────────────────
+    existing: dict = {}
+    if output_path.exists():
+        try:
+            with open(output_path, encoding="utf-8") as f:
+                existing = json.load(f)
+            _log(
+                "SINGLE",
+                f"loaded partial trace ({len(existing.get('dialog_turns', []))} existing dialog turns)",
+            )
+        except (json.JSONDecodeError, OSError) as e:
+            _log("WARN", f"could not load existing trace, starting fresh: {e}")
+
+    dialog_turns: list = list(existing.get("dialog_turns") or [])
+    actual_tool_calls: list = list(existing.get("actual_tool_calls") or [])
+    simulator_trail: list = list(existing.get("simulator_trail") or [])
+    started_at: str = existing.get("started_at") or _now_iso()
+    auto_approve = bool(cfg["auto_approve_tools"])
+
+    # Resolve WS session ID: reuse cached value from previous turn, or query gateway
+    cached_session_id: str | None = existing.get("_ws_session_id") or None
+    ws_session_id = _resolve_ws_session_id(eval_ctx, cfg, cached=cached_session_id)
+
+    evaluatee_text = ""
+    new_tool_calls: list = []
+    raw: list = []
+    exit_code = 0
+
+    try:
+        async with WsCollector(
+            cfg["endpoint"],
+            cfg["token"],
+            timeout=int(cfg["timeout"]),
+            log_fn=_logger,
+        ) as ws:
+            _log("WS", f"[single-turn] connected for turn {turn_index}")
+
+            try:
+                raw = await ws.send_and_collect(utterance, ws_session_id)
+            except asyncio.TimeoutError:
+                msg = f"evaluatee response timeout at turn_index={turn_index}"
+                _log("ERROR", msg)
+                _emit_error(msg)
+                exit_code = 2
+            except Exception as e:  # noqa: BLE001
+                if _logger:
+                    _logger.exception(
+                        f"[single-turn] ws.send_and_collect raised at turn_index={turn_index}"
+                    )
+                _emit_error(f"{type(e).__name__}: {e}")
+                exit_code = 2
+
+            if exit_code == 0:
+                if auto_approve:
+                    for m in raw:
+                        if m.get("type") == "approval_required":
+                            call_id = m.get("callId")
+                            if call_id:
+                                await ws.approve_tool(call_id, approved=True)
+
+                evaluatee_text = _flatten_assistant_text(raw)
+                new_tool_calls = _extract_tool_calls(raw, after_turn_index=turn_index)
+
+                _log(
+                    "RECV",
+                    f"[single-turn] turn={turn_index}  raw={len(raw)}  tools={len(new_tool_calls)}"
+                    f"  content={evaluatee_text[:80]!r}",
+                )
+
+                dialog_turns.append({
+                    "turn_index": turn_index,
+                    "actor": "evaluator",
+                    "content": utterance,
+                    "timestamp": _now_iso(),
+                })
+                dialog_turns.append({
+                    "turn_index": turn_index,
+                    "actor": "evaluatee",
+                    "content": evaluatee_text,
+                    "timestamp": _now_iso(),
+                })
+                actual_tool_calls.extend(new_tool_calls)
+
+    except Exception as e:  # noqa: BLE001
+        if _logger:
+            _logger.exception("[single-turn] unhandled exception")
+        _emit_error(f"{type(e).__name__}: {e}")
+        exit_code = 2
+
+    # ── Write partial trace (no termination field yet) ──────────────────────
+    partial_trace: dict = {
+        "evaluation_id": evaluation_id,
+        "test_case_id": test_case_id,
+        "simulator_id": simulator_id,
+        "started_at": started_at,
+        "dialog_turns": dialog_turns,
+        "actual_tool_calls": actual_tool_calls,
+        "simulator_trail": simulator_trail,
+        "_partial": True,
+        "_last_turn_index": turn_index,
+    }
+    if ws_session_id:
+        partial_trace["_ws_session_id"] = ws_session_id
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(partial_trace, f, ensure_ascii=False, indent=2)
+        _log("TRACE", f"[single-turn] partial trace written  turns_so_far={turn_index + 1}")
+    except OSError as e:
+        _log("ERROR", f"[single-turn] failed to write partial trace: {e}")
+        _emit_error(f"failed to write partial trace: {e}")
+        return 2
+
+    if exit_code == 0:
+        _emit({
+            "event": "evaluatee_turn",
+            "turn_index": turn_index,
+            "content": evaluatee_text,
+            "tool_calls": new_tool_calls,
+            "raw_messages": raw,
+        })
+        _emit({
+            "event": "turn_appended",
+            "turn_index": turn_index,
+            "path": str(output_path),
+            "turns_so_far": turn_index + 1,
+        })
+
+    return exit_code
+
+
+def _finalize_partial_trace(
+    output_path: Path,
+    termination_reason: str = "completed_normally",
+    termination_detail: str | None = None,
+) -> int:
+    """Convert a partial trace (from single-turn invocations) into a final trace.
+
+    Removes the ``_partial`` / ``_last_turn_index`` sentinels, writes ``ended_at``
+    and a proper ``termination`` block.  Must be called after the last
+    ``--utterance`` invocation to produce a schema-valid ExecutionTrace.
+    """
+    if not output_path.exists():
+        _log("ERROR", f"[finalize] trace file not found: {output_path}")
+        _emit_error(f"trace file not found: {output_path}")
+        return 2
+
+    try:
+        with open(output_path, encoding="utf-8") as f:
+            trace = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        _log("ERROR", f"[finalize] failed to load trace: {e}")
+        _emit_error(f"failed to load trace: {e}")
+        return 2
+
+    last_turn_index = trace.pop("_last_turn_index", None)
+    trace.pop("_partial", None)
+
+    turns_used = (
+        (last_turn_index + 1)
+        if isinstance(last_turn_index, int)
+        else sum(1 for t in trace.get("dialog_turns", []) if t.get("actor") == "evaluatee")
+    )
+
+    # Infer final_emotion from last simulator_trail entry (if host agent populated it)
+    trail = trace.get("simulator_trail") or []
+    raw_emotion = (trail[-1].get("internal_emotion") if trail else None) or "neutral"
+    mapped_emotion = _DELTA_EMOTION_MAP.get(raw_emotion, raw_emotion)
+    final_emotion: str | None = mapped_emotion if mapped_emotion in _ABSOLUTE_EMOTIONS else None
+
+    termination: dict[str, Any] = {"reason": termination_reason, "turns_used": turns_used}
+    if termination_detail:
+        termination["detail"] = termination_detail
+    if final_emotion:
+        termination["final_emotion"] = final_emotion
+
+    trace["ended_at"] = _now_iso()
+    trace["termination"] = termination
+
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(trace, f, ensure_ascii=False, indent=2)
+        _log("TRACE", f"[finalize] trace finalized → {output_path}")
+    except OSError as e:
+        _log("ERROR", f"[finalize] failed to write finalized trace: {e}")
+        _emit_error(f"failed to write finalized trace: {e}")
+        return 2
+
+    _emit({
+        "event": "trace_written",
+        "path": str(output_path),
+        "termination": termination,
+    })
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="ws_jwt runtime driver — STEP 3 (v2.0). "
-                    "Default: long-lived stdin/stdout protocol driven by host agent. "
-                    "With --auto-simulate: fully synchronous, no stdin interaction needed.",
+                    "Modes: (1) interactive — long-lived stdin/stdout protocol driven by host agent; "
+                    "(2) --auto-simulate — fully synchronous, no stdin interaction; "
+                    "(3) --utterance TEXT — single-turn per invocation, for LLM-in-the-loop simulation; "
+                    "(4) --finalize-trace — close out a partial trace from single-turn calls.",
     )
     ap.add_argument("--evaluation-context", required=True,
                     help="path to the runtime evaluation context JSON; "
@@ -1083,6 +1395,48 @@ def main() -> None:
                          "tc.input.opening_message and stop_conditions rules. "
                          "One synchronous shell call per test case — no background process, "
                          "no pad files, no polling.")
+    ap.add_argument(
+        "--utterance",
+        default=None,
+        metavar="TEXT",
+        help="[Single-turn mode] Customer utterance to send in this invocation. "
+             "Triggers single-turn mode: connect → send → collect evaluatee reply → append partial trace → exit. "
+             "Session continuity is maintained server-side by the sandbox: reconnecting to the same "
+             "WS endpoint (same sandbox URL + token) resumes the same conversation automatically — "
+             "no session_id query parameter is needed. "
+             "This lets the host agent generate each follow-up utterance with its own LLM "
+             "(simulators/customer_realistic/system_prompt.md) between run.py invocations. "
+             "After the last turn, call --finalize-trace to produce a schema-valid final trace.",
+    )
+    ap.add_argument(
+        "--turn-index",
+        type=int,
+        default=None,
+        metavar="N",
+        dest="turn_index",
+        help="[Single-turn mode] Explicit 0-based turn index for --utterance mode. "
+             "If omitted, auto-inferred from the existing partial trace (_last_turn_index + 1); "
+             "defaults to 0 when no partial trace exists yet (opening message).",
+    )
+    ap.add_argument(
+        "--finalize-trace",
+        action="store_true",
+        default=False,
+        dest="finalize_trace",
+        help="[Finalize mode] Convert the partial trace written by --utterance invocations into a "
+             "complete, schema-valid ExecutionTrace with a proper termination block. "
+             "Must be called after the last --utterance invocation.",
+    )
+    ap.add_argument(
+        "--termination-reason",
+        default="completed_normally",
+        metavar="REASON",
+        dest="termination_reason",
+        help="[Finalize mode] Termination reason to write into the trace "
+             "(default: completed_normally). "
+             "Valid values: completed_normally, max_turns_reached, bottom_line_violated, "
+             "deadlock_detected, customer_gave_up, timeout, evaluatee_error.",
+    )
     args = ap.parse_args()
 
     # Initialize file logger as early as possible so every subsequent _log()
@@ -1106,35 +1460,76 @@ def main() -> None:
     test_case_id = tc.get("test_case_id") or Path(args.enriched_test_case).stem
     output_path = Path(args.output)
 
-    inp = tc.get("input") or {}
-    if not (inp.get("opening_message") or inp.get("user_message")):
-        _emit_error(
-            f"enriched_test_case.input has neither opening_message nor "
-            f"(deprecated) user_message for {test_case_id}"
+    if args.finalize_trace:
+        # ── Finalize mode ────────────────────────────────────────────────────
+        # Close out a partial trace written by one or more --utterance calls.
+        # tc.input validation is skipped; test_case_id comes from the tc file.
+        _log("MAIN", f"mode=finalize-trace  output={output_path}  reason={args.termination_reason}")
+        exit_code = _finalize_partial_trace(
+            output_path,
+            termination_reason=args.termination_reason or "completed_normally",
         )
-        sys.exit(2)
 
-    if args.auto_simulate:
-        _log("MAIN", f"mode=auto-simulate  evaluation_id={evaluation_id}  tc_id={test_case_id}  effective_max_turns={effective_max_turns}")
-        exit_code = asyncio.run(_serve_auto(
+    elif args.utterance is not None:
+        # ── Single-turn mode ─────────────────────────────────────────────────
+        # One WS connection per invocation; sandbox maintains session server-side.
+        # The host agent generates each utterance with its LLM (system_prompt.md)
+        # between calls — no long-lived subprocess needed.
+        turn_idx = (
+            args.turn_index
+            if args.turn_index is not None
+            else _infer_next_turn_index(output_path)
+        )
+        simulator_id = _resolve_simulator_id(eval_ctx, auto_mode=True)
+        _log(
+            "MAIN",
+            f"mode=single-turn  evaluation_id={evaluation_id}  tc_id={test_case_id}"
+            f"  turn_index={turn_idx}  simulator={simulator_id}",
+        )
+        exit_code = asyncio.run(_serve_single_turn(
             evaluation_id=evaluation_id,
             test_case_id=test_case_id,
-            tc=tc,
             cfg=cfg,
-            effective_max_turns=effective_max_turns,
-            output_path=output_path,
-        ))
-    else:
-        simulator_id = _resolve_simulator_id(eval_ctx)
-        _log("MAIN", f"mode=interactive  evaluation_id={evaluation_id}  tc_id={test_case_id}  simulator_id={simulator_id}  effective_max_turns={effective_max_turns}")
-        exit_code = asyncio.run(_serve(
-            evaluation_id=evaluation_id,
-            test_case_id=test_case_id,
-            cfg=cfg,
+            eval_ctx=eval_ctx,
             simulator_id=simulator_id,
-            effective_max_turns=effective_max_turns,
+            utterance=args.utterance,
+            turn_index=turn_idx,
             output_path=output_path,
         ))
+
+    else:
+        # ── Auto-simulate or interactive mode ────────────────────────────────
+        inp = tc.get("input") or {}
+        if not (inp.get("opening_message") or inp.get("user_message")):
+            _emit_error(
+                f"enriched_test_case.input has neither opening_message nor "
+                f"(deprecated) user_message for {test_case_id}"
+            )
+            sys.exit(2)
+
+        if args.auto_simulate:
+            _log("MAIN", f"mode=auto-simulate  evaluation_id={evaluation_id}  tc_id={test_case_id}  effective_max_turns={effective_max_turns}")
+            exit_code = asyncio.run(_serve_auto(
+                evaluation_id=evaluation_id,
+                test_case_id=test_case_id,
+                tc=tc,
+                cfg=cfg,
+                eval_ctx=eval_ctx,
+                effective_max_turns=effective_max_turns,
+                output_path=output_path,
+            ))
+        else:
+            simulator_id = _resolve_simulator_id(eval_ctx)
+            _log("MAIN", f"mode=interactive  evaluation_id={evaluation_id}  tc_id={test_case_id}  simulator_id={simulator_id}  effective_max_turns={effective_max_turns}")
+            exit_code = asyncio.run(_serve(
+                evaluation_id=evaluation_id,
+                test_case_id=test_case_id,
+                cfg=cfg,
+                eval_ctx=eval_ctx,
+                simulator_id=simulator_id,
+                effective_max_turns=effective_max_turns,
+                output_path=output_path,
+            ))
 
     _log("SHUTDOWN", f"exit_code={exit_code}")
     _logger.close()

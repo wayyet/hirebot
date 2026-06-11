@@ -21,6 +21,9 @@ import asyncio
 import json
 import re
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -101,10 +104,24 @@ class WsCollector:
         if self._ws:
             await self._ws.close()
 
-    async def send_and_collect(self, user_text: str) -> list[dict[str, Any]]:
-        """Send one user message; collect until assistant_done or timeout."""
-        self._emit_log("WS", f"→ user_message  text={user_text[:80]!r}")
-        payload = json.dumps({"type": "user_message", "text": user_text})
+    async def send_and_collect(
+        self,
+        user_text: str,
+        session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Send one user message; collect until assistant_done or timeout.
+
+        ``session_id`` is the **WS session ID** assigned by the Gateway (not the
+        evaluation session ID).  When provided it is included in the
+        ``user_message`` payload so the Gateway routes the message to the
+        existing conversation instead of creating a new one.  Omit only for
+        the very first message of a brand-new session.
+        """
+        self._emit_log("WS", f"→ user_message  text={user_text[:80]!r}  session_id={session_id!r}")
+        msg_payload: dict[str, Any] = {"type": "user_message", "text": user_text}
+        if session_id:
+            msg_payload["sessionId"] = session_id
+        payload = json.dumps(msg_payload)
         await self._ws.send(payload)
 
         collected: list[dict[str, Any]] = []
@@ -150,3 +167,67 @@ class WsCollector:
             "approved": approved,
         })
         await self._ws.send(payload)
+
+
+# ---------------------------------------------------------------------------
+# WS session ID resolution — mirrors frontend fetchAdminSessions logic
+# ---------------------------------------------------------------------------
+
+def _build_http_base_url(endpoint: str) -> str:
+    """Convert a WS/HTTP endpoint to an https:// base URL (no /ws path)."""
+    base = endpoint.strip().rstrip("/")
+    # strip /ws suffix if present
+    base = re.sub(r"/ws$", "", base, flags=re.IGNORECASE)
+    if re.match(r"^wss?://", base, re.IGNORECASE):
+        base = re.sub(r"^ws", "http", base, count=1, flags=re.IGNORECASE)
+    elif not re.match(r"^https?://", base, re.IGNORECASE):
+        base = f"https://{base.lstrip('/')}"
+    # strip token query param
+    base = re.sub(r"([?&])token=[^&]*(&?)", lambda m: m.group(2) or "", base)
+    base = base.rstrip("?&")
+    return base
+
+
+def fetch_ws_session_id(
+    http_base_url: str,
+    token: str,
+    *,
+    log_fn: Callable[[str, str], None] | None = None,
+) -> str | None:
+    """Fetch the most recent WS session ID from the Gateway /admin/sessions endpoint.
+
+    Mirrors the frontend logic in EvaluationPage.tsx:
+        const adminResp = await fetchAdminSessions(endpoint, { page: 1, pageSize: 1 })
+        const latestSession = adminResp.active[0] ?? adminResp.persisted.items[0]
+        sessionId = latestSession?.id?.trim() ?? ''
+
+    Returns the session ID string, or None when no session exists yet.
+    """
+    base = _build_http_base_url(http_base_url)
+    url = f"{base}/admin/sessions?page=1&pageSize=1"
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        method="GET",
+    )
+    if log_fn:
+        log_fn("SESSION", f"GET {re.sub(r'token=[^&]*', 'token=<redacted>', url)}")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if log_fn:
+            log_fn("SESSION", f"admin/sessions HTTP {e.code}: {e.reason}")
+        return None
+    except Exception as e:  # noqa: BLE001
+        if log_fn:
+            log_fn("SESSION", f"admin/sessions error: {e}")
+        return None
+
+    active = body.get("active") or []
+    persisted_items = (body.get("persisted") or {}).get("items") or []
+    latest = (active + persisted_items)[:1]
+    session_id = (latest[0].get("id") or "").strip() if latest else ""
+    if log_fn:
+        log_fn("SESSION", f"resolved ws_session_id={session_id!r}")
+    return session_id or None

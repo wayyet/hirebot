@@ -6,16 +6,106 @@
 
 ## 执行模式
 
-STEP 3 有两种执行模式；**优先使用 Mode A**。
+STEP 3 有三种执行模式；**优先级 C > A > B**。
 
-| 模式 | 触发方式 | 适用场景 |
-|---|---|---|
-| **A — `--auto-simulate`（推荐）** | 命令行加 `--auto-simulate` | 绝大多数场景；`tc.input` 已含 `opening_message` 和 `stop_conditions` |
-| **B — 交互式 stdin/stdout** | 不加 `--auto-simulate` | 需要宿主 LLM 扮演复杂多变客户时（保留为高级模式） |
+| 模式 | 触发方式 | 追问策略 | 适用场景 |
+|---|---|---|---|
+| **C — `--utterance` 单轮 LLM 追问（首选）** | 每轮一次 `--utterance` 调用，LLM 在两次调用之间生成 `SimulatorDecision` | **真实 LLM 追问**，基于被评估者实际回复动态决策 | 需要真实评估质量的正式场景 |
+| **A — `--auto-simulate`** | 命令行加 `--auto-simulate` | 固定追问（`follow_up_messages` 或通用兜底） | 快速冒烟测试；无需精确追问质量 |
+| **B — 交互式 stdin/stdout** | 不加任何额外参数 | LLM 通过 pad 文件实时通信 | 需要长连接过程控制的遗留场景 |
 
 ---
 
-## Mode A — `--auto-simulate`（推荐）
+## Mode C — `--utterance` 单轮 LLM 追问（首选）
+
+每次 `run.py` 调用只发一轮：连接 → 发送（带 `sessionId`）→ 收集回复 → 追加到 partial trace → 退出。  
+Host Agent LLM 在两次调用之间读 partial trace，渲染 `system_prompt.md`，生成 `SimulatorDecision`，再将 `decision.next_utterance` 作为下一轮的 `--utterance`。
+
+**关键优势：**
+- 无长驻子进程，无 pad 文件
+- 追问完全基于被评估者的实际回复内容（不是固定话术）
+- `sessionId` 由首轮后的 partial trace 缓存（`_ws_session_id`），后续轮次自动复用，不会新建会话
+
+### 调用序列
+
+```
+# ── 轮次 0：首轮（固定使用 opening_message）──────────────────────────────
+python3 runtime-drivers/ws_jwt/run.py \
+  --evaluation-context /workspace/runtime/evaluation-context.json \
+  --enriched-test-case  runs/<eval_id>/enriched-cases/<tc_id>.enriched.json \
+  --output              runs/<eval_id>/traces/<tc_id>.trace.json \
+  --utterance "<tc.input.opening_message>"
+# → 写 partial trace，_ws_session_id 自动缓存
+
+# ── LLM 决策：宿主 Agent 读 partial trace，渲染 system_prompt.md ──────────
+#   展开占位符：
+#     {{customer_persona.*}}     ← enriched_test_case.customer_persona
+#     {{goal.*}}                 ← enriched_test_case.goal
+#     {{stop_conditions.*}}      ← enriched_test_case.stop_conditions
+#     {{current_emotion}}        ← partial_trace.simulator_trail[-1].internal_emotion（首轮取 tc 默认值）
+#     {{dialog_so_far}}          ← partial_trace.dialog_turns 格式化为对话记录
+#     {{effective_max_turns}}    ← min(tc.turn_budget.hard_max_turns, eval_ctx.global_turn_cap)
+#
+#   LLM 输出：SimulatorDecision JSON
+#   若 decision.should_continue == false → 跳到收尾步骤
+
+# ── 轮次 1..N：动态追问 ────────────────────────────────────────────────────
+python3 runtime-drivers/ws_jwt/run.py \
+  --evaluation-context /workspace/runtime/evaluation-context.json \
+  --enriched-test-case  runs/<eval_id>/enriched-cases/<tc_id>.enriched.json \
+  --output              runs/<eval_id>/traces/<tc_id>.trace.json \
+  --utterance "<decision.next_utterance>"
+# → 自动从 partial trace 读取 _ws_session_id，续上已有会话
+
+# （重复 LLM 决策 → 追问 → 直到 decision.should_continue == false）
+
+# ── 收尾：生成完整 trace ───────────────────────────────────────────────────
+python3 runtime-drivers/ws_jwt/run.py \
+  --evaluation-context /workspace/runtime/evaluation-context.json \
+  --enriched-test-case  runs/<eval_id>/enriched-cases/<tc_id>.enriched.json \
+  --output              runs/<eval_id>/traces/<tc_id>.trace.json \
+  --finalize-trace \
+  --termination-reason  <decision.stop_reason>
+# → 清除 _partial/_ws_session_id/_last_turn_index，写入 termination 块，输出完整 trace
+```
+
+### LLM 决策——simulator_trail 追加（在调用下一次 `--utterance` 前）
+
+每次 LLM 生成 `SimulatorDecision` 后，宿主 Agent 必须将决策追加到 partial trace 的 `simulator_trail` 字段，使 trace 记录完整的模拟器推理链：
+
+```python
+# 伪代码：读取 partial trace，追加 SimulatorDecision，写回
+trace = json.load(open(output_path))
+decision["decided_at"] = now_iso()
+trace["simulator_trail"].append(decision)
+json.dump(trace, open(output_path, "w"), ensure_ascii=False, indent=2)
+```
+
+### 停止条件
+
+`SimulatorDecision.should_continue == false` 时终止循环，`stop_reason` 作为 `--termination-reason` 传入收尾调用。常见取值：
+
+| `stop_reason` | 含义 |
+|---|---|
+| `goal_achieved` | 被评估者已完成实际操作，问题已解决 |
+| `bottom_line_violated` | 被评估者触犯底线（如泄露禁止信息） |
+| `deadlock_detected` | 对话陷入死循环，无实质进展 |
+| `customer_gave_up` | 轮次达到上限或客户放弃 |
+
+### 运行后验证
+
+```bash
+python3 -c "
+import json, sys
+t = json.load(open('runs/<eval_id>/traces/<tc_id>.trace.json'))
+assert '_partial' not in t, 'trace is still partial!'
+assert 'termination' in t, 'missing termination block'
+print('turns_used:', t['termination']['turns_used'])
+print('reason:', t['termination']['reason'])
+"
+```
+
+---
 
 run.py 自行驱动所有对话轮次：读取 `tc.input.opening_message` → 发到 WebSocket → 检测 `stop_conditions.failure` → 必要时发追问 → 写 trace 并退出。
 
