@@ -290,22 +290,6 @@ export default function InstanceDetailPage() {
     }
   }
 
-  // 轨迹原始文件同样需要鉴权下载（publicUrl 可能是相对 API 路径）
-  async function handleAssetDownload(publicUrl: string, fileName: string) {
-    try {
-      const absUrl = toAbsoluteApiUrl(publicUrl) ?? publicUrl;
-      const token = await tokenService.ensureFresh();
-      const response = await fetch(absUrl, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-      if (!response.ok) throw new Error(`下载文件失败（HTTP ${response.status}）`);
-      const blob = await response.blob();
-      downloadBlob(blob, fileName);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "下载文件失败");
-    }
-  }
-
   return (
     <div className="hb-page hb-employee-page hb-employee-detail-page space-y-5">
       <Breadcrumb
@@ -835,16 +819,6 @@ export default function InstanceDetailPage() {
                                 <span className="text-[11px] eval-text-caption">{formatDateTime(asset.createdAtUtc)}</span>
                               </div>
                               <div className="flex items-center gap-2">
-                                <a href={toAbsoluteApiUrl(asset.publicUrl) ?? asset.publicUrl} target="_blank" rel="noreferrer"
-                                  className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-2.5 py-0.5 text-[11px]">
-                                  <ExternalLink size={10} /> 原始文件（需登录）
-                                </a>
-                                <button
-                                  type="button"
-                                  onClick={() => void handleAssetDownload(asset.publicUrl, `trace-${index + 1}.json`)}
-                                  className="inline-flex items-center gap-1 rounded-full border eval-pill-neutral px-2.5 py-0.5 text-[11px]">
-                                  <Download size={10} /> 下载
-                                </button>
                                 {sessionId ? (
                                   <button type="button"
                                     onClick={() => void toggleTrace(sessionId)}
