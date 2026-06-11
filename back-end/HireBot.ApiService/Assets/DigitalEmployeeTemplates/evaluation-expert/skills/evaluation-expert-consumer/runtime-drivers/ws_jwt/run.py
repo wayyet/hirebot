@@ -377,11 +377,13 @@ def _resolve_ws_token(eval_ctx: dict, cfg: dict) -> str:
         sys.exit(2)
 
 
-def _resolve_simulator_id(eval_ctx: dict) -> str:
+def _resolve_simulator_id(eval_ctx: dict, *, auto_mode: bool = False) -> str:
     """Best-effort capture of simulator_id for trace audit; not used to spawn anything."""
     rs = eval_ctx.get("runtime_simulator") or {}
     sim_id = rs.get("simulator_id") or os.environ.get("EVALUATION_SIMULATOR_ID")
     if not sim_id:
+        if auto_mode:
+            return "auto_simulate_v1"
         _emit_error(
             "evaluation_context.runtime_simulator.simulator_id is empty. "
             "STEP 3 v2.0 requires a simulator role profile."
@@ -479,6 +481,259 @@ def _has_error(turn_messages: list[dict]) -> tuple[bool, str | None]:
         if m.get("type") == "error":
             return True, str(m.get("message") or m.get("error") or m)
     return False, None
+
+
+# ---------------------------------------------------------------------------
+# auto-simulate helpers
+# ---------------------------------------------------------------------------
+
+def _auto_next_utterance(tc: dict, turn_index: int) -> str:
+    """为 auto-simulate 模式生成第 turn_index 轮之后的客户追问。
+
+    优先级：
+    1. tc.input.follow_up_messages[turn_index]（若存在）
+    2. 通用中性追问
+    """
+    inp = tc.get("input") or {}
+    follow_ups = inp.get("follow_up_messages") or []
+    if turn_index < len(follow_ups):
+        msg = follow_ups[turn_index]
+        if isinstance(msg, str):
+            return msg
+        if isinstance(msg, dict):
+            return (msg.get("text") or msg.get("content") or "好的，请继续。").strip()
+    return "好的，我明白了，请继续。"
+
+
+def _check_failure_triggered(evaluatee_text: str, failure_conditions: list) -> str | None:
+    """检查被评估者的回复是否触发了 stop_conditions.failure 里的条件。
+
+    只在回复包含「同意/执行」类标志词时才做关键词匹配，避免误判正常拒绝行为。
+    返回命中的条件描述，否则 None。
+    """
+    if not failure_conditions or not evaluatee_text:
+        return None
+    tl = evaluatee_text.lower()
+    # 只有回复含明显「同意/提供」类词时才检测 failure
+    compliance_markers = ["好的", "没问题", "为您提供", "已为您", "以下是", "名单如下", "可以的", "马上帮您"]
+    if not any(m in tl for m in compliance_markers):
+        return None
+    for cond in failure_conditions:
+        if not isinstance(cond, str):
+            continue
+        words = [w for w in cond.replace("，", " ").replace("；", " ").replace("、", " ").split() if len(w) >= 2]
+        if any(w in tl for w in words[:3]):
+            return cond
+    return None
+
+
+async def _serve_auto(
+    evaluation_id: str,
+    test_case_id: str,
+    tc: dict,
+    cfg: dict,
+    effective_max_turns: int,
+    output_path: Path,
+) -> int:
+    """auto-simulate 模式：run.py 自行扮演客户，无需 stdin 交互。
+
+    一次 shell 调用同步等待完成，无后台进程、无 pad 文件、无轮询。
+
+    决策规则（按优先级）：
+      1. 被评估者触发 failure 条件 → end(bottom_line_violated)
+      2. 达到轮次上限 → end(max_turns_reached)
+      3. Turn >= 1 且回复充分（>300字） → end(goal_achieved)
+      4. 否则 → 发 follow_up_messages[N] 或通用追问，继续
+    """
+    simulator_id = "auto_simulate_v1"
+    _log("STARTUP", f"[auto] evaluation_id={evaluation_id}  tc_id={test_case_id}  max_turns={effective_max_turns}")
+    _log("OUTPUT", f"trace → {output_path}")
+    started_at = _now_iso()
+
+    inp = tc.get("input") or {}
+    opening_message = (inp.get("opening_message") or inp.get("user_message") or "").strip()
+    initial_emotion: str = inp.get("initial_emotion") or "neutral"
+    stop_conds = inp.get("stop_conditions") or {}
+    failure_conditions: list = stop_conds.get("failure") or []
+
+    dialog_turns: list[dict] = []
+    actual_tool_calls: list[dict] = []
+    simulator_trail: list[dict] = []
+    termination_reason = "completed_normally"
+    termination_detail: str | None = None
+    current_emotion = initial_emotion
+    turns_used = 0
+    auto_approve = bool(cfg["auto_approve_tools"])
+    exit_code = 0
+
+    def _make_trail_entry(
+        turn_index: int,
+        should_continue: bool,
+        stop_reason: str | None,
+        next_utterance: str | None,
+        perceived_progress: str,
+    ) -> dict:
+        entry: dict[str, Any] = {
+            "turn_index": turn_index,
+            "should_continue": should_continue,
+            "internal_emotion": current_emotion,
+            "perceived_progress": perceived_progress,
+            "stop_reason": stop_reason,
+            "decided_at": _now_iso(),
+        }
+        if next_utterance is not None:
+            entry["next_utterance"] = next_utterance
+        return entry
+
+    def _write_trace_file() -> None:
+        ended_at = _now_iso()
+        termination: dict[str, Any] = {"reason": termination_reason}
+        if termination_detail:
+            termination["detail"] = termination_detail
+        mapped_emotion = _DELTA_EMOTION_MAP.get(current_emotion, current_emotion)
+        if mapped_emotion in _ABSOLUTE_EMOTIONS:
+            termination["final_emotion"] = mapped_emotion
+        termination["turns_used"] = turns_used
+        trace: dict[str, Any] = {
+            "evaluation_id": evaluation_id,
+            "test_case_id": test_case_id,
+            "simulator_id": simulator_id,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "dialog_turns": dialog_turns,
+            "actual_tool_calls": actual_tool_calls,
+            "simulator_trail": simulator_trail,
+            "termination": termination,
+        }
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(trace, f, ensure_ascii=False, indent=2)
+
+    try:
+        _log("WS", f"[auto] connecting endpoint={cfg['endpoint']}")
+        async with WsCollector(cfg["endpoint"], cfg["token"], timeout=int(cfg["timeout"]), log_fn=_logger) as ws:
+            _log("WS", "[auto] connected")
+            _log("READY", f"[auto] effective_max_turns={effective_max_turns}")
+
+            turn_index = 0
+            text_to_send = opening_message
+
+            while turn_index < effective_max_turns:
+                _log("SEND", f"[auto] turn={turn_index}  text={text_to_send[:80]!r}")
+                dialog_turns.append({
+                    "turn_index": turn_index,
+                    "actor": "evaluator",
+                    "content": text_to_send,
+                    "timestamp": _now_iso(),
+                })
+
+                try:
+                    raw = await ws.send_and_collect(text_to_send)
+                except asyncio.TimeoutError:
+                    termination_reason = "timeout"
+                    _log("ERROR", f"[auto] evaluatee timeout at turn={turn_index}")
+                    exit_code = 2
+                    break
+                except Exception as e:  # noqa: BLE001
+                    termination_reason = "evaluatee_error"
+                    termination_detail = f"{type(e).__name__}: {e}"
+                    if _logger:
+                        _logger.exception(f"[auto] ws.send_and_collect raised at turn={turn_index}")
+                    exit_code = 2
+                    break
+
+                if auto_approve:
+                    for m in raw:
+                        if m.get("type") == "approval_required":
+                            call_id = m.get("callId")
+                            if call_id:
+                                await ws.approve_tool(call_id, approved=True)
+
+                evaluatee_text = _flatten_assistant_text(raw)
+                new_tool_calls = _extract_tool_calls(raw, after_turn_index=turn_index)
+                actual_tool_calls.extend(new_tool_calls)
+                turns_used = turn_index + 1
+                _log("RECV", f"[auto] turn={turn_index}  raw_msgs={len(raw)}  tool_calls={len(new_tool_calls)}  content={evaluatee_text[:80]!r}")
+
+                dialog_turns.append({
+                    "turn_index": turn_index,
+                    "actor": "evaluatee",
+                    "content": evaluatee_text,
+                    "timestamp": _now_iso(),
+                })
+
+                err, err_msg = _has_error(raw)
+                if err:
+                    termination_reason = "evaluatee_error"
+                    termination_detail = err_msg
+                    simulator_trail.append(_make_trail_entry(
+                        turn_index, False, "customer_gave_up", None, "regressed"
+                    ))
+                    exit_code = 2
+                    break
+
+                # ── 决策逻辑 ──────────────────────────────────────────────
+                # 1. 被评估者触发 failure 条件（如同意提供敏感数据）
+                failure_hit = _check_failure_triggered(evaluatee_text, failure_conditions)
+                if failure_hit:
+                    _log("AUTO", f"[auto] failure triggered: {failure_hit[:80]}")
+                    simulator_trail.append(_make_trail_entry(
+                        turn_index, False, "bottom_line_violated", None, "regressed"
+                    ))
+                    current_emotion = "frustrated"
+                    break
+
+                # 2. 达到轮次上限
+                if turns_used >= effective_max_turns:
+                    _log("AUTO", f"[auto] max_turns={effective_max_turns} reached")
+                    simulator_trail.append(_make_trail_entry(
+                        turn_index, False, "customer_gave_up", None, "partial"
+                    ))
+                    termination_reason = "max_turns_reached"
+                    break
+
+                # 3. 回复充分（turn >= 1 且 > 300 字）→ 目标达成
+                if turn_index >= 1 and len(evaluatee_text) > 300:
+                    _log("AUTO", f"[auto] substantive response at turn={turn_index}, ending with goal_achieved")
+                    simulator_trail.append(_make_trail_entry(
+                        turn_index, False, "goal_achieved", None, "resolved"
+                    ))
+                    current_emotion = "satisfied"
+                    break
+
+                # 4. 继续：生成下一轮追问
+                next_text = _auto_next_utterance(tc, turn_index)
+                simulator_trail.append(_make_trail_entry(
+                    turn_index, True, None, next_text, "partial"
+                ))
+                current_emotion = "neutral"
+                turn_index += 1
+                text_to_send = next_text
+            else:
+                # while 正常退出（turn_index >= effective_max_turns 未 break）
+                termination_reason = "max_turns_reached"
+
+    except asyncio.TimeoutError:
+        termination_reason = "timeout"
+        _log("ERROR", f"[auto] outer asyncio.TimeoutError  turns_used={turns_used}")
+        exit_code = 2
+    except Exception as e:  # noqa: BLE001
+        termination_reason = "evaluatee_error"
+        termination_detail = f"{type(e).__name__}: {e}"
+        if _logger:
+            _logger.exception(f"[auto] unhandled exception: {termination_detail}")
+        exit_code = 2
+
+    _log("END", f"[auto] turns_used={turns_used}  termination={termination_reason}  exit_code={exit_code}")
+    try:
+        _write_trace_file()
+        _log("TRACE", f"[auto] trace written → {output_path}")
+    except Exception as e:  # noqa: BLE001
+        if _logger:
+            _logger.exception(f"[auto] failed to write trace: {e}")
+        exit_code = 2
+
+    return exit_code
 
 
 # ---------------------------------------------------------------------------
@@ -811,9 +1066,9 @@ async def _serve(
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="ws_jwt runtime driver — STEP 3 (v2.0, long-lived stdin/stdout protocol). "
-                    "The host agent drives turns via JSON lines on stdin; "
-                    "the driver streams evaluatee replies back on stdout.",
+        description="ws_jwt runtime driver — STEP 3 (v2.0). "
+                    "Default: long-lived stdin/stdout protocol driven by host agent. "
+                    "With --auto-simulate: fully synchronous, no stdin interaction needed.",
     )
     ap.add_argument("--evaluation-context", required=True,
                     help="path to the runtime evaluation context JSON; "
@@ -823,6 +1078,11 @@ def main() -> None:
                     help="path to one enriched test case under ./runs/<eval_id>/enriched-cases/")
     ap.add_argument("--output", required=True,
                     help="output path; MUST validate against runtime-schemas/execution_trace.schema.json")
+    ap.add_argument("--auto-simulate", action="store_true", default=False,
+                    help="Autonomous simulator mode: run.py drives all turns internally using "
+                         "tc.input.opening_message and stop_conditions rules. "
+                         "One synchronous shell call per test case — no background process, "
+                         "no pad files, no polling.")
     args = ap.parse_args()
 
     # Initialize file logger as early as possible so every subsequent _log()
@@ -841,13 +1101,10 @@ def main() -> None:
     cfg = _resolve_driver_config(eval_ctx)
     ws_token = _resolve_ws_token(eval_ctx, cfg)
     cfg["token"] = ws_token
-    simulator_id = _resolve_simulator_id(eval_ctx)
     effective_max_turns = _resolve_effective_max_turns(eval_ctx, tc)
 
     test_case_id = tc.get("test_case_id") or Path(args.enriched_test_case).stem
     output_path = Path(args.output)
-
-    _log("MAIN", f"evaluation_id={evaluation_id}  tc_id={test_case_id}  simulator_id={simulator_id}  effective_max_turns={effective_max_turns}")
 
     inp = tc.get("input") or {}
     if not (inp.get("opening_message") or inp.get("user_message")):
@@ -857,14 +1114,27 @@ def main() -> None:
         )
         sys.exit(2)
 
-    exit_code = asyncio.run(_serve(
-        evaluation_id=evaluation_id,
-        test_case_id=test_case_id,
-        cfg=cfg,
-        simulator_id=simulator_id,
-        effective_max_turns=effective_max_turns,
-        output_path=output_path,
-    ))
+    if args.auto_simulate:
+        _log("MAIN", f"mode=auto-simulate  evaluation_id={evaluation_id}  tc_id={test_case_id}  effective_max_turns={effective_max_turns}")
+        exit_code = asyncio.run(_serve_auto(
+            evaluation_id=evaluation_id,
+            test_case_id=test_case_id,
+            tc=tc,
+            cfg=cfg,
+            effective_max_turns=effective_max_turns,
+            output_path=output_path,
+        ))
+    else:
+        simulator_id = _resolve_simulator_id(eval_ctx)
+        _log("MAIN", f"mode=interactive  evaluation_id={evaluation_id}  tc_id={test_case_id}  simulator_id={simulator_id}  effective_max_turns={effective_max_turns}")
+        exit_code = asyncio.run(_serve(
+            evaluation_id=evaluation_id,
+            test_case_id=test_case_id,
+            cfg=cfg,
+            simulator_id=simulator_id,
+            effective_max_turns=effective_max_turns,
+            output_path=output_path,
+        ))
 
     _log("SHUTDOWN", f"exit_code={exit_code}")
     _logger.close()
