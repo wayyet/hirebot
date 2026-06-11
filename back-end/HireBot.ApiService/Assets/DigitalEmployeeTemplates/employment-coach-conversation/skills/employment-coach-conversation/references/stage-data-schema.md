@@ -1,4 +1,4 @@
-# 阶段产物 data 字段结构
+﻿# 阶段产物 data 字段结构
 
 本文件定义 `emit_artifact` 调用中各 `artifactType` 的 `data` 字段结构，供 `employment-coach-conversation` skill 构造 artifact payload 时参考。
 
@@ -110,16 +110,16 @@
 }
 ```
 
-字段说明：与 `material_collection_progress` 相同；terminal 时顶层必须透传会话初始化阶段锁定的真实 `workspace_root` 与 `template_slug`，`status` 全部为 `ready`，`source_path` 必须尽可能补全（有上传文件的条目**必填**），并补充 `summary` 字段。`ontology-extraction` skill 将以 `workspace_root` 与 `source_path` 为准定位实际文件，`source_hint` 仅供人工阅读。**如果缺少 `workspace_root` / `template_slug`，或上传条目只有 `source_hint`、没有 `source_path`，或已经知道内容未能读取到，则不得发出 `material_handoff_summary`。**
+字段说明：与 `material_collection_progress` 相同；terminal 时顶层必须透传会话初始化阶段锁定的真实 `workspace_root` 与 `template_slug`，`status` 全部为 `ready`，`source_path` 必须尽可能补全（有上传文件的条目**必填**），并补充 `summary` 字段。`ontology-slice-extraction` skill 将以 `workspace_root` 与 `source_path` 为准定位实际文件，`source_hint` 仅供人工阅读。**如果缺少 `workspace_root` / `template_slug`，或上传条目只有 `source_hint`、没有 `source_path`，或已经知道内容未能读取到，则不得发出 `material_handoff_summary`。**
 
 ---
 
 ## 阶段 2：技能（stage2_skill）
 
-说明：阶段 2 是“技能”主阶段，内部固定拆成三个显式确认子步骤：
-- 技能定义确认：通过 `skill_workorder_progress` / `skill_definition_ready` / `skill_workorder_summary` 表达。
-- 业务资料准备确认：技能定义完成后发 `ontology_projection_ready`，用户确认后触发 projection pass。
-- 技能生成确认/执行：`ontology_projection_done` 可消费后发 `skill_generation_ready`，用户确认后触发下游 `skill-generation`。
+说明：阶段 2 是”技能”主阶段，技能清单定稿后进入“技能实现子流程”，内部固定拆成三个显式确认子步骤：
+- 技能定义确认：通过 `skill_workorder_progress` / `skill_definition_ready` / `skill_workorder_summary` 表达（用户确认门）。
+- 业务资料准备确认：技能定义完成后发出 `ontology_projection_ready`，用户确认后才触发 projection pass（`ontology-slice-extraction` projection_pass 模式）。
+- 技能生成确认/执行：`ontology_projection_done` 可消费后发 `skill_generation_ready`（用户确认门），确认后触发下游 `skill-generation`。
 
 ### skill_workorder_progress（进度更新，isTerminal: false）
 
@@ -316,7 +316,7 @@
 
 ### Projection Pass 执行轨（ontology-projection，下游）
 
-> 以下 artifact 由下游 `ontology-extraction` 发出，前端运行轨道名为 `ontology-projection`；`emit_artifact.stage` 固定为主流程阶段 `stage2_skill`。
+> 以下 artifact 由下游 `ontology-slice-extraction` 发出，前端运行轨道名为 `ontology-projection`；`emit_artifact.stage` 固定为主流程阶段 `stage2_skill`。
 
 #### ontology_projection_progress（进度更新，isTerminal: false）
 
@@ -537,7 +537,7 @@
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `status` | 是 | 仅允许 `waiting_downstream` / `packing` |
-| `pending_downstream_skills[]` | `waiting_downstream` 时必填 | 尚未完成的下游 skill，仅允许 `ontology-extraction` / `skill-generation` |
+| `pending_downstream_skills[]` | `waiting_downstream` 时必填 | 尚未完成的下游 skill，仅允许 `ontology-slice-extraction` / `skill-generation` |
 | `included[]` | 否 | 计划打包包含的目录白名单提示 |
 
 ### template_package（文件产物，isTerminal: true）

@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest'
 
 import { normalizeAssistantReply, normalizeAssistantStreamingPreview } from './hiringPageHelpers'
+import { buildDownstreamPrompt } from './hiringDownstreamTriggers'
 
 describe('normalizeAssistantReply', () => {
+  it('hides a full internal downstream trigger prompt', () => {
+    const content = buildDownstreamPrompt('skill-generation', {
+      workspace_root: '/workspace/template-20260611202657',
+      template_slug: 'cosmetics-scheduler',
+      confirmed_skill_slugs: ['live-insertion-feasibility-assessment'],
+      projection_binding_confirmed: true,
+    })
+
+    expect(normalizeAssistantReply(content)).toBe('')
+  })
+
   it('移除 dispatch_callback 技术标签并保留用户可见摘要', () => {
     const content = [
       '评估测试用例已生成',
@@ -39,6 +51,15 @@ describe('normalizeAssistantReply', () => {
 })
 
 describe('normalizeAssistantStreamingPreview', () => {
+  it('hides a streaming preview that starts with an internal downstream trigger prompt', () => {
+    const content = buildDownstreamPrompt('ontology-projection', {
+      workspace_root: '/workspace/template-20260611202657',
+      skills: [{ skill_slug: 'live-insertion-feasibility-assessment' }],
+    })
+
+    expect(normalizeAssistantStreamingPreview(content)).toBe('')
+  })
+
   it('流式阶段遇到未闭合 dispatch_callback 时立即隐藏后续内容', () => {
     const content = [
       '评估测试用例已生成',

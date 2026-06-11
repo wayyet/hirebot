@@ -1,4 +1,4 @@
-{
+﻿{
   "schemaVersion": 3,
   "description": "定义沙箱工作区的目录结构约定。所有 skill 在写入产物或读取上传文件时，必须以本文件中定义的路径为准，不得自行选择目录。本文件内所有以 <workspace_root> 形式出现的占位符，都代表雇佣教练在会话初始化时通过沙箱解压工具创建并锁定的会话级真实绝对路径，由 emit_artifact.data.workspace_root 透传给所有下游 skill；下游 skill 必须把它当作运行时变量替换后再使用，绝不能把字面字符串 <workspace_root> 写入任何产物。",
 
@@ -31,7 +31,7 @@
     "ontology_slices": {
       "directory": "<workspace_root>/ontology/",
       "file_naming": "<domain-slug>.slice.json / <domain-slug>.slice.md",
-      "owner_skill": "ontology-extraction"
+      "owner_skill": "ontology-slice-extraction"
     },
     "skill_packages": {
       "directory": "<workspace_root>/skills/<skill-slug>/",
@@ -49,7 +49,7 @@
 
   "constraints": [
     "employment-coach-conversation 在会话初始化阶段负责：解析 template_slug、创建带时间戳的 workspace_root 目录、解压 ZIP 到 <workspace_root>/uploads/、通过 emit_artifact.data.workspace_root 将真实路径透传给下游 skill；除 uploads 解压外，本 skill 不主动写入其它目录",
-    "ontology-extraction 只写入 <workspace_root>/ontology/，不写入 skills/ 或 external/",
+    "ontology-slice-extraction 只写入 <workspace_root>/ontology/，不写入 skills/ 或 external/",
     "skill-generation 只写入 <workspace_root>/skills/，不写入 ontology/ 或 external/",
     "external/ 目录由系统层在右侧卡片保存或跳过后按 external-config 结构约定写入，不写入 ontology/ 或 skills/",
     "config/ 目录只有 employment-coach-conversation 通过 config_governance_patch 机制修改，其他 skill 不得写入",

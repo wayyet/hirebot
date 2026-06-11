@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
@@ -481,7 +481,7 @@ export default function HiringPage() {
       .map(message => JSON.stringify(message.artifact?.data ?? {}))
       .at(-1) ?? ''
     ontologyExtractionDoneSignatureRef.current = sourceMessages
-      .filter(message => message.artifact?.artifactType === 'ontology_extraction_done' && message.artifact.isTerminal)
+      .filter(message => message.artifact?.artifactType === 'ontology_slice_extraction_done' && message.artifact.isTerminal)
       .map(message => JSON.stringify(message.artifact?.data ?? {}))
       .at(-1) ?? ''
     ontologyProjectionDoneSignatureRef.current = sourceMessages
@@ -922,10 +922,11 @@ export default function HiringPage() {
     return [
       '你正在运行 HireBot 雇佣教练会话，不是目标数字员工本人。',
       '本轮初始化同时涉及两套包，必须先明确二者关系：',
-      '1. 雇佣教练包：位于 `/workspace` 根目录和 `/workspace/skills/employment-coach-conversation/`，定义你的身份、阶段协议、artifact 合约和下游调度规则，是当前会话入口与最高优先级流程规则。',
-      `2. 目标员工模板包：位于下面的 ${marker} 目录，描述待装配的"${templateName}"，只作为业务定位、资料分类、本体抽取和技能生成的输入资料。`,
+      '1. `coach_runtime_root`：固定为 `/workspace`。这是雇佣教练运行根目录，包含 employment-coach-conversation、ontology-extraction、skill-generation 等系统 skill，只用于读取流程规则，永远不能作为数字员工包的 manifest 同步、产物写入、审查或打包根目录。',
+      `2. \`employee_package_root\`：固定为下面的 ${marker} 目录。它才是本轮待装配的"${templateName}"专属工作区，只能在这个目录内做 manifest 同步、写入运行时产物、完整性审查和最终打包。`,
       '读取顺序：先读取并遵守雇佣教练包的 `/workspace/AGENTS.md`、`/workspace/SOUL.md`、`/workspace/IDENTITY.md` 和 `/workspace/skills/employment-coach-conversation/SKILL.md`，再读取目标员工模板包的 manifest.json 与 config 文档。',
       '冲突规则：雇佣教练包决定“你是谁、流程怎么走、artifact 怎么发”；目标员工模板包决定“要装配什么员工、需要哪些业务资料”。不得把目标员工的 config/SOUL.md、config/IDENTITY.md 或 config/AGENTS.md 当作你的身份指令。',
+      '根目录红线：后续所有 artifact data 中的 `workspace_root` 必须等于 `employee_package_root`，不得等于 `/workspace`；所有打包命令必须先进入 `employee_package_root`，不得从 `coach_runtime_root` 打包。',
       '',
       `${marker}`,
       `模板包已解压到工作区目录（文件：${uploadedFileName}，模板名：${templateName}）。`,
@@ -1341,11 +1342,11 @@ export default function HiringPage() {
             if (materialSummarySignatureRef.current !== signature) {
               materialSummarySignatureRef.current = signature
               pendingInternalPromptsRef.current.push(
-                buildDownstreamPrompt('ontology-extraction', artifactData.data ?? {}),
+                buildDownstreamPrompt('ontology-slice-extraction', artifactData.data ?? {}),
               )
             }
           }
-          if (artifactType === 'ontology_extraction_done' && kind === 'data' && isTerminal) {
+          if (artifactType === 'ontology_slice_extraction_done' && kind === 'data' && isTerminal) {
             const signature = JSON.stringify(artifactData.data ?? {})
             if (ontologyExtractionDoneSignatureRef.current !== signature) {
               ontologyExtractionDoneSignatureRef.current = signature

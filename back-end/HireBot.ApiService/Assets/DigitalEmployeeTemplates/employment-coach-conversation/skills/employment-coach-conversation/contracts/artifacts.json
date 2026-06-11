@@ -175,7 +175,7 @@
         {
           "kind": "downstream_terminal",
           "requiresDownstream": [
-            "ontology-extraction",
+            "ontology-slice-extraction",
             "skill-generation"
           ]
         },
@@ -331,29 +331,29 @@
         "terminal": true
       },
       {
-        "type": "ontology_extraction_progress",
-        "ownerSkill": "ontology-extraction",
-        "label": "Ontology Extraction Progress",
+        "type": "ontology_slice_extraction_progress",
+        "ownerSkill": "ontology-slice-extraction",
+        "label": "Ontology Slice Extraction Progress",
         "display": "progress",
         "terminal": false
       },
       {
-        "type": "ontology_extraction_done",
-        "ownerSkill": "ontology-extraction",
-        "label": "Ontology Extraction Done",
+        "type": "ontology_slice_extraction_done",
+        "ownerSkill": "ontology-slice-extraction",
+        "label": "Ontology Slice Extraction Done",
         "display": "tree",
         "terminal": true
       },
       {
         "type": "ontology_projection_progress",
-        "ownerSkill": "ontology-extraction",
+        "ownerSkill": "ontology-projection",
         "label": "技能准备进度",
         "display": "progress",
         "terminal": false
       },
       {
         "type": "ontology_projection_done",
-        "ownerSkill": "ontology-extraction",
+        "ownerSkill": "ontology-projection",
         "label": "技能准备结果",
         "display": "tree",
         "terminal": true

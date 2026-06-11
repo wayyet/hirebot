@@ -18,8 +18,8 @@ export const KNOWN_HIRING_ARTIFACT_TYPES = [
   'external_workorder_progress',
   'external_workorder_summary',
   'external_config_committed',
-  'ontology_extraction_progress',
-  'ontology_extraction_done',
+  'ontology_slice_extraction_progress',
+  'ontology_slice_extraction_done',
   'ontology_projection_progress',
   'ontology_projection_done',
   'skill_generation_progress',
@@ -44,7 +44,7 @@ const NON_TERMINAL_ARTIFACT_TYPES = new Set([
   'skill_generation_ready',
   'skill_projection_binding_ready',
   'external_workorder_progress',
-  'ontology_extraction_progress',
+  'ontology_slice_extraction_progress',
   'ontology_projection_progress',
   'skill_generation_progress',
   'packaging_testcases_ready',
@@ -59,7 +59,7 @@ const TERMINAL_ARTIFACT_TYPES = new Set([
   'skill_workorder_summary',
   'external_workorder_summary',
   'external_config_committed',
-  'ontology_extraction_done',
+  'ontology_slice_extraction_done',
   'ontology_projection_done',
   'skill_generation_done',
   'packaging_testcases_done',
@@ -67,9 +67,9 @@ const TERMINAL_ARTIFACT_TYPES = new Set([
   'template_package',
 ])
 
-const ONTOLOGY_EXTRACTION_ARTIFACTS = new Set([
-  'ontology_extraction_progress',
-  'ontology_extraction_done',
+const ONTOLOGY_SLICE_EXTRACTION_ARTIFACTS = new Set([
+  'ontology_slice_extraction_progress',
+  'ontology_slice_extraction_done',
 ])
 
 const ONTOLOGY_PROJECTION_ARTIFACTS = new Set([
@@ -264,8 +264,8 @@ export function getBlockedIncomingArtifactReason(
     }
   }
 
-  if (ONTOLOGY_EXTRACTION_ARTIFACTS.has(artifactType) && !state.hasMaterialSummary) {
-    return 'ontology extraction requires material_handoff_summary'
+  if (ONTOLOGY_SLICE_EXTRACTION_ARTIFACTS.has(artifactType) && !state.hasMaterialSummary) {
+    return 'ontology slice extraction requires material_handoff_summary'
   }
 
   if ((ONTOLOGY_PROJECTION_ARTIFACTS.has(artifactType) || ONTOLOGY_PROJECTION_CONFIRMATION_ARTIFACTS.has(artifactType)) && !state.hasSkillSummary) {

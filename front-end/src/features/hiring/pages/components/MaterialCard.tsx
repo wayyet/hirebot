@@ -187,7 +187,6 @@ export function MaterialCardBody({
   const [error, setError] = useState('')
   const [uploaded, setUploaded] = useState<UploadedFileMeta[]>([])
   const [uploadingCategoryTitle, setUploadingCategoryTitle] = useState<string | null>(null)
-  const [persistedCategories, setPersistedCategories] = useState<MaterialRequestedCategory[]>([])
   const { t } = useTranslation()
 
   const buildUploadStageSummary = useCallback((
@@ -233,22 +232,12 @@ export function MaterialCardBody({
 
   useEffect(() => { void refresh() }, [refresh])
 
-  // 合并外部传入的分类到本地持久化列表，避免后续无 requested_categories 的 artifact 导致卡片消失
-  const displayCategories = useMemo(() => {
-    if (requestedCategories.length === 0) return persistedCategories
-    const existingKeys = new Set(persistedCategories.map(c => c.title))
-    const additions = requestedCategories.filter(c => !existingKeys.has(c.title))
-    if (additions.length === 0) return persistedCategories
-    return [...persistedCategories, ...additions]
-  }, [persistedCategories, requestedCategories])
-
+  // 只在第一次收到非空分类时锁定，后续不再刷新
+  const [displayCategories, setDisplayCategories] = useState<MaterialRequestedCategory[]>([])
   useEffect(() => {
-    if (requestedCategories.length === 0) return
-    setPersistedCategories(prev => {
-      const existingKeys = new Set(prev.map(c => c.title))
-      const additions = requestedCategories.filter(c => !existingKeys.has(c.title))
-      return additions.length === 0 ? prev : [...prev, ...additions]
-    })
+    if (requestedCategories.length > 0) {
+      setDisplayCategories(prev => prev.length === 0 ? requestedCategories : prev)
+    }
   }, [requestedCategories])
 
   const materialCards = useMemo(

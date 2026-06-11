@@ -198,7 +198,8 @@ metadata:
 内置 skill 白名单：
 
 - `employment-coach-conversation`
-- `ontology-extraction`
+- `ontology-slice-extraction`
+- `ontology-projection`
 - `skill-generation`
 - `external-config`
 - `packaging-test-cases`
@@ -232,7 +233,7 @@ skills/<skill_slug>/
 
 目标目录必须来自 Phase 0.25 的 confirmed skill slug set。若 `SkillSpec.name`、projection source 目录或旧 `metadata.json` 中出现其他 slug，只能作为冲突诊断记录，不能创建对应目录。
 
-**Projection Pass 预生成检查**：若 `ontology/projections/<skill-slug>/` 目录已存在（由上游 `ontology-extraction` projection pass 预生成），Phase 3 将直接读取该目录中的 projection 文件来生成 consumer contract 结构，无需重新推导；consumer 侧仍统一落盘到 `contracts/projections/ontology_extraction/`。
+**Projection Pass 预生成检查**：若 `ontology/projections/<skill-slug>/` 目录已存在（由上游 `ontology-projection` 预生成），Phase 3 将直接读取该目录中的 projection 文件来生成 consumer contract 结构，无需重新推导；consumer 侧仍统一落盘到 `contracts/projections/ontology_extraction/`。
 
 **Projection 绑定强制覆盖规则**：若输入 payload 中包含 `projection_binding_confirmed: true` 或 `projection_contract_mode: "required"`，则本轮运行视为“用户已确认把 producer projection 绑定进 skill”。此时 consumer contract 为**强制产物**：必须从 `<workspace_root>/ontology/projections/<skill-slug>/` 成功 materialize 出 `contracts/projections/ontology_extraction/contract-index.json` 与 4 个标准 view 文件；若 source 缺失、source 无效、结构校验失败，或无法完成落盘确认，则本轮 `skill-generation` **必须阻断并返回失败原因**，不得以“仅基础 skill 文件”作为成功结果，也不得发出 `skill_generation_done`。
 
@@ -625,4 +626,4 @@ This skill may be augmented by bound `ontology_extraction` projection contracts 
 - `references/generated-skill-template.md`：生成业务 `SKILL.md` 的扩展模板。
 - `references/projection-contract-template.md`：生成 consumer projection contract 的最小结构。
 - `references/quality-checklist.md`：落盘前质量检查与失败处理。
-- `../ontology-extraction/references/CONSUMER_PROJECTION_LAYOUT_GUIDE.md`：consumer projection 目录命名规范（以本文件 Phase 3 路径 A 为准生成 contract 结构，layout guide 定义最终目录与命名规范）。
+- `../ontology-projection/references/CONSUMER_PROJECTION_LAYOUT_GUIDE.md`：consumer projection 目录命名规范（以本文件 Phase 3 路径 A 为准生成 contract 结构，layout guide 定义最终目录与命名规范）。

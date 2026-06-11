@@ -16,7 +16,7 @@ export const RUNTIME_STATE_STAGE_SEQUENCE: readonly RuntimeStateStage[] = [
 ]
 
 const DOWNSTREAM_RUN_STAGE_KEYS: Record<RuntimeStateStage, readonly DownstreamRunKey[]> = {
-  [HiringCollectionStage.Material]: ['ontology-extraction', 'ontology-projection'],
+  [HiringCollectionStage.Material]: ['ontology-slice-extraction', 'ontology-projection'],
   [HiringCollectionStage.Skill]: ['skill-generation'],
   [HiringCollectionStage.External]: [],
   [HiringCollectionStage.ReadyForPackaging]: ['packaging-test-cases'],

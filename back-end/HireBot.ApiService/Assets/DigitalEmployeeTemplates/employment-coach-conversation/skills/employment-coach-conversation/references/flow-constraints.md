@@ -1,4 +1,4 @@
-# 流程约束、阶段 2/3 引导细则、决策启发式、质量自检
+﻿# 流程约束、阶段 2/3 引导细则、决策启发式、质量自检
 
 ## 阶段 2 引导细则
 
@@ -56,7 +56,7 @@
 | 用户描述模糊（"处理售后这块要覆盖一下"） | 不放过，追问到能填出 skill_name + skill_description 为止 |
 | 用户上传跟当前场景明显无关的资料 | 反问："这份是这次场景要用的吗？还是另一个场景的？" |
 | 用户把多个场景混在一起谈 | 提醒一次场景边界："咱们这次是 X 场景，Y 那个先放一边。" |
-| 阶段 2 已完成技能定义，但模型想直接提示“可进入外部阶段” | 禁止；必须依次经过 `ontology_projection_ready`、`skill_generation_ready`，并等 `skill_generation_done` |
+| 阶段 2 已完成技能定义，但模型想直接提示”可进入外部阶段” | 禁止；必须进入技能实现子流程，依次经过 `ontology_projection_ready`、`skill_generation_ready` 确认门，并等 `skill_generation_done` |
 | 用户问平台架构 / orchestrator / hooks 怎么实现 | 礼貌拒绝："这是底层的事，我们这一关不需要。" |
 
 跑偏不等于错。把用户拉回当前阶段时，要承接他刚抛出来的内容（"你说的 Y 我先记一下"），不要直接打断。
@@ -92,11 +92,11 @@
 - [ ] 如果用户刚上传文件而 `source_path` 一时未出现，是否已经给过最多 5 秒的有界等待；不要把短暂同步竞态直接当成最终失败
 - [ ] 是否存在同一资料、同一来源文件或父子包含关系的重复整理项；如果有，先合并或撤销旧范围
 - [ ] 是否在配置文件治理的反问待确认状态中错误地发了 terminal artifact
-- [ ] 阶段 2 是否已经依次发出 `skill_definition_ready`、`ontology_projection_ready`、`skill_generation_ready` 三个确认门，且每个确认门都等待了用户明确回应
+- [ ] 阶段 2 是否已经发出 `skill_definition_ready` 确认门（等待用户回应）、进入技能实现子流程并发出 `ontology_projection_ready` 确认门（等待用户确认准备业务资料）、发出 `skill_generation_ready` 确认门（等待用户确认生成技能实现）
 - [ ] 是否在对话里收集了凭据值（如发现，立刻删除并指引到表单）
 - [ ] 给用户的反馈是否保持"一行确认"风格，没有变成大段汇报
-- [ ] **资料阶段 terminal artifact 发出后，是否已立即触发 `ontology-extraction`**（不等用户输入，不先进入技能阶段；若已在执行则不重复触发）
-- [ ] **发 `skill_workorder_progress` 之前，`ontology_extraction_done` 是否已到达**；若未到达，禁止进入技能定义收集
+- [ ] **资料阶段 terminal artifact 发出后，是否已立即触发 `ontology-slice-extraction`**（不等用户输入，不先进入技能阶段；若已在执行则不重复触发）
+- [ ] **发 `skill_workorder_progress` 之前，`ontology_slice_extraction_done` 是否已到达**；若未到达，禁止进入技能定义收集
 - [ ] 用户确认开始准备业务资料后，是否按 `downstream-handoff-registry.md` 的 R2 触发 projection pass，并等待 `ontology_projection_done`
 - [ ] `ontology_projection_done` 是否包含可消费的 `projection_paths[]`；若没有，是否停留在阶段 2，而不是降级触发 `skill-generation`
 - [ ] `ontology_projection_done` 可消费后，是否先发 `skill_generation_ready` 并等待用户确认；触发 `skill-generation` 时是否按 R3 传入 `projection_binding_confirmed: true`，且避免把该字段写进 `skill_generation_ready`

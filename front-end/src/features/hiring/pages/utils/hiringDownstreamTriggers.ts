@@ -2,7 +2,7 @@ import type { DownstreamRunState } from '../hiringPageTypes'
 
 import { asPlainObject, asStringArray } from './hiringCacheNormalizers'
 
-export type DownstreamTarget = 'ontology-extraction' | 'ontology-projection' | 'skill-generation' | 'packaging-test-cases'
+export type DownstreamTarget = 'ontology-slice-extraction' | 'ontology-projection' | 'skill-generation' | 'packaging-test-cases'
 
 export type SkillStageApprovalRoute =
   | 'none'
@@ -247,23 +247,23 @@ export function buildSkillDefinitionConfirmationPrompt(userRequest: string, summ
 export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown): string {
   const serialized = JSON.stringify(payload, null, 2)
 
-  if (target === 'ontology-extraction') {
+  if (target === 'ontology-slice-extraction') {
     return [
-      '[Internal downstream trigger: use skill ontology-extraction]',
-      'Switch to skill `ontology-extraction` now.',
+      '[Internal downstream trigger: use skill ontology-slice-extraction]',
+      'Switch to skill `ontology-slice-extraction` now.',
       'source_skill: employment-coach-conversation',
       'trigger_reason: material_handoff_summary_completed',
       'Do not call sessions, dispatch, handoff, spawn, or yield tools for this trigger.',
       '',
       'Use the terminal `material_handoff_summary` artifact payload below as the upstream summary for this run.',
-      'Follow `ontology-extraction/SKILL.md` exactly.',
-      'Emit `ontology_extraction_progress` with stage=`stage1_material` before processing any source.',
+      'Follow `ontology-slice-extraction/SKILL.md` exactly.',
+      'Emit `ontology_slice_extraction_progress` with stage=`stage1_material` before processing any source.',
       'Read uploaded materials only from each item\'s `source_path` when available.',
-      'Write outputs under the provided `workspace_root` and finish with `ontology_extraction_done` using stage=`stage1_material`.',
+      'Write outputs under the provided `workspace_root` and finish with `ontology_slice_extraction_done` using stage=`stage1_material`.',
       '',
       'required_artifacts:',
-      '- ontology_extraction_progress',
-      '- ontology_extraction_done',
+      '- ontology_slice_extraction_progress',
+      '- ontology_slice_extraction_done',
       'return_to: employment-coach-conversation',
       '',
       'artifact_payload:',
@@ -275,15 +275,14 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
 
   if (target === 'ontology-projection') {
     return [
-      '[Internal downstream trigger: use skill ontology-extraction]',
-      'Switch to skill `ontology-extraction` now.',
+      '[Internal downstream trigger: use skill ontology-projection]',
+      'Switch to skill `ontology-projection` now.',
       'source_skill: employment-coach-conversation',
       'trigger_reason: user_confirmed_ontology_projection',
       'Do not call sessions, dispatch, handoff, spawn, or yield tools for this trigger.',
       '',
-      'Run in Projection Pass mode for the current session.',
       'Use the payload below exactly as the trigger input for this run.',
-      'Follow `ontology-extraction/SKILL.md` exactly.',
+      'Follow `ontology-projection/SKILL.md` exactly.',
       'Treat every `artifact_payload.skills[].skill_slug` as an immutable identifier: projection files must be written under exactly `ontology/projections/<skill_slug>/`; do not rename or synonym-normalize skill slugs.',
       'Emit `ontology_projection_progress` with stage=`stage2_skill` before generating any projection files.',
       'Scan slices from `<workspace_root>/ontology/`, then finish with `ontology_projection_done` using stage=`stage2_skill`.',
@@ -382,13 +381,15 @@ export function buildPackagingRequestPrompt(userRequest: string, reviewReport?: 
     'The user has authorized instance packaging. Do not ask for a package trigger, dispatch target, tool name, or another "start generation" confirmation.',
     ...reviewLines,
     'If review_readiness has not been emitted for the current completed material, skill, and external stages, emit review_readiness first and wait only for the required review decision.',
-    'If review_readiness/review_report is already satisfied, package the current workspace now.',
+    'If review_readiness/review_report is already satisfied, package the current employee package workspace now.',
     'Before invoking the package/export/archive tool, emit `packaging_progress` with data.status=`packing`.',
-    'Resolve the real session workspace_root from the latest terminal artifacts or the first workspace FILE_URL. It must look like `/workspace/<template_slug>-<timestamp>`, not `/workspace`.',
-    'Use the available packaging/export/archive tool first. If no dedicated tool exists, change into the real workspace_root and use a zip tool to package the workspace.',
-    'The ZIP must be written from inside workspace_root so the archive root contains `manifest.json`, `config/`, `skills/`, `ontology/`, `external/`, and optional `testcases/` directly.',
+    '`coach_runtime_root` is `/workspace`; it contains the employment-coach system package and must never be packaged.',
+    'Resolve `employee_package_root` from the latest terminal artifact `data.workspace_root` or the first workspace FILE_URL. It must look like `/workspace/<template_slug>-<timestamp>`, not `/workspace`.',
+    'If `employee_package_root` is missing, equals `/workspace`, or contains `skills/employment-coach-conversation/`, stop and report the concrete root-resolution problem instead of packaging.',
+    'Use the available packaging/export/archive tool first. If no dedicated tool exists, change into `employee_package_root` and use a zip tool to package that directory.',
+    'The ZIP must be written from inside `employee_package_root` so the archive root contains `manifest.json`, `config/`, `skills/`, `ontology/`, `external/`, and optional `testcases/` directly.',
     'The ZIP must be a real downloadable instance package file and must be emitted as a terminal file artifact with artifactType=`template_package`.',
-    'Never emit a data-only template_package, never use `/workspace` as a placeholder workspace_root, and never ask the user to provide an unavailable trigger.',
+    'Never emit a data-only template_package, never use `/workspace` as a placeholder workspace_root or package root, and never ask the user to provide an unavailable trigger.',
     'If a downloadable ZIP cannot be produced after trying the available tool path and shell ZIP path, emit the protocol failure fallback with the concrete blocking reason.',
   ].join('\n')
 }

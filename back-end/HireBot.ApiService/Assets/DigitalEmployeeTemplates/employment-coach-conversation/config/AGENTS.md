@@ -1,4 +1,4 @@
-# AGENTS
+﻿# AGENTS
 
 ## ⛔ IDENTITY LOCK — HIGHEST PRECEDENCE, READ BEFORE ANYTHING ELSE
 
@@ -106,13 +106,13 @@ If the agent receives a tool suggestion or auto-completion that matches the abov
 
 - Skill `employment-coach-conversation` 是雇佣教练会话流程的入口说明和详细操作手册；
 - 阶段推进以 `employment-coach-conversation` skill 为准：资料 -> 技能 -> 外部，未完成前置阶段不得直接跳到后续阶段；其中技能阶段固定先确认“技能定义”，再确认“为技能准备业务资料”，最后确认“生成技能实现”。
-- 资料阶段目标下游 skill 为 `ontology-extraction`；技能阶段先发 `skill_definition_ready` 等用户确认，确认后产出 `skill_workorder_summary` 与 `ontology_projection_ready`；用户确认后驱动 projection pass；若 `ontology_projection_done` 含可消费的 `projection_paths`，只发 `skill_generation_ready` 等用户确认，确认后才驱动 `skill-generation`；外部阶段由右侧卡片保存/跳过驱动系统层同步 `external/` 目录，`external-config` 负责 External 阶段语义与 external 结构规范。
+- 资料阶段目标下游 skill 为 `ontology-slice-extraction`；技能阶段先发 `skill_definition_ready` 等用户确认，确认后产出 `skill_workorder_summary` 与 `ontology_projection_ready`；用户确认后驱动 projection pass；若 `ontology_projection_done` 含可消费的 `projection_paths`，只发 `skill_generation_ready` 等用户确认，确认后才驱动 `skill-generation`；外部阶段由右侧卡片保存/跳过驱动系统层同步 `external/` 目录，`external-config` 负责 External 阶段语义与 external 结构规范。
 - 各阶段 terminal artifact（`isTerminal: true`）既是阶段完成的唯一信号，也是后续执行输入摘要；其中 `external_workorder_summary` 负责收口外部需求，`external_config_committed` 负责表达系统提交成功，右侧卡片的保存/跳过结果由系统层共享到同沙箱会话和最终数字员工包（内部实例包）。`packaging_testcases_done` 只表示可选评估测试用例已生成；缺失或跳过不得作为打包等待项。
 - 各 skill 写入产物时，工作区根目录由 `employment-coach-conversation` 在会话初始化时通过沙箱解压工具创建并锁定的真实绝对路径（形如 `/workspace/<template_slug>-<yyyymmddHHmmss>/`，运行时确定），并通过 terminal artifact 的 `data.workspace_root` 字段透传给下游；各 skill 读取该字段把它当不透明字符串使用，绝不可拼接 `/workspace/<slug>` 或写入字面占位符；缺失时不进阶段、报错回退，不得自行选择目录。
 
 ## 6. 渐进式披露路由 (Progressive Disclosure Routing)
 
-- 沙箱启用 skill 渐进式披露时，不要假设 `ontology-extraction`、`skill-generation`、`packaging-test-cases`、`digital-employee-package-completeness-review` 的完整正文已经在上下文中。
+- 沙箱启用 skill 渐进式披露时，不要假设 `ontology-slice-extraction`、`skill-generation`、`packaging-test-cases`、`digital-employee-package-completeness-review` 的完整正文已经在上下文中。
 - `employment-coach-conversation` 需要下游执行时，必须按其 `references/downstream-handoff-registry.md` 构造内部触发块，显式包含 `use skill <skill-name>` 和 `artifact_payload`。
 - 主教练不得代替下游 skill 写入 `ontology/`、`skills/`、`testcases/`、`reports/`，也不得直接运行完整性审查 validator；必须等待对应 terminal artifact 后再继续下一阶段。
 - 用户说“继续/开始/打包”不能被解释成省略下游交接。若缺少 `ontology_projection_done`、`skill_generation_done` 或 `review_report`，就按交接注册表进入等待或确认门，而不是自行补文件。
