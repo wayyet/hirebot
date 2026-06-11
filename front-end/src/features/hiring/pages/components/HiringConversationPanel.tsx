@@ -36,7 +36,6 @@ function getFileIcon(filename: string): ReactNode {
 
 type HiringConversationPanelProps = {
   introName: string
-  introAbilities: string
   messages: ChatMessage[]
   typing: boolean
   /** WS 流式内容，非 null 时显示逐字输出气泡 */
@@ -58,7 +57,7 @@ type HiringConversationPanelProps = {
   formatFileSize: (bytes: number) => string
   /** 带 token 的 gateway 文件下载回调 */
   onArtifactFileDownload?: (url: string, fileName: string, artifactType: string) => void
-  /** 手动触发产物包上传到系统（template_package 卡片展示） */
+  /** 手动触发数字员工包上传到系统（template_package 卡片展示） */
   onArtifactManualUpload?: (url: string, fileName: string) => void
   /** template_package 卡片：final 包展示文件名 */
   templatePackageDownloadFileName?: string
@@ -78,7 +77,6 @@ type HiringConversationPanelProps = {
 
 export function HiringConversationPanel({
   introName,
-  introAbilities,
   messages,
   typing,
   streamingContent,
@@ -141,9 +139,6 @@ export function HiringConversationPanel({
         <InfoCard
           title={t('hiring.intro.title', { name: introName })}
           body={t('hiring.intro.subtitle', { name: introName })}
-          detail={
-            <>{t('hiring.intro.detail', { name: introName, abilities: introAbilities })}</>
-          }
         />
 
         {renderItems.map((item) => {

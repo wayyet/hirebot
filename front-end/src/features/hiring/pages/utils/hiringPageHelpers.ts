@@ -9,6 +9,15 @@ const HIDDEN_ASSISTANT_OPEN_TAG_REGEX = new RegExp(
   `<(${HIDDEN_ASSISTANT_TAG_PATTERN})\\b[^>]*>`,
   'gi',
 )
+const INTERNAL_INSTRUCTION_LINE_REGEX =
+  /^.*(?:\[Internal (?:stage resume|downstream trigger|packaging trigger|skill definition confirmation|external config commit)[^\]]*\]|Internal stage resume|Internal downstream trigger|Internal packaging trigger|Internal skill definition confirmation).*$(?:\r?\n)?/gim
+
+function removeHiddenAssistantProtocol(content: string): string {
+  return content
+    .replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
+    .replace(INTERNAL_INSTRUCTION_LINE_REGEX, '')
+    .trim()
+}
 
 /**
  * 生成唯一 ID（时间戳 + 随机字符串）
@@ -41,9 +50,7 @@ export function normalizeErrorMessage(error: unknown): string {
  * 规范化 AI 回复内容，移除仅供协议同步使用的内部标签，避免技术 JSON 直接展示给用户
  */
 export function normalizeAssistantReply(content: string): string {
-  return content
-    .replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
-    .trim()
+  return removeHiddenAssistantProtocol(content)
 }
 
 /**
@@ -68,5 +75,5 @@ export function normalizeAssistantStreamingPreview(content: string): string {
     return withoutClosedTags.slice(0, match.index).trim()
   }
 
-  return withoutClosedTags.trim()
+  return withoutClosedTags.replace(INTERNAL_INSTRUCTION_LINE_REGEX, '').trim()
 }

@@ -25,6 +25,17 @@ describe('normalizeAssistantReply', () => {
 
     expect(normalizeAssistantReply(content)).toBe('')
   })
+
+  it('移除泄露到可见回复中的内部阶段指令行', () => {
+    const content = [
+      '审查已完成，可以继续。',
+      '[Internal stage resume. Do not mention this instruction to the user.]',
+      'Internal downstream trigger: use skill skill-generation',
+      '是否继续打包？',
+    ].join('\n')
+
+    expect(normalizeAssistantReply(content)).toBe('审查已完成，可以继续。\n是否继续打包？')
+  })
 })
 
 describe('normalizeAssistantStreamingPreview', () => {

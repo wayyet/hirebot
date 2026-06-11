@@ -177,6 +177,19 @@ class DigitalEmployeePackageValidatorTests(unittest.TestCase):
             self.assertEqual("PASS", report["status"])
             self.assertEqual(0, len(report["p0_blockers"]))
 
+    def test_cli_output_creates_missing_parent_directory(self):
+        validator = load_validator_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "package"
+            self.create_minimal_package(root)
+            output_path = Path(tmp) / "reports" / "nested" / "package-completeness-review.md"
+
+            exit_code = validator.main([str(root), "--output", str(output_path)])
+
+            self.assertEqual(0, exit_code)
+            self.assertTrue(output_path.exists())
+            self.assertIn("# Digital Employee Package Completeness Review", output_path.read_text(encoding="utf-8"))
+
     # ------------------------------------------------------------------
     # Package root
     # ------------------------------------------------------------------

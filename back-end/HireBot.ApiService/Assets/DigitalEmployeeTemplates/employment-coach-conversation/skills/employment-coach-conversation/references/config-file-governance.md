@@ -18,7 +18,7 @@
 | `SOUL.md` | `soul` | `config/SOUL.md` | ✅ | 角色身份与核心使命（"它是谁、为什么存在"） |
 | `IDENTITY.md` | `identity` | `config/IDENTITY.md` | ✅ | 身份声明与对外展示（名字、形象、口吻、自我介绍） |
 | `AGENTS.md` | `agents` | `config/AGENTS.md` | ✅ | 行为规范与边界约束（能做什么不能做什么、必须遵守的规则） |
-| `MEMORY.md` | 不使用 | 不使用 | ❌ | 用户完全不接触，模板预设原样进实例包 |
+| `MEMORY.md` | 不使用 | 不使用 | ❌ | 用户完全不接触，模板预设原样进入数字员工包（内部实例包） |
 
 ## 可执行输出契约
 

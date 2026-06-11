@@ -8,6 +8,7 @@ import {
 import { MaterialHandoffView } from './artifacts/MaterialArtifactView'
 import { OntologyExtractionView } from './artifacts/OntologyArtifactView'
 import {
+  PackageReviewStatusView,
   PackagingTestCasesStatusView,
   Stage4PackagingView,
 } from './artifacts/PackagingArtifactView'
@@ -164,6 +165,8 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
     return <ExternalWorkorderSummaryView data={artifact.data} />
   }
   if (
+    artifact.artifactType === 'skill_definition_ready' ||
+    artifact.artifactType === 'ontology_projection_ready' ||
     artifact.artifactType === 'skill_generation_ready' ||
     artifact.artifactType === 'skill_projection_binding_ready' ||
     artifact.artifactType === 'skill_generation_progress' ||
@@ -178,10 +181,17 @@ function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
   ) {
     return <PackagingTestCasesStatusView artifactType={artifact.artifactType} data={artifact.data} />
   }
+  if (
+    artifact.artifactType === 'review_readiness' ||
+    artifact.artifactType === 'review_progress' ||
+    artifact.artifactType === 'review_report'
+  ) {
+    return <PackageReviewStatusView artifactType={artifact.artifactType} data={artifact.data} />
+  }
   if (artifact.artifactType === 'external_config_committed') {
     return <ExternalConfigCommittedView data={artifact.data} />
   }
-  if (artifact.artifactType === 'stage4_packaging') return <Stage4PackagingView data={artifact.data} />
+  if (artifact.artifactType === 'packaging_progress') return <Stage4PackagingView data={artifact.data} />
   // 结构化兜底：未命中类型但数据具备对应特征时自动使用专用视图
   const _d = asRecord(artifact.data)
   if (_d && hasExternalWorkorderShape(_d)) {
@@ -204,20 +214,27 @@ function ArtifactIcon({ artifact }: { artifact: ArtifactDisplayData }) {
   if (artifact.kind === 'file') return <span className="hb-artifact-icon">📄</span>
   if (artifact.artifactType === 'skill_workorder_progress' || artifact.artifactType === 'skill_workorder_summary') return <span className="hb-artifact-icon">🧩</span>
   if (
+    artifact.artifactType === 'skill_definition_ready' ||
+    artifact.artifactType === 'ontology_projection_ready' ||
     artifact.artifactType === 'skill_generation_ready' ||
     artifact.artifactType === 'skill_projection_binding_ready' ||
     artifact.artifactType === 'skill_generation_progress' ||
     artifact.artifactType === 'skill_generation_done'
   ) return <span className="hb-artifact-icon">⚙️</span>
-    if (
-        artifact.artifactType === 'packaging_testcases_ready' ||
-        artifact.artifactType === 'packaging_testcases_progress' ||
-        artifact.artifactType === 'packaging_testcases_done'
-    ) return <span className="hb-artifact-icon">🧪</span>
+  if (
+    artifact.artifactType === 'packaging_testcases_ready' ||
+    artifact.artifactType === 'packaging_testcases_progress' ||
+    artifact.artifactType === 'packaging_testcases_done'
+  ) return <span className="hb-artifact-icon">🧪</span>
+  if (
+    artifact.artifactType === 'review_readiness' ||
+    artifact.artifactType === 'review_progress' ||
+    artifact.artifactType === 'review_report'
+  ) return <span className="hb-artifact-icon">🔎</span>
     if (artifact.artifactType === 'material_collection_progress' || artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
   if (artifact.artifactType === 'ontology_extraction_done' || artifact.artifactType === 'ontology_extraction_progress') return <span className="hb-artifact-icon">🌿</span>
   if (artifact.artifactType === 'external_workorder_progress' || artifact.artifactType === 'external_workorder_summary' || artifact.artifactType === 'external_config_committed') return <span className="hb-artifact-icon">🔌</span>
-  if (artifact.artifactType === 'stage4_packaging') return <span className="hb-artifact-icon">📦</span>
+  if (artifact.artifactType === 'packaging_progress') return <span className="hb-artifact-icon">📦</span>
   const map: Record<string, string> = { table: '📊', code: '💻', tree: '🌿', badge: '✅', progress: '⏳' }
   return <span className="hb-artifact-icon">{map[artifact.displayHint ?? ''] ?? '📦'}</span>
 }

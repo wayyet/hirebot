@@ -49,18 +49,18 @@ export interface HiringTodoPanelProps {
   wsStageOverrides: Map<StageKey, StageStatus>
   /** 子卡片产出阶段摘要后回调；资料/外部阶段会先等待用户确认是否推进 */
   onAfterStageMessage?: (stage: StageKey, summary: string, intent?: StageAdvanceIntent) => void
-  /** 触发生成实例包 */
+  /** 触发生成数字员工 */
   onGenerate?: () => void
   generated?: boolean
-  /** 生成完成后可下载最终产物包 */
+  /** 生成完成后可下载最终数字员工包 */
   canDownloadFinalPackage?: boolean
-  /** 下载最终产物包 */
+  /** 下载最终数字员工包 */
   onDownloadFinalPackage?: () => void
   /** 生成完成后跳转 AI 评估页 */
   onEnterEvaluation?: () => void
-  /** 已生成的产物包结构（刷新后从后端恢复，无 blob）*/
+  /** 已生成的数字员工包结构（刷新后从后端恢复，无 blob）*/
   packageStructure?: { fileName: string; fileNames: string[] } | null
-  /** 用户关联的 store skill UUID 列表变化时回调；用于在导入产物包时一并提交给后端。 */
+  /** 用户关联的 store skill UUID 列表变化时回调；用于在导入数字员工包时一并提交给后端。 */
   onLinkedSkillIdsChange?: (skillIds: string[]) => void
   templateId?: string
   templatePackageSkills?: EmployeeTemplatePackageSkill[]

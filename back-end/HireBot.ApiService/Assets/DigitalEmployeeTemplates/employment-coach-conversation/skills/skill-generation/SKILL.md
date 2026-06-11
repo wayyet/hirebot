@@ -18,15 +18,38 @@ metadata:
 
 本 skill 只接受雇佣教练注入的内部 downstream trigger。
 
-继续执行前必须同时满足：
+继续执行前必须同时满足以下 5 个条件：
 
-- 当前消息包含 internal downstream trigger 语义；
-- `artifact_payload.workspace_root` 非空；
-- `artifact_payload.items` 或等价技能清单非空；
-- `artifact_payload.projection_binding_confirmed == true`；
-- `artifact_payload.projection_result` 存在，且用于生成 projection consumer contracts。
+| # | 条件 | 检查方式 |
+|---|------|---------|
+| 1 | 当前消息包含 internal downstream trigger 语义 | 消息中存在 `[Internal downstream trigger: use skill skill-generation]` |
+| 2 | `artifact_payload.workspace_root` 非空 | 非空字符串，且为真实绝对路径（非占位符） |
+| 3 | `artifact_payload.items` 或等价技能清单非空 | 数组长度 > 0，每项含 `name` / `generation_action` |
+| 4 | `artifact_payload.projection_binding_confirmed == true` | **必须显式为 `true`**（布尔值，非字符串） |
+| 5 | `artifact_payload.projection_result` 存在且可消费 | 对象非空，含 `projection_paths[]` 且长度 > 0 |
 
-若缺少任一条件，不得发出 `skill_generation_progress` / `skill_generation_done`，不得写入 `skills/`。只回复一句：「技能实现生成需要先完成技能定义和业务资料采用确认，我先回到雇佣教练流程继续推进。」
+**门禁失败时的强制输出格式：**
+
+不得只输出一句话敷衍。必须按以下格式逐项报告缺失条件：
+
+```
+⚠️ 技能生成入口门禁未通过。缺失以下前置条件：
+
+| 条件 | 状态 | 说明 |
+|------|------|------|
+| internal downstream trigger | [✗] 缺失 / [✓] 已满足 | ... |
+| workspace_root | [✗] 缺失 / [✓] 已满足 | ... |
+| items / 技能清单 | [✗] 缺失 / [✓] 已满足 | ... |
+| projection_binding_confirmed = true | [✗] 当前值: <实际值或"未传入"> | 此字段必须由雇佣教练在 R3 触发块中显式设为 true |
+| projection_result | [✗] 当前值: <实际值或"未传入"> | 此字段必须来自 ontology_projection_done.data |
+
+→ 请回到雇佣教练流程，确保 `skill_generation_ready` 用户确认后立即构造完整的 R3 内部触发块。
+```
+
+输出诊断报告后，不得发出 `skill_generation_progress` / `skill_generation_done`，不得写入 `skills/`。
+
+> **R3 触发块参考格式**（供雇佣教练参考，本 skill 不负责构造）：
+> `artifact_payload` 必须包含 `projection_binding_confirmed: true`、`projection_contract_mode: "required"`、`projection_result: <ontology_projection_done.data>`。完整格式见 `employment-coach-conversation` SKILL.md 中"业务资料准备完成后的强制动作"章节。
 
 当用户要求根据技能工单、描述、Markdown、文本、JSON、YAML 或 zip 文件创建、更新、合并、规范化业务技能包时，使用本技能。输入可以是结构化的技能工单，也可以是非结构化的会话描述或上传文件；无论哪种输入，都必须先抽取为统一的 SkillSpec 中间模型，再映射到固定模板生成技能文件，最后通过质量校验后才落盘。整个过程中要严格区分输入来源、提炼说明、产物质量和消费契约，确保生成过程可审阅、可复盘、可迁移。
 
@@ -73,7 +96,7 @@ metadata:
   "artifactType": "skill_generation_progress",
   "label": "正在生成业务技能包，共 {N} 个技能待处理",
   "skillName": "skill-generation",
-  "stage": "skill-generation",
+  "stage": "stage2_skill",
   "isTerminal": false,
   "displayHint": "progress",
   "data": {
@@ -94,7 +117,7 @@ metadata:
   "artifactType": "skill_generation_done",
   "label": "技能包已生成完毕，共 {N} 个技能，可继续后续外部配置或打包流程",
   "skillName": "skill-generation",
-  "stage": "skill-generation",
+  "stage": "stage2_skill",
   "isTerminal": true,
   "displayHint": "tree",
   "data": {

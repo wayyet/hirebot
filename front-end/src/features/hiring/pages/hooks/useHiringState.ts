@@ -50,7 +50,7 @@ export interface HiringState {
   // ── Artifact 相关状态 ───────────────────────────────────────────────────────
   artifactArchive: { fileName: string; blob: Blob } | null
   artifactFileNames: string[]
-  /** 从后端恢复的产物包文件名（无 blob 时仅用于显示）*/
+  /** 从后端恢复的数字员工包文件名（无 blob 时仅用于显示）*/
   restoredPackageFileName: string
   materialRequestedCategories: MaterialRequestedCategory[]
   pendingPackageArtifact: { fileUrl: string; fileName: string } | null
@@ -103,7 +103,7 @@ export interface HiringStateActions {
   // ── Artifact 相关操作 ───────────────────────────────────────────────────────
   setArtifactArchive: (archive: { fileName: string; blob: Blob } | null) => void
   setArtifactFileNames: (names: string[]) => void
-  /** 设置从后端恢复的产物包文件名 */
+  /** 设置从后端恢复的数字员工包文件名 */
   setRestoredPackageFileName: (name: string) => void
   setMaterialRequestedCategories: (categories: MaterialRequestedCategory[]) => void
   setPendingPackageArtifact: (artifact: { fileUrl: string; fileName: string } | null) => void

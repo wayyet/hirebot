@@ -1361,7 +1361,9 @@ def main(argv: list[str] | None = None) -> int:
         output = render_markdown(report)
 
     if args.output:
-        Path(args.output).write_text(output, encoding="utf-8")
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(output, encoding="utf-8")
     else:
         sys.stdout.write(output)
 
