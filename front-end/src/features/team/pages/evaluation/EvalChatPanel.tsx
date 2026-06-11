@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { AlertCircle, Check, CheckCircle2, Copy, Loader2, MessageCircle, SendHorizontal } from 'lucide-react'
+import { AlertCircle, Check, CheckCircle2, Copy, Download, FileCode, FileText, Loader2, MessageCircle, Package, SendHorizontal } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { HiringToolStepsBlock } from '@/features/hiring/pages/components/HiringToolStepsBlock'
@@ -12,6 +12,43 @@ import {
   evaluationSuggestionPrompts,
 } from './evaluationTypes'
 import { formatDateTime, shortSessionId } from './evaluationUtils'
+
+const FILE_URL_INLINE_REGEX = /\[FILE_URL:([^\]|]+)(?:\|([^\]]+))?\]/g
+
+type EvalFileMarker = {
+  path: string
+  fileName: string
+}
+
+function safeDecodeFileName(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function parseEvalFileMarkers(content: string): { text: string; fileMarkers: EvalFileMarker[] } {
+  const fileMarkers: EvalFileMarker[] = []
+  const text = content
+    .replace(FILE_URL_INLINE_REGEX, (_, rawPath: string, rawFileName?: string) => {
+      const path = rawPath.trim()
+      const fallbackName = path.split(/[\\/]/).pop() || 'file'
+      const fileName = safeDecodeFileName((rawFileName?.trim() || fallbackName).trim()) || 'file'
+      fileMarkers.push({ path, fileName })
+      return ''
+    })
+    .trim()
+
+  return { text, fileMarkers }
+}
+
+function getEvalFileIcon(fileName: string) {
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? ''
+  if (ext === 'zip') return <Package size={14} />
+  if (ext === 'json') return <FileCode size={14} />
+  return <FileText size={14} />
+}
 
 interface EvalChatPanelProps {
   aiRunning: boolean
@@ -42,6 +79,7 @@ interface EvalChatPanelProps {
   onEnterHumanEval: () => void
   onSetChatInput: (value: string) => void
   onSetArtifactTab: (tab: ArtifactTab) => void
+  onFileDownload: (url: string, fileName: string) => void
 }
 
 export function EvalChatPanel({
@@ -73,6 +111,7 @@ export function EvalChatPanel({
   onEnterHumanEval,
   onSetChatInput,
   onSetArtifactTab,
+  onFileDownload,
 }: EvalChatPanelProps) {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
@@ -264,6 +303,9 @@ export function EvalChatPanel({
                   // 消息列表
                   chatMessages.map((message) => {
                     const isUser = message.role.toLowerCase() === 'user'
+                    const { text: messageText, fileMarkers } = isUser
+                      ? { text: message.content, fileMarkers: [] as EvalFileMarker[] }
+                      : parseEvalFileMarkers(message.content)
                     return (
                       <div key={message.messageId} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                         {!isUser && (
@@ -282,15 +324,32 @@ export function EvalChatPanel({
                               {isUser ? '你' : '评估沙箱'} · {formatDateTime(message.createdAt)}
                             </div>
                             {isUser ? (
-                              <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                              <div className="whitespace-pre-wrap break-words">{messageText}</div>
                             ) : (
                               <div className="hb-md prose prose-sm max-w-none break-words">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {message.content}
+                                  {messageText}
                                 </ReactMarkdown>
                               </div>
                             )}
                           </div>
+                          {fileMarkers.length > 0 ? (
+                            <div className="hb-hiring-inline-file-list">
+                              {fileMarkers.map((marker, index) => (
+                                <button
+                                  key={`${marker.path}-${index}`}
+                                  type="button"
+                                  className="hb-hiring-inline-file-chip"
+                                  onClick={() => onFileDownload(marker.path, marker.fileName)}
+                                  title={marker.fileName}
+                                >
+                                  {getEvalFileIcon(marker.fileName)}
+                                  <span className="hb-hiring-file-name">{marker.fileName}</span>
+                                  <Download size={12} className="hb-hiring-file-icon" />
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                         {isUser && (
                           <div className="hb-hiring-avatar is-user ml-2 mt-0.5 shrink-0">你</div>

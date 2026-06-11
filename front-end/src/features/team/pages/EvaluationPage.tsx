@@ -9,6 +9,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { tokenService } from '@/infra/auth/token-service'
 import { GatewayWs } from '@/infra/sandbox/gateway-ws'
 import { fetchAdminSessions, fetchSandboxSessionMessages } from '@/infra/sandbox/sandbox-api'
+import { inferGatewayProtocol } from '@/infra/sandbox/sandbox-utils'
 import {
   api,
   type EmployeeDetail,
@@ -20,6 +21,7 @@ import { Breadcrumb } from '@/shared/components/Breadcrumb'
 import { TYPEWRITER_SOFT_FINISH_DEFER_MS, useTypewriterStream } from '@/shared/hooks/useTypewriterStream'
 import SessionListPanel from '@/features/team/components/SessionListPanel'
 import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
+import { downloadBlob } from '@/features/hiring/pages/utils/hiringFileUtils'
 import { instanceBasePath } from '@/shared/utils/instancePath'
 
 import type { ArtifactTab, EvalChatMessage, TraceJsonData, WorkflowStage, WorkflowStageStatus } from './evaluation/evaluationTypes'
@@ -37,6 +39,39 @@ import { EvalSandboxInitOverlay } from './evaluation/EvalSandboxInitOverlay'
 import { EvalWorkflowPanel } from './evaluation/EvalWorkflowPanel'
 import { EvalChatPanel } from './evaluation/EvalChatPanel'
 import { EvalArtifactsPanel } from './evaluation/EvalArtifactsPanel'
+
+function resolveEvaluationGatewayFileUrl(fileUrl: string, gatewayEndpoint: string): string {
+  const trimmedFileUrl = fileUrl.trim()
+  if (/^https?:\/\//i.test(trimmedFileUrl)) {
+    const parsed = new URL(trimmedFileUrl)
+    const expectedProtocol = inferGatewayProtocol(parsed.host, 'https', 'http')
+    if (parsed.protocol === 'http:' && expectedProtocol === 'https') {
+      parsed.protocol = 'https:'
+    }
+    return parsed.toString()
+  }
+
+  const rawGateway = gatewayEndpoint.trim()
+  if (!rawGateway) {
+    throw new Error('评估沙箱网关地址为空，无法下载文件')
+  }
+
+  let normalizedBase: string
+  if (/^https?:\/\//i.test(rawGateway)) {
+    const parsedGateway = new URL(rawGateway)
+    const expectedProtocol = inferGatewayProtocol(parsedGateway.host, 'https', 'http')
+    if (parsedGateway.protocol === 'http:' && expectedProtocol === 'https') {
+      parsedGateway.protocol = 'https:'
+    }
+    normalizedBase = parsedGateway.toString().replace(/\/$/, '')
+  } else {
+    const protocol = inferGatewayProtocol(rawGateway, 'https', 'http')
+    normalizedBase = `${protocol}://${rawGateway.replace(/^\/+/, '').replace(/\/$/, '')}`
+  }
+
+  const fileUrlPath = trimmedFileUrl.startsWith('/') ? trimmedFileUrl : `/${trimmedFileUrl}`
+  return `${normalizedBase}${fileUrlPath}`
+}
 
 export default function EvaluationPage() {
   const { id } = useParams<{ id: string }>()
@@ -215,6 +250,30 @@ export default function EvaluationPage() {
       setSessionCopied(true)
       window.setTimeout(() => setSessionCopied(false), 1800)
     })
+  }
+
+  async function downloadEvaluationGatewayFile(fileUrl: string, fileName: string) {
+    try {
+      const gatewayEndpoint = gatewayEndpointRef.current
+      if (!gatewayEndpoint) {
+        throw new Error('评估沙箱连接地址缺失，无法下载文件')
+      }
+
+      const fullUrl = resolveEvaluationGatewayFileUrl(fileUrl, gatewayEndpoint)
+      const accessToken = await tokenService.ensureFresh()
+      const response = await fetch(fullUrl, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      })
+      if (!response.ok) {
+        throw new Error(`下载文件失败（HTTP ${response.status}）`)
+      }
+
+      const blob = await response.blob()
+      downloadBlob(blob, fileName)
+      setChatError('')
+    } catch (downloadError: unknown) {
+      setChatError(downloadError instanceof Error ? downloadError.message : '下载评估文件失败')
+    }
   }
 
   const workflowStages = useMemo<WorkflowStage[]>(() => {
@@ -1203,6 +1262,7 @@ export default function EvaluationPage() {
             onEnterHumanEval={handleEnterHumanEval}
             onSetChatInput={setChatInput}
             onSetArtifactTab={setArtifactTab}
+            onFileDownload={(url, fileName) => void downloadEvaluationGatewayFile(url, fileName)}
           />
           <EvalArtifactsPanel
             artifactTab={artifactTab}
