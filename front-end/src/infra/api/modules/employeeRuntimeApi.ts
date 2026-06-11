@@ -67,10 +67,6 @@ export interface UpdateEmployeeLifecycleRequest {
   graduatedAt?: string
 }
 
-export interface UpdateEmployeeCapabilitiesRequest {
-  capabilities: EmployeeCapability[]
-}
-
 export interface CreatePersonalCloneRequest {
   displayName: string
   displayAvatar?: string | null
@@ -382,14 +378,6 @@ export interface EvaluationWorkspaceStatus {
   errorMessage?: string | null
 }
 
-export interface ImportFixtureInstancesResult {
-  ownerSubject: string
-  fixtureDirectories: number
-  importedEmployees: number
-  importedImItems: number
-  employeeIds: string[]
-}
-
 export const employeeRuntimeApi = {
   getEmployees() {
     return httpClient.get<EmployeeSummary[]>('/api/v1/employees')
@@ -409,10 +397,6 @@ export const employeeRuntimeApi = {
 
   getSandboxGatewayEndpoint(employeeId: string) {
     return httpClient.get<string>(`/api/v1/employees/${employeeId}/sandbox/gateway-endpoint`)
-  },
-
-  importFixtureInstances() {
-    return httpClient.post<ImportFixtureInstancesResult>('/api/v1/migrations/fixture-instances')
   },
 
   createPersonalClone(employeeId: string, payload: CreatePersonalCloneRequest) {
@@ -442,13 +426,6 @@ export const employeeRuntimeApi = {
 
   rehire(employeeId: string) {
     return httpClient.post<EmployeeDetail>(`/api/v1/employees/${employeeId}/rehire`)
-  },
-
-  updateCapabilities(employeeId: string, payload: UpdateEmployeeCapabilitiesRequest) {
-    return httpClient.put<EmployeeDetail, UpdateEmployeeCapabilitiesRequest>(
-      `/api/v1/employees/${employeeId}/capabilities`,
-      payload,
-    )
   },
 
   getFeishuEffectiveImConfig(instanceId: string) {
@@ -483,12 +460,6 @@ export const employeeRuntimeApi = {
 
   deleteDingTalkImConfig(instanceId: string) {
     return httpClient.delete<boolean>(`/api/v1/instances/${instanceId}/im-config/dingtalk`)
-  },
-
-  completePendingAction(employeeId: string, actionId: string) {
-    return httpClient.post<EmployeeDetail>(
-      `/api/v1/employees/${employeeId}/pending-actions/${encodeURIComponent(actionId)}/complete`,
-    )
   },
 
   getTrainingState(employeeId: string) {

@@ -104,7 +104,6 @@ export type {
   ImConfigRequest,
   ImConfigResult,
   UpdateEmployeeLifecycleRequest,
-  UpdateEmployeeCapabilitiesRequest,
   CreatePersonalCloneRequest,
   InstanceChatMessage,
   TrainingCheckpoint,
@@ -129,7 +128,6 @@ export type {
   EvaluationWorkspaceStep,
   EvaluationWorkspaceStatus,
   EvaluationTraceContentResult,
-  ImportFixtureInstancesResult,
 } from './modules/employeeRuntimeApi'
 
 export type {
