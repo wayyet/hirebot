@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   Loader2,
@@ -8,7 +8,8 @@ import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { tokenService } from '@/infra/auth/token-service'
 import { GatewayWs } from '@/infra/sandbox/gateway-ws'
-import { fetchAdminSessions, fetchSandboxSessionMessages } from '@/infra/sandbox/sandbox-api'
+import { fetchAdminSessions, fetchSandboxSessionMessages, uploadMediaToGateway } from '@/infra/sandbox/sandbox-api'
+import { inferGatewayProtocol } from '@/infra/sandbox/sandbox-utils'
 import {
   api,
   type EmployeeDetail,
@@ -20,9 +21,10 @@ import { Breadcrumb } from '@/shared/components/Breadcrumb'
 import { TYPEWRITER_SOFT_FINISH_DEFER_MS, useTypewriterStream } from '@/shared/hooks/useTypewriterStream'
 import SessionListPanel from '@/features/team/components/SessionListPanel'
 import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
+import { downloadBlob, formatFileSize } from '@/features/hiring/pages/utils/hiringFileUtils'
 import { instanceBasePath } from '@/shared/utils/instancePath'
 
-import type { ArtifactTab, EvalChatMessage, TraceJsonData, WorkflowStage, WorkflowStageStatus } from './evaluation/evaluationTypes'
+import type { ArtifactTab, EvalChatMessage, EvaluationChatFile, TraceJsonData, WorkflowStage, WorkflowStageStatus } from './evaluation/evaluationTypes'
 import {
   shortSandboxId,
   shortSessionId,
@@ -37,6 +39,47 @@ import { EvalSandboxInitOverlay } from './evaluation/EvalSandboxInitOverlay'
 import { EvalWorkflowPanel } from './evaluation/EvalWorkflowPanel'
 import { EvalChatPanel } from './evaluation/EvalChatPanel'
 import { EvalArtifactsPanel } from './evaluation/EvalArtifactsPanel'
+
+function resolveEvaluationGatewayFileUrl(fileUrl: string, gatewayEndpoint: string): string {
+  const trimmedFileUrl = fileUrl.trim()
+  if (/^https?:\/\//i.test(trimmedFileUrl)) {
+    const parsed = new URL(trimmedFileUrl)
+    const expectedProtocol = inferGatewayProtocol(parsed.host, 'https', 'http')
+    if (parsed.protocol === 'http:' && expectedProtocol === 'https') {
+      parsed.protocol = 'https:'
+    }
+    return parsed.toString()
+  }
+
+  const rawGateway = gatewayEndpoint.trim()
+  if (!rawGateway) {
+    throw new Error('评估沙箱网关地址为空，无法下载文件')
+  }
+
+  let normalizedBase: string
+  if (/^https?:\/\//i.test(rawGateway)) {
+    const parsedGateway = new URL(rawGateway)
+    const expectedProtocol = inferGatewayProtocol(parsedGateway.host, 'https', 'http')
+    if (parsedGateway.protocol === 'http:' && expectedProtocol === 'https') {
+      parsedGateway.protocol = 'https:'
+    }
+    normalizedBase = parsedGateway.toString().replace(/\/$/, '')
+  } else {
+    const protocol = inferGatewayProtocol(rawGateway, 'https', 'http')
+    normalizedBase = `${protocol}://${rawGateway.replace(/^\/+/, '').replace(/\/$/, '')}`
+  }
+
+  const fileUrlPath = trimmedFileUrl.startsWith('/') ? trimmedFileUrl : `/${trimmedFileUrl}`
+  return `${normalizedBase}${fileUrlPath}`
+}
+
+function normalizeEvaluationChatError(error: unknown) {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+
+  return '请求失败，请稍后重试'
+}
 
 export default function EvaluationPage() {
   const { id } = useParams<{ id: string }>()
@@ -62,6 +105,7 @@ export default function EvaluationPage() {
   const [chatLoading, setChatLoading] = useState(false)
   const [chatSending, setChatSending] = useState(false)
   const [chatError, setChatError] = useState('')
+  const [pendingFiles, setPendingFiles] = useState<EvaluationChatFile[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [sessionListRefreshKey, setSessionListRefreshKey] = useState(0)
   const [sandboxConnected, setSandboxConnected] = useState(false)
@@ -216,6 +260,90 @@ export default function EvaluationPage() {
       window.setTimeout(() => setSessionCopied(false), 1800)
     })
   }
+
+  async function downloadEvaluationGatewayFile(fileUrl: string, fileName: string) {
+    try {
+      const gatewayEndpoint = gatewayEndpointRef.current
+      if (!gatewayEndpoint) {
+        throw new Error('评估沙箱连接地址缺失，无法下载文件')
+      }
+
+      const fullUrl = resolveEvaluationGatewayFileUrl(fileUrl, gatewayEndpoint)
+      const accessToken = await tokenService.ensureFresh()
+      const response = await fetch(fullUrl, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      })
+      if (!response.ok) {
+        throw new Error(`下载文件失败（HTTP ${response.status}）`)
+      }
+
+      const blob = await response.blob()
+      downloadBlob(blob, fileName)
+      setChatError('')
+    } catch (downloadError: unknown) {
+      setChatError(downloadError instanceof Error ? downloadError.message : '下载评估文件失败')
+    }
+  }
+
+  const addPendingFiles = useCallback((fileList: FileList | File[]) => {
+    const files = Array.from(fileList)
+    const endpoint = gatewayEndpointRef.current
+
+    files.forEach((file, index) => {
+      const fileId = `${file.name}-${file.lastModified}-${Date.now()}-${index}`
+      const placeholder: EvaluationChatFile = {
+        id: fileId,
+        name: file.name,
+        size: file.size,
+        status: '上传中',
+        mimeType: file.type || undefined,
+      }
+
+      setPendingFiles((current) => [...current, placeholder])
+
+      if (!endpoint) {
+        setPendingFiles((current) => current.map((item) => (
+          item.id === fileId
+            ? { ...item, status: '上传失败', uploadError: '评估沙箱端点尚未就绪，无法上传附件' }
+            : item
+        )))
+        return
+      }
+
+      void (async () => {
+        try {
+          const token = await tokenService.ensureFresh()
+          if (!token) {
+            throw new Error('Token not available for file upload')
+          }
+
+          const result = await uploadMediaToGateway(endpoint, token, file)
+          setPendingFiles((current) => current.map((item) => (
+            item.id === fileId
+              ? {
+                  ...item,
+                  status: '已上传',
+                  marker: result.marker,
+                  url: result.url,
+                  size: result.sizeBytes,
+                  mimeType: result.mimeType || item.mimeType,
+                }
+              : item
+          )))
+        } catch (uploadError: unknown) {
+          setPendingFiles((current) => current.map((item) => (
+            item.id === fileId
+              ? { ...item, status: '上传失败', uploadError: normalizeEvaluationChatError(uploadError) }
+              : item
+          )))
+        }
+      })()
+    })
+  }, [])
+
+  const removePendingFile = useCallback((fileId: string) => {
+    setPendingFiles((current) => current.filter((file) => file.id !== fileId))
+  }, [])
 
   const workflowStages = useMemo<WorkflowStage[]>(() => {
     const stepMap = new Map((workspaceStatus?.steps ?? []).map((step) => [step.step, step.status]))
@@ -835,6 +963,7 @@ export default function EvaluationPage() {
       setWorkspaceStatus(null)
       setWorkspacePolling(false)
       setChatMessages([])
+      setPendingFiles([])
       setEvaluation(null)
       setWsStatusLoaded(false)
       setHasTriggeredEval(false)
@@ -904,25 +1033,53 @@ export default function EvaluationPage() {
 
   async function sendEvaluatorMessage(overrideContent?: string) {
     if (!id || chatSending) return
+    const includePendingFiles = overrideContent === undefined
     const content = (overrideContent !== undefined ? overrideContent : chatInput).trim()
-    if (!content) return
+    const readyFiles = includePendingFiles
+      ? pendingFiles.filter((file) => file.status === '已上传' && Boolean(file.marker))
+      : []
+    if (!content && readyFiles.length === 0) return
+
+    if (includePendingFiles && pendingFiles.some((file) => file.status === '上传中')) {
+      setChatError('仍有附件在上传中，请稍候再发送')
+      return
+    }
+
+    const erroredFiles = includePendingFiles
+      ? pendingFiles.filter((file) => file.status === '上传失败')
+      : []
+    if (erroredFiles.length > 0) {
+      setChatError(`附件上传失败：${erroredFiles.map((file) => file.name).join('、')}`)
+      return
+    }
+
+    const sentFiles = readyFiles.length > 0 ? [...readyFiles] : []
+    const fileMarkers = sentFiles
+      .filter((file) => Boolean(file.marker))
+      .map((file) => `${file.marker}\nAttached file: ${file.name} (${formatFileSize(file.size)})`)
+    const markerContent = fileMarkers.join('\n')
+    const optimisticContent = markerContent
+      ? [markerContent, content].filter(Boolean).join('\n\n')
+      : content
 
     const optimistic: HiringConversationMessage = {
       messageId: `local_${Date.now()}`,
       role: 'user',
-      content,
+      content: optimisticContent,
       createdAt: new Date().toISOString(),
     }
 
-    if (overrideContent === undefined) {
+    if (includePendingFiles) {
       setChatInput('')
+      setPendingFiles([])
     }
     setChatSending(true)
     setChatError('')
     setChatMessages((prev) => [...prev, optimistic])
     logEvaluationDebug('send evaluator message', {
       employeeId: id,
-      contentPreview: content.slice(0, 120),
+      contentPreview: optimisticContent.slice(0, 120),
+      fileCount: sentFiles.length,
     })
 
     try {
@@ -943,7 +1100,7 @@ export default function EvaluationPage() {
 
       const sent = activeWs.send({
         type: 'user_message',
-        text: content,
+        text: optimisticContent,
         sessionId: activeSessionId,
         messageId: `eval-chat-${Date.now()}`,
       })
@@ -956,6 +1113,10 @@ export default function EvaluationPage() {
     } catch (sendError: unknown) {
       setChatError(sendError instanceof Error ? sendError.message : '发送消息到评估沙箱失败')
       setChatMessages((prev) => prev.filter((item) => item.messageId !== optimistic.messageId))
+      if (includePendingFiles) {
+        setChatInput(content)
+        setPendingFiles(sentFiles)
+      }
       resetTypewriterStream()
       streamingToolStepsRef.current = []
       setStreamingToolSteps([])
@@ -1003,6 +1164,7 @@ export default function EvaluationPage() {
     if (!aiRunning || !id) {
       setChatMessages([])
       setChatError('')
+      setPendingFiles([])
       setSelectedSessionId(null)
       resetTypewriterStream()
       setStreamingToolSteps([])
@@ -1068,6 +1230,7 @@ export default function EvaluationPage() {
     sessionIdRef.current = newSessionId
     setSelectedSessionId(newSessionId)
     setChatMessages([])
+    setPendingFiles([])
     resetTypewriterStream()
     setStreamingToolSteps([])
     setChatTyping(false)
@@ -1184,6 +1347,7 @@ export default function EvaluationPage() {
             chatTyping={chatTyping}
             chatInput={chatInput}
             chatError={chatError}
+            pendingFiles={pendingFiles}
             sessionSwitching={sessionSwitching}
             sandboxConnected={sandboxConnected}
             environmentStatus={environmentStatus}
@@ -1202,7 +1366,10 @@ export default function EvaluationPage() {
             onSendMessage={(content) => void sendEvaluatorMessage(content)}
             onEnterHumanEval={handleEnterHumanEval}
             onSetChatInput={setChatInput}
+            onAddPendingFiles={addPendingFiles}
+            onRemovePendingFile={removePendingFile}
             onSetArtifactTab={setArtifactTab}
+            onFileDownload={(url, fileName) => void downloadEvaluationGatewayFile(url, fileName)}
           />
           <EvalArtifactsPanel
             artifactTab={artifactTab}

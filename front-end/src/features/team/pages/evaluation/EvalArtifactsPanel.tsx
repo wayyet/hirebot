@@ -1,4 +1,18 @@
-import { BarChart2, FileText, Zap, Check, ChevronDown, ExternalLink, Loader2, Bot, User, AlertCircle } from 'lucide-react'
+import {
+  Activity,
+  AlertCircle,
+  BarChart2,
+  Bot,
+  Check,
+  ChevronDown,
+  ClipboardCheck,
+  ExternalLink,
+  FileText,
+  Loader2,
+  PanelRightClose,
+  User,
+  Zap,
+} from 'lucide-react'
 import type {
   EvaluationState,
   EvaluationWorkspaceStatus,
@@ -73,15 +87,42 @@ export function EvalArtifactsPanel({
 
   const TABS: Array<{ key: ArtifactTab; label: string; icon: typeof BarChart2 }> = [
     { key: 'overview', label: '概览报告', icon: BarChart2 },
-    { key: 'testcase', label: '测试用例', icon: FileText },
-    { key: 'trace', label: '执行轨迹', icon: Zap },
-    { key: 'report', label: '评估报告', icon: BarChart2 },
+    { key: 'testcase', label: '测试用例', icon: ClipboardCheck },
+    { key: 'trace', label: '执行轨迹', icon: Activity },
+    { key: 'report', label: '评估报告', icon: FileText },
   ]
+
+  const activeTabMeta = {
+    overview: {
+      title: '评估概览',
+      subtitle: '会话、题卡、材料和评分结果',
+      status: reportSummary == null ? '等待评估' : reportSummary.passed ? '评估通过' : '评估未通过',
+      tone: reportSummary?.passed === false ? 'eval-artifact-chip-danger' : reportSummary ? 'eval-artifact-chip-success' : 'eval-artifact-chip-neutral',
+    },
+    testcase: {
+      title: '测试用例',
+      subtitle: '题卡、提示与单场景运行',
+      status: testcaseItems.length > 0 ? `${testcaseItems.length} 个场景` : '待生成',
+      tone: testcaseItems.length > 0 ? 'eval-artifact-chip-success' : 'eval-artifact-chip-neutral',
+    },
+    trace: {
+      title: '执行轨迹',
+      subtitle: '回合、工具调用和 token 证据',
+      status: traceAssets.length > 0 ? `${traceAssets.length} 份轨迹` : '暂无轨迹',
+      tone: traceAssets.length > 0 ? 'eval-artifact-chip-success' : 'eval-artifact-chip-neutral',
+    },
+    report: {
+      title: '评估报告',
+      subtitle: '最终评分、报告资源和人工复核入口',
+      status: reportSummary ? '已生成' : '待生成',
+      tone: reportSummary ? 'eval-artifact-chip-success' : 'eval-artifact-chip-neutral',
+    },
+  }[artifactTab]
 
   return (
     <div
       className={`${
-        rightCollapsed ? 'w-10' : 'w-[320px] xl:w-[340px] 2xl:w-[360px]'
+        rightCollapsed ? 'w-10' : 'w-[420px] xl:w-[460px] 2xl:w-[500px]'
       } hb-card eval-artifacts-shell flex shrink-0 flex-col overflow-hidden transition-all duration-200`}
     >
       {rightCollapsed ? (
@@ -95,38 +136,51 @@ export function EvalArtifactsPanel({
       ) : (
         <>
           {/* 标签栏 */}
-          <div className="flex items-center border-b eval-tab-bar px-2">
+          <div className="eval-tab-bar flex items-center gap-1 border-b px-2 py-2">
             {TABS.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
                 onClick={() => onSetArtifactTab(tab.key)}
-                className={`eval-side-tab-button flex flex-1 items-center justify-center gap-1 border-b-2 px-2 py-3 text-[11px] font-medium whitespace-nowrap ${
+                className={`eval-side-tab-button flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-[12px] font-semibold whitespace-nowrap ${
                   artifactTab === tab.key ? 'eval-tab-active' : 'eval-tab-inactive'
                 }`}
               >
-                <tab.icon size={12} />
-                {tab.label}
+                <span className="eval-side-tab-icon">
+                  <tab.icon size={13} />
+                </span>
+                <span>{tab.label}</span>
               </button>
             ))}
             <button
               type="button"
               onClick={() => onSetRightCollapsed(true)}
-              className="ml-auto rounded-lg px-2 py-2 text-[var(--hb-caption)] transition-colors hover:bg-[var(--hb-surface-soft)] hover:text-[var(--hb-soft)]"
+              className="eval-collapse-action ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--hb-caption)] transition-colors hover:bg-[var(--hb-surface-soft)] hover:text-[var(--hb-soft)]"
             >
-              <ChevronDown size={14} className="rotate-90" />
+              <PanelRightClose size={15} />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 pt-3 text-xs">
+          <div className="eval-artifact-pane-head">
+            <div className="min-w-0">
+              <div className="eval-artifact-kicker">Evaluation sandbox</div>
+              <div className="mt-1 flex items-center gap-2">
+                <h2 className="truncate text-[16px] font-semibold eval-text-title">{activeTabMeta.title}</h2>
+                <span className={`eval-artifact-status-chip ${activeTabMeta.tone}`}>{activeTabMeta.status}</span>
+              </div>
+              <p className="mt-1 text-[12px] leading-5 eval-text-secondary">{activeTabMeta.subtitle}</p>
+            </div>
+          </div>
+
+          <div className="eval-artifact-content flex-1 overflow-y-auto px-4 pb-4 pt-3 text-xs">
             {/* ── 概览报告 ── */}
             {artifactTab === 'overview' && (
               <div className="space-y-3">
-                <div className={`rounded-[22px] border p-4 ${reportSummary?.passed === false ? 'eval-report-fail' : 'eval-report-pass'}`}>
+                <div className={`eval-overview-hero rounded-[22px] border p-4 ${reportSummary?.passed === false ? 'eval-report-fail' : 'eval-report-pass'}`}>
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <div className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${reportSummary?.passed === false ? 'eval-text-red-2' : 'eval-text-green-mid'}`}>
-                        {reportSummary == null ? '等待评估' : reportSummary.passed ? '✓ 评估通过' : '✗ 评估未通过'}
+                        {reportSummary == null ? '等待评估' : reportSummary.passed ? '评估通过' : '评估未通过'}
                       </div>
                       <div className="mt-1 text-base font-semibold eval-text-title">AI 评估结论</div>
                       <div className="mt-1 text-[11px] leading-relaxed eval-text-secondary">
@@ -135,14 +189,14 @@ export function EvalArtifactsPanel({
                           : '执行评估后，这里会展示本轮结论和关键指标。'}
                       </div>
                     </div>
-                    <div className="rounded-2xl border eval-score-card px-4 py-3 text-center">
+                    <div className="eval-score-orb shrink-0 text-center">
                       <div className="text-3xl font-bold tabular-nums eval-text-title">{reportSummary?.overallScore ?? '--'}</div>
                       <div className="mt-1 text-[11px] eval-text-secondary">综合评分</div>
                     </div>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-2">
                     {reportMetrics.slice(0, 4).map((metric) => (
-                      <div key={metric.label} className="rounded-2xl border eval-score-card px-3 py-2.5">
+                      <div key={metric.label} className="eval-metric-card rounded-2xl border px-3 py-2.5">
                         <div className="text-[10px] uppercase tracking-[0.06em] eval-text-caption">{metric.label}</div>
                         <div className={`mt-1 text-sm font-semibold ${metric.tone}`}>{metric.value}</div>
                       </div>
@@ -256,25 +310,36 @@ export function EvalArtifactsPanel({
               <div className="space-y-3">
                 {testcaseItems.length === 0 ? (
                   !workspaceReady ? (
-                    <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
-                      请先完成沙箱初始化流程，随后展示测试用例。
+                    <div className="eval-panel-empty rounded-[20px] border eval-empty-card px-4 py-5">
+                      <ClipboardCheck size={18} className="eval-text-caption" />
+                      <div className="mt-3 text-[13px] font-semibold eval-text-title">沙箱初始化中</div>
+                      <div className="mt-1 text-[12px] leading-5 eval-text-secondary">完成双沙箱准备后会显示测试场景。</div>
                     </div>
                   ) : !materialsReady ? (
-                    <div className="rounded-[20px] border eval-side-notice-warning px-4 py-3 text-[11px] leading-relaxed">
-                      素材未就绪，等待完成"加载评估素材"后将自动激活更多场景。
+                    <div className="eval-panel-empty rounded-[20px] border eval-side-notice-warning px-4 py-5">
+                      <AlertCircle size={18} />
+                      <div className="mt-3 text-[13px] font-semibold">素材待补齐</div>
+                      <div className="mt-1 text-[12px] leading-5">加载评估素材后会自动激活更多场景。</div>
                     </div>
                   ) : (
-                    <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
-                      暂无测试用例。
+                    <div className="eval-panel-empty rounded-[20px] border eval-empty-card px-4 py-5">
+                      <ClipboardCheck size={18} className="eval-text-caption" />
+                      <div className="mt-3 text-[13px] font-semibold eval-text-title">暂无测试用例</div>
+                      <div className="mt-1 text-[12px] leading-5 eval-text-secondary">当前评估材料还没有生成可展示的题卡。</div>
                     </div>
                   )
                 ) : (
                   <>
-                    <div className="rounded-[18px] eval-side-status-banner px-4 py-3 text-[12px] font-medium">
-                      <span className="inline-flex items-center gap-2">
-                        <Check size={13} />
-                        用例已就绪，可开始评估
-                      </span>
+                    <div className="eval-side-status-banner eval-tab-summary-card rounded-[18px] px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="inline-flex items-center gap-2 text-[12px] font-semibold">
+                          <Check size={13} />
+                          用例已就绪
+                        </span>
+                        <span className="rounded-full border eval-pill-neutral px-2.5 py-1 text-[11px] font-semibold">
+                          {testcaseItems.length} 个场景
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2 px-1">
@@ -291,7 +356,9 @@ export function EvalArtifactsPanel({
                           <article key={outline.testcaseId} className="rounded-[20px] border eval-side-case-card px-4 py-4">
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex min-w-0 items-start gap-3">
-                                <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-[var(--hb-text-green)]" />
+                                <span className="eval-case-marker mt-0.5 shrink-0">
+                                  <Check size={12} />
+                                </span>
                                 <div className="min-w-0">
                                   <div className="text-[14px] font-semibold leading-6 eval-text-title">
                                     {outline.title}
@@ -301,14 +368,14 @@ export function EvalArtifactsPanel({
                                   </div>
                                 </div>
                               </div>
-                              <span className="shrink-0 text-[11px] font-mono eval-text-caption">{outline.testcaseId}</span>
+                              <span className="eval-case-id-chip shrink-0 font-mono text-[11px]">{outline.testcaseId}</span>
                             </div>
 
-                            <div className="mt-4 flex flex-wrap items-center gap-4 text-[12px]">
+                            <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px]">
                               {card && (
                                 <button
                                   type="button"
-                                  className="eval-side-inline-action"
+                                  className="eval-side-inline-action eval-side-action-button"
                                   onClick={() => onToggleQuestionCardDetails(outline.testcaseId)}
                                 >
                                   {expanded ? '收起题卡' : '展开题卡'}
@@ -317,7 +384,7 @@ export function EvalArtifactsPanel({
                               <button
                                 type="button"
                                 disabled={!aiRunning || chatSending}
-                                className="eval-side-inline-action disabled:opacity-50"
+                                className="eval-side-inline-action eval-side-action-button disabled:opacity-50"
                                 onClick={() => onRunSingleScenario(outline.testcaseId, outline.title)}
                               >
                                 仅运行此场景
@@ -379,16 +446,29 @@ export function EvalArtifactsPanel({
             {artifactTab === 'trace' && (
               <div className="space-y-3">
                 {traceAssets.length === 0 ? (
-                  <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
-                    {evaluation.overallStatus === 'not_started'
-                      ? '请先执行评估以生成执行轨迹。'
-                      : '本次评估未生成执行轨迹（评估器未上报轨迹数据）。'}
+                  <div className="eval-panel-empty rounded-[20px] border eval-empty-card px-4 py-5">
+                    <Activity size={18} className="eval-text-caption" />
+                    <div className="mt-3 text-[13px] font-semibold eval-text-title">
+                      {evaluation.overallStatus === 'not_started' ? '等待执行评估' : '暂无执行轨迹'}
+                    </div>
+                    <div className="mt-1 text-[12px] leading-5 eval-text-secondary">
+                      {evaluation.overallStatus === 'not_started'
+                        ? '开始评估后会同步展示回合、工具调用和轨迹证据。'
+                        : '评估器本次未上报轨迹数据。'}
+                    </div>
                   </div>
                 ) : (
                   <>
-                    <div className="rounded-[18px] border eval-overview-panel px-4 py-3">
-                      <div className="text-[12px] font-medium eval-text-title">已生成 {traceAssets.length} 份执行轨迹</div>
-                      <div className="mt-1 text-[11px] eval-text-secondary">最新更新时间：{formatDateTime(traceAssets[0]?.createdAtUtc)}</div>
+                    <div className="eval-tab-summary-card rounded-[18px] border eval-overview-panel px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[12px] font-semibold eval-text-title">轨迹证据已同步</div>
+                          <div className="mt-1 text-[11px] eval-text-secondary">最新更新时间：{formatDateTime(traceAssets[0]?.createdAtUtc)}</div>
+                        </div>
+                        <span className="rounded-full border eval-pill-neutral px-2.5 py-1 text-[11px] font-semibold">
+                          {traceAssets.length} 份
+                        </span>
+                      </div>
                     </div>
                     {traceAssets.map((asset, index) => {
                       const traceSessionId = evaluation?.sessionId ?? null
@@ -398,17 +478,21 @@ export function EvalArtifactsPanel({
 
                       return (
                         <div key={asset.relativePath} className="rounded-[18px] border eval-trace-card px-3 py-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5">
-                              <Zap size={11} className="eval-text-brand" />
-                              <span className="text-[12px] font-semibold eval-text-title">轨迹 #{index + 1}</span>
-                              <span className="text-[11px] eval-text-caption">{formatDateTime(asset.createdAtUtc)}</span>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-start gap-2">
+                              <span className="eval-trace-icon-frame">
+                                <Zap size={12} />
+                              </span>
+                              <div className="min-w-0">
+                                <div className="text-[12px] font-semibold eval-text-title">轨迹 #{index + 1}</div>
+                                <div className="mt-0.5 truncate text-[11px] eval-text-caption">{formatDateTime(asset.createdAtUtc)}</div>
+                              </div>
                             </div>
                             {traceSessionId && (
                               <button
                                 type="button"
                                 onClick={() => onToggleTraceExpand(traceSessionId)}
-                                className="flex items-center gap-1 rounded-full border eval-pill-neutral px-2.5 py-0.5 text-[11px]"
+                                className="flex shrink-0 items-center gap-1 rounded-full border eval-pill-neutral px-2.5 py-1 text-[11px] font-medium"
                               >
                                 {traceData === 'loading'
                                   ? <Loader2 size={10} className="animate-spin" />
@@ -595,32 +679,68 @@ export function EvalArtifactsPanel({
             {artifactTab === 'report' && (
               <div className="space-y-3">
                 {!reportSummary ? (
-                  <div className="rounded-[20px] border eval-empty-card px-4 py-3 text-[11px]">
-                    暂无评估报告，请先执行评估。
+                  <div className="eval-panel-empty rounded-[20px] border eval-empty-card px-4 py-5">
+                    <FileText size={18} className="eval-text-caption" />
+                    <div className="mt-3 text-[13px] font-semibold eval-text-title">暂无评估报告</div>
+                    <div className="mt-1 text-[12px] leading-5 eval-text-secondary">执行评估后会生成最终评分、维度明细和报告资源。</div>
                   </div>
                 ) : (
                   <>
-                    <div className={`rounded-2xl border p-4 ${reportSummary.passed ? 'eval-report-pass' : 'eval-report-fail'}`}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
+                    <div className={`eval-report-hero rounded-2xl border p-4 ${reportSummary.passed ? 'eval-report-pass' : 'eval-report-fail'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
                           <div className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${reportSummary.passed ? 'eval-text-green-mid' : 'eval-text-red-2'}`}>
-                            {reportSummary.passed ? '✓ 评估通过' : '✗ 评估未通过'}
+                            {reportSummary.passed ? '评估通过' : '评估未通过'}
                           </div>
-                          <div className="mt-1 text-[11px] eval-text-secondary">
+                          <div className="mt-1 text-base font-semibold eval-text-title">最终评估结果</div>
+                          <div className="mt-1 text-[11px] leading-relaxed eval-text-secondary">
                             第 {reportSummary.iteration} 轮 · {formatDateTime(reportSummary.createdAtUtc)}
                           </div>
                         </div>
-                        <div className="rounded-xl border eval-score-card px-3 py-2 text-center shadow-sm">
-                          <div className="text-2xl font-bold tabular-nums eval-text-title">{reportSummary.overallScore}</div>
-                          <div className="text-[10px] eval-text-secondary">综合评分</div>
+                        <div className="eval-score-orb shrink-0 text-center">
+                          <div className="text-3xl font-bold tabular-nums eval-text-title">{reportSummary.overallScore}</div>
+                          <div className="mt-1 text-[11px] eval-text-secondary">综合评分</div>
                         </div>
                       </div>
+                      <div className="mt-4 rounded-2xl border eval-recommendation px-3 py-3 text-[11px] leading-relaxed">
+                        {evaluation.recommendation || '暂无建议，等待评估结果生成。'}
+                      </div>
+                      {(reportJsonUrl || reportHtmlUrl) && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {reportJsonUrl && (
+                            <a
+                              href={reportJsonUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-full border eval-pill-neutral px-3 py-1.5 text-[11px] font-medium"
+                            >
+                              <ExternalLink size={11} />
+                              查看 JSON
+                            </a>
+                          )}
+                          {reportHtmlUrl && (
+                            <a
+                              href={reportHtmlUrl}
+                              download={`evaluation-report-${reportSummary.reportId}.html`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-full border eval-pill-neutral px-3 py-1.5 text-[11px] font-medium"
+                            >
+                              <ExternalLink size={11} />
+                              下载 HTML
+                            </a>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {dimensionScores.length > 0 && (
                       <details className="eval-side-disclosure rounded-[20px] border eval-overview-panel">
                         <summary className="eval-side-disclosure-summary">
-                          <span>维度评分明细</span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <BarChart2 size={12} />
+                            维度评分明细
+                          </span>
                         </summary>
                         <div className="eval-side-disclosure-body space-y-2">
                           {dimensionScores.map((item) => (

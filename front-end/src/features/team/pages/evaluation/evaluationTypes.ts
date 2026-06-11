@@ -6,6 +6,18 @@ import type { ToolStep } from '@/features/hiring/pages/hiringPageTypes'
 /** 评估页面本地消息类型（在 HiringConversationMessage 基础上增加工具调用步骤） */
 export type EvalChatMessage = HiringConversationMessage & { toolSteps?: ToolStep[] }
 
+/** 评估聊天输入框内待发送的上传附件 */
+export interface EvaluationChatFile {
+  id: string
+  name: string
+  size: number
+  status: '上传中' | '已上传' | '上传失败'
+  mimeType?: string
+  marker?: string
+  url?: string
+  uploadError?: string
+}
+
 /** 执行轨迹 JSON 的事件条目 */
 export interface TraceLogEntry {
   type: string
