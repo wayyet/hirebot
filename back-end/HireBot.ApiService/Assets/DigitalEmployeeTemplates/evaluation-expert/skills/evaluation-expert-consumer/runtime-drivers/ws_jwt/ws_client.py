@@ -130,9 +130,13 @@ class WsCollector:
             collected.append(msg)
 
             msg_type = msg.get("type", "?")
-            self._emit_log("WS", f"← {msg_type}  total={len(collected)}")
+            # assistant_chunk 数量多但无额外诊断价值，跳过逐条打印，在 assistant_done 汇总
+            if msg_type != "assistant_chunk":
+                self._emit_log("WS", f"← {msg_type}  total={len(collected)}")
 
             if msg_type == "assistant_done":
+                chunk_count = sum(1 for m in collected if m.get("type") == "assistant_chunk")
+                self._emit_log("WS", f"← assistant_done  chunks={chunk_count}  total={len(collected)}")
                 break
 
         return collected
