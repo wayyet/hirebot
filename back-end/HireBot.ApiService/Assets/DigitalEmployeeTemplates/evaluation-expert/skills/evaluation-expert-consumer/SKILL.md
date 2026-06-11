@@ -27,6 +27,37 @@ upstream_producer_dependencies:
 
 本技能**与模板无关**：每个员工角色都通过**同一套确定性工作流**进行评估。角色差异体现在**六个热插拔数据层**（`./metrics/`、`./test-cases/`、`./runtime-drivers/`、`./simulators/`、`./role-catalog/`、`./employees/`），这些数据层由上游生产技能或目录约定驱动——**不需要**修改本技能文件。
 
+## 会话启动——必读文件清单
+
+**在执行任何步骤之前，Agent 必须按以下顺序读取材料，建立对本次评估对象的完整认知：**
+
+### 1. 运行时上下文（首先读取）
+- `/workspace/runtime/evaluation-context.json` — 唯一权威的评估上下文（含 `client_secret`、目标沙箱地址、路径配置）
+
+### 2. 被评估员工模板材料（`/workspace/uploads/artifact/<template_dir>/`）
+
+扫描 `/workspace/uploads/artifact/` 获取 `<template_dir>`（优先与 `evaluation_context.employee.source_template_id` 匹配的子目录，否则取最近修改的），然后按以下顺序读取：
+
+| 顺序 | 文件 | 说明 |
+|---|---|---|
+| ① | `config/IDENTITY.md` | 角色定位、语言风格、禁忌词汇——STEP 0 身份识别与 STEP 1.5 场景合成的行为边界 |
+| ② | `config/SOUL.md` | 核心行为原则、价值观——评判员工表现的基准思维框架 |
+| ③ | `config/AGENTS.md` | 多 Agent 协作架构——了解员工由哪些子 Agent 组成及其职责分工 |
+| ④ | `skills/*/SKILL.md` | 技能定义：触发词、能力清单、**边界与不做**、关键口径——测试用例**必须**覆盖技能范围内的场景 |
+| ⑤ | `ontology/*.slice.md` | 领域本体切片：概念、关系、术语约束——STEP 1.5 合成时的数据字段和口径依据 |
+
+### 3. 评估专用本体（`/workspace/uploads/evaluation-expert-consumer/ontology/`，若存在）
+
+- `*.workflow-contract.projection.json` — 针对本员工技能的评估流程约束（与员工模板 ontology 是不同层次，均须读取）
+- `*.slice.json` / `*.slice.md` — 评估侧本体切片（来自上游生产技能输出）
+
+### 4. 预置测试用例（`/workspace/uploads/evaluation-expert-consumer/test-cases/`）
+
+- 若目录非空（且不只有 `default_connectivity_testcases.json`）：直接进入 STEP 1
+- 若目录为空或只有 default 文件：`test_case_status = "missing"`，将在 STEP 1.5 合成
+
+> **提示**：跳过上述读取步骤是导致测试用例偏离员工职责、评估结论跑偏的主要原因。每轮会话开始时务必完整执行此读取流程。
+
 ## 高层流程
 
 ```
@@ -264,6 +295,48 @@ python3 runtime-drivers/ws_jwt/testcase_uploader.py \
 ### 数据层编写指南
 
 - [`role-catalog/README.md`](./role-catalog/README.md)、[`employees/README.md`](./employees/README.md)、[`metrics/README.md`](./metrics/README.md)、[`test-cases/README.md`](./test-cases/README.md)、[`runtime-drivers/README.md`](./runtime-drivers/README.md)、[`simulators/README.md`](./simulators/README.md)、[`runs/README.md`](./runs/README.md)、[`runtime-schemas/README.md`](./runtime-schemas/README.md)
+
+### 运行时驱动脚本（ws_jwt driver）
+
+STEP 3 的执行依赖 `./runtime-drivers/ws_jwt/` 目录下以下脚本（**只读引用，不得修改**）：
+
+| 脚本 | 调用步骤 | 职责摘要 |
+|---|---|---|
+| [`run.py`](./runtime-drivers/ws_jwt/run.py) | STEP 3 `spawn` | 长连接 stdin/stdout 编排器：持有 WebSocket+JWT 连接、发送话语、收集 `assistant_done` 轮次、写 `ExecutionTrace`。不评分，不判断红线。 |
+| [`ws_client.py`](./runtime-drivers/ws_jwt/ws_client.py) | 被 `run.py` 内部调用 | 底层 WebSocket 连接：连接 Gateway WS、发送消息、按轮次收集服务器推送。无业务语义解析。 |
+| [`auth_client.py`](./runtime-drivers/ws_jwt/auth_client.py) | 被所有上传脚本调用 | 鉴权：解析 `evaluation_context.hirebot_api.auth`（`client_credentials`），向 Keycloak 换取 access_token，供出站 HTTP/WS 调用统一使用。 |
+| [`testcase_uploader.py`](./runtime-drivers/ws_jwt/testcase_uploader.py) | STEP 1.6 | 把 `synthesized-cases/` 下的合成用例推送至 HireBot (`sync-trace`)，使前端右侧面板卡片立即可见。 |
+| [`trace_uploader.py`](./runtime-drivers/ws_jwt/trace_uploader.py) | STEP 10（第一步） | 合并 `traces/*.trace.json` 为一个 bundle 并上传至 HireBot (`sync-trace`)。 |
+| [`verdict_uploader.py`](./runtime-drivers/ws_jwt/verdict_uploader.py) | STEP 10（第二步） | 读取 STEP 9 的 `overall_report.json`，构造 `EvaluationVerdictSyncRequestDto` 并上传 (`sync-verdict`)。 |
+| [`driver.json`](./runtime-drivers/ws_jwt/driver.json) | STEP 2.5 验证 | Driver 清单：声明 `driver_id` 及 `config_schema`，STEP 2.5 依此验证 `evaluation_context.runtime_driver.driver_config`。 |
+| [`requirements.txt`](./runtime-drivers/ws_jwt/requirements.txt) | STEP 3 前置检查 | Python 依赖：`websockets>=12.0`。STEP 3 前确认已安装。 |
+
+### 客户模拟器（simulators/customer_realistic/）
+
+STEP 3 的双角色中，**宿主 Agent 自身 LLM** 扮演客户，依据以下文件生成 `SimulatorDecision`（**非子进程，无入口脚本**）：
+
+| 文件 | 作用 |
+|---|---|
+| [`simulators/customer_realistic/system_prompt.md`](./simulators/customer_realistic/system_prompt.md) | **客户大脑核心提示词模板**。包含 8 条硬性行为规则、情绪状态机、`goal_achieved` / `bottom_line_violated` / `deadlock_detected` 判断逻辑，以及严格的 `SimulatorDecision` JSON 输出格式。STEP 3 每轮展开 Mustache 占位符（`{{customer_persona.*}}`、`{{goal.*}}`、`{{stop_conditions.*}}`、`{{current_emotion}}`、`{{dialog_so_far}}`、`{{effective_max_turns}}`）后调用宿主 LLM 生成决策。 |
+| [`simulators/customer_realistic/simulator.json`](./simulators/customer_realistic/simulator.json) | 清单：`kind: "llm_persona"`，声明 `system_prompt` 文件名及 `consumes` / `produces` schema 路径 |
+| [`simulators/customer_realistic/.no-decide-script`](./simulators/customer_realistic/.no-decide-script) | K8 审计哨兵：确认此目录无可执行入口脚本，**禁止删除** |
+| [`simulators/README.md`](./simulators/README.md) | 热插拔规则、合同说明、添加新人格的检查清单 |
+
+> **核心规则**：`system_prompt.md` 明确区分了"解释流程"与"解决问题"——Agent 给出步骤列表不等于完成任务，模拟客户应在此时设 `perceived_progress="partial"`, `should_continue=true`，继续追问直到 Agent 执行了实际操作或给出个性化具体答复。这条规则直接影响 STEP 4 评分的有效轮次覆盖率，评估质量的关键所在。
+
+被评估员工的完整模板资料位于 `/workspace/uploads/artifact/<template_dir>/`，是 STEP 0 身份识别和 STEP 1.5 测试用例合成的**核心输入**。合成场景必须忠实于员工的技能边界和领域约束，不得凭空捏造。
+
+| 文档 | 路径（相对于 `<template_dir>`） | 关键内容 | 必读步骤 |
+|---|---|---|---|
+| Agent 架构说明 | `config/AGENTS.md` | 多 Agent 职责分工与协作模式 | STEP 0、STEP 1.5 |
+| 身份声明 | `config/IDENTITY.md` | 角色定位、语言风格、禁忌词汇、价值观 | STEP 0、STEP 1.5 |
+| 灵魂文件 | `config/SOUL.md` | 核心行为原则与思维框架 | STEP 0、STEP 1.5 |
+| 技能定义 | `skills/<skill_name>/SKILL.md` | 触发词、能力清单、边界与不做、关键口径 | STEP 1、STEP 1.5 |
+| 本体切片 | `ontology/*.slice.md` | 领域概念、关系、术语约束（人类可读） | STEP 1.5 |
+| 本体切片（JSON） | `ontology/*.slice.json` | 同上，机器可读结构 | STEP 1.5 |
+| 本体投影（evaluation 专用） | `ontology/projections/*.projection.json`（若存在） | 针对评估场景的 workflow-contract | STEP 1、STEP 1.5 |
+
+> **提示**：`/workspace/uploads/evaluation-expert-consumer/ontology/` 下还可能存在为本次评估专门生成的 `*.workflow-contract.projection.json`——这是对员工技能 ontology 的评估专项约束投影，与员工模板目录里的通用 ontology 是不同层次的文档，两者都要读。
 
 ### 操作手册
 
