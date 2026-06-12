@@ -23,6 +23,10 @@ import {
   countDistinctMaterialUploads,
   listUnmatchedMaterialUploads,
 } from '../materialUploadMatching'
+import {
+  type MaterialStageStatus,
+  resolveMaterialShellStatusLabel,
+} from './materialCardStatus'
 
 // ── 类型定义 ──────────────────────────────────────────────────────────────────
 
@@ -159,6 +163,7 @@ function StageAdvanceConfirmationPanel({
 export interface MaterialCardBodyProps {
   hireId: string
   sessionId: string
+  stageStatus: MaterialStageStatus
   requestedCategories: MaterialRequestedCategory[]
   uploadedConversationFiles: readonly ChatFile[]
   pendingConfirmation: PendingStageAdvanceConfirmation | null
@@ -171,6 +176,7 @@ export interface MaterialCardBodyProps {
 export function MaterialCardBody({
   hireId,
   sessionId,
+  stageStatus,
   requestedCategories,
   uploadedConversationFiles,
   pendingConfirmation,
@@ -309,20 +315,20 @@ export function MaterialCardBody({
     (count, item) => count + ((uploadedCountByCategory.get(item.title) ?? 0) > 0 ? 1 : 0),
     0,
   )
-  const shellStatusLabel = materialCards.length > 0
-    ? completedCardCount >= materialCards.length
-      ? t('hiring.todo.material.statusUploaded', { count: completedCardCount })
-      : t('hiring.todo.material.statusPendingCount', { count: materialCards.length - completedCardCount })
-    : totalUploadedCount > 0
-      ? t('hiring.todo.material.statusUploaded', { count: totalUploadedCount })
-    : t('hiring.todo.material.statusPending')
+  const shellStatusLabel = resolveMaterialShellStatusLabel({
+    stageStatus,
+    materialCardCount: materialCards.length,
+    completedCardCount,
+    totalUploadedCount,
+  }, t)
+  const isMaterialStageComplete = stageStatus === 'completed'
   return (
     <div className="hb-todo-mat">
       <div
         className={clsx(
           'hb-todo-material-shell',
           busy && 'is-busy',
-          totalUploadedCount > 0 && 'is-filled',
+          (totalUploadedCount > 0 || isMaterialStageComplete) && 'is-filled',
           collapsed && 'is-collapsed',
         )}
         onDragOver={event => { event.preventDefault() }}
@@ -345,7 +351,11 @@ export function MaterialCardBody({
             </div>
           </div>
           <div className="hb-todo-material-head-actions">
-            <span className="hb-todo-material-head-pill">{shellStatusLabel}</span>
+            <span className={clsx(
+              'hb-todo-material-head-pill',
+              isMaterialStageComplete && 'is-complete',
+              stageStatus === 'failed' && 'is-failed',
+            )}>{shellStatusLabel}</span>
             <span className={clsx('hb-todo-material-chevron', collapsed && 'is-collapsed')} aria-hidden="true">
               ▾
             </span>

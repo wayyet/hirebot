@@ -9,11 +9,32 @@ import {
   deriveStageOverridesFromDownstreamRuns,
   extractArtifactFromToolCall,
   normalizeArtifactDisplayData,
+  shouldDismissSkillConfirmationAfterApproval,
   shouldSuppressStageGate,
 } from './hiringArtifactState'
 
 describe('buildCoachResumePrompt', () => {
-  it('评估测试用例生成完成后，应回到打包确认引导', () => {
+  it('业务资料分析完成后，只用纯文本询问一次是否进入技能定义', () => {
+    const prompt = buildCoachResumePrompt('post-ontology-slice-extraction', {
+      materialSummary: {
+        workspace_root: '/workspace/template-1',
+        items: [{ title: 'SOP', source_path: null }],
+      },
+      ontologyResult: {
+        completed_slices: 1,
+        slice_paths: ['ontology/scheduling.slice.json'],
+      },
+    })
+
+    expect(prompt).toContain('Respond with plain assistant text only in this turn.')
+    expect(prompt).toContain('Do not call `emit_artifact`')
+    expect(prompt).toContain('Never emit `stage1_material_done`')
+    expect(prompt).toContain('Ask the skill-definition confirmation exactly once.')
+    expect(prompt).toContain('do not proceed directly in this resume turn')
+    expect(prompt).not.toContain('proceed directly under the coach skill rules')
+  })
+
+  it('评估测试用例生成完成后，应回到打包审查门引导', () => {
     const prompt = buildCoachResumePrompt('post-packaging-test-cases', {
       packagingTestCasesResult: {
         generated_count: 4,
@@ -21,7 +42,8 @@ describe('buildCoachResumePrompt', () => {
     })
 
     expect(prompt).toContain('The optional evaluation test case generation has completed.')
-    expect(prompt).toContain('explicitly ask whether to generate the instance package now')
+    expect(prompt).toContain('review_readiness')
+    expect(prompt).toContain('Do not emit review_progress or template_package before review_readiness')
     expect(prompt).toContain('Do not regenerate evaluation test cases in this turn.')
     expect(prompt).toContain('The testcase output contains 4 generated cases.')
   })
@@ -235,6 +257,27 @@ describe('deriveStageOverridesFromDownstreamRuns', () => {
 
     expect(overrides.get(HiringCollectionStage.Material)).toBe('running')
     expect(overrides.get(HiringCollectionStage.Skill)).toBeUndefined()
+  })
+})
+
+describe('shouldDismissSkillConfirmationAfterApproval', () => {
+  it('只在技能清单确认按钮提交成功后销毁对应等待确认卡片', () => {
+    const skillDefinitionRun: DownstreamRunState = {
+      key: 'skill-generation',
+      status: 'waiting_confirm',
+      artifactType: 'skill_definition_ready',
+      label: '等待确认技能清单',
+      updatedAt: '2026-06-12T09:00:00.000Z',
+      data: {},
+    }
+    const skillGenerationRun: DownstreamRunState = {
+      ...skillDefinitionRun,
+      artifactType: 'skill_generation_ready',
+    }
+
+    expect(shouldDismissSkillConfirmationAfterApproval(skillDefinitionRun)).toBe(true)
+    expect(shouldDismissSkillConfirmationAfterApproval(skillGenerationRun)).toBe(false)
+    expect(shouldDismissSkillConfirmationAfterApproval(null)).toBe(false)
   })
 })
 

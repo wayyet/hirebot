@@ -106,11 +106,22 @@
       "status": "ready"
     }
   ],
-  "summary": "共整理 3 份业务资料，已确认抽取方向，准备分析业务资料"
+  "summary": "共整理 3 份业务资料，已确认抽取方向，准备分析业务资料",
+  "force_advanced": false,
+  "deferred_gaps": [],
+  "notes": ""
 }
 ```
 
 字段说明：与 `material_collection_progress` 相同；terminal 时顶层必须透传会话初始化阶段锁定的真实 `workspace_root` 与 `template_slug`，`status` 全部为 `ready`，`source_path` 必须尽可能补全（有上传文件的条目**必填**），并补充 `summary` 字段。`ontology-slice-extraction` skill 将以 `workspace_root` 与 `source_path` 为准定位实际文件，`source_hint` 仅供人工阅读。**如果缺少 `workspace_root` / `template_slug`，或上传条目只有 `source_hint`、没有 `source_path`，或已经知道内容未能读取到，则不得发出 `material_handoff_summary`。**
+
+强制推进相关字段：
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `force_advanced` | 否 | `true` 表示用户选择了在资料缺口存在的情况下强制推进。默认 `false`。当用户满足最低门槛（≥1 份相关资料）但拒绝了教练的资料补充追问时设为 `true`。 |
+| `deferred_gaps[]` | `force_advanced: true` 时建议填写 | 用户选择暂不补充的资料缺口列表（如 `["排产规则与约束清单", "齐套校验口径"]`），供后续阶段回补参考。 |
+| `notes` | 否 | 补充说明。强制推进时建议记录缺口摘要，如 `"用户选择在排产规则和齐套口径暂缺的情况下强制推进。缺口已记录，后续阶段可回补。"` |
 
 `material_handoff_summary` 发出后必须立即触发 R1；资料阶段整体完成还需要收到 `ontology_slice_extraction_done`。在 `ontology_slice_extraction_done` 到达前，不得发 `skill_workorder_progress`，也不得进入技能定义收集。
 

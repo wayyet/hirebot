@@ -2,10 +2,14 @@
 
 import {
   buildDownstreamPrompt,
+  buildPackageReviewPrompt,
+  buildPackageReviewSkipPackagingPrompt,
   buildPackagingRequestPrompt,
   buildProjectionPassPayload,
   buildSkillDefinitionConfirmationPrompt,
   buildSkillGenerationPayload,
+  isPackageReviewApprovalMessage,
+  isPackageReviewSkipMessage,
   isSkillDefinitionApprovalMessage,
   isOntologyProjectionApprovalMessage,
   isSkillGenerationApprovalMessage,
@@ -13,6 +17,7 @@ import {
   isPackagingTestCasesApprovalMessage,
   isPackagingTestCasesSkipMessage,
   resolveActiveSkillStageRun,
+  resolvePackageReviewDecisionRoute,
   resolvePackagingRequestRoute,
   resolveSkillStageApprovalRoute,
 } from './hiringDownstreamTriggers'
@@ -242,6 +247,7 @@ describe('resolvePackagingRequestRoute', () => {
     incomingFileCount: 0,
     isBlockedByRequiredConfirmation: false,
     isBlockedByPackagingTestCaseGeneration: false,
+    hasPendingPackageReviewDecision: false,
     hasPendingPackageArtifact: false,
     packagingInProgress: false,
     hasReviewReport: false,
@@ -271,22 +277,25 @@ describe('resolvePackagingRequestRoute', () => {
       isBlockedByRequiredConfirmation: true,
     })).toBe('none')
   })
+
+  it('does not steal messages while package review decision is pending', () => {
+    expect(resolvePackagingRequestRoute({
+      ...baseInput,
+      hasPendingPackageReviewDecision: true,
+      hasPackagingContext: true,
+    })).toBe('none')
+  })
 })
 
 describe('buildPackagingRequestPrompt', () => {
-  it('drives workspace ZIP packaging without asking for another trigger', () => {
+  it('首次打包请求只推进到 review_readiness 并停止', () => {
     const prompt = buildPackagingRequestPrompt('继续打包')
 
-    expect(prompt).toContain('Do not ask for a package trigger')
-    expect(prompt).toContain('workspace_root')
-    expect(prompt).toContain('coach_runtime_root')
-    expect(prompt).toContain('employee_package_root')
-    expect(prompt).toContain('must never be packaged')
-    expect(prompt).toContain('not `/workspace`')
-    expect(prompt).toContain('skills/employment-coach-conversation/')
-    expect(prompt).toContain('stop and report the concrete root-resolution problem')
-    expect(prompt).toContain('use a zip tool to package that directory')
-    expect(prompt).toContain('template_package')
+    expect(prompt).toContain('review decision gate')
+    expect(prompt).toContain('review_readiness')
+    expect(prompt).toContain('Stop immediately after `review_readiness`')
+    expect(prompt).toContain('Do not emit `review_progress`')
+    expect(prompt).toContain('do not emit `template_package`')
   })
 
   it('review_report 已存在时要求直接进入 R6 打包', () => {
@@ -297,8 +306,74 @@ describe('buildPackagingRequestPrompt', () => {
 
     expect(prompt).toContain('A `review_report` already exists')
     expect(prompt).toContain('Do not rerun review')
+    expect(prompt).toContain('package the current employee package workspace now')
     expect(prompt).toContain('packaging_progress')
     expect(prompt).toContain('review_risk_summary')
+    expect(prompt).toContain('workspace_root')
+    expect(prompt).toContain('coach_runtime_root')
+    expect(prompt).toContain('employee_package_root')
+    expect(prompt).toContain('must never be packaged')
+    expect(prompt).toContain('not `/workspace`')
+    expect(prompt).toContain('skills/employment-coach-conversation/')
+    expect(prompt).toContain('stop and report the concrete root-resolution problem')
+    expect(prompt).toContain('use a zip tool to package that directory')
+    expect(prompt).toContain('template_package')
+  })
+})
+
+describe('package review decision routing', () => {
+  const baseInput = {
+    text: '审查',
+    incomingFileCount: 0,
+    hasPendingPackageReviewDecision: true,
+    isBlockedByRequiredConfirmation: false,
+    isBlockedByPackagingTestCaseGeneration: false,
+  }
+
+  it('识别审查确认和跳过审查', () => {
+    expect(isPackageReviewApprovalMessage('审查')).toBe(true)
+    expect(isPackageReviewApprovalMessage('开始审查')).toBe(true)
+    expect(isPackageReviewApprovalMessage('跳过审查，直接打包')).toBe(false)
+    expect(isPackageReviewSkipMessage('跳过审查，直接打包')).toBe(true)
+    expect(isPackageReviewSkipMessage('生成并打包')).toBe(true)
+  })
+
+  it('review_readiness 后用户确认审查时触发审查分支', () => {
+    expect(resolvePackageReviewDecisionRoute(baseInput)).toBe('launch_package_review')
+  })
+
+  it('review_readiness 后用户要求打包时触发跳过审查打包分支', () => {
+    expect(resolvePackageReviewDecisionRoute({
+      ...baseInput,
+      text: '生成并打包',
+    })).toBe('skip_review_and_package')
+  })
+
+  it('没有待确认审查门时不消费用户消息', () => {
+    expect(resolvePackageReviewDecisionRoute({
+      ...baseInput,
+      hasPendingPackageReviewDecision: false,
+    })).toBe('none')
+  })
+
+  it('审查触发提示只运行 review，不打包', () => {
+    const prompt = buildPackageReviewPrompt('审查')
+
+    expect(prompt).toContain('review_progress')
+    expect(prompt).toContain('digital-employee-package-completeness-review')
+    expect(prompt).toContain('review_report')
+    expect(prompt).toContain('Do not invoke package/export/archive tools')
+    expect(prompt).toContain('do not emit `template_package`')
+  })
+
+  it('跳过审查提示直接打包且禁止 review_progress', () => {
+    const prompt = buildPackageReviewSkipPackagingPrompt('跳过审查，直接打包')
+
+    expect(prompt).toContain('explicitly skipped package completeness review')
+    expect(prompt).toContain('Do not run `digital-employee-package-completeness-review`')
+    expect(prompt).toContain('do not emit `review_progress`')
+    expect(prompt).toContain('packaging_progress')
+    expect(prompt).toContain('template_package')
   })
 })
 

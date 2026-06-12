@@ -184,6 +184,7 @@ export function HiringTodoPanel({
           <MaterialCardBody
             hireId={hireId}
             sessionId={sessionId}
+            stageStatus={wsStageOverrides.get(HiringCollectionStage.Material) ?? null}
             requestedCategories={requestedMaterialCategories}
             uploadedConversationFiles={uploadedConversationFiles}
             pendingConfirmation={pendingStageConfirmation?.stage === HiringCollectionStage.Material ? pendingStageConfirmation : null}

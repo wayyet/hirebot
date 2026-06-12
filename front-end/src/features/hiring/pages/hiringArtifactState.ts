@@ -249,6 +249,10 @@ export function resolveDownstreamRunFromArtifact(
   return DOWNSTREAM_ARTIFACT_TRACKS[artifactType] ?? null
 }
 
+export function shouldDismissSkillConfirmationAfterApproval(run: DownstreamRunState | null): boolean {
+  return run?.status === 'waiting_confirm' && run.artifactType === 'skill_definition_ready'
+}
+
 function extractSkillSummaryItems(summary: unknown): unknown[] {
   const record = asPlainObject(summary)
   if (!record) {
@@ -738,8 +742,12 @@ export function buildCoachResumePrompt(
       'Resume the main hiring flow at the boundary between stage1_material and stage2_skill.',
       'Do not trigger ontology slice extraction again.',
       'Use the provided upstream material summary and ontology result as context.',
+      'Respond with plain assistant text only in this turn.',
+      'Do not call `emit_artifact` and do not emit any stage1_material artifact.',
+      'Never emit `stage1_material_done`, `material_collection_progress`, or `material_handoff_summary` in this turn.',
+      'Ask the skill-definition confirmation exactly once.',
       'First give a short transition that the business information is ready, then explicitly ask whether to enter skill definition now.',
-      'If the user already explicitly asked to continue into skill definition in the current context, proceed directly under the coach skill rules; otherwise ask the confirmation question only.',
+      'Even if the user already explicitly asked to continue into skill definition earlier, do not proceed directly in this resume turn; wait for the next user reply before emitting any stage2 artifact.',
     ]
 
     if (zeroProjected) {
@@ -819,8 +827,9 @@ export function buildCoachResumePrompt(
       'Resume the main hiring flow inside stage4_packaging.',
       'Do not regenerate evaluation test cases in this turn.',
       'Do not claim the instance package is already generated.',
-      'Give one short transition that the evaluation test cases are ready, then explicitly ask whether to generate the instance package now.',
-      'If the user already explicitly asked to package in the current context, proceed directly under the coach skill rules; otherwise ask the packaging confirmation question only.',
+      'Give one short transition that the evaluation test cases are ready, then continue the stage4 packaging sequence toward the required review_readiness gate.',
+      'Do not emit review_progress or template_package before review_readiness and the user review decision.',
+      'If the user already explicitly asked to package in the current context, proceed directly under the coach skill rules until review_readiness; otherwise ask whether to continue packaging.',
     ]
 
     if (generatedCount !== null) {

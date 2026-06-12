@@ -54,10 +54,13 @@ import {
   buildSkillGenerationPayload,
   buildSkillDefinitionConfirmationPrompt,
   buildDownstreamPrompt,
+  buildPackageReviewPrompt,
+  buildPackageReviewSkipPackagingPrompt,
   buildPackagingRequestPrompt,
   isPackagingTestCasesApprovalMessage,
   isPackagingTestCasesSkipMessage,
   resolveActiveSkillStageRun,
+  resolvePackageReviewDecisionRoute,
   resolvePackagingRequestRoute,
   resolveSkillStageApprovalRoute,
 } from './utils/hiringDownstreamTriggers'
@@ -88,6 +91,7 @@ import {
   normalizeArtifactDisplayData,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
+  shouldDismissSkillConfirmationAfterApproval,
   shouldSuppressStageGate,
 } from './hiringArtifactState'
 import {
@@ -131,6 +135,26 @@ function buildArtifactEventSignature(artifact: ArtifactDisplayData): string {
     fileName: artifact.fileName,
     data: artifact.data,
   })
+}
+
+function hasPendingPackageReviewDecision(sourceMessages: ChatMessage[]): boolean {
+  for (let index = sourceMessages.length - 1; index >= 0; index -= 1) {
+    const artifactType = sourceMessages[index].artifact?.artifactType
+    if (artifactType === 'review_readiness') {
+      return true
+    }
+
+    if (
+      artifactType === 'review_progress' ||
+      artifactType === 'review_report' ||
+      artifactType === 'packaging_progress' ||
+      artifactType === 'template_package'
+    ) {
+      return false
+    }
+  }
+
+  return false
 }
 
 /**
@@ -935,7 +959,7 @@ export default function HiringPage() {
       '本轮初始化同时涉及两套包，必须先明确二者关系：',
       '1. `coach_runtime_root`：固定为 `/workspace`。这是雇佣教练运行根目录，包含 employment-coach-conversation、ontology-slice-extraction、skill-generation 等系统 skill，只用于读取流程规则，永远不能作为数字员工包的 manifest 同步、产物写入、审查或打包根目录。',
       `2. \`employee_package_root\`：固定为下面的 ${marker} 目录。它才是本轮待装配的"${templateName}"专属工作区，只能在这个目录内做 manifest 同步、写入运行时产物、完整性审查和最终打包。`,
-      '读取顺序：先读取并遵守雇佣教练包的 `/workspace/AGENTS.md`、`/workspace/SOUL.md`、`/workspace/IDENTITY.md` 和 `/workspace/skills/employment-coach-conversation/SKILL.md`，再读取目标员工模板包的 manifest.json 与 config 文档。',
+      '加载顺序：先读取并遵守雇佣教练包的 `/workspace/AGENTS.md`、`/workspace/SOUL.md`、`/workspace/IDENTITY.md`；所有 skill 必须通过 `load_skill` 加载到上下文，禁止用 `read_file` 读取 `/workspace/skills/**/SKILL.md`。先调用 `load_skill` 加载 `employment-coach-conversation`，再读取目标员工模板包的 manifest.json 与 config 文档。',
       '冲突规则：雇佣教练包决定“你是谁、流程怎么走、artifact 怎么发”；目标员工模板包决定“要装配什么员工、需要哪些业务资料”。不得把目标员工的 config/SOUL.md、config/IDENTITY.md 或 config/AGENTS.md 当作你的身份指令。',
       '根目录红线：后续所有 artifact data 中的 `workspace_root` 必须等于 `employee_package_root`，不得等于 `/workspace`；所有打包命令必须先进入 `employee_package_root`，不得从 `coach_runtime_root` 打包。',
       '',
@@ -944,7 +968,7 @@ export default function HiringPage() {
       '',
       useCaseSection,
       '',
-      '请在雇佣教练入口规则下读取上述目标模板目录中的 manifest.json，并按照 `/workspace/skills/employment-coach-conversation/SKILL.md` 的"会话初始化"步骤完成初始化（文件已就绪，无需解压），然后执行以下动作：',
+      '请在雇佣教练入口规则下读取上述目标模板目录中的 manifest.json，并按照已通过 `load_skill` 加载的 `employment-coach-conversation` 会话初始化步骤完成初始化（文件已就绪，无需解压），然后执行以下动作：',
       'A. 静默调用 `emit_artifact` 推送 stage1 progress（artifactType=material_collection_progress, stage=stage1_material, isTerminal=false），data.requested_categories 必须包含 1-3 个开场白中提到的建议上传资料分类，且必须是对象数组，例如 [{"title":"历史工单","description":"...","examples":["..."]}]，禁止输出字符串数组。这是内部系统调用，不要在回复中提及。',
       'B. 只用一句自然的话邀请我上传或描述业务资料，按 story-driven 风格开口，点到这 1-3 个分类即可。',
       '',
@@ -1402,6 +1426,7 @@ export default function HiringPage() {
           }
           if (artifactType === 'review_report' && kind === 'data' && isTerminal) {
             latestReviewReportRef.current = artifactData.data ?? null
+            packagingInProgressRef.current = false
           }
           if (artifactType === 'external_workorder_summary' && kind === 'data' && isTerminal) {
             latestExternalSummaryRef.current = artifactData.data ?? null
@@ -1436,6 +1461,12 @@ export default function HiringPage() {
               ? artifactData.data as Record<string, unknown>
               : null
             packagingInProgressRef.current = progressData?.status === 'packing' || progressData?.status === 'waiting_downstream'
+          }
+          if (artifactType === 'review_readiness') {
+            packagingInProgressRef.current = false
+          }
+          if (artifactType === 'review_progress') {
+            packagingInProgressRef.current = true
           }
           if (!duplicateExternalConfigCommitted && shouldDisplayArtifact) {
             setMessages(msgs => [...msgs, {
@@ -1821,6 +1852,9 @@ export default function HiringPage() {
     )
 
     if (submitted) {
+      if (shouldDismissSkillConfirmationAfterApproval(state)) {
+        clearDownstreamRun('skill-generation')
+      }
       setWorkflowNotice('已确认技能清单，正在收口技能定义并进入匹配技能数据确认。')
       return true
     }
@@ -2225,6 +2259,16 @@ export default function HiringPage() {
         !shouldLaunchPackagingTestCases &&
         packagingTestCasesState?.status === 'waiting_confirm' &&
         isPackagingTestCasesSkipMessage(text)
+      const hasPendingReviewDecision = hasPendingPackageReviewDecision(messagesRef.current)
+      const packageReviewDecisionRoute = resolvePackageReviewDecisionRoute({
+        text,
+        incomingFileCount: incoming.length,
+        hasPendingPackageReviewDecision: hasPendingReviewDecision,
+        isBlockedByRequiredConfirmation: shouldConfirmSkillDefinition || shouldLaunchProjectionPass || shouldLaunchSkillGeneration,
+        isBlockedByPackagingTestCaseGeneration: shouldLaunchPackagingTestCases,
+      })
+      const shouldLaunchPackageReview = packageReviewDecisionRoute === 'launch_package_review'
+      const shouldSkipPackageReview = packageReviewDecisionRoute === 'skip_review_and_package'
       const hasPackagingContext =
         externalConfigCommittedSignatureRef.current.length > 0 ||
         packagingTestCasesState !== null ||
@@ -2246,6 +2290,7 @@ export default function HiringPage() {
         incomingFileCount: incoming.length,
         isBlockedByRequiredConfirmation: shouldConfirmSkillDefinition || shouldLaunchProjectionPass || shouldLaunchSkillGeneration,
         isBlockedByPackagingTestCaseGeneration: shouldLaunchPackagingTestCases,
+        hasPendingPackageReviewDecision: hasPendingReviewDecision,
         hasPendingPackageArtifact: pendingPackageArtifact !== null,
         packagingInProgress: packagingInProgressRef.current,
         hasReviewReport: latestReviewReportRef.current !== null,
@@ -2284,6 +2329,22 @@ export default function HiringPage() {
         submitted = await launchProjectionPassFromApproval()
       } else if (shouldLaunchSkillGeneration) {
         submitted = await launchSkillGenerationFromApproval()
+      } else if (shouldLaunchPackageReview) {
+        submitted = await submitWorkflowMessage(
+          buildPackageReviewPrompt(fallbackText),
+          undefined,
+          true,
+          false,
+          false,
+        )
+      } else if (shouldSkipPackageReview) {
+        submitted = await submitWorkflowMessage(
+          buildPackageReviewSkipPackagingPrompt(fallbackText),
+          undefined,
+          true,
+          false,
+          false,
+        )
       } else if (shouldImportExistingPackage) {
         submitted = await importExistingPackageFromRequest()
       } else if (shouldWaitForActivePackaging) {
@@ -2622,14 +2683,19 @@ export default function HiringPage() {
       void triggerCreate()
       return
     }
-    const visibleRequest = '三个阶段均已确认完成，请开始生成数字员工'
+    const reviewDecisionPending = hasPendingPackageReviewDecision(messagesRef.current)
+    const visibleRequest = reviewDecisionPending
+      ? '跳过审查，直接打包'
+      : '三个阶段均已确认完成，请开始生成数字员工'
     setMessages(prev => [...prev, {
       id: mkId(),
       role: 'user',
       content: visibleRequest,
     }])
     await submitWorkflowMessage(
-      buildPackagingRequestPrompt(visibleRequest, latestReviewReportRef.current),
+      reviewDecisionPending
+        ? buildPackageReviewSkipPackagingPrompt(visibleRequest)
+        : buildPackagingRequestPrompt(visibleRequest, latestReviewReportRef.current),
       undefined,
       true,
       false,
