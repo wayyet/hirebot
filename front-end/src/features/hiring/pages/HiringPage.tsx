@@ -2537,7 +2537,7 @@ export default function HiringPage() {
 
     try {
       const artifact = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
-      downloadBlob(artifact.blob, artifact.fileName)
+      downloadBlob(artifact.blob, finalPackageFileName)
       setWorkflowError('')
       setWorkflowNotice('')
     } catch (error: unknown) {
@@ -2871,7 +2871,7 @@ export default function HiringPage() {
             onContinue={handlePrototypeContinue}
             onFinalize={() => { void handleRequestPackaging() }}
             onDownloadArtifact={(artifactName) => { void downloadBackendArtifact(artifactName) }}
-            onDownloadArchive={() => { void downloadPersistedFinalPackage() }}
+            onDownloadArchive={() => { void downloadTemplatePackageFinal() }}
           />
 
           {/* MCP TODO 交互面板：完全由 WS artifact 事件驱动阶段亮灯 */}

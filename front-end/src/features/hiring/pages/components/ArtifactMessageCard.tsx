@@ -24,7 +24,7 @@ import {
 
 interface Props {
   artifact: ArtifactDisplayData
-  /** 带 token 的文件下载回调；未提供时退化为直接 <a href> */
+  /** 带 token 的文件下载回调；template_package 必须通过该回调走后端 final 包 */
   onFileDownload?: (url: string, fileName: string, artifactType: string) => void
   /** 手动触发上传到系统（仅 template_package 展示） */
   onManualUpload?: (fileUrl: string, fileName: string) => void
@@ -96,20 +96,24 @@ export function ArtifactMessageCard({
                 </>
               )}
             </button>
+          ) : isPackage ? (
+            <button
+              type="button"
+              className="hb-artifact-file-link"
+              disabled
+              title={packageDownloadDisabledTitle ?? displayFileName}
+              aria-label={packageDownloadDisabledTitle ?? displayFileName}
+            >
+              <span className="hb-artifact-file-name">{t('hiring.artifact.downloadPackage')}</span>
+            </button>
           ) : (
             <a
               href={artifact.fileUrl ?? '#'}
               download={displayFileName}
               className="hb-artifact-file-link"
             >
-              {isPackage ? (
-                <span className="hb-artifact-file-name">{t('hiring.artifact.downloadPackage')}</span>
-              ) : (
-                <>
-                  <span className="hb-artifact-file-name">{displayFileName}</span>
-                  {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
-                </>
-              )}
+              <span className="hb-artifact-file-name">{displayFileName}</span>
+              {artifact.sizeLabel && <span className="hb-artifact-file-size">{artifact.sizeLabel}</span>}
             </a>
           )}
           {isPackage && onManualUpload && artifact.fileUrl && (
