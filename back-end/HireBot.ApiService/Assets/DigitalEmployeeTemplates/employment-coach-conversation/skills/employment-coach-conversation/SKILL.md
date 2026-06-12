@@ -84,7 +84,12 @@ metadata:
 
 1. 已发出 `material_handoff_summary` terminal artifact，且其中上传文件条目都具备可读 `source_path`。
 2. 已按 R1 立即触发 `ontology-slice-extraction`，不得把这一步延后到用户下一轮。
-3. 已收到 `ontology_slice_extraction_done` 后，才允许开始技能定义收集、提出技能建议、或发出 `skill_workorder_progress`。
+3. 已收到 `ontology_slice_extraction_done` 后，才允许进入"是否进入技能定义"的确认对话。
+4. 用户对"是否进入技能定义"给出明确肯定答复（如"可以""进入""开始"等）后，才允许开始技能定义收集、提出技能建议、或发出 `skill_workorder_progress`。
+
+**关于第 4 条的确认对话**：收到 `ontology_slice_extraction_done` 后，必须先用 1-2 句话总结业务资料分析结果（如"从资料中抽取了 X 条约束/Y 个概念/Z 个规则"），然后明确提问"是否进入技能定义阶段？"或等价的确认问题。即使用户此前说过"推进到下一步"，也应在此做最终确认——因为此后技能定义方向一旦确定就不可回退资料阶段。仅在用户明确肯定后才发出 `skill_workorder_progress`。
+
+**⛔ 确认对话期间的 artifact 禁令**：`ontology_slice_extraction_done` 已将阶段 1 标记为完成，教练在确认对话中**不得**再发出任何 `stage1_material` artifact（包括 `material_collection_progress`、自造的 `material_collection_done` 等）。确认问题只作为纯对话文本输出，不伴随任何 stage1 artifact 发射；每条确认问题只能输出一次，禁止换 artifact 类型后重复同一问题。
 
 如果任一条件不满足，停止阶段 2 回复，先补发缺失的 artifact 或内部触发；如果因为 `source_path` 缺失、文件不可读等原因不能补发，则只说明阻断原因并留在资料阶段。禁止出现"对话已经进入技能阶段，但右侧 UI 仍停留在资料阶段"的状态分叉。
 
@@ -480,7 +485,9 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 1. 按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) 的 **R1** 构造内部触发块，显式写 `use skill ontology-slice-extraction`。
 2. 将 `material_handoff_summary.data` 原样放入 `artifact_payload`，不得改写、压缩或只传自然语言摘要。
 3. 交接后等待 `ontology_slice_extraction_done`。在等待期间，只能给用户一句进度提示（例如"正在分析业务资料，稍后进入技能定义"），**不得**给出技能建议、不得追问技能选择、不得发出 `skill_workorder_progress`，也不得进入技能定义收集。
-4. 收到 `ontology_slice_extraction_done` 后，才读取 S1 并正式进入阶段 2 的"进入阶段的强制动作"。
+4. 收到 `ontology_slice_extraction_done` 后，先判断当前会话状态：
+   - 若 `skill_workorder_summary` **尚未**发出（技能定义未确认）：读取 S1 并正式进入阶段 2 的“进入阶段的强制动作”。
+   - 若 `skill_workorder_summary` **已**发出（技能清单已确认过，本轮只是补充资料后重跑提炼）：**跳过技能定义阶段**，按“已确认技能定义后的资料补充快捷路径”执行——直接触发 R2 `ontology-projection` 重新匹配数据，等待 `ontology_projection_done` 后发出 `skill_generation_ready`。
 
 > ⛔ 触发本体抽取不是可选项：资料阶段每一次 terminal artifact 之后都必须触发；已在进行中时不重复触发。
 
@@ -494,6 +501,31 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 - 任何以”接下来我们把……技能……”开头的回复，必须排在 `material_handoff_summary` 和 R1 `ontology-slice-extraction` 触发之后；任何具体技能建议或技能反问，必须排在 `ontology_slice_extraction_done` 之后。
 
 > 第一批资料怎么按场景类型开口要、scene_hint 推断与静默修正、阶段 1 story-driven 推进 → 进入阶段 1 之前，读 [references/scene-types.md](references/scene-types.md)。
+
+---
+
+## 已确认技能定义后的资料补充快捷路径（反循环规则）
+
+当 `skill_workorder_summary` 已经在本会话中发出（技能清单已确认），用户又补充了新材料（追加文件或口述规则），**不得**重新进入技能定义阶段。正确路径是：
+
+1. 用户补充材料 → 将新材料纳入资料条目 → 发出 `material_collection_progress`（更新 materials）
+2. 用户表达"先这些""推进""继续"等收口意图 → 发出 `material_handoff_summary` terminal artifact（data 中包含新旧全部资料条目）
+3. 按 R1 触发 `ontology-slice-extraction`（增量更新 slice）
+4. 等待 `ontology_slice_extraction_done`
+5. 收到 `ontology_slice_extraction_done` 后，**跳过整个技能定义子阶段**，直接触发 R2 `ontology-projection` 重新匹配更新后的数据
+6. 等待 `ontology_projection_done`
+7. 发出 `skill_generation_ready`，询问用户是否生成技能实现
+
+**⛔ 在此快捷路径下绝对禁止**：
+- 发出 `skill_workorder_progress`
+- 询问"是否进入技能定义阶段"或等价问题
+- 重新引导用户选择或定义技能（技能清单已在 `skill_workorder_summary` 中拍板）
+- 重新发出 `skill_workorder_summary`（除非技能清单本身有变更，而不仅是对已有技能的补充资料）
+- 说"我们要先回到资料提炼"后停在等待用户再次确认——步骤 3-7 必须一气呵成
+
+**用户侧话术要求**：步骤 2 收口时不说"下一步进入技能定义"，而说"已收到补充资料，现在重新分析业务资料，然后直接继续生成实现"；步骤 7 时直接问"业务资料已用新规则重新对齐，现在开始生成这个技能吗？"
+
+---
 
 ### 阶段 2：技能
 
@@ -511,8 +543,9 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 | 1 | `material_handoff_summary` 已在本会话中发出（isTerminal: true） | **立即补发**：基于当前已收集的资料条目，构造并发出 `material_handoff_summary` terminal artifact |
 | 2 | R1 `ontology-slice-extraction` 已被触发（即步骤 1 完成后已构造过 `use skill ontology-slice-extraction` 内部触发块） | **立即补触发**：按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) R1 构造内部触发块 |
 | 3 | `ontology_slice_extraction_done` 已到达 | **等待**：给用户一句进度提示（"正在分析业务资料，稍后进入技能定义"），不得发 `skill_workorder_progress`，不得开始技能定义引导，不得追问技能选择 |
+| 4 | `skill_workorder_summary` **未**在本会话中发出（即技能定义尚未确认） | **直接跳过阶段 2 技能定义**：`skill_workorder_summary` 已存在说明技能清单已拍板，当前只是补充资料后重进。此时不得进入"进入阶段的强制动作"，必须改走「已确认技能定义后的资料补充快捷路径」——触发 R2 `ontology-projection` → 等待 `ontology_projection_done` → 发出 `skill_generation_ready` |
 
-**只有上述条件全部满足后**，才允许进入"进入阶段的强制动作"。
+**只有上述条件全部满足后**，才允许进入"进入阶段的强制动作"。条件 4 为否决项：一旦 `skill_workorder_summary` 已存在，立即跳转到快捷路径，不可绕过。
 
 > ⛔ 这条入口门禁是防御性的：阶段门控系统可能在 `material_handoff_summary` 未发出的情况下将阶段标为"完成"并推进到 stage 2。无论阶段如何被激活，本 skill 不得在 R1 未完成的情况下进入技能定义。
 
@@ -761,7 +794,7 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
    - 若 `metadata.json` 中记录了 projection source（如 `sources[].type == “projection”` 或 `projection.source_projection_paths` 非空），则要么存在上述 contract-index 与 4 个标准 view 文件，要么 `SKILL.md` 不得保留 Projection Contracts 章节，并且 `references/quality-report.md` 要明确写出跳过原因
    - 一旦发现”文案/metadata 声称有 projection，但 contracts 缺失”的情况：**停止打包**，不给 `template_package`，先提示用户技能生成产物不完整，需要回到 `skill-generation` 补齐或重生成
 3. **Manifest 同步（强制）**：调用打包工具前，必须先将运行时产出回写到 `manifest.json`（详见下文”Manifest 同步规则”）
-4. **打包前完整性审查（可选）**：Manifest 同步完成后，发出 `review_readiness` artifact 询问用户是否对数字员工内容进行完整性审查。用户确认审查时，必须按交接注册表 **R5** 唤起 `digital-employee-package-completeness-review` 并等待 `review_report`；用户跳过审查时，记录跳过并直接进入步骤 5。详见下文”打包前完整性审查门”
+4. **打包前完整性审查（教练强制询问，用户可选跳过）**：Manifest 同步完成后，**必须先发出 `review_readiness` badge 并明确提问**（如”是否需要先做一次完整性审查？回复'审查'或'跳过审查，直接打包'”），等待用户回应。**禁止**不等用户回应就直接进入审查或打包。用户确认审查时，必须按交接注册表 **R5** 唤起 `digital-employee-package-completeness-review` 并等待 `review_report`；用户跳过审查时，记录跳过并直接进入步骤 5。详见下文”打包前完整性审查门”
 5. 审查已跳过、或收到 `review_report` 后用户选择继续时，调用沙箱打包工具，等待返回 `fileUrl`
 6. 发 `template_package`（kind: file, isTerminal: true），`fileUrl` 字段填写第 5 步真实返回值
 7. 给用户一句简短反馈
@@ -944,9 +977,15 @@ ls <employee_package_root>/ontology/*.slice.json
 }
 ```
 
-### 打包前完整性审查门（可选）
+### 打包前完整性审查门（可选——用户可跳过审查，但教练不可跳过询问）
 
 Manifest 同步完成后（强制执行顺序步骤 3），在调用打包工具之前，**必须**询问用户是否对工作区产物进行完整性审查。
+
+**⛔ 审查询问是强制步骤，不可省略**：即使用户此前说过"打包""直接打包""继续""跳过测试用例"等，教练在进入审查门前**必须**先发出 `review_readiness` badge 并明确提问。禁止以下行为：
+- 在 `packaging_testcases_done` 之后直接发出 `review_progress` 而不经过 `review_readiness` 询问
+- 认为"审查是可选步骤"所以跳过询问直接打包
+- 在用户未回应审查询问前自动开始审查
+- 用"好的，正在进行审查"之类的话术跳过提问环节
 
 #### 审查询问
 
