@@ -10,9 +10,27 @@ import {
 
 const emptyState = {
   hasMaterialSummary: false,
+  hasOntologyExtractionDone: false,
   hasSkillSummary: false,
   hasProjectionResult: false,
   hasExternalConfigCommitted: false,
+}
+
+const validSkillWorkorderSummaryData = {
+  workspace_root: '/workspace/template-20260611090000',
+  template_slug: 'template',
+  total_items: 1,
+  items: [
+    {
+      name: 'order-risk-check',
+      display_name: '订单风险检查',
+      description: '检查订单风险并输出处置建议',
+      trigger: '用户提交订单异常线索',
+      expected_output: '输出风险等级和处置清单',
+      generation_action: 'generate_new',
+      status: 'ready',
+    },
+  ],
 }
 
 function collectContractArtifactTypes(value: unknown, target = new Set<string>()): Set<string> {
@@ -96,11 +114,37 @@ describe('getBlockedIncomingArtifactReason', () => {
 
   it('技能定义确认门必须在资料阶段收口后出现', () => {
     expect(getBlockedIncomingArtifactReason('skill_definition_ready', emptyState))
-      .toBe('skill definition confirmation requires material_handoff_summary')
+      .toBe('skill definition requires material_handoff_summary')
     expect(getBlockedIncomingArtifactReason('skill_definition_ready', {
       ...emptyState,
       hasMaterialSummary: true,
+    }, { isTerminal: false, kind: 'data' })).toBe('skill definition requires ontology_slice_extraction_done')
+    expect(getBlockedIncomingArtifactReason('skill_definition_ready', {
+      ...emptyState,
+      hasMaterialSummary: true,
+      hasOntologyExtractionDone: true,
     }, { isTerminal: false, kind: 'data' })).toBeNull()
+  })
+
+  it('技能阶段进度和技能定义收口必须等待业务资料分析完成', () => {
+    for (const artifactType of ['skill_workorder_progress', 'skill_workorder_summary']) {
+      const options = artifactType === 'skill_workorder_summary'
+        ? { isTerminal: true, kind: 'data' as const, data: validSkillWorkorderSummaryData }
+        : { isTerminal: false, kind: 'data' as const }
+
+      expect(getBlockedIncomingArtifactReason(artifactType, {
+        ...emptyState,
+        hasMaterialSummary: true,
+      }, options))
+        .toBe('skill definition requires ontology_slice_extraction_done')
+
+      expect(getBlockedIncomingArtifactReason(artifactType, {
+        ...emptyState,
+        hasMaterialSummary: true,
+        hasOntologyExtractionDone: true,
+      }, options))
+        .toBeNull()
+    }
   })
 
   it('匹配技能数据确认门必须在技能定义收口后出现', () => {
@@ -211,10 +255,63 @@ describe('getBlockedIncomingArtifactReason', () => {
     })).toBeNull()
   })
 
+  it('blocks skill summary when projection-pass contract fields are missing', () => {
+    const readyState = {
+      ...emptyState,
+      hasMaterialSummary: true,
+      hasOntologyExtractionDone: true,
+    }
+
+    expect(getBlockedIncomingArtifactReason('skill_workorder_summary', readyState, {
+      isTerminal: true,
+      kind: 'data',
+      data: {
+        workspace_root: '/workspace/template-20260611090000',
+        items: validSkillWorkorderSummaryData.items,
+      },
+    })).toBe('skill_workorder_summary.template_slug is required')
+
+    expect(getBlockedIncomingArtifactReason('skill_workorder_summary', readyState, {
+      isTerminal: true,
+      kind: 'data',
+      data: {
+        workspace_root: '/workspace/template-20260611090000',
+        template_slug: 'template',
+        items: [
+          {
+            name: 'order-risk-check',
+            display_name: '订单风险检查',
+            description: '检查订单风险并输出处置建议',
+            trigger: '用户提交订单异常线索',
+          },
+        ],
+      },
+    })).toBe('skill_workorder_summary.items[].expected_output is required')
+
+    expect(getBlockedIncomingArtifactReason('skill_workorder_summary', readyState, {
+      isTerminal: true,
+      kind: 'data',
+      data: {
+        workspace_root: '/workspace/template-20260611090000',
+        template_slug: 'template',
+        items: [
+          {
+            name: 'order-risk-check',
+            display_name: '订单风险检查',
+            description: '检查订单风险并输出处置建议',
+            trigger: '用户提交订单异常线索',
+            expected_output: '输出风险等级和处置清单',
+          },
+        ],
+      },
+    })).toBe('skill_workorder_summary.items[].generation_action is required')
+  })
+
   it('blocks placeholder workspace_root values', () => {
     expect(getBlockedIncomingArtifactReason('skill_workorder_summary', {
       ...emptyState,
       hasMaterialSummary: true,
+      hasOntologyExtractionDone: true,
     }, {
       isTerminal: true,
       kind: 'data',

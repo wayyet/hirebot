@@ -55,6 +55,19 @@ class SkillStageContractTests(unittest.TestCase):
             artifact = next(item for item in stage2["artifacts"] if item["type"] == gate)
             self.assertFalse(artifact["terminal"], f"{gate} must remain a non-terminal confirmation gate")
 
+    def test_stage1_contract_requires_ontology_done_before_stage2_gate(self) -> None:
+        artifacts_path = SKILL_ROOT / "contracts" / "artifacts.json"
+        contract = json.loads(read_text(artifacts_path))
+        stage1 = next(stage for stage in contract["stages"] if stage["name"] == "stage1_material")
+        stage2 = next(stage for stage in contract["stages"] if stage["name"] == "stage2_skill")
+
+        self.assertEqual(
+            stage1["completion"]["requiresArtifacts"],
+            ["material_handoff_summary", "ontology_slice_extraction_done"],
+        )
+        self.assertEqual(stage2["gate"]["requiresArtifact"], "ontology_slice_extraction_done")
+        self.assertIn("ontology-slice-extraction", stage2["gate"]["requiresDownstream"])
+
     def test_skill_stage_schema_and_handoff_registry_keep_the_same_gate_order(self) -> None:
         stage_schema = read_text(SKILL_ROOT / "references" / "stage-data-schema.md")
         handoff_registry = read_text(SKILL_ROOT / "references" / "downstream-handoff-registry.md")

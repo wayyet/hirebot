@@ -342,6 +342,7 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
   } = props
 
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
+  const ontologyExtractionState = downstreamRuns['ontology-slice-extraction'] ?? null
   const holdExternalStage = shouldHoldExternalStageUntilSkillImplementation(
     latestSkillSummary,
     skillGenerationState,
@@ -354,11 +355,12 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
   const uiStageOverrides = useMemo(
     () => buildUiStageOverrides(
       wsStageOverrides,
+      ontologyExtractionState,
       skillGenerationState,
       holdExternalStage,
       externalConfigCommitted,
     ),
-    [wsStageOverrides, skillGenerationState, holdExternalStage, externalConfigCommitted],
+    [wsStageOverrides, ontologyExtractionState, skillGenerationState, holdExternalStage, externalConfigCommitted],
   )
 
   const derivedWorkflowState = useMemo(

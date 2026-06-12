@@ -88,6 +88,7 @@ import {
   normalizeArtifactDisplayData,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
+  shouldSuppressStageGate,
 } from './hiringArtifactState'
 import {
   buildExternalConfigCommittedArtifact as createExternalConfigCommittedArtifact,
@@ -772,7 +773,7 @@ export default function HiringPage() {
   }, [typing, submittingMessage])
   useRuntimeStateSync(
     workflowHireId,
-    wsStageOverrides,
+    uiStageOverrides,
     downstreamRuns,
     allFiles,
     instanceCreated ? (restoredPackageFileName || finalPackageFileName) : '',
@@ -923,7 +924,7 @@ export default function HiringPage() {
     return [
       '你正在运行 HireBot 雇佣教练会话，不是目标数字员工本人。',
       '本轮初始化同时涉及两套包，必须先明确二者关系：',
-      '1. `coach_runtime_root`：固定为 `/workspace`。这是雇佣教练运行根目录，包含 employment-coach-conversation、ontology-extraction、skill-generation 等系统 skill，只用于读取流程规则，永远不能作为数字员工包的 manifest 同步、产物写入、审查或打包根目录。',
+      '1. `coach_runtime_root`：固定为 `/workspace`。这是雇佣教练运行根目录，包含 employment-coach-conversation、ontology-slice-extraction、skill-generation 等系统 skill，只用于读取流程规则，永远不能作为数字员工包的 manifest 同步、产物写入、审查或打包根目录。',
       `2. \`employee_package_root\`：固定为下面的 ${marker} 目录。它才是本轮待装配的"${templateName}"专属工作区，只能在这个目录内做 manifest 同步、写入运行时产物、完整性审查和最终打包。`,
       '读取顺序：先读取并遵守雇佣教练包的 `/workspace/AGENTS.md`、`/workspace/SOUL.md`、`/workspace/IDENTITY.md` 和 `/workspace/skills/employment-coach-conversation/SKILL.md`，再读取目标员工模板包的 manifest.json 与 config 文档。',
       '冲突规则：雇佣教练包决定“你是谁、流程怎么走、artifact 怎么发”；目标员工模板包决定“要装配什么员工、需要哪些业务资料”。不得把目标员工的 config/SOUL.md、config/IDENTITY.md 或 config/AGENTS.md 当作你的身份指令。',
@@ -1287,6 +1288,8 @@ export default function HiringPage() {
           }
           const blockedArtifactReason = getBlockedIncomingArtifactReason(artifactType, {
             hasMaterialSummary: latestMaterialSummaryRef.current !== null,
+            hasOntologyExtractionDone: downstreamRunsRef.current['ontology-slice-extraction']?.status === 'completed'
+              || (artifactType === 'ontology_slice_extraction_done' && isTerminal),
             hasSkillSummary: latestSkillSummaryRef.current !== null,
             hasProjectionResult: (artifactType === 'ontology_projection_done' && isTerminal)
               || latestProjectionResultRef.current !== null,
@@ -1344,7 +1347,7 @@ export default function HiringPage() {
             if (ontologyExtractionDoneSignatureRef.current !== signature) {
               ontologyExtractionDoneSignatureRef.current = signature
               pendingInternalPromptsRef.current.push(
-                buildCoachResumePrompt('post-ontology-extraction', {
+                buildCoachResumePrompt('post-ontology-slice-extraction', {
                   materialSummary: latestMaterialSummaryRef.current,
                   ontologyResult: artifactData.data ?? {},
                 }),
@@ -1452,7 +1455,14 @@ export default function HiringPage() {
                 next.set(HiringCollectionStage.Material, 'completed')
                 next.set(HiringCollectionStage.Skill, 'completed')
                 next.set(HiringCollectionStage.External, 'completed')
-              } else if ((artifactType === 'external_workorder_summary' || artifactType === 'skill_workorder_summary') && isTerminal) {
+              } else if (
+                (
+                  artifactType === 'external_workorder_summary'
+                  || artifactType === 'skill_workorder_summary'
+                  || artifactType === 'material_handoff_summary'
+                )
+                && isTerminal
+              ) {
                 if (next.get(hiringStage) !== 'completed') {
                   next.set(hiringStage, 'running')
                 }
@@ -1489,12 +1499,8 @@ export default function HiringPage() {
             canProceed: Boolean(gate.canProceed ?? gate.can_proceed),
             blockedReason: gate.blockedReason != null ? String(gate.blockedReason) : gate.blocked_reason != null ? String(gate.blocked_reason) : undefined,
           }
-          const shouldSuppressStageGate =
-            stageGate.canProceed &&
-            resolveHiringStageFromWs(stageGate.skillName, stageGate.completedStage) === HiringCollectionStage.Skill &&
-            resolveHiringStageFromWs(stageGate.skillName, stageGate.nextStage) === HiringCollectionStage.External &&
-            downstreamRunsRef.current['skill-generation']?.status !== 'completed'
-          if (shouldSuppressStageGate) {
+          const shouldSuppressGate = shouldSuppressStageGate(stageGate, downstreamRunsRef.current)
+          if (shouldSuppressGate) {
             return
           }
           setMessages(msgs => [...msgs, {
@@ -2871,7 +2877,7 @@ export default function HiringPage() {
             templatePackageSkills={template?.packageSkills ?? []}
             requestedMaterialCategories={materialRequestedCategories}
             uploadedConversationFiles={uploadedConversationFiles}
-            skillDefinitionStageStatus={wsStageOverrides.get(HiringCollectionStage.Skill) ?? null}
+            skillDefinitionStageStatus={uiStageOverrides.get(HiringCollectionStage.Skill) ?? null}
             skillGenerationState={skillStageConfirmationState}
             definedSkills={definedSkills}
             onExternalConfigChange={handleExternalConfigChange}

@@ -160,6 +160,12 @@ export function buildProjectionPassPayload(summary: unknown): Record<string, unk
         normalized.expected_output = item.expectedOutput.trim()
       }
 
+      if (typeof item.generation_action === 'string' && item.generation_action.trim()) {
+        normalized.generation_action = item.generation_action.trim()
+      } else if (typeof item.generationAction === 'string' && item.generationAction.trim()) {
+        normalized.generation_action = item.generationAction.trim()
+      }
+
       return normalized
     })
     .filter((item): item is Record<string, unknown> => item !== null)
@@ -234,6 +240,9 @@ export function buildSkillDefinitionConfirmationPrompt(userRequest: string, summ
     'The user has confirmed the current skill definition draft.',
     'Continue under `employment-coach-conversation` stage2_skill rules.',
     'Emit the terminal `skill_workorder_summary` for the confirmed skill list.',
+    '`skill_workorder_summary.data` must contain top-level `workspace_root`, `template_slug`, and a non-empty `items` array.',
+    'Each `items[]` entry must contain `name`, `display_name`, `description`, `trigger`, `expected_output`, and `generation_action` as non-empty strings.',
+    'If the real `workspace_root` or `template_slug` is missing, do not emit `skill_workorder_summary`; recover those session constants first.',
     'Immediately after that, emit non-terminal `ontology_projection_ready` to ask whether to prepare business information for these skills.',
     'Do not trigger ontology projection, skill-generation, external configuration, review, or packaging in this turn.',
     '',

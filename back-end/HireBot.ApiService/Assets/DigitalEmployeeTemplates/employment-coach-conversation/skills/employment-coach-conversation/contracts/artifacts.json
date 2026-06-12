@@ -5,6 +5,13 @@
       "name": "stage1_material",
       "label": "Stage 1: Material Collection",
       "ownerSkill": "employment-coach-conversation",
+      "completion": {
+        "requiresArtifacts": [
+          "material_handoff_summary",
+          "ontology_slice_extraction_done"
+        ],
+        "note": "material_handoff_summary closes material collection only; stage1_material is complete only after ontology-slice-extraction emits ontology_slice_extraction_done."
+      },
       "artifacts": [
         {
           "type": "material_collection_progress",
@@ -25,7 +32,11 @@
       "label": "Stage 2: Skill Definition And Generation",
       "ownerSkill": "employment-coach-conversation",
       "gate": {
-        "requiresStage": "stage1_material"
+        "requiresStage": "stage1_material",
+        "requiresArtifact": "ontology_slice_extraction_done",
+        "requiresDownstream": [
+          "ontology-slice-extraction"
+        ]
       },
       "artifacts": [
         {

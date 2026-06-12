@@ -367,12 +367,12 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 
 | 工具名 | 用途 | 参数 |
 |--------|------|------|
-| `load_skill` | 按 skill 名称加载其完整 SKILL.md 正文到当前上下文 | `skill`: skill 名称（如 `”ontology-extraction”`） |
+| `load_skill` | 按 skill 名称加载其完整 SKILL.md 正文到当前上下文 | `skill`: skill 名称（如 `"ontology-slice-extraction"`） |
 
 调用示例：
 
 ```json
-{ “skill”: “ontology-slice-extraction” }
+{ "skill": "ontology-slice-extraction" }
 ```
 
 返回格式：`<skill-instructions>\n## Skill: ontology-slice-extraction\n...` 完整 skill 正文。

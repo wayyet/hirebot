@@ -27,7 +27,6 @@ import { instanceBasePath } from '@/shared/utils/instancePath'
 import type { ArtifactTab, EvalChatMessage, EvaluationChatFile, TraceJsonData, WorkflowStage, WorkflowStageStatus } from './evaluation/evaluationTypes'
 import {
   shortSandboxId,
-  shortSessionId,
   resolveStageStatus,
   mergeStageStatus,
   findCurrentWorkflowStageIndex,

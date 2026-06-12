@@ -74,7 +74,7 @@ describe('chatToMarkdown', () => {
             name: 'load_skill',
             status: 'done',
             args: '{"skill":"ontology-slice-extraction"}',
-            result: '<skill-instructions>\n## Skill: ontology-extraction',
+            result: '<skill-instructions>\n## Skill: ontology-slice-extraction',
           },
         ],
       },
@@ -86,9 +86,9 @@ describe('chatToMarkdown', () => {
     expect(markdown).toContain('##### 1. `load_skill`')
     expect(markdown).toContain('- 状态: 完成')
     expect(markdown).toContain('**参数**')
-    expect(markdown).toContain('"skill": "ontology-extraction"')
+    expect(markdown).toContain('"skill": "ontology-slice-extraction"')
     expect(markdown).toContain('**返回**')
-    expect(markdown).toContain('## Skill: ontology-extraction')
+    expect(markdown).toContain('## Skill: ontology-slice-extraction')
   })
 
   it('导出当前流式轮次中尚未固化到消息里的工具调用', () => {

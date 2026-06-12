@@ -3,6 +3,7 @@
 import {
   buildDownstreamPrompt,
   buildPackagingRequestPrompt,
+  buildProjectionPassPayload,
   buildSkillDefinitionConfirmationPrompt,
   buildSkillGenerationPayload,
   isSkillDefinitionApprovalMessage,
@@ -16,6 +17,57 @@ import {
   resolveSkillStageApprovalRoute,
 } from './hiringDownstreamTriggers'
 import type { DownstreamRunState } from '../hiringPageTypes'
+
+describe('buildProjectionPassPayload', () => {
+  it('从有效技能定义摘要构造匹配技能数据 payload', () => {
+    const payload = buildProjectionPassPayload({
+      workspace_root: '/workspace/template-20260611090000',
+      template_slug: 'template',
+      items: [
+        {
+          name: 'order-risk-check',
+          display_name: '订单风险检查',
+          description: '检查订单风险并输出处置建议',
+          trigger: '用户提交订单异常线索',
+          expected_output: '输出风险等级和处置清单',
+          generation_action: 'generate_new',
+        },
+      ],
+    })
+
+    expect(payload).toEqual({
+      trigger_mode: 'projection_pass',
+      workspace_root: '/workspace/template-20260611090000',
+      template_slug: 'template',
+      skills: [
+        {
+          skill_slug: 'order-risk-check',
+          skill_name: '订单风险检查',
+          triggers: ['用户提交订单异常线索'],
+          description: '检查订单风险并输出处置建议',
+          expected_output: '输出风险等级和处置清单',
+          generation_action: 'generate_new',
+        },
+      ],
+    })
+  })
+
+  it('缺少 workspace_root 时不构造匹配技能数据 payload', () => {
+    expect(buildProjectionPassPayload({
+      template_slug: 'template',
+      items: [
+        {
+          name: 'order-risk-check',
+          display_name: '订单风险检查',
+          description: '检查订单风险并输出处置建议',
+          trigger: '用户提交订单异常线索',
+          expected_output: '输出风险等级和处置清单',
+          generation_action: 'generate_new',
+        },
+      ],
+    })).toBeNull()
+  })
+})
 
 describe('buildSkillGenerationPayload', () => {
   it('projection 目录 slug 与已确认技能 slug 不一致时不启动技能生成', () => {
@@ -258,6 +310,12 @@ describe('buildSkillDefinitionConfirmationPrompt', () => {
 
     expect(prompt).toContain('skill_workorder_summary')
     expect(prompt).toContain('ontology_projection_ready')
+    expect(prompt).toContain('workspace_root')
+    expect(prompt).toContain('template_slug')
+    expect(prompt).toContain('items[]')
+    expect(prompt).toContain('expected_output')
+    expect(prompt).toContain('generation_action')
+    expect(prompt).toContain('do not emit `skill_workorder_summary`')
     expect(prompt).toContain('Do not trigger ontology projection')
     expect(prompt).not.toContain('skill_generation_progress')
   })
@@ -266,7 +324,7 @@ describe('buildSkillDefinitionConfirmationPrompt', () => {
 describe('buildDownstreamPrompt', () => {
   const samplePayload = { workspace_root: '/workspace/template-1' }
 
-  it('ontology-extraction prompt 包含 use skill ontology-slice-extraction 触发块', () => {
+  it('ontology-slice-extraction prompt 包含 use skill ontology-slice-extraction 触发块', () => {
     const prompt = buildDownstreamPrompt('ontology-slice-extraction', samplePayload)
 
     expect(prompt).toContain('use skill ontology-slice-extraction')
