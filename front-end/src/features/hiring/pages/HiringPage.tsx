@@ -54,10 +54,13 @@ import {
   buildSkillGenerationPayload,
   buildSkillDefinitionConfirmationPrompt,
   buildDownstreamPrompt,
+  buildPackageReviewPrompt,
+  buildPackageReviewSkipPackagingPrompt,
   buildPackagingRequestPrompt,
   isPackagingTestCasesApprovalMessage,
   isPackagingTestCasesSkipMessage,
   resolveActiveSkillStageRun,
+  resolvePackageReviewDecisionRoute,
   resolvePackagingRequestRoute,
   resolveSkillStageApprovalRoute,
 } from './utils/hiringDownstreamTriggers'
@@ -131,6 +134,26 @@ function buildArtifactEventSignature(artifact: ArtifactDisplayData): string {
     fileName: artifact.fileName,
     data: artifact.data,
   })
+}
+
+function hasPendingPackageReviewDecision(sourceMessages: ChatMessage[]): boolean {
+  for (let index = sourceMessages.length - 1; index >= 0; index -= 1) {
+    const artifactType = sourceMessages[index].artifact?.artifactType
+    if (artifactType === 'review_readiness') {
+      return true
+    }
+
+    if (
+      artifactType === 'review_progress' ||
+      artifactType === 'review_report' ||
+      artifactType === 'packaging_progress' ||
+      artifactType === 'template_package'
+    ) {
+      return false
+    }
+  }
+
+  return false
 }
 
 /**
@@ -1402,6 +1425,7 @@ export default function HiringPage() {
           }
           if (artifactType === 'review_report' && kind === 'data' && isTerminal) {
             latestReviewReportRef.current = artifactData.data ?? null
+            packagingInProgressRef.current = false
           }
           if (artifactType === 'external_workorder_summary' && kind === 'data' && isTerminal) {
             latestExternalSummaryRef.current = artifactData.data ?? null
@@ -1436,6 +1460,12 @@ export default function HiringPage() {
               ? artifactData.data as Record<string, unknown>
               : null
             packagingInProgressRef.current = progressData?.status === 'packing' || progressData?.status === 'waiting_downstream'
+          }
+          if (artifactType === 'review_readiness') {
+            packagingInProgressRef.current = false
+          }
+          if (artifactType === 'review_progress') {
+            packagingInProgressRef.current = true
           }
           if (!duplicateExternalConfigCommitted && shouldDisplayArtifact) {
             setMessages(msgs => [...msgs, {
@@ -2225,6 +2255,16 @@ export default function HiringPage() {
         !shouldLaunchPackagingTestCases &&
         packagingTestCasesState?.status === 'waiting_confirm' &&
         isPackagingTestCasesSkipMessage(text)
+      const hasPendingReviewDecision = hasPendingPackageReviewDecision(messagesRef.current)
+      const packageReviewDecisionRoute = resolvePackageReviewDecisionRoute({
+        text,
+        incomingFileCount: incoming.length,
+        hasPendingPackageReviewDecision: hasPendingReviewDecision,
+        isBlockedByRequiredConfirmation: shouldConfirmSkillDefinition || shouldLaunchProjectionPass || shouldLaunchSkillGeneration,
+        isBlockedByPackagingTestCaseGeneration: shouldLaunchPackagingTestCases,
+      })
+      const shouldLaunchPackageReview = packageReviewDecisionRoute === 'launch_package_review'
+      const shouldSkipPackageReview = packageReviewDecisionRoute === 'skip_review_and_package'
       const hasPackagingContext =
         externalConfigCommittedSignatureRef.current.length > 0 ||
         packagingTestCasesState !== null ||
@@ -2246,6 +2286,7 @@ export default function HiringPage() {
         incomingFileCount: incoming.length,
         isBlockedByRequiredConfirmation: shouldConfirmSkillDefinition || shouldLaunchProjectionPass || shouldLaunchSkillGeneration,
         isBlockedByPackagingTestCaseGeneration: shouldLaunchPackagingTestCases,
+        hasPendingPackageReviewDecision: hasPendingReviewDecision,
         hasPendingPackageArtifact: pendingPackageArtifact !== null,
         packagingInProgress: packagingInProgressRef.current,
         hasReviewReport: latestReviewReportRef.current !== null,
@@ -2284,6 +2325,22 @@ export default function HiringPage() {
         submitted = await launchProjectionPassFromApproval()
       } else if (shouldLaunchSkillGeneration) {
         submitted = await launchSkillGenerationFromApproval()
+      } else if (shouldLaunchPackageReview) {
+        submitted = await submitWorkflowMessage(
+          buildPackageReviewPrompt(fallbackText),
+          undefined,
+          true,
+          false,
+          false,
+        )
+      } else if (shouldSkipPackageReview) {
+        submitted = await submitWorkflowMessage(
+          buildPackageReviewSkipPackagingPrompt(fallbackText),
+          undefined,
+          true,
+          false,
+          false,
+        )
       } else if (shouldImportExistingPackage) {
         submitted = await importExistingPackageFromRequest()
       } else if (shouldWaitForActivePackaging) {
@@ -2622,14 +2679,19 @@ export default function HiringPage() {
       void triggerCreate()
       return
     }
-    const visibleRequest = '三个阶段均已确认完成，请开始生成数字员工'
+    const reviewDecisionPending = hasPendingPackageReviewDecision(messagesRef.current)
+    const visibleRequest = reviewDecisionPending
+      ? '跳过审查，直接打包'
+      : '三个阶段均已确认完成，请开始生成数字员工'
     setMessages(prev => [...prev, {
       id: mkId(),
       role: 'user',
       content: visibleRequest,
     }])
     await submitWorkflowMessage(
-      buildPackagingRequestPrompt(visibleRequest, latestReviewReportRef.current),
+      reviewDecisionPending
+        ? buildPackageReviewSkipPackagingPrompt(visibleRequest)
+        : buildPackagingRequestPrompt(visibleRequest, latestReviewReportRef.current),
       undefined,
       true,
       false,

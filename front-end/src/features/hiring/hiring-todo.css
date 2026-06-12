@@ -963,6 +963,16 @@
   font-weight: 700;
   line-height: 1.2;
 }
+.hb-todo-material-head-pill.is-complete {
+  border-color: rgba(16, 185, 129, 0.22);
+  background: rgba(16, 185, 129, 0.10);
+  color: var(--hb-text-green);
+}
+.hb-todo-material-head-pill.is-failed {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: rgba(239, 68, 68, 0.10);
+  color: var(--hb-danger);
+}
 .hb-todo-material-chevron {
   display: inline-flex;
   align-items: center;

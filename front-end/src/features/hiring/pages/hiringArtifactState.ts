@@ -819,8 +819,9 @@ export function buildCoachResumePrompt(
       'Resume the main hiring flow inside stage4_packaging.',
       'Do not regenerate evaluation test cases in this turn.',
       'Do not claim the instance package is already generated.',
-      'Give one short transition that the evaluation test cases are ready, then explicitly ask whether to generate the instance package now.',
-      'If the user already explicitly asked to package in the current context, proceed directly under the coach skill rules; otherwise ask the packaging confirmation question only.',
+      'Give one short transition that the evaluation test cases are ready, then continue the stage4 packaging sequence toward the required review_readiness gate.',
+      'Do not emit review_progress or template_package before review_readiness and the user review decision.',
+      'If the user already explicitly asked to package in the current context, proceed directly under the coach skill rules until review_readiness; otherwise ask whether to continue packaging.',
     ]
 
     if (generatedCount !== null) {

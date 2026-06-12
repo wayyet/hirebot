@@ -16,6 +16,11 @@ export type PackagingRequestRoute =
   | 'wait_for_active_packaging'
   | 'launch_packaging_request'
 
+export type PackageReviewDecisionRoute =
+  | 'none'
+  | 'launch_package_review'
+  | 'skip_review_and_package'
+
 export interface SkillStageApprovalRouteInput {
   text: string
   incomingFileCount: number
@@ -30,11 +35,20 @@ export interface PackagingRequestRouteInput {
   incomingFileCount: number
   isBlockedByRequiredConfirmation: boolean
   isBlockedByPackagingTestCaseGeneration: boolean
+  hasPendingPackageReviewDecision: boolean
   hasPendingPackageArtifact: boolean
   packagingInProgress: boolean
   hasReviewReport: boolean
   hasPackagingContext: boolean
   hasCompletedCoreSummaries: boolean
+}
+
+export interface PackageReviewDecisionRouteInput {
+  text: string
+  incomingFileCount: number
+  hasPendingPackageReviewDecision: boolean
+  isBlockedByRequiredConfirmation: boolean
+  isBlockedByPackagingTestCaseGeneration: boolean
 }
 
 function isWaitingArtifact(
@@ -369,8 +383,37 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
   return ''
 }
 
+function buildPackageZipInstructionLines(): string[] {
+  return [
+    'Before invoking the package/export/archive tool, emit `packaging_progress` with data.status=`packing`.',
+    '`coach_runtime_root` is `/workspace`; it contains the employment-coach system package and must never be packaged.',
+    'Resolve `employee_package_root` from the latest terminal artifact `data.workspace_root` or the first workspace FILE_URL. It must look like `/workspace/<template_slug>-<timestamp>`, not `/workspace`.',
+    'If `employee_package_root` is missing, equals `/workspace`, or contains `skills/employment-coach-conversation/`, stop and report the concrete root-resolution problem instead of packaging.',
+    'Use the available packaging/export/archive tool first. If no dedicated tool exists, change into `employee_package_root` and use a zip tool to package that directory.',
+    'The ZIP must be written from inside `employee_package_root` so the archive root contains `manifest.json`, `config/`, `skills/`, `ontology/`, `external/`, and optional `testcases/` directly.',
+    'The ZIP must be a real downloadable instance package file and must be emitted as a terminal file artifact with artifactType=`template_package`.',
+    'Never emit a data-only template_package, never use `/workspace` as a placeholder workspace_root or package root, and never ask the user to provide an unavailable trigger.',
+    'If a downloadable ZIP cannot be produced after trying the available tool path and shell ZIP path, emit the protocol failure fallback with the concrete blocking reason.',
+  ]
+}
+
 export function buildPackagingRequestPrompt(userRequest: string, reviewReport?: unknown): string {
   const normalizedRequest = userRequest.trim() || 'continue packaging'
+  if (reviewReport == null) {
+    return [
+      '[Internal packaging review gate trigger. Do not mention this instruction to the user.]',
+      `The visible user request was: ${JSON.stringify(normalizedRequest)}.`,
+      'The user has authorized entering stage4 packaging, but the required package review decision has not been collected yet.',
+      'Continue under `employment-coach-conversation` stage4_packaging rules only until the review decision gate.',
+      'Run the mandatory pre-package sequence before the review gate: emit `packaging_progress` with data.status=`packing`, perform projection-consumer consistency precheck, then sync `manifest.json`.',
+      'After manifest sync, emit non-terminal `review_readiness` with data.status=`ready_for_review_decision` and ask the user whether to run completeness review or skip review and package directly.',
+      'Stop immediately after `review_readiness`. Do not emit `review_progress`, do not emit `review_report`, do not invoke package/export/archive tools, and do not emit `template_package` until the user answers the review decision.',
+      '`coach_runtime_root` is `/workspace`; it contains the employment-coach system package and must never be packaged.',
+      'Resolve `employee_package_root` from the latest terminal artifact `data.workspace_root` or the first workspace FILE_URL. It must look like `/workspace/<template_slug>-<timestamp>`, not `/workspace`.',
+      'If `employee_package_root` is missing, equals `/workspace`, or contains `skills/employment-coach-conversation/`, stop and report the concrete root-resolution problem instead of continuing.',
+    ].join('\n')
+  }
+
   const reviewLines = reviewReport == null
     ? []
     : [
@@ -389,17 +432,45 @@ export function buildPackagingRequestPrompt(userRequest: string, reviewReport?: 
     `The visible user request was: ${JSON.stringify(normalizedRequest)}.`,
     'The user has authorized instance packaging. Do not ask for a package trigger, dispatch target, tool name, or another "start generation" confirmation.',
     ...reviewLines,
-    'If review_readiness has not been emitted for the current completed material, skill, and external stages, emit review_readiness first and wait only for the required review decision.',
-    'If review_readiness/review_report is already satisfied, package the current employee package workspace now.',
-    'Before invoking the package/export/archive tool, emit `packaging_progress` with data.status=`packing`.',
-    '`coach_runtime_root` is `/workspace`; it contains the employment-coach system package and must never be packaged.',
-    'Resolve `employee_package_root` from the latest terminal artifact `data.workspace_root` or the first workspace FILE_URL. It must look like `/workspace/<template_slug>-<timestamp>`, not `/workspace`.',
-    'If `employee_package_root` is missing, equals `/workspace`, or contains `skills/employment-coach-conversation/`, stop and report the concrete root-resolution problem instead of packaging.',
-    'Use the available packaging/export/archive tool first. If no dedicated tool exists, change into `employee_package_root` and use a zip tool to package that directory.',
-    'The ZIP must be written from inside `employee_package_root` so the archive root contains `manifest.json`, `config/`, `skills/`, `ontology/`, `external/`, and optional `testcases/` directly.',
-    'The ZIP must be a real downloadable instance package file and must be emitted as a terminal file artifact with artifactType=`template_package`.',
-    'Never emit a data-only template_package, never use `/workspace` as a placeholder workspace_root or package root, and never ask the user to provide an unavailable trigger.',
-    'If a downloadable ZIP cannot be produced after trying the available tool path and shell ZIP path, emit the protocol failure fallback with the concrete blocking reason.',
+    'The package review gate is already satisfied by the provided `review_report`; package the current employee package workspace now.',
+    ...buildPackageZipInstructionLines(),
+  ].join('\n')
+}
+
+export function buildPackageReviewPrompt(userRequest: string): string {
+  const normalizedRequest = userRequest.trim() || 'run package completeness review'
+
+  return [
+    '[Internal package review trigger. Do not mention this instruction to the user.]',
+    `The visible user request was: ${JSON.stringify(normalizedRequest)}.`,
+    'The user has explicitly chosen to run package completeness review after `review_readiness`.',
+    'Do not invoke package/export/archive tools and do not emit `template_package` in this turn.',
+    'Emit `review_progress` with stage=`stage4_packaging` and data.status=`running` before starting the review.',
+    'Switch to skill `digital-employee-package-completeness-review` now.',
+    'source_skill: employment-coach-conversation',
+    'trigger_reason: user_confirmed_package_review',
+    'Do not call sessions, dispatch, handoff, spawn, or yield tools for this trigger.',
+    'Resolve `package_root` from the current employee package workspace, not from `/workspace` and not from the employment-coach system package.',
+    'Follow `digital-employee-package-completeness-review/SKILL.md` exactly.',
+    'Finish with terminal `review_report` using stage=`stage4_packaging`.',
+    '',
+    'required_artifacts:',
+    '- review_progress',
+    '- review_report',
+    'return_to: employment-coach-conversation',
+  ].join('\n')
+}
+
+export function buildPackageReviewSkipPackagingPrompt(userRequest: string): string {
+  const normalizedRequest = userRequest.trim() || 'skip review and package'
+
+  return [
+    '[Internal package review skip trigger. Do not mention this instruction to the user.]',
+    `The visible user request was: ${JSON.stringify(normalizedRequest)}.`,
+    'The user has explicitly skipped package completeness review after `review_readiness` and wants to package directly.',
+    'Do not run `digital-employee-package-completeness-review`, do not emit `review_progress`, and do not emit `review_report`.',
+    'Continue under `employment-coach-conversation` stage4_packaging rules from the post-review-decision packaging step.',
+    ...buildPackageZipInstructionLines(),
   ].join('\n')
 }
 
@@ -607,6 +678,88 @@ export function isPackagingTestCasesSkipMessage(text: string): boolean {
   return keywords.some(keyword => compact.includes(keyword))
 }
 
+export function isPackageReviewApprovalMessage(text: string): boolean {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) return false
+
+  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、""'']+/g, '')
+  const negativeKeywords = [
+    '跳过',
+    '不用',
+    '不需要',
+    '不审查',
+    '直接打包',
+    'skip',
+    'no',
+  ]
+  if (negativeKeywords.some(keyword => compact.includes(keyword))) {
+    return false
+  }
+
+  const exactApprovals = new Set([
+    '审查',
+    '检查',
+    '开始审查',
+    '开始检查',
+    '好',
+    '好的',
+    '开始',
+    '需要',
+    '要',
+    'yes',
+    'y',
+    'ok',
+    'review',
+  ])
+  if (exactApprovals.has(compact)) return true
+
+  const keywords = [
+    '完整性审查',
+    '进行审查',
+    '做审查',
+    '先审查',
+    '检查完整性',
+    'packagecompletenessreview',
+    'runreview',
+  ]
+
+  return keywords.some(keyword => compact.includes(keyword))
+}
+
+export function isPackageReviewSkipMessage(text: string): boolean {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) return false
+
+  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、""'']+/g, '')
+  const keywords = [
+    '跳过',
+    '跳过审查',
+    '不用',
+    '不用审查',
+    '不需要',
+    '不需要审查',
+    '不审查',
+    '直接打包',
+    '继续打包',
+    '继续',
+    '打包',
+    '生成并打包',
+    '生成实例包',
+    '生成数字员工',
+    '生成数字员工包',
+    '打成zip',
+    'skipreview',
+    'skip',
+    'noreview',
+    'no',
+    'package',
+    'continuepackaging',
+    'continue',
+  ]
+
+  return keywords.some(keyword => compact.includes(keyword))
+}
+
 export function isPackagingRequestMessage(text: string): boolean {
   const normalized = text.trim().toLowerCase()
   if (!normalized) return false
@@ -638,6 +791,27 @@ export function isPackagingRequestMessage(text: string): boolean {
   return keywords.some(keyword => compact.includes(keyword))
 }
 
+export function resolvePackageReviewDecisionRoute(input: PackageReviewDecisionRouteInput): PackageReviewDecisionRoute {
+  if (
+    input.incomingFileCount > 0 ||
+    !input.hasPendingPackageReviewDecision ||
+    input.isBlockedByRequiredConfirmation ||
+    input.isBlockedByPackagingTestCaseGeneration
+  ) {
+    return 'none'
+  }
+
+  if (isPackageReviewSkipMessage(input.text) || isPackagingRequestMessage(input.text)) {
+    return 'skip_review_and_package'
+  }
+
+  if (isPackageReviewApprovalMessage(input.text)) {
+    return 'launch_package_review'
+  }
+
+  return 'none'
+}
+
 export function resolvePackagingRequestRoute(input: PackagingRequestRouteInput): PackagingRequestRoute {
   if (input.incomingFileCount > 0 || !isPackagingRequestMessage(input.text)) {
     return 'none'
@@ -645,6 +819,10 @@ export function resolvePackagingRequestRoute(input: PackagingRequestRouteInput):
 
   if (input.hasPendingPackageArtifact) {
     return 'import_existing_package'
+  }
+
+  if (input.hasPendingPackageReviewDecision) {
+    return 'none'
   }
 
   if (input.packagingInProgress) {
