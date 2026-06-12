@@ -295,9 +295,9 @@ export interface HiringComputedProps {
   latestSkillSummary: unknown
   focusedStage: HiringUiStage | null
   t: (key: string) => string
+  templateName?: string | null
   workflowHireId: string
   instanceCreated: boolean
-  artifactArchive: { fileName: string; blob: Blob } | null
   typing: boolean
   workflowBooting: boolean
   submittingMessage: boolean
@@ -331,9 +331,9 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
     latestSkillSummary,
     focusedStage,
     t,
+    templateName,
     workflowHireId,
     instanceCreated,
-    artifactArchive,
     typing,
     workflowBooting,
     submittingMessage,
@@ -394,12 +394,10 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
   const canCreate = Boolean(workflowHireId) && !instanceCreated
   const canDownloadFinalPackage = instanceCreated && Boolean(workflowHireId)
 
-  const finalPackageFileName = useMemo(() => {
-    if (artifactArchive?.fileName) {
-      return artifactArchive.fileName
-    }
-    return ''
-  }, [artifactArchive?.fileName])
+  const finalPackageFileName = useMemo(
+    () => buildFinalPackageDisplayFileName(templateName),
+    [templateName],
+  )
 
   const hasTemplatePackageArtifact = useMemo(
     () => messages.some(message => message.artifact?.artifactType === 'template_package'),
@@ -431,4 +429,41 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
     mergedStepPills,
     mergedActionState,
   }
+}
+
+function buildFinalPackageDisplayFileName(templateName?: string | null): string {
+  const suffix = '数字员工'
+  const fallback = `${suffix}.zip`
+  if (!templateName?.trim()) {
+    return fallback
+  }
+
+  let normalized = ''
+  let previousWasSeparator = false
+  for (const character of templateName.trim()) {
+    if (/[\x00-\x1F<>:"/\\|?*]/.test(character)) {
+      continue
+    }
+
+    if (/\s/.test(character) || character === '_' || character === '-') {
+      if (normalized && !previousWasSeparator) {
+        normalized += '-'
+        previousWasSeparator = true
+      }
+      continue
+    }
+
+    if (/[\p{L}\p{N}]/u.test(character)) {
+      normalized += character
+      previousWasSeparator = false
+    }
+  }
+
+  normalized = normalized.replace(/^[\s.-]+|[\s.-]+$/g, '')
+  if (!normalized) {
+    return fallback
+  }
+
+  const baseName = normalized.endsWith(suffix) ? normalized : `${normalized}-${suffix}`
+  return `${baseName}.zip`
 }

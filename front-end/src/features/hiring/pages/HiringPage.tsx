@@ -207,9 +207,7 @@ export default function HiringPage() {
     workflowError,
     workflowNotice,
     workflowInitAttempted,
-    artifactArchive,
     artifactFileNames,
-    restoredPackageFileName,
     materialRequestedCategories,
     pendingPackageArtifact,
     pendingStageConfirmation,
@@ -241,9 +239,7 @@ export default function HiringPage() {
     setWorkflowError,
     setWorkflowNotice,
     setWorkflowInitAttempted,
-    setArtifactArchive,
     setArtifactFileNames,
-    setRestoredPackageFileName,
     setMaterialRequestedCategories,
     setPendingPackageArtifact,
     setPendingStageConfirmation,
@@ -273,9 +269,9 @@ export default function HiringPage() {
     latestSkillSummary,
     focusedStage,
     t,
+    templateName: template?.name,
     workflowHireId,
     instanceCreated,
-    artifactArchive,
     typing,
     workflowBooting,
     submittingMessage,
@@ -562,12 +558,9 @@ export default function HiringPage() {
           restored = true
         }
 
-      // 恢复最新数字员工包结构（不恢复 blob，仅恢复显示用的文件名和结构数据）
+      // 恢复最新数字员工包结构；文件名由当前模板名统一计算，不信任历史缓存名。
         if (state.packageStructure?.fileName) {
           setArtifactFileNames(state.packageStructure.fileNames ?? [])
-        // 无 blob 时仅设 fileName 以便 FinalCard 显示包名；artifactArchive blob 留 null
-        // canDownloadFinalPackage 依赖 artifactArchive.blob，刷新后不可下载但可显示包名
-          setRestoredPackageFileName(state.packageStructure.fileName)
         // 恢复员工实例 ID：如果包内储了 employeeId，则恢复评估入口
           if (state.packageStructure.employeeId) {
             setCreatedId(state.packageStructure.employeeId)
@@ -694,9 +687,7 @@ export default function HiringPage() {
     latestExternalConfigRef.current = config
     if (shouldRequireFreshPackagingAfterExternalConfigChange(previousConfig, config, source, instanceCreated)) {
       setPendingPackageArtifact(null)
-      setArtifactArchive(null)
       setArtifactFileNames([])
-      setRestoredPackageFileName('')
       setRequiresFreshPackaging(true)
       setWorkflowError('')
       setWorkflowNotice(EXTERNAL_CONFIG_REPACKAGE_NOTICE)
@@ -794,7 +785,7 @@ export default function HiringPage() {
     uiStageOverrides,
     downstreamRuns,
     allFiles,
-    instanceCreated ? (restoredPackageFileName || finalPackageFileName) : '',
+    instanceCreated ? finalPackageFileName : '',
     artifactFileNames,
     createdId,
     instanceCreated,
@@ -2515,10 +2506,7 @@ export default function HiringPage() {
       if (finalizeResult.employeeId) {
         setCreatedId(finalizeResult.employeeId)
       }
-      // 导入完成后使用后端规范包名，刷新页面也能恢复评估入口。
-      setRestoredPackageFileName(finalizeResult.packageFileName ?? '')
-      // 后续下载统一走后端 final_package_zip，避免继续使用沙箱原始 ZIP 缓存。
-      setArtifactArchive(null)
+      // 后续下载统一走后端 final_package_zip，页面展示名由模板名计算。
       setInstanceCreated(true)
       setPendingStageConfirmation(null)
       setWorkflowError('')
@@ -2549,8 +2537,6 @@ export default function HiringPage() {
 
     try {
       const artifact = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
-      setArtifactArchive(artifact)
-      setRestoredPackageFileName(artifact.fileName)
       downloadBlob(artifact.blob, artifact.fileName)
       setWorkflowError('')
       setWorkflowNotice('')
@@ -2566,14 +2552,6 @@ export default function HiringPage() {
       return
     }
     await downloadPersistedFinalPackage()
-    return
-    if (artifactArchive) {
-      downloadBlob(artifactArchive!.blob, artifactArchive!.fileName)
-      setWorkflowNotice('')
-      return
-    }
-    // 页面刷新后数字员工包 Blob 会丢失,需要重新从沙箱下载并导入
-    setWorkflowNotice('数字员工包未缓存,请从对话产物中重新导入')
   }
 
   /**
@@ -2708,9 +2686,7 @@ export default function HiringPage() {
         setPendingPackageArtifact(null)
         setPendingStageConfirmation(null)
         setRequiresFreshPackaging(false)
-        setArtifactArchive(null)
         setArtifactFileNames([])
-        setRestoredPackageFileName('')
         setLinkedStoreSkillIds([])
         setLatestSkillSummary(null)
         downstreamRunsRef.current = {}
@@ -2925,11 +2901,9 @@ export default function HiringPage() {
             onConfirmSkillGeneration={() => { void handleConfirmSkillGeneration() }}
             onConfirmSkillStageDone={() => { void handleConfirmSkillStageDone() }}
             packageStructure={
-              artifactArchive
-                ? { fileName: artifactArchive.fileName, fileNames: artifactFileNames }
-                : restoredPackageFileName
-                  ? { fileName: restoredPackageFileName, fileNames: artifactFileNames }
-                  : null
+              instanceCreated
+                ? { fileName: finalPackageFileName, fileNames: artifactFileNames }
+                : null
             }
           />
         </div>
