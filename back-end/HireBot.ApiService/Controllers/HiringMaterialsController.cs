@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
-using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.AspNetCore.Mvc;
@@ -14,7 +13,7 @@ namespace HireBot.ApiService.Controllers;
 [ApiController]
 public sealed class HiringMaterialsController(
     HireBotDbContext dbContext,
-    IHiringFileStore fileStore,
+    IFileStore fileStore,
     IHttpContextAccessor httpContextAccessor) : ControllerBase
 {
     public sealed class UploadMaterialForm
@@ -64,7 +63,10 @@ public sealed class HiringMaterialsController(
         }
 
         await using var stream2 = file.OpenReadStream();
-        var storagePath = await fileStore.SaveAsync(session.SessionId, category, originalName, stream2, cancellationToken);
+        var storagePath = await fileStore.SaveAsync(
+            $"artifact-store/sessions/{session.SessionId}/{category}/{originalName}",
+            stream2,
+            cancellationToken);
 
         dbContext.HiringArtifacts.Add(new HiringArtifactEntity
         {

@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -8,25 +7,21 @@ using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.ApiService.McpTools;
 using HireBot.ApiService.Services;
-using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.ApiService.Controllers;
 
 /// <summary>
-/// 雇佣资料阶段上传文件管理：文件内容落盘，数据库保存 hireId + sessionId 绑定元数据。
+/// 雇佣资料阶段上传文件管理：文件内容通过 IFileStore 持久化，数据库保存 hireId + sessionId 绑定元数据。
 /// </summary>
 [Route("api/v1/hirings/{hireId}/material-files")]
 [ApiController]
 public sealed class HiringMaterialFilesController(
-    IWebHostEnvironment env,
-    IConfiguration configuration,
+    IFileStore fileStore,
     HireBotDbContext dbContext,
     ISandboxService sandboxService,
     IHttpContextAccessor httpContextAccessor,
@@ -165,13 +160,35 @@ public sealed class HiringMaterialFilesController(
         var relativePath = string.IsNullOrWhiteSpace(safeFolder)
             ? safeFileName
             : $"{safeFolder}/{safeFileName}";
-        var targetPath = ResolveFilePath(uploadContext.SessionId, relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+        var virtualPath = $"resources/todo-files/{uploadContext.SessionId}/{relativePath}";
 
-        var backupPath = BackupExistingFile(targetPath);
+        // 先将文件内容读取到内存，计算 SHA256 哈希
         var sha256 = string.Empty;
-        var savedToDisk = false;
+        byte[] fileBytes;
+        await using (var formStream = file.OpenReadStream())
+        {
+            using var memStream = new MemoryStream((int)file.Length);
+            await formStream.CopyToAsync(memStream, cancellationToken);
+            fileBytes = memStream.ToArray();
+        }
+
+        sha256 = Convert.ToHexStringLower(SHA256.HashData(fileBytes));
         var mimeType = NormalizeOptional(file.ContentType, 120);
+
+        // 通过 IFileStore 持久化
+        using var saveStream = new MemoryStream(fileBytes);
+        var storagePath = await fileStore.SaveAsync(virtualPath, saveStream, cancellationToken);
+
+        // 尝试同步到 sandbox workspace
+        var syncedWorkspaceRelativePath = await TrySyncWorkspaceCopyAsync(
+            uploadContext,
+            relativePath,
+            safeFolder,
+            safeFileName,
+            fileBytes,
+            mimeType,
+            cancellationToken);
+
         var existing = await dbContext.HiringMaterialFiles
             .FirstOrDefaultAsync(item =>
                 item.SessionId == uploadContext.SessionId &&
@@ -180,16 +197,6 @@ public sealed class HiringMaterialFilesController(
 
         try
         {
-            sha256 = await SaveFileAndComputeHashAsync(file, targetPath, cancellationToken);
-            savedToDisk = true;
-            var syncedWorkspaceRelativePath = await TrySyncWorkspaceCopyAsync(
-                uploadContext,
-                relativePath,
-                safeFolder,
-                safeFileName,
-                targetPath,
-                mimeType,
-                cancellationToken);
             var workspaceRelativePath = syncedWorkspaceRelativePath ?? existing?.WorkspaceRelativePath;
 
             // 对 PDF / DOCX 文件提取文本作为伴生 .md 同步到 workspace，
@@ -198,7 +205,7 @@ public sealed class HiringMaterialFilesController(
             if (MaterialTextExtractor.RequiresTextExtraction(ext))
             {
                 await TrySyncCompanionMarkdownAsync(
-                    uploadContext, safeFolder, safeFileName, targetPath, ext, cancellationToken);
+                    uploadContext, safeFolder, safeFileName, storagePath, ext, cancellationToken);
             }
 
             var now = DateTimeOffset.UtcNow;
@@ -210,7 +217,7 @@ public sealed class HiringMaterialFilesController(
                     SessionId = uploadContext.SessionId,
                     RelativePath = relativePath,
                     OriginalFileName = originalFileName,
-                    StoragePath = targetPath,
+                    StoragePath = storagePath,
                     Format = Path.GetExtension(safeFileName).TrimStart('.').ToLowerInvariant(),
                     MimeType = mimeType,
                     SizeBytes = file.Length,
@@ -229,7 +236,7 @@ public sealed class HiringMaterialFilesController(
             {
                 existing.HireId = uploadContext.HireId;
                 existing.OriginalFileName = originalFileName;
-                existing.StoragePath = targetPath;
+                existing.StoragePath = storagePath;
                 existing.Format = Path.GetExtension(safeFileName).TrimStart('.').ToLowerInvariant();
                 existing.MimeType = mimeType;
                 existing.SizeBytes = file.Length;
@@ -265,7 +272,6 @@ public sealed class HiringMaterialFilesController(
             });
 
             await dbContext.SaveChangesAsync(cancellationToken);
-            DeleteBackupFile(backupPath);
 
             logger.LogInformation(
                 "[MaterialFiles] 已保存资料文件 HireId={HireId} SessionId={SessionId} RelativePath={RelativePath} Sha256={Sha256}",
@@ -278,7 +284,8 @@ public sealed class HiringMaterialFilesController(
         }
         catch
         {
-            RestoreFileAfterFailure(targetPath, backupPath, savedToDisk);
+            // 如果 DB 写入失败，清理已存储的文件
+            await fileStore.DeleteAsync(storagePath, cancellationToken);
             throw;
         }
     }
@@ -300,7 +307,7 @@ public sealed class HiringMaterialFilesController(
         var session = await dbContext.HiringSessions
             .AsNoTracking()
             .FirstOrDefaultAsync(item => item.HireId == normalizedHireId && item.DeletedAtUtc == null, cancellationToken);
-        
+
         if (session is null)
             return ContextResult<MaterialUploadContext>.Failure(404, "雇佣会话不存在，请重新发起流程");
 
@@ -328,55 +335,6 @@ public sealed class HiringMaterialFilesController(
             workspaceRoot));
     }
 
-    private string ResolveFilePath(string sessionId, string relativePath)
-    {
-        var root = Path.Combine(
-            HireBotPathResolver.ResolveEvaluationResourceRoot(
-                env.ContentRootPath,
-                configuration["HireBot:DataRoot"],
-                configuration["HireBot:EvaluationResourceRoot"]),
-            HiringTodoMcpTools.TodoFilesSubdir.Replace('/', Path.DirectorySeparatorChar),
-            SanitizeSegment(sessionId));
-        var parts = relativePath
-            .Replace('\\', '/')
-            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(SanitizeSegment)
-            .ToArray();
-        return Path.Combine(new[] { root }.Concat(parts).ToArray());
-    }
-
-    private static async Task<string> SaveFileAndComputeHashAsync(
-        IFormFile file,
-        string targetPath,
-        CancellationToken cancellationToken)
-    {
-        await using var source = file.OpenReadStream();
-        await using var target = new FileStream(
-            targetPath,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            1024 * 128,
-            useAsync: true);
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        var buffer = ArrayPool<byte>.Shared.Rent(1024 * 128);
-        try
-        {
-            int read;
-            while ((read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)) > 0)
-            {
-                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                hash.AppendData(buffer, 0, read);
-            }
-
-            return Convert.ToHexStringLower(hash.GetHashAndReset());
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
-    }
-
     private static HiringMaterialFileDto ToDto(HiringMaterialFileEntity entity)
         => new(
             entity.MaterialFileId,
@@ -396,7 +354,7 @@ public sealed class HiringMaterialFilesController(
         string relativePath,
         string safeFolder,
         string safeFileName,
-        string localPath,
+        byte[] content,
         string? mimeType,
         CancellationToken cancellationToken)
     {
@@ -424,7 +382,6 @@ public sealed class HiringMaterialFilesController(
 
         var workspaceRelativePath = BuildWorkspaceRelativePath(relativePath);
         var targetDir = BuildWorkspaceTargetDir(workspaceRootDir, safeFolder);
-        var content = await System.IO.File.ReadAllBytesAsync(localPath, cancellationToken);
         var uploadResult = await sandboxService.UploadWorkspaceFileAsync(
             new SandboxWorkspaceUploadRequestDto
             {
@@ -457,7 +414,7 @@ public sealed class HiringMaterialFilesController(
 
     /// <summary>
     /// 对 PDF / DOCX 文件提取文本并落盘为伴生 .md。
-    /// 伴生文件保存到本地 todo-files 目录（供 hiring.parse_uploaded_files 读取），
+    /// 伴生文件通过 IFileStore 持久化（与原始文件同路径），
     /// 同时尝试同步到 sandbox workspace（workspaceRoot 不可用时仅跳过，不报错）。
     /// 失败时仅记录日志，不阻断主上传流程。
     /// </summary>
@@ -465,26 +422,28 @@ public sealed class HiringMaterialFilesController(
         MaterialUploadContext uploadContext,
         string safeFolder,
         string safeFileName,
-        string localPath,
+        string storagePath,
         string ext,
         CancellationToken cancellationToken)
     {
         try
         {
-            await using var readStream = System.IO.File.OpenRead(localPath);
+            await using var readStream = await fileStore.OpenReadAsync(storagePath, cancellationToken);
             var extractedText = MaterialTextExtractor.ExtractText(readStream, ext);
             if (string.IsNullOrWhiteSpace(extractedText)) return;
 
             var companionFileName = MaterialTextExtractor.BuildCompanionMarkdownFileName(safeFileName);
             var companionContent = Encoding.UTF8.GetBytes(extractedText);
 
-            // 1) 落盘到本地 todo-files 目录，与原始文件同路径
+            // 1) 通过 IFileStore 落盘，与原始文件同路径
             var companionRelativePath = string.IsNullOrWhiteSpace(safeFolder)
                 ? companionFileName
                 : $"{safeFolder}/{companionFileName}";
-            var companionLocalPath = ResolveFilePath(uploadContext.SessionId, companionRelativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(companionLocalPath)!);
-            await System.IO.File.WriteAllBytesAsync(companionLocalPath, companionContent, cancellationToken);
+            var companionVirtualPath = $"resources/todo-files/{uploadContext.SessionId}/{companionRelativePath}";
+            using (var companionStream = new MemoryStream(companionContent))
+            {
+                await fileStore.SaveAsync(companionVirtualPath, companionStream, cancellationToken);
+            }
 
             // 2) 尝试同步到 sandbox workspace（best-effort）
             var workspaceRoot = NormalizeWorkspaceRoot(uploadContext.WorkspaceRoot);
@@ -517,30 +476,6 @@ public sealed class HiringMaterialFilesController(
                 "[MaterialFiles] Companion .md extraction/sync failed. HireId={HireId} File={FileName}",
                 uploadContext.HireId, safeFileName);
         }
-    }
-
-    private static string? BackupExistingFile(string targetPath)
-    {
-        if (!System.IO.File.Exists(targetPath)) return null;
-
-        var backupPath = $"{targetPath}.{Guid.NewGuid():N}.bak";
-        System.IO.File.Move(targetPath, backupPath);
-        return backupPath;
-    }
-
-    private static void DeleteBackupFile(string? backupPath)
-    {
-        if (backupPath is not null && System.IO.File.Exists(backupPath))
-            System.IO.File.Delete(backupPath);
-    }
-
-    private static void RestoreFileAfterFailure(string targetPath, string? backupPath, bool savedToDisk)
-    {
-        if (savedToDisk && System.IO.File.Exists(targetPath))
-            System.IO.File.Delete(targetPath);
-
-        if (backupPath is not null && System.IO.File.Exists(backupPath))
-            System.IO.File.Move(backupPath, targetPath);
     }
 
     private static string SanitizePath(string? value)

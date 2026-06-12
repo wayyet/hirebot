@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(dotnet ef *)",
-      "Bash(dotnet build *)"
+      "Bash(dotnet build *)",
+      "Bash(ls \"D:/gitee-ai4c/hirebot/back-end/HireBot.Abstraction/\"*.csproj)",
+      "Bash(ls:*)",
+      "Bash(for proj:*)",
+      "Bash(do echo:*)",
+      "Bash(done)",
+      "Bash(dotnet test:*)"
     ]
   }
 }

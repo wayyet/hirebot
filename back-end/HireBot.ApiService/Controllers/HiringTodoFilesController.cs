@@ -1,22 +1,20 @@
 using System.Text;
 using HireBot.Abstraction;
 using HireBot.ApiService.McpTools;
-using HireBot.Core.Services.Internal;
-using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace HireBot.ApiService.Controllers;
 
 /// <summary>
-/// 雇佣 TODO 资料文件管理：仅接受 .md / .json 格式，按 sessionId/folder 组织到
-/// 运行数据目录下的 resources/todo-files/{sessionId}/{folder?}/{fileName}。
+/// 雇佣 TODO 资料文件管理：仅接受 .md / .json 格式，通过 IFileStore 持久化到
+/// <c>resources/todo-files/{sessionId}/{folder?}/{fileName}</c>。
 /// 配合 MCP 工具 hiring.parse_uploaded_files 让大模型读取并解析。
 /// </summary>
 [Route("api/v1/hiring-todos/{sessionId}/files")]
 [ApiController]
 public sealed class HiringTodoFilesController(
-    IWebHostEnvironment env,
-    IConfiguration configuration,
+    IFileStore fileStore,
     ILogger<HiringTodoFilesController> logger)
     : ControllerBase
 {
@@ -38,9 +36,6 @@ public sealed class HiringTodoFilesController(
         if (files is null || files.Count == 0)
             return BadRequest(ApiResponse<object>.ErrorResponse(400, "files 不能为空"));
 
-        var sessionDir = ResolveDir(sessionId, folder);
-        Directory.CreateDirectory(sessionDir);
-
         var saved = new List<UploadedFileDto>(files.Count);
         foreach (var file in files)
         {
@@ -53,13 +48,14 @@ public sealed class HiringTodoFilesController(
             }
 
             var safeName = SanitizeFileName(Path.GetFileName(file.FileName));
-            var target = Path.Combine(sessionDir, safeName);
-            await using var fs = System.IO.File.Create(target);
-            await file.CopyToAsync(fs, cancellationToken);
+            var virtualPath = BuildVirtualPath(sessionId, folder, safeName);
+
+            await using var stream = file.OpenReadStream();
+            var storagePath = await fileStore.SaveAsync(virtualPath, stream, cancellationToken);
 
             var rel = ComputeRelativePath(sessionId, folder, safeName);
             saved.Add(new UploadedFileDto(rel, file.Length, ext.TrimStart('.')));
-            logger.LogInformation("[TodoFiles] 已保存 {Path} 大小={Size}B", target, file.Length);
+            logger.LogInformation("[TodoFiles] 已保存 {Path} 大小={Size}B", storagePath, file.Length);
         }
 
         return Ok(ApiResponse<IReadOnlyList<UploadedFileDto>>.SuccessResponse(saved, "上传成功"));
@@ -67,22 +63,25 @@ public sealed class HiringTodoFilesController(
 
     /// <summary>列出会话下所有 todo 资料文件（仅元信息，不含正文）。</summary>
     [HttpGet]
-    public IActionResult List(string sessionId)
+    public async Task<IActionResult> List(string sessionId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(sessionId))
             return BadRequest(ApiResponse<object>.ErrorResponse(400, "sessionId 不能为空"));
 
-        var root = ResolveDir(sessionId, null);
-        if (!Directory.Exists(root))
-            return Ok(ApiResponse<IReadOnlyList<UploadedFileDto>>.SuccessResponse(Array.Empty<UploadedFileDto>(), "暂无文件"));
+        var prefix = BuildVirtualPath(sessionId, null, null);
+        var allFiles = await fileStore.ListAsync(prefix, cancellationToken);
 
-        var items = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-            .Where(p => Path.GetExtension(p).ToLowerInvariant() is ".md" or ".json")
-            .Select(p =>
+        var items = allFiles
+            .Where(e =>
             {
-                var info = new FileInfo(p);
-                var rel = Path.GetRelativePath(root, p).Replace('\\', '/');
-                return new UploadedFileDto(rel, info.Length, Path.GetExtension(p).TrimStart('.').ToLowerInvariant());
+                var ext = Path.GetExtension(e.Path.AsSpan());
+                return ext.Equals(".md", StringComparison.OrdinalIgnoreCase) ||
+                       ext.Equals(".json", StringComparison.OrdinalIgnoreCase);
+            })
+            .Select(e =>
+            {
+                var rel = ExtractRelativePath(e.Path, sessionId);
+                return new UploadedFileDto(rel, e.SizeBytes, Path.GetExtension(e.Path).TrimStart('.').ToLowerInvariant());
             })
             .OrderBy(x => x.RelativePath)
             .ToList();
@@ -90,28 +89,28 @@ public sealed class HiringTodoFilesController(
         return Ok(ApiResponse<IReadOnlyList<UploadedFileDto>>.SuccessResponse(items));
     }
 
-    private string ResolveDir(string sessionId, string? folder)
+    private static string BuildVirtualPath(string sessionId, string? folder, string? fileName)
     {
-        var todoRoot = Path.Combine(
-            HireBotPathResolver.ResolveEvaluationResourceRoot(
-                env.ContentRootPath,
-                configuration["HireBot:DataRoot"],
-                configuration["HireBot:EvaluationResourceRoot"]),
-            HiringTodoMcpTools.TodoFilesSubdir.Replace('/', Path.DirectorySeparatorChar));
-        var parts = new List<string>
-        {
-            todoRoot,
-            SanitizeSegment(sessionId)
-        };
+        var parts = new List<string> { "resources/todo-files", SanitizeSegment(sessionId) };
         if (!string.IsNullOrWhiteSpace(folder))
             parts.Add(SanitizeSegment(folder));
-        return Path.Combine(parts.ToArray());
+        if (!string.IsNullOrWhiteSpace(fileName))
+            parts.Add(fileName);
+        return string.Join("/", parts);
     }
 
     private static string ComputeRelativePath(string sessionId, string? folder, string fileName)
         => string.IsNullOrWhiteSpace(folder)
             ? fileName
             : $"{SanitizeSegment(folder)}/{fileName}";
+
+    private static string ExtractRelativePath(string virtualPath, string sessionId)
+    {
+        var prefix = $"resources/todo-files/{SanitizeSegment(sessionId)}/";
+        return virtualPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? virtualPath[prefix.Length..]
+            : virtualPath;
+    }
 
     private static string SanitizeSegment(string value)
     {

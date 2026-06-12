@@ -2,10 +2,9 @@ using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using HireBot.Core.Services.Internal;
+using HireBot.Abstraction;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -14,8 +13,7 @@ namespace HireBot.ApiService.McpTools;
 
 [McpServerToolType]
 internal sealed class HiringTodoMcpTools(
-    IWebHostEnvironment env,
-    IConfiguration configuration,
+    IFileStore fileStore,
     HireBotDbContext dbContext,
     ILogger<HiringTodoMcpTools> logger)
 {
@@ -47,8 +45,9 @@ internal sealed class HiringTodoMcpTools(
         int maxBytes = 200_000,
         CancellationToken cancellationToken = default)
     {
-        var root = ResolveSessionRoot(sessionId);
-        if (!Directory.Exists(root))
+        var directoryPrefix = $"resources/todo-files/{SanitizeSegment(sessionId)}";
+        var allEntries = await fileStore.ListAsync(directoryPrefix, cancellationToken);
+        if (allEntries.Count == 0)
         {
             return JsonSerializer.Serialize(new
             {
@@ -73,19 +72,20 @@ internal sealed class HiringTodoMcpTools(
         long totalBytes = 0;
         var truncated = false;
 
-        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).OrderBy(p => p))
+        foreach (var entry in allEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var ext = Path.GetExtension(path).ToLowerInvariant();
-            if (ext is not (".md" or ".json"))
+            var ext = Path.GetExtension(entry.Path);
+            if (!ext.Equals(".md", StringComparison.OrdinalIgnoreCase) &&
+                !ext.Equals(".json", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            var relative = Path.GetRelativePath(root, path).Replace('\\', '/');
-            var info = new FileInfo(path);
+            var relative = ExtractRelativePath(entry.Path, sessionId);
             var metadata = fileMetadata.GetValueOrDefault(relative);
+            var format = ext.TrimStart('.').ToLowerInvariant();
 
             string content;
             if (totalBytes >= maxBytes)
@@ -96,7 +96,11 @@ internal sealed class HiringTodoMcpTools(
             else
             {
                 var remain = maxBytes - totalBytes;
-                var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+                await using var stream = await fileStore.OpenReadAsync(entry.Path, cancellationToken);
+                using var memoryStream = new MemoryStream();
+                await stream.CopyToAsync(memoryStream, cancellationToken);
+                var bytes = memoryStream.ToArray();
+
                 if (bytes.LongLength > remain)
                 {
                     content = Encoding.UTF8.GetString(bytes, 0, (int)remain) + "\n[... truncated]";
@@ -116,8 +120,8 @@ internal sealed class HiringTodoMcpTools(
                 original_file_name = metadata?.OriginalFileName,
                 requested_category_title = metadata?.RequestedCategoryTitle,
                 source_path = metadata?.WorkspaceRelativePath,
-                size_bytes = info.Length,
-                format = ext.TrimStart('.'),
+                size_bytes = entry.SizeBytes,
+                format,
                 content
             });
         }
@@ -132,16 +136,12 @@ internal sealed class HiringTodoMcpTools(
         }, JsonSerializerOptions.Web);
     }
 
-    private string ResolveSessionRoot(string sessionId)
+    private static string ExtractRelativePath(string virtualPath, string sessionId)
     {
-        var safe = SanitizeSegment(sessionId);
-        var todoRoot = Path.Combine(
-            HireBotPathResolver.ResolveEvaluationResourceRoot(
-                env.ContentRootPath,
-                configuration["HireBot:DataRoot"],
-                configuration["HireBot:EvaluationResourceRoot"]),
-            TodoFilesSubdir.Replace('/', Path.DirectorySeparatorChar));
-        return Path.Combine(todoRoot, safe);
+        var prefix = $"resources/todo-files/{SanitizeSegment(sessionId)}/";
+        return virtualPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? virtualPath[prefix.Length..]
+            : virtualPath;
     }
 
     private static string SanitizeSegment(string value)
