@@ -8,7 +8,13 @@
       "Bash(for proj:*)",
       "Bash(do echo:*)",
       "Bash(done)",
-      "Bash(dotnet test:*)"
+      "Bash(dotnet test:*)",
+      "Bash(dotnet run:*)",
+      "Bash(findstr /s /m \"GetBucketRequest\\\\|ListBucket\\\\|Prefix\" \"D:\\\\gitee-ai4c\\\\hirebot\\\\back-end\\\\HireBot.Core\\\\bin\\\\Debug\\\\net10.0\\\\*.dll\")",
+      "Bash(dotnet tool:*)",
+      "Bash(ildasm \"D:\\\\gitee-ai4c\\\\hirebot\\\\back-end\\\\HireBot.Core\\\\bin\\\\Debug\\\\net10.0\\\\COSXML.dll\")",
+      "Bash(\"$HOME/.dotnet/tools/dotnet-ildasm\" \"D:\\\\gitee-ai4c\\\\hirebot\\\\back-end\\\\HireBot.Core\\\\bin\\\\Debug\\\\net10.0\\\\COSXML.dll\")",
+      "Bash(Select-String -Pattern \"GetBucketRequest|GetBucketResult|ListBucket\")"
     ]
   }
 }
