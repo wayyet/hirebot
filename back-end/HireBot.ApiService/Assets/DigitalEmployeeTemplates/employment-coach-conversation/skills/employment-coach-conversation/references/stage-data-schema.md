@@ -176,7 +176,7 @@
   "workspace_root": "/workspace/refund-agent-20260518103000",
   "template_slug": "refund-agent",
   "pending_skill_count": 4,
-  "skill_names": ["refund-eligibility-check", "order-status-query"],
+  "skill_names": ["refund_eligibility_check", "order_status_query"],
   "summary": "已整理 4 个技能定义草案，等待确认技能清单",
   "next_step": "等待用户确认技能清单"
 }

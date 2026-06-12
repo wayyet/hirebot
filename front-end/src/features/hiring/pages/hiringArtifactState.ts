@@ -168,11 +168,6 @@ function shouldSuppressAssistantAfterHistoricalUserMessage(content: string): boo
     return true
   }
 
-  // 这些内部信号的回复只用于驱动流程，不应恢复成用户可见气泡。
-  if (trimmed.startsWith('[Internal ') || trimmed.startsWith('[System ')) {
-    return true
-  }
-
   return false
 }
 

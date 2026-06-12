@@ -13,7 +13,7 @@ Run these checks before writing a generated skill package.
 
 ## SkillSpec
 
-- [ ] `name` is normalized and slug-safe.
+- [ ] `name` matches the incoming workorder `items[].name` verbatim (no hyphen/underscore conversion, no case folding, no reordering).
 - [ ] `description` is non-empty and specific.
 - [ ] At least one trigger exists.
 - [ ] At least one capability exists.

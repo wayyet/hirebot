@@ -241,7 +241,7 @@ describe('deriveStageOverridesFromDownstreamRuns', () => {
 describe('buildHistoricalHiringConversationState', () => {
   it('刷新恢复时隐藏模板初始化提示，但保留雇佣教练开场白', () => {
     const bootstrapPrompt = [
-      '你正在运行 HireBot 雇佣教练会话，不是目标数字员工本人。',
+      '你正在运行雇佣教练会话，不是目标数字员工本人。',
       '本轮初始化同时涉及两套包，必须先明确二者关系：',
       '',
       '[FILE_URL:/workspace/template-20260610153250]',

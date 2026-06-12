@@ -124,7 +124,7 @@ metadata:
     "total_skills": 3,
     "generated_count": 2,
     "reused_count": 1,
-    "skill_slugs": ["refund-eligibility-check", "order-status-query", "return-progress-track"],
+    "skill_slugs": ["refund_eligibility_check", "order_status_query", "return_progress_track"],
     "status": "done"
   }
 }
@@ -417,7 +417,7 @@ Step 1 全部确认落盘后，按以下三条路径处理投影契约：
    - 上传文件：解析 Markdown、文本、JSON、YAML，并映射到 SkillSpec。
    - zip 文件：递归读取候选 skill 文件，优先保留原文件能力定义，再结构化归一。
 3. 结构化归一：补齐缺省字段，规范化 `name`、`display_name`、`description`、`triggers`、`capabilities`、`boundaries`、`examples`、`source`、`version`。
-4. Slug 生成：由能力名称生成 `skill_slug`，使用小写短横线，只保留字母、数字和短横线。
+4. Slug 处理（不可变规则）：严禁自行生成或改写 skill_slug。结构化输入时直接使用工单中 `items[].name` 字段的原始值；该 slug 已由上游 coach 确认，与 projection 目录一致，任何改写（如下划线转短横线、大小写调整、词根重排）都会导致 projection 绑定失败。仅当输入为纯会话描述且不存在 `items[].name` 时，才从 `display_name` 派生 slug：转小写、保留字母数字和下划线、空格换下划线。
 5. 冲突处理：读取现有 `skills/`，按同名覆盖、异名新增规则合并。多能力输入可按业务域合并为一个技能，也可在用户启用多技能拆分时按业务域生成多个技能。
 6. **写入基础文件（强制）**：按模板渲染 `SKILL.md`、`metadata.json`、`references/` 三类文件并立即调用 write_file 写入磁盘。**每个文件写入后用 read_file 确认落盘。这一步不可跳过，不依赖投影是否可用。**
 7. Projection 契约生成（可选）：仅在基础文件确认落盘后执行。有足够本体 projection 信息时，为产出的业务 skill 生成 READY consumer-skill projection 目录（contracts/）；信息不足时只记录 draft/notes 或跳过，不伪造 READY contract，不阻断已落盘的基础文件。

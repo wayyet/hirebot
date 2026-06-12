@@ -163,6 +163,54 @@ function buildArtifactEventSignature(artifact: ArtifactDisplayData): string {
   })
 }
 
+/**
+ * 从 emit_artifact 的 tool_result.text 中解析 artifact 元数据。
+ * 当 tool_result 消息缺少 arguments 字段时（Gateway 版本差异或消息乱序），
+ * text 中会携带 `Data artifact emitted: [key=value ...]` 格式的结构化描述，
+ * 作为 artifact 提取的回退路径，避免 skill_generation_done / external_workorder_summary
+ * 等终态 artifact 静默丢失导致阶段无法推进。
+ *
+ * 示例输入：
+ *   "Data artifact emitted: [kind=data type=skill_generation_done stage=stage2_skill terminal=True]"
+ */
+function parseArtifactFromToolResultText(text: string): Record<string, unknown> | null {
+  const bracketMatch = /Data artifact emitted:\s*\[([^\]]*)\]/.exec(text)
+  if (!bracketMatch) return null
+
+  const inner = bracketMatch[1].trim()
+  if (!inner) return null
+
+  const result: Record<string, unknown> = {}
+  const pairRegex = /(\w+)=(\S+)/g
+  let pairMatch: RegExpExecArray | null
+  while ((pairMatch = pairRegex.exec(inner)) !== null) {
+    const key = pairMatch[1]
+    const value = pairMatch[2]
+
+    switch (key) {
+      case 'type':
+        result.artifactType = value
+        break
+      case 'kind':
+        result.kind = value
+        break
+      case 'stage':
+        result.stage = value
+        break
+      case 'terminal':
+        result.isTerminal = value.toLowerCase() === 'true'
+        break
+      default:
+        // 保留其他元数据字段（如 skillName、displayHint 等未来扩展）
+        result[key] = value
+        break
+    }
+  }
+
+  if (!result.artifactType) return null
+  return result
+}
+
 export default function HiringPage() {
   const { templateId } = useParams()
   const navigate = useNavigate()
@@ -922,7 +970,7 @@ export default function HiringPage() {
       : '该模板未提供显式场景列表，请先从模板文档中抽取核心业务场景。'
 
     return [
-      '你正在运行 HireBot 雇佣教练会话，不是目标数字员工本人。',
+      '你正在运行雇佣教练会话，不是目标数字员工本人。',
       '本轮初始化同时涉及两套包，必须先明确二者关系：',
       '1. `coach_runtime_root`：固定为 `/workspace`。这是雇佣教练运行根目录，包含 employment-coach-conversation、ontology-slice-extraction、skill-generation 等系统 skill，只用于读取流程规则，永远不能作为数字员工包的 manifest 同步、产物写入、审查或打包根目录。',
       `2. \`employee_package_root\`：固定为下面的 ${marker} 目录。它才是本轮待装配的"${templateName}"专属工作区，只能在这个目录内做 manifest 同步、写入运行时产物、完整性审查和最终打包。`,
@@ -940,8 +988,8 @@ export default function HiringPage() {
       'B. 只用一句自然的话邀请我上传或描述业务资料，按 story-driven 风格开口，点到这 1-3 个分类即可。',
       '',
       '重要约束：',
-      `- 所有用户可见回复都必须以 HireBot 雇佣教练口吻表达；不要自称"${templateName}"，也不要承诺直接执行该员工上岗后的业务任务。`,
-      `- 如果用户问"你是谁"，应回答你是 HireBot 雇佣教练，正在帮助装配"${templateName}"这位数字员工。`,
+      `- 所有用户可见回复都必须以雇佣教练口吻表达；不要自称"${templateName}"，也不要承诺直接执行该员工上岗后的业务任务。`,
+      `- 如果用户问"你是谁"，应回答你是雇佣教练，正在帮助装配"${templateName}"这位数字员工。`,
       '- 不要输出任何系统状态确认语句（如"已确认工作区可用""执行阶段 1""强制动作"等内部步骤名称）。',
       '- 不要发出或提及未在 contracts/artifacts.json 声明的 artifact，例如 skill_generation_trigger、stage2_analysis、stage3_skills、skills_pipeline、技能流水线。',
       '- emit_artifact 已将分类推送到右侧面板，你不需要在文字回复中再逐项罗列分类名称或"最需要的三类资料是"这类总结句。',
@@ -1211,7 +1259,7 @@ export default function HiringPage() {
         // MCP 工具调用完成：优先从顶层字段取工具名（部分 Gateway 版本携带），
         // 取不到时尝试解析 text JSON——若结果中含 data.handoff_id 则判定为 hiring todo 结果
         const rawMsg = msg as unknown as Record<string, unknown>
-        const rawName = String(rawMsg.tool_name ?? rawMsg.name ?? '')
+        const rawName = String(rawMsg.tool_name ?? rawMsg.toolName ?? rawMsg.name ?? '')
         const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
         const textStr = String(rawMsg.text ?? '')
         const fallbackArgs = rawMsg.arguments != null
@@ -1246,13 +1294,31 @@ export default function HiringPage() {
           }
         }
         if (!toolResultIsError) {
-          const artifact = extractArtifactFromToolCall({
+          let artifact = extractArtifactFromToolCall({
             toolName: toolName || completedStep?.name || '',
             arguments: completedStep?.args ?? fallbackArgs,
             result: textStr,
           })
+          // 回退：当 tool_result 缺少 arguments 字段时（如 Gateway 版本使用 toolName 驼峰字段
+          // 且 tool_start 未被正确捕获），从 text 描述中解析 artifact 元数据，
+          // 避免 skill_generation_done / external_workorder_summary 等终态 artifact 静默丢失导致阶段无法推进
+          if (!artifact && toolName === 'emit_artifact' && textStr) {
+            const parsedFromText = parseArtifactFromToolResultText(textStr)
+            if (parsedFromText) {
+              try {
+                artifact = normalizeArtifactDisplayData(parsedFromText)
+              } catch (err) {
+                console.warn('[HiringPage] failed to normalize artifact parsed from tool_result text:', err)
+              }
+            }
+          }
           if (artifact) {
             ws.onMessage?.({ type: 'artifact', artifact })
+          } else if (toolName === 'emit_artifact') {
+            console.warn(
+              '[HiringPage] emit_artifact tool_result ignored: unable to extract artifact metadata (missing arguments and unparseable text)',
+              { textStr },
+            )
           }
         }
       } else if (type === 'artifact') {
@@ -1586,7 +1652,7 @@ export default function HiringPage() {
       const prompt = pendingInternalPromptsRef.current.shift()
       if (!prompt) return
 
-      await submitWorkflowMessage(prompt, undefined, true, false, true)
+      await submitWorkflowMessage(prompt, undefined, true, false, false)
       if (pendingInternalPromptsRef.current.length > 0) {
         scheduleInternalPromptFlush()
       }
@@ -1751,16 +1817,19 @@ export default function HiringPage() {
     }
 
     if (state?.artifactType === 'skill_definition_ready') {
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '确认技能清单' }])
       await confirmSkillDefinitionFromApproval('确认技能清单')
       return
     }
 
     if (projectionState?.artifactType === 'ontology_projection_ready') {
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '开始匹配技能数据' }])
       await launchProjectionPassFromApproval()
       return
     }
 
     if (state?.artifactType === 'skill_generation_ready') {
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '确认生成技能实现' }])
       await launchSkillGenerationFromApproval()
       return
     }
@@ -1793,7 +1862,7 @@ export default function HiringPage() {
       undefined,
       true,
       false,
-      true,
+      false,
     )
 
     if (submitted) {
@@ -1851,7 +1920,7 @@ export default function HiringPage() {
       undefined,
       true,
       false,
-      true,
+      false,
     )
 
     if (submitted) {
@@ -1906,7 +1975,7 @@ export default function HiringPage() {
       undefined,
       true,
       false,
-      true,
+      false,
     )
 
     if (submitted) {
@@ -1962,7 +2031,7 @@ export default function HiringPage() {
       undefined,
       true,
       false,
-      true,
+      false,
     )
 
     if (submitted) {
@@ -2271,7 +2340,7 @@ export default function HiringPage() {
           undefined,
           true,
           false,
-          true,
+          false,
         )
       } else if (shouldLaunchPackagingTestCases) {
         submitted = await launchPackagingTestCasesFromApproval()
