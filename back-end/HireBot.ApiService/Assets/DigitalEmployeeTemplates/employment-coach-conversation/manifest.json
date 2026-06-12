@@ -2,7 +2,7 @@
   "name": "employment-coach-conversation",
   "display_name": "雇佣教练对话包",
   "positioning": "数字员工雇佣流程的 AI 对话导航中枢，通过「资料 → 技能定义/生成 → 外部 → 打包」四阶段引导把业务需求转化为可部署的工单集",
-  "description": "以雇佣教练身份引导业务用户完成「资料 → 技能 → 外部」三阶段对话装配；其中技能阶段固定依次经过技能定义确认、业务资料准备确认、技能实现生成确认，skill-generation 完成后才能进入外部阶段。外部系统配置由右侧卡片手动保存或跳过，系统层据此同步 `external/` 目录；随后先询问是否生成可选评估测试用例，用户确认后触发 packaging-test-cases，跳过时不得阻塞后续打包。资料阶段完成后先驱动 ontology-slice-extraction，技能定义后驱动 ontology-projection，全部完成后自动调用打包工具将工作区打包为 zip，发出 template_package（kind: file）artifact 触发前端 auto-importPackage，完成实例入库全流程。每个阶段在关键节点通过 emit_artifact 推送进度和完成信号，驱动前端雇佣阶段胶囊更新。",
+  "description": "以雇佣教练身份引导业务用户完成「资料 → 技能 → 外部」三阶段对话装配；其中技能阶段固定依次经过技能定义确认、匹配技能数据确认、技能实现生成确认，skill-generation 完成后才能进入外部阶段。外部系统配置由右侧卡片手动保存或跳过，系统层据此同步 `external/` 目录；随后先询问是否生成可选评估测试用例，用户确认后触发 packaging-test-cases，跳过时不得阻塞后续打包。资料收口后先驱动 ontology-slice-extraction，并等待 ontology_slice_extraction_done 后才进入技能定义；技能定义后驱动 ontology-projection，全部完成后自动调用打包工具将工作区打包为 zip，发出 template_package（kind: file）artifact 触发前端 auto-importPackage，完成实例入库全流程。每个阶段在关键节点通过 emit_artifact 推送进度和完成信号，驱动前端雇佣阶段胶囊更新。",
   "version": "v1.0.0",
   "entry_skill": "skills/employment-coach-conversation",
   "ontology_slices": [
@@ -54,13 +54,13 @@
     {
       "stage": "material",
       "skill_name": "employment-coach-conversation",
-      "description": "引导用户归类业务资料并写清抽取目标；至少 1 份资料完成分类且标注抽取目标后，通过 emit_artifact（material_handoff_summary, isTerminal: true）完成阶段",
+      "description": "引导用户归类业务资料并写清抽取目标；资料收集开始前加载 ontology-slice-extraction；至少 1 份资料完成分类且标注抽取目标后，通过 emit_artifact（material_handoff_summary, isTerminal: true）完成资料收口，随后触发 R1 并等待 ontology_slice_extraction_done 后才进入技能阶段",
       "required_fields": ["source_files", "category", "objective"]
     },
     {
       "stage": "skill",
       "skill_name": "employment-coach-conversation",
-      "description": "确认模板基线技能并为本轮技能写清 name + display_name + description + trigger + expected_output；先发 skill_definition_ready 等用户确认技能清单，确认后通过 emit_artifact（skill_workorder_summary, isTerminal: true）完成“技能定义”子步骤，且该 summary.data 必须透传初始化阶段已解析的 workspace_root 与 template_slug。随后发 ontology_projection_ready 询问是否开始为技能准备业务资料；projection 完成且可消费后发 skill_generation_ready 询问是否生成技能实现；只有 skill-generation 完成后，才允许进入外部阶段",
+      "description": "确认模板基线技能并为本轮技能写清 name + display_name + description + trigger + expected_output；先发 skill_definition_ready 等用户确认技能清单，确认后通过 emit_artifact（skill_workorder_summary, isTerminal: true）完成“技能定义”子步骤，且该 summary.data 必须透传初始化阶段已解析的 workspace_root 与 template_slug。随后发 ontology_projection_ready 询问是否开始匹配技能数据；projection 完成且可消费后发 skill_generation_ready 询问是否生成技能实现；只有 skill-generation 完成后，才允许进入外部阶段",
       "required_fields": ["workspace_root", "template_slug", "name", "display_name", "description", "trigger", "expected_output", "generation_action"]
     },
     {

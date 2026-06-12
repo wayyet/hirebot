@@ -7,6 +7,7 @@ import {
   buildHistoricalHiringConversationState,
   buildUiStageOverrides,
   extractArtifactFromToolCall,
+  normalizeArtifactDisplayData,
 } from './hiringArtifactState'
 
 describe('buildCoachResumePrompt', () => {
@@ -132,6 +133,27 @@ describe('extractArtifactFromToolCall', () => {
   })
 })
 
+describe('normalizeArtifactDisplayData', () => {
+  it('direct artifact event with terminal flag is parsed as terminal', () => {
+    const artifact = normalizeArtifactDisplayData({
+      kind: 'data',
+      artifactType: 'skill_generation_done',
+      label: 'Skill generation done',
+      skillName: 'skill-generation',
+      stage: 'stage2_skill',
+      terminal: true,
+      generated_count: 1,
+    })
+
+    expect(artifact).toMatchObject({
+      kind: 'data',
+      artifactType: 'skill_generation_done',
+      isTerminal: true,
+      data: { generated_count: 1 },
+    })
+  })
+})
+
 describe('buildHistoricalHiringConversationState', () => {
   it('刷新恢复时隐藏模板初始化提示，但保留雇佣教练开场白', () => {
     const bootstrapPrompt = [
@@ -223,7 +245,7 @@ describe('buildHistoricalHiringConversationState', () => {
             arguments: JSON.stringify({
               kind: 'data',
               artifactType: 'ontology_projection_done',
-              label: '业务资料准备结果',
+              label: '匹配技能数据结果',
               skillName: 'ontology-slice-extraction',
               stage: 'stage2_skill',
               isTerminal: true,
@@ -316,7 +338,7 @@ describe('buildHistoricalHiringConversationState', () => {
             arguments: JSON.stringify({
               kind: 'data',
               artifactType: 'ontology_projection_ready',
-              label: '等待确认准备业务资料',
+              label: '等待确认匹配技能数据',
               skillName: 'employment-coach-conversation',
               stage: 'stage2_skill',
               isTerminal: false,
@@ -329,7 +351,7 @@ describe('buildHistoricalHiringConversationState', () => {
             arguments: JSON.stringify({
               kind: 'data',
               artifactType: 'ontology_projection_done',
-              label: '业务资料已准备',
+              label: '技能数据已匹配',
               skillName: 'ontology-slice-extraction',
               stage: 'stage2_skill',
               isTerminal: true,

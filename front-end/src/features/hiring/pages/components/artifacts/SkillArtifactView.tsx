@@ -48,7 +48,7 @@ export function SkillGenerationStatusView({
       border: 'rgba(245,158,11,0.30)',
     },
     ontology_projection_ready: {
-      label: '等待确认准备业务资料',
+      label: '等待确认匹配技能数据',
       bg: 'rgba(245,158,11,0.10)', color: 'var(--hb-text-amber, #b45309)',
       border: 'rgba(245,158,11,0.30)',
     },
@@ -58,7 +58,7 @@ export function SkillGenerationStatusView({
       border: 'rgba(245,158,11,0.30)',
     },
     skill_projection_binding_ready: {
-      label: '⏳ 业务资料已准备，生成中',
+      label: '⏳ 技能数据已匹配，生成中',
       bg: 'rgba(37,99,235,0.10)', color: 'var(--hb-text-blue, #1d4ed8)',
       border: 'rgba(37,99,235,0.25)',
     },

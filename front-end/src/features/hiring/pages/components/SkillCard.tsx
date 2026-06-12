@@ -60,7 +60,7 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
     return {
       label: '未启动',
       tone: 'is-neutral',
-      description: '等待技能定义确认后进入业务资料准备。',
+      description: '等待技能定义确认后进入匹配技能数据。',
     }
   }
 
@@ -75,9 +75,9 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
 
     if (run.artifactType === 'ontology_projection_ready') {
       return {
-        label: '等待确认准备资料',
+        label: '等待确认匹配数据',
         tone: 'is-waiting',
-        description: '技能定义已确认，请确认是否开始为技能准备业务资料。',
+        description: '技能定义已确认，请确认是否开始匹配技能数据。',
       }
     }
 
@@ -134,20 +134,20 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
 function getSkillConfirmationAction(run: DownstreamRunState | null): { text: string; button: string } {
   if (run?.artifactType === 'skill_definition_ready') {
     return {
-      text: '请确认当前技能清单是否完整，确认后会进入业务资料准备。',
+      text: '请确认当前技能清单是否完整，确认后会进入匹配技能数据。',
       button: '确认技能清单',
     }
   }
 
   if (run?.artifactType === 'ontology_projection_ready') {
     return {
-      text: '请确认是否开始为这些技能准备业务资料。',
-      button: '开始准备资料',
+      text: '请确认是否开始匹配这些技能所需的数据。',
+      button: '开始匹配数据',
     }
   }
 
   return {
-    text: '业务资料已准备好，请确认是否生成技能实现。',
+    text: '技能数据已匹配完成，请确认是否生成技能实现。',
     button: '确认生成技能',
   }
 }

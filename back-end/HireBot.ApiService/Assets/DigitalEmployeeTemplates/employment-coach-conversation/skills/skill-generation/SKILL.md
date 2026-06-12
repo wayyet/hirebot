@@ -49,7 +49,7 @@ metadata:
 输出诊断报告后，不得发出 `skill_generation_progress` / `skill_generation_done`，不得写入 `skills/`。
 
 > **R3 触发块参考格式**（供雇佣教练参考，本 skill 不负责构造）：
-> `artifact_payload` 必须包含 `projection_binding_confirmed: true`、`projection_contract_mode: "required"`、`projection_result: <ontology_projection_done.data>`。完整格式见 `employment-coach-conversation` SKILL.md 中"业务资料准备完成后的强制动作"章节。
+> `artifact_payload` 必须包含 `projection_binding_confirmed: true`、`projection_contract_mode: "required"`、`projection_result: <ontology_projection_done.data>`。完整格式见 `employment-coach-conversation` SKILL.md 中"匹配技能数据完成后的强制动作"章节。
 
 当用户要求根据技能工单、描述、Markdown、文本、JSON、YAML 或 zip 文件创建、更新、合并、规范化业务技能包时，使用本技能。输入可以是结构化的技能工单，也可以是非结构化的会话描述或上传文件；无论哪种输入，都必须先抽取为统一的 SkillSpec 中间模型，再映射到固定模板生成技能文件，最后通过质量校验后才落盘。整个过程中要严格区分输入来源、提炼说明、产物质量和消费契约，确保生成过程可审阅、可复盘、可迁移。
 

@@ -422,11 +422,11 @@ export function isOntologyProjectionApprovalMessage(text: string): boolean {
 
   const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、""'']+/g, '')
   const keywords = [
-    '准备业务资料',
-    '开始准备业务资料',
-    '整理业务资料',
-    '开始整理业务资料',
-    '为技能准备资料',
+    '匹配技能数据',
+    '开始匹配技能数据',
+    '匹配数据',
+    '开始匹配数据',
+    '为技能匹配数据',
     '本体投影',
     '投影',
     '可以',

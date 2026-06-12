@@ -64,6 +64,7 @@ class SkillStageContractTests(unittest.TestCase):
 
     def test_material_to_skill_transition_requires_machine_signals_before_skill_dialog(self) -> None:
         skill = read_text(SKILL_ROOT / "SKILL.md")
+        handoff_registry = read_text(SKILL_ROOT / "references" / "downstream-handoff-registry.md")
         transition_gate = section_between(skill, "跨阶段硬门", "详细字段协议")
         stage1_closure = section_between(skill, "阶段 1 完成后的强制动作", "### 阶段 2：技能")
 
@@ -75,16 +76,48 @@ class SkillStageContractTests(unittest.TestCase):
         ], "SKILL.md 跨阶段硬门")
 
         required_phrases = [
+            "资料收集开始前必须通过 `load_skill` 加载 `ontology-slice-extraction`",
             "自然语言只能解释进展，不能替代阶段完成事件",
             "禁止出现\"对话已经进入技能阶段，但右侧 UI 仍停留在资料阶段\"的状态分叉",
+            "资料阶段整体完成条件",
             "给出技能建议",
+            "收到 `ontology_slice_extraction_done` 后，才读取 S1",
             "任何具体技能建议或技能反问，必须排在 `ontology_slice_extraction_done` 之后",
+            "R1 属于资料阶段，S1 只能在 R1 的 `ontology_slice_extraction_done` 到达后执行",
+            "披露的技能与参考文件（LLM 必须在 `ontology_slice_extraction_done` 后读取）",
         ]
         for phrase in required_phrases:
-            self.assertIn(phrase, skill)
+            self.assertIn(phrase, "\n".join([skill, handoff_registry]))
 
         self.assertIn("只说明阻断原因并留在资料阶段", transition_gate)
         self.assertIn("只说明缺口并继续资料阶段", stage1_closure)
+
+    def test_material_stage_loads_ontology_skill_before_collecting_materials(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        flow_constraints = read_text(SKILL_ROOT / "references" / "flow-constraints.md")
+        stage_schema = read_text(SKILL_ROOT / "references" / "stage-data-schema.md")
+        emit_protocol = read_text(SKILL_ROOT / "references" / "emit-artifact-protocol.md")
+
+        startup = section_between(skill, "#### 步骤 4：通知用户开场 + 进入阶段 1", "#### ⛔ 路径反伪造红线")
+        assert_tokens_in_order(self, startup, [
+            "material_collection_progress",
+            "调用 `load_skill`",
+            "ontology-slice-extraction",
+            "资料收集开始前预加载到上下文",
+            "邀请用户开始介绍业务场景或直接上传资料",
+        ], "SKILL.md stage1 startup")
+
+        routing = section_between(skill, "资料阶段的强制预加载", "### 各阶段入场需加载的 skill")
+        self.assertIn("发出 `material_handoff_summary` 或构造 R1 内部触发块前", routing)
+        self.assertIn("若上下文曾被裁剪，立即重新调用 `load_skill`", routing)
+
+        combined = "\n".join([flow_constraints, stage_schema, emit_protocol])
+        for phrase in [
+            "资料收集开始前，是否已调用 `load_skill` 加载 `ontology-slice-extraction`",
+            "资料阶段整体完成还需要收到 `ontology_slice_extraction_done`",
+            "在 `ontology_slice_extraction_done` 到达前，不得发 `skill_workorder_progress`",
+        ]:
+            self.assertIn(phrase, combined)
 
     def test_skill_implementation_subflow_keeps_three_user_confirmation_gates(self) -> None:
         skill = read_text(SKILL_ROOT / "SKILL.md")
@@ -112,8 +145,8 @@ class SkillStageContractTests(unittest.TestCase):
 
         required_phrases = [
             "三个显式确认门",
-            "用户确认后，才按 R2 触发业务资料准备",
-            "业务资料准备已完成，等待用户确认是否开始生成技能实现",
+            "用户确认后，才按 R2 触发匹配技能数据",
+            "匹配技能数据已完成，等待用户确认是否开始生成技能实现",
             "不得向用户暴露 `slice`、`projection`、`projection_paths`、R1/R2/R3、结构化文件等内部术语",
             "你只要回我一句",
         ]
@@ -123,7 +156,7 @@ class SkillStageContractTests(unittest.TestCase):
         forbidden_phrases = [
             "立即自动触发 R2 projection pass",
             "无需 `ontology_projection_ready` 确认门",
-            "业务资料准备：技能定义完成后**自动触发**",
+            "匹配技能数据：技能定义完成后**自动触发**",
             "技能阶段有两个显式确认门",
             "projection pass 自动启动",
         ]
@@ -161,6 +194,12 @@ class SkillStageContractTests(unittest.TestCase):
             read_text(TEMPLATE_ROOT / "config" / "AGENTS.md"),
             read_text(TEMPLATE_ROOT / "manifest.json"),
         ])
+        required_phrases = [
+            "资料收集开始前必须先通过 `load_skill` 加载该 skill",
+            "等待 `ontology_slice_extraction_done`，随后才允许进入技能定义",
+            "资料收口后先驱动 ontology-slice-extraction，并等待 ontology_slice_extraction_done 后才进入技能定义",
+            "完成资料收口，随后触发 R1 并等待 ontology_slice_extraction_done 后才进入技能阶段",
+        ]
         forbidden_phrases = [
             "阶段 2 唯一确认门",
             "唯一的用户确认门",
@@ -168,7 +207,11 @@ class SkillStageContractTests(unittest.TestCase):
             "projection 完成后自动",
             "projection 后直接",
             "projection 完成后直接",
+            "通过 emit_artifact（material_handoff_summary, isTerminal: true）完成阶段",
         ]
+
+        for phrase in required_phrases:
+            self.assertIn(phrase, combined)
 
         for phrase in forbidden_phrases:
             self.assertNotIn(phrase, combined)

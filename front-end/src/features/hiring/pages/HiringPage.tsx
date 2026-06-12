@@ -85,6 +85,7 @@ import {
   buildHistoricalHiringConversationState,
   deriveStageOverridesFromDownstreamRuns,
   extractArtifactFromToolCall,
+  normalizeArtifactDisplayData,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
 } from './hiringArtifactState'
@@ -1257,40 +1258,32 @@ export default function HiringPage() {
         // 下游 skill 通过 emit_artifact 工具推送产物（对应 contracts/artifacts.json 声明的类型）
         const raw = msg.artifact as Record<string, unknown> | null | undefined
         if (raw) {
-          const kind = (String(raw.kind ?? 'data')) as 'file' | 'data'
-          const artifactType = String(raw.artifactType ?? raw.artifact_type ?? 'generic')
-          const label = raw.label != null ? String(raw.label) : undefined
-          const skillName = raw.skillName != null ? String(raw.skillName) : undefined
-          const stage = raw.stage != null ? String(raw.stage) : undefined
-          let isTerminal = Boolean(raw.isTerminal ?? raw.is_terminal)
+          let artifactData: ArtifactDisplayData
+          try {
+            artifactData = normalizeArtifactDisplayData(raw)
+          } catch (error) {
+            console.warn('[HiringPage] ignored malformed artifact payload:', error)
+            return
+          }
+
+          const kind = artifactData.kind
+          const artifactType = artifactData.artifactType
+          const label = artifactData.label
+          const skillName = artifactData.skillName
+          const stage = artifactData.stage
+          let isTerminal = Boolean(artifactData.isTerminal)
           isTerminal = normalizeIncomingArtifactTerminal(artifactType, isTerminal)
-          const displayHint = raw.displayHint != null ? String(raw.displayHint) : raw.display_hint != null ? String(raw.display_hint) : undefined
-          const artifactData: ArtifactDisplayData = { kind, artifactType, label, skillName, stage, isTerminal, displayHint }
+          artifactData.isTerminal = isTerminal
           if (kind === 'file') {
-            artifactData.fileUrl = String(raw.fileUrl ?? raw.file_url ?? '')
-            artifactData.fileName = String(raw.fileName ?? raw.file_name ?? label ?? 'file')
             // template_package 的 fileName 来自 AI 生成的 <template_slug>-artifacts.zip，
             // 当 AI 未能正确解析 template_slug 时会产生类似 "______-artifacts.zip" 的垃圾名。
             // 这里用模板名称或雇佣 ID 作为回退，确保下载文件名可读。
             if (artifactType === 'template_package') {
-              artifactData.fileName = normalizePackageFileName(artifactData.fileName, template?.name, workflowHireIdRef.current)
+              artifactData.fileName = normalizePackageFileName(artifactData.fileName ?? label ?? 'file', template?.name, workflowHireIdRef.current)
             }
             artifactData.mimeType = String(raw.mimeType ?? raw.mime_type ?? '')
             const sizeBytes = typeof raw.fileSizeBytes === 'number' ? raw.fileSizeBytes : typeof raw.file_size_bytes === 'number' ? raw.file_size_bytes : null
             artifactData.sizeLabel = sizeBytes !== null ? formatFileSize(sizeBytes) : ''
-          } else {
-            if (raw.data != null) {
-              artifactData.data = typeof raw.data === 'string' ? JSON.parse(raw.data as string) : raw.data
-            } else {
-              // 兜底：Gateway 部分版本将 data 字段平铺在 artifact 顶层而非嵌套在 data 字段下
-              // 历史重建路径（tool call arguments）始终有嵌套 data 字段，WS 推送有时没有
-              const META_KEYS = new Set(['kind', 'artifactType', 'artifact_type', 'label', 'skillName', 'skill_name', 'stage', 'isTerminal', 'is_terminal', 'displayHint', 'display_hint'])
-              const fallback: Record<string, unknown> = {}
-              for (const [k, v] of Object.entries(raw)) {
-                if (!META_KEYS.has(k)) fallback[k] = v
-              }
-              artifactData.data = Object.keys(fallback).length > 0 ? fallback : undefined
-            }
           }
           const blockedArtifactReason = getBlockedIncomingArtifactReason(artifactType, {
             hasMaterialSummary: latestMaterialSummaryRef.current !== null,
@@ -1703,7 +1696,7 @@ export default function HiringPage() {
     setOptimisticDownstreamRun(
       'skill-generation',
       'waiting_confirm',
-      '技能所需业务资料已准备好，等待确认生成技能实现。',
+      '技能数据已匹配完成，等待确认生成技能实现。',
       'skill_generation_ready',
     )
     pendingInternalPromptsRef.current.push(
@@ -1712,7 +1705,7 @@ export default function HiringPage() {
         projectionResult,
       }),
     )
-    setWorkflowNotice('技能所需业务资料已准备好，请确认是否生成技能实现。')
+    setWorkflowNotice('技能数据已匹配完成，请确认是否生成技能实现。')
     void flushQueuedInternalPrompt()
     return true
   }
@@ -1798,7 +1791,7 @@ export default function HiringPage() {
     )
 
     if (submitted) {
-      setWorkflowNotice('已确认技能清单，正在收口技能定义并进入业务资料准备确认。')
+      setWorkflowNotice('已确认技能清单，正在收口技能定义并进入匹配技能数据确认。')
       return true
     }
 
@@ -1812,7 +1805,7 @@ export default function HiringPage() {
     const projectionRun = downstreamRunsRef.current['ontology-projection']
     const signature = skillSummarySignatureRef.current || JSON.stringify(summary)
     if (projectionRun?.status === 'running') {
-      setWorkflowNotice('正在为技能准备业务资料，请等待进度更新。')
+      setWorkflowNotice('正在匹配技能数据，请等待进度更新。')
       return true
     }
 
@@ -1826,13 +1819,13 @@ export default function HiringPage() {
     }
 
     if (signature && projectionPassLaunchSignatureRef.current === signature) {
-      setWorkflowNotice('正在为技能准备业务资料，请等待进度更新。')
+      setWorkflowNotice('正在匹配技能数据，请等待进度更新。')
       return true
     }
 
     const projectionPayload = buildProjectionPassPayload(summary)
     if (!projectionPayload) {
-      setWorkflowError('技能定义摘要缺少业务资料准备所需字段，暂时无法启动。')
+      setWorkflowError('技能定义摘要缺少匹配技能数据所需字段，暂时无法启动。')
       return false
     }
 
@@ -1843,7 +1836,7 @@ export default function HiringPage() {
     setOptimisticDownstreamRun(
       'ontology-projection',
       'running',
-      '正在为技能准备业务资料，等待下游进度更新。',
+      '正在匹配技能数据，等待下游进度更新。',
       'ontology_projection_progress',
     )
 
@@ -1856,7 +1849,7 @@ export default function HiringPage() {
     )
 
     if (submitted) {
-      setWorkflowNotice('已开始为技能准备业务资料；准备完成后会等待你确认是否生成技能实现。')
+      setWorkflowNotice('已开始匹配技能数据；匹配完成后会等待你确认是否生成技能实现。')
       return true
     }
 
@@ -1919,7 +1912,7 @@ export default function HiringPage() {
     setOptimisticDownstreamRun(
       'skill-generation',
       'waiting_confirm',
-      '技能所需业务资料已准备好，等待确认生成技能实现。',
+      '技能数据已匹配完成，等待确认生成技能实现。',
       'skill_generation_ready',
     )
     return false

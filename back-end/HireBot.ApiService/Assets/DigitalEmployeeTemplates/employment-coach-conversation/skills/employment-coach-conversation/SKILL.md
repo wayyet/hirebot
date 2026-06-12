@@ -46,8 +46,8 @@ metadata:
 | 生成数字员工 | 生成数字员工包、生成实例包、生成产物包、打包、导出、打成 zip、继续 | `generate_instance_package`、`package_workspace`、`template_package` | 用户在阶段 4 说这些都视为打包意图；回复用户说"生成数字员工"或"生成数字员工包" |
 | 数字员工包 | 实例包、产物包、模板包、zip 包、交付包 | instance package、`template_package`、`kind: file` | 用户可见下载/导入文案统一为"数字员工包"；不要主动说"实例包/产物包" |
 | 业务资料 | 材料、文档、案例、历史工单、SOP、规则、知识库 | `material_handoff_summary`、`ontology-slice-extraction` 输入 | 对用户说"业务资料"；不要说"本体输入" |
-| 已整理的业务信息 | 本体、本体切片、ontology、slice | `ontology/`、`ontology_slice_extraction_done`、`*.slice.json` | 对用户说"已整理的业务信息/业务资料整理结果"；不要主动说"本体/ontology/切片" |
-| 为技能准备业务资料 | 投影、projection、projection pass、资料采用 | `ontology_projection_progress`、`ontology_projection_done`、projection contracts | 对用户说"正在为技能准备业务资料"；不要主动说"投影/projection" |
+| 分析业务资料 | 本体、本体切片、ontology、slice | `ontology/`、`ontology_slice_extraction_done`、`*.slice.json` | 对用户说"分析业务资料/业务资料分析结果"；不要主动说"本体/ontology/切片" |
+| 匹配技能数据 | 投影、projection、projection pass、资料采用 | `ontology_projection_progress`、`ontology_projection_done`、projection contracts | 对用户说"正在匹配技能数据"；不要主动说"投影/projection" |
 | 技能定义 | 技能工单、技能清单、能力项、skill workorder | `skill_workorder_progress`、`skill_workorder_summary` | 用户可见文案用"技能定义/技能清单"；内部 payload 仍用 workorder |
 | 技能实现 | 生成技能、技能包生成、skill-generation | `skill_generation_ready`、`skill-generation`、`skill_generation_done` | 对用户说"生成技能实现"；不说"skill 文件生成" |
 | 外部连接 | 外部配置、外部系统、外部能力、接口对接 | `external_workorder_summary`、`external_config_committed`、`external/` | 对用户说"外部连接/外部系统配置"；不说 external workorder |
@@ -60,7 +60,7 @@ metadata:
 
 你的工作不是把数字员工讲清楚，而是把每一步谈到**让下游 skill 或系统层可以直接执行**为止：
 
-- 资料阶段：能把业务资料整理到内部 `ontology-slice-extraction` 可以执行的明确度，例如"从这份资料里抽取什么信息、目标是什么"
+- 资料阶段：能把业务资料分析到内部 `ontology-slice-extraction` 可以执行的明确度，例如"从这份资料里抽取什么信息、目标是什么"
 - 技能阶段：每条技能都有明确的 `name` + `description`，不是"它要会处理售后"这种意图
 - 外部阶段：每个外部能力都有明确 `category`（read / write / notify / search / transform）+ `objective` + 目标系统，凭据由用户在表单里填
 
@@ -80,7 +80,7 @@ metadata:
 
 本 skill 在三个阶段各有两类产物事件：**进度更新**（`isTerminal: false`，将前端胶囊置为 running）和**阶段完成**（`isTerminal: true`，将前端胶囊置为 completed）。
 
-**跨阶段硬门（UI 推进的唯一机器信号）**：自然语言只能解释进展，不能替代阶段完成事件。只要准备输出任何阶段 2 用户可见内容（包括"接下来我们把……技能清单……"、"建议先做一个……技能"、"你认为哪个技能比较好"等），必须先确认本轮或历史已经满足以下顺序：
+**跨阶段硬门（UI 推进的唯一机器信号）**：自然语言只能解释进展，不能替代阶段完成事件。资料收集开始前必须通过 `load_skill` 加载 `ontology-slice-extraction`；如果上下文曾被裁剪，发出资料收口 artifact 或触发 R1 前必须重新加载。只要准备输出任何阶段 2 用户可见内容（包括"接下来我们把……技能清单……"、"建议先做一个……技能"、"你认为哪个技能比较好"等），必须先确认本轮或历史已经满足以下顺序：
 
 1. 已发出 `material_handoff_summary` terminal artifact，且其中上传文件条目都具备可读 `source_path`。
 2. 已按 R1 立即触发 `ontology-slice-extraction`，不得把这一步延后到用户下一轮。
@@ -106,11 +106,11 @@ metadata:
 | 收到第一批技能描述后 | `skill_workorder_progress` | `stage2_skill` | `false` | `progress` |
 | 技能清单草案已足够，等待用户确认技能定义 | `skill_definition_ready` | `stage2_skill` | `false` | `badge` |
 | 用户确认技能清单后，技能定义子步骤收尾 | `skill_workorder_summary` | `stage2_skill` | `true` | `tree` |
-| 技能定义已确认，等待用户确认是否开始准备业务资料 | `ontology_projection_ready` | `stage2_skill` | `false` | `badge` |
-| 用户确认开始准备业务资料后，资料准备流程启动 | `ontology_projection_progress` | `stage2_skill` | `false` | `progress` |
-| 资料准备完成，等待用户确认是否生成技能实现 | `ontology_projection_done` | `stage2_skill` | `true` | `tree` |
-| 业务资料已可用于生成，等待用户确认生成技能实现 | `skill_generation_ready` | `stage2_skill` | `false` | `badge` |
-| 技能所需业务资料已准备好（可选进度通知；不是确认门） | `skill_projection_binding_ready` | `stage2_skill` | `false` | `badge` |
+| 技能定义已确认，等待用户确认是否开始匹配技能数据 | `ontology_projection_ready` | `stage2_skill` | `false` | `badge` |
+| 用户确认开始匹配技能数据后，数据匹配流程启动 | `ontology_projection_progress` | `stage2_skill` | `false` | `progress` |
+| 技能数据匹配完成，等待用户确认是否生成技能实现 | `ontology_projection_done` | `stage2_skill` | `true` | `tree` |
+| 技能数据已可用于生成，等待用户确认生成技能实现 | `skill_generation_ready` | `stage2_skill` | `false` | `badge` |
+| 技能数据已匹配完成（可选进度通知；不是确认门） | `skill_projection_binding_ready` | `stage2_skill` | `false` | `badge` |
 
 **阶段 3 外部 — 发出时机与参数**
 
@@ -140,7 +140,7 @@ metadata:
 - `kind` 固定为 `data`（`review_report` 和 `template_package` 除外，后者为 `file`）
 - `label` 用对用户可读的一句话描述当前进度或成果
 
-### 正确调用示例（资料阶段完成）
+### 正确调用示例（资料收口，随后触发 R1）
 
 ```json
 {
@@ -148,7 +148,7 @@ metadata:
   "parameters": {
     "kind": "data",
     "artifactType": "material_handoff_summary",
-    "label": "5 份业务资料整理完毕，可进入技能定义阶段",
+    "label": "已整理 5 份业务资料，准备分析业务资料",
     "skillName": "employment-coach-conversation",
     "stage": "stage1_material",
     "isTerminal": true,
@@ -166,7 +166,7 @@ metadata:
           "status": "ready"
         }
       ],
-      "summary": "共整理 5 份业务资料，抽取方向已确认，准备进入技能定义阶段"
+      "summary": "共整理 5 份业务资料，抽取方向已确认，准备分析业务资料"
     }
   }
 }
@@ -302,7 +302,7 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 
 **禁止**在开场里复述模板包详细内容。
 
-开场句一出，**立即**依次完成以下三件事（"亮灯仪式"）：
+开场句一出，**立即**依次完成以下启动动作（"亮灯仪式"）。第 2 步完成前不得邀请用户上传、描述或整理业务资料：
 
 1. **调用 `emit_artifact`** 推送 stage1 进度：
    - `artifactType`: `material_collection_progress`
@@ -310,19 +310,11 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
    - `isTerminal`: `false`
    - `displayHint`: `progress`
    - `data`: `{ "workspace_root": <真实路径>, "template_slug": <真实 slug>, "summary": "已进入资料阶段，等待用户上传或描述业务资料", "requested_categories": [{ "title": "历史工单", "description": "优先上传最近处理不顺的真实案例", "examples": ["投诉工单", "售后记录"] }] }`
-2. **调用 `load_skill`** 加载 `ontology-slice-extraction`——阶段 1 收口后需要立即触发 R1 本体切片抽取（见 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) R1），必须在此时预加载到上下文：
+2. **调用 `load_skill`** 加载 `ontology-slice-extraction`——这是资料阶段入场门，不是阶段 2 兜底。阶段 1 收口后需要立即触发 R1 本体切片抽取（见 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) R1），必须在资料收集开始前预加载到上下文：
    ```json
    { "skill": "ontology-slice-extraction" }
    ```
-3. **调用 `load_skill`** 加载 `ontology-projection`——阶段 2 投影匹配需要（见 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) R2），必须在此时预加载到上下文：
-   ```json
-   { "skill": "ontology-projection" }
-   ```
-4. **调用 `load_skill`** 加载 `skill-generation`——阶段 2 技能生成需要（见 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) R3），必须在此时预加载到上下文：
-   ```json
-   { "skill": "skill-generation" }
-   ```
-5. **再用一句话**邀请用户开始介绍业务场景或直接上传资料，按 [references/scene-types.md](references/scene-types.md) 的 story-driven 风格开口，不要罗列长清单。
+3. **再用一句话**邀请用户开始介绍业务场景或直接上传资料，按 [references/scene-types.md](references/scene-types.md) 的 story-driven 风格开口，不要罗列长清单。
 
 `requested_categories` 最多 3 项，必须与开场白提到的分类一致；它只用于右侧资料阶段提示"建议先上传"，不代表用户已经完成资料归类。
 
@@ -367,7 +359,7 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 
 ## 渐进式披露下的下游 skill 路由
 
-当前沙箱启用了 skill 渐进式披露：下游 skill（`ontology-slice-extraction`、`skill-generation`、`external-config`、`packaging-test-cases`、`digital-employee-package-completeness-review`）的完整正文**不会自动常驻上下文**。每次需要进入依赖下游 skill 的阶段或触发下游执行时，必须先按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) 确定所需 skill，再通过 `load_skill` 工具显式加载到上下文。
+当前沙箱启用了 skill 渐进式披露：下游 skill（`ontology-slice-extraction`、`ontology-projection`、`skill-generation`、`external-config`、`packaging-test-cases`、`digital-employee-package-completeness-review`）的完整正文**不会自动常驻上下文**。每次需要进入依赖下游 skill 的阶段或触发下游执行时，必须先按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) 确定所需 skill，再通过 `load_skill` 工具显式加载到上下文。
 
 ### `load_skill` 工具
 
@@ -387,21 +379,25 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 
 ### 阶段推进时的强制加载流程
 
-每次阶段推进（用户确认后、发 terminal artifact 前），**必须**按以下顺序执行：
+每次阶段推进（用户确认后或真正进入下一阶段前），**必须**按以下顺序执行：
 
 1. **读注册表**：读取 `references/downstream-handoff-registry.md` 中对应的 S 条目（S1/S2/S3），确认下一阶段需要的 skill 和参考文件清单
 2. **加载 skill**：对清单中每个标记为”必须”或”按需”的 skill，调用 `load_skill` 将其加载到上下文
 3. **加载参考文件**：读取清单中列出的参考文件（如 `flow-constraints.md`、`stage-data-schema.md`）
-4. **发 terminal artifact + 进入阶段引导**
+4. **按对应 S / R 规则发 artifact 或进入阶段引导**
 
 > 已经通过 `load_skill` 加载过的 skill 在后续阶段推进时无需重复加载（已在上下文中），除非上下文曾被裁剪。
+
+### 资料阶段的强制预加载
+
+`ontology-slice-extraction` 是资料阶段 R1 的执行 skill，必须在资料收集开始前加载：会话初始化发出 `material_collection_progress` 后，先调用 `load_skill` → `{"skill": "ontology-slice-extraction"}`，再邀请用户上传或描述业务资料。发出 `material_handoff_summary` 或构造 R1 内部触发块前，也必须确认该 skill 仍在上下文中；若上下文曾被裁剪，立即重新调用 `load_skill`。
 
 ### 各阶段入场需加载的 skill
 
 | 进入阶段 | 阶段推进披露 | 必须 `load_skill` 加载的 skill | 触发时机 |
 |---------|------------|---------------------------|---------|
-| 阶段 1（资料） | 会话初始化 | `ontology-slice-extraction` | 会话初始化步骤 4（亮灯仪式）之后、开始引导之前 |
-| 阶段 2（技能定义子阶段） | S1 | `ontology-projection`（若上下文已被裁剪则重新加载） | 用户确认推进到技能定义阶段后、发 `material_handoff_summary` 之前 |
+| 阶段 1（资料） | 会话初始化 | `ontology-slice-extraction` | 发出 `material_collection_progress` 后、邀请用户上传或描述资料之前；发 `material_handoff_summary` / 触发 R1 前若上下文被裁剪则重新加载 |
+| 阶段 2（技能定义子阶段） | S1 | `ontology-projection`（若上下文已被裁剪则重新加载） | `ontology_slice_extraction_done` 到达后、发 `skill_workorder_progress` 之前 |
 | 阶段 2（技能实现 — projection pass） | R2 触发前 | `ontology-projection`（若上下文已被裁剪则重新加载） | 用户确认 `ontology_projection_ready` 后、构造 R2 内部触发块之前 |
 | 阶段 2（技能实现 — skill-generation） | R3 触发前 | `skill-generation` | 用户确认 `skill_generation_ready` 后、构造 R3 内部触发块之前 |
 | 阶段 3（外部） | S2 | `external-config` | 用户确认推进到外部阶段后、发 `external_workorder_progress` 之前 |
@@ -431,7 +427,7 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 
 ### 阶段 1：资料
 
-**目的**：把用户的业务资料整理成"可供本体抽取的明确来源清单"。
+**目的**：把用户的业务资料分析成"可供本体抽取的明确来源清单"。
 
 **最低门槛**：至少 1 份资料被指认归类，并且明确说出"要从中整理什么分类的规则或内容"。如果该资料来自上传文件，则还必须保留可供下游读取的 `source_path`；只有 `source_hint` 而没有 `source_path` 的上传条目，不算达标。
 
@@ -449,6 +445,7 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 - 用户明确表达"先这些""这批资料先这样"或等价意思
 - 用户明确确认可以推进到技能定义阶段（"可以""推进""继续""好""行""是的""确认"等肯定词）
 - 发出 `material_handoff_summary` terminal artifact
+- 已按 R1 触发 `ontology-slice-extraction` 并收到 `ontology_slice_extraction_done`；这是资料阶段整体完成条件，技能阶段只能在其后启动
 
 **阶段 1 阻断规则（优先于用户催促推进）**：
 
@@ -457,19 +454,20 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 - 如果已经知道"文件内容未能读取到"、"文件不存在"或"只有文件名没有实际路径"，该条资料必须保持 `pending`，不能标记 `ready`。
 - 即使用户说"只有这个文件，先继续"、"推进到下一个阶段"，也只能明确告知阻断原因，并要求重新上传、补 `source_path`，或直接粘贴可读内容；不得以"占位资料"形式放行。
 
-**阶段 1 完成确认门（阶段推进披露 S1）**：
-资料阶段完成条件的前三条均已满足（资料已归类且 source_path 已补全、用户已表达"先这些"），必须先向用户确认是否可以推进到技能定义阶段。
+**阶段 1 收口确认门（先确认，再发 `material_handoff_summary`）**：
+资料收口条件前三条均已满足（资料已归类且 source_path 已补全、用户已表达"先这些"），必须先向用户确认是否可以推进到技能定义阶段。
 
 确认时向用户披露下一阶段的范围，让用户知道在确认什么：
 
-> 「资料整理先到这里。下一步进入**技能定义阶段**——把业务资料中提炼出的岗位动作拆成具体的技能条目，每条都要明确名称、触发条件和期望输出。确认推进吗？」
+> 「业务资料先分析到这里。下一步进入**技能定义阶段**——把业务资料中提炼出的岗位动作拆成具体的技能条目，每条都要明确名称、触发条件和期望输出。确认推进吗？」
 
 等待用户明确回应：
 - 用户**肯定**（「可以」「推进」「继续」「好」「行」「是的」「确认」等）：
   0. **确认 `ontology-slice-extraction` 已在上下文中**（会话初始化时已通过 `load_skill` 预加载）；若上下文曾被裁剪，重新调用 `load_skill` → `{"skill": "ontology-slice-extraction"}`
-  1. 按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) **S1** 条目，读取阶段 2 所需文件（SKILL.md § 阶段 2、flow-constraints.md § 阶段 2 引导细则、stage-data-schema.md 等）
-  2. 立即发出 `material_handoff_summary` terminal artifact
-  3. 按"阶段 1 完成后的强制动作"触发 `ontology-slice-extraction`（R1）
+  1. 立即发出 `material_handoff_summary` terminal artifact
+  2. 按"阶段 1 完成后的强制动作"触发 `ontology-slice-extraction`（R1）
+  3. 等待 `ontology_slice_extraction_done`；等待期间仍属于资料阶段，只能提示"正在分析业务资料，稍后进入技能定义"
+  4. 收到 `ontology_slice_extraction_done` 后，按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) **S1** 条目，读取阶段 2 所需文件（SKILL.md § 阶段 2、flow-constraints.md § 阶段 2 引导细则、stage-data-schema.md 等），再进入阶段 2
 - 用户**否定或补充更多资料**：保持在阶段 1，继续收集资料。
 - 用户**直接说"推进到技能阶段 / 下一阶段"等**：视同肯定确认，按肯定分支处理。
 
@@ -481,16 +479,16 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 
 1. 按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) 的 **R1** 构造内部触发块，显式写 `use skill ontology-slice-extraction`。
 2. 将 `material_handoff_summary.data` 原样放入 `artifact_payload`，不得改写、压缩或只传自然语言摘要。
-3. 交接后等待 `ontology_slice_extraction_done`。在等待期间，只能给用户一句进度提示（例如"业务信息正在整理，稍后进入技能定义"），**不得**给出技能建议、不得追问技能选择、不得发出 `skill_workorder_progress`，也不得进入技能定义收集。
-4. 收到 `ontology_slice_extraction_done` 后，才正式进入阶段 2 的"进入阶段的强制动作"。
+3. 交接后等待 `ontology_slice_extraction_done`。在等待期间，只能给用户一句进度提示（例如"正在分析业务资料，稍后进入技能定义"），**不得**给出技能建议、不得追问技能选择、不得发出 `skill_workorder_progress`，也不得进入技能定义收集。
+4. 收到 `ontology_slice_extraction_done` 后，才读取 S1 并正式进入阶段 2 的"进入阶段的强制动作"。
 
 > ⛔ 触发本体抽取不是可选项：资料阶段每一次 terminal artifact 之后都必须触发；已在进行中时不重复触发。
 
 > ⛔ 如果任何上传条目缺少 `source_path`、或已知内容不可读，则**不得**发出 `material_handoff_summary`，也就**不得**触发 `ontology-slice-extraction`。先修复资料可读性，再谈下一阶段。
 
 当用户说”推进到技能阶段 / 下一阶段 / 先基于这些资料继续”等等价表述时：
-- **不得直接视同肯定确认并跳过确认门**。必须先检查资料阶段完成条件的前三条（至少 1 份资料已归类、source_path 已补全、用户已表达”先这些”）。
-- 若前三条已满足：**必须先按”阶段 1 完成确认门（阶段推进披露 S1）”的流程**，向用户发出确认询问（如：「资料整理先到这里。下一步进入**技能定义阶段**——把业务资料中提炼出的岗位动作拆成具体的技能条目，每条都要明确名称、触发条件和期望输出。确认推进吗？」），等待用户明确回应后，才按肯定分支执行（发出 `material_handoff_summary` + 按强制动作触发 `ontology-slice-extraction`）。
+- **不得直接视同肯定确认并跳过确认门**。必须先检查资料收口条件前三条（至少 1 份资料已归类、source_path 已补全、用户已表达”先这些”）。
+- 若前三条已满足：**必须先按”阶段 1 收口确认门”的流程**，向用户发出确认询问（如：「业务资料先分析到这里。下一步进入**技能定义阶段**——把业务资料中提炼出的岗位动作拆成具体的技能条目，每条都要明确名称、触发条件和期望输出。确认推进吗？」），等待用户明确回应后，才按肯定分支执行（发出 `material_handoff_summary` + 按强制动作触发 `ontology-slice-extraction` + 等待 `ontology_slice_extraction_done`）。
 - 若前三条尚未满足：只说明缺口并继续资料阶段，不得发 `material_handoff_summary`，不得触发 `ontology-slice-extraction`。
 - 禁止输出”案例分析与规则提取””技能流水线初始化”等非协议阶段 artifact，也禁止用目标员工业务产物替代资料阶段收口。
 - 任何以”接下来我们把……技能……”开头的回复，必须排在 `material_handoff_summary` 和 R1 `ontology-slice-extraction` 触发之后；任何具体技能建议或技能反问，必须排在 `ontology_slice_extraction_done` 之后。
@@ -503,7 +501,22 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 
 **最低门槛**：每个 skill 同时具备**明确的名称 + 明确的能力描述**，并且能说清触发条件和期望输出。
 
-**进入阶段的强制动作**：资料阶段 terminal artifact 已发出、`ontology-slice-extraction` 已发出 `ontology_slice_extraction_done` 后，先发出技能阶段进度 emit_artifact（`skill_workorder_progress`），再开始引导技能定义。若 `ontology-slice-extraction` 仍在执行，可以向用户说一句"业务信息正在整理，稍后进入技能定义"，但不得发 `skill_workorder_progress`。
+**⛔ 阶段 2 入口门禁（最高优先级，先于一切阶段 2 动作）**：
+
+无论阶段 2 是通过什么方式进入的（用户确认推进、系统阶段门控自动推进、或历史会话恢复），在发出 `skill_workorder_progress` 或开始任何技能定义引导之前，**必须**逐项确认以下前置条件：
+
+| # | 条件 | 未满足时的强制动作 |
+|---|------|-------------------|
+| 0 | `ontology-slice-extraction` 已通过 `load_skill` 加载到上下文 | **立即加载**：调用 `load_skill` → `{"skill": "ontology-slice-extraction"}`，再继续检查资料收口和 R1 |
+| 1 | `material_handoff_summary` 已在本会话中发出（isTerminal: true） | **立即补发**：基于当前已收集的资料条目，构造并发出 `material_handoff_summary` terminal artifact |
+| 2 | R1 `ontology-slice-extraction` 已被触发（即步骤 1 完成后已构造过 `use skill ontology-slice-extraction` 内部触发块） | **立即补触发**：按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) R1 构造内部触发块 |
+| 3 | `ontology_slice_extraction_done` 已到达 | **等待**：给用户一句进度提示（"正在分析业务资料，稍后进入技能定义"），不得发 `skill_workorder_progress`，不得开始技能定义引导，不得追问技能选择 |
+
+**只有上述条件全部满足后**，才允许进入"进入阶段的强制动作"。
+
+> ⛔ 这条入口门禁是防御性的：阶段门控系统可能在 `material_handoff_summary` 未发出的情况下将阶段标为"完成"并推进到 stage 2。无论阶段如何被激活，本 skill 不得在 R1 未完成的情况下进入技能定义。
+
+**进入阶段的强制动作**：上述入口门禁全部通过后，先发出技能阶段进度 emit_artifact（`skill_workorder_progress`），再开始引导技能定义。
 
 **阶段完成条件**：
 - 默认技能基线已经盘清（哪些直接复用，哪些需要新增）
@@ -515,7 +528,7 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 **技能定义确认门**：
 - 当技能草案已达到最低门槛时，先发出 `skill_definition_ready`（isTerminal: false），询问用户是否确认技能清单。
 - 用户确认前不得发出 `skill_workorder_summary`，不得触发 projection pass，也不得进入外部或打包。
-- 用户确认后，才发出 `skill_workorder_summary` terminal artifact，并紧跟 `ontology_projection_ready` 确认门，等待用户确认是否开始准备业务资料。
+- 用户确认后，才发出 `skill_workorder_summary` terminal artifact，并紧跟 `ontology_projection_ready` 确认门，等待用户确认是否开始匹配技能数据。
 
 **阶段 2 terminal artifact 硬性要求**：
 发出 `skill_workorder_summary` 时，`data` 顶层必须包含：
@@ -536,24 +549,24 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
       "status": "ready"
     }
   ],
-  "summary": "技能定义已确认，等待确认是否开始准备业务资料"
+  "summary": "技能定义已确认，等待确认是否开始匹配技能数据"
 }
 ```
 
 若拿不到真实 `workspace_root` 或 `template_slug`，不得发出 `skill_workorder_summary`，必须先回到会话初始化记录中恢复这两个值；禁止只发 `items` 清单让前端自行补齐。
 
-**技能定义完成后的强制动作（进入技能实现子流程：业务资料准备确认门）**：
+**技能定义完成后的强制动作（进入技能实现子流程：匹配技能数据确认门）**：
 - 用户确认 `skill_definition_ready` 后，发出 `skill_workorder_summary` terminal artifact。
-- 紧接着必须发出 `ontology_projection_ready` 确认门，询问用户是否开始为这些技能准备业务资料；不得直接触发 R2。
-- 用户确认后：
-  0. **确认 `ontology-projection` 已在上下文中（会话初始化时已通过 `load_skill` 预加载）**；若上下文曾被裁剪，重新调用 `load_skill` → `{"skill": "ontology-projection"}`
-  1. 按 R2 触发业务资料准备。内部触发块必须显式写 `use skill ontology-projection`、真实 `workspace_root`、`template_slug`、`skills`（取自 `skill_workorder_summary.data.items`）。
-- 对用户只说业务含义：「我会开始为这些技能准备可直接使用的业务资料，完成后再请你确认是否生成技能实现。」
+- 紧接着必须发出 `ontology_projection_ready` 确认门，询问用户是否开始匹配这些技能所需的数据；不得直接触发 R2。
+- 用户确认后，才按 R2 触发匹配技能数据：
+  0. **确认 `ontology-projection` 已在上下文中（按 S1 或本触发前通过 `load_skill` 加载）**；若尚未加载或上下文曾被裁剪，重新调用 `load_skill` → `{"skill": "ontology-projection"}`
+  1. 构造 R2 内部触发块，必须显式写 `use skill ontology-projection`、真实 `workspace_root`、`template_slug`、`skills`（取自 `skill_workorder_summary.data.items`）。
+- 对用户只说业务含义：「我会开始匹配这些技能所需的数据，完成后再请你确认是否生成技能实现。」
 
-> **”业务资料准备”是进入技能实现子流程后的第一个显式确认门**。用户已经确认了技能清单（要哪些技能），但仍需要确认是否开始为这些技能匹配业务资料；确认后系统内部执行 projection pass，用户界面只呈现为“准备业务资料”。
+> **“匹配技能数据”是进入技能实现子流程后的第一个显式确认门**。用户已经确认了技能清单（要哪些技能），但仍需要确认是否开始为这些技能匹配业务资料；确认后系统内部执行 projection pass，用户界面只呈现为“匹配技能数据”。
 
-**业务资料准备完成后的强制动作（生成技能实现确认门）**：
-- 等待 `ontology_projection_done` 到达；等待期间**不得**再次询问用户”是否开始准备业务资料”、不得触发 `skill-generation`、不得向用户声称技能实现已经开始生成。
+**匹配技能数据完成后的强制动作（生成技能实现确认门）**：
+- 等待 `ontology_projection_done` 到达；等待期间**不得**再次询问用户“是否开始匹配技能数据”、不得触发 `skill-generation`、不得向用户声称技能实现已经开始生成。
 - 若 `projected_count > 0` 且 `projection_paths[]` 指向 `ontology/projections/<skill-slug>/...projection.json`：发出 `skill_generation_ready` 作为技能实现确认门，询问用户是否生成技能实现。
 - 若 `projected_count === 0`、缺少 `projection_paths[]`、路径无法对应已确认技能 slug，或结果无效：不得发出 `skill_generation_ready`，用用户可理解的话说明业务资料不足，需要补充材料或回到业务信息整理；不得向用户暴露 `slice`、`projection`、`projection_paths`、R1/R2/R3、结构化文件等内部术语。
 - 用户确认 `skill_generation_ready` 后：
@@ -596,9 +609,9 @@ return_to: employment-coach-conversation
 > - `projection_result` → 来自 `ontology_projection_done.data`（最近一次 ontology-projection terminal artifact）
 > - `projection_skill_slugs` → 从 `ontology_projection_done.data.projection_paths[]` 解析 `<skill-slug>` 部分
 >
-> **如果 `ontology_projection_done.data` 已不在当前上下文中，不得猜测或编造任何字段值。** 此时应输出：「业务资料准备结果已过期，请重新准备业务资料。」
+> **如果 `ontology_projection_done.data` 已不在当前上下文中，不得猜测或编造任何字段值。** 此时应输出：「匹配技能数据结果已过期，请重新匹配技能数据。」
 
-- **`skill_generation_ready` 字段边界**：该 artifact 只表达“业务资料准备已完成，等待用户确认是否开始生成技能实现”。它的 `data` 必须携带 `projection_paths` 与 `projected_count` 摘要，但不得包含 `projection_binding_confirmed`、`projection_result`、`projection_contract_mode`；这些字段只允许出现在 R3 的内部 `skill-generation` 触发 payload 中。
+- **`skill_generation_ready` 字段边界**：该 artifact 只表达“匹配技能数据已完成，等待用户确认是否开始生成技能实现”。它的 `data` 必须携带 `projection_paths` 与 `projected_count` 摘要，但不得包含 `projection_binding_confirmed`、`projection_result`、`projection_contract_mode`；这些字段只允许出现在 R3 的内部 `skill-generation` 触发 payload 中。
 
 - **反停滞红线（最高优先级）**：
   - 用户说出肯定词后，**必须立即执行下一步动作**（触发 projection pass 或 skill-generation），**严禁**输出以下类型的回复：
@@ -608,7 +621,7 @@ return_to: employment-coach-conversation
     - “准备好了吗？那我开始了”
     - “收到，我将按这份资料来生成”（然后不实际触发）
     - 任何要求用户重复确认的表述
-  - 阶段 2 必须有三次显式确认：确认技能清单、确认准备业务资料、确认生成技能实现；任何一步都不得用“自动衔接”跳过用户确认。
+  - 阶段 2 必须有三次显式确认：确认技能清单、确认匹配技能数据、确认生成技能实现；任何一步都不得用“自动衔接”跳过用户确认。
 
 - **Projection Pass 异常处理**：
   - `ontology_projection_done` 到达之前，不得触发 `skill-generation`。

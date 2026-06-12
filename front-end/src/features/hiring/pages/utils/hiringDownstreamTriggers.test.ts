@@ -100,11 +100,11 @@ describe('isSkillGenerationApprovalMessage', () => {
 })
 
 describe('skill stage approval messages', () => {
-  it('分别识别技能定义确认和业务资料准备确认', () => {
+  it('分别识别技能定义确认和匹配技能数据确认', () => {
     expect(isSkillDefinitionApprovalMessage('确认技能清单')).toBe(true)
     expect(isSkillDefinitionApprovalMessage('没问题，继续')).toBe(true)
-    expect(isOntologyProjectionApprovalMessage('开始准备业务资料')).toBe(true)
-    expect(isOntologyProjectionApprovalMessage('继续整理业务资料')).toBe(true)
+    expect(isOntologyProjectionApprovalMessage('开始匹配技能数据')).toBe(true)
+    expect(isOntologyProjectionApprovalMessage('继续匹配数据')).toBe(true)
   })
 })
 
@@ -139,7 +139,7 @@ describe('resolveSkillStageApprovalRoute', () => {
     })).toBe('launch_projection_pass')
   })
 
-  it('技能生成确认门优先于残留的业务资料准备确认门', () => {
+  it('技能生成确认门优先于残留的匹配技能数据确认门', () => {
     expect(resolveSkillStageApprovalRoute({
       text: '继续',
       incomingFileCount: 0,
@@ -150,7 +150,7 @@ describe('resolveSkillStageApprovalRoute', () => {
     })).toBe('launch_skill_generation')
   })
 
-  it('右侧技能卡展示当前有效确认门，不被旧业务资料准备门覆盖', () => {
+  it('右侧技能卡展示当前有效确认门，不被旧匹配技能数据门覆盖', () => {
     expect(resolveActiveSkillStageRun(skillGenerationReady, projectionReady)?.artifactType)
       .toBe('skill_generation_ready')
     expect(resolveActiveSkillStageRun(skillDefinitionReady, projectionReady)?.artifactType)
@@ -251,7 +251,7 @@ describe('buildPackagingRequestPrompt', () => {
 })
 
 describe('buildSkillDefinitionConfirmationPrompt', () => {
-  it('确认技能定义后只要求收口 summary 和业务资料准备确认门', () => {
+  it('确认技能定义后只要求收口 summary 和匹配技能数据确认门', () => {
     const prompt = buildSkillDefinitionConfirmationPrompt('确认技能清单', {
       items: [{ name: 'insert-order-feasibility' }],
     })
@@ -280,19 +280,19 @@ describe('buildDownstreamPrompt', () => {
     expect(prompt).toContain('ontology_slice_extraction_done')
   })
 
-  it('ontology-projection prompt 包含 use skill ontology-slice-extraction 触发块', () => {
+  it('ontology-projection prompt 包含 use skill ontology-projection 触发块', () => {
     const prompt = buildDownstreamPrompt('ontology-projection', samplePayload)
 
-    expect(prompt).toContain('use skill ontology-slice-extraction')
-    expect(prompt).toContain('Switch to skill `ontology-slice-extraction` now.')
-    expect(prompt).toContain('[Internal downstream trigger: use skill ontology-slice-extraction]')
+    expect(prompt).toContain('use skill ontology-projection')
+    expect(prompt).toContain('Switch to skill `ontology-projection` now.')
+    expect(prompt).toContain('[Internal downstream trigger: use skill ontology-projection]')
     expect(prompt).toContain('trigger_reason: user_confirmed_ontology_projection')
     expect(prompt).toContain('stage=`stage2_skill`')
     expect(prompt).toContain('artifact_payload:')
     expect(prompt).toContain('required_artifacts:')
     expect(prompt).toContain('ontology_projection_progress')
     expect(prompt).toContain('ontology_projection_done')
-    expect(prompt).toContain('Projection Pass')
+    expect(prompt).toContain('Scan slices from `<workspace_root>/ontology/`')
   })
 
   it('skill-generation prompt 包含 use skill skill-generation 触发块', () => {

@@ -53,11 +53,11 @@ stage 与前端胶囊的对应关系：
 - `stage2_skill` → 技能配置胶囊
 - `stage3_external` → 外部能力胶囊
 - `stage4_packaging` → 生成数字员工胶囊（内部实例打包）
-- `ontology-projection` → 为技能准备业务资料执行轨道；这是前端运行轨道名，不是 `emit_artifact.stage` 合法值。projection 相关 artifact 的 `stage` 必须使用 `stage2_skill`。
+- `ontology-projection` → 匹配技能数据执行轨道；这是前端运行轨道名，不是 `emit_artifact.stage` 合法值。projection 相关 artifact 的 `stage` 必须使用 `stage2_skill`。
 
 补充说明：
-- `stage2_skill` 是“技能”主阶段，其中固定先完成技能定义，再进入“技能实现子流程”：业务资料准备确认，最后进入技能生成确认/执行子步骤。
-- 技能阶段有三个显式确认门：`skill_definition_ready`、`ontology_projection_ready`、`skill_generation_ready`。`skill_workorder_summary` 只能在 `skill_definition_ready` 被用户确认后发出，随后发出 `ontology_projection_ready` 等待用户确认准备业务资料；`skill_generation_ready` 只能在 `ontology_projection_done` 可消费后发出。主 `stage2_skill` 胶囊在 `skill-generation` 完成前仍保持进行中。
+- `stage2_skill` 是“技能”主阶段，其中固定先完成技能定义，再进入“技能实现子流程”：匹配技能数据确认，最后进入技能生成确认/执行子步骤。
+- 技能阶段有三个显式确认门：`skill_definition_ready`、`ontology_projection_ready`、`skill_generation_ready`。`skill_workorder_summary` 只能在 `skill_definition_ready` 被用户确认后发出，随后发出 `ontology_projection_ready` 等待用户确认匹配技能数据；`skill_generation_ready` 只能在 `ontology_projection_done` 可消费后发出。主 `stage2_skill` 胶囊在 `skill-generation` 完成前仍保持进行中。
 
 ## 各阶段发出时机
 
@@ -66,9 +66,11 @@ stage 与前端胶囊的对应关系：
 | 时机 | artifactType | isTerminal | displayHint |
 |------|-------------|------------|-------------|
 | 用户上传文件或描述资料后，第一条资料被记录下来 | `material_collection_progress` | `false` | `progress` |
-| 用户明确表达"先这些"，资料清单已整理完毕 | `material_handoff_summary` | `true` | `tree` |
+| 用户明确表达"先这些"，资料清单已整理完毕，作为 R1 分析业务资料输入 | `material_handoff_summary` | `true` | `tree` |
 
 中间每次有新资料加入清单时可多次发出 `material_collection_progress` 更新进度，不需要等到用户说完所有资料再发第一次。
+
+`material_handoff_summary` 只表示资料收集已收口，并为 `ontology-slice-extraction` 提供输入；资料阶段整体完成还必须等待 R1 返回 `ontology_slice_extraction_done`。在此之前不得发出 `skill_workorder_progress` 或开始技能定义引导。
 
 ### 阶段 2：技能（stage2_skill）
 
@@ -77,19 +79,19 @@ stage 与前端胶囊的对应关系：
 | 技能阶段开始，收到第一条技能描述 | `skill_workorder_progress` | `false` | `progress` |
 | 技能清单草案已足够，等待用户确认 | `skill_definition_ready` | `false` | `badge` |
 | 用户确认技能清单完整，技能定义子步骤收口 | `skill_workorder_summary` | `true` | `tree` |
-| 技能定义已确认，等待用户确认是否开始准备业务资料 | `ontology_projection_ready` | `false` | `badge` |
-| 业务资料已可用于生成，等待用户确认是否开始技能生成 | `skill_generation_ready` | `false` | `badge` |
+| 技能定义已确认，等待用户确认是否开始匹配技能数据 | `ontology_projection_ready` | `false` | `badge` |
+| 技能数据已可用于生成，等待用户确认是否开始技能生成 | `skill_generation_ready` | `false` | `badge` |
 
 补充约束：
 - `skill_workorder_summary` 只表示“技能定义”子步骤完成，不代表可以直接进入阶段 3。
 - `skill_workorder_summary.data` 必须包含会话初始化阶段锁定的真实 `workspace_root` 与 `template_slug`（缺一不可），供后续 projection pass 与 skill-generation 启动使用；缺少任一字段时不得发出 terminal summary。
 - 只有 `skill-generation` 已完成且用户明确同意继续时，才允许发出 `external_workorder_progress`。
 
-### 为技能准备业务资料子轨（ontology-projection）
+### 匹配技能数据子轨（ontology-projection）
 
 | 时机 | artifactType | isTerminal | displayHint |
 |------|-------------|------------|-------------|
-| 用户确认开始准备业务资料后，projection pass 启动 | `ontology_projection_progress` | `false` | `progress` |
+| 用户确认开始匹配技能数据后，projection pass 启动 | `ontology_projection_progress` | `false` | `progress` |
 | projection pass 完成，可触发 skill-generation | `ontology_projection_done` | `true` | `tree` |
 | projection pass 产出可消费 projection 结果，可选进度通知 | `skill_projection_binding_ready` | `false` | `badge` |
 

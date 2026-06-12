@@ -89,7 +89,7 @@
 
 ---
 
-### material_handoff_summary（阶段完成，isTerminal: true）
+### material_handoff_summary（资料收口 / R1 输入，isTerminal: true）
 
 ```json
 {
@@ -106,11 +106,13 @@
       "status": "ready"
     }
   ],
-  "summary": "共整理 3 份业务资料，已确认抽取方向，准备进入技能定义阶段"
+  "summary": "共整理 3 份业务资料，已确认抽取方向，准备分析业务资料"
 }
 ```
 
 字段说明：与 `material_collection_progress` 相同；terminal 时顶层必须透传会话初始化阶段锁定的真实 `workspace_root` 与 `template_slug`，`status` 全部为 `ready`，`source_path` 必须尽可能补全（有上传文件的条目**必填**），并补充 `summary` 字段。`ontology-slice-extraction` skill 将以 `workspace_root` 与 `source_path` 为准定位实际文件，`source_hint` 仅供人工阅读。**如果缺少 `workspace_root` / `template_slug`，或上传条目只有 `source_hint`、没有 `source_path`，或已经知道内容未能读取到，则不得发出 `material_handoff_summary`。**
+
+`material_handoff_summary` 发出后必须立即触发 R1；资料阶段整体完成还需要收到 `ontology_slice_extraction_done`。在 `ontology_slice_extraction_done` 到达前，不得发 `skill_workorder_progress`，也不得进入技能定义收集。
 
 ---
 
@@ -118,7 +120,7 @@
 
 说明：阶段 2 是”技能”主阶段，技能清单定稿后进入“技能实现子流程”，内部固定拆成三个显式确认子步骤：
 - 技能定义确认：通过 `skill_workorder_progress` / `skill_definition_ready` / `skill_workorder_summary` 表达（用户确认门）。
-- 业务资料准备确认：技能定义完成后发出 `ontology_projection_ready`，用户确认后才触发 projection pass（`ontology-slice-extraction` projection_pass 模式）。
+- 匹配技能数据确认：技能定义完成后发出 `ontology_projection_ready`，用户确认后才触发 projection pass（`ontology-slice-extraction` projection_pass 模式）。
 - 技能生成确认/执行：`ontology_projection_done` 可消费后发 `skill_generation_ready`（用户确认门），确认后触发下游 `skill-generation`。
 
 ### skill_workorder_progress（进度更新，isTerminal: false）
@@ -205,7 +207,7 @@
   "new_count": 2,
   "reuse_count": 2,
   "items": [ "... 同 progress items ..." ],
-  "summary": "共规划 4 个技能：2 个新生成、2 个复用模板默认能力；技能定义已确认，等待确认是否开始准备业务资料"
+  "summary": "共规划 4 个技能：2 个新生成、2 个复用模板默认能力；技能定义已确认，等待确认是否开始匹配技能数据"
 }
 ```
 
@@ -224,7 +226,7 @@
 
 ---
 
-### ontology_projection_ready（业务资料准备确认门，isTerminal: false）
+### ontology_projection_ready（匹配技能数据确认门，isTerminal: false）
 
 ```json
 {
@@ -232,7 +234,7 @@
   "template_slug": "refund-agent",
   "pending_skill_count": 4,
   "skill_names": ["refund-eligibility-check", "order-status-query", "refund-priority-routing", "return-progress-track"],
-  "next_step": "等待用户确认开始为技能准备业务资料"
+  "next_step": "等待用户确认开始匹配技能数据"
 }
 ```
 
@@ -242,9 +244,9 @@
 |------|------|------|
 | `workspace_root` | 是 | 当前会话工作区真实绝对路径；R2 projection pass 依赖该字段 |
 | `template_slug` | 是 | 当前模板 slug |
-| `pending_skill_count` | 是 | 需要准备业务资料的技能数量 |
+| `pending_skill_count` | 是 | 需要匹配数据的技能数量 |
 | `skill_names[]` | 是 | 本轮 skill slug 或名称列表 |
-| `next_step` | 是 | 固定描述下一步是等待用户确认准备业务资料 |
+| `next_step` | 是 | 固定描述下一步是等待用户确认匹配技能数据 |
 
 补充约束：用户确认前不得触发 `ontology-projection`，不得发 `ontology_projection_progress`。
 
@@ -279,7 +281,7 @@
 | `next_step` | 是 | 固定描述下一步是等待用户确认开始技能生成 |
 
 补充约束：
-- 这个 artifact 只表示 projection 已完成且可消费，等待用户确认进入“技能生成执行”子步骤；前端应保留“技能定义已确认”和“业务资料已准备”的子状态，但主 `stage2_skill` 在 `skill-generation` 完成前仍保持进行中。
+- 这个 artifact 只表示 projection 已完成且可消费，等待用户确认进入“技能生成执行”子步骤；前端应保留“技能定义已确认”和“技能数据已匹配”的子状态，但主 `stage2_skill` 在 `skill-generation` 完成前仍保持进行中。
 - 发出该 artifact 后，若用户未明确同意，不得提前触发 `skill-generation`，也不得进入阶段 3。
 - `skill_generation_ready.data` 必须包含 `projection_paths` 与 `projected_count` 摘要；不得包含 `projection_binding_confirmed`、`projection_result`、`projection_contract_mode` 等执行字段，这些字段只属于用户确认后传给 `skill-generation` 的内部触发 payload。
 
@@ -294,7 +296,7 @@
     "ontology/projections/refund-eligibility/refund.workflow-contract.projection.json"
   ],
   "projected_count": 2,
-  "summary": "已为 2 个技能准备好业务资料，正在生成技能实现"
+  "summary": "已为 2 个技能匹配好数据，正在生成技能实现"
 }
 ```
 
@@ -306,7 +308,7 @@
 | `template_slug` | 否 | 当前模板 slug |
 | `projection_paths` | 否 | 已落盘的 projection 文件路径列表，来源为 `ontology_projection_done.data.projection_paths[]` |
 | `projected_count` | 否 | 成功生成 projection 的技能数量 |
-| `summary` | 建议 | 对用户可读的一句话状态，如"已为 N 个技能准备好业务资料，正在生成技能实现" |
+| `summary` | 建议 | 对用户可读的一句话状态，如"已为 N 个技能匹配好数据，正在生成技能实现" |
 
 补充约束：
 - 该 artifact 不是用户确认门，不得包含 `projection_binding_confirmed`、`projection_result` 等字段。
@@ -325,7 +327,7 @@
   "workspace_root": "/workspace/refund-agent-20260518103000",
   "template_slug": "refund-agent",
   "pending_skill_count": 4,
-  "summary": "正在为技能生成准备本体投影视图"
+  "summary": "正在匹配技能数据"
 }
 ```
 
@@ -346,7 +348,7 @@
   "skip_reasons": {
     "refund-escalation": "no_matching_slice"
   },
-  "summary": "已为 3 个技能准备好业务资料，可开始生成技能实现"
+  "summary": "已为 3 个技能匹配好数据，可开始生成技能实现"
 }
 ```
 

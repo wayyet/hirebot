@@ -103,7 +103,7 @@ describe('getBlockedIncomingArtifactReason', () => {
     }, { isTerminal: false, kind: 'data' })).toBeNull()
   })
 
-  it('业务资料准备确认门必须在技能定义收口后出现', () => {
+  it('匹配技能数据确认门必须在技能定义收口后出现', () => {
     expect(getBlockedIncomingArtifactReason('ontology_projection_ready', {
       ...emptyState,
       hasMaterialSummary: true,

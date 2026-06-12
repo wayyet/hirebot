@@ -275,7 +275,7 @@ export function buildUiStageOverrides(
   return next
 }
 
-function toArtifactDisplayData(raw: Record<string, unknown>): ArtifactDisplayData {
+export function normalizeArtifactDisplayData(raw: Record<string, unknown>): ArtifactDisplayData {
   const parameters = asPlainObject(raw.parameters)
   const artifactPayload = parameters && (parameters.artifactType || parameters.artifact_type)
     ? parameters
@@ -341,7 +341,7 @@ export function extractArtifactFromToolCall(toolCall: SandboxToolCall): Artifact
   }
 
   try {
-    const artifact = toArtifactDisplayData(payload)
+    const artifact = normalizeArtifactDisplayData(payload)
     // 历史 tool call 的 fileUrl 不在 arguments 里，而在 result 的 [FILE_URL:...] 标记中
     if (artifact.kind === 'file' && !artifact.fileUrl && toolCall.result) {
       const match = /\[FILE_URL:([^\]]+)\]/.exec(toolCall.result)

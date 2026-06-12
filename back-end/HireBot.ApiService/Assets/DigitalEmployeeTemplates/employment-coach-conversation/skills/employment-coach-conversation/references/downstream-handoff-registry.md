@@ -8,7 +8,7 @@
 2. **内部触发块必须点名 skill**：触发文本必须包含 `use skill <skill-name>`，并带 `artifact_payload` JSON。不要只写“开始生成”“继续处理”这类自然语言。
 3. **等待 terminal artifact**：交接后，主 skill 必须等 `expected_terminal_artifact` 到达后再推进下一阶段；没有 terminal artifact 时不得声称完成。
 4. **可选步骤也要走门**：测试用例和完整性审查可跳过，但必须先出现对应确认门；跳过只跳过该可选下游执行，不跳过后续审查门或打包门。
-5. **用户可见回复保持业务语言**：内部触发块不得原样展示给用户。对用户只说“正在整理业务信息 / 正在准备技能所需业务资料 / 正在生成技能实现 / 正在审查内容完整性”。
+5. **用户可见回复保持业务语言**：内部触发块不得原样展示给用户。对用户只说“正在分析业务资料 / 正在匹配技能数据 / 正在生成技能实现 / 正在审查内容完整性”。
 
 ---
 
@@ -16,15 +16,16 @@
 
 阶段推进确认本身也是一次"技能披露"——当用户确认从阶段 N 推进到阶段 N+1，LLM 必须明确知道下一阶段要读取哪些 skill 和参考文件。以下 S1-S3 条目定义每次阶段推进时的**必须加载文件清单**、阶段摘要和入场动作。
 
-> 阶段推进披露与 R1-R6 下游 skill 交接是两层路由：S 条目负责"进入下一阶段的上下文加载"，R 条目负责"在阶段内触发下游 skill 执行"。两者互补，不可互相替代。
+> 阶段推进披露与 R1-R6 下游 skill 交接是两层路由：S 条目负责"进入下一阶段的上下文加载"，R 条目负责"在阶段内触发下游 skill 执行"。两者互补，不可互相替代。R1 属于资料阶段，S1 只能在 R1 的 `ontology_slice_extraction_done` 到达后执行。
 
-## S1：阶段 1 → 阶段 2 推进披露
+## S1：资料阶段完成 → 阶段 2 推进披露
 
 **前置信号**
-- 资料阶段完成条件前三条已满足（至少 1 份资料已归类、source_path 已补全、用户已表达"先这些"）
-- 用户对"确认推进到技能定义阶段吗？"给出肯定回应
+- 用户对"确认推进到技能定义阶段吗？"给出肯定回应。
+- `material_handoff_summary` 已发出，且 data 中有真实 `workspace_root`、`template_slug`、`items[]`。
+- R1 `ontology-slice-extraction` 已被触发并收到 `ontology_slice_extraction_done`。
 
-**披露的技能与参考文件（LLM 必须在确认推进后读取）**
+**披露的技能与参考文件（LLM 必须在 `ontology_slice_extraction_done` 后读取）**
 
 | 文件 | 用途 | 读取优先级 |
 |------|------|-----------|
@@ -37,7 +38,7 @@
 **阶段摘要**
 - **目的**：把岗位动作和能力清单整理成结构化 skill 定义清单，每条都有明确的名称、触发条件和期望输出
 - **子步骤顺序**：技能定义收集 → skill_definition_ready 确认门 → skill_workorder_summary → 进入技能实现子流程 → ontology_projection_ready 确认门 → projection pass (R2，产出一系列 `ontology/projections/<skill-slug>/*.projection.json`) → skill_generation_ready 确认门 → skill-generation (R3，消费 `projection_result` 将投影物化为 `skills/<skill-slug>/contracts/projections/ontology_extraction/` 下的 4 视图 consumer contract) → skill_generation_done
-- **入场动作**：等待 `ontology_slice_extraction_done` 到达 → 发出 `skill_workorder_progress` → 开始引导技能定义
+- **入场动作**：读取 S1 文件清单 → 发出 `skill_workorder_progress` → 开始引导技能定义
 - **最低门槛**：每个 skill 具备明确的 `name`（skill slug）+ `display_name` + `description` + `trigger` + `expected_output` + `generation_action`
 - **禁止**：`ontology_slice_extraction_done` 到达前不得发 `skill_workorder_progress` 或进入技能定义收集；skill-generation 完成前不得提示"可进入外部阶段"
 
@@ -101,6 +102,7 @@
 
 **前置信号**
 - 刚发出 `material_handoff_summary`，且 data 中有真实 `workspace_root`、`template_slug`、`items[]`。
+- `ontology-slice-extraction` 已通过 `load_skill` 加载到上下文；若上下文曾被裁剪，先重新加载。
 
 **必须唤起**
 - `ontology-slice-extraction`
@@ -123,17 +125,18 @@ return_to: employment-coach-conversation
 
 **等待结果**
 - `ontology_slice_extraction_done`
+- 等待期间仍处于资料阶段，不得发 `skill_workorder_progress` 或进入技能定义收集。
 
 **禁止**
 - 不得在 `ontology_slice_extraction_done` 前发 `skill_workorder_progress`。
 - 不得由主 skill 自己输出或写入本体切片文件。
 
-## R2：业务资料准备确认后触发投影 (Projection Pass)
+## R2：匹配技能数据确认后触发投影 (Projection Pass)
 
 **前置信号**
 - 已发出 `skill_workorder_summary`。
 - 已发出 `ontology_projection_ready`。
-- 用户对”是否开始为技能准备业务资料”给出肯定。
+- 用户对“是否开始匹配技能数据”给出肯定。
 
 **必须唤起**
 - `ontology-projection`
@@ -168,7 +171,7 @@ return_to: employment-coach-conversation
 - 不得在 `ontology_projection_done` 前调用 `skill-generation`。
 - 不得把 `projection_binding_confirmed` 写进 `ontology_projection_ready` 或 `skill_generation_ready`；该字段只属于 R3 的内部触发 payload。
 - 不得在用户确认 `ontology_projection_ready` 前触发 R2。
-- 面向用户只说”准备业务资料”，不得暴露 projection pass、R2、slice、结构化文件等内部术语。
+- 面向用户只说“匹配技能数据”，不得暴露 projection pass、R2、slice、结构化文件等内部术语。
 
 ---
 

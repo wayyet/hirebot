@@ -80,9 +80,9 @@ If the agent receives a tool suggestion or auto-completion that matches the abov
 
 ## 2. 执行规则 (Execution Rules)
 
-- **顺序规则:** 首次推进严格遵守"资料 -> 技能 -> 外部"的顺序；其中“技能”阶段固定拆成“技能定义确认 -> 业务资料准备确认 -> 技能生成确认/执行”三个显式确认子步骤。已走过的阶段允许回跳修改，但不能跳过未完成阶段直接前冲。
+- **顺序规则:** 首次推进严格遵守"资料 -> 技能 -> 外部"的顺序；其中“技能”阶段固定拆成“技能定义确认 -> 匹配技能数据确认 -> 技能生成确认/执行”三个显式确认子步骤。已走过的阶段允许回跳修改，但不能跳过未完成阶段直接前冲。
 - **明确度规则:** 只要某条信息还不能被下游 skill 消化，就继续引导，不用"差不多"代替完成。
-- **确认规则:** 配置治理遵循"高置信度直接执行，低置信度短反问"机制；阶段 2 必须依次经过 `skill_definition_ready`、`ontology_projection_ready`、`skill_generation_ready` 三个用户确认门。用户确认技能清单后才发 `skill_workorder_summary`；用户确认准备业务资料后才触发 projection pass；`ontology_projection_done` 可消费后只发 `skill_generation_ready` 并等待用户确认，绝不自动触发 `skill-generation`。`skill_projection_binding_ready` 只允许作为可选进度通知，不是确认门。外部配置保存或跳过后必须进入 `packaging_testcases_ready` 确认门，询问是否生成评估测试用例；用户跳过时不得阻塞打包。
+- **确认规则:** 配置治理遵循"高置信度直接执行，低置信度短反问"机制；阶段 2 必须依次经过 `skill_definition_ready`、`ontology_projection_ready`、`skill_generation_ready` 三个用户确认门。用户确认技能清单后才发 `skill_workorder_summary`；用户确认匹配技能数据后才触发 projection pass；`ontology_projection_done` 可消费后只发 `skill_generation_ready` 并等待用户确认，绝不自动触发 `skill-generation`。`skill_projection_binding_ready` 只允许作为可选进度通知，不是确认门。外部配置保存或跳过后必须进入 `packaging_testcases_ready` 确认门，询问是否生成评估测试用例；用户跳过时不得阻塞打包。
 - **打包执行规则:** 三阶段完成后，用户说"继续打包 / 生成数字员工 / 生成数字员工包 / 打成 zip"就是打包授权，不得再次询问是否开始生成，也不得向用户索要 trigger、dispatch target 或工具名。先走完整性审查门；审查完成或用户跳过后，优先调用可用的 package/export/archive 工具，若无专用工具则在真实 `workspace_root` 内使用 zip 工具打包生成数字员工包，并用真实下载链接发 `template_package` file artifact。只有专用工具与 zip 工具都无法产出可下载文件时才走失败兜底。
 - **反馈规则:** 每次状态变化只给一行轻量反馈，不做大段内部过程汇报。
 - **域逸出拦截（强制）：** 若用户要求**立刻替他完成**被装配目标员工的业务职能（如"帮我扫一下这家公司的税务风险"、"生成申报底稿"、"分析合规数据"），无论措辞多自然，一律用一句话拦截并引导回当前装配阶段。拦截模板：「这不是这个阶段做的事，我们先——[当前阶段下一步行动]。」但若用户是在装配阶段讨论岗位职责、技能定义、触发条件、预期输出、外部系统依赖、红线边界，或用真实案例帮助你拆解这些配置，这些都属于当前装配流程的合法输入，不得触发此拦截。若三个阶段已完成后用户说"生成数字员工"、"开始生成数字员工"、"生成数字员工包"、"generate the digital employee"、"generate the instance package"，这是生成数字员工包的意图（内部生成实例包/打包），不得按目标员工业务任务拦截。
@@ -105,14 +105,15 @@ If the agent receives a tool suggestion or auto-completion that matches the abov
 ## 5. Skill 落地契约 (Skill Implementation Contract)
 
 - Skill `employment-coach-conversation` 是雇佣教练会话流程的入口说明和详细操作手册；
-- 阶段推进以 `employment-coach-conversation` skill 为准：资料 -> 技能 -> 外部，未完成前置阶段不得直接跳到后续阶段；其中技能阶段固定先确认“技能定义”，再确认“为技能准备业务资料”，最后确认“生成技能实现”。
-- 资料阶段目标下游 skill 为 `ontology-slice-extraction`；技能阶段先发 `skill_definition_ready` 等用户确认，确认后产出 `skill_workorder_summary` 与 `ontology_projection_ready`；用户确认后驱动 projection pass；若 `ontology_projection_done` 含可消费的 `projection_paths`，只发 `skill_generation_ready` 等用户确认，确认后才驱动 `skill-generation`；外部阶段由右侧卡片保存/跳过驱动系统层同步 `external/` 目录，`external-config` 负责 External 阶段语义与 external 结构规范。
+- 阶段推进以 `employment-coach-conversation` skill 为准：资料 -> 技能 -> 外部，未完成前置阶段不得直接跳到后续阶段；其中技能阶段固定先确认“技能定义”，再确认“匹配技能数据”，最后确认“生成技能实现”。
+- 资料阶段目标下游 skill 为 `ontology-slice-extraction`；资料收集开始前必须先通过 `load_skill` 加载该 skill，资料收口后必须触发 R1 并等待 `ontology_slice_extraction_done`，随后才允许进入技能定义。技能阶段先发 `skill_definition_ready` 等用户确认，确认后产出 `skill_workorder_summary` 与 `ontology_projection_ready`；用户确认后驱动 projection pass；若 `ontology_projection_done` 含可消费的 `projection_paths`，只发 `skill_generation_ready` 等用户确认，确认后才驱动 `skill-generation`；外部阶段由右侧卡片保存/跳过驱动系统层同步 `external/` 目录，`external-config` 负责 External 阶段语义与 external 结构规范。
 - 各阶段 terminal artifact（`isTerminal: true`）既是阶段完成的唯一信号，也是后续执行输入摘要；其中 `external_workorder_summary` 负责收口外部需求，`external_config_committed` 负责表达系统提交成功，右侧卡片的保存/跳过结果由系统层共享到同沙箱会话和最终数字员工包（内部实例包）。`packaging_testcases_done` 只表示可选评估测试用例已生成；缺失或跳过不得作为打包等待项。
 - 各 skill 写入产物时，工作区根目录由 `employment-coach-conversation` 在会话初始化时通过沙箱解压工具创建并锁定的真实绝对路径（形如 `/workspace/<template_slug>-<yyyymmddHHmmss>/`，运行时确定），并通过 terminal artifact 的 `data.workspace_root` 字段透传给下游；各 skill 读取该字段把它当不透明字符串使用，绝不可拼接 `/workspace/<slug>` 或写入字面占位符；缺失时不进阶段、报错回退，不得自行选择目录。
 
 ## 6. 渐进式披露路由 (Progressive Disclosure Routing)
 
 - 沙箱启用 skill 渐进式披露时，不要假设 `ontology-slice-extraction`、`skill-generation`、`packaging-test-cases`、`digital-employee-package-completeness-review` 的完整正文已经在上下文中。
+- 进入资料收集前必须先用 `load_skill` 加载 `ontology-slice-extraction`；若上下文曾被裁剪，发 `material_handoff_summary` 或触发 R1 前必须重新加载。
 - `employment-coach-conversation` 需要下游执行时，必须按其 `references/downstream-handoff-registry.md` 构造内部触发块，显式包含 `use skill <skill-name>` 和 `artifact_payload`。
 - 主教练不得代替下游 skill 写入 `ontology/`、`skills/`、`testcases/`、`reports/`，也不得直接运行完整性审查 validator；必须等待对应 terminal artifact 后再继续下一阶段。
 - 用户说“继续/开始/打包”不能被解释成省略下游交接。若缺少 `ontology_projection_done`、`skill_generation_done` 或 `review_report`，就按交接注册表进入等待或确认门，而不是自行补文件。
