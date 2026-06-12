@@ -6,4 +6,5 @@ public sealed record HiringFinalizeResultDto(
     string CollectionPhase,
     IReadOnlyList<string> GeneratedFiles,
     string DownloadUrl,
-    string? EmployeeId = null);
+    string? EmployeeId = null,
+    string? PackageFileName = null);

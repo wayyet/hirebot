@@ -966,12 +966,16 @@ internal sealed class EmployeeHiringService(
             extractedFiles["skills/linked-store-skills.index.json"] = BuildSkillLinkIndexFile(effectiveSkillLinkConfig);
 
             var packageId = Guid.NewGuid().ToString("N");
+            var packageFileName = await BuildFinalPackageFileNameAsync(
+                hireId,
+                session.TemplateId,
+                cancellationToken);
 
             await artifactPackageService.PersistFinalPackageAsync(
                 new HiringArtifactPackagePersistRequestDto(
                     HireId: hireId,
                     SessionId: session.SessionId,
-                    FileName: fileName,
+                    FileName: packageFileName,
                     Files: extractedFiles,
                     PackageId: packageId),
                 cancellationToken);
@@ -1206,7 +1210,8 @@ internal sealed class EmployeeHiringService(
                     CollectionPhase: "finalized",
                     GeneratedFiles: Array.Empty<string>(),
                     DownloadUrl: $"/api/v1/hirings/{hireId}/artifacts/download",
-                    EmployeeId: resolvedEmployeeId),
+                    EmployeeId: resolvedEmployeeId,
+                    PackageFileName: packageFileName),
                 "候选包导入成功");
         }
         catch (Exception ex)
@@ -1216,11 +1221,25 @@ internal sealed class EmployeeHiringService(
         }
     }
 
-    public Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
+    public async Task<HiringArtifactDownloadResult> BuildArtifactDownloadAsync(
         string hireId,
         CancellationToken cancellationToken = default)
     {
-        return artifactPackageService.BuildFinalPackageDownloadAsync(hireId, cancellationToken);
+        var result = await artifactPackageService.BuildFinalPackageDownloadAsync(hireId, cancellationToken);
+        if (!result.Found || result.Content is null || string.IsNullOrWhiteSpace(result.ContentType))
+        {
+            return result;
+        }
+
+        var packageFileName = await BuildFinalPackageFileNameAsync(
+            hireId,
+            templateId: null,
+            cancellationToken);
+
+        return HiringArtifactDownloadResult.Success(
+            packageFileName,
+            result.ContentType,
+            result.Content);
     }
 
     public Task<HiringArtifactDownloadResult> BuildArtifactFileDownloadAsync(
@@ -1239,6 +1258,43 @@ internal sealed class EmployeeHiringService(
     {
         logger.LogWarning("UploadTemplatePackageFromClientAsync: 功能暂未实现");
         return Task.FromResult(ApiResponse<HiringTemplatePackageUploadResultDto>.ErrorResponse(501, "功能暂未实现"));
+    }
+
+    private async Task<string> BuildFinalPackageFileNameAsync(
+        string hireId,
+        string? templateId,
+        CancellationToken cancellationToken)
+    {
+        var resolvedTemplateId = string.IsNullOrWhiteSpace(templateId)
+            ? await dbContext.HiringSessions
+                .AsNoTracking()
+                .Where(session => session.HireId == hireId && session.DeletedAtUtc == null)
+                .OrderByDescending(session => session.CreatedAtUtc)
+                .Select(session => session.TemplateId)
+                .FirstOrDefaultAsync(cancellationToken)
+            : templateId.Trim();
+
+        var templateName = resolvedTemplateId;
+        if (!string.IsNullOrWhiteSpace(resolvedTemplateId))
+        {
+            try
+            {
+                var template = await templateDataProvider.GetByIdAsync(resolvedTemplateId, cancellationToken);
+                templateName = template?.Name ?? resolvedTemplateId;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(
+                    ex,
+                    "无法加载模板名称，最终包下载名将回退到模板 ID。HireId={HireId}, TemplateId={TemplateId}",
+                    hireId,
+                    resolvedTemplateId);
+            }
+        }
+
+        return HiringPackageFileNames.BuildFinalPackageFileName(
+            templateName,
+            hireId);
     }
 
     /// <summary>

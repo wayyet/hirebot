@@ -306,6 +306,7 @@ async function setupHiringMocks(
           generatedFiles: ['artifacts/employee-package.zip', 'skills/sales-follow-up/SKILL.md'],
           downloadUrl: `http://localhost:5280/api/v1/hirings/${HIRE_ID}/artifacts/download`,
           employeeId: 'employee-001',
+          packageFileName: '销售团队数字员工.zip',
         }),
       })
       return
@@ -316,7 +317,7 @@ async function setupHiringMocks(
         status: 200,
         headers: {
           'content-type': 'application/zip',
-          'content-disposition': `attachment; filename="${HIRE_ID}-artifacts.zip"`,
+          'content-disposition': 'attachment; filename="销售团队数字员工.zip"',
         },
         body: 'fake-binary-artifact',
       })

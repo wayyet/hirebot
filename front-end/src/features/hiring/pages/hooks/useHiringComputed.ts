@@ -398,11 +398,8 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
     if (artifactArchive?.fileName) {
       return artifactArchive.fileName
     }
-    if (workflowHireId) {
-      return `${workflowHireId}_final_package.zip`
-    }
     return ''
-  }, [artifactArchive?.fileName, workflowHireId])
+  }, [artifactArchive?.fileName])
 
   const hasTemplatePackageArtifact = useMemo(
     () => messages.some(message => message.artifact?.artifactType === 'template_package'),
