@@ -1,22 +1,14 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Text;
-using HireBot.Core.Services.Internal;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
+using HireBot.Abstraction;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Evaluation.Persistence;
 
 internal sealed class EvaluationAssetStore(
-    IHostEnvironment hostEnvironment,
-    IConfiguration configuration,
+    IFileStore fileStore,
     ILogger<EvaluationAssetStore> logger) : IEvaluationAssetStore
 {
-    private readonly string resourceRootPath = ResolveResourceRootPath(
-        hostEnvironment.ContentRootPath,
-        configuration["HireBot:DataRoot"],
-        configuration["HireBot:EvaluationResourceRoot"]);
-
     public async Task<StoredEvaluationAsset> SaveTextAsync(
         string sessionId,
         int iteration,
@@ -51,16 +43,15 @@ internal sealed class EvaluationAssetStore(
         var safeFileName = BuildSafeFileName(fileName);
         var versionedFileName = $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}_{safeFileName}";
 
-        var targetDirectory = Path.Combine(resourceRootPath, "evaluation", safeSessionId, $"iter-{Math.Max(1, iteration):D2}", safeAssetType);
-        Directory.CreateDirectory(targetDirectory);
+        var virtualPath = $"resources/evaluation/{safeSessionId}/iter-{Math.Max(1, iteration):D2}/{safeAssetType}/{versionedFileName}";
 
-        var targetPath = Path.Combine(targetDirectory, versionedFileName);
-        await File.WriteAllBytesAsync(targetPath, content, cancellationToken);
+        using var stream = new MemoryStream(content);
+        var storagePath = await fileStore.SaveAsync(virtualPath, stream, cancellationToken);
 
         var hash = Convert.ToHexStringLower(SHA256.HashData(content));
-        var relativeResourcePath = Path.GetRelativePath(resourceRootPath, targetPath)
-            .Replace('\\', '/');
-        var relativePath = $"resources/{relativeResourcePath}";
+
+        // 构造公共 URL 路径（兼容当前 PhysicalFileProvider 映射 /resources → evaluationResourceRoot）
+        var relativePath = virtualPath.Replace('\\', '/');
         var publicUrl = $"/{relativePath}";
 
         logger.LogInformation(
@@ -76,18 +67,7 @@ internal sealed class EvaluationAssetStore(
             MimeType: string.IsNullOrWhiteSpace(mimeType) ? "application/octet-stream" : mimeType.Trim(),
             Size: content.LongLength,
             ContentHash: hash,
-            PhysicalPath: targetPath);
-    }
-
-    internal static string ResolveResourceRootPath(
-        string contentRootPath,
-        string? configuredDataRoot,
-        string? configuredResourceRoot)
-    {
-        return HireBotPathResolver.ResolveEvaluationResourceRoot(
-            contentRootPath,
-            configuredDataRoot,
-            configuredResourceRoot);
+            PhysicalPath: storagePath);
     }
 
     private static string Sanitize(string value, string fallback)

@@ -147,18 +147,11 @@ public sealed class HiringArtifactPackageServiceTests
         }
     }
 
-    private static HiringArtifactPackageService CreateService(HireBotDbContext dbContext, string artifactRoot)
+    private static HiringArtifactPackageService CreateService(HireBotDbContext dbContext, string storeRoot)
     {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(
-            [
-                new KeyValuePair<string, string?>("HireBot:ArtifactStoreRoot", artifactRoot)
-            ])
-            .Build();
-
         return new HiringArtifactPackageService(
             dbContext,
-            new FileSystemHiringFileStore(configuration, new StubHostEnvironment(artifactRoot)),
+            new FileSystemFileStore(storeRoot),
             NullLogger<HiringArtifactPackageService>.Instance);
     }
 
@@ -185,18 +178,22 @@ public sealed class HiringArtifactPackageServiceTests
         };
     }
 
+    /// <summary>
+    /// 创建临时存储根目录（包含 artifact-store 子目录）。
+    /// 返回的路径为 storeRoot（父目录），测试验证时 artifactRoot = storeRoot/artifact-store。
+    /// </summary>
     private static string CreateArtifactRoot()
     {
         var path = Path.Combine(Path.GetTempPath(), "hirebot-artifact-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
+        Directory.CreateDirectory(Path.Combine(path, "artifact-store"));
         return path;
     }
 
-    private static void DeleteArtifactRoot(string artifactRoot)
+    private static void DeleteArtifactRoot(string storeRoot)
     {
-        if (Directory.Exists(artifactRoot))
+        if (Directory.Exists(storeRoot))
         {
-            Directory.Delete(artifactRoot, recursive: true);
+            Directory.Delete(storeRoot, recursive: true);
         }
     }
 }

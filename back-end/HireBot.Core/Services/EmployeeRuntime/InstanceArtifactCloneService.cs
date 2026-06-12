@@ -1,5 +1,5 @@
-﻿using HireBot.Abstraction.Models.EmployeeRuntime;
-using HireBot.Core.Services.Hiring.Storage;
+﻿using HireBot.Abstraction;
+using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +17,7 @@ public sealed class InstanceArtifactCloneService(
     IConfiguration configuration,
     IHostEnvironment hostEnvironment,
     HireBotDbContext dbContext,
-    IHiringFileStore hiringFileStore,
+    IFileStore fileStore,
     ILogger<InstanceArtifactCloneService>? logger = null) : IInstanceArtifactCloneService
 {
     // 关键产物子目录：缺失这些目录通常意味着沙箱无法完成 ontology-extraction 等下游环节
@@ -513,8 +513,8 @@ public sealed class InstanceArtifactCloneService(
 
         var tenantId = string.IsNullOrWhiteSpace(instanceRecord.TenantId) ? "default" : instanceRecord.TenantId;
 
-        if (!await hiringFileStore.FinalPackageExistsAsync(
-                tenantId, instanceRecord.HireId, instanceRecord.FinalPackageId, cancellationToken))
+        if (!await fileStore.ExistsAsync(
+                $"artifact-store/{tenantId}/{instanceRecord.HireId}/{instanceRecord.FinalPackageId}/package.zip", cancellationToken))
         {
             logger?.LogWarning(
                 "CloneFromHiringFileStore: 雇佣文件库中未找到候选包: EmployeeId={EmployeeId}, TenantId={TenantId}, HireId={HireId}, FinalPackageId={FinalPackageId}",
@@ -529,8 +529,8 @@ public sealed class InstanceArtifactCloneService(
         var copied = new List<string>();
         try
         {
-            await using var zipStream = await hiringFileStore.OpenFinalPackageAsync(
-                tenantId, instanceRecord.HireId, instanceRecord.FinalPackageId, cancellationToken);
+            await using var zipStream = await fileStore.OpenReadAsync(
+                $"artifact-store/{tenantId}/{instanceRecord.HireId}/{instanceRecord.FinalPackageId}/package.zip", cancellationToken);
 
             using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: false);
             foreach (var entry in archive.Entries)

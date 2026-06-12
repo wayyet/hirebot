@@ -30,6 +30,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace HireBot.Core.Extensions;
 
@@ -166,7 +167,19 @@ public static class ServiceExtensions
         services.AddSingleton<IDiscoveryRuleProvider, FileSystemDiscoveryRuleProvider>();
         services.AddSingleton<HiringStageCompletionEvaluator>();
         services.AddSingleton<IArtifactSerializer, PlaceholderArtifactSerializer>();
-        services.AddSingleton<IHiringFileStore, FileSystemHiringFileStore>();
+
+        // ── 统一文件存储 ─────────────────────────────────────────────────────────
+        // IFileStore 作为唯一的文件读写抽象，所有文件操作通过此接口进行。
+        services.AddSingleton<IFileStore>(sp =>
+        {
+            var cfg = sp.GetRequiredService<IConfiguration>();
+            var env = sp.GetRequiredService<IHostEnvironment>();
+            var rootPath = HireBotPathResolver.ResolveDataRoot(
+                env.ContentRootPath,
+                cfg["HireBot:DataRoot"]);
+            return new FileSystemFileStore(rootPath);
+        });
+
         services.AddSingleton<IEvaluationAssetStore, EvaluationAssetStore>();
         services.AddSingleton<SandboxPvcService>();
         services.AddSingleton<OpenSandboxProvisioner>();

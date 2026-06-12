@@ -1,8 +1,8 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
+using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Services.Hiring;
-using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -12,7 +12,7 @@ namespace HireBot.Core.Services.Hiring.Artifacts;
 
 internal sealed class HiringArtifactPackageService(
     HireBotDbContext dbContext,
-    IHiringFileStore hiringFileStore,
+    IFileStore fileStore,
     ILogger<HiringArtifactPackageService> logger) : IHiringArtifactPackageService
 {
     private const string IntermediateCategory = "packages/intermediate";
@@ -118,10 +118,10 @@ internal sealed class HiringArtifactPackageService(
             && !string.IsNullOrWhiteSpace(instance.FinalPackageId))
         {
             var tenantId = string.IsNullOrWhiteSpace(instance.TenantId) ? "default" : instance.TenantId;
-            if (await hiringFileStore.FinalPackageExistsAsync(tenantId, instance.HireId, instance.FinalPackageId, cancellationToken))
+            var packagePath = $"artifact-store/{tenantId}/{instance.HireId}/{instance.FinalPackageId}/package.zip";
+            if (await fileStore.ExistsAsync(packagePath, cancellationToken))
             {
-                await using var stream = await hiringFileStore.OpenFinalPackageAsync(
-                    tenantId, instance.HireId, instance.FinalPackageId, cancellationToken);
+                await using var stream = await fileStore.OpenReadAsync(packagePath, cancellationToken);
                 using var mem = new MemoryStream();
                 await stream.CopyToAsync(mem, cancellationToken);
                 var content = mem.ToArray();
@@ -263,20 +263,16 @@ internal sealed class HiringArtifactPackageService(
         if (isFinal && packageId is not null)
         {
             var tenantId = session.TenantId ?? "default";
-            storagePath = await hiringFileStore.SaveFinalPackageAsync(
-                tenantId,
-                normalizedHireId,
-                packageId,
+            storagePath = await fileStore.SaveAsync(
+                $"artifact-store/{tenantId}/{normalizedHireId}/{packageId}/package.zip",
                 archiveStream,
                 cancellationToken);
             effectiveLogicalPath = $"packages/final/{packageId}/package.zip";
         }
         else
         {
-            storagePath = await hiringFileStore.SaveAsync(
-                normalizedSessionId,
-                category,
-                PackageStorageFileName,
+            storagePath = await fileStore.SaveAsync(
+                $"artifact-store/sessions/{normalizedSessionId}/{category}/{PackageStorageFileName}",
                 archiveStream,
                 cancellationToken);
             effectiveLogicalPath = logicalPath;
@@ -430,13 +426,13 @@ internal sealed class HiringArtifactPackageService(
             return null;
         }
 
-        if (!await hiringFileStore.ExistsAsync(entity.StoragePath, cancellationToken))
+        if (!await fileStore.ExistsAsync(entity.StoragePath, cancellationToken))
         {
             throw new InvalidOperationException(
                 $"artifact package file missing on disk: {entity.StoragePath}");
         }
 
-        await using var stream = await hiringFileStore.OpenReadAsync(entity.StoragePath, cancellationToken);
+        await using var stream = await fileStore.OpenReadAsync(entity.StoragePath, cancellationToken);
         using var memory = new MemoryStream();
         await stream.CopyToAsync(memory, cancellationToken);
 
