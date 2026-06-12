@@ -119,36 +119,6 @@ import {
   shouldDisplayArtifactInConversation,
 } from './hiringArtifactGuards'
 
-/**
- * 规范化模板包的下载文件名。
- * AI 生成的 fileName 遵循 `<template_slug>-artifacts.zip` 模式，
- * 当 AI 未能正确解析 template_slug 时会产生只含下划线/连字符的垃圾名。
- * 这里用模板名称或雇佣 ID 作为回退。
- */
-function normalizePackageFileName(rawName: string, templateName?: string, hireId?: string): string {
-  const cleaned = rawName.trim()
-  // 检查是否包含有意义的文字内容（至少 2 个字母/数字/中文）
-  const hasRealName = /[a-zA-Z一-鿿0-9]{2,}/.test(cleaned)
-
-  if (!hasRealName) {
-    if (templateName) {
-      const slug = templateName
-        .toLowerCase()
-        .replace(/\s+/g, '-')
-        .replace(/[^a-z0-9-]/g, '')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '')
-      if (slug) return `${slug}-instance-package.zip`
-    }
-    if (hireId) return `${hireId}-instance-package.zip`
-    return 'instance-package.zip'
-  }
-
-  // 确保以 .zip 结尾
-  if (!/\.zip$/i.test(cleaned)) return `${cleaned}.zip`
-  return cleaned
-}
-
 function buildArtifactEventSignature(artifact: ArtifactDisplayData): string {
   return JSON.stringify({
     kind: artifact.kind,
@@ -1276,12 +1246,6 @@ export default function HiringPage() {
           isTerminal = normalizeIncomingArtifactTerminal(artifactType, isTerminal)
           artifactData.isTerminal = isTerminal
           if (kind === 'file') {
-            // template_package 的 fileName 来自 AI 生成的 <template_slug>-artifacts.zip，
-            // 当 AI 未能正确解析 template_slug 时会产生类似 "______-artifacts.zip" 的垃圾名。
-            // 这里用模板名称或雇佣 ID 作为回退，确保下载文件名可读。
-            if (artifactType === 'template_package') {
-              artifactData.fileName = normalizePackageFileName(artifactData.fileName ?? label ?? 'file', template?.name, workflowHireIdRef.current)
-            }
             artifactData.mimeType = String(raw.mimeType ?? raw.mime_type ?? '')
             const sizeBytes = typeof raw.fileSizeBytes === 'number' ? raw.fileSizeBytes : typeof raw.file_size_bytes === 'number' ? raw.file_size_bytes : null
             artifactData.sizeLabel = sizeBytes !== null ? formatFileSize(sizeBytes) : ''
@@ -1482,7 +1446,7 @@ export default function HiringPage() {
             // 无论是否有下游任务未完成，均暂存数字员工包信息；
           // useEffect 会在 downstreamRuns 全部完成后自动触发 triggerCreate。
           setRequiresFreshPackaging(false)
-          setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
+          setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? '数字员工.zip' })
           if (hasPendingRequiredDownstreamRuns(downstreamRunsRef.current)) {
             setWorkflowNotice('已收到数字员工包，下游生成完成后将自动导入。')
             }
@@ -2482,8 +2446,8 @@ export default function HiringPage() {
       if (finalizeResult.employeeId) {
         setCreatedId(finalizeResult.employeeId)
       }
-      // 导入完成后立即持久化一个稳定的最终包名，刷新页面也能恢复评估入口。
-      setRestoredPackageFileName(`${hireId}_final_package.zip`)
+      // 导入完成后使用后端规范包名，刷新页面也能恢复评估入口。
+      setRestoredPackageFileName(finalizeResult.packageFileName ?? '')
       // 后续下载统一走后端 final_package_zip，避免继续使用沙箱原始 ZIP 缓存。
       setArtifactArchive(null)
       setInstanceCreated(true)
@@ -2516,12 +2480,9 @@ export default function HiringPage() {
 
     try {
       const artifact = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
-      // 兜底：纠正历史上已存储的异常文件名（如 ______-artifacts.zip）
-      const safeFileName = normalizePackageFileName(artifact.fileName, template?.name, workflowHireId)
-      const safeArtifact = { fileName: safeFileName, blob: artifact.blob }
-      setArtifactArchive(safeArtifact)
-      setRestoredPackageFileName(safeFileName)
-      downloadBlob(artifact.blob, safeFileName)
+      setArtifactArchive(artifact)
+      setRestoredPackageFileName(artifact.fileName)
+      downloadBlob(artifact.blob, artifact.fileName)
       setWorkflowError('')
       setWorkflowNotice('')
     } catch (error: unknown) {
