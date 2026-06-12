@@ -173,7 +173,7 @@ describe('normalizeArtifactDisplayData', () => {
     expect(overrides.get(HiringCollectionStage.Skill)).toBeUndefined()
   })
 
-  it('业务资料分析完成后，资料阶段才标记完成', () => {
+  it('业务资料分析完成后，资料阶段标记完成且技能阶段自动进入进行中', () => {
     const ontologyExtractionState: DownstreamRunState = {
       key: 'ontology-slice-extraction',
       status: 'completed',
@@ -184,6 +184,7 @@ describe('normalizeArtifactDisplayData', () => {
     const overrides = buildUiStageOverrides(new Map(), ontologyExtractionState, null, false)
 
     expect(overrides.get(HiringCollectionStage.Material)).toBe('completed')
+    expect(overrides.get(HiringCollectionStage.Skill)).toBe('running')
   })
 })
 

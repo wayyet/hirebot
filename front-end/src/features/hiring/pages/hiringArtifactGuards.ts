@@ -231,6 +231,12 @@ export function normalizeIncomingArtifactTerminal(artifactType: string, isTermin
     return false
   }
 
+  // 终端 artifact 类型如果缺少 isTerminal 标记（模型偶尔遗漏），自动升级为终态，
+  // 避免因协议字段缺失导致整个阶段卡住无法推进。
+  if (TERMINAL_ARTIFACT_TYPES.has(artifactType)) {
+    return true
+  }
+
   return isTerminal
 }
 

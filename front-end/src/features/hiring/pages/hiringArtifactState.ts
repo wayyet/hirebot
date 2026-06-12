@@ -251,6 +251,12 @@ export function buildUiStageOverrides(
 
   if (ontologyExtractionState?.status === 'completed') {
     next.set(HiringCollectionStage.Material, 'completed')
+    // 本体切片抽取完成意味着可以进入技能阶段了；将 Skill 置为 running，
+    // 使右侧卡片 badge 与顶部阶段胶囊保持一致，避免卡片仍显示"等待中"。
+    // skillGenerationState 后续到达时会再修正为 completed / failed。
+    if (next.get(HiringCollectionStage.Skill) !== 'completed') {
+      next.set(HiringCollectionStage.Skill, 'running')
+    }
   } else if (ontologyExtractionState?.status === 'running') {
     next.set(HiringCollectionStage.Material, 'running')
     if (!skillGenerationState && next.get(HiringCollectionStage.Skill) !== 'completed') {

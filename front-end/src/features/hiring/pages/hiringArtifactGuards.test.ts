@@ -502,6 +502,12 @@ describe('normalizeIncomingArtifactTerminal', () => {
   it('保留 terminal summary 的终态标记', () => {
     expect(normalizeIncomingArtifactTerminal('material_handoff_summary', true)).toBe(true)
   })
+
+  it('缺少 isTerminal 的终端 artifact 自动升级为终态', () => {
+    expect(normalizeIncomingArtifactTerminal('material_handoff_summary', false)).toBe(true)
+    expect(normalizeIncomingArtifactTerminal('ontology_slice_extraction_done', false)).toBe(true)
+    expect(normalizeIncomingArtifactTerminal('skill_generation_done', false)).toBe(true)
+  })
 })
 
 describe('shouldDisplayArtifactInConversation', () => {
