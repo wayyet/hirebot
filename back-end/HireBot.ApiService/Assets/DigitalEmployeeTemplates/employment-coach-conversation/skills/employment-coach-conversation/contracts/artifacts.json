@@ -5,6 +5,13 @@
       "name": "stage1_material",
       "label": "Stage 1: Material Collection",
       "ownerSkill": "employment-coach-conversation",
+      "completion": {
+        "requiresArtifacts": [
+          "material_handoff_summary",
+          "ontology_slice_extraction_done"
+        ],
+        "note": "material_handoff_summary closes material collection only; stage1_material is complete only after ontology-slice-extraction emits ontology_slice_extraction_done."
+      },
       "artifacts": [
         {
           "type": "material_collection_progress",
@@ -25,7 +32,11 @@
       "label": "Stage 2: Skill Definition And Generation",
       "ownerSkill": "employment-coach-conversation",
       "gate": {
-        "requiresStage": "stage1_material"
+        "requiresStage": "stage1_material",
+        "requiresArtifact": "ontology_slice_extraction_done",
+        "requiresDownstream": [
+          "ontology-slice-extraction"
+        ]
       },
       "artifacts": [
         {
@@ -64,7 +75,7 @@
         },
         {
           "type": "skill_projection_binding_ready",
-          "label": "业务资料已准备好，正在生成技能实现",
+          "label": "技能数据已匹配完成，正在生成技能实现",
           "display": "badge",
           "terminal": false,
           "note": "Optional progress notification only. Emit only when ontology projection produced consumable producer projections. It must not replace the skill_generation_ready confirmation gate."
@@ -276,7 +287,7 @@
       {
         "type": "skill_projection_binding_ready",
         "ownerSkill": "employment-coach-conversation",
-        "label": "业务资料已准备好，正在生成技能实现",
+        "label": "技能数据已匹配完成，正在生成技能实现",
         "display": "badge",
         "terminal": false,
         "note": "Optional progress notification only; not a confirmation gate."
@@ -340,21 +351,21 @@
       {
         "type": "ontology_slice_extraction_done",
         "ownerSkill": "ontology-slice-extraction",
-        "label": "Ontology Slice Extraction Done",
+        "label": "分析业务资料结果",
         "display": "tree",
         "terminal": true
       },
       {
         "type": "ontology_projection_progress",
         "ownerSkill": "ontology-projection",
-        "label": "技能准备进度",
+        "label": "匹配技能数据进度",
         "display": "progress",
         "terminal": false
       },
       {
         "type": "ontology_projection_done",
         "ownerSkill": "ontology-projection",
-        "label": "技能准备结果",
+        "label": "匹配技能数据结果",
         "display": "tree",
         "terminal": true
       },

@@ -27,6 +27,31 @@ function parseInlineFileMarkers(content: string): { text: string; fileMarkers: {
   return { text, fileMarkers }
 }
 
+function hasMeaningfulFileStem(filename: string): boolean {
+  const stem = filename
+    .trim()
+    .replace(/\.zip$/i, '')
+
+  return /[\p{L}\p{N}]{2,}/u.test(stem)
+}
+
+function isTemplatePackageInlineMarker(
+  messageText: string,
+  filename: string,
+  hasFinalPackageContext: boolean,
+): boolean {
+  const normalizedName = filename.trim().toLowerCase()
+  if (!normalizedName.endsWith('.zip')) {
+    return false
+  }
+
+  return messageText.includes('数字员工包')
+    || normalizedName.endsWith('-artifacts.zip')
+    || normalizedName.endsWith('_artifacts.zip')
+    || !hasMeaningfulFileStem(filename)
+    || hasFinalPackageContext
+}
+
 function getFileIcon(filename: string): ReactNode {
   const ext = filename.split('.').pop()?.toLowerCase() ?? ''
   if (ext === 'zip') return <Package size={14} />
@@ -242,19 +267,39 @@ export function HiringConversationPanel({
               ) : null}
               {fileMarkers.length > 0 ? (
                 <div className="hb-hiring-inline-file-list">
-                  {fileMarkers.map((marker, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      className="hb-hiring-inline-file-chip"
-                      onClick={() => onArtifactFileDownload?.(marker.path, marker.filename, 'file')}
-                      title={marker.filename}
-                    >
-                      {getFileIcon(marker.filename)}
-                      <span className="hb-hiring-file-name">{marker.filename}</span>
-                      <Download size={12} className="hb-hiring-file-icon" />
-                    </button>
-                  ))}
+                  {fileMarkers.map((marker, idx) => {
+                    const isPackageMarker = isTemplatePackageInlineMarker(
+                      messageText,
+                      marker.filename,
+                      Boolean(templatePackageDownloadFileName),
+                    )
+                    const displayName = isPackageMarker
+                      ? (templatePackageDownloadFileName ?? '数字员工.zip')
+                      : marker.filename
+                    const disabled = isPackageMarker && templatePackageDownloadDisabled
+
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        className="hb-hiring-inline-file-chip"
+                        disabled={disabled}
+                        onClick={() => {
+                          if (disabled) return
+                          onArtifactFileDownload?.(
+                            marker.path,
+                            displayName,
+                            isPackageMarker ? 'template_package' : 'file',
+                          )
+                        }}
+                        title={disabled ? templatePackageDownloadDisabledTitle : displayName}
+                      >
+                        {getFileIcon(displayName)}
+                        <span className="hb-hiring-file-name">{displayName}</span>
+                        <Download size={12} className="hb-hiring-file-icon" />
+                      </button>
+                    )
+                  })}
                 </div>
               ) : null}
               {message.files?.map((file) => (

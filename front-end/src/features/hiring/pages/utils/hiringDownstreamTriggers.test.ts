@@ -3,6 +3,7 @@
 import {
   buildDownstreamPrompt,
   buildPackagingRequestPrompt,
+  buildProjectionPassPayload,
   buildSkillDefinitionConfirmationPrompt,
   buildSkillGenerationPayload,
   isSkillDefinitionApprovalMessage,
@@ -16,6 +17,57 @@ import {
   resolveSkillStageApprovalRoute,
 } from './hiringDownstreamTriggers'
 import type { DownstreamRunState } from '../hiringPageTypes'
+
+describe('buildProjectionPassPayload', () => {
+  it('从有效技能定义摘要构造匹配技能数据 payload', () => {
+    const payload = buildProjectionPassPayload({
+      workspace_root: '/workspace/template-20260611090000',
+      template_slug: 'template',
+      items: [
+        {
+          name: 'order-risk-check',
+          display_name: '订单风险检查',
+          description: '检查订单风险并输出处置建议',
+          trigger: '用户提交订单异常线索',
+          expected_output: '输出风险等级和处置清单',
+          generation_action: 'generate_new',
+        },
+      ],
+    })
+
+    expect(payload).toEqual({
+      trigger_mode: 'projection_pass',
+      workspace_root: '/workspace/template-20260611090000',
+      template_slug: 'template',
+      skills: [
+        {
+          skill_slug: 'order-risk-check',
+          skill_name: '订单风险检查',
+          triggers: ['用户提交订单异常线索'],
+          description: '检查订单风险并输出处置建议',
+          expected_output: '输出风险等级和处置清单',
+          generation_action: 'generate_new',
+        },
+      ],
+    })
+  })
+
+  it('缺少 workspace_root 时不构造匹配技能数据 payload', () => {
+    expect(buildProjectionPassPayload({
+      template_slug: 'template',
+      items: [
+        {
+          name: 'order-risk-check',
+          display_name: '订单风险检查',
+          description: '检查订单风险并输出处置建议',
+          trigger: '用户提交订单异常线索',
+          expected_output: '输出风险等级和处置清单',
+          generation_action: 'generate_new',
+        },
+      ],
+    })).toBeNull()
+  })
+})
 
 describe('buildSkillGenerationPayload', () => {
   it('projection 目录 slug 与已确认技能 slug 不一致时不启动技能生成', () => {
@@ -100,11 +152,11 @@ describe('isSkillGenerationApprovalMessage', () => {
 })
 
 describe('skill stage approval messages', () => {
-  it('分别识别技能定义确认和业务资料准备确认', () => {
+  it('分别识别技能定义确认和匹配技能数据确认', () => {
     expect(isSkillDefinitionApprovalMessage('确认技能清单')).toBe(true)
     expect(isSkillDefinitionApprovalMessage('没问题，继续')).toBe(true)
-    expect(isOntologyProjectionApprovalMessage('开始准备业务资料')).toBe(true)
-    expect(isOntologyProjectionApprovalMessage('继续整理业务资料')).toBe(true)
+    expect(isOntologyProjectionApprovalMessage('开始匹配技能数据')).toBe(true)
+    expect(isOntologyProjectionApprovalMessage('继续匹配数据')).toBe(true)
   })
 })
 
@@ -139,7 +191,7 @@ describe('resolveSkillStageApprovalRoute', () => {
     })).toBe('launch_projection_pass')
   })
 
-  it('技能生成确认门优先于残留的业务资料准备确认门', () => {
+  it('技能生成确认门优先于残留的匹配技能数据确认门', () => {
     expect(resolveSkillStageApprovalRoute({
       text: '继续',
       incomingFileCount: 0,
@@ -150,7 +202,7 @@ describe('resolveSkillStageApprovalRoute', () => {
     })).toBe('launch_skill_generation')
   })
 
-  it('右侧技能卡展示当前有效确认门，不被旧业务资料准备门覆盖', () => {
+  it('右侧技能卡展示当前有效确认门，不被旧匹配技能数据门覆盖', () => {
     expect(resolveActiveSkillStageRun(skillGenerationReady, projectionReady)?.artifactType)
       .toBe('skill_generation_ready')
     expect(resolveActiveSkillStageRun(skillDefinitionReady, projectionReady)?.artifactType)
@@ -251,13 +303,19 @@ describe('buildPackagingRequestPrompt', () => {
 })
 
 describe('buildSkillDefinitionConfirmationPrompt', () => {
-  it('确认技能定义后只要求收口 summary 和业务资料准备确认门', () => {
+  it('确认技能定义后只要求收口 summary 和匹配技能数据确认门', () => {
     const prompt = buildSkillDefinitionConfirmationPrompt('确认技能清单', {
       items: [{ name: 'insert-order-feasibility' }],
     })
 
     expect(prompt).toContain('skill_workorder_summary')
     expect(prompt).toContain('ontology_projection_ready')
+    expect(prompt).toContain('workspace_root')
+    expect(prompt).toContain('template_slug')
+    expect(prompt).toContain('items[]')
+    expect(prompt).toContain('expected_output')
+    expect(prompt).toContain('generation_action')
+    expect(prompt).toContain('do not emit `skill_workorder_summary`')
     expect(prompt).toContain('Do not trigger ontology projection')
     expect(prompt).not.toContain('skill_generation_progress')
   })
@@ -266,7 +324,7 @@ describe('buildSkillDefinitionConfirmationPrompt', () => {
 describe('buildDownstreamPrompt', () => {
   const samplePayload = { workspace_root: '/workspace/template-1' }
 
-  it('ontology-extraction prompt 包含 use skill ontology-slice-extraction 触发块', () => {
+  it('ontology-slice-extraction prompt 包含 use skill ontology-slice-extraction 触发块', () => {
     const prompt = buildDownstreamPrompt('ontology-slice-extraction', samplePayload)
 
     expect(prompt).toContain('use skill ontology-slice-extraction')
@@ -280,19 +338,19 @@ describe('buildDownstreamPrompt', () => {
     expect(prompt).toContain('ontology_slice_extraction_done')
   })
 
-  it('ontology-projection prompt 包含 use skill ontology-slice-extraction 触发块', () => {
+  it('ontology-projection prompt 包含 use skill ontology-projection 触发块', () => {
     const prompt = buildDownstreamPrompt('ontology-projection', samplePayload)
 
-    expect(prompt).toContain('use skill ontology-slice-extraction')
-    expect(prompt).toContain('Switch to skill `ontology-slice-extraction` now.')
-    expect(prompt).toContain('[Internal downstream trigger: use skill ontology-slice-extraction]')
+    expect(prompt).toContain('use skill ontology-projection')
+    expect(prompt).toContain('Switch to skill `ontology-projection` now.')
+    expect(prompt).toContain('[Internal downstream trigger: use skill ontology-projection]')
     expect(prompt).toContain('trigger_reason: user_confirmed_ontology_projection')
     expect(prompt).toContain('stage=`stage2_skill`')
     expect(prompt).toContain('artifact_payload:')
     expect(prompt).toContain('required_artifacts:')
     expect(prompt).toContain('ontology_projection_progress')
     expect(prompt).toContain('ontology_projection_done')
-    expect(prompt).toContain('Projection Pass')
+    expect(prompt).toContain('Scan slices from `<workspace_root>/ontology/`')
   })
 
   it('skill-generation prompt 包含 use skill skill-generation 触发块', () => {

@@ -6,7 +6,10 @@ import {
   buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
   buildUiStageOverrides,
+  deriveStageOverridesFromDownstreamRuns,
   extractArtifactFromToolCall,
+  normalizeArtifactDisplayData,
+  shouldSuppressStageGate,
 } from './hiringArtifactState'
 
 describe('buildCoachResumePrompt', () => {
@@ -57,7 +60,7 @@ describe('buildUiStageOverrides', () => {
       updatedAt: new Date(0).toISOString(),
     }
 
-    const overrides = buildUiStageOverrides(rawOverrides, skillGenerationState, true)
+    const overrides = buildUiStageOverrides(rawOverrides, null, skillGenerationState, true)
 
     expect(overrides.get(HiringCollectionStage.Material)).toBe('completed')
     expect(overrides.get(HiringCollectionStage.Skill)).toBe('running')
@@ -65,7 +68,7 @@ describe('buildUiStageOverrides', () => {
   })
 
   it('外部配置已提交或跳过时，外部阶段与前序阶段都标记完成', () => {
-    const overrides = buildUiStageOverrides(new Map(), null, false, true)
+    const overrides = buildUiStageOverrides(new Map(), null, null, false, true)
 
     expect(overrides.get(HiringCollectionStage.Material)).toBe('completed')
     expect(overrides.get(HiringCollectionStage.Skill)).toBe('completed')
@@ -132,10 +135,113 @@ describe('extractArtifactFromToolCall', () => {
   })
 })
 
+describe('normalizeArtifactDisplayData', () => {
+  it('direct artifact event with terminal flag is parsed as terminal', () => {
+    const artifact = normalizeArtifactDisplayData({
+      kind: 'data',
+      artifactType: 'skill_generation_done',
+      label: 'Skill generation done',
+      skillName: 'skill-generation',
+      stage: 'stage2_skill',
+      terminal: true,
+      generated_count: 1,
+    })
+
+    expect(artifact).toMatchObject({
+      kind: 'data',
+      artifactType: 'skill_generation_done',
+      isTerminal: true,
+      data: { generated_count: 1 },
+    })
+  })
+
+  it('资料已收口但业务资料仍在分析时，资料阶段保持进行中且技能阶段不启动', () => {
+    const rawOverrides = new Map([
+      [HiringCollectionStage.Material, 'completed' as const],
+      [HiringCollectionStage.Skill, 'running' as const],
+    ])
+    const ontologyExtractionState: DownstreamRunState = {
+      key: 'ontology-slice-extraction',
+      status: 'running',
+      artifactType: 'ontology_slice_extraction_progress',
+      updatedAt: new Date(0).toISOString(),
+    }
+
+    const overrides = buildUiStageOverrides(rawOverrides, ontologyExtractionState, null, false)
+
+    expect(overrides.get(HiringCollectionStage.Material)).toBe('running')
+    expect(overrides.get(HiringCollectionStage.Skill)).toBeUndefined()
+  })
+
+  it('业务资料分析完成后，资料阶段标记完成且技能阶段自动进入进行中', () => {
+    const ontologyExtractionState: DownstreamRunState = {
+      key: 'ontology-slice-extraction',
+      status: 'completed',
+      artifactType: 'ontology_slice_extraction_done',
+      updatedAt: new Date(0).toISOString(),
+    }
+
+    const overrides = buildUiStageOverrides(new Map(), ontologyExtractionState, null, false)
+
+    expect(overrides.get(HiringCollectionStage.Material)).toBe('completed')
+    expect(overrides.get(HiringCollectionStage.Skill)).toBe('running')
+  })
+})
+
+describe('shouldSuppressStageGate', () => {
+  it('业务资料分析完成前抑制资料到技能的阶段推进卡片', () => {
+    expect(shouldSuppressStageGate({
+      skillName: 'employment-coach-conversation',
+      completedStage: 'stage1_material',
+      nextStage: 'stage2_skill',
+      canProceed: true,
+    }, {
+      'ontology-slice-extraction': {
+        key: 'ontology-slice-extraction',
+        status: 'running',
+        artifactType: 'ontology_slice_extraction_progress',
+        updatedAt: new Date(0).toISOString(),
+      },
+    })).toBe(true)
+  })
+
+  it('业务资料分析完成后允许资料到技能的阶段推进卡片', () => {
+    expect(shouldSuppressStageGate({
+      skillName: 'employment-coach-conversation',
+      completedStage: 'stage1_material',
+      nextStage: 'stage2_skill',
+      canProceed: true,
+    }, {
+      'ontology-slice-extraction': {
+        key: 'ontology-slice-extraction',
+        status: 'completed',
+        artifactType: 'ontology_slice_extraction_done',
+        updatedAt: new Date(0).toISOString(),
+      },
+    })).toBe(false)
+  })
+})
+
+describe('deriveStageOverridesFromDownstreamRuns', () => {
+  it('只看到业务资料分析运行中时，资料阶段保持进行中', () => {
+    const overrides = deriveStageOverridesFromDownstreamRuns({
+      'ontology-slice-extraction': {
+        key: 'ontology-slice-extraction',
+        status: 'running',
+        artifactType: 'ontology_slice_extraction_progress',
+        updatedAt: new Date(0).toISOString(),
+      },
+    })
+
+    expect(overrides.get(HiringCollectionStage.Material)).toBe('running')
+    expect(overrides.get(HiringCollectionStage.Skill)).toBeUndefined()
+  })
+})
+
 describe('buildHistoricalHiringConversationState', () => {
   it('刷新恢复时隐藏模板初始化提示，但保留雇佣教练开场白', () => {
     const bootstrapPrompt = [
-      '你正在运行 HireBot 雇佣教练会话，不是目标数字员工本人。',
+      '你正在运行雇佣教练会话，不是目标数字员工本人。',
       '本轮初始化同时涉及两套包，必须先明确二者关系：',
       '',
       '[FILE_URL:/workspace/template-20260610153250]',
@@ -192,6 +298,65 @@ describe('buildHistoricalHiringConversationState', () => {
     expect(state.downstreamRuns['skill-generation']).toBeUndefined()
   })
 
+  it('刷新恢复时资料收口后仍等待业务资料分析完成，不提前进入技能阶段', () => {
+    const state = buildHistoricalHiringConversationState([
+      {
+        type: 'assistant_message',
+        content: '',
+        createdAt: '2026-06-10T07:32:51.000Z',
+        toolCalls: [
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'material_handoff_summary',
+              label: '资料已收口',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: {
+                workspace_root: '/workspace/template-1',
+                template_slug: 'template-1',
+                items: [{ title: 'SOP', source_path: null }],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'ontology_slice_extraction_progress',
+              label: '正在分析业务资料',
+              skillName: 'ontology-slice-extraction',
+              stage: 'stage1_material',
+              isTerminal: false,
+              data: { total_sources: 1, completed_slices: 0 },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'skill_workorder_progress',
+              label: '错误提前进入技能阶段',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage2_skill',
+              isTerminal: false,
+              data: { pending_skill_count: 1 },
+            }),
+            result: 'ok',
+          },
+        ],
+      },
+    ], (content) => content.trim())
+
+    expect(state.wsStageOverrides.get(HiringCollectionStage.Material)).toBe('running')
+    expect(state.wsStageOverrides.get(HiringCollectionStage.Skill)).toBeUndefined()
+    expect(state.messages.some(message => message.artifact?.artifactType === 'skill_workorder_progress')).toBe(false)
+  })
+
   it('刷新恢复时阻止只有 slice_paths 的投影结果启动技能生成状态', () => {
     const state = buildHistoricalHiringConversationState([
       {
@@ -212,7 +377,14 @@ describe('buildHistoricalHiringConversationState', () => {
                 workspace_root: '/workspace/template-1',
                 template_slug: 'template-1',
                 items: [
-                  { name: 'insert-order-feasibility', display_name: '插单可行性评估' },
+                  {
+                    name: 'insert-order-feasibility',
+                    display_name: '插单可行性评估',
+                    description: '判断插单请求是否满足产能和物料约束',
+                    trigger: '用户提交插单请求',
+                    expected_output: '输出可行性结论和风险说明',
+                    generation_action: 'generate_new',
+                  },
                 ],
               },
             }),
@@ -223,7 +395,7 @@ describe('buildHistoricalHiringConversationState', () => {
             arguments: JSON.stringify({
               kind: 'data',
               artifactType: 'ontology_projection_done',
-              label: '业务资料准备结果',
+              label: '匹配技能数据结果',
               skillName: 'ontology-slice-extraction',
               stage: 'stage2_skill',
               isTerminal: true,
@@ -285,6 +457,24 @@ describe('buildHistoricalHiringConversationState', () => {
             toolName: 'streaming.emit_artifact',
             arguments: JSON.stringify({
               kind: 'data',
+              artifactType: 'ontology_slice_extraction_done',
+              label: '业务资料分析完成',
+              skillName: 'ontology-slice-extraction',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: {
+                total_sources: 1,
+                completed_slices: 1,
+                slice_paths: ['ontology/scheduling.slice.json'],
+                validation: 'PASS',
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
               artifactType: 'skill_definition_ready',
               label: '等待确认技能清单',
               skillName: 'employment-coach-conversation',
@@ -306,7 +496,16 @@ describe('buildHistoricalHiringConversationState', () => {
               data: {
                 workspace_root: '/workspace/template-1',
                 template_slug: 'template-1',
-                items: [{ name: 'insert-order-feasibility', display_name: '插单可行性评估' }],
+                items: [
+                  {
+                    name: 'insert-order-feasibility',
+                    display_name: '插单可行性评估',
+                    description: '判断插单请求是否满足产能和物料约束',
+                    trigger: '用户提交插单请求',
+                    expected_output: '输出可行性结论和风险说明',
+                    generation_action: 'generate_new',
+                  },
+                ],
               },
             }),
             result: 'ok',
@@ -316,7 +515,7 @@ describe('buildHistoricalHiringConversationState', () => {
             arguments: JSON.stringify({
               kind: 'data',
               artifactType: 'ontology_projection_ready',
-              label: '等待确认准备业务资料',
+              label: '等待确认匹配技能数据',
               skillName: 'employment-coach-conversation',
               stage: 'stage2_skill',
               isTerminal: false,
@@ -329,8 +528,8 @@ describe('buildHistoricalHiringConversationState', () => {
             arguments: JSON.stringify({
               kind: 'data',
               artifactType: 'ontology_projection_done',
-              label: '业务资料已准备',
-              skillName: 'ontology-slice-extraction',
+              label: '技能数据已匹配',
+              skillName: 'ontology-projection',
               stage: 'stage2_skill',
               isTerminal: true,
               data: {

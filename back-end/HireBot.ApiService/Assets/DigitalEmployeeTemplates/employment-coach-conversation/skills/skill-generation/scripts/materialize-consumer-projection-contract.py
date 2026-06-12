@@ -47,7 +47,7 @@ def as_object(value: Any) -> dict[str, Any]:
 
 
 def slugify(value: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    normalized = re.sub(r"[^a-z0-9_]+", "-", value.lower()).strip("-")
     return normalized or "ontology-topic"
 
 
@@ -320,7 +320,7 @@ def validate_output(output_dir: Path, index: dict[str, Any]) -> list[str]:
 
 def materialize(args: argparse.Namespace) -> int:
     workspace_root = Path(args.workspace_root).resolve()
-    skill_slug = slugify(args.skill_slug)
+    skill_slug = args.skill_slug
     skill_name = args.skill_name or skill_slug
     skill_dir = workspace_root / "skills" / skill_slug
     source_dir = Path(args.source_dir).resolve() if args.source_dir else workspace_root / "ontology" / "projections" / skill_slug

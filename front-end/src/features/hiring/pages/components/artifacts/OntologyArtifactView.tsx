@@ -1,9 +1,9 @@
 /**
- * OntologyArtifactView.tsx - 本体抽取 / 投影 Artifact 视图
+ * OntologyArtifactView.tsx - 业务资料分析 / 技能数据匹配 Artifact 视图
  *
  * 用于展示以下 artifact 类型：
- * - ontology_slice_extraction_done / ontology_slice_extraction_progress（R1 本体切片抽取）
- * - ontology_projection_done / ontology_projection_progress（R2 投影匹配）
+ * - ontology_slice_extraction_done / ontology_slice_extraction_progress（R1 分析业务资料）
+ * - ontology_projection_done / ontology_projection_progress（R2 匹配技能数据）
  */
 
 import { CodeView } from './BaseArtifactViews'
@@ -20,7 +20,7 @@ function isProjectionType(artifactType: string | undefined): boolean {
 }
 
 /**
- * 本体抽取 / 投影视图
+ * 业务资料分析 / 技能数据匹配视图
  *
  * R1 抽取: { total_sources, completed_slices, slice_paths, validation, status }
  * R2 投影: { total_skills/pending_skill_count, completed_projections/projected_count, projection_paths, skipped_count, summary }

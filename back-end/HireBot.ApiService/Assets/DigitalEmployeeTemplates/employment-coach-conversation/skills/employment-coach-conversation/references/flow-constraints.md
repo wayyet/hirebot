@@ -87,17 +87,18 @@
 
 - [ ] 当前阶段要写入 artifact data 的条目是否都达到下游可消化的明确度
 - [ ] 当前阶段是否仍有用户未确认的关键项；如果有，不能抢先发 terminal artifact 或进入下一阶段
+- [ ] 资料收集开始前，是否已调用 `load_skill` 加载 `ontology-slice-extraction`；若上下文曾被裁剪，发 `material_handoff_summary` / 触发 R1 前是否已重新加载
 - [ ] 阶段 1 收口时，是否已先向用户确认"可以推进到技能定义阶段吗？"并收到肯定回应，才发出 `material_handoff_summary`；禁止在用户未确认推进的情况下自动解锁阶段 2
 - [ ] 如果当前阶段存在上传文件条目，是否每条都已补全 `source_path`，且没有“内容未能读取到但仍标记 ready”的情况；若任一不满足，不能发 `material_handoff_summary`
 - [ ] 如果用户刚上传文件而 `source_path` 一时未出现，是否已经给过最多 5 秒的有界等待；不要把短暂同步竞态直接当成最终失败
 - [ ] 是否存在同一资料、同一来源文件或父子包含关系的重复整理项；如果有，先合并或撤销旧范围
 - [ ] 是否在配置文件治理的反问待确认状态中错误地发了 terminal artifact
-- [ ] 阶段 2 是否已经发出 `skill_definition_ready` 确认门（等待用户回应）、进入技能实现子流程并发出 `ontology_projection_ready` 确认门（等待用户确认准备业务资料）、发出 `skill_generation_ready` 确认门（等待用户确认生成技能实现）
+- [ ] 阶段 2 是否已经发出 `skill_definition_ready` 确认门（等待用户回应）、进入技能实现子流程并发出 `ontology_projection_ready` 确认门（等待用户确认匹配技能数据）、发出 `skill_generation_ready` 确认门（等待用户确认生成技能实现）
 - [ ] 是否在对话里收集了凭据值（如发现，立刻删除并指引到表单）
 - [ ] 给用户的反馈是否保持"一行确认"风格，没有变成大段汇报
 - [ ] **资料阶段 terminal artifact 发出后，是否已立即触发 `ontology-slice-extraction`**（不等用户输入，不先进入技能阶段；若已在执行则不重复触发）
-- [ ] **发 `skill_workorder_progress` 之前，`ontology_slice_extraction_done` 是否已到达**；若未到达，禁止进入技能定义收集
-- [ ] 用户确认开始准备业务资料后，是否按 `downstream-handoff-registry.md` 的 R2 触发 projection pass，并等待 `ontology_projection_done`
+- [ ] **发 `skill_workorder_progress` 之前，`ontology_slice_extraction_done` 是否已到达**；若未到达，说明仍在资料阶段分析业务资料，禁止进入技能定义收集
+- [ ] 用户确认开始匹配技能数据后，是否按 `downstream-handoff-registry.md` 的 R2 触发 projection pass，并等待 `ontology_projection_done`
 - [ ] `ontology_projection_done` 是否包含可消费的 `projection_paths[]`；若没有，是否停留在阶段 2，而不是降级触发 `skill-generation`
 - [ ] `ontology_projection_done` 可消费后，是否先发 `skill_generation_ready` 并等待用户确认；触发 `skill-generation` 时是否按 R3 传入 `projection_binding_confirmed: true`，且避免把该字段写进 `skill_generation_ready`
 - [ ] 外部配置保存或跳过后，若用户选择生成测试用例，是否按 R4 触发 `packaging-test-cases`；若用户说“打包/生成数字员工”，是否视为跳过测试用例并继续审查门

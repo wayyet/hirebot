@@ -24,7 +24,7 @@ Task-scoped projection mapping: takes existing ontology slices and matches them 
 
 - `employment-coach-conversation` 注入的 internal downstream trigger，且 `artifact_payload` 包含 `workspace_root`、`skills` 数组（每项含 `skill_slug`、`skill_name`、`triggers`、`description`）。
 
-如果当前消息只是用户在聊天里提到"投影 / projection / mapping / 业务资料准备"等词，或缺少上述 `artifact_payload`，不得发出 `ontology_projection_progress` / `ontology_projection_done`，不得写入 `ontology/projections/`。只回复一句：「投影需要先完成技能定义收口，我先回到技能定义阶段。」
+如果当前消息只是用户在聊天里提到"投影 / projection / mapping / 匹配技能数据"等词，或缺少上述 `artifact_payload`，不得发出 `ontology_projection_progress` / `ontology_projection_done`，不得写入 `ontology/projections/`。只回复一句：「匹配技能数据需要先完成技能定义收口，我先回到技能定义阶段。」
 
 ## Core Concept
 
@@ -42,7 +42,7 @@ Task-scoped projection mapping: takes existing ontology slices and matches them 
 
 | Trigger | Action |
 | --- | --- |
-| `skill_workorder_summary` 已确认，用户已确认准备业务资料 | 为每个业务 skill 匹配已有 slice 并产出专属 projection |
+| `skill_workorder_summary` 已确认，用户已确认匹配技能数据 | 为每个业务 skill 匹配已有 slice 并产出专属 projection |
 | 需要将通用本体切片约束到特定 skill 的语义空间 | 执行 projection pass，产出 per-skill projection 文件 |
 | `skill-generation` 需要稳定、可校验的数据契约 | 产出结构化 projection JSON，作为 skill 生成的稳定输入 |
 
@@ -84,7 +84,7 @@ Task-scoped projection mapping: takes existing ontology slices and matches them 
 {
   "kind": "data",
   "artifactType": "ontology_projection_progress",
-  "label": "正在为 {N} 个技能准备业务资料...",
+  "label": "正在为 {N} 个技能匹配数据...",
   "skillName": "ontology-projection",
   "stage": "stage2_skill",
   "isTerminal": false,
@@ -104,7 +104,7 @@ Task-scoped projection mapping: takes existing ontology slices and matches them 
 {
   "kind": "data",
   "artifactType": "ontology_projection_done",
-  "label": "技能所需业务资料已准备完成，{M}/{N} 个技能可开始生成",
+  "label": "技能数据已匹配完成，{M}/{N} 个技能可开始生成",
   "skillName": "ontology-projection",
   "stage": "stage2_skill",
   "isTerminal": true,
@@ -133,7 +133,7 @@ Task-scoped projection mapping: takes existing ontology slices and matches them 
 {
   "kind": "data",
   "artifactType": "ontology_projection_done",
-  "label": "技能所需业务资料已整理完成，但当前资料暂不足以支撑技能生成",
+  "label": "技能数据已匹配完成，但当前资料暂不足以支撑技能生成",
   "skillName": "ontology-projection",
   "stage": "stage2_skill",
   "isTerminal": true,

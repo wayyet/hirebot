@@ -85,8 +85,10 @@ import {
   buildHistoricalHiringConversationState,
   deriveStageOverridesFromDownstreamRuns,
   extractArtifactFromToolCall,
+  normalizeArtifactDisplayData,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
+  shouldSuppressStageGate,
 } from './hiringArtifactState'
 import {
   buildExternalConfigCommittedArtifact as createExternalConfigCommittedArtifact,
@@ -117,36 +119,6 @@ import {
   shouldDisplayArtifactInConversation,
 } from './hiringArtifactGuards'
 
-/**
- * 规范化模板包的下载文件名。
- * AI 生成的 fileName 遵循 `<template_slug>-artifacts.zip` 模式，
- * 当 AI 未能正确解析 template_slug 时会产生只含下划线/连字符的垃圾名。
- * 这里用模板名称或雇佣 ID 作为回退。
- */
-function normalizePackageFileName(rawName: string, templateName?: string, hireId?: string): string {
-  const cleaned = rawName.trim()
-  // 检查是否包含有意义的文字内容（至少 2 个字母/数字/中文）
-  const hasRealName = /[a-zA-Z一-鿿0-9]{2,}/.test(cleaned)
-
-  if (!hasRealName) {
-    if (templateName) {
-      const slug = templateName
-        .toLowerCase()
-        .replace(/\s+/g, '-')
-        .replace(/[^a-z0-9-]/g, '')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '')
-      if (slug) return `${slug}-instance-package.zip`
-    }
-    if (hireId) return `${hireId}-instance-package.zip`
-    return 'instance-package.zip'
-  }
-
-  // 确保以 .zip 结尾
-  if (!/\.zip$/i.test(cleaned)) return `${cleaned}.zip`
-  return cleaned
-}
-
 function buildArtifactEventSignature(artifact: ArtifactDisplayData): string {
   return JSON.stringify({
     kind: artifact.kind,
@@ -159,6 +131,54 @@ function buildArtifactEventSignature(artifact: ArtifactDisplayData): string {
     fileName: artifact.fileName,
     data: artifact.data,
   })
+}
+
+/**
+ * 从 emit_artifact 的 tool_result.text 中解析 artifact 元数据。
+ * 当 tool_result 消息缺少 arguments 字段时（Gateway 版本差异或消息乱序），
+ * text 中会携带 `Data artifact emitted: [key=value ...]` 格式的结构化描述，
+ * 作为 artifact 提取的回退路径，避免 skill_generation_done / external_workorder_summary
+ * 等终态 artifact 静默丢失导致阶段无法推进。
+ *
+ * 示例输入：
+ *   "Data artifact emitted: [kind=data type=skill_generation_done stage=stage2_skill terminal=True]"
+ */
+function parseArtifactFromToolResultText(text: string): Record<string, unknown> | null {
+  const bracketMatch = /Data artifact emitted:\s*\[([^\]]*)\]/.exec(text)
+  if (!bracketMatch) return null
+
+  const inner = bracketMatch[1].trim()
+  if (!inner) return null
+
+  const result: Record<string, unknown> = {}
+  const pairRegex = /(\w+)=(\S+)/g
+  let pairMatch: RegExpExecArray | null
+  while ((pairMatch = pairRegex.exec(inner)) !== null) {
+    const key = pairMatch[1]
+    const value = pairMatch[2]
+
+    switch (key) {
+      case 'type':
+        result.artifactType = value
+        break
+      case 'kind':
+        result.kind = value
+        break
+      case 'stage':
+        result.stage = value
+        break
+      case 'terminal':
+        result.isTerminal = value.toLowerCase() === 'true'
+        break
+      default:
+        // 保留其他元数据字段（如 skillName、displayHint 等未来扩展）
+        result[key] = value
+        break
+    }
+  }
+
+  if (!result.artifactType) return null
+  return result
 }
 
 export default function HiringPage() {
@@ -187,9 +207,7 @@ export default function HiringPage() {
     workflowError,
     workflowNotice,
     workflowInitAttempted,
-    artifactArchive,
     artifactFileNames,
-    restoredPackageFileName,
     materialRequestedCategories,
     pendingPackageArtifact,
     pendingStageConfirmation,
@@ -221,9 +239,7 @@ export default function HiringPage() {
     setWorkflowError,
     setWorkflowNotice,
     setWorkflowInitAttempted,
-    setArtifactArchive,
     setArtifactFileNames,
-    setRestoredPackageFileName,
     setMaterialRequestedCategories,
     setPendingPackageArtifact,
     setPendingStageConfirmation,
@@ -253,9 +269,9 @@ export default function HiringPage() {
     latestSkillSummary,
     focusedStage,
     t,
+    templateName: template?.name,
     workflowHireId,
     instanceCreated,
-    artifactArchive,
     typing,
     workflowBooting,
     submittingMessage,
@@ -542,12 +558,9 @@ export default function HiringPage() {
           restored = true
         }
 
-      // 恢复最新数字员工包结构（不恢复 blob，仅恢复显示用的文件名和结构数据）
+      // 恢复最新数字员工包结构；文件名由当前模板名统一计算，不信任历史缓存名。
         if (state.packageStructure?.fileName) {
           setArtifactFileNames(state.packageStructure.fileNames ?? [])
-        // 无 blob 时仅设 fileName 以便 FinalCard 显示包名；artifactArchive blob 留 null
-        // canDownloadFinalPackage 依赖 artifactArchive.blob，刷新后不可下载但可显示包名
-          setRestoredPackageFileName(state.packageStructure.fileName)
         // 恢复员工实例 ID：如果包内储了 employeeId，则恢复评估入口
           if (state.packageStructure.employeeId) {
             setCreatedId(state.packageStructure.employeeId)
@@ -674,9 +687,7 @@ export default function HiringPage() {
     latestExternalConfigRef.current = config
     if (shouldRequireFreshPackagingAfterExternalConfigChange(previousConfig, config, source, instanceCreated)) {
       setPendingPackageArtifact(null)
-      setArtifactArchive(null)
       setArtifactFileNames([])
-      setRestoredPackageFileName('')
       setRequiresFreshPackaging(true)
       setWorkflowError('')
       setWorkflowNotice(EXTERNAL_CONFIG_REPACKAGE_NOTICE)
@@ -771,10 +782,10 @@ export default function HiringPage() {
   }, [typing, submittingMessage])
   useRuntimeStateSync(
     workflowHireId,
-    wsStageOverrides,
+    uiStageOverrides,
     downstreamRuns,
     allFiles,
-    instanceCreated ? (restoredPackageFileName || finalPackageFileName) : '',
+    instanceCreated ? finalPackageFileName : '',
     artifactFileNames,
     createdId,
     instanceCreated,
@@ -920,9 +931,9 @@ export default function HiringPage() {
       : '该模板未提供显式场景列表，请先从模板文档中抽取核心业务场景。'
 
     return [
-      '你正在运行 HireBot 雇佣教练会话，不是目标数字员工本人。',
+      '你正在运行雇佣教练会话，不是目标数字员工本人。',
       '本轮初始化同时涉及两套包，必须先明确二者关系：',
-      '1. `coach_runtime_root`：固定为 `/workspace`。这是雇佣教练运行根目录，包含 employment-coach-conversation、ontology-extraction、skill-generation 等系统 skill，只用于读取流程规则，永远不能作为数字员工包的 manifest 同步、产物写入、审查或打包根目录。',
+      '1. `coach_runtime_root`：固定为 `/workspace`。这是雇佣教练运行根目录，包含 employment-coach-conversation、ontology-slice-extraction、skill-generation 等系统 skill，只用于读取流程规则，永远不能作为数字员工包的 manifest 同步、产物写入、审查或打包根目录。',
       `2. \`employee_package_root\`：固定为下面的 ${marker} 目录。它才是本轮待装配的"${templateName}"专属工作区，只能在这个目录内做 manifest 同步、写入运行时产物、完整性审查和最终打包。`,
       '读取顺序：先读取并遵守雇佣教练包的 `/workspace/AGENTS.md`、`/workspace/SOUL.md`、`/workspace/IDENTITY.md` 和 `/workspace/skills/employment-coach-conversation/SKILL.md`，再读取目标员工模板包的 manifest.json 与 config 文档。',
       '冲突规则：雇佣教练包决定“你是谁、流程怎么走、artifact 怎么发”；目标员工模板包决定“要装配什么员工、需要哪些业务资料”。不得把目标员工的 config/SOUL.md、config/IDENTITY.md 或 config/AGENTS.md 当作你的身份指令。',
@@ -938,8 +949,8 @@ export default function HiringPage() {
       'B. 只用一句自然的话邀请我上传或描述业务资料，按 story-driven 风格开口，点到这 1-3 个分类即可。',
       '',
       '重要约束：',
-      `- 所有用户可见回复都必须以 HireBot 雇佣教练口吻表达；不要自称"${templateName}"，也不要承诺直接执行该员工上岗后的业务任务。`,
-      `- 如果用户问"你是谁"，应回答你是 HireBot 雇佣教练，正在帮助装配"${templateName}"这位数字员工。`,
+      `- 所有用户可见回复都必须以雇佣教练口吻表达；不要自称"${templateName}"，也不要承诺直接执行该员工上岗后的业务任务。`,
+      `- 如果用户问"你是谁"，应回答你是雇佣教练，正在帮助装配"${templateName}"这位数字员工。`,
       '- 不要输出任何系统状态确认语句（如"已确认工作区可用""执行阶段 1""强制动作"等内部步骤名称）。',
       '- 不要发出或提及未在 contracts/artifacts.json 声明的 artifact，例如 skill_generation_trigger、stage2_analysis、stage3_skills、skills_pipeline、技能流水线。',
       '- emit_artifact 已将分类推送到右侧面板，你不需要在文字回复中再逐项罗列分类名称或"最需要的三类资料是"这类总结句。',
@@ -1209,7 +1220,7 @@ export default function HiringPage() {
         // MCP 工具调用完成：优先从顶层字段取工具名（部分 Gateway 版本携带），
         // 取不到时尝试解析 text JSON——若结果中含 data.handoff_id 则判定为 hiring todo 结果
         const rawMsg = msg as unknown as Record<string, unknown>
-        const rawName = String(rawMsg.tool_name ?? rawMsg.name ?? '')
+        const rawName = String(rawMsg.tool_name ?? rawMsg.toolName ?? rawMsg.name ?? '')
         const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
         const textStr = String(rawMsg.text ?? '')
         const fallbackArgs = rawMsg.arguments != null
@@ -1244,56 +1255,62 @@ export default function HiringPage() {
           }
         }
         if (!toolResultIsError) {
-          const artifact = extractArtifactFromToolCall({
+          let artifact = extractArtifactFromToolCall({
             toolName: toolName || completedStep?.name || '',
             arguments: completedStep?.args ?? fallbackArgs,
             result: textStr,
           })
+          // 回退：当 tool_result 缺少 arguments 字段时（如 Gateway 版本使用 toolName 驼峰字段
+          // 且 tool_start 未被正确捕获），从 text 描述中解析 artifact 元数据，
+          // 避免 skill_generation_done / external_workorder_summary 等终态 artifact 静默丢失导致阶段无法推进
+          if (!artifact && toolName === 'emit_artifact' && textStr) {
+            const parsedFromText = parseArtifactFromToolResultText(textStr)
+            if (parsedFromText) {
+              try {
+                artifact = normalizeArtifactDisplayData(parsedFromText)
+              } catch (err) {
+                console.warn('[HiringPage] failed to normalize artifact parsed from tool_result text:', err)
+              }
+            }
+          }
           if (artifact) {
             ws.onMessage?.({ type: 'artifact', artifact })
+          } else if (toolName === 'emit_artifact') {
+            console.warn(
+              '[HiringPage] emit_artifact tool_result ignored: unable to extract artifact metadata (missing arguments and unparseable text)',
+              { textStr },
+            )
           }
         }
       } else if (type === 'artifact') {
         // 下游 skill 通过 emit_artifact 工具推送产物（对应 contracts/artifacts.json 声明的类型）
         const raw = msg.artifact as Record<string, unknown> | null | undefined
         if (raw) {
-          const kind = (String(raw.kind ?? 'data')) as 'file' | 'data'
-          const artifactType = String(raw.artifactType ?? raw.artifact_type ?? 'generic')
-          const label = raw.label != null ? String(raw.label) : undefined
-          const skillName = raw.skillName != null ? String(raw.skillName) : undefined
-          const stage = raw.stage != null ? String(raw.stage) : undefined
-          let isTerminal = Boolean(raw.isTerminal ?? raw.is_terminal)
+          let artifactData: ArtifactDisplayData
+          try {
+            artifactData = normalizeArtifactDisplayData(raw)
+          } catch (error) {
+            console.warn('[HiringPage] ignored malformed artifact payload:', error)
+            return
+          }
+
+          const kind = artifactData.kind
+          const artifactType = artifactData.artifactType
+          const label = artifactData.label
+          const skillName = artifactData.skillName
+          const stage = artifactData.stage
+          let isTerminal = Boolean(artifactData.isTerminal)
           isTerminal = normalizeIncomingArtifactTerminal(artifactType, isTerminal)
-          const displayHint = raw.displayHint != null ? String(raw.displayHint) : raw.display_hint != null ? String(raw.display_hint) : undefined
-          const artifactData: ArtifactDisplayData = { kind, artifactType, label, skillName, stage, isTerminal, displayHint }
+          artifactData.isTerminal = isTerminal
           if (kind === 'file') {
-            artifactData.fileUrl = String(raw.fileUrl ?? raw.file_url ?? '')
-            artifactData.fileName = String(raw.fileName ?? raw.file_name ?? label ?? 'file')
-            // template_package 的 fileName 来自 AI 生成的 <template_slug>-artifacts.zip，
-            // 当 AI 未能正确解析 template_slug 时会产生类似 "______-artifacts.zip" 的垃圾名。
-            // 这里用模板名称或雇佣 ID 作为回退，确保下载文件名可读。
-            if (artifactType === 'template_package') {
-              artifactData.fileName = normalizePackageFileName(artifactData.fileName, template?.name, workflowHireIdRef.current)
-            }
             artifactData.mimeType = String(raw.mimeType ?? raw.mime_type ?? '')
             const sizeBytes = typeof raw.fileSizeBytes === 'number' ? raw.fileSizeBytes : typeof raw.file_size_bytes === 'number' ? raw.file_size_bytes : null
             artifactData.sizeLabel = sizeBytes !== null ? formatFileSize(sizeBytes) : ''
-          } else {
-            if (raw.data != null) {
-              artifactData.data = typeof raw.data === 'string' ? JSON.parse(raw.data as string) : raw.data
-            } else {
-              // 兜底：Gateway 部分版本将 data 字段平铺在 artifact 顶层而非嵌套在 data 字段下
-              // 历史重建路径（tool call arguments）始终有嵌套 data 字段，WS 推送有时没有
-              const META_KEYS = new Set(['kind', 'artifactType', 'artifact_type', 'label', 'skillName', 'skill_name', 'stage', 'isTerminal', 'is_terminal', 'displayHint', 'display_hint'])
-              const fallback: Record<string, unknown> = {}
-              for (const [k, v] of Object.entries(raw)) {
-                if (!META_KEYS.has(k)) fallback[k] = v
-              }
-              artifactData.data = Object.keys(fallback).length > 0 ? fallback : undefined
-            }
           }
           const blockedArtifactReason = getBlockedIncomingArtifactReason(artifactType, {
             hasMaterialSummary: latestMaterialSummaryRef.current !== null,
+            hasOntologyExtractionDone: downstreamRunsRef.current['ontology-slice-extraction']?.status === 'completed'
+              || (artifactType === 'ontology_slice_extraction_done' && isTerminal),
             hasSkillSummary: latestSkillSummaryRef.current !== null,
             hasProjectionResult: (artifactType === 'ontology_projection_done' && isTerminal)
               || latestProjectionResultRef.current !== null,
@@ -1351,7 +1368,7 @@ export default function HiringPage() {
             if (ontologyExtractionDoneSignatureRef.current !== signature) {
               ontologyExtractionDoneSignatureRef.current = signature
               pendingInternalPromptsRef.current.push(
-                buildCoachResumePrompt('post-ontology-extraction', {
+                buildCoachResumePrompt('post-ontology-slice-extraction', {
                   materialSummary: latestMaterialSummaryRef.current,
                   ontologyResult: artifactData.data ?? {},
                 }),
@@ -1459,7 +1476,14 @@ export default function HiringPage() {
                 next.set(HiringCollectionStage.Material, 'completed')
                 next.set(HiringCollectionStage.Skill, 'completed')
                 next.set(HiringCollectionStage.External, 'completed')
-              } else if ((artifactType === 'external_workorder_summary' || artifactType === 'skill_workorder_summary') && isTerminal) {
+              } else if (
+                (
+                  artifactType === 'external_workorder_summary'
+                  || artifactType === 'skill_workorder_summary'
+                  || artifactType === 'material_handoff_summary'
+                )
+                && isTerminal
+              ) {
                 if (next.get(hiringStage) !== 'completed') {
                   next.set(hiringStage, 'running')
                 }
@@ -1479,7 +1503,7 @@ export default function HiringPage() {
             // 无论是否有下游任务未完成，均暂存数字员工包信息；
           // useEffect 会在 downstreamRuns 全部完成后自动触发 triggerCreate。
           setRequiresFreshPackaging(false)
-          setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? 'artifacts.zip' })
+          setPendingPackageArtifact({ fileUrl: artifactData.fileUrl, fileName: artifactData.fileName ?? '数字员工.zip' })
           if (hasPendingRequiredDownstreamRuns(downstreamRunsRef.current)) {
             setWorkflowNotice('已收到数字员工包，下游生成完成后将自动导入。')
             }
@@ -1496,12 +1520,8 @@ export default function HiringPage() {
             canProceed: Boolean(gate.canProceed ?? gate.can_proceed),
             blockedReason: gate.blockedReason != null ? String(gate.blockedReason) : gate.blocked_reason != null ? String(gate.blocked_reason) : undefined,
           }
-          const shouldSuppressStageGate =
-            stageGate.canProceed &&
-            resolveHiringStageFromWs(stageGate.skillName, stageGate.completedStage) === HiringCollectionStage.Skill &&
-            resolveHiringStageFromWs(stageGate.skillName, stageGate.nextStage) === HiringCollectionStage.External &&
-            downstreamRunsRef.current['skill-generation']?.status !== 'completed'
-          if (shouldSuppressStageGate) {
+          const shouldSuppressGate = shouldSuppressStageGate(stageGate, downstreamRunsRef.current)
+          if (shouldSuppressGate) {
             return
           }
           setMessages(msgs => [...msgs, {
@@ -1587,7 +1607,7 @@ export default function HiringPage() {
       const prompt = pendingInternalPromptsRef.current.shift()
       if (!prompt) return
 
-      await submitWorkflowMessage(prompt, undefined, true, false, true)
+      await submitWorkflowMessage(prompt, undefined, true, false, false)
       if (pendingInternalPromptsRef.current.length > 0) {
         scheduleInternalPromptFlush()
       }
@@ -1703,7 +1723,7 @@ export default function HiringPage() {
     setOptimisticDownstreamRun(
       'skill-generation',
       'waiting_confirm',
-      '技能所需业务资料已准备好，等待确认生成技能实现。',
+      '技能数据已匹配完成，等待确认生成技能实现。',
       'skill_generation_ready',
     )
     pendingInternalPromptsRef.current.push(
@@ -1712,7 +1732,7 @@ export default function HiringPage() {
         projectionResult,
       }),
     )
-    setWorkflowNotice('技能所需业务资料已准备好，请确认是否生成技能实现。')
+    setWorkflowNotice('技能数据已匹配完成，请确认是否生成技能实现。')
     void flushQueuedInternalPrompt()
     return true
   }
@@ -1752,16 +1772,19 @@ export default function HiringPage() {
     }
 
     if (state?.artifactType === 'skill_definition_ready') {
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '确认技能清单' }])
       await confirmSkillDefinitionFromApproval('确认技能清单')
       return
     }
 
     if (projectionState?.artifactType === 'ontology_projection_ready') {
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '开始匹配技能数据' }])
       await launchProjectionPassFromApproval()
       return
     }
 
     if (state?.artifactType === 'skill_generation_ready') {
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '确认生成技能实现' }])
       await launchSkillGenerationFromApproval()
       return
     }
@@ -1794,11 +1817,11 @@ export default function HiringPage() {
       undefined,
       true,
       false,
-      true,
+      false,
     )
 
     if (submitted) {
-      setWorkflowNotice('已确认技能清单，正在收口技能定义并进入业务资料准备确认。')
+      setWorkflowNotice('已确认技能清单，正在收口技能定义并进入匹配技能数据确认。')
       return true
     }
 
@@ -1812,7 +1835,7 @@ export default function HiringPage() {
     const projectionRun = downstreamRunsRef.current['ontology-projection']
     const signature = skillSummarySignatureRef.current || JSON.stringify(summary)
     if (projectionRun?.status === 'running') {
-      setWorkflowNotice('正在为技能准备业务资料，请等待进度更新。')
+      setWorkflowNotice('正在匹配技能数据，请等待进度更新。')
       return true
     }
 
@@ -1826,13 +1849,13 @@ export default function HiringPage() {
     }
 
     if (signature && projectionPassLaunchSignatureRef.current === signature) {
-      setWorkflowNotice('正在为技能准备业务资料，请等待进度更新。')
+      setWorkflowNotice('正在匹配技能数据，请等待进度更新。')
       return true
     }
 
     const projectionPayload = buildProjectionPassPayload(summary)
     if (!projectionPayload) {
-      setWorkflowError('技能定义摘要缺少业务资料准备所需字段，暂时无法启动。')
+      setWorkflowError('技能定义摘要缺少匹配技能数据所需字段，暂时无法启动。')
       return false
     }
 
@@ -1843,7 +1866,7 @@ export default function HiringPage() {
     setOptimisticDownstreamRun(
       'ontology-projection',
       'running',
-      '正在为技能准备业务资料，等待下游进度更新。',
+      '正在匹配技能数据，等待下游进度更新。',
       'ontology_projection_progress',
     )
 
@@ -1852,11 +1875,11 @@ export default function HiringPage() {
       undefined,
       true,
       false,
-      true,
+      false,
     )
 
     if (submitted) {
-      setWorkflowNotice('已开始为技能准备业务资料；准备完成后会等待你确认是否生成技能实现。')
+      setWorkflowNotice('已开始匹配技能数据；匹配完成后会等待你确认是否生成技能实现。')
       return true
     }
 
@@ -1907,7 +1930,7 @@ export default function HiringPage() {
       undefined,
       true,
       false,
-      true,
+      false,
     )
 
     if (submitted) {
@@ -1919,7 +1942,7 @@ export default function HiringPage() {
     setOptimisticDownstreamRun(
       'skill-generation',
       'waiting_confirm',
-      '技能所需业务资料已准备好，等待确认生成技能实现。',
+      '技能数据已匹配完成，等待确认生成技能实现。',
       'skill_generation_ready',
     )
     return false
@@ -1963,7 +1986,7 @@ export default function HiringPage() {
       undefined,
       true,
       false,
-      true,
+      false,
     )
 
     if (submitted) {
@@ -2272,7 +2295,7 @@ export default function HiringPage() {
           undefined,
           true,
           false,
-          true,
+          false,
         )
       } else if (shouldLaunchPackagingTestCases) {
         submitted = await launchPackagingTestCasesFromApproval()
@@ -2483,10 +2506,7 @@ export default function HiringPage() {
       if (finalizeResult.employeeId) {
         setCreatedId(finalizeResult.employeeId)
       }
-      // 导入完成后立即持久化一个稳定的最终包名，刷新页面也能恢复评估入口。
-      setRestoredPackageFileName(`${hireId}_final_package.zip`)
-      // 后续下载统一走后端 final_package_zip，避免继续使用沙箱原始 ZIP 缓存。
-      setArtifactArchive(null)
+      // 后续下载统一走后端 final_package_zip，页面展示名由模板名计算。
       setInstanceCreated(true)
       setPendingStageConfirmation(null)
       setWorkflowError('')
@@ -2517,12 +2537,7 @@ export default function HiringPage() {
 
     try {
       const artifact = await api.hiringWorkflow.downloadArtifacts(workflowHireId)
-      // 兜底：纠正历史上已存储的异常文件名（如 ______-artifacts.zip）
-      const safeFileName = normalizePackageFileName(artifact.fileName, template?.name, workflowHireId)
-      const safeArtifact = { fileName: safeFileName, blob: artifact.blob }
-      setArtifactArchive(safeArtifact)
-      setRestoredPackageFileName(safeFileName)
-      downloadBlob(artifact.blob, safeFileName)
+      downloadBlob(artifact.blob, finalPackageFileName)
       setWorkflowError('')
       setWorkflowNotice('')
     } catch (error: unknown) {
@@ -2537,14 +2552,6 @@ export default function HiringPage() {
       return
     }
     await downloadPersistedFinalPackage()
-    return
-    if (artifactArchive) {
-      downloadBlob(artifactArchive!.blob, artifactArchive!.fileName)
-      setWorkflowNotice('')
-      return
-    }
-    // 页面刷新后数字员工包 Blob 会丢失,需要重新从沙箱下载并导入
-    setWorkflowNotice('数字员工包未缓存,请从对话产物中重新导入')
   }
 
   /**
@@ -2679,9 +2686,7 @@ export default function HiringPage() {
         setPendingPackageArtifact(null)
         setPendingStageConfirmation(null)
         setRequiresFreshPackaging(false)
-        setArtifactArchive(null)
         setArtifactFileNames([])
-        setRestoredPackageFileName('')
         setLinkedStoreSkillIds([])
         setLatestSkillSummary(null)
         downstreamRunsRef.current = {}
@@ -2866,7 +2871,7 @@ export default function HiringPage() {
             onContinue={handlePrototypeContinue}
             onFinalize={() => { void handleRequestPackaging() }}
             onDownloadArtifact={(artifactName) => { void downloadBackendArtifact(artifactName) }}
-            onDownloadArchive={() => { void downloadPersistedFinalPackage() }}
+            onDownloadArchive={() => { void downloadTemplatePackageFinal() }}
           />
 
           {/* MCP TODO 交互面板：完全由 WS artifact 事件驱动阶段亮灯 */}
@@ -2878,7 +2883,7 @@ export default function HiringPage() {
             templatePackageSkills={template?.packageSkills ?? []}
             requestedMaterialCategories={materialRequestedCategories}
             uploadedConversationFiles={uploadedConversationFiles}
-            skillDefinitionStageStatus={wsStageOverrides.get(HiringCollectionStage.Skill) ?? null}
+            skillDefinitionStageStatus={uiStageOverrides.get(HiringCollectionStage.Skill) ?? null}
             skillGenerationState={skillStageConfirmationState}
             definedSkills={definedSkills}
             onExternalConfigChange={handleExternalConfigChange}
@@ -2896,11 +2901,9 @@ export default function HiringPage() {
             onConfirmSkillGeneration={() => { void handleConfirmSkillGeneration() }}
             onConfirmSkillStageDone={() => { void handleConfirmSkillStageDone() }}
             packageStructure={
-              artifactArchive
-                ? { fileName: artifactArchive.fileName, fileNames: artifactFileNames }
-                : restoredPackageFileName
-                  ? { fileName: restoredPackageFileName, fileNames: artifactFileNames }
-                  : null
+              instanceCreated
+                ? { fileName: finalPackageFileName, fileNames: artifactFileNames }
+                : null
             }
           />
         </div>

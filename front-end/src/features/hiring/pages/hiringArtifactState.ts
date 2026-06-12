@@ -9,6 +9,8 @@ import type {
   DownstreamRunsSnapshot,
   DownstreamRunState,
   DownstreamRunStatus,
+  StageGateData,
+  ToolStep,
 } from './hiringPageTypes'
 import {
   getBlockedIncomingArtifactReason,
@@ -21,6 +23,43 @@ import type { HiringUiStage } from './hiringWorkflowViewModel'
 
 function mkHistoricalId(prefix: string, index: number) {
   return `historical_${prefix}_${index}`
+}
+
+function normalizeHistoricalToolName(toolName: string): string {
+  const trimmed = toolName.trim()
+  if (!trimmed) {
+    return 'tool'
+  }
+
+  return trimmed.startsWith('streaming.') ? trimmed.slice('streaming.'.length) : trimmed
+}
+
+function buildHistoricalToolSteps(
+  toolCalls: SandboxToolCall[] | null | undefined,
+  messageIndex: number,
+): ToolStep[] | undefined {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+    return undefined
+  }
+
+  const steps = toolCalls
+    .map((toolCall, toolIndex): ToolStep | null => {
+      const name = normalizeHistoricalToolName(String(toolCall.toolName ?? ''))
+      if (!name) {
+        return null
+      }
+
+      return {
+        id: `historical_tool_${messageIndex}_${toolIndex}`,
+        name,
+        status: 'done',
+        args: toolCall.arguments,
+        result: toolCall.result,
+      }
+    })
+    .filter((step): step is ToolStep => step !== null)
+
+  return steps.length > 0 ? steps : undefined
 }
 
 const HISTORICAL_FILE_ATTACHMENT_PATTERN =
@@ -126,11 +165,6 @@ function shouldHideHistoricalUserMessage(content: string): boolean {
 function shouldSuppressAssistantAfterHistoricalUserMessage(content: string): boolean {
   const trimmed = content.trim()
   if (!trimmed) {
-    return true
-  }
-
-  // 这些内部信号的回复只用于驱动流程，不应恢复成用户可见气泡。
-  if (trimmed.startsWith('[Internal ') || trimmed.startsWith('[System ')) {
     return true
   }
 
@@ -241,11 +275,27 @@ export function shouldHoldExternalStageUntilSkillImplementation(
 
 export function buildUiStageOverrides(
   rawStageOverrides: Map<HiringUiStage, 'running' | 'completed' | 'failed'>,
+  ontologyExtractionState: DownstreamRunState | null,
   skillGenerationState: DownstreamRunState | null,
   holdExternalStage: boolean,
   externalConfigCommitted = false,
 ): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
   const next = new Map(rawStageOverrides)
+
+  if (ontologyExtractionState?.status === 'completed') {
+    next.set(HiringCollectionStage.Material, 'completed')
+    // 本体切片抽取完成意味着可以进入技能阶段了；将 Skill 置为 running，
+    // 使右侧卡片 badge 与顶部阶段胶囊保持一致，避免卡片仍显示"等待中"。
+    // skillGenerationState 后续到达时会再修正为 completed / failed。
+    if (next.get(HiringCollectionStage.Skill) !== 'completed') {
+      next.set(HiringCollectionStage.Skill, 'running')
+    }
+  } else if (ontologyExtractionState?.status === 'running') {
+    next.set(HiringCollectionStage.Material, 'running')
+    if (!skillGenerationState && next.get(HiringCollectionStage.Skill) !== 'completed') {
+      next.delete(HiringCollectionStage.Skill)
+    }
+  }
 
   // 阶段 2 现在覆盖“技能定义 + 技能生成”两个子步骤。
   // 因此只要技能生成尚未完成，主技能阶段就必须保持进行中；
@@ -275,7 +325,37 @@ export function buildUiStageOverrides(
   return next
 }
 
-function toArtifactDisplayData(raw: Record<string, unknown>): ArtifactDisplayData {
+export function shouldSuppressStageGate(
+  stageGate: StageGateData,
+  downstreamRuns: DownstreamRunsSnapshot,
+): boolean {
+  if (!stageGate.canProceed) {
+    return false
+  }
+
+  const completedHiringStage = resolveHiringStageFromWs(stageGate.skillName, stageGate.completedStage)
+  const nextHiringStage = resolveHiringStageFromWs(stageGate.skillName, stageGate.nextStage)
+
+  if (
+    completedHiringStage === HiringCollectionStage.Material
+    && nextHiringStage === HiringCollectionStage.Skill
+    && downstreamRuns['ontology-slice-extraction']?.status !== 'completed'
+  ) {
+    return true
+  }
+
+  if (
+    completedHiringStage === HiringCollectionStage.Skill
+    && nextHiringStage === HiringCollectionStage.External
+    && downstreamRuns['skill-generation']?.status !== 'completed'
+  ) {
+    return true
+  }
+
+  return false
+}
+
+export function normalizeArtifactDisplayData(raw: Record<string, unknown>): ArtifactDisplayData {
   const parameters = asPlainObject(raw.parameters)
   const artifactPayload = parameters && (parameters.artifactType || parameters.artifact_type)
     ? parameters
@@ -341,7 +421,7 @@ export function extractArtifactFromToolCall(toolCall: SandboxToolCall): Artifact
   }
 
   try {
-    const artifact = toArtifactDisplayData(payload)
+    const artifact = normalizeArtifactDisplayData(payload)
     // 历史 tool call 的 fileUrl 不在 arguments 里，而在 result 的 [FILE_URL:...] 标记中
     if (artifact.kind === 'file' && !artifact.fileUrl && toolCall.result) {
       const match = /\[FILE_URL:([^\]]+)\]/.exec(toolCall.result)
@@ -386,13 +466,16 @@ export function buildHistoricalHiringConversationState(
   let artifactIndex = 0
   let suppressNextAssistantVisibleMessage = false
   let latestMaterialSummary: unknown | null = null
+  let hasOntologyExtractionDone = false
   let latestSkillSummary: unknown | null = null
   let latestProjectionResult: unknown | null = null
   let hasExternalConfigCommitted = false
   let hasPackagingTestCasesReady = false
+  let pendingHistoricalToolSteps: ToolStep[] = []
 
-  for (const message of sandboxMessages) {
+  for (const [sandboxMessageIndex, message] of sandboxMessages.entries()) {
     if (message.type === 'user_message') {
+      pendingHistoricalToolSteps = []
       const historicalUserText = String(message.text ?? '')
       suppressNextAssistantVisibleMessage = shouldSuppressAssistantAfterHistoricalUserMessage(historicalUserText)
       const userMessage = normalizeHistoricalUserMessage(historicalUserText)
@@ -411,6 +494,11 @@ export function buildHistoricalHiringConversationState(
       continue
     }
 
+    const currentToolSteps = buildHistoricalToolSteps(message.toolCalls, sandboxMessageIndex)
+    if (currentToolSteps) {
+      pendingHistoricalToolSteps = [...pendingHistoricalToolSteps, ...currentToolSteps]
+    }
+
     for (const toolCall of message.toolCalls ?? []) {
       const artifact = extractArtifactFromToolCall(toolCall)
       if (!artifact) {
@@ -423,6 +511,7 @@ export function buildHistoricalHiringConversationState(
         : latestProjectionResult
       const blockedArtifactReason = getBlockedIncomingArtifactReason(artifact.artifactType, {
         hasMaterialSummary: latestMaterialSummary !== null,
+        hasOntologyExtractionDone,
         hasSkillSummary: latestSkillSummary !== null,
         hasProjectionResult: projectionForGate !== null,
         canUseProjectionForSkillGeneration: buildSkillGenerationPayload(
@@ -462,6 +551,8 @@ export function buildHistoricalHiringConversationState(
 
       if (artifact.artifactType === 'material_handoff_summary' && artifact.isTerminal) {
         latestMaterialSummary = artifact.data ?? null
+      } else if (artifact.artifactType === 'ontology_slice_extraction_done' && artifact.isTerminal) {
+        hasOntologyExtractionDone = true
       } else if (artifact.artifactType === 'skill_workorder_summary' && artifact.isTerminal) {
         latestSkillSummary = artifact.data ?? null
         latestProjectionResult = null
@@ -498,6 +589,8 @@ export function buildHistoricalHiringConversationState(
         if (wsStageOverrides.get(HiringCollectionStage.External) !== 'completed') {
           wsStageOverrides.set(HiringCollectionStage.External, 'running')
         }
+      } else if (artifact.artifactType === 'material_handoff_summary' && artifact.isTerminal) {
+        wsStageOverrides.set(hiringStage, 'running')
       } else if (artifact.isTerminal) {
         wsStageOverrides.set(hiringStage, 'completed')
       } else if (wsStageOverrides.get(hiringStage) !== 'completed') {
@@ -507,13 +600,18 @@ export function buildHistoricalHiringConversationState(
 
     const assistantContent = normalizeAssistantReply(String(message.content ?? ''))
     if (!suppressNextAssistantVisibleMessage && assistantContent.length > 0) {
+      const toolSteps = pendingHistoricalToolSteps.length > 0 ? pendingHistoricalToolSteps : undefined
       messages.push({
         id: mkHistoricalId('assistant', messages.length),
         role: 'bot',
         content: assistantContent,
+        toolSteps,
       })
     }
-    suppressNextAssistantVisibleMessage = false
+    if (assistantContent.length > 0) {
+      pendingHistoricalToolSteps = []
+      suppressNextAssistantVisibleMessage = false
+    }
   }
 
   // skill_stage_gate 事件不存在于沙箱会话历史中，因此上方循环可能无法推断任何阶段状态。
@@ -538,12 +636,13 @@ export function buildHistoricalHiringConversationState(
  * 用于 stageOverrides 未能从缓存或会话历史恢复时的兜底派生，保证阶段胶囊能正确反映进度。
  *
  * 因果链：
- * - ontology-extraction 存在 → Material 阶段已完成（material_handoff_summary 已发出）
- * - skill-generation 存在 → Skill 阶段已完成或进行中；同时隐式蕴含 ontology-extraction 已完成
+ * - ontology-slice-extraction running → Material 阶段仍在分析业务资料
+ * - ontology-slice-extraction completed → Material 阶段完成
+ * - skill-generation 存在 → Skill 阶段已完成或进行中；同时隐式蕴含 ontology-slice-extraction 已完成
  * - External 阶段优先由右侧卡片保存/跳过结果驱动；不再依赖 external-config 下游运行
  *
  * 容错：WebSocket 相关事件可能丢失，导致 ontology-slice-extraction 轨道缺席。
- * 利用 skill-generation 必须在 ontology-extraction 完成后才能启动这一约束，反向恢复 Material 阶段进度。
+ * 利用 skill-generation 必须在 ontology-slice-extraction 完成后才能启动这一约束，反向恢复 Material 阶段进度。
  */
 export function deriveStageOverridesFromDownstreamRuns(
   runs: DownstreamRunsSnapshot,
@@ -554,10 +653,12 @@ export function deriveStageOverridesFromDownstreamRuns(
   const projectionRun = runs['ontology-projection']
   const skillGenRun = runs['skill-generation']
 
-  // ontology extraction 仅在 Material 阶段完成后触发。
-  // 仅当其状态为 running 或 completed 时才将 Material 标记为 completed；
+  // ontology extraction 属于 Material 阶段内部的资料分析步骤。
+  // running 时资料阶段仍未完成，completed 时才允许进入技能阶段；
   // failed 状态保留默认行为，避免误导用户认为材料阶段已正常收束。
-  if (ontologyRun && (ontologyRun.status === 'running' || ontologyRun.status === 'completed')) {
+  if (ontologyRun?.status === 'running') {
+    overrides.set(HiringCollectionStage.Material, 'running')
+  } else if (ontologyRun?.status === 'completed') {
     overrides.set(HiringCollectionStage.Material, 'completed')
   }
 
@@ -616,7 +717,7 @@ function hasZeroProjectedOntologySlices(ontologyResult: unknown): boolean {
 }
 
 export function buildCoachResumePrompt(
-  transition: 'post-ontology-extraction' | 'post-ontology-projection' | 'post-packaging-test-cases',
+  transition: 'post-ontology-slice-extraction' | 'post-ontology-projection' | 'post-packaging-test-cases',
   payload: {
     materialSummary?: unknown
     ontologyResult?: unknown
@@ -627,7 +728,7 @@ export function buildCoachResumePrompt(
 ): string {
   const serialized = JSON.stringify(payload, null, 2)
 
-  if (transition === 'post-ontology-extraction') {
+  if (transition === 'post-ontology-slice-extraction') {
     // 当本体切片为空时，向 coach 注入额外说明，提醒它如实告知用户并询问是否需要补充材料。
     const zeroProjected = hasZeroProjectedOntologySlices(payload.ontologyResult)
     const lines: string[] = [
@@ -635,7 +736,7 @@ export function buildCoachResumePrompt(
       'Switch back to skill `employment-coach-conversation` now.',
       'The downstream `ontology-slice-extraction` run has completed.',
       'Resume the main hiring flow at the boundary between stage1_material and stage2_skill.',
-      'Do not trigger ontology extraction again.',
+      'Do not trigger ontology slice extraction again.',
       'Use the provided upstream material summary and ontology result as context.',
       'First give a short transition that the business information is ready, then explicitly ask whether to enter skill definition now.',
       'If the user already explicitly asked to continue into skill definition in the current context, proceed directly under the coach skill rules; otherwise ask the confirmation question only.',

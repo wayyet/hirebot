@@ -1,5 +1,6 @@
 export interface IncomingArtifactGateState {
   hasMaterialSummary: boolean
+  hasOntologyExtractionDone: boolean
   hasSkillSummary: boolean
   hasProjectionResult: boolean
   canUseProjectionForSkillGeneration?: boolean
@@ -81,6 +82,12 @@ const ONTOLOGY_PROJECTION_CONFIRMATION_ARTIFACTS = new Set([
   'ontology_projection_ready',
 ])
 
+const SKILL_DEFINITION_ARTIFACTS = new Set([
+  'skill_workorder_progress',
+  'skill_definition_ready',
+  'skill_workorder_summary',
+])
+
 const SKILL_GENERATION_ARTIFACTS = new Set([
   'skill_generation_progress',
   'skill_generation_done',
@@ -117,6 +124,15 @@ const WORKSPACE_ROOT_REQUIRED_ARTIFACT_TYPES = new Set([
   'skill_workorder_summary',
 ])
 
+const REQUIRED_SKILL_WORKORDER_ITEM_FIELDS = [
+  'name',
+  'display_name',
+  'description',
+  'trigger',
+  'expected_output',
+  'generation_action',
+] as const
+
 function asPlainObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -137,6 +153,10 @@ function isValidWorkspaceRoot(value: unknown): value is string {
   if (normalized.includes('\\')) return false
 
   return true
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
 }
 
 function getWorkspaceRootBlockReason(artifactType: string, data: Record<string, unknown> | null): string | null {
@@ -181,11 +201,40 @@ function getMaterialSourcePathBlockReason(data: Record<string, unknown> | null):
   return null
 }
 
+function getSkillWorkorderSummaryBlockReason(data: Record<string, unknown> | null): string | null {
+  if (!data) return 'skill_workorder_summary.data is required'
+  if (!isNonEmptyString(data.template_slug)) return 'skill_workorder_summary.template_slug is required'
+
+  const items = data.items
+  if (!Array.isArray(items) || items.length === 0) {
+    return 'skill_workorder_summary.items[] is required'
+  }
+
+  for (const item of items) {
+    const record = asPlainObject(item)
+    if (!record) return 'skill_workorder_summary.items[] must contain objects'
+
+    for (const field of REQUIRED_SKILL_WORKORDER_ITEM_FIELDS) {
+      if (!isNonEmptyString(record[field])) {
+        return `skill_workorder_summary.items[].${field} is required`
+      }
+    }
+  }
+
+  return null
+}
+
 export function normalizeIncomingArtifactTerminal(artifactType: string, isTerminal: boolean): boolean {
   // 进度/确认门 artifact 如果被模型误标成终态，按协议降级为非终态，
   // 避免右侧阶段被错误置为 completed。
   if (NON_TERMINAL_ARTIFACT_TYPES.has(artifactType)) {
     return false
+  }
+
+  // 终端 artifact 类型如果缺少 isTerminal 标记（模型偶尔遗漏），自动升级为终态，
+  // 避免因协议字段缺失导致整个阶段卡住无法推进。
+  if (TERMINAL_ARTIFACT_TYPES.has(artifactType)) {
+    return true
   }
 
   return isTerminal
@@ -235,6 +284,11 @@ export function getBlockedIncomingArtifactReason(
     if (sourcePathBlockReason) return sourcePathBlockReason
   }
 
+  if (artifactType === 'skill_workorder_summary') {
+    const summaryBlockReason = getSkillWorkorderSummaryBlockReason(data)
+    if (summaryBlockReason) return summaryBlockReason
+  }
+
   if (artifactType === 'packaging_progress') {
     const status = typeof data?.status === 'string' ? data.status : ''
     if (!PACKAGING_PROGRESS_STATUSES.has(status)) {
@@ -272,8 +326,13 @@ export function getBlockedIncomingArtifactReason(
     return 'ontology projection requires skill_workorder_summary'
   }
 
-  if (artifactType === 'skill_definition_ready' && !state.hasMaterialSummary) {
-    return 'skill definition confirmation requires material_handoff_summary'
+  if (SKILL_DEFINITION_ARTIFACTS.has(artifactType)) {
+    if (!state.hasMaterialSummary) {
+      return 'skill definition requires material_handoff_summary'
+    }
+    if (!state.hasOntologyExtractionDone) {
+      return 'skill definition requires ontology_slice_extraction_done'
+    }
   }
 
   if (artifactType === 'skill_generation_ready') {

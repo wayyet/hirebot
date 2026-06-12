@@ -434,6 +434,7 @@ export interface HiringFinalizeResult {
   generatedFiles: string[]
   downloadUrl: string
   employeeId?: string | null
+  packageFileName?: string | null
 }
 
 export interface HiringWorkflowState {
@@ -608,7 +609,7 @@ export const hiringWorkflowApi = {
       }
     }
 
-    const fileName = parseFileName(response.headers.get('content-disposition')) ?? `${hireId}_artifacts.zip`
+    const fileName = parseFileName(response.headers.get('content-disposition')) ?? '数字员工.zip'
     const blob = await response.blob()
 
     return {
