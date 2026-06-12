@@ -10,6 +10,7 @@ import type {
   DownstreamRunState,
   DownstreamRunStatus,
   StageGateData,
+  ToolStep,
 } from './hiringPageTypes'
 import {
   getBlockedIncomingArtifactReason,
@@ -22,6 +23,43 @@ import type { HiringUiStage } from './hiringWorkflowViewModel'
 
 function mkHistoricalId(prefix: string, index: number) {
   return `historical_${prefix}_${index}`
+}
+
+function normalizeHistoricalToolName(toolName: string): string {
+  const trimmed = toolName.trim()
+  if (!trimmed) {
+    return 'tool'
+  }
+
+  return trimmed.startsWith('streaming.') ? trimmed.slice('streaming.'.length) : trimmed
+}
+
+function buildHistoricalToolSteps(
+  toolCalls: SandboxToolCall[] | null | undefined,
+  messageIndex: number,
+): ToolStep[] | undefined {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+    return undefined
+  }
+
+  const steps = toolCalls
+    .map((toolCall, toolIndex): ToolStep | null => {
+      const name = normalizeHistoricalToolName(String(toolCall.toolName ?? ''))
+      if (!name) {
+        return null
+      }
+
+      return {
+        id: `historical_tool_${messageIndex}_${toolIndex}`,
+        name,
+        status: 'done',
+        args: toolCall.arguments,
+        result: toolCall.result,
+      }
+    })
+    .filter((step): step is ToolStep => step !== null)
+
+  return steps.length > 0 ? steps : undefined
 }
 
 const HISTORICAL_FILE_ATTACHMENT_PATTERN =
@@ -438,9 +476,11 @@ export function buildHistoricalHiringConversationState(
   let latestProjectionResult: unknown | null = null
   let hasExternalConfigCommitted = false
   let hasPackagingTestCasesReady = false
+  let pendingHistoricalToolSteps: ToolStep[] = []
 
-  for (const message of sandboxMessages) {
+  for (const [sandboxMessageIndex, message] of sandboxMessages.entries()) {
     if (message.type === 'user_message') {
+      pendingHistoricalToolSteps = []
       const historicalUserText = String(message.text ?? '')
       suppressNextAssistantVisibleMessage = shouldSuppressAssistantAfterHistoricalUserMessage(historicalUserText)
       const userMessage = normalizeHistoricalUserMessage(historicalUserText)
@@ -457,6 +497,11 @@ export function buildHistoricalHiringConversationState(
 
     if (message.type !== 'assistant_message') {
       continue
+    }
+
+    const currentToolSteps = buildHistoricalToolSteps(message.toolCalls, sandboxMessageIndex)
+    if (currentToolSteps) {
+      pendingHistoricalToolSteps = [...pendingHistoricalToolSteps, ...currentToolSteps]
     }
 
     for (const toolCall of message.toolCalls ?? []) {
@@ -560,13 +605,18 @@ export function buildHistoricalHiringConversationState(
 
     const assistantContent = normalizeAssistantReply(String(message.content ?? ''))
     if (!suppressNextAssistantVisibleMessage && assistantContent.length > 0) {
+      const toolSteps = pendingHistoricalToolSteps.length > 0 ? pendingHistoricalToolSteps : undefined
       messages.push({
         id: mkHistoricalId('assistant', messages.length),
         role: 'bot',
         content: assistantContent,
+        toolSteps,
       })
     }
-    suppressNextAssistantVisibleMessage = false
+    if (assistantContent.length > 0) {
+      pendingHistoricalToolSteps = []
+      suppressNextAssistantVisibleMessage = false
+    }
   }
 
   // skill_stage_gate 事件不存在于沙箱会话历史中，因此上方循环可能无法推断任何阶段状态。
