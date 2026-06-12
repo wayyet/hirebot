@@ -74,6 +74,8 @@ describe('getBlockedIncomingArtifactReason', () => {
       .toBe('unknown hiring artifact type')
     expect(getBlockedIncomingArtifactReason('skill_generation_trigger', emptyState))
       .toBe('unknown hiring artifact type')
+    expect(getBlockedIncomingArtifactReason('stage1_material_done', emptyState))
+      .toBe('unknown hiring artifact type')
   })
 
   it('要求 terminal summary 必须携带终态标记', () => {
