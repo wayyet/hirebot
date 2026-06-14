@@ -13,6 +13,19 @@ public static class SandboxMetaKeys
     /// <summary>发起操作的用户主体，格式与 OwnerSubject 一致。</summary>
     public const string UserSubject = "user_subject";
 
+    /// <summary>租户 ID，用于追踪沙箱归属的租户。</summary>
+    public const string TenantId = "tenant_id";
+
+    // ──────────────────────────────────────────
+    // 基础设施字段（PVC 持久卷）
+    // ──────────────────────────────────────────
+
+    /// <summary>工作区 PVC 名称（kc-ws-{scopeKey}）。</summary>
+    public const string WorkspacePvc = "workspace_pvc";
+
+    /// <summary>记忆区 PVC 名称（kc-mem-{scopeKey}）。</summary>
+    public const string MemoryPvc = "memory_pvc";
+
     // ──────────────────────────────────────────
     // 雇佣流程沙箱（ScopeType = "hire"）
     // ──────────────────────────────────────────

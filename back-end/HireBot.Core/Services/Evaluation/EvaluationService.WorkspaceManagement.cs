@@ -291,7 +291,8 @@ internal sealed partial class EvaluationService
                 {
                     [SandboxMetaKeys.UserSubject] = owner,
                     [SandboxMetaKeys.EmployeeId] = employeeId,
-                    [SandboxMetaKeys.EvalScopeKey] = runtimeId
+                    [SandboxMetaKeys.EvalScopeKey] = runtimeId,
+                    [SandboxMetaKeys.TenantId] = tenantId
                 }
             },
             cancellationToken);

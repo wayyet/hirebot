@@ -252,7 +252,7 @@ public sealed partial class EmployeeRuntimeService
                     OperatorId = operatorId,
                     ProvisioningMode = "managed",
                     UseCase = $"runtime-chat-for:{instanceId}",
-                    Metadata = BuildRuntimeSandboxMeta(ownerSubject, instanceId, instance.BasedOnTemplateId)
+                    Metadata = BuildRuntimeSandboxMeta(ownerSubject, instanceId, instance.BasedOnTemplateId, tenantId)
                 },
                 cancellationToken);
             if (!createResponse.Success || createResponse.Data is null)
@@ -348,7 +348,7 @@ public sealed partial class EmployeeRuntimeService
                 OperatorId = operatorId,
                 ProvisioningMode = "managed",
                 UseCase = $"runtime-chat-for:{employee.EmployeeId}",
-                Metadata = BuildRuntimeSandboxMeta(ownerSubject, employee.EmployeeId, employee.BasedOnTemplateId ?? employee.SourceTemplateId)
+                Metadata = BuildRuntimeSandboxMeta(ownerSubject, employee.EmployeeId, employee.BasedOnTemplateId ?? employee.SourceTemplateId, tenantId)
             },
             cancellationToken);
         if (!createResponse.Success || createResponse.Data is null)
@@ -724,7 +724,7 @@ public sealed partial class EmployeeRuntimeService
     /// 构建个人运行时沙箱元数据。
     /// </summary>
     private static Dictionary<string, string> BuildRuntimeSandboxMeta(
-        string ownerSubject, string instanceId, string? templateId)
+        string ownerSubject, string instanceId, string? templateId, string tenantId = "")
     {
         var meta = new Dictionary<string, string>
         {
@@ -733,6 +733,8 @@ public sealed partial class EmployeeRuntimeService
         };
         if (!string.IsNullOrWhiteSpace(templateId))
             meta[SandboxMetaKeys.TemplateId] = templateId;
+        if (!string.IsNullOrWhiteSpace(tenantId))
+            meta[SandboxMetaKeys.TenantId] = tenantId;
         return meta;
     }
 

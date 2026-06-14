@@ -24,11 +24,13 @@ internal sealed class OpenSandboxProvisioner(
     /// <param name="ownerSubject">沙箱所有者标识，格式为 "tenant:operator" 或 JWT sub claim</param>
     /// <param name="scopeKey">沙箱会话唯一键（hireId 或 instanceId 等）</param>
     /// <param name="sandboxRole">沙箱角色（如 "hiring" / "evaluation-target" / "evaluation-evaluator" / "runtime"），用于决定超时策略</param>
-    public async Task<ProvisionedSandboxResult> CreateAsync(string ownerSubject, string scopeKey, string sandboxRole = "", CancellationToken cancellationToken = default)
+    /// <param name="tenantId">租户 ID，写入 K8s metadata 便于追踪</param>
+    /// <param name="customMetadata">业务自定义元数据（如 hire_id、template_id、employee_id 等），会经 K8s label 规范化后合并进沙箱 metadata</param>
+    public async Task<ProvisionedSandboxResult> CreateAsync(string ownerSubject, string scopeKey, string sandboxRole = "", string tenantId = "", IReadOnlyDictionary<string, string>? customMetadata = null, CancellationToken cancellationToken = default)
     {
         var settings = GetSettings();
         var volumes = await pvcService.EnsureSessionPvcsAsync(ownerSubject, scopeKey, cancellationToken);
-        var createOptions = BuildCreateOptions(settings, ownerSubject, volumes, sandboxRole);
+        var createOptions = BuildCreateOptions(settings, ownerSubject, volumes, sandboxRole, tenantId, customMetadata);
 
         logger.LogInformation(
             "创建 OpenSandbox 沙箱. Domain={Domain}, Image={Image}, GatewayPort={GatewayPort}, UseServerProxy={UseServerProxy}, Owner={OwnerSubject}",
@@ -51,7 +53,9 @@ internal sealed class OpenSandboxProvisioner(
         SandboxProvisioningSettings settings,
         string ownerSubject,
         IReadOnlyList<Volume> volumes,
-        string sandboxRole = "")
+        string sandboxRole = "",
+        string tenantId = "",
+        IReadOnlyDictionary<string, string>? customMetadata = null)
     {
         var connection = settings.BuildConnection();
         var env = settings.BuildRuntimeEnv();
@@ -71,6 +75,35 @@ internal sealed class OpenSandboxProvisioner(
         if (!string.IsNullOrWhiteSpace(sandboxRole))
         {
             metadata["role"] = sandboxRole;
+        }
+        if (!string.IsNullOrWhiteSpace(tenantId))
+        {
+            metadata["tenant"] = ToK8sLabelValue(tenantId);
+        }
+        // 将 PVC 挂载信息写入元数据，便于后期追踪沙箱使用的持久卷
+        for (var i = 0; i < volumes.Count; i++)
+        {
+            var vol = volumes[i];
+            if (!string.IsNullOrWhiteSpace(vol.Pvc?.ClaimName))
+            {
+                metadata[$"pvc-{vol.Name}"] = vol.Pvc.ClaimName;
+            }
+        }
+        // 合并业务自定义元数据（hire_id、template_id、employee_id、instance_id 等），
+        // 所有值经 K8s label 规范化处理后再写入，避免非法字符导致创建失败。
+        if (customMetadata is { Count: > 0 })
+        {
+            foreach (var (key, value) in customMetadata)
+            {
+                if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                    continue;
+                var safeKey = ToK8sLabelValue(key);
+                var safeValue = ToK8sLabelValue(value);
+                if (safeKey.Length > 0 && safeValue.Length > 0)
+                {
+                    metadata[safeKey] = safeValue;
+                }
+            }
         }
 
         return new SandboxCreateOptions
@@ -197,7 +230,7 @@ internal sealed class OpenSandboxProvisioner(
         }
     }
 
-    public async Task<ProvisionedSandboxResult> RebuildAsync(string ownerSubject, string sandboxId, string? scopeKey, string sandboxRole = "", CancellationToken cancellationToken = default)
+    public async Task<ProvisionedSandboxResult> RebuildAsync(string ownerSubject, string sandboxId, string? scopeKey, string sandboxRole = "", string tenantId = "", IReadOnlyDictionary<string, string>? customMetadata = null, CancellationToken cancellationToken = default)
     {
         var settings = GetSettings();
         var connection = settings.BuildConnection();
@@ -205,7 +238,7 @@ internal sealed class OpenSandboxProvisioner(
         var baseUrl = connection.GetBaseUrl().TrimEnd('/');
 
         await http.DeleteAsync($"{baseUrl}/sandboxes/{Uri.EscapeDataString(sandboxId)}", cancellationToken);
-        return await CreateAsync(ownerSubject, scopeKey ?? string.Empty, sandboxRole, cancellationToken);
+        return await CreateAsync(ownerSubject, scopeKey ?? string.Empty, sandboxRole, tenantId, customMetadata, cancellationToken);
     }
 
     private async Task SendLifecycleCommandAsync(ConnectionConfig connection, string sandboxId, string action, CancellationToken cancellationToken)

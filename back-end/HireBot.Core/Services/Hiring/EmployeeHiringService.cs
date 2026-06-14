@@ -156,7 +156,14 @@ internal sealed class EmployeeHiringService(
             ProvisioningMode = "managed",
             UseCase = useCase ?? "hiring",
             TemplateId = templateId,
-            IsInitialized = false
+            IsInitialized = false,
+            Metadata = new Dictionary<string, string>
+            {
+                [SandboxMetaKeys.UserSubject] = ownerSubject,
+                [SandboxMetaKeys.HireId] = hireId,
+                [SandboxMetaKeys.TemplateId] = templateId,
+                [SandboxMetaKeys.TenantId] = tenantId
+            }
         }, cancellationToken);
 
         if (!sandboxResult.Success || sandboxResult.Data is null)
