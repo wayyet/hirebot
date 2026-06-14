@@ -70,8 +70,8 @@ public sealed partial class EmployeeRuntimeService
         var ownerUserIds = instances.Select(i => i.OwnerUserId).Distinct().ToList();
         var creators = await dbContext.AppUsers
             .AsNoTracking()
-            .Where(u => ownerUserIds.Contains(u.Id))
-            .ToDictionaryAsync(u => u.Id, cancellationToken);
+            .Where(u => ownerUserIds.Contains(u.ExternalUserId))
+            .ToDictionaryAsync(u => u.ExternalUserId, cancellationToken);
         
         foreach (var instance in instances)
         {
@@ -212,7 +212,7 @@ public sealed partial class EmployeeRuntimeService
                 // 查询创建人信息
                 var creator = await dbContext.AppUsers
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(u => u.Id == instance.OwnerUserId, cancellationToken);
+                    .FirstOrDefaultAsync(u => u.ExternalUserId == instance.OwnerUserId, cancellationToken);
                 
                 if (creator is not null)
                 {
