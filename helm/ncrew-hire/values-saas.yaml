@@ -51,7 +51,7 @@ env:
   AllowedOrigins__12: https://goodcrew-builder.ai4c.cn
   AllowedOrigins__13: http://localhost:5173
   AllowedOrigins__14: http://localhost:5174
-  AllowedOrigins__14: http://localhost:5175
+  AllowedOrigins__15: http://localhost:5175
   
   # ---- OpenSandbox 沙箱服务地址（SaaS 集群内地址）----
   OpenSandbox__Domain: opensandbox-server.ai4c.cn
