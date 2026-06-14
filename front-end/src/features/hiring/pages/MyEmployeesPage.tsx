@@ -5,6 +5,7 @@ import {
   Loader2,
   MessageCircle,
   MoreHorizontal,
+  RotateCcw,
   ShieldCheck,
   Trash2,
   X,
@@ -13,10 +14,10 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeSummary } from "@/infra/api";
-import { withEmployeeView, extractCardIntroHeadline, firstCharacter } from "./employeeView";
+import { withEmployeeView, extractCardIntroHeadline, firstCharacter, statusLabel, statusClass } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 
-type FilterTab = "all" | "live" | "branch" | "retired";
+type FilterTab = "all" | "live" | "retired";
 
 type ConfirmAction =
   | { kind: "abandon"; employeeId: string }
@@ -81,6 +82,30 @@ export default function MyEmployeesPage() {
         requestError instanceof Error
           ? requestError.message
           : t("employees.myPage.abandonFailed"),
+        "error",
+      );
+    } finally {
+      setAbandoningId(null);
+    }
+  }
+
+  async function rehireEmployee(employeeId: string) {
+    setAbandoningId(employeeId); // 复用 abandoningId 做 loading 状态
+    try {
+      const restored = await api.employeeRuntime.rehire(employeeId);
+      setEmployees((prev) =>
+        prev.map((e) =>
+          e.employeeId === employeeId
+            ? { ...e, status: "live", lifecycleStatus: restored.lifecycleStatus }
+            : e,
+        ),
+      );
+      showToast(t("instanceDetail.rehireSuccess"), "success");
+    } catch (requestError: unknown) {
+      showToast(
+        requestError instanceof Error
+          ? requestError.message
+          : t("instanceDetail.rehireFailed"),
         "error",
       );
     } finally {
@@ -193,8 +218,6 @@ export default function MyEmployeesPage() {
     return {
       all: myEmployees.length,
       live: myEmployees.filter((item) => item.mappedStatus === "live").length,
-      branch: myEmployees.filter((item) => item.ownership === "private_branch")
-        .length,
       retired: myEmployees.filter((item) => item.mappedStatus === "retired")
         .length,
     };
@@ -204,8 +227,6 @@ export default function MyEmployeesPage() {
     if (filter === "all") return myEmployees;
     if (filter === "live")
       return myEmployees.filter((item) => item.mappedStatus === "live");
-    if (filter === "branch")
-      return myEmployees.filter((item) => item.ownership === "private_branch");
     return myEmployees.filter((item) => item.mappedStatus === "retired");
   }, [filter, myEmployees]);
 
@@ -332,11 +353,6 @@ export default function MyEmployeesPage() {
             count: counts.live,
           },
           {
-            id: "branch" as const,
-            label: t("employees.myPage.filters.branch"),
-            count: counts.branch,
-          },
-          {
             id: "retired" as const,
             label: t("employees.myPage.filters.retired"),
             count: counts.retired,
@@ -416,21 +432,6 @@ export default function MyEmployeesPage() {
                   </button>
                   {menuOpenId === employee.employeeId ? (
                     <div className={`hb-dropdown-menu hb-employee-card-menu${lastInRowIds.has(employee.employeeId) ? " hb-dropdown-menu--right" : ""}`}>
-                      {employee.ownership === "personal_clone" &&
-                      employee.mappedStatus === "live" ? (
-                        <button
-                          type="button"
-                          className="hb-dropdown-item"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setMenuOpenId(null);
-                            navigate(`/private-branch/${employee.employeeId}`);
-                          }}
-                        >
-                          <GitBranch size={14} />
-                          {t("employees.myPage.actions.createPrivateBranch")}
-                        </button>
-                      ) : null}
                       {employee.mappedStatus !== "retired" ? (
                         <button
                           type="button"
@@ -482,13 +483,14 @@ export default function MyEmployeesPage() {
                     <h3 className="hb-employee-card-title">
                       {employee.nickname}
                     </h3>
-                    <p className="hb-employee-card-subtitle mt-1">
-                      {employee.roleName || employee.sourceTemplate}
-                    </p>
+                    <span className={`hb-pill hb-pill--solid text-[11px] mt-1 inline-flex ${statusClass(employee.mappedStatus, employee.lifecycleStatus)}`}>
+                      <span className="hb-pill-dot" />
+                      {statusLabel(employee.mappedStatus, employee.lifecycleStatus)}
+                    </span>
                   </div>
                 </div>
                 <p className="hb-employee-card-desc">
-                  {extractCardIntroHeadline(employee.cardIntro) || employee.primarySignal || employee.stageSummary}
+                  {employee.description || extractCardIntroHeadline(employee.cardIntro) || employee.primarySignal || employee.stageSummary}
                 </p>
                 <div className="hb-employee-card-divider" />
                 <div className="hb-employee-card-footer">
@@ -527,6 +529,22 @@ export default function MyEmployeesPage() {
                           {t("employees.myPage.actions.startChat")}
                         </button>
                       </>
+                    ) : null}
+                    {employee.mappedStatus === "retired" ? (
+                      <button
+                        type="button"
+                        className="hb-btn-primary hb-hub-btn-primary text-xs"
+                        disabled={abandoningId === employee.employeeId}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void rehireEmployee(employee.employeeId);
+                        }}
+                      >
+                        <RotateCcw size={12} />
+                        {abandoningId === employee.employeeId
+                          ? t("instanceDetail.actions.rehiring")
+                          : t("instanceDetail.actions.rehire")}
+                      </button>
                     ) : null}
                     {employee.ownership === "private_branch" &&
                     employee.mappedStatus !== "retired" ? (
