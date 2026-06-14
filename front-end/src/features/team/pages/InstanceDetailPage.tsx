@@ -160,9 +160,10 @@ export default function InstanceDetailPage() {
       setEmployee(data);
       setEvaluation(evaluationData);
 
-      // 空值或 Guid.Empty（QuickCreate 路径标记为"无模板关联"）时跳过模板池查询
+      // 空值或 Guid.Empty（QuickCreate 路径标记为"无模板关联"）时跳过模板池查询，
+      // 直接使用 Employee 自身的 description 字段（来自 manifest.json 的描述信息）
       if (!data.sourceTemplateId || data.sourceTemplateId === EMPTY_GUID_N) {
-        setTemplateDescription("");
+        setTemplateDescription(data.description ?? "");
         setCoreAbilities([]);
         setInScope([]);
         setOutOfScope([]);

@@ -790,6 +790,7 @@ public sealed partial class EmployeeRuntimeService(
         // 解析 manifest.json
         string templateName;
         string templateDisplayName;
+        string? manifestDescription;
         IReadOnlyList<string> skillNames;
         string manifestBasePath;
         Dictionary<string, byte[]> artifactFiles;
@@ -830,6 +831,13 @@ public sealed partial class EmployeeRuntimeService(
                 {
                     templateDisplayName = rawDisplay;
                 }
+            }
+
+            // 读取 manifest 的 description 字段作为 Employee 描述
+            manifestDescription = null;
+            if (root.TryGetProperty("description", out var descEl) && descEl.ValueKind == JsonValueKind.String)
+            {
+                manifestDescription = descEl.GetString()?.Trim();
             }
 
             // 收集 required skills
@@ -936,10 +944,12 @@ public sealed partial class EmployeeRuntimeService(
         // 前端识别后跳过模板池查询，避免无效 404 请求。
         var noTemplateId = Guid.Empty.ToString("N");
 
-        // 从 describe.md 提取可用于展示的描述文本
-        var description = describeDocument != null
-            ? (ExtractBusinessPositioningOneLiner(describeDocument) ?? "从模板包快速创建，已直接上岗")
-            : "从模板包快速创建，已直接上岗";
+        // 优先使用 manifest.json 的 description 字段，其次从 describe.md 提取
+        var description = !string.IsNullOrWhiteSpace(manifestDescription)
+            ? manifestDescription
+            : describeDocument != null
+                ? (ExtractBusinessPositioningOneLiner(describeDocument) ?? "从模板包快速创建，已直接上岗")
+                : "从模板包快速创建，已直接上岗";
 
         var employeeDto = new EmployeeDetailDto(
             EmployeeId: employeeId,
@@ -971,7 +981,7 @@ public sealed partial class EmployeeRuntimeService(
             EvalMaxIterations: null,
             IsConfigured: true,
             CardIntro: cardIntro,
-            Description: cardIntro);
+            Description: description);
 
         // 存储 artifacts（失败不影响员工记录）
         var artifactVersion = "v_initial";
