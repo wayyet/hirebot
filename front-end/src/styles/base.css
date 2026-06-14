@@ -2,11 +2,17 @@
 body {
   margin: 0;
   font-family: var(--hb-font-sans);
-  background: var(--hb-grad);
+  background: #f8fafc;
   background-attachment: fixed;
   color: var(--hb-body);
   -webkit-font-smoothing: antialiased;
   transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* 暗色模式下 body 背景为纯色 */
+html.dark body,
+html[data-mode="dark"] body {
+  background: #020617;
 }
 
 #root {

@@ -3,20 +3,6 @@
   isolation: isolate;
 }
 
-.hb-market-page::before {
-  content: "";
-  position: absolute;
-  inset: -48px 0 auto;
-  height: 260px;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 16% 36%, var(--hb-market-wash-left) 0%, transparent 38%),
-    radial-gradient(circle at 84% 28%, var(--hb-market-wash-right) 0%, transparent 34%);
-  filter: blur(44px);
-  opacity: 0.9;
-}
-
 .hb-market-kicker {
   margin-bottom: 10px;
   color: var(--hb-accent-text);

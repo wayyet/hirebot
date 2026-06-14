@@ -36,7 +36,7 @@ export default function AuthCallbackPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-[var(--hb-grad)] flex items-center justify-center px-6">
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center px-6">
         <div className="hb-section max-w-md w-full">
           <h1 className="hb-page-title text-red-600">登录回调失败</h1>
           <p className="hb-page-copy mt-2 text-red-500">{error}</p>
@@ -47,7 +47,7 @@ export default function AuthCallbackPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--hb-grad)] flex items-center justify-center">
+    <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
       <div className="text-sm text-slate-500">正在完成登录，请稍候...</div>
     </div>
   )

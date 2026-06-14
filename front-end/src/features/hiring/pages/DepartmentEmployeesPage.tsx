@@ -274,11 +274,6 @@ export default function DepartmentEmployeesPage() {
     <div className="hb-page hb-employee-page">
       <div className="hb-page-head">
         <div>
-          <span className="hb-kicker hb-kicker-accent">
-            {role === "manager"
-              ? t("employees.departmentPage.kickerManager")
-              : t("employees.departmentPage.kickerMember")}
-          </span>
           <h1 className="hb-page-title">
             {t("employees.departmentPage.title")}
           </h1>

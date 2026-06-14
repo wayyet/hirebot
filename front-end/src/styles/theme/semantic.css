@@ -33,32 +33,32 @@ html[data-brand="amber"] {
 }
 
 html[data-brand="blue"] {
-  --hb-accent-50: var(--ref-blue-50);
-  --hb-accent-100: var(--ref-blue-100);
-  --hb-accent-200: var(--ref-blue-200);
-  --hb-accent-300: var(--ref-blue-300);
-  --hb-accent-400: var(--ref-blue-400);
-  --hb-accent-500: var(--ref-blue-500);
-  --hb-accent-600: var(--ref-blue-600);
-  --hb-accent-700: var(--ref-blue-700);
-  --hb-accent-rgb: 59 130 246;
-  --hb-accent-border: rgba(59, 130, 246, 0.24);
-  --hb-accent-border-strong: rgba(59, 130, 246, 0.38);
-  --hb-accent-soft-bg: rgba(59, 130, 246, 0.10);
-  --hb-accent-soft-bg-strong: rgba(59, 130, 246, 0.16);
-  --hb-accent-shadow: rgba(59, 130, 246, 0.22);
-  --hb-accent-shadow-strong: rgba(59, 130, 246, 0.34);
-  --hb-brand-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-  --hb-headline-gradient: linear-gradient(135deg, #2563eb 12%, #6366f1 86%);
-  --hb-landing-hero-glow-left: radial-gradient(circle, rgba(59, 130, 246, 0.12) 0%, transparent 70%);
-  --hb-landing-hero-glow-right: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
-  --hb-login-orb-left: radial-gradient(ellipse at center, rgba(59, 130, 246, 0.22) 0%, transparent 70%);
-  --hb-login-orb-right: radial-gradient(ellipse at center, rgba(99, 102, 241, 0.18) 0%, transparent 70%);
-  --hb-grid-line: rgba(59, 130, 246, 0.18);
-  --hb-market-wash-left: rgba(59, 130, 246, 0.16);
-  --hb-market-wash-right: rgba(99, 102, 241, 0.12);
-  --hb-market-card-tint: rgba(239, 246, 255, 0.56);
-  --hb-final-cta-glow: radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.05) 50%, transparent 70%);
+  --hb-accent-50: #f5f8ff;
+  --hb-accent-100: #e6edff;
+  --hb-accent-200: #c7d5fb;
+  --hb-accent-300: #8fb8ff;
+  --hb-accent-400: #6ea8ff;
+  --hb-accent-500: #2d6bff;
+  --hb-accent-600: #1e50e5;
+  --hb-accent-700: #1233b5;
+  --hb-accent-rgb: 45 107 255;
+  --hb-accent-border: rgba(45, 107, 255, 0.24);
+  --hb-accent-border-strong: rgba(45, 107, 255, 0.38);
+  --hb-accent-soft-bg: rgba(45, 107, 255, 0.10);
+  --hb-accent-soft-bg-strong: rgba(45, 107, 255, 0.16);
+  --hb-accent-shadow: rgba(45, 107, 255, 0.22);
+  --hb-accent-shadow-strong: rgba(45, 107, 255, 0.34);
+  --hb-brand-gradient: linear-gradient(135deg, #2d6bff 0%, #1e50e5 100%);
+  --hb-headline-gradient: linear-gradient(135deg, #1e50e5 12%, #2d6bff 86%);
+  --hb-landing-hero-glow-left: radial-gradient(circle, rgba(45, 107, 255, 0.12) 0%, transparent 70%);
+  --hb-landing-hero-glow-right: radial-gradient(circle, rgba(110, 168, 255, 0.12) 0%, transparent 70%);
+  --hb-login-orb-left: radial-gradient(ellipse at center, rgba(45, 107, 255, 0.22) 0%, transparent 70%);
+  --hb-login-orb-right: radial-gradient(ellipse at center, rgba(110, 168, 255, 0.18) 0%, transparent 70%);
+  --hb-grid-line: rgba(45, 107, 255, 0.16);
+  --hb-market-wash-left: rgba(45, 107, 255, 0.16);
+  --hb-market-wash-right: rgba(110, 168, 255, 0.12);
+  --hb-market-card-tint: rgba(245, 248, 255, 0.56);
+  --hb-final-cta-glow: radial-gradient(circle, rgba(45, 107, 255, 0.1) 0%, rgba(110, 168, 255, 0.05) 50%, transparent 70%);
 }
 
 html,
@@ -66,7 +66,7 @@ html[data-mode="light"] {
   --hb-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   --hb-bg-body: #f8fafc;
   --hb-page-max-width: 1440px;
-  --hb-shell-max-width: 1280px;
+  --hb-shell-max-width: 100%;
   --hb-topnav-height: 64px;
   --hb-nav-backdrop: saturate(180%) blur(20px);
   --hb-dropdown-backdrop: blur(20px);
@@ -223,7 +223,7 @@ html[data-mode="dark"] {
   --hb-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   --hb-bg-body: #020617;
   --hb-page-max-width: 1440px;
-  --hb-shell-max-width: 1280px;
+  --hb-shell-max-width: 100%;
   --hb-topnav-height: 64px;
   --hb-nav-backdrop: saturate(180%) blur(20px);
   --hb-dropdown-backdrop: blur(20px);

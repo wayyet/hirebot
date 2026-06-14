@@ -116,7 +116,6 @@ export default function MarketPage() {
     <div className="hb-page hb-market-page">
       <div className="hb-page-head">
         <div>
-          <span className="hb-kicker hb-market-kicker">{t('market.kicker')}</span>
           <h1 className="hb-page-title">{t('market.title')}</h1>
           <p className="hb-page-copy hb-market-head-copy">
             {t('market.copy')}

@@ -117,20 +117,6 @@
   isolation: isolate;
 }
 
-.hb-employee-page::before {
-  content: "";
-  position: absolute;
-  inset: -52px 0 auto;
-  height: 220px;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 10% 30%, var(--hb-market-wash-left) 0%, transparent 34%),
-    radial-gradient(circle at 86% 22%, var(--hb-market-wash-right) 0%, transparent 30%);
-  filter: blur(40px);
-  opacity: 0.88;
-}
-
 .hb-employee-page .hb-employee-card {
   border: 1px solid var(--hb-border);
   border-radius: 20px;

@@ -298,7 +298,6 @@ export default function MyEmployeesPage() {
     <div className="hb-page hb-employee-page">
       <div className="hb-page-head">
         <div>
-          <span className="hb-kicker hb-kicker-accent">{t("employees.myPage.kicker")}</span>
           <h1 className="hb-page-title">{t("employees.myPage.title")}</h1>
           <p className="hb-page-copy">{t("employees.myPage.copy")}</p>
         </div>

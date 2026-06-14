@@ -2,6 +2,13 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background: #f8fafc;
+}
+
+/* 暗色模式下的 shell 纯色背景 */
+html.dark .hb-shell,
+html[data-mode="dark"] .hb-shell {
+  background: #020617;
 }
 
 .hb-topnav {
