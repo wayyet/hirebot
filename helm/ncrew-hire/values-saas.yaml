@@ -5,7 +5,7 @@ replicaCount: 1
 
 image:
   repository: ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot
-  tag: dev-202606142326   # 部署时替换为实际镜像标签
+  tag: dev-202606142342   # 部署时替换为实际镜像标签
   pullPolicy: IfNotPresent
 
 resources:
@@ -112,7 +112,7 @@ database:
   existingSecret: ""
   secretName: ncrew-hire-db
   secretKey: ConnectionStrings__DefaultConnection
-  connectionString: "Host=10.127.1.10;Port=5432;Username=ai4c_pro;Password=KT~/ry0o~SV~;Database=ncrew_hire"
+  connectionString: "Host=10.127.1.10;Port=5432;Username=ai4c_pro;Password=KT~/ry0o~SV~;Database=goodcrew_hire_prod"
 
 # ncrew-hire-data PVC —— 挂载到 /app/ncrew-hire-data，持久化运行数据目录
 hireData:
