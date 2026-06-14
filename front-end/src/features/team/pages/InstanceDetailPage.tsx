@@ -153,12 +153,16 @@ export default function InstanceDetailPage() {
     setError("");
 
     try {
-      const [data, evaluationData] = await Promise.all([
-        api.employeeRuntime.getEmployee(id),
-        api.employeeRuntime.getEvaluationState(id).catch(() => null),
-      ]);
+      const data = await api.employeeRuntime.getEmployee(id);
       setEmployee(data);
-      setEvaluation(evaluationData);
+
+      // personal_clone 不展示 AI 评估结果
+      if (data.instanceType !== "personal_clone") {
+        const evaluationData = await api.employeeRuntime.getEvaluationState(id).catch(() => null);
+        setEvaluation(evaluationData);
+      } else {
+        setEvaluation(null);
+      }
 
       // 空值或 Guid.Empty（QuickCreate 路径标记为"无模板关联"）时跳过模板池查询，
       // 直接使用 Employee 自身的 description 字段（来自 manifest.json 的描述信息）
