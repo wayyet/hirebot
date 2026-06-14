@@ -31,6 +31,7 @@ public sealed partial class EmployeeRuntimeService(
     IInstanceArtifactResolver instanceArtifactResolver,
     ISandboxService sandboxService,
     IKingCrabHttpClient kingCrabHttpClient,
+    IFileStore fileStore,
     IConfiguration configuration,
     IHostEnvironment hostEnvironment,
     ISecretProtector secretProtector,
@@ -911,22 +912,14 @@ public sealed partial class EmployeeRuntimeService(
         // 生成 employeeId
         var employeeId = BuildEmployeeId();
 
-        // 保存模板文件到 wwwroot/resources/DigitalWorkforce
-        var digitalWorkforceRoot = ResolveDigitalWorkforceRoot();
-        var digitalWorkforceDir = Path.Combine(digitalWorkforceRoot, employeeId);
+        // 保存模板文件到 IFileStore（兼容本地与云存储）
         try
         {
-            Directory.CreateDirectory(digitalWorkforceDir);
             foreach (var (path, content) in artifactFiles)
             {
-                var fullPath = Path.Combine(digitalWorkforceDir, path);
-                var dir = Path.GetDirectoryName(fullPath);
-                if (!string.IsNullOrEmpty(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-
-                await File.WriteAllBytesAsync(fullPath, content, cancellationToken);
+                var virtualPath = $"digital-workforce/{employeeId}/{path.Replace('\\', '/')}";
+                using var ms = new MemoryStream(content);
+                await fileStore.SaveAsync(virtualPath, ms, cancellationToken);
             }
         }
         catch
@@ -1143,31 +1136,28 @@ public sealed partial class EmployeeRuntimeService(
             .Where(item => item.InstanceId == normalizedId)
             .ExecuteDeleteAsync(cancellationToken);
 
-        // 2. 删除五件套 artifact 目录
-        string artifactDir;
+        // 2. 删除 artifact 文件（通过 IFileStore）
+        string artifactPrefix;
         if (string.Equals(instance.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(instance.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase))
         {
-            var fromId = string.IsNullOrWhiteSpace(instance.FromInstanceId) ? "unknown" : instance.FromInstanceId;
-            artifactDir = Path.Combine(
-                ResolveArtifactStoreRoot(), "instances", "personal_clone",
-                SanitizePathSegment(fromId), normalizedId);
+            var fromId = string.IsNullOrWhiteSpace(instance.FromInstanceId) ? "unknown" : SanitizePathSegment(instance.FromInstanceId);
+            artifactPrefix = $"personal-clone-artifacts/{fromId}/{SanitizePathSegment(normalizedId)}";
         }
         else
         {
-            artifactDir = Path.Combine(ResolveArtifactStoreRoot(), "instances", "department", normalizedId);
+            artifactPrefix = $"artifact-store/instances/department/{SanitizePathSegment(normalizedId)}";
         }
 
-        if (Directory.Exists(artifactDir))
+        try
         {
-            try
-            {
-                Directory.Delete(artifactDir, recursive: true);
-            }
-            catch
-            {
-                // 文件删除失败不阻塞流程
-            }
+            var entries = await fileStore.ListAsync(artifactPrefix, cancellationToken);
+            foreach (var entry in entries)
+                await fileStore.DeleteAsync(entry.Path, cancellationToken);
+        }
+        catch
+        {
+            // 文件删除失败不阻塞流程
         }
 
         return ApiResponse<object>.SuccessResponse(new { employeeId = normalizedId }, "员工已删除");
@@ -1277,7 +1267,9 @@ public sealed partial class EmployeeRuntimeService(
             EvalPhase: null,
             EvalIteration: null,
             EvalMaxIterations: null,
-            IsConfigured: true);
+            IsConfigured: true,
+            CardIntro: source.CardIntro,
+            Description: source.Description);
 
         var sandboxSetup = await InitializeRuntimeSandboxAsync(
             clone,

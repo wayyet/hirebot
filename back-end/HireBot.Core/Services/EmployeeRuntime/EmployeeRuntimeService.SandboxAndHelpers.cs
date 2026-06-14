@@ -363,7 +363,7 @@ public sealed partial class EmployeeRuntimeService
             return ApiResponse<PersonalCloneSandboxSetupResult>.ErrorResponse(readyResponse.Code, readyResponse.Message);
         }
 
-        var archiveBytes = BuildArtifactArchiveBytes(artifactRoot);
+        var archiveBytes = await BuildArtifactArchiveBytesAsync(artifactRoot, cancellationToken);
         var uploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
             new DigitalEmployeeTemplateUploadRequestDto
             {
@@ -395,8 +395,8 @@ public sealed partial class EmployeeRuntimeService
         CancellationToken cancellationToken)
     {
         var resolution = await instanceArtifactResolver.ResolveAsync(instance, cancellationToken);
-        var snapshotRoot = BuildPrivateBranchSnapshotRoot(instance);
-        ReplaceDirectory(resolution.ArtifactRoot, snapshotRoot, cancellationToken);
+        var snapshotPrefix = BuildPrivateBranchSnapshotPrefix(instance);
+        await ReplaceDirectoryAsync(resolution.ArtifactRoot, snapshotPrefix, cancellationToken);
     }
 
     /// <summary>
@@ -406,80 +406,58 @@ public sealed partial class EmployeeRuntimeService
         InstanceEntity instance,
         CancellationToken cancellationToken)
     {
-        var snapshotRoot = BuildPrivateBranchSnapshotRoot(instance);
-        if (!Directory.Exists(snapshotRoot))
-        {
-            throw new DirectoryNotFoundException($"私有分支回滚快照不存在: {snapshotRoot}");
-        }
+        var snapshotPrefix = BuildPrivateBranchSnapshotPrefix(instance);
+        if (!await PrefixHasFilesAsync(snapshotPrefix, cancellationToken))
+            throw new InvalidOperationException($"私有分支回滚快照不存在: {snapshotPrefix}");
 
         var resolution = await instanceArtifactResolver.ResolveAsync(instance, cancellationToken);
-        ReplaceDirectory(snapshotRoot, resolution.ArtifactRoot, cancellationToken);
-        Directory.Delete(snapshotRoot, recursive: true);
+        await ReplaceDirectoryAsync(snapshotPrefix, resolution.ArtifactRoot, cancellationToken);
+
+        var entries = await fileStore.ListAsync(snapshotPrefix, cancellationToken);
+        foreach (var e in entries)
+            await fileStore.DeleteAsync(e.Path, cancellationToken);
     }
 
-    private string BuildPrivateBranchSnapshotRoot(InstanceEntity instance)
+    private static string BuildPrivateBranchSnapshotPrefix(InstanceEntity instance)
     {
-        var parentInstanceId = string.IsNullOrWhiteSpace(instance.FromInstanceId)
-            ? "unknown"
-            : instance.FromInstanceId;
-        return Path.Combine(
-            ResolveArtifactStoreRoot(),
-            "instances",
-            "personal_clone",
-            SanitizePathSegment(parentInstanceId),
-            SanitizePathSegment(instance.InstanceId),
-            "snapshots",
-            "pre_private_branch");
+        var parentId = string.IsNullOrWhiteSpace(instance.FromInstanceId) ? "unknown"
+            : SanitizePathSegment(instance.FromInstanceId);
+        return $"artifact-store/instances/personal_clone/{parentId}/{SanitizePathSegment(instance.InstanceId)}/snapshots/pre_private_branch";
     }
 
-    private string ResolveArtifactStoreRoot()
+    private async Task ReplaceDirectoryAsync(string srcPrefix, string dstPrefix, CancellationToken ct)
     {
-        return HireBotPathResolver.ResolveArtifactStoreRoot(
-            hostEnvironment.ContentRootPath,
-            configuration["HireBot:DataRoot"],
-            configuration["HireBot:ArtifactStoreRoot"]);
-    }
+        if (!await PrefixHasFilesAsync(srcPrefix, ct))
+            throw new InvalidOperationException($"源产物不存在: {srcPrefix}");
 
-    private static void ReplaceDirectory(
-        string sourceRoot,
-        string targetRoot,
-        CancellationToken cancellationToken)
-    {
-        if (!Directory.Exists(sourceRoot))
+        // 删除目标
+        var dstEntries = await fileStore.ListAsync(dstPrefix, ct);
+        foreach (var e in dstEntries)
+            await fileStore.DeleteAsync(e.Path, ct);
+
+        // 复制
+        var srcEntries = await fileStore.ListAsync(srcPrefix, ct);
+        foreach (var entry in srcEntries)
         {
-            throw new DirectoryNotFoundException($"源五件套目录不存在: {sourceRoot}");
-        }
+            ct.ThrowIfCancellationRequested();
+            var rel = entry.Path;
+            if (rel.StartsWith(srcPrefix, StringComparison.OrdinalIgnoreCase))
+                rel = rel[srcPrefix.Length..].TrimStart('/');
+            if (string.IsNullOrWhiteSpace(rel)) continue;
 
-        if (Directory.Exists(targetRoot))
-        {
-            Directory.Delete(targetRoot, recursive: true);
-        }
-
-        Directory.CreateDirectory(targetRoot);
-        foreach (var sourcePath in Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var relativePath = Path.GetRelativePath(sourceRoot, sourcePath);
-            var targetPath = Path.Combine(targetRoot, relativePath);
-            var targetDirectory = Path.GetDirectoryName(targetPath);
-            if (!string.IsNullOrWhiteSpace(targetDirectory))
-            {
-                Directory.CreateDirectory(targetDirectory);
-            }
-
-            File.Copy(sourcePath, targetPath, overwrite: true);
+            await using var s = await fileStore.OpenReadAsync(entry.Path, ct);
+            await fileStore.SaveAsync($"{dstPrefix}/{rel}", s, ct);
         }
     }
+
+    private async Task<bool> PrefixHasFilesAsync(string prefix, CancellationToken ct) =>
+        (await fileStore.ListAsync(prefix, ct)).Count > 0;
 
     private static string SanitizePathSegment(string value)
     {
         var trimmed = value.Trim();
-        foreach (var c in Path.GetInvalidFileNameChars())
-        {
-            trimmed = trimmed.Replace(c, '_');
-        }
-
-        return trimmed.Length == 0 ? "unknown" : trimmed;
+        var chars = trimmed.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '_').ToArray();
+        return chars.Length == 0 ? "unknown" : new string(chars);
     }
 
     /// <summary>
@@ -591,42 +569,41 @@ public sealed partial class EmployeeRuntimeService
     }
 
     /// <summary>
-    /// 构建产物归档字节数组。
+    /// 构建产物归档字节数组。通过 IFileStore 读取虚拟路径下的文件并打包为 zip。
     /// </summary>
-    private static byte[] BuildArtifactArchiveBytes(string artifactRoot)
+    private async Task<byte[]> BuildArtifactArchiveBytesAsync(string artifactPrefix, CancellationToken cancellationToken)
     {
+        var entries = await fileStore.ListAsync(artifactPrefix, cancellationToken);
         using var memoryStream = new MemoryStream();
         using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
         {
-            foreach (var directory in Directory.EnumerateDirectories(artifactRoot, "*", SearchOption.AllDirectories))
+            var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in entries)
             {
-                var relativeDirectory = Path.GetRelativePath(artifactRoot, directory)
-                    .Replace('\\', '/')
-                    .Trim('/');
-                if (string.IsNullOrWhiteSpace(relativeDirectory))
+                cancellationToken.ThrowIfCancellationRequested();
+                var relative = entry.Path;
+                if (relative.StartsWith(artifactPrefix, StringComparison.OrdinalIgnoreCase))
+                    relative = relative[artifactPrefix.Length..].TrimStart('/');
+                if (string.IsNullOrWhiteSpace(relative)) continue;
+
+                // 确保父目录存在
+                var lastSlash = relative.LastIndexOf('/');
+                if (lastSlash > 0)
                 {
-                    continue;
+                    var dir = relative[..lastSlash];
+                    if (directories.Add(dir))
+                    {
+                        var dirEntry = archive.CreateEntry($"{dir}/");
+                        dirEntry.LastWriteTime = DateTimeOffset.UtcNow;
+                    }
                 }
 
-                var directoryEntry = archive.CreateEntry($"{relativeDirectory}/");
-                directoryEntry.LastWriteTime = File.GetLastWriteTimeUtc(directory);
-            }
-
-            foreach (var sourcePath in Directory.EnumerateFiles(artifactRoot, "*", SearchOption.AllDirectories))
-            {
-                var relativePath = Path.GetRelativePath(artifactRoot, sourcePath).Replace('\\', '/').Trim('/');
-                if (string.IsNullOrWhiteSpace(relativePath))
-                {
-                    continue;
-                }
-
-                var entry = archive.CreateEntry(relativePath, CompressionLevel.Fastest);
-                using var entryStream = entry.Open();
-                using var fileStream = File.OpenRead(sourcePath);
-                fileStream.CopyTo(entryStream);
+                var fileEntry = archive.CreateEntry(relative, CompressionLevel.Fastest);
+                await using var entryStream = fileEntry.Open();
+                await using var sourceStream = await fileStore.OpenReadAsync(entry.Path, cancellationToken);
+                await sourceStream.CopyToAsync(entryStream, cancellationToken);
             }
         }
-
         return memoryStream.ToArray();
     }
 

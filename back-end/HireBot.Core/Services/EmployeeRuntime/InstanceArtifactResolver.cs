@@ -1,110 +1,65 @@
-using HireBot.Core.Services.Internal;
+using HireBot.Abstraction;
 using HireBot.Repository.Entities;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
 /// <summary>
-/// Resolves the artifact root used to package an instance into a runtime sandbox.
+/// Resolves the artifact root prefix (virtual path) used to package an instance into a runtime sandbox.
+/// Uses IFileStore for cross-storage compatibility (local FS / Tencent COS).
 /// </summary>
 public sealed class InstanceArtifactResolver(
-    IConfiguration configuration,
-    IHostEnvironment hostEnvironment) : IInstanceArtifactResolver
+    IFileStore fileStore) : IInstanceArtifactResolver
 {
-    public Task<InstanceArtifactResolution> ResolveAsync(
-        InstanceEntity instance,
-        CancellationToken cancellationToken = default)
+    public async Task<InstanceArtifactResolution> ResolveAsync(
+        InstanceEntity instance, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-
-        var candidates = BuildCandidateRoots(instance).ToArray();
-        var root = candidates.FirstOrDefault(Directory.Exists);
-        if (string.IsNullOrWhiteSpace(root))
+        var candidates = BuildCandidatePrefixes(instance).ToArray();
+        foreach (var candidate in candidates)
         {
-            throw new DirectoryNotFoundException($"Instance artifact directory does not exist: {string.Join(" | ", candidates)}");
-        }
-
-        var metadata = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["artifact_root"] = root,
-            ["instance_type"] = instance.InstanceType,
-            ["from_instance_id"] = instance.FromInstanceId,
-            ["current_version"] = instance.CurrentVersion
-        };
-
-        return Task.FromResult(new InstanceArtifactResolution(root, metadata));
-    }
-
-    private IEnumerable<string> BuildCandidateRoots(InstanceEntity instance)
-    {
-        var artifactRoot = ResolveRoot();
-        var currentVersion = Sanitize(instance.CurrentVersion);
-        var instanceType = string.IsNullOrWhiteSpace(instance.InstanceType) ? "department" : instance.InstanceType;
-        var instanceId = Sanitize(instance.InstanceId);
-        var fromInstanceId = string.IsNullOrWhiteSpace(instance.FromInstanceId)
-            ? "unknown"
-            : Sanitize(instance.FromInstanceId);
-
-        if (string.Equals(instanceType, "department", StringComparison.OrdinalIgnoreCase))
-        {
-            yield return Path.Combine(artifactRoot, "instances", "department", instanceId, "versions", currentVersion);
-            yield return Path.Combine(ResolveDigitalWorkforceRoot(), instanceId);
-            yield break;
-        }
-
-        if (string.Equals(instanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(instanceType, "private_branch", StringComparison.OrdinalIgnoreCase))
-        {
-            yield return Path.Combine(artifactRoot, "instances", "personal_clone", fromInstanceId, instanceId, "versions", currentVersion);
-            yield return Path.Combine(artifactRoot, "instances", Sanitize(instanceType), fromInstanceId, instanceId, "versions", currentVersion);
-            yield return Path.Combine(ResolvePersonalCloneArtifactsRoot(), fromInstanceId, instanceId, "versions", currentVersion);
-            yield return Path.Combine(ResolveDigitalWorkforceRoot(), instanceId);
-
-            if (!string.Equals(fromInstanceId, "unknown", StringComparison.OrdinalIgnoreCase))
+            if (await PrefixExistsAsync(candidate, cancellationToken))
             {
-                yield return Path.Combine(ResolveDigitalWorkforceRoot(), fromInstanceId);
+                return new InstanceArtifactResolution(candidate, new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["artifact_root"] = candidate, ["instance_type"] = instance.InstanceType,
+                    ["from_instance_id"] = instance.FromInstanceId, ["current_version"] = instance.CurrentVersion
+                });
             }
+        }
+        throw new InvalidOperationException($"Instance artifact not found: {string.Join(" | ", candidates)}");
+    }
 
+    private async Task<bool> PrefixExistsAsync(string prefix, CancellationToken ct) =>
+        (await fileStore.ListAsync(prefix, ct)).Count > 0;
+
+    private static IEnumerable<string> BuildCandidatePrefixes(InstanceEntity instance)
+    {
+        var v = Sanitize(instance.CurrentVersion);
+        var id = Sanitize(instance.InstanceId);
+        var type = string.IsNullOrWhiteSpace(instance.InstanceType) ? "department" : instance.InstanceType;
+        var fromId = string.IsNullOrWhiteSpace(instance.FromInstanceId) ? "unknown" : Sanitize(instance.FromInstanceId);
+
+        if (string.Equals(type, "department", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return $"artifact-store/instances/department/{id}/versions/{v}";
+            yield return $"digital-workforce/{id}";
             yield break;
         }
-
-        yield return Path.Combine(artifactRoot, "instances", Sanitize(instanceType), instanceId, "versions", currentVersion);
-        yield return Path.Combine(ResolveDigitalWorkforceRoot(), instanceId);
-    }
-
-    private string ResolveRoot()
-    {
-        return HireBotPathResolver.ResolveArtifactStoreRoot(
-            hostEnvironment.ContentRootPath,
-            configuration["HireBot:DataRoot"],
-            configuration["HireBot:ArtifactStoreRoot"]);
-    }
-
-    private string ResolveDigitalWorkforceRoot()
-    {
-        return HireBotPathResolver.ResolveDigitalWorkforceRoot(
-            hostEnvironment.ContentRootPath,
-            configuration["HireBot:DataRoot"],
-            configuration["HireBot:DigitalWorkforceRoot"]);
-    }
-
-    private string ResolvePersonalCloneArtifactsRoot()
-    {
-        return HireBotPathResolver.ResolvePersonalCloneArtifactsRoot(
-            hostEnvironment.ContentRootPath,
-            configuration["HireBot:DataRoot"],
-            configuration["HireBot:PersonalCloneArtifactsRoot"]);
-    }
-
-    private static string Sanitize(string value)
-    {
-        var trimmed = value.Trim();
-        foreach (var c in Path.GetInvalidFileNameChars())
+        if (type is "personal_clone" or "private_branch")
         {
-            trimmed = trimmed.Replace(c, '_');
+            yield return $"artifact-store/instances/personal_clone/{fromId}/{id}/versions/{v}";
+            yield return $"personal-clone-artifacts/{fromId}/{id}/versions/{v}";
+            yield return $"digital-workforce/{id}";
+            if (!string.Equals(fromId, "unknown", StringComparison.OrdinalIgnoreCase))
+                yield return $"digital-workforce/{fromId}";
+            yield break;
         }
+        yield return $"artifact-store/instances/{Sanitize(type)}/{id}/versions/{v}";
+        yield return $"digital-workforce/{id}";
+    }
 
-        return trimmed.Length == 0 ? "unknown" : trimmed;
+    private static string Sanitize(string v) {
+        var chars = v.Trim().Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '_').ToArray();
+        return chars.Length == 0 ? "unknown" : new string(chars);
     }
 }
