@@ -932,22 +932,29 @@ public sealed partial class EmployeeRuntimeService(
             ? skillNames.Select(skillName => new EmployeeCapabilityDto(skillName, true)).ToArray()
             : [new EmployeeCapabilityDto("站内对话", true)];
 
+        // QuickCreate 不关联模板池，使用 Guid.Empty 标记"无模板关联"，
+        // 前端识别后跳过模板池查询，避免无效 404 请求。
+        var noTemplateId = Guid.Empty.ToString("N");
+
+        // 从 describe.md 提取可用于展示的描述文本
+        var description = describeDocument != null
+            ? (ExtractBusinessPositioningOneLiner(describeDocument) ?? "从模板包快速创建，已直接上岗")
+            : "从模板包快速创建，已直接上岗";
+
         var employeeDto = new EmployeeDetailDto(
             EmployeeId: employeeId,
             Nickname: templateDisplayName,
             RoleName: templateDisplayName,
             SourceTemplate: templateName,
-            SourceTemplateId: templateName,
+            SourceTemplateId: noTemplateId,
             InstanceType: "department",
             Status: "live",
-            BasedOnTemplateId: templateName,
+            BasedOnTemplateId: noTemplateId,
             FromInstanceId: null,
             OwnerUserId: owner,
             DepartmentId: string.IsNullOrWhiteSpace(tenantId) ? "department-default" : tenantId,
             LifecycleStatus: "已上岗",
-            StageSummary: describeDocument != null
-                ? (ExtractBusinessPositioningOneLiner(describeDocument) ?? "从模板包快速创建，已直接上岗")
-                : "从模板包快速创建，已直接上岗",
+            StageSummary: description,
             PrimarySignal: "运行正常",
             SignalLevel: "ok",
             OwningTeam: tenantId,
@@ -963,7 +970,8 @@ public sealed partial class EmployeeRuntimeService(
             EvalIteration: null,
             EvalMaxIterations: null,
             IsConfigured: true,
-            CardIntro: cardIntro);
+            CardIntro: cardIntro,
+            Description: cardIntro);
 
         // 存储 artifacts（失败不影响员工记录）
         var artifactVersion = "v_initial";

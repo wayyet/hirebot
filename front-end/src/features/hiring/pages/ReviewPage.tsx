@@ -5,6 +5,7 @@ import { api, type EmployeeDetail } from '@/infra/api'
 import { ownershipLabel, toEmployeeDetailSummary, withEmployeeView } from './employeeView'
 import { Breadcrumb } from '@/shared/components/Breadcrumb'
 import { instanceBasePath } from '@/shared/utils/instancePath'
+import { EMPTY_GUID_N } from '@/shared/constants'
 
 export default function ReviewPage() {
   const { id } = useParams<{ id: string }>()
@@ -83,7 +84,8 @@ export default function ReviewPage() {
   async function continueHiring() {
     if (!employee) return
     const templateId = employee.basedOnTemplateId || employee.sourceTemplateId
-    if (!templateId) {
+    // 全零 GUID 表示 QuickCreate 路径无模板池关联，跳过 fixture-hire
+    if (!templateId || templateId === EMPTY_GUID_N) {
       setError('缺少模板 ID，无法继续雇佣')
       return
     }

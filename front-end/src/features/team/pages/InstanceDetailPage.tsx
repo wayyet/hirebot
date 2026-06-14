@@ -25,6 +25,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import CloneEmployeeModal from "@/features/hiring/pages/components/CloneEmployeeModal";
+import { EMPTY_GUID_N } from "@/shared/constants";
 import {
   firstCharacter,
   ownershipClass,
@@ -159,7 +160,8 @@ export default function InstanceDetailPage() {
       setEmployee(data);
       setEvaluation(evaluationData);
 
-      if (!data.sourceTemplateId) {
+      // 空值或 Guid.Empty（QuickCreate 路径标记为"无模板关联"）时跳过模板池查询
+      if (!data.sourceTemplateId || data.sourceTemplateId === EMPTY_GUID_N) {
         setTemplateDescription("");
         setCoreAbilities([]);
         setInScope([]);
