@@ -179,34 +179,26 @@ public sealed partial class EmployeeRuntimeService
             {
                 employee = employee with { CreatedAt = instance.CreatedAt };
                 
-                // 填充描述信息（优先从 DescribeDocument 提取简短描述，备用 CardIntro，最后截取原文）
-                string? description = null;
-                if (!string.IsNullOrWhiteSpace(instance.DescribeDocument))
+                // 填充描述信息：仅当快照中 Description 为空时才从 DescribeDocument/CardIntro 回退
+                if (string.IsNullOrWhiteSpace(employee.Description))
                 {
-                    // 尝试提取业务定位一句话
-                    description = ExtractBusinessPositioningOneLiner(instance.DescribeDocument);
-                    // 如果没有，尝试提取 CardIntro（第1和第4节）
-                    if (string.IsNullOrWhiteSpace(description))
+                    string? fallbackDescription = null;
+                    if (!string.IsNullOrWhiteSpace(instance.DescribeDocument))
                     {
-                        description = ExtractCardIntro(instance.DescribeDocument);
+                        fallbackDescription = ExtractBusinessPositioningOneLiner(instance.DescribeDocument)
+                            ?? ExtractCardIntro(instance.DescribeDocument)
+                            ?? (instance.DescribeDocument.Length > 300
+                                ? instance.DescribeDocument.Substring(0, 300) + "..."
+                                : instance.DescribeDocument);
                     }
-                    // 如果还是没有，直接截取前 300 字符
-                    if (string.IsNullOrWhiteSpace(description))
+                    if (string.IsNullOrWhiteSpace(fallbackDescription))
                     {
-                        description = instance.DescribeDocument.Length > 300
-                            ? instance.DescribeDocument.Substring(0, 300) + "..."
-                            : instance.DescribeDocument;
+                        fallbackDescription = employee.CardIntro;
                     }
-                }
-                // 如果 DescribeDocument 为空，使用 CardIntro
-                if (string.IsNullOrWhiteSpace(description))
-                {
-                    description = employee.CardIntro;
-                }
-                // 填充描述
-                if (!string.IsNullOrWhiteSpace(description))
-                {
-                    employee = employee with { Description = description };
+                    if (!string.IsNullOrWhiteSpace(fallbackDescription))
+                    {
+                        employee = employee with { Description = fallbackDescription };
+                    }
                 }
                 
                 // 查询创建人信息
@@ -287,34 +279,26 @@ public sealed partial class EmployeeRuntimeService
         {
             employee = employee with { CreatedAt = instance.CreatedAt };
             
-            // 填充描述信息（优先从 DescribeDocument 提取简短描述，备用 CardIntro，最后截取原文）
-            string? description = null;
-            if (!string.IsNullOrWhiteSpace(instance.DescribeDocument))
+            // 填充描述信息：仅当快照中 Description 为空时才从 DescribeDocument/CardIntro 回退
+            if (string.IsNullOrWhiteSpace(employee.Description))
             {
-                // 尝试提取业务定位一句话
-                description = ExtractBusinessPositioningOneLiner(instance.DescribeDocument);
-                // 如果没有，尝试提取 CardIntro（第1和第4节）
-                if (string.IsNullOrWhiteSpace(description))
+                string? fallbackDescription = null;
+                if (!string.IsNullOrWhiteSpace(instance.DescribeDocument))
                 {
-                    description = ExtractCardIntro(instance.DescribeDocument);
+                    fallbackDescription = ExtractBusinessPositioningOneLiner(instance.DescribeDocument)
+                        ?? ExtractCardIntro(instance.DescribeDocument)
+                        ?? (instance.DescribeDocument.Length > 300
+                            ? instance.DescribeDocument.Substring(0, 300) + "..."
+                            : instance.DescribeDocument);
                 }
-                // 如果还是没有，直接截取前 300 字符
-                if (string.IsNullOrWhiteSpace(description))
+                if (string.IsNullOrWhiteSpace(fallbackDescription))
                 {
-                    description = instance.DescribeDocument.Length > 300
-                        ? instance.DescribeDocument.Substring(0, 300) + "..."
-                        : instance.DescribeDocument;
+                    fallbackDescription = employee.CardIntro;
                 }
-            }
-            // 如果 DescribeDocument 为空，使用 CardIntro
-            if (string.IsNullOrWhiteSpace(description))
-            {
-                description = employee.CardIntro;
-            }
-            // 填充描述
-            if (!string.IsNullOrWhiteSpace(description))
-            {
-                employee = employee with { Description = description };
+                if (!string.IsNullOrWhiteSpace(fallbackDescription))
+                {
+                    employee = employee with { Description = fallbackDescription };
+                }
             }
             
             // 查询创建人信息
