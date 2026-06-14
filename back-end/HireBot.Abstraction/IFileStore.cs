@@ -34,4 +34,14 @@ public interface IFileStore
     /// 返回的路径为相对于存储根的虚拟路径格式，包含文件大小。
     /// </summary>
     Task<IReadOnlyList<FileStoreEntry>> ListAsync(string directoryPrefix, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 获取文件的可公开访问 URL。
+    /// 本地文件系统返回 web 相对路径（如 "/resources/evaluation/..."），
+    /// 云存储返回完整的公网 URL（如 "https://bucket.cos.region.myqcloud.com/..."）。
+    /// </summary>
+    /// <param name="path">虚拟路径。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>可公开访问的文件 URL。</returns>
+    Task<string> GetPublicUrlAsync(string path, CancellationToken cancellationToken = default);
 }

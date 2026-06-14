@@ -31,6 +31,7 @@ internal sealed partial class EvaluationService(
     HireBot.Abstraction.Infrastructure.Identity.IUserIdentity userIdentity,
     HireBotDbContext dbContext,
     IEvaluationAssetStore evaluationAssetStore,
+    IFileStore fileStore,
     IHostEnvironment hostEnvironment,
     IConfiguration configuration,
     ILogger<EvaluationService> logger,
@@ -1427,11 +1428,13 @@ internal sealed partial class EvaluationService(
         if (assetEntity is null)
             return ApiResponse<EvaluationTraceContentDto>.ErrorResponse(404, "trace asset not found for this session");
 
-        var physicalPath = ResolvePhysicalAssetPath(assetEntity.RelativePath);
-        if (physicalPath is null || !File.Exists(physicalPath))
-            return ApiResponse<EvaluationTraceContentDto>.ErrorResponse(404, "trace file not found on disk");
+        // 通过 IFileStore 读取（兼容本地文件系统与云存储）
+        if (!await fileStore.ExistsAsync(assetEntity.RelativePath, cancellationToken))
+            return ApiResponse<EvaluationTraceContentDto>.ErrorResponse(404, "trace file not found in storage");
 
-        var content = await File.ReadAllTextAsync(physicalPath, cancellationToken);
+        using var stream = await fileStore.OpenReadAsync(assetEntity.RelativePath, cancellationToken);
+        using var reader = new StreamReader(stream);
+        var content = await reader.ReadToEndAsync(cancellationToken);
 
         return ApiResponse<EvaluationTraceContentDto>.SuccessResponse(
             new EvaluationTraceContentDto(
@@ -1656,20 +1659,21 @@ internal sealed partial class EvaluationService(
         if (assetEntity is null)
             return ApiResponse<EvaluationReportFileDto>.ErrorResponse(404, "asset record not found");
 
-        var physicalPath = ResolvePhysicalAssetPath(assetEntity.RelativePath);
-        if (physicalPath is null || !File.Exists(physicalPath))
+        // 通过 IFileStore 读取（兼容本地文件系统与云存储）
+        if (!await fileStore.ExistsAsync(assetEntity.RelativePath, cancellationToken))
         {
             logger.LogWarning(
-                "[Eval] GetReportFile: physical file not found. ReportId={ReportId}, AssetId={AssetId}, RelativePath={RelativePath}",
+                "[Eval] GetReportFile: file not found in storage. ReportId={ReportId}, AssetId={AssetId}, RelativePath={RelativePath}",
                 reportId, assetEntity.Id, assetEntity.RelativePath);
-            return ApiResponse<EvaluationReportFileDto>.ErrorResponse(404, "report file not found on disk");
+            return ApiResponse<EvaluationReportFileDto>.ErrorResponse(404, "report file not found in storage");
         }
 
-        var fileName = Path.GetFileName(physicalPath);
+        var stream = await fileStore.OpenReadAsync(assetEntity.RelativePath, cancellationToken);
+        var fileName = assetEntity.RelativePath.Split('/').LastOrDefault() ?? "report";
 
         return ApiResponse<EvaluationReportFileDto>.SuccessResponse(
             new EvaluationReportFileDto(
-                PhysicalPath: physicalPath,
+                FileStream: stream,
                 MimeType: assetEntity.MimeType,
                 FileName: fileName),
             "ok");

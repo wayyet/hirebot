@@ -104,6 +104,13 @@ public sealed class FileSystemFileStore : IFileStore
         return Task.FromResult<IReadOnlyList<FileStoreEntry>>(entries.AsReadOnly());
     }
 
+    public Task<string> GetPublicUrlAsync(string path, CancellationToken cancellationToken = default)
+    {
+        // 本地文件系统返回 web 相对路径，由 PhysicalFileProvider 映射提供访问
+        var normalized = path.Trim().Replace('\\', '/').TrimStart('/');
+        return Task.FromResult($"/{normalized}");
+    }
+
     /// <summary>
     /// 解析虚拟路径→绝对路径。
     /// 如果 path 已经是绝对路径，直接使用（向后兼容已有的数据库记录）；

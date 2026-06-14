@@ -141,6 +141,15 @@ public sealed class TencentCosFileStore : IFileStore
         return Task.FromResult<IReadOnlyList<FileStoreEntry>>(entries.AsReadOnly());
     }
 
+    public Task<string> GetPublicUrlAsync(string path, CancellationToken cancellationToken = default)
+    {
+        var key = NormalizeKey(path);
+        var host = string.IsNullOrWhiteSpace(_options.Endpoint)
+            ? $"{Bucket}.cos.{_options.Region}.myqcloud.com"
+            : _options.Endpoint.TrimEnd('/');
+        return Task.FromResult($"https://{host}/{key}");
+    }
+
     /// <summary>
     /// 规范化虚拟路径为 COS 对象键：去除首尾的 '/'，使用 '/' 作为路径分隔符。
     /// </summary>

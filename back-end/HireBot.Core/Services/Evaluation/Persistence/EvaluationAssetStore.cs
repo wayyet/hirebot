@@ -50,9 +50,10 @@ internal sealed class EvaluationAssetStore(
 
         var hash = Convert.ToHexStringLower(SHA256.HashData(content));
 
-        // 构造公共 URL 路径（兼容当前 PhysicalFileProvider 映射 /resources → evaluationResourceRoot）
+        // 通过 IFileStore 获取可公开访问的 URL（本地返回 web 相对路径，COS 返回公网 URL）
+        var publicUrl = await fileStore.GetPublicUrlAsync(virtualPath, cancellationToken);
+
         var relativePath = virtualPath.Replace('\\', '/');
-        var publicUrl = $"/{relativePath}";
 
         logger.LogInformation(
             "Saved evaluation asset. SessionId={SessionId}, AssetType={AssetType}, RelativePath={RelativePath}, Size={Size}",

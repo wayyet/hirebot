@@ -158,14 +158,15 @@ internal sealed partial class EvaluationService
         var parsed = new List<ParsedTestcase>();
         foreach (var testcaseAsset in testcaseAssets)
         {
-            var physicalPath = ResolvePhysicalAssetPath(testcaseAsset.RelativePath);
-            if (string.IsNullOrWhiteSpace(physicalPath) || !File.Exists(physicalPath))
+            if (!await fileStore.ExistsAsync(testcaseAsset.RelativePath, cancellationToken))
             {
                 continue;
             }
 
-            var json = await File.ReadAllTextAsync(physicalPath, cancellationToken);
-            parsed.AddRange(ParseTestcases(Path.GetFileName(physicalPath), testcaseAsset.RelativePath, json));
+            using var stream = await fileStore.OpenReadAsync(testcaseAsset.RelativePath, cancellationToken);
+            using var reader = new StreamReader(stream);
+            var json = await reader.ReadToEndAsync(cancellationToken);
+            parsed.AddRange(ParseTestcases(Path.GetFileName(testcaseAsset.RelativePath), testcaseAsset.RelativePath, json));
         }
 
         return BuildQuestionCards(parsed);

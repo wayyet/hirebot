@@ -304,8 +304,7 @@ public sealed class EmployeesController(
             return StatusCode(response.Code, response);
 
         var fileInfo = response.Data!;
-        var stream = new FileStream(fileInfo.PhysicalPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
-        return File(stream, fileInfo.MimeType, fileInfo.FileName);
+        return File(fileInfo.FileStream, fileInfo.MimeType, fileInfo.FileName);
     }
 
     private IActionResult? BuildModelValidationError<T>()
