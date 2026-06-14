@@ -5,7 +5,7 @@ replicaCount: 1
 
 image:
   repository: ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot
-  tag: dev-202606020922   # 部署时替换为实际镜像标签
+  tag: dev-202606142326   # 部署时替换为实际镜像标签
   pullPolicy: IfNotPresent
 
 resources:

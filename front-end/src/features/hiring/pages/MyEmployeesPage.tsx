@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
-  GitBranch,
   Loader2,
   MessageCircle,
   MoreHorizontal,

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
-  ArrowLeft,
   BarChart2,
   Bot,
   Check,
@@ -20,7 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
