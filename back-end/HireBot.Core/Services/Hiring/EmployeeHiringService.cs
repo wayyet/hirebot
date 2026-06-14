@@ -62,7 +62,7 @@ internal sealed class EmployeeHiringService(
 
         // 检查是否存在现有的活跃沙箱（沙箱恢复逻辑）
         var existingInstance = await sandboxService.FindActiveByOwnerAndTemplateAsync(
-            ownerSubject, templateId, "candidate-conversation", cancellationToken);
+            ownerSubject, templateId, "hiring", cancellationToken);
 
         if (existingInstance is not null)
         {
@@ -149,7 +149,7 @@ internal sealed class EmployeeHiringService(
         {
             ScopeType = "Hire",
             ScopeKey = hireId,
-            SandboxRole = "candidate-conversation",
+            SandboxRole = "hiring",
             OwnerSubject = ownerSubject,
             TenantId = tenantId,
             OperatorId = operatorId,
