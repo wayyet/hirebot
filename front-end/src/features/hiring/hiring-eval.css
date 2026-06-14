@@ -2756,9 +2756,7 @@ body.hb-body-hiring-prototype {
 
 /* 鈹€鈹€ 妯℃澘璇︽儏 dark 鈹€鈹€ */
 .dark .hb-detail-hero {
-  background:
-    radial-gradient(circle at top right, rgba(74, 108, 247, 0.12), transparent 34%),
-    linear-gradient(180deg, rgba(28, 30, 38, 0.98), rgba(24, 26, 34, 0.94));
+  background: var(--hb-surface-card);
 }
 
 html[data-mode="light"][data-skin="warm"] .hb-hiring-steps-card {

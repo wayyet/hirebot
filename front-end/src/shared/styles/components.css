@@ -442,13 +442,7 @@
 }
 
 .hb-detail-hero {
-  background:
-    radial-gradient(circle at top right, var(--hb-accent-soft-bg), transparent 34%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--hb-surface-card) 96%, transparent),
-      color-mix(in srgb, var(--hb-surface-soft) 92%, transparent)
-    );
+  background: var(--hb-surface-card);
   padding: 24px;
 }
 
