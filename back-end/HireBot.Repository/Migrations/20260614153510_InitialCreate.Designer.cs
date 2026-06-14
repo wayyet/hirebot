@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HireBot.Repository.Migrations
 {
     [DbContext(typeof(HireBotDbContext))]
-    [Migration("20260607163521_InitialCreate")]
+    [Migration("20260614153510_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
