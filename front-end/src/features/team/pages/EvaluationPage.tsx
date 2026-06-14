@@ -177,9 +177,10 @@ export default function EvaluationPage() {
   const isAiStage =
     employee?.status === 'interning_ai' ||
     (isPrivateBranchEvaluation && employee?.status === 'live' && employee?.evalPhase === 'ai_running')
-  const aiRunning = isAiStage && employee?.evalPhase === 'ai_running'
-
   const workspaceReady = workspaceStatus?.overallStatus === 'ready'
+  // evalPhase 可能因页面刷新等原因未持久化；workspace 已就绪时视为 AI 评估运行中
+  const aiRunning = (isAiStage && employee?.evalPhase === 'ai_running') || (workspaceReady && isAiStage)
+
   // 沙箱正在初始化时（轮询中或重置中）显示全屏过渡遮罩，防止用户看到未就绪的页面
   const showSandboxInitOverlay = workspacePolling || resetting
 
@@ -190,13 +191,22 @@ export default function EvaluationPage() {
     [questionCards],
   )
   const testcaseItems = useMemo(
-    () => testcaseOutlines.length > 0
-      ? testcaseOutlines
-      : questionCards.map((card) => ({
-          testcaseId: card.testcaseId,
-          title: card.title || card.testcaseId,
-          userRequest: card.prompt || '',
-        })),
+    () => {
+      // 优先使用 testcaseOutlines；去重防止后端返回重复 testcaseId 导致 React key 冲突
+      const seen = new Set<string>()
+      const source = testcaseOutlines.length > 0
+        ? testcaseOutlines
+        : questionCards.map((card) => ({
+            testcaseId: card.testcaseId,
+            title: card.title || card.testcaseId,
+            userRequest: card.prompt || '',
+          }))
+      return source.filter((item) => {
+        if (seen.has(item.testcaseId)) return false
+        seen.add(item.testcaseId)
+        return true
+      })
+    },
     [questionCards, testcaseOutlines],
   )
   const testcaseCount = testcaseItems.length
@@ -896,7 +906,8 @@ export default function EvaluationPage() {
   }
 
   async function ensureEvaluationChatReady() {
-    if (!id || !aiRunning) return
+    // workspace 就绪 + 处于 AI 评估阶段即视为可连接，不强制依赖 evalPhase
+    if (!id || (!aiRunning && !(workspaceReady && isAiStage))) return
 
     if (ensureChatReadyPromiseRef.current) {
       return ensureChatReadyPromiseRef.current
@@ -1173,7 +1184,8 @@ export default function EvaluationPage() {
   }
 
   useEffect(() => {
-    if (!aiRunning || !id) {
+    const shouldConnect = aiRunning || (workspaceReady && isAiStage)
+    if (!shouldConnect || !id) {
       setChatMessages([])
       setChatError('')
       setPendingFiles([])
@@ -1202,7 +1214,7 @@ export default function EvaluationPage() {
       setStreamingToolSteps([])
       setChatTyping(false)
     }
-  }, [aiRunning, id, resetTypewriterStream])
+  }, [aiRunning, workspaceReady, isAiStage, id, resetTypewriterStream])
 
   async function handleSelectSession(sessionId: string) {
     if (sessionSwitching || sessionId === selectedSessionId) return
