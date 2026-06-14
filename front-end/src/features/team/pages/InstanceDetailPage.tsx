@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  ArrowLeft,
   BarChart2,
   Bot,
   Check,
@@ -19,7 +20,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
@@ -292,19 +293,6 @@ export default function InstanceDetailPage() {
 
   return (
     <div className="hb-page hb-employee-page hb-employee-detail-page space-y-5">
-      <Breadcrumb
-        items={[
-          {
-            label:
-              employeeView?.ownership === "department"
-                ? t("instanceDetail.breadcrumbDept")
-                : t("instanceDetail.breadcrumbMy"),
-            to: backTarget,
-          },
-          { label: t("instanceDetail.breadcrumb") },
-        ]}
-      />
-
       {error ? (
         <div className="hb-alert hb-alert-error">
           <AlertCircle size={14} />
@@ -321,6 +309,18 @@ export default function InstanceDetailPage() {
         <div className="hb-card hb-detail-state">{t("instanceDetail.notFound")}</div>
       ) : (
         <div className="space-y-5">
+          <Breadcrumb
+            items={[
+              {
+                label:
+                  employeeView?.ownership === "department"
+                    ? t("instanceDetail.breadcrumbDept")
+                    : t("instanceDetail.breadcrumbMy"),
+                to: backTarget,
+              },
+              { label: employee.nickname },
+            ]}
+          />
           <section className="hb-card hb-detail-hero">
             <div className="hb-detail-top">
               <div className="hb-detail-avatar hb-detail-avatar--accent">
@@ -330,11 +330,6 @@ export default function InstanceDetailPage() {
                 <div className="hb-detail-title-row">
                   <div>
                     <h1>{employee.nickname}</h1>
-                    {employee.roleName || employee.sourceTemplate ? (
-                      <p className="hb-detail-subtitle">
-                        {employee.roleName || employee.sourceTemplate}
-                      </p>
-                    ) : null}
                   </div>
                   <div className="hb-detail-badges">
                     <span

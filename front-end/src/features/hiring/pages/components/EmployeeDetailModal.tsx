@@ -96,17 +96,13 @@ export default function EmployeeDetailModal({
             </div>
           ) : (
             <>
-              <div className="hb-modal-head">
-                <h3 className="hb-modal-title">{t('hiring.employee.modalTitle')}</h3>
-              </div>
-
               <div className="hb-modal-body space-y-4">
                 <div className="min-w-0 flex-1">
                   <h3 className="hb-detail-panel-title truncate">
                     {detail.nickname}
                   </h3>
                   <p className="mt-1 text-sm text-[var(--hb-soft)]">
-                    {detail.roleName || detail.sourceTemplate}
+                    {detail.roleName}
                   </p>
                 </div>
 

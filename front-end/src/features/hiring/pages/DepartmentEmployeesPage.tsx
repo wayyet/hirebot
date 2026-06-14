@@ -17,7 +17,6 @@ import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { api, type EmployeeSummary } from "@/infra/api";
 import TemplateUploadModal from "./components/TemplateUploadModal";
 import CloneEmployeeModal from "./components/CloneEmployeeModal";
-import EmployeeDetailModal from "./components/EmployeeDetailModal";
 import { firstCharacter, withEmployeeView } from "./employeeView";
 import { Pagination } from "@/shared/components/Pagination";
 import { CreatorDisplay } from "@/shared/components/CreatorDisplay";
@@ -65,7 +64,6 @@ export default function DepartmentEmployeesPage() {
     nickname: string;
     roleName: string;
   } | null>(null);
-  const [detailEmployeeId, setDetailEmployeeId] = useState<string | null>(null);
 
   async function handleDelete(employeeId: string) {
     setDeletingId(employeeId);
@@ -688,16 +686,6 @@ export default function DepartmentEmployeesPage() {
         onClose={() => setCloneTarget(null)}
         onSuccess={() => {
           setCloneTarget(null);
-          setRefreshKey((k) => k + 1);
-        }}
-      />
-
-      <EmployeeDetailModal
-        open={detailEmployeeId !== null}
-        employeeId={detailEmployeeId ?? ""}
-        onClose={() => setDetailEmployeeId(null)}
-        onCloneSuccess={() => {
-          setDetailEmployeeId(null);
           setRefreshKey((k) => k + 1);
         }}
       />
