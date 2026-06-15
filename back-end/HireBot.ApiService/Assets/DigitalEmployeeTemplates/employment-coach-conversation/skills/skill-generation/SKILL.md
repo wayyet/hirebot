@@ -189,7 +189,7 @@ metadata:
 
 在创建或更新任何技能目录前，必须先确定本轮唯一的 **confirmed skill slug set**：
 
-1. 优先读取 `artifact_payload.confirmed_skill_slugs`；若缺失，则从 `artifact_payload.items[].name` / `items[].skill_slug` / `items[].skillName` 中按顺序提取。
+1. 优先读取 `artifact_payload.confirmed_skill_slugs`；若缺失，则从 `artifact_payload.items[].skill_slug` / `items[].name` / `items[].skillName` 中按顺序提取。`display_name` 只作用户可读名称，禁止作为目录 slug。
 2. 该集合是本轮唯一允许写入、保留和上报的业务技能目录集合。禁止根据 display_name、description、projection 文件名或英文同义词重新生成 slug。
 3. 读取 `artifact_payload.projection_skill_slugs` 或从 `projection_result.projection_paths[]` 解析 `ontology/projections/<slug>/...`。若任一 projection slug 不在 confirmed skill slug set 中，立即阻断本轮运行，说明“projection 目录与已确认技能 slug 不一致”，不得写入 `skills/`，不得发出 `skill_generation_done`。
 4. 扫描 `<workspace_root>/skills/` 下已有目录。排除雇佣教练内置 skill 白名单后，凡是不在 confirmed skill slug set 中的目录都视为陈旧运行时目录，必须在本轮生成前移除或隔离到 `<workspace_root>/reports/stale-skills/`；不能让它们继续留在最终 `skills/` 包面中。
@@ -319,7 +319,7 @@ Step 1 全部确认落盘后，按以下三条路径处理投影契约：
      - `<domain-slug>/<domain-slug>.json-schema.projection.json`
      - `<domain-slug>/<domain-slug>.prompt-constraint.projection.json`
      - `<domain-slug>/<domain-slug>.workflow-contract.projection.json`
-     4 个文件都必须是完整 JSON，而不是 stub 引用；同时将 `source_slice.path` 更新为从 skill 目录出发的相对路径。
+     4 个文件都必须是完整 JSON，而不是 stub 引用；同时将 `source_slice.path` 更新为从工作区/包根出发的相对路径（例如 `ontology/<topic>.slice.json`），不得写成从 skill 目录出发的 `../../ontology/...`。
   4. `contract-index.json` 最小必要格式：
      ```json
      {
@@ -417,7 +417,7 @@ Step 1 全部确认落盘后，按以下三条路径处理投影契约：
    - 上传文件：解析 Markdown、文本、JSON、YAML，并映射到 SkillSpec。
    - zip 文件：递归读取候选 skill 文件，优先保留原文件能力定义，再结构化归一。
 3. 结构化归一：补齐缺省字段，规范化 `name`、`display_name`、`description`、`triggers`、`capabilities`、`boundaries`、`examples`、`source`、`version`。
-4. Slug 处理（不可变规则）：严禁自行生成或改写 skill_slug。结构化输入时直接使用工单中 `items[].name` 字段的原始值；该 slug 已由上游 coach 确认，与 projection 目录一致，任何改写（如下划线转短横线、大小写调整、词根重排）都会导致 projection 绑定失败。仅当输入为纯会话描述且不存在 `items[].name` 时，才从 `display_name` 派生 slug：转小写、保留字母数字和下划线、空格换下划线。
+4. Slug 处理（不可变规则）：严禁自行生成或改写 skill_slug。结构化输入时优先使用 `confirmed_skill_slugs[]`，否则使用工单中 `items[].skill_slug`（再回退 `items[].name`）的原始值；该 slug 已由上游 coach 确认，与 projection 目录一致，任何改写（如下划线转短横线、大小写调整、词根重排）都会导致 projection 绑定失败。仅当输入为纯会话描述且不存在任何结构化 slug 字段时，才从 `display_name` 派生 slug：转小写、保留字母数字和下划线、空格换下划线。
 5. 冲突处理：读取现有 `skills/`，按同名覆盖、异名新增规则合并。多能力输入可按业务域合并为一个技能，也可在用户启用多技能拆分时按业务域生成多个技能。
 6. **写入基础文件（强制）**：按模板渲染 `SKILL.md`、`metadata.json`、`references/` 三类文件并立即调用 write_file 写入磁盘。**每个文件写入后用 read_file 确认落盘。这一步不可跳过，不依赖投影是否可用。**
 7. Projection 契约生成（可选）：仅在基础文件确认落盘后执行。有足够本体 projection 信息时，为产出的业务 skill 生成 READY consumer-skill projection 目录（contracts/）；信息不足时只记录 draft/notes 或跳过，不伪造 READY contract，不阻断已落盘的基础文件。

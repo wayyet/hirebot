@@ -57,8 +57,10 @@ import {
   buildPackageReviewPrompt,
   buildPackageReviewSkipPackagingPrompt,
   buildPackagingRequestPrompt,
+  isMaterialHandoffApprovalMessage,
   isPackagingTestCasesApprovalMessage,
   isPackagingTestCasesSkipMessage,
+  resolveExternalSystemEntryRoute,
   resolveActiveSkillStageRun,
   resolvePackageReviewDecisionRoute,
   resolvePackagingRequestRoute,
@@ -84,11 +86,15 @@ import type {
   ToolStep,
 } from './hiringPageTypes'
 import {
+  buildMaterialHandoffReadyArtifact,
   buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
+  buildSkillGenerationReadyArtifact,
+  buildSkillDefinitionEntryReadyArtifact,
   deriveStageOverridesFromDownstreamRuns,
   extractArtifactFromToolCall,
   normalizeArtifactDisplayData,
+  queueOntologySliceExtractionRun,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
   shouldDismissSkillConfirmationAfterApproval,
@@ -98,8 +104,11 @@ import {
   buildExternalConfigCommittedArtifact as createExternalConfigCommittedArtifact,
   buildExternalConfigCommittedSandboxPrompt,
   buildExternalConfigCommittedSignature,
+  buildExternalSystemEntryReadyArtifact,
   buildPackagingTestCasesReadyArtifact,
   buildPackagingTestCasesReadySignature,
+  buildSkippedExternalSystemConfig,
+  buildSkippedExternalWorkorderSummaryArtifact,
   isDuplicateExternalConfigCommittedArtifact,
   tryBuildExternalConfigCommittedSignature,
 } from './externalConfigCommitted'
@@ -108,7 +117,6 @@ import {
   shouldRequireFreshPackagingAfterExternalConfigChange,
 } from './externalPackagingState'
 import {
-  buildPendingStageAdvanceConfirmation,
   shouldRequireStageAdvanceConfirmation,
   type StageAdvanceIntent,
 } from './stageAdvanceConfirmation'
@@ -122,8 +130,18 @@ import {
   normalizeIncomingArtifactTerminal,
   shouldDisplayArtifactInConversation,
 } from './hiringArtifactGuards'
+import {
+  buildConfirmationGateEventSignature,
+  isConfirmationGateArtifactType,
+  shouldAcceptConfirmationGateArtifact,
+} from './utils/hiringConfirmationArtifacts'
+import { buildVisibleUserMessageEnvelope } from './utils/hiringVisibleUserMessageEnvelope'
 
 function buildArtifactEventSignature(artifact: ArtifactDisplayData): string {
+  if (isConfirmationGateArtifactType(artifact.artifactType)) {
+    return buildConfirmationGateEventSignature(artifact)
+  }
+
   return JSON.stringify({
     kind: artifact.kind,
     artifactType: artifact.artifactType,
@@ -327,6 +345,7 @@ export default function HiringPage() {
   const latestMaterialSummaryRef = useRef<unknown>(null)
   const latestSkillSummaryRef = useRef<unknown>(null)
   const latestProjectionResultRef = useRef<unknown>(null)
+  const latestSkillGenerationDoneRef = useRef<unknown>(null)
   const latestExternalSummaryRef = useRef<unknown>(null)
   const latestReviewReportRef = useRef<unknown>(null)
   const materialSummarySignatureRef = useRef('')
@@ -344,6 +363,7 @@ export default function HiringPage() {
 
   const fileRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const workflowInitRef = useRef<Promise<string | null> | null>(null)
   // workflowHireId 的 ref 镜像：connectSandboxWs 内的 ws.onMessage 闭包在创建时捕获的
@@ -385,7 +405,7 @@ export default function HiringPage() {
    */
   function appendExternalConfigCommittedArtifact(
     config: HiringExternalSystemConfig | null,
-    options: { sendToSandbox?: boolean } = {},
+    options: { sendToSandbox?: boolean; visibleHistoryText?: string } = {},
   ) {
     const submissionMode = config?.submissionMode ?? 'pending'
     if (!config || (submissionMode !== 'configured' && submissionMode !== 'skipped')) {
@@ -397,15 +417,10 @@ export default function HiringPage() {
     if (!duplicateCommitted) {
       externalConfigCommittedSignatureRef.current = signature
       const artifact = createExternalConfigCommittedArtifact(config)
-      setMessages(msgs => [...msgs, {
-        id: mkId(),
-        role: 'artifact',
-        content: artifact.label ?? artifact.artifactType,
-        artifact,
-      }])
+      const appended = appendSystemArtifact(artifact)
 
-      if (options.sendToSandbox) {
-        sendExternalConfigCommittedToSandbox(artifact)
+      if (appended && options.sendToSandbox) {
+        sendExternalConfigCommittedToSandbox(artifact, options.visibleHistoryText)
       }
     }
 
@@ -437,18 +452,38 @@ export default function HiringPage() {
 
     packagingTestCasesReadySignatureRef.current = signature
     const artifact = buildPackagingTestCasesReadyArtifact(config)
-    setMessages(msgs => [...msgs, {
-      id: mkId(),
-      role: 'artifact',
-      content: artifact.label ?? artifact.artifactType,
-      artifact,
-    }])
-    setDownstreamRuns(prev => {
-      const next = {
-        ...prev,
-        'packaging-test-cases': {
-          key: 'packaging-test-cases',
-          status: 'waiting_confirm',
+    appendSystemArtifact(artifact)
+  }
+
+  function appendSystemArtifact(artifact: ArtifactDisplayData): boolean {
+    if (!shouldAcceptConfirmationGateArtifact(messagesRef.current, downstreamRunsRef.current, artifact)) {
+      return false
+    }
+
+    const artifactSignature = buildArtifactEventSignature(artifact)
+    if (processedArtifactSignaturesRef.current.has(artifactSignature)) {
+      return false
+    }
+    processedArtifactSignaturesRef.current.add(artifactSignature)
+
+    if (shouldDisplayArtifactInConversation(artifact.artifactType, artifact.isTerminal)) {
+      const nextMessages = [...messagesRef.current, {
+        id: mkId(),
+        role: 'artifact' as const,
+        content: artifact.label ?? artifact.artifactType,
+        artifact,
+      }]
+      messagesRef.current = nextMessages
+      setMessages(nextMessages)
+    }
+
+    const downstreamRun = resolveDownstreamRunFromArtifact(artifact.artifactType)
+    if (downstreamRun) {
+      const nextRuns = {
+        ...downstreamRunsRef.current,
+        [downstreamRun.key]: {
+          key: downstreamRun.key,
+          status: downstreamRun.status,
           artifactType: artifact.artifactType,
           label: artifact.label,
           displayHint: artifact.displayHint,
@@ -456,9 +491,11 @@ export default function HiringPage() {
           data: artifact.data,
         } satisfies DownstreamRunState,
       }
-      downstreamRunsRef.current = next
-      return next
-    })
+      downstreamRunsRef.current = nextRuns
+      setDownstreamRuns(nextRuns)
+    }
+
+    return true
   }
 
   /**
@@ -466,7 +503,7 @@ export default function HiringPage() {
    * 网关只支持 user_message / assistant_message 帧，因此采用 `[Internal ...]` 前缀的
    * 内部 user_message 携带 artifact 负载：历史回放路径会按该前缀过滤掉，避免污染聊天记录。
    */
-  function sendExternalConfigCommittedToSandbox(artifact: ArtifactDisplayData) {
+  function sendExternalConfigCommittedToSandbox(artifact: ArtifactDisplayData, visibleHistoryText?: string) {
     const ws = wsRef.current
     const sessionId = sessionIdRef.current
     if (!ws || !sessionId || !ws.isOpen()) {
@@ -474,12 +511,15 @@ export default function HiringPage() {
     }
 
     const prompt = buildExternalConfigCommittedSandboxPrompt(artifact)
-    lastWsUserMessageRef.current = prompt
+    const messageText = visibleHistoryText?.trim()
+      ? buildVisibleUserMessageEnvelope(visibleHistoryText, prompt)
+      : prompt
+    lastWsUserMessageRef.current = visibleHistoryText?.trim() || prompt
     lastWsMaterialsRef.current = undefined
     lastWsTurnInternalRef.current = true
     ws.send({
       type: 'user_message',
-      text: prompt,
+      text: messageText,
       sessionId,
     })
   }
@@ -511,6 +551,7 @@ export default function HiringPage() {
     latestSkillSummaryRef.current = extractLatestMessageArtifactData(sourceMessages, 'skill_workorder_summary')
     setLatestSkillSummary(latestSkillSummaryRef.current)
     latestProjectionResultRef.current = extractLatestMessageArtifactData(sourceMessages, 'ontology_projection_done')
+    latestSkillGenerationDoneRef.current = extractLatestMessageArtifactData(sourceMessages, 'skill_generation_done')
     latestExternalSummaryRef.current = extractLatestMessageArtifactData(sourceMessages, 'external_workorder_summary')
     latestReviewReportRef.current = extractLatestMessageArtifactData(sourceMessages, 'review_report')
     materialSummarySignatureRef.current = latestMaterialSummaryRef.current ? JSON.stringify(latestMaterialSummaryRef.current) : ''
@@ -639,6 +680,9 @@ export default function HiringPage() {
       const restoredArtifacts = restored.messages
         .filter(message => {
           if (!message.artifact) return false
+          if (!shouldAcceptConfirmationGateArtifact(messagesRef.current, downstreamRunsRef.current, message.artifact)) {
+            return false
+          }
           return !processedArtifactSignaturesRef.current.has(buildArtifactEventSignature(message.artifact))
         })
         .map(message => ({ ...message, id: mkId() }))
@@ -697,9 +741,13 @@ export default function HiringPage() {
 
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
   const ontologyProjectionState = downstreamRuns['ontology-projection'] ?? null
+  const materialHandoffState = downstreamRuns['material-handoff'] ?? null
+  const skillDefinitionEntryState = downstreamRuns['skill-definition-entry'] ?? null
+  const externalSystemEntryState = downstreamRuns['external-system-entry'] ?? null
   const skillStageConfirmationState = resolveActiveSkillStageRun(
     skillGenerationState,
     ontologyProjectionState,
+    skillDefinitionEntryState,
   )
   const packagingTestCasesState = downstreamRuns['packaging-test-cases'] ?? null
 
@@ -730,6 +778,31 @@ export default function HiringPage() {
       return
     }
 
+    if (source === 'skip' && submissionMode === 'skipped') {
+      const skillGenerationDone = latestSkillGenerationDoneRef.current
+        ?? downstreamRunsRef.current['external-system-entry']?.data
+        ?? {}
+      const summaryArtifact = buildSkippedExternalWorkorderSummaryArtifact(skillGenerationDone)
+      const appendedSummary = appendSystemArtifact(summaryArtifact)
+      if (appendedSummary) {
+        latestExternalSummaryRef.current = summaryArtifact.data ?? null
+        externalSummarySignatureRef.current = JSON.stringify(summaryArtifact.data ?? {})
+      }
+
+      const entryRun = downstreamRunsRef.current['external-system-entry']
+      if (entryRun?.status === 'waiting_confirm') {
+        completeDownstreamRun('external-system-entry', '已跳过外部系统配置。', 'external_system_entry_ready', entryRun.data)
+      }
+
+      appendExternalConfigCommittedArtifact(config, { sendToSandbox: true })
+      return
+    }
+
+    const entryRun = downstreamRunsRef.current['external-system-entry']
+    if (source === 'save' && entryRun?.status === 'waiting_confirm') {
+      completeDownstreamRun('external-system-entry', '已确认进入外部系统配置。', 'external_system_entry_ready', entryRun.data)
+    }
+
     appendExternalConfigCommittedArtifact(config, { sendToSandbox: source !== 'hydrate' })
     setWsStageOverrides(prev => {
       if (source === 'hydrate') {
@@ -747,20 +820,18 @@ export default function HiringPage() {
     summary: string,
     intent: StageAdvanceIntent = 'collecting',
   ) {
-    if (shouldRequireStageAdvanceConfirmation(stage, intent)) {
-      const pending = buildPendingStageAdvanceConfirmation(stage, summary)
-      if (!pending) {
-        return
-      }
-
-      setPendingStageConfirmation(pending)
+    if (stage === HiringCollectionStage.Material && shouldRequireStageAdvanceConfirmation(stage, intent)) {
+      const artifact = buildMaterialHandoffReadyArtifact(summary)
+      const appended = appendSystemArtifact(artifact)
       setWorkflowError('')
-      setWorkflowNotice('')
-      setMessages(prev => [...prev, {
-        id: mkId(),
-        role: 'bot',
-        content: pending.prompt,
-      }])
+      setWorkflowNotice(appended ? '资料已上传完成，请确认是否开始分析业务资料。' : '当前资料收口确认已在等待处理。')
+      return
+    }
+
+    if (stage === HiringCollectionStage.External && shouldRequireStageAdvanceConfirmation(stage, intent)) {
+      setWorkflowError('')
+      setWorkflowNotice('外部系统配置已保存，请确认后继续进入打包前确认。')
+      void submitWorkflowMessage(summary)
       return
     }
 
@@ -771,6 +842,7 @@ export default function HiringPage() {
         next.set(HiringCollectionStage.External, 'completed')
         return next
       })
+      return
     }
 
     void submitWorkflowMessage(summary)
@@ -793,7 +865,13 @@ export default function HiringPage() {
   )
 
   // ── 副作用 Hooks ────────────────────────────────────────────────────────────
-  useScrollToBottom(chatEndRef, messages, visibleTyping, visibleStreamingContent, streamingToolSteps)
+  const { showScrollToBottom, scrollToBottom } = useScrollToBottom(
+    chatScrollRef,
+    messages,
+    visibleTyping,
+    visibleStreamingContent,
+    streamingToolSteps,
+  )
   useBodyClassAndCleanup(wsRef)
   useTemplateDetail(templateId, setTemplate, setTemplateLoading, setTemplateError, t, normalizeErrorMessage)
   useSyncMessagesRef(messages, messagesRef)
@@ -1344,6 +1422,10 @@ export default function HiringPage() {
                 ? artifactData.data ?? null
                 : latestProjectionResultRef.current,
             ) !== null,
+            hasSkillGenerationDone: downstreamRunsRef.current['skill-generation']?.status === 'completed'
+              || latestSkillGenerationDoneRef.current !== null
+              || (artifactType === 'skill_generation_done' && isTerminal),
+            hasExternalSystemEntryConfirmed: downstreamRunsRef.current['external-system-entry']?.status === 'completed',
             hasExternalConfigCommitted: Boolean(externalConfigCommittedSignatureRef.current),
           }, {
             isTerminal,
@@ -1354,16 +1436,8 @@ export default function HiringPage() {
             console.warn('[HiringPage] ignored gated artifact:', artifactType, blockedArtifactReason)
             return
           }
-          if (artifactType === 'packaging_testcases_ready') {
-            const currentRun = downstreamRunsRef.current['packaging-test-cases']
-            const alreadyPrompted =
-              currentRun?.status === 'waiting_confirm' ||
-              currentRun?.status === 'running' ||
-              currentRun?.status === 'completed' ||
-              messagesRef.current.some(message => message.artifact?.artifactType === 'packaging_testcases_ready')
-            if (alreadyPrompted) {
-              return
-            }
+          if (!shouldAcceptConfirmationGateArtifact(messagesRef.current, downstreamRunsRef.current, artifactData)) {
+            return
           }
           const artifactSignature = buildArtifactEventSignature(artifactData)
           if (processedArtifactSignaturesRef.current.has(artifactSignature)) {
@@ -1378,25 +1452,36 @@ export default function HiringPage() {
           }
           pruneStaleInternalPromptsForState(artifactType)
           if (artifactType === 'material_handoff_summary' && kind === 'data' && isTerminal) {
-            latestMaterialSummaryRef.current = artifactData.data ?? null
-            const signature = JSON.stringify(artifactData.data ?? {})
+            const materialSummary = artifactData.data ?? null
+            latestMaterialSummaryRef.current = materialSummary
+            const signature = JSON.stringify(materialSummary ?? {})
             if (materialSummarySignatureRef.current !== signature) {
-              materialSummarySignatureRef.current = signature
-              pendingInternalPromptsRef.current.push(
-                buildDownstreamPrompt('ontology-slice-extraction', artifactData.data ?? {}),
+              const launch = queueOntologySliceExtractionRun(
+                downstreamRunsRef.current,
+                materialSummary,
+                new Date().toISOString(),
               )
+              materialSummarySignatureRef.current = launch.signature
+              if (launch.queued) {
+                downstreamRunsRef.current = launch.nextRuns
+                setDownstreamRuns(launch.nextRuns)
+                pendingInternalPromptsRef.current.push(
+                  buildDownstreamPrompt('ontology-slice-extraction', materialSummary ?? {}),
+                )
+              }
             }
           }
           if (artifactType === 'ontology_slice_extraction_done' && kind === 'data' && isTerminal) {
             const signature = JSON.stringify(artifactData.data ?? {})
             if (ontologyExtractionDoneSignatureRef.current !== signature) {
               ontologyExtractionDoneSignatureRef.current = signature
-              pendingInternalPromptsRef.current.push(
-                buildCoachResumePrompt('post-ontology-slice-extraction', {
-                  materialSummary: latestMaterialSummaryRef.current,
-                  ontologyResult: artifactData.data ?? {},
-                }),
+              appendSystemArtifact(
+                buildSkillDefinitionEntryReadyArtifact(
+                  latestMaterialSummaryRef.current,
+                  artifactData.data ?? {},
+                ),
               )
+              setWorkflowNotice('业务资料分析完成，请确认是否进入技能定义。')
             }
           }
           if (artifactType === 'ontology_projection_done' && kind === 'data' && isTerminal) {
@@ -1423,6 +1508,11 @@ export default function HiringPage() {
             projectionPassLaunchSignatureRef.current = ''
             skillGenerationLaunchSignatureRef.current = ''
             ontologyProjectionDoneSignatureRef.current = ''
+          }
+          if (artifactType === 'skill_generation_done' && kind === 'data' && isTerminal) {
+            latestSkillGenerationDoneRef.current = artifactData.data ?? null
+            appendSystemArtifact(buildExternalSystemEntryReadyArtifact(artifactData.data ?? {}))
+            setWorkflowNotice('技能实现已生成，请确认进入或跳过外部系统配置。')
           }
           if (artifactType === 'review_report' && kind === 'data' && isTerminal) {
             latestReviewReportRef.current = artifactData.data ?? null
@@ -1663,6 +1753,7 @@ export default function HiringPage() {
     status: DownstreamRunStatus,
     label: string,
     artifactType: string,
+    data?: unknown,
   ) {
     setDownstreamRuns(prev => {
       const next = {
@@ -1674,7 +1765,7 @@ export default function HiringPage() {
           label,
           displayHint: 'progress',
           updatedAt: new Date().toISOString(),
-          data: prev[key]?.data,
+          data: data ?? prev[key]?.data,
         } satisfies DownstreamRunState,
       }
       downstreamRunsRef.current = next
@@ -1692,6 +1783,25 @@ export default function HiringPage() {
     })
   }
 
+  function completeDownstreamRun(key: DownstreamRunKey, label: string, artifactType: string, data?: unknown) {
+    setDownstreamRuns(prev => {
+      const next = {
+        ...prev,
+        [key]: {
+          key,
+          status: 'completed',
+          artifactType,
+          label,
+          displayHint: prev[key]?.displayHint ?? 'badge',
+          updatedAt: new Date().toISOString(),
+          data: data ?? prev[key]?.data,
+        } satisfies DownstreamRunState,
+      }
+      downstreamRunsRef.current = next
+      return next
+    })
+  }
+
   function pruneStaleInternalPromptsForState(artifactType: string) {
     if (pendingInternalPromptsRef.current.length === 0) {
       return
@@ -1701,6 +1811,12 @@ export default function HiringPage() {
       skill_workorder_summary: [
         'Resume the main hiring flow at the boundary between stage1_material and stage2_skill',
         '[Internal skill definition confirmation.',
+      ],
+      ontology_slice_extraction_done: [
+        'trigger_reason: material_handoff_summary_completed',
+      ],
+      skill_workorder_progress: [
+        'Resume the main hiring flow at the boundary between stage1_material and stage2_skill',
       ],
       ontology_projection_done: [
         'trigger_reason: user_confirmed_ontology_projection',
@@ -1750,25 +1866,26 @@ export default function HiringPage() {
       return true
     }
 
+    const readyArtifact = buildSkillGenerationReadyArtifact(summary, projectionResult)
+    if (!readyArtifact) {
+      return false
+    }
+
     skillGenerationLaunchSignatureRef.current = signature
-    setOptimisticDownstreamRun(
-      'skill-generation',
-      'waiting_confirm',
-      '技能数据已匹配完成，等待确认生成技能实现。',
-      'skill_generation_ready',
-    )
-    pendingInternalPromptsRef.current.push(
-      buildCoachResumePrompt('post-ontology-projection', {
-        skillSummary: summary,
-        projectionResult,
-      }),
-    )
+    const appended = appendSystemArtifact(readyArtifact)
+    if (!appended) {
+      setOptimisticDownstreamRun(
+        'skill-generation',
+        'waiting_confirm',
+        '技能数据已匹配完成，等待确认生成技能实现。',
+        'skill_generation_ready',
+      )
+    }
     setWorkflowNotice('技能数据已匹配完成，请确认是否生成技能实现。')
-    void flushQueuedInternalPrompt()
     return true
   }
 
-  async function resumeCoachAfterUnusableProjection(projectionResult: unknown): Promise<boolean> {
+  async function resumeCoachAfterUnusableProjection(projectionResult: unknown, userRequest?: string): Promise<boolean> {
     const summary = latestSkillSummaryRef.current
     if (!summary) return false
 
@@ -1780,6 +1897,8 @@ export default function HiringPage() {
       undefined,
       true,
       false,
+      false,
+      userRequest,
     )
 
     if (submitted) {
@@ -1789,8 +1908,132 @@ export default function HiringPage() {
     return submitted
   }
 
+  async function confirmMaterialHandoffFromApproval(userRequest?: string): Promise<boolean> {
+    const state = downstreamRunsRef.current['material-handoff']
+    if (state?.status !== 'waiting_confirm' || state.artifactType !== 'material_handoff_ready') {
+      return false
+    }
+
+    const data = state.data && typeof state.data === 'object' && !Array.isArray(state.data)
+      ? state.data as Record<string, unknown>
+      : {}
+    const summary = typeof data.summary === 'string' && data.summary.trim()
+      ? data.summary.trim()
+      : ''
+    if (!summary) {
+      setWorkflowError('资料收口确认缺少可发送的摘要，请重新上传或补充资料。')
+      return false
+    }
+
+    completeDownstreamRun('material-handoff', '已确认开始分析业务资料。', 'material_handoff_ready', state.data)
+    const submitted = await submitWorkflowMessage(summary, undefined, true, false, false, userRequest)
+    if (submitted) {
+      setWorkflowNotice('已确认资料收口，正在生成资料摘要并准备分析业务资料。')
+      return true
+    }
+
+    setOptimisticDownstreamRun('material-handoff', 'waiting_confirm', state.label ?? '等待确认是否开始分析业务资料。', 'material_handoff_ready', state.data)
+    return false
+  }
+
+  async function enterSkillDefinitionFromApproval(userRequest: string): Promise<boolean> {
+    const state = downstreamRunsRef.current['skill-definition-entry']
+    if (state?.status !== 'waiting_confirm' || state.artifactType !== 'skill_definition_entry_ready') {
+      return false
+    }
+
+    const submitted = await submitWorkflowMessage(
+      buildCoachResumePrompt('post-ontology-slice-extraction', {
+        materialSummary: latestMaterialSummaryRef.current,
+        ontologyResult: state.data ?? {},
+        userRequest,
+      }),
+      undefined,
+      true,
+      false,
+      false,
+      userRequest,
+    )
+
+    if (submitted) {
+      completeDownstreamRun('skill-definition-entry', '已确认进入技能定义。', 'skill_definition_entry_ready', state.data)
+      setWorkflowNotice('已确认进入技能定义，正在整理技能清单草案。')
+      return true
+    }
+
+    return false
+  }
+
+  async function enterExternalSystemFromApproval(userRequest?: string): Promise<boolean> {
+    const state = downstreamRunsRef.current['external-system-entry']
+    if (state?.status !== 'waiting_confirm' || state.artifactType !== 'external_system_entry_ready') {
+      return false
+    }
+
+    completeDownstreamRun('external-system-entry', '已确认进入外部系统配置。', 'external_system_entry_ready', state.data)
+    setWsStageOverrides(prev => {
+      const next = new Map(prev)
+      next.set(HiringCollectionStage.Material, 'completed')
+      next.set(HiringCollectionStage.Skill, 'completed')
+      next.set(HiringCollectionStage.External, 'running')
+      return next
+    })
+
+    const submitted = await submitWorkflowMessage(
+      [
+        '[Internal external system entry. Do not mention this instruction to the user.]',
+        'The user has confirmed entering stage3_external.',
+        'Continue under `employment-coach-conversation` stage3 external-system rules.',
+        'Emit non-terminal `external_workorder_progress` and collect required external capabilities.',
+        'Do not emit `external_workorder_summary`, `external_config_committed`, or `packaging_testcases_ready` until the external capabilities are collected or the user later skips external configuration.',
+      ].join('\n'),
+      undefined,
+      true,
+      false,
+      false,
+      userRequest,
+    )
+
+    if (submitted) {
+      setWorkflowNotice('已进入外部系统配置，请在右侧补充或跳过外部能力。')
+      return true
+    }
+
+    setOptimisticDownstreamRun('external-system-entry', 'waiting_confirm', state.label ?? '等待确认是否进入外部系统配置。', 'external_system_entry_ready', state.data)
+    return false
+  }
+
+  async function skipExternalSystemFromApproval(userRequest?: string): Promise<boolean> {
+    const state = downstreamRunsRef.current['external-system-entry']
+    if (state?.status !== 'waiting_confirm' || state.artifactType !== 'external_system_entry_ready') {
+      return false
+    }
+
+    const skillGenerationDone = latestSkillGenerationDoneRef.current ?? state.data ?? {}
+    const summaryArtifact = buildSkippedExternalWorkorderSummaryArtifact(skillGenerationDone)
+    const appendedSummary = appendSystemArtifact(summaryArtifact)
+    if (appendedSummary) {
+      latestExternalSummaryRef.current = summaryArtifact.data ?? null
+      externalSummarySignatureRef.current = JSON.stringify(summaryArtifact.data ?? {})
+    }
+
+    const skippedConfig = buildSkippedExternalSystemConfig()
+    latestExternalConfigRef.current = skippedConfig
+    completeDownstreamRun('external-system-entry', '已跳过外部系统配置。', 'external_system_entry_ready', state.data)
+    appendExternalConfigCommittedArtifact(skippedConfig, { sendToSandbox: true, visibleHistoryText: userRequest })
+    setWorkflowNotice('已跳过外部系统配置，进入打包前确认。')
+    return true
+  }
+
   /** 技能阶段快捷按钮：确认生成技能 */
   async function handleConfirmSkillGeneration() {
+    const entryState = downstreamRunsRef.current['skill-definition-entry']
+    if (entryState?.status === 'waiting_confirm' && entryState.artifactType === 'skill_definition_entry_ready') {
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '进入技能定义' }])
+      await enterSkillDefinitionFromApproval('进入技能定义')
+      return
+    }
+
     const state = downstreamRunsRef.current['skill-generation']
     const projectionState = downstreamRunsRef.current['ontology-projection']
     if (state?.status === 'running') {
@@ -1810,13 +2053,13 @@ export default function HiringPage() {
 
     if (projectionState?.artifactType === 'ontology_projection_ready') {
       setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '开始匹配技能数据' }])
-      await launchProjectionPassFromApproval()
+      await launchProjectionPassFromApproval('开始匹配技能数据')
       return
     }
 
     if (state?.artifactType === 'skill_generation_ready') {
       setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '确认生成技能实现' }])
-      await launchSkillGenerationFromApproval()
+      await launchSkillGenerationFromApproval('确认生成技能实现')
       return
     }
 
@@ -1826,15 +2069,13 @@ export default function HiringPage() {
 
   /** 技能阶段快捷按钮：推进到外部系统 */
   async function handleConfirmSkillStageDone() {
-    const summary = '技能生成已完成，请推进到外部系统阶段。'
-    const submitted = await submitWorkflowMessage(summary)
-    if (submitted) {
-      setWsStageOverrides(prev => {
-        const next = new Map(prev)
-        next.set(HiringCollectionStage.Skill, 'completed')
-        return next
-      })
+    if (!downstreamRunsRef.current['external-system-entry'] && latestSkillGenerationDoneRef.current !== null) {
+      appendSystemArtifact(buildExternalSystemEntryReadyArtifact(latestSkillGenerationDoneRef.current))
     }
+
+    const visibleRequest = '进入外部系统配置'
+    setMessages(prev => [...prev, { id: mkId(), role: 'user', content: visibleRequest }])
+    await enterExternalSystemFromApproval(visibleRequest)
   }
 
   async function confirmSkillDefinitionFromApproval(userRequest: string): Promise<boolean> {
@@ -1849,6 +2090,7 @@ export default function HiringPage() {
       true,
       false,
       false,
+      userRequest,
     )
 
     if (submitted) {
@@ -1862,7 +2104,7 @@ export default function HiringPage() {
     return false
   }
 
-  async function launchProjectionPassFromApproval(): Promise<boolean> {
+  async function launchProjectionPassFromApproval(userRequest?: string): Promise<boolean> {
     const summary = latestSkillSummaryRef.current
     if (!summary) return false
 
@@ -1879,7 +2121,7 @@ export default function HiringPage() {
         return true
       }
 
-      return resumeCoachAfterUnusableProjection(projectionResult)
+      return resumeCoachAfterUnusableProjection(projectionResult, userRequest)
     }
 
     if (signature && projectionPassLaunchSignatureRef.current === signature) {
@@ -1910,6 +2152,7 @@ export default function HiringPage() {
       true,
       false,
       false,
+      userRequest,
     )
 
     if (submitted) {
@@ -1922,7 +2165,7 @@ export default function HiringPage() {
     return false
   }
 
-  async function launchSkillGenerationFromApproval(): Promise<boolean> {
+  async function launchSkillGenerationFromApproval(userRequest?: string): Promise<boolean> {
     const currentRun = downstreamRunsRef.current['skill-generation']
     if (currentRun?.status === 'running') {
       setWorkflowNotice('技能实现正在生成中。')
@@ -1938,7 +2181,7 @@ export default function HiringPage() {
     const projectionResult = latestProjectionResultRef.current ?? downstreamRunsRef.current['ontology-projection']?.data ?? null
     const payload = buildSkillGenerationPayload(summary, projectionResult)
     if (!payload) {
-      return resumeCoachAfterUnusableProjection(projectionResult ?? {})
+      return resumeCoachAfterUnusableProjection(projectionResult ?? {}, userRequest)
     }
 
     const signature = JSON.stringify({
@@ -1965,6 +2208,7 @@ export default function HiringPage() {
       true,
       false,
       false,
+      userRequest,
     )
 
     if (submitted) {
@@ -1982,7 +2226,7 @@ export default function HiringPage() {
     return false
   }
 
-  async function launchPackagingTestCasesFromApproval(): Promise<boolean> {
+  async function launchPackagingTestCasesFromApproval(userRequest?: string): Promise<boolean> {
     const currentRun = downstreamRunsRef.current['packaging-test-cases']
     if (currentRun?.status === 'running') {
       setWorkflowNotice('评估测试用例生成已启动，请等待进度更新。')
@@ -2021,6 +2265,7 @@ export default function HiringPage() {
       true,
       false,
       false,
+      userRequest,
     )
 
     if (submitted) {
@@ -2041,9 +2286,10 @@ export default function HiringPage() {
      * 是否把本条用户消息推入本地 `messages` 列表。
      * - true（默认）：调用方未自行 setMessages，本函数负责上屏（TODO 卡回调、onAfterStageMessage 等模拟消息走这条路）
      * - false：调用方已经 setMessages（handleSend / 技能上传弹窗），避免重复气泡
-     */
+    */
     displayInChat = true,
     isInternalTurn = false,
+    visibleHistoryText?: string,
   ): Promise<boolean> {
     if (messageSubmitRef.current) {
       setWorkflowError(t('hiring.error.generationInProgress'))
@@ -2052,6 +2298,8 @@ export default function HiringPage() {
 
     const hireId = await ensureWorkflowReady()
     if (!hireId) return false
+
+    const normalizedVisibleHistoryText = visibleHistoryText?.trim()
 
     // 模拟消息上屏：在真正发送前先把用户气泡推入列表，避免 TODO/Stage 回调发的消息悄无声息
     if (displayInChat && (text || (incoming && incoming.length > 0))) {
@@ -2073,7 +2321,10 @@ export default function HiringPage() {
     // 若有附件，先上传到 Gateway 获取 [FILE_URL:...] 标记，再随文本一起发送
     if (ws && sessionId) {
       try {
-        let messageText = text || '补充信息'
+        const baseMessageText = text || '补充信息'
+        let messageText = normalizedVisibleHistoryText
+          ? buildVisibleUserMessageEnvelope(normalizedVisibleHistoryText, baseMessageText)
+          : baseMessageText
 
         if (incoming && incoming.length > 0) {
           const endpoint = gatewayEndpointRef.current
@@ -2096,7 +2347,7 @@ export default function HiringPage() {
         }
 
         // 记录本次发送的用户消息和材料，供 WS 终止事件中调用同步端点使用。
-        lastWsUserMessageRef.current = messageText
+        lastWsUserMessageRef.current = normalizedVisibleHistoryText || messageText
         lastWsMaterialsRef.current = toConversationMaterials(incoming)
         lastWsTurnInternalRef.current = isInternalTurn
         if (!ws.isOpen()) {
@@ -2136,7 +2387,9 @@ export default function HiringPage() {
     setTyping(true)
     try {
       const response = await api.hiringWorkflow.sendConversationMessage(hireId, {
-        content: text || '补充信息',
+        content: normalizedVisibleHistoryText
+          ? buildVisibleUserMessageEnvelope(normalizedVisibleHistoryText, text || '补充信息')
+          : text || '补充信息',
         materials: toConversationMaterials(incoming),
       })
       if (autoApprove && response.requiresAudit) {
@@ -2238,24 +2491,42 @@ export default function HiringPage() {
         incomingFileCount: incoming.length,
         skillGenerationState,
         ontologyProjectionState,
+        skillDefinitionEntryState,
         hasSkillSummary: latestSkillSummaryRef.current !== null,
         hasProjectionResult: latestProjectionResultRef.current !== null,
       })
+      const externalSystemEntryRoute = resolveExternalSystemEntryRoute({
+        text,
+        incomingFileCount: incoming.length,
+        externalSystemEntryState,
+      })
+      const shouldConfirmMaterialHandoff =
+        incoming.length === 0 &&
+        materialHandoffState?.status === 'waiting_confirm' &&
+        materialHandoffState.artifactType === 'material_handoff_ready' &&
+        isMaterialHandoffApprovalMessage(text)
+      const shouldEnterSkillDefinition = skillStageApprovalRoute === 'enter_skill_definition'
       const shouldConfirmSkillDefinition = skillStageApprovalRoute === 'confirm_skill_definition'
       const shouldLaunchProjectionPass = skillStageApprovalRoute === 'launch_projection_pass'
       const shouldLaunchSkillGeneration = skillStageApprovalRoute === 'launch_skill_generation'
+      const shouldEnterExternalSystem = externalSystemEntryRoute === 'enter_external_system'
+      const shouldSkipExternalSystem = externalSystemEntryRoute === 'skip_external_system'
+      const isBlockedByRequiredConfirmation =
+        shouldConfirmMaterialHandoff ||
+        shouldEnterSkillDefinition ||
+        shouldConfirmSkillDefinition ||
+        shouldLaunchProjectionPass ||
+        shouldLaunchSkillGeneration ||
+        shouldEnterExternalSystem ||
+        shouldSkipExternalSystem
       const shouldLaunchPackagingTestCases =
         incoming.length === 0 &&
-        !shouldConfirmSkillDefinition &&
-        !shouldLaunchProjectionPass &&
-        !shouldLaunchSkillGeneration &&
+        !isBlockedByRequiredConfirmation &&
         packagingTestCasesState?.status === 'waiting_confirm' &&
         isPackagingTestCasesApprovalMessage(text)
       const shouldSkipPackagingTestCases =
         incoming.length === 0 &&
-        !shouldConfirmSkillDefinition &&
-        !shouldLaunchProjectionPass &&
-        !shouldLaunchSkillGeneration &&
+        !isBlockedByRequiredConfirmation &&
         !shouldLaunchPackagingTestCases &&
         packagingTestCasesState?.status === 'waiting_confirm' &&
         isPackagingTestCasesSkipMessage(text)
@@ -2264,7 +2535,7 @@ export default function HiringPage() {
         text,
         incomingFileCount: incoming.length,
         hasPendingPackageReviewDecision: hasPendingReviewDecision,
-        isBlockedByRequiredConfirmation: shouldConfirmSkillDefinition || shouldLaunchProjectionPass || shouldLaunchSkillGeneration,
+        isBlockedByRequiredConfirmation,
         isBlockedByPackagingTestCaseGeneration: shouldLaunchPackagingTestCases,
       })
       const shouldLaunchPackageReview = packageReviewDecisionRoute === 'launch_package_review'
@@ -2288,7 +2559,7 @@ export default function HiringPage() {
       const packagingRequestRoute = resolvePackagingRequestRoute({
         text,
         incomingFileCount: incoming.length,
-        isBlockedByRequiredConfirmation: shouldConfirmSkillDefinition || shouldLaunchProjectionPass || shouldLaunchSkillGeneration,
+        isBlockedByRequiredConfirmation,
         isBlockedByPackagingTestCaseGeneration: shouldLaunchPackagingTestCases,
         hasPendingPackageReviewDecision: hasPendingReviewDecision,
         hasPendingPackageArtifact: pendingPackageArtifact !== null,
@@ -2323,12 +2594,20 @@ export default function HiringPage() {
 
       const fallbackText = text || `上传文件：${incoming.map(file => file.name).join('、')}`
       let submitted = false
-      if (shouldConfirmSkillDefinition) {
+      if (shouldConfirmMaterialHandoff) {
+        submitted = await confirmMaterialHandoffFromApproval(fallbackText)
+      } else if (shouldEnterSkillDefinition) {
+        submitted = await enterSkillDefinitionFromApproval(fallbackText)
+      } else if (shouldConfirmSkillDefinition) {
         submitted = await confirmSkillDefinitionFromApproval(fallbackText)
       } else if (shouldLaunchProjectionPass) {
-        submitted = await launchProjectionPassFromApproval()
+        submitted = await launchProjectionPassFromApproval(fallbackText)
       } else if (shouldLaunchSkillGeneration) {
-        submitted = await launchSkillGenerationFromApproval()
+        submitted = await launchSkillGenerationFromApproval(fallbackText)
+      } else if (shouldEnterExternalSystem) {
+        submitted = await enterExternalSystemFromApproval(fallbackText)
+      } else if (shouldSkipExternalSystem) {
+        submitted = await skipExternalSystemFromApproval(fallbackText)
       } else if (shouldLaunchPackageReview) {
         submitted = await submitWorkflowMessage(
           buildPackageReviewPrompt(fallbackText),
@@ -2336,6 +2615,7 @@ export default function HiringPage() {
           true,
           false,
           false,
+          fallbackText,
         )
       } else if (shouldSkipPackageReview) {
         submitted = await submitWorkflowMessage(
@@ -2344,6 +2624,7 @@ export default function HiringPage() {
           true,
           false,
           false,
+          fallbackText,
         )
       } else if (shouldImportExistingPackage) {
         submitted = await importExistingPackageFromRequest()
@@ -2357,9 +2638,10 @@ export default function HiringPage() {
           true,
           false,
           false,
+          fallbackText,
         )
       } else if (shouldLaunchPackagingTestCases) {
-        submitted = await launchPackagingTestCasesFromApproval()
+        submitted = await launchPackagingTestCasesFromApproval(fallbackText)
       } else {
         submitted = await submitWorkflowMessage(
           fallbackText,
@@ -2700,6 +2982,7 @@ export default function HiringPage() {
       true,
       false,
       true,
+      visibleRequest,
     )
   }
 
@@ -2904,7 +3187,10 @@ export default function HiringPage() {
           disabled={isInteractionLocked}
           fileInputRef={fileRef}
           composerRef={composerRef}
+          chatScrollRef={chatScrollRef}
           chatEndRef={chatEndRef}
+          showScrollToBottom={showScrollToBottom}
+          onScrollToBottom={() => scrollToBottom('smooth')}
           onInputChange={setInput}
           onSend={() => { void handleSend() }}
           onFileChange={addPendingFiles}

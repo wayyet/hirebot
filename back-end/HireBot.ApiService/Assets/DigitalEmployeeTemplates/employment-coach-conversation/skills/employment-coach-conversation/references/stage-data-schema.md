@@ -10,7 +10,7 @@
 
 | 禁止的字段名 / 值 | 来源说明 | 应改用 |
 |-----------------|---------|-------|
-| 顶层 `status` 字段（除打包相关 artifact） | 旧 handoff 状态机残留 | 非打包 artifact 不需要顶层 status；各 item 内部有自己的 `status: pending/ready` |
+| 顶层 `status` 字段（除确认门和打包相关 artifact） | 旧 handoff 状态机残留 | 非确认门、非打包 artifact 不需要顶层 status；确认门只允许 `status: "waiting_confirm"`；各 item 内部有自己的 `status: pending/ready` |
 | `status: "ready_to_dispatch"` | 旧 dispatch 协议 | 用 `isTerminal: true` 表示阶段完成 |
 | `status: "dispatched"` / `"confirmed"` / `"needs_review"` / `"dirty"` | 旧 handoff 状态机 | 同上 |
 | `capabilities` 字段 | 旧格式 | 改用 `items[]` |
@@ -21,7 +21,7 @@
 
 **data 字段的合法顶层 key 只有下方各 artifactType 示例中明确列出的字段。任何不在示例中的 key 均视为错误。**
 
-**唯一例外**：`stage4_packaging` 的打包/审查相关 artifact（`packaging_progress`、`packaging_testcases_progress`、`packaging_testcases_done`、`review_readiness`、`review_progress`、`review_report`）允许顶层 `status`；其中 `packaging_progress.status` 仅允许 `waiting_downstream` / `packing`，`review_report.status` 仅允许 `PASS` / `PASS_WITH_CONCERNS` / `FAIL`。
+**唯一例外**：确认门 artifact（`material_handoff_ready`、`skill_definition_entry_ready`、`skill_definition_ready`、`ontology_projection_ready`、`skill_generation_ready`、`external_system_entry_ready`、`packaging_testcases_ready`、`review_readiness`）允许顶层 `status: "waiting_confirm"`；`stage4_packaging` 的打包/审查相关 artifact（`packaging_progress`、`packaging_testcases_progress`、`packaging_testcases_done`、`review_progress`、`review_report`）允许顶层 `status`；其中 `packaging_progress.status` 仅允许 `waiting_downstream` / `packing`，`review_report.status` 仅允许 `PASS` / `PASS_WITH_CONCERNS` / `FAIL`。
 
 **对话回复中同样禁止出现以下词语**：`dispatch 闭环`、`dispatch 信号`、`handoff 工单`、`ready_to_dispatch`、`dispatch 给下游`、`实例包`、`产物包`、`本体切片`、`ontology`、`projection`、`artifact`、`workorder`。内部协议字段可以保留这些词，但面向用户的 `label` 与自然语言回复必须使用术语表里的用户侧说法。
 
@@ -89,6 +89,32 @@
 
 ---
 
+### material_handoff_ready（资料收口确认门，isTerminal: false）
+
+```json
+{
+  "context_signature": "material-upload-batch-20260615143000",
+  "status": "waiting_confirm",
+  "summary": "已上传历史排产与插单案例，等待确认是否开始分析业务资料",
+  "next_artifact": "material_handoff_summary",
+  "message": "资料已上传完成，请确认是否按当前资料开始分析业务资料。"
+}
+```
+
+字段说明：
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `context_signature` | 是 | 当前资料上下文签名；同一签名只展示一次，补充资料后必须变化 |
+| `status` | 是 | 固定为 `waiting_confirm` |
+| `summary` | 是 | 对用户可读的资料收口摘要 |
+| `next_artifact` | 是 | 固定为 `material_handoff_summary` |
+| `message` | 否 | 面向用户的确认说明 |
+
+补充约束：普通 assistant 文本不能替代该确认门。用户确认前不得发出 `material_handoff_summary`。
+
+---
+
 ### material_handoff_summary（资料收口 / R1 输入，isTerminal: true）
 
 ```json
@@ -134,6 +160,30 @@
 - 匹配技能数据确认：技能定义完成后发出 `ontology_projection_ready`，用户确认后才触发 projection pass（`ontology-slice-extraction` projection_pass 模式）。
 - 技能生成确认/执行：`ontology_projection_done` 可消费后发 `skill_generation_ready`（用户确认门），确认后触发下游 `skill-generation`。
 
+### skill_definition_entry_ready（技能定义入口确认门，isTerminal: false）
+
+```json
+{
+  "context_signature": "material-summary-v1:ontology-slices-v1",
+  "status": "waiting_confirm",
+  "trigger_after": "ontology_slice_extraction_done",
+  "message": "业务资料分析完成，请确认是否进入技能定义环节。"
+}
+```
+
+字段说明：
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `context_signature` | 是 | 当前资料摘要与业务资料分析结果的签名；同一签名只展示一次 |
+| `status` | 是 | 固定为 `waiting_confirm` |
+| `trigger_after` | 是 | 固定为 `ontology_slice_extraction_done` |
+| `message` | 否 | 面向用户的确认说明 |
+
+补充约束：用户确认前不得发出 `skill_workorder_progress`。普通 assistant 文本可以解释分析结果，但不能作为“是否进入技能定义”的状态来源。
+
+---
+
 ### skill_workorder_progress（进度更新，isTerminal: false）
 
 ```json
@@ -142,6 +192,7 @@
   "items": [
     {
       "name": "refund-eligibility-check",
+      "skill_slug": "refund-eligibility-check",
       "display_name": "退货资格初判",
       "description": "在用户提出退货请求时，根据订单状态、商品类型和时限判断是否符合退货条件",
       "trigger": "用户消息中出现退货 / 退款等关键词且能匹配到订单",
@@ -151,6 +202,7 @@
     },
     {
       "name": "order-status-query",
+      "skill_slug": "order-status-query",
       "display_name": "订单状态查询",
       "description": "根据订单号查询状态、物流进度和基础异常",
       "trigger": "用户询问订单状态 / 物流进度",
@@ -169,7 +221,8 @@
 |------|------|------|
 | `collected_count` | 是 | 当前已整理的 skill 数量 |
 | `items[]` | 是 | skill 清单 |
-| `items[].name` | 是 | skill slug（英文，下划线） |
+| `items[].name` | 是 | skill slug（英文，下划线/短横线）；不得写中文显示名 |
+| `items[].skill_slug` | 建议 | 与 `items[].name` 相同的稳定技能目录 slug；若历史数据中 `name` 被误写成显示名，前端会优先使用此字段 |
 | `items[].display_name` | 是 | 对用户可读的技能名称 |
 | `items[].description` | 是 | 技能能力描述 |
 | `items[].trigger` | 是 | 触发条件 |
@@ -292,6 +345,7 @@
 | `next_step` | 是 | 固定描述下一步是等待用户确认开始技能生成 |
 
 补充约束：
+- 该确认门由系统层根据最近一次可消费的 `ontology_projection_done` 确定性追加；coach 不得重复 emit，也不得用普通文本充当确认门。
 - 这个 artifact 只表示 projection 已完成且可消费，等待用户确认进入“技能生成执行”子步骤；前端应保留“技能定义已确认”和“技能数据已匹配”的子状态，但主 `stage2_skill` 在 `skill-generation` 完成前仍保持进行中。
 - 发出该 artifact 后，若用户未明确同意，不得提前触发 `skill-generation`，也不得进入阶段 3。
 - `skill_generation_ready.data` 必须包含 `projection_paths` 与 `projected_count` 摘要；不得包含 `projection_binding_confirmed`、`projection_result`、`projection_contract_mode` 等执行字段，这些字段只属于用户确认后传给 `skill-generation` 的内部触发 payload。
@@ -383,6 +437,32 @@
 
 ## 阶段 3：外部（stage3_external）
 
+### external_system_entry_ready（外部系统入口确认门，isTerminal: false）
+
+```json
+{
+  "context_signature": "skill-generation-done-v1",
+  "status": "waiting_confirm",
+  "trigger_after": "skill_generation_done",
+  "options": ["enter_external_system", "skip_external_system"],
+  "message": "技能实现已生成，请确认进入外部系统配置，或跳过外部系统直接进入打包前确认。"
+}
+```
+
+字段说明：
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `context_signature` | 是 | 当前技能生成结果签名；同一签名只展示一次 |
+| `status` | 是 | 固定为 `waiting_confirm` |
+| `trigger_after` | 是 | 固定为 `skill_generation_done` |
+| `options[]` | 是 | 固定包含 `enter_external_system` 和 `skip_external_system` |
+| `message` | 否 | 面向用户的确认说明 |
+
+补充约束：用户选择进入外部系统配置后，Coach 才允许发出 `external_workorder_progress`。用户选择跳过外部系统时，skip 形态的 `external_workorder_summary` 与 `external_config_committed` 由系统层确定性写入，不交给模型自由生成。
+
+---
+
 ### external_workorder_progress（进度更新，isTerminal: false）
 
 ```json
@@ -437,9 +517,13 @@
 
 ```json
 {
+  "context_signature": "skill-generation-done-v1",
   "total_capabilities": 0,
   "skip": true,
+  "submissionMode": "skipped",
   "external_capabilities": [],
+  "reason": "user_skipped_external_system",
+  "trigger_after": "external_system_entry_ready",
   "summary": "用户明确声明不需要外部系统接入，外部阶段已跳过"
 }
 ```
@@ -450,7 +534,7 @@
 
 - **data 中禁止写入凭据值**：token / 密钥 / 密码 / API Key / 连接串一律不得出现在 `data` 字段中
 - **凭据形式可以描述**：`auth_kind` 描述鉴权方式（如 `oauth2`、`bearer_token`），不写具体凭据值
-- **status 字段**：除打包/审查相关 artifact（`packaging_progress`、`packaging_testcases_progress`、`packaging_testcases_done`、`review_readiness`、`review_progress`、`review_report`）外，不允许 `data` 顶层 `status`。条目级 `items[].status` / `external_capabilities[].status` 仍按 `pending` / `ready` 使用；terminal artifact 中条目状态应全部为 `ready`
+- **status 字段**：除确认门 artifact（固定 `waiting_confirm`）和打包/审查相关 artifact（`packaging_progress`、`packaging_testcases_progress`、`packaging_testcases_done`、`review_progress`、`review_report`）外，不允许 `data` 顶层 `status`。条目级 `items[].status` / `external_capabilities[].status` 仍按 `pending` / `ready` 使用；terminal artifact 中条目状态应全部为 `ready`
 - **summary 字段**：terminal artifact 必须包含对用户可读的 `summary`，进度 artifact 可选
 
 ---

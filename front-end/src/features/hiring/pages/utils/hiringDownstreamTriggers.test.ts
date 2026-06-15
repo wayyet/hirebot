@@ -72,6 +72,32 @@ describe('buildProjectionPassPayload', () => {
       ],
     })).toBeNull()
   })
+
+  it('透传已收集的业务规则供匹配技能数据消费', () => {
+    const payload = buildProjectionPassPayload({
+      workspace_root: '/workspace/template-20260611090000',
+      template_slug: 'template',
+      business_rules_captured_so_far: {
+        cip_matrix: 'fragrance_to_color_to_sensitive_level',
+      },
+      items: [
+        {
+          name: 'cip-changeover-time-and-path-selection',
+          display_name: '换线/CIP约束估时与路径选择',
+          description: '选择换线路径并估算清洗时间',
+          trigger: '用户提出同线切换',
+          expected_output: '输出换线顺序和估时',
+          generation_action: 'generate_new',
+        },
+      ],
+    })
+
+    expect(payload).toMatchObject({
+      business_rules: {
+        cip_matrix: 'fragrance_to_color_to_sensitive_level',
+      },
+    })
+  })
 })
 
 describe('buildSkillGenerationPayload', () => {
@@ -107,6 +133,51 @@ describe('buildSkillGenerationPayload', () => {
     expect(payload).toMatchObject({
       confirmed_skill_slugs: ['insert-order-feasibility'],
       projection_skill_slugs: ['insert-order-feasibility'],
+      projection_binding_confirmed: true,
+      projection_contract_mode: 'required',
+    })
+  })
+
+  it('优先使用显式 skill_slug，避免中文 name 与 projection 目录分叉', () => {
+    const summary = {
+      workspace_root: '/workspace/template-1',
+      items: [
+        {
+          name: '插单可行性评估与快速重排建议',
+          skill_slug: 'scheduling_replan_advisor',
+          display_name: '插单可行性评估与快速重排建议',
+          description: '评估插单可行性并输出重排建议',
+          trigger: '用户提交插单请求',
+          expected_output: '输出可行性结论和小时级排产建议',
+          generation_action: 'generate_new',
+        },
+      ],
+    }
+
+    expect(buildProjectionPassPayload(summary)).toMatchObject({
+      skills: [
+        {
+          skill_slug: 'scheduling_replan_advisor',
+          skill_name: '插单可行性评估与快速重排建议',
+        },
+      ],
+    })
+
+    expect(buildSkillGenerationPayload(summary, {
+      projected_count: 1,
+      projection_paths: [
+        'ontology/projections/scheduling_replan_advisor/cosmetics-production-scheduling.workflow-contract.projection.json',
+      ],
+    })).toMatchObject({
+      items: [
+        {
+          name: 'scheduling_replan_advisor',
+          skill_slug: 'scheduling_replan_advisor',
+          display_name: '插单可行性评估与快速重排建议',
+        },
+      ],
+      confirmed_skill_slugs: ['scheduling_replan_advisor'],
+      projection_skill_slugs: ['scheduling_replan_advisor'],
       projection_binding_confirmed: true,
       projection_contract_mode: 'required',
     })
@@ -296,6 +367,10 @@ describe('buildPackagingRequestPrompt', () => {
     expect(prompt).toContain('Stop immediately after `review_readiness`')
     expect(prompt).toContain('Do not emit `review_progress`')
     expect(prompt).toContain('do not emit `template_package`')
+    expect(prompt).toContain('manifest.entry_skill')
+    expect(prompt).toContain('manifest.skills')
+    expect(prompt).toContain('manifest.ontology_slices')
+    expect(prompt).toContain('do not emit `review_readiness`')
   })
 
   it('review_report 已存在时要求直接进入 R6 打包', () => {
@@ -318,6 +393,10 @@ describe('buildPackagingRequestPrompt', () => {
     expect(prompt).toContain('stop and report the concrete root-resolution problem')
     expect(prompt).toContain('use a zip tool to package that directory')
     expect(prompt).toContain('template_package')
+    expect(prompt).toContain('manifest.entry_skill')
+    expect(prompt).toContain('manifest.skills')
+    expect(prompt).toContain('manifest.ontology_slices')
+    expect(prompt).toContain('do not emit `template_package`')
   })
 })
 
@@ -364,6 +443,12 @@ describe('package review decision routing', () => {
     expect(prompt).toContain('review_report')
     expect(prompt).toContain('Do not invoke package/export/archive tools')
     expect(prompt).toContain('do not emit `template_package`')
+    expect(prompt).toContain('After emitting `review_report`, stop')
+    expect(prompt).toContain('Do not ask whether to fix blockers')
+    expect(prompt).toContain('manifest.entry_skill')
+    expect(prompt).toContain('manifest.skills')
+    expect(prompt).toContain('manifest.ontology_slices')
+    expect(prompt).toContain('do not emit `review_progress`')
   })
 
   it('跳过审查提示直接打包且禁止 review_progress', () => {
@@ -374,6 +459,10 @@ describe('package review decision routing', () => {
     expect(prompt).toContain('do not emit `review_progress`')
     expect(prompt).toContain('packaging_progress')
     expect(prompt).toContain('template_package')
+    expect(prompt).toContain('manifest.entry_skill')
+    expect(prompt).toContain('manifest.skills')
+    expect(prompt).toContain('manifest.ontology_slices')
+    expect(prompt).toContain('do not emit `template_package`')
   })
 })
 
@@ -426,6 +515,10 @@ describe('buildDownstreamPrompt', () => {
     expect(prompt).toContain('ontology_projection_progress')
     expect(prompt).toContain('ontology_projection_done')
     expect(prompt).toContain('Scan slices from `<workspace_root>/ontology/`')
+    expect(prompt).toContain('write_file')
+    expect(prompt).toContain('read_file')
+    expect(prompt).toContain('do not emit a successful `ontology_projection_done` for an unwritten or stub projection')
+    expect(prompt).toContain('do not ask the user to rerun the same projection pass')
   })
 
   it('skill-generation prompt 包含 use skill skill-generation 触发块', () => {

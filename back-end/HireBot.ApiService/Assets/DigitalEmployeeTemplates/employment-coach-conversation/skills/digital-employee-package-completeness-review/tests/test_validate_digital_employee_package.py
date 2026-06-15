@@ -1,7 +1,10 @@
 import importlib.util
+import io
 import json
+from types import SimpleNamespace
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -10,11 +13,27 @@ SCRIPT_PATH = (
     / "scripts"
     / "validate_digital_employee_package.py"
 )
+MATERIALIZER_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "skill-generation"
+    / "scripts"
+    / "materialize-consumer-projection-contract.py"
+)
 
 
 def load_validator_module():
     spec = importlib.util.spec_from_file_location(
         "validate_digital_employee_package", SCRIPT_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_materializer_module():
+    spec = importlib.util.spec_from_file_location(
+        "materialize_consumer_projection_contract", MATERIALIZER_SCRIPT_PATH
     )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -481,7 +500,7 @@ class DigitalEmployeePackageValidatorTests(unittest.TestCase):
                 {f["code"] for f in report["findings"]},
             )
 
-    def test_projection_open_questions_blocks_release(self):
+    def test_projection_open_questions_is_warning_not_p0(self):
         validator = load_validator_module()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -496,9 +515,74 @@ class DigitalEmployeePackageValidatorTests(unittest.TestCase):
 
             report = validator.validate_package(root)
 
-            self.assertIn(
+            self.assertEqual("PASS_WITH_CONCERNS", report["status"])
+            self.assertNotIn(
                 "projection.open_questions.present",
                 {f["code"] for f in report["p0_blockers"]},
+            )
+            matching_findings = [
+                finding
+                for finding in report["findings"]
+                if finding["code"] == "projection.open_questions.present"
+            ]
+            self.assertEqual(1, len(matching_findings))
+            self.assertEqual("WARN", matching_findings[0]["severity"])
+
+    def test_materialized_projection_source_slice_path_resolves(self):
+        validator = load_validator_module()
+        materializer = load_materializer_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.create_minimal_package(root)
+            source_path = (
+                root
+                / "ontology/projections/field-mapping/demo-domain.workflow-contract.projection.json"
+            )
+            self.write_json(
+                source_path,
+                {
+                    "projection_type": "workflow_contract_projection",
+                    "source_slice": {
+                        "path": "ontology/demo-domain.slice.json",
+                        "topic": "demo-domain",
+                    },
+                    "intended_consumers": ["field-mapping"],
+                    "concept_mappings": [
+                        {
+                            "source": "demo field",
+                            "target": "field_mapping.input",
+                            "confidence": 0.9,
+                        }
+                    ],
+                    "open_questions": [],
+                },
+            )
+
+            with redirect_stdout(io.StringIO()):
+                exit_code = materializer.materialize(
+                    SimpleNamespace(
+                        workspace_root=str(root),
+                        skill_slug="field-mapping",
+                        skill_name="Field Mapping",
+                        source_dir=None,
+                        output_dir=None,
+                    )
+                )
+
+            self.assertEqual(0, exit_code)
+            materialized_path = (
+                root
+                / "skills/field-mapping/contracts/projections/ontology_extraction/demo-domain/demo-domain.workflow-contract.projection.json"
+            )
+            materialized = json.loads(materialized_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                "ontology/demo-domain.slice.json",
+                materialized["source_slice"]["path"],
+            )
+            report = validator.validate_package(root)
+            self.assertNotIn(
+                "projection.source_slice.unresolved",
+                {f["code"] for f in report["findings"]},
             )
 
     def test_projection_source_slice_unresolved(self):

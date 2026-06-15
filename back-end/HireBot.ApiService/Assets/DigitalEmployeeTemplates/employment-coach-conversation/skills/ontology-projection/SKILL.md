@@ -226,6 +226,9 @@ Task-scoped projection mapping: takes existing ontology slices and matches them 
 - **将 `business_rules` 中已有规则映射到 `constraint_mappings`**：遍历 payload 中的 `business_rules`，对每条已有值的规则，在对应 skill 的 `constraint_mappings` 中追加一条约束项，`source` 标注为 `"business_rules_captured_in_skill_definition"`
 - `open_questions`：若 slice validation 为 WARNING 且原 slice 有 open_questions，透传到此处；若 `business_rules` 中存在缺口（关键约束缺失），以结构化选项形式记录到 `open_questions`，待用户回答后回填
 - **调用 `write_file` 工具写入**完整 projection JSON 到 `<workspace_root>/ontology/projections/<skill-slug>/<domain-slug>.<type-short>.projection.json`；其中 `<skill-slug>` 必须等于输入 `skills[].skill_slug`，不能使用 display_name、英文同义词或重新生成的 slug。
+  - 优先使用沙箱文件写入工具 `write_file`；若当前工具清单没有 `write_file`，只能使用等价的 `create_file` / `save_file` 文件写入工具。
+  - 禁止用 shell、Python here-doc、echo、cat 重定向或“只在对话里输出 JSON”来替代文件写入工具。
+  - 如果当前环境没有任何可用文件写入工具，停止本轮 projection，发出不可用/跳过原因；不得把未落盘内容计入 `projected_count`，也不得发出成功形态的 `ontology_projection_done`。
   - `domain-slug`：由 slice 的 `slice_request.topic` 衍生（转小写、空格换短横线、保留字母数字短横线）
   - `type-short`：`workflow-contract` 或 `prompt-constraint`
 - **写入后验证**：立即读取刚写入的文件，确认其包含完整的 projection 结构（至少含 `projection_type`、`source_slice`、`intended_consumers`、`concept_mappings`）。若验证失败，重新写入

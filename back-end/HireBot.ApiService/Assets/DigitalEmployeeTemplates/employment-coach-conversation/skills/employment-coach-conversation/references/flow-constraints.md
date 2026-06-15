@@ -20,7 +20,7 @@
 
 把强弱差异、卡点、最容易判错的地方，全部转化进 `skill_description`，不要只写"处理 X"这种宽泛意图。
 
-字段明确度对照以 `stage-data-schema.md` 中的 `skill_workorder_progress` / `skill_workorder_summary` 为准。阶段 2 收口后，必须继续走“技能实现确认门”，先问用户是否开始生成技能实现，不要直接切到阶段 3，也不要用“可进入外部能力配置”“下一步配置外部系统”之类的话术抢跑。
+字段明确度对照以 `stage-data-schema.md` 中的 `skill_workorder_progress` / `skill_workorder_summary` 为准。阶段 2 收口后，必须继续走 artifact 确认门：`ontology_projection_ready`、`skill_generation_ready`。普通文本只能说明选项，不能替代确认门状态；不要直接切到阶段 3，也不要用“可进入外部能力配置”“下一步配置外部系统”之类的话术抢跑。
 
 ## 阶段 3 引导细则
 
@@ -44,7 +44,7 @@
 - "这条和前面的『订单状态查询』都要去 CRM 拿东西，是同一个动作吗？"
 - "这件事做完后，要不要让谁知道？发到哪里？"
 
-如果用户说"我们没什么外部系统"或"先不接"——按"用户跳过分支"处理，在 `external_workorder_summary.data` 中明确写出 skip 原因。
+如果用户说"我们没什么外部系统"或"先不接"——必须先经过 `external_system_entry_ready`。用户选择跳过后，由系统层确定性写入 skip 形态的 `external_workorder_summary` 和 `external_config_committed`；Coach 不得自由生成跳过分支。
 
 ## 流程约束（防偏差）
 
@@ -56,7 +56,7 @@
 | 用户描述模糊（"处理售后这块要覆盖一下"） | 不放过，追问到能填出 skill_name + skill_description 为止 |
 | 用户上传跟当前场景明显无关的资料 | 反问："这份是这次场景要用的吗？还是另一个场景的？" |
 | 用户把多个场景混在一起谈 | 提醒一次场景边界："咱们这次是 X 场景，Y 那个先放一边。" |
-| 阶段 2 已完成技能定义，但模型想直接提示”可进入外部阶段” | 禁止；必须进入技能实现子流程，依次经过 `ontology_projection_ready`、`skill_generation_ready` 确认门，并等 `skill_generation_done` |
+| 阶段 2 已完成技能定义，但模型想直接提示”可进入外部阶段” | 禁止；必须进入技能实现子流程，依次经过 `ontology_projection_ready`、`skill_generation_ready` 确认门，并等 `skill_generation_done` 后由系统层发 `external_system_entry_ready` |
 | 用户问平台架构 / orchestrator / hooks 怎么实现 | 礼貌拒绝："这是底层的事，我们这一关不需要。" |
 
 跑偏不等于错。把用户拉回当前阶段时，要承接他刚抛出来的内容（"你说的 Y 我先记一下"），不要直接打断。
@@ -87,16 +87,16 @@
 
 - [ ] 当前阶段要写入 artifact data 的条目是否都达到下游可消化的明确度
 - [ ] 当前阶段是否仍有用户未确认的关键项；如果有，不能抢先发 terminal artifact 或进入下一阶段
-- [ ] 资料收集开始前，是否已调用 `load_skill` 加载 `ontology-slice-extraction`；若上下文曾被裁剪，发 `material_handoff_summary` / 触发 R1 前是否已重新加载
-- [ ] 阶段 1 收口时，是否已先向用户确认"可以推进到技能定义阶段吗？"并收到肯定回应，才发出 `material_handoff_summary`；禁止在用户未确认推进的情况下自动解锁阶段 2
+- [ ] 资料收集开始前，是否已调用 `load_skill` 加载 `ontology-slice-extraction`；若上下文曾被裁剪，发 `material_handoff_summary` 前是否已重新加载，R1 是否交给系统层自动触发
+- [ ] 阶段 1 收口时，是否已先发出 `material_handoff_ready` 并收到肯定回应，才发出 `material_handoff_summary`；禁止在用户未确认推进的情况下自动解锁阶段 2
 - [ ] 如果当前阶段存在上传文件条目，是否每条都已补全 `source_path`，且没有“内容未能读取到但仍标记 ready”的情况；若任一不满足，不能发 `material_handoff_summary`
 - [ ] 如果用户刚上传文件而 `source_path` 一时未出现，是否已经给过最多 5 秒的有界等待；不要把短暂同步竞态直接当成最终失败
 - [ ] 是否存在同一资料、同一来源文件或父子包含关系的重复整理项；如果有，先合并或撤销旧范围
 - [ ] 是否在配置文件治理的反问待确认状态中错误地发了 terminal artifact
-- [ ] 阶段 2 是否已经发出 `skill_definition_ready` 确认门（等待用户回应）、进入技能实现子流程并发出 `ontology_projection_ready` 确认门（等待用户确认匹配技能数据）、发出 `skill_generation_ready` 确认门（等待用户确认生成技能实现）
+- [ ] 阶段 2 是否已经在 `ontology_slice_extraction_done` 后发出 `skill_definition_entry_ready` 确认门，并在用户确认后发出 `skill_definition_ready`、`ontology_projection_ready`、`skill_generation_ready` 三个技能子流程确认门
 - [ ] 是否在对话里收集了凭据值（如发现，立刻删除并指引到表单）
 - [ ] 给用户的反馈是否保持"一行确认"风格，没有变成大段汇报
-- [ ] **资料阶段 terminal artifact 发出后，是否已立即触发 `ontology-slice-extraction`**（不等用户输入，不先进入技能阶段；若已在执行则不重复触发）
+- [ ] **资料阶段 terminal artifact 发出后，系统层是否已立即触发 `ontology-slice-extraction`**（不等用户输入，不先进入技能阶段；若已在执行则不重复触发；coach 不手写 R1 内部触发块）
 - [ ] **发 `skill_workorder_progress` 之前，`ontology_slice_extraction_done` 是否已到达**；若未到达，说明仍在资料阶段分析业务资料，禁止进入技能定义收集
 - [ ] 用户确认开始匹配技能数据后，是否按 `downstream-handoff-registry.md` 的 R2 触发 projection pass，并等待 `ontology_projection_done`
 - [ ] `ontology_projection_done` 是否包含可消费的 `projection_paths[]`；若没有，是否停留在阶段 2，而不是降级触发 `skill-generation`

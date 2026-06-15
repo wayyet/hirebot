@@ -13,13 +13,17 @@ const INTERNAL_INSTRUCTION_LINE_REGEX =
   /^.*(?:\[Internal (?:stage resume|downstream trigger|packaging trigger|skill definition confirmation|external config commit)[^\]]*\]|Internal stage resume|Internal downstream trigger|Internal packaging trigger|Internal skill definition confirmation).*$(?:\r?\n)?/gim
 const INTERNAL_PROTOCOL_MESSAGE_START_REGEX =
   /^\s*(?:\[Internal (?:stage resume|downstream trigger|packaging trigger|skill definition confirmation|external config commit)\b|Internal stage resume|Internal downstream trigger|Internal packaging trigger|Internal skill definition confirmation)/i
+const TOOL_BAN_DIAGNOSTIC_LINE_REGEX =
+  /^\s*\[TOOL BAN\]\s*Refused to call\b.*$(?:\r?\n)?/gim
 
 function isInternalProtocolMessage(content: string): boolean {
   return INTERNAL_PROTOCOL_MESSAGE_START_REGEX.test(content)
 }
 
 function removeHiddenAssistantProtocol(content: string): string {
-  const withoutClosedTags = content.replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
+  const withoutClosedTags = content
+    .replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
+    .replace(TOOL_BAN_DIAGNOSTIC_LINE_REGEX, '')
   if (isInternalProtocolMessage(withoutClosedTags)) {
     return ''
   }
@@ -69,7 +73,9 @@ export function normalizeAssistantReply(content: string): string {
  * 避免 technical artifact 的 JSON 在打字机过程中闪到界面上。
  */
 export function normalizeAssistantStreamingPreview(content: string): string {
-  const withoutClosedTags = content.replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
+  const withoutClosedTags = content
+    .replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
+    .replace(TOOL_BAN_DIAGNOSTIC_LINE_REGEX, '')
   if (isInternalProtocolMessage(withoutClosedTags)) {
     return ''
   }

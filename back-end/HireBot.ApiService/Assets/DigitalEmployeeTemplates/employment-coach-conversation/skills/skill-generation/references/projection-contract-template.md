@@ -54,6 +54,8 @@ Minimum READY projection document requirements:
 - `dropped_items`
 - `open_questions` (empty for READY)
 
+`source_slice.path` must be package-root-relative (for example, `ontology/<topic>.slice.json`) or otherwise resolvable from the projection file. Do not write skill-directory-relative paths such as `../../ontology/...`.
+
 Always generate the 4 standard views for generated business skills. Keep `workflow-contract` as `default_target_view`, and keep the other 3 views thin rather than omitting them. Do not write stub references such as `{ "note": "...", "source_projection_path": "..." }`.
 
 Preferred materialization command:

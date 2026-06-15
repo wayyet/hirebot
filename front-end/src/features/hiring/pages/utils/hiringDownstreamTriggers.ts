@@ -6,6 +6,7 @@ export type DownstreamTarget = 'ontology-slice-extraction' | 'ontology-projectio
 
 export type SkillStageApprovalRoute =
   | 'none'
+  | 'enter_skill_definition'
   | 'confirm_skill_definition'
   | 'launch_projection_pass'
   | 'launch_skill_generation'
@@ -21,11 +22,17 @@ export type PackageReviewDecisionRoute =
   | 'launch_package_review'
   | 'skip_review_and_package'
 
+export type ExternalSystemEntryRoute =
+  | 'none'
+  | 'enter_external_system'
+  | 'skip_external_system'
+
 export interface SkillStageApprovalRouteInput {
   text: string
   incomingFileCount: number
   skillGenerationState: DownstreamRunState | null
   ontologyProjectionState: DownstreamRunState | null
+  skillDefinitionEntryState?: DownstreamRunState | null
   hasSkillSummary: boolean
   hasProjectionResult: boolean
 }
@@ -51,6 +58,12 @@ export interface PackageReviewDecisionRouteInput {
   isBlockedByPackagingTestCaseGeneration: boolean
 }
 
+export interface ExternalSystemEntryRouteInput {
+  text: string
+  incomingFileCount: number
+  externalSystemEntryState: DownstreamRunState | null
+}
+
 function isWaitingArtifact(
   run: DownstreamRunState | null,
   artifactType: string,
@@ -73,15 +86,48 @@ function extractSkillWorkorderItems(summary: unknown): Record<string, unknown>[]
     .filter((item): item is Record<string, unknown> => item !== null)
 }
 
+function isSkillSlug(value: string): boolean {
+  return /^[a-z0-9][a-z0-9_-]*$/.test(value)
+}
+
+function readSkillSlug(item: Record<string, unknown>): string {
+  const candidates = [
+    item.skill_slug,
+    item.skillSlug,
+    item.name,
+    item.skillName,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue
+    const slug = candidate.trim()
+    if (slug && isSkillSlug(slug)) {
+      return slug
+    }
+  }
+
+  return ''
+}
+
 function extractConfirmedSkillSlugs(summary: unknown): string[] {
   return extractSkillWorkorderItems(summary)
-    .map((item) => {
-      if (typeof item.name === 'string' && item.name.trim()) return item.name.trim()
-      if (typeof item.skill_slug === 'string' && item.skill_slug.trim()) return item.skill_slug.trim()
-      if (typeof item.skillName === 'string' && item.skillName.trim()) return item.skillName.trim()
-      return ''
-    })
+    .map(readSkillSlug)
     .filter(slug => slug.length > 0)
+}
+
+function normalizeSkillWorkorderItems(summary: unknown): Record<string, unknown>[] {
+  return extractSkillWorkorderItems(summary)
+    .map((item): Record<string, unknown> | null => {
+      const slug = readSkillSlug(item)
+      if (!slug) return null
+
+      return {
+        ...item,
+        name: slug,
+        skill_slug: slug,
+      }
+    })
+    .filter((item): item is Record<string, unknown> => item !== null)
 }
 
 function extractProjectionSkillSlug(path: string): string {
@@ -138,13 +184,7 @@ export function buildProjectionPassPayload(summary: unknown): Record<string, unk
 
   const skills = extractSkillWorkorderItems(summary)
     .map((item) => {
-      const skillSlug = typeof item.name === 'string'
-        ? item.name.trim()
-        : typeof item.skill_slug === 'string'
-          ? item.skill_slug.trim()
-          : typeof item.skillName === 'string'
-            ? item.skillName.trim()
-            : ''
+      const skillSlug = readSkillSlug(item)
       const skillName = typeof item.display_name === 'string'
         ? item.display_name.trim()
         : typeof item.skill_name === 'string'
@@ -196,6 +236,11 @@ export function buildProjectionPassPayload(summary: unknown): Record<string, unk
     payload.template_slug = record.template_slug.trim()
   }
 
+  const businessRules = record.business_rules_captured_so_far ?? record.business_rules
+  if (businessRules != null) {
+    payload.business_rules = businessRules
+  }
+
   return payload
 }
 
@@ -236,6 +281,7 @@ export function buildSkillGenerationPayload(
 
   return {
     ...record,
+    items: normalizeSkillWorkorderItems(summary),
     confirmed_skill_slugs: extractConfirmedSkillSlugs(summary),
     projection_skill_slugs: extractProjectionSkillSlugs(projectionResult),
     projection_binding_confirmed: true,
@@ -256,6 +302,7 @@ export function buildSkillDefinitionConfirmationPrompt(userRequest: string, summ
     'Emit the terminal `skill_workorder_summary` for the confirmed skill list.',
     '`skill_workorder_summary.data` must contain top-level `workspace_root`, `template_slug`, and a non-empty `items` array.',
     'Each `items[]` entry must contain `name`, `display_name`, `description`, `trigger`, `expected_output`, and `generation_action` as non-empty strings.',
+    'For every `items[]`, set `name` and `skill_slug` to the same stable lowercase ASCII skill slug used for directories; put the Chinese/user-facing label only in `display_name`.',
     'If the real `workspace_root` or `template_slug` is missing, do not emit `skill_workorder_summary`; recover those session constants first.',
     'Immediately after that, emit non-terminal `ontology_projection_ready` to ask whether to prepare business information for these skills.',
     'Do not trigger ontology projection, skill-generation, external configuration, review, or packaging in this turn.',
@@ -308,7 +355,12 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
       'Follow `ontology-projection/SKILL.md` exactly.',
       'Treat every `artifact_payload.skills[].skill_slug` as an immutable identifier: projection files must be written under exactly `ontology/projections/<skill_slug>/`; do not rename or synonym-normalize skill slugs.',
       'Emit `ontology_projection_progress` with stage=`stage2_skill` before generating any projection files.',
-      'Scan slices from `<workspace_root>/ontology/`, then finish with `ontology_projection_done` using stage=`stage2_skill`.',
+      'Scan slices from `<workspace_root>/ontology/`.',
+      'For each generated projection JSON, call the sandbox file-writing tool (`write_file` preferred; otherwise the available `create_file`/`save_file` equivalent) to write the file. Do not use shell, Python here-docs, echo, or narrative-only output to create projection files.',
+      'After writing each projection file, call `read_file` on that exact path and verify the JSON is complete with top-level `projection_type`, `source_slice`, `intended_consumers`, and `concept_mappings` before counting it as projected.',
+      'If the file-writing tool is unavailable or read-back verification fails after bounded retry, mark the skill skipped with `slices_not_ready`; do not emit a successful `ontology_projection_done` for an unwritten or stub projection.',
+      'If a valid projection still has `open_questions`, keep it as a projected WARNING result and surface those questions precisely; do not ask the user to rerun the same projection pass just because questions remain.',
+      'Finish with `ontology_projection_done` using stage=`stage2_skill` only after file write and read-back verification.',
       '',
       'required_artifacts:',
       '- ontology_projection_progress',
@@ -397,6 +449,18 @@ function buildPackageZipInstructionLines(): string[] {
   ]
 }
 
+function buildManifestSyncInstructionLines(nextBlockedArtifact: 'review_readiness' | 'review_progress' | 'template_package'): string[] {
+  return [
+    'Before any package review or package/export/archive operation, synchronize `<employee_package_root>/manifest.json` and verify it by reading it back.',
+    'Resolve the current generated business skill whitelist from the latest `skill_generation_done.data.skill_slugs`; if unavailable, fall back to the latest `skill_workorder_summary.data.items[].name`.',
+    'Set or update `manifest.entry_skill` to `skills/<first-current-business-skill-slug>/SKILL.md`; if no current business skill exists or the file is missing, stop before review or packaging.',
+    'Synchronize `manifest.skills` so it includes exactly the current generated business skill entries plus built-in template skills, updating each current skill path to `skills/<slug>/SKILL.md` and removing stale generated business skill entries that are not in the current whitelist.',
+    'Synchronize `manifest.ontology_slices` from top-level runtime files matching `<employee_package_root>/ontology/*.slice.json`; preserve existing ontology convention docs such as `ontology/ontology-slice.md` and append missing runtime slice entries.',
+    'Write the updated manifest as valid JSON, then read it back and verify: `entry_skill` resolves to an existing file, every current skill is declared in `manifest.skills`, and every top-level runtime `*.slice.json` is declared in `manifest.ontology_slices`.',
+    `If manifest read-back verification fails, do not emit \`${nextBlockedArtifact}\`, do not start review, and do not package; explain the concrete manifest field that could not be synchronized.`,
+  ]
+}
+
 export function buildPackagingRequestPrompt(userRequest: string, reviewReport?: unknown): string {
   const normalizedRequest = userRequest.trim() || 'continue packaging'
   if (reviewReport == null) {
@@ -406,6 +470,7 @@ export function buildPackagingRequestPrompt(userRequest: string, reviewReport?: 
       'The user has authorized entering stage4 packaging, but the required package review decision has not been collected yet.',
       'Continue under `employment-coach-conversation` stage4_packaging rules only until the review decision gate.',
       'Run the mandatory pre-package sequence before the review gate: emit `packaging_progress` with data.status=`packing`, perform projection-consumer consistency precheck, then sync `manifest.json`.',
+      ...buildManifestSyncInstructionLines('review_readiness'),
       'After manifest sync, emit non-terminal `review_readiness` with data.status=`ready_for_review_decision` and ask the user whether to run completeness review or skip review and package directly.',
       'Stop immediately after `review_readiness`. Do not emit `review_progress`, do not emit `review_report`, do not invoke package/export/archive tools, and do not emit `template_package` until the user answers the review decision.',
       '`coach_runtime_root` is `/workspace`; it contains the employment-coach system package and must never be packaged.',
@@ -433,6 +498,7 @@ export function buildPackagingRequestPrompt(userRequest: string, reviewReport?: 
     'The user has authorized instance packaging. Do not ask for a package trigger, dispatch target, tool name, or another "start generation" confirmation.',
     ...reviewLines,
     'The package review gate is already satisfied by the provided `review_report`; package the current employee package workspace now.',
+    ...buildManifestSyncInstructionLines('template_package'),
     ...buildPackageZipInstructionLines(),
   ].join('\n')
 }
@@ -445,6 +511,7 @@ export function buildPackageReviewPrompt(userRequest: string): string {
     `The visible user request was: ${JSON.stringify(normalizedRequest)}.`,
     'The user has explicitly chosen to run package completeness review after `review_readiness`.',
     'Do not invoke package/export/archive tools and do not emit `template_package` in this turn.',
+    ...buildManifestSyncInstructionLines('review_progress'),
     'Emit `review_progress` with stage=`stage4_packaging` and data.status=`running` before starting the review.',
     'Switch to skill `digital-employee-package-completeness-review` now.',
     'source_skill: employment-coach-conversation',
@@ -453,6 +520,7 @@ export function buildPackageReviewPrompt(userRequest: string): string {
     'Resolve `package_root` from the current employee package workspace, not from `/workspace` and not from the employment-coach system package.',
     'Follow `digital-employee-package-completeness-review/SKILL.md` exactly.',
     'Finish with terminal `review_report` using stage=`stage4_packaging`.',
+    'After emitting `review_report`, stop. Do not ask whether to fix blockers, rerun review, continue packaging, or choose a next step in the same turn; the next user message will be routed deterministically from the `review_report` artifact.',
     '',
     'required_artifacts:',
     '- review_progress',
@@ -470,6 +538,7 @@ export function buildPackageReviewSkipPackagingPrompt(userRequest: string): stri
     'The user has explicitly skipped package completeness review after `review_readiness` and wants to package directly.',
     'Do not run `digital-employee-package-completeness-review`, do not emit `review_progress`, and do not emit `review_report`.',
     'Continue under `employment-coach-conversation` stage4_packaging rules from the post-review-decision packaging step.',
+    ...buildManifestSyncInstructionLines('template_package'),
     ...buildPackageZipInstructionLines(),
   ].join('\n')
 }
@@ -554,6 +623,13 @@ export function resolveSkillStageApprovalRoute(input: SkillStageApprovalRouteInp
     return 'none'
   }
 
+  if (
+    isWaitingArtifact(input.skillDefinitionEntryState ?? null, 'skill_definition_entry_ready') &&
+    isSkillDefinitionEntryApprovalMessage(input.text)
+  ) {
+    return 'enter_skill_definition'
+  }
+
   // 阶段 2 的确认门会分布在两个下游轨道里；后续确认门必须优先吃掉“继续”这类通用确认词。
   if (
     isWaitingArtifact(input.skillGenerationState, 'skill_generation_ready') &&
@@ -582,9 +658,30 @@ export function resolveSkillStageApprovalRoute(input: SkillStageApprovalRouteInp
   return 'none'
 }
 
+export function resolveExternalSystemEntryRoute(input: ExternalSystemEntryRouteInput): ExternalSystemEntryRoute {
+  if (input.incomingFileCount > 0) {
+    return 'none'
+  }
+
+  if (!isWaitingArtifact(input.externalSystemEntryState, 'external_system_entry_ready')) {
+    return 'none'
+  }
+
+  if (isExternalSystemSkipMessage(input.text)) {
+    return 'skip_external_system'
+  }
+
+  if (isExternalSystemEntryMessage(input.text)) {
+    return 'enter_external_system'
+  }
+
+  return 'none'
+}
+
 export function resolveActiveSkillStageRun(
   skillGenerationState: DownstreamRunState | null,
   ontologyProjectionState: DownstreamRunState | null,
+  skillDefinitionEntryState: DownstreamRunState | null = null,
 ): DownstreamRunState | null {
   if (isWaitingArtifact(skillGenerationState, 'skill_generation_ready')) {
     return skillGenerationState
@@ -604,6 +701,10 @@ export function resolveActiveSkillStageRun(
 
   if (isWaitingArtifact(skillGenerationState, 'skill_definition_ready')) {
     return skillGenerationState
+  }
+
+  if (isWaitingArtifact(skillDefinitionEntryState, 'skill_definition_entry_ready')) {
+    return skillDefinitionEntryState
   }
 
   return null
@@ -721,6 +822,91 @@ export function isPackageReviewApprovalMessage(text: string): boolean {
     '检查完整性',
     'packagecompletenessreview',
     'runreview',
+  ]
+
+  return keywords.some(keyword => compact.includes(keyword))
+}
+
+function compactUserText(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：“”‘’]+/g, '')
+}
+
+export function isMaterialHandoffApprovalMessage(text: string): boolean {
+  const compact = compactUserText(text)
+  if (!compact) return false
+
+  const keywords = [
+    '开始分析业务资料',
+    '分析业务资料',
+    '资料收口',
+    '确认资料',
+    '按当前资料',
+    '开始分析',
+    '可以',
+    '确认',
+    '继续',
+    'yes',
+    'ok',
+  ]
+
+  return keywords.some(keyword => compact.includes(keyword))
+}
+
+export function isSkillDefinitionEntryApprovalMessage(text: string): boolean {
+  const compact = compactUserText(text)
+  if (!compact) return false
+
+  const keywords = [
+    '进入技能定义',
+    '开始技能定义',
+    '定义技能',
+    '技能定义',
+    '确认进入',
+    '可以',
+    '确认',
+    '继续',
+    'yes',
+    'ok',
+  ]
+
+  return keywords.some(keyword => compact.includes(keyword))
+}
+
+export function isExternalSystemEntryMessage(text: string): boolean {
+  const compact = compactUserText(text)
+  if (!compact) return false
+
+  const keywords = [
+    '进入外部系统',
+    '配置外部系统',
+    '外部系统配置',
+    '进入外部配置',
+    '开始外部系统',
+    '需要外部系统',
+    '配置mcp',
+    'mcp',
+    'external',
+  ]
+
+  return keywords.some(keyword => compact.includes(keyword))
+}
+
+export function isExternalSystemSkipMessage(text: string): boolean {
+  const compact = compactUserText(text)
+  if (!compact) return false
+
+  const keywords = [
+    '跳过外部系统',
+    '跳过外部配置',
+    '不需要外部系统',
+    '不用外部系统',
+    '无外部系统',
+    '直接跳过',
+    '跳过',
+    'skip',
   ]
 
   return keywords.some(keyword => compact.includes(keyword))

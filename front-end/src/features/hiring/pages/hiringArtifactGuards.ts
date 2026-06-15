@@ -4,18 +4,23 @@ export interface IncomingArtifactGateState {
   hasSkillSummary: boolean
   hasProjectionResult: boolean
   canUseProjectionForSkillGeneration?: boolean
+  hasSkillGenerationDone?: boolean
+  hasExternalSystemEntryConfirmed?: boolean
   hasExternalConfigCommitted: boolean
 }
 
 export const KNOWN_HIRING_ARTIFACT_TYPES = [
   'material_collection_progress',
+  'material_handoff_ready',
   'material_handoff_summary',
+  'skill_definition_entry_ready',
   'skill_workorder_progress',
   'skill_definition_ready',
   'skill_workorder_summary',
   'ontology_projection_ready',
   'skill_generation_ready',
   'skill_projection_binding_ready',
+  'external_system_entry_ready',
   'external_workorder_progress',
   'external_workorder_summary',
   'external_config_committed',
@@ -39,11 +44,14 @@ const KNOWN_ARTIFACT_TYPES = new Set<string>(KNOWN_HIRING_ARTIFACT_TYPES)
 
 const NON_TERMINAL_ARTIFACT_TYPES = new Set([
   'material_collection_progress',
+  'material_handoff_ready',
+  'skill_definition_entry_ready',
   'skill_workorder_progress',
   'skill_definition_ready',
   'ontology_projection_ready',
   'skill_generation_ready',
   'skill_projection_binding_ready',
+  'external_system_entry_ready',
   'external_workorder_progress',
   'ontology_slice_extraction_progress',
   'ontology_projection_progress',
@@ -111,7 +119,14 @@ const REVIEW_REPORT_STATUSES = new Set([
 ])
 
 const DATA_STATUS_ALLOWED_ARTIFACT_TYPES = new Set([
+  'material_handoff_ready',
+  'skill_definition_entry_ready',
+  'skill_definition_ready',
+  'ontology_projection_ready',
+  'skill_generation_ready',
+  'external_system_entry_ready',
   'packaging_progress',
+  'packaging_testcases_ready',
   'packaging_testcases_progress',
   'packaging_testcases_done',
   'review_readiness',
@@ -157,6 +172,21 @@ function isValidWorkspaceRoot(value: unknown): value is string {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
+}
+
+function isValidSkillSlug(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9_-]*$/.test(value.trim())
+}
+
+function getCanonicalSkillSlug(record: Record<string, unknown>): string {
+  const candidates = [record.skill_slug, record.skillSlug, record.name, record.skillName]
+  for (const candidate of candidates) {
+    if (isValidSkillSlug(candidate)) {
+      return candidate.trim()
+    }
+  }
+
+  return ''
 }
 
 function getWorkspaceRootBlockReason(artifactType: string, data: Record<string, unknown> | null): string | null {
@@ -218,6 +248,15 @@ function getSkillWorkorderSummaryBlockReason(data: Record<string, unknown> | nul
       if (!isNonEmptyString(record[field])) {
         return `skill_workorder_summary.items[].${field} is required`
       }
+    }
+
+    const canonicalSlug = getCanonicalSkillSlug(record)
+    if (!canonicalSlug) {
+      return 'skill_workorder_summary.items[].name must be a stable skill slug'
+    }
+
+    if (isValidSkillSlug(record.skill_slug) && isValidSkillSlug(record.name) && record.skill_slug.trim() !== record.name.trim()) {
+      return 'skill_workorder_summary.items[].name must match skill_slug'
     }
   }
 
@@ -322,6 +361,15 @@ export function getBlockedIncomingArtifactReason(
     return 'ontology slice extraction requires material_handoff_summary'
   }
 
+  if (artifactType === 'skill_definition_entry_ready') {
+    if (!state.hasMaterialSummary) {
+      return 'skill definition entry requires material_handoff_summary'
+    }
+    if (!state.hasOntologyExtractionDone) {
+      return 'skill definition entry requires ontology_slice_extraction_done'
+    }
+  }
+
   if ((ONTOLOGY_PROJECTION_ARTIFACTS.has(artifactType) || ONTOLOGY_PROJECTION_CONFIRMATION_ARTIFACTS.has(artifactType)) && !state.hasSkillSummary) {
     return 'ontology projection requires skill_workorder_summary'
   }
@@ -369,6 +417,14 @@ export function getBlockedIncomingArtifactReason(
     if (state.canUseProjectionForSkillGeneration !== true) {
       return 'skill generation requires consumable ontology projection'
     }
+  }
+
+  if (artifactType === 'external_system_entry_ready' && state.hasSkillGenerationDone !== true) {
+    return 'external system entry requires skill_generation_done'
+  }
+
+  if (artifactType === 'external_workorder_progress' && state.hasExternalSystemEntryConfirmed !== true) {
+    return 'external workorder requires external_system_entry_ready confirmation'
   }
 
   if (PACKAGING_TESTCASE_ARTIFACTS.has(artifactType) && !state.hasExternalConfigCommitted) {

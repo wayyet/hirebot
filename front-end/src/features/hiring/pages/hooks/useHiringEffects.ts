@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { api, HiringCollectionStage, type EmployeeTemplateDetail } from '@/infra/api'
 import type { PersistedPackageStructure, RuntimeStateSaveRequest, RuntimeStateStage } from '@/infra/api'
 import type { GatewayWs } from '@/infra/sandbox/gateway-ws'
@@ -10,18 +10,85 @@ import { buildRuntimeStatePayloadByStage, hasRuntimeStatePayloadContent } from '
  * 滚动到底部。
  */
 export function useScrollToBottom(
-  chatEndRef: RefObject<HTMLDivElement | null>,
+  chatScrollRef: RefObject<HTMLDivElement | null>,
   messages: ChatMessage[],
-  visibleTyping: boolean,
-  visibleStreamingContent: string | null,
-  streamingToolSteps: ToolStep[],
+  _visibleTyping: boolean,
+  _visibleStreamingContent: string | null,
+  _streamingToolSteps: ToolStep[],
 ) {
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: visibleStreamingContent !== null ? 'auto' : 'smooth' })
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  const pinnedToBottomRef = useRef(true)
+  const messageCountRef = useRef(messages.length)
+
+  const updatePinnedState = useCallback(() => {
+    const scroller = chatScrollRef.current
+    if (!scroller) {
+      pinnedToBottomRef.current = true
+      setShowScrollToBottom(false)
+      return true
+    }
+
+    const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+    const isPinned = distanceFromBottom <= 96
+    pinnedToBottomRef.current = isPinned
+    setShowScrollToBottom(!isPinned)
+    return isPinned
+  }, [chatScrollRef])
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const scroller = chatScrollRef.current
+    if (!scroller) return
+
+    scroller.scrollTo({
+      top: scroller.scrollHeight,
+      behavior,
     })
+    pinnedToBottomRef.current = true
+    setShowScrollToBottom(false)
+  }, [chatScrollRef])
+
+  useEffect(() => {
+    const scroller = chatScrollRef.current
+    if (!scroller) return
+
+    updatePinnedState()
+    scroller.addEventListener('scroll', updatePinnedState, { passive: true })
+    const resizeObserver = new ResizeObserver(() => {
+      if (pinnedToBottomRef.current) {
+        scrollToBottom('auto')
+        return
+      }
+
+      updatePinnedState()
+    })
+    resizeObserver.observe(scroller)
+    Array.from(scroller.children).forEach(child => resizeObserver.observe(child))
+
+    return () => {
+      scroller.removeEventListener('scroll', updatePinnedState)
+      resizeObserver.disconnect()
+    }
+  }, [chatScrollRef, scrollToBottom, updatePinnedState])
+
+  useEffect(() => {
+    const previousMessageCount = messageCountRef.current
+    messageCountRef.current = messages.length
+    if (messages.length <= previousMessageCount) {
+      updatePinnedState()
+      return
+    }
+
+    const latestMessage = messages[messages.length - 1]
+    if (latestMessage?.role !== 'user' && !pinnedToBottomRef.current) {
+      updatePinnedState()
+      return
+    }
+
+    const frame = window.requestAnimationFrame(() => scrollToBottom('smooth'))
     return () => window.cancelAnimationFrame(frame)
-  }, [chatEndRef, messages, visibleTyping, visibleStreamingContent, streamingToolSteps])
+  }, [messages, scrollToBottom, updatePinnedState])
+
+  return { showScrollToBottom, scrollToBottom }
 }
 
 /**

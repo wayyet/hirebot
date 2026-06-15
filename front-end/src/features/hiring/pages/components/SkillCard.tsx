@@ -65,6 +65,14 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
   }
 
   if (run.status === 'waiting_confirm') {
+    if (run.artifactType === 'skill_definition_entry_ready') {
+      return {
+        label: '等待进入技能定义',
+        tone: 'is-waiting',
+        description: '业务资料分析已完成，请确认后进入技能定义。',
+      }
+    }
+
     if (run.artifactType === 'skill_definition_ready') {
       return {
         label: '等待确认技能清单',
@@ -132,6 +140,13 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
 }
 
 function getSkillConfirmationAction(run: DownstreamRunState | null): { text: string; button: string } {
+  if (run?.artifactType === 'skill_definition_entry_ready') {
+    return {
+      text: '业务资料分析已完成，请确认是否进入技能定义环节。',
+      button: '进入技能定义',
+    }
+  }
+
   if (run?.artifactType === 'skill_definition_ready') {
     return {
       text: '请确认当前技能清单是否完整，确认后会进入匹配技能数据。',

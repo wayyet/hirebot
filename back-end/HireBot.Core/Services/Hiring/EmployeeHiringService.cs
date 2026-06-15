@@ -541,6 +541,8 @@ internal sealed class EmployeeHiringService(
         HiringConversationSyncRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        await PersistWorkspaceRootFromMaterialsAsync(hireId, request.Materials, cancellationToken);
+
         // 解析 AI 回复中的结构化数据标签（如 <data key="goal">...</data>）
         var extractedData = ParseStructuredDataTags(request.AssistantReply);
 
@@ -561,6 +563,83 @@ internal sealed class EmployeeHiringService(
             new HiringConversationSyncResultDto(
                 extractedData.Count,
                 extractedData.Keys.ToList()));
+    }
+
+    private async Task PersistWorkspaceRootFromMaterialsAsync(
+        string hireId,
+        IReadOnlyList<HiringConversationMaterialDto>? materials,
+        CancellationToken cancellationToken)
+    {
+        var workspaceRoot = TryExtractWorkspaceRoot(materials);
+        if (workspaceRoot is null)
+        {
+            return;
+        }
+
+        var sandbox = await dbContext.SandboxInstances
+            .FirstOrDefaultAsync(item => item.ScopeType == "Hire" && item.ScopeKey == hireId, cancellationToken);
+        if (sandbox is null)
+        {
+            logger.LogWarning(
+                "Workspace root was provided by conversation materials but sandbox was not found. HireId={HireId} WorkspaceRoot={WorkspaceRoot}",
+                hireId,
+                workspaceRoot);
+            return;
+        }
+
+        sandbox.Metadata ??= new Dictionary<string, string>(StringComparer.Ordinal);
+        if (sandbox.Metadata.TryGetValue(SandboxMetaKeys.HiringWorkspaceRoot, out var existing) &&
+            string.Equals(existing, workspaceRoot, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        sandbox.Metadata[SandboxMetaKeys.HiringWorkspaceRoot] = workspaceRoot;
+        sandbox.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Persisted hiring workspace root from conversation materials. HireId={HireId} WorkspaceRoot={WorkspaceRoot}",
+            hireId,
+            workspaceRoot);
+    }
+
+    private static string? TryExtractWorkspaceRoot(IReadOnlyList<HiringConversationMaterialDto>? materials)
+    {
+        if (materials is null || materials.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var material in materials)
+        {
+            if (material.Metadata is null ||
+                !material.Metadata.TryGetValue("workspaceDir", out var workspaceDir))
+            {
+                continue;
+            }
+
+            var normalized = NormalizeWorkspaceRoot(workspaceDir);
+            if (normalized is not null)
+            {
+                return normalized;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? NormalizeWorkspaceRoot(string? workspaceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+        {
+            return null;
+        }
+
+        var trimmed = workspaceRoot.Trim().TrimEnd('/');
+        return trimmed.StartsWith("/workspace/", StringComparison.OrdinalIgnoreCase)
+            ? trimmed
+            : null;
     }
 
     public async Task<ApiResponse<Dictionary<string, string>>> GetStructuredDataAsync(

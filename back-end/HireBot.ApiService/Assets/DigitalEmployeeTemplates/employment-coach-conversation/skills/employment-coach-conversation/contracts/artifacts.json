@@ -20,6 +20,13 @@
           "terminal": false
         },
         {
+          "type": "material_handoff_ready",
+          "label": "Await Material Handoff Approval",
+          "display": "badge",
+          "terminal": false,
+          "note": "Confirmation gate before emitting material_handoff_summary. Must carry or derive context_signature."
+        },
+        {
           "type": "material_handoff_summary",
           "label": "Material Handoff Summary",
           "display": "tree",
@@ -39,6 +46,13 @@
         ]
       },
       "artifacts": [
+        {
+          "type": "skill_definition_entry_ready",
+          "label": "Await Skill Definition Entry Approval",
+          "display": "badge",
+          "terminal": false,
+          "note": "Confirmation gate after ontology_slice_extraction_done. Must carry or derive context_signature."
+        },
         {
           "type": "skill_workorder_progress",
           "label": "Skill Workorder Progress",
@@ -90,6 +104,13 @@
         "requiresStage": "stage2_skill"
       },
       "artifacts": [
+        {
+          "type": "external_system_entry_ready",
+          "label": "Await External System Entry Or Skip Decision",
+          "display": "badge",
+          "terminal": false,
+          "note": "Confirmation gate after skill_generation_done. User may enter external configuration or skip external systems. Must carry or derive context_signature."
+        },
         {
           "type": "external_workorder_progress",
           "label": "External Capability Progress",
@@ -264,6 +285,20 @@
     "description": "Artifacts emitted by downstream skills and the upstream coach. The frontend routes them to dedicated execution tracks and must not let them override the main stage semantics.",
     "artifacts": [
       {
+        "type": "material_handoff_ready",
+        "ownerSkill": "employment-coach-conversation",
+        "label": "Await Material Handoff Approval",
+        "display": "badge",
+        "terminal": false
+      },
+      {
+        "type": "skill_definition_entry_ready",
+        "ownerSkill": "employment-coach-conversation",
+        "label": "Await Skill Definition Entry Approval",
+        "display": "badge",
+        "terminal": false
+      },
+      {
         "type": "skill_definition_ready",
         "ownerSkill": "employment-coach-conversation",
         "label": "Await Skill Definition Approval",
@@ -281,6 +316,13 @@
         "type": "skill_generation_ready",
         "ownerSkill": "employment-coach-conversation",
         "label": "Await Skill Generation Approval",
+        "display": "badge",
+        "terminal": false
+      },
+      {
+        "type": "external_system_entry_ready",
+        "ownerSkill": "employment-coach-conversation",
+        "label": "Await External System Entry Or Skip Decision",
         "display": "badge",
         "terminal": false
       },
