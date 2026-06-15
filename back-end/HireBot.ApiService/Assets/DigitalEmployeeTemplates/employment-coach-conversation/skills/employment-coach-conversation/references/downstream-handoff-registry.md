@@ -21,7 +21,7 @@
 ## S1：资料阶段完成 → 阶段 2 推进披露
 
 **前置信号**
-- 用户对"确认推进到技能定义阶段吗？"给出肯定回应。
+- `skill_definition_entry_ready` 已发出，且用户对"确认推进到技能定义阶段吗？"给出肯定回应。
 - `material_handoff_summary` 已发出，且 data 中有真实 `workspace_root`、`template_slug`、`items[]`。
 - R1 `ontology-slice-extraction` 已被触发并收到 `ontology_slice_extraction_done`。
 
@@ -37,7 +37,7 @@
 
 **阶段摘要**
 - **目的**：把岗位动作和能力清单整理成结构化 skill 定义清单，每条都有明确的名称、触发条件和期望输出
-- **子步骤顺序**：技能定义收集 → skill_definition_ready 确认门 → skill_workorder_summary → 进入技能实现子流程 → ontology_projection_ready 确认门 → projection pass (R2，产出一系列 `ontology/projections/<skill-slug>/*.projection.json`) → skill_generation_ready 确认门 → skill-generation (R3，消费 `projection_result` 将投影物化为 `skills/<skill-slug>/contracts/projections/ontology_extraction/` 下的 4 视图 consumer contract) → skill_generation_done
+- **子步骤顺序**：skill_definition_entry_ready 确认门 → 技能定义收集 → skill_definition_ready 确认门 → skill_workorder_summary → 进入技能实现子流程 → ontology_projection_ready 确认门 → projection pass (R2，产出一系列 `ontology/projections/<skill-slug>/*.projection.json`) → skill_generation_ready 确认门 → skill-generation (R3，消费 `projection_result` 将投影物化为 `skills/<skill-slug>/contracts/projections/ontology_extraction/` 下的 4 视图 consumer contract) → skill_generation_done
 - **入场动作**：读取 S1 文件清单 → 发出 `skill_workorder_progress` → 开始引导技能定义
 - **最低门槛**：每个 skill 具备明确的 `name`（skill slug）+ `display_name` + `description` + `trigger` + `expected_output` + `generation_action`
 - **禁止**：`ontology_slice_extraction_done` 到达前不得发 `skill_workorder_progress` 或进入技能定义收集；skill-generation 完成前不得提示"可进入外部阶段"
@@ -50,7 +50,8 @@
 
 **前置信号**
 - `skill_generation_done` 已到达
-- 用户对"继续进入外部配置"给出肯定回应（进入正常流程），或对"跳过外部，直接打包"给出肯定回应（进入跳过流程）
+- `external_system_entry_ready` 已发出
+- 用户对"继续进入外部配置"给出肯定回应（进入正常流程），或对"跳过外部，直接打包"给出肯定回应（进入系统层跳过流程）
 
 **披露的技能与参考文件（LLM 必须在确认推进后读取）**
 
@@ -64,11 +65,11 @@
 
 **阶段摘要**
 - **目的**：把支撑技能所需的外部能力和系统资源整理成有分类、有目标的外部能力清单
-- **入场动作（正常）**：发出 `external_workorder_progress` → 紧扣已确认 skills 逐条引导外部能力定义
-- **入场动作（跳过）**：调用 `load_skill` 加载 `external-config`，读取 S2 参考文件后，**立即**发出 `external_workorder_summary`（isTerminal: true，stage: stage3_external），data 中 `skip: true`、`total_capabilities: 0`、`external_capabilities: []`。等待系统层发出 `external_config_committed` 后，再按 S3 进入阶段 4。**严禁**在 `external_workorder_summary` 发出前直接跳到打包询问
+- **入场动作（正常）**：用户确认 `external_system_entry_ready` 并选择进入外部配置后，发出 `external_workorder_progress` → 紧扣已确认 skills 逐条引导外部能力定义
+- **入场动作（跳过）**：用户选择跳过后，由系统层确定性写入 `external_workorder_summary`（isTerminal: true，stage: stage3_external，data 中 `skip: true`、`total_capabilities: 0`、`external_capabilities: []`）和 `external_config_committed`（`submissionMode: skipped`）。Coach 不得自由生成跳过形态，也不得在 `external_config_committed` 前直接跳到打包询问
 - **最低门槛**：每个外部能力明确 `分类（read/write/notify/search/transform）+ 目标 + 目标系统 + 鉴权方式 + 关联 skill`；或用户明确表达"不需要外部系统"
 - **凭据红线**：token/密钥/密码/API Key 绝不在会话里收集，指引用户填写右侧表单
-- **禁止**：skill-generation 未完成时不得进入外部阶段
+- **禁止**：skill-generation 未完成或 `external_system_entry_ready` 未确认进入外部系统时，不得发出 `external_workorder_progress`
 
 **关联下游 R 条目**：R4（测试用例，外部阶段完成后可选触发）
 
@@ -98,11 +99,12 @@
 
 ---
 
-## R1：资料收口后触发本体切片抽取
+## R1：资料收口后系统层触发本体切片抽取
 
 **前置信号**
 - 刚发出 `material_handoff_summary`，且 data 中有真实 `workspace_root`、`template_slug`、`items[]`。
 - `ontology-slice-extraction` 已通过 `load_skill` 加载到上下文；若上下文曾被裁剪，先重新加载。
+- R1 由系统层根据 terminal artifact 自动构造内部触发块；`employment-coach-conversation` 只发出 `material_handoff_summary` 和一句进度提示，不手写内部触发块。
 
 **必须唤起**
 - `ontology-slice-extraction`
@@ -130,6 +132,7 @@ return_to: employment-coach-conversation
 **禁止**
 - 不得在 `ontology_slice_extraction_done` 前发 `skill_workorder_progress`。
 - 不得由主 skill 自己输出或写入本体切片文件。
+- 不得由主 skill 手写或复述 R1 内部触发块，避免与系统层自动调度重复。
 
 ## R2：匹配技能数据确认后触发投影 (Projection Pass)
 
@@ -166,6 +169,7 @@ return_to: employment-coach-conversation
 
 **等待结果**
 - `ontology_projection_done`
+- 当 `ontology_projection_done` 可消费时，`skill_generation_ready` 由系统层确定性追加；coach 不得重复 emit 该确认门，不得用普通文本作为确认门状态来源。
 
 **禁止**
 - `ontology-projection` 产出 projection 文件时必须调用沙箱文件写入工具（优先 `write_file`，否则使用当前环境等价的 `create_file` / `save_file`），并用 `read_file` 读回验证；不得用 shell / Python here-doc / echo / 仅对话描述代替真实文件写入。
@@ -379,6 +383,7 @@ return_to: employment-coach-conversation
 
 **等待结果**
 - `review_report`
+- 收到并发出 `review_report` 后必须停止本轮，不得再用普通 assistant 文本追问用户是否修复、重跑审查或继续打包；后续用户显式输入由前端基于 `review_report` artifact 路由。
 
 **禁止**
 - 主 skill 不得直接运行 `validate_digital_employee_package.py`。

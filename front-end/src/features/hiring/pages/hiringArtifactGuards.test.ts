@@ -13,6 +13,8 @@ const emptyState = {
   hasOntologyExtractionDone: false,
   hasSkillSummary: false,
   hasProjectionResult: false,
+  hasSkillGenerationDone: false,
+  hasExternalSystemEntryConfirmed: false,
   hasExternalConfigCommitted: false,
 }
 
@@ -128,6 +130,20 @@ describe('getBlockedIncomingArtifactReason', () => {
     }, { isTerminal: false, kind: 'data' })).toBeNull()
   })
 
+  it('技能定义入口确认门必须在资料收口和业务资料分析完成后出现', () => {
+    expect(getBlockedIncomingArtifactReason('skill_definition_entry_ready', emptyState))
+      .toBe('skill definition entry requires material_handoff_summary')
+    expect(getBlockedIncomingArtifactReason('skill_definition_entry_ready', {
+      ...emptyState,
+      hasMaterialSummary: true,
+    }, { isTerminal: false, kind: 'data' })).toBe('skill definition entry requires ontology_slice_extraction_done')
+    expect(getBlockedIncomingArtifactReason('skill_definition_entry_ready', {
+      ...emptyState,
+      hasMaterialSummary: true,
+      hasOntologyExtractionDone: true,
+    }, { isTerminal: false, kind: 'data', data: { status: 'waiting_confirm' } })).toBeNull()
+  })
+
   it('技能阶段进度和技能定义收口必须等待业务资料分析完成', () => {
     for (const artifactType of ['skill_workorder_progress', 'skill_workorder_summary']) {
       const options = artifactType === 'skill_workorder_summary'
@@ -192,6 +208,35 @@ describe('getBlockedIncomingArtifactReason', () => {
       hasProjectionResult: true,
       canUseProjectionForSkillGeneration: false,
     })).toBe('projection binding progress requires consumable ontology projection')
+  })
+
+  it('外部系统入口确认门必须等待技能实现完成', () => {
+    expect(getBlockedIncomingArtifactReason('external_system_entry_ready', emptyState, {
+      isTerminal: false,
+      kind: 'data',
+      data: { status: 'waiting_confirm' },
+    })).toBe('external system entry requires skill_generation_done')
+    expect(getBlockedIncomingArtifactReason('external_system_entry_ready', {
+      ...emptyState,
+      hasSkillGenerationDone: true,
+    }, {
+      isTerminal: false,
+      kind: 'data',
+      data: { status: 'waiting_confirm' },
+    })).toBeNull()
+  })
+
+  it('外部能力收集必须等待用户确认进入外部系统', () => {
+    expect(getBlockedIncomingArtifactReason('external_workorder_progress', {
+      ...emptyState,
+      hasSkillGenerationDone: true,
+    }, { isTerminal: false, kind: 'data' }))
+      .toBe('external workorder requires external_system_entry_ready confirmation')
+    expect(getBlockedIncomingArtifactReason('external_workorder_progress', {
+      ...emptyState,
+      hasSkillGenerationDone: true,
+      hasExternalSystemEntryConfirmed: true,
+    }, { isTerminal: false, kind: 'data' })).toBeNull()
   })
 
   it('阻止不符合 schema 的打包进度 artifact', () => {
@@ -307,6 +352,58 @@ describe('getBlockedIncomingArtifactReason', () => {
         ],
       },
     })).toBe('skill_workorder_summary.items[].generation_action is required')
+  })
+
+  it('accepts explicit skill_slug as canonical slug when name is user-facing text', () => {
+    expect(getBlockedIncomingArtifactReason('skill_workorder_summary', {
+      ...emptyState,
+      hasMaterialSummary: true,
+      hasOntologyExtractionDone: true,
+    }, {
+      isTerminal: true,
+      kind: 'data',
+      data: {
+        workspace_root: '/workspace/template-20260611090000',
+        template_slug: 'template',
+        items: [
+          {
+            name: '插单可行性评估与快速重排建议',
+            skill_slug: 'scheduling_replan_advisor',
+            display_name: '插单可行性评估与快速重排建议',
+            description: '评估插单可行性并输出重排建议',
+            trigger: '用户提交插单请求',
+            expected_output: '输出可行性结论和小时级排产建议',
+            generation_action: 'generate_new',
+          },
+        ],
+      },
+    })).toBeNull()
+  })
+
+  it('blocks conflicting stable skill slugs in name and skill_slug', () => {
+    expect(getBlockedIncomingArtifactReason('skill_workorder_summary', {
+      ...emptyState,
+      hasMaterialSummary: true,
+      hasOntologyExtractionDone: true,
+    }, {
+      isTerminal: true,
+      kind: 'data',
+      data: {
+        workspace_root: '/workspace/template-20260611090000',
+        template_slug: 'template',
+        items: [
+          {
+            name: 'insert-order-feasibility',
+            skill_slug: 'scheduling_replan_advisor',
+            display_name: '插单可行性评估与快速重排建议',
+            description: '评估插单可行性并输出重排建议',
+            trigger: '用户提交插单请求',
+            expected_output: '输出可行性结论和小时级排产建议',
+            generation_action: 'generate_new',
+          },
+        ],
+      },
+    })).toBe('skill_workorder_summary.items[].name must match skill_slug')
   })
 
   it('blocks placeholder workspace_root values', () => {

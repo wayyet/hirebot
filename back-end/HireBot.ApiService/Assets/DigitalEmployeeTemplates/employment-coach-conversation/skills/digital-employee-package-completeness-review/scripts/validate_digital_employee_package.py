@@ -816,14 +816,16 @@ def validate_projection_document(
 ) -> None:
     open_questions = projection.get("open_questions")
     if isinstance(open_questions, list) and open_questions:
-        add_blocker(
+        add_finding(
             report,
+            "WARN",
             "projection.open_questions.present",
-            "Projection has open_questions and is not release-ready.",
+            "Projection has open_questions and should be reviewed before release.",
             rel_path(root, view_path),
-            "Resolve open_questions before release.",
+            "Resolve or explicitly accept open_questions before production rollout.",
         )
-        skill_report["status"] = "FAIL"
+        if skill_report["status"] == "PASS":
+            skill_report["status"] = "PASS_WITH_CONCERNS"
     source_slice = (
         projection.get("source_slice")
         if isinstance(projection.get("source_slice"), dict)

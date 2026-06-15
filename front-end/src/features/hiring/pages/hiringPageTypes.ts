@@ -44,7 +44,14 @@ export interface StageGateData {
   blockedReason?: string
 }
 
-export type DownstreamRunKey = 'ontology-slice-extraction' | 'ontology-projection' | 'skill-generation' | 'packaging-test-cases'
+export type DownstreamRunKey =
+  | 'material-handoff'
+  | 'ontology-slice-extraction'
+  | 'skill-definition-entry'
+  | 'ontology-projection'
+  | 'skill-generation'
+  | 'external-system-entry'
+  | 'packaging-test-cases'
 
 export type DownstreamRunStatus = 'idle' | 'waiting_confirm' | 'running' | 'completed' | 'failed'
 

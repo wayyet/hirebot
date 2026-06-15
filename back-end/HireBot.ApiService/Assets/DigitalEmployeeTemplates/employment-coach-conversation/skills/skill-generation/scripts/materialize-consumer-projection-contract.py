@@ -111,13 +111,13 @@ def relative_path(from_dir: Path, target: Path) -> str:
     return Path(os.path.relpath(target, from_dir)).as_posix()
 
 
-def normalize_source_slice(source_slice: Any, workspace_root: Path, skill_dir: Path, source_file: Path) -> dict[str, Any]:
+def normalize_source_slice(source_slice: Any, workspace_root: Path, source_file: Path) -> dict[str, Any]:
     normalized = dict(as_object(source_slice))
     path_text = str(normalized.get("path") or normalized.get("slice_path") or "").strip()
 
     if path_text:
         resolved = resolve_possible_path(workspace_root, source_file, path_text)
-        normalized["path"] = relative_path(skill_dir, resolved)
+        normalized["path"] = relative_path(workspace_root, resolved)
 
     if "topic" not in normalized and "slice_topic" in normalized:
         normalized["topic"] = normalized["slice_topic"]
@@ -167,7 +167,7 @@ def normalize_source(source_file: Path, workspace_root: Path, skill_dir: Path) -
         "source_projection_type": projection_type,
         "domain_slug": domain_slug,
         "status": "WARNING" if open_questions else "READY",
-        "source_slice": normalize_source_slice(projection.get("source_slice"), workspace_root, skill_dir, source_file),
+        "source_slice": normalize_source_slice(projection.get("source_slice"), workspace_root, source_file),
         "intended_consumers": as_list(projection.get("intended_consumers")),
         "mapping_policy": as_object(document.get("mapping_policy")) or default_mapping_policy(),
         "concept_mappings": as_list(document.get("concept_mappings")),

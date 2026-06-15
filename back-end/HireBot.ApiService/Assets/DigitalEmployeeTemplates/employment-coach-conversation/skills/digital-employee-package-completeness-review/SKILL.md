@@ -229,6 +229,7 @@ The Python validator currently checks:
 | `manifest.ontology.not_installable` | manifest ontology file exists but uploader would drop its extension | update uploader rules or change ontology file extension |
 | `skill.metadata_projection_path.missing` | `metadata.json` points to stale projection path | point to `skills/<skill>/contracts/projections/...` or remove stale metadata |
 | `projection.view_path.missing` | `contract-index.json` view path has no file | add projection file or fix index path |
+| `projection.open_questions.present` | projection has unresolved questions; emitted as WARN, not P0 | resolve or explicitly accept open questions before production rollout |
 | `projection.source_slice.unresolved` | projection `source_slice.path` cannot resolve | use package-root-relative or correct projection-relative path |
 | `ontology.field_count_without_schema` | package claims field counts without field definitions | add machine-readable field catalog/schema |
 | `evaluation.stale_skill_binding` | evaluation doc says no skills bound while manifest declares skills | update evaluation doc |
@@ -410,6 +411,8 @@ REVIEW_COMPLETE:
 ```
 
 The coach reads this summary and emits the `review_report` terminal artifact on behalf of the review skill. The review report file at `reports/package-completeness-review.md` is included in the final package if the user proceeds with packaging.
+
+After providing the `REVIEW_COMPLETE` summary, stop. Do not ask the user whether to fix blockers, rerun review, continue packaging, or choose a next step; the owning coach will route the next explicit user message from the `review_report` artifact.
 
 ### Report File
 

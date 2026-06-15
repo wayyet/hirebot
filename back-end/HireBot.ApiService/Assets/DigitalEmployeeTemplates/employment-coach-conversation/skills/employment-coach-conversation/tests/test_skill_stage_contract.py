@@ -7,10 +7,22 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_ROOT = SKILL_ROOT.parents[1]
 
 SKILL_STAGE_SEQUENCE = [
+    "skill_definition_entry_ready",
     "skill_definition_ready",
     "skill_workorder_summary",
     "ontology_projection_ready",
     "skill_generation_ready",
+]
+
+CONFIRMATION_GATES = [
+    "material_handoff_ready",
+    "skill_definition_entry_ready",
+    "skill_definition_ready",
+    "ontology_projection_ready",
+    "skill_generation_ready",
+    "external_system_entry_ready",
+    "packaging_testcases_ready",
+    "review_readiness",
 ]
 
 
@@ -43,17 +55,22 @@ def section_between(text: str, start_token: str, end_token: str) -> str:
 
 
 class SkillStageContractTests(unittest.TestCase):
-    def test_artifact_contract_declares_three_explicit_skill_gates_in_order(self) -> None:
+    def test_artifact_contract_declares_unified_confirmation_gates(self) -> None:
         artifacts_path = SKILL_ROOT / "contracts" / "artifacts.json"
         contract = json.loads(read_text(artifacts_path))
+        contract_text = read_text(artifacts_path)
         stage2 = next(stage for stage in contract["stages"] if stage["name"] == "stage2_skill")
         artifact_types = [artifact["type"] for artifact in stage2["artifacts"]]
 
         assert_tokens_in_order(self, "\n".join(artifact_types), SKILL_STAGE_SEQUENCE, str(artifacts_path))
 
-        for gate in ("skill_definition_ready", "ontology_projection_ready", "skill_generation_ready"):
-            artifact = next(item for item in stage2["artifacts"] if item["type"] == gate)
-            self.assertFalse(artifact["terminal"], f"{gate} must remain a non-terminal confirmation gate")
+        for gate in CONFIRMATION_GATES:
+            self.assertIn(gate, contract_text)
+
+        for stage in contract["stages"]:
+            for artifact in stage["artifacts"]:
+                if artifact["type"] in CONFIRMATION_GATES:
+                    self.assertFalse(artifact["terminal"], f"{artifact['type']} must remain a non-terminal confirmation gate")
 
     def test_stage1_contract_requires_ontology_done_before_stage2_gate(self) -> None:
         artifacts_path = SKILL_ROOT / "contracts" / "artifacts.json"
@@ -67,6 +84,47 @@ class SkillStageContractTests(unittest.TestCase):
         )
         self.assertEqual(stage2["gate"]["requiresArtifact"], "ontology_slice_extraction_done")
         self.assertIn("ontology-slice-extraction", stage2["gate"]["requiresDownstream"])
+
+    def test_confirmation_gates_are_artifact_backed_and_idempotent(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        emit_protocol = read_text(SKILL_ROOT / "references" / "emit-artifact-protocol.md")
+        stage_schema = read_text(SKILL_ROOT / "references" / "stage-data-schema.md")
+        handoff_registry = read_text(SKILL_ROOT / "references" / "downstream-handoff-registry.md")
+        combined = "\n".join([skill, emit_protocol, stage_schema, handoff_registry])
+
+        for gate in CONFIRMATION_GATES:
+            self.assertIn(gate, combined)
+
+        for phrase in [
+            "统一确认门 Artifact Gate",
+            "普通 assistant 文本只能解释当前进展或说明选项，不能作为确认门状态来源",
+            "context_signature",
+            "artifactType + context_signature",
+            "同一上下文只展示一次",
+            "skip 形态的 `external_workorder_summary` 与 `external_config_committed` 由系统层确定性写入",
+            "Coach 不得自由生成",
+        ]:
+            self.assertIn(phrase, combined)
+
+    def test_review_report_completion_does_not_create_text_confirmation_gate(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        handoff_registry = read_text(SKILL_ROOT / "references" / "downstream-handoff-registry.md")
+        review_skill = read_text(
+            TEMPLATE_ROOT
+            / "skills"
+            / "digital-employee-package-completeness-review"
+            / "SKILL.md"
+        )
+        combined = "\n".join([skill, handoff_registry, review_skill])
+
+        for phrase in [
+            "`review_report` 是审查完成后的唯一状态来源",
+            "发出 `review_report` 后本轮必须停止",
+            "不得再用普通 assistant 文本追问用户是否修复、重跑审查或继续打包",
+            "After providing the `REVIEW_COMPLETE` summary, stop",
+            "Do not ask the user whether to fix blockers, rerun review, continue packaging, or choose a next step",
+        ]:
+            self.assertIn(phrase, combined)
 
     def test_skill_stage_schema_and_handoff_registry_keep_the_same_gate_order(self) -> None:
         stage_schema = read_text(SKILL_ROOT / "references" / "stage-data-schema.md")
@@ -93,8 +151,8 @@ class SkillStageContractTests(unittest.TestCase):
             "自然语言只能解释进展，不能替代阶段完成事件",
             "禁止出现\"对话已经进入技能阶段，但右侧 UI 仍停留在资料阶段\"的状态分叉",
             "资料阶段整体完成条件",
-            "给出技能建议",
-            "收到 `ontology_slice_extraction_done` 后，才读取 S1",
+            "系统层已按 R1 立即触发 `ontology-slice-extraction`",
+            "收到 `ontology_slice_extraction_done` 后，按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) **S1** 条目",
             "任何具体技能建议或技能反问，必须排在 `ontology_slice_extraction_done` 之后",
             "R1 属于资料阶段，S1 只能在 R1 的 `ontology_slice_extraction_done` 到达后执行",
             "披露的技能与参考文件（LLM 必须在 `ontology_slice_extraction_done` 后读取）",
@@ -103,7 +161,7 @@ class SkillStageContractTests(unittest.TestCase):
             self.assertIn(phrase, "\n".join([skill, handoff_registry]))
 
         self.assertIn("只说明阻断原因并留在资料阶段", transition_gate)
-        self.assertIn("只说明缺口并继续资料阶段", stage1_closure)
+        self.assertIn("只说明阻断原因并继续资料阶段", stage1_closure)
 
     def test_material_stage_loads_ontology_skill_before_collecting_materials(self) -> None:
         skill = read_text(SKILL_ROOT / "SKILL.md")
@@ -121,7 +179,8 @@ class SkillStageContractTests(unittest.TestCase):
         ], "SKILL.md stage1 startup")
 
         routing = section_between(skill, "资料阶段的强制预加载", "### 各阶段入场需加载的 skill")
-        self.assertIn("发出 `material_handoff_summary` 或构造 R1 内部触发块前", routing)
+        self.assertIn("发出 `material_handoff_summary` 前", routing)
+        self.assertIn("R1 内部触发块由系统层自动构造，coach 不手写", routing)
         self.assertIn("若上下文曾被裁剪，立即重新调用 `load_skill`", routing)
 
         combined = "\n".join([flow_constraints, stage_schema, emit_protocol])
@@ -131,6 +190,37 @@ class SkillStageContractTests(unittest.TestCase):
             "在 `ontology_slice_extraction_done` 到达前，不得发 `skill_workorder_progress`",
         ]:
             self.assertIn(phrase, combined)
+
+    def test_r1_dispatch_is_owned_by_system_layer_not_coach_text(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        handoff_registry = read_text(SKILL_ROOT / "references" / "downstream-handoff-registry.md")
+        flow_constraints = read_text(SKILL_ROOT / "references" / "flow-constraints.md")
+        stage1_closure = section_between(skill, "阶段 1 完成后的强制动作", "### 阶段 2：技能")
+        combined = "\n".join([stage1_closure, handoff_registry, flow_constraints])
+
+        for phrase in [
+            "系统层必须立即触发 `ontology-slice-extraction` skill",
+            "Coach 本轮只负责发 terminal artifact 和一句用户可见进度提示",
+            "不得手写 R1 内部触发块",
+            "R1 由系统层根据 terminal artifact 自动构造内部触发块",
+            "避免与系统层自动调度重复",
+        ]:
+            self.assertIn(phrase, combined)
+
+    def test_r1_dispatch_wording_does_not_tell_coach_to_write_internal_trigger(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        stage1_closure = section_between(skill, "阶段 1 完成后的强制动作", "### 阶段 2：技能")
+
+        forbidden_phrases = [
+            "Coach 按",
+            "本 skill 按",
+            "按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) 的 **R1** 构造内部触发块",
+            "立即补触发",
+            "本轮回复必须在 R1 触发块之后立即结束",
+        ]
+
+        for phrase in forbidden_phrases:
+            self.assertNotIn(phrase, stage1_closure)
 
     def test_skill_implementation_subflow_keeps_three_user_confirmation_gates(self) -> None:
         skill = read_text(SKILL_ROOT / "SKILL.md")

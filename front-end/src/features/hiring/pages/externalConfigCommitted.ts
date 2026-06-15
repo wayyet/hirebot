@@ -1,6 +1,7 @@
 import type { HiringExternalSystemConfig } from '@/infra/api'
 
 import type { ArtifactDisplayData } from './hiringPageTypes'
+import { buildConfirmationGateContextSignature } from './utils/hiringConfirmationArtifacts'
 
 type ExternalConfigCommittedPayload = {
   submissionMode: string
@@ -78,6 +79,70 @@ export function buildExternalConfigCommittedArtifact(
     isTerminal: true,
     displayHint: 'tree',
     data: payload,
+  }
+}
+
+export function buildExternalSystemEntryReadyArtifact(
+  skillGenerationDone: unknown,
+): ArtifactDisplayData {
+  const contextSignature = buildConfirmationGateContextSignature(
+    'external_system_entry_ready',
+    { skillGenerationDone },
+  )
+
+  return {
+    kind: 'data',
+    artifactType: 'external_system_entry_ready',
+    label: '等待确认是否进入外部系统配置',
+    skillName: 'employment-coach-conversation',
+    stage: 'stage3_external',
+    isTerminal: false,
+    displayHint: 'badge',
+    data: {
+      context_signature: contextSignature,
+      status: 'waiting_confirm',
+      trigger_after: 'skill_generation_done',
+      options: ['enter_external_system', 'skip_external_system'],
+      message: '技能实现已生成，请确认进入外部系统配置，或跳过外部系统直接进入打包前确认。',
+    },
+  }
+}
+
+export function buildSkippedExternalWorkorderSummaryArtifact(
+  skillGenerationDone: unknown,
+): ArtifactDisplayData {
+  const contextSignature = buildConfirmationGateContextSignature(
+    'external_system_entry_ready',
+    { skillGenerationDone },
+  )
+
+  return {
+    kind: 'data',
+    artifactType: 'external_workorder_summary',
+    label: '外部系统配置已跳过',
+    skillName: 'employment-coach-conversation',
+    stage: 'stage3_external',
+    isTerminal: true,
+    displayHint: 'tree',
+    data: {
+      context_signature: contextSignature,
+      skip: true,
+      submissionMode: 'skipped',
+      total_capabilities: 0,
+      external_capabilities: [],
+      reason: 'user_skipped_external_system',
+      trigger_after: 'external_system_entry_ready',
+    },
+  }
+}
+
+export function buildSkippedExternalSystemConfig(updatedAtUtc = new Date().toISOString()): HiringExternalSystemConfig {
+  return {
+    submissionMode: 'skipped',
+    updatedAtUtc,
+    cliTools: [],
+    mcpServers: [],
+    mcpServer: null,
   }
 }
 

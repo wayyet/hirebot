@@ -59,6 +59,22 @@ stage 与前端胶囊的对应关系：
 - `stage2_skill` 是“技能”主阶段，其中固定先完成技能定义，再进入“技能实现子流程”：匹配技能数据确认，最后进入技能生成确认/执行子步骤。
 - 技能阶段有三个显式确认门：`skill_definition_ready`、`ontology_projection_ready`、`skill_generation_ready`。`skill_workorder_summary` 只能在 `skill_definition_ready` 被用户确认后发出，随后发出 `ontology_projection_ready` 等待用户确认匹配技能数据；`skill_generation_ready` 只能在 `ontology_projection_done` 可消费后发出。主 `stage2_skill` 胶囊在 `skill-generation` 完成前仍保持进行中。
 
+## 统一确认门 Artifact Gate
+
+所有“等待用户确认”的步骤必须通过非终态 artifact 表达，前端运行轨道保存 `waiting_confirm` 状态。普通 assistant 文本只能解释当前进展或说明选项，不能作为确认门状态来源，也不能单独承担“等待确认”的 UI 状态。
+
+确认门列表：
+- `material_handoff_ready`
+- `skill_definition_entry_ready`
+- `skill_definition_ready`
+- `ontology_projection_ready`
+- `skill_generation_ready`
+- `external_system_entry_ready`
+- `packaging_testcases_ready`
+- `review_readiness`
+
+确认门必须携带或可由 payload 推导 `context_signature`。前端按 `artifactType + context_signature` 做幂等去重：同一上下文只展示一次；补充资料、重新生成技能、重新提交外部配置等新上下文允许重新出现。
+
 ## 各阶段发出时机
 
 ### 阶段 1：资料（stage1_material）
@@ -66,6 +82,7 @@ stage 与前端胶囊的对应关系：
 | 时机 | artifactType | isTerminal | displayHint |
 |------|-------------|------------|-------------|
 | 用户上传文件或描述资料后，第一条资料被记录下来 | `material_collection_progress` | `false` | `progress` |
+| 资料已足够收口，等待用户确认是否开始分析业务资料 | `material_handoff_ready` | `false` | `badge` |
 | 用户明确表达"先这些"，资料清单已整理完毕，作为 R1 分析业务资料输入 | `material_handoff_summary` | `true` | `tree` |
 
 中间每次有新资料加入清单时可多次发出 `material_collection_progress` 更新进度，不需要等到用户说完所有资料再发第一次。
@@ -76,6 +93,7 @@ stage 与前端胶囊的对应关系：
 
 | 时机 | artifactType | isTerminal | displayHint |
 |------|-------------|------------|-------------|
+| 业务资料分析完成，等待用户确认是否进入技能定义 | `skill_definition_entry_ready` | `false` | `badge` |
 | 技能阶段开始，收到第一条技能描述 | `skill_workorder_progress` | `false` | `progress` |
 | 技能清单草案已足够，等待用户确认 | `skill_definition_ready` | `false` | `badge` |
 | 用户确认技能清单完整，技能定义子步骤收口 | `skill_workorder_summary` | `true` | `tree` |
@@ -104,11 +122,13 @@ stage 与前端胶囊的对应关系：
 
 | 时机 | artifactType | isTerminal | displayHint |
 |------|-------------|------------|-------------|
+| 技能实现完成，等待用户确认进入或跳过外部系统 | `external_system_entry_ready` | `false` | `badge` |
 | 外部阶段开始，收到第一条能力描述 | `external_workorder_progress` | `false` | `progress` |
 | 用户确认外部能力清单（或明确跳过） | `external_workorder_summary` | `true` | `tree` |
 
 进入前提：
-- 只有在 `skill_generation_done` 已到达后，才允许真正进入外部阶段。
+- 只有在 `skill_generation_done` 已到达、`external_system_entry_ready` 已发出并被用户确认进入外部系统后，才允许发出 `external_workorder_progress`。
+- 用户选择跳过外部系统时，系统层确定性写入 skip 形态的 `external_workorder_summary` 和 `external_config_committed`，Coach 不得自由生成该跳过分支。
 
 ### 阶段 4：生成数字员工（stage4_packaging）
 

@@ -73,9 +73,12 @@ type HiringConversationPanelProps = {
   disabled: boolean
   fileInputRef: RefObject<HTMLInputElement | null>
   composerRef: RefObject<HTMLTextAreaElement | null>
+  chatScrollRef: RefObject<HTMLDivElement | null>
   chatEndRef: RefObject<HTMLDivElement | null>
+  showScrollToBottom: boolean
   onInputChange: (value: string) => void
   onSend: () => void
+  onScrollToBottom: () => void
   onFileChange: (files: FileList) => void
   onOpenSkillUpload: () => void
   onRemovePendingFile: (fileId: string) => void
@@ -112,9 +115,12 @@ export function HiringConversationPanel({
   disabled,
   fileInputRef,
   composerRef,
+  chatScrollRef,
   chatEndRef,
+  showScrollToBottom,
   onInputChange,
   onSend,
+  onScrollToBottom,
   onFileChange,
   onOpenSkillUpload,
   onRemovePendingFile,
@@ -160,7 +166,7 @@ export function HiringConversationPanel({
           ) : null}
         </div>
       ) : null}
-      <div className="hb-hiring-chat-body">
+      <div className="hb-hiring-chat-body" ref={chatScrollRef}>
         <InfoCard
           title={t('hiring.intro.title', { name: introName })}
           body={t('hiring.intro.subtitle', { name: introName })}
@@ -356,6 +362,18 @@ export function HiringConversationPanel({
         ) : null}
         <div ref={chatEndRef} />
       </div>
+
+      {showScrollToBottom ? (
+        <button
+          type="button"
+          className="hb-hiring-scroll-bottom"
+          onClick={onScrollToBottom}
+          aria-label="滚动到底部"
+          title="滚动到底部"
+        >
+          <ChevronDown size={18} />
+        </button>
+      ) : null}
 
       {pendingFiles.length > 0 ? (
         <div className="hb-hiring-pending">

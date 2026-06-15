@@ -138,6 +138,51 @@ describe('buildSkillGenerationPayload', () => {
     })
   })
 
+  it('优先使用显式 skill_slug，避免中文 name 与 projection 目录分叉', () => {
+    const summary = {
+      workspace_root: '/workspace/template-1',
+      items: [
+        {
+          name: '插单可行性评估与快速重排建议',
+          skill_slug: 'scheduling_replan_advisor',
+          display_name: '插单可行性评估与快速重排建议',
+          description: '评估插单可行性并输出重排建议',
+          trigger: '用户提交插单请求',
+          expected_output: '输出可行性结论和小时级排产建议',
+          generation_action: 'generate_new',
+        },
+      ],
+    }
+
+    expect(buildProjectionPassPayload(summary)).toMatchObject({
+      skills: [
+        {
+          skill_slug: 'scheduling_replan_advisor',
+          skill_name: '插单可行性评估与快速重排建议',
+        },
+      ],
+    })
+
+    expect(buildSkillGenerationPayload(summary, {
+      projected_count: 1,
+      projection_paths: [
+        'ontology/projections/scheduling_replan_advisor/cosmetics-production-scheduling.workflow-contract.projection.json',
+      ],
+    })).toMatchObject({
+      items: [
+        {
+          name: 'scheduling_replan_advisor',
+          skill_slug: 'scheduling_replan_advisor',
+          display_name: '插单可行性评估与快速重排建议',
+        },
+      ],
+      confirmed_skill_slugs: ['scheduling_replan_advisor'],
+      projection_skill_slugs: ['scheduling_replan_advisor'],
+      projection_binding_confirmed: true,
+      projection_contract_mode: 'required',
+    })
+  })
+
   it('缺少 projected_count 但有 projection_paths 时仍可兼容启动', () => {
     const payload = buildSkillGenerationPayload({
       workspace_root: '/workspace/template-1',
@@ -398,6 +443,8 @@ describe('package review decision routing', () => {
     expect(prompt).toContain('review_report')
     expect(prompt).toContain('Do not invoke package/export/archive tools')
     expect(prompt).toContain('do not emit `template_package`')
+    expect(prompt).toContain('After emitting `review_report`, stop')
+    expect(prompt).toContain('Do not ask whether to fix blockers')
     expect(prompt).toContain('manifest.entry_skill')
     expect(prompt).toContain('manifest.skills')
     expect(prompt).toContain('manifest.ontology_slices')
