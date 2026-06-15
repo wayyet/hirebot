@@ -1,5 +1,6 @@
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Core.Services.EmployeeRuntime;
+using HireBot.Core.Services.Hiring.Storage;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -37,15 +38,10 @@ public sealed class InstanceArtifactCloneServiceTests
                 .Build();
 
             await using var dbContext = CreateDbContext();
+            var fileStore = new FileSystemFileStore(tempRoot);
             var service = new InstanceArtifactCloneService(
-                configuration,
-                new TestHostingEnvironment
-                {
-                    ContentRootPath = tempRoot,
-                    ContentRootFileProvider = new PhysicalFileProvider(tempRoot)
-                },
                 dbContext,
-                null!);
+                fileStore);
 
             var result = await service.CloneArtifactsAsync(BuildEmployee("source-001", "sales-coach"), "clone-001");
 
@@ -185,22 +181,8 @@ public sealed class InstanceArtifactCloneServiceTests
 
     private static InstanceArtifactResolver CreateResolver(string contentRootPath)
     {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(
-            [
-                new KeyValuePair<string, string?>("HireBot:DataRoot", "data"),
-                new KeyValuePair<string, string?>("HireBot:DigitalWorkforceRoot", "digital-workforce"),
-                new KeyValuePair<string, string?>("HireBot:PersonalCloneArtifactsRoot", "personal-clone-artifacts")
-            ])
-            .Build();
-
-        return new InstanceArtifactResolver(
-            configuration,
-            new TestHostingEnvironment
-            {
-                ContentRootPath = contentRootPath,
-                ContentRootFileProvider = new PhysicalFileProvider(contentRootPath)
-            });
+        var fileStore = new FileSystemFileStore(contentRootPath);
+        return new InstanceArtifactResolver(fileStore);
     }
 
     private static void CreateMetadataOnlySourcePackage(string artifactRoot)

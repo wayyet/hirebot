@@ -750,6 +750,7 @@ public sealed class EmployeeTemplateServiceTests
             new TestUserIdentity("owner-1", "tenant-1", "operator-1"),
             dbContext,
             assetStore ?? new ThrowingEvaluationAssetStore(),
+            null!,
             hostEnvironment,
             configuration,
             NullLogger<EvaluationService>.Instance,
