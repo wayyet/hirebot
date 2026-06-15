@@ -29,6 +29,7 @@ public sealed class HiringMaterialFilesController(
     : ControllerBase
 {
     private const long MaxUploadBytes = 50_000_000;
+    private const int WorkspaceSyncMaxAttempts = 3;
     private const string HiringSandboxRole = "hiring";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -96,15 +97,27 @@ public sealed class HiringMaterialFilesController(
         var normalizedCategoryTitle = NormalizeOptional(requestedCategoryTitle, 160);
         var saved = new List<HiringMaterialFileDto>(nonEmptyFiles.Count);
 
-        foreach (var file in nonEmptyFiles)
+        try
         {
-            var dto = await SaveMaterialFileAsync(
-                uploadContext,
-                file,
-                folder,
-                normalizedCategoryTitle,
-                cancellationToken);
-            saved.Add(dto);
+            foreach (var file in nonEmptyFiles)
+            {
+                var dto = await SaveMaterialFileAsync(
+                    uploadContext,
+                    file,
+                    folder,
+                    normalizedCategoryTitle,
+                    cancellationToken);
+                saved.Add(dto);
+            }
+        }
+        catch (MaterialFileUploadException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "[MaterialFiles] Upload rejected because workspace sync did not complete. HireId={HireId} SessionId={SessionId}",
+                uploadContext.HireId,
+                uploadContext.SessionId);
+            return StatusCode(ex.StatusCode, ApiResponse<object>.ErrorResponse(ex.StatusCode, ex.Message));
         }
 
         return Ok(ApiResponse<IReadOnlyList<HiringMaterialFileDto>>.SuccessResponse(saved, "上传成功"));
@@ -175,29 +188,27 @@ public sealed class HiringMaterialFilesController(
         sha256 = Convert.ToHexStringLower(SHA256.HashData(fileBytes));
         var mimeType = NormalizeOptional(file.ContentType, 120);
 
-        // 通过 IFileStore 持久化
-        using var saveStream = new MemoryStream(fileBytes);
-        var storagePath = await fileStore.SaveAsync(virtualPath, saveStream, cancellationToken);
-
-        // 尝试同步到 sandbox workspace
-        var syncedWorkspaceRelativePath = await TrySyncWorkspaceCopyAsync(
-            uploadContext,
-            relativePath,
-            safeFolder,
-            safeFileName,
-            fileBytes,
-            mimeType,
-            cancellationToken);
-
-        var existing = await dbContext.HiringMaterialFiles
-            .FirstOrDefaultAsync(item =>
-                item.SessionId == uploadContext.SessionId &&
-                item.RelativePath == relativePath,
-                cancellationToken);
-
+        string? storagePath = null;
         try
         {
-            var workspaceRelativePath = syncedWorkspaceRelativePath ?? existing?.WorkspaceRelativePath;
+            // 先保存主存储，再强制同步 workspace；同步失败时清理主存储，避免 MCP 读到半成功资料。
+            using var saveStream = new MemoryStream(fileBytes);
+            storagePath = await fileStore.SaveAsync(virtualPath, saveStream, cancellationToken);
+
+            var workspaceRelativePath = await SyncWorkspaceCopyAsync(
+                uploadContext,
+                relativePath,
+                safeFolder,
+                safeFileName,
+                fileBytes,
+                mimeType,
+                cancellationToken);
+
+            var existing = await dbContext.HiringMaterialFiles
+                .FirstOrDefaultAsync(item =>
+                    item.SessionId == uploadContext.SessionId &&
+                    item.RelativePath == relativePath,
+                    cancellationToken);
 
             // 对 PDF / DOCX 文件提取文本作为伴生 .md 同步到 workspace，
             // 使 AI 能通过 hiring.parse_uploaded_files 读取二进制资料的内容。
@@ -284,8 +295,23 @@ public sealed class HiringMaterialFilesController(
         }
         catch
         {
-            // 如果 DB 写入失败，清理已存储的文件
-            await fileStore.DeleteAsync(storagePath, cancellationToken);
+            // 任一后续步骤失败时，不保留本次主存储文件，避免后续解析拿到缺少 source_path 的脏数据。
+            if (!string.IsNullOrWhiteSpace(storagePath))
+            {
+                try
+                {
+                    await fileStore.DeleteAsync(storagePath, cancellationToken);
+                }
+                catch (Exception cleanupEx)
+                {
+                    logger.LogWarning(
+                        cleanupEx,
+                        "[MaterialFiles] Failed to cleanup material file after upload failure. HireId={HireId} SessionId={SessionId} StoragePath={StoragePath}",
+                        uploadContext.HireId,
+                        uploadContext.SessionId,
+                        storagePath);
+                }
+            }
             throw;
         }
     }
@@ -319,11 +345,12 @@ public sealed class HiringMaterialFilesController(
         var progress = await dbContext.HiringStageProgresses
             .AsNoTracking()
             .FirstOrDefaultAsync(item => item.HireId == normalizedHireId, cancellationToken);
-        var workspaceRoot = TryResolveWorkspaceRoot(progress?.UploadedFilesJson);
 
         var sandbox = await dbContext.SandboxInstances
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.ScopeType == "Hire" && s.ScopeKey == normalizedHireId, cancellationToken);
+        var workspaceRoot = TryResolveWorkspaceRoot(sandbox?.Metadata) ??
+            TryResolveWorkspaceRoot(progress?.UploadedFilesJson);
 
         return ContextResult<MaterialUploadContext>.Ok(new MaterialUploadContext(
             normalizedHireId,
@@ -349,7 +376,7 @@ public sealed class HiringMaterialFilesController(
             entity.UploadedAtUtc,
             entity.UpdatedAtUtc);
 
-    private async Task<string?> TrySyncWorkspaceCopyAsync(
+    private async Task<string> SyncWorkspaceCopyAsync(
         MaterialUploadContext uploadContext,
         string relativePath,
         string safeFolder,
@@ -361,55 +388,65 @@ public sealed class HiringMaterialFilesController(
         var workspaceRoot = NormalizeWorkspaceRoot(uploadContext.WorkspaceRoot);
         if (workspaceRoot is null)
         {
-            logger.LogWarning(
-                "[MaterialFiles] Workspace root unavailable, skip workspace sync. HireId={HireId} SessionId={SessionId} RelativePath={RelativePath}",
-                uploadContext.HireId,
-                uploadContext.SessionId,
-                relativePath);
-            return null;
+            throw new MaterialFileUploadException(
+                StatusCodes.Status409Conflict,
+                "资料上传失败：当前雇佣会话尚未准备好沙箱工作区，请刷新页面或稍后重试上传。");
         }
 
         var workspaceRootDir = TryConvertWorkspaceRootToTargetDir(workspaceRoot);
         if (workspaceRootDir is null)
         {
-            logger.LogWarning(
-                "[MaterialFiles] Invalid workspace root, skip workspace sync. HireId={HireId} SessionId={SessionId} WorkspaceRoot={WorkspaceRoot}",
-                uploadContext.HireId,
-                uploadContext.SessionId,
-                workspaceRoot);
-            return null;
+            throw new MaterialFileUploadException(
+                StatusCodes.Status409Conflict,
+                "资料上传失败：当前雇佣会话的沙箱工作区路径无效，请刷新页面或重新进入雇佣流程后重试上传。");
         }
 
         var workspaceRelativePath = BuildWorkspaceRelativePath(relativePath);
         var targetDir = BuildWorkspaceTargetDir(workspaceRootDir, safeFolder);
-        var uploadResult = await sandboxService.UploadWorkspaceFileAsync(
-            new SandboxWorkspaceUploadRequestDto
-            {
-                ScopeType = SandboxScopeTypes.Hire,
-                ScopeKey = uploadContext.HireId,
-                SandboxRole = HiringSandboxRole,
-                OwnerSubject = uploadContext.UploadedBy,
-                SandboxId = uploadContext.SandboxId,
-                TargetDir = targetDir,
-                FileName = safeFileName,
-                Content = content,
-                ContentType = ResolveContentType(safeFileName, mimeType)
-            },
-            cancellationToken);
-
-        if (!uploadResult.Success)
+        var request = new SandboxWorkspaceUploadRequestDto
         {
+            ScopeType = SandboxScopeTypes.Hire,
+            ScopeKey = uploadContext.HireId,
+            SandboxRole = HiringSandboxRole,
+            OwnerSubject = uploadContext.UploadedBy,
+            SandboxId = uploadContext.SandboxId,
+            TargetDir = targetDir,
+            FileName = safeFileName,
+            Content = content,
+            ContentType = ResolveContentType(safeFileName, mimeType)
+        };
+
+        for (var attempt = 1; attempt <= WorkspaceSyncMaxAttempts; attempt++)
+        {
+            var uploadResult = await sandboxService.UploadWorkspaceFileAsync(request, cancellationToken);
+            if (uploadResult.Success)
+            {
+                return workspaceRelativePath;
+            }
+
             logger.LogWarning(
-                "[MaterialFiles] Failed to sync file into workspace. HireId={HireId} SessionId={SessionId} RelativePath={RelativePath} TargetDir={TargetDir} Message={Message}",
+                "[MaterialFiles] Failed to sync file into workspace. Attempt={Attempt}/{MaxAttempts} HireId={HireId} SessionId={SessionId} RelativePath={RelativePath} TargetDir={TargetDir} Message={Message}",
+                attempt,
+                WorkspaceSyncMaxAttempts,
                 uploadContext.HireId,
                 uploadContext.SessionId,
                 relativePath,
                 targetDir,
                 uploadResult.Message);
-            return null;
+
+            if (attempt == WorkspaceSyncMaxAttempts)
+            {
+                throw new MaterialFileUploadException(
+                    StatusCodes.Status503ServiceUnavailable,
+                    "资料上传失败：资料未能同步到沙箱工作区，请稍后重试上传。");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken);
         }
 
-        return workspaceRelativePath;
+        throw new MaterialFileUploadException(
+            StatusCodes.Status503ServiceUnavailable,
+            "资料上传失败：资料未能同步到沙箱工作区，请稍后重试上传。");
     }
 
     /// <summary>
@@ -532,6 +569,17 @@ public sealed class HiringMaterialFilesController(
         {
             return null;
         }
+    }
+
+    private static string? TryResolveWorkspaceRoot(IReadOnlyDictionary<string, string>? metadata)
+    {
+        if (metadata is null ||
+            !metadata.TryGetValue(SandboxMetaKeys.HiringWorkspaceRoot, out var workspaceRoot))
+        {
+            return null;
+        }
+
+        return NormalizeWorkspaceRoot(workspaceRoot);
     }
 
     private static string? TryResolveWorkspaceRoot(string? uploadedFilesJson)
@@ -658,6 +706,11 @@ public sealed class HiringMaterialFilesController(
         string UploadedBy,
         string? SandboxId,
         string? WorkspaceRoot);
+
+    private sealed class MaterialFileUploadException(int statusCode, string message) : Exception(message)
+    {
+        public int StatusCode { get; } = statusCode;
+    }
 
     private sealed record PersistedHiringMetaProjection(
         string? SandboxId);

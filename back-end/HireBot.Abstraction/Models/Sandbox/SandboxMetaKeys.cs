@@ -39,6 +39,9 @@ public static class SandboxMetaKeys
     /// <summary>雇佣流程外部系统配置的加密 JSON 快照。</summary>
     public const string ExternalSystemConfig = "external_system_config";
 
+    /// <summary>雇佣会话在沙箱中的工作区根目录，例如 /workspace/template-20260615093000。</summary>
+    public const string HiringWorkspaceRoot = "hiring_workspace_root";
+
     // ──────────────────────────────────────────
     // 托管评估沙箱（ScopeType = "managed"）
     // ──────────────────────────────────────────
