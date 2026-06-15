@@ -72,6 +72,32 @@ describe('buildProjectionPassPayload', () => {
       ],
     })).toBeNull()
   })
+
+  it('透传已收集的业务规则供匹配技能数据消费', () => {
+    const payload = buildProjectionPassPayload({
+      workspace_root: '/workspace/template-20260611090000',
+      template_slug: 'template',
+      business_rules_captured_so_far: {
+        cip_matrix: 'fragrance_to_color_to_sensitive_level',
+      },
+      items: [
+        {
+          name: 'cip-changeover-time-and-path-selection',
+          display_name: '换线/CIP约束估时与路径选择',
+          description: '选择换线路径并估算清洗时间',
+          trigger: '用户提出同线切换',
+          expected_output: '输出换线顺序和估时',
+          generation_action: 'generate_new',
+        },
+      ],
+    })
+
+    expect(payload).toMatchObject({
+      business_rules: {
+        cip_matrix: 'fragrance_to_color_to_sensitive_level',
+      },
+    })
+  })
 })
 
 describe('buildSkillGenerationPayload', () => {
@@ -296,6 +322,10 @@ describe('buildPackagingRequestPrompt', () => {
     expect(prompt).toContain('Stop immediately after `review_readiness`')
     expect(prompt).toContain('Do not emit `review_progress`')
     expect(prompt).toContain('do not emit `template_package`')
+    expect(prompt).toContain('manifest.entry_skill')
+    expect(prompt).toContain('manifest.skills')
+    expect(prompt).toContain('manifest.ontology_slices')
+    expect(prompt).toContain('do not emit `review_readiness`')
   })
 
   it('review_report 已存在时要求直接进入 R6 打包', () => {
@@ -318,6 +348,10 @@ describe('buildPackagingRequestPrompt', () => {
     expect(prompt).toContain('stop and report the concrete root-resolution problem')
     expect(prompt).toContain('use a zip tool to package that directory')
     expect(prompt).toContain('template_package')
+    expect(prompt).toContain('manifest.entry_skill')
+    expect(prompt).toContain('manifest.skills')
+    expect(prompt).toContain('manifest.ontology_slices')
+    expect(prompt).toContain('do not emit `template_package`')
   })
 })
 
@@ -364,6 +398,10 @@ describe('package review decision routing', () => {
     expect(prompt).toContain('review_report')
     expect(prompt).toContain('Do not invoke package/export/archive tools')
     expect(prompt).toContain('do not emit `template_package`')
+    expect(prompt).toContain('manifest.entry_skill')
+    expect(prompt).toContain('manifest.skills')
+    expect(prompt).toContain('manifest.ontology_slices')
+    expect(prompt).toContain('do not emit `review_progress`')
   })
 
   it('跳过审查提示直接打包且禁止 review_progress', () => {
@@ -374,6 +412,10 @@ describe('package review decision routing', () => {
     expect(prompt).toContain('do not emit `review_progress`')
     expect(prompt).toContain('packaging_progress')
     expect(prompt).toContain('template_package')
+    expect(prompt).toContain('manifest.entry_skill')
+    expect(prompt).toContain('manifest.skills')
+    expect(prompt).toContain('manifest.ontology_slices')
+    expect(prompt).toContain('do not emit `template_package`')
   })
 })
 
@@ -426,6 +468,10 @@ describe('buildDownstreamPrompt', () => {
     expect(prompt).toContain('ontology_projection_progress')
     expect(prompt).toContain('ontology_projection_done')
     expect(prompt).toContain('Scan slices from `<workspace_root>/ontology/`')
+    expect(prompt).toContain('write_file')
+    expect(prompt).toContain('read_file')
+    expect(prompt).toContain('do not emit a successful `ontology_projection_done` for an unwritten or stub projection')
+    expect(prompt).toContain('do not ask the user to rerun the same projection pass')
   })
 
   it('skill-generation prompt 包含 use skill skill-generation 触发块', () => {

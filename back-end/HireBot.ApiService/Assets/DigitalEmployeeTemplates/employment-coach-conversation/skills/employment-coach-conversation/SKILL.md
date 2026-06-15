@@ -637,6 +637,7 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 **匹配技能数据完成后的强制动作（生成技能实现确认门）**：
 - 等待 `ontology_projection_done` 到达；等待期间**不得**再次询问用户“是否开始匹配技能数据”、不得触发 `skill-generation`、不得向用户声称技能实现已经开始生成。
 - 若 `projected_count > 0` 且 `projection_paths[]` 指向 `ontology/projections/<skill-slug>/...projection.json`：发出 `skill_generation_ready` 作为技能实现确认门，询问用户是否生成技能实现。
+- 若 `projected_count > 0` 且 projection 文件已真实落盘，但文件中包含 `open_questions`：这表示业务口径仍需精确确认，不表示“匹配技能数据失败”。仍应发出 `skill_generation_ready`，并用业务语言提出 projection 中的具体选项题；不得要求用户“重跑匹配技能数据”来解决同一个缺口。
 - 若 `projected_count === 0`、缺少 `projection_paths[]`、路径无法对应已确认技能 slug，或结果无效：不得发出 `skill_generation_ready`，用用户可理解的话说明业务资料不足，需要补充材料或回到业务信息整理；不得向用户暴露 `slice`、`projection`、`projection_paths`、R1/R2/R3、结构化文件等内部术语。
 - 用户确认 `skill_generation_ready` 后：
   0. **调用 `load_skill` 加载 `skill-generation`**（若尚未在上下文中）：
@@ -882,6 +883,7 @@ B. **用户显式请求触发**：当本 coach 自身已发出三个阶段的 te
 
 | 字段 | 动作 | 来源 |
 |------|------|------|
+| `entry_skill` | 指向本轮生成的主业务 skill | 最近一次 `skill_generation_done.data.skill_slugs[0]`（缺失时回退 `skill_workorder_summary.data.items[0].name`） |
 | `ontology_slices` | 追加运行时产出的 slice 条目 | 扫描 `<employee_package_root>/ontology/*.slice.json` |
 | `skills` | 同步本轮 skill-generation 产出的业务 skill 条目 | 只使用最近一次 `skill_generation_done.data.skill_slugs`（缺失时回退 `skill_workorder_summary.data.items[].name`），排除模板内置 skill |
 
@@ -936,9 +938,28 @@ ls <employee_package_root>/ontology/*.slice.json
 ```
 5. 对 `manifest.skills` 中由旧运行生成、但不在当前业务技能白名单且不属于内置 skill 白名单的条目，必须移除或标记为不参与打包；禁止继续保留指向陈旧目录的 required 条目。
 
-**步骤 D：回写 manifest.json**
+**步骤 D：同步 entry_skill**
+
+1. 取得当前主业务技能：
+   - 首选：最近一次 `skill_generation_done.data.skill_slugs[0]`
+   - 回退：最近一次 `skill_workorder_summary.data.items[0].name`
+2. 检查 `skills/<主业务技能>/SKILL.md` 是否存在；不存在则停止，不能发 `review_readiness`、不能发 `review_progress`、不能调用打包工具。
+3. 将 `manifest.entry_skill` 设置为 `skills/<主业务技能>/SKILL.md`。
+4. 若没有任何当前业务技能，说明技能实现尚未完成，必须停止并提示等待技能生成完成；不得用空值、模板内置 skill 或旧运行目录代替。
+
+**步骤 E：回写 manifest.json**
 
 将更新后的完整 JSON 写回 `<employee_package_root>/manifest.json`（覆盖写入，保持格式化缩进 2 空格）。
+
+**步骤 F：回读验证（审查与打包前硬门）**
+
+写回后必须重新读取 `<employee_package_root>/manifest.json` 并逐项验证：
+
+1. `entry_skill` 存在，且指向的文件在工作区内真实存在。
+2. 当前业务技能白名单中的每个 `<slug>` 都在 `manifest.skills[]` 中存在，且 `path` 等于 `skills/<slug>/SKILL.md`。
+3. `manifest.skills[]` 中不存在非内置、非当前白名单的旧运行 required 业务 skill 条目。
+4. `<employee_package_root>/ontology/*.slice.json` 中每个运行时 slice 都在 `manifest.ontology_slices[]` 中存在同 path 条目。
+5. 任何一项不通过，都必须停止在打包阶段：不得发 `review_readiness`、不得发 `review_progress`、不得调用打包工具、不得发 `template_package`；只用业务话说明“数字员工清单未同步完整”，并指出缺失字段。
 
 #### 内置 skill 白名单（不追加、不删除）
 
@@ -957,7 +978,7 @@ ls <employee_package_root>/ontology/*.slice.json
 - **幂等安全**：多次执行 manifest 同步结果一致，不产生重复条目
 - **ontology-slice.md 保留**：模板原始的 `ontology-slice.md` 条目保持不变（它是约定文档，不是运行时 slice）
 - **不修改其他字段**：`name`、`display_name`、`positioning`、`description`、`version`、`config`、`stage_rules` 等字段原样保留
-- **失败不阻断打包**：若扫描目录为空或无新增条目，manifest 保持原样即可，不影响后续打包步骤
+- **同步失败阻断审查与打包**：如果当前业务技能、`entry_skill` 或已存在的运行时 `*.slice.json` 无法同步并通过回读验证，必须停止；只有“目录本身没有运行时 slice 可追加”这种无新增场景不阻断。
 
 #### 同步后 manifest 示例（部分）
 

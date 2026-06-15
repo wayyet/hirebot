@@ -168,6 +168,9 @@ return_to: employment-coach-conversation
 - `ontology_projection_done`
 
 **禁止**
+- `ontology-projection` 产出 projection 文件时必须调用沙箱文件写入工具（优先 `write_file`，否则使用当前环境等价的 `create_file` / `save_file`），并用 `read_file` 读回验证；不得用 shell / Python here-doc / echo / 仅对话描述代替真实文件写入。
+- 若文件写入工具不可用，或读回验证失败，不得发出成功形态的 `ontology_projection_done`；应将对应技能降级为 `slices_not_ready` / 跳过并说明原因。
+- 若 projection 已真实落盘但包含 `open_questions`，这是待补业务口径，不是“匹配技能数据失败”；应保留已匹配结果，向用户提出对应的精确业务问题，不得要求用户重跑同一步。
 - 不得在 `ontology_projection_done` 前调用 `skill-generation`。
 - 不得把 `projection_binding_confirmed` 写进 `ontology_projection_ready` 或 `skill_generation_ready`；该字段只属于 R3 的内部触发 payload。
 - 不得在用户确认 `ontology_projection_ready` 前触发 R2。

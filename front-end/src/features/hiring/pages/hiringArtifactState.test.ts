@@ -43,6 +43,10 @@ describe('buildCoachResumePrompt', () => {
 
     expect(prompt).toContain('The optional evaluation test case generation has completed.')
     expect(prompt).toContain('review_readiness')
+    expect(prompt).toContain('entry_skill')
+    expect(prompt).toContain('manifest.skills')
+    expect(prompt).toContain('manifest.ontology_slices')
+    expect(prompt).toContain('do not emit `review_readiness`')
     expect(prompt).toContain('Do not emit review_progress or template_package before review_readiness')
     expect(prompt).toContain('Do not regenerate evaluation test cases in this turn.')
     expect(prompt).toContain('The testcase output contains 4 generated cases.')
@@ -64,6 +68,8 @@ describe('buildCoachResumePrompt', () => {
 
     expect(prompt).toContain('Emit non-terminal `skill_generation_ready`')
     expect(prompt).toContain('Ask the user for explicit confirmation')
+    expect(prompt).toContain('ask the exact option-style question')
+    expect(prompt).toContain('do not tell the user to rerun business-information preparation')
     expect(prompt).toContain('Do not trigger `skill-generation` in this turn')
   })
 })

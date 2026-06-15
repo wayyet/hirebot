@@ -789,6 +789,8 @@ export function buildCoachResumePrompt(
         'Usable prepared business-information packages are available for skill generation.',
         'Emit non-terminal `skill_generation_ready` with the projection paths and projected count.',
         'Ask the user for explicit confirmation before starting `skill-generation`.',
+        'If any prepared business-information package contains unresolved business questions, ask the exact option-style question from that package in business language; do not tell the user to rerun business-information preparation.',
+        'Unresolved business questions make the prepared data WARNING rather than missing. They do not invalidate the completed projection as long as projection paths are present and slug checks pass.',
         'Do not trigger `skill-generation` in this turn.',
         'Do not emit `skill_projection_binding_ready` unless the system explicitly asks for a progress notification.',
       )
@@ -828,6 +830,9 @@ export function buildCoachResumePrompt(
       'Do not regenerate evaluation test cases in this turn.',
       'Do not claim the instance package is already generated.',
       'Give one short transition that the evaluation test cases are ready, then continue the stage4 packaging sequence toward the required review_readiness gate.',
+      'Before emitting `review_readiness`, synchronize `<employee_package_root>/manifest.json` and read it back.',
+      'The manifest sync must set `entry_skill` to the first current generated business skill path, declare current generated skills in `manifest.skills`, and declare top-level runtime `ontology/*.slice.json` files in `manifest.ontology_slices`.',
+      'If manifest read-back verification fails, do not emit `review_readiness`, do not start review, and do not package; tell the user which manifest field could not be synchronized.',
       'Do not emit review_progress or template_package before review_readiness and the user review decision.',
       'If the user already explicitly asked to package in the current context, proceed directly under the coach skill rules until review_readiness; otherwise ask whether to continue packaging.',
     ]
