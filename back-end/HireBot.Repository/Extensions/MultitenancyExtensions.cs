@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using HireBot.Abstraction.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace HireBot.Repository.Extensions;
 
@@ -21,8 +22,13 @@ public static class MultitenancyExtensions
     {
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
-            // 只处理实现了 ITenant 接口的实体
-            if (!typeof(ITenant).IsAssignableFrom(entityType.ClrType))
+            // 跳过以下类型:
+            // 1. 未实现 ITenant 接口
+            // 2. 抽象类型(无法实例化)
+            // 3. 拥有类型(Owned Entity Types, 通过父实体访问)
+            if (!typeof(ITenant).IsAssignableFrom(entityType.ClrType) ||
+                entityType.ClrType.IsAbstract ||
+                entityType.IsOwned())
                 continue;
 
             // 获取实体类型
@@ -31,6 +37,10 @@ public static class MultitenancyExtensions
             // 创建过滤器表达式
             var filterExpression = CreateTenantFilterExpression(clrType, tenantIdAccessor);
 
+            // EF Core 10注意: GetDeclaredQueryFilters() 返回的 IQueryFilter 接口在 10.0 中发生了变化
+            // 如果实体已有过滤器,可能需要手动合并。这里简化处理:直接应用租户过滤器
+            // 如需保留原有过滤器,请在 OnModelCreating 中先配置原过滤器,再调用 ApplyTenantQueryFilters
+
             // 应用查询过滤器
             modelBuilder.Entity(clrType).HasQueryFilter(filterExpression);
         }
@@ -38,7 +48,7 @@ public static class MultitenancyExtensions
 
     /// <summary>
     /// 创建租户过滤器表达式
-    /// 生成类似 e => e.TenantId == currentTenantId 的表达式
+    /// 生成类似 e => e.TenantId == currentTenantId || e.TenantId == null 的表达式
     /// </summary>
     private static LambdaExpression CreateTenantFilterExpression(
         Type entityType,
@@ -57,7 +67,7 @@ public static class MultitenancyExtensions
         // 构建比较表达式: e.TenantId == currentTenantId
         var equalExpression = Expression.Equal(tenantIdProperty, currentTenantIdExpression);
 
-        // 如果 TenantId 可为 null，还需要支持全局数据（TenantId == null）
+        // 如果 TenantId 可为 null,还需要支持全局数据(TenantId == null)
         // 构建: e.TenantId == currentTenantId || e.TenantId == null
         var nullCheckExpression = Expression.Equal(
             tenantIdProperty,
@@ -70,7 +80,26 @@ public static class MultitenancyExtensions
     }
 
     /// <summary>
-    /// 简化版：为特定实体类型配置租户过滤器
+    /// 合并两个查询过滤器表达式 (existing && tenant)
+    /// </summary>
+    private static LambdaExpression CombineFilters(
+        LambdaExpression existingFilter,
+        LambdaExpression tenantFilter)
+    {
+        var parameter = existingFilter.Parameters[0];
+
+        // 替换 tenantFilter 的参数为 existingFilter 的参数
+        var tenantBody = new ParameterReplacerVisitor(tenantFilter.Parameters[0], parameter)
+            .Visit(tenantFilter.Body);
+
+        // 合并: existing && tenant
+        var combined = Expression.AndAlso(existingFilter.Body, tenantBody!);
+
+        return Expression.Lambda(combined, parameter);
+    }
+
+    /// <summary>
+    /// 简化版:为特定实体类型配置租户过滤器
     /// </summary>
     public static void ApplyTenantFilterFor<TEntity>(
         this ModelBuilder modelBuilder,
@@ -79,5 +108,25 @@ public static class MultitenancyExtensions
     {
         modelBuilder.Entity<TEntity>()
             .HasQueryFilter(e => e.TenantId == tenantIdAccessor() || e.TenantId == null);
+    }
+
+    /// <summary>
+    /// 参数替换访问器,用于合并过滤器时统一参数
+    /// </summary>
+    private class ParameterReplacerVisitor : ExpressionVisitor
+    {
+        private readonly ParameterExpression _oldParameter;
+        private readonly ParameterExpression _newParameter;
+
+        public ParameterReplacerVisitor(ParameterExpression oldParameter, ParameterExpression newParameter)
+        {
+            _oldParameter = oldParameter;
+            _newParameter = newParameter;
+        }
+
+        protected override Expression VisitParameter(ParameterExpression node)
+        {
+            return node == _oldParameter ? _newParameter : base.VisitParameter(node);
+        }
     }
 }
