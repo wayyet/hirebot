@@ -9,10 +9,8 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
-using HireBot.ApiService.Swagger;
 using Microsoft.AspNetCore.Http;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi;
 using System.IdentityModel.Tokens.Jwt;
 using Serilog;
 using Serilog.Events;
@@ -52,11 +50,7 @@ builder.Services.AddControllers()
     });
 builder.Services.AddDirectoryBrowser();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(options =>
-{
-    options.MapType<IFormFile>(() => new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" });
-    options.OperationFilter<FormFileOperationFilter>();
-});
+
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
 builder.Services.AddAuthorization();
@@ -142,8 +136,7 @@ app.UseCors("AllowAll");
 
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    app.MapOpenApi();
 }
 
 app.UseHttpsRedirection();
