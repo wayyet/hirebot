@@ -244,6 +244,39 @@ export const DOWNSTREAM_ARTIFACT_TRACKS: Record<string, { key: DownstreamRunKey;
   packaging_testcases_done: { key: 'packaging-test-cases', status: 'completed' },
 }
 
+export function isCompletedOntologySliceExtractionResult(value: unknown): boolean {
+  const record = asPlainObject(value)
+  if (!record) {
+    return false
+  }
+
+  if (record.status === 'blocked') {
+    return false
+  }
+
+  const completedSlices = record.completed_slices ?? record.completedSlices
+  if (typeof completedSlices === 'number') {
+    return Number.isFinite(completedSlices) && completedSlices > 0
+  }
+
+  const slicePaths = record.slice_paths ?? record.slicePaths
+  return Array.isArray(slicePaths) && slicePaths.length > 0
+}
+
+export function isBlockedOntologySliceExtractionResult(value: unknown): boolean {
+  const record = asPlainObject(value)
+  if (!record) {
+    return false
+  }
+
+  if (record.status === 'blocked') {
+    return true
+  }
+
+  const completedSlices = record.completed_slices ?? record.completedSlices
+  return typeof completedSlices === 'number' && Number.isFinite(completedSlices) && completedSlices <= 0
+}
+
 export function resolveHiringStageFromWs(
   skillName: string | undefined,
   stageName: string | undefined,
@@ -263,6 +296,59 @@ export function resolveDownstreamRunFromArtifact(
   return DOWNSTREAM_ARTIFACT_TRACKS[artifactType] ?? null
 }
 
+const CONFIRMATION_GATE_COMPLETIONS: Partial<Record<string, DownstreamRunKey[]>> = {
+  material_handoff_summary: ['material-handoff'],
+  ontology_slice_extraction_progress: ['material-handoff'],
+  ontology_slice_extraction_done: ['material-handoff'],
+  skill_workorder_progress: ['skill-definition-entry'],
+  skill_definition_ready: ['skill-definition-entry'],
+  skill_workorder_summary: ['skill-definition-entry'],
+  ontology_projection_ready: ['skill-definition-entry'],
+  ontology_projection_progress: ['skill-definition-entry'],
+  ontology_projection_done: ['skill-definition-entry'],
+  skill_generation_ready: ['skill-definition-entry'],
+  skill_generation_progress: ['skill-definition-entry'],
+  skill_generation_done: ['skill-definition-entry'],
+  external_workorder_progress: ['external-system-entry'],
+  external_workorder_summary: ['external-system-entry'],
+  external_config_committed: ['external-system-entry'],
+}
+
+export function applyDownstreamConfirmationCompletions(
+  runs: DownstreamRunsSnapshot,
+  artifact: ArtifactDisplayData,
+  updatedAt: string,
+): DownstreamRunsSnapshot {
+  const completedKeys = CONFIRMATION_GATE_COMPLETIONS[artifact.artifactType]
+  if (!completedKeys || completedKeys.length === 0) {
+    return runs
+  }
+
+  let nextRuns = runs
+  for (const key of completedKeys) {
+    const currentRun = nextRuns[key]
+    if (currentRun?.status !== 'waiting_confirm') {
+      continue
+    }
+
+    if (nextRuns === runs) {
+      nextRuns = { ...runs }
+    }
+
+    nextRuns[key] = {
+      key,
+      status: 'completed',
+      artifactType: artifact.artifactType,
+      label: artifact.label,
+      displayHint: artifact.displayHint,
+      updatedAt,
+      data: artifact.data,
+    }
+  }
+
+  return nextRuns
+}
+
 export function shouldDismissSkillConfirmationAfterApproval(run: DownstreamRunState | null): boolean {
   return run?.status === 'waiting_confirm' && run.artifactType === 'skill_definition_ready'
 }
@@ -280,6 +366,196 @@ function extractSkillSummaryItems(summary: unknown): unknown[] {
       : []
 }
 
+function toOpenQuestionText(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const text = value.trim()
+    return text ? text : null
+  }
+
+  const record = asPlainObject(value)
+  if (!record) {
+    return null
+  }
+
+  const question = firstStringValue(
+    record.question,
+    record.title,
+    record.missing_rule,
+    record.missingRule,
+    record.summary,
+  )
+  if (!question) {
+    return null
+  }
+
+  const options = Array.isArray(record.options)
+    ? record.options
+        .map(option => {
+          if (typeof option === 'string') return option.trim()
+
+          const optionRecord = asPlainObject(option)
+          return firstStringValue(optionRecord?.label, optionRecord?.value, optionRecord?.description)
+        })
+        .filter((option): option is string => Boolean(option))
+    : []
+
+  return options.length > 0 ? `${question}（选项：${options.join(' / ')}）` : question
+}
+
+function firstStringValue(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const text = value.trim()
+    if (text) return text
+  }
+
+  return ''
+}
+
+const MATERIAL_HANDOFF_CONFIRMATION_KEYS = new Set([
+  'context_signature',
+  'contextSignature',
+  'status',
+  'message',
+  'next_artifact',
+  'nextArtifact',
+])
+
+function hasStructuredMaterialHandoffFields(record: Record<string, unknown> | null): boolean {
+  if (!record) {
+    return false
+  }
+
+  if (Array.isArray(record.items) && record.items.length > 0) {
+    return true
+  }
+
+  if (typeof record.total_items === 'number' || typeof record.totalItems === 'number') {
+    return true
+  }
+
+  return firstStringValue(record.workspace_root, record.workspaceRoot, record.template_slug, record.templateSlug) !== ''
+}
+
+function hasMaterialHandoffPayloadShape(record: Record<string, unknown> | null): record is Record<string, unknown> {
+  if (hasStructuredMaterialHandoffFields(record)) {
+    return true
+  }
+
+  return record !== null && firstStringValue(record.summary) !== ''
+}
+
+function stripMaterialHandoffConfirmationFields(record: Record<string, unknown>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (MATERIAL_HANDOFF_CONFIRMATION_KEYS.has(key)) {
+      continue
+    }
+    payload[key] = value
+  }
+
+  return payload
+}
+
+function getMaterialHandoffPayloadRecord(value: unknown): Record<string, unknown> | null {
+  const record = asPlainObject(value)
+  if (!record) {
+    return null
+  }
+
+  const payload = stripMaterialHandoffConfirmationFields(record)
+  return hasMaterialHandoffPayloadShape(payload) ? payload : null
+}
+
+export function normalizeMaterialHandoffReadyData(
+  readyData: unknown,
+  fallbackMaterialData?: unknown,
+): Record<string, unknown> | undefined {
+  const readyRecord = asPlainObject(readyData)
+  const readyPayload = getMaterialHandoffPayloadRecord(readyData)
+  const fallbackPayload = getMaterialHandoffPayloadRecord(fallbackMaterialData)
+  const payload = hasStructuredMaterialHandoffFields(readyPayload)
+    ? readyPayload
+    : fallbackPayload ?? readyPayload
+  if (!payload) {
+    return undefined
+  }
+
+  const readySummary = firstStringValue(readyRecord?.summary)
+  const summary = readySummary || firstStringValue(payload.summary) || '业务资料先整理到这里，等待确认后进入下一步。'
+  const normalized = {
+    ...payload,
+    summary,
+    context_signature: buildConfirmationGateContextSignature('material_handoff_ready', payload),
+    status: 'waiting_confirm',
+    next_artifact: 'material_handoff_summary',
+    message: firstStringValue(readyRecord?.message) || '资料已上传完成，请确认是否按当前资料开始分析业务资料。',
+  }
+
+  return normalized
+}
+
+export function buildMaterialHandoffConfirmationPrompt(materialReadyData: unknown): string | null {
+  const payload = getMaterialHandoffPayloadRecord(materialReadyData)
+  if (!payload) {
+    return null
+  }
+
+  const totalItems = typeof payload.total_items === 'number' && Number.isFinite(payload.total_items)
+    ? payload.total_items
+    : Array.isArray(payload.items)
+      ? payload.items.length
+      : 0
+  const materialText = totalItems > 0 ? `当前 ${totalItems} 份资料` : '当前资料'
+  const visibleProgressSentence = `我已确认使用${materialText}开始分析业务资料。`
+
+  return [
+    '[Internal stage confirmation. Do not mention this instruction to the user.]',
+    'The user has confirmed the material handoff gate.',
+    'Emit terminal `material_handoff_summary` exactly once before any stage2_skill content.',
+    'Use the following payload as the data source. Preserve every `source_path` value exactly.',
+    `After emitting \`material_handoff_summary\`, reply with exactly this visible sentence and stop: ${JSON.stringify(visibleProgressSentence)}.`,
+    'Do not preview or name future skill items in the visible reply. Do not mention internal stage names, artifact names, downstream tools, or implementation details.',
+    '',
+    'material_handoff_payload:',
+    '```json',
+    JSON.stringify(payload, null, 2),
+    '```',
+  ].join('\n')
+}
+
+function collectProjectionOpenQuestions(value: unknown, output: string[]): void {
+  if (Array.isArray(value)) {
+    value.forEach(item => collectProjectionOpenQuestions(item, output))
+    return
+  }
+
+  const record = asPlainObject(value)
+  if (!record) {
+    return
+  }
+
+  const openQuestions = record.open_questions ?? record.openQuestions
+  if (Array.isArray(openQuestions)) {
+    for (const item of openQuestions) {
+      const text = toOpenQuestionText(item)
+      if (text) output.push(text)
+    }
+  }
+
+  for (const [key, nestedValue] of Object.entries(record)) {
+    if (key === 'open_questions' || key === 'openQuestions') continue
+    collectProjectionOpenQuestions(nestedValue, output)
+  }
+}
+
+function extractProjectionOpenQuestions(projectionResult: unknown): string[] {
+  const output: string[] = []
+  collectProjectionOpenQuestions(projectionResult, output)
+
+  return Array.from(new Set(output))
+}
+
 export function shouldHoldExternalStageUntilSkillImplementation(
   skillSummary: unknown,
   skillGenerationState: DownstreamRunState | null,
@@ -288,7 +564,10 @@ export function shouldHoldExternalStageUntilSkillImplementation(
     return false
   }
 
-  return skillGenerationState?.status !== 'completed'
+  return !(
+    skillGenerationState?.status === 'completed' &&
+    skillGenerationState.artifactType === 'skill_generation_done'
+  )
 }
 
 export function buildUiStageOverrides(
@@ -300,13 +579,24 @@ export function buildUiStageOverrides(
 ): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
   const next = new Map(rawStageOverrides)
 
-  if (ontologyExtractionState?.status === 'completed') {
+  if (
+    ontologyExtractionState?.status === 'completed' &&
+    isCompletedOntologySliceExtractionResult(ontologyExtractionState.data)
+  ) {
     next.set(HiringCollectionStage.Material, 'completed')
     // 本体切片抽取完成意味着可以进入技能阶段了；将 Skill 置为 running，
     // 使右侧卡片 badge 与顶部阶段胶囊保持一致，避免卡片仍显示"等待中"。
     // skillGenerationState 后续到达时会再修正为 completed / failed。
     if (next.get(HiringCollectionStage.Skill) !== 'completed') {
       next.set(HiringCollectionStage.Skill, 'running')
+    }
+  } else if (
+    ontologyExtractionState?.status === 'completed' &&
+    isBlockedOntologySliceExtractionResult(ontologyExtractionState.data)
+  ) {
+    next.set(HiringCollectionStage.Material, 'running')
+    if (!skillGenerationState && next.get(HiringCollectionStage.Skill) !== 'completed') {
+      next.delete(HiringCollectionStage.Skill)
     }
   } else if (ontologyExtractionState?.status === 'running') {
     next.set(HiringCollectionStage.Material, 'running')
@@ -326,7 +616,10 @@ export function buildUiStageOverrides(
     }
   }
 
-  if (skillGenerationState?.status === 'completed') {
+  if (
+    skillGenerationState?.status === 'completed' &&
+    skillGenerationState.artifactType === 'skill_generation_done'
+  ) {
     next.set(HiringCollectionStage.Skill, 'completed')
   } else if (skillGenerationState?.status === 'failed') {
     next.set(HiringCollectionStage.Skill, 'failed')
@@ -357,7 +650,10 @@ export function shouldSuppressStageGate(
   if (
     completedHiringStage === HiringCollectionStage.Material
     && nextHiringStage === HiringCollectionStage.Skill
-    && downstreamRuns['ontology-slice-extraction']?.status !== 'completed'
+    && (
+      downstreamRuns['ontology-slice-extraction']?.status !== 'completed' ||
+      !isCompletedOntologySliceExtractionResult(downstreamRuns['ontology-slice-extraction']?.data)
+    )
   ) {
     return true
   }
@@ -402,12 +698,19 @@ export function queueOntologySliceExtractionRun(
   }
 }
 
-export function buildMaterialHandoffReadyArtifact(summary: string): ArtifactDisplayData {
+export function buildMaterialHandoffReadyArtifact(summary: string, materialData?: unknown): ArtifactDisplayData {
   const normalizedSummary = summary.trim()
-  const contextSignature = buildConfirmationGateContextSignature(
-    'material_handoff_ready',
-    { summary: normalizedSummary },
-  )
+  const data = normalizeMaterialHandoffReadyData({ summary: normalizedSummary }, materialData)
+    ?? {
+      context_signature: buildConfirmationGateContextSignature(
+        'material_handoff_ready',
+        { summary: normalizedSummary },
+      ),
+      status: 'waiting_confirm',
+      summary: normalizedSummary,
+      next_artifact: 'material_handoff_summary',
+      message: '资料已上传完成，请确认是否按当前资料开始分析业务资料。',
+    }
 
   return {
     kind: 'data',
@@ -417,13 +720,7 @@ export function buildMaterialHandoffReadyArtifact(summary: string): ArtifactDisp
     stage: 'stage1_material',
     isTerminal: false,
     displayHint: 'badge',
-    data: {
-      context_signature: contextSignature,
-      status: 'waiting_confirm',
-      summary: normalizedSummary,
-      next_artifact: 'material_handoff_summary',
-      message: '资料已上传完成，请确认是否按当前资料开始分析业务资料。',
-    },
+    data,
   }
 }
 
@@ -439,7 +736,7 @@ export function buildSkillDefinitionEntryReadyArtifact(
   return {
     kind: 'data',
     artifactType: 'skill_definition_entry_ready',
-    label: '等待确认是否进入技能定义',
+    label: '业务资料分析完成，是否进入技能定义？',
     skillName: 'employment-coach-conversation',
     stage: 'stage2_skill',
     isTerminal: false,
@@ -448,7 +745,7 @@ export function buildSkillDefinitionEntryReadyArtifact(
       context_signature: contextSignature,
       status: 'waiting_confirm',
       trigger_after: 'ontology_slice_extraction_done',
-      message: '业务资料分析完成，请确认是否进入技能定义环节。',
+      message: '业务资料分析完成，是否进入技能定义？',
     },
   }
 }
@@ -476,15 +773,19 @@ export function buildSkillGenerationReadyArtifact(
     : typeof projectionRecord.projectedCount === 'number'
       ? projectionRecord.projectedCount
       : projectionPaths.length
+  const openQuestions = extractProjectionOpenQuestions(projectionResult)
   const contextSignature = buildConfirmationGateContextSignature(
     'skill_generation_ready',
     { skillSummary, projectionResult },
   )
+  const summary = openQuestions.length > 0
+    ? `技能数据已匹配完成，仍有 ${openQuestions.length} 个生成前确认项；确认口径后可直接生成技能实现。`
+    : '技能数据已匹配完成，等待确认开始生成技能实现。'
 
   return {
     kind: 'data',
     artifactType: 'skill_generation_ready',
-    label: '等待确认生成技能实现',
+    label: openQuestions.length > 0 ? '等待确认生成技能实现（含生成前确认项）' : '等待确认生成技能实现',
     skillName: 'employment-coach-conversation',
     stage: 'stage2_skill',
     isTerminal: false,
@@ -498,7 +799,12 @@ export function buildSkillGenerationReadyArtifact(
       skill_names: confirmedSkillSlugs,
       projected_count: projectedCount,
       projection_paths: projectionPaths,
-      next_step: '等待用户确认开始生成技能实现',
+      readiness_status: openQuestions.length > 0 ? 'ready_with_confirmation_items' : 'ready',
+      open_questions: openQuestions.length > 0 ? openQuestions : undefined,
+      summary,
+      next_step: openQuestions.length > 0
+        ? '等待用户确认生成前业务口径，然后开始生成技能实现'
+        : '等待用户确认开始生成技能实现',
     },
   }
 }
@@ -599,6 +905,7 @@ export interface HistoricalHiringConversationState {
   materialRequestedCategories: ReturnType<typeof extractLatestMaterialRequestedCategories>
   wsStageOverrides: Map<HiringUiStage, 'running' | 'completed' | 'failed'>
   downstreamRuns: DownstreamRunsSnapshot
+  latestMaterialDraft: unknown | null
   latestMaterialSummary: unknown | null
   latestSkillSummary: unknown | null
   latestExternalSummary: unknown | null
@@ -610,9 +917,10 @@ export function buildHistoricalHiringConversationState(
 ): HistoricalHiringConversationState {
   const messages: ChatMessage[] = []
   const wsStageOverrides = new Map<HiringUiStage, 'running' | 'completed' | 'failed'>()
-  const downstreamRuns: DownstreamRunsSnapshot = {}
+  let downstreamRuns: DownstreamRunsSnapshot = {}
   let artifactIndex = 0
   let suppressNextAssistantVisibleMessage = false
+  let latestMaterialDraft: unknown | null = null
   let latestMaterialSummary: unknown | null = null
   let hasOntologyExtractionDone = false
   let latestSkillSummary: unknown | null = null
@@ -655,6 +963,9 @@ export function buildHistoricalHiringConversationState(
         continue
       }
 
+      if (artifact.artifactType === 'material_handoff_ready') {
+        artifact.data = normalizeMaterialHandoffReadyData(artifact.data, latestMaterialDraft)
+      }
       artifact.isTerminal = normalizeIncomingArtifactTerminal(artifact.artifactType, Boolean(artifact.isTerminal))
       const projectionForGate = artifact.artifactType === 'ontology_projection_done' && artifact.isTerminal
         ? artifact.data ?? null
@@ -704,8 +1015,13 @@ export function buildHistoricalHiringConversationState(
 
       if (artifact.artifactType === 'material_handoff_summary' && artifact.isTerminal) {
         latestMaterialSummary = artifact.data ?? null
+        latestMaterialDraft = artifact.data ?? latestMaterialDraft
+      } else if (artifact.artifactType === 'material_collection_progress') {
+        latestMaterialDraft = artifact.data ?? latestMaterialDraft
+      } else if (artifact.artifactType === 'material_handoff_ready') {
+        latestMaterialDraft = artifact.data ?? latestMaterialDraft
       } else if (artifact.artifactType === 'ontology_slice_extraction_done' && artifact.isTerminal) {
-        hasOntologyExtractionDone = true
+        hasOntologyExtractionDone = isCompletedOntologySliceExtractionResult(artifact.data)
       } else if (artifact.artifactType === 'skill_workorder_summary' && artifact.isTerminal) {
         latestSkillSummary = artifact.data ?? null
         latestProjectionResult = null
@@ -718,6 +1034,12 @@ export function buildHistoricalHiringConversationState(
       } else if (artifact.artifactType === 'external_config_committed' && artifact.isTerminal) {
         hasExternalConfigCommitted = true
       }
+
+      downstreamRuns = applyDownstreamConfirmationCompletions(
+        downstreamRuns,
+        artifact,
+        String(message.createdAt ?? new Date().toISOString()),
+      )
 
       const downstreamRun = resolveDownstreamRunFromArtifact(artifact.artifactType)
       if (downstreamRun) {
@@ -782,6 +1104,7 @@ export function buildHistoricalHiringConversationState(
     materialRequestedCategories: extractLatestMaterialRequestedCategories(messages),
     wsStageOverrides: finalStageOverrides,
     downstreamRuns,
+    latestMaterialDraft,
     latestMaterialSummary: extractLatestArtifactData(messages, 'material_handoff_summary'),
     latestSkillSummary: extractLatestArtifactData(messages, 'skill_workorder_summary'),
     latestExternalSummary: extractLatestArtifactData(messages, 'external_workorder_summary'),
@@ -815,8 +1138,16 @@ export function deriveStageOverridesFromDownstreamRuns(
   // failed 状态保留默认行为，避免误导用户认为材料阶段已正常收束。
   if (ontologyRun?.status === 'running') {
     overrides.set(HiringCollectionStage.Material, 'running')
-  } else if (ontologyRun?.status === 'completed') {
+  } else if (
+    ontologyRun?.status === 'completed' &&
+    isCompletedOntologySliceExtractionResult(ontologyRun.data)
+  ) {
     overrides.set(HiringCollectionStage.Material, 'completed')
+  } else if (
+    ontologyRun?.status === 'completed' &&
+    isBlockedOntologySliceExtractionResult(ontologyRun.data)
+  ) {
+    overrides.set(HiringCollectionStage.Material, 'running')
   }
 
   if (projectionRun) {
@@ -947,6 +1278,8 @@ export function buildCoachResumePrompt(
         'Only explain the prepared business information if the user asks for details.',
         'If any prepared business-information package contains unresolved business questions, ask the exact option-style question from that package in business language; do not tell the user to rerun business-information preparation.',
         'Unresolved business questions make the prepared data WARNING rather than missing. They do not invalidate the completed projection as long as projection paths are present and slug checks pass.',
+        'Describe unresolved business questions as pre-generation confirmation items. Never describe this state as "business information is insufficient", "not directly implementable", "not ready to land", or equivalent wording.',
+        'Do not offer a choice between supplementing materials, rerunning business-information extraction, or continuing when projection paths are consumable; ask the user to decide the listed option-style business items, then continue to skill generation after approval.',
         'Do not trigger `skill-generation` in this turn.',
         'Do not emit `skill_projection_binding_ready` unless the system explicitly asks for a progress notification.',
       )

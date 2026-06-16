@@ -4,6 +4,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- ASP.NET Core 服务按 dotnet *.dll 启动，不生成 Windows apphost，避免进入不必要的 CreateAppHost 任务。 -->
+    <UseAppHost>false</UseAppHost>
+    <!-- 运行时数据目录可能包含超长路径，必须在 SDK 默认项枚举前排除。 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);ncrew-hire-data\**</DefaultItemExcludes>
+    <DefaultExcludesInProjectFolder>$(DefaultExcludesInProjectFolder);ncrew-hire-data\**</DefaultExcludesInProjectFolder>
   </PropertyGroup>
 
   <ItemGroup>

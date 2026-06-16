@@ -276,7 +276,8 @@ Task-scoped projection mapping: takes existing ontology slices and matches them 
 - slice validation 为 **PASS** 或 **NOT_RUN**：生成 READY projection（`open_questions: []`）。`NOT_RUN` 表示 slice 已写入但未经过形式校验脚本，视为可用
 - `NOT_RUN` 只表示"文件已真实写入但未跑结构校验"；**不表示**"内容没读到也可以靠占位 slice 继续"。
 - slice validation 为 **WARNING** 且原 slice `open_questions` 为空：生成 READY projection
-- slice validation 为 **WARNING** 且原 slice `open_questions` 非空：生成 WARNING projection（`open_questions` 透传非空），skill-generation 遇到时只生成 draft consumer contract，不阻断基础 skill 落盘
+- slice validation 为 **WARNING** 且原 slice `open_questions` 非空：生成 WARNING projection（`open_questions` 透传非空）。只要 projection 文件有效且已落盘，后续 skill-generation 仍必须进入技能生成流程，并把它物化为完整 consumer contract；contract topic/view 保持 `WARNING` 状态并透传 `open_questions`，不得因此退回“补资料 / 重跑业务信息准备 / 重跑匹配技能数据”路线
+- WARNING projection 的用户侧语义固定为“技能数据已匹配完成，但存在生成前确认项”。不得把它描述成“业务信息不足”“还不够直接落地”，也不得建议用户重跑业务信息准备；只列出具体选项题等待用户拍板。
 - slice validation 为 **FAIL**：跳过，记入 `skipped_skills`
 - slice 中无 `meta.validation` 字段（字段缺失）：等同于 `NOT_RUN`，生成 READY projection
 - 无任何 `*.slice.json` 可用：所有 skill 记为跳过（`skip_reasons: "no_available_slices"`），仍发 `ontology_projection_done`（`projected_count: 0`）

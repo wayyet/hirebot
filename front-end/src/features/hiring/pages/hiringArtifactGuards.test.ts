@@ -614,6 +614,12 @@ describe('shouldDisplayArtifactInConversation', () => {
     expect(shouldDisplayArtifactInConversation('packaging_progress', false)).toBe(false)
   })
 
+  it('不在聊天区展示技能清单 artifact，技能列表由普通文本承载', () => {
+    expect(shouldDisplayArtifactInConversation('skill_workorder_progress', false)).toBe(false)
+    expect(shouldDisplayArtifactInConversation('skill_definition_ready', false)).toBe(false)
+    expect(shouldDisplayArtifactInConversation('skill_workorder_summary', true)).toBe(false)
+  })
+
   it('保留最终数字员工包文件 artifact', () => {
     expect(shouldDisplayArtifactInConversation('template_package', true)).toBe(true)
   })

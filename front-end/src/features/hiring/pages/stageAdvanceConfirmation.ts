@@ -1,4 +1,5 @@
 import { HiringCollectionStage, type HiringCollectionStageType } from '@/infra/api'
+import { getStageAdvanceConfirmationCopy } from './utils/hiringConfirmationCopy'
 
 export type StageAdvanceIntent = 'collecting' | 'ready_to_advance' | 'skip'
 
@@ -10,6 +11,7 @@ export interface PendingStageAdvanceConfirmation {
   continueLabel: string
   confirmLabel: string
   continueNotice: string
+  visibleMessage: string
 }
 
 export function shouldRequireStageAdvanceConfirmation(
@@ -28,27 +30,13 @@ export function buildPendingStageAdvanceConfirmation(
   summary: string,
 ): PendingStageAdvanceConfirmation | null {
   if (stage === HiringCollectionStage.Material) {
-    return {
-      stage,
-      summary,
-      title: '资料阶段待确认',
-      prompt: '当前资料已收集到工作区。还需要继续上传资料，还是按当前资料推进到下一阶段？',
-      continueLabel: '继续上传资料',
-      confirmLabel: '确认推进资料阶段',
-      continueNotice: '资料阶段保持开启，你可以继续补充资料后再推进。',
-    }
+    const copy = getStageAdvanceConfirmationCopy('material')
+    return { stage, summary, ...copy }
   }
 
   if (stage === HiringCollectionStage.External) {
-    return {
-      stage,
-      summary,
-      title: '外部阶段待确认',
-      prompt: '当前外部系统配置已保存。还需要继续调整配置，还是按当前配置推进到下一阶段？',
-      continueLabel: '继续调整配置',
-      confirmLabel: '确认推进外部阶段',
-      continueNotice: '外部系统阶段保持开启，你可以继续修改配置后再推进。',
-    }
+    const copy = getStageAdvanceConfirmationCopy('external')
+    return { stage, summary, ...copy }
   }
 
   return null

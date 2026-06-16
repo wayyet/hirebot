@@ -98,6 +98,23 @@ describe('buildProjectionPassPayload', () => {
       },
     })
   })
+
+  it('匹配技能数据提示把 WARNING 结果定义为生成前确认项', () => {
+    const prompt = buildDownstreamPrompt('ontology-projection', {
+      workspace_root: '/workspace/template-20260611090000',
+      skills: [
+        {
+          skill_slug: 'scheduling-and-rescheduling',
+          skill_name: '插单与重排',
+          triggers: ['插单'],
+          description: '评估插单并重排计划',
+        },
+      ],
+    })
+
+    expect(prompt).toContain('pre-generation confirmation items')
+    expect(prompt).toContain('never say the business information is insufficient')
+  })
 })
 
 describe('buildSkillGenerationPayload', () => {
@@ -136,6 +153,54 @@ describe('buildSkillGenerationPayload', () => {
       projection_binding_confirmed: true,
       projection_contract_mode: 'required',
     })
+  })
+
+  it('可消费 projection 含 open_questions 时仍启动技能生成', () => {
+    const projectionResult = {
+      projected_count: 1,
+      projection_paths: [
+        'ontology/projections/insert-order-feasibility/cosmetics.workflow-contract.projection.json',
+      ],
+      open_questions: [
+        {
+          question: '默认插单优先级按哪条口径执行？',
+          options: ['客户等级优先', '交期风险优先'],
+        },
+      ],
+    }
+    const payload = buildSkillGenerationPayload({
+      workspace_root: '/workspace/template-1',
+      items: [
+        { name: 'insert-order-feasibility', display_name: '插单可行性评估' },
+      ],
+    }, projectionResult)
+
+    expect(payload).toMatchObject({
+      confirmed_skill_slugs: ['insert-order-feasibility'],
+      projection_skill_slugs: ['insert-order-feasibility'],
+      projection_binding_confirmed: true,
+      projection_contract_mode: 'required',
+      projection_result: projectionResult,
+    })
+  })
+
+  it('技能生成触发词禁止把 open_questions 解释为业务信息不足', () => {
+    const prompt = buildDownstreamPrompt('skill-generation', {
+      projection_binding_confirmed: true,
+      projection_contract_mode: 'required',
+      projection_result: {
+        projected_count: 1,
+        projection_paths: [
+          'ontology/projections/insert-order-feasibility/cosmetics.workflow-contract.projection.json',
+        ],
+        open_questions: ['默认插单优先级按交期风险执行'],
+      },
+    })
+
+    expect(prompt).toContain('It is not a business-information insufficiency signal.')
+    expect(prompt).toContain('materialize WARNING consumer contracts')
+    expect(prompt).toContain('rerun business-information extraction')
+    expect(prompt).toContain('rerun skill-data matching')
   })
 
   it('优先使用显式 skill_slug，避免中文 name 与 projection 目录分叉', () => {
@@ -243,6 +308,18 @@ describe('resolveSkillStageApprovalRoute', () => {
     artifactType: 'skill_definition_ready',
     updatedAt: '2026-06-11T00:00:00.000Z',
   }
+  const skillDefinitionEntryReady: DownstreamRunState = {
+    key: 'skill-definition-entry',
+    status: 'waiting_confirm',
+    artifactType: 'skill_definition_entry_ready',
+    updatedAt: '2026-06-11T00:00:00.500Z',
+  }
+  const skillWorkorderProgress: DownstreamRunState = {
+    key: 'skill-generation',
+    status: 'running',
+    artifactType: 'skill_workorder_progress',
+    updatedAt: '2026-06-11T00:00:00.750Z',
+  }
   const projectionReady: DownstreamRunState = {
     key: 'ontology-projection',
     status: 'waiting_confirm',
@@ -255,6 +332,22 @@ describe('resolveSkillStageApprovalRoute', () => {
     artifactType: 'skill_generation_ready',
     updatedAt: '2026-06-11T00:00:02.000Z',
   }
+  const projectionDone: DownstreamRunState = {
+    key: 'ontology-projection',
+    status: 'completed',
+    artifactType: 'ontology_projection_done',
+    updatedAt: '2026-06-11T00:00:03.000Z',
+    data: {
+      projected_count: 1,
+      projection_paths: ['ontology/projections/insert-order-feasibility/projection.json'],
+    },
+  }
+  const skillGenerationProgress: DownstreamRunState = {
+    key: 'skill-generation',
+    status: 'running',
+    artifactType: 'skill_generation_progress',
+    updatedAt: '2026-06-11T00:00:04.000Z',
+  }
 
   it('projection 确认门优先于残留的技能定义确认门', () => {
     expect(resolveSkillStageApprovalRoute({
@@ -262,6 +355,18 @@ describe('resolveSkillStageApprovalRoute', () => {
       incomingFileCount: 0,
       skillGenerationState: skillDefinitionReady,
       ontologyProjectionState: projectionReady,
+      hasSkillSummary: true,
+      hasProjectionResult: false,
+    })).toBe('launch_projection_pass')
+  })
+
+  it('projection 确认门优先于残留的进入技能定义确认门', () => {
+    expect(resolveSkillStageApprovalRoute({
+      text: '继续',
+      incomingFileCount: 0,
+      skillGenerationState: null,
+      ontologyProjectionState: projectionReady,
+      skillDefinitionEntryState: skillDefinitionEntryReady,
       hasSkillSummary: true,
       hasProjectionResult: false,
     })).toBe('launch_projection_pass')
@@ -278,11 +383,68 @@ describe('resolveSkillStageApprovalRoute', () => {
     })).toBe('launch_skill_generation')
   })
 
+  it('用户只回复生成时也直接触发技能生成', () => {
+    expect(resolveSkillStageApprovalRoute({
+      text: '生成',
+      incomingFileCount: 0,
+      skillGenerationState: skillGenerationReady,
+      ontologyProjectionState: projectionReady,
+      hasSkillSummary: true,
+      hasProjectionResult: true,
+    })).toBe('launch_skill_generation')
+  })
+
+  it('投影完成后用户只回复生成也不会回到匹配技能数据确认', () => {
+    expect(resolveSkillStageApprovalRoute({
+      text: '生成',
+      incomingFileCount: 0,
+      skillGenerationState: skillDefinitionReady,
+      ontologyProjectionState: projectionDone,
+      hasSkillSummary: true,
+      hasProjectionResult: true,
+    })).toBe('launch_skill_generation')
+  })
+
+  it('技能生成确认门优先于残留的进入技能定义确认门', () => {
+    expect(resolveSkillStageApprovalRoute({
+      text: '继续',
+      incomingFileCount: 0,
+      skillGenerationState: skillGenerationReady,
+      ontologyProjectionState: null,
+      skillDefinitionEntryState: skillDefinitionEntryReady,
+      hasSkillSummary: true,
+      hasProjectionResult: true,
+    })).toBe('launch_skill_generation')
+  })
+
+  it('映射完成后继续操作不会回退到旧的技能清单确认门', () => {
+    expect(resolveSkillStageApprovalRoute({
+      text: '继续',
+      incomingFileCount: 0,
+      skillGenerationState: skillDefinitionReady,
+      ontologyProjectionState: projectionDone,
+      hasSkillSummary: true,
+      hasProjectionResult: true,
+    })).toBe('launch_skill_generation')
+  })
+
   it('右侧技能卡展示当前有效确认门，不被旧匹配技能数据门覆盖', () => {
     expect(resolveActiveSkillStageRun(skillGenerationReady, projectionReady)?.artifactType)
       .toBe('skill_generation_ready')
     expect(resolveActiveSkillStageRun(skillDefinitionReady, projectionReady)?.artifactType)
       .toBe('ontology_projection_ready')
+    expect(resolveActiveSkillStageRun(skillDefinitionReady, projectionDone)?.artifactType)
+      .toBe('skill_generation_ready')
+  })
+
+  it('技能定义进行中的旧轨道不压住后续匹配技能数据确认门', () => {
+    expect(resolveActiveSkillStageRun(skillWorkorderProgress, projectionReady)?.artifactType)
+      .toBe('ontology_projection_ready')
+  })
+
+  it('真实技能生成运行中时保持显示生成状态', () => {
+    expect(resolveActiveSkillStageRun(skillGenerationProgress, projectionReady)?.artifactType)
+      .toBe('skill_generation_progress')
   })
 })
 
@@ -514,6 +676,9 @@ describe('buildDownstreamPrompt', () => {
     expect(prompt).toContain('required_artifacts:')
     expect(prompt).toContain('ontology_projection_progress')
     expect(prompt).toContain('ontology_projection_done')
+    expect(prompt).toContain('supersedes any earlier template bootstrap or stage1 initialization prompt')
+    expect(prompt).toContain('do not ask them to reply with another confirmation phrase')
+    expect(prompt).toContain('do not say "投影", "投影绑定", or "projection"; say "匹配技能数据"')
     expect(prompt).toContain('Scan slices from `<workspace_root>/ontology/`')
     expect(prompt).toContain('write_file')
     expect(prompt).toContain('read_file')
@@ -528,6 +693,8 @@ describe('buildDownstreamPrompt', () => {
     expect(prompt).toContain('Switch to skill `skill-generation` now.')
     expect(prompt).toContain('[Internal downstream trigger: use skill skill-generation]')
     expect(prompt).toContain('stage=`stage2_skill`')
+    expect(prompt).toContain('projection_binding_confirmed` is already set to true by the system')
+    expect(prompt).toContain('Do not ask the user to confirm projection binding again')
     expect(prompt).toContain('artifact_payload:')
     expect(prompt).toContain('required_artifacts:')
     expect(prompt).toContain('skill_generation_progress')

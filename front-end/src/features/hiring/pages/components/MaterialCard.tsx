@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
 
 import { api } from '@/infra/api'
-import type { ChatFile, MaterialRequestedCategory } from '../hiringPageTypes'
+import type { ChatFile, DownstreamRunState, MaterialRequestedCategory } from '../hiringPageTypes'
 import type {
   PendingStageAdvanceConfirmation,
 } from '../stageAdvanceConfirmation'
@@ -27,6 +27,8 @@ import {
   type MaterialStageStatus,
   resolveMaterialShellStatusLabel,
 } from './materialCardStatus'
+import { ConfirmationActionPanel } from './ConfirmationActionPanel'
+import { getConfirmationActionCopy } from '../utils/hiringConfirmationCopy'
 
 // ── 类型定义 ──────────────────────────────────────────────────────────────────
 
@@ -134,29 +136,16 @@ function StageAdvanceConfirmationPanel({
   onContinueCollection,
   onConfirmAdvance,
 }: StageAdvanceConfirmationPanelProps) {
-  const { t } = useTranslation()
   return (
-    <section className="hb-todo-confirmation-panel" aria-label="阶段推进确认">
-      <p className="hb-todo-confirmation-text">{pendingConfirmation.prompt}</p>
-      <div className="hb-todo-confirmation-actions">
-        <button
-          type="button"
-          className="hb-todo-row-btn is-ghost"
-          disabled={busy}
-          onClick={onContinueCollection}
-        >
-          {t('hiring.todo.confirmation.continueCollection')}
-        </button>
-        <button
-          type="button"
-          className="hb-todo-row-btn is-primary"
-          disabled={busy}
-          onClick={onConfirmAdvance}
-        >
-          {t('hiring.todo.confirmation.confirmAdvance')}
-        </button>
-      </div>
-    </section>
+    <ConfirmationActionPanel
+      ariaLabel="阶段推进确认"
+      message={pendingConfirmation.prompt}
+      primaryLabel={pendingConfirmation.confirmLabel}
+      onPrimary={onConfirmAdvance}
+      secondaryLabel={pendingConfirmation.continueLabel}
+      onSecondary={onContinueCollection}
+      busy={busy}
+    />
   )
 }
 
@@ -166,10 +155,12 @@ export interface MaterialCardBodyProps {
   stageStatus: MaterialStageStatus
   requestedCategories: MaterialRequestedCategory[]
   uploadedConversationFiles: readonly ChatFile[]
+  materialHandoffState?: DownstreamRunState | null
   pendingConfirmation: PendingStageAdvanceConfirmation | null
   stageConfirmationBusy: boolean
   onContinueCollection?: () => void
   onConfirmAdvance?: () => void
+  onConfirmMaterialHandoff?: () => void
   onAfterUpload: (summary: string) => void
 }
 
@@ -179,10 +170,12 @@ export function MaterialCardBody({
   stageStatus,
   requestedCategories,
   uploadedConversationFiles,
+  materialHandoffState,
   pendingConfirmation,
   stageConfirmationBusy,
   onContinueCollection,
   onConfirmAdvance,
+  onConfirmMaterialHandoff,
   onAfterUpload,
 }: MaterialCardBodyProps) {
   const folderInputRef = useRef<HTMLInputElement | null>(null)
@@ -322,6 +315,11 @@ export function MaterialCardBody({
     totalUploadedCount,
   }, t)
   const isMaterialStageComplete = stageStatus === 'completed'
+  const materialConfirmationCopy = getConfirmationActionCopy(materialHandoffState ?? null)
+  const showMaterialHandoffConfirmation =
+    materialHandoffState?.status === 'waiting_confirm' &&
+    materialHandoffState.artifactType === 'material_handoff_ready' &&
+    Boolean(onConfirmMaterialHandoff)
   return (
     <div className="hb-todo-mat">
       <div
@@ -475,6 +473,16 @@ export function MaterialCardBody({
           onConfirmAdvance={onConfirmAdvance}
         />
       )}
+
+      {showMaterialHandoffConfirmation ? (
+        <ConfirmationActionPanel
+          ariaLabel="资料收口确认"
+          message={materialConfirmationCopy.text}
+          primaryLabel={materialConfirmationCopy.button}
+          busy={stageConfirmationBusy}
+          onPrimary={onConfirmMaterialHandoff}
+        />
+      ) : null}
 
       {error && <p className="hb-todo-error">{error}</p>}
     </div>

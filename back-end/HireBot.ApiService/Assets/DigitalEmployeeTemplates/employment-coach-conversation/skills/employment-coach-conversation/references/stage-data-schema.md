@@ -95,6 +95,19 @@
 {
   "context_signature": "material-upload-batch-20260615143000",
   "status": "waiting_confirm",
+  "workspace_root": "/workspace/refund-agent-20260518103000",
+  "template_slug": "refund-agent",
+  "total_items": 1,
+  "items": [
+    {
+      "title": "退货处理规则",
+      "source_hint": "用户上传：非标退货处理规则.docx",
+      "source_path": "uploads/非标退货处理规则.docx",
+      "category": "决策规则",
+      "objective": "抽取退货判定条件、处置档位和人工分流触发节点",
+      "status": "ready"
+    }
+  ],
   "summary": "已上传历史排产与插单案例，等待确认是否开始分析业务资料",
   "next_artifact": "material_handoff_summary",
   "message": "资料已上传完成，请确认是否按当前资料开始分析业务资料。"
@@ -107,11 +120,15 @@
 |------|------|------|
 | `context_signature` | 是 | 当前资料上下文签名；同一签名只展示一次，补充资料后必须变化 |
 | `status` | 是 | 固定为 `waiting_confirm` |
+| `workspace_root` | 建议 | 当前数字员工工作区真实路径；应与最近一次 `material_collection_progress` 一致 |
+| `template_slug` | 建议 | 当前模板 slug；应与最近一次 `material_collection_progress` 一致 |
+| `total_items` | 建议 | 当前已整理资料数量 |
+| `items[]` | 建议 | 当前已整理资料清单；如果已有上传资料，建议原样透传 `source_path`，便于用户确认后生成 terminal 摘要 |
 | `summary` | 是 | 对用户可读的资料收口摘要 |
 | `next_artifact` | 是 | 固定为 `material_handoff_summary` |
 | `message` | 否 | 面向用户的确认说明 |
 
-补充约束：普通 assistant 文本不能替代该确认门。用户确认前不得发出 `material_handoff_summary`。
+补充约束：普通 assistant 文本不能替代该确认门。用户确认前不得发出 `material_handoff_summary`。`data` 禁止为空对象 `{}`；如果已经有资料条目，确认门必须能通过自身字段或最近一次 `material_collection_progress` 推导出同一批资料。
 
 ---
 
@@ -149,7 +166,51 @@
 | `deferred_gaps[]` | `force_advanced: true` 时建议填写 | 用户选择暂不补充的资料缺口列表（如 `["排产规则与约束清单", "齐套校验口径"]`），供后续阶段回补参考。 |
 | `notes` | 否 | 补充说明。强制推进时建议记录缺口摘要，如 `"用户选择在排产规则和齐套口径暂缺的情况下强制推进。缺口已记录，后续阶段可回补。"` |
 
-`material_handoff_summary` 发出后必须立即触发 R1；资料阶段整体完成还需要收到 `ontology_slice_extraction_done`。在 `ontology_slice_extraction_done` 到达前，不得发 `skill_workorder_progress`，也不得进入技能定义收集。
+`material_handoff_summary` 发出后必须立即触发 R1；资料阶段整体完成还需要收到成功形态的 `ontology_slice_extraction_done`（`data.status === "completed"` 且 `completed_slices > 0`）。在成功形态的 `ontology_slice_extraction_done` 到达前，不得发 `skill_workorder_progress`，也不得进入技能定义收集。若收到 `data.status === "blocked"` 的 `ontology_slice_extraction_done`，表示 R1 已终止但资料阶段未完成，应停留在资料阶段并根据 `diagnostic` / `diagnostic_detail` 引导用户补充资料。
+
+### ontology_slice_extraction_done（业务资料分析结果，isTerminal: true）
+
+成功形态示例：
+
+```json
+{
+  "status": "completed",
+  "total_sources": 2,
+  "completed_slices": 2,
+  "slice_paths": ["ontology/return-policy.slice.json", "ontology/dialogue-style.slice.json"],
+  "validation": "PASS"
+}
+```
+
+阻断形态示例：
+
+```json
+{
+  "status": "blocked",
+  "total_sources": 1,
+  "completed_slices": 0,
+  "slice_paths": [],
+  "validation": "FAIL",
+  "diagnostic": "insufficient_material",
+  "diagnostic_detail": "当前资料缺少可抽取的规则、案例、流程或约束正文。",
+  "next_step": "补充资料后重新分析业务资料"
+}
+```
+
+字段说明：
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `status` | 是 | `completed` 或 `blocked`；只有 `completed` 才允许进入技能定义入口确认门 |
+| `total_sources` | 是 | R1 输入资料数量 |
+| `completed_slices` | 是 | 已成功产出的 slice 数量；进入技能定义必须大于 0 |
+| `slice_paths[]` | 是 | 成功产出的 slice JSON 路径；`blocked` 时为空数组 |
+| `validation` | 建议 | `PASS` / `WARNING` / `FAIL` 等校验摘要 |
+| `diagnostic` | `blocked` 时必填 | `insufficient_material` / `source_unreadable` / `scan_error` |
+| `diagnostic_detail` | `blocked` 时建议 | 面向业务资料缺口的可读说明 |
+| `next_step` | `blocked` 时建议 | 下一步建议，通常为补充资料后重新分析 |
+
+补充约束：blocked 形态是 terminal artifact，只结束本轮 R1，不完成资料阶段，不得触发 `skill_definition_entry_ready`。
 
 ---
 
@@ -241,6 +302,7 @@
   "template_slug": "refund-agent",
   "pending_skill_count": 4,
   "skill_names": ["refund_eligibility_check", "order_status_query"],
+  "items": [ "... 同 progress items ..." ],
   "summary": "已整理 4 个技能定义草案，等待确认技能清单",
   "next_step": "等待用户确认技能清单"
 }
@@ -254,8 +316,11 @@
 | `template_slug` | 建议 | 当前模板 slug |
 | `pending_skill_count` | 是 | 待确认的技能数量 |
 | `skill_names[]` | 是 | 待确认的技能 slug 或名称 |
+| `items[]` | 是 | 完整技能定义草案，字段与 `skill_workorder_summary.items[]` 保持一致，供确认后收口和下游流程复用 |
 | `summary` | 是 | 对用户可读的技能定义草案摘要 |
 | `next_step` | 是 | 固定描述下一步是等待用户确认技能清单 |
+
+用户可见要求：`skill_definition_ready` 只作为内部确认门和状态驱动事件，前端聊天区不依赖 artifact 卡片展示技能清单。发出该 artifact 后，assistant 普通文本必须用编号清单列出待确认技能，每个技能独立成项，至少包含 `技能名`、`能力说明`、`触发条件`、`预期输出` 四段信息。禁止只把多个技能名串成一句后询问确认，并避免“以上 N 项”“见卡片”等悬空指代。
 
 补充约束：用户确认前不得发出 `skill_workorder_summary`，不得触发 projection pass。
 
@@ -328,6 +393,9 @@
   "projection_paths": [
     "ontology/projections/refund-eligibility-check/refund.workflow-contract.projection.json"
   ],
+  "readiness_status": "ready",
+  "open_questions": [],
+  "summary": "技能数据已匹配完成，等待确认开始生成技能实现。",
   "next_step": "等待用户确认开始生成技能实现"
 }
 ```
@@ -342,11 +410,15 @@
 | `skill_names[]` | 是 | 本轮进入技能生成子步骤的技能名称或 slug 列表 |
 | `projected_count` | 是 | 可消费 projection 的技能数量 |
 | `projection_paths[]` | 是 | 已落盘且可消费的 projection 文件路径 |
+| `readiness_status` | 建议 | `ready` 或 `ready_with_confirmation_items`；后者表示已可生成但仍需用户确认生成前业务口径 |
+| `open_questions[]` | 否 | projection 中透传的生成前确认项；只能作为口径确认，不得解释为资料不足 |
+| `summary` | 建议 | 对用户可读的一句话状态。若有 `open_questions`，必须表达为“技能数据已匹配完成，仍有 N 个生成前确认项；确认口径后可直接生成技能实现。” |
 | `next_step` | 是 | 固定描述下一步是等待用户确认开始技能生成 |
 
 补充约束：
 - 该确认门由系统层根据最近一次可消费的 `ontology_projection_done` 确定性追加；coach 不得重复 emit，也不得用普通文本充当确认门。
 - 这个 artifact 只表示 projection 已完成且可消费，等待用户确认进入“技能生成执行”子步骤；前端应保留“技能定义已确认”和“技能数据已匹配”的子状态，但主 `stage2_skill` 在 `skill-generation` 完成前仍保持进行中。
+- 如果可消费 projection 带有 `open_questions`，这个 artifact 仍然必须发出；该状态是 `ready_with_confirmation_items`，不是“业务信息不足”。用户侧只确认具体业务口径，不重跑业务信息准备。
 - 发出该 artifact 后，若用户未明确同意，不得提前触发 `skill-generation`，也不得进入阶段 3。
 - `skill_generation_ready.data` 必须包含 `projection_paths` 与 `projected_count` 摘要；不得包含 `projection_binding_confirmed`、`projection_result`、`projection_contract_mode` 等执行字段，这些字段只属于用户确认后传给 `skill-generation` 的内部触发 payload。
 

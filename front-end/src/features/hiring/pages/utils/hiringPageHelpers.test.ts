@@ -48,6 +48,15 @@ describe('normalizeAssistantReply', () => {
 
     expect(normalizeAssistantReply(content)).toBe('审查已完成，可以继续。\n是否继续打包？')
   })
+
+  it('移除泄露到助手正文中的资料收口状态 JSON', () => {
+    const content = [
+      '业务资料已够用，是否开始分析业务资料并进入技能定义？',
+      '{"total_items":1,"summary":"已整理 1 份资料，建议开始分析业务资料并进入技能定义阶段。","next_step":"客户信息收集规则与字段口径","category":"客户信息收集规则与字段口径","objective":"抽取客户画像字段结构","status":"ready"}',
+    ].join('\n')
+
+    expect(normalizeAssistantReply(content)).toBe('业务资料已够用，是否开始分析业务资料并进入技能定义？')
+  })
 })
 
 describe('normalizeAssistantStreamingPreview', () => {
@@ -76,5 +85,14 @@ describe('normalizeAssistantStreamingPreview', () => {
     const content = '正在生成评估测试用例'
 
     expect(normalizeAssistantStreamingPreview(content)).toBe(content)
+  })
+
+  it('流式预览中移除已闭合的资料收口状态 JSON', () => {
+    const content = [
+      '业务资料已够用，是否开始分析业务资料并进入技能定义？',
+      '{"total_items":1,"summary":"已整理 1 份资料。","next_step":"客户信息收集规则与字段口径","status":"ready"}',
+    ].join('\n')
+
+    expect(normalizeAssistantStreamingPreview(content)).toBe('业务资料已够用，是否开始分析业务资料并进入技能定义？')
   })
 })

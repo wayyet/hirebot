@@ -32,7 +32,7 @@
     },
     {
       "id": "render_and_validate_skill_package",
-      "goal": "Render the core skill files, optional consumer contracts, and validation report for a generated skill package.",
+      "goal": "Render the core skill files, required consumer contracts, and validation report for a generated skill package.",
       "inputs": [
         "SkillSpec",
         "existing skills snapshot",
@@ -45,11 +45,11 @@
         "technical_artifact",
         "user_summary",
         "references/quality-report.md",
-        "optional contracts/projections/ontology_extraction/contract-index.json",
-        "optional contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.domain-model.projection.json",
-        "optional contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.json-schema.projection.json",
-        "optional contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.prompt-constraint.projection.json",
-        "optional contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.workflow-contract.projection.json"
+        "contracts/projections/ontology_extraction/contract-index.json",
+        "contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.domain-model.projection.json",
+        "contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.json-schema.projection.json",
+        "contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.prompt-constraint.projection.json",
+        "contracts/projections/ontology_extraction/<domain-slug>/<domain-slug>.workflow-contract.projection.json"
       ],
       "fallback": "If rendering or validation fails, keep prior files unchanged and return a readable failure summary."
     }
@@ -75,6 +75,6 @@
       "fallback"
     ],
     "secret_policy": "reject_or_redact_before_write",
-    "projection_contract_policy": "generate_ready_contract_only_when_projection_information_is_sufficient_otherwise_write_draft_notes_without_blocking_base_skill"
+    "projection_contract_policy": "required_bound_projection_contract_warning_on_open_questions_block_on_missing_invalid_unwritable_or_slug_mismatch"
   }
 }

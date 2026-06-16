@@ -57,6 +57,7 @@ import {
   buildPackageReviewPrompt,
   buildPackageReviewSkipPackagingPrompt,
   buildPackagingRequestPrompt,
+  hasConsumableProducerProjection,
   isMaterialHandoffApprovalMessage,
   isPackagingTestCasesApprovalMessage,
   isPackagingTestCasesSkipMessage,
@@ -66,6 +67,7 @@ import {
   resolvePackagingRequestRoute,
   resolveSkillStageApprovalRoute,
 } from './utils/hiringDownstreamTriggers'
+import { getConfirmationActionCopy } from './utils/hiringConfirmationCopy'
 import { RUNTIME_STATE_STAGE_SEQUENCE } from './utils/hiringRuntimeState'
 import { HiringConversationPanel } from './components/HiringConversationPanel'
 import { HiringJourneyHeader } from './components/HiringJourneyHeader'
@@ -87,17 +89,21 @@ import type {
 } from './hiringPageTypes'
 import {
   buildMaterialHandoffReadyArtifact,
+  buildMaterialHandoffConfirmationPrompt,
+  applyDownstreamConfirmationCompletions,
   buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
   buildSkillGenerationReadyArtifact,
   buildSkillDefinitionEntryReadyArtifact,
   deriveStageOverridesFromDownstreamRuns,
   extractArtifactFromToolCall,
+  isBlockedOntologySliceExtractionResult,
+  isCompletedOntologySliceExtractionResult,
   normalizeArtifactDisplayData,
+  normalizeMaterialHandoffReadyData,
   queueOntologySliceExtractionRun,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
-  shouldDismissSkillConfirmationAfterApproval,
   shouldSuppressStageGate,
 } from './hiringArtifactState'
 import {
@@ -342,6 +348,7 @@ export default function HiringPage() {
   const [streamingToolSteps, setStreamingToolSteps] = useState<ToolStep[]>([])
   const resettingRef = useRef(false)
   const downstreamRunsRef = useRef<DownstreamRunsSnapshot>({})
+  const latestMaterialDraftRef = useRef<unknown>(null)
   const latestMaterialSummaryRef = useRef<unknown>(null)
   const latestSkillSummaryRef = useRef<unknown>(null)
   const latestProjectionResultRef = useRef<unknown>(null)
@@ -353,6 +360,7 @@ export default function HiringPage() {
   const externalSummarySignatureRef = useRef('')
   const ontologyExtractionDoneSignatureRef = useRef('')
   const ontologyProjectionDoneSignatureRef = useRef('')
+  const deferredProjectionRecoveryRef = useRef(false)
   const projectionPassLaunchSignatureRef = useRef('')
   const skillGenerationLaunchSignatureRef = useRef('')
   const packagingTestCasesReadySignatureRef = useRef('')
@@ -478,19 +486,28 @@ export default function HiringPage() {
     }
 
     const downstreamRun = resolveDownstreamRunFromArtifact(artifact.artifactType)
+    const updatedAt = new Date().toISOString()
+    let nextRuns = applyDownstreamConfirmationCompletions(
+      downstreamRunsRef.current,
+      artifact,
+      updatedAt,
+    )
     if (downstreamRun) {
-      const nextRuns = {
-        ...downstreamRunsRef.current,
+      nextRuns = {
+        ...nextRuns,
         [downstreamRun.key]: {
           key: downstreamRun.key,
           status: downstreamRun.status,
           artifactType: artifact.artifactType,
           label: artifact.label,
           displayHint: artifact.displayHint,
-          updatedAt: new Date().toISOString(),
+          updatedAt,
           data: artifact.data,
         } satisfies DownstreamRunState,
       }
+    }
+
+    if (nextRuns !== downstreamRunsRef.current) {
       downstreamRunsRef.current = nextRuns
       setDownstreamRuns(nextRuns)
     }
@@ -547,6 +564,13 @@ export default function HiringPage() {
         .map(buildArtifactEventSignature),
     )
 
+    const latestMaterialProgress = extractLatestMessageArtifactData(sourceMessages, 'material_collection_progress')
+    const latestMaterialReady = extractLatestMessageArtifactData(sourceMessages, 'material_handoff_ready')
+    const latestMaterialSummary = extractLatestMessageArtifactData(sourceMessages, 'material_handoff_summary')
+    latestMaterialDraftRef.current = latestMaterialSummary
+      ?? normalizeMaterialHandoffReadyData(latestMaterialReady, latestMaterialProgress)
+      ?? latestMaterialReady
+      ?? latestMaterialProgress
     latestMaterialSummaryRef.current = extractLatestMessageArtifactData(sourceMessages, 'material_handoff_summary')
     latestSkillSummaryRef.current = extractLatestMessageArtifactData(sourceMessages, 'skill_workorder_summary')
     setLatestSkillSummary(latestSkillSummaryRef.current)
@@ -821,8 +845,11 @@ export default function HiringPage() {
     intent: StageAdvanceIntent = 'collecting',
   ) {
     if (stage === HiringCollectionStage.Material && shouldRequireStageAdvanceConfirmation(stage, intent)) {
-      const artifact = buildMaterialHandoffReadyArtifact(summary)
+      const artifact = buildMaterialHandoffReadyArtifact(summary, latestMaterialDraftRef.current)
       const appended = appendSystemArtifact(artifact)
+      if (appended) {
+        latestMaterialDraftRef.current = artifact.data ?? latestMaterialDraftRef.current
+      }
       setWorkflowError('')
       setWorkflowNotice(appended ? '资料已上传完成，请确认是否开始分析业务资料。' : '当前资料收口确认已在等待处理。')
       return
@@ -1301,6 +1328,10 @@ export default function HiringPage() {
                 if (postTurnHistoryRefreshRef.current === refreshPromise) {
                   postTurnHistoryRefreshRef.current = null
                 }
+                processDeferredProjectionRecovery()
+                if (pendingInternalPromptsRef.current.length > 0) {
+                  scheduleInternalPromptFlush()
+                }
               })
             postTurnHistoryRefreshRef.current = refreshPromise
           }
@@ -1329,7 +1360,7 @@ export default function HiringPage() {
           ? (typeof rawMsg.arguments === 'string' ? rawMsg.arguments : JSON.stringify(rawMsg.arguments))
           : undefined
         let completedStep: ToolStep | null = null
-        let toolResultIsError = Boolean(rawMsg.is_error ?? rawMsg.isError)
+        const toolResultIsError = Boolean(rawMsg.is_error ?? rawMsg.isError)
         // 将返回填回本轮步骤：同名优先匹配最后一个 running；缺失工具名时回退到最后一个 running
         {
           const list = pendingToolStepsRef.current
@@ -1404,6 +1435,12 @@ export default function HiringPage() {
           let isTerminal = Boolean(artifactData.isTerminal)
           isTerminal = normalizeIncomingArtifactTerminal(artifactType, isTerminal)
           artifactData.isTerminal = isTerminal
+          if (artifactType === 'material_handoff_ready') {
+            artifactData.data = normalizeMaterialHandoffReadyData(
+              artifactData.data,
+              latestMaterialDraftRef.current,
+            )
+          }
           if (kind === 'file') {
             artifactData.mimeType = String(raw.mimeType ?? raw.mime_type ?? '')
             const sizeBytes = typeof raw.fileSizeBytes === 'number' ? raw.fileSizeBytes : typeof raw.file_size_bytes === 'number' ? raw.file_size_bytes : null
@@ -1411,8 +1448,14 @@ export default function HiringPage() {
           }
           const blockedArtifactReason = getBlockedIncomingArtifactReason(artifactType, {
             hasMaterialSummary: latestMaterialSummaryRef.current !== null,
-            hasOntologyExtractionDone: downstreamRunsRef.current['ontology-slice-extraction']?.status === 'completed'
-              || (artifactType === 'ontology_slice_extraction_done' && isTerminal),
+            hasOntologyExtractionDone: (
+              downstreamRunsRef.current['ontology-slice-extraction']?.status === 'completed' &&
+              isCompletedOntologySliceExtractionResult(downstreamRunsRef.current['ontology-slice-extraction']?.data)
+            ) || (
+              artifactType === 'ontology_slice_extraction_done' &&
+              isTerminal &&
+              isCompletedOntologySliceExtractionResult(artifactData.data)
+            ),
             hasSkillSummary: latestSkillSummaryRef.current !== null,
             hasProjectionResult: (artifactType === 'ontology_projection_done' && isTerminal)
               || latestProjectionResultRef.current !== null,
@@ -1449,11 +1492,16 @@ export default function HiringPage() {
             if (categories.length > 0) {
               setMaterialRequestedCategories(categories)
             }
+            latestMaterialDraftRef.current = artifactData.data ?? latestMaterialDraftRef.current
+          }
+          if (artifactType === 'material_handoff_ready') {
+            latestMaterialDraftRef.current = artifactData.data ?? latestMaterialDraftRef.current
           }
           pruneStaleInternalPromptsForState(artifactType)
           if (artifactType === 'material_handoff_summary' && kind === 'data' && isTerminal) {
             const materialSummary = artifactData.data ?? null
             latestMaterialSummaryRef.current = materialSummary
+            latestMaterialDraftRef.current = materialSummary ?? latestMaterialDraftRef.current
             const signature = JSON.stringify(materialSummary ?? {})
             if (materialSummarySignatureRef.current !== signature) {
               const launch = queueOntologySliceExtractionRun(
@@ -1475,28 +1523,39 @@ export default function HiringPage() {
             const signature = JSON.stringify(artifactData.data ?? {})
             if (ontologyExtractionDoneSignatureRef.current !== signature) {
               ontologyExtractionDoneSignatureRef.current = signature
-              appendSystemArtifact(
-                buildSkillDefinitionEntryReadyArtifact(
-                  latestMaterialSummaryRef.current,
-                  artifactData.data ?? {},
-                ),
-              )
-              setWorkflowNotice('业务资料分析完成，请确认是否进入技能定义。')
+              if (isCompletedOntologySliceExtractionResult(artifactData.data)) {
+                appendSystemArtifact(
+                  buildSkillDefinitionEntryReadyArtifact(
+                    latestMaterialSummaryRef.current,
+                    artifactData.data ?? {},
+                  ),
+                )
+                setWorkflowNotice('业务资料分析完成，请确认是否进入技能定义。')
+              } else if (isBlockedOntologySliceExtractionResult(artifactData.data)) {
+                setWorkflowNotice('业务资料分析受阻，请补充或修正资料后重新分析。')
+              }
             }
           }
           if (artifactType === 'ontology_projection_done' && kind === 'data' && isTerminal) {
-            latestProjectionResultRef.current = artifactData.data ?? null
+            const hasConsumableData = hasConsumableProducerProjection(artifactData.data ?? {})
+            latestProjectionResultRef.current = hasConsumableData ? (artifactData.data ?? null) : null
             const signature = JSON.stringify(artifactData.data ?? {})
             if (ontologyProjectionDoneSignatureRef.current !== signature) {
               ontologyProjectionDoneSignatureRef.current = signature
-              const skillGenerationQueued = queueSkillGenerationReadyFromProjectionResult(artifactData.data ?? {})
-              if (!skillGenerationQueued && latestSkillSummaryRef.current !== null) {
-                pendingInternalPromptsRef.current.push(
-                  buildCoachResumePrompt('post-ontology-projection', {
-                    skillSummary: latestSkillSummaryRef.current,
-                    projectionResult: artifactData.data ?? {},
-                  }),
-                )
+              if (hasConsumableData) {
+                const skillGenerationQueued = queueSkillGenerationReadyFromProjectionResult(artifactData.data ?? {})
+                if (!skillGenerationQueued && latestSkillSummaryRef.current !== null) {
+                  pendingInternalPromptsRef.current.push(
+                    buildCoachResumePrompt('post-ontology-projection', {
+                      skillSummary: latestSkillSummaryRef.current,
+                      projectionResult: artifactData.data ?? {},
+                    }),
+                  )
+                }
+              } else {
+                // Data payload missing from WebSocket (Gateway may omit arguments in tool_result).
+                // Defer until sandbox history refresh recovers the full artifact payload.
+                deferredProjectionRecoveryRef.current = true
               }
             }
           }
@@ -1566,20 +1625,29 @@ export default function HiringPage() {
               artifact: artifactData,
             }])
           }
-          if (downstreamRun) {
+          if (downstreamRun || artifactData.artifactType) {
+            const updatedAt = new Date().toISOString()
             setDownstreamRuns(prev => {
-              const next = {
-                ...prev,
-                [downstreamRun.key]: {
-                  key: downstreamRun.key,
-                  status: downstreamRun.status,
-                  artifactType,
-                  label,
-                  displayHint: artifactData.displayHint,
-                  updatedAt: new Date().toISOString(),
-                  data: artifactData.data,
-                } satisfies DownstreamRunState,
+              let next = applyDownstreamConfirmationCompletions(prev, artifactData, updatedAt)
+              if (downstreamRun) {
+                next = {
+                  ...next,
+                  [downstreamRun.key]: {
+                    key: downstreamRun.key,
+                    status: downstreamRun.status,
+                    artifactType,
+                    label,
+                    displayHint: artifactData.displayHint,
+                    updatedAt,
+                    data: artifactData.data,
+                  } satisfies DownstreamRunState,
+                }
               }
+
+              if (next === prev) {
+                return prev
+              }
+
               downstreamRunsRef.current = next
               return next
             })
@@ -1773,16 +1841,6 @@ export default function HiringPage() {
     })
   }
 
-  function clearDownstreamRun(key: DownstreamRunKey) {
-    setDownstreamRuns(prev => {
-      if (!(key in prev)) return prev
-      const next = { ...prev }
-      delete next[key]
-      downstreamRunsRef.current = next
-      return next
-    })
-  }
-
   function completeDownstreamRun(key: DownstreamRunKey, label: string, artifactType: string, data?: unknown) {
     setDownstreamRuns(prev => {
       const next = {
@@ -1879,10 +1937,38 @@ export default function HiringPage() {
         'waiting_confirm',
         '技能数据已匹配完成，等待确认生成技能实现。',
         'skill_generation_ready',
+        readyArtifact.data,
       )
     }
     setWorkflowNotice('技能数据已匹配完成，请确认是否生成技能实现。')
     return true
+  }
+
+  function processDeferredProjectionRecovery() {
+    if (!deferredProjectionRecoveryRef.current) return
+    deferredProjectionRecoveryRef.current = false
+
+    const projectionResult = latestProjectionResultRef.current
+    if (projectionResult && hasConsumableProducerProjection(projectionResult)) {
+      // Data recovered from sandbox history refresh — process normally.
+      const skillGenerationQueued = queueSkillGenerationReadyFromProjectionResult(projectionResult)
+      if (!skillGenerationQueued && latestSkillSummaryRef.current !== null) {
+        pendingInternalPromptsRef.current.push(
+          buildCoachResumePrompt('post-ontology-projection', {
+            skillSummary: latestSkillSummaryRef.current,
+            projectionResult,
+          }),
+        )
+      }
+    } else if (latestSkillSummaryRef.current !== null) {
+      // Still no usable data after history refresh — surface to coach.
+      pendingInternalPromptsRef.current.push(
+        buildCoachResumePrompt('post-ontology-projection', {
+          skillSummary: latestSkillSummaryRef.current,
+          projectionResult: projectionResult ?? {},
+        }),
+      )
+    }
   }
 
   async function resumeCoachAfterUnusableProjection(projectionResult: unknown, userRequest?: string): Promise<boolean> {
@@ -1914,26 +2000,30 @@ export default function HiringPage() {
       return false
     }
 
-    const data = state.data && typeof state.data === 'object' && !Array.isArray(state.data)
-      ? state.data as Record<string, unknown>
-      : {}
-    const summary = typeof data.summary === 'string' && data.summary.trim()
-      ? data.summary.trim()
-      : ''
-    if (!summary) {
+    const readyData = normalizeMaterialHandoffReadyData(state.data, latestMaterialDraftRef.current)
+    const prompt = buildMaterialHandoffConfirmationPrompt(readyData)
+    if (!prompt) {
       setWorkflowError('资料收口确认缺少可发送的摘要，请重新上传或补充资料。')
       return false
     }
 
-    completeDownstreamRun('material-handoff', '已确认开始分析业务资料。', 'material_handoff_ready', state.data)
-    const submitted = await submitWorkflowMessage(summary, undefined, true, false, false, userRequest)
+    latestMaterialDraftRef.current = readyData
+    completeDownstreamRun('material-handoff', '已确认开始分析业务资料。', 'material_handoff_ready', readyData)
+    const submitted = await submitWorkflowMessage(prompt, undefined, true, false, true, userRequest)
     if (submitted) {
       setWorkflowNotice('已确认资料收口，正在生成资料摘要并准备分析业务资料。')
       return true
     }
 
-    setOptimisticDownstreamRun('material-handoff', 'waiting_confirm', state.label ?? '等待确认是否开始分析业务资料。', 'material_handoff_ready', state.data)
+    setOptimisticDownstreamRun('material-handoff', 'waiting_confirm', state.label ?? '等待确认是否开始分析业务资料。', 'material_handoff_ready', readyData)
     return false
+  }
+
+  async function handleConfirmMaterialHandoff() {
+    const state = downstreamRunsRef.current['material-handoff']
+    const visibleRequest = getConfirmationActionCopy(state ?? null).visibleMessage
+    setMessages(prev => [...prev, { id: mkId(), role: 'user', content: visibleRequest }])
+    await confirmMaterialHandoffFromApproval(visibleRequest)
   }
 
   async function enterSkillDefinitionFromApproval(userRequest: string): Promise<boolean> {
@@ -1942,6 +2032,7 @@ export default function HiringPage() {
       return false
     }
 
+    completeDownstreamRun('skill-definition-entry', '已确认进入技能定义。', 'skill_definition_entry_ready', state.data)
     const submitted = await submitWorkflowMessage(
       buildCoachResumePrompt('post-ontology-slice-extraction', {
         materialSummary: latestMaterialSummaryRef.current,
@@ -1956,11 +2047,11 @@ export default function HiringPage() {
     )
 
     if (submitted) {
-      completeDownstreamRun('skill-definition-entry', '已确认进入技能定义。', 'skill_definition_entry_ready', state.data)
       setWorkflowNotice('已确认进入技能定义，正在整理技能清单草案。')
       return true
     }
 
+    setOptimisticDownstreamRun('skill-definition-entry', 'waiting_confirm', state.label ?? '等待确认是否进入技能定义。', 'skill_definition_entry_ready', state.data)
     return false
   }
 
@@ -1971,13 +2062,6 @@ export default function HiringPage() {
     }
 
     completeDownstreamRun('external-system-entry', '已确认进入外部系统配置。', 'external_system_entry_ready', state.data)
-    setWsStageOverrides(prev => {
-      const next = new Map(prev)
-      next.set(HiringCollectionStage.Material, 'completed')
-      next.set(HiringCollectionStage.Skill, 'completed')
-      next.set(HiringCollectionStage.External, 'running')
-      return next
-    })
 
     const submitted = await submitWorkflowMessage(
       [
@@ -1995,6 +2079,13 @@ export default function HiringPage() {
     )
 
     if (submitted) {
+      setWsStageOverrides(prev => {
+        const next = new Map(prev)
+        next.set(HiringCollectionStage.Material, 'completed')
+        next.set(HiringCollectionStage.Skill, 'completed')
+        next.set(HiringCollectionStage.External, 'running')
+        return next
+      })
       setWorkflowNotice('已进入外部系统配置，请在右侧补充或跳过外部能力。')
       return true
     }
@@ -2027,39 +2118,60 @@ export default function HiringPage() {
 
   /** 技能阶段快捷按钮：确认生成技能 */
   async function handleConfirmSkillGeneration() {
-    const entryState = downstreamRunsRef.current['skill-definition-entry']
-    if (entryState?.status === 'waiting_confirm' && entryState.artifactType === 'skill_definition_entry_ready') {
-      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '进入技能定义' }])
-      await enterSkillDefinitionFromApproval('进入技能定义')
-      return
-    }
-
     const state = downstreamRunsRef.current['skill-generation']
     const projectionState = downstreamRunsRef.current['ontology-projection']
-    if (state?.status === 'running') {
+    const skillImplementationRunning = state?.status === 'running' && (
+      state.artifactType === 'skill_generation_progress' ||
+      state.artifactType === 'skill_projection_binding_ready'
+    )
+    if (skillImplementationRunning) {
       setWorkflowNotice('技能实现正在生成中。')
       return
     }
-    if (state?.status === 'completed') {
+    if (state?.status === 'completed' && state.artifactType === 'skill_generation_done') {
       setWorkflowNotice('技能实现已生成完成。')
       return
     }
 
-    if (state?.artifactType === 'skill_definition_ready') {
-      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '确认技能清单' }])
-      await confirmSkillDefinitionFromApproval('确认技能清单')
+    if (state?.artifactType === 'skill_generation_ready') {
+      const visibleRequest = getConfirmationActionCopy(state).visibleMessage
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: visibleRequest }])
+      await launchSkillGenerationFromApproval(visibleRequest)
+      return
+    }
+
+    if (projectionState?.status === 'completed' && projectionState.artifactType === 'ontology_projection_done') {
+      const visibleRequest = getConfirmationActionCopy({
+        key: 'skill-generation',
+        status: 'waiting_confirm',
+        artifactType: 'skill_generation_ready',
+        updatedAt: projectionState.updatedAt,
+        data: projectionState.data,
+      }).visibleMessage
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: visibleRequest }])
+      await launchSkillGenerationFromApproval(visibleRequest)
       return
     }
 
     if (projectionState?.artifactType === 'ontology_projection_ready') {
-      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '开始匹配技能数据' }])
-      await launchProjectionPassFromApproval('开始匹配技能数据')
+      const visibleRequest = getConfirmationActionCopy(projectionState).visibleMessage
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: visibleRequest }])
+      await launchProjectionPassFromApproval(visibleRequest)
       return
     }
 
-    if (state?.artifactType === 'skill_generation_ready') {
-      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: '确认生成技能实现' }])
-      await launchSkillGenerationFromApproval('确认生成技能实现')
+    if (state?.artifactType === 'skill_definition_ready') {
+      const visibleRequest = getConfirmationActionCopy(state).visibleMessage
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: visibleRequest }])
+      await confirmSkillDefinitionFromApproval(visibleRequest)
+      return
+    }
+
+    const entryState = downstreamRunsRef.current['skill-definition-entry']
+    if (entryState?.status === 'waiting_confirm' && entryState.artifactType === 'skill_definition_entry_ready') {
+      const visibleRequest = getConfirmationActionCopy(entryState).visibleMessage
+      setMessages(prev => [...prev, { id: mkId(), role: 'user', content: visibleRequest }])
+      await enterSkillDefinitionFromApproval(visibleRequest)
       return
     }
 
@@ -2073,9 +2185,15 @@ export default function HiringPage() {
       appendSystemArtifact(buildExternalSystemEntryReadyArtifact(latestSkillGenerationDoneRef.current))
     }
 
-    const visibleRequest = '进入外部系统配置'
+    const visibleRequest = getConfirmationActionCopy(downstreamRunsRef.current['external-system-entry'] ?? null).visibleMessage
     setMessages(prev => [...prev, { id: mkId(), role: 'user', content: visibleRequest }])
     await enterExternalSystemFromApproval(visibleRequest)
+  }
+
+  async function handleSkipExternalSystem() {
+    const visibleRequest = '跳过外部配置，直接进入打包前准备'
+    setMessages(prev => [...prev, { id: mkId(), role: 'user', content: visibleRequest }])
+    await skipExternalSystemFromApproval(visibleRequest)
   }
 
   async function confirmSkillDefinitionFromApproval(userRequest: string): Promise<boolean> {
@@ -2083,6 +2201,14 @@ export default function HiringPage() {
     if (state?.artifactType !== 'skill_definition_ready') {
       return false
     }
+
+    setOptimisticDownstreamRun(
+      'skill-generation',
+      'running',
+      '正在收口技能清单，等待下一步确认。',
+      'skill_workorder_progress',
+      state.data,
+    )
 
     const submitted = await submitWorkflowMessage(
       buildSkillDefinitionConfirmationPrompt(userRequest, state.data ?? {}),
@@ -2094,13 +2220,11 @@ export default function HiringPage() {
     )
 
     if (submitted) {
-      if (shouldDismissSkillConfirmationAfterApproval(state)) {
-        clearDownstreamRun('skill-generation')
-      }
       setWorkflowNotice('已确认技能清单，正在收口技能定义并进入匹配技能数据确认。')
       return true
     }
 
+    setOptimisticDownstreamRun('skill-generation', 'waiting_confirm', state.label ?? '等待确认技能清单。', 'skill_definition_ready', state.data)
     return false
   }
 
@@ -2161,7 +2285,13 @@ export default function HiringPage() {
     }
 
     projectionPassLaunchSignatureRef.current = ''
-    clearDownstreamRun('ontology-projection')
+    setOptimisticDownstreamRun(
+      'ontology-projection',
+      'waiting_confirm',
+      projectionRun?.label ?? '等待确认是否开始匹配技能资料。',
+      'ontology_projection_ready',
+      projectionRun?.data,
+    )
     return false
   }
 
@@ -2220,8 +2350,9 @@ export default function HiringPage() {
     setOptimisticDownstreamRun(
       'skill-generation',
       'waiting_confirm',
-      '技能数据已匹配完成，等待确认生成技能实现。',
+      currentRun?.label ?? '技能数据已匹配完成，等待确认生成技能实现。',
       'skill_generation_ready',
+      currentRun?.data,
     )
     return false
   }
@@ -2274,7 +2405,13 @@ export default function HiringPage() {
     }
 
     packagingTestCasesLaunchSignatureRef.current = ''
-    clearDownstreamRun('packaging-test-cases')
+    setOptimisticDownstreamRun(
+      'packaging-test-cases',
+      'waiting_confirm',
+      currentRun?.label ?? '等待确认是否生成评估测试用例。',
+      'packaging_testcases_ready',
+      currentRun?.data,
+    )
     return false
   }
 
@@ -2453,8 +2590,19 @@ export default function HiringPage() {
     }
 
     const pending = pendingStageConfirmation
-    const submitted = await submitWorkflowMessage(pending.summary)
+    setPendingStageConfirmation(null)
+    setMessages(prev => [...prev, { id: mkId(), role: 'user', content: pending.visibleMessage }])
+
+    const submitted = await submitWorkflowMessage(
+      pending.summary,
+      undefined,
+      true,
+      false,
+      false,
+      pending.visibleMessage,
+    )
     if (!submitted) {
+      setPendingStageConfirmation(pending)
       return
     }
 
@@ -2465,8 +2613,6 @@ export default function HiringPage() {
         return next
       })
     }
-
-    setPendingStageConfirmation(null)
   }
 
   async function importExistingPackageFromRequest(): Promise<boolean> {
@@ -3041,6 +3187,7 @@ export default function HiringPage() {
         downstreamRunsRef.current = {}
         packagingInProgressRef.current = false
         packageImportInFlightRef.current = false
+        latestMaterialDraftRef.current = null
         latestMaterialSummaryRef.current = null
         latestSkillSummaryRef.current = null
         latestProjectionResultRef.current = null
@@ -3235,8 +3382,10 @@ export default function HiringPage() {
             templatePackageSkills={template?.packageSkills ?? []}
             requestedMaterialCategories={materialRequestedCategories}
             uploadedConversationFiles={uploadedConversationFiles}
+            materialHandoffState={materialHandoffState}
             skillDefinitionStageStatus={uiStageOverrides.get(HiringCollectionStage.Skill) ?? null}
             skillGenerationState={skillStageConfirmationState}
+            externalSystemEntryState={externalSystemEntryState}
             definedSkills={definedSkills}
             onExternalConfigChange={handleExternalConfigChange}
             pendingStageConfirmation={pendingStageConfirmation}
@@ -3250,8 +3399,10 @@ export default function HiringPage() {
             onDownloadFinalPackage={() => { void downloadTemplatePackageFinal() }}
             onEnterEvaluation={createdId ? () => navigate(`/department-employees/instances/${createdId}/evaluation`) : undefined}
             onLinkedSkillIdsChange={setLinkedStoreSkillIds}
+            onConfirmMaterialHandoff={() => { void handleConfirmMaterialHandoff() }}
             onConfirmSkillGeneration={() => { void handleConfirmSkillGeneration() }}
             onConfirmSkillStageDone={() => { void handleConfirmSkillStageDone() }}
+            onSkipExternalSystem={() => { void handleSkipExternalSystem() }}
             packageStructure={
               instanceCreated
                 ? { fileName: finalPackageFileName, fileNames: artifactFileNames }

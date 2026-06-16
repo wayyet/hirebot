@@ -106,6 +106,53 @@ class SkillStageContractTests(unittest.TestCase):
         ]:
             self.assertIn(phrase, combined)
 
+    def test_material_handoff_ready_must_carry_non_empty_data(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        stage_schema = read_text(SKILL_ROOT / "references" / "stage-data-schema.md")
+        combined = "\n".join([skill, stage_schema])
+        material_ready_schema = section_between(
+            stage_schema,
+            "### material_handoff_ready",
+            "### material_handoff_summary",
+        )
+
+        for phrase in [
+            "禁止为空对象 `{}`",
+            "`data` 禁止为空对象 `{}`",
+            "context_signature",
+            'status: "waiting_confirm"',
+            'next_artifact: "material_handoff_summary"',
+            "workspace_root",
+            "template_slug",
+            "total_items",
+            "items[]",
+            "items[].source_path",
+            "material_collection_progress",
+        ]:
+            self.assertIn(phrase, combined)
+
+        for phrase in [
+            '"workspace_root"',
+            '"template_slug"',
+            '"total_items"',
+            '"items"',
+            '"source_path"',
+            '"next_artifact": "material_handoff_summary"',
+        ]:
+            self.assertIn(phrase, material_ready_schema)
+
+    def test_material_handoff_confirmation_starts_analysis_not_skill_definition(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        material_gate = section_between(
+            skill,
+            "**阶段 1 收口确认门",
+            "**阶段 1 完成后的强制动作",
+        )
+
+        self.assertIn("确认是否可以开始分析业务资料", material_gate)
+        self.assertIn("分析完成后，再进入技能定义阶段", material_gate)
+        self.assertNotIn("下一步进入**技能定义阶段**", material_gate)
+
     def test_review_report_completion_does_not_create_text_confirmation_gate(self) -> None:
         skill = read_text(SKILL_ROOT / "SKILL.md")
         handoff_registry = read_text(SKILL_ROOT / "references" / "downstream-handoff-registry.md")
@@ -250,6 +297,9 @@ class SkillStageContractTests(unittest.TestCase):
             "三个显式确认门",
             "用户确认后，才按 R2 触发匹配技能数据",
             "匹配技能数据已完成，等待用户确认是否开始生成技能实现",
+            "每个技能独立成项",
+            "能力说明",
+            "禁止把多个技能压缩成一句名称列表后直接询问确认",
             "不得向用户暴露 `slice`、`projection`、`projection_paths`、R1/R2/R3、结构化文件等内部术语",
             "你只要回我一句",
         ]
