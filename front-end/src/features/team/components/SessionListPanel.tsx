@@ -91,10 +91,24 @@ export default function SessionListPanel({
           page: pageNum,
           pageSize: 25,
           search: searchTerm || undefined,
+          channelId: 'websocket',
         });
-        const items = resp.persisted.items;
-        setSessions((prev) => (append ? [...prev, ...items] : items));
-        setHasMore(resp.persisted.hasMore);
+        // 合并 active + persisted，与 kingcrab fetchAllSessions 一致
+        const merged = [
+          ...(resp.active ?? []),
+          ...(resp.persisted?.items ?? []),
+        ]
+        // 按 id 去重（active 优先）
+        const seen = new Set<string>()
+        const deduped = merged.filter((s) => {
+          if (seen.has(s.id)) return false
+          seen.add(s.id)
+          return true
+        })
+        // 按 lastActiveAt 降序
+        deduped.sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime())
+        setSessions((prev) => (append ? [...prev, ...deduped] : deduped))
+        setHasMore(resp.persisted?.hasMore ?? false)
         setPage(pageNum);
       } catch {
         if (!append) setSessions([]);

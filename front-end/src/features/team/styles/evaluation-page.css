@@ -3,6 +3,20 @@
  * 閫氳繃 .dark 绫诲垏鎹紙涓?tokens.css 淇濇寔涓€鑷达級
  */
 
+/* ── 椤甸潰甯冨眬锛氬弬鑰?HiringPage 鐨?flex 楂樺害鑷€傚簲妯″紡锛岄伩鍏嶇‖缂栫爜 calc(100vh - ...) 瀵艰嚧婧㈠嚭婊氬姩 ── */
+.hb-eval-page {
+  height: calc(100vh - 64px);
+  height: calc(100dvh - 64px);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px 8px;
+  gap: 6px;
+  width: 100%;
+  max-width: var(--hb-page-max-width, 1440px);
+  margin: 0 auto;
+  overflow: hidden;
+}
+
 /* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
    1. 宸ヤ綔娴侀樁娈电姸鎬佽壊锛坵orkflow stage tone锛?
    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
@@ -2264,4 +2278,59 @@ html[data-mode="light"][data-skin="warm"] .eval-score-orb,
 html[data-mode="light"][data-skin="warm"] .eval-metric-card {
   border-color: rgba(30, 41, 59, 0.08);
   background: rgba(255, 255, 255, 0.52);
+}
+
+/* ── Composer input styling — matching kingcrab ChatPage ── */
+.eval-composer-shell {
+  border-color: var(--hb-border);
+  background: #fff;
+}
+.dark .eval-composer-shell {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(148, 163, 184, 0.14);
+}
+.eval-composer-shell:focus-within {
+  border-color: var(--hb-accent-solid);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hb-accent-solid) 12%, transparent);
+}
+
+/* ── Chat bubbles — compact kingcrab-style ── */
+.eval-bubble-user {
+  border-radius: 20px 6px 20px 20px;
+  background: var(--hb-chat-user-bubble-bg, #eef2ff);
+  color: var(--hb-chat-user-bubble-text, #1e293b);
+  border: 1px solid var(--hb-chat-user-bubble-border, #c7d2fe);
+  box-shadow: 0 1px 3px rgba(99, 102, 241, 0.08);
+}
+.eval-bubble-bot {
+  border-radius: 6px 20px 20px 20px;
+  background: var(--hb-surface-card, #fff);
+  border-color: var(--hb-border, #e2e8f0);
+}
+.eval-bubble-meta-user {
+  color: #94a3b8;
+}
+.eval-bubble-meta-bot {
+  color: #94a3b8;
+}
+
+/* ── Loading dots ── */
+.eval-loading-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+}
+.eval-loading-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+  animation: eval-dot-bounce 1.2s infinite ease-in-out;
+}
+.eval-loading-dot:nth-child(2) { animation-delay: 0.2s; }
+.eval-loading-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes eval-dot-bounce {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
 }

@@ -3,7 +3,6 @@ body {
   margin: 0;
   font-family: var(--hb-font-sans);
   background: #f8fafc;
-  background-attachment: fixed;
   color: var(--hb-body);
   -webkit-font-smoothing: antialiased;
   transition: background 0.3s ease, color 0.3s ease;

@@ -798,7 +798,7 @@ export default function EvaluationPage() {
           ? String((msg as unknown as Record<string, unknown>).text ?? '')
           : String(msg.name ?? msg.tool_name ?? msg.tool ?? 'tool')
         const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
-        const toolId = String(msg.id ?? msg.tool_use_id ?? `tool-${Date.now()}`)
+        const toolId = String(msg.id ?? msg.tool_use_id ?? `tool-${crypto.randomUUID()}`)
         const rawArgs = (msg as unknown as Record<string, unknown>).arguments
         const newStep: ToolStep = {
           id: toolId,
@@ -925,35 +925,33 @@ export default function EvaluationPage() {
         // 把 eval session id 写回 workspaceStatus（右侧调试面板 Session 字段显示用）
         setWorkspaceStatus((prev) => (prev ? { ...prev, sessionId: connection.sessionId } : prev))
 
-        // WS 会话 id 由沙箱侧分配，与 eval session id 不同；优先复用已有值，否则直接向网关查询
+        // WS 会话 id 由沙箱侧分配，与后端 eval session id 不同；优先复用已有值，否则直接向网关查询
         let sessionId = sessionIdRef.current ?? ''
         if (!sessionId) {
-          // 直接向网关 admin/sessions 取最新会话，避免后端存储的历史 session ID 因过期而触发 404
+          // 直接向网关 /api/integration/sessions 取最新会话（与 kingcrab-console fetchAllSessions 一致）
           const adminResp = await fetchAdminSessions(endpoint, { page: 1, pageSize: 1 })
           const latestSession = adminResp.active[0] ?? adminResp.persisted.items[0]
           sessionId = latestSession?.id?.trim() ?? ''
-          // 网关无会话时兜底走后端接口（首次创建沙箱的边界情况）
-          if (!sessionId) {
-            const conversation = await api.employeeRuntime.getEvaluationSandboxConversation(id)
-            sessionId = conversation.sessionId?.trim() ?? ''
-          }
         }
 
-        if (!endpoint || !sessionId) {
-          throw new Error('评估会话尚未绑定完成，无法恢复沙箱会话')
+        if (!endpoint) {
+          throw new Error('评估沙箱连接地址缺失，无法初始化聊天')
         }
 
         gatewayEndpointRef.current = endpoint
-        sessionIdRef.current = sessionId
-        setSelectedSessionId(sessionId)
+        sessionIdRef.current = sessionId || null
+        setSelectedSessionId(sessionId || null)
 
         const alreadyReady =
           wsRef.current?.isOpen() &&
           connectionStateRef.current.endpoint === endpoint &&
-          connectionStateRef.current.sessionId === sessionId
+          connectionStateRef.current.sessionId === (sessionId || null)
 
         if (!alreadyReady) {
-          await syncSandboxHistory(endpoint, sessionId)
+          // 网关上无历史会话时（新沙箱），跳过历史同步；首条消息会触发网关自动创建会话
+          if (sessionId) {
+            await syncSandboxHistory(endpoint, sessionId)
+          }
           await connectEvaluationWs(endpoint)
         }
 
@@ -1110,6 +1108,12 @@ export default function EvaluationPage() {
         const ready = await ensureEvaluationChatReady()
         if (!ready) {
           throw new Error(chatError || '评估沙箱连接尚未就绪，请稍后重试')
+        }
+        // 网关无历史会话时（新沙箱），自动分配客户端会话 ID，首条消息触发网关创建会话
+        if (!sessionIdRef.current) {
+          const newId = `evaluation:${id}:chat-${Date.now()}`
+          sessionIdRef.current = newId
+          setSelectedSessionId(newId)
         }
       }
 
@@ -1309,16 +1313,13 @@ export default function EvaluationPage() {
       )}
 
       {!autoInitVisible && !showSandboxInitOverlay && (
-      <div className="flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-              <div className="min-w-0">
-                <h1 className="text-[20px] font-semibold eval-text-strong">AI 评估对话</h1>
-                <p className="mt-1 text-[12px] leading-5 eval-text-secondary">
-                  通过双沙箱实时对话推进评估，流程状态、会话和报告会持续同步到当前页面。
-                </p>
-              </div>
+              <p className="text-[12px] leading-5 eval-text-secondary">
+                通过双沙箱实时对话推进评估，流程状态、会话和报告会持续同步到当前页面。
+              </p>
               <div className="rounded-full border eval-flow-target shrink-0 px-3 py-1.5 text-[11px]">
                 <span className="eval-text-caption">评估对象</span>
                 <span className="ml-2 font-medium eval-text-title">{employee.nickname} · {employee.roleName}</span>

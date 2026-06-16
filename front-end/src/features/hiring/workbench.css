@@ -181,17 +181,7 @@
 .hb-workflow-page {
   position: relative;
   isolation: isolate;
-}
-
-.hb-workflow-page::before {
-  content: "";
-  position: absolute;
-  inset: -56px -24px auto;
-  height: 280px;
-  z-index: -1;
-  pointer-events: none;
-  filter: blur(24px);
-  opacity: 0.92;
+  overflow: hidden;
 }
 
 .hb-workflow-page .hb-card {

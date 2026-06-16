@@ -481,10 +481,6 @@
   box-shadow: var(--hb-focus);
 }
 
-body.hb-body-hiring-prototype {
-  background-attachment: fixed;
-}
-
 .hb-hiring-page {
   height: calc(100vh - 64px);
   height: calc(100dvh - 64px); /* dvh 娓愯繘澧炲己锛氫慨澶嶅钩鏉?瑙﹀睆鍥犲湴鍧€鏍忎几缂╁鑷寸殑甯冨眬鎶栧姩 */
@@ -3227,11 +3223,6 @@ html[data-mode="light"][data-skin="warm"] .hb-hiring-modal {
 /* Dark hiring page should stay flat; remove the old blue ambient wash. */
 .dark body.hb-body-hiring-prototype {
   background: #0b0f17;
-}
-
-.dark .hb-workflow-page::before {
-  background: none;
-  opacity: 0;
 }
 
 .dark .hb-hiring-shell {

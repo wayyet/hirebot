@@ -81,13 +81,15 @@ export async function fetchAdminSessions(
   params: AdminSessionsParams = {},
 ): Promise<AdminSessionsResponse> {
   const searchParams = new URLSearchParams()
+  // 与 kingcrab-console fetchAllSessions 保持一致：始终过滤 websocket 频道
+  searchParams.set('channelId', 'websocket')
   if (params.page !== undefined) searchParams.set('page', String(params.page))
   if (params.pageSize !== undefined) searchParams.set('pageSize', String(params.pageSize))
   if (params.search) searchParams.set('search', params.search)
-  if (params.channelId) searchParams.set('channelId', params.channelId)
 
   const qs = searchParams.toString()
-  const path = qs ? `/admin/sessions?${qs}` : '/admin/sessions'
+  // 使用 /api/integration/sessions（非 /admin/sessions），与 kingcrab-console 及同文件 fetchLatestGatewaySession 一致
+  const path = `/api/integration/sessions?${qs}`
   return sandboxGet<AdminSessionsResponse>(endpoint, path)
 }
 
