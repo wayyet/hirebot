@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Services.Hiring;
+using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -118,8 +119,17 @@ internal sealed class HiringArtifactPackageService(
             && !string.IsNullOrWhiteSpace(instance.FinalPackageId))
         {
             var tenantId = string.IsNullOrWhiteSpace(instance.TenantId) ? "default" : instance.TenantId;
-            var packagePath = $"artifact-store/{tenantId}/{instance.HireId}/{instance.FinalPackageId}/package.zip";
-            if (await fileStore.ExistsAsync(packagePath, cancellationToken))
+            // 优先读取新的扁平 .zip 路径，兼容旧的 package.zip 目录结构
+            var newPackagePath = ArtifactStoragePaths.BuildFinalPackagePath(tenantId, instance.HireId, instance.FinalPackageId);
+            var legacyPackagePath = $"artifact-store/{tenantId}/{instance.HireId}/{instance.FinalPackageId}/package.zip";
+
+            var packagePath = await fileStore.ExistsAsync(newPackagePath, cancellationToken)
+                ? newPackagePath
+                : await fileStore.ExistsAsync(legacyPackagePath, cancellationToken)
+                    ? legacyPackagePath
+                    : null;
+
+            if (packagePath is not null)
             {
                 await using var stream = await fileStore.OpenReadAsync(packagePath, cancellationToken);
                 using var mem = new MemoryStream();
@@ -129,7 +139,7 @@ internal sealed class HiringArtifactPackageService(
                     HireId: instance.HireId,
                     SessionId: string.Empty,
                     Kind: HiringArtifactPackageKinds.FinalPackageZip,
-                    FileName: $"{instance.FinalPackageId}.zip",
+                    FileName: ArtifactStoragePaths.ExtractDownloadFileName(packagePath),
                     LogicalPath: $"packages/final/{instance.FinalPackageId}/package.zip",
                     Sha256: Convert.ToHexStringLower(SHA256.HashData(content)),
                     Content: content,
@@ -254,7 +264,7 @@ internal sealed class HiringArtifactPackageService(
         var sha256 = Convert.ToHexStringLower(SHA256.HashData(archive));
         var uploadedAtUtc = DateTimeOffset.UtcNow;
 
-        // 最终包使用语义路径：{root}/{tenantId}/{hireId}/{packageId}/package.zip
+        // 最终包使用扁平路径: artifact-store/{tenant}/{hireId}/{hireId}-{packageId前8}.zip
         // 中间包沿用 sessions/{sessionId}/{category}/package.zip 旧路径
         await using var archiveStream = new MemoryStream(archive, writable: false);
         string storagePath;
@@ -264,15 +274,16 @@ internal sealed class HiringArtifactPackageService(
         {
             var tenantId = session.TenantId ?? "default";
             storagePath = await fileStore.SaveAsync(
-                $"artifact-store/{tenantId}/{normalizedHireId}/{packageId}/package.zip",
+                ArtifactStoragePaths.BuildFinalPackagePath(tenantId, normalizedHireId, packageId),
                 archiveStream,
                 cancellationToken);
             effectiveLogicalPath = $"packages/final/{packageId}/package.zip";
         }
         else
         {
+            var tenantId = session.TenantId ?? "default";
             storagePath = await fileStore.SaveAsync(
-                $"artifact-store/sessions/{normalizedSessionId}/{category}/{PackageStorageFileName}",
+                ArtifactStoragePaths.BuildIntermediatePackagePath(tenantId, normalizedSessionId, category),
                 archiveStream,
                 cancellationToken);
             effectiveLogicalPath = logicalPath;

@@ -421,32 +421,48 @@ public sealed partial class EmployeeRuntimeService
     private static string BuildPrivateBranchSnapshotPrefix(InstanceEntity instance)
     {
         var parentId = string.IsNullOrWhiteSpace(instance.FromInstanceId) ? "unknown"
-            : SanitizePathSegment(instance.FromInstanceId);
-        return $"artifact-store/instances/personal_clone/{parentId}/{SanitizePathSegment(instance.InstanceId)}/snapshots/pre_private_branch";
+            : ArtifactStoragePaths.Sanitize(instance.FromInstanceId);
+        var tenantId = string.IsNullOrWhiteSpace(instance.TenantId) ? "default" : instance.TenantId;
+        return ArtifactStoragePaths.BuildSnapshotPath(tenantId, parentId, instance.InstanceId);
     }
 
-    private async Task ReplaceDirectoryAsync(string srcPrefix, string dstPrefix, CancellationToken ct)
+    private async Task ReplaceDirectoryAsync(string srcPath, string dstPath, CancellationToken ct)
     {
-        if (!await PrefixHasFilesAsync(srcPrefix, ct))
-            throw new InvalidOperationException($"源产物不存在: {srcPrefix}");
+        // 新路径: 都是 .zip 文件，直接复制
+        if (srcPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!await fileStore.ExistsAsync(srcPath, ct))
+                throw new InvalidOperationException($"源产物 ZIP 不存在: {srcPath}");
 
-        // 删除目标
-        var dstEntries = await fileStore.ListAsync(dstPrefix, ct);
+            // 删除旧目标
+            if (await fileStore.ExistsAsync(dstPath, ct))
+                await fileStore.DeleteAsync(dstPath, ct);
+
+            // 复制 ZIP
+            await using var s = await fileStore.OpenReadAsync(srcPath, ct);
+            await fileStore.SaveAsync(dstPath, s, ct);
+            return;
+        }
+
+        // 兼容旧散文件目录
+        if (!await PrefixHasFilesAsync(srcPath, ct))
+            throw new InvalidOperationException($"源产物不存在: {srcPath}");
+
+        var dstEntries = await fileStore.ListAsync(dstPath, ct);
         foreach (var e in dstEntries)
             await fileStore.DeleteAsync(e.Path, ct);
 
-        // 复制
-        var srcEntries = await fileStore.ListAsync(srcPrefix, ct);
+        var srcEntries = await fileStore.ListAsync(srcPath, ct);
         foreach (var entry in srcEntries)
         {
             ct.ThrowIfCancellationRequested();
             var rel = entry.Path;
-            if (rel.StartsWith(srcPrefix, StringComparison.OrdinalIgnoreCase))
-                rel = rel[srcPrefix.Length..].TrimStart('/');
+            if (rel.StartsWith(srcPath, StringComparison.OrdinalIgnoreCase))
+                rel = rel[srcPath.Length..].TrimStart('/');
             if (string.IsNullOrWhiteSpace(rel)) continue;
 
             await using var s = await fileStore.OpenReadAsync(entry.Path, ct);
-            await fileStore.SaveAsync($"{dstPrefix}/{rel}", s, ct);
+            await fileStore.SaveAsync($"{dstPath}/{rel}", s, ct);
         }
     }
 
@@ -458,6 +474,29 @@ public sealed partial class EmployeeRuntimeService
         var trimmed = value.Trim();
         var chars = trimmed.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '_').ToArray();
         return chars.Length == 0 ? "unknown" : new string(chars);
+    }
+
+    /// <summary>
+    /// 删除新 .zip 格式和旧散文件目录的 artifact 文件（尽力清理）。
+    /// </summary>
+    private async Task TryDeleteZipAndLegacyAsync(string zipPath, string legacyPrefix, CancellationToken ct)
+    {
+        // 删除新 .zip 文件
+        try
+        {
+            if (await fileStore.ExistsAsync(zipPath, ct))
+                await fileStore.DeleteAsync(zipPath, ct);
+        }
+        catch { /* 尽力清理 */ }
+
+        // 删除旧散文件目录
+        try
+        {
+            var entries = await fileStore.ListAsync(legacyPrefix, ct);
+            foreach (var entry in entries)
+                await fileStore.DeleteAsync(entry.Path, ct);
+        }
+        catch { /* 尽力清理 */ }
     }
 
     /// <summary>
@@ -569,10 +608,22 @@ public sealed partial class EmployeeRuntimeService
     }
 
     /// <summary>
-    /// 构建产物归档字节数组。通过 IFileStore 读取虚拟路径下的文件并打包为 zip。
+    /// 构建产物归档字节数组。如果是 .zip 路径则直接读取透传，
+    /// 兼容旧散文件目录（ListAsync + N×OpenReadAsync）。
     /// </summary>
     private async Task<byte[]> BuildArtifactArchiveBytesAsync(string artifactPrefix, CancellationToken cancellationToken)
     {
+        // 新路径: 直接是 .zip 文件，一次性读取透传
+        if (artifactPrefix.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+            && await fileStore.ExistsAsync(artifactPrefix, cancellationToken))
+        {
+            await using var zipStream = await fileStore.OpenReadAsync(artifactPrefix, cancellationToken);
+            using var ms = new MemoryStream();
+            await zipStream.CopyToAsync(ms, cancellationToken);
+            return ms.ToArray();
+        }
+
+        // 兼容旧散文件目录
         var entries = await fileStore.ListAsync(artifactPrefix, cancellationToken);
         using var memoryStream = new MemoryStream();
         using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
@@ -586,7 +637,6 @@ public sealed partial class EmployeeRuntimeService
                     relative = relative[artifactPrefix.Length..].TrimStart('/');
                 if (string.IsNullOrWhiteSpace(relative)) continue;
 
-                // 确保父目录存在
                 var lastSlash = relative.LastIndexOf('/');
                 if (lastSlash > 0)
                 {

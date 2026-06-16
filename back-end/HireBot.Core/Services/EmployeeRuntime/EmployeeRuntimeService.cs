@@ -912,21 +912,6 @@ public sealed partial class EmployeeRuntimeService(
         // 生成 employeeId
         var employeeId = BuildEmployeeId();
 
-        // 保存模板文件到 IFileStore（兼容本地与云存储）
-        try
-        {
-            foreach (var (path, content) in artifactFiles)
-            {
-                var virtualPath = $"digital-workforce/{employeeId}/{path.Replace('\\', '/')}";
-                using var ms = new MemoryStream(content);
-                await fileStore.SaveAsync(virtualPath, ms, cancellationToken);
-            }
-        }
-        catch
-        {
-            // 文件保存失败不影响员工创建
-        }
-
         // 构造 EmployeeDetailDto — 直接上岗状态
         var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
         var capabilities = skillNames.Count > 0
@@ -1136,28 +1121,21 @@ public sealed partial class EmployeeRuntimeService(
             .Where(item => item.InstanceId == normalizedId)
             .ExecuteDeleteAsync(cancellationToken);
 
-        // 2. 删除 artifact 文件（通过 IFileStore）
-        string artifactPrefix;
+        // 2. 删除 artifact 文件（通过 IFileStore），优先删新 .zip 格式，兼容旧散文件
+        var tenantId = string.IsNullOrWhiteSpace(instance.TenantId) ? "default" : instance.TenantId;
         if (string.Equals(instance.InstanceType, "personal_clone", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(instance.InstanceType, "private_branch", StringComparison.OrdinalIgnoreCase))
         {
-            var fromId = string.IsNullOrWhiteSpace(instance.FromInstanceId) ? "unknown" : SanitizePathSegment(instance.FromInstanceId);
-            artifactPrefix = $"personal-clone-artifacts/{fromId}/{SanitizePathSegment(normalizedId)}";
+            var fromId = string.IsNullOrWhiteSpace(instance.FromInstanceId) ? "unknown" : ArtifactStoragePaths.Sanitize(instance.FromInstanceId);
+            var legacyPrefix = $"personal-clone-artifacts/{fromId}/{ArtifactStoragePaths.Sanitize(normalizedId)}";
+            var zipPath = ArtifactStoragePaths.BuildPersonalCloneArtifactsPath(tenantId, fromId, normalizedId, instance.CurrentVersion ?? "v_initial");
+            await TryDeleteZipAndLegacyAsync(zipPath, legacyPrefix, cancellationToken);
         }
         else
         {
-            artifactPrefix = $"artifact-store/instances/department/{SanitizePathSegment(normalizedId)}";
-        }
-
-        try
-        {
-            var entries = await fileStore.ListAsync(artifactPrefix, cancellationToken);
-            foreach (var entry in entries)
-                await fileStore.DeleteAsync(entry.Path, cancellationToken);
-        }
-        catch
-        {
-            // 文件删除失败不阻塞流程
+            var legacyPrefix = $"artifact-store/instances/department/{ArtifactStoragePaths.Sanitize(normalizedId)}";
+            var zipPath = ArtifactStoragePaths.BuildDepartmentVersionPath(tenantId, normalizedId, instance.CurrentVersion ?? "v_initial");
+            await TryDeleteZipAndLegacyAsync(zipPath, legacyPrefix, cancellationToken);
         }
 
         return ApiResponse<object>.SuccessResponse(new { employeeId = normalizedId }, "员工已删除");
