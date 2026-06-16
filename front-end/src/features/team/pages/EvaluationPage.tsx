@@ -798,7 +798,7 @@ export default function EvaluationPage() {
           ? String((msg as unknown as Record<string, unknown>).text ?? '')
           : String(msg.name ?? msg.tool_name ?? msg.tool ?? 'tool')
         const toolName = rawName.startsWith('streaming.') ? rawName.slice('streaming.'.length) : rawName
-        const toolId = String(msg.id ?? msg.tool_use_id ?? `tool-${Date.now()}`)
+        const toolId = String(msg.id ?? msg.tool_use_id ?? `tool-${crypto.randomUUID()}`)
         const rawArgs = (msg as unknown as Record<string, unknown>).arguments
         const newStep: ToolStep = {
           id: toolId,
@@ -1309,16 +1309,13 @@ export default function EvaluationPage() {
       )}
 
       {!autoInitVisible && !showSandboxInitOverlay && (
-      <div className="flex h-[calc(100vh-116px)] min-h-[680px] flex-col gap-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-              <div className="min-w-0">
-                <h1 className="text-[20px] font-semibold eval-text-strong">AI 评估对话</h1>
-                <p className="mt-1 text-[12px] leading-5 eval-text-secondary">
-                  通过双沙箱实时对话推进评估，流程状态、会话和报告会持续同步到当前页面。
-                </p>
-              </div>
+              <p className="text-[12px] leading-5 eval-text-secondary">
+                通过双沙箱实时对话推进评估，流程状态、会话和报告会持续同步到当前页面。
+              </p>
               <div className="rounded-full border eval-flow-target shrink-0 px-3 py-1.5 text-[11px]">
                 <span className="eval-text-caption">评估对象</span>
                 <span className="ml-2 font-medium eval-text-title">{employee.nickname} · {employee.roleName}</span>

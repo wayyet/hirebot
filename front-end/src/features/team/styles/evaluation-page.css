@@ -3,6 +3,20 @@
  * 閫氳繃 .dark 绫诲垏鎹紙涓?tokens.css 淇濇寔涓€鑷达級
  */
 
+/* ── 椤甸潰甯冨眬锛氬弬鑰?HiringPage 鐨?flex 楂樺害鑷€傚簲妯″紡锛岄伩鍏嶇‖缂栫爜 calc(100vh - ...) 瀵艰嚧婧㈠嚭婊氬姩 ── */
+.hb-eval-page {
+  height: calc(100vh - 64px);
+  height: calc(100dvh - 64px);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px 8px;
+  gap: 6px;
+  width: 100%;
+  max-width: var(--hb-page-max-width, 1440px);
+  margin: 0 auto;
+  overflow: hidden;
+}
+
 /* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
    1. 宸ヤ綔娴侀樁娈电姸鎬佽壊锛坵orkflow stage tone锛?
    鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
