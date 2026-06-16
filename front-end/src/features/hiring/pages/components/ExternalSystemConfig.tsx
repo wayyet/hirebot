@@ -20,6 +20,7 @@ import type {
   PendingStageAdvanceConfirmation,
   StageAdvanceIntent,
 } from '../stageAdvanceConfirmation'
+import { ConfirmationActionPanel } from './ConfirmationActionPanel'
 
 // ── 类型定义 ──────────────────────────────────────────────────────────────────
 
@@ -771,28 +772,15 @@ function StageAdvanceConfirmationPanel({
   onContinueCollection,
   onConfirmAdvance,
 }: StageAdvanceConfirmationPanelProps) {
-  const { t } = useTranslation()
   return (
-    <section className="hb-todo-confirmation-panel" aria-label="阶段推进确认">
-      <p className="hb-todo-confirmation-text">{pendingConfirmation.prompt}</p>
-      <div className="hb-todo-confirmation-actions">
-        <button
-          type="button"
-          className="hb-todo-row-btn is-ghost"
-          disabled={busy}
-          onClick={onContinueCollection}
-        >
-          {t('hiring.todo.confirmation.continueCollection')}
-        </button>
-        <button
-          type="button"
-          className="hb-todo-row-btn is-primary"
-          disabled={busy}
-          onClick={onConfirmAdvance}
-        >
-          {t('hiring.todo.confirmation.confirmAdvance')}
-        </button>
-      </div>
-    </section>
+    <ConfirmationActionPanel
+      ariaLabel="阶段推进确认"
+      message={pendingConfirmation.prompt}
+      primaryLabel={pendingConfirmation.confirmLabel}
+      onPrimary={onConfirmAdvance}
+      secondaryLabel={pendingConfirmation.continueLabel}
+      onSecondary={onContinueCollection}
+      busy={busy}
+    />
   )
 }

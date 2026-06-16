@@ -16,16 +16,16 @@
 
 阶段推进确认本身也是一次"技能披露"——当用户确认从阶段 N 推进到阶段 N+1，LLM 必须明确知道下一阶段要读取哪些 skill 和参考文件。以下 S1-S3 条目定义每次阶段推进时的**必须加载文件清单**、阶段摘要和入场动作。
 
-> 阶段推进披露与 R1-R6 下游 skill 交接是两层路由：S 条目负责"进入下一阶段的上下文加载"，R 条目负责"在阶段内触发下游 skill 执行"。两者互补，不可互相替代。R1 属于资料阶段，S1 只能在 R1 的 `ontology_slice_extraction_done` 到达后执行。
+> 阶段推进披露与 R1-R6 下游 skill 交接是两层路由：S 条目负责"进入下一阶段的上下文加载"，R 条目负责"在阶段内触发下游 skill 执行"。两者互补，不可互相替代。R1 属于资料阶段，S1 只能在 R1 的成功形态 `ontology_slice_extraction_done`（`data.status === "completed"` 且 `completed_slices > 0`）到达后执行；blocked 形态只结束 R1，不进入 S1。
 
 ## S1：资料阶段完成 → 阶段 2 推进披露
 
 **前置信号**
 - `skill_definition_entry_ready` 已发出，且用户对"确认推进到技能定义阶段吗？"给出肯定回应。
 - `material_handoff_summary` 已发出，且 data 中有真实 `workspace_root`、`template_slug`、`items[]`。
-- R1 `ontology-slice-extraction` 已被触发并收到 `ontology_slice_extraction_done`。
+- R1 `ontology-slice-extraction` 已被触发并收到成功形态 `ontology_slice_extraction_done`（`data.status === "completed"` 且 `completed_slices > 0`）。
 
-**披露的技能与参考文件（LLM 必须在 `ontology_slice_extraction_done` 后读取）**
+**披露的技能与参考文件（LLM 必须在成功形态 `ontology_slice_extraction_done` 后读取）**
 
 | 文件 | 用途 | 读取优先级 |
 |------|------|-----------|
@@ -40,7 +40,7 @@
 - **子步骤顺序**：skill_definition_entry_ready 确认门 → 技能定义收集 → skill_definition_ready 确认门 → skill_workorder_summary → 进入技能实现子流程 → ontology_projection_ready 确认门 → projection pass (R2，产出一系列 `ontology/projections/<skill-slug>/*.projection.json`) → skill_generation_ready 确认门 → skill-generation (R3，消费 `projection_result` 将投影物化为 `skills/<skill-slug>/contracts/projections/ontology_extraction/` 下的 4 视图 consumer contract) → skill_generation_done
 - **入场动作**：读取 S1 文件清单 → 发出 `skill_workorder_progress` → 开始引导技能定义
 - **最低门槛**：每个 skill 具备明确的 `name`（skill slug）+ `display_name` + `description` + `trigger` + `expected_output` + `generation_action`
-- **禁止**：`ontology_slice_extraction_done` 到达前不得发 `skill_workorder_progress` 或进入技能定义收集；skill-generation 完成前不得提示"可进入外部阶段"
+- **禁止**：成功形态 `ontology_slice_extraction_done` 到达前不得发 `skill_workorder_progress` 或进入技能定义收集；blocked 形态不得解锁 S1；skill-generation 完成前不得提示"可进入外部阶段"
 
 **关联下游 R 条目**：R2（projection pass → 产出 projection 文件，供 skill-generation 消费）、R3（skill-generation → 消费 `projection_result` + projection 文件，物化为 consumer contract）
 
@@ -126,7 +126,8 @@ return_to: employment-coach-conversation
 ````
 
 **等待结果**
-- `ontology_slice_extraction_done`
+- 成功形态：`ontology_slice_extraction_done.data.status === "completed"` 且 `completed_slices > 0`。此时系统层进入 S1 阶段推进披露。
+- 阻断形态：`ontology_slice_extraction_done.data.status === "blocked"` 或 `completed_slices === 0`。此时系统层不得进入 S1，不得发出 `skill_definition_entry_ready`；应停留在资料阶段，并把 `diagnostic` / `diagnostic_detail` 转成用户可理解的资料补充建议。
 - 等待期间仍处于资料阶段，不得发 `skill_workorder_progress` 或进入技能定义收集。
 
 **禁止**
@@ -174,7 +175,8 @@ return_to: employment-coach-conversation
 **禁止**
 - `ontology-projection` 产出 projection 文件时必须调用沙箱文件写入工具（优先 `write_file`，否则使用当前环境等价的 `create_file` / `save_file`），并用 `read_file` 读回验证；不得用 shell / Python here-doc / echo / 仅对话描述代替真实文件写入。
 - 若文件写入工具不可用，或读回验证失败，不得发出成功形态的 `ontology_projection_done`；应将对应技能降级为 `slices_not_ready` / 跳过并说明原因。
-- 若 projection 已真实落盘但包含 `open_questions`，这是待补业务口径，不是“匹配技能数据失败”；应保留已匹配结果，向用户提出对应的精确业务问题，不得要求用户重跑同一步。
+- 若 projection 已真实落盘但包含 `open_questions`，这是生成前确认项，不是“匹配技能数据失败”，也不是“业务信息不足 / 还不够直接落地”；应保留已匹配结果，向用户提出对应的精确业务问题，不得要求用户重跑同一步或回到业务信息整理。
+- 当 `projection_paths[]` 可消费且 slug 校验通过时，面向用户只能表达为“技能数据已匹配完成，确认以下业务口径后即可生成技能实现”；不得再提供“补资料 / 重跑业务信息准备 / 继续”三选一路线。
 - 不得在 `ontology_projection_done` 前调用 `skill-generation`。
 - 不得把 `projection_binding_confirmed` 写进 `ontology_projection_ready` 或 `skill_generation_ready`；该字段只属于 R3 的内部触发 payload。
 - 不得在用户确认 `ontology_projection_ready` 前触发 R2。

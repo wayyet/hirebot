@@ -71,6 +71,26 @@ function isWaitingArtifact(
   return run?.status === 'waiting_confirm' && run.artifactType === artifactType
 }
 
+function isCompletedArtifact(
+  run: DownstreamRunState | null,
+  artifactType: string,
+): boolean {
+  return run?.status === 'completed' && run.artifactType === artifactType
+}
+
+function isSkillImplementationArtifact(artifactType: string | undefined): boolean {
+  return artifactType === 'skill_generation_ready' ||
+    artifactType === 'skill_projection_binding_ready' ||
+    artifactType === 'skill_generation_progress' ||
+    artifactType === 'skill_generation_done'
+}
+
+function isOntologyProjectionArtifact(artifactType: string | undefined): boolean {
+  return artifactType === 'ontology_projection_ready' ||
+    artifactType === 'ontology_projection_progress' ||
+    artifactType === 'ontology_projection_done'
+}
+
 function extractSkillWorkorderItems(summary: unknown): Record<string, unknown>[] {
   const record = asPlainObject(summary)
   if (!record) return []
@@ -327,6 +347,7 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
       '',
       'Use the terminal `material_handoff_summary` artifact payload below as the upstream summary for this run.',
       'Follow `ontology-slice-extraction/SKILL.md` exactly.',
+      'Keep executing this downstream task in this turn until the required files are written and `ontology_slice_extraction_done` is emitted; do not stop after a status check or a waiting/progress-only reply.',
       'Emit `ontology_slice_extraction_progress` with stage=`stage1_material` before processing any source.',
       'Read uploaded materials only from each item\'s `source_path` when available.',
       'Write outputs under the provided `workspace_root` and finish with `ontology_slice_extraction_done` using stage=`stage1_material`.',
@@ -350,6 +371,10 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
       'source_skill: employment-coach-conversation',
       'trigger_reason: user_confirmed_ontology_projection',
       'Do not call sessions, dispatch, handoff, spawn, or yield tools for this trigger.',
+      'This message supersedes any earlier template bootstrap or stage1 initialization prompt in the conversation history.',
+      'Do not interpret earlier bootstrap text as a new user request to reinitialize or return to stage1.',
+      'The user has already confirmed the current `ontology_projection_ready` gate; do not ask them to reply with another confirmation phrase.',
+      'In user-visible text, do not say "投影", "投影绑定", or "projection"; say "匹配技能数据".',
       '',
       'Use the payload below exactly as the trigger input for this run.',
       'Follow `ontology-projection/SKILL.md` exactly.',
@@ -360,6 +385,7 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
       'After writing each projection file, call `read_file` on that exact path and verify the JSON is complete with top-level `projection_type`, `source_slice`, `intended_consumers`, and `concept_mappings` before counting it as projected.',
       'If the file-writing tool is unavailable or read-back verification fails after bounded retry, mark the skill skipped with `slices_not_ready`; do not emit a successful `ontology_projection_done` for an unwritten or stub projection.',
       'If a valid projection still has `open_questions`, keep it as a projected WARNING result and surface those questions precisely; do not ask the user to rerun the same projection pass just because questions remain.',
+      'For a projected WARNING result with consumable `projection_paths`, never say the business information is insufficient or not directly implementable. Describe it as matched skill data with pre-generation confirmation items.',
       'Finish with `ontology_projection_done` using stage=`stage2_skill` only after file write and read-back verification.',
       '',
       'required_artifacts:',
@@ -384,9 +410,14 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
       '',
       'This is an internal mode switch inside the current conversation, not a request to discover another tool or start another conversation.',
       'The user has explicitly approved binding the producer ontology projections into the generated business skills.',
+      '`projection_binding_confirmed` is already set to true by the system in `artifact_payload`; it is not a user-facing confirmation step.',
+      'Do not ask the user to confirm projection binding again, and do not ask for another phrase such as "开始生成技能实现".',
+      'In user-visible text, do not say "投影", "投影绑定", or "projection"; say "匹配技能数据".',
       'Use the enriched `skill_workorder_summary` payload below as the upstream workorder.',
       'Treat `artifact_payload.confirmed_skill_slugs` as the only allowed generated skill directory set; do not create or keep alternate/stale skill directories.',
       'Projection consumer contracts are mandatory for this run. Do not silently downgrade to a base skill package without contracts.',
+      'If `artifact_payload.projection_result.open_questions` is non-empty, treat it as pre-generation confirmation context that has already been carried through the confirmation gate. It is not a business-information insufficiency signal.',
+      'For a consumable projection with `projected_count > 0` and matching `projection_paths`, continue skill generation and materialize WARNING consumer contracts instead of asking the user to "补资料", rerun business-information extraction, or rerun skill-data matching.',
       'If the provided business-information packages cannot be materialized into `skills/<skill-slug>/contracts/projections/ontology_extraction/`, stop and report the reason instead of continuing without contracts.',
       'Read and follow `skill-generation/SKILL.md` directly in the current session.',
       'Do not use dispatch callbacks or handoff APIs for this path.',
@@ -600,6 +631,7 @@ export function isSkillGenerationApprovalMessage(text: string): boolean {
     '使用这些资料',
     '用这些资料',
     '继续',
+    '生成',
     '开始生成',
     '开始生成吧',
     '生成吧',
@@ -623,16 +655,18 @@ export function resolveSkillStageApprovalRoute(input: SkillStageApprovalRouteInp
     return 'none'
   }
 
-  if (
-    isWaitingArtifact(input.skillDefinitionEntryState ?? null, 'skill_definition_entry_ready') &&
-    isSkillDefinitionEntryApprovalMessage(input.text)
-  ) {
-    return 'enter_skill_definition'
-  }
-
   // 阶段 2 的确认门会分布在两个下游轨道里；后续确认门必须优先吃掉“继续”这类通用确认词。
   if (
     isWaitingArtifact(input.skillGenerationState, 'skill_generation_ready') &&
+    input.hasSkillSummary &&
+    input.hasProjectionResult &&
+    isSkillGenerationApprovalMessage(input.text)
+  ) {
+    return 'launch_skill_generation'
+  }
+
+  if (
+    isCompletedArtifact(input.ontologyProjectionState, 'ontology_projection_done') &&
     input.hasSkillSummary &&
     input.hasProjectionResult &&
     isSkillGenerationApprovalMessage(input.text)
@@ -653,6 +687,13 @@ export function resolveSkillStageApprovalRoute(input: SkillStageApprovalRouteInp
     isSkillDefinitionApprovalMessage(input.text)
   ) {
     return 'confirm_skill_definition'
+  }
+
+  if (
+    isWaitingArtifact(input.skillDefinitionEntryState ?? null, 'skill_definition_entry_ready') &&
+    isSkillDefinitionEntryApprovalMessage(input.text)
+  ) {
+    return 'enter_skill_definition'
   }
 
   return 'none'
@@ -688,18 +729,40 @@ export function resolveActiveSkillStageRun(
   }
 
   if (
-    skillGenerationState?.status === 'running' ||
-    skillGenerationState?.status === 'completed' ||
-    skillGenerationState?.status === 'failed'
+    isSkillImplementationArtifact(skillGenerationState?.artifactType) &&
+    (
+      skillGenerationState?.status === 'running' ||
+      skillGenerationState?.status === 'completed' ||
+      skillGenerationState?.status === 'failed'
+    )
   ) {
     return skillGenerationState
   }
 
-  if (isWaitingArtifact(ontologyProjectionState, 'ontology_projection_ready')) {
+  if (ontologyProjectionState && isCompletedArtifact(ontologyProjectionState, 'ontology_projection_done')) {
+    return {
+      key: 'skill-generation',
+      status: 'waiting_confirm',
+      artifactType: 'skill_generation_ready',
+      label: '等待确认生成技能实现',
+      displayHint: 'badge',
+      updatedAt: ontologyProjectionState.updatedAt,
+      data: ontologyProjectionState.data,
+    }
+  }
+
+  if (
+    isOntologyProjectionArtifact(ontologyProjectionState?.artifactType) &&
+    ontologyProjectionState?.status !== 'completed'
+  ) {
     return ontologyProjectionState
   }
 
   if (isWaitingArtifact(skillGenerationState, 'skill_definition_ready')) {
+    return skillGenerationState
+  }
+
+  if (skillGenerationState?.status === 'running' && skillGenerationState.artifactType === 'skill_workorder_progress') {
     return skillGenerationState
   }
 

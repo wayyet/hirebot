@@ -66,18 +66,23 @@ export interface HiringTodoPanelProps {
   templatePackageSkills?: EmployeeTemplatePackageSkill[]
   requestedMaterialCategories?: MaterialRequestedCategory[]
   uploadedConversationFiles?: ChatFile[]
+  materialHandoffState?: DownstreamRunState | null
   skillDefinitionStageStatus?: StageStatus | null
   skillGenerationState?: DownstreamRunState | null
+  externalSystemEntryState?: DownstreamRunState | null
   definedSkills?: DefinedSkillItem[]
   onExternalConfigChange?: (config: HiringExternalSystemConfig | null, source?: ExternalConfigChangeSource) => void
   pendingStageConfirmation?: PendingStageAdvanceConfirmation | null
   onContinueStageCollection?: () => void
   onConfirmStageAdvance?: () => void
   stageConfirmationBusy?: boolean
+  onConfirmMaterialHandoff?: () => void
   /** 技能阶段：确认生成技能 */
   onConfirmSkillGeneration?: () => void
   /** 技能阶段：推进到外部系统 */
   onConfirmSkillStageDone?: () => void
+  /** 外部系统入口：跳过外部配置 */
+  onSkipExternalSystem?: () => void
 }
 
 interface StageConfig {
@@ -111,16 +116,20 @@ export function HiringTodoPanel({
   templatePackageSkills = [],
   requestedMaterialCategories = [],
   uploadedConversationFiles = [],
+  materialHandoffState = null,
   skillDefinitionStageStatus = null,
   skillGenerationState = null,
+  externalSystemEntryState = null,
   definedSkills = [],
   onExternalConfigChange,
   pendingStageConfirmation = null,
   onContinueStageCollection,
   onConfirmStageAdvance,
   stageConfirmationBusy = false,
+  onConfirmMaterialHandoff,
   onConfirmSkillGeneration,
   onConfirmSkillStageDone,
+  onSkipExternalSystem,
 }: HiringTodoPanelProps) {
   const { t } = useTranslation()
   // 用户是否手动覆盖了某张卡片的展开状态；未手动覆盖的走"活跃阶段自动展开"逻辑
@@ -187,10 +196,12 @@ export function HiringTodoPanel({
             stageStatus={wsStageOverrides.get(HiringCollectionStage.Material) ?? null}
             requestedCategories={requestedMaterialCategories}
             uploadedConversationFiles={uploadedConversationFiles}
+            materialHandoffState={materialHandoffState}
             pendingConfirmation={pendingStageConfirmation?.stage === HiringCollectionStage.Material ? pendingStageConfirmation : null}
             stageConfirmationBusy={stageConfirmationBusy}
             onContinueCollection={onContinueStageCollection}
             onConfirmAdvance={onConfirmStageAdvance}
+            onConfirmMaterialHandoff={onConfirmMaterialHandoff}
             onAfterUpload={summary => onAfterStageMessage?.(HiringCollectionStage.Material, summary, 'ready_to_advance')}
           />
         </div>
@@ -213,9 +224,12 @@ export function HiringTodoPanel({
                 onLinkedIdsChange={onLinkedSkillIdsChange}
                 definitionStageStatus={skillDefinitionStageStatus}
                 skillGenerationState={skillGenerationState}
+                externalSystemEntryState={externalSystemEntryState}
                 definedSkills={definedSkills}
+                confirmationBusy={stageConfirmationBusy}
                 onConfirmSkillGeneration={onConfirmSkillGeneration}
                 onConfirmSkillStageDone={onConfirmSkillStageDone}
+                onSkipExternalSystem={onSkipExternalSystem}
               />
             )}
             {stage.key === HiringCollectionStage.External && (

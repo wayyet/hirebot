@@ -1,6 +1,6 @@
 # Generated Consumer Projection Contract Template
 
-Generated skills may be projection consumers when enough ontology projection information exists. Use this layout for READY contracts or draft projection notes:
+Generated skills are projection consumers in bound mode. Use this layout for READY or WARNING consumer contracts materialized from producer ontology projections:
 
 This template describes the local consumer contract under a generated business skill. It intentionally uses the consumer flat shape so runtime and human reviewers can read the same top-level fields directly. Source projection files may be either consumer flat shape or canonical ontology shape, but generated consumer contracts must be flat.
 
@@ -18,7 +18,7 @@ skills/<skill_slug>/
           <domain-slug>.workflow-contract.projection.json
 ```
 
-Minimum READY `contract-index.json` requirements:
+Minimum `contract-index.json` requirements:
 
 - `producer_skill`: `"ontology_extraction"`
 - `consumer_skill`: generated skill `name`
@@ -34,7 +34,7 @@ Minimum READY `contract-index.json` requirements:
   - `<domain-slug>.prompt-constraint.projection.json`
   - `<domain-slug>.workflow-contract.projection.json`
 
-Minimum READY projection document requirements:
+Minimum projection document requirements:
 
 - `projection_id`
 - `projection_type`
@@ -52,7 +52,7 @@ Minimum READY projection document requirements:
 - `prompt_projection`
 - `delivery_artifacts`
 - `dropped_items`
-- `open_questions` (empty for READY)
+- `open_questions` (empty for READY; non-empty for WARNING)
 
 `source_slice.path` must be package-root-relative (for example, `ontology/<topic>.slice.json`) or otherwise resolvable from the projection file. Do not write skill-directory-relative paths such as `../../ontology/...`.
 
@@ -66,4 +66,4 @@ python "scripts/materialize-consumer-projection-contract.py" --workspace-root "<
 
 When running from outside the `skill-generation` skill directory, use the absolute path to this script instead.
 
-If there is not enough information to generate a READY contract, write draft notes or a WARNING summary under the generated skill's `references/` area, but do not mark the contract READY and do not block the base skill write for that reason alone.
+If the source projection contains `open_questions`, generate a WARNING contract and carry those questions through every relevant view. If source projection files are missing, invalid, unwritable, or slug-mismatched, block the run; do not treat a base skill-only result as successful.

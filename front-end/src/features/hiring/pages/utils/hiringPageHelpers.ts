@@ -15,6 +15,95 @@ const INTERNAL_PROTOCOL_MESSAGE_START_REGEX =
   /^\s*(?:\[Internal (?:stage resume|downstream trigger|packaging trigger|skill definition confirmation|external config commit)\b|Internal stage resume|Internal downstream trigger|Internal packaging trigger|Internal skill definition confirmation)/i
 const TOOL_BAN_DIAGNOSTIC_LINE_REGEX =
   /^\s*\[TOOL BAN\]\s*Refused to call\b.*$(?:\r?\n)?/gim
+const ARTIFACT_PROTOCOL_DIAGNOSTIC_LINE_REGEX =
+  /^\s*.*(?:不是这个阶段该发的 artifact|skill_generation_trigger 不在允许清单|skill_generation_trigger is not allowed).*$(?:\r?\n)?/gim
+const FENCED_JSON_BLOCK_REGEX = /```(?:json)?\s*([\s\S]*?)```/gi
+
+function asPlainObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key)
+}
+
+function hasAnyKey(record: Record<string, unknown>, keys: string[]): boolean {
+  return keys.some(key => hasOwn(record, key))
+}
+
+function tryParseJsonRecord(content: string): Record<string, unknown> | null {
+  try {
+    return asPlainObject(JSON.parse(content))
+  } catch {
+    return null
+  }
+}
+
+function isLeakedArtifactProtocolRecord(record: Record<string, unknown>): boolean {
+  const parameters = asPlainObject(record.parameters)
+  if (parameters && isLeakedArtifactProtocolRecord(parameters)) {
+    return true
+  }
+
+  if (hasAnyKey(record, ['artifactType', 'artifact_type', 'isTerminal', 'is_terminal', 'displayHint', 'display_hint'])) {
+    return true
+  }
+
+  const hasMaterialReadyStatus = hasAnyKey(record, ['summary', 'message'])
+    && hasAnyKey(record, ['next_step', 'nextStep', 'status'])
+    && hasAnyKey(record, ['total_items', 'totalItems', 'category', 'objective', 'next_artifact', 'nextArtifact'])
+  if (hasMaterialReadyStatus) {
+    return true
+  }
+
+  return hasAnyKey(record, ['context_signature', 'contextSignature'])
+    && hasAnyKey(record, ['status'])
+    && hasAnyKey(record, ['next_artifact', 'nextArtifact', 'trigger_after', 'triggerAfter', 'options', 'summary', 'message'])
+}
+
+function readJsonRecordBlock(lines: string[], startIndex: number): { endIndex: number } | null {
+  let block = ''
+  const maxEndIndex = Math.min(lines.length, startIndex + 80)
+
+  for (let index = startIndex; index < maxEndIndex; index += 1) {
+    block += `${index === startIndex ? '' : '\n'}${lines[index]}`
+    const record = tryParseJsonRecord(block.trim())
+    if (!record) {
+      continue
+    }
+
+    return isLeakedArtifactProtocolRecord(record)
+      ? { endIndex: index }
+      : null
+  }
+
+  return null
+}
+
+function removeLeakedStructuredJsonBlocks(content: string): string {
+  const withoutFencedJson = content.replace(FENCED_JSON_BLOCK_REGEX, (match, inner: string) => {
+    const record = tryParseJsonRecord(inner.trim())
+    return record && isLeakedArtifactProtocolRecord(record) ? '' : match
+  })
+  const lines = withoutFencedJson.split(/\r?\n/)
+  const visibleLines: string[] = []
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index].trim().startsWith('{')) {
+      const block = readJsonRecordBlock(lines, index)
+      if (block) {
+        index = block.endIndex
+        continue
+      }
+    }
+
+    visibleLines.push(lines[index])
+  }
+
+  return visibleLines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
 
 function isInternalProtocolMessage(content: string): boolean {
   return INTERNAL_PROTOCOL_MESSAGE_START_REGEX.test(content)
@@ -24,13 +113,14 @@ function removeHiddenAssistantProtocol(content: string): string {
   const withoutClosedTags = content
     .replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
     .replace(TOOL_BAN_DIAGNOSTIC_LINE_REGEX, '')
+    .replace(ARTIFACT_PROTOCOL_DIAGNOSTIC_LINE_REGEX, '')
   if (isInternalProtocolMessage(withoutClosedTags)) {
     return ''
   }
 
-  return withoutClosedTags
+  return removeLeakedStructuredJsonBlocks(withoutClosedTags
     .replace(INTERNAL_INSTRUCTION_LINE_REGEX, '')
-    .trim()
+    .trim())
 }
 
 /**
@@ -76,6 +166,7 @@ export function normalizeAssistantStreamingPreview(content: string): string {
   const withoutClosedTags = content
     .replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
     .replace(TOOL_BAN_DIAGNOSTIC_LINE_REGEX, '')
+    .replace(ARTIFACT_PROTOCOL_DIAGNOSTIC_LINE_REGEX, '')
   if (isInternalProtocolMessage(withoutClosedTags)) {
     return ''
   }
@@ -95,5 +186,7 @@ export function normalizeAssistantStreamingPreview(content: string): string {
     return withoutClosedTags.slice(0, match.index).trim()
   }
 
-  return withoutClosedTags.replace(INTERNAL_INSTRUCTION_LINE_REGEX, '').trim()
+  return removeLeakedStructuredJsonBlocks(
+    withoutClosedTags.replace(INTERNAL_INSTRUCTION_LINE_REGEX, '').trim(),
+  )
 }

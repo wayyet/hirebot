@@ -35,6 +35,6 @@ Template rules:
 
 - Keep frontmatter parser-friendly.
 - Do not leave placeholder text in the final file.
-- `{{projection_contracts_section}}` 仅在 `contracts/projections/ontology_extraction/contract-index.json` 已真实落盘时才可展开为 Projection Contracts 章节；否则必须替换为空字符串。
+- `{{projection_contracts_section}}` 仅在 `contracts/projections/ontology_extraction/contract-index.json` 已真实落盘时才可展开为 Projection Contracts 章节；若 contract 无法落盘，本轮 skill-generation 必须阻断，不得把基础 skill 视为成功结果。
 - Keep projection consumption in generated business skills, not in `skill-generation` itself.
-- If a generated skill cannot produce a READY projection contract, write draft notes and do not block the base skill write for that reason alone.
+- If a generated skill consumes a projection with `open_questions`, generate a WARNING projection contract and surface those questions; do not downgrade to a base skill-only result.

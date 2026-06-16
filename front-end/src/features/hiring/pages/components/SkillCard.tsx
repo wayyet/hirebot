@@ -14,6 +14,8 @@ import type {
   DefinedSkillItem,
   DownstreamRunState,
 } from '../hiringPageTypes'
+import { ConfirmationActionPanel } from './ConfirmationActionPanel'
+import { getConfirmationActionCopy } from '../utils/hiringConfirmationCopy'
 
 export type StageStatus = 'running' | 'completed' | 'failed'
 
@@ -31,11 +33,15 @@ export interface SkillCardBodyProps {
   onLinkedIdsChange?: (skillIds: string[]) => void
   definitionStageStatus: StageStatus | null
   skillGenerationState: DownstreamRunState | null
+  externalSystemEntryState?: DownstreamRunState | null
   definedSkills: DefinedSkillItem[]
+  confirmationBusy?: boolean
   /** skill-generation 等待确认时，用户点击确认生成 */
   onConfirmSkillGeneration?: () => void
   /** skill-generation 完成后，用户点击推进到外部系统 */
   onConfirmSkillStageDone?: () => void
+  /** 外部系统入口确认时，用户点击跳过外部配置 */
+  onSkipExternalSystem?: () => void
 }
 
 function readArtifactNumber(data: unknown, key: string): number | null {
@@ -140,31 +146,8 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
 }
 
 function getSkillConfirmationAction(run: DownstreamRunState | null): { text: string; button: string } {
-  if (run?.artifactType === 'skill_definition_entry_ready') {
-    return {
-      text: '业务资料分析已完成，请确认是否进入技能定义环节。',
-      button: '进入技能定义',
-    }
-  }
-
-  if (run?.artifactType === 'skill_definition_ready') {
-    return {
-      text: '请确认当前技能清单是否完整，确认后会进入匹配技能数据。',
-      button: '确认技能清单',
-    }
-  }
-
-  if (run?.artifactType === 'ontology_projection_ready') {
-    return {
-      text: '请确认是否开始匹配这些技能所需的数据。',
-      button: '开始匹配数据',
-    }
-  }
-
-  return {
-    text: '技能数据已匹配完成，请确认是否生成技能实现。',
-    button: '确认生成技能',
-  }
+  const copy = getConfirmationActionCopy(run)
+  return { text: copy.text, button: copy.button }
 }
 
 function getDefinedSkillGenerationMeta(
@@ -214,9 +197,12 @@ export function SkillCardBody({
   onLinkedIdsChange,
   definitionStageStatus,
   skillGenerationState,
+  externalSystemEntryState = null,
   definedSkills,
+  confirmationBusy = false,
   onConfirmSkillGeneration,
   onConfirmSkillStageDone,
+  onSkipExternalSystem,
 }: SkillCardBodyProps) {
   const { t } = useTranslation()
   const hydratedHireIdRef = useRef<string | null>(null)
@@ -359,6 +345,16 @@ export function SkillCardBody({
     () => getSkillImplementationMeta(skillGenerationState),
     [skillGenerationState],
   )
+  const skillConfirmationAction = getSkillConfirmationAction(skillGenerationState)
+  const showSkillConfirmation =
+    skillGenerationState?.status === 'waiting_confirm' &&
+    skillGenerationState.artifactType !== 'skill_projection_binding_ready' &&
+    Boolean(onConfirmSkillGeneration)
+  const externalEntryConfirmationAction = getConfirmationActionCopy(externalSystemEntryState)
+  const showExternalEntryConfirmation =
+    externalSystemEntryState?.status === 'waiting_confirm' &&
+    externalSystemEntryState.artifactType === 'external_system_entry_ready' &&
+    (Boolean(onConfirmSkillStageDone) || Boolean(onSkipExternalSystem))
 
   async function handleLink(skill: StoreSkillItem) {
     if (persisting || isLinked(skill.id)) return
@@ -423,27 +419,25 @@ export function SkillCardBody({
       </section>
 
       {/* 技能阶段快捷推进按钮 */}
-      {skillGenerationState?.status === 'waiting_confirm' && skillGenerationState.artifactType !== 'skill_projection_binding_ready' && onConfirmSkillGeneration ? (
-        <div className="hb-todo-confirmation-panel" aria-label="确认生成技能">
-          <p className="hb-todo-confirmation-text">
-            {getSkillConfirmationAction(skillGenerationState).text}
-          </p>
-          <div className="hb-todo-confirmation-actions">
-            <button type="button" className="hb-todo-row-btn is-primary" onClick={onConfirmSkillGeneration}>
-              {getSkillConfirmationAction(skillGenerationState).button}
-            </button>
-          </div>
-        </div>
+      {showSkillConfirmation ? (
+        <ConfirmationActionPanel
+          ariaLabel="技能阶段确认"
+          message={skillConfirmationAction.text}
+          primaryLabel={skillConfirmationAction.button}
+          busy={confirmationBusy}
+          onPrimary={onConfirmSkillGeneration}
+        />
       ) : null}
-      {skillGenerationState?.status === 'completed' && onConfirmSkillStageDone ? (
-        <div className="hb-todo-confirmation-panel" aria-label="推进到外部系统">
-          <p className="hb-todo-confirmation-text">{t('hiring.todo.skill.generationCompleteDesc')}</p>
-          <div className="hb-todo-confirmation-actions">
-            <button type="button" className="hb-todo-row-btn is-primary" onClick={onConfirmSkillStageDone}>
-              {t('hiring.todo.skill.confirmStageDone')}
-            </button>
-          </div>
-        </div>
+      {showExternalEntryConfirmation ? (
+        <ConfirmationActionPanel
+          ariaLabel="外部配置入口确认"
+          message={externalEntryConfirmationAction.text}
+          primaryLabel={externalEntryConfirmationAction.button}
+          busy={confirmationBusy}
+          onPrimary={onConfirmSkillStageDone}
+          secondaryLabel="跳过外部配置"
+          onSecondary={onSkipExternalSystem}
+        />
       ) : null}
 
       <div className="hb-todo-skill-toolbar">

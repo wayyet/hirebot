@@ -11,10 +11,13 @@ import {
 import {
   buildCoachResumePrompt,
   buildHistoricalHiringConversationState,
+  buildMaterialHandoffConfirmationPrompt,
+  buildMaterialHandoffReadyArtifact,
   buildSkillGenerationReadyArtifact,
   buildUiStageOverrides,
   deriveStageOverridesFromDownstreamRuns,
   extractArtifactFromToolCall,
+  normalizeMaterialHandoffReadyData,
   normalizeArtifactDisplayData,
   queueOntologySliceExtractionRun,
   shouldDismissSkillConfirmationAfterApproval,
@@ -73,6 +76,12 @@ describe('buildCoachResumePrompt', () => {
         projection_paths: [
           'ontology/projections/insert-order-feasibility/cosmetics.workflow-contract.projection.json',
         ],
+        open_questions: [
+          {
+            question: '齐套校验是硬拦截还是软提醒？',
+            options: ['硬拦截', '软提醒'],
+          },
+        ],
       },
     })
 
@@ -80,6 +89,9 @@ describe('buildCoachResumePrompt', () => {
     expect(prompt).toContain('do not emit or duplicate it')
     expect(prompt).toContain('ask the exact option-style question')
     expect(prompt).toContain('do not tell the user to rerun business-information preparation')
+    expect(prompt).toContain('pre-generation confirmation items')
+    expect(prompt).toContain('Never describe this state as "business information is insufficient"')
+    expect(prompt).toContain('Do not offer a choice between supplementing materials')
     expect(prompt).toContain('Do not trigger `skill-generation` in this turn')
   })
 
@@ -117,6 +129,43 @@ describe('buildCoachResumePrompt', () => {
       },
     })
   })
+
+  it('可消费 projection 含 open_questions 时，确认门表达为生成前确认项', () => {
+    const artifact = buildSkillGenerationReadyArtifact({
+      workspace_root: '/workspace/template-1',
+      template_slug: 'template',
+      items: [
+        {
+          name: 'scheduling-and-rescheduling',
+          display_name: '插单与重排',
+        },
+      ],
+    }, {
+      projected_count: 1,
+      projection_paths: [
+        'ontology/projections/scheduling-and-rescheduling/scheduling.workflow-contract.projection.json',
+      ],
+      open_questions: [
+        {
+          question: '插单优先级按哪条口径执行？',
+          options: ['客户等级优先', '交期风险优先', '人工指定'],
+        },
+      ],
+    })
+
+    expect(artifact).toMatchObject({
+      artifactType: 'skill_generation_ready',
+      label: '等待确认生成技能实现（含生成前确认项）',
+      data: {
+        readiness_status: 'ready_with_confirmation_items',
+        open_questions: [
+          '插单优先级按哪条口径执行？（选项：客户等级优先 / 交期风险优先 / 人工指定）',
+        ],
+        summary: '技能数据已匹配完成，仍有 1 个生成前确认项；确认口径后可直接生成技能实现。',
+        next_step: '等待用户确认生成前业务口径，然后开始生成技能实现',
+      },
+    })
+  })
 })
 
 describe('buildUiStageOverrides', () => {
@@ -138,6 +187,40 @@ describe('buildUiStageOverrides', () => {
     expect(overrides.get(HiringCollectionStage.Material)).toBe('completed')
     expect(overrides.get(HiringCollectionStage.Skill)).toBe('running')
     expect(overrides.get(HiringCollectionStage.External)).toBeUndefined()
+  })
+
+  it('技能定义 summary 完成不等于主技能阶段完成', () => {
+    const rawOverrides = new Map([
+      [HiringCollectionStage.Material, 'completed' as const],
+      [HiringCollectionStage.Skill, 'completed' as const],
+    ])
+    const skillGenerationState: DownstreamRunState = {
+      key: 'skill-generation',
+      status: 'completed',
+      artifactType: 'skill_workorder_summary',
+      updatedAt: new Date(0).toISOString(),
+    }
+
+    const overrides = buildUiStageOverrides(rawOverrides, null, skillGenerationState, true)
+
+    expect(overrides.get(HiringCollectionStage.Skill)).toBe('running')
+  })
+
+  it('只有 skill_generation_done 才能完成主技能阶段', () => {
+    const rawOverrides = new Map([
+      [HiringCollectionStage.Material, 'completed' as const],
+      [HiringCollectionStage.Skill, 'running' as const],
+    ])
+    const skillGenerationState: DownstreamRunState = {
+      key: 'skill-generation',
+      status: 'completed',
+      artifactType: 'skill_generation_done',
+      updatedAt: new Date(0).toISOString(),
+    }
+
+    const overrides = buildUiStageOverrides(rawOverrides, null, skillGenerationState, false)
+
+    expect(overrides.get(HiringCollectionStage.Skill)).toBe('completed')
   })
 
   it('外部配置已提交或跳过时，外部阶段与前序阶段都标记完成', () => {
@@ -252,12 +335,467 @@ describe('normalizeArtifactDisplayData', () => {
       status: 'completed',
       artifactType: 'ontology_slice_extraction_done',
       updatedAt: new Date(0).toISOString(),
+      data: {
+        status: 'completed',
+        completed_slices: 1,
+        slice_paths: ['ontology/scheduling.slice.json'],
+      },
     }
 
     const overrides = buildUiStageOverrides(new Map(), ontologyExtractionState, null, false)
 
     expect(overrides.get(HiringCollectionStage.Material)).toBe('completed')
     expect(overrides.get(HiringCollectionStage.Skill)).toBe('running')
+  })
+
+  it('业务资料分析阻断后，资料阶段保持进行中且技能阶段不启动', () => {
+    const ontologyExtractionState: DownstreamRunState = {
+      key: 'ontology-slice-extraction',
+      status: 'completed',
+      artifactType: 'ontology_slice_extraction_done',
+      updatedAt: new Date(0).toISOString(),
+      data: {
+        status: 'blocked',
+        completed_slices: 0,
+        slice_paths: [],
+        diagnostic: 'insufficient_material',
+      },
+    }
+
+    const overrides = buildUiStageOverrides(new Map(), ontologyExtractionState, null, false)
+
+    expect(overrides.get(HiringCollectionStage.Material)).toBe('running')
+    expect(overrides.get(HiringCollectionStage.Skill)).toBeUndefined()
+  })
+})
+
+describe('material handoff confirmation data', () => {
+  const materialProgress = {
+    workspace_root: '/workspace/template-20260616101430',
+    template_slug: '化妆品排产员',
+    summary: '已收到并记录 1 份业务资料，等待确认是否继续',
+    total_items: 1,
+    items: [
+      {
+        title: '化妆品排产员历史排产与插单案例资料.md',
+        category: '历史排产与插单案例',
+        objective: '抽取排产关键约束、插单评审要素、换线/清洗规则、齐套与QA放行影响、复盘字段清单',
+        source_hint: '用户上传：化妆品排产员历史排产与插单案例资料.md',
+        source_path: '/app/memory/media-cache/media_7f889884f52144e3.md',
+        status: 'ready',
+      },
+    ],
+  }
+
+  it('空资料收口确认门继承最近一次有效资料进度', () => {
+    const normalized = normalizeMaterialHandoffReadyData({}, materialProgress)
+
+    expect(normalized).toMatchObject({
+      workspace_root: '/workspace/template-20260616101430',
+      template_slug: '化妆品排产员',
+      total_items: 1,
+      next_artifact: 'material_handoff_summary',
+      status: 'waiting_confirm',
+      items: [
+        {
+          title: '化妆品排产员历史排产与插单案例资料.md',
+          source_path: '/app/memory/media-cache/media_7f889884f52144e3.md',
+        },
+      ],
+    })
+  })
+
+  it('系统构造的资料确认门携带完整资料条目而不是只有提示文本', () => {
+    const artifact = buildMaterialHandoffReadyArtifact('业务资料先整理到这里，是否确认进入下一步？', materialProgress)
+
+    expect(artifact.data).toMatchObject({
+      workspace_root: '/workspace/template-20260616101430',
+      summary: '业务资料先整理到这里，是否确认进入下一步？',
+      items: [
+        {
+          source_path: '/app/memory/media-cache/media_7f889884f52144e3.md',
+        },
+      ],
+    })
+  })
+
+  it('确认提交提示包含完整 material_handoff_summary 数据源', () => {
+    const normalized = normalizeMaterialHandoffReadyData({}, materialProgress)
+    const prompt = buildMaterialHandoffConfirmationPrompt(normalized)
+
+    expect(prompt).toBeTruthy()
+    expect(prompt!).toContain('material_handoff_summary')
+    expect(prompt!).toContain('"workspace_root": "/workspace/template-20260616101430"')
+    expect(prompt!).toContain('"source_path": "/app/memory/media-cache/media_7f889884f52144e3.md"')
+    expect(prompt!).toContain('我已确认使用当前 1 份资料开始分析业务资料。')
+    expect(prompt!).not.toContain('会请你确认下一步的技能清单')
+    expect(prompt!).toContain('Do not preview or name future skill items')
+    expect(prompt!).not.toContain('"next_artifact"')
+    expect(prompt!).not.toContain('"context_signature"')
+  })
+
+  it('历史恢复时空 material_handoff_ready 不覆盖前一条资料进度', () => {
+    const state = buildHistoricalHiringConversationState([
+      {
+        type: 'assistant_message',
+        content: '',
+        createdAt: '2026-06-16T02:15:05.000Z',
+        toolCalls: [
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'material_handoff_summary',
+              label: '资料已收口',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: {
+                workspace_root: '/workspace/template-1',
+                template_slug: 'template',
+                total_items: 1,
+                items: [{ title: 'SOP', source_path: null }],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'ontology_slice_extraction_done',
+              label: '业务资料分析完成',
+              skillName: 'ontology-slice-extraction',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: {
+                status: 'completed',
+                completed_slices: 1,
+                slice_paths: ['ontology/scheduling.slice.json'],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'material_collection_progress',
+              label: '已收到 1 份业务资料，正在整理可用于提炼规则的要点',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage1_material',
+              isTerminal: false,
+              data: materialProgress,
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'material_handoff_ready',
+              label: 'material_handoff_ready',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage1_material',
+              isTerminal: false,
+              data: {},
+            }),
+            result: 'ok',
+          },
+        ],
+      },
+    ], (content) => content.trim())
+
+    expect(state.downstreamRuns['material-handoff']?.data).toMatchObject({
+      workspace_root: '/workspace/template-20260616101430',
+      total_items: 1,
+      items: [
+        {
+          source_path: '/app/memory/media-cache/media_7f889884f52144e3.md',
+        },
+      ],
+    })
+    expect(state.latestMaterialDraft).toMatchObject({
+      workspace_root: '/workspace/template-20260616101430',
+      total_items: 1,
+    })
+  })
+
+  it('历史恢复时 material_handoff_summary 关闭资料收口确认门', () => {
+    const state = buildHistoricalHiringConversationState([
+      {
+        type: 'assistant_message',
+        content: '',
+        createdAt: '2026-06-16T02:15:05.000Z',
+        toolCalls: [
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'material_collection_progress',
+              label: '已收到 1 份业务资料',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage1_material',
+              isTerminal: false,
+              data: materialProgress,
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'material_handoff_ready',
+              label: '业务资料先整理到这里，是否确认进入下一步？',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage1_material',
+              isTerminal: false,
+              data: {},
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'material_handoff_summary',
+              label: '已整理 1 份业务资料，准备分析业务资料',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: materialProgress,
+            }),
+            result: 'ok',
+          },
+        ],
+      },
+    ], (content) => content.trim())
+
+    expect(state.downstreamRuns['material-handoff']).toMatchObject({
+      key: 'material-handoff',
+      status: 'completed',
+      artifactType: 'material_handoff_summary',
+    })
+  })
+})
+
+describe('historical confirmation gate cleanup', () => {
+  it('技能定义已开始后不恢复进入技能定义按钮', () => {
+    const state = buildHistoricalHiringConversationState([
+      {
+        type: 'assistant_message',
+        content: '',
+        createdAt: '2026-06-16T02:20:00.000Z',
+        toolCalls: [
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'material_handoff_summary',
+              label: '资料已收口',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: {
+                workspace_root: '/workspace/template-1',
+                template_slug: 'template',
+                total_items: 1,
+                items: [{ title: 'SOP', source_path: null }],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'ontology_slice_extraction_done',
+              label: '业务资料分析完成',
+              skillName: 'ontology-slice-extraction',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: {
+                status: 'completed',
+                completed_slices: 1,
+                slice_paths: ['ontology/scheduling.slice.json'],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'skill_definition_entry_ready',
+              label: '是否进入技能定义？',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage2_skill',
+              isTerminal: false,
+              data: { status: 'waiting_confirm' },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'skill_workorder_progress',
+              label: '正在整理技能清单',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage2_skill',
+              isTerminal: false,
+              data: { total_items: 1 },
+            }),
+            result: 'ok',
+          },
+        ],
+      },
+    ], (content) => content.trim())
+
+    expect(state.downstreamRuns['skill-definition-entry']).toMatchObject({
+      key: 'skill-definition-entry',
+      status: 'completed',
+    })
+  })
+
+  it('外部配置已提交后不恢复进入外部系统按钮', () => {
+    const state = buildHistoricalHiringConversationState([
+      {
+        type: 'assistant_message',
+        content: '',
+        createdAt: '2026-06-16T02:25:00.000Z',
+        toolCalls: [
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'material_handoff_summary',
+              label: '资料已收口',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: {
+                workspace_root: '/workspace/template-1',
+                template_slug: 'template',
+                total_items: 1,
+                items: [{ title: 'SOP', source_path: null }],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'ontology_slice_extraction_done',
+              label: '业务资料分析完成',
+              skillName: 'ontology-slice-extraction',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: {
+                status: 'completed',
+                completed_slices: 1,
+                slice_paths: ['ontology/scheduling.slice.json'],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'skill_workorder_summary',
+              label: '技能清单已确认',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage2_skill',
+              isTerminal: true,
+              data: {
+                workspace_root: '/workspace/template-1',
+                template_slug: 'template',
+                total_items: 1,
+                items: [
+                  {
+                    name: 'insert-order-feasibility',
+                    skill_slug: 'insert-order-feasibility',
+                    display_name: '插单可行性评估',
+                    description: '评估插单可行性',
+                    trigger: '用户提交插单需求',
+                    expected_output: '输出可行性结论',
+                    generation_action: 'generate_new',
+                  },
+                ],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'ontology_projection_done',
+              label: '技能数据已匹配完成',
+              skillName: 'ontology-projection',
+              stage: 'stage2_skill',
+              isTerminal: true,
+              data: {
+                projected_count: 1,
+                projection_paths: [
+                  'ontology/projections/insert-order-feasibility/projection.json',
+                ],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'skill_generation_done',
+              label: '技能实现已生成',
+              skillName: 'skill-generation',
+              stage: 'stage2_skill',
+              isTerminal: true,
+              data: {
+                generated_count: 1,
+                skill_slugs: ['insert-order-feasibility'],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'external_system_entry_ready',
+              label: '是否进入外部系统配置？',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage3_external',
+              isTerminal: false,
+              data: { status: 'waiting_confirm' },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'external_config_committed',
+              label: '外部配置已保存',
+              skillName: 'external-config',
+              stage: 'stage3_external',
+              isTerminal: true,
+              data: { submissionMode: 'skipped' },
+            }),
+            result: 'ok',
+          },
+        ],
+      },
+    ], (content) => content.trim())
+
+    expect(state.downstreamRuns['external-system-entry']).toMatchObject({
+      key: 'external-system-entry',
+      status: 'completed',
+    })
   })
 })
 
@@ -290,6 +828,11 @@ describe('shouldSuppressStageGate', () => {
         status: 'completed',
         artifactType: 'ontology_slice_extraction_done',
         updatedAt: new Date(0).toISOString(),
+        data: {
+          status: 'completed',
+          completed_slices: 1,
+          slice_paths: ['ontology/scheduling.slice.json'],
+        },
       },
     })).toBe(false)
   })
@@ -383,6 +926,11 @@ describe('queueOntologySliceExtractionRun', () => {
       status: 'completed',
       artifactType: 'ontology_slice_extraction_done',
       updatedAt: new Date(0).toISOString(),
+      data: {
+        status: 'completed',
+        completed_slices: 1,
+        slice_paths: ['ontology/scheduling.slice.json'],
+      },
     }
 
     const result = queueOntologySliceExtractionRun({
@@ -658,6 +1206,121 @@ describe('buildHistoricalHiringConversationState', () => {
     expect(state.downstreamRuns['skill-generation']).toBeUndefined()
   })
 
+  it('刷新恢复时 skill_generation_done 带 status 仍完成技能阶段', () => {
+    const state = buildHistoricalHiringConversationState([
+      {
+        type: 'assistant_message',
+        content: '',
+        createdAt: '2026-06-10T07:32:51.000Z',
+        toolCalls: [
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'material_handoff_summary',
+              label: '资料已收口',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: {
+                workspace_root: '/workspace/template-1',
+                template_slug: 'template-1',
+                items: [{ title: 'SOP', source_path: null }],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'ontology_slice_extraction_done',
+              label: '业务资料分析完成',
+              skillName: 'ontology-slice-extraction',
+              stage: 'stage1_material',
+              isTerminal: true,
+              data: {
+                status: 'completed',
+                completed_slices: 1,
+                slice_paths: ['ontology/scheduling.slice.json'],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'skill_workorder_summary',
+              label: '技能定义已确认',
+              skillName: 'employment-coach-conversation',
+              stage: 'stage2_skill',
+              isTerminal: true,
+              data: {
+                workspace_root: '/workspace/template-1',
+                template_slug: 'template-1',
+                items: [
+                  {
+                    name: 'insert-order-feasibility',
+                    display_name: '插单可行性评估',
+                    description: '判断插单请求是否满足产能和物料约束',
+                    trigger: '用户提交插单请求',
+                    expected_output: '输出可行性结论和风险说明',
+                    generation_action: 'generate_new',
+                  },
+                ],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'ontology_projection_done',
+              label: '匹配技能数据结果',
+              skillName: 'ontology-projection',
+              stage: 'stage2_skill',
+              isTerminal: true,
+              data: {
+                projected_count: 1,
+                projection_paths: [
+                  'ontology/projections/insert-order-feasibility/scheduling.workflow-contract.projection.json',
+                ],
+              },
+            }),
+            result: 'ok',
+          },
+          {
+            toolName: 'streaming.emit_artifact',
+            arguments: JSON.stringify({
+              kind: 'data',
+              artifactType: 'skill_generation_done',
+              label: '技能实现已生成',
+              skillName: 'skill-generation',
+              stage: 'stage2_skill',
+              isTerminal: true,
+              data: {
+                status: 'done',
+                total_skills: 1,
+                generated_count: 1,
+                reused_count: 0,
+                skill_slugs: ['insert-order-feasibility'],
+              },
+            }),
+            result: 'ok',
+          },
+        ],
+      },
+    ], (content) => content.trim())
+
+    expect(state.downstreamRuns['skill-generation']).toMatchObject({
+      status: 'completed',
+      artifactType: 'skill_generation_done',
+    })
+    expect(state.wsStageOverrides.get(HiringCollectionStage.Skill)).toBe('completed')
+  })
+
   it('刷新恢复时保留三个技能阶段确认门的等待状态', () => {
     const state = buildHistoricalHiringConversationState([
       {
@@ -692,6 +1355,7 @@ describe('buildHistoricalHiringConversationState', () => {
               stage: 'stage1_material',
               isTerminal: true,
               data: {
+                status: 'completed',
                 total_sources: 1,
                 completed_slices: 1,
                 slice_paths: ['ontology/scheduling.slice.json'],
@@ -908,7 +1572,11 @@ describe('buildHistoricalHiringConversationState', () => {
               skillName: 'ontology-slice-extraction',
               stage: 'stage1_material',
               isTerminal: true,
-              data: { completed_slices: 1 },
+              data: {
+                status: 'completed',
+                completed_slices: 1,
+                slice_paths: ['ontology/scheduling.slice.json'],
+              },
             }),
             result: 'ok',
           },

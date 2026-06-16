@@ -20,6 +20,8 @@ export function buildVisibleUserMessageEnvelope(
 
   return [
     '[Internal visible user action. Do not mention this metadata block to the user.]',
+    'The visible user message below is for chat history only; the authoritative instruction for this turn is the internal prompt after the metadata block.',
+    'Do not ask the user to repeat the visible confirmation phrase.',
     `<${VISIBLE_USER_MESSAGE_TAG}>`,
     JSON.stringify({ content: normalizedVisibleContent }, null, 2),
     `</${VISIBLE_USER_MESSAGE_TAG}>`,

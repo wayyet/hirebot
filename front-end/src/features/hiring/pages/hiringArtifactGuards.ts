@@ -118,12 +118,20 @@ const REVIEW_REPORT_STATUSES = new Set([
   'FAIL',
 ])
 
+const ONTOLOGY_SLICE_EXTRACTION_DONE_STATUSES = new Set([
+  'completed',
+  'blocked',
+])
+
 const DATA_STATUS_ALLOWED_ARTIFACT_TYPES = new Set([
   'material_handoff_ready',
+  'ontology_slice_extraction_done',
   'skill_definition_entry_ready',
   'skill_definition_ready',
   'ontology_projection_ready',
   'skill_generation_ready',
+  'skill_generation_progress',
+  'skill_generation_done',
   'external_system_entry_ready',
   'packaging_progress',
   'packaging_testcases_ready',
@@ -279,7 +287,17 @@ export function normalizeIncomingArtifactTerminal(artifactType: string, isTermin
   return isTerminal
 }
 
+const HIDDEN_CONVERSATION_ARTIFACT_TYPES = new Set([
+  'skill_workorder_progress',
+  'skill_definition_ready',
+  'skill_workorder_summary',
+])
+
 export function shouldDisplayArtifactInConversation(artifactType: string, isTerminal?: boolean): boolean {
+  if (HIDDEN_CONVERSATION_ARTIFACT_TYPES.has(artifactType)) {
+    return false
+  }
+
   if (artifactType === 'packaging_progress' && isTerminal !== true) {
     return false
   }
@@ -354,6 +372,19 @@ export function getBlockedIncomingArtifactReason(
     }
     if (!Array.isArray(data?.p1_warnings)) {
       return 'review_report.p1_warnings must be an array'
+    }
+  }
+
+  if (artifactType === 'ontology_slice_extraction_done') {
+    const status = typeof data?.status === 'string' ? data.status : ''
+    if (!ONTOLOGY_SLICE_EXTRACTION_DONE_STATUSES.has(status)) {
+      return 'ontology_slice_extraction_done.status must be completed or blocked'
+    }
+    if (status === 'blocked') {
+      const diagnostic = typeof data?.diagnostic === 'string' ? data.diagnostic.trim() : ''
+      if (!diagnostic) {
+        return 'ontology_slice_extraction_done.diagnostic is required when blocked'
+      }
     }
   }
 

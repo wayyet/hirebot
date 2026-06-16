@@ -147,7 +147,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 
 ### 完成节点（isTerminal: true）
 
-所有 ontology slice 产出并校验通过后调用：
+所有 ontology slice 产出并校验通过后调用，`data.status` 固定为 `"completed"`：
 
 ```json
 {
@@ -159,6 +159,7 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
   "isTerminal": true,
   "displayHint": "tree",
   "data": {
+    "status": "completed",
     "total_sources": 2,
     "completed_slices": 2,
     "slice_paths": ["ontology/return-policy.slice.json", "ontology/dialogue-style.slice.json"],
@@ -167,15 +168,47 @@ Markdown 可先用 `templates/TEMPLATE.md` 草拟，但交付前必须同步落�
 }
 ```
 
+若资料不足、来源不可读、扫描异常或其他原因导致无法产出合格 slice，也必须发出同一个 terminal artifact，`data.status` 固定为 `"blocked"`，并用诊断字段说明原因：
+
+```json
+{
+  "kind": "data",
+  "artifactType": "ontology_slice_extraction_done",
+  "label": "业务资料分析受阻，需要补充或修正资料后再继续",
+  "skillName": "ontology-slice-extraction",
+  "stage": "stage1_material",
+  "isTerminal": true,
+  "displayHint": "tree",
+  "data": {
+    "status": "blocked",
+    "total_sources": 1,
+    "completed_slices": 0,
+    "slice_paths": [],
+    "validation": "FAIL",
+    "diagnostic": "insufficient_material",
+    "diagnostic_detail": "当前资料只包含文件名或高层描述，缺少可抽取的规则、案例、流程或约束正文。",
+    "next_step": "补充资料后重新分析业务资料"
+  }
+}
+```
+
 ### 落盘验证（发出 ontology_slice_extraction_done 的前置条件）
 
-**在发出 `ontology_slice_extraction_done` 之前，必须确认以下条件全部满足**：
+**在发出 `status: "completed"` 的 `ontology_slice_extraction_done` 之前，必须确认以下条件全部满足**：
 
 1. `<workspace_root>/ontology/` 目录下至少存在一个 `*.slice.json` 文件（真实写入文件系统，不是只在对话中描述）
 2. `slice_paths` 中列出的每个路径对应的文件确实存在
 3. 每个 `.slice.json` 文件同时有对应的 `.slice.md` 文件
 
-**若资料不足以产出任何合格 slice**：不发 `ontology_slice_extraction_done`，改为在对话中向用户说明缺口，并建议补充资料。
+**若资料不足以产出任何合格 slice**：仍必须发出 `ontology_slice_extraction_done`，但 `data.status` 必须为 `"blocked"`，`completed_slices` 为 `0`，`slice_paths` 为空数组，并填写 `diagnostic`。此时不得声称业务资料分析完成，不得提示进入技能定义；只用业务语言说明需要补充或修正的资料。
+
+`diagnostic` 只能取下列枚举值之一：
+
+| 值 | 场景 |
+| --- | --- |
+| `"insufficient_material"` | 资料可读，但缺少能支撑 slice 的规则、案例、流程、约束或字段 |
+| `"source_unreadable"` | 上传条目缺少可读正文、路径不可读、文件为空或格式不可解析 |
+| `"scan_error"` | 扫描、解析、写入或校验过程发生异常 |
 
 **⛔ 严禁**：仅在对话中描述切片内容而不实际写入 `*.slice.json` + `*.slice.md` 文件就发出 done artifact — 这会导致下游 projection pass 和 skill-generation 无法读取到本体产物。
 

@@ -5,7 +5,7 @@ import {
   ExternalConfigCommittedView,
   ExternalWorkorderSummaryView,
 } from './artifacts/ExternalArtifactView'
-import { MaterialHandoffView } from './artifacts/MaterialArtifactView'
+import { MaterialHandoffReadyView, MaterialHandoffView } from './artifacts/MaterialArtifactView'
 import { OntologyExtractionView } from './artifacts/OntologyArtifactView'
 import {
   PackageReviewStatusView,
@@ -156,6 +156,9 @@ function toArtifactSubtitleLabel(value: string | undefined): string | undefined 
 
 function ArtifactDataView({ artifact }: { artifact: ArtifactDisplayData }) {
   // 类型优先：特定 artifactType 使用内置专用视图
+  if (artifact.artifactType === 'material_handoff_ready') {
+    return <MaterialHandoffReadyView data={artifact.data} />
+  }
   if (artifact.artifactType === 'material_collection_progress' || artifact.artifactType === 'material_handoff_summary') {
     return <MaterialHandoffView data={artifact.data} />
   }
@@ -240,7 +243,11 @@ function ArtifactIcon({ artifact }: { artifact: ArtifactDisplayData }) {
     artifact.artifactType === 'review_progress' ||
     artifact.artifactType === 'review_report'
   ) return <span className="hb-artifact-icon">🔎</span>
-    if (artifact.artifactType === 'material_collection_progress' || artifact.artifactType === 'material_handoff_summary') return <span className="hb-artifact-icon">📋</span>
+  if (
+    artifact.artifactType === 'material_collection_progress' ||
+    artifact.artifactType === 'material_handoff_ready' ||
+    artifact.artifactType === 'material_handoff_summary'
+  ) return <span className="hb-artifact-icon">📋</span>
   if (artifact.artifactType === 'ontology_slice_extraction_done' || artifact.artifactType === 'ontology_slice_extraction_progress' || artifact.artifactType === 'ontology_projection_done' || artifact.artifactType === 'ontology_projection_progress') return <span className="hb-artifact-icon">🌿</span>
   if (artifact.artifactType === 'external_workorder_progress' || artifact.artifactType === 'external_workorder_summary' || artifact.artifactType === 'external_config_committed') return <span className="hb-artifact-icon">🔌</span>
   if (artifact.artifactType === 'packaging_progress') return <span className="hb-artifact-icon">📦</span>

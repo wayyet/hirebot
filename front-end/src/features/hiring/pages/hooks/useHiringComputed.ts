@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+﻿import { useMemo } from 'react'
 import {
   HiringCollectionPhase,
   HiringCollectionStage,
@@ -206,7 +206,7 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const artifact = messages[i].artifact
     if (!artifact) continue
-    if (artifact.artifactType !== 'skill_workorder_summary' && artifact.artifactType !== 'skill_workorder_progress') {
+    if (artifact.artifactType !== 'skill_workorder_summary' && artifact.artifactType !== 'skill_workorder_progress' && artifact.artifactType !== 'skill_definition_ready') {
       continue
     }
     const payload = asPlainObject(artifact.data)
@@ -230,9 +230,13 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
               ? record.display_name.trim()
               : typeof record.displayName === 'string'
                 ? record.displayName.trim()
-                : typeof record.name === 'string'
-                  ? record.name.trim()
-                  : ''
+                : typeof record.title === 'string'
+                  ? record.title.trim()
+                  : typeof record.skill_id === 'string'
+                    ? record.skill_id.trim()
+                    : typeof record.name === 'string'
+                      ? record.name.trim()
+                      : ''
         if (!skillName) return null
 
         const capabilities = asStringArray(record.capabilities)
@@ -241,9 +245,11 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
           : ''
         const description = typeof record.description === 'string' && record.description.trim().length > 0
           ? record.description.trim()
-          : typeof record.capability_description === 'string' && record.capability_description.trim().length > 0
-            ? record.capability_description.trim()
-            : (capabilityText || capabilities[0] || '')
+          : typeof record.purpose === 'string' && record.purpose.trim().length > 0
+            ? record.purpose.trim()
+            : typeof record.capability_description === 'string' && record.capability_description.trim().length > 0
+              ? record.capability_description.trim()
+              : (capabilityText || capabilities[0] || '')
 
         const skill: DefinedSkillItem = {
           skillName,

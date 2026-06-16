@@ -5,7 +5,7 @@
  */
 
 import { CodeView } from './BaseArtifactViews'
-import { asRecord, getRecordArray } from './utils/artifactHelpers'
+import { asRecord, firstString, getRecordArray } from './utils/artifactHelpers'
 
 interface MaterialArtifactViewProps {
   data: unknown
@@ -71,6 +71,56 @@ export function MaterialHandoffView({ data }: MaterialArtifactViewProps) {
               </div>
             )
           })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function MaterialHandoffReadyView({ data }: MaterialArtifactViewProps) {
+  const rec = asRecord(data)
+  const summary = firstString(
+    rec?.summary,
+    rec?.message,
+    '资料已整理完成，等待确认是否开始分析业务资料。',
+  )
+  const nextStep = firstString(rec?.next_step, rec?.nextStep)
+  const totalItems = typeof rec?.total_items === 'number'
+    ? rec.total_items
+    : typeof rec?.totalItems === 'number'
+      ? rec.totalItems
+      : null
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{
+          fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 700,
+          background: 'rgba(245,158,11,0.10)',
+          color: 'var(--hb-text-amber, #b45309)',
+          border: '1px solid rgba(245,158,11,0.30)',
+        }}>
+          等待确认
+        </span>
+        {totalItems !== null && (
+          <span style={{
+            fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600,
+            background: 'rgba(37,99,235,0.08)',
+            color: 'var(--hb-text-blue, #1d4ed8)',
+            border: '1px solid rgba(37,99,235,0.20)',
+          }}>
+            资料 {totalItems} 项
+          </span>
+        )}
+      </div>
+      {summary && (
+        <div style={{ fontSize: 12, color: 'var(--hb-text, #374151)', lineHeight: 1.65 }}>
+          {summary}
+        </div>
+      )}
+      {nextStep && (
+        <div style={{ fontSize: 11, color: 'var(--hb-text-muted, #6b7280)', lineHeight: 1.55 }}>
+          下一步：{nextStep}
         </div>
       )}
     </div>
