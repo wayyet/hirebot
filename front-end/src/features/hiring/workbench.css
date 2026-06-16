@@ -190,14 +190,6 @@
   height: 280px;
   z-index: -1;
   pointer-events: none;
-  background:
-    radial-gradient(circle at 12% 26%, var(--hb-market-wash-left) 0%, transparent 36%),
-    radial-gradient(circle at 88% 18%, var(--hb-market-wash-right) 0%, transparent 32%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--hb-accent-soft-bg) 32%, var(--hb-bg-body)) 0%,
-      transparent 100%
-    );
   filter: blur(24px);
   opacity: 0.92;
 }

@@ -482,16 +482,6 @@
 }
 
 body.hb-body-hiring-prototype {
-  background:
-    radial-gradient(ellipse 72% 46% at 16% 58%, color-mix(in srgb, var(--hb-market-wash-left) 92%, white) 0%, transparent 72%),
-    radial-gradient(ellipse 60% 42% at 88% 24%, color-mix(in srgb, var(--hb-market-wash-right) 88%, white) 0%, transparent 68%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--hb-accent-soft-bg) 40%, white) 0%,
-      color-mix(in srgb, var(--hb-accent-soft-bg) 18%, var(--hb-bg-body)) 32%,
-      var(--hb-bg-body) 68%,
-      color-mix(in srgb, var(--hb-accent-soft-bg) 16%, var(--hb-bg-body)) 100%
-    );
   background-attachment: fixed;
 }
 
@@ -1075,11 +1065,6 @@ body.hb-body-hiring-prototype {
   padding: 8px 12px 6px;
   border: 1px solid var(--hb-border);
   border-radius: 16px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--hb-surface-card) 96%, transparent),
-    color-mix(in srgb, var(--hb-surface-soft) 92%, var(--hb-accent-soft-bg) 8%)
-  );
   box-shadow: var(--hb-card-shadow);
 }
 
