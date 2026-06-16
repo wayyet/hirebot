@@ -552,6 +552,60 @@ export default function HiringPage() {
     return null
   }
 
+  function hasTerminalOntologySliceExtractionResult(): boolean {
+    if (ontologyExtractionDoneSignatureRef.current) {
+      return true
+    }
+
+    const currentRun = downstreamRunsRef.current['ontology-slice-extraction']
+    if (currentRun?.status !== 'completed') {
+      return false
+    }
+
+    return isCompletedOntologySliceExtractionResult(currentRun.data)
+      || isBlockedOntologySliceExtractionResult(currentRun.data)
+  }
+
+  function queueMissingOntologySliceExtractionRun(options: { retryRestoredRunningRun?: boolean } = {}): boolean {
+    const materialSummary = latestMaterialSummaryRef.current
+    if (materialSummary === null || hasTerminalOntologySliceExtractionResult()) {
+      return false
+    }
+
+    const signature = JSON.stringify(materialSummary)
+    if (materialSummarySignatureRef.current === signature) {
+      return false
+    }
+
+    if (pendingInternalPromptsRef.current.some(prompt => prompt.includes('trigger_reason: material_handoff_summary_completed'))) {
+      return false
+    }
+
+    const currentRun = downstreamRunsRef.current['ontology-slice-extraction']
+    const runsForQueue = options.retryRestoredRunningRun && currentRun?.status === 'running'
+      ? { ...downstreamRunsRef.current, 'ontology-slice-extraction': undefined }
+      : downstreamRunsRef.current
+    const launch = queueOntologySliceExtractionRun(
+      runsForQueue,
+      materialSummary,
+      new Date().toISOString(),
+    )
+    materialSummarySignatureRef.current = launch.signature
+    if (!launch.queued) {
+      return false
+    }
+
+    downstreamRunsRef.current = launch.nextRuns
+    setDownstreamRuns(launch.nextRuns)
+    pendingInternalPromptsRef.current.push(
+      buildDownstreamPrompt('ontology-slice-extraction', materialSummary),
+    )
+    if (!typingRef.current && !messageSubmitRef.current) {
+      scheduleInternalPromptFlush()
+    }
+    return true
+  }
+
   function syncArtifactStateFromMessages(
     sourceMessages: ChatMessage[],
     requestedCategories = extractLatestMaterialRequestedCategories(sourceMessages),
@@ -578,7 +632,9 @@ export default function HiringPage() {
     latestSkillGenerationDoneRef.current = extractLatestMessageArtifactData(sourceMessages, 'skill_generation_done')
     latestExternalSummaryRef.current = extractLatestMessageArtifactData(sourceMessages, 'external_workorder_summary')
     latestReviewReportRef.current = extractLatestMessageArtifactData(sourceMessages, 'review_report')
-    materialSummarySignatureRef.current = latestMaterialSummaryRef.current ? JSON.stringify(latestMaterialSummaryRef.current) : ''
+    // 该签名表示“本页生命周期内已经真实提交过下游分析触发”，不能仅因历史里有资料收口就标记。
+    // 否则刷新/重连后会跳过 R1，导致一直停在“分析业务资料”。
+    materialSummarySignatureRef.current = ''
     skillSummarySignatureRef.current = latestSkillSummaryRef.current ? JSON.stringify(latestSkillSummaryRef.current) : ''
     externalSummarySignatureRef.current = latestExternalSummaryRef.current ? JSON.stringify(latestExternalSummaryRef.current) : ''
     externalConfigCommittedSignatureRef.current = sourceMessages
@@ -728,6 +784,7 @@ export default function HiringPage() {
       const nextDownstreamRuns = { ...downstreamRunsRef.current, ...restored.downstreamRuns }
       downstreamRunsRef.current = nextDownstreamRuns
       setDownstreamRuns(nextDownstreamRuns)
+      queueMissingOntologySliceExtractionRun({ retryRestoredRunningRun: true })
       return true
     }
 
@@ -740,6 +797,7 @@ export default function HiringPage() {
     setWsStageOverrides(restored.wsStageOverrides)
     downstreamRunsRef.current = restored.downstreamRuns
     setDownstreamRuns(restored.downstreamRuns)
+    queueMissingOntologySliceExtractionRun({ retryRestoredRunningRun: true })
     return true
   }
 
@@ -1502,22 +1560,7 @@ export default function HiringPage() {
             const materialSummary = artifactData.data ?? null
             latestMaterialSummaryRef.current = materialSummary
             latestMaterialDraftRef.current = materialSummary ?? latestMaterialDraftRef.current
-            const signature = JSON.stringify(materialSummary ?? {})
-            if (materialSummarySignatureRef.current !== signature) {
-              const launch = queueOntologySliceExtractionRun(
-                downstreamRunsRef.current,
-                materialSummary,
-                new Date().toISOString(),
-              )
-              materialSummarySignatureRef.current = launch.signature
-              if (launch.queued) {
-                downstreamRunsRef.current = launch.nextRuns
-                setDownstreamRuns(launch.nextRuns)
-                pendingInternalPromptsRef.current.push(
-                  buildDownstreamPrompt('ontology-slice-extraction', materialSummary ?? {}),
-                )
-              }
-            }
+            queueMissingOntologySliceExtractionRun()
           }
           if (artifactType === 'ontology_slice_extraction_done' && kind === 'data' && isTerminal) {
             const signature = JSON.stringify(artifactData.data ?? {})

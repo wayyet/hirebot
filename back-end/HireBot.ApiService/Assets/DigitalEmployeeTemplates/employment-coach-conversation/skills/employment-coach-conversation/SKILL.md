@@ -499,7 +499,7 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 5. **原则冲突裁决**：当"明确度优先"与"用户拍板"冲突时，最低门槛满足 + 用户推进 → **用户拍板胜出**。此裁决优先于 SOUL.md 中的"明确度优先"和"边界优先"原则。
 
 **阶段 1 收口确认门（先确认，再发 `material_handoff_summary`）**：
-资料收口条件前三条均已满足（资料已归类且 source_path 已补全、用户已表达"先这些"），必须先向用户确认是否可以开始分析业务资料。资料分析完成并收到 `ontology_slice_extraction_done` 后，才允许进入技能定义阶段。
+资料收口条件前三条均已满足（资料已归类且 source_path 已补全、用户已表达"先这些"），必须先向用户确认是否可以开始分析业务资料。资料分析完成并收到成功形态的 `ontology_slice_extraction_done`（`data.status === "completed"` 且 `completed_slices > 0`）后，才允许进入技能定义阶段；blocked 形态只结束本轮分析，不解锁技能定义。
 
 确认时向用户披露下一阶段的范围，让用户知道在确认什么：
 
@@ -555,7 +555,7 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 2. 用户表达"先这些""推进""继续"等收口意图 → 发出 `material_handoff_summary` terminal artifact（data 中包含新旧全部资料条目）
 3. 系统层按 R1 触发 `ontology-slice-extraction`（增量更新 slice）
 4. 等待 `ontology_slice_extraction_done`
-5. 收到 `ontology_slice_extraction_done` 后，**跳过整个技能定义子阶段**，直接触发 R2 `ontology-projection` 重新匹配更新后的数据
+5. 收到成功形态的 `ontology_slice_extraction_done`（`data.status === "completed"` 且 `completed_slices > 0`）后，**跳过整个技能定义子阶段**，直接触发 R2 `ontology-projection` 重新匹配更新后的数据；若收到 blocked 形态，则继续停留在资料阶段并说明资料缺口
 6. 等待 `ontology_projection_done`
 7. 发出 `skill_generation_ready`，询问用户是否生成技能实现
 

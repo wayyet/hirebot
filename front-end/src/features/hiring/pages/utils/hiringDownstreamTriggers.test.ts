@@ -662,6 +662,7 @@ describe('buildDownstreamPrompt', () => {
     expect(prompt).toContain('required_artifacts:')
     expect(prompt).toContain('ontology_slice_extraction_progress')
     expect(prompt).toContain('ontology_slice_extraction_done')
+    expect(prompt).toContain('Keep executing this downstream task in this turn until the required files are written')
   })
 
   it('ontology-projection prompt 包含 use skill ontology-projection 触发块', () => {

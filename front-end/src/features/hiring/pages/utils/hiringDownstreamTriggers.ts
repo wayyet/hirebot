@@ -347,6 +347,7 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
       '',
       'Use the terminal `material_handoff_summary` artifact payload below as the upstream summary for this run.',
       'Follow `ontology-slice-extraction/SKILL.md` exactly.',
+      'Keep executing this downstream task in this turn until the required files are written and `ontology_slice_extraction_done` is emitted; do not stop after a status check or a waiting/progress-only reply.',
       'Emit `ontology_slice_extraction_progress` with stage=`stage1_material` before processing any source.',
       'Read uploaded materials only from each item\'s `source_path` when available.',
       'Write outputs under the provided `workspace_root` and finish with `ontology_slice_extraction_done` using stage=`stage1_material`.',

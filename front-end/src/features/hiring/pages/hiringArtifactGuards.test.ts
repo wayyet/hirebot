@@ -113,6 +113,32 @@ describe('getBlockedIncomingArtifactReason', () => {
       hasSkillSummary: true,
       hasProjectionResult: true,
       canUseProjectionForSkillGeneration: true,
+    }, {
+      isTerminal: false,
+      kind: 'data',
+      data: {
+        status: 'running',
+        total_skills: 2,
+        generated_count: 0,
+      },
+    })).toBeNull()
+  })
+
+  it('允许技能生成完成事件携带协议 status', () => {
+    expect(getBlockedIncomingArtifactReason('skill_generation_done', {
+      ...emptyState,
+      hasSkillSummary: true,
+      hasProjectionResult: true,
+      canUseProjectionForSkillGeneration: true,
+    }, {
+      isTerminal: true,
+      kind: 'data',
+      data: {
+        status: 'done',
+        total_skills: 2,
+        generated_count: 2,
+        skill_slugs: ['order-risk-check', 'delivery-plan-review'],
+      },
     })).toBeNull()
   })
 
@@ -575,7 +601,7 @@ describe('getBlockedIncomingArtifactReason', () => {
     })).toBeNull()
   })
 
-  it('blocks ontology_slice_extraction_done with top-level status', () => {
+  it('blocks ontology_slice_extraction_done with invalid data status', () => {
     expect(getBlockedIncomingArtifactReason('ontology_slice_extraction_done', {
       ...emptyState,
       hasMaterialSummary: true,
@@ -589,7 +615,40 @@ describe('getBlockedIncomingArtifactReason', () => {
         validation: 'PASS',
         status: 'done',
       },
-    })).toBe('data.status is only allowed for packaging and review artifacts')
+    })).toBe('ontology_slice_extraction_done.status must be completed or blocked')
+  })
+
+  it('allows blocked ontology_slice_extraction_done with diagnostic', () => {
+    expect(getBlockedIncomingArtifactReason('ontology_slice_extraction_done', {
+      ...emptyState,
+      hasMaterialSummary: true,
+    }, {
+      isTerminal: true,
+      kind: 'data',
+      data: {
+        status: 'blocked',
+        total_sources: 1,
+        completed_slices: 0,
+        slice_paths: [],
+        diagnostic: 'insufficient_material',
+      },
+    })).toBeNull()
+  })
+
+  it('blocks blocked ontology_slice_extraction_done without diagnostic', () => {
+    expect(getBlockedIncomingArtifactReason('ontology_slice_extraction_done', {
+      ...emptyState,
+      hasMaterialSummary: true,
+    }, {
+      isTerminal: true,
+      kind: 'data',
+      data: {
+        status: 'blocked',
+        total_sources: 1,
+        completed_slices: 0,
+        slice_paths: [],
+      },
+    })).toBe('ontology_slice_extraction_done.diagnostic is required when blocked')
   })
 })
 

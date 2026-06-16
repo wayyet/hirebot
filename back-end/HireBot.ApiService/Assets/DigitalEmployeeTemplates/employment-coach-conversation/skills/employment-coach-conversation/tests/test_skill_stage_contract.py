@@ -83,6 +83,10 @@ class SkillStageContractTests(unittest.TestCase):
             ["material_handoff_summary", "ontology_slice_extraction_done"],
         )
         self.assertEqual(stage2["gate"]["requiresArtifact"], "ontology_slice_extraction_done")
+        self.assertEqual(
+            stage2["gate"]["requiresData"],
+            {"status": "completed", "completed_slices_gt": 0},
+        )
         self.assertIn("ontology-slice-extraction", stage2["gate"]["requiresDownstream"])
 
     def test_confirmation_gates_are_artifact_backed_and_idempotent(self) -> None:
@@ -153,6 +157,22 @@ class SkillStageContractTests(unittest.TestCase):
         self.assertIn("分析完成后，再进入技能定义阶段", material_gate)
         self.assertNotIn("下一步进入**技能定义阶段**", material_gate)
 
+    def test_blocked_ontology_slice_done_does_not_enter_skill_definition(self) -> None:
+        skill = read_text(SKILL_ROOT / "SKILL.md")
+        stage_schema = read_text(SKILL_ROOT / "references" / "stage-data-schema.md")
+        handoff_registry = read_text(SKILL_ROOT / "references" / "downstream-handoff-registry.md")
+        combined = "\n".join([skill, stage_schema, handoff_registry])
+
+        for phrase in [
+            'data.status === "completed"',
+            "completed_slices > 0",
+            'data.status === "blocked"',
+            "不得发出 `skill_definition_entry_ready`",
+            "只结束本轮 R1，不完成资料阶段",
+            "停留在资料阶段",
+        ]:
+            self.assertIn(phrase, combined)
+
     def test_review_report_completion_does_not_create_text_confirmation_gate(self) -> None:
         skill = read_text(SKILL_ROOT / "SKILL.md")
         handoff_registry = read_text(SKILL_ROOT / "references" / "downstream-handoff-registry.md")
@@ -199,10 +219,10 @@ class SkillStageContractTests(unittest.TestCase):
             "禁止出现\"对话已经进入技能阶段，但右侧 UI 仍停留在资料阶段\"的状态分叉",
             "资料阶段整体完成条件",
             "系统层已按 R1 立即触发 `ontology-slice-extraction`",
-            "收到 `ontology_slice_extraction_done` 后，按 [references/downstream-handoff-registry.md](references/downstream-handoff-registry.md) **S1** 条目",
+            "收到成功形态的 `ontology_slice_extraction_done`",
             "任何具体技能建议或技能反问，必须排在 `ontology_slice_extraction_done` 之后",
-            "R1 属于资料阶段，S1 只能在 R1 的 `ontology_slice_extraction_done` 到达后执行",
-            "披露的技能与参考文件（LLM 必须在 `ontology_slice_extraction_done` 后读取）",
+            "R1 属于资料阶段，S1 只能在 R1 的成功形态 `ontology_slice_extraction_done`",
+            "披露的技能与参考文件（LLM 必须在成功形态 `ontology_slice_extraction_done` 后读取）",
         ]
         for phrase in required_phrases:
             self.assertIn(phrase, "\n".join([skill, handoff_registry]))
@@ -233,8 +253,9 @@ class SkillStageContractTests(unittest.TestCase):
         combined = "\n".join([flow_constraints, stage_schema, emit_protocol])
         for phrase in [
             "资料收集开始前，是否已调用 `load_skill` 加载 `ontology-slice-extraction`",
-            "资料阶段整体完成还需要收到 `ontology_slice_extraction_done`",
-            "在 `ontology_slice_extraction_done` 到达前，不得发 `skill_workorder_progress`",
+            "资料阶段整体完成还需要收到成功形态的 `ontology_slice_extraction_done`",
+            "在成功形态的 `ontology_slice_extraction_done` 到达前，不得发 `skill_workorder_progress`",
+            "若收到 `data.status === \"blocked\"` 的 `ontology_slice_extraction_done`",
         ]:
             self.assertIn(phrase, combined)
 
@@ -349,9 +370,10 @@ class SkillStageContractTests(unittest.TestCase):
         ])
         required_phrases = [
             "资料收集开始前必须先通过 `load_skill` 加载该 skill",
-            "等待 `ontology_slice_extraction_done`，随后才允许进入技能定义",
-            "资料收口后先驱动 ontology-slice-extraction，并等待 ontology_slice_extraction_done 后才进入技能定义",
-            "完成资料收口，随后触发 R1 并等待 ontology_slice_extraction_done 后才进入技能阶段",
+            "等待成功形态的 `ontology_slice_extraction_done`",
+            "资料收口后先驱动 ontology-slice-extraction，并等待成功形态的 ontology_slice_extraction_done",
+            "只有成功形态的 ontology_slice_extraction_done",
+            "blocked 形态只停留在资料阶段",
         ]
         forbidden_phrases = [
             "阶段 2 唯一确认门",

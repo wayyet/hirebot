@@ -130,6 +130,8 @@ const DATA_STATUS_ALLOWED_ARTIFACT_TYPES = new Set([
   'skill_definition_ready',
   'ontology_projection_ready',
   'skill_generation_ready',
+  'skill_generation_progress',
+  'skill_generation_done',
   'external_system_entry_ready',
   'packaging_progress',
   'packaging_testcases_ready',
