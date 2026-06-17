@@ -1490,7 +1490,7 @@ export default function HiringPage() {
           // 回退：当 tool_result 缺少 arguments 字段时（如 Gateway 版本使用 toolName 驼峰字段
           // 且 tool_start 未被正确捕获），从 text 描述中解析 artifact 元数据，
           // 避免 skill_generation_done / external_workorder_summary 等终态 artifact 静默丢失导致阶段无法推进
-          if (!artifact && toolName === 'emit_artifact' && textStr) {
+          if (!artifact && toolName.endsWith('emit_artifact') && textStr) {
             const parsedFromText = parseArtifactFromToolResultText(textStr)
             if (parsedFromText) {
               try {
@@ -1502,7 +1502,7 @@ export default function HiringPage() {
           }
           if (artifact) {
             ws.onMessage?.({ type: 'artifact', artifact })
-          } else if (toolName === 'emit_artifact') {
+          } else if (toolName.endsWith('emit_artifact')) {
             console.warn(
               '[HiringPage] emit_artifact tool_result ignored: unable to extract artifact metadata (missing arguments and unparseable text)',
               { textStr },

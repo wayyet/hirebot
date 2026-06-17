@@ -199,20 +199,44 @@ function parseSpaceSeparatedArtifactResult(inner: string): Record<string, unknow
   return result.artifactType ? result : null
 }
 
-function parseTaggedArtifactResult(text: string): Record<string, unknown> | null {
+function parseTaggedArtifactResult(text: string): Record<string, unknown> {
   const result: Record<string, unknown> = {}
-  const tagRegex = /\[([A-Za-z_][A-Za-z0-9_-]*):([^\]]*)\]/g
+  const tagRegex = /\[([A-Za-z_][A-Za-z0-9_-]*)\s*[:=]\s*([^\]]*)\]/g
   let tagMatch: RegExpExecArray | null
   while ((tagMatch = tagRegex.exec(text)) !== null) {
     assignArtifactResultValue(result, tagMatch[1], tagMatch[2])
   }
 
+  return result
+}
+
+function inferArtifactResultFromText(text: string): Record<string, unknown> | null {
+  const result = parseTaggedArtifactResult(text)
+
+  if (!result.artifactType && /\btemplate_package\b/i.test(text)) {
+    result.artifactType = 'template_package'
+  }
+
   if (!result.artifactType) {
-    return null
+    const typeMatch = /\b(?:artifactType|artifact_type|type|TYPE)\s*[:=]\s*["'`]?([A-Za-z][A-Za-z0-9_-]*)/i.exec(text)
+    if (typeMatch?.[1]) {
+      result.artifactType = typeMatch[1]
+    }
+  }
+
+  if (!result.fileUrl) {
+    const fileUrlMatch = /\[FILE_URL:([^\]|]+)(?:\|[^\]]+)?\]/i.exec(text)
+      ?? /\bFILE_URL\s*[:=]\s*(\S+)/i.exec(text)
+      ?? /(\/media\/[A-Za-z0-9_.-]+)/.exec(text)
+    if (fileUrlMatch?.[1]) {
+      result.fileUrl = fileUrlMatch[1].trim()
+    }
   }
 
   const publishedNameMatch = /Artifact published:\s*([^\r\n\[]+)/i.exec(text)
-  const publishedName = publishedNameMatch?.[1]?.trim()
+    ?? /Published artifact:\s*([^\r\n\[]+)/i.exec(text)
+  const zipNameMatch = /([^\\/\s\]]+\.zip)\b/i.exec(text)
+  const publishedName = publishedNameMatch?.[1]?.trim() ?? zipNameMatch?.[1]?.trim()
   if (publishedName && !result.fileName) {
     result.fileName = publishedName
   }
@@ -231,8 +255,9 @@ export function parseArtifactFromToolResultText(text: string): Record<string, un
     return parseSpaceSeparatedArtifactResult(dataArtifactMatch[1].trim())
   }
 
-  if (/Artifact published:/i.test(text)) {
-    return parseTaggedArtifactResult(text)
+  const inferred = inferArtifactResultFromText(text)
+  if (inferred?.artifactType) {
+    return inferred
   }
 
   return null
