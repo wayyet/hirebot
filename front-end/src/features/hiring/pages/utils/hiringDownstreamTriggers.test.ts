@@ -8,8 +8,10 @@ import {
   buildProjectionPassPayload,
   buildSkillDefinitionConfirmationPrompt,
   buildSkillGenerationPayload,
+  isMaterialHandoffApprovalMessage,
   isPackageReviewApprovalMessage,
   isPackageReviewSkipMessage,
+  isSkillDefinitionEntryApprovalMessage,
   isSkillDefinitionApprovalMessage,
   isOntologyProjectionApprovalMessage,
   isSkillGenerationApprovalMessage,
@@ -248,6 +250,34 @@ describe('buildSkillGenerationPayload', () => {
     })
   })
 
+  it('插单可行性技能使用稳定 skill_slug 时不因中文展示名误判为不可生成', () => {
+    const projectionResult = {
+      projected_count: 1,
+      projection_paths: [
+        'ontology/projections/insertion-order-feasibility-assessment/cosmetics-production-scheduling.workflow-contract.projection.json',
+      ],
+      open_questions: [],
+    }
+
+    const payload = buildSkillGenerationPayload({
+      workspace_root: '/workspace/template-1',
+      items: [
+        {
+          name: '插单可行性评估与影响分析',
+          skill_slug: 'insertion-order-feasibility-assessment',
+          display_name: '插单可行性评估与影响分析',
+        },
+      ],
+    }, projectionResult)
+
+    expect(payload).toMatchObject({
+      confirmed_skill_slugs: ['insertion-order-feasibility-assessment'],
+      projection_skill_slugs: ['insertion-order-feasibility-assessment'],
+      projection_binding_confirmed: true,
+      projection_result: projectionResult,
+    })
+  })
+
   it('缺少 projected_count 但有 projection_paths 时仍可兼容启动', () => {
     const payload = buildSkillGenerationPayload({
       workspace_root: '/workspace/template-1',
@@ -292,8 +322,17 @@ describe('isSkillGenerationApprovalMessage', () => {
   })
 })
 
+describe('material handoff approval messages', () => {
+  it('识别资料阶段的推进确认，避免落回普通教练对话二次追问', () => {
+    expect(isMaterialHandoffApprovalMessage('那可以推进到下一步了嘛；')).toBe(true)
+    expect(isMaterialHandoffApprovalMessage('确认开始分析')).toBe(true)
+  })
+})
+
 describe('skill stage approval messages', () => {
   it('分别识别技能定义确认和匹配技能数据确认', () => {
+    expect(isSkillDefinitionEntryApprovalMessage('可以推进到下一步')).toBe(true)
+    expect(isSkillDefinitionEntryApprovalMessage('进入技能定义')).toBe(true)
     expect(isSkillDefinitionApprovalMessage('确认技能清单')).toBe(true)
     expect(isSkillDefinitionApprovalMessage('没问题，继续')).toBe(true)
     expect(isOntologyProjectionApprovalMessage('开始匹配技能数据')).toBe(true)
@@ -683,6 +722,8 @@ describe('buildDownstreamPrompt', () => {
     expect(prompt).toContain('Scan slices from `<workspace_root>/ontology/`')
     expect(prompt).toContain('write_file')
     expect(prompt).toContain('read_file')
+    expect(prompt).toContain('terminal `ontology_projection_done.data` must be the aggregate handoff object')
+    expect(prompt).toContain('Do not put the projection file JSON itself, a `read_file` result, or an empty object in `ontology_projection_done.data`')
     expect(prompt).toContain('do not emit a successful `ontology_projection_done` for an unwritten or stub projection')
     expect(prompt).toContain('do not ask the user to rerun the same projection pass')
   })

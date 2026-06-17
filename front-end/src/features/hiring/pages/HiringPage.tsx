@@ -101,6 +101,7 @@ import {
   isCompletedOntologySliceExtractionResult,
   normalizeArtifactDisplayData,
   normalizeMaterialHandoffReadyData,
+  parseArtifactFromToolResultText,
   queueOntologySliceExtractionRun,
   resolveDownstreamRunFromArtifact,
   resolveHiringStageFromWs,
@@ -181,52 +182,19 @@ function hasPendingPackageReviewDecision(sourceMessages: ChatMessage[]): boolean
   return false
 }
 
-/**
- * 从 emit_artifact 的 tool_result.text 中解析 artifact 元数据。
- * 当 tool_result 消息缺少 arguments 字段时（Gateway 版本差异或消息乱序），
- * text 中会携带 `Data artifact emitted: [key=value ...]` 格式的结构化描述，
- * 作为 artifact 提取的回退路径，避免 skill_generation_done / external_workorder_summary
- * 等终态 artifact 静默丢失导致阶段无法推进。
- *
- * 示例输入：
- *   "Data artifact emitted: [kind=data type=skill_generation_done stage=stage2_skill terminal=True]"
- */
-function parseArtifactFromToolResultText(text: string): Record<string, unknown> | null {
-  const bracketMatch = /Data artifact emitted:\s*\[([^\]]*)\]/.exec(text)
-  if (!bracketMatch) return null
+interface PackageArtifactRef {
+  fileUrl: string
+  fileName: string
+}
 
-  const inner = bracketMatch[1].trim()
-  if (!inner) return null
-
-  const result: Record<string, unknown> = {}
-  const pairRegex = /(\w+)=(\S+)/g
-  let pairMatch: RegExpExecArray | null
-  while ((pairMatch = pairRegex.exec(inner)) !== null) {
-    const key = pairMatch[1]
-    const value = pairMatch[2]
-
-    switch (key) {
-      case 'type':
-        result.artifactType = value
-        break
-      case 'kind':
-        result.kind = value
-        break
-      case 'stage':
-        result.stage = value
-        break
-      case 'terminal':
-        result.isTerminal = value.toLowerCase() === 'true'
-        break
-      default:
-        // 保留其他元数据字段（如 skillName、displayHint 等未来扩展）
-        result[key] = value
-        break
-    }
-  }
-
-  if (!result.artifactType) return null
-  return result
+function logImportPackageDiagnostic(
+  step: string,
+  details: Record<string, unknown> = {},
+): void {
+  console.info('[HiringPage][import-package]', step, {
+    timestamp: new Date().toISOString(),
+    ...details,
+  })
 }
 
 export default function HiringPage() {
@@ -460,7 +428,46 @@ export default function HiringPage() {
 
     packagingTestCasesReadySignatureRef.current = signature
     const artifact = buildPackagingTestCasesReadyArtifact(config)
-    appendSystemArtifact(artifact)
+    const appended = appendSystemArtifact(artifact)
+    if (!appended) {
+      return
+    }
+
+    const confirmationCopy = getConfirmationActionCopy({
+      key: 'packaging-test-cases',
+      status: 'waiting_confirm',
+      artifactType: artifact.artifactType,
+      label: artifact.label,
+      displayHint: artifact.displayHint,
+      updatedAt: new Date().toISOString(),
+      data: artifact.data,
+    })
+    appendBotMessageBeforeLatestArtifact(confirmationCopy.text, artifact.artifactType)
+  }
+
+  function appendBotMessageBeforeLatestArtifact(content: string, artifactType: string) {
+    const currentMessages = messagesRef.current
+    const latestMessage = currentMessages[currentMessages.length - 1]
+    if (latestMessage?.role !== 'artifact' || latestMessage.artifact?.artifactType !== artifactType) {
+      return
+    }
+
+    const previousMessage = currentMessages[currentMessages.length - 2]
+    if (previousMessage?.role === 'bot' && previousMessage.content === content) {
+      return
+    }
+
+    const nextMessages: ChatMessage[] = [
+      ...currentMessages.slice(0, -1),
+      {
+        id: mkId(),
+        role: 'bot',
+        content,
+      },
+      latestMessage,
+    ]
+    messagesRef.current = nextMessages
+    setMessages(nextMessages)
   }
 
   function appendSystemArtifact(artifact: ArtifactDisplayData): boolean {
@@ -993,23 +1000,52 @@ export default function HiringPage() {
 
   // 沙箱推送 template_package artifact 后自动触发 import-package，将产物直接存入系统
   // 注：不在此清除 pendingPackageArtifact，以便【生成实例】按钮可依据它的状态作为手动兑现入口；instanceCreated 防重入
-  // downstreamRuns 加入依赖：下游任务完成后重新检查，确保延迟暂存的数字员工包也能自动导入
   useEffect(() => {
-    if (!pendingPackageArtifact || !workflowHireId || instanceCreated) return
-    if (hasPendingRequiredDownstreamRuns(downstreamRunsRef.current)) return
+    if (!pendingPackageArtifact || !workflowHireId || instanceCreated) {
+      logImportPackageDiagnostic('effect skipped', {
+        hasPendingPackageArtifact: Boolean(pendingPackageArtifact),
+        pendingPackageFileName: pendingPackageArtifact?.fileName ?? null,
+        pendingPackageFileUrl: pendingPackageArtifact?.fileUrl ?? null,
+        workflowHireId: workflowHireId || null,
+        instanceCreated,
+      })
+      return
+    }
 
     let cancelled = false
     void (async () => {
+      logImportPackageDiagnostic('effect waiting turn sync barrier', {
+        hireId: workflowHireId,
+        fileName: pendingPackageArtifact.fileName,
+        fileUrl: pendingPackageArtifact.fileUrl,
+      })
       await turnSyncBarrierRef.current
-      if (cancelled) return
-      void triggerCreate(pendingPackageArtifact)
+      if (cancelled) {
+        logImportPackageDiagnostic('effect cancelled after turn sync barrier', {
+          hireId: workflowHireId,
+          fileName: pendingPackageArtifact.fileName,
+          fileUrl: pendingPackageArtifact.fileUrl,
+        })
+        return
+      }
+      logImportPackageDiagnostic('effect triggers auto import', {
+        hireId: workflowHireId,
+        fileName: pendingPackageArtifact.fileName,
+        fileUrl: pendingPackageArtifact.fileUrl,
+      })
+      void triggerAutoImportPackage(pendingPackageArtifact)
     })()
 
     return () => {
+      logImportPackageDiagnostic('effect cleanup requested', {
+        hireId: workflowHireId,
+        fileName: pendingPackageArtifact.fileName,
+        fileUrl: pendingPackageArtifact.fileUrl,
+      })
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingPackageArtifact, workflowHireId, instanceCreated, downstreamRuns])
+  }, [pendingPackageArtifact, workflowHireId, instanceCreated])
 
   const introName = template?.name ?? t('hiring.intro.digitalEmployee')
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1729,6 +1765,21 @@ export default function HiringPage() {
           }
           // template_package artifact 表示沙箱已完成打包，暂存 fileUrl 后自动触发 import-package
           if (artifactType === 'template_package' && kind === 'file' && artifactData.fileUrl) {
+            logImportPackageDiagnostic('template_package artifact accepted', {
+              artifactType,
+              kind,
+              skillName,
+              stage,
+              isTerminal,
+              fileName: artifactData.fileName ?? null,
+              fileUrl: artifactData.fileUrl,
+              hasPendingRequiredDownstreamRuns: hasPendingRequiredDownstreamRuns(downstreamRunsRef.current),
+              downstreamRunStatuses: Object.fromEntries(
+                Object.entries(downstreamRunsRef.current).map(([key, run]) => [key, run?.status ?? null]),
+              ),
+              workflowHireId: workflowHireIdRef.current || workflowHireId || null,
+              instanceCreated,
+            })
             packagingInProgressRef.current = false
             // 既然已经收到最终包，说明阶段推进已实际完成，清掉陈旧的确认提示，避免阻塞自动导入。
             setPendingStageConfirmation(null)
@@ -2935,8 +2986,50 @@ export default function HiringPage() {
     }
   }
 
+  async function triggerAutoImportPackage(packageArtifact: PackageArtifactRef) {
+    logImportPackageDiagnostic('auto import requested', {
+      instanceCreated,
+      hasFileUrl: Boolean(packageArtifact.fileUrl.trim()),
+      fileName: packageArtifact.fileName,
+      fileUrl: packageArtifact.fileUrl,
+      workflowHireId: workflowHireIdRef.current || workflowHireId || null,
+      packageImportInFlight: packageImportInFlightRef.current,
+    })
+    if (instanceCreated) {
+      logImportPackageDiagnostic('auto import skipped: instance already created', {
+        fileName: packageArtifact.fileName,
+        fileUrl: packageArtifact.fileUrl,
+      })
+      return
+    }
+    if (!packageArtifact.fileUrl.trim()) {
+      logImportPackageDiagnostic('auto import failed before request: missing fileUrl', {
+        fileName: packageArtifact.fileName,
+      })
+      setWorkflowError('数字员工包缺少下载地址，无法自动导入。')
+      return
+    }
+
+    const hireId = await ensureWorkflowReady()
+    if (!hireId) {
+      logImportPackageDiagnostic('auto import skipped: workflow not ready', {
+        workflowHireId: workflowHireIdRef.current || workflowHireId || null,
+        fileName: packageArtifact.fileName,
+        fileUrl: packageArtifact.fileUrl,
+      })
+      return
+    }
+
+    logImportPackageDiagnostic('auto import resolved workflow', {
+      hireId,
+      fileName: packageArtifact.fileName,
+      fileUrl: packageArtifact.fileUrl,
+    })
+    await importPackageArtifact(hireId, packageArtifact)
+  }
+
   async function triggerCreate(
-    packageArtifact?: { fileUrl: string; fileName: string },
+    packageArtifact?: PackageArtifactRef,
     options?: { forceManual?: boolean },
   ) {
     const forceManual = options?.forceManual === true
@@ -2958,18 +3051,43 @@ export default function HiringPage() {
       setWorkflowError(t('hiring.error.pleaseRequestPackaging'))
       return
     }
+
+    await importPackageArtifact(hireId, effectiveArtifact)
+  }
+
+  async function importPackageArtifact(
+    hireId: string,
+    artifact: PackageArtifactRef,
+  ) {
+    logImportPackageDiagnostic('importPackageArtifact entered', {
+      hireId,
+      fileName: artifact.fileName,
+      fileUrl: artifact.fileUrl,
+      gatewayEndpoint: gatewayEndpointRef.current,
+      packageImportInFlight: packageImportInFlightRef.current,
+      linkedStoreSkillCount: linkedStoreSkillIds.length,
+    })
     if (packageImportInFlightRef.current) {
+      logImportPackageDiagnostic('importPackageArtifact skipped: request already in flight', {
+        hireId,
+        fileName: artifact.fileName,
+        fileUrl: artifact.fileUrl,
+      })
       setWorkflowNotice(t('hiring.artifact.waitForFinalPackage'))
       return
     }
     if (!gatewayEndpointRef.current) {
+      logImportPackageDiagnostic('importPackageArtifact failed before download: missing gateway endpoint', {
+        hireId,
+        fileName: artifact.fileName,
+        fileUrl: artifact.fileUrl,
+      })
       setWorkflowError(t('hiring.error.noGatewayEndpoint'))
       return
     }
 
     try {
       packageImportInFlightRef.current = true
-      const artifact = effectiveArtifact
       const resolveGatewayFileUrl = (rawFileUrl: string): string => {
         const trimmedFileUrl = rawFileUrl.trim()
         if (/^https?:\/\//i.test(trimmedFileUrl)) {
@@ -3009,9 +3127,24 @@ export default function HiringPage() {
       // fileUrl 可能是绝对 URL（如 http://opensandbox-gateway.../media/xxx）或相对路径；
       // 绝对 URL 直接使用，相对路径则需拼接 gateway base。
       const fullUrl = resolveGatewayFileUrl(artifact.fileUrl)
+      logImportPackageDiagnostic('download request prepared', {
+        hireId,
+        rawFileUrl: artifact.fileUrl,
+        resolvedFileUrl: fullUrl,
+        gatewayEndpoint: gatewayEndpointRef.current,
+        fileName: artifact.fileName,
+      })
       const accessToken = await tokenService.ensureFresh()
       const dlResp = await fetch(fullUrl, {
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      })
+      logImportPackageDiagnostic('download response received', {
+        hireId,
+        resolvedFileUrl: fullUrl,
+        status: dlResp.status,
+        ok: dlResp.ok,
+        contentType: dlResp.headers.get('content-type') ?? '',
+        contentLength: dlResp.headers.get('content-length') ?? '',
       })
       if (!dlResp.ok) {
         throw new Error(`从沙箱网关下载数字员工包失败（HTTP ${dlResp.status}）`)
@@ -3023,16 +3156,35 @@ export default function HiringPage() {
         throw new Error(`沙箱网关返回了非二进制响应（Content-Type: ${contentType}）：${preview.slice(0, 200)}`)
       }
       const packageBlob = await dlResp.blob()
+      logImportPackageDiagnostic('download blob received', {
+        hireId,
+        fileName: artifact.fileName,
+        blobSize: packageBlob.size,
+        blobType: packageBlob.type,
+      })
       if (packageBlob.size < 22) {
         // ZIP 最小合法大小（End of Central Directory = 22 字节）
         throw new Error(`从沙箱网关下载的数字员工包过小（${packageBlob.size} 字节），可能不是有效 ZIP 文件`)
       }
+      logImportPackageDiagnostic('backend import request starting', {
+        hireId,
+        fileName: artifact.fileName,
+        blobSize: packageBlob.size,
+        linkedStoreSkillCount: linkedStoreSkillIds.length,
+      })
       const finalizeResult = await api.hiringWorkflow.importPackage(
         hireId,
         packageBlob,
         artifact.fileName,
         linkedStoreSkillIds,
       )
+      logImportPackageDiagnostic('backend import request succeeded', {
+        hireId,
+        fileName: artifact.fileName,
+        employeeId: finalizeResult.employeeId ?? null,
+        packageFileName: finalizeResult.packageFileName ?? null,
+        generatedFileCount: finalizeResult.generatedFiles.length,
+      })
 
       setArtifactFileNames(finalizeResult.generatedFiles)
       if (finalizeResult.employeeId) {
@@ -3044,9 +3196,20 @@ export default function HiringPage() {
       setWorkflowError('')
       setWorkflowNotice('')
     } catch (error: unknown) {
+      logImportPackageDiagnostic('importPackageArtifact failed', {
+        hireId,
+        fileName: artifact.fileName,
+        fileUrl: artifact.fileUrl,
+        error: normalizeErrorMessage(error),
+      })
       setWorkflowError(normalizeErrorMessage(error))
     } finally {
       packageImportInFlightRef.current = false
+      logImportPackageDiagnostic('importPackageArtifact finished', {
+        hireId,
+        fileName: artifact.fileName,
+        fileUrl: artifact.fileUrl,
+      })
     }
   }
 

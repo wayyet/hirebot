@@ -993,8 +993,21 @@ internal sealed class EmployeeHiringService(
 
         if (session is null)
         {
+            logger.LogWarning(
+                "[import-package] Hiring session not found. HireId={HireId}, FileName={FileName}",
+                hireId,
+                fileName);
+
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(404, $"找不到雇佣流程 {hireId}");
         }
+
+        logger.LogInformation(
+            "[import-package] Hiring session found. HireId={HireId}, SessionId={SessionId}, TemplateId={TemplateId}, TenantId={TenantId}, OwnerSubject={OwnerSubject}",
+            hireId,
+            session.SessionId,
+            session.TemplateId,
+            session.TenantId,
+            session.OwnerSubject);
 
         // 查询关联的沙箱信息
         var sandbox = await dbContext.SandboxInstances.AsNoTracking()
@@ -1002,8 +1015,21 @@ internal sealed class EmployeeHiringService(
 
         if (sandbox is null)
         {
+            logger.LogWarning(
+                "[import-package] Sandbox instance not found. HireId={HireId}, SessionId={SessionId}, TemplateId={TemplateId}",
+                hireId,
+                session.SessionId,
+                session.TemplateId);
+
             return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(404, $"找不到雇佣流程 {hireId} 关联的沙箱");
         }
+
+        logger.LogInformation(
+            "[import-package] Sandbox instance found. HireId={HireId}, SandboxId={SandboxId}, SandboxState={SandboxState}, IsInitialized={IsInitialized}",
+            hireId,
+            sandbox.SandboxId,
+            sandbox.State,
+            sandbox.IsInitialized);
 
         try
         {
@@ -1016,6 +1042,11 @@ internal sealed class EmployeeHiringService(
             }
 
             logger.LogInformation("候选包已读取到内存: Size={Size}KB", packageBytes.Length / 1024);
+            logger.LogInformation(
+                "[import-package] Package stream read. HireId={HireId}, FileName={FileName}, SizeBytes={SizeBytes}",
+                hireId,
+                fileName,
+                packageBytes.Length);
 
             // 解压 ZIP，提取文件条目后持久化到文件系统和数据库
             var extractedFiles = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -1032,17 +1063,35 @@ internal sealed class EmployeeHiringService(
                 return ApiResponse<HiringFinalizeResultDto>.ErrorResponse(400, $"候选包 ZIP 格式无效: {ex.Message}");
             }
 
+            logger.LogInformation(
+                "[import-package] Package zip extracted. HireId={HireId}, FileName={FileName}, FileCount={FileCount}",
+                hireId,
+                fileName,
+                extractedFiles.Count);
+
             // 每次导入生成唯一包版本 ID，确保多次导入的包不互相覆盖
             var effectiveSkillLinkConfig = await ResolveEffectiveSkillLinkConfigAsync(
                 hireId,
                 linkedStoreSkillIds,
                 cancellationToken);
             var linkedStoreSkillRequests = BuildStoreSkillDownloadRequests(effectiveSkillLinkConfig);
+            logger.LogInformation(
+                "[import-package] Store skill links resolved. HireId={HireId}, RequestedSkillCount={RequestedSkillCount}, EffectiveSkillCount={EffectiveSkillCount}, DownloadRequestCount={DownloadRequestCount}",
+                hireId,
+                linkedStoreSkillIds?.Count ?? 0,
+                effectiveSkillLinkConfig.LinkedSkills.Count,
+                linkedStoreSkillRequests.Count);
+
             if (linkedStoreSkillRequests.Count > 0)
             {
                 var downloadedSkillFiles = await storeSkillPackageDownloader.DownloadSkillsAsync(
                     linkedStoreSkillRequests,
                     cancellationToken);
+                logger.LogInformation(
+                    "[import-package] Store skill packages downloaded. HireId={HireId}, DownloadedFileCount={DownloadedFileCount}",
+                    hireId,
+                    downloadedSkillFiles.Count);
+
                 foreach (var (path, content) in downloadedSkillFiles)
                 {
                     extractedFiles[path] = content;
@@ -1275,6 +1324,12 @@ internal sealed class EmployeeHiringService(
             }
 
             await hiringStageService.SaveStructuredDataAsync(hireId, mergedData, cancellationToken);
+            logger.LogInformation(
+                "[import-package] Import metadata saved. HireId={HireId}, MetadataKeyCount={MetadataKeyCount}, EmployeeId={EmployeeId}, PackageId={PackageId}",
+                hireId,
+                importMetadata.Count,
+                resolvedEmployeeId,
+                packageId);
 
             // 将当前版本包 ID 写入实例表，供评估服务按版本精确查找
             if (!string.IsNullOrWhiteSpace(resolvedEmployeeId))
@@ -1284,9 +1339,23 @@ internal sealed class EmployeeHiringService(
                     .ExecuteUpdateAsync(
                         s => s.SetProperty(i => i.FinalPackageId, packageId),
                         cancellationToken);
+
+                logger.LogInformation(
+                    "[import-package] Instance final package id updated. HireId={HireId}, EmployeeId={EmployeeId}, PackageId={PackageId}",
+                    hireId,
+                    resolvedEmployeeId,
+                    packageId);
             }
 
             logger.LogInformation("候选包导入成功: HireId={HireId}, 员工状态已更新为interning_ai", hireId);
+            logger.LogInformation(
+                "[import-package] Import succeeded. HireId={HireId}, SessionId={SessionId}, EmployeeId={EmployeeId}, PackageId={PackageId}, PackageFileName={PackageFileName}, FinalFileCount={FinalFileCount}",
+                hireId,
+                session.SessionId,
+                resolvedEmployeeId,
+                packageId,
+                packageFileName,
+                extractedFiles.Count);
 
             // 返回成功结果
             return ApiResponse<HiringFinalizeResultDto>.SuccessResponse(

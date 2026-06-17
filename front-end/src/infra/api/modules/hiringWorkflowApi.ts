@@ -2,6 +2,16 @@
 import type { ApiResponseEnvelope } from '../types'
 import { tokenService } from '@/infra/auth/token-service'
 
+function logImportPackageApiDiagnostic(
+  step: string,
+  details: Record<string, unknown> = {},
+): void {
+  console.info('[HiringWorkflowApi][import-package]', step, {
+    timestamp: new Date().toISOString(),
+    ...details,
+  })
+}
+
 export const HiringCollectionPhase = {
   NotStarted: 'NOT_STARTED',
   InProgress: 'IN_PROGRESS',
@@ -668,10 +678,19 @@ export const hiringWorkflowApi = {
     skillIds?: readonly string[],
   ): Promise<HiringFinalizeResult> {
     const url = buildUrl(`/api/v1/hirings/${encodeURIComponent(hireId)}/import-package`)
+    logImportPackageApiDiagnostic('request preparing', {
+      hireId,
+      url,
+      fileName,
+      blobSize: packageBlob.size,
+      blobType: packageBlob.type,
+      skillIdCount: skillIds?.length ?? 0,
+    })
     const accessToken = await tokenService.ensureFresh()
     const form = new FormData()
     form.append('packageFile', packageBlob, fileName)
     // multipart 重复字段：后端 [FromForm] string[]? skillIds 会聚合成数组
+    let appendedSkillIdCount = 0
     if (skillIds && skillIds.length > 0) {
       const unique = new Set<string>()
       for (const id of skillIds) {
@@ -679,17 +698,39 @@ export const hiringWorkflowApi = {
         if (trimmed && !unique.has(trimmed)) {
           unique.add(trimmed)
           form.append('skillIds', trimmed)
+          appendedSkillIdCount += 1
         }
       }
     }
+    logImportPackageApiDiagnostic('request sending', {
+      hireId,
+      url,
+      fileName,
+      blobSize: packageBlob.size,
+      appendedSkillIdCount,
+      hasAccessToken: Boolean(accessToken),
+    })
     const response = await fetch(url, {
       method: 'POST',
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       body: form,
     })
+    logImportPackageApiDiagnostic('response received', {
+      hireId,
+      url,
+      status: response.status,
+      ok: response.ok,
+      contentType: response.headers.get('content-type') ?? '',
+    })
 
     if (!response.ok) {
       const text = await response.text()
+      logImportPackageApiDiagnostic('response failed', {
+        hireId,
+        url,
+        status: response.status,
+        bodyPreview: text.slice(0, 500),
+      })
       try {
         const payload = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
         throw new ApiClientError(
@@ -704,6 +745,15 @@ export const hiringWorkflowApi = {
     }
 
     const envelope = await response.json() as ApiResponseEnvelope<HiringFinalizeResult>
+    logImportPackageApiDiagnostic('response parsed', {
+      hireId,
+      success: envelope.success,
+      code: envelope.code,
+      message: envelope.message,
+      hasData: Boolean(envelope.data),
+      employeeId: envelope.data?.employeeId ?? null,
+      packageFileName: envelope.data?.packageFileName ?? null,
+    })
     if (!envelope.success || !envelope.data) {
       throw new ApiClientError(envelope.message?.trim() || '导入产物包失败', envelope.code ?? response.status, envelope.code, envelope)
     }

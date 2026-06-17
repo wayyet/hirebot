@@ -9,7 +9,8 @@ namespace HireBot.ApiService.Controllers;
 [ApiController]
 public sealed class HiringsController(
     IEmployeeHiringService employeeHiringService,
-    IHiringTodoService hiringTodoService) : ControllerBase
+    IHiringTodoService hiringTodoService,
+    ILogger<HiringsController> logger) : ControllerBase
 {
     [HttpGet("{hireId}")]
     public async Task<IActionResult> GetHiringStatus(string hireId, CancellationToken cancellationToken = default)
@@ -149,8 +150,23 @@ public sealed class HiringsController(
         [FromForm(Name = "skillIds")] string[]? skillIds,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation(
+            "[import-package] Request received. HireId={HireId}, HasFile={HasFile}, FileName={FileName}, FileLength={FileLength}, ContentType={ContentType}, RawSkillIdCount={RawSkillIdCount}",
+            hireId,
+            packageFile is not null,
+            packageFile?.FileName,
+            packageFile?.Length,
+            packageFile?.ContentType,
+            skillIds?.Length ?? 0);
+
         if (packageFile is null || packageFile.Length == 0)
         {
+            logger.LogWarning(
+                "[import-package] Request rejected because package file is missing or empty. HireId={HireId}, HasFile={HasFile}, FileLength={FileLength}",
+                hireId,
+                packageFile is not null,
+                packageFile?.Length);
+
             var badReq = ApiResponse<object>.ErrorResponse(400, "必须上传产物包文件");
             return BadRequest(badReq);
         }
@@ -163,6 +179,13 @@ public sealed class HiringsController(
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
+        logger.LogInformation(
+            "[import-package] Request validated. HireId={HireId}, FileName={FileName}, FileLength={FileLength}, LinkedSkillCount={LinkedSkillCount}",
+            hireId,
+            packageFile.FileName,
+            packageFile.Length,
+            linkedStoreSkillIds?.Length ?? 0);
+
         await using var stream = packageFile.OpenReadStream();
         var response = await employeeHiringService.ImportPackageAsync(
             hireId,
@@ -170,6 +193,16 @@ public sealed class HiringsController(
             packageFile.FileName,
             linkedStoreSkillIds,
             cancellationToken);
+
+        logger.LogInformation(
+            "[import-package] Service completed. HireId={HireId}, Success={Success}, Code={Code}, Message={Message}, EmployeeId={EmployeeId}, PackageFileName={PackageFileName}",
+            hireId,
+            response.Success,
+            response.Code,
+            response.Message,
+            response.Data?.EmployeeId,
+            response.Data?.PackageFileName);
+
         return StatusCode(response.Code, response);
     }
 

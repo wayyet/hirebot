@@ -503,7 +503,7 @@
 | `skip_reasons` | done 时可选 | 未生成原因，key 为 skill slug |
 | `summary` | 否 | 对用户可读的一句话状态 |
 
-当 `projected_count > 0` 时，`projection_paths.length` 必须大于 0，且每条路径必须已经写入文件系统；只有 `slice_paths`、自然语言摘要或 `validation: "NOT_RUN"` 不构成可消费结果。当前端无法从 `projection_paths[]` 解析出与 `skill_workorder_summary.items[].name` 一致的 skill slug 时，不会启动技能生成。
+当 `projected_count > 0` 时，`projection_paths.length` 必须大于 0，且每条路径必须已经写入文件系统；只有 `slice_paths`、自然语言摘要或 `validation: "NOT_RUN"` 不构成可消费结果。当前端无法从 `projection_paths[]` 解析出与 `skill_workorder_summary.items[].name` 一致的 skill slug 时，不会启动技能生成。若聚合 `data` 丢失但当前工作区内已存在对应 skill slug 目录下的有效 projection 文件，主流程应先执行一次受限恢复并重发聚合 `ontology_projection_done`；恢复失败后才视为不可消费。
 
 ---
 

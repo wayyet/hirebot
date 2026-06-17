@@ -501,7 +501,7 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 **阶段 1 收口确认门（先确认，再发 `material_handoff_summary`）**：
 资料收口条件前三条均已满足（资料已归类且 source_path 已补全、用户已表达"先这些"），必须先向用户确认是否可以开始分析业务资料。资料分析完成并收到成功形态的 `ontology_slice_extraction_done`（`data.status === "completed"` 且 `completed_slices > 0`）后，才允许进入技能定义阶段；blocked 形态只结束本轮分析，不解锁技能定义。
 
-确认时向用户披露下一阶段的范围，让用户知道在确认什么：
+确认时必须先发出非终态 `material_handoff_ready` artifact，并在同一轮用一句用户可见话术披露下一阶段范围，让用户知道在确认什么。不得只用普通 assistant 文本询问"确认开始分析吗"；否则用户下一轮确认无法被系统确定性路由到 `material_handoff_summary`。
 
 > 「业务资料先收口到这里。下一步先开始**分析业务资料**，把案例、约束和规则抽取成后续技能定义可用的业务切片；分析完成后，再进入技能定义阶段。确认开始分析吗？」
 
@@ -611,6 +611,8 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
   - `预期输出`：来自 `expected_output`
 - 禁止把多个技能压缩成一句名称列表后直接询问确认；例如禁止输出："我先把 A、B、C 这 3 项能力列为第一版技能清单，你确认要按这个清单继续吗？"。必须先逐项说明能力，再问用户是否确认。
 - 禁止只说"以上 N 项"、"见卡片"、"如上所示"这类依赖前端卡片可见性的指代。
+- 禁止在未发出 `skill_definition_ready` 的普通文本中提前询问"确认继续"、"确认就用这个技能继续"或"是否开始匹配资料"。确认技能清单的问题必须由同一轮的 `skill_definition_ready` 承载。
+- 若上一轮已经发出 `skill_definition_ready`，且用户明确确认当前技能清单，不得再次发出 `skill_definition_ready`；必须直接发出 `skill_workorder_summary`，随后发出 `ontology_projection_ready`。
 - 用户确认前不得发出 `skill_workorder_summary`，不得触发 projection pass，也不得进入外部或打包。
 - 用户确认后，才发出 `skill_workorder_summary` terminal artifact，并紧跟 `ontology_projection_ready` 确认门，等待用户确认是否开始匹配技能数据。
 
@@ -655,7 +657,7 @@ mv "<employee_package_root>/workspace.json" "<employee_package_root>/config/" 2>
 - 若 `projected_count > 0` 且 `projection_paths[]` 指向 `ontology/projections/<skill-slug>/...projection.json`：系统层根据 `ontology_projection_done` 确定性追加 `skill_generation_ready` 作为技能实现确认门。Coach 不得重复 emit 该确认门，也不得用普通文本替代该确认门。
 - 若 `projected_count > 0` 且 projection 文件已真实落盘，但文件中包含 `open_questions`：这表示“技能数据已匹配完成，但存在生成前确认项”，不表示“匹配技能数据失败”，也不表示“业务信息不足 / 还不够直接落地”。仍应保留系统层的 `skill_generation_ready`，并用业务语言补充 projection 中的具体选项题；不得要求用户“重跑匹配技能数据”或“回到业务信息整理”来解决同一个缺口。
 - 面向用户的唯一口径：先说明“技能数据已匹配完成”，再列出“生成前需要确认的业务口径”。禁止在同一轮同时说“已可生成”和“业务信息还不够可直接落地”；禁止让用户在“补资料 / 重跑业务信息准备 / 直接继续”之间重新选路线，除非 `projected_count === 0` 或 `projection_paths[]` 不可消费。
-- 若 `projected_count === 0`、缺少 `projection_paths[]`、路径无法对应已确认技能 slug，或结果无效：不得发出 `skill_generation_ready`，用用户可理解的话说明业务资料不足，需要补充材料或回到业务信息整理；不得向用户暴露 `slice`、`projection`、`projection_paths`、R1/R2/R3、结构化文件等内部术语。
+- 若 `projected_count === 0`、缺少 `projection_paths[]`、路径无法对应已确认技能 slug，或结果无效：先按当前 `workspace_root` 与已确认 skill slug 做一次受限恢复，只检查 `<workspace_root>/ontology/projections/<skill-slug>/` 下的有效 projection 文件并重建聚合结果；恢复成功时继续进入技能实现确认门，不得要求用户补资料或重跑业务信息准备。恢复失败后才不得发出 `skill_generation_ready`，并用用户可理解的话说明业务资料不足，需要补充材料或回到业务信息整理；不得向用户暴露 `slice`、`projection`、`projection_paths`、R1/R2/R3、结构化文件等内部术语。
 - 用户确认 `skill_generation_ready` 后：
   0. **调用 `load_skill` 加载 `skill-generation`**（若尚未在上下文中）：
      ```json

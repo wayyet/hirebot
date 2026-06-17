@@ -40,6 +40,15 @@ describe('hiring confirmation copy', () => {
     expect(userFacingText).not.toMatch(/artifact|workorder|handoff|ontology|projection|stage\d|R\d|实例包|产物包/i)
     expect(materialCopy.text).toBe('资料已经整理好。是否开始分析这批业务资料？')
     expect(materialCopy.text).not.toContain('技能')
+
+    const skillDefinitionCopy = getConfirmationActionCopy(waitingRun('skill-generation', 'skill_definition_ready'))
+    expect(skillDefinitionCopy.text).toBe('技能清单已整理好。确认后会固定本轮技能范围，并进入匹配资料前确认。')
+    expect(skillDefinitionCopy.text).not.toContain('继续匹配')
+    expect(skillDefinitionCopy.text).not.toContain('开始匹配')
+
+    const packagingTestCasesCopy = getConfirmationActionCopy(waitingRun('packaging-test-cases', 'packaging_testcases_ready'))
+    expect(packagingTestCasesCopy.text).toBe('外部配置已完成。是否生成评估测试用例？你也可以跳过，直接进入打包前审查。')
+    expect(packagingTestCasesCopy.text).toContain('跳过')
   })
 
   it('adjusts skill generation copy when generation needs business confirmation items', () => {

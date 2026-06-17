@@ -95,6 +95,25 @@ describe('buildCoachResumePrompt', () => {
     expect(prompt).toContain('Do not trigger `skill-generation` in this turn')
   })
 
+  it('projection 聚合结果不可消费时先尝试从工作区恢复已落盘投影', () => {
+    const prompt = buildCoachResumePrompt('post-ontology-projection', {
+      skillSummary: {
+        workspace_root: '/workspace/template-1',
+        template_slug: 'template',
+        items: [{ name: 'insert-order-feasibility' }],
+      },
+      projectionResult: {},
+    })
+
+    expect(prompt).toContain('perform one bounded workspace recovery check')
+    expect(prompt).toContain('<workspace_root>/ontology/projections/<skill-slug>/')
+    expect(prompt).toContain('use `read_file`')
+    expect(prompt).toContain('emit a corrected terminal `ontology_projection_done` artifact')
+    expect(prompt).toContain('recovered_from_workspace: true')
+    expect(prompt).toContain('When recovery succeeds, do not ask the user to supplement materials')
+    expect(prompt).toContain('Only after recovery fails, ask the user whether to supplement materials')
+  })
+
   it('系统层根据可消费 projection 构造 skill_generation_ready 确认门', () => {
     const artifact = buildSkillGenerationReadyArtifact({
       workspace_root: '/workspace/template-1',
@@ -289,6 +308,25 @@ describe('extractArtifactFromToolCall', () => {
       data: { baseline_skill_count: 5 },
     })
   })
+
+  it('从 Gateway 文件发布结果中解析 template_package artifact', () => {
+    const artifact = extractArtifactFromToolCall({
+      toolName: 'emit_artifact',
+      arguments: '',
+      result: [
+        'Artifact published: cosmetics-scheduler-package.zip [TYPE:template_package]',
+        '[FILE_URL:/media/media_1a81499f3f1241b4]',
+      ].join('\n'),
+    })
+
+    expect(artifact).toMatchObject({
+      kind: 'file',
+      artifactType: 'template_package',
+      isTerminal: true,
+      fileName: 'cosmetics-scheduler-package.zip',
+      fileUrl: '/media/media_1a81499f3f1241b4',
+    })
+  })
 })
 
 describe('normalizeArtifactDisplayData', () => {
@@ -308,6 +346,52 @@ describe('normalizeArtifactDisplayData', () => {
       artifactType: 'skill_generation_done',
       isTerminal: true,
       data: { generated_count: 1 },
+    })
+  })
+
+  it('从 template_package 的 data 中归一化文件下载地址', () => {
+    const artifact = normalizeArtifactDisplayData({
+      kind: 'file',
+      artifactType: 'template_package',
+      label: '数字员工包',
+      skillName: 'employment-coach-conversation',
+      stage: 'stage4_packaging',
+      terminal: true,
+      data: {
+        fileUrl: '/media/generated-package.zip',
+        fileName: 'generated-package.zip',
+      },
+    })
+
+    expect(artifact).toMatchObject({
+      kind: 'file',
+      artifactType: 'template_package',
+      isTerminal: true,
+      fileUrl: '/media/generated-package.zip',
+      fileName: 'generated-package.zip',
+    })
+  })
+
+  it('template_package 带下载地址时即使缺少 file kind 也归一为文件产物', () => {
+    const artifact = normalizeArtifactDisplayData({
+      kind: 'data',
+      artifactType: 'template_package',
+      label: '数字员工包',
+      skillName: 'employment-coach-conversation',
+      stage: 'stage4_packaging',
+      terminal: true,
+      data: JSON.stringify({
+        fileUrl: '/media/final-package.zip',
+        fileName: 'final-package.zip',
+      }),
+    })
+
+    expect(artifact).toMatchObject({
+      kind: 'file',
+      artifactType: 'template_package',
+      isTerminal: true,
+      fileUrl: '/media/final-package.zip',
+      fileName: 'final-package.zip',
     })
   })
 
