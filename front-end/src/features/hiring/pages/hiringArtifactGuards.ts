@@ -182,6 +182,23 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function isImportableTemplatePackageUrl(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  if (trimmed.startsWith('/app/memory/media-cache/') || trimmed.startsWith('/workspace/')) {
+    return false
+  }
+
+  return /^https?:\/\//i.test(trimmed) || trimmed.startsWith('/media/') || trimmed.startsWith('media/')
+}
+
 function isValidSkillSlug(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9][a-z0-9_-]*$/.test(value.trim())
 }
@@ -308,7 +325,7 @@ export function shouldDisplayArtifactInConversation(artifactType: string, isTerm
 export function getBlockedIncomingArtifactReason(
   artifactType: string,
   state: IncomingArtifactGateState,
-  options: { isTerminal?: boolean; kind?: 'file' | 'data'; data?: unknown } = {},
+  options: { isTerminal?: boolean; kind?: 'file' | 'data'; data?: unknown; fileUrl?: string } = {},
 ): string | null {
   if (!KNOWN_ARTIFACT_TYPES.has(artifactType)) {
     return 'unknown hiring artifact type'
@@ -320,6 +337,10 @@ export function getBlockedIncomingArtifactReason(
 
   if (artifactType === 'template_package' && options.kind && options.kind !== 'file') {
     return 'template_package must be file artifact'
+  }
+
+  if (artifactType === 'template_package' && !isImportableTemplatePackageUrl(options.fileUrl)) {
+    return 'template_package.fileUrl must be a downloadable package URL'
   }
 
   if (artifactType !== 'template_package' && options.kind === 'file') {

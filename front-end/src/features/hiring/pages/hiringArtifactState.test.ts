@@ -362,6 +362,19 @@ describe('extractArtifactFromToolCall', () => {
       fileUrl: '/media/media_fallback123',
     })
   })
+
+  it('不会把输入文件缓存路径误判为 template_package artifact', () => {
+    const artifact = extractArtifactFromToolCall({
+      toolName: 'emit_artifact',
+      arguments: '',
+      result: [
+        'template_package bootstrap context',
+        '[FILE_URL:/app/memory/media-cache/media_input123]',
+      ].join('\n'),
+    })
+
+    expect(artifact).toBeNull()
+  })
 })
 
 describe('normalizeArtifactDisplayData', () => {

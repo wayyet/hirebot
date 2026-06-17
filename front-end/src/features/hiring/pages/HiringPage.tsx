@@ -1568,6 +1568,7 @@ export default function HiringPage() {
             isTerminal,
             kind,
             data: artifactData.data,
+            fileUrl: artifactData.fileUrl,
           })
           if (blockedArtifactReason) {
             console.warn('[HiringPage] ignored gated artifact:', artifactType, blockedArtifactReason)

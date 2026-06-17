@@ -210,6 +210,23 @@ function parseTaggedArtifactResult(text: string): Record<string, unknown> {
   return result
 }
 
+function isImportableTemplatePackageUrl(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  if (trimmed.startsWith('/app/memory/media-cache/') || trimmed.startsWith('/workspace/')) {
+    return false
+  }
+
+  return /^https?:\/\//i.test(trimmed) || trimmed.startsWith('/media/') || trimmed.startsWith('media/')
+}
+
 function inferArtifactResultFromText(text: string): Record<string, unknown> | null {
   const result = parseTaggedArtifactResult(text)
 
@@ -242,6 +259,10 @@ function inferArtifactResultFromText(text: string): Record<string, unknown> | nu
   }
 
   if (result.artifactType === 'template_package' && result.fileUrl) {
+    if (!isImportableTemplatePackageUrl(result.fileUrl)) {
+      return null
+    }
+
     result.kind = 'file'
     result.isTerminal = result.isTerminal ?? true
   }
