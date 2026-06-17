@@ -263,6 +263,7 @@ Projection 源文件和 consumer contract 文件都**不得**为以下 stub 形�
 - 已收到 `ontology_projection_done`。
 - `ontology_projection_done.data.projected_count > 0`。
 - `ontology_projection_done.data.projection_paths[]` 非空，且路径能对应 `skill_workorder_summary.data.items[].name`。
+- 若 `ontology_projection_done.data` 缺少可消费的 `projection_paths[]`，但最近一次 R2 日志或文件写入记录显示 projection 文件已落盘，不得直接要求用户补资料；必须先在当前 `workspace_root` 下按已确认 skill slug 做一次受限恢复：只检查 `<workspace_root>/ontology/projections/<skill-slug>/` 中的 `*.projection.json`，读回并校验顶层 `projection_type`、`source_slice`、`concept_mappings` 后，重新构造带 `projected_count` 与 `projection_paths[]` 的聚合结果。恢复失败后才回到补资料或重跑业务信息准备。
 - 已发出 `skill_generation_ready`。
 - 用户对“是否开始生成技能实现”给出肯定。
 
@@ -303,7 +304,7 @@ return_to: employment-coach-conversation
 
 | # | 校验项 | 来源 | 阻断级别 | 说明 |
 |---|--------|------|---------|------|
-| 1 | `projection_result.projection_paths[]` 非空 | `ontology_projection_done.data` | **阻断**（不可触发 R3） | 若为空或 `projected_count === 0`，停留在阶段 2，提示用户补充业务资料 |
+| 1 | `projection_result.projection_paths[]` 非空 | `ontology_projection_done.data`，必要时从当前 `workspace_root` 的已确认 skill projection 目录受限恢复 | **阻断**（不可触发 R3） | 若为空或 `projected_count === 0`，先尝试受限恢复已落盘 projection；恢复失败才停留在阶段 2，提示用户补充业务资料 |
 | 2 | `projection_skill_slugs[]` 全部在 `confirmed_skill_slugs` 中 | 从 `projection_paths[]` 解析 `<skill-slug>` 部分 | **阻断**（projection 目录与已确认技能不一致） | 若存在不匹配的 slug，不得自行创建新目录或改名，必须报告不一致 |
 | 3 | 每个 `projection_paths[]` 指向的 `.projection.json` 文件存在且可读 | 文件系统（`read_file` 验证） | **阻断**（projection 文件未落盘） | 若文件不存在，先执行有界等待（500ms 间隔，最长 5s）；超时仍未就绪则阻断 |
 | 4 | 每个 projection 文件的 JSON 顶层包含 `projection_type`、`source_slice`、`concept_mappings`（非 stub） | 文件内容（`read_file` + JSON 解析） | **阻断**（无效 projection 源） | 若文件仅含 `note`/`source_projection_path` 等 stub 字段，视为源文件无效；`projection_contract_mode: "required"` 时必须阻断 |

@@ -113,6 +113,131 @@ function tryParseJsonRecord(value: unknown): Record<string, unknown> | null {
   return asPlainObject(value)
 }
 
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value !== 'string') {
+      continue
+    }
+
+    const trimmed = value.trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+
+  return ''
+}
+
+function normalizeArtifactResultKey(key: string): string {
+  return key.trim().toLowerCase().replace(/-/g, '_')
+}
+
+function assignArtifactResultValue(
+  result: Record<string, unknown>,
+  key: string,
+  value: string,
+): void {
+  const normalizedKey = normalizeArtifactResultKey(key)
+  const trimmedValue = value.trim()
+  if (!trimmedValue) {
+    return
+  }
+
+  switch (normalizedKey) {
+    case 'type':
+    case 'artifact_type':
+      result.artifactType = trimmedValue
+      break
+    case 'kind':
+      result.kind = trimmedValue
+      break
+    case 'stage':
+      result.stage = trimmedValue
+      break
+    case 'terminal':
+    case 'is_terminal':
+      result.isTerminal = trimmedValue.toLowerCase() === 'true'
+      break
+    case 'file_url':
+    case 'fileurl':
+      result.fileUrl = trimmedValue
+      break
+    case 'file_name':
+    case 'filename':
+    case 'display_name':
+      result.fileName = trimmedValue
+      break
+    case 'mime_type':
+    case 'mimetype':
+      result.mimeType = trimmedValue
+      break
+    case 'label':
+      result.label = trimmedValue
+      break
+    case 'skill_name':
+    case 'skillname':
+      result.skillName = trimmedValue
+      break
+    case 'display_hint':
+    case 'displayhint':
+      result.displayHint = trimmedValue
+      break
+    default:
+      result[normalizedKey] = trimmedValue
+      break
+  }
+}
+
+function parseSpaceSeparatedArtifactResult(inner: string): Record<string, unknown> | null {
+  const result: Record<string, unknown> = {}
+  const pairRegex = /(\w+)=(\S+)/g
+  let pairMatch: RegExpExecArray | null
+  while ((pairMatch = pairRegex.exec(inner)) !== null) {
+    assignArtifactResultValue(result, pairMatch[1], pairMatch[2])
+  }
+
+  return result.artifactType ? result : null
+}
+
+function parseTaggedArtifactResult(text: string): Record<string, unknown> | null {
+  const result: Record<string, unknown> = {}
+  const tagRegex = /\[([A-Za-z_][A-Za-z0-9_-]*):([^\]]*)\]/g
+  let tagMatch: RegExpExecArray | null
+  while ((tagMatch = tagRegex.exec(text)) !== null) {
+    assignArtifactResultValue(result, tagMatch[1], tagMatch[2])
+  }
+
+  if (!result.artifactType) {
+    return null
+  }
+
+  const publishedNameMatch = /Artifact published:\s*([^\r\n\[]+)/i.exec(text)
+  const publishedName = publishedNameMatch?.[1]?.trim()
+  if (publishedName && !result.fileName) {
+    result.fileName = publishedName
+  }
+
+  if (result.artifactType === 'template_package' && result.fileUrl) {
+    result.kind = 'file'
+    result.isTerminal = result.isTerminal ?? true
+  }
+
+  return result
+}
+
+export function parseArtifactFromToolResultText(text: string): Record<string, unknown> | null {
+  const dataArtifactMatch = /Data artifact emitted:\s*\[([^\]]*)\]/i.exec(text)
+  if (dataArtifactMatch?.[1]?.trim()) {
+    return parseSpaceSeparatedArtifactResult(dataArtifactMatch[1].trim())
+  }
+
+  if (/Artifact published:/i.test(text)) {
+    return parseTaggedArtifactResult(text)
+  }
+
+  return null
+}
+
 function parseHistoricalFileSize(label: string): number {
   const match = /([\d.]+)\s*(B|KB|MB|GB)?/i.exec(label.trim())
   if (!match) {
@@ -814,8 +939,23 @@ export function normalizeArtifactDisplayData(raw: Record<string, unknown>): Arti
   const artifactPayload = parameters && (parameters.artifactType || parameters.artifact_type)
     ? parameters
     : raw
-  const artifactKind = (String(artifactPayload.kind ?? 'data')) as 'file' | 'data'
   const artifactType = String(artifactPayload.artifactType ?? artifactPayload.artifact_type ?? 'generic')
+  const artifactPayloadData = tryParseJsonRecord(artifactPayload.data)
+  const inferredFileArtifact = artifactType === 'template_package' && (
+    artifactPayload.fileUrl != null ||
+    artifactPayload.file_url != null ||
+    artifactPayload.url != null ||
+    artifactPayload.downloadUrl != null ||
+    artifactPayload.download_url != null ||
+    artifactPayloadData?.fileUrl != null ||
+    artifactPayloadData?.file_url != null ||
+    artifactPayloadData?.url != null ||
+    artifactPayloadData?.downloadUrl != null ||
+    artifactPayloadData?.download_url != null
+  )
+  const artifactKind = (inferredFileArtifact
+    ? 'file'
+    : String(artifactPayload.kind ?? 'data')) as 'file' | 'data'
   const label = artifactPayload.label != null ? String(artifactPayload.label) : undefined
   const skillName = (artifactPayload.skillName ?? artifactPayload.skill_name) != null ? String(artifactPayload.skillName ?? artifactPayload.skill_name) : undefined
   const stage = artifactPayload.stage != null ? String(artifactPayload.stage) : undefined
@@ -838,9 +978,28 @@ export function normalizeArtifactDisplayData(raw: Record<string, unknown>): Arti
   }
 
   if (artifactKind === 'file') {
-    artifactData.fileUrl = String(artifactPayload.fileUrl ?? artifactPayload.file_url ?? '')
+    artifactData.fileUrl = firstNonEmptyString(
+      artifactPayload.fileUrl,
+      artifactPayload.file_url,
+      artifactPayload.url,
+      artifactPayload.downloadUrl,
+      artifactPayload.download_url,
+      artifactPayloadData?.fileUrl,
+      artifactPayloadData?.file_url,
+      artifactPayloadData?.url,
+      artifactPayloadData?.downloadUrl,
+      artifactPayloadData?.download_url,
+    )
     // 兼容历史 tool call 中的 display_name 字段（WS 实时用 fileName/file_name）
-    artifactData.fileName = String(artifactPayload.fileName ?? artifactPayload.file_name ?? artifactPayload.display_name ?? label ?? 'file')
+    artifactData.fileName = firstNonEmptyString(
+      artifactPayload.fileName,
+      artifactPayload.file_name,
+      artifactPayload.display_name,
+      artifactPayloadData?.fileName,
+      artifactPayloadData?.file_name,
+      artifactPayloadData?.display_name,
+      label,
+    ) || 'file'
     artifactData.mimeType = String(artifactPayload.mimeType ?? artifactPayload.mime_type ?? '')
   } else {
     if (artifactPayload.data != null) {
@@ -859,6 +1018,7 @@ export function normalizeArtifactDisplayData(raw: Record<string, unknown>): Arti
 
 export function extractArtifactFromToolCall(toolCall: SandboxToolCall): ArtifactDisplayData | null {
   const payload = tryParseJsonRecord(toolCall.arguments)
+    ?? (toolCall.result ? parseArtifactFromToolResultText(toolCall.result) : null)
   if (!payload) {
     return null
   }
@@ -1285,10 +1445,17 @@ export function buildCoachResumePrompt(
       )
     } else {
       lines.push(
-        'No usable prepared business-information package is ready for skill generation.',
+        'The provided aggregate projection result is not consumable yet.',
+        'Before asking the user for more materials, perform one bounded workspace recovery check.',
+        'Recovery source of truth: `resume_payload.skillSummary.workspace_root`, `resume_payload.skillSummary.template_slug`, and the confirmed skill slugs from `resume_payload.skillSummary.items[].name` or `items[].skill_slug`.',
+        'For each confirmed skill slug, inspect only `<workspace_root>/ontology/projections/<skill-slug>/` for `*.projection.json` files; do not scan outside the current workspace or outside confirmed skill slug directories.',
+        'For every candidate file, use `read_file` and count it only if the JSON top level includes `projection_type`, `source_slice`, and `concept_mappings`.',
+        'If at least one valid file is found, emit a corrected terminal `ontology_projection_done` artifact with stage=`stage2_skill` and aggregate `data` containing `workspace_root`, `template_slug`, `projected_count`, `projection_paths`, `skipped_count`, `skipped_skills`, `skip_reasons`, and `recovered_from_workspace: true`.',
+        'When recovery succeeds, do not ask the user to supplement materials, rerun business-information extraction, or rerun business-information preparation; the system layer will continue to the skill-generation confirmation gate from the corrected artifact.',
+        'If recovery finds no valid projection files, then no usable prepared business-information package is ready for skill generation.',
         'Do not emit `skill_projection_binding_ready`.',
         'Do not trigger `skill-generation` and do not offer a no-projection downgrade.',
-        'Ask the user whether to supplement materials, revisit business-information extraction, or rerun business-information preparation before continuing.',
+        'Only after recovery fails, ask the user whether to supplement materials, revisit business-information extraction, or rerun business-information preparation before continuing.',
       )
     }
 

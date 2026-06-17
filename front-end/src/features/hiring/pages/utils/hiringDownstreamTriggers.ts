@@ -383,6 +383,8 @@ export function buildDownstreamPrompt(target: DownstreamTarget, payload: unknown
       'Scan slices from `<workspace_root>/ontology/`.',
       'For each generated projection JSON, call the sandbox file-writing tool (`write_file` preferred; otherwise the available `create_file`/`save_file` equivalent) to write the file. Do not use shell, Python here-docs, echo, or narrative-only output to create projection files.',
       'After writing each projection file, call `read_file` on that exact path and verify the JSON is complete with top-level `projection_type`, `source_slice`, `intended_consumers`, and `concept_mappings` before counting it as projected.',
+      'A written projection file is not enough by itself: the terminal `ontology_projection_done.data` must be the aggregate handoff object that includes `projected_count` and every verified relative path in `projection_paths`.',
+      'Do not put the projection file JSON itself, a `read_file` result, or an empty object in `ontology_projection_done.data`; the main hiring flow only consumes the aggregate handoff object.',
       'If the file-writing tool is unavailable or read-back verification fails after bounded retry, mark the skill skipped with `slices_not_ready`; do not emit a successful `ontology_projection_done` for an unwritten or stub projection.',
       'If a valid projection still has `open_questions`, keep it as a projected WARNING result and surface those questions precisely; do not ask the user to rerun the same projection pass just because questions remain.',
       'For a projected WARNING result with consumable `projection_paths`, never say the business information is insufficient or not directly implementable. Describe it as matched skill data with pre-generation confirmation items.',
@@ -574,11 +576,17 @@ export function buildPackageReviewSkipPackagingPrompt(userRequest: string): stri
   ].join('\n')
 }
 
-export function isSkillDefinitionApprovalMessage(text: string): boolean {
-  const normalized = text.trim().toLowerCase()
-  if (!normalized) return false
+function compactUserText(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+}
 
-  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、""'']+/g, '')
+export function isSkillDefinitionApprovalMessage(text: string): boolean {
+  const compact = compactUserText(text)
+  if (!compact) return false
+
   const keywords = [
     '确认技能',
     '确认技能清单',
@@ -597,10 +605,9 @@ export function isSkillDefinitionApprovalMessage(text: string): boolean {
 }
 
 export function isOntologyProjectionApprovalMessage(text: string): boolean {
-  const normalized = text.trim().toLowerCase()
-  if (!normalized) return false
+  const compact = compactUserText(text)
+  if (!compact) return false
 
-  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、""'']+/g, '')
   const keywords = [
     '匹配技能数据',
     '开始匹配技能数据',
@@ -620,10 +627,9 @@ export function isOntologyProjectionApprovalMessage(text: string): boolean {
 }
 
 export function isSkillGenerationApprovalMessage(text: string): boolean {
-  const normalized = text.trim().toLowerCase()
-  if (!normalized) return false
+  const compact = compactUserText(text)
+  if (!compact) return false
 
-  const compact = normalized.replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：、""'']+/g, '')
   const keywords = [
     '采用',
     '采用并继续',
@@ -655,7 +661,7 @@ export function resolveSkillStageApprovalRoute(input: SkillStageApprovalRouteInp
     return 'none'
   }
 
-  // 阶段 2 的确认门会分布在两个下游轨道里；后续确认门必须优先吃掉“继续”这类通用确认词。
+  // 阶段 2 的确认门分布在多个下游轨道里；后续确认门优先消费“继续”这类通用确认词。
   if (
     isWaitingArtifact(input.skillGenerationState, 'skill_generation_ready') &&
     input.hasSkillSummary &&
@@ -698,7 +704,6 @@ export function resolveSkillStageApprovalRoute(input: SkillStageApprovalRouteInp
 
   return 'none'
 }
-
 export function resolveExternalSystemEntryRoute(input: ExternalSystemEntryRouteInput): ExternalSystemEntryRoute {
   if (input.incomingFileCount > 0) {
     return 'none'
@@ -890,13 +895,6 @@ export function isPackageReviewApprovalMessage(text: string): boolean {
   return keywords.some(keyword => compact.includes(keyword))
 }
 
-function compactUserText(text: string): string {
-  return text
-    .trim()
-    .toLowerCase()
-    .replace(/[\s,.;:!?'"`~\-_/\\|()[\]{}<>，。！？；：“”‘’]+/g, '')
-}
-
 export function isMaterialHandoffApprovalMessage(text: string): boolean {
   const compact = compactUserText(text)
   if (!compact) return false
@@ -908,6 +906,9 @@ export function isMaterialHandoffApprovalMessage(text: string): boolean {
     '确认资料',
     '按当前资料',
     '开始分析',
+    '可以推进',
+    '推进到下一步',
+    '下一步',
     '可以',
     '确认',
     '继续',
@@ -917,7 +918,6 @@ export function isMaterialHandoffApprovalMessage(text: string): boolean {
 
   return keywords.some(keyword => compact.includes(keyword))
 }
-
 export function isSkillDefinitionEntryApprovalMessage(text: string): boolean {
   const compact = compactUserText(text)
   if (!compact) return false
@@ -928,6 +928,8 @@ export function isSkillDefinitionEntryApprovalMessage(text: string): boolean {
     '定义技能',
     '技能定义',
     '确认进入',
+    '可以推进',
+    '推进到下一步',
     '可以',
     '确认',
     '继续',
@@ -937,7 +939,6 @@ export function isSkillDefinitionEntryApprovalMessage(text: string): boolean {
 
   return keywords.some(keyword => compact.includes(keyword))
 }
-
 export function isExternalSystemEntryMessage(text: string): boolean {
   const compact = compactUserText(text)
   if (!compact) return false

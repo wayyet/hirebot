@@ -34,7 +34,7 @@ export function getConfirmationActionCopy(run: DownstreamRunState | null): Confi
 
   if (run?.artifactType === 'skill_definition_ready') {
     return {
-      text: '技能清单已整理好。确认后会固定本轮技能范围，并继续匹配所需业务资料。',
+      text: '技能清单已整理好。确认后会固定本轮技能范围，并进入匹配资料前确认。',
       button: '确认技能清单',
       visibleMessage: '确认当前技能清单',
     }
@@ -69,7 +69,7 @@ export function getConfirmationActionCopy(run: DownstreamRunState | null): Confi
 
   if (run?.artifactType === 'packaging_testcases_ready') {
     return {
-      text: '外部配置已完成。确认后生成评估测试用例，用来检查数字员工的关键行为。',
+      text: '外部配置已完成。是否生成评估测试用例？你也可以跳过，直接进入打包前审查。',
       button: '生成测试用例',
       visibleMessage: '生成评估测试用例',
     }

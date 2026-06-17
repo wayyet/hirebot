@@ -154,6 +154,8 @@ class SkillStageContractTests(unittest.TestCase):
         )
 
         self.assertIn("确认是否可以开始分析业务资料", material_gate)
+        self.assertIn("必须先发出非终态 `material_handoff_ready` artifact", material_gate)
+        self.assertIn("不得只用普通 assistant 文本询问", material_gate)
         self.assertIn("分析完成后，再进入技能定义阶段", material_gate)
         self.assertNotIn("下一步进入**技能定义阶段**", material_gate)
 
@@ -321,6 +323,8 @@ class SkillStageContractTests(unittest.TestCase):
             "每个技能独立成项",
             "能力说明",
             "禁止把多个技能压缩成一句名称列表后直接询问确认",
+            "确认技能清单的问题必须由同一轮的 `skill_definition_ready` 承载",
+            "不得再次发出 `skill_definition_ready`",
             "不得向用户暴露 `slice`、`projection`、`projection_paths`、R1/R2/R3、结构化文件等内部术语",
             "你只要回我一句",
         ]
