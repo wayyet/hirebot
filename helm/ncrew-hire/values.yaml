@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: ai4c-tcr.tencentcloudcr.com/agentfoundry/hirebot
-  tag: dev-202605090005
+  tag: dev-202606171704
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
