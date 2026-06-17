@@ -327,6 +327,41 @@ describe('extractArtifactFromToolCall', () => {
       fileUrl: '/media/media_1a81499f3f1241b4',
     })
   })
+
+  it('从不带 Artifact published 前缀的文件发布结果中解析 template_package artifact', () => {
+    const artifact = extractArtifactFromToolCall({
+      toolName: 'streaming.emit_artifact',
+      arguments: '',
+      result: [
+        'File artifact emitted',
+        '[TYPE=template_package]',
+        '[FILE_URL:/media/media_abc123]',
+      ].join('\n'),
+    })
+
+    expect(artifact).toMatchObject({
+      kind: 'file',
+      artifactType: 'template_package',
+      isTerminal: true,
+      fileUrl: '/media/media_abc123',
+    })
+  })
+
+  it('从裸 media 地址和 template_package 文本中恢复文件 artifact', () => {
+    const artifact = extractArtifactFromToolCall({
+      toolName: 'emit_artifact',
+      arguments: '',
+      result: 'template_package generated: /media/media_fallback123 cosmetics-scheduler-package.zip',
+    })
+
+    expect(artifact).toMatchObject({
+      kind: 'file',
+      artifactType: 'template_package',
+      isTerminal: true,
+      fileName: 'cosmetics-scheduler-package.zip',
+      fileUrl: '/media/media_fallback123',
+    })
+  })
 })
 
 describe('normalizeArtifactDisplayData', () => {
