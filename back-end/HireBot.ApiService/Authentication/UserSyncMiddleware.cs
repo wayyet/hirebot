@@ -1,4 +1,4 @@
-using HireBot.Abstraction.Infrastructure.Multitenancy;
+﻿using HireBot.Abstraction.Infrastructure.Multitenancy;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -50,7 +50,6 @@ public sealed class UserSyncMiddleware(RequestDelegate next, IMemoryCache cache)
                     // 按 (TenantId, ExternalUserId) 查找用户
                     var existing = await db.AppUsers
                         .FirstOrDefaultAsync(u => 
-                            u.TenantId == tenantId && 
                             u.ExternalUserId == externalUserId);
                     
                     if (existing is null)

@@ -1,15 +1,7 @@
-using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
-using HireBot.Abstraction.Models.Migration;
-using HireBot.Abstraction.Models.Sandbox;
-using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Core.Services.Internal;
-using HireBot.Core.Services.Sandbox;
-using HireBot.Abstraction.Services.Sandbox;
-using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
-using System.IO.Compression;
 using System.Text.Json;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
@@ -34,6 +26,8 @@ public sealed partial class EmployeeRuntimeService
         }
     }
 
+
+    /// <summary>
     /// 加载持久化的运行时员工数据。
     /// </summary>
     private async Task<IReadOnlyList<EmployeeDetailDto>> LoadPersistedRuntimeEmployeesAsync(
@@ -65,14 +59,14 @@ public sealed partial class EmployeeRuntimeService
     {
         var instances = await query.ToArrayAsync(cancellationToken);
         var employees = new List<EmployeeDetailDto>();
-        
+
         // 批量查询创建人信息
         var ownerUserIds = instances.Select(i => i.OwnerUserId).Distinct().ToList();
         var creators = await dbContext.AppUsers
             .AsNoTracking()
             .Where(u => ownerUserIds.Contains(u.ExternalUserId))
             .ToDictionaryAsync(u => u.ExternalUserId, cancellationToken);
-        
+
         foreach (var instance in instances)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -91,7 +85,7 @@ public sealed partial class EmployeeRuntimeService
 
             // 始终使用 DB 实体的 CreatedAt 覆盖快照中的值，避免历史快照缺少时间精度
             employee = employee with { CreatedAt = instance.CreatedAt };
-            
+
             // 填充描述信息（优先使用 Description 字段，如果为空则从 DescribeDocument 提取）
             string? description = instance.Description;
             if (string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(instance.DescribeDocument))
@@ -121,7 +115,7 @@ public sealed partial class EmployeeRuntimeService
             {
                 employee = employee with { Description = description };
             }
-            
+
             // 填充创建人信息
             if (creators.TryGetValue(instance.OwnerUserId, out var creator))
             {
@@ -178,7 +172,7 @@ public sealed partial class EmployeeRuntimeService
             if (employee is not null)
             {
                 employee = employee with { CreatedAt = instance.CreatedAt };
-                
+
                 // 填充描述信息：仅当快照中 Description 为空时才从 DescribeDocument/CardIntro 回退
                 if (string.IsNullOrWhiteSpace(employee.Description))
                 {
@@ -200,12 +194,12 @@ public sealed partial class EmployeeRuntimeService
                         employee = employee with { Description = fallbackDescription };
                     }
                 }
-                
+
                 // 查询创建人信息
                 var creator = await dbContext.AppUsers
                     .AsNoTracking()
                     .FirstOrDefaultAsync(u => u.ExternalUserId == instance.OwnerUserId, cancellationToken);
-                
+
                 if (creator is not null)
                 {
                     employee = employee with
@@ -251,9 +245,8 @@ public sealed partial class EmployeeRuntimeService
     {
         return await LoadPersistedRuntimeEmployeesAsync(owner, cancellationToken);
     }
-    /// </summary>
+
     private async Task<EmployeeDetailDto?> ResolveDepartmentEmployeeForTenantAsync(
-        string tenantId,
         string employeeId,
         CancellationToken cancellationToken)
     {
@@ -261,8 +254,7 @@ public sealed partial class EmployeeRuntimeService
         var instance = await dbContext.Instances
             .AsNoTracking()
             .FirstOrDefaultAsync(
-                item => item.TenantId == tenantId
-                        && item.InstanceType == "department"
+                item => item.InstanceType == "department"
                         && item.InstanceId == normalizedEmployeeId,
                 cancellationToken);
         if (instance is null)
@@ -278,7 +270,7 @@ public sealed partial class EmployeeRuntimeService
         if (employee is not null)
         {
             employee = employee with { CreatedAt = instance.CreatedAt };
-            
+
             // 填充描述信息：仅当快照中 Description 为空时才从 DescribeDocument/CardIntro 回退
             if (string.IsNullOrWhiteSpace(employee.Description))
             {
@@ -300,17 +292,17 @@ public sealed partial class EmployeeRuntimeService
                     employee = employee with { Description = fallbackDescription };
                 }
             }
-            
+
             // 查询创建人信息
             var creator = await dbContext.AppUsers
                 .AsNoTracking()
                 .FirstOrDefaultAsync(u => u.Id == instance.OwnerUserId, cancellationToken);
-            
+
             if (creator is not null)
             {
                 employee = employee with
                 {
-                    CreatedBy = new HireBot.Abstraction.Models.User.CreatorRef
+                    CreatedBy = new Abstraction.Models.User.CreatorRef
                     {
                         Username = creator.Username,
                         DisplayName = creator.DisplayName,
@@ -403,7 +395,7 @@ public sealed partial class EmployeeRuntimeService
                 : BuildStageSummary(status, instance.InstanceId),
             PrimarySignal: BuildPrimarySignal(status),
             SignalLevel: status is "hired" or "interning_ai" ? "warn" : "ok",
-            OwningTeam: instance.DepartmentId,
+            OwningTeam: instance.TenantId ?? instance.DepartmentId,
             CreatedAt: instance.CreatedAt,
             InternshipStartAt: status is "live" ? DateOnly.FromDateTime(instance.CreatedAt.UtcDateTime).ToString("yyyy-MM-dd") : null,
             GraduatedAt: status is "live" ? DateOnly.FromDateTime(instance.UpdatedAt.UtcDateTime).ToString("yyyy-MM-dd") : null,
@@ -515,7 +507,7 @@ public sealed partial class EmployeeRuntimeService
                     BasedOnTemplateId: templateId,
                     FromInstanceId: null,
                     OwnerUserId: owner,
-                    DepartmentId: string.IsNullOrWhiteSpace(scenario) ? "department-default" : scenario,
+                    DepartmentId: scenario,
                     LifecycleStatus: MapStatusToLifecycleLabel(status),
                     StageSummary: BuildStageSummary(status, hireId),
                     PrimarySignal: BuildPrimarySignal(status),
@@ -837,5 +829,4 @@ public sealed partial class EmployeeRuntimeService
             detail.Description,
             detail.CreatedBy);
     }
-
 }

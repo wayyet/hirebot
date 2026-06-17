@@ -82,6 +82,7 @@ public sealed class EmployeeRuntimeServiceTests
             configuration,
             null!,
             null!,
+            null!,  // ITenantContextProvider
             NullLogger<EmployeeRuntimeService>.Instance);
     }
 
