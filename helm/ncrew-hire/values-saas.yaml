@@ -70,7 +70,7 @@ env:
   OpenSandbox__KingCrab__OidcAuthority: https://passport.ai4c.cn/realms/ai4c-saas
   OpenSandbox__KingCrab__OidcAudience: account
   OpenSandbox__KingCrab__ToolTimeoutSeconds: "300"
-  OpenSandbox__KingCrab__LlmModel: gpt-5.2
+  OpenSandbox__KingCrab__LlmModel: deepseek-v4-pro
   OpenSandbox__KingCrab__LlmEndpoint: https://new-api.ai4c.cn/v1
   # LlmApiKey 和 ClientSecret 通过 secretEnv 注入
   # KingCrabSandboxTokenProvider 优先用 ClientId/ClientSecret 向 Keycloak 换取 token；
