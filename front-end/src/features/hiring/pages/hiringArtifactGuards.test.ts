@@ -80,6 +80,20 @@ describe('getBlockedIncomingArtifactReason', () => {
       .toBe('unknown hiring artifact type')
   })
 
+  it('template_package 必须携带可下载的最终包地址', () => {
+    expect(getBlockedIncomingArtifactReason('template_package', emptyState, {
+      isTerminal: true,
+      kind: 'file',
+      fileUrl: '/app/memory/media-cache/media_input123',
+    })).toBe('template_package.fileUrl must be a downloadable package URL')
+
+    expect(getBlockedIncomingArtifactReason('template_package', emptyState, {
+      isTerminal: true,
+      kind: 'file',
+      fileUrl: '/media/media_final123',
+    })).toBeNull()
+  })
+
   it('要求 terminal summary 必须携带终态标记', () => {
     expect(getBlockedIncomingArtifactReason('material_handoff_summary', {
       ...emptyState,
