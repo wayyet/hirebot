@@ -1,17 +1,12 @@
-using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
-using HireBot.Abstraction.Models.Migration;
 using HireBot.Abstraction.Models.Sandbox;
-using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Core.Services.Hiring;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Sandbox;
-using HireBot.Abstraction.Services.Sandbox;
-using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.IO.Compression;
 using System.Text.Json;
@@ -64,10 +59,11 @@ public sealed partial class EmployeeRuntimeService
 
         if (existing is null)
         {
+            var tenantId = GetCurrentTenantId();
             dbContext.Instances.Add(new InstanceEntity
             {
                 InstanceId = employee.EmployeeId,
-                TenantId = ResolveTenantId(employee),
+                TenantId = tenantId,
                 InstanceType = string.IsNullOrWhiteSpace(employee.InstanceType) ? "department" : employee.InstanceType,
                 Status = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? "hired",
                 BasedOnTemplateId = employee.BasedOnTemplateId,
@@ -75,7 +71,7 @@ public sealed partial class EmployeeRuntimeService
                 FromInstanceId = employee.FromInstanceId,
                 EvalReportId = null,
                 OwnerUserId = string.IsNullOrWhiteSpace(employee.OwnerUserId) ? "unknown" : employee.OwnerUserId,
-                DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? "department-default" : employee.DepartmentId,
+                DepartmentId = tenantId,
                 CurrentVersion = version,
                 RuntimeSnapshotJson = JsonSerializer.Serialize(employee),
                 Description = finalDescription,
@@ -86,7 +82,8 @@ public sealed partial class EmployeeRuntimeService
         }
         else
         {
-            existing.TenantId = ResolveTenantId(employee);
+            var tenantId = GetCurrentTenantId();
+            existing.TenantId = tenantId;
             existing.InstanceType = string.IsNullOrWhiteSpace(employee.InstanceType) ? existing.InstanceType : employee.InstanceType;
             existing.Status = NormalizeStatus(employee.Status, employee.LifecycleStatus) ?? existing.Status;
             existing.BasedOnTemplateId = employee.BasedOnTemplateId;
@@ -97,7 +94,7 @@ public sealed partial class EmployeeRuntimeService
                 existing.HireId = hireId.Trim();
             }
             existing.OwnerUserId = string.IsNullOrWhiteSpace(employee.OwnerUserId) ? existing.OwnerUserId : employee.OwnerUserId;
-            existing.DepartmentId = string.IsNullOrWhiteSpace(employee.DepartmentId) ? existing.DepartmentId : employee.DepartmentId;
+            existing.DepartmentId = tenantId;
             existing.CurrentVersion = version;
             existing.RuntimeSnapshotJson = JsonSerializer.Serialize(employee);
             if (!string.IsNullOrWhiteSpace(finalDescription))
@@ -177,20 +174,6 @@ public sealed partial class EmployeeRuntimeService
     }
 
     /// <summary>
-    /// 解析租户ID。
-    /// </summary>
-    private static string ResolveTenantId(EmployeeDetailDto employee)
-    {
-        if (!string.IsNullOrWhiteSpace(employee.DepartmentId) &&
-            !string.Equals(employee.DepartmentId, "department-default", StringComparison.OrdinalIgnoreCase))
-        {
-            return employee.DepartmentId;
-        }
-
-        return string.IsNullOrWhiteSpace(employee.OwningTeam) ? "tenant-default" : employee.OwningTeam;
-    }
-
-    /// <summary>
     /// 构建员工ID。
     /// </summary>
     private static string BuildEmployeeId()
@@ -235,7 +218,7 @@ public sealed partial class EmployeeRuntimeService
                 return ApiResponse<string>.ErrorResponse(404, "instance not found");
             }
 
-            var tenantId = instance.TenantId ?? userIdentity.TenantId ?? "default";
+            var tenantId = instance.TenantId ?? GetCurrentTenantId() ?? "default";
             var operatorId = instance.OwnerUserId ?? userIdentity.OperatorId;
             var ownerSubject = userIdentity.OwnerSubject;
             var scopeKey = BuildRuntimeScopeKey(instanceId);
@@ -662,7 +645,6 @@ public sealed partial class EmployeeRuntimeService
     /// </summary>
     private sealed record PersonalCloneSandboxSetupResult(string SandboxId, string? GatewayEndpoint);
 
-    /// <summary>
     /// <summary>
     /// 获取第一个非空值。
     /// </summary>

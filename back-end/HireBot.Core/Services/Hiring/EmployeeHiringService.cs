@@ -1,7 +1,8 @@
-﻿using System.IO.Compression;
+using System.IO.Compression;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Infrastructure.Identity;
+using HireBot.Abstraction.Infrastructure.Multitenancy;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Hiring;
 using HireBot.Abstraction.Models.Sandbox;
@@ -33,11 +34,22 @@ internal sealed class EmployeeHiringService(
     IHiringArtifactPackageService artifactPackageService,
     IStoreSkillPackageDownloader storeSkillPackageDownloader,
     IUserIdentity userIdentity,
+    ITenantContextProvider tenantContextProvider,
     HireBotDbContext dbContext,
     IKingCrabHttpClient kingCrabHttpClient,
     IConfiguration configuration,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
+    /// <summary>
+    /// 获取当前租户ID（优先从 IUserIdentity，然后 ITenantContextProvider，最后 "default"）
+    /// </summary>
+    private string GetCurrentTenantId()
+    {
+        return userIdentity.TenantId
+               ?? tenantContextProvider.GetTenantId()
+               ?? "default";
+    }
+
     public async Task<ApiResponse<HireTemplateResultDto>> HireAsync(
         string templateId,
         string? useCase = null,
@@ -48,7 +60,7 @@ internal sealed class EmployeeHiringService(
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(400, "templateId 不能为空");
         }
 
-        var tenantId = userIdentity.TenantId ?? "default";
+        var tenantId = GetCurrentTenantId();
         var operatorId = userIdentity.OperatorId ?? "anonymous";
         var ownerSubject = userIdentity.OwnerSubject ?? $"{tenantId}:{operatorId}";
 

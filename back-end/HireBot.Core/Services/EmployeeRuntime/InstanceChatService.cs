@@ -1,15 +1,10 @@
-using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
 using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Services.EmployeeRuntime;
-using HireBot.Core.Services.Internal;
-using HireBot.Repository;
 using HireBot.Core.Services.Sandbox;
+using HireBot.Repository;
 using HireBot.Repository.Entities;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using System.Net.Http;
-using System.Collections.Generic;
-using Microsoft.AspNetCore.Mvc.ActionConstraints;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
 
@@ -80,16 +75,13 @@ public sealed class InstanceChatService(
             new ImConfigResultDto("feishu", "url_callback", "active", remoteResult.Data.Message ?? "飞书配置已更新", DateTimeOffset.UtcNow));
     }
 
-  
 
     /// <summary>
     /// 更新飞书频道配置。
     /// 调用 KingCrab Gateway 的 /admin/channels/feishu/update 接口，
     /// 应用新的配置并重新连接飞书频道。
     /// </summary>
-    /// <param name="config">飞书频道配置</param>
-    /// <param name="ownerSubject">所有者标识</param>
-    /// <param name="authToken">认证令牌</param>
+    /// <param name="instanceId"></param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>远程调用结果，包含操作状态</returns>
     /// <summary>

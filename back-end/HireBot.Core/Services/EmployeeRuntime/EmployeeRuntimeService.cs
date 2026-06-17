@@ -1,22 +1,22 @@
-using HireBot.Abstraction;
+﻿using HireBot.Abstraction;
+using HireBot.Abstraction.Infrastructure.Identity;
+using HireBot.Abstraction.Infrastructure.Multitenancy;
+using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Evaluation;
 using HireBot.Abstraction.Models.Evaluation.Tools;
-using HireBot.Abstraction.Models.EmployeeRuntime;
 using HireBot.Abstraction.Models.Migration;
-using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Services.EmployeeRuntime;
+using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Abstraction.Services.Security;
 using HireBot.Core.Services.Internal;
 using HireBot.Core.Services.Sandbox;
-using HireBot.Abstraction.Services.Sandbox;
 using HireBot.Repository;
-using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using System.Text;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 
 namespace HireBot.Core.Services.EmployeeRuntime;
@@ -24,8 +24,7 @@ namespace HireBot.Core.Services.EmployeeRuntime;
 /// <summary>
 /// 员工运行时服务，管理员工实例的生命周期、状态流转和配置。
 /// </summary>
-public sealed partial class EmployeeRuntimeService(
-    HireBot.Abstraction.Infrastructure.Identity.IUserIdentity userIdentity,
+public sealed partial class EmployeeRuntimeService(IUserIdentity userIdentity,
     HireBotDbContext dbContext,
     IInstanceArtifactCloneService artifactCloneService,
     IInstanceArtifactResolver instanceArtifactResolver,
@@ -35,6 +34,7 @@ public sealed partial class EmployeeRuntimeService(
     IConfiguration configuration,
     IHostEnvironment hostEnvironment,
     ISecretProtector secretProtector,
+    ITenantContextProvider tenantContextProvider,
     ILogger<EmployeeRuntimeService> logger) : IEmployeeRuntimeService
 {
     /// <summary>
@@ -88,6 +88,23 @@ public sealed partial class EmployeeRuntimeService(
     private const int DefaultMaxActivePersonalClonesPerOwner = 10;
 
     /// <summary>
+    /// 获取当前请求的租户ID。
+    /// 优先从 IUserIdentity 获取（来自 JWT claims），fallback 到 ITenantContextProvider（用于后台任务手动设置）。
+    /// </summary>
+    private string GetCurrentTenantId()
+    {
+        // 优先从 IUserIdentity 获取（HTTP 请求上下文）
+        if (!string.IsNullOrWhiteSpace(userIdentity.TenantId))
+        {
+            return userIdentity.TenantId;
+        }
+
+        // Fallback: 从 TenantContextProvider 获取（后台任务场景）
+        var tenantId = tenantContextProvider.GetTenantId();
+        return !string.IsNullOrWhiteSpace(tenantId) ? tenantId : "default";
+    }
+
+    /// <summary>
     /// Fixture 模板绑定记录。
     /// </summary>
     private sealed record FixtureTemplateBinding(
@@ -113,12 +130,10 @@ public sealed partial class EmployeeRuntimeService(
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetMyEmployeesAsync(CancellationToken cancellationToken = default)
     {
         var owner = userIdentity.OwnerSubject;
-        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
 
         var query = dbContext.Instances
             .AsNoTracking()
-            .Where(item => item.TenantId == tenantId
-                && item.OwnerUserId == owner
+            .Where(item => item.OwnerUserId == owner
                 && (item.InstanceType == "personal_clone" || item.InstanceType == "private_branch"))
             .OrderByDescending(item => item.UpdatedAt);
 
@@ -137,16 +152,14 @@ public sealed partial class EmployeeRuntimeService(
     public async Task<ApiResponse<IReadOnlyList<EmployeeSummaryDto>>> GetDepartmentEmployeesAsync(CancellationToken cancellationToken = default)
     {
         var owner = userIdentity.OwnerSubject;
-        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
-        
+
         // 查询条件：部门类型 + (已上岗 OR 当前用户创建的)
         var query = dbContext.Instances
             .AsNoTracking()
-            .Where(item => item.TenantId == tenantId 
-                && item.InstanceType == "department"
+            .Where(item => item.InstanceType == "department"
                 && (item.Status == "live" || item.OwnerUserId == owner))
             .OrderByDescending(item => item.UpdatedAt);
-        
+
         var employees = await LoadInstancesAsEmployeesAsync(query, cancellationToken: cancellationToken);
         var summaries = employees.Select(ToSummary).ToArray();
         return ApiResponse<IReadOnlyList<EmployeeSummaryDto>>.SuccessResponse(summaries);
@@ -171,7 +184,7 @@ public sealed partial class EmployeeRuntimeService(
         if (employee is null)
         {
             var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
-            employee = await ResolveDepartmentEmployeeForTenantAsync(tenantId.Trim(), employeeId, cancellationToken);
+            employee = await ResolveDepartmentEmployeeForTenantAsync(employeeId, cancellationToken);
             if (employee is not null)
                 scope = tenantId.Trim();
         }
@@ -479,8 +492,8 @@ public sealed partial class EmployeeRuntimeService(
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(409, ex.Message);
         }
 
-        var tenantId = employee.DepartmentId ?? userIdentity.TenantId ?? "default";
-        var operatorId = employee.OwnerUserId ?? userIdentity.OperatorId;
+        var tenantId = GetCurrentTenantId();
+        var operatorId = userIdentity.OperatorId;
         var sandboxSetup = await InitializeRuntimeSandboxAsync(
             employee,
             artifactResolution.ArtifactRoot,
@@ -657,7 +670,7 @@ public sealed partial class EmployeeRuntimeService(
                 BasedOnTemplateId: request.TemplateId,
                 FromInstanceId: null,
                 OwnerUserId: request.OwnerSubject,
-                DepartmentId: string.IsNullOrWhiteSpace(request.TenantId) ? "department-default" : request.TenantId,
+                DepartmentId: request.TenantId,
                 LifecycleStatus: MapStatusToLifecycleLabel(EmployeeStatus.Hiring),
                 StageSummary: "Hiring flow is collecting materials and skills",
                 PrimarySignal: "Waiting for the hiring flow to complete",
@@ -683,9 +696,7 @@ public sealed partial class EmployeeRuntimeService(
                 LifecycleStatus = MapStatusToLifecycleLabel(EmployeeStatus.Hiring),
                 BasedOnTemplateId = request.TemplateId,
                 OwnerUserId = request.OwnerSubject,
-                DepartmentId = string.IsNullOrWhiteSpace(request.TenantId)
-                    ? trackedExistingEmployee.DepartmentId
-                    : request.TenantId,
+                DepartmentId = request.TenantId,
                 OwningTeam = request.TenantId,
                 Description = string.IsNullOrWhiteSpace(request.Description)
                     ? reusedEmployee?.Description
@@ -693,12 +704,12 @@ public sealed partial class EmployeeRuntimeService(
             };
 
             // Rebind the single in-progress hiring card to the newly created sandbox/session.
-            trackedExistingEmployee.TenantId = ResolveTenantId(reusedEmployee);
+            trackedExistingEmployee.TenantId = request.TenantId;
             trackedExistingEmployee.HireId = request.HireId.Trim();
             trackedExistingEmployee.Status = EmployeeStatus.Hiring;
             trackedExistingEmployee.BasedOnTemplateId = normalizedTemplateId;
             trackedExistingEmployee.OwnerUserId = request.OwnerSubject;
-            trackedExistingEmployee.DepartmentId = reusedEmployee.DepartmentId;
+            trackedExistingEmployee.DepartmentId = request.TenantId;
             trackedExistingEmployee.RuntimeSnapshotJson = JsonSerializer.Serialize(reusedEmployee);
             if (!string.IsNullOrWhiteSpace(request.Description))
             {
@@ -728,7 +739,7 @@ public sealed partial class EmployeeRuntimeService(
             BasedOnTemplateId: request.TemplateId,
             FromInstanceId: null,
             OwnerUserId: request.OwnerSubject,
-            DepartmentId: string.IsNullOrWhiteSpace(request.TenantId) ? "department-default" : request.TenantId,
+            DepartmentId: request.TenantId,
             LifecycleStatus: "雇佣中",
             StageSummary: "正在收集材料与技能",
             PrimarySignal: "等待用户完成雇佣流程",
@@ -793,10 +804,9 @@ public sealed partial class EmployeeRuntimeService(
         string templateDisplayName;
         string? manifestDescription;
         IReadOnlyList<string> skillNames;
-        string manifestBasePath;
         Dictionary<string, byte[]> artifactFiles;
 
-        using (var archive = new ZipArchive(new MemoryStream(zipBytes), ZipArchiveMode.Read))
+        await using (var archive = new ZipArchive(new MemoryStream(zipBytes), ZipArchiveMode.Read))
         {
             var manifestEntry = archive.Entries.FirstOrDefault(entry =>
                 string.Equals(entry.Name, "manifest.json", StringComparison.OrdinalIgnoreCase) ||
@@ -808,7 +818,7 @@ public sealed partial class EmployeeRuntimeService(
             }
 
             // 解析 manifest 内容
-            using var manifestStream = manifestEntry.Open();
+            await using var manifestStream = await manifestEntry.OpenAsync(cancellationToken);
             using var doc = await JsonDocument.ParseAsync(manifestStream, cancellationToken: cancellationToken);
             var root = doc.RootElement;
 
@@ -849,11 +859,7 @@ public sealed partial class EmployeeRuntimeService(
                 {
                     if (skill.ValueKind != JsonValueKind.Object) continue;
 
-                    var isRequired = true;
-                    if (skill.TryGetProperty("required", out var reqEl) && reqEl.ValueKind == JsonValueKind.False)
-                    {
-                        isRequired = false;
-                    }
+                    bool isRequired = !(skill.TryGetProperty("required", out var reqEl) && reqEl.ValueKind == JsonValueKind.False);
 
                     if (isRequired && skill.TryGetProperty("name", out var skillNameEl) && skillNameEl.ValueKind == JsonValueKind.String)
                     {
@@ -869,7 +875,7 @@ public sealed partial class EmployeeRuntimeService(
             skillNames = skills;
 
             // 确定基础路径
-            manifestBasePath = "";
+            var manifestBasePath = "";
             var manifestFullName = manifestEntry.FullName;
             var lastSlash = manifestFullName.LastIndexOf('/');
             if (lastSlash >= 0)
@@ -940,7 +946,7 @@ public sealed partial class EmployeeRuntimeService(
             BasedOnTemplateId: noTemplateId,
             FromInstanceId: null,
             OwnerUserId: owner,
-            DepartmentId: string.IsNullOrWhiteSpace(tenantId) ? "department-default" : tenantId,
+            DepartmentId: tenantId,
             LifecycleStatus: "已上岗",
             StageSummary: description,
             PrimarySignal: "运行正常",
@@ -1161,7 +1167,7 @@ public sealed partial class EmployeeRuntimeService(
         var normalizedSourceId = sourceEmployeeId.Trim();
         var displayName = request.DisplayName.Trim();
         var owner = userIdentity.OwnerSubject;
-        var tenantId = string.IsNullOrWhiteSpace(userIdentity.TenantId) ? "default" : userIdentity.TenantId;
+        var tenantId = GetCurrentTenantId();
         var operatorId = userIdentity.OperatorId;
 
         var ownerEmployees = await ResolveOwnerEmployeesAsync(owner, cancellationToken);
@@ -1176,7 +1182,7 @@ public sealed partial class EmployeeRuntimeService(
                 $"个人分身数量已达上限（最多 {maxActivePersonalClones} 个），请先废弃不再使用的分身。");
         }
 
-        var source = await ResolveDepartmentEmployeeForTenantAsync(tenantId, normalizedSourceId, cancellationToken);
+        var source = await ResolveDepartmentEmployeeForTenantAsync(normalizedSourceId, cancellationToken);
         if (source is null)
         {
             return ApiResponse<EmployeeDetailDto>.ErrorResponse(404, "源部门员工不存在");
@@ -1500,5 +1506,4 @@ public sealed partial class EmployeeRuntimeService(
     private sealed record FixtureBundle(
         IReadOnlyList<EmployeeDetailDto> Employees,
         int FixtureDirectories);
-
 }
