@@ -68,7 +68,7 @@ html[data-mode="light"] {
   --hb-page-max-width: 1440px;
   --hb-shell-max-width: 100%;
   --hb-topnav-height: 64px;
-  --hb-nav-backdrop: saturate(180%) blur(20px);
+  --hb-nav-backdrop: blur(28px) saturate(180%);
   --hb-dropdown-backdrop: blur(20px);
 
   --hb-black: var(--ref-slate-950);
@@ -91,21 +91,21 @@ html[data-mode="light"] {
   --hb-surface-card: rgba(255, 255, 255, 0.84);
 
   --hb-nav-bg: rgba(255, 255, 255, 0.82);
-  --hb-nav-border: rgba(148, 163, 184, 0.18);
+  --hb-nav-border: rgba(15, 23, 42, 0.06);
   --hb-role-bg: rgba(255, 255, 255, 0.92);
   --hb-chip-bg: rgba(255, 255, 255, 0.74);
   --hb-user-chip-bg: rgba(255, 255, 255, 0.86);
-  --hb-nav-pill-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.92) 100%);
-  --hb-nav-pill-hover: rgba(15, 23, 42, 0.04);
-  --hb-nav-pill-active: rgba(255, 255, 255, 0.96);
-  --hb-nav-pill-shadow: 0 12px 28px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  --hb-pill-shadow-active: 0 8px 20px var(--hb-accent-shadow);
+  --hb-nav-pill-bg: var(--hb-nav-bg);
+  --hb-nav-pill-hover: rgba(255, 255, 255, 0.72);
+  --hb-nav-pill-active: rgba(255, 255, 255, 0.94);
+  --hb-nav-pill-shadow: 0 1px 0 rgba(15, 23, 42, 0.08);
+  --hb-pill-shadow-active: 0 8px 18px var(--hb-accent-shadow);
 
-  --hb-user-btn-bg: rgba(var(--hb-accent-rgb), 0.08);
-  --hb-user-btn-hover-bg: rgba(var(--hb-accent-rgb), 0.14);
-  --hb-user-btn-border: rgba(var(--hb-accent-rgb), 0.16);
+  --hb-user-btn-bg: rgb(var(--hb-accent-rgb) / 0.08);
+  --hb-user-btn-hover-bg: rgb(var(--hb-accent-rgb) / 0.14);
+  --hb-user-btn-border: var(--hb-border-input);
   --hb-user-btn-color: var(--hb-accent-600);
-  --hb-user-avatar-bg: rgba(var(--hb-accent-rgb), 0.18);
+  --hb-user-avatar-bg: var(--hb-accent-solid);
 
   --hb-grad:
     radial-gradient(ellipse 70% 45% at 18% 58%, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.74) 34%, var(--hb-market-wash-left) 72%, transparent 100%),
@@ -163,8 +163,8 @@ html[data-mode="light"] {
   --hb-utility-radius: 8px;
   --hb-avatar-radius: 7px;
   --hb-brand-logo-radius: 10px;
-  --hb-nav-shell-radius: 16px;
-  --hb-nav-item-radius: 10px;
+  --hb-nav-shell-radius: 18px;
+  --hb-nav-item-radius: 12px;
   --hb-nav-collapse-radius: 14px;
   --hb-card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.88), var(--hb-surface-soft));
   --hb-card-border: var(--hb-border);
@@ -225,7 +225,7 @@ html[data-mode="dark"] {
   --hb-page-max-width: 1440px;
   --hb-shell-max-width: 100%;
   --hb-topnav-height: 64px;
-  --hb-nav-backdrop: saturate(180%) blur(20px);
+  --hb-nav-backdrop: blur(28px) saturate(180%);
   --hb-dropdown-backdrop: blur(20px);
 
   --hb-black: var(--ref-slate-900);
@@ -248,21 +248,21 @@ html[data-mode="dark"] {
   --hb-surface-card: rgba(15, 23, 42, 0.74);
 
   --hb-nav-bg: rgba(2, 6, 23, 0.82);
-  --hb-nav-border: rgba(148, 163, 184, 0.18);
+  --hb-nav-border: rgba(148, 163, 184, 0.14);
   --hb-role-bg: rgba(15, 23, 42, 0.88);
   --hb-chip-bg: rgba(15, 23, 42, 0.72);
   --hb-user-chip-bg: rgba(15, 23, 42, 0.82);
-  --hb-nav-pill-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.92) 0%, rgba(2, 6, 23, 0.96) 100%);
-  --hb-nav-pill-hover: rgba(148, 163, 184, 0.10);
-  --hb-nav-pill-active: rgba(15, 23, 42, 0.92);
-  --hb-nav-pill-shadow: 0 14px 34px rgba(2, 6, 23, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --hb-pill-shadow-active: 0 10px 24px var(--hb-accent-shadow);
+  --hb-nav-pill-bg: var(--hb-nav-bg);
+  --hb-nav-pill-hover: rgba(148, 163, 184, 0.12);
+  --hb-nav-pill-active: rgba(15, 23, 42, 0.88);
+  --hb-nav-pill-shadow: 0 1px 0 rgba(148, 163, 184, 0.12);
+  --hb-pill-shadow-active: 0 10px 22px var(--hb-accent-shadow);
 
-  --hb-user-btn-bg: rgba(var(--hb-accent-rgb), 0.12);
-  --hb-user-btn-hover-bg: rgba(var(--hb-accent-rgb), 0.20);
-  --hb-user-btn-border: rgba(var(--hb-accent-rgb), 0.22);
+  --hb-user-btn-bg: rgb(var(--hb-accent-rgb) / 0.15);
+  --hb-user-btn-hover-bg: rgb(var(--hb-accent-rgb) / 0.22);
+  --hb-user-btn-border: var(--hb-border-input);
   --hb-user-btn-color: var(--hb-accent-300);
-  --hb-user-avatar-bg: rgba(var(--hb-accent-rgb), 0.18);
+  --hb-user-avatar-bg: var(--hb-accent-solid);
 
   --hb-grad:
     radial-gradient(ellipse 55% 42% at 20% 24%, rgba(var(--hb-accent-rgb), 0.16) 0%, transparent 72%),
@@ -320,8 +320,8 @@ html[data-mode="dark"] {
   --hb-utility-radius: 8px;
   --hb-avatar-radius: 7px;
   --hb-brand-logo-radius: 10px;
-  --hb-nav-shell-radius: 16px;
-  --hb-nav-item-radius: 10px;
+  --hb-nav-shell-radius: 18px;
+  --hb-nav-item-radius: 12px;
   --hb-nav-collapse-radius: 14px;
   --hb-card-bg: linear-gradient(145deg, rgba(24, 32, 52, 0.88), rgba(20, 27, 45, 0.96));
   --hb-card-border: rgba(96, 118, 158, 0.24);

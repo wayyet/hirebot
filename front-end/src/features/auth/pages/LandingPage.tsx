@@ -153,7 +153,7 @@ export default function LandingPage() {
                 aria-label={t('theme.toggle')}
                 title={t('theme.toggle')}
               >
-                {isDark ? <Sun size={16} /> : <Moon size={16} />}
+                {isDark ? <Moon size={16} /> : <Sun size={16} />}
               </button>
             ) : null}
 

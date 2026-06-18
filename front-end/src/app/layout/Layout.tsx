@@ -2,12 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   Globe,
+  LayoutTemplate,
   Loader2,
   LogOut,
   Moon,
   Palette,
   Settings,
   Sun,
+  User,
+  Users,
+  type LucideIcon,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -32,6 +36,7 @@ const ROLE_STORAGE_KEY = "hirebot_user_role_v1";
 type NavItem = {
   path: string;
   labelKey: string;
+  icon: LucideIcon;
   managerOnly?: boolean;
   alwaysVisible?: boolean;
   isNew?: boolean;
@@ -41,10 +46,11 @@ const navItems: NavItem[] = [
   {
     path: "/template-pool",
     labelKey: "nav.templatePool",
+    icon: LayoutTemplate,
     managerOnly: true,
   },
-  { path: "/department-employees", labelKey: "nav.departmentEmployees", alwaysVisible: true },
-  { path: "/my-employees", labelKey: "nav.myEmployees", alwaysVisible: true },
+  { path: "/department-employees", labelKey: "nav.departmentEmployees", icon: Users, alwaysVisible: true },
+  { path: "/my-employees", labelKey: "nav.myEmployees", icon: User, alwaysVisible: true },
 ];
 
 function deriveDefaultRole(): HirebotUserRole {
@@ -108,6 +114,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [navStacked, setNavStacked] = useState(false);
   const [navMenuOpen, setNavMenuOpen] = useState(false);
+  const [userNameCompact, setUserNameCompact] = useState(false);
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const brandRef = useRef<HTMLDivElement | null>(null);
   const navMeasureRef = useRef<HTMLDivElement | null>(null);
@@ -123,8 +130,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       const actionsWidth = actionsRef.current?.offsetWidth ?? 0;
       if (!layoutWidth || !brandWidth || !navWidth || !actionsWidth) return;
 
-      const requiredWidth = brandWidth + navWidth + actionsWidth + 48;
+      const requiredWidth = brandWidth + navWidth + actionsWidth + 40;
       setNavCollapsed(requiredWidth > layoutWidth);
+      setUserNameCompact(layoutWidth < 620);
       setNavStacked(layoutWidth < 520);
     };
 
@@ -230,6 +238,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     });
   }, [role]);
 
+  const activeNavItem = useMemo(
+    () => visibleNavItems.find((item) => isNavItemActive(location.pathname, item.path)) ?? visibleNavItems[0],
+    [location.pathname, visibleNavItems],
+  );
+
   async function handleLogout() {
     if (logoutLoading) return;
 
@@ -246,7 +259,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }
 
   const displayName = loadingUser ? t("user.loading") : userDisplayName || t("user.defaultName");
-  const avatarLetter = loadingUser ? "?" : (userDisplayName?.charAt(0)?.toUpperCase() ?? "?");
+  const ActiveNavIcon = activeNavItem?.icon;
 
   return (
     <UserRoleContext.Provider value={{ role, setRole }}>
@@ -281,15 +294,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className={`hb-topnav-center${navStacked && navCollapsed ? " is-stacked" : ""}`}>
               <div ref={navMeasureRef} aria-hidden="true" className="hb-nav-measure">
                 <div className="hb-nav-pill-shell">
-                  {visibleNavItems.map((item) => (
-                    <span
-                      key={`measure-${item.path}`}
-                      className="hb-nav-pill-item"
-                      style={{ background: "transparent", boxShadow: "none" }}
-                    >
-                      {t(item.labelKey)}
-                    </span>
-                  ))}
+                  {visibleNavItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <span
+                        key={`measure-${item.path}`}
+                        className="hb-nav-pill-item"
+                        style={{ background: "transparent", boxShadow: "none" }}
+                      >
+                        <Icon size={14} />
+                        <span>{t(item.labelKey)}</span>
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -297,13 +314,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <nav className="hb-nav-pill-shell">
                   {visibleNavItems.map((item) => {
                     const active = isNavItemActive(location.pathname, item.path);
+                    const Icon = item.icon;
                     return (
                       <Link
                         key={item.path}
                         to={item.path}
                         className={`hb-nav-pill-item${active ? " is-active" : ""}`}
                       >
-                        {t(item.labelKey)}
+                        <Icon size={14} />
+                        <span>{t(item.labelKey)}</span>
                         {item.isNew ? <span className="hb-nav-flag">new</span> : null}
                         {active ? <span className="hb-nav-pill-dot" /> : null}
                       </Link>
@@ -321,11 +340,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       setUserOpen(false);
                     }}
                   >
+                    {ActiveNavIcon ? <ActiveNavIcon size={15} /> : null}
                     <span className="hb-nav-collapse-btn__label">
-                      {t(
-                        visibleNavItems.find((item) => isNavItemActive(location.pathname, item.path))
-                          ?.labelKey ?? visibleNavItems[0]?.labelKey ?? "",
-                      )}
+                      {t(activeNavItem?.labelKey ?? "")}
                     </span>
                     <ChevronDown
                       size={13}
@@ -341,6 +358,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     <div className={`hb-nav-collapse-menu${navStacked ? " is-stacked" : ""}`}>
                       {visibleNavItems.map((item) => {
                         const active = isNavItemActive(location.pathname, item.path);
+                        const Icon = item.icon;
                         return (
                           <Link
                             key={item.path}
@@ -348,7 +366,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             className={`hb-nav-menu-item${active ? " is-active" : ""}`}
                             onClick={() => setNavMenuOpen(false)}
                           >
-                            {t(item.labelKey)}
+                            <Icon size={15} />
+                            <span>{t(item.labelKey)}</span>
                           </Link>
                         );
                       })}
@@ -366,7 +385,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   title={t("theme.toggle")}
                   onClick={toggleMode}
                 >
-                  {isDark ? <Sun size={15} /> : <Moon size={15} />}
+                  {isDark ? <Moon size={16} /> : <Sun size={16} />}
                 </button>
               ) : null}
 
@@ -421,14 +440,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <div className="hb-user-dropdown" ref={userRef}>
                 <button
                   type="button"
-                  className="hb-user-btn"
+                  className={`hb-user-btn${userNameCompact ? " is-compact" : ""}`}
                   onClick={() => {
                     setUserOpen((current) => !current);
                     setLangOpen(false);
                   }}
                 >
-                  <div className="hb-user-avatar">{avatarLetter}</div>
-                  <span className="hb-user-name">{displayName}</span>
+                  <div className="hb-user-avatar">
+                    <User size={12} />
+                  </div>
+                  <span className={`hb-user-name${userNameCompact ? " is-compact" : ""}`}>
+                    {displayName}
+                  </span>
                   <ChevronDown
                     size={12}
                     style={{

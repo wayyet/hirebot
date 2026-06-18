@@ -26,7 +26,7 @@ html[data-mode="dark"] .hb-shell {
   max-width: var(--hb-shell-max-width);
   margin: 0 auto;
   height: 100%;
-  padding: 0 28px;
+  padding: 0 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -100,12 +100,12 @@ html[data-mode="dark"] .hb-shell {
 /* 折叠下拉菜单 */
 .hb-nav-collapse-menu {
   position: absolute;
-  top: calc(100% + 10px);
+  top: calc(100% + 12px);
   left: 50%;
   transform: translateX(-50%);
-  min-width: 180px;
-  padding: 6px;
-  border-radius: var(--hb-nav-collapse-radius);
+  min-width: 200px;
+  padding: 8px;
+  border-radius: 16px;
   border: 1px solid var(--hb-dropdown-border);
   background: var(--hb-dropdown-bg);
   box-shadow: var(--hb-dropdown-shadow);
@@ -124,15 +124,16 @@ html[data-mode="dark"] .hb-shell {
 .hb-nav-menu-item {
   display: flex;
   align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 9px 12px;
-  border-radius: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
   background: transparent;
-  color: var(--hb-body);
+  color: var(--hb-soft);
   font-size: 13px;
   font-weight: 500;
   text-decoration: none;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
   white-space: nowrap;
 }
 
@@ -144,6 +145,7 @@ html[data-mode="dark"] .hb-shell {
 .hb-nav-menu-item.is-active {
   background: var(--hb-nav-pill-active);
   color: var(--hb-accent-text);
+  box-shadow: var(--hb-pill-shadow-active);
 }
 
 .hb-brand {
@@ -182,9 +184,9 @@ html[data-mode="dark"] .hb-shell {
 
 .hb-brand-wordmark {
   display: block;
-  height: 34px;
-  width: auto;
-  max-width: 150px;
+  width: 108px;
+  height: 40px;
+  max-width: 108px;
   object-fit: contain;
 }
 
@@ -215,10 +217,10 @@ html[data-mode="dark"] .hb-shell {
 
 /* ── Pill-style Nav ── */
 .hb-nav-pill-shell {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 8px;
+  gap: 6px;
+  padding: 6px 10px;
   border-radius: var(--hb-nav-shell-radius);
   background: var(--hb-nav-pill-bg);
   border: 1px solid var(--hb-nav-border);
@@ -232,21 +234,23 @@ html[data-mode="dark"] .hb-shell {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 13px 9px;
+  gap: 7px;
+  padding: 9px 14px 11px;
   border-radius: var(--hb-nav-item-radius);
   font-size: 13px;
   font-weight: 500;
   color: var(--hb-soft);
   text-decoration: none;
   white-space: nowrap;
-  transition: background 0.16s ease, color 0.16s ease;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
   letter-spacing: 0.01em;
+  cursor: pointer;
 }
 
 .hb-nav-pill-item:hover {
   background: var(--hb-nav-pill-hover);
   color: var(--hb-near-black);
+  transform: translateY(-1px);
 }
 
 .hb-nav-pill-item.is-active {
@@ -277,10 +281,11 @@ html[data-mode="dark"] .hb-shell {
 }
 
 .hb-nav-actions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 /* Theme toggle & language switcher */
@@ -288,11 +293,11 @@ html[data-mode="dark"] .hb-shell {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--hb-theme-btn-border);
-  border-radius: var(--hb-utility-radius);
-  background: var(--hb-theme-btn-bg);
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--hb-nav-utility-border);
+  border-radius: 8px;
+  background: transparent;
   color: var(--hb-soft);
   cursor: pointer;
   transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
@@ -310,16 +315,17 @@ html[data-mode="dark"] .hb-shell {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 11px;
-  border-radius: var(--hb-utility-radius);
+  padding: 6px 12px;
+  border-radius: 8px;
   border: 1px solid var(--hb-nav-utility-border);
-  background: var(--hb-nav-utility-bg);
+  background: transparent;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   color: var(--hb-body);
   white-space: nowrap;
   transition: background 0.15s ease, border-color 0.15s ease;
+  min-width: 0;
   flex-shrink: 0;
 }
 
@@ -428,16 +434,23 @@ html[data-mode="dark"] .hb-shell {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 11px 5px 6px;
-  border-radius: var(--hb-utility-radius);
+  padding: 6px 12px;
+  border-radius: 8px;
   border: 1px solid var(--hb-user-btn-border);
   background: var(--hb-user-btn-bg);
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   color: var(--hb-user-btn-color);
-  max-width: 188px;
+  min-width: 0;
+  max-width: 184px;
   transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.hb-user-btn.is-compact {
+  padding-right: 10px;
+  padding-left: 10px;
+  max-width: 132px;
 }
 
 .hb-user-btn:hover {
@@ -445,22 +458,49 @@ html[data-mode="dark"] .hb-shell {
 }
 
 .hb-user-name {
-  max-width: 96px;
+  max-width: 100px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.hb-user-name.is-compact {
+  max-width: 52px;
+}
+
 .hb-user-avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: var(--hb-avatar-radius);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
   background: var(--hb-user-avatar-bg);
-  color: var(--hb-user-btn-color);
-  display: grid;
-  place-items: center;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-weight: 700;
   font-size: 11px;
   flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .hb-topnav-inner {
+    padding: 0 16px;
+  }
+
+  .hb-nav-actions {
+    gap: 6px;
+  }
+
+  .hb-nav-utility-btn {
+    padding: 6px 10px;
+  }
+
+  .hb-nav-collapse-btn__label {
+    max-width: 88px;
+  }
+
+  .hb-nav-collapse-menu {
+    min-width: 188px;
+  }
 }
 
