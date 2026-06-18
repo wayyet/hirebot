@@ -21,21 +21,30 @@ export interface TemplateLatestVersion {
   unavailableReason: string | null
 }
 
+export interface TemplateCreatorRef {
+  username?: string | null
+  displayName?: string | null
+  familyName?: string | null
+  givenName?: string | null
+}
+
 export interface EmployeeTemplateCard {
   id: string
   name: string
   displayName: string
   positioning: string
   description: string
-  currentVersion: string
+  currentVersion: string | null
   installCount: number
   updatedAt: string
   status: string
   /** JSON 字符串，需要 JSON.parse 后使用 */
-  useCases: string
+  useCases: string[]
   tags: string[]
   skillCount: number
   requiredSkillCount: number
+  createdByUserId?: string | null
+  createdBy?: TemplateCreatorRef | null
   hasPackage: boolean
   packageStatus: string
   unavailableReason: string | null
