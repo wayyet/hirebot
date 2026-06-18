@@ -1,44 +1,40 @@
 """
-run.py — STEP-3-conformant entrypoint for the ws_jwt runtime driver (v2.0).
+run.py — STEP-3-conformant entrypoint for the ws_jwt runtime driver (v2.1).
 
-In v2.0 STEP 3 is **dual-role with asymmetric execution**:
+STEP 3 使用 **单轮模式（Mode C）**：每次调用只发一轮消息，连接 → 发送 →
+收集被评估者回复 → 追加到 partial trace → 退出。宿主 Agent 的 LLM 在两次
+调用之间读取 partial trace，生成下一轮追问，实现动态多轮对话。
 
-  - driver_role  (THIS subprocess): a long-lived stdin/stdout JSON loop. It
-    owns the WebSocket+JWT wire, sends customer utterances to the evaluatee,
-    collects assistant_done turns, and writes the final ExecutionTrace. It
-    makes NO decisions about what the customer says or when to stop.
+三种 CLI 入口（统一入口，通过参数区分）：
 
-  - simulator_role (NOT a subprocess): the host evaluation-expert agent
-    itself, using its own LLM brain, plays the customer. It feeds decisions
-    into THIS driver's stdin and reads the evaluatee's replies from THIS
-    driver's stdout.
+  --utterance TEXT    单轮模式（唯一推荐）：发送 TEXT，收集回复，追加 partial
+                      trace 后退出。首轮传 tc.input.opening_message，后续轮次
+                      由宿主 LLM 生成追问。会话连续性由 _ws_session_id 保证。
 
-Wire protocol (line-delimited JSON, one JSON object per line):
+  --finalize-trace    收尾模式：将 partial trace 转为完整 ExecutionTrace，
+                      写入 termination 块。在所有 --utterance 调用之后执行。
+
+  --auto-simulate     自动模拟模式（仅冒烟测试）：run.py 内部循环所有轮次，
+                      使用固定追问策略，无需 LLM 介入。不推荐用于正式评估。
+
+Wire protocol（仅 --utterance 模式，stdout 输出）：
 
   driver -> agent (stdout):
-    {"event":"ready","driver_id":"ws_jwt","effective_max_turns":N}
     {"event":"evaluatee_turn","turn_index":N,"content":"...","tool_calls":[...],"raw_messages":[...]}
+    {"event":"turn_appended","turn_index":N,"path":"...","turns_so_far":N}
     {"event":"trace_written","path":"..."}
-    {"event":"error","detail":"...","recoverable":true} # malformed host action; fix and continue
-    {"event":"error","detail":"..."}                  # unrecoverable failure
+    {"event":"error","detail":"...","recoverable":true}
+    {"event":"error","detail":"..."}
 
-  agent -> driver (stdin):
-    {"action":"send","turn_index":N,"text":"...","decision":{...full SimulatorDecision...}}
-    {"action":"end","decision":{...final SimulatorDecision...},
-     "termination":{"reason":"...", "detail":"...", "final_emotion":"...", "turns_used":N}}
-
-Lifecycle:
-  1. Spawn with --evaluation-context, --enriched-test-case, --output.
-  2. Load eval_ctx + enriched_tc, validate driver_config, open WS, emit "ready".
-  3. Loop reading stdin lines:
-       - on "send": cache decision into simulator_trail; if turn_index==0 just
-         record + send via WS without expecting a prior reply; collect the
-         evaluatee turn; emit "evaluatee_turn".
-       - on "end": cache final decision; assemble ExecutionTrace; write to
-         --output; emit "trace_written"; close WS; exit 0.
-  4. Malformed host actions are surfaced as recoverable error events and do
-     not mutate the trace. I/O / evaluatee failures still write a best-effort
-     partial trace and exit 2.
+Lifecycle（--utterance 模式）:
+  1. 调用 run.py --utterance "<opening_message>" --output trace.json
+  2. 加载 eval_ctx + enriched_tc，解析 WS token，连接 Gateway
+  3. 发送 utterance（带 sessionId），收集 assistant_done，追加 dialog_turns
+  4. 写入 partial trace（_partial=true, _last_turn_index=N, _ws_session_id）
+  5. stdout 输出 evaluatee_turn，退出
+  6. 宿主 Agent 读取 partial trace，LLM 生成下一轮追问
+  7. 重复步骤 1-6 直到 LLM 决定 should_continue=false
+  8. 调用 run.py --finalize-trace 收尾
 
 This file remains the ONLY runtime entry that talks to the evaluatee for
 protocol=websocket+jwt. It still does not score, never raises observed_signals,
