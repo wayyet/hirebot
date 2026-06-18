@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Clock, Search } from 'lucide-react'
+import { Clock, GitBranch, Search, UserRound } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
@@ -13,6 +13,38 @@ const EMPTY_LIST: EmployeeTemplateListData = {
   pageSize: PAGE_SIZE,
   total: 0,
   items: [],
+}
+
+function formatVersionLabel(version?: string | null) {
+  const clean = version?.trim()
+  if (!clean) return '--'
+  if (clean.startsWith('v')) return clean
+  if (clean.startsWith('V')) return `v${clean.slice(1)}`
+  return `v${clean}`
+}
+
+function formatCreatorName(
+  template: EmployeeTemplateCard,
+  locale: string,
+) {
+  const creator = template.createdBy
+  const displayName = creator?.displayName?.trim()
+  if (displayName) return displayName
+
+  const familyName = creator?.familyName?.trim()
+  const givenName = creator?.givenName?.trim()
+  if (familyName && givenName) {
+    return locale.toLowerCase().startsWith('zh')
+      ? `${familyName}${givenName}`
+      : `${givenName} ${familyName}`
+  }
+  if (familyName) return familyName
+  if (givenName) return givenName
+
+  const username = creator?.username?.trim()
+  if (username) return username
+
+  return template.createdByUserId?.trim() || '--'
 }
 
 function formatDate(value?: string | null) {
@@ -35,9 +67,20 @@ function TemplateCard({
   template: EmployeeTemplateCard
   onClick: () => void
 }) {
+  const { i18n } = useTranslation()
+  const creatorName = formatCreatorName(template, i18n.language)
+
   return (
     <button type="button" onClick={onClick} className="hb-market-card">
-      <h3 className="hb-market-card-title">{template.name}</h3>
+      <div className="hb-market-card-heading">
+        <h3 className="hb-market-card-title">{template.displayName || template.name}</h3>
+        {template.currentVersion ? (
+          <span className="hb-market-card-version">
+            <GitBranch size={11} />
+            {formatVersionLabel(template.currentVersion)}
+          </span>
+        ) : null}
+      </div>
       <p className="hb-market-card-copy">{template.positioning}</p>
 
       <div className="hb-market-card-tags">
@@ -49,8 +92,14 @@ function TemplateCard({
       </div>
 
       <div className="hb-market-card-meta">
-        <Clock size={12} />
-        <span>{formatDate(template.updatedAt)}</span>
+        <span className="hb-market-card-meta-item" title={creatorName}>
+          <UserRound size={12} />
+          <span>{creatorName}</span>
+        </span>
+        <span className="hb-market-card-meta-item">
+          <Clock size={12} />
+          <span>{formatDate(template.updatedAt)}</span>
+        </span>
       </div>
     </button>
   )
