@@ -19,6 +19,26 @@
 新增一个指标 = 往 `./metrics/` 放一个 `*.metric.json` 文件，同理。
 新增一个测试用例 = 往 `./test-cases/` 放一个 `*.tc.json` 文件，同理。
 
+## 架构模式
+
+### 单 Agent 模式（legacy，向后兼容）
+
+整条流水线由同一个 Agent 实例串行执行。简单但上下文会随 TC 数量持续累积，长流程下容易超限或变慢。
+
+### 三段式 Multi-Agent 模式（推荐）
+
+为解决单 Agent 上下文膨胀问题，流水线拆分为三个专职 Agent：
+
+| Agent | 负责步骤 | 上下文特点 |
+|---|---|---|
+| **Prep Agent** | 评估前完备性检查 + STEP 0~2.5 | 加载员工模板，做完即释放 |
+| **Run Agent × N** | STEP 3+4（每 TC 一个实例） | 仅持有单 TC 的极小上下文 |
+| **Report Agent** | STEP 5~10 | 只读汇总 JSON，不读 trace 原文 |
+
+三者通过**文件系统传递数据**，Orchestrator 只做轻量调度（不持有业务数据）。  
+并行开关：`evaluation_context.parallelism.enabled`（默认 `false`，开启后 N 个 Run Agent 并发执行）。  
+详细架构：[`playbooks/orchestrator.md`](./playbooks/orchestrator.md)、[`playbooks/agent-boundaries.md`](./playbooks/agent-boundaries.md)。
+
 ## 13 步流水线（高层视角）
 
 ```
@@ -28,6 +48,11 @@ PRE.A 载入角色目录 → STEP 0 解析员工(文件/对话/推断)+规范化
                           └────────────┘                            ↓
                                                               JSON + HTML 报告
 ```
+
+**Multi-Agent 模式下各步骤的 Agent 归属**（详见 SKILL.md 步骤表）：
+- **Prep Agent**：评估前完备性检查 + PRE.A + STEP 0~2.5（含上图全部初始化步骤）
+- **Run Agent × N**：STEP 3 + STEP 4（每 TC 独立实例，STEP 4 后额外写 `summary.json`）
+- **Report Agent**：STEP 5~10（读摘要文件，不读 trace 原文）
 
 各步详细操作手册位于 [`./playbooks/`](./playbooks/README.md)：
 
@@ -90,21 +115,26 @@ K13 强约束：`dimension_scores.json` 的 key 集合必须**正好等于** `{ 
 
 | 想看 | 去这里 |
 |---|---|
-| 完整流程、HARD RULES、K-rules、5 个父维度、路径表、路由表 | [`SKILL.md`](./SKILL.md) |
+| 完整流程、HARD RULES、K-rules（含 K22）、5 个父维度、路径表、路由表 | [`SKILL.md`](./SKILL.md) |
 | 某一步具体怎么做 | [`./playbooks/`](./playbooks/README.md) |
 | K-rules 一一对应、严重性、taint 行为 | [`./playbooks/k-rules.md`](./playbooks/k-rules.md) |
-| 启动前不变量（pre-flight） | [`./playbooks/pre-flight-invariants.md`](./playbooks/pre-flight-invariants.md) |
+| **Multi-Agent 调度状态机** | [`./playbooks/orchestrator.md`](./playbooks/orchestrator.md) |
+| **三个 Agent 的职责边界与 K22** | [`./playbooks/agent-boundaries.md`](./playbooks/agent-boundaries.md) |
+| **Prep Agent 操作手册** | [`./playbooks/prep-agent-playbook.md`](./playbooks/prep-agent-playbook.md) |
+| **Run Agent 操作手册（单 TC）** | [`./playbooks/run-agent-playbook.md`](./playbooks/run-agent-playbook.md) |
+| 启动前不变量（pre-flight，含不变式 14/15） | [`./playbooks/pre-flight-invariants.md`](./playbooks/pre-flight-invariants.md) |
 | Tainted 怎么处理、怎么恢复 | [`./playbooks/tainted-run-lifecycle.md`](./playbooks/tainted-run-lifecycle.md) |
+| TC 摘要文件 Schema | [`./runtime-schemas/tc_score_summary.schema.json`](./runtime-schemas/tc_score_summary.schema.json) |
 | 角色目录怎么写、继承 / 别名 / fail-soft | [`./role-catalog/README.md`](./role-catalog/README.md) |
 | 员工档案怎么写、三源解析优先级 | [`./employees/README.md`](./employees/README.md) |
 | 指标数据层细节（含 15 个内置指标 = 7 通用 + 8 角色专属 + 角色覆盖矩阵） | [`./metrics/README.md`](./metrics/README.md) |
 | 用例数据层细节（v2.0 simulator-driven 字段、provenance、polarity） | [`./test-cases/README.md`](./test-cases/README.md) |
 | Driver 怎么写、怎么选 | [`./runtime-drivers/README.md`](./runtime-drivers/README.md) |
 | Simulator 怎么写、为什么不是子进程、`.no-decide-script` 哨兵 | [`./simulators/README.md`](./simulators/README.md) |
-| 单次评估目录里的所有产物 + 三个 reference fixture（eval-soul-001 / eval-xiaofu-00{1,2}）分别演示了什么反模式 | [`./runs/README.md`](./runs/README.md) |
+| 单次评估目录里的所有产物 + 三个 reference fixture | [`./runs/README.md`](./runs/README.md) |
 | 运行时数据形状（schemas）+ HTML 模板占位符契约 | [`./runtime-schemas/README.md`](./runtime-schemas/README.md) |
-| 路由选择 / 上游 producer 依赖（含 role-ontology）/ 主题打分算法 | [`./contracts/projections/ontology_extraction/contract-index.json`](./contracts/projections/ontology_extraction/contract-index.json) |
-| 13 步流水线 + K1–K18 权威文本 | [`./contracts/projections/ontology_extraction/metric-selection/metric-selection.workflow-contract.projection.json`](./contracts/projections/ontology_extraction/metric-selection/metric-selection.workflow-contract.projection.json) |
+| 路由选择 / 上游 producer 依赖 / 主题打分算法 | [`./contracts/projections/ontology_extraction/contract-index.json`](./contracts/projections/ontology_extraction/contract-index.json) |
+| 13 步流水线 + K1–K21 权威文本 | [`./contracts/projections/ontology_extraction/metric-selection/metric-selection.workflow-contract.projection.json`](./contracts/projections/ontology_extraction/metric-selection/metric-selection.workflow-contract.projection.json) |
 
 ## 不变约定
 

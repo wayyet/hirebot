@@ -1,80 +1,73 @@
 # STEP 9 — buildOverallReport（LLM 综合，双格式输出）
 
-**类型**：LLM 综合（仅生成叙述性文字，精确执行一次）
-**依据**：工作流合同 `S9` + K4 + K6 + K7 + K11 + 评分判断 K5（`AllIssuesMustBeReported`）
-**输入**：`evaluation_context`、STEP 5/6/7 产物、所有 ScenarioReport 文件、`evaluation_report.schema.json`
+**类型**：LLM 综合（仅生成叙述性文字，精确执行一次）  
+**依据**：工作流合同 `S9` + K4 + K6 + K7 + K11 + 评分判断 K5（`AllIssuesMustBeReported`）  
+**输入**：`evaluation_context`、STEP 5/6/7 产物、所有 ScenarioReport 文件、`evaluation_report.schema.json`  
 **输出**：两个文件（见下文）
+
+> **架构说明（重要）**：STEP 9 分为两个阶段：
+> 1. **LLM 阶段**：Agent 读取汇总数值文件 + schema，生成 `evaluation_report.json`（纯 JSON）。
+> 2. **脚本阶段**：Agent 调用 `report_assembler.py`，由脚本负责读模板、读 trace、拼装 HTML。
+>
+> Agent **不得**在 LLM 阶段读取 `report-template.html` 或任何 trace 文件——这些是脚本的职责，不是 Agent 的。把大文件读取交给脚本，是防止上下文膨胀导致 Agent 中途停顿的关键设计。
 
 ---
 
-## ⚡ STEP 9 执行前强制预飞检查（Pre-flight）
+## ⚡ STEP 9 执行前预检查
 
-**在生成任何报告内容之前，Agent 必须按以下顺序读取所有文件，否则 STEP 9 拒绝执行。**
+**Agent 只需读取以下小型 JSON 文件，不读 HTML 模板，不读 trace。**
 
 ### 第一步：确定运行目录（绝对路径）
 
 ```
 SKILL_ROOT = /workspace/uploads/evaluation-expert-consumer
-eval_id    = evaluation_context.json 中的 run_id 字段（如 eval-20260611064346-59d22062ad6e4678b07722860528bd58）
+eval_id    = evaluation_context.json 中的 run_id 字段
 RUN_DIR    = /workspace/uploads/evaluation-expert-consumer/runs/<eval_id>
 REPORT_DIR = /workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/reports
 ```
 
-> 所有下文出现的 `<SKILL_ROOT>`、`<RUN_DIR>`、`<REPORT_DIR>` 均指上述绝对路径，不得使用 `./` 相对路径拼接。
+### 第二步：Agent 必须读取（按序，仅这几个文件）
 
-### 第二步：必须读取（按序）
+| # | 必读文件（绝对路径） | 用途 | 大小预估 |
+|---|---|---|---|
+| 1 | `/workspace/runtime/evaluation-context.json` | 确认 `eval_id`、`employee_id`、模板目录 | 小 |
+| 2 | `/workspace/uploads/evaluation-expert-consumer/runtime-schemas/evaluation_report.schema.json` | JSON 报告结构约束 | 小 |
+| 3 | `<RUN_DIR>/aggregated_metric_scores.json` | STEP 5 产物；字节拷贝源（K7） | 小 |
+| 4 | `<RUN_DIR>/dimension_scores.json` | STEP 6 产物；字节拷贝源（K7） | 小 |
+| 5 | `<RUN_DIR>/red_line_check.json` | STEP 7 产物；字节拷贝源（K7） | 小 |
+| 6 | `<RUN_DIR>/reports/scenarios/<tc_id>.report.json`（全部） | STEP 8 产物；每场景一个，链接到总报告 | 小 |
 
-| # | 必读文件（绝对路径） | 用途 |
-|---|---|---|
-| 1 | `/workspace/runtime/evaluation-context.json` | 确认 `eval_id`、`employee_id`、模板目录 |
-| 2 | `/workspace/uploads/evaluation-expert-consumer/runtime-schemas/evaluation_report.schema.json` | **JSON 报告结构约束**；不读取不得开始构建 JSON |
-| 3 | `/workspace/uploads/evaluation-expert-consumer/runtime-schemas/report-template.html` | **HTML 渲染模板（K17 合同）**；必须逐字节读取，不得凭记忆生成 HTML |
-| 4 | `<RUN_DIR>/aggregated_metric_scores.json` | STEP 5 产物；字节拷贝源（K7） |
-| 5 | `<RUN_DIR>/dimension_scores.json` | STEP 6 产物；字节拷贝源（K7） |
-| 6 | `<RUN_DIR>/red_line_check.json` | STEP 7 产物；字节拷贝源（K7） |
-| 7 | `<RUN_DIR>/reports/scenarios/<tc_id>.report.json`（全部） | STEP 8 产物；每场景一个，链接到总报告 |
-| 8 | `<RUN_DIR>/traces/<tc_id>.trace.json`（全部） | 评分推理溯源，注入 `SCENARIOS_DATA` |
-| 9 | `/workspace/uploads/artifact/<template_dir>/config/SOUL.md` | 员工核心行为原则——`executive_summary` 叙述的基准框架 |
-| 10 | `/workspace/uploads/artifact/<template_dir>/skills/*/SKILL.md` | 技能口径——叙述中对"能力边界"描述的依据 |
-
-> **⚠️ 如果第 2、3 步骤文件未读取就生成了 JSON 或 HTML，运行自动被标记为污染（K17 违规），STEP 9 必须从预飞步骤重新执行。**
+> ✅ **不在此处读取**：`report-template.html`（交给 `report_assembler.py`）、`traces/*.trace.json`（交给 `report_assembler.py`）、`SOUL.md`、`SKILL.md`（Prep Agent 已加载，Report Agent 不重复读）。
+>
+> 预检查完成后 Agent 直接进入 JSON 生成阶段。**不存在"预飞完成后停顿等待用户输入"这个节点**——读完即写。
 
 ---
 
-## 两个输出文件
+## 阶段一：生成 evaluation_report.json（Agent LLM 完成）
 
-| 文件 | 绝对路径 | 用途 |
-|---|---|---|
-| JSON | `<REPORT_DIR>/evaluation_report.json` | 机器可读，根据 `evaluation_report.schema.json` 验证 |
-| HTML | `<REPORT_DIR>/evaluation_report.html` | 人类可读，自包含单文件报告 |
+### 数值字段为字节拷贝（K7）
 
-> `<REPORT_DIR>` = `/workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/reports`
-> 目录不存在时 Agent 须先创建（`mkdir -p <REPORT_DIR>/scenarios`）。
-
-## 数值字段为字节拷贝（K7）
-
-`dimension_scores` / `overall_score` / `red_line` / `passed` 必须与 STEP 5 / 6 / 7 输出字节完全一致：
+以下字段**直接从文件复制**，LLM 不得修改：
 
 | EvaluationReport 字段 | 来源文件 |
 |---|---|
 | `per_metric_final_scores` | `aggregated_metric_scores.json` |
 | `dimension_scores` | `dimension_scores.json` |
-| `red_line`（含 `triggered`、`evidence`） | `red_line_check.json` |
-| `overall_score` | `dimension_scores.json`（加权） |
-| `passed` | 确定性推导（见下文通过标准） |
+| `red_line`（含 `triggered`、`triggers`） | `red_line_check.json` |
+| `overall_score` | `dimension_scores.json`（加权求和） |
+| `passed` | 确定性推导（见下方通过标准） |
 
-The LLM is allowed to author **only**:
+LLM **只负责编写**以下叙述字段（不含任何数字）：
 
 - `executive_summary`
-- `strengths`
-- `weaknesses`
-- `cross_scenario_patterns`
-- `improvement_plan`
-- `open_questions`
+- `strengths`（字符串数组）
+- `weaknesses`（字符串数组）
+- `cross_scenario_patterns`（字符串数组）
+- `narrative.improvement_plan`（每项含 area + action）
+- `open_questions`（字符串数组）
+- `red_line.narratives`（中文叙述数组，K18 要求）
 
-任何与字节拷贝数值相矛盾的 LLM 生成值均为 K7 违规；报告**必须**重新生成。
-
-## 通过/未通过推导
+### 通过/未通过推导
 
 ```
 passed = (red_line.triggered == false)
@@ -82,114 +75,113 @@ passed = (red_line.triggered == false)
          AND (∀d ∈ dimension_scores: d.value >= 60)
 ```
 
-这些阈值是 customer-service-ecommerce 的默认值；逐模板覆盖可在相关工作流合同投影中声明。
+### K18 标签注入（写 JSON 时必须包含）
 
-## 开放问题呈现（K11 + K16）
+Agent 必须在 JSON 中注入以下字段，供 HTML 模板渲染中文标签：
 
-`EvaluationReport.open_questions[]` **必须**包含以下条目：
+```jsonc
+{
+  "metric_labels": {
+    "<metric_code>": "<来自 metrics/<code>.metric.json#display_name 的中文名>"
+    // 必须覆盖 aggregated_metric_scores + red_line.triggers + 所有场景 metric_results 中的每个 metric_code
+  },
+  "tool_labels": {
+    "<tool_name>": "<来自 role-catalog/<role>.role.json#tools[].display_name 的中文名>"
+    // 必须覆盖 expected_tool_calls + actual_tool_calls + missing_required_tool_call:* 信号中的每个 tool_name
+  }
+  // dimension_labels 可选；5 个默认维度模板内置，非默认维度时才需提供
+}
+```
 
-- 每个 Tier-2 用例（`provenance.reliability == "low"`） → caveat `synthesized_from_sop_only_no_user_grounding`（K11）
-- 每个污染运行的 K 规则违规（K8 / K9 / K10 / K12 / K13 / K14 / K16）→ severity `critical`
-- STEP 5 输入门发现的每对重复 `scored_at`（K16）→ severity `critical`
-- 每个被拒绝的 trace（K14）→ 列出受影响的 `tc_id`
-- `test_case_status == "missing"` 命中时缺少用户咨询（K11）
+缺少任何 `metric_labels` / `tool_labels` 条目 = K18 违规，`report_assembler.py` 不会报错但 HTML 会显示英文原始代码。
 
-Tier-2 / 污染发现的措辞**必须**降级：使用"指示性"/"初步"，而非"确定性"。
-
-## scenario_report 包含（K6）
-
-STEP 9 **必须**链接到 `<REPORT_DIR>/scenarios/<tc_id>.report.json`（即 `/workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/reports/scenarios/<tc_id>.report.json`）文件。**不得内联它们。** STEP 9 也**不得**在每个适用场景都有 ScenarioReport 文件之前开始。
-
-## HTML 生成流程（K17——仅限模板，禁止自由编写 HTML）
-
-**K17（硬性）**：STEP 9 **必须**通过原文加载 `/workspace/uploads/evaluation-expert-consumer/runtime-schemas/report-template.html`（即上方预飞步骤第 3 步已读取的模板），并仅替换三个合同占位符来渲染 HTML。Agent **不得**手工编写 HTML / CSS / `<script>`。任何未先逐字节读取模板就生成的 HTML 均为 K17 违规，运行被污染；报告**必须**从模板重新生成。
-
-1. 读取 `/workspace/uploads/evaluation-expert-consumer/runtime-schemas/report-template.html`（预飞第 3 步已完成，此处确认）。
-2. 收集所有场景数据：对每个测试用例，收集 `{ report: <RUN_DIR>/reports/scenarios/<tc_id>.report.json, trace: <RUN_DIR>/traces/<tc_id>.trace.json, enriched: <RUN_DIR>/enriched-cases/<tc_id>.enriched.json }`。
-3. 替换模板中的占位符：
-
-   | 占位符 | 替换内容 | 说明 |
-   |---|---|---|
-   | `{{REPORT_DATA}}` | 完整 `evaluation_report.json` 内容作为 JSON 字符串 | 驱动雷达图和标题数值 |
-   | `{{SCENARIOS_DATA}}` | 场景对象数组作为 JSON 字符串 | 每个场景一个 Tab |
-   | `{{EMPLOYEE_NAME}}` | 员工显示名称 | 在 `<title>` 和页面标题中 |
-
-4. 将最终 HTML 写入 `<REPORT_DIR>/evaluation_report.html`（即 `/workspace/uploads/evaluation-expert-consumer/runs/<eval_id>/reports/evaluation_report.html`）。
-
-这三个占位符**是合同**。如果修改模板，保持占位符名称稳定，或同时更新本操作手册 + `runtime-schemas/report-template.html`。
-
-### K17 自检（STEP 9 返回前强制执行）
-
-在交还运行前，Agent **必须**对生成的 HTML 验证以下所有条件；任何一行失败均意味着 K17 违规：
-
-- the file's first 8 lines are byte-identical to the template's first 8 lines (after `{{EMPLOYEE_NAME}}` substitution);
-- the file contains exactly one `<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>`;
-- the file contains the `<canvas id="radarChart">` element and the `new Chart(...)` constructor call;
-- the file contains zero occurrences of `{{REPORT_DATA}}` / `{{SCENARIOS_DATA}}` / `{{EMPLOYEE_NAME}}`;
-- 内嵌的 `<script id="report-data" type="application/json">` 和 `<script id="scenarios-data" type="application/json">` 块解析为合法 JSON。
-
-## 中文叙述呈现合同（K18——不向终端用户暴露原始英文标记）
-
-**K18（硬性）**：HTML 中每个面向用户的字符串**必须**是中文叙述。Agent **不得**将原始英文 `metric_code`、`trigger_kind`、`stop_reason` 或信号标记字符串（如 `tool_call_correctness · missing_required_signal`、`missing_required_tool_call:query_order_status`）作为主要显示标签。英文代码**只可**作为中文标签后方的小括号技术提示出现。
-
-强制呈现规则：
-
-| 元素 | 错误（原始标记） | 正确（中文叙述） |
-|---|---|---|
-| 指标标签 | `tool_call_correctness` | `工具调用准确度`（将 `(tool_call_correctness)` 作为小灰色提示） |
-| 维度标签 | `process_compliance` | `流程合规` |
-| 红线标题 | `tool_call_correctness · missing_required_signal` | `工具调用准确度：得分 10/100，触发"必须工具调用缺失"红线` |
-| 红线证据 | `tc-001: 缺失 query_order_status, query_logistics_tracking` | `物流催派 (tc-001)：未调用 查询订单状态 / 查询物流轨迹 / 提交催派工单` |
-| 场景信号 | `missing_required_tool_call:query_product_info` | `必须工具未调用：查询商品信息` |
-
-中文标签的真相来源（STEP 9 **必须**将它们全部注入 `REPORT_DATA`；模板故意**没有**内置指标/工具回退，这样新增的指标或工具就不会静默回退为原始英文代码）：
-
-| `REPORT_DATA` 中的字段 | 真相来源 | 覆盖规则 |
-|---|---|---|
-| `metric_labels` | `metrics/<metric_code>.metric.json#display_name` | 必须包含 `aggregated_metric_scores`、`red_line.triggers` 以及任何场景报告的 `metric_results[].metric_code` 所引用的每个 `metric_code`。缺少条目 = K18 违规。 |
-| `tool_labels` | 角色目录工具 `display_name`（例如 `role-catalog/<role>.role.json#tools[].display_name`）；仅当目录无条目时才回退到 2–6 字中文释义 | 必须包含运行中出现在 `expected_tool_calls`、`actual_tool_calls` 以及任何 `missing_required_tool_call:<tool>` 信号中的每个 `tool_name`。 |
-| `dimension_labels` | `evaluation_context.dimension_meta[<dim>].display_name`（可选；回退到模板内置的 5 维 `DIM_CONFIG.label`） | 如果客户模板引入了非默认维度，必须在此提供。 |
-
-`TRIGGER_KIND_LABEL`（`missing_required_signal` / `forbidden_behavior` / `threshold_breach`）是工作流合同拥有的枚举级词汇，存在于模板中；新触发类型必须在同一变更中同时添加到模板枚举和本操作手册。
-
-`evaluation_report.json` 中的 `red_line.narratives` 字段必须已经是中文叙述句子列表（K7 字节拷贝规则仍适用于 `triggered` / `triggers`——叙述是 STEP 9 额外编写的 K18 表面，而非对数值的复述）。推荐格式：
+### `red_line.narratives` 格式（K18）
 
 ```json
 "red_line": {
   "triggered": true,
   "triggers": [...],
   "narratives": [
-    "工具调用准确度：得分 10/100，触发「必须信号缺失」红线。原因：4 个用例下 must-criticality 必调工具全部未触发。",
+    "工具调用准确度：得分 10/100，触发「必须信号缺失」红线。",
     "物流催派（tc-001）：未调用「查询订单状态」「查询物流轨迹」「提交催派工单」"
   ]
 }
 ```
 
-K18 自检（强制）：在 STEP 9 返回前，在生成的 HTML 中搜索以下原始标记——找到任何一个均为 K18 违规：
+### 开放问题呈现（K11 + K16）
 
-- `missing_required_signal`, `forbidden_behavior`, `missing_required_tool_call:`
-- any `metric_code` shown as a primary label without a Chinese counterpart on the same line
-- any of the 5 dimension codes (`tool_call_correctness`, `interaction_quality`, `functional_completeness`, `problem_resolution`, `process_compliance`) shown without a Chinese label
-- `aggregated_metric_scores` / `red_line.triggers` / 场景 `metric_results[]` 中任何引用的 `metric_code` 不在 `report.metric_labels` 中（将呈现为原始英文代码）
-- `expected_tool_calls` / `actual_tool_calls` / `missing_required_tool_call:<tool>` 中任何引用的 `tool_name` 不在 `report.tool_labels` 中（将呈现为原始英文代码）
+`open_questions[]` 必须包含：
 
-## HTML 报告功能
+- 每个 Tier-2 用例（`reliability == "low"`） → caveat `synthesized_from_sop_only_no_user_grounding`
+- 每个污染 K 规则违规 → severity `critical`
+- STEP 5 发现的重复 `scored_at` → severity `critical`
+- 每个被拒绝的 trace（K14）→ 列出 `tc_id`
 
-- **能力雷达图**: 5 维度能力覆盖范围，同心圆参考线（0/20/40/60/80/100），灰色虚线目标值（85分），维度标签外置并注明权重
-- **场景 Tab 切换**: 每个用例一个 Tab，展示会话聊天历史、模拟器决策过程、工具调用（工具名 + 参数 + 结果）、指标得分、叙述分析
-- **自包含**: 单个 HTML 文件，仅依赖 Chart.js CDN，可直接用浏览器打开
-- **污染运行横幅**: 当 `EvaluationReport.open_questions` 包含 `critical` 条目时，HTML **必须**在雷达图上方渲染红色横幅，说明运行已被污染
+### scenario_report 包含（K6）
+
+`scenario_report_refs` 必须填入每个 `<REPORT_DIR>/scenarios/<tc_id>.report.json` 的相对路径，**不得内联内容**。
+
+### 写入
+
+生成完整 JSON 后，写入 `<REPORT_DIR>/evaluation_report.json`。目录不存在时先 `mkdir -p <REPORT_DIR>/scenarios`。
+
+---
+
+## 阶段二：生成 evaluation_report.html（调用脚本，Agent 不读模板）
+
+`evaluation_report.json` 写入完成后，**立即**执行以下 shell 命令：
+
+```bash
+python3 /workspace/uploads/evaluation-expert-consumer/runtime-drivers/ws_jwt/report_assembler.py \
+  --evaluation-report   <REPORT_DIR>/evaluation_report.json \
+  --scenarios-dir       <REPORT_DIR>/scenarios \
+  --traces-dir          <RUN_DIR>/traces \
+  --enriched-dir        <RUN_DIR>/enriched-cases \
+  --template            /workspace/uploads/evaluation-expert-consumer/runtime-schemas/report-template.html \
+  --output              <REPORT_DIR>/evaluation_report.html \
+  --employee-name       "<employee_display_name>"
+```
+
+若存在 failed_tcs，追加 `--tainted-tc-ids "tc-001,tc-002"`。
+
+**脚本负责的全部工作**（Agent 不介入）：
+- 读取 `report-template.html`（仅脚本读，不消耗 Agent 上下文）
+- 读取每个 TC 的 `trace.json`、`scenario_report.json`、`enriched.json`
+- 用 `json.dumps` 安全序列化，替换三个占位符（`{{REPORT_DATA}}`、`{{SCENARIOS_DATA}}`、`{{EMPLOYEE_NAME}}`）
+- 执行内置自检（JSON 合法性、占位符全替换、Chart.js CDN 存在）
+- 写入 `evaluation_report.html`
+
+**退出码处理**：
+
+| 退出码 | 含义 | Agent 动作 |
+|---|---|---|
+| `0` | 成功 | 继续执行 STEP 10 |
+| `1` | 文件缺失 / JSON 非法 / 必填字段缺失 | 检查 `evaluation_report.json` 是否完整，修复后重跑脚本 |
+| `2` | HTML 自检失败 | 查看脚本 stderr 输出的具体违规，修复 JSON 后重跑脚本 |
+
+Agent 通过检查退出码判断结果，**不需要再读 HTML 文件做人工验证**。
+
+---
+
+## 两个输出文件
+
+| 文件 | 绝对路径 |
+|---|---|
+| JSON | `<REPORT_DIR>/evaluation_report.json` |
+| HTML | `<REPORT_DIR>/evaluation_report.html` |
+
+---
 
 ## 反模式
 
-| 反模式 | K规则 | 失败模式 |
+| 反模式 | K 规则 | 失败模式 |
 |---|---|---|
-| LLM 根据上下文判断"改进" `overall_score` | K7 | 报告重新生成 |
+| Agent 在 LLM 阶段读取 `report-template.html` | — | 导致上下文膨胀，Agent 中途暂停等待用户输入；模板由脚本读取 |
+| Agent 在 LLM 阶段读取 `traces/*.trace.json` | — | 同上；trace 数据由脚本注入 SCENARIOS_DATA |
+| LLM 修改字节拷贝字段（`overall_score`、`dimension_scores` 等） | K7 | 报告重新生成 |
 | LLM 将 `red_line.triggered` 从 true 翻转为 false | K4 + K7 | 报告重新生成 |
-| 将场景报告内容内联到总体报告中而非链接 | K6 | 报告被拒绝 |
-| STEP 5 / 6 / 7 产物不存在时开始 STEP 9 | K12 | STEP 9 拒绝运行 |
-| 运行包含 `reliability=low` 用例时省略 `open_questions` 中的 Tier-2 caveat | K11 | 报告被标记 |
-| STEP 5 输入门发现重复 `scored_at` 时省略 `open_questions` 条目 | K16 | 报告被标记 |
-| 手工编写 HTML/CSS/JS 而非通过 `runtime-schemas/report-template.html` 渲染 | K17 | 报告被拒绝，运行被污染 |
-| 向终端用户暴露原始英文 `metric_code` / `trigger_kind` / 信号标记 | K18 | 报告被拒绝 |
-| 构建每次运行的辅助脚本（如 `scripts/rebuild-eval-report.py`）绕过 STEP 9 | K17 | 脚本被移除，STEP 9 在操作手册下重新执行 |
+| 将场景报告内容内联而非链接 | K6 | 报告被拒绝 |
+| STEP 5/6/7 产物不存在时开始 STEP 9 | K12 | STEP 9 拒绝运行 |
+| 手工拼接 HTML 替换占位符（不调用 `report_assembler.py`） | K17 | JSON 转义错误导致页面白屏；必须改用脚本 |
+| `metric_labels` / `tool_labels` 未覆盖全部 code | K18 | HTML 显示英文原始代码 |
+| `red_line.narratives` 使用英文原始标记 | K18 | 报告被拒绝 |

@@ -52,7 +52,29 @@
             "type": "string",
             "enum": ["excellent", "acceptable", "poor"]
           },
-          "key_finding": { "type": "string" }
+          "reasoning": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Byte-copy of MetricScore.reasoning for this (test_case, metric) pair. The LLM MUST NOT rewrite it; copy verbatim from the upstream score file. Required so the HTML report can display per-metric scoring rationale without re-reading individual score files."
+          },
+          "rubric_adjustments": {
+            "type": "array",
+            "description": "Byte-copy of MetricScore.rubric_adjustments. Optional but SHOULD be included when present in the upstream score file so readers can trace how the final score was derived.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["rule_id", "delta"],
+              "properties": {
+                "rule_id": { "type": "string", "minLength": 1 },
+                "delta": { "type": "integer" },
+                "evidence_index": { "type": "integer", "minimum": 0 }
+              }
+            }
+          },
+          "key_finding": {
+            "type": "string",
+            "description": "One-sentence LLM-authored highlight for the STEP 8 scenario narrative. Must be consistent with reasoning and score; MUST NOT contradict them."
+          }
         }
       }
     },

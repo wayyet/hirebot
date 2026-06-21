@@ -1,0 +1,53 @@
+﻿{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "tc_score_summary.schema.json",
+  "title": "TcScoreSummary",
+  "description": "Lightweight per-TC summary written by Run Agent at end of STEP 4. Contains only fields needed by Report Agent (STEP 5-8). Original score files remain authoritative for K16 audit. OPTIONAL: absent = Report Agent falls back to original score files (backward-compatible).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["evaluation_id","tc_id","completed_at","turns_used","termination_reason","actual_tool_calls","missing_required_tools","observed_signals","metric_scores"],
+  "properties": {
+    "evaluation_id": { "type": "string", "minLength": 1 },
+    "tc_id": { "type": "string", "minLength": 1 },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "turns_used": { "type": "integer", "minimum": 0 },
+    "termination_reason": {
+      "type": "string",
+      "enum": ["goal_achieved","bottom_line_violated","deadlock_detected","customer_gave_up","evaluatee_error","max_turns_reached"]
+    },
+    "actual_tool_calls": { "type": "array", "items": { "type": "string" } },
+    "missing_required_tools": { "type": "array", "items": { "type": "string" } },
+    "observed_signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["signal","metric_code"],
+        "properties": {
+          "signal": {
+            "type": "string",
+            "enum": ["missing_required_tool_call","wrong_tool_arguments","forbidden_behavior_triggered","expected_outcome_not_produced","interaction_quality_floor_at_risk","process_compliance_floor_at_risk"]
+          },
+          "metric_code": { "type": "string", "minLength": 1 },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "metric_scores": {
+      "type": "object",
+      "description": "metric_code -> compact score entry. Keys must equal tc applicable_metrics. Values are minimal fields for STEP 5 — full MetricScore stays in original file for K16 audit.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["score","scored_at","reasoning_snippet"],
+        "properties": {
+          "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "scored_at": { "type": "string", "format": "date-time" },
+          "reasoning_snippet": { "type": "string", "maxLength": 200 },
+          "rubric_adjustments_count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

@@ -1,1 +1,13 @@
-websockets>=12.0
+# ws_jwt driver — Python 依赖
+# 仅列出第三方包；json / asyncio / argparse / pathlib / urllib / re / datetime 等均为标准库，无需安装。
+#
+# 脚本依赖映射：
+#   ws_client.py          → websockets（WebSocket 连接）
+#   run.py                → websockets（通过 ws_client.py）
+#   auth_client.py        → 仅标准库
+#   verdict_uploader.py   → 仅标准库
+#   trace_uploader.py     → 仅标准库
+#   testcase_uploader.py  → 仅标准库
+#   report_assembler.py   → 仅标准库
+
+websockets>=12.0,<15.0
