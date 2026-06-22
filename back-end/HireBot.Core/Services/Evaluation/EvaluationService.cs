@@ -1330,6 +1330,88 @@ internal sealed partial class EvaluationService(
         return ApiResponse<EvaluationVerdictSyncResultDto>.SuccessResponse(resultDto, "verdict synced and report persisted");
     }
 
+    public async Task<ApiResponse<EvaluationReportContentUploadResultDto>> UploadReportContentAsync(
+        string employeeId,
+        EvaluationReportContentUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId) || request is null || string.IsNullOrWhiteSpace(request.SessionId))
+            return ApiResponse<EvaluationReportContentUploadResultDto>.ErrorResponse(400, "employeeId, sessionId and report content are required");
+
+        var hasJson = !string.IsNullOrWhiteSpace(request.ReportJsonContent);
+        var hasHtml = !string.IsNullOrWhiteSpace(request.ReportHtmlContent);
+        if (!hasJson && !hasHtml)
+            return ApiResponse<EvaluationReportContentUploadResultDto>.ErrorResponse(400, "reportJsonContent or reportHtmlContent is required");
+
+        var accessContext = await ResolveEvaluationAccessContextAsync(employeeId, cancellationToken);
+        if (accessContext is null)
+            return ApiResponse<EvaluationReportContentUploadResultDto>.ErrorResponse(404, "employee not found");
+
+        var normalizedEmployeeId = employeeId.Trim();
+        var normalizedSessionId = request.SessionId.Trim();
+        var reportEntity = await dbContext.EvaluationReports
+            .Include(report => report.Session)
+            .Where(report =>
+                report.Session!.OwnerSubject == accessContext.PersistenceScope &&
+                report.Session.EmployeeId == normalizedEmployeeId &&
+                report.Session.SessionId == normalizedSessionId)
+            .OrderByDescending(report => report.CreatedAtUtc)
+            .ThenByDescending(report => report.Iteration)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (reportEntity is null || reportEntity.Session is null)
+            return ApiResponse<EvaluationReportContentUploadResultDto>.ErrorResponse(404, "report not found");
+
+        var assets = new List<EvaluationAssetRefDto>(capacity: 2);
+        var reportKey = reportEntity.Id.ToString("N");
+        if (hasJson)
+        {
+            var jsonAsset = await PersistTextAssetAsync(
+                reportEntity.Session,
+                assetType: "report-json",
+                relatedKey: reportKey,
+                fileName: $"evaluation_report_{reportKey}.json",
+                content: request.ReportJsonContent!,
+                mimeType: "application/json",
+                sourceType: "evaluator",
+                cancellationToken);
+            reportEntity.ReportJsonAssetId = jsonAsset.Id;
+            assets.Add(ToAssetRef(jsonAsset));
+        }
+
+        if (hasHtml)
+        {
+            var htmlAsset = await PersistTextAssetAsync(
+                reportEntity.Session,
+                assetType: "report-html",
+                relatedKey: reportKey,
+                fileName: $"evaluation_report_{reportKey}.html",
+                content: request.ReportHtmlContent!,
+                mimeType: "text/html",
+                sourceType: "evaluator",
+                cancellationToken);
+            reportEntity.ReportHtmlAssetId = htmlAsset.Id;
+            assets.Add(ToAssetRef(htmlAsset));
+        }
+
+        reportEntity.Session.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var assetUrls = await dbContext.EvaluationAssets
+            .AsNoTracking()
+            .Where(asset => asset.Id == reportEntity.ReportJsonAssetId || asset.Id == reportEntity.ReportHtmlAssetId)
+            .ToDictionaryAsync(asset => asset.Id, asset => asset.PublicUrl, cancellationToken);
+
+        var result = new EvaluationReportContentUploadResultDto(
+            normalizedSessionId,
+            reportKey,
+            reportEntity.ReportJsonAssetId is Guid jsonAssetId ? assetUrls.GetValueOrDefault(jsonAssetId) : null,
+            reportEntity.ReportHtmlAssetId is Guid htmlAssetId ? assetUrls.GetValueOrDefault(htmlAssetId) : null,
+            assets);
+
+        return ApiResponse<EvaluationReportContentUploadResultDto>.SuccessResponse(result, "evaluation report content uploaded");
+    }
+
     public async Task<ApiResponse<EvaluationTraceSyncResultDto>> SyncTraceAsync(
         string employeeId,
         EvaluationTraceSyncRequestDto request,

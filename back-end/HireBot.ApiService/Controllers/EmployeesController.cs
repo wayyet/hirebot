@@ -6,6 +6,7 @@ using HireBot.Abstraction.Services.EmployeeRuntime;
 using HireBot.Abstraction.Services.Evaluation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text;
 
 namespace HireBot.ApiService.Controllers;
 
@@ -265,6 +266,37 @@ public sealed class EmployeesController(
     }
 
     /// <summary>
+    /// 上传当前评估会话最新报告的完整 JSON / HTML 内容。
+    /// </summary>
+    [HttpPost("{employeeId}/evaluation/report-content")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<IActionResult> UploadEvaluationReportContent(
+        string employeeId,
+        [FromForm] EvaluationReportContentUploadForm request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<EvaluationReportContentUploadResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var reportJsonContent = await ReadFormFileAsTextAsync(request.ReportJsonFile, cancellationToken);
+        var reportHtmlContent = await ReadFormFileAsTextAsync(request.ReportHtmlFile, cancellationToken);
+
+        var response = await evaluationService.UploadReportContentAsync(
+            employeeId,
+            new EvaluationReportContentUploadRequestDto
+            {
+                SessionId = request.SessionId,
+                ReportJsonContent = reportJsonContent,
+                ReportHtmlContent = reportHtmlContent,
+            },
+            cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
+    /// <summary>
     /// 获取指定会话的执行轨迹内容。
     /// </summary>
     [HttpGet("{employeeId}/evaluation/trace-content")]
@@ -324,4 +356,26 @@ public sealed class EmployeesController(
         var errorResponse = ApiResponse<T>.ErrorResponse(400, string.IsNullOrWhiteSpace(message) ? "请求参数校验失败" : message);
         return BadRequest(errorResponse);
     }
+
+    private static async Task<string?> ReadFormFileAsTextAsync(IFormFile? file, CancellationToken cancellationToken)
+    {
+        if (file is null || file.Length <= 0)
+        {
+            return null;
+        }
+
+        await using var stream = file.OpenReadStream();
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return await reader.ReadToEndAsync(cancellationToken);
+    }
+}
+
+public sealed class EvaluationReportContentUploadForm
+{
+    [System.ComponentModel.DataAnnotations.Required]
+    public string SessionId { get; init; } = string.Empty;
+
+    public IFormFile? ReportJsonFile { get; init; }
+
+    public IFormFile? ReportHtmlFile { get; init; }
 }

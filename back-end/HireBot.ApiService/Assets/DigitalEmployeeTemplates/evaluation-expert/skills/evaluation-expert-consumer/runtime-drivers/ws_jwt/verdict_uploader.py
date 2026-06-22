@@ -4,8 +4,8 @@ verdict_uploader.py - 把评估结果上传到 HireBot 后端
 职责：
   - 读取 evaluation_report.json（STEP 9 buildOverallReport 输出）
   - 读取 evaluation_context.json（与 run.py / trace_uploader.py 共用同一文件）
-  - 构造 EvaluationVerdictSyncRequestDto
-  - 调用 POST {base_url}/api/v1/employees/{employeeId}/evaluation/sync-verdict
+    - 构造轻量 EvaluationVerdictSyncRequestDto 并调用 sync-verdict
+    - sync-verdict 成功后调用 report-content 接口，按 sessionId 上传完整 JSON / HTML 报告
   - 把上传结果写入 output 文件
 
 字段来源（对比旧版 live_evaluator/verdict_uploader.py 的映射变化）：
@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import mimetypes
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -377,10 +379,10 @@ def build_verdict_payload(
           overallScore: decimal,
           summary: string,
           dimensionScores: EvaluationDimensionScoreDto[]
-        },
-        reportJsonContent: string | null,   // STEP 9 evaluation_report.json 原始内容
-        reportHtmlContent: string | null,   // STEP 9 evaluation_report.html 原始内容
+                }
       }
+
+        report_json_content / report_html_content 仅保留给兼容调用方；主流程会通过 report-content 接口单独上传。
     """
     passed = False if tainted else _resolve_passed(report)
     overall_score = _resolve_overall_score(report)
@@ -447,6 +449,79 @@ def upload_verdict(
         return {"_error": f"HTTP {e.code}", "url": url, "response": err_body}
     except Exception as exc:
         return {"_error": str(exc), "url": url}
+
+
+def _append_multipart_field(body: bytearray, boundary: str, name: str, value: str) -> None:
+    body.extend(f"--{boundary}\r\n".encode("utf-8"))
+    body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+    body.extend(value.encode("utf-8"))
+    body.extend(b"\r\n")
+
+
+def _append_multipart_file(body: bytearray, boundary: str, name: str, path: Path) -> int:
+    content = path.read_bytes()
+    mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    body.extend(f"--{boundary}\r\n".encode("utf-8"))
+    body.extend(
+        f'Content-Disposition: form-data; name="{name}"; filename="{path.name}"\r\n'.encode("utf-8")
+    )
+    body.extend(f"Content-Type: {mime_type}\r\n\r\n".encode("utf-8"))
+    body.extend(content)
+    body.extend(b"\r\n")
+    return len(content)
+
+
+def upload_report_content(
+    base_url: str,
+    auth_headers: dict[str, str],
+    employee_id: str,
+    session_id: str,
+    report_json_path: Path,
+    report_html_path: Path | None,
+    *,
+    timeout: int = 120,
+) -> dict[str, Any]:
+    """调用 POST /api/v1/employees/{employeeId}/evaluation/report-content 上传报告文件。"""
+    url = f"{base_url}/api/v1/employees/{employee_id}/evaluation/report-content"
+    boundary = f"----hirebot-report-{uuid.uuid4().hex}"
+    body = bytearray()
+    _append_multipart_field(body, boundary, "sessionId", session_id)
+
+    uploaded_bytes = 0
+    if report_json_path.is_file():
+        uploaded_bytes += _append_multipart_file(body, boundary, "reportJsonFile", report_json_path)
+    if report_html_path is not None and report_html_path.is_file():
+        uploaded_bytes += _append_multipart_file(body, boundary, "reportHtmlFile", report_html_path)
+
+    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+
+    headers = {
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "Accept": "application/json",
+    }
+    headers.update(auth_headers)
+
+    req = urllib.request.Request(
+        url,
+        data=bytes(body),
+        method="POST",
+        headers=headers,
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            result["_uploadedBytes"] = uploaded_bytes
+            return result
+    except urllib.error.HTTPError as e:
+        body_bytes = e.read()
+        try:
+            err_body = json.loads(body_bytes.decode("utf-8"))
+        except Exception:
+            err_body = body_bytes.decode("utf-8", errors="replace")
+        return {"_error": f"HTTP {e.code}", "url": url, "response": err_body, "_uploadedBytes": uploaded_bytes}
+    except Exception as exc:
+        return {"_error": str(exc), "url": url, "_uploadedBytes": uploaded_bytes}
 
 
 # ---------------------------------------------------------------------------
@@ -516,15 +591,9 @@ def main() -> int:
 
     _log("REPORT", f"resolved → {report_path}")
 
-    # 尝试读取同目录的原始 HTML 报告（evaluation_report.html），存在则一并上传
-    report_json_content: str | None = None
-    report_html_content: str | None = None
-    try:
-        report_json_content = report_path.read_text(encoding="utf-8")
-        _log("REPORT", f"report json content loaded ({len(report_json_content)} chars)")
-    except Exception as exc:
-        _log("WARN", f"无法读取原始 JSON 内容，将由后端自动生成: {exc}")
-
+    # 完整报告内容不再内联到 sync-verdict，改为拿到 reportId 后单独上传。
+    report_json_bytes = report_path.stat().st_size if report_path.is_file() else 0
+    report_html_path: Path | None = None
     html_candidates = [
         report_path.with_suffix(".html"),
         report_path.parent / "evaluation_report.html",
@@ -532,13 +601,10 @@ def main() -> int:
     ]
     for html_path in html_candidates:
         if html_path.is_file():
-            try:
-                report_html_content = html_path.read_text(encoding="utf-8")
-                _log("REPORT", f"report html content loaded ← {html_path} ({len(report_html_content)} chars)")
-            except Exception as exc:
-                _log("WARN", f"无法读取 HTML 报告 {html_path}: {exc}")
+            report_html_path = html_path
+            _log("REPORT", f"report html found ← {html_path} ({html_path.stat().st_size} bytes)")
             break
-    if report_html_content is None:
+    if report_html_path is None:
         _log("REPORT", "evaluation_report.html 未找到，后端将使用自动生成的可视化页面")
 
     try:
@@ -558,8 +624,6 @@ def main() -> int:
         session_id,
         report,
         tainted=tainted,
-        report_json_content=report_json_content,
-        report_html_content=report_html_content,
     )
 
     # 计算 payload 大小，超过阈值时打印警告
@@ -570,9 +634,7 @@ def main() -> int:
     _log("UPLOAD", f"session_id={session_id}")
     _log("UPLOAD", f"verdict={verdict_str}  score={overall_score}  tainted={tainted}")
     _log("UPLOAD", f"auth_source={auth.source}")
-    _log("UPLOAD", f"payload_size={payload_kb:.1f}KB  (json={len(report_json_content or '') // 1024}KB  html={len(report_html_content or '') // 1024}KB)")
-    if payload_kb > 500:
-        _log("WARN", f"payload 超过 500KB（{payload_kb:.1f}KB），HTTP 超时风险较高，已使用 120s 超时")
+    _log("UPLOAD", f"payload_size={payload_kb:.1f}KB  report_json={report_json_bytes // 1024}KB  report_html={(report_html_path.stat().st_size if report_html_path else 0) // 1024}KB")
 
     print(f"[上传] 目标地址:   {base_url}")
     print(f"[上传] 员工 ID:    {employee_id}")
@@ -582,35 +644,57 @@ def main() -> int:
     print(f"[上传] 鉴权方式:   {auth.source}")
 
     response = upload_verdict(base_url, auth.build_http_headers(), employee_id, payload)
-    upload_ok = "_error" not in response
+    verdict_upload_ok = "_error" not in response
 
-    # 结果文件中不保存 HTML/JSON 全文（可达数百 KB），只记录字节数
-    payload_for_log = {k: v for k, v in payload.items() if k not in ("reportHtmlContent", "reportJsonContent")}
-    payload_for_log["_reportJsonBytes"] = len((report_json_content or "").encode("utf-8"))
-    payload_for_log["_reportHtmlBytes"] = len((report_html_content or "").encode("utf-8"))
+    report_upload_response: dict[str, Any] | None = None
+    if verdict_upload_ok:
+        _log("REPORT", f"upload report content by session_id={session_id}")
+        report_upload_response = upload_report_content(
+            base_url,
+            auth.build_http_headers(),
+            employee_id,
+            session_id,
+            report_path,
+            report_html_path,
+        )
+        if "_error" in report_upload_response:
+            _log("ERROR", f"报告内容上传失败: {report_upload_response['_error']}")
+
+    report_upload_ok = report_upload_response is not None and "_error" not in report_upload_response
+    upload_ok = verdict_upload_ok and report_upload_ok
+    report_upload_data = report_upload_response.get("data") if isinstance(report_upload_response, dict) and isinstance(report_upload_response.get("data"), dict) else {}
+    report_id = report_upload_data.get("reportId") or report_upload_data.get("report_id")
+
+    payload_for_log = dict(payload)
+    payload_for_log["_reportJsonBytes"] = report_json_bytes
+    payload_for_log["_reportHtmlBytes"] = report_html_path.stat().st_size if report_html_path else 0
 
     _write_json(args.output, {
         "status": "success" if upload_ok else "error",
         "employee_id": employee_id,
         "session_id": session_id,
+        "report_id": report_id,
         "report_path": str(report_path),
+        "report_html_path": str(report_html_path) if report_html_path else None,
         "tainted": tainted,
         "verdict": verdict_str,
         "overall_score": overall_score,
         "payload_kb": round(payload_kb, 1),
         "request_payload": payload_for_log,
-        "response": response,
+        "verdict_response": response,
+        "report_upload_response": report_upload_response,
     })
 
     if not upload_ok:
-        _log("ERROR", f"上传失败: {response['_error']}")
-        print(f"[错误] 上传失败: {response['_error']}")
+        error = response.get("_error") if not verdict_upload_ok else report_upload_response.get("_error") if report_upload_response else "report upload skipped"
+        _log("ERROR", f"上传失败: {error}")
+        print(f"[错误] 上传失败: {error}")
         print(f"[输出] {args.output}")
         _logf.close()
         return 1
 
-    _log("SUCCESS", f"评估结论已上传  output={args.output}")
-    print("[成功] 评估结论已上传到 HireBot 后端")
+    _log("SUCCESS", f"评估结论和报告内容已上传  output={args.output}")
+    print("[成功] 评估结论和报告内容已上传到 HireBot 后端")
     print(f"[输出] {args.output}")
     _logf.close()
     return 0
