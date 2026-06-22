@@ -9,10 +9,12 @@ import {
   Globe,
   Layers,
   LogIn,
+  LogOut,
   Moon,
   Palette,
   ShieldCheck,
   Sun,
+  User,
   Users,
   Zap,
 } from 'lucide-react'
@@ -25,7 +27,7 @@ import {
   resolveSystemBrandIconSrc,
   resolveSystemTitle,
 } from '@/app/branding/runtimeBranding'
-import { getAuthUser, isOidcConfigured, userManager } from '@/infra/auth/oidc'
+import { getAuthUser, getUserDisplayName, isOidcConfigured, signOut, userManager } from '@/infra/auth/oidc'
 import { isAuthBypassed } from '@/infra/auth/auth-mode'
 
 const LANGS = [
@@ -57,7 +59,9 @@ export default function LandingPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const redirectPath = normalizeRedirectPath(searchParams.get('redirect'))
+  const redirectParam = searchParams.get('redirect')
+  const hasExplicitRedirect = Boolean(redirectParam?.trim().startsWith('/'))
+  const redirectPath = normalizeRedirectPath(redirectParam)
   const { brand, cycleBrand, isDark, toggleMode, warmThemeEnabled, warmThemeManagedByRuntime } = useTheme()
   const currentLang = i18n.resolvedLanguage ?? i18n.language ?? 'zh'
   const productName = resolveDisplayProductName(warmThemeEnabled, t('brand.name'))
@@ -65,16 +69,25 @@ export default function LandingPage() {
   const originalBrandWordmarkSrc = resolveBrandWordmarkSrc(currentLang)
   const systemBrandIconSrc = resolveSystemBrandIconSrc(warmThemeEnabled)
   const [langOpen, setLangOpen] = useState(false)
+  const [userOpen, setUserOpen] = useState(false)
   const langRef = useRef<HTMLDivElement>(null)
+  const userRef = useRef<HTMLDivElement>(null)
 
-  const { data: user, isLoading } = useQuery({
+  const { data: user, isFetching, isLoading } = useQuery({
     queryKey: ['auth-user'],
     queryFn: getAuthUser,
     staleTime: 60_000,
+    refetchOnMount: 'always',
     retry: false,
   })
+  const canEnterWorkspace = isAuthBypassed || Boolean(user)
+  const isCheckingAuth = isLoading || isFetching
 
   useEffect(() => {
+    if (!hasExplicitRedirect) {
+      return
+    }
+
     if (isAuthBypassed) {
       navigate(redirectPath, { replace: true })
       return
@@ -83,12 +96,16 @@ export default function LandingPage() {
     if (!isLoading && user) {
       navigate(redirectPath, { replace: true })
     }
-  }, [isLoading, navigate, redirectPath, user])
+  }, [hasExplicitRedirect, isLoading, navigate, redirectPath, user])
 
   useEffect(() => {
     function onDocClick(event: MouseEvent) {
-      if (langRef.current && !langRef.current.contains(event.target as Node)) {
+      const target = event.target as Node
+      if (langRef.current && !langRef.current.contains(target)) {
         setLangOpen(false)
+      }
+      if (userRef.current && !userRef.current.contains(target)) {
+        setUserOpen(false)
       }
     }
 
@@ -100,7 +117,12 @@ export default function LandingPage() {
     document.title = resolveSystemTitle(warmThemeEnabled, currentLang)
   }, [currentLang, warmThemeEnabled])
 
-  const handleLogin = () => {
+  const handlePrimaryAction = () => {
+    if (canEnterWorkspace) {
+      navigate(redirectPath)
+      return
+    }
+
     // 登录后继续回到用户原本想进入的业务路径。
     void userManager.signinRedirect({ state: { returnTo: redirectPath } })
   }
@@ -111,7 +133,7 @@ export default function LandingPage() {
     setLangOpen(false)
   }
 
-  if (isAuthBypassed || (!isLoading && user)) {
+  if (hasExplicitRedirect && (isAuthBypassed || (!isLoading && user))) {
     return (
       <div className="hb-landing-loading">
         <div className="hb-landing-loading-dot" />
@@ -120,6 +142,13 @@ export default function LandingPage() {
   }
 
   const currentLangLabel = LANGS.find((lang) => lang.code === i18n.language)?.label ?? 'ZH'
+  const shouldShowWorkspaceAction = canEnterWorkspace || isCheckingAuth
+  const navActionLabel = shouldShowWorkspaceAction ? t('landing.enterConsole') : t('landing.loginBtn')
+  const ctaActionLabel = shouldShowWorkspaceAction ? t('landing.enterConsole') : t('landing.ctaPrimary')
+  const primaryActionDisabled = !canEnterWorkspace && (isCheckingAuth || !isOidcConfigured)
+  const userDisplayName = user ? getUserDisplayName(user, currentLang) : ''
+  const userEmail = typeof user?.profile.email === 'string' ? user.profile.email : ''
+  const displayName = userDisplayName || t('user.defaultName')
 
   return (
     <div className="hb-landing">
@@ -137,11 +166,14 @@ export default function LandingPage() {
                 </div>
               </>
             ) : (
-              <img
-                src={originalBrandWordmarkSrc}
-                alt={t('brand.name')}
-                className="hb-brand-wordmark"
-              />
+              <>
+                <img
+                  src={originalBrandWordmarkSrc}
+                  alt={t('brand.name')}
+                  className="hb-brand-wordmark"
+                />
+                <span className="hb-landing-brand-suffix">{t('nav.brandSuffix')}</span>
+              </>
             )}
           </div>
 
@@ -193,14 +225,80 @@ export default function LandingPage() {
               ) : null}
             </div>
 
-            <button
-              className="hb-landing-login-btn"
-              onClick={handleLogin}
-              disabled={!isOidcConfigured}
-            >
-              <LogIn size={14} />
-              {t('landing.loginBtn')}
-            </button>
+            {canEnterWorkspace ? (
+              <div className="landing-auth-popover" ref={userRef}>
+                <button
+                  type="button"
+                  className="app-layout-user-button"
+                  onClick={() => {
+                    setUserOpen((current) => !current)
+                    setLangOpen(false)
+                  }}
+                  aria-haspopup="menu"
+                  aria-expanded={userOpen}
+                >
+                  <div className="app-layout-user-avatar">
+                    <User size={12} />
+                  </div>
+                  <span className="app-layout-user-name">{displayName}</span>
+                  <ChevronDown
+                    size={12}
+                    className={`app-layout-chevron${userOpen ? ' is-open' : ''}`}
+                  />
+                </button>
+                {userOpen ? (
+                  <div className="glass-modal app-layout-menu app-layout-user-menu" role="menu">
+                    <div className="app-layout-user-menu-header">
+                      <div className="app-layout-user-menu-avatar">
+                        <User size={15} />
+                      </div>
+                      <div className="app-layout-user-menu-meta">
+                        <div className="app-layout-user-menu-name">{displayName}</div>
+                        {userEmail ? (
+                          <div className="app-layout-user-menu-email">{userEmail}</div>
+                        ) : null}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="app-layout-menu-item is-active"
+                      onClick={() => {
+                        navigate('/template-pool')
+                        setUserOpen(false)
+                      }}
+                    >
+                      <span className="app-layout-menu-icon"><LogIn size={14} /></span>
+                      <span>{t('nav.console')}</span>
+                    </button>
+                    {user && !isAuthBypassed ? (
+                      <>
+                        <div className="app-layout-menu-divider" />
+                        <button
+                          type="button"
+                          className="app-layout-menu-item is-danger"
+                          onClick={() => {
+                            signOut()
+                            setUserOpen(false)
+                          }}
+                        >
+                          <span className="app-layout-menu-icon"><LogOut size={14} /></span>
+                          <span>{t('nav.logout')}</span>
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <button
+                className="hb-landing-login-btn"
+                onClick={handlePrimaryAction}
+                disabled={primaryActionDisabled}
+              >
+                <LogIn size={14} />
+                {navActionLabel}
+              </button>
+            )}
           </div>
         </div>
       </nav>
@@ -231,11 +329,11 @@ export default function LandingPage() {
           <div className="hb-landing-cta hb-anim-fade-up" style={{ animationDelay: '280ms' }}>
             <button
               className="hb-landing-cta-primary"
-              onClick={handleLogin}
-              disabled={!isOidcConfigured}
+              onClick={handlePrimaryAction}
+              disabled={primaryActionDisabled}
             >
               <LogIn size={17} />
-              {t('landing.ctaPrimary')}
+              {ctaActionLabel}
               <ArrowRight size={15} />
             </button>
             <a className="hb-landing-cta-secondary" href="#features">
@@ -313,11 +411,11 @@ export default function LandingPage() {
           <p className="hb-landing-final-copy">{t('landing.finalCtaCopy', { productName })}</p>
           <button
             className="hb-landing-cta-primary"
-            onClick={handleLogin}
-            disabled={!isOidcConfigured}
+            onClick={handlePrimaryAction}
+            disabled={primaryActionDisabled}
           >
             <LogIn size={17} />
-            {t('landing.ctaPrimary')}
+            {ctaActionLabel}
             <ArrowRight size={15} />
           </button>
         </div>

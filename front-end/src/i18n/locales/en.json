@@ -2,14 +2,17 @@
   "brand": {
     "name": "GoodCrew",
     "tagline": "Your Digital Employee",
-    "footer": "{{productName}} · Digital Workforce Platform"
+    "footer": "© 2026 智用开物 粤ICP备2023101267号-1"
   },
   "nav": {
+    "brandSuffix": "Hiring",
     "templatePool": "Template Pool",
     "departmentEmployees": "Department Employees",
     "myEmployees": "My Employees",
     "skills": "Skills",
-    "feedback": "Feedback"
+    "feedback": "Feedback",
+    "console": "Go to Dashboard",
+    "logout": "Sign Out"
   },
   "role": {
     "manager": "Manager",
@@ -100,6 +103,7 @@
     "edit": "Edit",
     "close": "Close",
     "back": "Back",
+    "backHome": "Back to Home",
     "allTypes": "All"
   },
   "theme": {
@@ -696,7 +700,7 @@
   "feedback": {
     "sent": "Feedback received, a real form will be connected soon"  },
   "landing": {
-    "badge": "Digital Workforce Hiring Platform",
+    "badge": "GoodCrew Hiring",
     "heroTitle1": "Hire Your Next",
     "heroTitle2": "Digital Employee",
     "heroSubtitle": "From template selection and hiring, to onboarding and collaboration, {{productName}} unifies the entire digital workforce workflow in one place.",
