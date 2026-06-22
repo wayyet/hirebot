@@ -10,6 +10,7 @@ import {
   Sun,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
 import yWorkHireLogo from "@/assets/y-work-hire-logo.svg";
@@ -25,7 +26,7 @@ import {
 import { useTheme } from "@/app/theme/ThemeProvider";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { isAuthBypassed } from "@/infra/auth/auth-mode";
-import { signOut, getAuthUser, getUserDisplayName, type OidcUser } from "@/infra/auth/oidc";
+import { signOut, getAuthUser, getUserDisplayName } from "@/infra/auth/oidc";
 
 const ROLE_STORAGE_KEY = "hirebot_user_role_v1";
 
@@ -96,8 +97,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const originalBrandWordmarkSrc = resolveBrandWordmarkSrc(currentLang);
   const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
   const [logoutLoading, setLogoutLoading] = useState(false);
-  const [authUser, setAuthUser] = useState<OidcUser | null>(null);
-  const [loadingUser, setLoadingUser] = useState(true);
+  const { data: authUser, isLoading: loadingUser } = useQuery({
+    queryKey: ["auth-user"],
+    queryFn: getAuthUser,
+    staleTime: 60_000,
+    retry: false,
+    enabled: !isAuthBypassed,
+  });
 
   // 响应式计算显示名：语言切换时自动更新
   const userDisplayName = useMemo(
@@ -205,23 +211,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
   }, [location.pathname, navigate, role]);
 
-  useEffect(() => {
-    async function loadUserInfo() {
-      try {
-        const user = await getAuthUser();
-        if (user) {
-          setAuthUser(user);
-        }
-      } catch (error) {
-        console.warn("Failed to load user info:", error);
-      } finally {
-        setLoadingUser(false);
-      }
-    }
-
-    loadUserInfo();
-  }, []);
-
   const visibleNavItems = useMemo(() => {
     return navItems.filter((item) => {
       if (item.alwaysVisible) return true;
@@ -255,8 +244,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div ref={layoutRef} className={`hb-topnav-inner${navStacked ? " is-stacked" : ""}`}>
             <div ref={brandRef} style={{ flexShrink: 0 }}>
               <Link
-                to={role === "manager" ? "/template-pool" : "/department-employees"}
+                to="/"
                 className="hb-brand"
+                title={t("common.backHome")}
+                aria-label={t("common.backHome")}
               >
                 {warmThemeEnabled ? (
                   <>
