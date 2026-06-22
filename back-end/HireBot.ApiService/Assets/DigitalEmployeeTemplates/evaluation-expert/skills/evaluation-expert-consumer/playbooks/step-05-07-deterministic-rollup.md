@@ -19,6 +19,44 @@
 
 ## STEP 5 — aggregateAcrossScenarios
 
+**输入源优先级（multi-agent 架构优化）**：
+
+Report Agent 在 STEP 5 执行时，按以下顺序读取每个 TC 的数据：
+
+```python
+for tc_id in completed_tcs:
+    summary_path = f"runs/{eval_id}/scores/{tc_id}__summary.json"
+    if file_exists(summary_path):
+        # 优先路径：读摘要文件（O(1)，极轻量）
+        tc_data = load_json(summary_path)
+        # metric_scores 中的 score 字段是字节拷贝，直接用于聚合
+    else:
+        # 降级路径：读原始 score 文件（向后兼容旧运行）
+        tc_data = {
+            "metric_scores": {
+                m: load_json(f"runs/{eval_id}/scores/{tc_id}__{m}.json")
+                for m in get_applicable_metrics(tc_id)
+            }
+        }
+```
+
+**K16 唯一性校验**（无论走哪条路径，都在原始 score 文件上执行）：
+
+```python
+# 即使已读摘要，K16 校验仍然在原始文件上做，不用摘要里的 scored_at 代替
+all_scored_at = []
+for tc_id in completed_tcs:
+    for metric_code in get_applicable_metrics(tc_id):
+        sf = load_json(f"runs/{eval_id}/scores/{tc_id}__{metric_code}.json")
+        all_scored_at.append(sf["scored_at"])
+
+scored_at_set = set(all_scored_at)
+assert len(scored_at_set) == len(all_scored_at), \
+    "K16 violation: duplicate scored_at across score files"
+```
+
+> **注意**：K16 校验基于原始 score 文件，与是否读摘要无关。摘要中的 `scored_at` 仅供 Report Agent 快速预览，不替代此校验。
+
 对每个指标 `m ∈ selected_metrics`：
 
 1. 收集所有每用例分数：从 `./runs/<eval_id>/scores/<tc_id>__<m.metric_code>.json` 获取 `{ tc_id → MetricScore }`
@@ -62,9 +100,28 @@ assert set(dimension_scores.keys()) == expected_dims
 
 ## STEP 7 — redLineCheck（K4）
 
-STEP 7 是纯代码——无 LLM，无理由化。精确算法：
+STEP 7 是纯代码——无 LLM，无理由化。**当 TC 摘要文件存在时，优先从摘要读取 `actual_tool_calls`、`missing_required_tools`、`observed_signals`，避免加载完整 trace 文件**。精确算法：
 
-```
+```python
+# 优先读摘要，降级读 trace（K4，确定性，无 LLM）
+def get_tc_signals(tc_id):
+    summary_path = f"runs/{eval_id}/scores/{tc_id}__summary.json"
+    if file_exists(summary_path):
+        s = load_json(summary_path)
+        return {
+            "actual_tool_calls":    s["actual_tool_calls"],
+            "missing_required_tools": s["missing_required_tools"],
+            "observed_signals":     [sig["signal"] for sig in s["observed_signals"]],
+        }
+    else:
+        # 降级：读完整 trace（兼容旧运行，无摘要文件）
+        trace = load_json(f"runs/{eval_id}/traces/{tc_id}.trace.json")
+        return {
+            "actual_tool_calls":    trace["actual_tool_calls"],
+            "missing_required_tools": [],  # 需从 enriched_tc 重新计算
+            "observed_signals":     [],    # 需从所有 score 文件重新聚合
+        }
+
 red_line_check = {}
 for m in selected_metrics:
     cfg = m.red_line                     # may be null → skip
@@ -74,27 +131,25 @@ for m in selected_metrics:
     if cfg.trigger_kind == "missing_required_signal":
         for tc_id, score in per_metric_scores[m.metric_code].items():
             tc    = enriched_cases[tc_id]
-            trace = traces[tc_id]
+            tc_signals = get_tc_signals(tc_id)
             must_tools = [t for t in tc.expected_tool_calls if t.criticality == "must"]
-            absent     = [t for t in must_tools if t.tool_name not in trace.actual_tool_calls]
+            absent     = [t.tool_name for t in must_tools
+                          if t.tool_name not in tc_signals["actual_tool_calls"]]
             if absent:
                 triggered = True
-                evidence.append({"tc_id": tc_id, "missing": [t.tool_name for t in absent]})
+                evidence.append({"tc_id": tc_id, "missing": absent})
     elif cfg.trigger_kind == "score_below_threshold":
         for tc_id, score in per_metric_scores[m.metric_code].items():
             if score.overall_score < cfg.threshold:
                 triggered = True
                 evidence.append({"tc_id": tc_id, "score": score.overall_score, "threshold": cfg.threshold})
     elif cfg.trigger_kind == "forbidden_behavior":
-        # STEP 4 评分推理若观察到禁止行为，会在 observed_signals 中写入
-        # "forbidden_behavior_observed" 信号；STEP 7 只做存在性检查，不调用 LLM。
-        for tc_id, score in per_metric_scores[m.metric_code].items():
-            signals = score.get("observed_signals") or []
-            if "forbidden_behavior_observed" in signals:
+        for tc_id in completed_tcs:
+            tc_signals = get_tc_signals(tc_id)
+            if "forbidden_behavior_triggered" in tc_signals["observed_signals"]:
                 triggered = True
-                evidence.append({"tc_id": tc_id, "signal": "forbidden_behavior_observed"})
+                evidence.append({"tc_id": tc_id, "signal": "forbidden_behavior_triggered"})
     elif cfg.trigger_kind == "dimension_floor":
-        # consult dimension_scores.json (already persisted at STEP 6)
         if dimension_scores[m.parent_dimension] <= cfg.threshold:
             triggered = True
             evidence.append({"dimension": m.parent_dimension, "score": dimension_scores[m.parent_dimension]})
@@ -130,3 +185,5 @@ for m in selected_metrics:
 | 调用 LLM "双重检查"红线触发，让其翻转 `triggered` | K4 | 运行在 STEP 7 被污染 |
 | LLM 将已触发的红线合理化为"其实没触发"并写入 EvaluationReport | K4 + K7 | 报告必须重新生成 |
 | STEP 9 在三个产物（`aggregated_metric_scores.json` / `dimension_scores.json` / `red_line_check.json`）全部存在之前开始 | K12 | STEP 9 拒绝运行 |
+| Report Agent 在 STEP 5 直接加载完整 trace 文件（忽略摘要优先规则） | — | 无功能错误，但上下文不必要膨胀；应优先读摘要 |
+| 用摘要的 `scored_at` 替代原始 score 文件做 K16 唯一性校验 | K16 | 摘要的 `scored_at` 仅供预览；K16 校验必须在原始 score 文件上执行 |

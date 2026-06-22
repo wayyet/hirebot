@@ -60,6 +60,8 @@ upstream_producer_dependencies:
 
 ## 高层流程
 
+### 单 Agent 模式（legacy，向后兼容）
+
 ```
               ┌───────────────────────────────────────────────────────────────┐
               │  6 hot-pluggable data layers                                    │
@@ -90,7 +92,41 @@ upstream_producer_dependencies:
                                                   └── sync-trace   ──► POST /api/v1/employees/{id}/evaluation/sync-trace
 ```
 
-Legend: deterministic（确定性）= 白盒；**LLM** = STEP 1.5（条件触发）、STEP 4（并行扇出）、STEP 8（每场景综合）、STEP 9（整体综合）；**driver 子进程**仅在 STEP 3；**STEP 10** 和 **STEP 1.6** 是确定性子流程（当 `hirebot_api` 存在时 STEP 10 为必须步骤；仅在 `hirebot_api` 缺失时跳过）。
+### 三段式 Multi-Agent 模式（推荐，解决上下文膨胀）
+
+```
+  ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+  │  Orchestrator（轻量状态机）                                                               │
+  │  持有：eval_id、phase、tc_list、completed_tcs、failed_tcs、parallelism_enabled            │
+  │  通信：只通过文件系统；不传递业务数据                                                      │
+  └──────────┬──────────────────────────────┬──────────────────────────────┬─────────────────┘
+             │                              │                              │
+             ▼                              ▼                              ▼
+  ┌─────────────────────┐     ┌───────────────────────┐     ┌──────────────────────────┐
+  │    Prep Agent        │     │  Run Agent × N         │     │     Report Agent          │
+  │  （一次性，做完退出） │     │  （per TC，做完退出）  │     │  （所有 TC 完成后启动）   │
+  │                      │     │                        │     │                          │
+  │ 评估前完备性检查             │     │ STEP 3                 │     │ STEP 5 ──► STEP 6        │
+  │ PRE.A + STEP 0       │     │  driveEmployee         │     │  (优先读摘要文件)         │
+  │ PRE + STEP 1         │──►  │  OnScenario            │──►  │ STEP 7 redLineCheck      │
+  │ STEP 1.2 + 1.5 + 1.6 │     │                        │     │ STEP 8 (per scenario)    │
+  │ STEP 2 + STEP 2.5    │     │ STEP 4                 │     │ STEP 9 (overall)         │
+  │                      │     │  scoreScenario         │     │ STEP 10 upload           │
+  │ 上下文：员工模板全文  │     │  + 写 summary.json     │     │                          │
+  │ 做完即释放           │     │                        │     │ 上下文：只读汇总 JSON     │
+  └─────────────────────┘     │ 上下文：单 TC 极小化    │     │ 不读 trace 原文          │
+                               │ 做完即释放              │     └──────────────────────────┘
+                               └───────────────────────┘
+  文件系统通信链：
+    Prep Agent ──写──► enriched-cases/ + run_plan.json
+    Run Agent  ──写──► traces/ + scores/ + scores/*__summary.json
+    Report Agent ──写──► aggregated_* + dimension_* + red_line_* + reports/ + upload_*
+```
+
+**并行开关**：`evaluation_context.parallelism.enabled`（默认 `false`）。开启后 N 个 Run Agent 并发执行，速度提升 N 倍。
+
+Legend: deterministic（确定性）= 白盒；**LLM** = STEP 1.5（条件触发）、STEP 4（并行扇出）、STEP 8（每场景综合）、STEP 9（整体综合）；**driver 子进程**仅在 STEP 3；**STEP 10** 和 **STEP 1.6** 是确定性子流程（当 `hirebot_api` 存在时 STEP 10 为必须步骤；仅在 `hirebot_api` 缺失时跳过）。  
+Multi-agent 操作手册：[`playbooks/orchestrator.md`](./playbooks/orchestrator.md)、[`playbooks/agent-boundaries.md`](./playbooks/agent-boundaries.md)、[`playbooks/prep-agent-playbook.md`](./playbooks/prep-agent-playbook.md)、[`playbooks/run-agent-playbook.md`](./playbooks/run-agent-playbook.md)。
 
 ## 生产技能依赖
 
@@ -152,6 +188,7 @@ Legend: deterministic（确定性）= 白盒；**LLM** = STEP 1.5（条件触发
 | K19 | `DriverSubprocessWiringContract` | STEP 3 | 规范 pad `/tmp/eval-driver/<eval_id>/<tc_id>/{in,out,cursor,err,pid}`——全部普通文件（无 FIFO）；`in` 为普通文件，通过 `tail -f` 管道送入 driver stdin；`out` 为普通 stdout 文件，通过游标式 `read_one_event` 读取；必须执行 spawn 前清理和场景后清理；禁止自创管道名 |
 | K20 | `RunPlanMaterialisedBeforeStep3` | STEP 2.5 / STEP 3 | STEP 2.5 在 `runs/<eval_id>/run_plan.json` 中写入每场景五个**字面 shell 字符串**；STEP 3 **原文**执行；只有 `<<JSON_PAYLOAD>>` 可在运行时替换；禁止运行时字符串拼接 |
 | K21 | `NegativeCasesMustMeet20Percent` | STEP 1.5 | 合成用例**必须**包含负极性用例，目标比例 `正:负 ≈ 80:20`；`N ∈ [2,4] ⇒ #负 ≥ 1`；`N ≥ 5 ⇒ #负 ≥ ceil(0.20*N)`；每个 `negative` 存在对应正例时**必须**设置 `paired_case_id`，否则设置 `polarity_rationale`；静默省略被拒绝；只有 `negative_coverage_exemption` 允许跳过 |
+| K22 | `AgentBoundaryViolation` | 所有步骤 | **[multi-agent 模式]** 任何 Agent 执行了超出其职责边界的步骤（如 Run Agent 生成报告、Report Agent 读取 trace 原文、Prep Agent 执行 STEP 3），或读取了禁止文件 → 视为整个运行级别污染，完全重启（同 K9）。见 [`playbooks/agent-boundaries.md`](./playbooks/agent-boundaries.md) |
 
 > 命名空间说明。每个提示约束投影有其内部 K1–K5 命名空间。除非明确加前缀（如「scoring-judgement K3」），否则「K9」/「K12」等始终指上方**工作流合同**命名空间。另外：`playbooks/step-09-overall-report.md` 使用内部标签 K17 / K18，与工作流合同的 K17 / K18 **冲突**——这些 step-09 标签将在未来清理时重命名为 `K-S9-TPL` / `K-S9-NAR`；在此之前，`step-09-overall-report.md` 中的「K17」/「K18」指该文件内描述的 STEP 9 本地规则，而非此处的工作流合同规则。
 
@@ -179,28 +216,28 @@ Legend: deterministic（确定性）= 白盒；**LLM** = STEP 1.5（条件触发
 
 权威执行图存在于 `contracts/projections/ontology_extraction/metric-selection/metric-selection.workflow-contract.projection.json`。每步的操作手册在 `./playbooks/` 下。
 
-| # | 步骤 | 类型 | 操作手册 |
-|---|---|---|---|
-| PRE.A | `loadRoleCatalog` | 确定性 | 内联（扫描 `./role-catalog/*.role.json` 文件系统；失败时软降级，参见 role-catalog K1–K3） |
-| 0    | `resolveEmployee` | LLM + 强制确认，条件触发 | [`step-00-resolve-employee.md`](./playbooks/step-00-resolve-employee.md) |
-| PRE  | `loadMetricRegistry` | 确定性 | 内联（扫描 `./metrics/*.metric.json` 文件系统；注册表为空时快速失败） |
-| 1    | `resolveEmployeeAndCheckTestCases` | 确定性 | [`step-01-resolve-and-filter.md`](./playbooks/step-01-resolve-and-filter.md) — 按角色过滤到 `candidate_metrics` |
-| 1.2  | `curateMetrics` | LLM，有界 + 可审计，条件触发 | [`step-1.2-curate-metrics.md`](./playbooks/step-1.2-curate-metrics.md) — `selected_metrics = (candidate − removed) ∪ added` |
-| 1.5  | `parseTestCases` | LLM，条件触发（仅当 `test_case_status == "missing"`） | [`step-1.5-consult-then-synthesize.md`](./playbooks/step-1.5-consult-then-synthesize.md) — **优先走 P0 自动合成**：若会话已读取员工模板全部 5 类材料（IDENTITY、SOUL、AGENTS、SKILL、ontology），直接根据模板推导场景，不向用户追问，`reliability="medium"`；仅在模板未加载时才发送咨询消息（P2 SOP 回退） |
-| 1.6  | `pushSynthesizedTestCases` | 确定性子流程（可选，若 `hirebot_api` 缺失或无合成用例则跳过） | 内联 — 运行 `testcase_uploader.py --synthesized-dir .../synthesized-cases/`；将用例推送到 HireBot 以便前端右侧面板卡片立即显示 |
-| 2    | `enrichTestCases` | 确定性，始终运行 | 内联（附加每个 K10 的 `applicable_metrics ⊆ selected_metrics`；`*` 是通配符，非字面值） |
-| 2.5  | `planRun` | 确定性，无 LLM | [`step-2.5-plan-run.md`](./playbooks/step-2.5-plan-run.md) — 将 `runs/<eval_id>/run_plan.json` 落盘（根据 `runtime-schemas/run_plan.schema.json` 验证）：每场景包含整个 driver 生命周期的字面 shell 字符串。负责 **K20**。STEP 3 必须在该文件存在后方可开始。 |
-| 3    | `driveEmployeeOnScenario` | 单轮模式（`--utterance`）：每轮一次独立调用，LLM 在两次调用之间生成追问 | [`step-03-driver-and-simulator-loop.md`](./playbooks/step-03-driver-and-simulator-loop.md) — **唯一模式：`--utterance` 单轮调用**。首轮传 `tc.input.opening_message`，后续轮次由宿主 LLM 渲染 `simulators/customer_realistic/system_prompt.md` 生成 `SimulatorDecision.next_utterance`，动态追问直到 `should_continue=false`，最后 `--finalize-trace` 收尾。无长驻子进程，无 pad 文件。 |
-| 4    | `scoreScenario` | LLM 并行扇出 | [`step-04-fanout-scoring.md`](./playbooks/step-04-fanout-scoring.md) — 每 `(tc_id, metric_code)` 独立评分，输出 `runs/<eval_id>/scores/<tc_id>__<metric_code>.json`；**评分前必须逐字读取该场景的 `runs/<eval_id>/traces/<tc_id>.trace.json` 和 `/workspace/uploads/artifact/<template_dir>/` 下员工模板材料** |
-| LOOP | （每场景 STEP 3、STEP 4） | — | 重复直至所有丰富用例完成 |
-| 5    | `aggregateAcrossScenarios` | 确定性 | [`step-05-07-deterministic-rollup.md`](./playbooks/step-05-07-deterministic-rollup.md) |
-| 6    | `rollUpToDimensions` | 确定性 | 同上 |
-| 7    | `redLineCheck` | 确定性，禁止 LLM | 同上 |
-| 8    | `buildScenarioReports` | LLM 综合（仅散文，每场景） | 内联（数值字段从 MetricScore 字节拷贝；LLM 仅撰写散文） |
-| 9    | `buildOverallReport` | LLM 综合（仅散文，执行一次） | [`step-09-overall-report.md`](./playbooks/step-09-overall-report.md) — ⚠️ **K17 硬性规则**：HTML 报告**必须**通过原文读取 `./runtime-schemas/report-template.html` 并仅替换 `{{REPORT_DATA}}`/`{{SCENARIOS_DATA}}`/`{{EMPLOYEE_NAME}}` 三个占位符生成；**禁止自行编写 HTML**；未读模板直接输出 HTML = K17 违规，运行污染 |
-| 10   | `uploadToHireBot`   | 确定性子流程（`hirebot_api` 存在时必须；缺失时跳过） | [`step-10-upload-to-hirebot.md`](./playbooks/step-10-upload-to-hirebot.md) |
+| # | 步骤 | 类型 | 所属 Agent | 操作手册 |
+|---|---|---|---|---|
+| PRE.A | `loadRoleCatalog` | 确定性 | **Prep** | 内联（扫描 `./role-catalog/*.role.json` 文件系统；失败时软降级，参见 role-catalog K1–K3） |
+| 0    | `resolveEmployee` | LLM + 强制确认，条件触发 | **Prep** | [`step-00-resolve-employee.md`](./playbooks/step-00-resolve-employee.md) |
+| PRE  | `loadMetricRegistry` | 确定性 | **Prep** | 内联（扫描 `./metrics/*.metric.json` 文件系统；注册表为空时快速失败） |
+| 1    | `resolveEmployeeAndCheckTestCases` | 确定性 | **Prep** | [`step-01-resolve-and-filter.md`](./playbooks/step-01-resolve-and-filter.md) — 按角色过滤到 `candidate_metrics` |
+| 1.2  | `curateMetrics` | LLM，有界 + 可审计，条件触发 | **Prep** | [`step-1.2-curate-metrics.md`](./playbooks/step-1.2-curate-metrics.md) — `selected_metrics = (candidate − removed) ∪ added` |
+| 1.5  | `parseTestCases` | LLM，条件触发（仅当 `test_case_status == "missing"`） | **Prep** | [`step-1.5-consult-then-synthesize.md`](./playbooks/step-1.5-consult-then-synthesize.md) — **优先走 P0 自动合成**：若会话已读取员工模板全部 5 类材料（IDENTITY、SOUL、AGENTS、SKILL、ontology），直接根据模板推导场景，不向用户追问，`reliability="medium"`；仅在模板未加载时才发送咨询消息（P2 SOP 回退） |
+| 1.6  | `pushSynthesizedTestCases` | 确定性子流程（可选，若 `hirebot_api` 缺失或无合成用例则跳过） | **Prep** | 内联 — 运行 `testcase_uploader.py --synthesized-dir .../synthesized-cases/`；将用例推送到 HireBot 以便前端右侧面板卡片立即显示 |
+| 2    | `enrichTestCases` | 确定性，始终运行 | **Prep** | 内联（附加每个 K10 的 `applicable_metrics ⊆ selected_metrics`；`*` 是通配符，非字面值） |
+| 2.5  | `planRun` | 确定性，无 LLM | **Prep** | [`step-2.5-plan-run.md`](./playbooks/step-2.5-plan-run.md) — 将 `runs/<eval_id>/run_plan.json` 落盘（根据 `runtime-schemas/run_plan.schema.json` 验证）：每场景包含整个 driver 生命周期的字面 shell 字符串。负责 **K20**。STEP 3 必须在该文件存在后方可开始。 |
+| 3    | `driveEmployeeOnScenario` | 单轮模式（`--utterance`）：每轮一次独立调用，LLM 在两次调用之间生成追问 | **Run（per TC）** | [`step-03-driver-and-simulator-loop.md`](./playbooks/step-03-driver-and-simulator-loop.md) — **唯一模式：`--utterance` 单轮调用**。首轮传 `tc.input.opening_message`，后续轮次由宿主 LLM 渲染 `simulators/customer_realistic/system_prompt.md` 生成 `SimulatorDecision.next_utterance`，动态追问直到 `should_continue=false`，最后 `--finalize-trace` 收尾。无长驻子进程，无 pad 文件。 |
+| 4    | `scoreScenario` | LLM 并行扇出 | **Run（per TC）** | [`step-04-fanout-scoring.md`](./playbooks/step-04-fanout-scoring.md) — 每 `(tc_id, metric_code)` 独立评分，输出 `runs/<eval_id>/scores/<tc_id>__<metric_code>.json` + `<tc_id>__summary.json`（可选）；**评分前必须逐字读取该场景的 trace 和员工模板材料** |
+| LOOP | （每场景 STEP 3、STEP 4） | — | **Run × N** | 重复直至所有丰富用例完成 |
+| 5    | `aggregateAcrossScenarios` | 确定性 | **Report** | [`step-05-07-deterministic-rollup.md`](./playbooks/step-05-07-deterministic-rollup.md) — 优先读 `<tc_id>__summary.json`，缺失时降级读原始 score 文件 |
+| 6    | `rollUpToDimensions` | 确定性 | **Report** | 同上 |
+| 7    | `redLineCheck` | 确定性，禁止 LLM | **Report** | 同上 — 优先从摘要读 `actual_tool_calls` / `observed_signals` |
+| 8    | `buildScenarioReports` | LLM 综合（仅散文，每场景） | **Report** | 内联（数值字段从 MetricScore 字节拷贝；LLM 仅撰写散文） |
+| 9    | `buildOverallReport` | LLM 综合（仅散文，执行一次） | **Report** | [`step-09-overall-report.md`](./playbooks/step-09-overall-report.md) — **两阶段执行**：① Agent LLM 生成 `evaluation_report.json`（只读汇总 JSON，不读模板不读 trace）；② 调用 `report_assembler.py` 生成 HTML（脚本负责读模板和 trace，不消耗 Agent 上下文）。禁止 Agent 直接读 `report-template.html` 或手工拼接 HTML。 |
+| 10   | `uploadToHireBot`   | 确定性子流程（`hirebot_api` 存在时必须；缺失时跳过） | **Report** | [`step-10-upload-to-hirebot.md`](./playbooks/step-10-upload-to-hirebot.md) |
 
-在以上任何步骤运行之前，请验证[飞前检查不变式](./playbooks/pre-flight-invariants.md)。当 HARD RULE 或 K 规则失败时，遵循[污染运行生命周期](./playbooks/tainted-run-lifecycle.md)。
+在以上任何步骤运行之前，请验证[评估前完备性检查不变式](./playbooks/pre-flight-invariants.md)。当 HARD RULE 或 K 规则失败时，遵循[污染运行生命周期](./playbooks/tainted-run-lifecycle.md)。
 
 ## 运行时产物目录——STEP 4~10 文件路径速查
 
@@ -234,7 +271,8 @@ Legend: deterministic（确定性）= 白盒；**LLM** = STEP 1.5（条件触发
 | `enriched-cases/<tc_id>.enriched.json` | STEP 2 | STEP 3、4、8 | 含 `applicable_metrics` 的丰富用例 |
 | `synthesized-cases/<tc_id>.tc.json` | STEP 1.5 | STEP 1.6、2、3 | 合成测试用例（若 test_case_status == "missing"） |
 | `traces/<tc_id>.trace.json` | STEP 3 | **STEP 4（必须逐字读取）**、STEP 8、STEP 9 | 执行轨迹；评分推理引用轨迹内容是 K16 要求 |
-| `scores/<tc_id>__<metric_code>.json` | STEP 4 | STEP 5 | 每 (用例, 指标) 一个 MetricScore 文件 |
+| `scores/<tc_id>__<metric_code>.json` | STEP 4 | STEP 5（K16 唯一性校验）| 每 (用例, 指标) 一个 MetricScore 文件 |
+| `scores/<tc_id>__summary.json` | STEP 4（Run Agent 收尾） | STEP 5/6/7（优先读）、STEP 8 | **[multi-agent 优化]** TC 级摘要，可选。含 actual_tool_calls、missing_required_tools、observed_signals、各指标 score 字节拷贝。缺失时 Report Agent 自动降级读原始文件。见 `runtime-schemas/tc_score_summary.schema.json` |
 | `aggregated_metric_scores.json` | STEP 5 | STEP 6、STEP 9（字节拷贝 K7） | 跨场景聚合分数 |
 | `dimension_scores.json` | STEP 6 | STEP 7、STEP 9（字节拷贝 K7） | 父维度加权分 |
 | `red_line_check.json` | STEP 7 | STEP 9（字节拷贝 K7） | 红线触发结果 |
@@ -249,7 +287,7 @@ Legend: deterministic（确定性）= 白盒；**LLM** = STEP 1.5（条件触发
 | 文件 | 用途 | 必读步骤 |
 |---|---|---|
 | [`runtime-schemas/evaluation_report.schema.json`](./runtime-schemas/evaluation_report.schema.json) | STEP 9 JSON 报告结构约束；`verdict_uploader.py` 按此 schema 解析字段（`overall_score`、`passed`、`dimension_scores` 路径与此一致才能被正确上传） | **STEP 9 生成 JSON 前必读** |
-| [`runtime-schemas/report-template.html`](./runtime-schemas/report-template.html) | STEP 9 HTML 渲染模板（K17 合同）；含雷达图、场景 Tab、指标表格；**必须**原文读取后仅替换三个占位符 | **STEP 9 生成 HTML 前必读** |
+| [`runtime-schemas/report-template.html`](./runtime-schemas/report-template.html) | STEP 9 HTML 渲染模板（K17 合同）；由 `report_assembler.py` 脚本读取并填充，**Agent 不直接读取此文件**——Agent 读取会导致上下文膨胀和执行中断 | **由 `report_assembler.py` 自动读取，Agent 无需读** |
 | [`runtime-schemas/metric_score.schema.json`](./runtime-schemas/metric_score.schema.json) | STEP 4 每个评分文件结构约束 | STEP 4 |
 | [`runtime-schemas/scenario_score.schema.json`](./runtime-schemas/scenario_score.schema.json) | STEP 5 汇总结构 | STEP 5 |
 | [`runtime-schemas/scenario_report.schema.json`](./runtime-schemas/scenario_report.schema.json) | STEP 8 每场景报告结构 | STEP 8 |
@@ -260,7 +298,7 @@ Legend: deterministic（确定性）= 白盒；**LLM** = STEP 1.5（条件触发
 > | 失败现象 | 根因 | 防止方法 |
 > |---|---|---|
 > | verdict 上传后前端显示 FAIL / 0.0 | `evaluation_report.json` 字段路径不符合 `evaluation_report.schema.json`（`overall_score` 嵌套层级错误） | **STEP 9 前必读 `evaluation_report.schema.json`，不得凭记忆推测字段路径** |
-> | HTML 报告排版混乱 / 图表缺失 | Agent 自行编写 HTML 而非使用模板 | **STEP 9 前必须 `cat runtime-schemas/report-template.html` 获取原文，仅替换占位符** |
+> | HTML 报告排版混乱 / 图表缺失 | Agent 直接读模板手工替换，或完全自行编写 HTML | **调用 `report_assembler.py` 脚本，由脚本读模板并安全序列化 JSON；Agent 不读模板** |
 > | 评分推理与员工实际能力偏离 | STEP 4 时未参照员工模板材料（SOUL.md / SKILL.md / 本体切片） | **STEP 4 每场景评分前，对照 `/workspace/uploads/artifact/<template_dir>/` 下材料，明确评估边界再打分** |
 > | 评估维度与技能口径不对齐 | 未读 `skills/*/SKILL.md` 中的"边界与不做"部分 | **STEP 1.2 指标精选时和 STEP 4 评分时均须引用技能口径作为评判基准** |
 
@@ -402,7 +440,7 @@ STEP 3 的双角色中，**宿主 Agent 自身 LLM** 扮演客户，依据以下
 
 ### 操作手册
 
-- [`playbooks/`](./playbooks/) — 每步操作流程、K 规则表、飞前检查不变式、污染运行生命周期
+- [`playbooks/`](./playbooks/) — 每步操作流程、K 规则表、评估前完备性检查不变式、污染运行生命周期
 
 ### 共享模板
 

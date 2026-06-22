@@ -1,4 +1,4 @@
-# 飞前检查不变式
+# 评估前完备性检查不变式
 
 这些不变式必须在宿主 Agent 进入 PRE.A / STEP 0 之前成立。这些是短路检查；任何一项失败都意味着运行不会启动。
 
@@ -22,6 +22,8 @@ Agent 必须以内联方式运行此检查清单（文件系统读取 + 算术�
 | 11 | Role_Catalog 目录可读，且（若非空）至少可解析 | 扫描 `EVALUATION_ROLES_DIR`（默认 `./role-catalog/`）；每文件失败为软失败（跳过 + open_question），但目录本身必须可 stat | 仅在目录不可读时 `block_or_escalate`；单个错误文件不阻断（role-catalog K1–K3） |
 | 12 | 若需要员工文件，`EVALUATION_EMPLOYEES_DIR`（默认 `./employees/`）可读 | stat 该目录；`<employee_id>.json` 缺失不是失败（STEP 0 回退到用户对话 / 推断） | 仅在目录路径已设置但不可读时 `block_or_escalate` |
 | 13 | `evaluation_context.metric_selection_policy`（若存在）具有可解析的默认值 | 验证 `mode` ∈ {auto, always, never}；`max_metrics` [1,100]、`min_dimensions_covered` [1,5]、`auto_apply_threshold` [0,1] 的边界；省略字段采用文档中的默认值 | 显式越界值 `fail_fast`；省略可以接受 |
+| 14 | **[multi-agent 模式]** Run Agent 启动前，`runs/<eval_id>/run_plan.json` 必须存在（即 Prep Agent 已完成） | stat `runs/<eval_id>/run_plan.json`；仅在 Orchestrator 触发 Run Agent 时检查 | `block`——Run Agent 等待 Prep Agent 完成，不得提前启动；Orchestrator 负责控制启动时序 |
+| 15 | **[multi-agent 模式]** Report Agent 启动前，所有 `completed_tcs` 对应的 `traces/<tc_id>.trace.json` 均存在 | Orchestrator 传入的 `completed_tcs` 列表，逐一 stat | `block`——Report Agent 等待，或若某 TC 确实失败则将其移入 `failed_tcs` |
 
 ## 何时运行
 
@@ -40,3 +42,6 @@ Agent 必须以内联方式运行此检查清单（文件系统读取 + 算术�
 - 越界的 `metric_selection_policy`（不变式 13）否则会在运行深处以令人困惑的 STEP 1.2 阻断形式出现
 
 在前期暴露不变式，让运行要么干净启动，要么响亮失败。
+
+- 不变式 14 防止 Run Agent 在 Prep Agent 还未完成时提前启动，避免读到不完整的 `enriched-cases/` 目录
+- 不变式 15 防止 Report Agent 在 trace 文件缺失时进行 STEP 5 聚合，确保 K12 产物完整性

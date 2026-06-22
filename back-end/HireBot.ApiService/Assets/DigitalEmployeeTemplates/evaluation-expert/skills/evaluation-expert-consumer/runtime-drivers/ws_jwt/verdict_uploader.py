@@ -410,9 +410,14 @@ def upload_verdict(
     auth_headers: dict[str, str],
     employee_id: str,
     payload: dict[str, Any],
+    *,
+    timeout: int = 120,
 ) -> dict[str, Any]:
     """
     调用 POST /api/v1/employees/{employeeId}/evaluation/sync-verdict。
+
+    timeout 默认 120 秒——HTML 报告可达 70KB+，加上 JSON 报告内容，
+    整个 body 可能超过 200KB，30 秒超时不够用。
 
     Returns:
         后端返回的 JSON 响应，失败时包含 _error 字段。
@@ -431,7 +436,7 @@ def upload_verdict(
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body_bytes = e.read()
@@ -557,20 +562,32 @@ def main() -> int:
         report_html_content=report_html_content,
     )
 
+    # 计算 payload 大小，超过阈值时打印警告
+    payload_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    payload_kb = payload_bytes / 1024
     _log("UPLOAD", f"base_url={base_url}")
     _log("UPLOAD", f"employee_id={employee_id}")
     _log("UPLOAD", f"session_id={session_id}")
     _log("UPLOAD", f"verdict={verdict_str}  score={overall_score}  tainted={tainted}")
     _log("UPLOAD", f"auth_source={auth.source}")
+    _log("UPLOAD", f"payload_size={payload_kb:.1f}KB  (json={len(report_json_content or '') // 1024}KB  html={len(report_html_content or '') // 1024}KB)")
+    if payload_kb > 500:
+        _log("WARN", f"payload 超过 500KB（{payload_kb:.1f}KB），HTTP 超时风险较高，已使用 120s 超时")
 
     print(f"[上传] 目标地址:   {base_url}")
     print(f"[上传] 员工 ID:    {employee_id}")
     print(f"[上传] 会话 ID:    {session_id}")
     print(f"[上传] 评估结论:   {verdict_str}，综合评分 {overall_score}")
+    print(f"[上传] Payload:    {payload_kb:.1f} KB")
     print(f"[上传] 鉴权方式:   {auth.source}")
 
     response = upload_verdict(base_url, auth.build_http_headers(), employee_id, payload)
     upload_ok = "_error" not in response
+
+    # 结果文件中不保存 HTML/JSON 全文（可达数百 KB），只记录字节数
+    payload_for_log = {k: v for k, v in payload.items() if k not in ("reportHtmlContent", "reportJsonContent")}
+    payload_for_log["_reportJsonBytes"] = len((report_json_content or "").encode("utf-8"))
+    payload_for_log["_reportHtmlBytes"] = len((report_html_content or "").encode("utf-8"))
 
     _write_json(args.output, {
         "status": "success" if upload_ok else "error",
@@ -580,7 +597,8 @@ def main() -> int:
         "tainted": tainted,
         "verdict": verdict_str,
         "overall_score": overall_score,
-        "request_payload": payload,
+        "payload_kb": round(payload_kb, 1),
+        "request_payload": payload_for_log,
         "response": response,
     })
 

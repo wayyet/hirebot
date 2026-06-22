@@ -1,8 +1,8 @@
-{
+﻿{
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://openclaw.io/evaluation-expert-consumer/runtime-schemas/scenario_score.schema.json",
+  "$id": "scenario_score.schema.json",
   "title": "ScenarioScore",
-  "description": "STEP 4 aggregate per scenario: bundles all MetricScore fan-out outputs for one test case. Produced deterministically by collecting the metric_score.json files of every (test_case_id, metric_code) pair after the LOOP body returns. No LLM call is made to produce this object.",
+  "description": "STEP 4 aggregate per scenario: bundles all MetricScore fan-out outputs for one test case. Produced deterministically by collecting the metric_score.json files of every (test_case_id, metric_code) pair after the LOOP body returns. No LLM call is made to produce this object. Each MetricScore item MUST include the reasoning field (verbatim copy from the individual score file) so downstream consumers (STEP 8 scenario report, HTML report) can display per-metric scoring rationale without re-reading individual score files.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,9 +18,37 @@
     "metric_scores": {
       "type": "array",
       "minItems": 1,
-      "description": "All per-metric fan-out results for this test case. Count must equal len(test_case.applicable_metrics).",
+      "description": "All per-metric fan-out results for this test case. Count must equal len(test_case.applicable_metrics). Each item is a full MetricScore object including the reasoning field — MUST NOT be stripped when assembling this aggregate.",
       "items": {
         "$ref": "metric_score.schema.json"
+      }
+    },
+    "scoring_summary": {
+      "type": "array",
+      "description": "Lightweight per-metric summary for quick access by STEP 5/6/7 and the HTML report. Each entry has metric_code, score, and reasoning copied verbatim from the matching MetricScore.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric_code", "score", "reasoning"],
+        "properties": {
+          "metric_code": { "type": "string", "minLength": 1 },
+          "score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Byte-copy of MetricScore.score."
+          },
+          "reasoning": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Byte-copy of MetricScore.reasoning. Must be identical to the reasoning in the corresponding metric_scores entry."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["excellent", "acceptable", "poor"],
+            "description": "Derived from score: >=80 excellent, >=60 acceptable, else poor."
+          }
+        }
       }
     },
     "trace_ref": {

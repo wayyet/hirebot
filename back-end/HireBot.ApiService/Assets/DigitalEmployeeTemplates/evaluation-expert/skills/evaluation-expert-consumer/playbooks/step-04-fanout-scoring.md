@@ -69,6 +69,22 @@ for f in scores/*.json:
 
 scoring-judgement K2（`RedLineTriggersAreNonNegotiable`）和 K5（`AllIssuesMustBeReported`）在其他地方——参见 `step-05-07-deterministic-rollup.md` 和 `step-09-overall-report.md`。
 
+## TC 级摘要写入（STEP 4 完成后，multi-agent 架构）
+
+所有 `scores/<tc_id>__<metric_code>.json` 写入完成且 K16 自检通过后，Run Agent 写入 `scores/<tc_id>__summary.json`（符合 `runtime-schemas/tc_score_summary.schema.json`）。
+
+**摘要包含**：
+- `turns_used`、`termination_reason`（来自 trace）
+- `actual_tool_calls`、`missing_required_tools`（来自 trace + enriched_tc 计算）
+- `observed_signals`（所有 score 文件 `observed_signals` 的并集）
+- `metric_scores`：每个指标的 `score`（字节拷贝）、`scored_at`（字节拷贝）、`reasoning_snippet`（前 200 字）
+
+**顺序约束**：摘要文件必须在所有 score 文件之后写入，不得提前写入。
+
+**失败处理**：摘要写入失败（schema 验证失败、IO 错误）不污染运行——原始 score 文件完整即视为 STEP 4 成功。Report Agent 检测到摘要缺失时自动降级读原始文件。
+
+**K16 与摘要的关系**：摘要文件中的 `scored_at` 是字节拷贝，用于 Report Agent（STEP 5）的快速校验。**K16 唯一性校验仍在原始 score 文件上执行**，摘要不替代该检查。
+
 ## 反模式
 
 | 反模式 | K 规则 | 失败模式 |
@@ -79,3 +95,4 @@ scoring-judgement K2（`RedLineTriggersAreNonNegotiable`）和 K5（`AllIssuesMu
 | 在 MetricScore 中设置 `red_line_passed` 或 `pass_fail` | K4 | 模式拒绝该字段 |
 | 将通用样板（"基于评分标准"）用作 `scoring_reasoning` | K16 | 评分文件必须重新生成 |
 | 以"该指标明显不适用"为由跳过某 (用例, 指标) 对 | K3 / K16 | 所有 `applicable_metrics` 在 STEP 4 均为强制项 |
+| 在所有 score 文件写入前就写摘要（顺序违规） | — | 摘要数据不完整，Report Agent 可能读到残缺数据；应删除并重写 |
