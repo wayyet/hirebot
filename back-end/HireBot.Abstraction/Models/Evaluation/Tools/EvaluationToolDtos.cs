@@ -100,6 +100,29 @@ public sealed record EvaluationVerdictSyncResultDto(
     string Status,
     EvaluationReportSummaryDto? LatestReport);
 
+public sealed record EvaluationReportContentUploadRequestDto
+{
+    [Required]
+    public string SessionId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// STEP 9 生成的 evaluation_report.json 完整内容。
+    /// </summary>
+    public string? ReportJsonContent { get; init; }
+
+    /// <summary>
+    /// STEP 9 生成的 evaluation_report.html 完整内容。
+    /// </summary>
+    public string? ReportHtmlContent { get; init; }
+}
+
+public sealed record EvaluationReportContentUploadResultDto(
+    string SessionId,
+    string ReportId,
+    string? ReportJsonUrl,
+    string? ReportHtmlUrl,
+    IReadOnlyList<EvaluationAssetRefDto> Assets);
+
 public sealed record EvaluationReportUpsertResultDto(
     string SessionId,
     string ReportId,

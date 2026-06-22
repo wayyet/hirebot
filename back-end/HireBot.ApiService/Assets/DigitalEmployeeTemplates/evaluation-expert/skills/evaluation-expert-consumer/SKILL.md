@@ -407,7 +407,7 @@ STEP 3 的执行依赖 `./runtime-drivers/ws_jwt/` 目录下以下脚本（**只
 | [`auth_client.py`](./runtime-drivers/ws_jwt/auth_client.py) | 被所有上传脚本调用 | 鉴权：解析 `evaluation_context.hirebot_api.auth`（`client_credentials`），向 Keycloak 换取 access_token，供出站 HTTP/WS 调用统一使用。 |
 | [`testcase_uploader.py`](./runtime-drivers/ws_jwt/testcase_uploader.py) | STEP 1.6 | 把 `synthesized-cases/` 下的合成用例推送至 HireBot (`sync-trace`)，使前端右侧面板卡片立即可见。 |
 | [`trace_uploader.py`](./runtime-drivers/ws_jwt/trace_uploader.py) | STEP 10（第一步） | 合并 `traces/*.trace.json` 为一个 bundle 并上传至 HireBot (`sync-trace`)。 |
-| [`verdict_uploader.py`](./runtime-drivers/ws_jwt/verdict_uploader.py) | STEP 10（第二步） | 读取 STEP 9 的 `overall_report.json`，构造 `EvaluationVerdictSyncRequestDto` 并上传 (`sync-verdict`)。 |
+| [`verdict_uploader.py`](./runtime-drivers/ws_jwt/verdict_uploader.py) | STEP 10（第二步） | 读取 STEP 9 的 `overall_report.json`，先上传轻量评分结论 (`sync-verdict`)，再按 `sessionId` 单独上传完整报告内容 (`report-content`)。 |
 | [`driver.json`](./runtime-drivers/ws_jwt/driver.json) | STEP 2.5 验证 | Driver 清单：声明 `driver_id` 及 `config_schema`，STEP 2.5 依此验证 `evaluation_context.runtime_driver.driver_config`。 |
 | [`requirements.txt`](./runtime-drivers/ws_jwt/requirements.txt) | STEP 3 前置检查 | Python 依赖：`websockets>=12.0`。STEP 3 前确认已安装。 |
 

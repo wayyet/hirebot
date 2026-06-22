@@ -45,7 +45,7 @@ When `evaluation_context.hirebot_api` is present, STEP 10 is a completion gate f
 
 ## 执行步骤
 
-### 步骤 A — 上传评估结论（sync-verdict）
+### 步骤 A — 上传评估结论（sync-verdict）和报告内容（report-content）
 
 ```bash
 python3 runtime-drivers/ws_jwt/verdict_uploader.py \
@@ -54,7 +54,7 @@ python3 runtime-drivers/ws_jwt/verdict_uploader.py \
   --output             runs/<eval_id>/upload_verdict_result.json
 ```
 
-成功标志：脚本打印 `[成功] 评估结论已上传到 HireBot 后端`，输出文件中 `status == "success"`。
+成功标志：脚本打印 `[成功] 评估结论和报告内容已上传到 HireBot 后端`，输出文件中 `status == "success"`。
 
 对应 HireBot API：`POST /api/v1/employees/{employeeId}/evaluation/sync-verdict`
 
@@ -70,14 +70,23 @@ python3 runtime-drivers/ws_jwt/verdict_uploader.py \
       { "dimension": "functional_completeness", "score": 75.0, "comment": "子指标: ...", "evidenceRefs": [] },
       ...
     ]
-  },
-  // 可选：STEP 9 生成的原始报告文件内容。有值时后端直接存储，取代自动生成的简化版。
-  "reportJsonContent": "<evaluation_report.json 文件完整内容字符串>",
-  "reportHtmlContent": "<evaluation_report.html 文件完整内容字符串>"
+  }
 }
 ```
 
-`verdict_uploader.py` 会自动读取 `evaluation_report.json` 的原始内容作为 `reportJsonContent`，并在同目录查找 `evaluation_report.html` 作为 `reportHtmlContent`（找不到时两个字段省略，后端回退到自动生成的简化版）。
+`sync-verdict` 只同步轻量评分摘要。随后 `verdict_uploader.py` 会调用报告内容接口上传 STEP 9 生成的原始报告文件；后端根据 `sessionId` 自动定位该会话最新报告记录，不要求脚本保存 `reportId`。
+
+`POST /api/v1/employees/{employeeId}/evaluation/report-content`
+
+请求类型：`multipart/form-data`
+
+| 字段 | 说明 |
+|---|---|
+| `sessionId` | `<hirebot_api.session_id>` |
+| `reportJsonFile` | `runs/<eval_id>/reports/evaluation_report.json` 文件 |
+| `reportHtmlFile` | `runs/<eval_id>/reports/evaluation_report.html` 文件（存在时上传） |
+
+这样可以避免把大 HTML 内联进 `sync-verdict` 的 JSON 请求体，评分状态推进和报告资产上传彼此解耦；如果评分同步成功但报告内容上传失败，重试时只需再次按同一 `sessionId` 上传报告文件，后端会覆盖最新报告资产引用。
 
 ### 步骤 B — 上传执行轨迹（sync-trace）+ 合成用例
 
@@ -153,4 +162,4 @@ python3 runtime-drivers/ws_jwt/trace_uploader.py \
 
 ## 幂等性说明
 
-`sync-verdict` 和 `sync-trace` 均为覆盖写语义（HireBot 后端对同一 `sessionId` 的多次调用取最后一次）。若结果文件写入后发现上传失败，可直接重跑步骤 A / B 而不影响数据一致性。
+`sync-verdict`、`report-content` 和 `sync-trace` 均为覆盖写语义（HireBot 后端对同一 `sessionId` 的多次调用取最后一次）。若结果文件写入后发现上传失败，可直接重跑步骤 A / B 而不影响数据一致性。
