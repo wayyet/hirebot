@@ -70,6 +70,19 @@
   flex-shrink: 0;
 }
 
+.hb-landing-brand-suffix {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding-left: 14px;
+  border-left: 1px solid var(--hb-nav-border);
+  color: var(--hb-near-black);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
 .hb-landing-nav-actions {
   display: flex;
   align-items: center;
@@ -811,6 +824,10 @@
 
   .hb-landing-nav-inner {
     padding: 0 16px;
+  }
+
+  .hb-landing-brand-suffix {
+    display: none;
   }
 }
 

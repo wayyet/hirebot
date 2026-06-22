@@ -137,11 +137,14 @@ export default function LandingPage() {
                 </div>
               </>
             ) : (
-              <img
-                src={originalBrandWordmarkSrc}
-                alt={t('brand.name')}
-                className="hb-brand-wordmark"
-              />
+              <>
+                <img
+                  src={originalBrandWordmarkSrc}
+                  alt={t('brand.name')}
+                  className="hb-brand-wordmark"
+                />
+                <span className="hb-landing-brand-suffix">{t('nav.brandSuffix')}</span>
+              </>
             )}
           </div>
 

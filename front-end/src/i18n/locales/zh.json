@@ -5,6 +5,7 @@
     "footer": "{{productName}} · 数字员工雇佣端"
   },
   "nav": {
+    "brandSuffix": "雇佣端",
     "templatePool": "企业模板池",
     "departmentEmployees": "部门数字员工",
     "myEmployees": "我的数字员工",
@@ -693,7 +694,7 @@
     "sent": "反馈入口已收到，后续将接入真实表单"
   },
   "landing": {
-    "badge": "数字员工雇佣平台",
+    "badge": "好雇雇佣端",
     "heroTitle1": "雇佣你的下一位",
     "heroTitle2": "数字员工",
     "heroSubtitle": "从模板挑选、发起雇佣，到完成入职与上岗协作，{{productName}} 将整个数字员工雇佣流程收束到同一个入口。",

@@ -5,6 +5,7 @@
     "footer": "{{productName}} · Digital Workforce Platform"
   },
   "nav": {
+    "brandSuffix": "Hiring",
     "templatePool": "Template Pool",
     "departmentEmployees": "Department Employees",
     "myEmployees": "My Employees",
@@ -692,7 +693,7 @@
   "feedback": {
     "sent": "Feedback received, a real form will be connected soon"  },
   "landing": {
-    "badge": "Digital Workforce Hiring Platform",
+    "badge": "GoodCrew Hiring",
     "heroTitle1": "Hire Your Next",
     "heroTitle2": "Digital Employee",
     "heroSubtitle": "From template selection and hiring, to onboarding and collaboration, {{productName}} unifies the entire digital workforce workflow in one place.",
