@@ -1,4 +1,4 @@
-﻿import { ApiClientError, buildUrl, httpClient } from '../httpClient'
+﻿import { ApiClientError, buildUrl, httpClient, normalizeApiErrorMessage } from '../httpClient'
 import type { ApiResponseEnvelope } from '../types'
 import { tokenService } from '@/infra/auth/token-service'
 
@@ -567,13 +567,19 @@ export const hiringWorkflowApi = {
       try {
         const payload = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
         throw new ApiClientError(
-          payload.message?.trim() || `请求失败（HTTP ${response.status}）`,
+          normalizeApiErrorMessage(response.status, payload),
           response.status,
           payload.code,
           payload,
         )
-      } catch {
-        throw new ApiClientError(`请求失败（HTTP ${response.status}）`, response.status, undefined, text)
+      } catch (error) {
+        if (error instanceof ApiClientError) throw error
+        throw new ApiClientError(
+          normalizeApiErrorMessage(response.status, undefined, `请求失败（HTTP ${response.status}）`),
+          response.status,
+          undefined,
+          text,
+        )
       }
     }
 
@@ -609,13 +615,19 @@ export const hiringWorkflowApi = {
       try {
         const payload = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
         throw new ApiClientError(
-          payload.message?.trim() || `请求失败（HTTP ${response.status}）`,
+          normalizeApiErrorMessage(response.status, payload),
           response.status,
           payload.code,
           payload,
         )
-      } catch {
-        throw new ApiClientError(`请求失败（HTTP ${response.status}）`, response.status, undefined, text)
+      } catch (error) {
+        if (error instanceof ApiClientError) throw error
+        throw new ApiClientError(
+          normalizeApiErrorMessage(response.status, undefined, `请求失败（HTTP ${response.status}）`),
+          response.status,
+          undefined,
+          text,
+        )
       }
     }
 
@@ -645,13 +657,19 @@ export const hiringWorkflowApi = {
       try {
         const payload = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
         throw new ApiClientError(
-          payload.message?.trim() || `请求失败（HTTP ${response.status}）`,
+          normalizeApiErrorMessage(response.status, payload),
           response.status,
           payload.code,
           payload,
         )
-      } catch {
-        throw new ApiClientError(`请求失败（HTTP ${response.status}）`, response.status, undefined, text)
+      } catch (error) {
+        if (error instanceof ApiClientError) throw error
+        throw new ApiClientError(
+          normalizeApiErrorMessage(response.status, undefined, `请求失败（HTTP ${response.status}）`),
+          response.status,
+          undefined,
+          text,
+        )
       }
     }
 
@@ -734,13 +752,19 @@ export const hiringWorkflowApi = {
       try {
         const payload = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
         throw new ApiClientError(
-          payload.message?.trim() || `请求失败（HTTP ${response.status}）`,
+          normalizeApiErrorMessage(response.status, payload),
           response.status,
           payload.code,
           payload,
         )
-      } catch {
-        throw new ApiClientError(`请求失败（HTTP ${response.status}）`, response.status, undefined, text)
+      } catch (error) {
+        if (error instanceof ApiClientError) throw error
+        throw new ApiClientError(
+          normalizeApiErrorMessage(response.status, undefined, `请求失败（HTTP ${response.status}）`),
+          response.status,
+          undefined,
+          text,
+        )
       }
     }
 
@@ -828,9 +852,20 @@ export const hiringWorkflowApi = {
     if (!response.ok) {
       try {
         const p = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
-        throw new ApiClientError(p.message?.trim() || `上传失败（HTTP ${response.status}）`, response.status, p.code, p)
-      } catch {
-        throw new ApiClientError(`上传失败（HTTP ${response.status}）`, response.status, undefined, text)
+        throw new ApiClientError(
+          normalizeApiErrorMessage(response.status, p, `上传失败（HTTP ${response.status}）`),
+          response.status,
+          p.code,
+          p,
+        )
+      } catch (error) {
+        if (error instanceof ApiClientError) throw error
+        throw new ApiClientError(
+          normalizeApiErrorMessage(response.status, undefined, `上传失败（HTTP ${response.status}）`),
+          response.status,
+          undefined,
+          text,
+        )
       }
     }
 
@@ -873,9 +908,20 @@ export const hiringWorkflowApi = {
     if (!response.ok) {
       try {
         const p = JSON.parse(text) as Partial<ApiResponseEnvelope<unknown>>
-        throw new ApiClientError(p.message?.trim() || `模板包上传失败（HTTP ${response.status}）`, response.status, p.code, p)
-      } catch {
-        throw new ApiClientError(`模板包上传失败（HTTP ${response.status}）`, response.status, undefined, text)
+        throw new ApiClientError(
+          normalizeApiErrorMessage(response.status, p, `模板包上传失败（HTTP ${response.status}）`),
+          response.status,
+          p.code,
+          p,
+        )
+      } catch (error) {
+        if (error instanceof ApiClientError) throw error
+        throw new ApiClientError(
+          normalizeApiErrorMessage(response.status, undefined, `模板包上传失败（HTTP ${response.status}）`),
+          response.status,
+          undefined,
+          text,
+        )
       }
     }
     const env = JSON.parse(text) as ApiResponseEnvelope<{

@@ -1,17 +1,19 @@
+﻿using HireBot.Abstraction.Infrastructure.Identity;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HireBot.Abstraction.Infrastructure.Identity;
-using Microsoft.AspNetCore.Http;
 
 namespace HireBot.Core.Infrastructure.Identity;
 
 /// <summary>
 /// HireBot 用户身份信息实现，从 JWT Claims 中提取用户和租户信息
 /// </summary>
-public sealed class HireBotUserIdentity(IHttpContextAccessor httpContextAccessor) : IUserIdentity
+public sealed class HireBotUserIdentity(IHttpContextAccessor httpContextAccessor, IConfiguration configuration) : IUserIdentity
 {
     private IEnumerable<Claim> Claims => httpContextAccessor.HttpContext?.User?.Claims ?? [];
+    private const string DefaultResourceAccessClientId = "ncrew-client";
 
     [JsonPropertyName("id")]
     public string Id =>
@@ -174,9 +176,25 @@ public sealed class HireBotUserIdentity(IHttpContextAccessor httpContextAccessor
     }
 
     [JsonPropertyName("role")]
-    public string? Role =>
-        Claims.FirstOrDefault(x => x.Type == ClaimTypes.Role)?.Value ??
-        Claims.FirstOrDefault(x => x.Type == "role")?.Value;
+    public string? Role
+    {
+        get
+        {
+            var user = httpContextAccessor.HttpContext?.User;
+            if (user is null)
+                return null;
+
+            var clientId = configuration.GetSection("ConsoleAuth")["ClientId"] ?? DefaultResourceAccessClientId;
+            var roles = JwtRoleResolver.GetRoles(user, clientId);
+            if (!roles.Any())
+                return null;
+
+            // Prioritize roles by permission level: admin > viewer
+            return roles.Contains("admin", StringComparer.OrdinalIgnoreCase)
+                ? "admin"
+                : roles.FirstOrDefault();
+        }
+    }
 
     [JsonPropertyName("is_authenticated")]
     public bool IsAuthenticated =>

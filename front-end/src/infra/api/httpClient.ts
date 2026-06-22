@@ -1,5 +1,6 @@
 ﻿import type { ApiResponseEnvelope, QueryParams, RequestOptions } from './types'
 import { tokenService } from '@/infra/auth/token-service'
+import i18n from '@/i18n'
 
 // 优先取后端注入的 ApiBase（镜像内部署时为 ""，即相对路径），
 // 其次 VITE 环境变量，最后回退到本地开发默认地址
@@ -46,11 +47,33 @@ export function buildUrl(path: string, query?: QueryParams): string {
 }
 
 function normalizeMessage(status: number, payload?: Partial<ApiResponseEnvelope<unknown>>): string {
+  const code = payload?.code as unknown
+  if (status === 403 || code === 403 || code === '403' || code === 'permission_denied') {
+    return i18n.t('auth.forbidden.title')
+  }
+
   if (payload?.message && payload.message.trim().length > 0) {
     return payload.message
   }
 
   return `请求失败（HTTP ${status}）`
+}
+
+export function normalizeApiErrorMessage(
+  status: number,
+  payload?: { code?: unknown; message?: unknown },
+  fallbackMessage?: string,
+): string {
+  const code = payload?.code
+  if (status === 403 || code === 403 || code === '403' || code === 'permission_denied') {
+    return i18n.t('auth.forbidden.title')
+  }
+
+  if (typeof payload?.message === 'string' && payload.message.trim().length > 0) {
+    return payload.message
+  }
+
+  return fallbackMessage ?? `请求失败（HTTP ${status}）`
 }
 
 function hasHeader(headers: Record<string, string>, headerName: string): boolean {
@@ -286,7 +309,12 @@ export function createRawHttpClient(baseUrl: string) {
     const hasBody = rawText.trim().length > 0
 
     if (!response.ok) {
-      throw new ApiClientError(`请求失败（HTTP ${response.status}）`, response.status, undefined, rawText)
+      throw new ApiClientError(
+        normalizeApiErrorMessage(response.status),
+        response.status,
+        undefined,
+        rawText,
+      )
     }
 
     if (!hasBody) {

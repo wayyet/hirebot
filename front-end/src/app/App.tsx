@@ -7,6 +7,7 @@ import { api } from "@/infra/api";
 import type { LocalStateMigrationRequest } from "@/infra/api";
 import LandingPage from "@/features/auth/pages/LandingPage";
 import AuthCallbackPage from "@/features/auth/pages/AuthCallbackPage";
+import ForbiddenBlankPage from "@/features/auth/pages/ForbiddenBlankPage";
 import MarketPage from "@/features/market/pages/MarketPage";
 import TemplateDetailPage from "@/features/market/pages/TemplateDetailPage";
 import DepartmentEmployeesPage from "@/features/hiring/pages/DepartmentEmployeesPage";
@@ -133,6 +134,7 @@ export default function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LandingPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route path="/403" element={<ForbiddenBlankPage />} />
           <Route
             path="/template-pool"
             element={

@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { getAuthUser } from '@/infra/auth/oidc'
+import { getAuthUser, getResourceAccessRoles } from '@/infra/auth/oidc'
 import { isAuthBypassed } from '@/infra/auth/auth-mode'
 
 export default function AuthGate({ children }: { children: ReactElement }) {
@@ -32,6 +32,10 @@ function OidcAuthGate({ children }: { children: ReactElement }) {
   if (!user) {
     const redirect = encodeURIComponent(location.pathname + location.search)
     return <Navigate to={`/?redirect=${redirect}`} replace />
+  }
+
+  if (getResourceAccessRoles(user).length === 0) {
+    return <Navigate to="/403" replace />
   }
 
   return children
