@@ -25,9 +25,13 @@ import {
 import { useTheme } from "@/app/theme/ThemeProvider";
 import { useUxOverlay } from "@/app/context/UxOverlayContext";
 import { isAuthBypassed } from "@/infra/auth/auth-mode";
-import { signOut, getAuthUser, getUserDisplayName, type OidcUser } from "@/infra/auth/oidc";
-
-const ROLE_STORAGE_KEY = "hirebot_user_role_v1";
+import {
+  signOut,
+  getAuthUser,
+  getUserDisplayName,
+  getResourceAccessRoles,
+  type OidcUser,
+} from "@/infra/auth/oidc";
 
 type NavItem = {
   path: string;
@@ -47,13 +51,15 @@ const navItems: NavItem[] = [
   { path: "/my-employees", labelKey: "nav.myEmployees", alwaysVisible: true },
 ];
 
-function deriveDefaultRole(): HirebotUserRole {
-  const cachedRole = localStorage.getItem(ROLE_STORAGE_KEY);
-  if (cachedRole === "manager" || cachedRole === "member") {
-    return cachedRole;
+const MANAGER_ROLE_ALIASES = ["manager", "admin", "owner", "hirebot_manager"];
+
+function resolveRoleFromJwtRoles(resourceRoles: string[]): HirebotUserRole {
+  const normalizedRoles = resourceRoles.map((role) => role.toLowerCase());
+  if (normalizedRoles.some((role) => MANAGER_ROLE_ALIASES.includes(role))) {
+    return "manager";
   }
 
-  return "manager";
+  return "member";
 }
 
 function isNavItemActive(pathname: string, navPath: string) {
@@ -94,7 +100,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const currentLang = i18n.resolvedLanguage ?? i18n.language ?? "zh";
   const brandName = resolveDisplayProductName(warmThemeEnabled, t("brand.name"));
   const originalBrandWordmarkSrc = resolveBrandWordmarkSrc(currentLang);
-  const [role, setRole] = useState<HirebotUserRole>(deriveDefaultRole);
+  const [role, setRole] = useState<HirebotUserRole>(isAuthBypassed ? "manager" : "member");
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [authUser, setAuthUser] = useState<OidcUser | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
@@ -196,10 +202,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    localStorage.setItem(ROLE_STORAGE_KEY, role);
-  }, [role]);
-
-  useEffect(() => {
     if (role === "member" && location.pathname.startsWith("/template-pool")) {
       navigate("/department-employees", { replace: true });
     }
@@ -211,6 +213,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         const user = await getAuthUser();
         if (user) {
           setAuthUser(user);
+          setRole(resolveRoleFromJwtRoles(getResourceAccessRoles(user)));
         }
       } catch (error) {
         console.warn("Failed to load user info:", error);

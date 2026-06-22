@@ -153,6 +153,10 @@
       "templateDetail": "模板详情",
       "hiringFlow": "雇佣流程",
       "instanceDetail": "数字员工详情"
+    },
+    "forbidden": {
+      "title": "当前用户没有权限操作该页面",
+      "description": "请联系管理员开通对应权限后再继续操作。"
     }
   },
   "market": {

@@ -153,6 +153,10 @@
       "templateDetail": "Template Detail",
       "hiringFlow": "Hiring Flow",
       "instanceDetail": "Employee Detail"
+    },
+    "forbidden": {
+      "title": "The current user does not have permission to operate this page",
+      "description": "Please contact your administrator to grant the required permission before continuing."
     }
   },
   "market": {

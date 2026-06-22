@@ -1,20 +1,19 @@
-using HireBot.ApiService.Authentication;
+﻿using HireBot.ApiService.Authentication;
 using HireBot.ApiService.McpTools;
 using HireBot.ApiService.Serialization;
 using HireBot.Core.Extensions;
+using HireBot.Core.Infrastructure.Identity;
 using HireBot.Core.Services.Internal;
-using ModelContextProtocol.Protocol;
 using HireBot.Repository;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.AspNetCore.Http;
 using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
+using ModelContextProtocol.Protocol;
 using Serilog;
 using Serilog.Events;
-using System.Text.Json;
+using System.IdentityModel.Tokens.Jwt;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -60,6 +59,8 @@ var authenticationScheme = string.IsNullOrWhiteSpace(oidcAuthority)
     ? DevelopmentAuthenticationDefaults.SchemeName
     : JwtBearerDefaults.AuthenticationScheme;
 
+var kcCfg = builder.Configuration.GetSection("ConsoleAuth");
+var resourceAccessClientId = kcCfg["ClientId"] ?? "ncrew-client";
 var authenticationBuilder = builder.Services.AddAuthentication(authenticationScheme);
 if (!string.IsNullOrWhiteSpace(oidcAuthority))
 {
@@ -122,8 +123,6 @@ if (builder.Configuration.GetValue("Database:AutoMigrateOnStartup", false))
         await dbContext.Database.EnsureCreatedAsync();
     else
         await dbContext.Database.MigrateAsync();
-
-
 }
 
 var evaluationResourceRoot = ResolveEvaluationResourceRoot(
@@ -186,6 +185,34 @@ app.MapGet("/api/diagnostics/evaluation-root", () =>
 app.UseAuthentication();
 app.UseMiddleware<UserSyncMiddleware>();
 app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+    if (!context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
+        HttpMethods.IsOptions(context.Request.Method))
+    {
+        await next();
+        return;
+    }
+
+    if (context.User.Identity?.IsAuthenticated != true)
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    var roles = JwtRoleResolver.GetRoles(context.User, resourceAccessClientId);
+    var endpoint = context.GetEndpoint();
+    var requiredPermission = ApiAuthorizationService.InferRequiredPermission(endpoint);
+
+    if (requiredPermission is not null && !ApiAuthorizationService.CanAccess(roles, requiredPermission.Value))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { code = "permission_denied", message = "当前角色无访问权限" });
+        return;
+    }
+
+    await next();
+});
 app.MapControllers();
 app.MapMcp("/mcp");
 

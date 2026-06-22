@@ -1,5 +1,4 @@
-import { ApiClientError } from '../httpClient'
-import { httpClient } from '../httpClient'
+import { ApiClientError, httpClient, normalizeApiErrorMessage } from '../httpClient'
 import { tokenService } from '@/infra/auth/token-service'
 import type { HiringConversationMessage } from './hiringWorkflowApi'
 
@@ -544,7 +543,7 @@ export const employeeRuntimeApi = {
           data: unknown
         }>
         throw new ApiClientError(
-          payload.message?.trim() || `请求失败（HTTP ${response.status}）`,
+          normalizeApiErrorMessage(response.status, payload),
           response.status,
           payload.code,
           payload,
@@ -552,7 +551,7 @@ export const employeeRuntimeApi = {
       } catch (err) {
         if (err instanceof ApiClientError) throw err
         throw new ApiClientError(
-          `请求失败（HTTP ${response.status}）`,
+          normalizeApiErrorMessage(response.status, undefined, `请求失败（HTTP ${response.status}）`),
           response.status,
           undefined,
           text,

@@ -184,6 +184,25 @@ export interface OidcUser {
   state?: unknown
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+export function getResourceAccessRoles(user: OidcUser | null | undefined): string[] {
+  if (!user || !clientId) return []
+
+  const resourceAccess = user.profile?.resource_access
+  if (!isRecord(resourceAccess)) return []
+
+  const clientAccess = resourceAccess[clientId]
+  if (!isRecord(clientAccess)) return []
+
+  const roles = clientAccess.roles
+  if (!Array.isArray(roles)) return []
+
+  return roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)
+}
+
 function buildUser(ts: TokenSet, state?: unknown): OidcUser {
   return {
     access_token: ts.access_token,
@@ -376,6 +395,10 @@ export async function signIn(): Promise<void> {
 
 export async function signOut(): Promise<void> {
   await userManager.signoutRedirect()
+}
+
+export async function clearLocalAuthSession(): Promise<void> {
+  await userManager.removeUser()
 }
 
 export function getUserDisplayName(user: OidcUser, locale = 'zh'): string {
