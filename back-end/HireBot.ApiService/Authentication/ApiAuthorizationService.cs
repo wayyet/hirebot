@@ -45,7 +45,7 @@ public static class ApiAuthorizationService
     /// </summary>
     public static bool CanAccessAdmin(IEnumerable<string> userRoles)
     {
-        return userRoles.Contains("admin1", StringComparer.OrdinalIgnoreCase);
+        return userRoles.Contains("admin", StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
