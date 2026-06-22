@@ -10,7 +10,9 @@
     "departmentEmployees": "部门数字员工",
     "myEmployees": "我的数字员工",
     "skills": "技能库",
-    "feedback": "建议反馈"
+    "feedback": "建议反馈",
+    "console": "进入工作台",
+    "logout": "退出登录"
   },
   "role": {
     "manager": "部门长",

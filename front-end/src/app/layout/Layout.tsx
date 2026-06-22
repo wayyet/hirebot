@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   Globe,
+  Home,
   Loader2,
   LogOut,
   Moon,
   Palette,
   Settings,
   Sun,
+  User,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -235,7 +237,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }
 
   const displayName = loadingUser ? t("user.loading") : userDisplayName || t("user.defaultName");
-  const avatarLetter = loadingUser ? "?" : (userDisplayName?.charAt(0)?.toUpperCase() ?? "?");
+  const userEmail = typeof authUser?.profile.email === "string" ? authUser.profile.email : "";
 
   return (
     <UserRoleContext.Provider value={{ role, setRole }}>
@@ -409,54 +411,88 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 ) : null}
               </div>
 
-              <div className="hb-user-dropdown" ref={userRef}>
+              <div className="landing-auth-popover" ref={userRef}>
                 <button
                   type="button"
-                  className="hb-user-btn"
+                  className="app-layout-user-button"
                   onClick={() => {
                     setUserOpen((current) => !current);
                     setLangOpen(false);
+                    setNavMenuOpen(false);
                   }}
+                  aria-haspopup="menu"
+                  aria-expanded={userOpen}
                 >
-                  <div className="hb-user-avatar">{avatarLetter}</div>
-                  <span className="hb-user-name">{displayName}</span>
+                  <div className="app-layout-user-avatar">
+                    <User size={12} />
+                  </div>
+                  <span className="app-layout-user-name">{displayName}</span>
                   <ChevronDown
                     size={12}
-                    style={{
-                      transform: userOpen ? "rotate(180deg)" : "none",
-                      transition: "transform 180ms ease",
-                      flexShrink: 0,
-                    }}
+                    className={`app-layout-chevron${userOpen ? " is-open" : ""}`}
                   />
                 </button>
                 {userOpen ? (
-                  <div className="hb-dropdown-menu hb-dropdown-menu--right">
+                  <div className="glass-modal app-layout-menu app-layout-user-menu" role="menu">
+                    <div className="app-layout-user-menu-header">
+                      <div className="app-layout-user-menu-avatar">
+                        <User size={15} />
+                      </div>
+                      <div className="app-layout-user-menu-meta">
+                        <div className="app-layout-user-menu-name">{displayName}</div>
+                        {userEmail ? (
+                          <div className="app-layout-user-menu-email">{userEmail}</div>
+                        ) : null}
+                      </div>
+                    </div>
                     <button
                       type="button"
-                      className="hb-dropdown-item"
+                      className="app-layout-menu-item"
+                      onClick={() => {
+                        setUserOpen(false);
+                        navigate("/");
+                      }}
+                    >
+                      <span className="app-layout-menu-icon">
+                        <Home size={14} />
+                      </span>
+                      <span>{t("common.backHome")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="app-layout-menu-item"
                       onClick={() => {
                         setUserOpen(false);
                         navigate("/settings");
                       }}
                     >
-                      <Settings size={13} />
-                      {t("user.settings")}
+                      <span className="app-layout-menu-icon">
+                        <Settings size={14} />
+                      </span>
+                      <span>{t("user.settings")}</span>
                     </button>
                     {!isAuthBypassed ? (
-                      <button
-                        type="button"
-                        className="hb-dropdown-item hb-dropdown-item--danger"
-                        disabled={logoutLoading}
-                        onClick={() => {
-                          setUserOpen(false);
-                          void handleLogout();
-                        }}
-                      >
-                        {logoutLoading
-                          ? <Loader2 size={13} className="animate-spin" />
-                          : <LogOut size={13} />}
-                        {t("user.logout")}
-                      </button>
+                      <>
+                        <div className="app-layout-menu-divider" />
+                        <button
+                          type="button"
+                          className="app-layout-menu-item is-danger"
+                          disabled={logoutLoading}
+                          onClick={() => {
+                            setUserOpen(false);
+                            void handleLogout();
+                          }}
+                        >
+                          <span className="app-layout-menu-icon">
+                            {logoutLoading ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <LogOut size={14} />
+                            )}
+                          </span>
+                          <span>{t("nav.logout")}</span>
+                        </button>
+                      </>
                     ) : null}
                   </div>
                 ) : null}

@@ -8,7 +8,6 @@ import {
   ChevronDown,
   Globe,
   Layers,
-  Loader2,
   LogIn,
   LogOut,
   Moon,
@@ -71,7 +70,6 @@ export default function LandingPage() {
   const systemBrandIconSrc = resolveSystemBrandIconSrc(warmThemeEnabled)
   const [langOpen, setLangOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
-  const [logoutLoading, setLogoutLoading] = useState(false)
   const langRef = useRef<HTMLDivElement>(null)
   const userRef = useRef<HTMLDivElement>(null)
 
@@ -127,18 +125,6 @@ export default function LandingPage() {
 
     // 登录后继续回到用户原本想进入的业务路径。
     void userManager.signinRedirect({ state: { returnTo: redirectPath } })
-  }
-
-  async function handleLogout() {
-    if (logoutLoading) return
-
-    setLogoutLoading(true)
-    try {
-      await signOut()
-    } catch (logoutError) {
-      setLogoutLoading(false)
-      console.error('Sign out failed', logoutError)
-    }
   }
 
   const switchLang = (code: string) => {
@@ -261,7 +247,7 @@ export default function LandingPage() {
                   />
                 </button>
                 {userOpen ? (
-                  <div className="hb-dropdown-menu hb-dropdown-menu--right app-layout-menu app-layout-user-menu" role="menu">
+                  <div className="glass-modal app-layout-menu app-layout-user-menu" role="menu">
                     <div className="app-layout-user-menu-header">
                       <div className="app-layout-user-menu-avatar">
                         <User size={15} />
@@ -277,30 +263,27 @@ export default function LandingPage() {
                       type="button"
                       className="app-layout-menu-item is-active"
                       onClick={() => {
+                        navigate('/template-pool')
                         setUserOpen(false)
-                        navigate(redirectPath)
                       }}
                     >
                       <span className="app-layout-menu-icon"><LogIn size={14} /></span>
-                      <span>{t('landing.enterConsole')}</span>
+                      <span>{t('nav.console')}</span>
                     </button>
                     {user && !isAuthBypassed ? (
                       <>
                         <div className="app-layout-menu-divider" />
-                      <button
-                        type="button"
-                        className="app-layout-menu-item is-danger"
-                        disabled={logoutLoading}
-                        onClick={() => {
-                          setUserOpen(false)
-                          void handleLogout()
-                        }}
-                      >
-                        {logoutLoading
-                          ? <span className="app-layout-menu-icon"><Loader2 size={14} className="animate-spin" /></span>
-                          : <span className="app-layout-menu-icon"><LogOut size={14} /></span>}
-                        <span>{t('user.logout')}</span>
-                      </button>
+                        <button
+                          type="button"
+                          className="app-layout-menu-item is-danger"
+                          onClick={() => {
+                            signOut()
+                            setUserOpen(false)
+                          }}
+                        >
+                          <span className="app-layout-menu-icon"><LogOut size={14} /></span>
+                          <span>{t('nav.logout')}</span>
+                        </button>
                       </>
                     ) : null}
                   </div>

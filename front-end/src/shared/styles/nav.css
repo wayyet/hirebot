@@ -414,6 +414,21 @@ html[data-mode="dark"] .hb-shell {
   right: 0;
 }
 
+.app-layout-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 200;
+  min-width: 140px;
+  padding: 6px;
+  border: 1px solid var(--hb-dropdown-border);
+  border-radius: 14px;
+  background: var(--hb-dropdown-bg);
+  box-shadow: var(--hb-dropdown-shadow);
+  backdrop-filter: var(--hb-dropdown-backdrop);
+  -webkit-backdrop-filter: var(--hb-dropdown-backdrop);
+}
+
 .app-layout-menu.app-layout-user-menu {
   width: min(264px, calc(100vw - 32px));
 }

@@ -10,7 +10,9 @@
     "departmentEmployees": "Department Employees",
     "myEmployees": "My Employees",
     "skills": "Skills",
-    "feedback": "Feedback"
+    "feedback": "Feedback",
+    "console": "Go to Dashboard",
+    "logout": "Sign Out"
   },
   "role": {
     "manager": "Manager",
