@@ -710,6 +710,14 @@
     "enterConsole": "Go to Dashboard",
     "ctaPrimary": "Get Started",
     "ctaLearnMore": "Learn More",
+    "tags": {
+      "templatePool": "Template Pool",
+      "hiringFlow": "Hiring Flow",
+      "employeeHub": "Employee Hub",
+      "skills": "Skills",
+      "onboarding": "Onboarding",
+      "collaboration": "Collaboration"
+    },
     "featuresLabel": "Core Features",
     "featuresTitle": "End-to-End Digital Employee Hiring",
     "featuresSubtitle": "Every step of the hiring journey has a dedicated module.",

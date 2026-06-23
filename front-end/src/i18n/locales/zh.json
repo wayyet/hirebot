@@ -711,6 +711,14 @@
     "enterConsole": "进入工作台",
     "ctaPrimary": "立即登录",
     "ctaLearnMore": "了解更多",
+    "tags": {
+      "templatePool": "模板池",
+      "hiringFlow": "雇佣流程",
+      "employeeHub": "员工中心",
+      "skills": "技能库",
+      "onboarding": "入职配置",
+      "collaboration": "协作管理"
+    },
     "featuresLabel": "核心能力",
     "featuresTitle": "一站式数字员工雇佣",
     "featuresSubtitle": "从选择到上岗，每个环节都有对应的专属功能模块。",

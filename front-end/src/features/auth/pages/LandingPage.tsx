@@ -49,6 +49,8 @@ const STEPS = [
   { num: '03', key: 'onboard' },
 ] as const
 
+const LANDING_TAG_KEYS = ['templatePool', 'hiringFlow', 'employeeHub', 'skills', 'onboarding', 'collaboration'] as const
+
 function GoodCrewMark({ className }: { className?: string }) {
   return (
     <svg
@@ -368,8 +370,8 @@ export default function LandingPage() {
           </div>
 
           <div className="hb-landing-tags hb-anim-fade-up" style={{ animationDelay: '380ms' }}>
-            {['Template Pool', 'Hiring Flow', 'Employee Hub', 'Skills', 'Onboarding', 'Collaboration'].map((tag) => (
-              <span key={tag} className="hb-landing-tag">{tag}</span>
+            {LANDING_TAG_KEYS.map((tagKey) => (
+              <span key={tagKey} className="hb-landing-tag">{t(`landing.tags.${tagKey}`)}</span>
             ))}
           </div>
         </div>
