@@ -702,8 +702,10 @@
   },
   "landing": {
     "badge": "好雇雇佣端",
+    "heroTitle": "雇佣你的下一位数字员工",
     "heroTitle1": "雇佣你的下一位",
     "heroTitle2": "数字员工",
+    "heroSlogan": "你的数字员工，好雇，好 good～",
     "heroSubtitle": "从模板挑选、发起雇佣，到完成入职与上岗协作，{{productName}} 将整个数字员工雇佣流程收束到同一个入口。",
     "loginBtn": "登录",
     "enterConsole": "进入工作台",

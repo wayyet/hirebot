@@ -55,7 +55,7 @@
 .hb-landing-nav-inner {
   width: 100%;
   margin: 0 auto;
-  padding: 0 40px;
+  padding: 0 48px;
   height: 64px;
   display: flex;
   align-items: center;
@@ -70,6 +70,12 @@
   flex-shrink: 0;
 }
 
+.hb-landing .hb-brand-wordmark {
+  width: 108px;
+  height: 40px;
+  max-width: none;
+}
+
 .hb-landing-brand-suffix {
   display: inline-flex;
   align-items: center;
@@ -79,7 +85,7 @@
   color: var(--hb-near-black);
   font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 
@@ -94,17 +100,55 @@
 .hb-landing-login-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 9px 22px;
-  border-radius: 999px;
+  gap: 8px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 18px;
+  border-radius: 10px;
   background: linear-gradient(135deg, #2d6bff 0%, #1e50e5 100%);
   border: none;
   color: #fff;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.2s, filter 0.2s;
   box-shadow: 0 12px 24px rgba(30, 80, 229, 0.22);
+}
+
+.hb-landing-nav .hb-icon-btn {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  border-radius: 10px;
+}
+
+.hb-landing-nav .hb-nav-utility-btn {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 11px;
+  border-radius: 10px;
+}
+
+.hb-landing-nav .app-layout-user-button {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 11px 0 6px;
+  border-radius: 10px;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.2;
+}
+
+.hb-landing-nav .app-layout-user-avatar {
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.hb-landing-nav .app-layout-user-name {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
 }
 
 .hb-landing-login-btn:hover {
@@ -463,12 +507,12 @@
 
 /* 大标题 */
 .hb-landing-headline {
-  font-size: clamp(40px, 6vw, 72px);
+  font-size: clamp(36px, 4vw, 58px);
   font-weight: 900;
-  line-height: 1.05;
-  letter-spacing: clamp(-1.5px, -0.04em, -3px);
+  line-height: 1.08;
+  letter-spacing: 0;
   color: var(--hb-near-black);
-  margin: 0 0 20px;
+  margin: 0 0 14px;
 }
 
 .hb-landing-headline-accent {
@@ -476,6 +520,14 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+.hb-landing-slogan {
+  color: var(--hb-near-black);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.45;
+  margin: 0 0 18px;
 }
 
 /* 副标题 */

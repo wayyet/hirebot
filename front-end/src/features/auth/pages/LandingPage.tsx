@@ -149,6 +149,7 @@ export default function LandingPage() {
   const userDisplayName = user ? getUserDisplayName(user, currentLang) : ''
   const userEmail = typeof user?.profile.email === 'string' ? user.profile.email : ''
   const displayName = userDisplayName || t('user.defaultName')
+  const userInitial = displayName.trim().charAt(0).toUpperCase()
 
   return (
     <div className="hb-landing">
@@ -196,7 +197,7 @@ export default function LandingPage() {
                 aria-label={t('theme.brandToggle')}
                 title={t('theme.brandToggle')}
               >
-                <Palette size={14} />
+                <Palette size={16} />
                 <span>{t(`theme.brand.${brand}`)}</span>
               </button>
             ) : null}
@@ -206,9 +207,9 @@ export default function LandingPage() {
                 className="hb-nav-utility-btn"
                 onClick={() => setLangOpen((current) => !current)}
               >
-                <Globe size={14} />
+                <Globe size={16} />
                 <span>{currentLangLabel}</span>
-                <ChevronDown size={12} />
+                <ChevronDown size={16} />
               </button>
               {langOpen ? (
                 <div className="hb-dropdown-menu hb-dropdown-menu--right">
@@ -238,11 +239,11 @@ export default function LandingPage() {
                   aria-expanded={userOpen}
                 >
                   <div className="app-layout-user-avatar">
-                    <User size={12} />
+                    {userInitial || <User size={14} />}
                   </div>
                   <span className="app-layout-user-name">{displayName}</span>
                   <ChevronDown
-                    size={12}
+                    size={16}
                     className={`app-layout-chevron${userOpen ? ' is-open' : ''}`}
                   />
                 </button>
@@ -315,12 +316,12 @@ export default function LandingPage() {
           </div>
 
           <h1 className="hb-landing-headline hb-anim-fade-up" style={{ animationDelay: '80ms' }}>
-            {t('landing.heroTitle1')}
-            <br />
-            <span className="hb-landing-headline-accent">
-              {t('landing.heroTitle2')}
-            </span>
+            {t('landing.heroTitle')}
           </h1>
+
+          <p className="hb-landing-slogan hb-anim-fade-up" style={{ animationDelay: '140ms' }}>
+            {t('landing.heroSlogan')}
+          </p>
 
           <p className="hb-landing-subtitle hb-anim-fade-up" style={{ animationDelay: '180ms' }}>
             {t('landing.heroSubtitle', { productName })}
