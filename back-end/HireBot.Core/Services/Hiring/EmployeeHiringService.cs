@@ -18,6 +18,7 @@ using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Hiring;
@@ -39,6 +40,7 @@ internal sealed class EmployeeHiringService(
     HireBotDbContext dbContext,
     IKingCrabHttpClient kingCrabHttpClient,
     IConfiguration configuration,
+    IHostEnvironment hostEnvironment,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
     /// <summary>
@@ -623,9 +625,8 @@ internal sealed class EmployeeHiringService(
         HiringConversationSyncRequestDto request,
         CancellationToken cancellationToken)
     {
-        // 默认不开启，需要配置 Hiring:EnableRecordWriting=true 才写入文件
-        var enableRecordWriting = configuration.GetValue<bool>("Hiring:EnableRecordWriting");
-        if (!enableRecordWriting)
+        // 仅在开发调试环境下写入雇佣对话记录文件
+        if (!hostEnvironment.IsDevelopment())
         {
             return;
         }
