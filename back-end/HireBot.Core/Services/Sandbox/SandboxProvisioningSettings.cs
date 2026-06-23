@@ -210,7 +210,8 @@ internal sealed record SandboxProvisioningSettings(
             ["OpenClaw__Llm__ApiKey"] = LlmApiKey,
             ["OpenClaw__Llm__Endpoint"] = LlmEndpoint,
             ["OpenClaw__Llm__Temperature"] = LlmTemperature.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
-            ["OpenClaw__Llm__EnableThinking"] = LlmEnableThinking.ToString().ToLowerInvariant()
+            ["OpenClaw__Llm__EnableThinking"] = LlmEnableThinking.ToString().ToLowerInvariant(),
+            ["OpenClaw__WebSocket__ReceiveTimeoutSeconds"] = "3600"
         };
 
         for (var i = 0; i < AllowedOrigins.Count; i++)
