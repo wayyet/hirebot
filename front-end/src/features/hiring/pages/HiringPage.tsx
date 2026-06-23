@@ -3556,7 +3556,6 @@ export default function HiringPage() {
           onInputChange={setInput}
           onSend={() => { void handleSend() }}
           onFileChange={addPendingFiles}
-          onOpenSkillUpload={() => setShowSkillUploadModal(true)}
           onRemovePendingFile={(fileId) => setPendingFiles(prev => prev.filter(file => file.id !== fileId))}
           formatFileSize={formatFileSize}
           onArtifactFileDownload={(url, fileName, artifactType) => {
