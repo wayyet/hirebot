@@ -5,11 +5,14 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  FileText,
   Loader2,
   MessageCircle,
+  Paperclip,
   SendHorizontal,
   ShieldAlert,
   ShieldCheck,
+  X,
   Zap,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -22,6 +25,7 @@ import {
   fetchAdminSessions,
   fetchSandboxSessionMessages,
   type SandboxMessage,
+  uploadMediaToGateway,
 } from '@/infra/sandbox/sandbox-api'
 import {
   api,
@@ -64,6 +68,23 @@ function verdictPillClass(verdict?: string | null) {
   if (verdict === 'failed') return 'eval-tone-failed'
   if (verdict === 'warning') return 'eval-tone-warning'
   return 'eval-tone-pending'
+}
+
+interface ChatFile {
+  id: string
+  name: string
+  size: number
+  status: '上传中' | '已上传' | '上传失败'
+  mimeType?: string
+  marker?: string
+  url?: string
+  uploadError?: string
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function mapSandboxMessages(messages: SandboxMessage[]): EvalChatMessage[] {
@@ -129,10 +150,13 @@ export default function HumanEvaluationPage() {
   const streamingToolStepsRef = useRef<ToolStep[]>([])
   const chatEndRef = useRef<HTMLDivElement | null>(null)
   const chatReadyRef = useRef<Promise<boolean> | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const connectionStateRef = useRef<{ endpoint: string | null; sessionId: string | null }>({
     endpoint: null,
     sessionId: null,
   })
+
+  const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([])
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -415,19 +439,125 @@ export default function HumanEvaluationPage() {
     return chatReadyRef.current
   }
 
+  function triggerFileUpload() {
+    fileInputRef.current?.click()
+  }
+
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      addPendingFiles(files)
+    }
+    e.target.value = ''
+  }
+
+  function handleRemovePendingFile(fileId: string) {
+    setPendingFiles((prev) => prev.filter((f) => f.id !== fileId))
+  }
+
+  function addPendingFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList)
+    const endpoint = targetEndpointRef.current
+
+    files.forEach((file, index) => {
+      const fileId = `${file.name}-${file.lastModified}-${Date.now()}-${index}`
+      const placeholder: ChatFile = {
+        id: fileId,
+        name: file.name,
+        size: file.size,
+        status: '上传中',
+        mimeType: file.type || undefined,
+      }
+
+      setPendingFiles((prev) => [...prev, placeholder])
+
+      if (!endpoint) {
+        setPendingFiles((prev) =>
+          prev.map((item) =>
+            item.id === fileId
+              ? { ...item, status: '上传失败', uploadError: '沙箱端点尚未就绪，无法上传附件' }
+              : item,
+          ),
+        )
+        return
+      }
+
+      void (async () => {
+        try {
+          const token = await tokenService.ensureFresh()
+          if (!token) {
+            throw new Error('Token not available for file upload')
+          }
+
+          const result = await uploadMediaToGateway(endpoint, token, file)
+          setPendingFiles((prev) =>
+            prev.map((item) =>
+              item.id === fileId
+                ? {
+                    ...item,
+                    status: '已上传',
+                    marker: result.marker,
+                    url: result.url,
+                    size: result.sizeBytes,
+                    mimeType: result.mimeType || item.mimeType,
+                  }
+                : item,
+            ),
+          )
+        } catch (uploadError: unknown) {
+          setPendingFiles((prev) =>
+            prev.map((item) =>
+              item.id === fileId
+                ? {
+                    ...item,
+                    status: '上传失败',
+                    uploadError: uploadError instanceof Error ? uploadError.message : '上传失败',
+                  }
+                : item,
+            ),
+          )
+        }
+      })()
+    })
+  }
+
   async function sendMessage() {
     if (!id || chatSending) return
     const content = chatInput.trim()
-    if (!content) return
+    const readyFiles = pendingFiles.filter(
+      (file) => file.status === '已上传' && Boolean(file.marker),
+    )
+    if (!content && readyFiles.length === 0) return
+
+    if (pendingFiles.some((file) => file.status === '上传中')) {
+      setChatError('仍有附件在上传中，请稍候再发送')
+      return
+    }
+
+    const erroredFiles = pendingFiles.filter((file) => file.status === '上传失败')
+    if (erroredFiles.length > 0) {
+      setChatError(`附件上传失败：${erroredFiles.map((file) => file.name).join('、')}`)
+      return
+    }
+
+    const sentFiles = readyFiles.length > 0 ? [...readyFiles] : []
+    const fileMarkers = sentFiles
+      .filter((file) => Boolean(file.marker))
+      .map((file) => `${file.marker}\nAttached file: ${file.name} (${formatFileSize(file.size)})`)
+    const markerContent = fileMarkers.join('\n')
+    const textContent = markerContent
+      ? [markerContent, content || '补充信息'].filter(Boolean).join('\n\n')
+      : content
 
     const optimistic: HiringConversationMessage = {
       messageId: `local_${Date.now()}`,
       role: 'user',
-      content,
+      content: textContent,
       createdAt: new Date().toISOString(),
     }
 
     setChatInput('')
+    setPendingFiles([])
     setChatSending(true)
     setChatError('')
     setChatMessages((prev) => [...prev, optimistic])
@@ -447,7 +577,7 @@ export default function HumanEvaluationPage() {
 
       const sent = ws.send({
         type: 'user_message',
-        text: content,
+        text: textContent,
         sessionId,
         messageId: `human-eval-${Date.now()}`,
       })
@@ -696,7 +826,67 @@ export default function HumanEvaluationPage() {
 
             {/* 输入区 */}
             <div className="shrink-0 border-t eval-chat-footer px-4 py-4">
+              {/* 待上传文件列表 */}
+              {pendingFiles.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {pendingFiles.map((file) => {
+                    const isUploading = file.status === '上传中'
+                    const isError = file.status === '上传失败'
+                    return (
+                      <div
+                        key={file.id}
+                        className={`group relative flex items-center gap-2 overflow-hidden rounded-xl border px-2.5 py-2 text-[12px] transition-colors ${
+                          isError
+                            ? 'border-red-200 bg-red-50/70 text-red-700'
+                            : isUploading
+                              ? 'border-slate-200 bg-slate-50 text-slate-500'
+                              : 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
+                        }`}
+                      >
+                        {isUploading ? (
+                          <Loader2 size={14} className="shrink-0 animate-spin" />
+                        ) : isError ? (
+                          <AlertCircle size={14} className="shrink-0 text-red-500" />
+                        ) : (
+                          <FileText size={14} className="shrink-0 text-slate-400" />
+                        )}
+                        <span className="max-w-[160px] truncate">{file.name}</span>
+                        <span className="shrink-0 text-[11px] opacity-70">
+                          {isUploading ? '上传中' : isError ? (file.uploadError || '失败') : '已上传'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePendingFile(file.id)}
+                          className="ml-0.5 shrink-0 rounded-full p-0.5 opacity-60 transition-opacity hover:opacity-100"
+                          aria-label={`移除 ${file.name}`}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
               <div className="flex items-end gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.zip,.json,.pdf,.txt,.csv,.xlsx,.docx"
+                  onChange={handleFileInputChange}
+                  className="hidden"
+                  disabled={chatSending || !workspaceReady}
+                />
+                <button
+                  type="button"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+                  onClick={triggerFileUpload}
+                  disabled={chatSending || !workspaceReady}
+                  title="上传文件"
+                  aria-label="上传文件"
+                >
+                  <Paperclip size={16} />
+                </button>
                 <textarea
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
@@ -713,7 +903,7 @@ export default function HumanEvaluationPage() {
                 />
                 <button
                   type="button"
-                  disabled={chatSending || !chatInput.trim() || !workspaceReady}
+                  disabled={chatSending || (!chatInput.trim() && pendingFiles.filter((f) => f.status === '已上传').length === 0) || !workspaceReady}
                   onClick={() => void sendMessage()}
                   className="hb-workflow-send-btn"
                 >

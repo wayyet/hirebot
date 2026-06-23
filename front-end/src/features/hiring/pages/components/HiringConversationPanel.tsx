@@ -80,7 +80,6 @@ type HiringConversationPanelProps = {
   onSend: () => void
   onScrollToBottom: () => void
   onFileChange: (files: FileList) => void
-  onOpenSkillUpload: () => void
   onRemovePendingFile: (fileId: string) => void
   formatFileSize: (bytes: number) => string
   /** 带 token 的 gateway 文件下载回调 */
@@ -122,7 +121,6 @@ export function HiringConversationPanel({
   onSend,
   onScrollToBottom,
   onFileChange,
-  onOpenSkillUpload,
   onRemovePendingFile,
   formatFileSize,
   onArtifactFileDownload,
@@ -429,15 +427,6 @@ export function HiringConversationPanel({
                 >
                   <Paperclip size={15} />
                   {t('hiring.button.fileUpload')}
-                </button>
-                <button
-                  type="button"
-                  onClick={onOpenSkillUpload}
-                  disabled={disabled}
-                  className="hb-hiring-tool-btn"
-                >
-                  <Package size={15} />
-                  skill
                 </button>
                 <button
                   type="button"
