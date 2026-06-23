@@ -377,6 +377,13 @@ export interface HiringConversationSyncRequest {
   userMessage: string
   assistantReply: string
   materials?: HiringConversationMaterial[]
+  toolCalls?: HiringConversationToolCall[]
+}
+
+export interface HiringConversationToolCall {
+  toolName: string
+  arguments?: string
+  result?: string
 }
 
 export interface HiringConversationMessage {

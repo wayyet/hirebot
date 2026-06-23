@@ -134,7 +134,7 @@ export default function TemplateUploadModal({
               <strong>{t('hiring.templateUpload.helperTitle')}</strong>
               <p>{t('hiring.templateUpload.helperDesc')}</p>
             </div>
-            <a className="hb-upload-example-link" href="/template-pool">
+            <a className="hb-upload-example-link" href="/example-digital-employee-1.0.0.zip" download>
               {t('hiring.templateUpload.helperLink')}
             </a>
           </div>
