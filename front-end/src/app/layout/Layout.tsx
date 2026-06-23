@@ -252,6 +252,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const displayName = loadingUser ? t("user.loading") : userDisplayName || t("user.defaultName");
   const userEmail = typeof authUser?.profile.email === "string" ? authUser.profile.email : "";
+  const userInitial = displayName.trim().charAt(0).toUpperCase();
 
   return (
     <UserRoleContext.Provider value={{ role, setRole }}>
@@ -373,7 +374,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   title={t("theme.toggle")}
                   onClick={toggleMode}
                 >
-                  {isDark ? <Sun size={15} /> : <Moon size={15} />}
+                  {isDark ? <Sun size={16} /> : <Moon size={16} />}
                 </button>
               ) : null}
 
@@ -384,7 +385,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   title={t("theme.brandToggle")}
                   onClick={cycleBrand}
                 >
-                  <Palette size={14} />
+                    <Palette size={16} />
                   <span>{t(`theme.brand.${brand}`)}</span>
                 </button>
               ) : null}
@@ -399,10 +400,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     setUserOpen(false);
                   }}
                 >
-                  <Globe size={14} />
+                  <Globe size={16} />
                   <span>{currentLang === "zh" ? "中文" : "EN"}</span>
                   <ChevronDown
-                    size={12}
+                    size={16}
                     style={{
                       transform: langOpen ? "rotate(180deg)" : "none",
                       transition: "transform 180ms ease",
@@ -438,11 +439,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   aria-expanded={userOpen}
                 >
                   <div className="app-layout-user-avatar">
-                    <User size={12} />
+                    {userInitial || <User size={14} />}
                   </div>
                   <span className="app-layout-user-name">{displayName}</span>
                   <ChevronDown
-                    size={12}
+                    size={16}
                     className={`app-layout-chevron${userOpen ? " is-open" : ""}`}
                   />
                 </button>

@@ -125,6 +125,8 @@ html[data-mode="light"] {
   --hb-dropdown-bg: rgba(255, 255, 255, 0.96);
   --hb-dropdown-border: rgba(148, 163, 184, 0.22);
   --hb-dropdown-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
+  --hb-dropdown-surface: #ffffff;
+  --hb-dropdown-surface-shadow: 0 18px 42px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.05);
   --hb-dropdown-active-bg: var(--hb-accent-soft-bg);
   --hb-dropdown-active-color: var(--hb-accent-600);
 
@@ -282,6 +284,8 @@ html[data-mode="dark"] {
   --hb-dropdown-bg: rgba(2, 6, 23, 0.96);
   --hb-dropdown-border: rgba(148, 163, 184, 0.18);
   --hb-dropdown-shadow: 0 16px 36px rgba(2, 6, 23, 0.40);
+  --hb-dropdown-surface: #0f172a;
+  --hb-dropdown-surface-shadow: 0 22px 48px rgba(0, 0, 0, 0.46), 0 0 0 1px rgba(255, 255, 255, 0.10);
   --hb-dropdown-active-bg: rgba(var(--hb-accent-rgb), 0.14);
   --hb-dropdown-active-color: var(--hb-accent-300);
 

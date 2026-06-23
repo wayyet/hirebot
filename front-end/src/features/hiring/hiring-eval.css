@@ -2211,20 +2211,6 @@
 }
 
 @media (max-width: 1024px) {
-  .hb-topnav-inner {
-    padding: 0 16px;
-    gap: 12px;
-  }
-
-  .hb-nav-actions {
-    gap: 6px;
-  }
-
-  .hb-nav-utility-btn {
-    padding: 5px 8px;
-    font-size: 12px;
-  }
-
   .hb-page {
     padding: 20px 16px 28px;
     width: 100%;

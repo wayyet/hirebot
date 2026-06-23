@@ -26,7 +26,7 @@ html[data-mode="dark"] .hb-shell {
   max-width: var(--hb-shell-max-width);
   margin: 0 auto;
   height: 100%;
-  padding: 0 28px;
+  padding: 0 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -147,7 +147,7 @@ html[data-mode="dark"] .hb-shell {
 }
 
 .hb-brand {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
   color: var(--hb-near-black);
@@ -182,9 +182,9 @@ html[data-mode="dark"] .hb-shell {
 
 .hb-brand-wordmark {
   display: block;
-  height: 34px;
-  width: auto;
-  max-width: 150px;
+  width: 108px;
+  height: 40px;
+  max-width: none;
   object-fit: contain;
 }
 
@@ -288,10 +288,11 @@ html[data-mode="dark"] .hb-shell {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
   border: 1px solid var(--hb-theme-btn-border);
-  border-radius: var(--hb-utility-radius);
+  border-radius: 10px;
   background: var(--hb-theme-btn-bg);
   color: var(--hb-soft);
   cursor: pointer;
@@ -310,8 +311,10 @@ html[data-mode="dark"] .hb-shell {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 11px;
-  border-radius: var(--hb-utility-radius);
+  height: 36px;
+  min-height: 36px;
+  padding: 0 11px;
+  border-radius: 10px;
   border: 1px solid var(--hb-nav-utility-border);
   background: var(--hb-nav-utility-bg);
   cursor: pointer;
@@ -344,8 +347,10 @@ html[data-mode="dark"] .hb-shell {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 11px 5px 6px;
-  border-radius: var(--hb-utility-radius);
+  height: 36px;
+  min-height: 36px;
+  padding: 0 11px 0 6px;
+  border-radius: 10px;
   border: 1px solid var(--hb-nav-utility-border);
   background: var(--hb-nav-utility-bg);
   color: var(--hb-body);
@@ -353,6 +358,7 @@ html[data-mode="dark"] .hb-shell {
   font-size: 13px;
   font-weight: 500;
   max-width: 188px;
+  line-height: 1.2;
   white-space: nowrap;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   flex-shrink: 0;
@@ -399,13 +405,13 @@ html[data-mode="dark"] .hb-shell {
   top: calc(100% + 8px);
   left: 0;
   min-width: 140px;
-  border: 1px solid var(--hb-dropdown-border);
-  border-radius: 14px;
-  background: var(--hb-dropdown-bg);
-  box-shadow: var(--hb-dropdown-shadow);
+  border: 0;
+  border-radius: 12px;
+  background: var(--hb-dropdown-surface);
+  box-shadow: var(--hb-dropdown-surface-shadow);
   padding: 6px;
-  backdrop-filter: var(--hb-dropdown-backdrop);
-  -webkit-backdrop-filter: var(--hb-dropdown-backdrop);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   z-index: 200;
 }
 
@@ -421,12 +427,12 @@ html[data-mode="dark"] .hb-shell {
   z-index: 200;
   min-width: 140px;
   padding: 6px;
-  border: 1px solid var(--hb-dropdown-border);
-  border-radius: 14px;
-  background: var(--hb-dropdown-bg);
-  box-shadow: var(--hb-dropdown-shadow);
-  backdrop-filter: var(--hb-dropdown-backdrop);
-  -webkit-backdrop-filter: var(--hb-dropdown-backdrop);
+  border: 0;
+  border-radius: 12px;
+  background: var(--hb-dropdown-surface);
+  box-shadow: var(--hb-dropdown-surface-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .app-layout-menu.app-layout-user-menu {
