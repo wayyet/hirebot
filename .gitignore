@@ -51,6 +51,8 @@ back-end/HireBot.ApiService/wwwroot/resources/evaluation/
 back-end/HireBot.ApiService/wwwroot/resources/todo-files/
 # HireBot 统一运行数据根目录（resources / digital-workforce / instance-fixtures）
 back-end/HireBot.ApiService/ncrew-hire-data/
+# HireBot HireRecord 运行时文件
+back-end/HireBot.ApiService/Assets/HireRecord/
 
 # Visual Studio 2017 auto generated files
 Generated\ Files/

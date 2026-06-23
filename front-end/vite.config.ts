@@ -15,6 +15,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: false,
+    allowedHosts: ['only-amperage-situation.ngrok-free.dev', '.ngrok-free.dev'],
     proxy: {
       // runtime-config.js 由后端生成（注入 OIDC / API 地址等配置）
       '/runtime-config.js': {

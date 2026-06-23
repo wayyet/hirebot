@@ -1384,12 +1384,15 @@ export default function HiringPage() {
           ? { deferMs: TYPEWRITER_SOFT_FINISH_DEFER_MS }
           : undefined
         typewriterStream.finish(fallbackReply, (rawReply) => {
+          const completedToolSteps = pendingToolStepsRef.current.length > 0
+            ? [...pendingToolStepsRef.current]
+            : []
           // 直接从 hook 的 raw 文本提交正式消息，避免 React StrictMode 双重调用导致重复气泡。
           if (!isInternalTurn && rawReply && rawReply.trim().length > 0) {
             const cleaned = normalizeAssistantReply(rawReply)
             if (cleaned.length > 0) {
               // 将本轮累积的工具调用步骤附到 bot 消息，与 Markdown 正文合并呈现。
-              const steps = pendingToolStepsRef.current.length > 0 ? [...pendingToolStepsRef.current] : undefined
+              const steps = completedToolSteps.length > 0 ? completedToolSteps : undefined
               setMessages(msgs => [...msgs, { id: mkId(), role: 'bot', content: cleaned, toolSteps: steps }])
             }
           }
@@ -1410,6 +1413,11 @@ export default function HiringPage() {
                 userMessage: userMessage || '',
                 assistantReply: rawReply,
                 materials: materials ?? undefined,
+                toolCalls: completedToolSteps.map((step) => ({
+                  toolName: step.name,
+                  arguments: step.args,
+                  result: step.result,
+                })),
               })
               .then(() => undefined)
               .catch(() => undefined)

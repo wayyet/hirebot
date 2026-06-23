@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Infrastructure.Identity;
@@ -554,6 +555,7 @@ internal sealed class EmployeeHiringService(
         CancellationToken cancellationToken = default)
     {
         await PersistWorkspaceRootFromMaterialsAsync(hireId, request.Materials, cancellationToken);
+        await WriteHiringRecordAsync(hireId, request, cancellationToken);
 
         // 解析 AI 回复中的结构化数据标签（如 <data key="goal">...</data>）
         var extractedData = ParseStructuredDataTags(request.AssistantReply);
@@ -614,6 +616,147 @@ internal sealed class EmployeeHiringService(
             "Persisted hiring workspace root from conversation materials. HireId={HireId} WorkspaceRoot={WorkspaceRoot}",
             hireId,
             workspaceRoot);
+    }
+
+    private async Task WriteHiringRecordAsync(
+        string hireId,
+        HiringConversationSyncRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        // 默认不开启，需要配置 Hiring:EnableRecordWriting=true 才写入文件
+        var enableRecordWriting = configuration.GetValue<bool>("Hiring:EnableRecordWriting");
+        if (!enableRecordWriting)
+        {
+            return;
+        }
+
+        var recordDirectory = ResolveHiringRecordDirectory();
+        Directory.CreateDirectory(recordDirectory);
+
+        var createdAtUtc = DateTimeOffset.UtcNow;
+        var fileName = $"{SanitizeFileName(hireId)}-{createdAtUtc:yyyyMMddHHmmssfff}.txt";
+        var filePath = Path.Combine(recordDirectory, fileName);
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"HireId: {hireId}");
+        builder.AppendLine($"CreatedAtUtc: {createdAtUtc:O}");
+        builder.AppendLine();
+        builder.AppendLine("UserMessage:");
+        builder.AppendLine(string.IsNullOrWhiteSpace(request.UserMessage) ? "(empty)" : request.UserMessage);
+        builder.AppendLine();
+        builder.AppendLine("UploadedMaterials:");
+
+        if (request.Materials is { Count: > 0 })
+        {
+            foreach (var material in request.Materials)
+            {
+                builder.AppendLine($"- {NormalizeRecordValue(material.Name)}");
+            }
+        }
+        else
+        {
+            builder.AppendLine("- (none)");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("AssistantReply:");
+        builder.AppendLine(string.IsNullOrWhiteSpace(request.AssistantReply) ? "(empty)" : request.AssistantReply);
+        builder.AppendLine();
+        builder.AppendLine("ToolCalls:");
+
+        if (request.ToolCalls is { Count: > 0 })
+        {
+            for (var index = 0; index < request.ToolCalls.Count; index++)
+            {
+                var toolCall = request.ToolCalls[index];
+                builder.AppendLine($"[{index + 1}] {NormalizeRecordValue(toolCall.ToolName)}");
+                builder.AppendLine("Arguments:");
+                builder.AppendLine(string.IsNullOrWhiteSpace(toolCall.Arguments) ? "(empty)" : toolCall.Arguments);
+                builder.AppendLine("Result:");
+                builder.AppendLine(string.IsNullOrWhiteSpace(toolCall.Result) ? "(empty)" : toolCall.Result);
+                builder.AppendLine();
+            }
+        }
+        else
+        {
+            builder.AppendLine("- (none)");
+        }
+
+        await File.WriteAllTextAsync(filePath, builder.ToString(), Encoding.UTF8, cancellationToken);
+
+        logger.LogInformation(
+            "Hiring conversation record written. HireId={HireId} FilePath={FilePath}",
+            hireId,
+            filePath);
+    }
+
+    private string ResolveHiringRecordDirectory()
+    {
+        var configuredDirectory = configuration["Hiring:RecordDirectory"];
+        if (!string.IsNullOrWhiteSpace(configuredDirectory))
+        {
+            return Path.GetFullPath(configuredDirectory);
+        }
+
+        var currentDirectory = Directory.GetCurrentDirectory();
+        var projectDirectory = FindApiServiceProjectDirectory(currentDirectory)
+                               ?? FindApiServiceProjectDirectory(AppContext.BaseDirectory);
+        if (projectDirectory is not null)
+        {
+            return Path.Combine(projectDirectory, "Assets", "HireRecord");
+        }
+
+        var candidates = new[]
+        {
+            Path.Combine(currentDirectory, "Assets", "HireRecord"),
+            Path.Combine(currentDirectory, "HireBot.ApiService", "Assets", "HireRecord"),
+            Path.Combine(currentDirectory, "back-end", "HireBot.ApiService", "Assets", "HireRecord")
+        };
+
+        foreach (var candidate in candidates)
+        {
+            var assetsDirectory = Directory.GetParent(candidate)?.FullName;
+            if (!string.IsNullOrWhiteSpace(assetsDirectory) && Directory.Exists(assetsDirectory))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(currentDirectory, "Assets", "HireRecord");
+    }
+
+    private static string? FindApiServiceProjectDirectory(string startDirectory)
+    {
+        var directory = new DirectoryInfo(startDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "HireBot.ApiService.csproj")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
+    }
+
+    private static string NormalizeRecordValue(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "(empty)" : value.Trim();
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var builder = new StringBuilder(value.Length);
+
+        foreach (var character in value)
+        {
+            builder.Append(invalidChars.Contains(character) ? '_' : character);
+        }
+
+        return builder.Length == 0 ? "hire" : builder.ToString();
     }
 
     private static string? TryExtractWorkspaceRoot(IReadOnlyList<HiringConversationMaterialDto>? materials)
