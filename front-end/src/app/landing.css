@@ -15,11 +15,50 @@
 
 /* 整体容器 */
 .hb-landing {
+  --hb-landing-surface-canvas: #f5f7fa;
+  --hb-landing-hero-bg:
+    radial-gradient(ellipse 70% 45% at 18% 58%, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.74) 34%, rgba(45, 107, 255, 0.07) 72%, transparent 100%),
+    radial-gradient(ellipse 58% 42% at 88% 38%, rgba(255, 255, 255, 0.82) 0%, rgba(110, 168, 255, 0.06) 58%, transparent 100%),
+    linear-gradient(180deg, #eef5fb 0%, #f7fafc 46%, #f5f7fa 100%);
+  --hb-landing-hero-glow-left: radial-gradient(circle, rgba(45, 107, 255, 0.10) 0%, transparent 70%);
+  --hb-landing-hero-glow-right: radial-gradient(circle, rgba(110, 168, 255, 0.10) 0%, transparent 70%);
+  --hb-landing-hero-glow-bottom: radial-gradient(circle, rgba(30, 80, 229, 0.04) 0%, transparent 70%);
+  --hb-landing-control-border: rgba(148, 163, 184, 0.24);
+  --hb-landing-control-surface: rgba(255, 255, 255, 0.82);
+  --hb-landing-control-surface-hover: rgba(255, 255, 255, 0.96);
+  --hb-landing-control-shadow: none;
+  --hb-landing-control-text: #374151;
+  --hb-landing-control-muted: #6b7280;
+  --hb-landing-control-hover-text: #2d6bff;
+  --hb-landing-badge-surface: #eaf2ff;
+  --hb-landing-badge-border: #9bbcff;
+  --hb-landing-badge-text: #111827;
   min-height: 100vh;
-  background: var(--hb-grad);
-  background-attachment: fixed;
+  background: var(--hb-landing-surface-canvas);
   color: var(--hb-body);
   overflow-x: hidden;
+}
+
+html[data-mode="dark"] .hb-landing,
+html.dark .hb-landing {
+  --hb-landing-surface-canvas: #080e1c;
+  --hb-landing-hero-bg:
+    radial-gradient(ellipse 55% 42% at 20% 24%, rgba(45, 107, 255, 0.12) 0%, transparent 72%),
+    radial-gradient(ellipse 44% 34% at 84% 16%, rgba(110, 168, 255, 0.10) 0%, transparent 74%),
+    linear-gradient(180deg, #080e1c 0%, #0f172a 48%, #111827 100%);
+  --hb-landing-hero-glow-left: radial-gradient(circle, rgba(45, 107, 255, 0.12) 0%, transparent 70%);
+  --hb-landing-hero-glow-right: radial-gradient(circle, rgba(110, 168, 255, 0.10) 0%, transparent 70%);
+  --hb-landing-hero-glow-bottom: radial-gradient(circle, rgba(30, 80, 229, 0.04) 0%, transparent 70%);
+  --hb-landing-control-border: rgba(148, 163, 184, 0.20);
+  --hb-landing-control-surface: rgba(15, 23, 42, 0.82);
+  --hb-landing-control-surface-hover: rgba(15, 23, 42, 0.96);
+  --hb-landing-control-shadow: none;
+  --hb-landing-control-text: #a8b5cc;
+  --hb-landing-control-muted: #5c6e88;
+  --hb-landing-control-hover-text: #6ea8ff;
+  --hb-landing-badge-surface: #16243d;
+  --hb-landing-badge-border: rgba(110, 168, 255, 0.34);
+  --hb-landing-badge-text: #eef2ff;
 }
 
 /* 加载占位 */
@@ -28,8 +67,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--hb-grad);
-  background-attachment: fixed;
+  background: var(--hb-landing-hero-bg);
 }
 
 .hb-landing-loading-dot {
@@ -120,6 +158,10 @@
   height: 36px;
   min-height: 36px;
   border-radius: 10px;
+  border-color: var(--hb-landing-control-border);
+  background: var(--hb-landing-control-surface);
+  color: var(--hb-landing-control-muted);
+  box-shadow: var(--hb-landing-control-shadow);
 }
 
 .hb-landing-nav .hb-nav-utility-btn {
@@ -127,6 +169,10 @@
   min-height: 36px;
   padding: 0 11px;
   border-radius: 10px;
+  border-color: var(--hb-landing-control-border);
+  background: var(--hb-landing-control-surface);
+  color: var(--hb-landing-control-text);
+  box-shadow: var(--hb-landing-control-shadow);
 }
 
 .hb-landing-nav .app-layout-user-button {
@@ -134,8 +180,21 @@
   min-height: 36px;
   padding: 0 11px 0 6px;
   border-radius: 10px;
+  border-color: var(--hb-landing-control-border);
+  background: var(--hb-landing-control-surface);
+  color: var(--hb-landing-badge-text);
+  box-shadow: var(--hb-landing-control-shadow);
   font-family: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
   line-height: 1.2;
+}
+
+.hb-landing-nav .hb-icon-btn:hover,
+.hb-landing-nav .hb-nav-utility-btn:hover,
+.hb-landing-nav .app-layout-user-button:hover {
+  border-color: color-mix(in srgb, var(--hb-accent-solid) 32%, transparent);
+  background: var(--hb-landing-control-surface-hover);
+  color: var(--hb-landing-control-hover-text);
+  box-shadow: none;
 }
 
 .hb-landing-nav .app-layout-user-avatar {
@@ -175,15 +234,17 @@
   align-items: center;
   justify-content: center;
   padding-top: 64px;
-  padding-bottom: 80px;
+  padding-bottom: 64px;
   box-sizing: border-box;
   position: relative;
   overflow: hidden;
   text-align: center;
+  background: var(--hb-landing-hero-bg);
 }
 
 /* Hero 点阵背景 */
 .hb-landing-hero-grid {
+  display: none;
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -206,18 +267,27 @@
 
 .hb-landing-hero-glow--l {
   top: 10%;
-  left: 5%;
-  width: 500px;
-  height: 420px;
+  left: 10%;
+  width: 600px;
+  height: 500px;
   background: var(--hb-landing-hero-glow-left);
 }
 
 .hb-landing-hero-glow--r {
   top: 15%;
   right: 5%;
-  width: 420px;
-  height: 360px;
+  width: 500px;
+  height: 450px;
   background: var(--hb-landing-hero-glow-right);
+}
+
+.hb-landing-hero-glow--b {
+  bottom: 10%;
+  left: 30%;
+  width: 400px;
+  height: 300px;
+  background: var(--hb-landing-hero-glow-bottom);
+  filter: blur(60px);
 }
 
 /* ── 数据表格 (设置页等管理类页面使用) ── */
@@ -485,24 +555,28 @@
 .hb-landing-badge {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 18px;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 18px;
   border-radius: 999px;
-  border: 1px solid var(--hb-accent-border-strong);
-  background: var(--hb-accent-soft-bg);
-  color: var(--hb-accent-text-soft);
+  border: 1px solid var(--hb-landing-badge-border);
+  background: var(--hb-landing-badge-surface);
+  color: var(--hb-landing-badge-text);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.5px;
+  line-height: 1;
   margin-bottom: 28px;
 }
 
 .hb-landing-badge-icon {
   display: block;
-  width: 14px;
-  height: 14px;
-  object-fit: contain;
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
+  color: inherit;
 }
 
 /* 大标题 */

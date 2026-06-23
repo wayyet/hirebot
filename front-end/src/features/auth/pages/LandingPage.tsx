@@ -24,7 +24,6 @@ import yWorkHireLogo from '@/assets/y-work-hire-logo.svg'
 import {
   resolveBrandWordmarkSrc,
   resolveDisplayProductName,
-  resolveSystemBrandIconSrc,
   resolveSystemTitle,
 } from '@/app/branding/runtimeBranding'
 import { getAuthUser, getUserDisplayName, isOidcConfigured, signOut, userManager } from '@/infra/auth/oidc'
@@ -50,6 +49,31 @@ const STEPS = [
   { num: '03', key: 'onboard' },
 ] as const
 
+function GoodCrewMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 240 240"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      className={className}
+    >
+      <path
+        d="M95.625 45C100.112 45 103.75 48.731 103.75 53.3333V70C103.75 74.6024 100.112 78.3333 95.625 78.3333H63.125C58.6377 78.3333 55 82.0643 55 86.6667V153.333C55 157.936 58.6377 161.667 63.125 161.667H95.625C100.112 161.667 103.75 157.936 103.75 153.333V128.333C103.75 123.731 107.388 120 111.875 120H128.125C132.612 120 136.25 123.731 136.25 128.333V158.216C136.25 160.426 135.393 162.546 133.87 164.108L106.13 192.559C104.607 194.121 102.54 195 100.386 195H61.0938C56.6064 195 52.9688 191.269 52.9688 186.667V172.083C52.9688 167.481 49.3311 163.75 44.8438 163.75H30.625C26.1377 163.75 22.5 160.019 22.5 155.417V81.7839C22.5003 79.5742 23.3569 77.4544 24.8804 75.8919L52.6196 47.4414C54.1431 45.8789 56.2098 45.0003 58.3643 45H95.625Z"
+        fill="currentColor"
+      />
+      <path
+        d="M209.375 145C213.862 145 217.5 148.731 217.5 153.333V158.216C217.5 160.426 216.643 162.546 215.12 164.108L187.38 192.559C185.857 194.121 183.79 195 181.636 195H147.739C145.585 195 143.518 194.121 141.995 192.559L135.901 186.309C132.729 183.054 132.729 177.779 135.901 174.525L146.057 164.108C147.581 162.546 149.647 161.667 151.802 161.667H176.875C181.081 161.667 184.543 158.389 184.96 154.188L185.04 152.479C185.457 148.278 188.919 145 193.125 145H209.375Z"
+        fill="currentColor"
+      />
+      <path
+        d="M181.636 45C183.79 45.0003 185.857 45.8789 187.38 47.4414L215.12 75.8919C216.643 77.4544 217.5 79.5742 217.5 81.7839V86.6667C217.5 91.269 213.862 95 209.375 95H193.125C188.919 95 185.457 91.7222 185.04 87.5212L184.96 85.8122C184.543 81.6111 181.081 78.3333 176.875 78.3333H152.5C148.013 78.3333 144.375 82.0643 144.375 86.6667V103.333C144.375 107.936 140.737 111.667 136.25 111.667H120C115.513 111.667 111.875 107.936 111.875 103.333V81.7839C111.875 79.5742 112.732 77.4544 114.255 75.8919L141.995 47.4414C143.518 45.8789 145.585 45.0003 147.739 45H181.636Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
 function normalizeRedirectPath(raw: string | null): string {
   if (!raw || !raw.trim().startsWith('/')) return '/template-pool'
   return raw.trim()
@@ -67,7 +91,6 @@ export default function LandingPage() {
   const productName = resolveDisplayProductName(warmThemeEnabled, t('brand.name'))
   const brandName = productName
   const originalBrandWordmarkSrc = resolveBrandWordmarkSrc(currentLang)
-  const systemBrandIconSrc = resolveSystemBrandIconSrc(warmThemeEnabled)
   const [langOpen, setLangOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
   const langRef = useRef<HTMLDivElement>(null)
@@ -308,11 +331,12 @@ export default function LandingPage() {
         <div className="hb-landing-hero-grid" aria-hidden="true" />
         <div className="hb-landing-hero-glow hb-landing-hero-glow--l" aria-hidden="true" />
         <div className="hb-landing-hero-glow hb-landing-hero-glow--r" aria-hidden="true" />
+        <div className="hb-landing-hero-glow hb-landing-hero-glow--b" aria-hidden="true" />
 
         <div className="hb-landing-hero-content">
           <div className="hb-landing-badge hb-anim-fade-up" style={{ animationDelay: '0ms' }}>
-            <img src={systemBrandIconSrc} alt="" className="hb-landing-badge-icon" />
-            {t('landing.badge')}
+            <GoodCrewMark className="hb-landing-badge-icon" />
+            <span>{t('landing.badge')}</span>
           </div>
 
           <h1 className="hb-landing-headline hb-anim-fade-up" style={{ animationDelay: '80ms' }}>
