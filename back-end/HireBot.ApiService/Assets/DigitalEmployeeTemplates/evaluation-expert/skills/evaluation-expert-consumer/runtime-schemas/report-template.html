@@ -10,28 +10,47 @@
   --primary: #1a73e8;
   --danger: #d93025;
   --success: #1e8e3e;
-  --bg: #f8f9fa;
+  --bg: #eef1f6;
   --card: #ffffff;
-  --border: #dadce0;
-  --text: #202124;
-  --text-secondary: #5f6368;
+  --border: #d8dde8;
+  --text: #1d2433;
+  --text-secondary: #5f6878;
+  --shadow-sm: 0 1px 4px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+  --shadow-md: 0 2px 8px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.06);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
-.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
-.header { text-align: center; margin-bottom: 32px; }
-.header h1 { font-size: 28px; margin-bottom: 8px; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  /* 细腻的点阵背景增加页面纵深感 */
+  background-image: radial-gradient(circle, #c8cedb 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--text);
+  line-height: 1.6;
+}
+.container { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+.header { text-align: center; margin-bottom: 36px; }
+.header h1 { font-size: 26px; font-weight: 600; letter-spacing: -.3px; margin-bottom: 8px; color: var(--text); }
 .header .subtitle { color: var(--text-secondary); font-size: 14px; }
-.badge { display: inline-block; padding: 4px 12px; border-radius: 16px; font-size: 13px; font-weight: 500; }
-.badge-pass { background: #e6f4ea; color: var(--success); }
-.badge-fail { background: #fce8e6; color: var(--danger); }
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px; }
-.card h2 { font-size: 18px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.badge { display: inline-block; padding: 5px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; letter-spacing: .2px; }
+.badge-pass { background: #d2f4e0; color: #0d6e34; border: 1px solid #a3e6c3; }
+.badge-fail { background: #fde8e6; color: #b91c1c; border: 1px solid #fbb4ae; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow .2s;
+}
+.card:hover { box-shadow: var(--shadow-md); }
+.card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border); color: var(--text); letter-spacing: -.1px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
-.score-big { font-size: 64px; font-weight: 700; text-align: center; }
-.score-big.pass { color: var(--success); }
-.score-big.fail { color: var(--danger); }
+.score-big { font-size: 72px; font-weight: 800; text-align: center; letter-spacing: -3px; }
+.score-big.pass { color: #1a7340; }
+.score-big.fail { color: #c5221f; }
 .radar-container { position: relative; max-width: 450px; margin: 0 auto; }
 .dimension-table { width: 100%; border-collapse: collapse; }
 .dimension-table th, .dimension-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
@@ -40,9 +59,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .score-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
 .red-line-box { background: #fce8e6; border: 1px solid #f28b82; border-radius: 8px; padding: 16px; }
 .red-line-box.ok { background: #e6f4ea; border-color: #81c995; }
-.tab-bar { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
-.tab-btn { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap; }
-.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 500; }
+.tab-bar { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 20px; overflow-x: auto; gap: 2px; }
+.tab-btn { padding: 9px 18px; border: none; background: none; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap; border-radius: 8px 8px 0 0; transition: background .15s, color .15s; }
+.tab-btn:hover { background: #f0f4ff; color: var(--primary); }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); background: #f0f4ff; }
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 .chat-history { max-height: 500px; overflow-y: auto; padding: 12px; }
@@ -67,18 +87,55 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .improvement-item { padding: 12px; border-left: 3px solid var(--primary); margin-bottom: 8px; background: #f8f9fa; }
 .improvement-item .priority { display: inline-block; background: var(--danger); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-right: 8px; }
 .footer { text-align: center; padding: 24px; color: var(--text-secondary); font-size: 12px; }
+/* 场景布局 */
+.scenario-meta { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+.scenario-meta-item { font-size: 13px; color: var(--text-secondary); }
+.scenario-meta-item strong { color: var(--text); }
+.scenario-split { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+@media (max-width: 960px) { .scenario-split { grid-template-columns: 1fr; } }
+/* 指标卡片 */
+.metric-card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 8px; background: #fff; box-shadow: var(--shadow-sm); }
+.metric-card-header { display: flex; align-items: center; gap: 12px; padding: 11px 14px; background: var(--card); cursor: pointer; user-select: none; transition: background 0.15s; }
+.metric-card-header:hover { background: #f4f7ff; }
+.metric-score-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.metric-label-zh { font-size: 14px; font-weight: 500; flex: 1; color: var(--text); }
+.metric-num { font-size: 17px; font-weight: 700; min-width: 36px; text-align: right; }
+.metric-expand-icon { font-size: 14px; color: #c0c7d4; transition: transform 0.2s; margin-left: 2px; font-weight: 300; }
+.metric-expand-icon.open { transform: rotate(90deg); }
+.metric-card-body { display: none; padding: 0 14px 12px; border-top: 1px solid #eef0f5; background: #f8faff; }
+.metric-card-body.open { display: block; }
+.metric-score-bar-wrap { margin: 10px 0 8px; }
+.metric-score-bar-bg { height: 5px; background: #e4e8f0; border-radius: 3px; overflow: hidden; }
+.metric-score-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.metric-reasoning { font-size: 13px; line-height: 1.75; color: #3c4043; margin: 8px 0; }
+.adj-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.adj-chip { display: inline-flex; align-items: flex-start; gap: 4px; padding: 3px 8px; border-radius: 6px; font-size: 11px; line-height: 1.5; }
+.adj-chip-pos { background: #dff2e8; color: #1a7340; border: 1px solid #b3e0c7; }
+.adj-chip-neg { background: #fde8e6; color: #c5221f; border: 1px solid #fbb4ae; }
+.adj-chip-delta { font-weight: 700; white-space: nowrap; }
+/* 会话气泡 */
+.chat-wrap { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 16px; max-height: 600px; overflow-y: auto; box-shadow: var(--shadow-sm); }
+.chat-bubble { margin-bottom: 14px; }
+.chat-bubble-inner { display: inline-block; max-width: 84%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.chat-bubble.customer .chat-bubble-inner { background: #fff; border: 1px solid #dde3f0; border-bottom-left-radius: 4px; }
+.chat-bubble.employee { text-align: left; }
+.chat-bubble.employee .chat-bubble-inner { background: #e8f0fe; border-bottom-left-radius: 4px; }
+.chat-actor { font-size: 11px; color: var(--text-secondary); margin-bottom: 3px; }
+.chat-bubble.employee .chat-actor { text-align: left; }
+/* 场景分析 */
+.analysis-block { background: linear-gradient(to right, #f0f4ff, #f8f9ff); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; font-size: 14px; line-height: 1.8; white-space: pre-wrap; color: var(--text); border-left: 3px solid var(--primary); box-shadow: var(--shadow-sm); }
 </style>
 </head>
 <body>
 <div class="container">
   <!-- HEADER -->
-  <div class="header">
-    <h1>数字员工能力评估报告</h1>
-    <div class="subtitle">
-      <strong id="emp-name"></strong> · <span id="emp-role"></span> · 评估时间：<span id="eval-time"></span>
+  <div class="header" style="background:linear-gradient(135deg,#1a73e8 0%,#0d47a1 100%);border-radius:16px;padding:36px 24px 32px;margin-bottom:28px;color:#fff;box-shadow:0 4px 20px rgba(26,115,232,.3)">
+    <h1 style="color:#fff;font-size:24px;font-weight:700;letter-spacing:-.3px;margin-bottom:10px">数字员工能力评估报告</h1>
+    <div class="subtitle" style="color:rgba(255,255,255,.8);font-size:14px">
+      <strong id="emp-name" style="color:#fff"></strong> <span style="opacity:.6;margin:0 6px">·</span> <span id="emp-role"></span> <span style="opacity:.6;margin:0 6px">·</span> 评估时间：<span id="eval-time"></span>
     </div>
-    <div style="margin-top:12px">
-      <span class="badge" id="pass-badge"></span>
+    <div style="margin-top:14px">
+      <span class="badge" id="pass-badge" style="font-size:13px;padding:5px 16px"></span>
     </div>
   </div>
 
@@ -178,8 +235,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
 <script>
 // ===== RENDER LOGIC =====
-const report = JSON.parse(document.getElementById('report-data').textContent);
-const scenarios = JSON.parse(document.getElementById('scenarios-data').textContent);
+let report, scenarios;
+try {
+  report = JSON.parse(document.getElementById('report-data').textContent);
+  scenarios = JSON.parse(document.getElementById('scenarios-data').textContent);
+} catch(e) {
+  document.body.innerHTML = '<div style="padding:40px;color:#d93025;font-family:sans-serif"><h2>报告数据解析失败</h2><pre>' + e.message + '</pre></div>';
+  throw e;
+}
+// 确保 report 和 scenarios 不为 null
+report = report || {};
+scenarios = Array.isArray(scenarios) ? scenarios : [];
 
 // Dimension config
 const DIM_CONFIG = {
@@ -204,9 +270,28 @@ const TRIGGER_KIND_LABEL = {
   forbidden_behavior: '禁止行为出现',
   threshold_breach: '阈值越界'
 };
+// === 内置指标中文名兜底字典（当 metric_labels 未注入时使用）===
+const METRIC_LABEL_FALLBACK = {
+  factual_accuracy: '事实准确性',
+  proactive_clarification: '主动澄清',
+  problem_resolution_completeness: '问题解决完整性',
+  professional_tone_consistency: '专业语气一致性',
+  response_clarity_and_structure: '回复结构清晰度',
+  response_conciseness: '回复简洁度',
+  safety_and_ethics_boundary: '安全与伦理边界',
+  tool_call_correctness: '工具调用准确性',
+  interaction_empathy: '共情与交互质量',
+  order_refund_policy_accuracy: '退款政策准确性',
+  attendance_rule_compliance: '考勤规则合规',
+  confidentiality_boundary_compliance: '保密边界合规',
+  bid_clause_completeness: '标书条款完整性',
+  legal_citation_accuracy: '法律引用准确性',
+  code_change_risk_disclosure: '代码变更风险披露',
+};
+
 function metricLabel(code) {
   const inj = (window.__reportLabels && window.__reportLabels.metric) || {};
-  return inj[code] || code;
+  return inj[code] || METRIC_LABEL_FALLBACK[code] || code;
 }
 function toolLabel(code) {
   const inj = (window.__reportLabels && window.__reportLabels.tool) || {};
@@ -229,8 +314,8 @@ function translateSignal(sig) {
 }
 
 // Header
-document.getElementById('emp-name').textContent = report.employee?.display_name || report.employee?.employee_id || '';
-document.getElementById('emp-role').textContent = report.employee?.role || '';
+document.getElementById('emp-name').textContent = report.employee?.display_name || report.employee?.name || report.employee?.employee_id || '';
+document.getElementById('emp-role').textContent = (typeof report.employee?.role === 'object' ? report.employee?.role?.role_id : report.employee?.role) || '';
 document.getElementById('eval-time').textContent = report.generated_at ? new Date(report.generated_at).toLocaleString('zh-CN') : '';
 const passBadge = document.getElementById('pass-badge');
 passBadge.textContent = report.passed ? '✓ 通过' : '✗ 未通过';
@@ -273,9 +358,18 @@ if (rl && rl.triggered !== undefined) {
   </div>`;
 } else { rlBox.style.display = 'none'; }
 
-// Radar chart
+// Radar chart — dimension_scores 兼容两种格式：
+// 1. {dim: number}  （schema 标准格式）
+// 2. {dim: {score: number, weight: number, passed: bool}}  （Agent 实际输出格式）
+function dimScore(k) {
+  const v = (report.dimension_scores || {})[k];
+  if (v === null || v === undefined) return 0;
+  if (typeof v === 'number') return v;
+  if (typeof v === 'object') return v.score || v.value || 0;
+  return 0;
+}
 const dimScores = report.dimension_scores || {};
-const radarData = DIM_ORDER.map(k => dimScores[k] || 0);
+const radarData = DIM_ORDER.map(k => dimScore(k));
 const radarLabels = DIM_ORDER.map(k => `${dimLabel(k)}(${DIM_CONFIG[k].weight})`);
 new Chart(document.getElementById('radarChart'), {
   type: 'radar',
@@ -293,10 +387,10 @@ new Chart(document.getElementById('radarChart'), {
   }
 });
 
-// Dimension table
+// Dimension table — 兼容 {dim: number} 和 {dim: {score, weight, passed}}
 const dimBody = document.getElementById('dim-table-body');
 DIM_ORDER.forEach(k => {
-  const s = dimScores[k] || 0;
+  const s = dimScore(k);
   const color = s >= 80 ? 'var(--success)' : s >= 60 ? '#f9a825' : 'var(--danger)';
   dimBody.innerHTML += `<tr>
     <td>${dimLabel(k)}</td><td style="color:var(--text-secondary)">${DIM_CONFIG[k].weight}</td>
@@ -305,8 +399,13 @@ DIM_ORDER.forEach(k => {
   </tr>`;
 });
 
-// Executive summary
-document.getElementById('exec-summary').textContent = report.executive_summary || report.narrative?.executive_summary || '';
+// Executive summary — 兼容多种键名
+document.getElementById('exec-summary').textContent =
+  report.executive_summary
+  || report.narrative?.executive_summary
+  || report.narrative?.summary
+  || report.summary
+  || '';
 
 // Strengths / Weaknesses
 const strList = document.getElementById('strengths-list');
@@ -314,20 +413,29 @@ const strList = document.getElementById('strengths-list');
 const weakList = document.getElementById('weaknesses-list');
 (report.weaknesses || report.narrative?.weaknesses || []).forEach(w => weakList.innerHTML += `<li>${w}</li>`);
 
-// Cross-scenario patterns
+// Cross-scenario patterns — 兼容数组和字符串，以及不同键名
 const patCont = document.getElementById('patterns-container');
-(report.cross_scenario_patterns || report.narrative?.cross_scenario_patterns || []).forEach(p => {
+const rawPatterns = report.cross_scenario_patterns
+  || report.narrative?.cross_scenario_patterns
+  || report.narrative?.cross_scenario_synthesis
+  || report.cross_scenario_synthesis
+  || [];
+// 统一为数组
+const patternList = Array.isArray(rawPatterns) ? rawPatterns : (rawPatterns ? [rawPatterns] : []);
+patternList.forEach(p => {
   if (typeof p === 'string') { patCont.innerHTML += `<div class="pattern-card"><div class="pattern-obs">${p}</div></div>`; }
   else { patCont.innerHTML += `<div class="pattern-card"><div class="pattern-title">${p.pattern || ''}</div><div class="pattern-obs">${p.observation || ''}</div></div>`; }
 });
 
-// Improvement plan
+// Improvement plan — 兼容多种结构
 const impCont = document.getElementById('improvement-container');
-const plan = report.improvement_plan || {};
-const actions = plan.immediate_actions || report.narrative?.improvement_plan || [];
-actions.forEach(a => {
+const rawPlan = report.narrative?.improvement_plan || report.improvement_plan || report.narrative?.improvement_suggestions || [];
+(Array.isArray(rawPlan) ? rawPlan : []).forEach(a => {
   if (typeof a === 'string') { impCont.innerHTML += `<div class="improvement-item">${a}</div>`; }
-  else { impCont.innerHTML += `<div class="improvement-item"><span class="priority">${a.priority || 'P1'}</span>${a.action || a.area || ''} → ${a.target || ''}</div>`; }
+  else {
+    const label = a.area ? `<strong>${a.area}</strong>：` : '';
+    impCont.innerHTML += `<div class="improvement-item">${label}${a.action || a.suggestion || ''}</div>`;
+  }
 });
 
 // Scenario tabs
@@ -345,79 +453,96 @@ scenarios.forEach((sc, i) => {
 
   // Panel
   let panelHtml = `<div class="tab-content ${i===0?'active':''}" id="panel-${tcId}">`;
-
-  // Metric results — K18 中文叙事：中文名为主，英文 code 仅作小字技术提示
-  panelHtml += `<h3 style="margin-bottom:12px">指标得分</h3>`;
-  (rep.metric_results || []).forEach(mr => {
-    const c = mr.score >= 80 ? 'var(--success)' : mr.score >= 60 ? '#f9a825' : 'var(--danger)';
-    const zh = metricLabel(mr.metric_code);
-    const signals = (mr.signals || mr.observed_signals || []).map(translateSignal).filter(Boolean);
-    panelHtml += `<div class="metric-result">
-      <span class="metric-code">${zh}<span style="color:var(--text-secondary);font-weight:400;font-size:12px;margin-left:6px">(${mr.metric_code})</span></span>
-      <span class="metric-score" style="color:${c}">${mr.score}</span>
-    </div>`;
-    if (signals.length) {
-      panelHtml += `<div style="font-size:12px;color:var(--text-secondary);margin:-4px 0 8px 220px">原因：${signals.map(escapeHtml).join('；')}</div>`;
-    }
-    if (mr.reasoning) {
-      panelHtml += `<div style="font-size:13px;color:var(--text);background:#f8f9fa;border-left:3px solid ${c};padding:8px 12px;margin:-2px 0 10px 0;border-radius:0 6px 6px 0;line-height:1.6">${escapeHtml(mr.reasoning)}</div>`;
-    }
-    if (mr.rubric_adjustments && mr.rubric_adjustments.length) {
-      const adjs = mr.rubric_adjustments.map(a => {
-        const sign = a.delta >= 0 ? `+${a.delta}` : `${a.delta}`;
-        return `<span style="margin-right:8px">${escapeHtml(a.rule_id)} <strong style="color:${a.delta>=0?'var(--success)':'var(--danger)'}">${sign}</strong></span>`;
-      }).join('');
-      panelHtml += `<div style="font-size:12px;color:var(--text-secondary);padding:0 0 10px 12px">${adjs}</div>`;
-    }
-  });
-
-  // Chat history
-  panelHtml += `<h3 style="margin:20px 0 12px">会话记录</h3><div class="chat-history">`;
-  (trace.dialog_turns || []).forEach(t => {
-    const isCustomer = t.actor === 'evaluator' || t.actor === 'customer';
-    panelHtml += `<div class="chat-msg ${isCustomer ? 'customer' : 'employee'}">
-      <div class="actor">${isCustomer ? '👤 客户' : '🤖 数字员工'}</div>
-      <div class="content">${escapeHtml(t.content || '')}</div>
-    </div>`;
-  });
+  // ── 场景元信息 ───────────────────────────────────────────────────────────
+  const termReason = trace.termination?.reason || rep.termination?.reason || '';
+  const turnsUsed = trace.termination?.turns_used ?? rep.termination?.turns_used ?? '';
+  const termLabelMap = {'goal_achieved':'✅ 目标达成','bottom_line_violated':'⛔ 触犯底线','deadlock_detected':'🔄 对话僵局','customer_gave_up':'🚪 客户放弃','max_turns_reached':'⏱ 达到轮次上限','completed_normally':'✅ 正常完成'};
+  const termLabel = termLabelMap[termReason] || termReason;
+  panelHtml += `<div class="scenario-meta">`;
+  if (turnsUsed !== '') panelHtml += `<span class="scenario-meta-item">对话轮次 <strong>${turnsUsed}</strong></span><span style="color:#dde">|</span>`;
+  if (termLabel) panelHtml += `<span class="scenario-meta-item">${termLabel}</span>`;
   panelHtml += `</div>`;
 
-  // Thinking process (simulator trail)
-  if (trace.simulator_trail && trace.simulator_trail.length > 0) {
-    panelHtml += `<h3 style="margin:20px 0 12px">模拟器决策过程</h3>`;
-    trace.simulator_trail.forEach(st => {
-      panelHtml += `<div class="thinking-block">
-        <strong>Turn ${st.turn_index}</strong> · 情绪: ${st.internal_emotion || '-'} · 进展: ${st.perceived_progress || '-'}<br>
-        决策: ${st.should_continue ? '继续' : `结束(${st.stop_reason})`}<br>
-        理由: ${st.rationale || '-'}
-      </div>`;
-    });
-  }
-
-  // Tool calls
-  if (trace.actual_tool_calls && trace.actual_tool_calls.length > 0) {
-    panelHtml += `<h3 style="margin:20px 0 12px">工具调用</h3>`;
-    trace.actual_tool_calls.forEach(tc => {
-      panelHtml += `<div class="tool-call">
-        <div class="tool-name">🔧 ${tc.tool_name}</div>
-        <div class="tool-params">${tc.arguments ? JSON.stringify(tc.arguments, null, 2) : '(无参数)'}</div>
-        <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">结果: ${tc.outcome || '-'} · 在 turn ${tc.after_turn_index ?? '-'} 之后</div>
-      </div>`;
-    });
-  } else {
-    panelHtml += `<div style="margin:20px 0;padding:12px;background:#fff3e0;border-radius:8px;font-size:13px">⚠️ 此场景未检测到工具调用</div>`;
-  }
-
-  // Narrative
-  if (rep.what_went_well || rep.what_went_wrong || rep.narrative) {
-    panelHtml += `<h3 style="margin:20px 0 12px">分析</h3>`;
+  // ── 场景分析（顶部，跨栏）──────────────────────────────────────────────
+  const rawNarrative = rep.what_went_well || rep.what_went_wrong || rep.narrative;
+  if (rawNarrative && typeof rawNarrative === 'string' && rawNarrative.trim()) {
+    panelHtml += `<div class="analysis-block">${escapeHtml(rawNarrative)}</div>`;
+  } else if (rawNarrative && typeof rawNarrative === 'object') {
     const well = rep.what_went_well || rep.narrative?.what_went_well || [];
     const wrong = rep.what_went_wrong || rep.narrative?.what_went_wrong || [];
-    if (well.length) panelHtml += `<p style="font-weight:600;margin-bottom:4px">做得好：</p><ul class="list-styled">${well.map(w=>`<li>${w}</li>`).join('')}</ul>`;
-    if (wrong.length) panelHtml += `<p style="font-weight:600;margin:12px 0 4px">需改进：</p><ul class="list-styled">${wrong.map(w=>`<li>${w}</li>`).join('')}</ul>`;
+    if (well.length || wrong.length) {
+      panelHtml += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">`;
+      if (well.length) panelHtml += `<div style="background:#e6f4ea;border-radius:10px;padding:14px"><p style="font-size:11px;font-weight:700;color:#1a7340;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">✅ 做得好</p><ul style="padding-left:16px;font-size:13px;line-height:1.8">${well.map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul></div>`;
+      if (wrong.length) panelHtml += `<div style="background:#fff3e0;border-radius:10px;padding:14px"><p style="font-size:11px;font-weight:700;color:#b06000;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">⚠️ 需改进</p><ul style="padding-left:16px;font-size:13px;line-height:1.8">${wrong.map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul></div>`;
+      panelHtml += `</div>`;
+    }
   }
 
-  panelHtml += `</div>`;
+  // ── 左右分栏 ───────────────────────────────────────────────────────────
+  panelHtml += `<div class="scenario-split">`;
+
+  // 左栏：会话记录
+  panelHtml += `<div>`;
+  panelHtml += `<p style="font-size:11px;font-weight:700;color:var(--text-secondary);letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px">会话记录</p>`;
+  panelHtml += `<div class="chat-wrap">`;
+  const dialogTurns = trace.dialog_turns || [];
+  if (!dialogTurns.length) panelHtml += `<p style="color:var(--text-secondary);font-size:13px;text-align:center;padding:20px 0">暂无会话记录</p>`;
+  dialogTurns.forEach(t => {
+    const isCustomer = t.actor === 'evaluator' || t.actor === 'customer';
+    panelHtml += `<div class="chat-bubble ${isCustomer?'customer':'employee'}"><div class="chat-actor">${isCustomer?'👤 客户':'🤖 数字员工'}</div><div class="chat-bubble-inner">${escapeHtml(t.content||'')}</div></div>`;
+  });
+  panelHtml += `</div></div>`; // chat-wrap + 左栏
+
+  // 右栏：指标评分
+  panelHtml += `<div>`;
+  panelHtml += `<p style="font-size:11px;font-weight:700;color:var(--text-secondary);letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px">指标评分</p>`;
+
+  let metricItems = rep.metric_results || [];
+  if (!metricItems.length && rep.metric_scores && typeof rep.metric_scores === 'object') {
+    metricItems = Object.entries(rep.metric_scores).map(([code, val]) => ({
+      metric_code: code, score: typeof val === 'number' ? val : (val&&val.score)||0, signals: [], observed_signals: []
+    }));
+  }
+  const scoreDetails = sc.metric_score_details || {};
+  // 按得分升序排列（弱项优先，便于关注）
+  [...metricItems].sort((a,b) => a.score - b.score).forEach((mr, mi) => {
+    const score = mr.score;
+    const dotColor = score >= 80 ? '#1e8e3e' : score >= 60 ? '#f9a825' : '#d93025';
+    const numColor = score >= 80 ? '#1a7340' : score >= 60 ? '#b06000' : '#c5221f';
+    const zh = metricLabel(mr.metric_code);
+    const signals = (mr.signals||mr.observed_signals||[]).map(translateSignal).filter(Boolean);
+    const detail = scoreDetails[mr.metric_code] || {};
+    const did = `md-${tcId}-${mi}`, iid = `mi-${tcId}-${mi}`;
+    const reasoning = mr.reasoning || detail.reasoning || detail.notes || '';
+    const posAdj = detail.positive_adjustments || [];
+    const negAdj = detail.negative_adjustments || [];
+    const hasDetail = !!(reasoning || posAdj.length || negAdj.length || signals.length);
+
+    panelHtml += `<div class="metric-card">`;
+    panelHtml += `<div class="metric-card-header"${hasDetail?` onclick="toggleMetric('${did}','${iid}')"`:' style="cursor:default"'}>`;
+    panelHtml += `<span class="metric-score-dot" style="background:${dotColor}"></span>`;
+    panelHtml += `<span class="metric-label-zh">${zh}</span>`;
+    panelHtml += `<span class="metric-num" style="color:${numColor}">${score}</span>`;
+    if (hasDetail) panelHtml += `<span class="metric-expand-icon" id="${iid}">›</span>`;
+    panelHtml += `</div>`;
+    if (hasDetail) {
+      panelHtml += `<div class="metric-card-body" id="${did}">`;
+      panelHtml += `<div class="metric-score-bar-wrap"><div class="metric-score-bar-bg"><div class="metric-score-bar-fill" style="width:${score}%;background:${dotColor}"></div></div></div>`;
+      if (signals.length) panelHtml += `<p style="font-size:12px;color:#b06000;margin:8px 0 4px">⚠️ ${signals.map(escapeHtml).join('；')}</p>`;
+      if (reasoning) panelHtml += `<p class="metric-reasoning">${escapeHtml(reasoning)}</p>`;
+      if (posAdj.length || negAdj.length) {
+        panelHtml += `<div class="adj-row">`;
+        posAdj.forEach(a => { const amt=a.amount??a.delta; panelHtml += `<span class="adj-chip adj-chip-pos"><span class="adj-chip-delta">+${amt}</span><span>${escapeHtml((a.evidence||a.rule_id||'').substring(0,38))}</span></span>`; });
+        negAdj.forEach(a => { const amt=a.amount!=null?a.amount:Math.abs(a.delta); panelHtml += `<span class="adj-chip adj-chip-neg"><span class="adj-chip-delta">−${amt}</span><span>${escapeHtml((a.evidence||a.rule_id||'').substring(0,38))}</span></span>`; });
+        panelHtml += `</div>`;
+      }
+      panelHtml += `</div>`;
+    }
+    panelHtml += `</div>`;
+  });
+
+  panelHtml += `</div>`; // 右栏
+  panelHtml += `</div>`; // scenario-split
   panels.innerHTML += panelHtml;
 });
 
@@ -443,6 +568,17 @@ function switchTab(tcId) {
   event.target.classList.add('active');
   document.getElementById('panel-' + tcId).classList.add('active');
 }
+
+// 折叠/展开指标详情
+function toggleMetric(did, iid) {
+  const body = document.getElementById(did);
+  const icon = document.getElementById(iid);
+  if (!body) return;
+  const open = body.classList.toggle('open');
+  if (icon) icon.classList.toggle('open', open);
+}
+// 向后兼容旧 toggleDetail 调用
+function toggleDetail(did, iid) { toggleMetric(did, iid); }
 
 // Tainted-run banner (STEP 9 / K11 / K16 / K18 — Chinese narrative only)
 (function(){

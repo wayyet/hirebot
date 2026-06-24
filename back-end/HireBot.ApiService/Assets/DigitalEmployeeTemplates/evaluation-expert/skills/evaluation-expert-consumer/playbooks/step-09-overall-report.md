@@ -121,9 +121,52 @@ Agent 必须在 JSON 中注入以下字段，供 HTML 模板渲染中文标签�
 
 `scenario_report_refs` 必须填入每个 `<REPORT_DIR>/scenarios/<tc_id>.report.json` 的相对路径，**不得内联内容**。
 
+### 分步生成策略（防止大 JSON 被平台 max_tokens 截断）
+
+**背景**：一次性生成完整的 `evaluation_report.json` 时，若 JSON 体积较大（多个 TC、多个指标、长叙述），可能被平台的 max_tokens 限制截断，导致 Agent 在写报告前停止。
+
+**分步执行顺序**（每步完成后立即将当前进度追加到草稿文件 `evaluation_report_draft.json`）：
+
+#### 第一步：复制数值字段（无 LLM，确定性）
+
+直接从上游文件字节拷贝，不调用 LLM：
+- `per_metric_final_scores` ← `aggregated_metric_scores.json`
+- `dimension_scores` ← `dimension_scores.json`
+- `red_line.triggered`、`red_line.triggers` ← `red_line_check.json`
+- `overall_score` ← `dimension_scores.json` 加权求和
+- `passed` ← 确定性推导
+- `scenario_report_refs` ← 扫描 `reports/scenarios/` 目录
+
+写入草稿：`evaluation_report_draft.json`（含以上字段）
+
+#### 第二步：生成叙述字段（LLM，分批调用）
+
+每次只生成一组相关字段，生成后立即追加到草稿：
+
+| 调用序号 | 生成字段 | 输入依据 |
+|---------|---------|---------|
+| 调用 1 | `executive_summary` | dimension_scores + red_line |
+| 调用 2 | `strengths` + `weaknesses` | scenario_report_refs 中的 what_went_well/wrong |
+| 调用 3 | `cross_scenario_patterns` + `narrative.improvement_plan` | 所有场景的 metric_results |
+| 调用 4 | `open_questions` | tainted TCs + low-reliability cases + K 规则违规 |
+| 调用 5 | `red_line.narratives` | 仅当 red_line.triggered == true 时执行 |
+| 调用 6 | `metric_labels` + `tool_labels` | metrics/*.metric.json + role-catalog/*.role.json（K18）|
+
+每次调用完成后，将生成的字段合并到草稿文件。
+
+#### 第三步：合并与验证
+
+所有字段生成完毕后：
+1. 读取草稿文件，合并为完整 JSON
+2. 对照 `evaluation_report.schema.json` 做 schema 验证
+3. 验证通过后写入正式文件 `evaluation_report.json`
+4. 删除草稿文件 `evaluation_report_draft.json`
+
+**草稿文件的作用**：若 Agent 在某步中断，下次重启后可检测草稿文件存在，跳过已完成的步骤，从断点继续，不需要全部重做。
+
 ### 写入
 
-生成完整 JSON 后，写入 `<REPORT_DIR>/evaluation_report.json`。目录不存在时先 `mkdir -p <REPORT_DIR>/scenarios`。
+分步生成完成后，写入 `<REPORT_DIR>/evaluation_report.json`。目录不存在时先 `mkdir -p <REPORT_DIR>/scenarios`。
 
 ---
 
@@ -137,6 +180,7 @@ python3 /workspace/uploads/evaluation-expert-consumer/runtime-drivers/ws_jwt/rep
   --scenarios-dir       <REPORT_DIR>/scenarios \
   --traces-dir          <RUN_DIR>/traces \
   --enriched-dir        <RUN_DIR>/enriched-cases \
+  --scores-dir          <RUN_DIR>/scores \
   --template            /workspace/uploads/evaluation-expert-consumer/runtime-schemas/report-template.html \
   --output              <REPORT_DIR>/evaluation_report.html \
   --employee-name       "<employee_display_name>"

@@ -23,7 +23,445 @@ upstream_producer_dependencies:
 
 # evaluation-expert-consumer
 
-当用户要求「evaluate employee」「assess performance」「run evaluation」或以「evaluation expert」身份行动时触发。
+## ⚡ 执行阶段路由（收到触发词后首先判断，优先于所有其他规则）
+
+Agent 收到触发后，**立即对照下表判断当前阶段，只执行该阶段对应的步骤，完成后输出完成标记然后停止，不得继续执行后续阶段的任何步骤**。
+
+| 触发词（消息中含有即匹配） | 阶段 | 执行步骤 | 停止条件 |
+|---|---|---|---|
+| `评估准备` / `eval prep` / `prepare evaluation` | **PREP** | 评估前检查 + PRE.A + STEP 0~2.5 | `run_plan.json` 写入后输出 `[EVAL:PREP:DONE]` 停止 |
+| `执行测试用例` / `执行所有测试用例` / `run evaluation case` / `run all evaluation cases` | **RUN** | STEP 3 + STEP 4（per TC） | 所有指定 TC 的 `__summary.json` 写入后输出 `[EVAL:RUN:DONE]` 停止 |
+| `生成评估报告` / `generate evaluation report` / `eval report` | **REPORT** | STEP 5~10 | `evaluation_report.html` 写入后输出 `[EVAL:REPORT:DONE]` 停止 |
+| `evaluate employee` / `assess performance` / `run evaluation` / `评估员工` / `绩效评估` / `客服打分`（旧触发词） | **FULL**（legacy） | 全部步骤（PRE.A ~ STEP 10） | 正常完成 |
+
+**阶段隔离硬性规则**：
+- PREP 完成后**必须停止**，不得自动进入 RUN 阶段
+- RUN 完成后**必须停止**，不得自动进入 REPORT 阶段
+- 阶段之间**不得自动串联**，每个阶段需要用户（或后端）显式触发
+
+### 完成标记格式
+
+每个阶段完成时输出以下格式的标记行（供后端 Phase 2 自动编排时检测）：
+
+```
+[EVAL:PREP:DONE]   eval_id=<session_id> tc_count=<N> tcs=<tc-001,tc-002,...>
+[EVAL:RUN:DONE]    eval_id=<session_id> completed=<tc-001,tc-002> failed=<>
+[EVAL:REPORT:DONE] eval_id=<session_id> overall_score=<N> passed=<true|false> report_path=<路径>
+```
+
+### Artifact 消息格式（前端编排协议）
+
+所有关键节点必须按 `contracts/artifacts.json` 中定义的 schema 输出 artifact 消息，格式为：
+
+```json
+{"artifact": {"type": "<type>", "data": { ... }}}
+```
+
+前端通过监听 `type` 字段识别阶段状态，`terminal: true` 的 artifact 中若含 `next_trigger`，前端自动发送该触发词启动下一阶段，实现无需用户干预的全流程编排。
+
+**各阶段必须输出的 artifact**：
+
+| 阶段 | 时机 | type | terminal | next_trigger |
+|------|------|------|----------|-------------|
+| PREP | 执行中（每步） | `eval_prep_progress` | false | — |
+| PREP | 完成（run_plan.json 写入后）| `eval_prep_done` | true | `执行所有测试用例` |
+| RUN | 执行中（每轮对话/评分）| `eval_run_progress` | false | — |
+| RUN | 单 TC 完成 | `eval_tc_done` | false | `执行所有测试用例`（remaining 非空时）|
+| RUN | 所有 TC 完成 | `eval_run_done` | true | `生成评估报告` |
+| REPORT | 执行中（每步）| `eval_report_progress` | false | — |
+| REPORT | 完成 | `eval_report_done` | true | null |
+| 任意阶段 | 致命错误 | `eval_error` | true | null |
+
+**前端编排逻辑**（由 artifacts.json 的 `orchestration_contract` 定义）：
+1. 用户触发「评估准备」→ 等待 `eval_prep_done` → 自动发送「执行所有测试用例」
+2. 收到 `eval_tc_done` 且 `remaining_tc_ids` 非空 → 自动发送「执行所有测试用例」
+3. 收到 `eval_run_done` → 自动发送「生成评估报告」
+4. 收到 `eval_report_done` → 展示报告，流程结束
+5. 任何阶段收到 `eval_error` → 停止自动触发，展示错误
+
+---
+
+## PREP 阶段规范
+
+> **仅当触发词匹配 PREP 时执行本节。执行完毕后停止，不执行 RUN 或 REPORT。**
+
+### 前置检查
+
+1. 读取 `/workspace/runtime/evaluation-context.json`，确认 `evaluation_id`（即 `session_id`）
+2. 检查 `<paths.run_dir>/run_plan.json` 是否已存在：
+   - 若存在且**不含 TAINTED.md**：询问用户"检测到已有执行计划，是否重新执行 PREP（将覆盖现有计划）？"，用户确认后继续；否则跳过 PREP 直接提示用户触发 RUN 阶段
+   - 若存在且含 TAINTED.md：提示用户上次运行被污染，建议重新执行
+   - 若不存在：直接继续
+3. **历史目录警告**：检查 `<consumer_root>/runs/` 下的子目录数量，若超过 5 个输出警告：
+   ```
+   ⚠️ 检测到 <N> 个历史评估目录，建议通过管理接口定期清理以释放存储空间。
+   ```
+
+### 上下文加载顺序
+
+按以下顺序读取，不得跳过（确保 STEP 1.5 走 P0 自动合成路径，避免误触发用户咨询）：
+
+```
+1. /workspace/runtime/evaluation-context.json
+2. /workspace/uploads/artifact/<template_dir>/config/IDENTITY.md
+3. /workspace/uploads/artifact/<template_dir>/config/SOUL.md
+4. /workspace/uploads/artifact/<template_dir>/config/AGENTS.md
+5. /workspace/uploads/artifact/<template_dir>/skills/*/SKILL.md
+6. /workspace/uploads/artifact/<template_dir>/ontology/*.slice.md
+7. 评估专用本体（若存在）
+8. 预置测试用例目录扫描
+```
+
+### 执行步骤
+
+按以下顺序执行，每步详情见对应 playbook：
+
+```
+评估前完备性检查（playbooks/pre-flight-invariants.md）
+PRE.A  loadRoleCatalog
+STEP 0  resolveEmployee
+PRE     loadMetricRegistry
+STEP 1  resolveEmployeeAndCheckTestCases
+STEP 1.2 curateMetrics
+STEP 1.5 parseTestCases（条件触发，test_case_status == "missing" 时）
+STEP 1.6 pushSynthesizedTestCases（条件触发，hirebot_api 存在时）
+STEP 2  enrichTestCases
+STEP 2.5 planRun  → 写入 run_plan.json（PREP 完成信号）
+```
+
+### PREP 完成输出格式
+
+```
+✅ 评估准备完成
+   员工：<display_name>（角色：<role_id>）
+   已选指标：<N> 个
+   测试用例：<M> 个（<来源：预置/合成>）
+
+执行计划：
+  - <tc_id>: <opening_message 前40字>…
+  - <tc_id>: <opening_message 前40字>…
+  ...
+
+下一步：触发「执行所有测试用例」或逐个「执行测试用例 <tc_id>」
+
+[EVAL:PREP:DONE] eval_id=<session_id> tc_count=<M> tcs=<tc-001,tc-002,...>
+```
+
+**Artifact 输出**（写在完成标记之后）：
+
+```json
+{"artifact": {"type": "eval_prep_done", "data": {
+  "eval_id": "<session_id>",
+  "employee_display_name": "<display_name>",
+  "role_id": "<role_id>",
+  "tc_count": 10,
+  "selected_metrics_count": 10,
+  "next_trigger": "执行测试用例 tc-001"
+}}}
+```
+
+`next_trigger` 固定为第一个待执行 TC 的精确触发词，由 skill 填入。前端收到后原样发送，不需要自行推算。
+
+**完成后立即停止，不执行 STEP 3 及之后的任何步骤。**
+
+---
+
+## RUN 阶段规范
+
+> **仅当触发词匹配 RUN 时执行本节。执行完毕后停止，不执行 REPORT。**
+
+### 前置检查
+
+1. 读取 `/workspace/runtime/evaluation-context.json`
+2. 检查 `<paths.run_dir>/run_plan.json` 是否存在：
+   - **不存在**：拒绝执行，输出：`❌ 未找到执行计划，请先触发「评估准备」完成 PREP 阶段`，停止
+   - 存在：读取 `tc_list`，确定本次要执行的 TC 范围
+3. 解析触发词确定执行范围：
+   - `执行测试用例 <tc_id>`：只执行该 tc_id
+   - `执行所有测试用例` / `run all evaluation cases`：执行 tc_list 中全部 TC
+
+### 上下文最小化
+
+Run 阶段**不加载员工模板材料**（IDENTITY/SOUL/AGENTS/SKILL/ontology），只加载：
+
+```
+1. /workspace/runtime/evaluation-context.json
+2. runs/<eval_id>/enriched-cases/<tc_id>.enriched.json（当前 TC）
+3. runs/<eval_id>/evaluation_context.json（selected_metrics 快照）
+4. metrics/<metric_code>.metric.json（仅 applicable_metrics 中的，按需加载）
+5. simulators/<simulator_id>/system_prompt.md（加载一次后复用）
+6. contracts/projections/ontology_extraction/scoring-judgement/scoring-judgement.prompt-constraint.projection.json
+```
+
+### next_trigger 计算规则（skill 管理队列，硬性约束）
+
+每次 RUN 阶段完成一个 TC 后，在输出 `eval_tc_done` artifact 之前，**必须按以下步骤精确计算 `next_trigger`**：
+
+```
+1. 读取 run_plan.json，获取 tc_list（有序数组，顺序固定）
+
+2. 扫描哪些 TC 已完成：
+   completed = { tc_id for tc_id in tc_list
+                 if file_exists("scores/<tc_id>__summary.json") }
+
+   注意：不能用文件系统目录排序，必须按 tc_list 原始顺序判断
+
+3. 计算剩余 TC（刚完成的这个也算进去）：
+   after_this = [ tc for tc in tc_list
+                  if tc not in completed and tc != current_tc_id ]
+
+4. 决定 next_trigger：
+   - 若 after_this 非空：next_trigger = "执行测试用例 " + after_this[0]
+   - 若 after_this 为空：next_trigger = "生成评估报告"
+```
+
+**关键约束**：
+- 必须用 `run_plan.json` 的 `tc_list` 顺序，不得用文件系统扫描顺序
+- 不得提前终止：只有当 `tc_list` 中所有 TC 都有对应的 `__summary.json` 时，才能返回 `"生成评估报告"`
+
+### TC 失败类型区分（影响 next_trigger 计算和终止逻辑）
+
+run.py 退出码为 `2` 或 stdout 出现 `{"event":"error",...}` 时，**必须区分以下两类失败**：
+
+#### 业务失败（正常评估结论，继续执行）
+
+以下属于被评估者的表现问题，**正常写入 trace 和 summary，视为已完成，继续下一个 TC**：
+
+| termination.reason | 含义 |
+|---|---|
+| `max_turns_reached` | 达到最大轮次未解决——这是评估结论，不是故障 |
+| `deadlock_detected` | 对话陷入循环——被评估者问题，记录为评估结论 |
+| `bottom_line_violated` | 触犯底线——负向用例的正常结果 |
+| `customer_gave_up` | 客户放弃——评估完成 |
+
+这些情况下 trace 文件存在，summary 正常写入，`next_trigger` 指向下一个 TC。
+
+#### 基础设施失败（重试，重试耗尽则终止整个评估）
+
+以下属于沙箱连接问题，**不是被评估者的问题**，不计入评估结论：
+
+| 特征 | 说明 |
+|---|---|
+| stdout 含 `{"event":"error","detail":"ConnectionRefusedError: ..."}` | WS 连接被拒绝 |
+| stdout 含 `{"event":"error","detail":"OSError: ..."}` | 网络层连接失败 |
+| stdout 含 `{"event":"error","detail":"TimeoutError: ..."}` | 连接超时 |
+| 退出码 `2` 且 trace 文件不存在（连接阶段就失败，没有任何对话） | 从未建立连接 |
+
+**重试策略**（默认重试 3 次，间隔 10 秒）：
+
+```
+MAX_CONNECT_RETRIES = evaluation_context.retry_policy.max_connect_retries ?? 3
+RETRY_INTERVAL = 10 秒
+
+for attempt in 1..MAX_CONNECT_RETRIES:
+    执行 run.py
+    若连接成功（trace 文件存在或有对话内容）：正常继续
+    若基础设施失败：
+        等待 RETRY_INTERVAL 秒
+        if attempt < MAX_CONNECT_RETRIES: 继续重试
+        if attempt == MAX_CONNECT_RETRIES:
+            输出 eval_error artifact，终止整个评估（next_trigger = null）
+```
+
+输出 `eval_error` artifact：
+```json
+{"artifact": {"type": "eval_error", "data": {
+  "eval_id": "<session_id>",
+  "phase": "run",
+  "tc_id": "<当前 tc_id>",
+  "error_code": "SANDBOX_CONNECTION_FAILED",
+  "error_message": "连接待评测沙箱失败，已重试 3 次",
+  "recovery_hint": "请检查待评测沙箱是否正常运行，或通过管理接口重置评估工作区后重试",
+  "next_trigger": null
+}}}
+```
+
+**无论触发词是「执行测试用例 tc_id」还是「执行所有测试用例」，每次 Agent 会话只执行一个 TC，完成后立即停止，输出 artifact，等待下一次触发。**
+
+**这是硬性约束，不得违反：**
+- 完成一个 TC 的 STEP 3 + STEP 4 后，**立即停止，不得自行决定"现在进入下一个 TC"**
+- 不得在同一会话里连续执行多个 TC
+- Agent 自行推进到下一个 TC = K22 边界违规，视为污染运行
+
+**执行逻辑**：
+
+```
+1. 若触发词指定了 tc_id（「执行测试用例 tc-003」）：
+     执行该 tc_id，完成后停止
+
+2. 若触发词是「执行所有测试用例」（未指定 tc_id）：
+     扫描 run_plan.tc_list，找到第一个未完成的 TC
+     （判断标准：scores/<tc_id>__summary.json 不存在）
+     执行该 TC，完成后停止
+
+3. 若所有 TC 均已完成（所有 __summary.json 都存在）：
+     输出"所有测试用例已执行完成"并输出 [EVAL:RUN:DONE] 标记，停止
+```
+
+**每次触发 = 新会话 = 只有当前 TC 的上下文**，上一个 TC 的 trace 和评分数据不会出现在本次会话里。
+
+**断点续跑**：若某 tc_id 的 `scores/<tc_id>__summary.json` 已存在，跳过该 TC，不重新执行。
+
+### STEP 3 上下文控制
+
+`{{dialog_so_far}}` 展开遵循 `playbooks/step-03-driver-and-simulator-loop.md` 中的"dialog_so_far 展开规则"：
+- 历史轮次（0 到 N-3）：只展开 content 前 80 字
+- 最近两轮（N-2 和 N-1）：展开完整 content
+
+### STEP 4 指标定向读取
+
+对应 `playbooks/step-04-fanout-scoring.md` 中的"指标定向 Trace 读取规则"：
+- A 类指标：只传 `actual_tool_calls` + `termination`，不传对话正文
+- B 类指标：传 content 前 200 字摘要
+- C 类指标：逐轮传入单轮完整 content，逐轮评分后汇总
+
+### RUN 完成输出格式
+
+单个 TC 完成后：
+
+```
+✅ <tc_id> 执行完成（<N> 轮，终止原因：<reason>）
+   评分快照：<metric_code>=<score>, ...
+
+进度：已完成 <X>/<total>
+待执行：<remaining_tc_id_list>
+```
+
+**单 TC Artifact 输出**：
+
+```json
+{"artifact": {"type": "eval_tc_done", "data": {
+  "eval_id": "<session_id>",
+  "tc_id": "tc-003",
+  "tc_display_name": "<名称>",
+  "turns_used": 6,
+  "termination_reason": "goal_achieved",
+  "metric_scores": {"tool_call_correctness": 85, "factual_accuracy": 72},
+  "completed_count": 3,
+  "total_count": 10,
+  "next_trigger": "执行测试用例 tc-004"
+}}}
+```
+
+**`next_trigger` 由 skill 负责填入**：
+- 若还有未完成的 TC：填入 `"执行测试用例 <下一个未完成的 tc_id>"`（通过扫描 `run_plan.json` + 已存在的 `__summary.json` 文件确定）
+- 若所有 TC 均已完成：填入 `"生成评估报告"`
+
+前端收到后原样发送，不需要维护任何队列状态。
+
+**⛔ 输出 `eval_tc_done` artifact 后，Agent 必须立即停止本次会话。不得继续执行任何操作，不得自行推进到下一个 TC，不得输出任何"现在进入 etc-XXX"的内容。下一个 TC 由前端读取 `next_trigger` 后重新触发，是一个全新的会话。**
+
+若还有未完成的 TC，追加引导：
+```
+还有 <N> 个测试用例待执行，请再次触发「执行所有测试用例」继续。
+（前端将自动发送：执行测试用例 <next_tc_id>）
+```
+
+若所有 TC 均已完成：
+
+```
+✅ 所有测试用例执行完成
+   完成：<completed_tc_list>
+   失败：<failed_tc_list>（若有）
+
+下一步：触发「生成评估报告」
+
+[EVAL:RUN:DONE] eval_id=<session_id> completed=<tc-001,tc-002,...> failed=<>
+```
+
+**所有 TC 完成时的 Artifact 输出**：
+
+```json
+{"artifact": {"type": "eval_run_done", "data": {
+  "eval_id": "<session_id>",
+  "completed_tcs": ["tc-001", "tc-002", "tc-003"],
+  "failed_tcs": []
+}}}
+```
+
+---
+
+## REPORT 阶段规范
+
+> **仅当触发词匹配 REPORT 时执行本节。**
+
+### 前置检查
+
+1. 读取 `/workspace/runtime/evaluation-context.json`
+2. 检查 `<paths.run_dir>/run_plan.json` 是否存在：
+   - **不存在**：拒绝执行，输出错误提示，停止
+3. 检查 TC 完成度：扫描 `run_plan.tc_list` 中每个 tc_id 对应的 `scores/<tc_id>__summary.json`
+   - 若**全部完成**：直接继续
+   - 若**有未完成的 TC**：输出待完成列表，询问用户：
+     ```
+     ⚠️ 以下测试用例尚未完成：<tc_id_list>
+     是否跳过这些用例继续生成报告？（未完成的用例将作为 open_questions 写入报告）
+     ```
+     等待用户确认后继续（未完成 TC 作为 `open_taint_tc_ids` 传入）
+
+### 上下文最小化
+
+Report 阶段**不读取 trace 原文、不读员工模板材料、不读 report-template.html**，只加载：
+
+```
+1. /workspace/runtime/evaluation-context.json
+2. runs/<eval_id>/evaluation_context.json
+3. runs/<eval_id>/scores/<tc_id>__summary.json（优先）或原始 score 文件（降级）
+4. runs/<eval_id>/aggregated_metric_scores.json（STEP 5 完成后）
+5. runs/<eval_id>/dimension_scores.json（STEP 6 完成后）
+6. runs/<eval_id>/red_line_check.json（STEP 7 完成后）
+7. runs/<eval_id>/reports/scenarios/<tc_id>.report.json（STEP 8 完成后）
+8. runtime-schemas/evaluation_report.schema.json（STEP 9 前必读）
+9. metrics/<metric_code>.metric.json（K18 标签，STEP 9）
+10. role-catalog/<role_id>.role.json（K18 工具标签，STEP 9）
+```
+
+### 执行步骤
+
+```
+STEP 5  aggregateAcrossScenarios（确定性）
+STEP 6  rollUpToDimensions（确定性）
+STEP 7  redLineCheck（确定性，禁止 LLM）
+STEP 8  buildScenarioReports（LLM，每场景散文）
+STEP 9  buildOverallReport（LLM，分步生成——见 playbooks/step-09-overall-report.md）
+STEP 10 uploadToHireBot（hirebot_api 存在时必须）
+```
+
+### REPORT 完成输出格式
+
+```
+✅ 评估报告生成完成
+   JSON 报告：<REPORT_DIR>/evaluation_report.json
+   HTML 报告：<REPORT_DIR>/evaluation_report.html
+   综合得分：<overall_score>（<通过/未通过>）
+   已上传至 HireBot
+
+[EVAL:REPORT:DONE] eval_id=<session_id> overall_score=<N> passed=<true|false> report_path=<路径>
+```
+
+**Artifact 输出**：
+
+```json
+{"artifact": {"type": "eval_report_done", "data": {
+  "eval_id": "<session_id>",
+  "overall_score": 82,
+  "passed": true,
+  "dimension_scores": {
+    "functional_completeness": 85,
+    "interaction_quality": 78,
+    "process_compliance": 80,
+    "problem_resolution": 83,
+    "tool_call_correctness": 90
+  },
+  "report_json_path": "<REPORT_DIR>/evaluation_report.json",
+  "report_html_path": "<REPORT_DIR>/evaluation_report.html",
+  "uploaded": true
+}}}
+```
+
+---
+
+当用户要求「evaluate employee」「assess performance」「run evaluation」或以「evaluation expert」身份行动时触发（FULL legacy 模式）。
 
 本技能**与模板无关**：每个员工角色都通过**同一套确定性工作流**进行评估。角色差异体现在**六个热插拔数据层**（`./metrics/`、`./test-cases/`、`./runtime-drivers/`、`./simulators/`、`./role-catalog/`、`./employees/`），这些数据层由上游生产技能或目录约定驱动——**不需要**修改本技能文件。
 

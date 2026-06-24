@@ -123,12 +123,13 @@ def _collect_one_scenario(
     scenarios_dir: Path,
     traces_dir: Path,
     enriched_dir: Path,
+    scores_dir: Path | None = None,
 ) -> dict[str, Any]:
     """
-    收集单个 TC 的三元组：{ report, trace, enriched }。
+    收集单个 TC 的数据：{ report, trace, enriched, metric_score_details }。
     任何文件缺失时用空 dict 兜底，不中断整体流程。
     """
-    result: dict[str, Any] = {"report": {}, "trace": {}, "enriched": {}}
+    result: dict[str, Any] = {"report": {}, "trace": {}, "enriched": {}, "metric_score_details": {}}
 
     # scenario report
     rp = scenarios_dir / f"{tc_id}.report.json"
@@ -162,6 +163,28 @@ def _collect_one_scenario(
     else:
         print(f"[warn] enriched 不存在，已跳过: {ep}", file=sys.stderr)
 
+    # score 文件（读取各指标的 reasoning/adjustments/notes，供报告展示打分解释）
+    if scores_dir is not None and scores_dir.exists():
+        metric_details: dict[str, Any] = {}
+        for score_file in scores_dir.glob(f"{tc_id}__*.json"):
+            # 跳过 summary 文件
+            if score_file.stem.endswith("__summary"):
+                continue
+            try:
+                score_data = _load_json(score_file, f"score({score_file.stem})")
+                metric_code = score_data.get("metric_code") or score_file.stem.split("__", 1)[-1]
+                metric_details[metric_code] = {
+                    "score": score_data.get("score"),
+                    "reasoning": score_data.get("reasoning") or score_data.get("notes") or "",
+                    "positive_adjustments": score_data.get("positive_adjustments") or [],
+                    "negative_adjustments": score_data.get("negative_adjustments") or [],
+                    "notes": score_data.get("notes") or "",
+                    "issues": score_data.get("issues") or [],
+                }
+            except (FileNotFoundError, ValueError) as exc:
+                print(f"[warn] {exc}", file=sys.stderr)
+        result["metric_score_details"] = metric_details
+
     return result
 
 
@@ -170,6 +193,7 @@ def _collect_all_scenarios(
     scenarios_dir: Path,
     traces_dir: Path,
     enriched_dir: Path,
+    scores_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     """
     按 report.test_cases 的顺序收集所有场景数据。
@@ -177,12 +201,18 @@ def _collect_all_scenarios(
     """
     test_cases = report.get("test_cases") or []
     if test_cases:
-        tc_ids = [
-            str(tc.get("test_case_id") or tc.get("tc_id") or "").strip()
-            for tc in test_cases
-            if isinstance(tc, dict)
-        ]
-        tc_ids = [t for t in tc_ids if t]
+        tc_ids = []
+        for tc in test_cases:
+            if isinstance(tc, dict):
+                # 对象格式：{"test_case_id": "etc-001", ...}
+                tc_id = str(tc.get("test_case_id") or tc.get("tc_id") or "").strip()
+            elif isinstance(tc, str):
+                # 字符串格式："etc-001"
+                tc_id = tc.strip()
+            else:
+                tc_id = ""
+            if tc_id:
+                tc_ids.append(tc_id)
     else:
         # 降级：按文件名字母序扫描目录
         tc_ids = sorted(
@@ -193,7 +223,7 @@ def _collect_all_scenarios(
             print("[warn] report.test_cases 为空，且 scenarios_dir 无 .report.json 文件", file=sys.stderr)
 
     return [
-        _collect_one_scenario(tc_id, scenarios_dir, traces_dir, enriched_dir)
+        _collect_one_scenario(tc_id, scenarios_dir, traces_dir, enriched_dir, scores_dir)
         for tc_id in tc_ids
     ]
 
@@ -252,6 +282,7 @@ def assemble(
     template_path: Path,
     output_path: Path,
     employee_name_override: str | None = None,
+    scores_dir: Path | None = None,
 ) -> None:
     """
     装配 HTML 报告。成功写入 output_path，失败时 raise。
@@ -273,7 +304,7 @@ def assemble(
         )
 
     # ── 3. 收集场景数据 ────────────────────────────────────────────────────
-    scenarios = _collect_all_scenarios(report, scenarios_dir, traces_dir, enriched_dir)
+    scenarios = _collect_all_scenarios(report, scenarios_dir, traces_dir, enriched_dir, scores_dir)
 
     # ── 4. 推导员工显示名称 ────────────────────────────────────────────────
     employee_name = _resolve_employee_name(report, employee_name_override)
@@ -333,6 +364,8 @@ def _parse_args() -> argparse.Namespace:
                    help="report-template.html 路径")
     p.add_argument("--output", required=True,
                    help="输出 HTML 路径（evaluation_report.html）")
+    p.add_argument("--scores-dir", default=None,
+                   help="scores 目录（含 <tc_id>__<metric_code>.json），用于展示打分详细解释（可选）")
     p.add_argument("--employee-name", default=None,
                    help="员工显示名称（覆盖 report.employee.display_name）")
     return p.parse_args()
@@ -349,6 +382,7 @@ def main() -> int:
             template_path=Path(args.template),
             output_path=Path(args.output),
             employee_name_override=args.employee_name,
+            scores_dir=Path(args.scores_dir) if args.scores_dir else None,
         )
         return 0
     except FileNotFoundError as exc:

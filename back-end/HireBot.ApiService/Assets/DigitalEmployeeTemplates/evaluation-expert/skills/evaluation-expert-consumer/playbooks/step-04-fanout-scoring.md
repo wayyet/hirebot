@@ -16,6 +16,84 @@
 
 K3 强制要求：每个 `(测试用例, 指标)` 对恰好一次独立评分推理，其中 `metric_code ∈ enriched_test_cases[tc].applicable_metrics`。禁止将多个指标或场景批处理合并。
 
+## 指标定向 Trace 读取规则（防止长文超窗口）
+
+**背景**：当被评估员工输出长文（招标书、法律文件、代码等）时，把整个 trace 塞进每次评分调用会导致上下文超窗口。不同指标实际上只需要 trace 的不同部分，无需全量传入。
+
+**三类指标及对应的 trace 视图**：
+
+### A 类指标——只读结构化字段，不读对话正文
+
+适用指标：`tool_call_correctness`、`process_compliance`
+
+评分时传入的 trace 视图：
+```json
+{
+  "actual_tool_calls": [...],
+  "actual_artifacts": [...],
+  "termination": {...},
+  "test_case.expected_output.expected_tool_calls": [...],
+  "test_case.expected_output.expected_outcomes": [...]
+}
+```
+
+`dialog_turns` **完全不传入**评分 prompt。token 消耗固定且极低，不受对话长度影响。
+
+### B 类指标——只读 evaluatee 轮次的摘要
+
+适用指标：`professional_tone_consistency`、`response_conciseness`、`proactive_clarification`、`safety_and_ethics_boundary`
+
+评分时传入的 trace 视图：
+```json
+{
+  "dialog_turns_summary": [
+    {
+      "turn_index": 0,
+      "actor": "evaluator",
+      "content_head": "<content 前200字>"
+    },
+    {
+      "turn_index": 1,
+      "actor": "evaluatee",
+      "content_head": "<content 前200字>"
+    }
+  ],
+  "actual_tool_calls": [...],
+  "termination": {...}
+}
+```
+
+每轮 content 截取前 200 字，足够判断语气/简洁度/主动澄清行为，不需要全文。
+
+### C 类指标——需要完整内容，逐轮评分后汇总
+
+适用指标：`response_clarity_and_structure`、`factual_accuracy`、`problem_resolution_completeness`、`interaction_empathy`、`bid_clause_completeness`、`legal_citation_accuracy`、`order_refund_policy_accuracy`、`attendance_rule_compliance`、`confidentiality_boundary_compliance`、`code_change_risk_disclosure`
+
+这些指标无法回避完整内容，但可以通过**逐轮滚动评分**控制单次调用的 token 量：
+
+```
+对所有 evaluatee 轮次（turn_index where actor == "evaluatee"）循环：
+  本轮传入：
+    - 当前轮次完整 content（不截断）
+    - 当前轮次的工具调用（若有）
+    - 测试用例的期望输出（expected_output）
+    - 上一轮的局部观测摘要（首轮为空）
+  本轮输出（局部观测记录）：
+    - 本轮发现的问题点（observed_signals 列表）
+    - 本轮的加分/扣分理由（rubric 调整）
+
+所有轮次遍历完后，合成最终评分：
+  - 汇总所有轮次的局部观测
+  - 基于累计证据给出最终 score
+  - reasoning 引用各轮的具体证据片段
+```
+
+每次 LLM 调用的 token 上限 ≈ system_prompt + 单轮 content + rubric，约 4000~10000 token，不受 trace 总长度影响。
+
+**C 类指标的 K16 合规说明**：逐轮局部观测不计入 `scored_at` 计数，只有最终合成那次写入 `scores/<tc_id>__<metric_code>.json` 才记录 `scored_at`。K16 唯一性要求针对最终 score 文件，不针对中间局部观测。
+
+---
+
 ## "评估 LLM" 即宿主 Agent
 
 **宿主 Agent 本身就是评估 LLM。** 不需要外部评分服务或 OpenAI SDK。STEP 4 的正确执行方式是：

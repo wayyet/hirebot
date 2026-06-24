@@ -884,7 +884,71 @@ export default function EvaluationPage() {
       if (messageType === 'error') {
         setChatError(String(msg.text ?? msg.content ?? '评估沙箱返回错误'))
       }
-    }
+
+      // ── 评估阶段编排 Artifact 处理 ─────────────────────────────────────────
+      // Agent 按 contracts/artifacts.json 的协议推送结构化 artifact 消息，格式为：
+      //   { type: "artifact", artifact: { type: "<eval_*>", data: { next_trigger, ... } } }
+      //
+      // 编排规则（由 SKILL.md § eval_tc_done.next_trigger 定义，skill 负责维护队列）：
+      //   eval_prep_done   → data.next_trigger = "执行测试用例 tc-001"，自动触发第一个 TC
+      //   eval_tc_done     → data.next_trigger = "执行测试用例 tc-XXX" 或 "生成评估报告"
+      //                      前端只需原样发送，不需要自己维护 TC 队列
+      //   eval_run_done    → 所有 TC 执行完毕（next_trigger 已包含在最后一条 eval_tc_done 中，
+      //                      此消息仅作为状态标记，通常不需额外操作）
+      //   eval_report_done → 报告生成完毕，刷新评估状态拉取最新报告
+      //   eval_error       → 基础设施级别的致命错误（如沙箱连接失败重试耗尽），停止自动编排
+      if (messageType === 'artifact') {
+        const artifactPayload = (msg as unknown as Record<string, unknown>).artifact as
+          | { type?: string; data?: Record<string, unknown> }
+          | null
+          | undefined
+
+        if (!artifactPayload) return
+
+        const artifactType = String(artifactPayload.type ?? '')
+        const artifactData = (artifactPayload.data ?? {}) as Record<string, unknown>
+
+        // PREP 完成：准备阶段执行完毕，自动触发第一个测试用例
+        if (artifactType === 'eval_prep_done') {
+          const nextTrigger = String(artifactData.next_trigger ?? '')
+          if (nextTrigger) {
+            void sendEvaluatorMessage(nextTrigger)
+          }
+          return
+        }
+
+        // 单个 TC 完成：skill 已在 next_trigger 中算好下一步（下一个 TC 或"生成评估报告"）
+        // 前端原样发送，不需要维护 TC 队列状态
+        if (artifactType === 'eval_tc_done') {
+          const nextTrigger = String(artifactData.next_trigger ?? '')
+          if (nextTrigger) {
+            void sendEvaluatorMessage(nextTrigger)
+          }
+          return
+        }
+
+        // 所有 TC 执行完毕（仅状态标记；实际续发已由最后一条 eval_tc_done 的 next_trigger 触发）
+        if (artifactType === 'eval_run_done') {
+          // 无需额外操作，等待 eval_tc_done 触发的"生成评估报告"完成
+          return
+        }
+
+        // 报告生成完毕：触发评估状态和报告数据刷新
+        if (artifactType === 'eval_report_done') {
+          setArtifactRefreshKey((current) => current + 1)
+          return
+        }
+
+        // 评估执行致命错误：基础设施级别的失败（如沙箱连接重试耗尽）
+        // 停止自动编排，向用户展示错误，等待人工介入
+        if (artifactType === 'eval_error') {
+          const errorMessage = String(artifactData.error_message ?? artifactData.message ?? '评估执行出错')
+          const recoveryHint = String(artifactData.recovery_hint ?? '')
+          setChatError(recoveryHint ? `${errorMessage}（${recoveryHint}）` : errorMessage)
+          return
+        }
+      }
+    }  // ws.onMessage 结束
 
     ws.onReconnected = () => {
       const endpointValue = gatewayEndpointRef.current

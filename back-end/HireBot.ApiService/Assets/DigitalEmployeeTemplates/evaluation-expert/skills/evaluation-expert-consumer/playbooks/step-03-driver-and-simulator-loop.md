@@ -59,6 +59,34 @@ python3 runtime-drivers/ws_jwt/run.py \
 # → 清除 _partial/_ws_session_id/_last_turn_index，写入 termination 块，输出完整 trace
 ```
 
+### `{{dialog_so_far}}` 展开规则（防止上下文随轮次线性膨胀）
+
+**背景**：每轮 Simulator 决策都要把完整对话历史展开进 system prompt。当被评估员工输出长文时（如招标书、法律意见、代码），历史轮次的原始内容会使上下文随轮次线性增长，最终导致 Agent 超窗口中断。
+
+**展开规则**（Agent 在渲染 `{{dialog_so_far}}` 时必须遵守）：
+
+```
+turn 0 到 turn (N-3)（历史轮次，距当前超过 2 轮）：
+  格式：[T{turn_index}|{actor}] {content 前80字}{若被截断则追加"…（共约{估算字数}字）"}
+  示例：[T2|evaluatee] 您好，关于您反映的退款问题，我已查询到订单 2024061200…（共约 320 字）
+
+turn (N-2) 和 turn (N-1)（最近两轮，完整展开）：
+  格式：展开完整 content，不截断
+  原因：Simulator 决策主要依赖最近一轮被评估者的完整回复
+```
+
+**效果**：无论对话进行多少轮，每次 Simulator 调用看到的 `dialog_so_far` 总量约为：
+- 历史轮次：(N-2) 条 × ~50 token/条（固定）
+- 最近两轮：完整 content（可能较大，但只有 2 轮）
+
+上下文增长从 **O(N × L)**（L 为单轮最大长度）变为 **O(N × 50 + 2 × L)**，避免历史积累导致的超窗口。
+
+**actor 标记规范**：
+- `evaluator` → 客户（Simulator）发出的话语
+- `evaluatee` → 被评估员工的回复
+
+---
+
 ### LLM 决策——simulator_trail 追加（在调用下一次 `--utterance` 前）
 
 每次 LLM 生成 `SimulatorDecision` 后，宿主 Agent 必须将决策追加到 partial trace 的 `simulator_trail` 字段，使 trace 记录完整的模拟器推理链：

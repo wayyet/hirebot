@@ -1,0 +1,415 @@
+{
+  "schemaVersion": 1,
+  "stages": [
+    {
+      "name": "stage_prep",
+      "label": "evaluation-prep-track",
+      "trigger": "评估准备",
+      "artifacts": [
+        {
+          "type": "eval_prep_progress",
+          "label": "evaluation-prep-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted during PREP phase execution. data.step indicates current step name (e.g. 'resolveEmployee', 'curateMetrics', 'planRun')."
+        },
+        {
+          "type": "eval_prep_done",
+          "label": "evaluation-prep-done",
+          "display": "summary",
+          "terminal": true,
+          "note": "Emitted when PREP phase completes. data.next_trigger contains the exact message frontend must send to start the first TC. Frontend only needs to send data.next_trigger — no queue management required.",
+          "data_schema": {
+            "eval_id": "string",
+            "employee_display_name": "string",
+            "role_id": "string",
+            "tc_count": "int",
+            "selected_metrics_count": "int",
+            "next_trigger": "string — e.g. '执行测试用例 tc-001'，frontend sends this verbatim"
+          }
+        }
+      ]
+    },
+    {
+      "name": "stage_run",
+      "label": "evaluation-run-track",
+      "trigger": "执行测试用例 <tc_id>",
+      "artifacts": [
+        {
+          "type": "eval_run_progress",
+          "label": "evaluation-run-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted while executing a single TC. data.phase is 'driving' during STEP 3 or 'scoring' during STEP 4.",
+          "data_schema": {
+            "eval_id": "string",
+            "tc_id": "string",
+            "tc_display_name": "string",
+            "turn_index": "int",
+            "phase": "'driving' | 'scoring'",
+            "completed_count": "int",
+            "total_count": "int"
+          }
+        },
+        {
+          "type": "eval_tc_done",
+          "label": "evaluation-tc-done",
+          "display": "card",
+          "terminal": true,
+          "note": "Emitted when a single TC completes STEP 3+4. data.next_trigger is the exact next message frontend must send — either '执行测试用例 <next_tc_id>' for the next TC, or '生成评估报告' when all TCs are done. Frontend only needs to send data.next_trigger verbatim. Skill manages the queue.",
+          "data_schema": {
+            "eval_id": "string",
+            "tc_id": "string — the TC just completed",
+            "tc_display_name": "string",
+            "turns_used": "int",
+            "termination_reason": "string",
+            "metric_scores": "object: metric_code -> int score",
+            "completed_count": "int",
+            "total_count": "int",
+            "next_trigger": "string — '执行测试用例 tc-004' OR '生成评估报告' when all done"
+          }
+        }
+      ]
+    },
+    {
+      "name": "stage_report",
+      "label": "evaluation-report-track",
+      "trigger": "生成评估报告",
+      "artifacts": [
+        {
+          "type": "eval_report_progress",
+          "label": "evaluation-report-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted during REPORT phase execution.",
+          "data_schema": {
+            "eval_id": "string",
+            "step": "string — 'aggregating' | 'rollup' | 'redline' | 'scenario_reports' | 'overall_report' | 'uploading'",
+            "completed_steps": "int",
+            "total_steps": "int (fixed 6)"
+          }
+        },
+        {
+          "type": "eval_report_done",
+          "label": "evaluation-report-done",
+          "display": "report",
+          "terminal": true,
+          "note": "Emitted when REPORT phase completes. next_trigger is null — this is the terminal event of the whole pipeline.",
+          "data_schema": {
+            "eval_id": "string",
+            "overall_score": "int 0-100",
+            "passed": "bool",
+            "dimension_scores": "object: dimension -> int score",
+            "report_json_path": "string",
+            "report_html_path": "string",
+            "uploaded": "bool",
+            "next_trigger": "null"
+          }
+        }
+      ]
+    }
+  ],
+  "orchestration_contract": {
+    "description": "Skill 管理执行队列，前端只做监听和发送。前端规则：收到任何 terminal artifact 后，读取 data.next_trigger，若非 null 则原样发送，若为 null 则停止。",
+    "frontend_rule": "收到 terminal artifact → 读 data.next_trigger → 非 null 则发送，null 则停止。仅此一条规则，无需其他逻辑。",
+    "skill_responsibility": "Skill 负责在每个 terminal artifact 的 next_trigger 字段中填入正确的下一条消息。Skill 通过扫描 run_plan.json 和已完成的 summary 文件确定下一个待执行的 tc_id。",
+    "flow_example": [
+      "frontend → '评估准备'",
+      "skill → eval_prep_done { next_trigger: '执行测试用例 tc-001' }",
+      "frontend → '执行测试用例 tc-001'",
+      "skill → eval_tc_done { next_trigger: '执行测试用例 tc-002', completed_count: 1, total_count: 10 }",
+      "frontend → '执行测试用例 tc-002'",
+      "...",
+      "skill → eval_tc_done { next_trigger: '生成评估报告', completed_count: 10, total_count: 10 }",
+      "frontend → '生成评估报告'",
+      "skill → eval_report_done { next_trigger: null }",
+      "frontend → 停止，展示报告"
+    ],
+    "error_handling": "若出现 eval_error artifact（terminal: true，next_trigger: null），前端停止发送，展示错误，等待用户操作。"
+  },
+  "error_artifact": {
+    "type": "eval_error",
+    "label": "evaluation-error",
+    "display": "error",
+    "terminal": true,
+    "note": "Emitted on fatal error. next_trigger is always null.",
+    "data_schema": {
+      "eval_id": "string",
+      "phase": "'prep' | 'run' | 'report'",
+      "tc_id": "string | null",
+      "error_code": "string",
+      "error_message": "string",
+      "recovery_hint": "string",
+      "next_trigger": "null"
+    }
+  },
+  "output_contract": {
+    "prep_outputs": [
+      "runs/<eval_id>/run_plan.json",
+      "runs/<eval_id>/evaluation_context.json",
+      "runs/<eval_id>/enriched-cases/<tc_id>.enriched.json"
+    ],
+    "run_outputs": [
+      "runs/<eval_id>/traces/<tc_id>.trace.json",
+      "runs/<eval_id>/scores/<tc_id>__<metric_code>.json",
+      "runs/<eval_id>/scores/<tc_id>__summary.json"
+    ],
+    "report_outputs": [
+      "runs/<eval_id>/aggregated_metric_scores.json",
+      "runs/<eval_id>/dimension_scores.json",
+      "runs/<eval_id>/red_line_check.json",
+      "runs/<eval_id>/reports/scenarios/<tc_id>.report.json",
+      "runs/<eval_id>/reports/evaluation_report.json",
+      "runs/<eval_id>/reports/evaluation_report.html"
+    ]
+  }
+}
+
+    {
+      "name": "stage_prep",
+      "label": "evaluation-prep-track",
+      "trigger": "评估准备",
+      "artifacts": [
+        {
+          "type": "eval_prep_progress",
+          "label": "evaluation-prep-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted during PREP phase execution. data.status must be 'running'. data.step indicates current step name (e.g. 'resolveEmployee', 'curateMetrics', 'planRun')."
+        },
+        {
+          "type": "eval_prep_done",
+          "label": "evaluation-prep-done",
+          "display": "summary",
+          "terminal": true,
+          "next_trigger": null,
+          "note": "Emitted when PREP phase completes (run_plan.json written). data must include: eval_id, employee_display_name, role_id, tc_count (int), tc_list (array of {tc_id, display_name, opening_message_head}), selected_metrics_count (int). Frontend uses tc_list to build an execution queue and dispatches 「执行测试用例 <tc_id>」 for each TC sequentially — one session per TC."
+        }
+      ]
+    },
+    {
+      "name": "stage_run",
+      "label": "evaluation-run-track",
+      "trigger": "执行测试用例 <tc_id>",
+      "artifacts": [
+        {
+          "type": "eval_run_progress",
+          "label": "evaluation-run-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted during RUN phase while executing a single TC. data must include: eval_id, tc_id, tc_display_name, turn_index (current turn), phase ('driving' | 'scoring'), completed_count (int), total_count (int)."
+        },
+        {
+          "type": "eval_tc_done",
+          "label": "evaluation-tc-done",
+          "display": "card",
+          "terminal": true,
+          "next_trigger": null,
+          "note": "Emitted when a single TC completes STEP 3+4. data must include: eval_id, tc_id, tc_display_name, turns_used (int), termination_reason, metric_scores (object: metric_code -> score), completed_count (int), total_count (int). Frontend pops next tc_id from its queue and dispatches 「执行测试用例 <next_tc_id>」. When queue is empty, frontend dispatches 「生成评估报告」."
+        }
+      ]
+    },
+    {
+      "name": "stage_report",
+      "label": "evaluation-report-track",
+      "trigger": "生成评估报告",
+      "artifacts": [
+        {
+          "type": "eval_report_progress",
+          "label": "evaluation-report-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted during REPORT phase. data must include: eval_id, step (e.g. 'aggregating', 'rollup', 'redline', 'scenario_reports', 'overall_report', 'uploading'), completed_steps (int), total_steps (int, fixed at 6)."
+        },
+        {
+          "type": "eval_report_done",
+          "label": "evaluation-report-done",
+          "display": "report",
+          "terminal": true,
+          "next_trigger": null,
+          "note": "Emitted when REPORT phase completes. data must include: eval_id, overall_score (int 0-100), passed (bool), dimension_scores (object: dimension -> score), report_json_path, report_html_path, uploaded (bool). This is the terminal artifact — frontend shows report viewer."
+        }
+      ]
+    }
+  ],
+  "orchestration_contract": {
+    "description": "前端驱动的三阶段编排协议。前端持有 tc 执行队列，按顺序逐个发送会话，每个 TC 独立会话，彻底隔离上下文。",
+    "flow": [
+      {
+        "step": 1,
+        "frontend_sends": "评估准备",
+        "waits_for": "eval_prep_done",
+        "frontend_action": "从 data.tc_list 构建执行队列 queue = [tc-001, tc-002, ...]，然后发送「执行测试用例 queue.shift()」"
+      },
+      {
+        "step": 2,
+        "frontend_sends": "执行测试用例 <tc_id>",
+        "waits_for": "eval_tc_done",
+        "frontend_action": "若 queue 非空：发送「执行测试用例 queue.shift()」；若 queue 为空：发送「生成评估报告」"
+      },
+      {
+        "step": 3,
+        "frontend_sends": "生成评估报告",
+        "waits_for": "eval_report_done",
+        "frontend_action": "展示报告，流程结束"
+      }
+    ],
+    "context_isolation": "每次发送新消息 = 新的 Agent 会话 = 干净的上下文。每个 TC 的 trace 和评分数据只存在于该 TC 的会话里，不会跨 TC 累积。",
+    "error_handling": "若任何阶段出现 eval_error artifact，前端停止自动触发，清空队列，展示错误信息，等待用户手动干预。"
+  },
+  "error_artifact": {
+    "type": "eval_error",
+    "label": "evaluation-error",
+    "display": "error",
+    "terminal": true,
+    "note": "Emitted when a fatal error occurs in any phase. data must include: eval_id, phase ('prep'|'run'|'report'), tc_id (null if not in run phase), error_code, error_message, recovery_hint. Frontend stops auto-orchestration and shows error to user."
+  },
+  "output_contract": {
+    "prep_outputs": [
+      "runs/<eval_id>/run_plan.json",
+      "runs/<eval_id>/evaluation_context.json",
+      "runs/<eval_id>/enriched-cases/<tc_id>.enriched.json"
+    ],
+    "run_outputs": [
+      "runs/<eval_id>/traces/<tc_id>.trace.json",
+      "runs/<eval_id>/scores/<tc_id>__<metric_code>.json",
+      "runs/<eval_id>/scores/<tc_id>__summary.json"
+    ],
+    "report_outputs": [
+      "runs/<eval_id>/aggregated_metric_scores.json",
+      "runs/<eval_id>/dimension_scores.json",
+      "runs/<eval_id>/red_line_check.json",
+      "runs/<eval_id>/reports/scenarios/<tc_id>.report.json",
+      "runs/<eval_id>/reports/evaluation_report.json",
+      "runs/<eval_id>/reports/evaluation_report.html"
+    ]
+  }
+}
+
+    {
+      "name": "stage_prep",
+      "label": "evaluation-prep-track",
+      "trigger": "评估准备",
+      "artifacts": [
+        {
+          "type": "eval_prep_progress",
+          "label": "evaluation-prep-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted during PREP phase execution. data.status must be 'running'. data.step indicates current step name (e.g. 'resolveEmployee', 'curateMetrics', 'planRun')."
+        },
+        {
+          "type": "eval_prep_done",
+          "label": "evaluation-prep-done",
+          "display": "summary",
+          "terminal": true,
+          "next_trigger": "执行所有测试用例",
+          "note": "Emitted when PREP phase completes (run_plan.json written). data must include: eval_id, employee_display_name, role_id, tc_count (int), tc_list (array of {tc_id, display_name, opening_message_head}), selected_metrics_count (int). Frontend must auto-send next_trigger to start RUN phase."
+        }
+      ]
+    },
+    {
+      "name": "stage_run",
+      "label": "evaluation-run-track",
+      "trigger": "执行所有测试用例",
+      "artifacts": [
+        {
+          "type": "eval_run_progress",
+          "label": "evaluation-run-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted during RUN phase for each TC being executed. data must include: eval_id, tc_id, tc_display_name, turn_index (current turn), total_turns_estimated, phase ('driving' | 'scoring'), completed_count (int), total_count (int)."
+        },
+        {
+          "type": "eval_tc_done",
+          "label": "evaluation-tc-done",
+          "display": "card",
+          "terminal": false,
+          "next_trigger": "执行所有测试用例",
+          "note": "Emitted when a single TC completes STEP 3+4. data must include: eval_id, tc_id, tc_display_name, turns_used (int), termination_reason, metric_scores (object: metric_code -> score), completed_count (int), total_count (int), remaining_tc_ids (array). If remaining_tc_ids is non-empty, frontend must auto-send next_trigger to continue with next TC."
+        },
+        {
+          "type": "eval_run_done",
+          "label": "evaluation-run-done",
+          "display": "summary",
+          "terminal": true,
+          "next_trigger": "生成评估报告",
+          "note": "Emitted when ALL TCs are complete (no remaining_tc_ids). data must include: eval_id, completed_tcs (array of tc_id), failed_tcs (array of tc_id). Frontend must auto-send next_trigger to start REPORT phase."
+        }
+      ]
+    },
+    {
+      "name": "stage_report",
+      "label": "evaluation-report-track",
+      "trigger": "生成评估报告",
+      "artifacts": [
+        {
+          "type": "eval_report_progress",
+          "label": "evaluation-report-progress",
+          "display": "progress",
+          "terminal": false,
+          "note": "Emitted during REPORT phase. data must include: eval_id, step (e.g. 'aggregating', 'rollup', 'redline', 'scenario_reports', 'overall_report', 'uploading'), completed_steps (int), total_steps (int, fixed at 6)."
+        },
+        {
+          "type": "eval_report_done",
+          "label": "evaluation-report-done",
+          "display": "report",
+          "terminal": true,
+          "next_trigger": null,
+          "note": "Emitted when REPORT phase completes. data must include: eval_id, overall_score (int 0-100), passed (bool), dimension_scores (object: dimension -> score), report_json_path, report_html_path, uploaded (bool). This is the terminal artifact — frontend shows report viewer."
+        }
+      ]
+    }
+  ],
+  "orchestration_contract": {
+    "description": "三阶段自动编排协议。前端监听 terminal artifact 的 next_trigger 字段，非 null 时自动发送该消息启动下一阶段，实现全流程无需用户手动干预。",
+    "flow": [
+      {
+        "step": 1,
+        "user_sends": "评估准备",
+        "waits_for": "eval_prep_done",
+        "then_auto_sends": "执行所有测试用例"
+      },
+      {
+        "step": 2,
+        "user_sends": "执行所有测试用例",
+        "waits_for": "eval_tc_done (with remaining_tc_ids non-empty) OR eval_run_done",
+        "then_auto_sends": "执行所有测试用例 (if eval_tc_done) OR 生成评估报告 (if eval_run_done)"
+      },
+      {
+        "step": 3,
+        "user_sends": "生成评估报告",
+        "waits_for": "eval_report_done",
+        "then_auto_sends": null
+      }
+    ],
+    "error_handling": "若任何阶段出现 eval_error artifact，前端停止自动触发，展示错误信息，等待用户手动干预。"
+  },
+  "error_artifact": {
+    "type": "eval_error",
+    "label": "evaluation-error",
+    "display": "error",
+    "terminal": true,
+    "note": "Emitted when a fatal error occurs in any phase. data must include: eval_id, phase ('prep'|'run'|'report'), error_code, error_message, recovery_hint. Frontend stops auto-orchestration and shows error to user."
+  },
+  "output_contract": {
+    "prep_outputs": [
+      "runs/<eval_id>/run_plan.json",
+      "runs/<eval_id>/evaluation_context.json",
+      "runs/<eval_id>/enriched-cases/<tc_id>.enriched.json"
+    ],
+    "run_outputs": [
+      "runs/<eval_id>/traces/<tc_id>.trace.json",
+      "runs/<eval_id>/scores/<tc_id>__<metric_code>.json",
+      "runs/<eval_id>/scores/<tc_id>__summary.json"
+    ],
+    "report_outputs": [
+      "runs/<eval_id>/aggregated_metric_scores.json",
+      "runs/<eval_id>/dimension_scores.json",
+      "runs/<eval_id>/red_line_check.json",
+      "runs/<eval_id>/reports/scenarios/<tc_id>.report.json",
+      "runs/<eval_id>/reports/evaluation_report.json",
+      "runs/<eval_id>/reports/evaluation_report.html"
+    ]
+  }
+}
