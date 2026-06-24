@@ -102,6 +102,22 @@ type HiringConversationPanelProps = {
   } | null
 }
 
+function fallbackCopy(text: string, onSuccess: () => void): void {
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+    onSuccess()
+  } catch (err) {
+    console.error('[HiringConversationPanel] fallback copy failed:', err)
+  }
+}
+
 export function HiringConversationPanel({
   introName,
   messages,
@@ -136,11 +152,27 @@ export function HiringConversationPanel({
 
   const handleCopyAsMarkdown = useCallback(() => {
     if (messages.length === 0) return
-    const md = chatToMarkdown(messages, introName, { streamingContent, streamingToolSteps })
-    void navigator.clipboard.writeText(md).then(() => {
+    let md: string
+    try {
+      md = chatToMarkdown(messages, introName, { streamingContent, streamingToolSteps })
+    } catch (err) {
+      console.error('[HiringConversationPanel] chatToMarkdown failed:', err)
+      return
+    }
+
+    const onSuccess = () => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    })
+    }
+
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(md).then(onSuccess).catch((err) => {
+        console.error('[HiringConversationPanel] clipboard.writeText failed:', err)
+        fallbackCopy(md, onSuccess)
+      })
+    } else {
+      fallbackCopy(md, onSuccess)
+    }
   }, [messages, introName, streamingContent, streamingToolSteps])
 
   return (

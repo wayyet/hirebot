@@ -220,12 +220,14 @@ app.MapMcp("/mcp");
 app.MapGet("/runtime-config.js", (IConfiguration cfg) =>
 {
     var consoleCfg = cfg.GetSection("ConsoleAuth");
+    var scope = consoleCfg["Scope"] ?? "openid profile email organization";
     // 使用 JsonSerializer 对字符串值做安全转义，防止注入
     var config = new
     {
         Authority = consoleCfg["Authority"] ?? string.Empty,
         Realm = consoleCfg["Realm"] ?? string.Empty,
         ClientId = consoleCfg["ClientId"] ?? string.Empty,
+        Scope = scope,
         BypassAuth = consoleCfg.GetValue("BypassAuth", false),
         EnableWarmTheme = ResolveEnableWarmTheme(cfg),
         ApiBase = string.Empty,

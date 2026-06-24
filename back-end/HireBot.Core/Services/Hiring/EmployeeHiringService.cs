@@ -89,7 +89,7 @@ internal sealed class EmployeeHiringService(
             {
                 logger.LogInformation("沙箱已暂停，尝试恢复: SandboxId={SandboxId}", existingInstance.SandboxId);
                 await sandboxService.ResumeAsync(
-                    new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
+                    BuildSandboxLookupRequest(existingInstance),
                     cancellationToken);
             }
 
@@ -98,7 +98,7 @@ internal sealed class EmployeeHiringService(
             {
                 // 刷新沙箱状态，验证沙箱在 OpenSandbox 中确实存活
                 var refreshed = await sandboxService.RefreshAsync(
-                    new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
+                    BuildSandboxLookupRequest(existingInstance),
                     cancellationToken);
 
                 if (refreshed.Success && refreshed.Data is not null)
@@ -150,7 +150,7 @@ internal sealed class EmployeeHiringService(
                 logger.LogInformation("现有沙箱未初始化，清理后重新创建: SandboxId={SandboxId}, HireId={HireId}",
                     existingInstance.SandboxId, existingInstance.ScopeKey);
                 await sandboxService.DeleteAsync(
-                    new SandboxInstanceLookupRequestDto { SandboxId = existingInstance.SandboxId },
+                    BuildSandboxLookupRequest(existingInstance),
                     cancellationToken);
             }
         }
@@ -197,7 +197,7 @@ internal sealed class EmployeeHiringService(
             if (!readyResult.Success || readyResult.Data is null)
             {
                 logger.LogError("沙箱启动失败: {Message}", readyResult.Message);
-                await TryDeleteSandboxAsync(sandboxId, cancellationToken);
+                await TryDeleteSandboxAsync(sandboxResult.Data, cancellationToken);
                 return ApiResponse<HireTemplateResultDto>.ErrorResponse(readyResult.Code, $"沙箱启动失败: {readyResult.Message}");
             }
 
@@ -235,7 +235,7 @@ internal sealed class EmployeeHiringService(
                 logger.LogError("上传雇佣对话教练模板失败: {Error}", errorMsg);
 
                 // 上传失败，删除沙箱
-                await TryDeleteSandboxAsync(sandboxId, cancellationToken);
+                await TryDeleteSandboxAsync(sandboxResult.Data, cancellationToken);
 
                 return ApiResponse<HireTemplateResultDto>.ErrorResponse(
                     discoveryUploadResult.Code > 0 ? discoveryUploadResult.Code : 500,
@@ -327,7 +327,7 @@ internal sealed class EmployeeHiringService(
             logger.LogError(ex, "雇佣流程初始化异常: HireId={HireId}, SandboxId={SandboxId}", hireId, sandboxId);
 
             // 异常发生，尝试删除沙箱
-            await TryDeleteSandboxAsync(sandboxId, cancellationToken);
+            await TryDeleteSandboxAsync(sandboxResult.Data, cancellationToken);
 
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, $"雇佣流程初始化失败: {ex.Message}");
         }
@@ -357,10 +357,7 @@ internal sealed class EmployeeHiringService(
             await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
 
             var refreshResult = await sandboxService.RefreshAsync(
-                new SandboxInstanceLookupRequestDto
-                {
-                    SandboxId = instance.SandboxId
-                },
+                BuildSandboxLookupRequest(instance),
                 cancellationToken);
 
             if (!refreshResult.Success || refreshResult.Data is null)
@@ -404,19 +401,34 @@ internal sealed class EmployeeHiringService(
     /// <summary>
     /// 尝试删除沙箱（用于错误回滚）。
     /// </summary>
-    private async Task TryDeleteSandboxAsync(string sandboxId, CancellationToken cancellationToken)
+    private static SandboxInstanceLookupRequestDto BuildSandboxLookupRequest(SandboxInstanceDto instance)
+    {
+        return new SandboxInstanceLookupRequestDto
+        {
+            SandboxId = instance.SandboxId,
+            ScopeType = instance.ScopeType,
+            ScopeKey = instance.ScopeKey,
+            SandboxRole = instance.SandboxRole,
+            OwnerSubject = instance.OwnerSubject,
+            TenantId = instance.TenantId,
+            OperatorId = instance.OperatorId,
+            UseCase = instance.UseCase,
+            TemplateId = instance.TemplateId,
+            IsInitialized = instance.IsInitialized,
+            Metadata = instance.Metadata
+        };
+    }
+
+    private async Task TryDeleteSandboxAsync(SandboxInstanceDto instance, CancellationToken cancellationToken)
     {
         try
         {
-            logger.LogWarning("尝试删除沙箱: SandboxId={SandboxId}", sandboxId);
-            await sandboxService.DeleteAsync(new SandboxInstanceLookupRequestDto
-            {
-                SandboxId = sandboxId
-            }, cancellationToken);
+            logger.LogWarning("尝试删除沙箱: SandboxId={SandboxId}", instance.SandboxId);
+            await sandboxService.DeleteAsync(BuildSandboxLookupRequest(instance), cancellationToken);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "删除沙箱失败: SandboxId={SandboxId}", sandboxId);
+            logger.LogError(ex, "删除沙箱失败: SandboxId={SandboxId}", instance.SandboxId);
         }
     }
 

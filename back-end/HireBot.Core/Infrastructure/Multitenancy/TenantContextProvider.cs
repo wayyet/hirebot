@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using HireBot.Abstraction.Infrastructure.Identity;
 using HireBot.Abstraction.Infrastructure.Multitenancy;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -13,13 +14,16 @@ public class TenantContextProvider : ITenantContextProvider
 {
     private static readonly AsyncLocal<string?> _currentTenantId = new();
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IUserIdentity _userIdentity;
     private readonly ILogger<TenantContextProvider> _logger;
 
     public TenantContextProvider(
         IHttpContextAccessor httpContextAccessor,
+        IUserIdentity userIdentity,
         ILogger<TenantContextProvider> logger)
     {
         _httpContextAccessor = httpContextAccessor;
+        _userIdentity = userIdentity;
         _logger = logger;
     }
 
@@ -40,6 +44,12 @@ public class TenantContextProvider : ITenantContextProvider
         // 2. 尝试从 HTTP 上下文的 JWT Claims 获取
         try
         {
+            if (!string.IsNullOrWhiteSpace(_userIdentity.TenantId))
+            {
+                _logger.LogDebug("从用户身份上下文获取租户ID: {TenantId}", _userIdentity.TenantId);
+                return _userIdentity.TenantId;
+            }
+
             var httpContext = _httpContextAccessor.HttpContext;
             if (httpContext?.User?.Identity?.IsAuthenticated == true)
             {
@@ -102,6 +112,11 @@ public class TenantContextProvider : ITenantContextProvider
         // 检查是否可以从 JWT Claims 获取
         try
         {
+            if (!string.IsNullOrWhiteSpace(_userIdentity.TenantId))
+            {
+                return TenantIdSource.JwtClaims;
+            }
+
             var httpContext = _httpContextAccessor.HttpContext;
             if (httpContext?.User?.Identity?.IsAuthenticated == true)
             {
