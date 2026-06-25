@@ -354,8 +354,9 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
     skillGenerationState,
   )
   const externalConfigCommitted = useMemo(
-    () => hasTerminalArtifact(messages, 'external_config_committed'),
-    [messages],
+    () => hasTerminalArtifact(messages, 'external_config_committed') &&
+      wsStageOverrides.get(HiringCollectionStage.External) !== 'running',
+    [messages, wsStageOverrides],
   )
 
   const uiStageOverrides = useMemo(

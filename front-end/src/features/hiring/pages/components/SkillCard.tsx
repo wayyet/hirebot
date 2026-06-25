@@ -29,7 +29,6 @@ export interface SkillCardBodyProps {
   hireId: string
   templateId?: string
   templatePackageSkills: EmployeeTemplatePackageSkill[]
-  onAfterLink: (summary: string) => void
   onLinkedIdsChange?: (skillIds: string[]) => void
   definitionStageStatus: StageStatus | null
   skillGenerationState: DownstreamRunState | null
@@ -193,7 +192,6 @@ export function SkillCardBody({
   hireId,
   templateId,
   templatePackageSkills,
-  onAfterLink,
   onLinkedIdsChange,
   definitionStageStatus,
   skillGenerationState,
@@ -370,8 +368,6 @@ export function SkillCardBody({
 
     try {
       await saveLinkedSkills(next)
-      const names = next.map(item => item.name).join('、')
-      onAfterLink(`已关联技能：${names}。请继续。`)
     } catch {
       // 错误已在界面展示
     }
@@ -435,7 +431,7 @@ export function SkillCardBody({
           primaryLabel={externalEntryConfirmationAction.button}
           busy={confirmationBusy}
           onPrimary={onConfirmSkillStageDone}
-          secondaryLabel="跳过外部配置"
+          secondaryLabel="无需外部系统，跳过"
           onSecondary={onSkipExternalSystem}
         />
       ) : null}

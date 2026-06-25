@@ -1015,6 +1015,49 @@ describe('external system entry gate artifacts', () => {
       },
     })
   })
+
+  it('keeps committed MCP server list in the external config artifact payload', () => {
+    const committed = buildExternalConfigCommittedArtifact({
+      submissionMode: 'configured',
+      updatedAtUtc: '2026-06-15T00:00:00.000Z',
+      cliTools: [],
+      mcpServers: [
+        {
+          transport: 'streamable-http',
+          name: '高德 MCP',
+          url: 'https://mcp.example.com/mcp',
+          bearerTokenEnv: 'AMAP_MCP_TOKEN',
+          headers: { 'X-Tenant': 'hirebot' },
+        },
+        {
+          transport: 'sse',
+          name: '报告 MCP',
+          url: 'https://report.example.com/sse',
+        },
+      ],
+      mcpServer: null,
+    })
+
+    expect(committed).toMatchObject({
+      artifactType: 'external_config_committed',
+      isTerminal: true,
+      data: {
+        submissionMode: 'configured',
+        mcpServers: [
+          {
+            name: '高德 MCP',
+            url: 'https://mcp.example.com/mcp',
+            bearerTokenEnv: 'AMAP_MCP_TOKEN',
+          },
+          {
+            name: '报告 MCP',
+            transport: 'sse',
+          },
+        ],
+        mcpServer: null,
+      },
+    })
+  })
 })
 
 describe('queueOntologySliceExtractionRun', () => {

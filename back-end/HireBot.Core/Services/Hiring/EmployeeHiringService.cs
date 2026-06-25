@@ -35,6 +35,7 @@ internal sealed class EmployeeHiringService(
     IEmployeeRuntimeService employeeRuntimeService,
     IHiringArtifactPackageService artifactPackageService,
     IStoreSkillPackageDownloader storeSkillPackageDownloader,
+    IHiringMcpConnectivityTester mcpConnectivityTester,
     IUserIdentity userIdentity,
     ITenantContextProvider tenantContextProvider,
     HireBotDbContext dbContext,
@@ -140,10 +141,9 @@ internal sealed class EmployeeHiringService(
                 }
                 else
                 {
-                    // 沙箱被外部删除后重建，IsInitialized 被重置为 false
                     logger.LogWarning("现有沙箱已被外部删除并重建，需要重新初始化: SandboxId={SandboxId}, HireId={HireId}",
                         existingInstance.SandboxId, existingInstance.ScopeKey);
-                    // 继续使用现有的 hireId 和 sandboxId，重新初始化
+                    return await ReinitializeExistingHiringSandboxAsync(existingInstance, cancellationToken);
                 }
             }
 
@@ -334,6 +334,91 @@ internal sealed class EmployeeHiringService(
 
             return ApiResponse<HireTemplateResultDto>.ErrorResponse(500, $"雇佣流程初始化失败: {ex.Message}");
         }
+    }
+
+    private async Task<ApiResponse<HireTemplateResultDto>> ReinitializeExistingHiringSandboxAsync(
+        SandboxInstanceDto instance,
+        CancellationToken cancellationToken)
+    {
+        var readyResult = await WaitForSandboxReadyAsync(instance, cancellationToken);
+        if (!readyResult.Success || readyResult.Data is null)
+        {
+            logger.LogError("恢复后的沙箱启动失败: SandboxId={SandboxId}, HireId={HireId}, Message={Message}",
+                instance.SandboxId,
+                instance.ScopeKey,
+                readyResult.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                readyResult.Code,
+                $"沙箱恢复失败: {readyResult.Message}");
+        }
+
+        var readySandbox = readyResult.Data;
+        var discoveryRolePackage = await discoveryRoleTemplatePackageProvider.LoadAsync(cancellationToken);
+        var discoveryArchiveBytes = TemplatePackageArchiveBuilder.BuildArchive(discoveryRolePackage);
+
+        try
+        {
+            var discoveryUploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+                new DigitalEmployeeTemplateUploadRequestDto
+                {
+                    SandboxId = readySandbox.SandboxId,
+                    OwnerSubject = instance.OwnerSubject,
+                    ArchiveBytes = discoveryArchiveBytes,
+                    FileName = "employment-coach-conversation.zip"
+                },
+                cancellationToken);
+
+            if (!discoveryUploadResult.Success || discoveryUploadResult.Data is null || !discoveryUploadResult.Data.Success)
+            {
+                var errorMsg = discoveryUploadResult.Data?.Error ?? discoveryUploadResult.Message;
+                logger.LogError("恢复沙箱时上传雇佣对话教练模板失败: SandboxId={SandboxId}, HireId={HireId}, Error={Error}",
+                    readySandbox.SandboxId,
+                    instance.ScopeKey,
+                    errorMsg);
+                return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                    discoveryUploadResult.Code > 0 ? discoveryUploadResult.Code : 500,
+                    $"上传雇佣对话教练模板失败: {errorMsg}");
+            }
+        }
+        finally
+        {
+            discoveryArchiveBytes = null!;
+        }
+
+        var mcpUploadResult = await TryUploadMcpConfigAsync(readySandbox.SandboxId, instance.OwnerSubject, cancellationToken);
+        if (!mcpUploadResult.Success)
+        {
+            logger.LogWarning("恢复沙箱时上传 MCP 配置失败（非致命错误）: SandboxId={SandboxId}, HireId={HireId}, Error={Error}",
+                readySandbox.SandboxId,
+                instance.ScopeKey,
+                mcpUploadResult.Message);
+        }
+
+        await SetSandboxInitializedAsync(readySandbox.SandboxId, cancellationToken);
+        await BackfillReusedSandboxWorkspaceRootAsync(instance.ScopeKey, cancellationToken);
+
+        var existingSessionId = await dbContext.HiringSessions
+            .AsNoTracking()
+            .Where(s => s.HireId == instance.ScopeKey && s.DeletedAtUtc == null)
+            .OrderByDescending(s => s.CreatedAtUtc)
+            .Select(s => s.SessionId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        logger.LogInformation("恢复并复用现有沙箱: HireId={HireId}, SandboxId={SandboxId}, SessionId={SessionId}",
+            instance.ScopeKey,
+            readySandbox.SandboxId,
+            existingSessionId);
+
+        return ApiResponse<HireTemplateResultDto>.SuccessResponse(
+            new HireTemplateResultDto(
+                HireId: instance.ScopeKey,
+                SandboxId: readySandbox.SandboxId,
+                Status: "READY",
+                NextAction: "continue_conversation",
+                SessionId: existingSessionId,
+                GatewayEndpoint: readySandbox.GatewayEndpoint,
+                TemplatePrimingRequired: false),
+            "已恢复现有沙箱");
     }
 
     /// <summary>
@@ -544,6 +629,25 @@ internal sealed class EmployeeHiringService(
         }
 
         return ApiResponse<HiringExternalSystemConfigDto>.SuccessResponse(request);
+    }
+
+    public async Task<ApiResponse<HiringMcpConnectivityTestResultDto>> TestMcpConnectivityAsync(
+        string hireId,
+        HiringMcpConnectivityTestRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(hireId))
+        {
+            return ApiResponse<HiringMcpConnectivityTestResultDto>.ErrorResponse(400, "hireId 不能为空");
+        }
+
+        if (request is null)
+        {
+            return ApiResponse<HiringMcpConnectivityTestResultDto>.ErrorResponse(400, "MCP 测试请求不能为空");
+        }
+
+        var result = await mcpConnectivityTester.TestAsync(request, cancellationToken);
+        return ApiResponse<HiringMcpConnectivityTestResultDto>.SuccessResponse(result, result.Message);
     }
 
     public async Task<ApiResponse<HiringSkillLinkConfigDto>> GetSkillLinkConfigAsync(

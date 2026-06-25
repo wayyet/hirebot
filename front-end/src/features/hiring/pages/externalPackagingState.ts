@@ -2,7 +2,7 @@ import type { HiringExternalSystemConfig } from '@/infra/api'
 
 import { buildExternalConfigCommittedSignature } from './externalConfigCommitted'
 
-export type ExternalConfigChangeSource = 'hydrate' | 'save' | 'skip' | 'clear'
+export type ExternalConfigChangeSource = 'hydrate' | 'draft' | 'save' | 'skip' | 'clear'
 
 function getExternalConfigSignature(config: HiringExternalSystemConfig | null): string {
   return config ? buildExternalConfigCommittedSignature(config) : ''
@@ -14,7 +14,7 @@ export function shouldRequireFreshPackagingAfterExternalConfigChange(
   source: ExternalConfigChangeSource,
   instanceCreated: boolean,
 ): boolean {
-  if (source === 'hydrate' || instanceCreated) {
+  if (source === 'hydrate' || source === 'draft' || instanceCreated) {
     return false
   }
 

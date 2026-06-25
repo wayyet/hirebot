@@ -893,15 +893,6 @@ export default function HiringPage() {
     }
 
     appendExternalConfigCommittedArtifact(config, { sendToSandbox: source !== 'hydrate' })
-    setWsStageOverrides(prev => {
-      if (source === 'hydrate') {
-        return prev
-      }
-
-      const next = new Map(prev)
-      next.set(HiringCollectionStage.External, 'running')
-      return next
-    })
   }, [instanceCreated])
 
   function handleAfterStageMessage(

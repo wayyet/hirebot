@@ -9,12 +9,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Eye, EyeOff, Loader2, Trash2 } from 'lucide-react'
+import { Activity, Eye, EyeOff, Loader2, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 import i18n from '@/i18n'
 
 import { api } from '@/infra/api'
-import type { HiringExternalSystemConfig } from '@/infra/api'
+import type { HiringExternalSystemConfig, HiringMcpConnectivityTestResult } from '@/infra/api'
 import type { ExternalConfigChangeSource } from '../externalPackagingState'
 import type {
   PendingStageAdvanceConfirmation,
@@ -41,6 +41,8 @@ interface McpConfigDraft {
   bearerTokenEnv: string
   headerEntries: McpKeyValueEntry[]
 }
+
+type McpServerPayload = NonNullable<HiringExternalSystemConfig['mcpServers']>[number]
 
 type ExternalConfigModalType = 'cli' | 'mcp'
 
@@ -89,6 +91,51 @@ function entriesToRecord(entries: McpKeyValueEntry[]): Record<string, string> {
     if (e.key.trim()) result[e.key.trim()] = e.value
   }
   return result
+}
+
+function buildMcpServerPayload(config: McpConfigDraft): McpServerPayload {
+  const headers = entriesToRecord(config.headerEntries)
+  return {
+    transport: config.transport,
+    name: config.name.trim(),
+    url: config.url.trim(),
+    bearerTokenEnv: config.bearerTokenEnv.trim() || undefined,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
+  }
+}
+
+function buildMcpServerPayloads(configs: McpConfigDraft[]): McpServerPayload[] {
+  return configs.map(buildMcpServerPayload)
+}
+
+function getMcpConfigKey(config: McpConfigDraft, index: number | 'draft'): string {
+  return `${index}:${config.transport}:${config.name.trim()}:${config.url.trim()}`
+}
+
+function getMcpHeaderSummary(config: McpConfigDraft): string {
+  const headerNames = config.headerEntries
+    .map(entry => entry.key.trim())
+    .filter(Boolean)
+
+  if (headerNames.length === 0) {
+    return ''
+  }
+
+  return headerNames.join('、')
+}
+
+function getMcpTestResultClass(result: HiringMcpConnectivityTestResult): string {
+  if (result.success) {
+    return 'is-success'
+  }
+
+  return result.status === 'auth_failed' ? 'is-warning' : 'is-error'
+}
+
+function formatMcpTestResult(result: HiringMcpConnectivityTestResult): string {
+  return typeof result.latencyMs === 'number'
+    ? `${result.message} · ${result.latencyMs}ms`
+    : result.message
 }
 
 // 将旧传输类型映射到新类型：http/stdio 均视为 streamable-http
@@ -167,7 +214,10 @@ export function ExternalCardBody({
   const [isSaving, setIsSaving] = useState(false)
   const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>({})
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [mcpTestResults, setMcpTestResults] = useState<Record<string, HiringMcpConnectivityTestResult>>({})
+  const [testingMcpKey, setTestingMcpKey] = useState<string | null>(null)
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
+  const [showSkipConfirm, setShowSkipConfirm] = useState(false)
   const hasHydratedExternalConfigRef = useRef(false)
   const externalConfigQueryKey = ['hiring-external-config', hireId] as const
 
@@ -200,6 +250,7 @@ export function ExternalCardBody({
   }
 
   const hasMcpConfig = mcpConfigs.length > 0
+  const isExternalConfigFinalized = persistedExternalConfig?.submissionMode === 'configured'
 
   useEffect(() => {
     if (!persistedExternalConfig || hasHydratedExternalConfigRef.current) {
@@ -270,6 +321,7 @@ export function ExternalCardBody({
       setMcpConfigs([])
       onConfigChange?.(savedConfig, 'skip')
       onAfterSave(i18n.t('hiring.todo.external.skipMessage'), 'skip')
+      setShowSkipConfirm(false)
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '外部系统配置跳过失败')
     } finally {
@@ -277,13 +329,38 @@ export function ExternalCardBody({
     }
   }
 
-  // 继续：触发阶段推进确认流程
-  function handleContinue() {
+  function handleSkipRequest() {
+    if (hasMcpConfig) {
+      setShowSkipConfirm(true)
+      return
+    }
+
+    void handleSkip()
+  }
+
+  // 最终确认：只有这里会把外部配置提交为完成态
+  async function handleContinue() {
     const firstMcp = mcpConfigs[0]
-    const summary = firstMcp
-      ? `MCP 共 ${mcpConfigs.length} 项（${firstMcp.name.trim()} 等）已配置，外部阶段完成，请继续下一步。`
-      : '外部阶段完成，请继续下一步。'
-    onAfterSave(summary, 'ready_to_advance')
+    if (!firstMcp) {
+      return
+    }
+
+    setSaveError('')
+    setIsSaving(true)
+    try {
+      const savedConfig = await api.hiringWorkflow.saveExternalConfig(hireId, {
+        submissionMode: 'configured',
+        cliTools: persistedExternalConfig?.cliTools ?? [],
+        mcpServers: buildMcpServerPayloads(mcpConfigs),
+      })
+      queryClient.setQueryData(externalConfigQueryKey, savedConfig)
+      setMcpConfigs(createMcpConfigDraftsFromPersistedConfig(savedConfig))
+      onConfigChange?.(savedConfig, 'save')
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '确认外部系统配置失败')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   function handleOpenMcpModal() {
@@ -315,30 +392,99 @@ export function ExternalCardBody({
     setMcpModalView('form')
   }
 
-  // MCP 弹窗内保存成功后回到 history 视图
-  async function handleSaveMcpToApi() {
+  function normalizeMcpDraftForSubmit(): McpConfigDraft | null {
     const url = mcpDraftConfig.url.trim()
     const name = mcpDraftConfig.name.trim()
     if (!name) {
       setFieldErrors(prev => ({ ...prev, mcpName: '请填写名称' }))
-      return
+      return null
     }
     if (!url) {
       setFieldErrors(prev => ({ ...prev, mcpUrl: t('hiring.todo.external.urlRequired') || '请填写 URL' }))
-      return
+      return null
     }
     if (!/^https?:\/\/.+/.test(url)) {
       setFieldErrors(prev => ({ ...prev, mcpUrl: t('hiring.todo.external.urlInvalid') }))
-      return
+      return null
     }
 
-    // 将当前草稿合并入列表：编辑时替换对应项，新增时附加到末尾
-    const draftItem: McpConfigDraft = {
+    return {
       ...mcpDraftConfig,
       name,
       url,
       bearerTokenEnv: mcpDraftConfig.bearerTokenEnv.trim(),
     }
+  }
+
+  function buildLocalMcpTestResult(
+    success: boolean,
+    status: string,
+    message: string,
+  ): HiringMcpConnectivityTestResult {
+    return {
+      success,
+      status,
+      message,
+      httpStatusCode: null,
+      latencyMs: null,
+      transport: '',
+      testedAtUtc: new Date().toISOString(),
+    }
+  }
+
+  async function handleTestMcpConfig(config: McpConfigDraft, key: string) {
+    const name = config.name.trim()
+    const url = config.url.trim()
+    if (!name || !/^https?:\/\/.+/.test(url)) {
+      setMcpTestResults(prev => ({
+        ...prev,
+        [key]: buildLocalMcpTestResult(false, 'invalid_config', '请先补全有效的 MCP 名称和 URL。'),
+      }))
+      return
+    }
+
+    setTestingMcpKey(key)
+    setSaveError('')
+    try {
+      const result = await api.hiringWorkflow.testMcpConnectivity(hireId, {
+        server: buildMcpServerPayload({
+          ...config,
+          name,
+          url,
+          bearerTokenEnv: config.bearerTokenEnv.trim(),
+        }),
+      })
+      setMcpTestResults(prev => ({ ...prev, [key]: result }))
+    } catch (error) {
+      setMcpTestResults(prev => ({
+        ...prev,
+        [key]: buildLocalMcpTestResult(
+          false,
+          'request_failed',
+          error instanceof Error ? error.message : 'MCP 连通性测试失败',
+        ),
+      }))
+    } finally {
+      setTestingMcpKey(null)
+    }
+  }
+
+  async function handleTestDraftMcpConfig() {
+    const draftItem = normalizeMcpDraftForSubmit()
+    if (!draftItem) {
+      return
+    }
+
+    await handleTestMcpConfig(draftItem, getMcpConfigKey(draftItem, 'draft'))
+  }
+
+  // MCP 弹窗内保存成功后回到 history 视图
+  async function handleSaveMcpToApi() {
+    const draftItem = normalizeMcpDraftForSubmit()
+    if (!draftItem) {
+      return
+    }
+
     const nextConfigs = editingIndex !== null
       ? mcpConfigs.map((item, i) => i === editingIndex ? draftItem : item)
       : [...mcpConfigs, draftItem]
@@ -347,24 +493,16 @@ export function ExternalCardBody({
     setIsSaving(true)
     try {
       const savedConfig = await api.hiringWorkflow.saveExternalConfig(hireId, {
-        submissionMode: 'configured',
+        submissionMode: 'pending',
         cliTools: persistedExternalConfig?.cliTools ?? [],
-        mcpServers: nextConfigs.map(cfg => ({
-          transport: cfg.transport,
-          name: cfg.name.trim(),
-          url: cfg.url.trim(),
-          bearerTokenEnv: cfg.bearerTokenEnv.trim() || undefined,
-          headers: cfg.headerEntries.length > 0
-            ? entriesToRecord(cfg.headerEntries)
-            : undefined,
-        })),
+        mcpServers: buildMcpServerPayloads(nextConfigs),
       })
       queryClient.setQueryData(externalConfigQueryKey, savedConfig)
       setMcpConfigs(createMcpConfigDraftsFromPersistedConfig(savedConfig))
       setEditingIndex(null)
       setMcpModalView('history')
       setShowDiscardConfirm(false)
-      onConfigChange?.(savedConfig, 'save')
+      onConfigChange?.(savedConfig, 'draft')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '保存失败')
     } finally {
@@ -392,6 +530,9 @@ export function ExternalCardBody({
       headerEntries: prev.headerEntries.filter(e => e.id !== id),
     }))
   }
+
+  const draftMcpTestKey = getMcpConfigKey(mcpDraftConfig, 'draft')
+  const draftMcpTestResult = mcpTestResults[draftMcpTestKey]
 
   if (isExternalConfigLoading) {
     // 理论上不会触发（enabled:false），保留作为防御性 fallback
@@ -455,37 +596,55 @@ export function ExternalCardBody({
                   <div className="hb-todo-external-card-title">{t('hiring.todo.external.mcpTitle')}</div>
                   <p className="hb-todo-external-card-copy">
                     {hasMcpConfig
-                      ? `已配置 ${mcpConfigs.length} 项 MCP 服务：${mcpConfigs.map(c => c.name.trim()).join('、')}`
+                      ? `${isExternalConfigFinalized ? '已确认' : '已保存'} ${mcpConfigs.length} 项 MCP 服务：${mcpConfigs.map(c => c.name.trim()).join('、')}`
                       : t('hiring.todo.external.mcpDescription')}
                   </p>
+                  {isExternalConfigFinalized && (
+                    <p className="hb-todo-external-card-copy">
+                      如需调整，修改配置并保存后需要重新确认外部配置。
+                    </p>
+                  )}
                 </div>
                 <span className="hb-todo-external-type-pill">MCP</span>
               </div>
               <button type="button" className="hb-todo-row-btn is-primary" onClick={handleOpenMcpModal}>
-                {hasMcpConfig ? t('hiring.todo.external.editConfig') : '配置'}
+                {hasMcpConfig ? (isExternalConfigFinalized ? '查看/修改' : t('hiring.todo.external.editConfig')) : '配置'}
               </button>
             </div>
           </section>
 
-          {/* 外层操作行：只有跳过和继续，不含保存 */}
-          <div className="hb-todo-actions-row">
-            <button
-              type="button"
-              className="hb-todo-row-btn is-ghost"
-              disabled={isSaving}
-              onClick={() => { void handleSkip() }}
-            >
-              {t('hiring.todo.external.skip')}
-            </button>
-            <button
-              type="button"
-              className="hb-todo-row-btn is-primary"
-              disabled={!hasMcpConfig}
-              onClick={handleContinue}
-            >
-              继续
-            </button>
-          </div>
+          {!isExternalConfigFinalized && (
+            <div className="hb-todo-actions-row">
+              <button
+                type="button"
+                className="hb-todo-row-btn is-ghost"
+                disabled={isSaving}
+                onClick={handleSkipRequest}
+              >
+                {hasMcpConfig ? '清空配置并跳过' : t('hiring.todo.external.skip')}
+              </button>
+              <button
+                type="button"
+                className="hb-todo-row-btn is-primary"
+                disabled={!hasMcpConfig || isSaving}
+                onClick={() => { void handleContinue() }}
+              >
+                确认外部配置
+              </button>
+            </div>
+          )}
+
+          {!isExternalConfigFinalized && showSkipConfirm && (
+            <ConfirmationActionPanel
+              ariaLabel="跳过外部配置确认"
+              message="当前已有 MCP 配置。确认跳过会清空这些配置，并标记为本轮无需外部系统。"
+              primaryLabel="清空并跳过"
+              onPrimary={() => { void handleSkip() }}
+              secondaryLabel="继续配置"
+              onSecondary={() => setShowSkipConfirm(false)}
+              busy={isSaving}
+            />
+          )}
 
           {pendingConfirmation && (
             <StageAdvanceConfirmationPanel
@@ -539,31 +698,53 @@ export function ExternalCardBody({
                       /* 已有配置：以列表条目展示，底部统一显示"添加配置" */
                       <>
                         <ul className="hb-todo-mcp-config-list">
-                          {mcpConfigs.map((cfg, idx) => (
-                            <li key={`${cfg.name}-${idx}`} className="hb-todo-mcp-config-item">
-                              <div className="hb-todo-mcp-config-item-body">
-                                <div className="hb-todo-mcp-config-item-name">{cfg.name.trim()}</div>
-                                <div className="hb-todo-mcp-config-item-meta">
-                                  <span className="hb-todo-external-type-pill" style={{ fontSize: 11 }}>{MCP_TRANSPORT_LABELS[cfg.transport]}</span>
-                                  <span className="hb-todo-mcp-record-mono" style={{ fontSize: 12, color: 'var(--ink-2, #475569)' }}>{cfg.url.trim()}</span>
+                          {mcpConfigs.map((cfg, idx) => {
+                            const configKey = getMcpConfigKey(cfg, idx)
+                            const headerSummary = getMcpHeaderSummary(cfg)
+                            const testResult = mcpTestResults[configKey]
+                            const isTesting = testingMcpKey === configKey
+                            return (
+                              <li key={`${cfg.name}-${idx}`} className="hb-todo-mcp-config-item">
+                                <div className="hb-todo-mcp-config-item-body">
+                                  <div className="hb-todo-mcp-config-item-name">{cfg.name.trim()}</div>
+                                  <div className="hb-todo-mcp-config-item-meta">
+                                    <span className="hb-todo-external-type-pill" style={{ fontSize: 11 }}>{MCP_TRANSPORT_LABELS[cfg.transport]}</span>
+                                    <span className="hb-todo-mcp-record-mono" style={{ fontSize: 12, color: 'var(--ink-2, #475569)' }}>{cfg.url.trim()}</span>
+                                  </div>
+                                  {cfg.bearerTokenEnv.trim() && (
+                                    <div className="hb-todo-mcp-config-item-extra">Bearer 令牌：{cfg.bearerTokenEnv.trim()}</div>
+                                  )}
+                                  {headerSummary && (
+                                    <div className="hb-todo-mcp-config-item-extra">固定 Header：{cfg.headerEntries.length} 项（{headerSummary}）</div>
+                                  )}
+                                  {testResult && (
+                                    <div className={clsx('hb-todo-mcp-test-result', getMcpTestResultClass(testResult))}>
+                                      {formatMcpTestResult(testResult)}
+                                    </div>
+                                  )}
                                 </div>
-                                {cfg.bearerTokenEnv.trim() && (
-                                  <div className="hb-todo-mcp-config-item-extra">Bearer 令牌：{cfg.bearerTokenEnv.trim()}</div>
-                                )}
-                                {cfg.headerEntries.length > 0 && (
-                                  <div className="hb-todo-mcp-config-item-extra">固定 Header：{cfg.headerEntries.length} 项</div>
-                                )}
-                              </div>
-                              <button
-                                type="button"
-                                className="hb-todo-row-btn is-ghost"
-                                style={{ flexShrink: 0 }}
-                                onClick={() => handleOpenMcpForm(idx)}
-                              >
-                                编辑
-                              </button>
-                            </li>
-                          ))}
+                                <div className="hb-todo-mcp-config-actions">
+                                  <button
+                                    type="button"
+                                    className="hb-todo-row-btn is-ghost"
+                                    disabled={isTesting || isSaving}
+                                    onClick={() => { void handleTestMcpConfig(cfg, configKey) }}
+                                  >
+                                    {isTesting
+                                      ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />测试中…</span>
+                                      : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Activity size={13} />测试</span>}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="hb-todo-row-btn is-ghost"
+                                    onClick={() => handleOpenMcpForm(idx)}
+                                  >
+                                    编辑
+                                  </button>
+                                </div>
+                              </li>
+                            )
+                          })}
                         </ul>
                         <button
                           type="button"
@@ -721,8 +902,23 @@ export function ExternalCardBody({
                     </div>
 
                     {saveError && <p className="hb-todo-field-error" style={{ marginTop: 4 }}>{saveError}</p>}
+                    {draftMcpTestResult && (
+                      <div className={clsx('hb-todo-mcp-test-result', getMcpTestResultClass(draftMcpTestResult))}>
+                        {formatMcpTestResult(draftMcpTestResult)}
+                      </div>
+                    )}
 
                     <div className="hb-todo-mcp-footer">
+                      <button
+                        type="button"
+                        className="hb-todo-row-btn is-ghost"
+                        disabled={isSaving || testingMcpKey === draftMcpTestKey}
+                        onClick={() => { void handleTestDraftMcpConfig() }}
+                      >
+                        {testingMcpKey === draftMcpTestKey
+                          ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />测试中…</span>
+                          : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Activity size={13} />测试连接</span>}
+                      </button>
                       <button
                         type="button"
                         className="hb-todo-mcp-save-btn"

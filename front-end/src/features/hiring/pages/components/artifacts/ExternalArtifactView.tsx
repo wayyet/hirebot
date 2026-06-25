@@ -205,6 +205,11 @@ export function ExternalConfigCommittedView({ data }: ExternalConfigCommittedVie
   const updatedAtUtc = typeof rec.updatedAtUtc === 'string' ? rec.updatedAtUtc : ''
   const cliTools = Array.isArray(rec.cliTools) ? rec.cliTools.filter(isRecord) : []
   const mcpServer = asRecord(rec.mcpServer)
+  const mcpServers = Array.isArray(rec.mcpServers)
+    ? rec.mcpServers.filter(isRecord)
+    : mcpServer
+      ? [mcpServer]
+      : []
   const isSkipped = submissionMode === 'skipped'
   const timeLabel = updatedAtUtc
     ? new Date(updatedAtUtc).toLocaleString('zh-CN', { hour12: false })
@@ -308,117 +313,117 @@ export function ExternalConfigCommittedView({ data }: ExternalConfigCommittedVie
             </div>
           )}
 
-          {mcpServer && (
+          {mcpServers.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={sectionLabelStyle}>MCP 服务</div>
-              <div style={{
-                display: 'flex', flexDirection: 'column', gap: 3,
-                padding: '8px 10px', borderRadius: 8,
-                border: '1px solid var(--hb-border, #e5e7eb)',
-                background: 'color-mix(in srgb, var(--hb-surface-soft, #f9fafb) 50%, transparent)',
-                fontSize: 12,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div
-                    className="hb-todo-truncate"
-                    title={stringify(mcpServer.name) || 'MCP Server'}
-                    style={{ fontWeight: 600 }}
-                  >
-                    {stringify(mcpServer.name) || 'MCP Server'}
+              {mcpServers.map((server, index) => (
+                <div key={index} style={{
+                  display: 'flex', flexDirection: 'column', gap: 3,
+                  padding: '8px 10px', borderRadius: 8,
+                  border: '1px solid var(--hb-border, #e5e7eb)',
+                  background: 'color-mix(in srgb, var(--hb-surface-soft, #f9fafb) 50%, transparent)',
+                  fontSize: 12,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div
+                      className="hb-todo-truncate"
+                      title={stringify(server.name) || 'MCP Server'}
+                      style={{ fontWeight: 600 }}
+                    >
+                      {stringify(server.name) || 'MCP Server'}
+                    </div>
+                    <div style={{
+                      fontSize: 11, color: 'var(--hb-text-muted, #6b7280)',
+                      background: 'var(--hb-surface-2, #f3f4f6)',
+                      padding: '1px 6px', borderRadius: 4,
+                    }}>
+                      {(() => {
+                        const t = stringify(server.transport)
+                        if (t === 'sse') return 'SSE'
+                        if (t === 'streamable-http' || t === 'http') return 'Streamable HTTP'
+                        if (t === 'stdio') return 'STDIO'
+                        return t || 'Streamable HTTP'
+                      })()}
+                    </div>
                   </div>
-                  <div style={{
-                    fontSize: 11, color: 'var(--hb-text-muted, #6b7280)',
-                    background: 'var(--hb-surface-2, #f3f4f6)',
-                    padding: '1px 6px', borderRadius: 4,
-                  }}>
-                    {/* 规范化传输类型显示：http/stdio 旧数据映射到新标签 */}
-                    {(() => {
-                      const t = stringify(mcpServer.transport)
-                      if (t === 'sse') return 'SSE'
-                      if (t === 'streamable-http' || t === 'http') return 'Streamable HTTP'
-                      if (t === 'stdio') return 'STDIO'
-                      return t || 'Streamable HTTP'
-                    })()}
-                  </div>
+                  {server.command != null && String(server.command).trim().length > 0 && (
+                    <code style={{
+                      fontSize: 11,
+                      fontFamily: 'JetBrains Mono, Consolas, monospace',
+                      color: 'var(--hb-text-muted, #6b7280)',
+                    }}>
+                      {String(server.command)}
+                    </code>
+                  )}
+                  {server.url != null && String(server.url).trim().length > 0 && (
+                    <code style={{
+                      fontSize: 11,
+                      fontFamily: 'JetBrains Mono, Consolas, monospace',
+                      color: 'var(--hb-text-muted, #6b7280)',
+                    }}>
+                      {String(server.url)}
+                    </code>
+                  )}
+                  <details style={{ marginTop: 4 }}>
+                    <summary style={{
+                      fontSize: 11,
+                      color: 'var(--hb-text-muted, #6b7280)',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                    }}>
+                      查看详情
+                    </summary>
+                    <div style={{
+                      marginTop: 6, padding: '8px 10px', borderRadius: 6,
+                      background: 'var(--hb-surface-2, #f3f4f6)',
+                      fontSize: 11, lineHeight: 1.6,
+                    }}>
+                      {server.env != null && typeof server.env === 'object' && (
+                        <div>
+                          <span style={{ fontWeight: 500 }}>环境变量: </span>
+                          <span>{Object.keys(server.env as Record<string, unknown>).length} 项</span>
+                        </div>
+                      )}
+                      {server.headers != null && typeof server.headers === 'object' && (
+                        <div>
+                          <span style={{ fontWeight: 500 }}>请求头: </span>
+                          <span>{Object.keys(server.headers as Record<string, unknown>).length} 项</span>
+                        </div>
+                      )}
+                      {server.headersFromEnv != null && typeof server.headersFromEnv === 'object' && (
+                        <div>
+                          <span style={{ fontWeight: 500 }}>环境变量映射请求头: </span>
+                          <span>{Object.keys(server.headersFromEnv as Record<string, unknown>).length} 项</span>
+                        </div>
+                      )}
+                      {server.bearerTokenEnv != null && String(server.bearerTokenEnv).trim().length > 0 && (
+                        <div>
+                          <span style={{ fontWeight: 500 }}>Bearer Token 环境变量: </span>
+                          <code style={{ fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
+                            {String(server.bearerTokenEnv)}
+                          </code>
+                        </div>
+                      )}
+                      {Array.isArray(server.args) && (server.args as unknown[]).length > 0 && (
+                        <div>
+                          <span style={{ fontWeight: 500 }}>启动参数: </span>
+                          <code style={{ fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
+                            {(server.args as unknown[]).map((a) => String(a)).join(' ')}
+                          </code>
+                        </div>
+                      )}
+                      {server.cwd != null && String(server.cwd).trim().length > 0 && (
+                        <div>
+                          <span style={{ fontWeight: 500 }}>工作目录: </span>
+                          <code style={{ fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
+                            {String(server.cwd)}
+                          </code>
+                        </div>
+                      )}
+                    </div>
+                  </details>
                 </div>
-                {mcpServer.command != null && String(mcpServer.command).trim().length > 0 && (
-                  <code style={{
-                    fontSize: 11,
-                    fontFamily: 'JetBrains Mono, Consolas, monospace',
-                    color: 'var(--hb-text-muted, #6b7280)',
-                  }}>
-                    {String(mcpServer.command)}
-                  </code>
-                )}
-                {mcpServer.url != null && String(mcpServer.url).trim().length > 0 && (
-                  <code style={{
-                    fontSize: 11,
-                    fontFamily: 'JetBrains Mono, Consolas, monospace',
-                    color: 'var(--hb-text-muted, #6b7280)',
-                  }}>
-                    {String(mcpServer.url)}
-                  </code>
-                )}
-                {/* 可展开详情：环境变量、请求头、启动参数等 */}
-                <details style={{ marginTop: 4 }}>
-                  <summary style={{
-                    fontSize: 11,
-                    color: 'var(--hb-text-muted, #6b7280)',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                  }}>
-                    查看详情
-                  </summary>
-                  <div style={{
-                    marginTop: 6, padding: '8px 10px', borderRadius: 6,
-                    background: 'var(--hb-surface-2, #f3f4f6)',
-                    fontSize: 11, lineHeight: 1.6,
-                  }}>
-                    {mcpServer.env != null && typeof mcpServer.env === 'object' && (
-                      <div>
-                        <span style={{ fontWeight: 500 }}>环境变量: </span>
-                        <span>{Object.keys(mcpServer.env as Record<string, unknown>).length} 项</span>
-                      </div>
-                    )}
-                    {mcpServer.headers != null && typeof mcpServer.headers === 'object' && (
-                      <div>
-                        <span style={{ fontWeight: 500 }}>请求头: </span>
-                        <span>{Object.keys(mcpServer.headers as Record<string, unknown>).length} 项</span>
-                      </div>
-                    )}
-                    {mcpServer.headersFromEnv != null && typeof mcpServer.headersFromEnv === 'object' && (
-                      <div>
-                        <span style={{ fontWeight: 500 }}>环境变量映射请求头: </span>
-                        <span>{Object.keys(mcpServer.headersFromEnv as Record<string, unknown>).length} 项</span>
-                      </div>
-                    )}
-                    {mcpServer.bearerTokenEnv != null && String(mcpServer.bearerTokenEnv).trim().length > 0 && (
-                      <div>
-                        <span style={{ fontWeight: 500 }}>Bearer Token 环境变量: </span>
-                        <code style={{ fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
-                          {String(mcpServer.bearerTokenEnv)}
-                        </code>
-                      </div>
-                    )}
-                    {Array.isArray(mcpServer.args) && (mcpServer.args as unknown[]).length > 0 && (
-                      <div>
-                        <span style={{ fontWeight: 500 }}>启动参数: </span>
-                        <code style={{ fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
-                          {(mcpServer.args as unknown[]).map((a) => String(a)).join(' ')}
-                        </code>
-                      </div>
-                    )}
-                    {mcpServer.cwd != null && String(mcpServer.cwd).trim().length > 0 && (
-                      <div>
-                        <span style={{ fontWeight: 500 }}>工作目录: </span>
-                        <code style={{ fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
-                          {String(mcpServer.cwd)}
-                        </code>
-                      </div>
-                    )}
-                  </div>
-                </details>
-              </div>
+              ))}
             </div>
           )}
         </>

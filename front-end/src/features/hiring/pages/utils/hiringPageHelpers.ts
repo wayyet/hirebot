@@ -12,7 +12,9 @@ const HIDDEN_ASSISTANT_OPEN_TAG_REGEX = new RegExp(
 const INTERNAL_INSTRUCTION_LINE_REGEX =
   /^.*(?:\[Internal (?:stage resume|downstream trigger|packaging trigger|skill definition confirmation|external config commit)[^\]]*\]|Internal stage resume|Internal downstream trigger|Internal packaging trigger|Internal skill definition confirmation).*$(?:\r?\n)?/gim
 const INTERNAL_PROTOCOL_MESSAGE_START_REGEX =
-  /^\s*(?:\[Internal (?:stage resume|downstream trigger|packaging trigger|skill definition confirmation|external config commit)\b|Internal stage resume|Internal downstream trigger|Internal packaging trigger|Internal skill definition confirmation)/i
+  /^\s*(?:\[Internal (?:stage resume|downstream trigger|packaging trigger|skill definition confirmation|external config commit)\b|Internal stage resume|Internal downstream trigger|Internal packaging trigger|Internal skill definition confirmation|Switch to skill `?[\w-]+`? now\.)/i
+const LEAKED_DOWNSTREAM_PROTOCOL_TAIL_REGEX =
+  /(?:^|\r?\n)\s*(?:Switch to skill `?[\w-]+`? now\.|required_artifacts:|artifact_payload:|skill_generation_progress\b|skill_generation_done\s+return_to:\s*employment-coach-conversation\b|return_to:\s*employment-coach-conversation\b)[\s\S]*$/i
 const TOOL_BAN_DIAGNOSTIC_LINE_REGEX =
   /^\s*\[TOOL BAN\]\s*Refused to call\b.*$(?:\r?\n)?/gim
 const ARTIFACT_PROTOCOL_DIAGNOSTIC_LINE_REGEX =
@@ -109,6 +111,15 @@ function isInternalProtocolMessage(content: string): boolean {
   return INTERNAL_PROTOCOL_MESSAGE_START_REGEX.test(content)
 }
 
+function removeLeakedDownstreamProtocolTail(content: string): string {
+  const match = LEAKED_DOWNSTREAM_PROTOCOL_TAIL_REGEX.exec(content)
+  if (!match) {
+    return content
+  }
+
+  return content.slice(0, match.index).trim()
+}
+
 function removeHiddenAssistantProtocol(content: string): string {
   const withoutClosedTags = content
     .replace(HIDDEN_ASSISTANT_TAG_REGEX, '')
@@ -118,7 +129,7 @@ function removeHiddenAssistantProtocol(content: string): string {
     return ''
   }
 
-  return removeLeakedStructuredJsonBlocks(withoutClosedTags
+  return removeLeakedStructuredJsonBlocks(removeLeakedDownstreamProtocolTail(withoutClosedTags)
     .replace(INTERNAL_INSTRUCTION_LINE_REGEX, '')
     .trim())
 }
@@ -171,11 +182,12 @@ export function normalizeAssistantStreamingPreview(content: string): string {
     return ''
   }
 
-  const lowerContent = withoutClosedTags.toLowerCase()
+  const withoutLeakedDownstreamSwitch = removeLeakedDownstreamProtocolTail(withoutClosedTags)
+  const lowerContent = withoutLeakedDownstreamSwitch.toLowerCase()
   HIDDEN_ASSISTANT_OPEN_TAG_REGEX.lastIndex = 0
 
   let match: RegExpExecArray | null = null
-  while ((match = HIDDEN_ASSISTANT_OPEN_TAG_REGEX.exec(withoutClosedTags)) !== null) {
+  while ((match = HIDDEN_ASSISTANT_OPEN_TAG_REGEX.exec(withoutLeakedDownstreamSwitch)) !== null) {
     const tagName = match[1].toLowerCase()
     const closingTag = `</${tagName}>`
     const closingIndex = lowerContent.indexOf(closingTag, match.index + match[0].length)
@@ -183,10 +195,10 @@ export function normalizeAssistantStreamingPreview(content: string): string {
       continue
     }
 
-    return withoutClosedTags.slice(0, match.index).trim()
+    return withoutLeakedDownstreamSwitch.slice(0, match.index).trim()
   }
 
   return removeLeakedStructuredJsonBlocks(
-    withoutClosedTags.replace(INTERNAL_INSTRUCTION_LINE_REGEX, '').trim(),
+    withoutLeakedDownstreamSwitch.replace(INTERNAL_INSTRUCTION_LINE_REGEX, '').trim(),
   )
 }
