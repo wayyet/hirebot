@@ -273,7 +273,7 @@ export function EvalChatPanel({
                     </div>
                     <div className="mt-2">
                       <p className="text-[14px] font-semibold eval-text-title">
-                        {aiRunning ? '评估正在进行中…' : '暂无对话'}
+                        {aiRunning ? '准备进行评估' : '暂无对话'}
                       </p>
                       <p className="mx-auto mt-1.5 max-w-[320px] text-[12px] leading-6 eval-text-secondary">
                         {aiRunning

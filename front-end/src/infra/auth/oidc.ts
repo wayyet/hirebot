@@ -6,6 +6,8 @@
  * 参考 ncrew-builder console 的 oidc.ts 实现，适配 HireBot 运行时配置格式。
  */
 
+import { isStoredScopeCurrent, resolveOidcScope } from './oidc-scope'
+
 // ---------------------------------------------------------------------------
 // Runtime config（后端通过 runtime-config.js 注入）
 // ---------------------------------------------------------------------------
@@ -46,6 +48,10 @@ function buildClientId(): string {
 
 const authority = buildAuthority()
 const clientId = buildClientId()
+const oidcScope = resolveOidcScope(
+  runtimeCfg.Scope,
+  import.meta.env.VITE_KEYCLOAK_SCOPE as string | undefined,
+)
 
 if (!authority || !clientId) {
   console.warn('[oidc] OIDC authority 或 clientId 未配置')
@@ -150,16 +156,26 @@ interface TokenSet {
   access_token: string
   id_token?: string
   refresh_token?: string
+  requested_scope?: string
 }
 
 function saveTokenSet(ts: TokenSet) {
-  storeSave('token_set', JSON.stringify(ts))
+  storeSave('token_set', JSON.stringify({ ...ts, requested_scope: oidcScope }))
 }
 
 function loadTokenSet(): TokenSet | null {
   const raw = storeLoad('token_set')
   if (!raw) return null
-  try { return JSON.parse(raw) } catch { return null }
+  try {
+    const tokenSet = JSON.parse(raw) as TokenSet
+    if (!isStoredScopeCurrent(tokenSet.requested_scope, oidcScope)) {
+      storeRemove('token_set')
+      return null
+    }
+    return tokenSet
+  } catch {
+    return null
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +300,7 @@ export const userManager = {
       client_id: clientId,
       redirect_uri: REDIRECT_URI,
       response_type: 'code',
-      scope: 'openid profile email',
+      scope: oidcScope,
       state,
     })
     window.location.assign(`${endpoints.authorization_endpoint}?${params}`)

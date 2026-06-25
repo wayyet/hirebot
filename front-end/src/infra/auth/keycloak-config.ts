@@ -1,7 +1,10 @@
+import { resolveOidcScope } from './oidc-scope'
+
 interface RuntimeAuthConfig {
   Authority?: string
   Realm?: string
   ClientId?: string
+  Scope?: string
   BypassAuth?: boolean
   EnableWarmTheme?: boolean
   ApiBase?: string
@@ -60,10 +63,15 @@ export const missingKeycloakEnv = (() => {
 
 export const isKeycloakConfigured = keycloakConfig !== null
 
+export const keycloakScope = resolveOidcScope(
+  typeof window !== 'undefined' ? window.__AUTH_CONFIG__?.Scope : undefined,
+  import.meta.env.VITE_KEYCLOAK_SCOPE as string | undefined,
+)
+
 export const keycloakInitOptions = (() => {
   return {
     pkceMethod: 'S256' as const,
     checkLoginIframe: false,
-    scope: 'openid profile email',
+    scope: keycloakScope,
   } as const
 })()

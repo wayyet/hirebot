@@ -15,10 +15,10 @@ public static class MultitenancyExtensions
     /// 为所有实现 ITenant 接口的实体配置全局查询过滤器
     /// </summary>
     /// <param name="modelBuilder">模型构建器</param>
-    /// <param name="tenantIdAccessor">租户ID访问器函数</param>
+    /// <param name="tenantIdAccessor">租户ID访问器表达式</param>
     public static void ApplyTenantQueryFilters(
         this ModelBuilder modelBuilder,
-        Func<string?> tenantIdAccessor)
+        Expression<Func<string?>> tenantIdAccessor)
     {
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
@@ -47,12 +47,12 @@ public static class MultitenancyExtensions
     }
 
     /// <summary>
-    /// 创建租户过滤器表达式
-    /// 生成类似 e => e.TenantId == currentTenantId || e.TenantId == null 的表达式
+    /// 创建租户过滤器表达式。
+    /// 生成类似 e => e.TenantId == currentTenantId 的表达式。
     /// </summary>
     private static LambdaExpression CreateTenantFilterExpression(
         Type entityType,
-        Func<string?> tenantIdAccessor)
+        Expression<Func<string?>> tenantIdAccessor)
     {
         // 创建参数: e
         var parameter = Expression.Parameter(entityType, "e");
@@ -60,20 +60,11 @@ public static class MultitenancyExtensions
         // 访问属性: e.TenantId
         var tenantIdProperty = Expression.Property(parameter, nameof(ITenant.TenantId));
 
-        // 获取当前租户ID的常量表达式
-        var currentTenantIdExpression = Expression.Invoke(
-            Expression.Constant(tenantIdAccessor));
+        // 直接嵌入 DbContext.TenantId 属性访问表达式，避免把租户访问器固化为普通 delegate。
+        var currentTenantIdExpression = tenantIdAccessor.Body;
 
         // 构建比较表达式: e.TenantId == currentTenantId
-        var equalExpression = Expression.Equal(tenantIdProperty, currentTenantIdExpression);
-
-        // 如果 TenantId 可为 null,还需要支持全局数据(TenantId == null)
-        // 构建: e.TenantId == currentTenantId || e.TenantId == null
-        var nullCheckExpression = Expression.Equal(
-            tenantIdProperty,
-            Expression.Constant(null, typeof(string)));
-
-        var finalExpression = Expression.OrElse(equalExpression, nullCheckExpression);
+        var finalExpression = Expression.Equal(tenantIdProperty, currentTenantIdExpression);
 
         // 返回 Lambda 表达式
         return Expression.Lambda(finalExpression, parameter);
@@ -103,11 +94,11 @@ public static class MultitenancyExtensions
     /// </summary>
     public static void ApplyTenantFilterFor<TEntity>(
         this ModelBuilder modelBuilder,
-        Func<string?> tenantIdAccessor)
+        Expression<Func<string?>> tenantIdAccessor)
         where TEntity : class, ITenant
     {
         modelBuilder.Entity<TEntity>()
-            .HasQueryFilter(e => e.TenantId == tenantIdAccessor() || e.TenantId == null);
+            .HasQueryFilter((Expression<Func<TEntity, bool>>)CreateTenantFilterExpression(typeof(TEntity), tenantIdAccessor));
     }
 
     /// <summary>

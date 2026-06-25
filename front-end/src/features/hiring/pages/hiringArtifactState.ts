@@ -792,6 +792,11 @@ export function buildUiStageOverrides(
     skillGenerationState.artifactType === 'skill_generation_done'
   ) {
     next.set(HiringCollectionStage.Skill, 'completed')
+    // 技能生成已完成且外部尚未保存/跳过：将 External 阶段置为 running，
+    // 因为 external_system_entry_ready 确认门已由系统层发出。
+    if (!externalConfigCommitted && next.get(HiringCollectionStage.External) !== 'completed') {
+      next.set(HiringCollectionStage.External, 'running')
+    }
   } else if (skillGenerationState?.status === 'failed') {
     next.set(HiringCollectionStage.Skill, 'failed')
   }
