@@ -62,3 +62,25 @@ public sealed record HiringMcpServerConfigDto
 
     public IReadOnlyDictionary<string, string> HeadersFromEnv { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }
+
+public sealed record HiringMcpConnectivityTestRequestDto
+{
+    public HiringMcpServerConfigDto? Server { get; init; }
+}
+
+public sealed record HiringMcpConnectivityTestResultDto
+{
+    public bool Success { get; init; }
+
+    public string Status { get; init; } = string.Empty;
+
+    public string Message { get; init; } = string.Empty;
+
+    public int? HttpStatusCode { get; init; }
+
+    public long? LatencyMs { get; init; }
+
+    public string Transport { get; init; } = string.Empty;
+
+    public DateTimeOffset TestedAtUtc { get; init; } = DateTimeOffset.UtcNow;
+}

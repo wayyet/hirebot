@@ -263,6 +263,20 @@ export interface HiringExternalSystemConfig {
   updatedAtUtc?: string | null
 }
 
+export interface HiringMcpConnectivityTestRequest {
+  server: HiringMcpServerConfig
+}
+
+export interface HiringMcpConnectivityTestResult {
+  success: boolean
+  status: string
+  message: string
+  httpStatusCode?: number | null
+  latencyMs?: number | null
+  transport: string
+  testedAtUtc: string
+}
+
 export interface HiringLinkedSkillItem {
   skillId: string
   name: string
@@ -813,6 +827,16 @@ export const hiringWorkflowApi = {
   async saveExternalConfig(hireId: string, payload: HiringExternalSystemConfig): Promise<HiringExternalSystemConfig> {
     return httpClient.put<HiringExternalSystemConfig>(
       `/api/v1/hirings/${encodeURIComponent(hireId)}/external-config`,
+      payload,
+    )
+  },
+
+  async testMcpConnectivity(
+    hireId: string,
+    payload: HiringMcpConnectivityTestRequest,
+  ): Promise<HiringMcpConnectivityTestResult> {
+    return httpClient.post<HiringMcpConnectivityTestResult, HiringMcpConnectivityTestRequest>(
+      `/api/v1/hirings/${encodeURIComponent(hireId)}/external-config/mcp/test`,
       payload,
     )
   },

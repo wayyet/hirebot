@@ -35,6 +35,7 @@ internal sealed class EmployeeHiringService(
     IEmployeeRuntimeService employeeRuntimeService,
     IHiringArtifactPackageService artifactPackageService,
     IStoreSkillPackageDownloader storeSkillPackageDownloader,
+    IHiringMcpConnectivityTester mcpConnectivityTester,
     IUserIdentity userIdentity,
     ITenantContextProvider tenantContextProvider,
     HireBotDbContext dbContext,
@@ -43,6 +44,8 @@ internal sealed class EmployeeHiringService(
     IHostEnvironment hostEnvironment,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
+    private static readonly string[] HireScopeTypeValues = ["Hire", SandboxScopeTypes.Hire];
+
     /// <summary>
     /// 获取当前租户ID（优先从 IUserIdentity，然后 ITenantContextProvider，最后 "default"）
     /// </summary>
@@ -110,6 +113,7 @@ internal sealed class EmployeeHiringService(
                 if (existingInstance.IsInitialized)
                 {
                     var existingHireId = existingInstance.ScopeKey;
+                    await BackfillReusedSandboxWorkspaceRootAsync(existingHireId, cancellationToken);
 
                     // 从数据库查询会话 ID
                     var existingSessionId = await dbContext.HiringSessions
@@ -137,10 +141,9 @@ internal sealed class EmployeeHiringService(
                 }
                 else
                 {
-                    // 沙箱被外部删除后重建，IsInitialized 被重置为 false
                     logger.LogWarning("现有沙箱已被外部删除并重建，需要重新初始化: SandboxId={SandboxId}, HireId={HireId}",
                         existingInstance.SandboxId, existingInstance.ScopeKey);
-                    // 继续使用现有的 hireId 和 sandboxId，重新初始化
+                    return await ReinitializeExistingHiringSandboxAsync(existingInstance, cancellationToken);
                 }
             }
 
@@ -333,6 +336,91 @@ internal sealed class EmployeeHiringService(
         }
     }
 
+    private async Task<ApiResponse<HireTemplateResultDto>> ReinitializeExistingHiringSandboxAsync(
+        SandboxInstanceDto instance,
+        CancellationToken cancellationToken)
+    {
+        var readyResult = await WaitForSandboxReadyAsync(instance, cancellationToken);
+        if (!readyResult.Success || readyResult.Data is null)
+        {
+            logger.LogError("恢复后的沙箱启动失败: SandboxId={SandboxId}, HireId={HireId}, Message={Message}",
+                instance.SandboxId,
+                instance.ScopeKey,
+                readyResult.Message);
+            return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                readyResult.Code,
+                $"沙箱恢复失败: {readyResult.Message}");
+        }
+
+        var readySandbox = readyResult.Data;
+        var discoveryRolePackage = await discoveryRoleTemplatePackageProvider.LoadAsync(cancellationToken);
+        var discoveryArchiveBytes = TemplatePackageArchiveBuilder.BuildArchive(discoveryRolePackage);
+
+        try
+        {
+            var discoveryUploadResult = await sandboxService.UploadDigitalEmployeeTemplateAsync(
+                new DigitalEmployeeTemplateUploadRequestDto
+                {
+                    SandboxId = readySandbox.SandboxId,
+                    OwnerSubject = instance.OwnerSubject,
+                    ArchiveBytes = discoveryArchiveBytes,
+                    FileName = "employment-coach-conversation.zip"
+                },
+                cancellationToken);
+
+            if (!discoveryUploadResult.Success || discoveryUploadResult.Data is null || !discoveryUploadResult.Data.Success)
+            {
+                var errorMsg = discoveryUploadResult.Data?.Error ?? discoveryUploadResult.Message;
+                logger.LogError("恢复沙箱时上传雇佣对话教练模板失败: SandboxId={SandboxId}, HireId={HireId}, Error={Error}",
+                    readySandbox.SandboxId,
+                    instance.ScopeKey,
+                    errorMsg);
+                return ApiResponse<HireTemplateResultDto>.ErrorResponse(
+                    discoveryUploadResult.Code > 0 ? discoveryUploadResult.Code : 500,
+                    $"上传雇佣对话教练模板失败: {errorMsg}");
+            }
+        }
+        finally
+        {
+            discoveryArchiveBytes = null!;
+        }
+
+        var mcpUploadResult = await TryUploadMcpConfigAsync(readySandbox.SandboxId, instance.OwnerSubject, cancellationToken);
+        if (!mcpUploadResult.Success)
+        {
+            logger.LogWarning("恢复沙箱时上传 MCP 配置失败（非致命错误）: SandboxId={SandboxId}, HireId={HireId}, Error={Error}",
+                readySandbox.SandboxId,
+                instance.ScopeKey,
+                mcpUploadResult.Message);
+        }
+
+        await SetSandboxInitializedAsync(readySandbox.SandboxId, cancellationToken);
+        await BackfillReusedSandboxWorkspaceRootAsync(instance.ScopeKey, cancellationToken);
+
+        var existingSessionId = await dbContext.HiringSessions
+            .AsNoTracking()
+            .Where(s => s.HireId == instance.ScopeKey && s.DeletedAtUtc == null)
+            .OrderByDescending(s => s.CreatedAtUtc)
+            .Select(s => s.SessionId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        logger.LogInformation("恢复并复用现有沙箱: HireId={HireId}, SandboxId={SandboxId}, SessionId={SessionId}",
+            instance.ScopeKey,
+            readySandbox.SandboxId,
+            existingSessionId);
+
+        return ApiResponse<HireTemplateResultDto>.SuccessResponse(
+            new HireTemplateResultDto(
+                HireId: instance.ScopeKey,
+                SandboxId: readySandbox.SandboxId,
+                Status: "READY",
+                NextAction: "continue_conversation",
+                SessionId: existingSessionId,
+                GatewayEndpoint: readySandbox.GatewayEndpoint,
+                TemplatePrimingRequired: false),
+            "已恢复现有沙箱");
+    }
+
     /// <summary>
     /// 等待沙箱启动到 Running 状态（最多等待 3 分钟）。
     /// </summary>
@@ -446,7 +534,7 @@ internal sealed class EmployeeHiringService(
 
         // 从沙箱表查询沙箱信息
         var sandbox = await dbContext.SandboxInstances.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ScopeType == "Hire" && x.ScopeKey == hireId, cancellationToken);
+            .FirstOrDefaultAsync(x => HireScopeTypeValues.Contains(x.ScopeType) && x.ScopeKey == hireId, cancellationToken);
 
         var stageProgress = await hiringStageService.GetStageProgressAsync(hireId, cancellationToken);
 
@@ -543,6 +631,25 @@ internal sealed class EmployeeHiringService(
         return ApiResponse<HiringExternalSystemConfigDto>.SuccessResponse(request);
     }
 
+    public async Task<ApiResponse<HiringMcpConnectivityTestResultDto>> TestMcpConnectivityAsync(
+        string hireId,
+        HiringMcpConnectivityTestRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(hireId))
+        {
+            return ApiResponse<HiringMcpConnectivityTestResultDto>.ErrorResponse(400, "hireId 不能为空");
+        }
+
+        if (request is null)
+        {
+            return ApiResponse<HiringMcpConnectivityTestResultDto>.ErrorResponse(400, "MCP 测试请求不能为空");
+        }
+
+        var result = await mcpConnectivityTester.TestAsync(request, cancellationToken);
+        return ApiResponse<HiringMcpConnectivityTestResultDto>.SuccessResponse(result, result.Message);
+    }
+
     public async Task<ApiResponse<HiringSkillLinkConfigDto>> GetSkillLinkConfigAsync(
         string hireId,
         CancellationToken cancellationToken = default)
@@ -605,7 +712,7 @@ internal sealed class EmployeeHiringService(
         }
 
         var sandbox = await dbContext.SandboxInstances
-            .FirstOrDefaultAsync(item => item.ScopeType == "Hire" && item.ScopeKey == hireId, cancellationToken);
+            .FirstOrDefaultAsync(item => HireScopeTypeValues.Contains(item.ScopeType) && item.ScopeKey == hireId, cancellationToken);
         if (sandbox is null)
         {
             logger.LogWarning(
@@ -628,6 +735,46 @@ internal sealed class EmployeeHiringService(
 
         logger.LogInformation(
             "Persisted hiring workspace root from conversation materials. HireId={HireId} WorkspaceRoot={WorkspaceRoot}",
+            hireId,
+            workspaceRoot);
+    }
+
+    private async Task BackfillReusedSandboxWorkspaceRootAsync(string hireId, CancellationToken cancellationToken)
+    {
+        var sandbox = await dbContext.SandboxInstances
+            .FirstOrDefaultAsync(item => HireScopeTypeValues.Contains(item.ScopeType) && item.ScopeKey == hireId, cancellationToken);
+        if (sandbox is null)
+        {
+            logger.LogWarning(
+                "Cannot backfill hiring workspace root because sandbox was not found. HireId={HireId}",
+                hireId);
+            return;
+        }
+
+        if (sandbox.Metadata is not null &&
+            sandbox.Metadata.TryGetValue(SandboxMetaKeys.HiringWorkspaceRoot, out var existingWorkspaceRoot) &&
+            NormalizeWorkspaceRoot(existingWorkspaceRoot) is not null)
+        {
+            return;
+        }
+
+        var progress = await dbContext.HiringStageProgresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.HireId == hireId, cancellationToken);
+        var workspaceRoot = TryExtractWorkspaceRootFromPersistedFiles(DeserializeUploadedFiles(progress?.UploadedFilesJson));
+        if (workspaceRoot is null)
+        {
+            return;
+        }
+
+        sandbox.Metadata ??= new Dictionary<string, string>(StringComparer.Ordinal);
+        sandbox.Metadata[SandboxMetaKeys.HiringWorkspaceRoot] = workspaceRoot;
+        sandbox.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        dbContext.Entry(sandbox).Property(item => item.Metadata).IsModified = true;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Backfilled hiring workspace root for reused sandbox. HireId={HireId} WorkspaceRoot={WorkspaceRoot}",
             hireId,
             workspaceRoot);
     }
@@ -783,6 +930,32 @@ internal sealed class EmployeeHiringService(
         {
             if (material.Metadata is null ||
                 !material.Metadata.TryGetValue("workspaceDir", out var workspaceDir))
+            {
+                continue;
+            }
+
+            var normalized = NormalizeWorkspaceRoot(workspaceDir);
+            if (normalized is not null)
+            {
+                return normalized;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? TryExtractWorkspaceRootFromPersistedFiles(IReadOnlyList<PersistedChatFileDto>? files)
+    {
+        if (files is null || files.Count == 0)
+        {
+            return null;
+        }
+
+        for (var index = files.Count - 1; index >= 0; index--)
+        {
+            var file = files[index];
+            if (file.Metadata is null ||
+                !file.Metadata.TryGetValue("workspaceDir", out var workspaceDir))
             {
                 continue;
             }
@@ -1179,7 +1352,7 @@ internal sealed class EmployeeHiringService(
 
         // 查询关联的沙箱信息
         var sandbox = await dbContext.SandboxInstances.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ScopeType == "Hire" && x.ScopeKey == hireId, cancellationToken);
+            .FirstOrDefaultAsync(x => HireScopeTypeValues.Contains(x.ScopeType) && x.ScopeKey == hireId, cancellationToken);
 
         if (sandbox is null)
         {
