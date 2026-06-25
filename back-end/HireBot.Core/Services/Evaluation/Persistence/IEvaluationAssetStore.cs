@@ -3,6 +3,7 @@
 internal interface IEvaluationAssetStore
 {
     Task<StoredEvaluationAsset> SaveTextAsync(
+        string tenantId,
         string sessionId,
         int iteration,
         string assetType,
@@ -12,6 +13,7 @@ internal interface IEvaluationAssetStore
         CancellationToken cancellationToken = default);
 
     Task<StoredEvaluationAsset> SaveBytesAsync(
+        string tenantId,
         string sessionId,
         int iteration,
         string assetType,

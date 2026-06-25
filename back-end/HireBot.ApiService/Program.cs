@@ -129,7 +129,11 @@ var evaluationResourceRoot = ResolveEvaluationResourceRoot(
     app.Environment.ContentRootPath,
     builder.Configuration["HireBot:DataRoot"],
     builder.Configuration["HireBot:EvaluationResourceRoot"]);
+var dataRoot = HireBotPathResolver.ResolveDataRoot(
+    app.Environment.ContentRootPath,
+    builder.Configuration["HireBot:DataRoot"]);
 Directory.CreateDirectory(evaluationResourceRoot);
+Directory.CreateDirectory(dataRoot);
 
 app.UseCors("AllowAll");
 
@@ -142,6 +146,11 @@ app.UseHttpsRedirection();
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(evaluationResourceRoot),
+    RequestPath = "/resources"
+});
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(dataRoot),
     RequestPath = "/resources"
 });
 app.UseDirectoryBrowser(new DirectoryBrowserOptions

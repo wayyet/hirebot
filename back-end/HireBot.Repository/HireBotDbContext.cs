@@ -7,12 +7,13 @@ using HireBot.Repository.Extensions;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HireBot.Repository;
 
 public sealed class HireBotDbContext : DbContext
 {
-    private readonly ITenantContextProvider? _tenantContextProvider;
+    private readonly IServiceScopeFactory? _scopeFactory;
     private string? _tenantId;
 
     // 无参构造函数（仅用于 EF Core 迁移工具）
@@ -23,9 +24,9 @@ public sealed class HireBotDbContext : DbContext
     // 依赖注入构造函数（运行时使用）
     public HireBotDbContext(
         DbContextOptions<HireBotDbContext> options,
-        ITenantContextProvider tenantContextProvider) : base(options)
+        IServiceScopeFactory scopeFactory) : base(options)
     {
-        _tenantContextProvider = tenantContextProvider;
+        _scopeFactory = scopeFactory;
     }
 
     /// <summary>
@@ -36,14 +37,18 @@ public sealed class HireBotDbContext : DbContext
     {
         get
         {
-            if (_tenantId == null)
+            if (string.IsNullOrWhiteSpace(_tenantId))
             {
-                _tenantId = _tenantContextProvider?.GetTenantId() ?? "default";
+                using var scope = ScopeFactory?.CreateScope();
+                var tenantContextProvider = scope?.ServiceProvider.GetService<ITenantContextProvider>();
+                _tenantId = tenantContextProvider?.GetTenantId();
             }
             return _tenantId;
         }
         set => _tenantId = value;
     }
+
+    private IServiceScopeFactory? ScopeFactory => _scopeFactory;
 
     private static readonly ValueComparer<Dictionary<string, string>?> SandboxMetadataComparer = new(
         (left, right) => DictionariesEqual(left, right),
