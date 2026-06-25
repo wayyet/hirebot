@@ -154,7 +154,9 @@ internal sealed partial class EvaluationService
         string sourceType,
         CancellationToken cancellationToken)
     {
+        var tenantId = RequireTenantId(sessionEntity);
         var stored = await evaluationAssetStore.SaveTextAsync(
+            tenantId,
             sessionEntity.SessionId,
             sessionEntity.Iteration,
             assetType,
@@ -194,7 +196,9 @@ internal sealed partial class EvaluationService
         string sourceType,
         CancellationToken cancellationToken)
     {
+        var tenantId = RequireTenantId(sessionEntity);
         var stored = await evaluationAssetStore.SaveBytesAsync(
+            tenantId,
             sessionEntity.SessionId,
             sessionEntity.Iteration,
             assetType,
@@ -222,6 +226,16 @@ internal sealed partial class EvaluationService
         sessionEntity.UpdatedAtUtc = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
         return entity;
+    }
+
+    private static string RequireTenantId(EvaluationSessionEntity sessionEntity)
+    {
+        if (string.IsNullOrWhiteSpace(sessionEntity.TenantId))
+        {
+            throw new InvalidOperationException($"evaluation session '{sessionEntity.SessionId}' is missing tenant id.");
+        }
+
+        return sessionEntity.TenantId.Trim();
     }
 
     private async Task<IReadOnlyList<TestcaseSourceFile>> LoadTestcaseSourcesAsync(

@@ -122,12 +122,15 @@ internal sealed class HiringArtifactPackageService(
             // 优先读取新的扁平 .zip 路径，兼容旧的 package.zip 目录结构
             var newPackagePath = ArtifactStoragePaths.BuildFinalPackagePath(tenantId, instance.HireId, instance.FinalPackageId);
             var legacyPackagePath = $"artifact-store/{tenantId}/{instance.HireId}/{instance.FinalPackageId}/package.zip";
+            var wrongTenantOuterPackagePath = $"{tenantId}/artifact-store/hirings/{instance.HireId}/{instance.HireId}-{instance.FinalPackageId[..Math.Min(8, instance.FinalPackageId.Length)]}.zip";
 
             var packagePath = await fileStore.ExistsAsync(newPackagePath, cancellationToken)
                 ? newPackagePath
                 : await fileStore.ExistsAsync(legacyPackagePath, cancellationToken)
                     ? legacyPackagePath
-                    : null;
+                    : await fileStore.ExistsAsync(wrongTenantOuterPackagePath, cancellationToken)
+                        ? wrongTenantOuterPackagePath
+                        : null;
 
             if (packagePath is not null)
             {
@@ -264,8 +267,8 @@ internal sealed class HiringArtifactPackageService(
         var sha256 = Convert.ToHexStringLower(SHA256.HashData(archive));
         var uploadedAtUtc = DateTimeOffset.UtcNow;
 
-        // 最终包使用扁平路径: artifact-store/{tenant}/{hireId}/{hireId}-{packageId前8}.zip
-        // 中间包沿用 sessions/{sessionId}/{category}/package.zip 旧路径
+        // 最终包使用扁平路径: artifact-store/{tenant}/hirings/{hireId}/{hireId}-{packageId前8}.zip
+        // 中间包使用 artifact-store/{tenant}/sessions/{sessionId}/{category}/package.zip
         await using var archiveStream = new MemoryStream(archive, writable: false);
         string storagePath;
         string effectiveLogicalPath;

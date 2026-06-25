@@ -48,21 +48,65 @@ internal sealed partial class EvaluationService
             .Trim()
             .Replace('\\', '/')
             .TrimStart('/');
+        var candidates = BuildEvaluationAssetRelativeCandidates(normalizedRelative);
+
+        var normalizedRoot = EnsureTrailingDirectorySeparator(Path.GetFullPath(evaluationResourceRoot));
+        var dataRoot = Directory.GetParent(normalizedRoot.TrimEnd(Path.DirectorySeparatorChar))?.FullName;
+        var normalizedDataRoot = string.IsNullOrWhiteSpace(dataRoot)
+            ? null
+            : EnsureTrailingDirectorySeparator(Path.GetFullPath(dataRoot));
+        foreach (var relativeCandidate in candidates)
+        {
+            foreach (var root in new[] { normalizedRoot, normalizedDataRoot })
+            {
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    continue;
+                }
+
+                var candidate = Path.GetFullPath(Path.Combine(
+                    root,
+                    relativeCandidate.Replace('/', Path.DirectorySeparatorChar)));
+                if (!candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<string> BuildEvaluationAssetRelativeCandidates(string normalizedRelative)
+    {
         if (normalizedRelative.StartsWith("resources/", StringComparison.OrdinalIgnoreCase))
         {
             normalizedRelative = normalizedRelative["resources/".Length..];
         }
 
-        var candidate = Path.GetFullPath(Path.Combine(
-            evaluationResourceRoot,
-            normalizedRelative.Replace('/', Path.DirectorySeparatorChar)));
-        var normalizedRoot = EnsureTrailingDirectorySeparator(Path.GetFullPath(evaluationResourceRoot));
-        if (!candidate.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        var candidates = new List<string> { normalizedRelative };
+        var resourcesIndex = normalizedRelative.IndexOf("/resources/", StringComparison.OrdinalIgnoreCase);
+        if (resourcesIndex > 0)
         {
-            return null;
+            candidates.Add(normalizedRelative[(resourcesIndex + 1)..]);
         }
 
-        return candidate;
+        var firstSlash = normalizedRelative.IndexOf('/');
+        if (firstSlash > 0)
+        {
+            var withoutTenant = normalizedRelative[(firstSlash + 1)..];
+            if (withoutTenant.StartsWith("evaluation/", StringComparison.OrdinalIgnoreCase))
+            {
+                candidates.Add(withoutTenant);
+            }
+        }
+
+        return candidates;
     }
 
     private static EvaluationReadinessDto BuildReadiness(bool testcaseReady, bool ontologyReady)

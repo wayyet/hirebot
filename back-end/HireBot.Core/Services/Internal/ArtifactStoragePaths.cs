@@ -1,7 +1,7 @@
 namespace HireBot.Core.Services.Internal;
 
 /// <summary>
-/// 统一的 artifact 存储路径构建器。所有路径均包含租户隔离前缀。
+/// 统一的 artifact 存储路径构建器。所有路径均以 artifact-store/{tenantId} 做租户隔离前缀。
 /// 统一存储为单个 .zip 文件，不再使用散文件目录。
 /// </summary>
 public static class ArtifactStoragePaths
@@ -38,6 +38,25 @@ public static class ArtifactStoragePaths
     /// <summary>私有分支快照: artifact-store/{tenant}/instances/personal_clone/{parentId}/{id}/snapshots/pre_private_branch.zip</summary>
     public static string BuildSnapshotPath(string tenantId, string parentInstanceId, string instanceId)
         => $"artifact-store/{Sanitize(tenantId)}/instances/personal_clone/{Sanitize(parentInstanceId)}/{Sanitize(instanceId)}/snapshots/pre_private_branch.zip";
+
+    /// <summary>评估资源: artifact-store/{tenant}/resources/evaluation/{sessionId}/...</summary>
+    public static string BuildEvaluationResourcePath(string tenantId, string sessionId, int iteration, string assetType, string fileName)
+        => $"artifact-store/{Sanitize(tenantId)}/resources/evaluation/{Sanitize(sessionId)}/iter-{Math.Max(1, iteration):D2}/{Sanitize(assetType)}/{Sanitize(fileName)}";
+
+    /// <summary>雇佣资料文件: artifact-store/{tenant}/resources/todo-files/{sessionId}/{relativePath}</summary>
+    public static string BuildTodoFilePath(string tenantId, string sessionId, string relativePath)
+        => $"artifact-store/{Sanitize(tenantId)}/resources/todo-files/{Sanitize(sessionId)}/{SanitizeRelativePath(relativePath)}";
+
+    public static string SanitizeRelativePath(string value)
+    {
+        var segments = value.Replace('\\', '/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(Sanitize)
+            .Where(segment => segment.Length > 0)
+            .ToArray();
+
+        return segments.Length == 0 ? "unknown" : string.Join('/', segments);
+    }
 
     /// <summary>从路径中提取可下载的文件名</summary>
     public static string ExtractDownloadFileName(string path)
