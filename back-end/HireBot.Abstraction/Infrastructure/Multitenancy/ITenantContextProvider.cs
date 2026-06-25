@@ -8,7 +8,7 @@ public interface ITenantContextProvider
 {
     /// <summary>
     /// 获取当前租户ID
-    /// 优先级：手动设置 > JWT Claims > 默认值
+    /// 优先级：手动设置 > JWT Claims；未获取到时返回 null
     /// </summary>
     /// <returns>租户ID，可能为 null</returns>
     string? GetTenantId();

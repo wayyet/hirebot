@@ -1,4 +1,5 @@
-﻿using HireBot.Abstraction.Infrastructure.Multitenancy;
+﻿using HireBot.Abstraction.Infrastructure.Identity;
+using HireBot.Abstraction.Infrastructure.Multitenancy;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -18,39 +19,39 @@ public sealed class UserSyncMiddleware(RequestDelegate next, IMemoryCache cache)
     public async Task InvokeAsync(
         HttpContext ctx, 
         HireBotDbContext db,
+        IUserIdentity userIdentity,
         ITenantContextProvider tenantContextProvider)
     {
         // 仅同步已认证用户
-        if (ctx.User.Identity?.IsAuthenticated == true)
+        if (userIdentity.IsAuthenticated)
         {
-            var externalUserId = ctx.User.FindFirst("sub")?.Value
-                                 ?? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var externalUserId = userIdentity.Id;
 
             if (!string.IsNullOrEmpty(externalUserId))
             {
-                var tenantId = tenantContextProvider.GetTenantId() ?? "default";
+                var tenantId = tenantContextProvider.GetTenantId();
+                if (string.IsNullOrWhiteSpace(tenantId))
+                {
+                    await next(ctx);
+                    return;
+                }
+
                 var cacheKey = $"user-synced:{tenantId}:{externalUserId}";
                 
                 if (!cache.TryGetValue(cacheKey, out _))
                 {
-                    var username = ctx.User.FindFirst("preferred_username")?.Value
-                                   ?? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
-                                   ?? externalUserId;
-                    var displayName = ctx.User.FindFirst("name")?.Value ?? username;
-                    var familyName = ctx.User.FindFirst("family_name")?.Value
-                                     ?? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.Surname)?.Value;
-                    var givenName = ctx.User.FindFirst("given_name")?.Value
-                                    ?? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.GivenName)?.Value;
-                    var email = ctx.User.FindFirst("email")?.Value
-                                ?? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
-                                ?? string.Empty;
+                    var username = string.IsNullOrWhiteSpace(userIdentity.UserName) ? externalUserId : userIdentity.UserName;
+                    var displayName = string.IsNullOrWhiteSpace(userIdentity.DisplayName) ? username : userIdentity.DisplayName;
+                    var familyName = string.IsNullOrWhiteSpace(userIdentity.LastName) ? null : userIdentity.LastName;
+                    var givenName = string.IsNullOrWhiteSpace(userIdentity.FirstName) ? null : userIdentity.FirstName;
+                    var email = userIdentity.Email;
 
                     var now = DateTimeOffset.UtcNow;
                     
                     // 按 (TenantId, ExternalUserId) 查找用户
                     var existing = await db.AppUsers
                         .FirstOrDefaultAsync(u => 
-                            u.ExternalUserId == externalUserId);
+                            u.TenantId == tenantId && u.ExternalUserId == externalUserId);
                     
                     if (existing is null)
                     {

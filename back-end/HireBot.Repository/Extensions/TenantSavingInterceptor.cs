@@ -1,4 +1,5 @@
 using HireBot.Abstraction.Contracts;
+using HireBot.Abstraction.Infrastructure.Identity;
 using HireBot.Abstraction.Infrastructure.Multitenancy;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -49,13 +50,12 @@ public class TenantSavingInterceptor : SaveChangesInterceptor
     {
         if (context == null) return;
 
-        // 从服务容器获取租户上下文
-        using var scope = _serviceProvider.CreateScope();
-        var tenantContextProvider = scope.ServiceProvider
+        // 使用当前请求/操作的作用域，避免新建 scope 导致租户上下文分裂。
+        var tenantContextProvider = _serviceProvider
             .GetService<ITenantContextProvider>();
 
         var currentTenantId = tenantContextProvider?.GetTenantId();
-        var currentUserId = GetCurrentUserId(scope.ServiceProvider);
+        var currentUserId = GetCurrentUserId(_serviceProvider);
 
         foreach (var entry in context.ChangeTracker.Entries())
         {
@@ -64,12 +64,27 @@ public class TenantSavingInterceptor : SaveChangesInterceptor
             {
                 if (entry.State == EntityState.Added)
                 {
-                    // 新增实体：设置租户ID
                     if (string.IsNullOrWhiteSpace(tenantEntity.TenantId))
                     {
+                        if (string.IsNullOrWhiteSpace(currentTenantId))
+                        {
+                            throw new InvalidOperationException("当前租户ID缺失，无法新增租户隔离数据");
+                        }
+
                         tenantEntity.TenantId = currentTenantId;
                         _logger.LogDebug("自动设置租户ID: {EntityType} - {TenantId}", 
                             entry.Entity.GetType().Name, currentTenantId);
+                    }
+                    else if (!string.Equals(tenantEntity.TenantId, currentTenantId, StringComparison.Ordinal))
+                    {
+                        _logger.LogWarning(
+                            "拒绝新增跨租户实体: {EntityType} {EntityId}, 当前租户={CurrentTenantId}, 实体租户={EntityTenantId}",
+                            entry.Entity.GetType().Name,
+                            (entry.Entity as IPrimaryKey)?.Id,
+                            currentTenantId,
+                            tenantEntity.TenantId);
+
+                        throw new InvalidOperationException("不允许新增其他租户的数据");
                     }
                 }
                 else if (entry.State == EntityState.Modified)
@@ -85,8 +100,7 @@ public class TenantSavingInterceptor : SaveChangesInterceptor
                             originalTenantId,
                             tenantEntity.TenantId);
 
-                        // 可以选择阻止此操作
-                        // throw new InvalidOperationException("不允许修改租户ID");
+                        throw new InvalidOperationException("不允许修改租户ID");
                     }
                 }
             }
@@ -118,6 +132,12 @@ public class TenantSavingInterceptor : SaveChangesInterceptor
         try
         {
             var httpContextAccessor = serviceProvider.GetService<IHttpContextAccessor>();
+            var userIdentity = serviceProvider.GetService<IUserIdentity>();
+            if (!string.IsNullOrWhiteSpace(userIdentity?.Id))
+            {
+                return userIdentity.Id;
+            }
+
             var userId = httpContextAccessor?.HttpContext?.User?.FindFirst("sub")?.Value
                 ?? httpContextAccessor?.HttpContext?.User?.FindFirst("user_id")?.Value;
             return userId;
