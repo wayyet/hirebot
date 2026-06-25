@@ -43,6 +43,8 @@ internal sealed class EmployeeHiringService(
     IHostEnvironment hostEnvironment,
     ILogger<EmployeeHiringService> logger) : IEmployeeHiringService
 {
+    private static readonly string[] HireScopeTypeValues = ["Hire", SandboxScopeTypes.Hire];
+
     /// <summary>
     /// 获取当前租户ID（优先从 IUserIdentity，然后 ITenantContextProvider，最后 "default"）
     /// </summary>
@@ -110,6 +112,7 @@ internal sealed class EmployeeHiringService(
                 if (existingInstance.IsInitialized)
                 {
                     var existingHireId = existingInstance.ScopeKey;
+                    await BackfillReusedSandboxWorkspaceRootAsync(existingHireId, cancellationToken);
 
                     // 从数据库查询会话 ID
                     var existingSessionId = await dbContext.HiringSessions
@@ -446,7 +449,7 @@ internal sealed class EmployeeHiringService(
 
         // 从沙箱表查询沙箱信息
         var sandbox = await dbContext.SandboxInstances.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ScopeType == "Hire" && x.ScopeKey == hireId, cancellationToken);
+            .FirstOrDefaultAsync(x => HireScopeTypeValues.Contains(x.ScopeType) && x.ScopeKey == hireId, cancellationToken);
 
         var stageProgress = await hiringStageService.GetStageProgressAsync(hireId, cancellationToken);
 
@@ -605,7 +608,7 @@ internal sealed class EmployeeHiringService(
         }
 
         var sandbox = await dbContext.SandboxInstances
-            .FirstOrDefaultAsync(item => item.ScopeType == "Hire" && item.ScopeKey == hireId, cancellationToken);
+            .FirstOrDefaultAsync(item => HireScopeTypeValues.Contains(item.ScopeType) && item.ScopeKey == hireId, cancellationToken);
         if (sandbox is null)
         {
             logger.LogWarning(
@@ -628,6 +631,46 @@ internal sealed class EmployeeHiringService(
 
         logger.LogInformation(
             "Persisted hiring workspace root from conversation materials. HireId={HireId} WorkspaceRoot={WorkspaceRoot}",
+            hireId,
+            workspaceRoot);
+    }
+
+    private async Task BackfillReusedSandboxWorkspaceRootAsync(string hireId, CancellationToken cancellationToken)
+    {
+        var sandbox = await dbContext.SandboxInstances
+            .FirstOrDefaultAsync(item => HireScopeTypeValues.Contains(item.ScopeType) && item.ScopeKey == hireId, cancellationToken);
+        if (sandbox is null)
+        {
+            logger.LogWarning(
+                "Cannot backfill hiring workspace root because sandbox was not found. HireId={HireId}",
+                hireId);
+            return;
+        }
+
+        if (sandbox.Metadata is not null &&
+            sandbox.Metadata.TryGetValue(SandboxMetaKeys.HiringWorkspaceRoot, out var existingWorkspaceRoot) &&
+            NormalizeWorkspaceRoot(existingWorkspaceRoot) is not null)
+        {
+            return;
+        }
+
+        var progress = await dbContext.HiringStageProgresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.HireId == hireId, cancellationToken);
+        var workspaceRoot = TryExtractWorkspaceRootFromPersistedFiles(DeserializeUploadedFiles(progress?.UploadedFilesJson));
+        if (workspaceRoot is null)
+        {
+            return;
+        }
+
+        sandbox.Metadata ??= new Dictionary<string, string>(StringComparer.Ordinal);
+        sandbox.Metadata[SandboxMetaKeys.HiringWorkspaceRoot] = workspaceRoot;
+        sandbox.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        dbContext.Entry(sandbox).Property(item => item.Metadata).IsModified = true;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Backfilled hiring workspace root for reused sandbox. HireId={HireId} WorkspaceRoot={WorkspaceRoot}",
             hireId,
             workspaceRoot);
     }
@@ -783,6 +826,32 @@ internal sealed class EmployeeHiringService(
         {
             if (material.Metadata is null ||
                 !material.Metadata.TryGetValue("workspaceDir", out var workspaceDir))
+            {
+                continue;
+            }
+
+            var normalized = NormalizeWorkspaceRoot(workspaceDir);
+            if (normalized is not null)
+            {
+                return normalized;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? TryExtractWorkspaceRootFromPersistedFiles(IReadOnlyList<PersistedChatFileDto>? files)
+    {
+        if (files is null || files.Count == 0)
+        {
+            return null;
+        }
+
+        for (var index = files.Count - 1; index >= 0; index--)
+        {
+            var file = files[index];
+            if (file.Metadata is null ||
+                !file.Metadata.TryGetValue("workspaceDir", out var workspaceDir))
             {
                 continue;
             }
@@ -1179,7 +1248,7 @@ internal sealed class EmployeeHiringService(
 
         // 查询关联的沙箱信息
         var sandbox = await dbContext.SandboxInstances.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ScopeType == "Hire" && x.ScopeKey == hireId, cancellationToken);
+            .FirstOrDefaultAsync(x => HireScopeTypeValues.Contains(x.ScopeType) && x.ScopeKey == hireId, cancellationToken);
 
         if (sandbox is null)
         {
