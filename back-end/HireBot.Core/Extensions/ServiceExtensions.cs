@@ -185,6 +185,7 @@ public static class ServiceExtensions
         var storageSettings = configuration
             .GetSection(StorageSettings.SectionName)
             .Get<StorageSettings>() ?? new();
+        ArtifactStoragePaths.ConfigureProjectRoot(storageSettings.ProjectRoot);
 
         switch (storageSettings.Provider)
         {

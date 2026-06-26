@@ -119,20 +119,9 @@ internal sealed class HiringArtifactPackageService(
             && !string.IsNullOrWhiteSpace(instance.FinalPackageId))
         {
             var tenantId = string.IsNullOrWhiteSpace(instance.TenantId) ? "default" : instance.TenantId;
-            // 优先读取新的扁平 .zip 路径，兼容旧的 package.zip 目录结构
-            var newPackagePath = ArtifactStoragePaths.BuildFinalPackagePath(tenantId, instance.HireId, instance.FinalPackageId);
-            var legacyPackagePath = $"artifact-store/{tenantId}/{instance.HireId}/{instance.FinalPackageId}/package.zip";
-            var wrongTenantOuterPackagePath = $"{tenantId}/artifact-store/hirings/{instance.HireId}/{instance.HireId}-{instance.FinalPackageId[..Math.Min(8, instance.FinalPackageId.Length)]}.zip";
+            var packagePath = ArtifactStoragePaths.BuildFinalPackagePath(tenantId, instance.HireId, instance.FinalPackageId);
 
-            var packagePath = await fileStore.ExistsAsync(newPackagePath, cancellationToken)
-                ? newPackagePath
-                : await fileStore.ExistsAsync(legacyPackagePath, cancellationToken)
-                    ? legacyPackagePath
-                    : await fileStore.ExistsAsync(wrongTenantOuterPackagePath, cancellationToken)
-                        ? wrongTenantOuterPackagePath
-                        : null;
-
-            if (packagePath is not null)
+            if (await fileStore.ExistsAsync(packagePath, cancellationToken))
             {
                 await using var stream = await fileStore.OpenReadAsync(packagePath, cancellationToken);
                 using var mem = new MemoryStream();
@@ -267,8 +256,8 @@ internal sealed class HiringArtifactPackageService(
         var sha256 = Convert.ToHexStringLower(SHA256.HashData(archive));
         var uploadedAtUtc = DateTimeOffset.UtcNow;
 
-        // 最终包使用扁平路径: artifact-store/{tenant}/hirings/{hireId}/{hireId}-{packageId前8}.zip
-        // 中间包使用 artifact-store/{tenant}/sessions/{sessionId}/{category}/package.zip
+        // 最终包使用扁平路径: {ProjectRoot}/{tenant}/hirings/{hireId}/{hireId}-{packageId前8}.zip
+        // 中间包使用 {ProjectRoot}/{tenant}/sessions/{sessionId}/{category}/package.zip
         await using var archiveStream = new MemoryStream(archive, writable: false);
         string storagePath;
         string effectiveLogicalPath;

@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Infrastructure.Multitenancy;
+using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -50,17 +51,6 @@ internal sealed class HiringTodoMcpTools(
         var tenantId = tenantContextProvider.GetTenantId() ?? dbContext.TenantId;
         var directoryPrefix = BuildTodoFilesDirectoryPrefix(tenantId, sessionId);
         var allEntries = await fileStore.ListAsync(directoryPrefix, cancellationToken);
-        if (allEntries.Count == 0)
-        {
-            directoryPrefix = BuildWrongTenantOuterTodoFilesDirectoryPrefix(tenantId, sessionId);
-            allEntries = await fileStore.ListAsync(directoryPrefix, cancellationToken);
-        }
-
-        if (allEntries.Count == 0)
-        {
-            directoryPrefix = BuildLegacyTodoFilesDirectoryPrefix(sessionId);
-            allEntries = await fileStore.ListAsync(directoryPrefix, cancellationToken);
-        }
 
         if (allEntries.Count == 0)
         {
@@ -162,17 +152,8 @@ internal sealed class HiringTodoMcpTools(
     private static string BuildTodoFilesDirectoryPrefix(string? tenantId, string sessionId)
     {
         var tenantSegment = string.IsNullOrWhiteSpace(tenantId) ? "tenant" : SanitizeSegment(tenantId);
-        return $"artifact-store/{tenantSegment}/resources/todo-files/{SanitizeSegment(sessionId)}";
+        return $"{ArtifactStoragePaths.ProjectRoot}/{tenantSegment}/resources/todo-files/{SanitizeSegment(sessionId)}";
     }
-
-    private static string BuildWrongTenantOuterTodoFilesDirectoryPrefix(string? tenantId, string sessionId)
-    {
-        var tenantSegment = string.IsNullOrWhiteSpace(tenantId) ? "tenant" : SanitizeSegment(tenantId);
-        return $"{tenantSegment}/resources/todo-files/{SanitizeSegment(sessionId)}";
-    }
-
-    private static string BuildLegacyTodoFilesDirectoryPrefix(string sessionId)
-        => $"resources/todo-files/{SanitizeSegment(sessionId)}";
 
     private static string SanitizeSegment(string value)
     {

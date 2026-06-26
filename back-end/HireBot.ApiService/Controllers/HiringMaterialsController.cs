@@ -73,7 +73,7 @@ public sealed class HiringMaterialsController(
 
         await using var stream2 = file.OpenReadStream();
         var storagePath = await fileStore.SaveAsync(
-            $"artifact-store/{ArtifactStoragePaths.Sanitize(session.TenantId)}/sessions/{ArtifactStoragePaths.Sanitize(session.SessionId)}/{category}/{safeFileName}",
+            $"{ArtifactStoragePaths.ProjectRoot}/{ArtifactStoragePaths.Sanitize(session.TenantId)}/sessions/{ArtifactStoragePaths.Sanitize(session.SessionId)}/{category}/{safeFileName}",
             stream2,
             cancellationToken);
 
