@@ -423,10 +423,21 @@ export function SkillCardBody({
           {t('hiring.todo.skill.currentStatus')}
         </div>
         <div className="hb-todo-skill-status-stack">
-          <div className="hb-todo-skill-status-card is-definition">
-            <div className="hb-todo-skill-status-row">
+          <div className="hb-todo-skill-status-grid">
+            <div className="hb-todo-skill-status-card">
               <span className="hb-todo-skill-status-label">{t('hiring.todo.skill.definitionStatus')}</span>
               <span className={clsx('hb-todo-skill-chip', definitionMeta.tone)}>{definitionMeta.label}</span>
+            </div>
+            <div className="hb-todo-skill-status-card">
+              <span className="hb-todo-skill-status-label">{t('hiring.todo.skill.implementationStatus')}</span>
+              <span className={clsx('hb-todo-skill-chip', implementationMeta.tone)}>{implementationMeta.label}</span>
+            </div>
+          </div>
+
+          <div className="hb-todo-skill-confirmed-block">
+            <div className="hb-todo-skill-confirmed-head">
+              <span>{hasConfirmedDefinedSkills ? '已确认技能' : '技能定义'}</span>
+              {hasConfirmedDefinedSkills ? <span>共 {definedSkills.length} 项</span> : null}
             </div>
             {hasConfirmedDefinedSkills ? (
               <ul className="hb-todo-skill-confirmed-list" aria-label="已确认技能定义">
@@ -441,12 +452,10 @@ export function SkillCardBody({
               <p className="hb-todo-skill-status-desc">等待用户确认技能清单后展示已定义技能。</p>
             )}
           </div>
-          <div className="hb-todo-skill-status-card">
-            <div className="hb-todo-skill-status-row">
-              <span className="hb-todo-skill-status-label">{t('hiring.todo.skill.implementationStatus')}</span>
-              <span className={clsx('hb-todo-skill-chip', implementationMeta.tone)}>{implementationMeta.label}</span>
-            </div>
-            <p className="hb-todo-skill-status-desc">{implementationMeta.description}</p>
+
+          <div className="hb-todo-skill-implementation-note">
+            <span className={clsx('hb-todo-skill-status-dot', implementationMeta.tone)} />
+            <span>{implementationMeta.description}</span>
           </div>
         </div>
       </section>
