@@ -75,6 +75,22 @@ public sealed class HiringsController(
         return StatusCode(response.Code, response);
     }
 
+    [HttpPost("{hireId}/external-config/mcp/test")]
+    public async Task<IActionResult> TestMcpConnectivity(
+        string hireId,
+        [FromBody] HiringMcpConnectivityTestRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var invalidResponse = BuildModelValidationError<HiringMcpConnectivityTestResultDto>();
+        if (invalidResponse is not null)
+        {
+            return invalidResponse;
+        }
+
+        var response = await employeeHiringService.TestMcpConnectivityAsync(hireId, request, cancellationToken);
+        return StatusCode(response.Code, response);
+    }
+
     [HttpGet("{hireId}/skill-link-config")]
     public async Task<IActionResult> GetSkillLinkConfig(string hireId, CancellationToken cancellationToken = default)
     {

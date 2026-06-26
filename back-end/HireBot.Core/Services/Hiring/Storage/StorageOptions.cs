@@ -8,6 +8,9 @@ public class StorageSettings
     /// <summary>存储提供程序，可选值见 <see cref="StorageProvider"/></summary>
     public string Provider { get; set; } = StorageProvider.FileSystem;
 
+    /// <summary>对象存储内的项目根目录前缀，目录结构为 {ProjectRoot}/{TenantId}/...</summary>
+    public string ProjectRoot { get; set; } = "goodcrew-hire";
+
     public TencentCosOptions TencentCos { get; set; } = new();
     public AliyunOssOptions AliyunOss { get; set; } = new();
     public MinioOptions Minio { get; set; } = new();

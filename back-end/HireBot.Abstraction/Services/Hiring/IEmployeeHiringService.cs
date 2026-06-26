@@ -12,6 +12,7 @@ public interface IEmployeeHiringService
     Task<ApiResponse<IReadOnlyList<HiringAuditLogDto>>> GetAuditLogsAsync(string hireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringExternalSystemConfigDto>> GetExternalSystemConfigAsync(string hireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringExternalSystemConfigDto>> SaveExternalSystemConfigAsync(string hireId, HiringExternalSystemConfigDto request, CancellationToken cancellationToken = default);
+    Task<ApiResponse<HiringMcpConnectivityTestResultDto>> TestMcpConnectivityAsync(string hireId, HiringMcpConnectivityTestRequestDto request, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringSkillLinkConfigDto>> GetSkillLinkConfigAsync(string hireId, CancellationToken cancellationToken = default);
     Task<ApiResponse<HiringSkillLinkConfigDto>> SaveSkillLinkConfigAsync(string hireId, HiringSkillLinkConfigDto request, CancellationToken cancellationToken = default);
     

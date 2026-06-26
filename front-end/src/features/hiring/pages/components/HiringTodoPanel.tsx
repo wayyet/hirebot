@@ -220,7 +220,6 @@ export function HiringTodoPanel({
                 hireId={hireId}
                 templateId={templateId}
                 templatePackageSkills={templatePackageSkills}
-                onAfterLink={summary => onAfterStageMessage?.(HiringCollectionStage.Skill, summary, 'collecting')}
                 onLinkedIdsChange={onLinkedSkillIdsChange}
                 definitionStageStatus={skillDefinitionStageStatus}
                 skillGenerationState={skillGenerationState}
@@ -346,12 +345,24 @@ function FinalCard({
             {t('hiring.todo.final.hint')}
           </p>
           <div className="hb-todo-actions-row">
-            <button type="button"
-              className={clsx('hb-todo-row-btn', canGenerate && !generated ? 'is-primary' : 'is-ghost')}
-              disabled={!canGenerate || generated}
-              onClick={onGenerate}>
-              {generated ? t('hiring.todo.final.generatedBtn') : t('hiring.todo.final.generateBtn')}
-            </button>
+            {!generated && (
+              <button type="button"
+                className={clsx('hb-todo-row-btn', canGenerate ? 'is-primary' : 'is-ghost')}
+                disabled={!canGenerate}
+                onClick={onGenerate}>
+                {t('hiring.todo.final.generateBtn')}
+              </button>
+            )}
+            {generated && onEnterEvaluation && (
+              <button
+                type="button"
+                className="hb-todo-row-btn is-primary"
+                onClick={onEnterEvaluation}
+              >
+                <ArrowRight size={14} strokeWidth={2.2} />
+                {t('hiring.todo.final.enterEvaluationBtn')}
+              </button>
+            )}
             {generated && canDownload && onDownload && (
               <button
                 type="button"
@@ -374,16 +385,6 @@ function FinalCard({
               </ul>
             </div>
           ) : null}
-          {(generated || packageStructure) && onEnterEvaluation && (
-            <button
-              type="button"
-              className="hb-todo-row-btn is-primary"
-              onClick={onEnterEvaluation}
-            >
-              <ArrowRight size={14} strokeWidth={2.2} />
-              {t('hiring.todo.final.enterEvaluationBtn')}
-            </button>
-          )}
         </div>
       )}
     </div>

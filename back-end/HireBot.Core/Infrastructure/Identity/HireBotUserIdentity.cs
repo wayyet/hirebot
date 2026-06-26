@@ -17,33 +17,34 @@ public sealed class HireBotUserIdentity(IHttpContextAccessor httpContextAccessor
 
     [JsonPropertyName("id")]
     public string Id =>
-        Claims.FirstOrDefault(x => x.Type == "sub")?.Value ??
-        Claims.FirstOrDefault(x => x.Type == ClaimTypes.NameIdentifier)?.Value ??
+        Claim("sub") ??
+        Claim(ClaimTypes.NameIdentifier) ??
         string.Empty;
 
     [JsonPropertyName("email")]
     public string Email =>
-        Claims.FirstOrDefault(x => x.Type == "email")?.Value ??
-        Claims.FirstOrDefault(x => x.Type == ClaimTypes.Email)?.Value ??
+        Claim("email") ??
+        Claim(ClaimTypes.Email) ??
         string.Empty;
 
     [JsonPropertyName("user_name")]
     public string UserName =>
-        Claims.FirstOrDefault(x => x.Type == "preferred_username")?.Value ??
-        Claims.FirstOrDefault(x => x.Type == ClaimTypes.Name)?.Value ??
-        Claims.FirstOrDefault(x => x.Type == "name")?.Value ??
+        Claim("preferred_username") ??
+        Claim("username") ??
+        Claim(ClaimTypes.Name) ??
+        Claim("name") ??
         Id;
 
     [JsonPropertyName("first_name")]
     public string FirstName =>
-        Claims.FirstOrDefault(x => x.Type == "given_name")?.Value ??
-        Claims.FirstOrDefault(x => x.Type == ClaimTypes.GivenName)?.Value ??
+        Claim("given_name") ??
+        Claim(ClaimTypes.GivenName) ??
         UserName;
 
     [JsonPropertyName("last_name")]
     public string LastName =>
-        Claims.FirstOrDefault(x => x.Type == "family_name")?.Value ??
-        Claims.FirstOrDefault(x => x.Type == ClaimTypes.Surname)?.Value ??
+        Claim("family_name") ??
+        Claim(ClaimTypes.Surname) ??
         string.Empty;
 
     [JsonPropertyName("full_name")]
@@ -51,7 +52,7 @@ public sealed class HireBotUserIdentity(IHttpContextAccessor httpContextAccessor
     {
         get
         {
-            var fullName = Claims.FirstOrDefault(x => x.Type == "name")?.Value;
+            var fullName = Claim("name");
             if (!string.IsNullOrWhiteSpace(fullName))
             {
                 return fullName;
@@ -64,7 +65,8 @@ public sealed class HireBotUserIdentity(IHttpContextAccessor httpContextAccessor
 
     [JsonPropertyName("display_name")]
     public string DisplayName =>
-        Claims.FirstOrDefault(x => x.Type == "name")?.Value ??
+        Claim("display_name") ??
+        Claim("name") ??
         FullName;
 
     [JsonPropertyName("tenant_id")]
@@ -72,81 +74,32 @@ public sealed class HireBotUserIdentity(IHttpContextAccessor httpContextAccessor
     {
         get
         {
-            // 优先从标准 tenant claims 读取
-            var tenantId = Claims.FirstOrDefault(x => x.Type == "tenant_id")?.Value ??
-                          Claims.FirstOrDefault(x => x.Type == "tid")?.Value ??
-                          Claims.FirstOrDefault(x => x.Type == "tenant")?.Value;
+            var tenantId = Claim("tenant_id", "tid", "tenant");
 
             if (!string.IsNullOrWhiteSpace(tenantId))
             {
                 return tenantId;
             }
 
-            // 尝试从 organization claim 解析（兼容多种格式）
-            var organizationClaim = Claims.FirstOrDefault(x => x.Type == "organization")?.Value;
-            if (!string.IsNullOrWhiteSpace(organizationClaim))
+            var organizationTenantId = TryReadOrganizationTenantId();
+            if (!string.IsNullOrWhiteSpace(organizationTenantId))
             {
-                try
-                {
-                    using var document = JsonDocument.Parse(organizationClaim);
-                    // 查找第一个包含 id 属性的对象
-                    foreach (var property in document.RootElement.EnumerateObject())
-                    {
-                        if (property.Value.ValueKind == JsonValueKind.Object &&
-                            property.Value.TryGetProperty("id", out var id))
-                        {
-                            return id.GetString();
-                        }
-                    }
-                }
-                catch
-                {
-                    // 解析失败，继续使用 fallback
-                }
+                return organizationTenantId;
             }
 
-            // 尝试从 GroupSid 读取（某些 SSO 配置）
-            tenantId = Claims.FirstOrDefault(x => x.Type == ClaimTypes.GroupSid)?.Value;
+            tenantId = Claim(ClaimTypes.GroupSid);
             return string.IsNullOrWhiteSpace(tenantId) ? null : tenantId;
         }
     }
 
     [JsonPropertyName("tenant_name")]
-    public string? TenantName
-    {
-        get
-        {
-            // 尝试从 organization claim 解析
-            var organizationClaim = Claims.FirstOrDefault(x => x.Type == "organization")?.Value;
-            if (!string.IsNullOrWhiteSpace(organizationClaim))
-            {
-                try
-                {
-                    using var document = JsonDocument.Parse(organizationClaim);
-                    // 查找第一个包含 id 属性的对象，property.Name 就是租户名称
-                    foreach (var property in document.RootElement.EnumerateObject())
-                    {
-                        if (property.Value.ValueKind == JsonValueKind.Object &&
-                            property.Value.TryGetProperty("id", out _))
-                        {
-                            return property.Name;
-                        }
-                    }
-                }
-                catch
-                {
-                    // 解析失败
-                }
-            }
-
-            // fallback: 使用 tenant_name claim
-            return Claims.FirstOrDefault(x => x.Type == "tenant_name")?.Value;
-        }
-    }
+    public string? TenantName =>
+        TryReadOrganizationTenantName() ??
+        Claim("tenant_name");
 
     [JsonPropertyName("operator_id")]
     public string OperatorId =>
-        Claims.FirstOrDefault(x => x.Type == "operator_id")?.Value ??
+        Claim("operator_id") ??
         UserName;
 
     [JsonPropertyName("owner_subject")]
@@ -168,10 +121,7 @@ public sealed class HireBotUserIdentity(IHttpContextAccessor httpContextAccessor
                 return ownerHeader.Trim();
             }
 
-            // 最终 fallback: TenantId:OperatorId
-            var tenantId = TenantId ?? "tenant-default";
-            var operatorId = OperatorId;
-            return $"{tenantId}:{operatorId}";
+            return OperatorId;
         }
     }
 
@@ -202,6 +152,75 @@ public sealed class HireBotUserIdentity(IHttpContextAccessor httpContextAccessor
 
     [JsonPropertyName("department_id")]
     public string? DepartmentId =>
-        Claims.FirstOrDefault(x => x.Type == "department_id")?.Value ??
-        Claims.FirstOrDefault(x => x.Type == "dept_id")?.Value;
+        Claim("department_id", "dept_id");
+
+    private string? Claim(params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var value = Claims.FirstOrDefault(x => x.Type == name)?.Value?.Trim();
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private string? TryReadOrganizationTenantId()
+    {
+        var organizationClaim = Claim("organization");
+        if (string.IsNullOrWhiteSpace(organizationClaim))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(organizationClaim);
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind == JsonValueKind.Object &&
+                    property.Value.TryGetProperty("id", out var id))
+                {
+                    return id.GetString();
+                }
+            }
+        }
+        catch
+        {
+            // 忽略格式异常，继续使用其他租户 claim。
+        }
+
+        return null;
+    }
+
+    private string? TryReadOrganizationTenantName()
+    {
+        var organizationClaim = Claim("organization");
+        if (string.IsNullOrWhiteSpace(organizationClaim))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(organizationClaim);
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind == JsonValueKind.Object &&
+                    property.Value.TryGetProperty("id", out _))
+                {
+                    return property.Name;
+                }
+            }
+        }
+        catch
+        {
+            // 忽略格式异常，继续使用 tenant_name claim。
+        }
+
+        return null;
+    }
 }

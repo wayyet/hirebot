@@ -37,34 +37,6 @@ internal sealed partial class EvaluationService
     private const string DefaultEvaluationConsumerDriverId = "ws_jwt";
     private const string DefaultEvaluationConsumerSimulatorId = "customer_realistic";
 
-    private string? ResolvePhysicalAssetPath(string relativePath)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath))
-        {
-            return null;
-        }
-
-        var normalizedRelative = relativePath
-            .Trim()
-            .Replace('\\', '/')
-            .TrimStart('/');
-        if (normalizedRelative.StartsWith("resources/", StringComparison.OrdinalIgnoreCase))
-        {
-            normalizedRelative = normalizedRelative["resources/".Length..];
-        }
-
-        var candidate = Path.GetFullPath(Path.Combine(
-            evaluationResourceRoot,
-            normalizedRelative.Replace('/', Path.DirectorySeparatorChar)));
-        var normalizedRoot = EnsureTrailingDirectorySeparator(Path.GetFullPath(evaluationResourceRoot));
-        if (!candidate.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        return candidate;
-    }
-
     private static EvaluationReadinessDto BuildReadiness(bool testcaseReady, bool ontologyReady)
     {
         if (testcaseReady && ontologyReady)

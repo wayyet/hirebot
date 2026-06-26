@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using HireBot.Abstraction;
+using HireBot.Core.Services.Internal;
 using Microsoft.Extensions.Logging;
 
 namespace HireBot.Core.Services.Evaluation.Persistence;
@@ -10,6 +11,7 @@ internal sealed class EvaluationAssetStore(
     ILogger<EvaluationAssetStore> logger) : IEvaluationAssetStore
 {
     public async Task<StoredEvaluationAsset> SaveTextAsync(
+        string tenantId,
         string sessionId,
         int iteration,
         string assetType,
@@ -20,6 +22,7 @@ internal sealed class EvaluationAssetStore(
     {
         var bytes = Encoding.UTF8.GetBytes(content ?? string.Empty);
         return await SaveBytesAsync(
+            tenantId,
             sessionId,
             iteration,
             assetType,
@@ -30,6 +33,7 @@ internal sealed class EvaluationAssetStore(
     }
 
     public async Task<StoredEvaluationAsset> SaveBytesAsync(
+        string tenantId,
         string sessionId,
         int iteration,
         string assetType,
@@ -43,7 +47,12 @@ internal sealed class EvaluationAssetStore(
         var safeFileName = BuildSafeFileName(fileName);
         var versionedFileName = $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}_{safeFileName}";
 
-        var virtualPath = $"resources/evaluation/{safeSessionId}/iter-{Math.Max(1, iteration):D2}/{safeAssetType}/{versionedFileName}";
+        var virtualPath = ArtifactStoragePaths.BuildEvaluationResourcePath(
+            tenantId,
+            safeSessionId,
+            iteration,
+            safeAssetType,
+            versionedFileName);
 
         using var stream = new MemoryStream(content);
         var storagePath = await fileStore.SaveAsync(virtualPath, stream, cancellationToken);

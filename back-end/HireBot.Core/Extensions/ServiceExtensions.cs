@@ -42,6 +42,7 @@ public static class ServiceExtensions
     private const string FeishuClientName = "Feishu";
     private const string DingTalkClientName = "DingTalk";
     private const string WeComClientName = "WeCom";
+    private const int HiringMcpConnectivityTimeoutSeconds = 8;
 
     public static IServiceCollection AddHireBotServices(this IServiceCollection services, IConfiguration configuration)
     {
@@ -151,6 +152,11 @@ public static class ServiceExtensions
                 "WeCom:BaseUrl",
                 "WeCom:HttpTimeoutSeconds");
         });
+
+        services.AddHttpClient(HiringMcpConnectivityTester.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(HiringMcpConnectivityTimeoutSeconds);
+        });
     }
 
     private static void AddProviders(IServiceCollection services, IConfiguration configuration)
@@ -179,6 +185,7 @@ public static class ServiceExtensions
         var storageSettings = configuration
             .GetSection(StorageSettings.SectionName)
             .Get<StorageSettings>() ?? new();
+        ArtifactStoragePaths.ConfigureProjectRoot(storageSettings.ProjectRoot);
 
         switch (storageSettings.Provider)
         {
@@ -219,6 +226,7 @@ public static class ServiceExtensions
         services.AddScoped<ITemplateSkillRecommendationService, TemplateSkillRecommendationService>();
         services.AddScoped<IEmployeeHiringService, EmployeeHiringService>();
         services.AddScoped<IStoreSkillPackageDownloader, StoreSkillPackageDownloader>();
+        services.AddScoped<IHiringMcpConnectivityTester, HiringMcpConnectivityTester>();
         services.AddScoped<IInstanceArtifactCloneService, InstanceArtifactCloneService>();
         services.AddScoped<IInstanceArtifactResolver, InstanceArtifactResolver>();
       

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using HireBot.Abstraction;
 using HireBot.Abstraction.Models.Hiring;
+using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.AspNetCore.Mvc;
@@ -48,13 +49,21 @@ public sealed class HiringMaterialsController(
             return NotFound(ApiResponse<HiringConversationMaterialDto>.ErrorResponse(404, "雇佣会话不存在"));
         }
 
+        if (string.IsNullOrWhiteSpace(session.TenantId))
+        {
+            return StatusCode(StatusCodes.Status409Conflict,
+                ApiResponse<HiringConversationMaterialDto>.ErrorResponse(409, "雇佣会话缺少租户信息，无法保存资料"));
+        }
+
         var form = await Request.ReadFormAsync(cancellationToken);
         var type = form.TryGetValue("type", out var typeValue) && !string.IsNullOrWhiteSpace(typeValue)
             ? typeValue.ToString().Trim()
             : "file";
 
         var originalName = string.IsNullOrWhiteSpace(file.FileName) ? "upload.bin" : Path.GetFileName(file.FileName);
-        var category = $"materials/{type}";
+        var safeType = ArtifactStoragePaths.Sanitize(type);
+        var safeFileName = ArtifactStoragePaths.Sanitize(originalName);
+        var category = $"materials/{safeType}";
 
         string sha256;
         await using (var stream = file.OpenReadStream())
@@ -64,16 +73,17 @@ public sealed class HiringMaterialsController(
 
         await using var stream2 = file.OpenReadStream();
         var storagePath = await fileStore.SaveAsync(
-            $"artifact-store/sessions/{session.SessionId}/{category}/{originalName}",
+            $"{ArtifactStoragePaths.ProjectRoot}/{ArtifactStoragePaths.Sanitize(session.TenantId)}/sessions/{ArtifactStoragePaths.Sanitize(session.SessionId)}/{category}/{safeFileName}",
             stream2,
             cancellationToken);
 
         dbContext.HiringArtifacts.Add(new HiringArtifactEntity
         {
             SessionId = session.SessionId,
+            TenantId = session.TenantId,
             Kind = "intermediate",
-            LogicalPath = $"{category}/{originalName}",
-            FileName = originalName,
+            LogicalPath = $"{category}/{safeFileName}",
+            FileName = safeFileName,
             SizeBytes = file.Length,
             Sha256 = sha256,
             StoragePath = storagePath,
@@ -91,6 +101,7 @@ public sealed class HiringMaterialsController(
         dbContext.HiringAuditLogs.Add(new HiringAuditLogEntity
         {
             SessionId = session.SessionId,
+            TenantId = session.TenantId,
             HireId = session.HireId,
             Action = "upload_material",
             Actor = session.OwnerSubject,
@@ -106,7 +117,7 @@ public sealed class HiringMaterialsController(
         var material = new HiringConversationMaterialDto
         {
             Type = type,
-            Name = originalName,
+            Name = safeFileName,
             Content = null,
             ContentHash = sha256,
             Size = file.Length,

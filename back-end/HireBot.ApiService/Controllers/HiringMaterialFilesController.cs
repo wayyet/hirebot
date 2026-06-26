@@ -7,6 +7,7 @@ using HireBot.Abstraction.Models.Sandbox;
 using HireBot.Abstraction.Services.Sandbox;
 using HireBot.ApiService.McpTools;
 using HireBot.ApiService.Services;
+using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using HireBot.Repository.Entities;
 using Microsoft.AspNetCore.Mvc;
@@ -31,6 +32,7 @@ public sealed class HiringMaterialFilesController(
     private const long MaxUploadBytes = 50_000_000;
     private const int WorkspaceSyncMaxAttempts = 3;
     private const string HiringSandboxRole = "hiring";
+    private static readonly string[] HireScopeTypeValues = ["Hire", SandboxScopeTypes.Hire];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -173,7 +175,7 @@ public sealed class HiringMaterialFilesController(
         var relativePath = string.IsNullOrWhiteSpace(safeFolder)
             ? safeFileName
             : $"{safeFolder}/{safeFileName}";
-        var virtualPath = $"resources/todo-files/{uploadContext.SessionId}/{relativePath}";
+        var virtualPath = BuildTodoFileVirtualPath(uploadContext.TenantId, uploadContext.SessionId, relativePath);
 
         // 先将文件内容读取到内存，计算 SHA256 哈希
         var sha256 = string.Empty;
@@ -348,7 +350,7 @@ public sealed class HiringMaterialFilesController(
 
         var sandbox = await dbContext.SandboxInstances
             .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.ScopeType == "Hire" && s.ScopeKey == normalizedHireId, cancellationToken);
+            .FirstOrDefaultAsync(s => HireScopeTypeValues.Contains(s.ScopeType) && s.ScopeKey == normalizedHireId, cancellationToken);
         var workspaceRoot = TryResolveWorkspaceRoot(sandbox?.Metadata) ??
             TryResolveWorkspaceRoot(progress?.UploadedFilesJson);
 
@@ -476,7 +478,7 @@ public sealed class HiringMaterialFilesController(
             var companionRelativePath = string.IsNullOrWhiteSpace(safeFolder)
                 ? companionFileName
                 : $"{safeFolder}/{companionFileName}";
-            var companionVirtualPath = $"resources/todo-files/{uploadContext.SessionId}/{companionRelativePath}";
+            var companionVirtualPath = BuildTodoFileVirtualPath(uploadContext.TenantId, uploadContext.SessionId, companionRelativePath);
             using (var companionStream = new MemoryStream(companionContent))
             {
                 await fileStore.SaveAsync(companionVirtualPath, companionStream, cancellationToken);
@@ -669,6 +671,9 @@ public sealed class HiringMaterialFilesController(
 
     private static string BuildWorkspaceRelativePath(string relativePath)
         => $"uploads/materials/{relativePath.Replace('\\', '/').Trim('/')}";
+
+    private static string BuildTodoFileVirtualPath(string tenantId, string sessionId, string relativePath)
+        => ArtifactStoragePaths.BuildTodoFilePath(tenantId, sessionId, relativePath);
 
     private static string BuildWorkspaceTargetDir(string workspaceRootDir, string safeFolder)
     {

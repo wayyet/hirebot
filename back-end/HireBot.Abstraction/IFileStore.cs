@@ -14,7 +14,7 @@ public interface IFileStore
     /// <summary>
     /// 保存文件流到指定虚拟路径，返回存储路径（不透明 key，可用于后续 OpenRead / Exists / Delete）。
     /// </summary>
-    /// <param name="path">虚拟路径，例如 "resources/todo-files/{sessionId}/{file}" 或 "artifact-store/sessions/{sessionId}/{category}/{file}"。</param>
+    /// <param name="path">虚拟路径，例如 "{ProjectRoot}/{tenantId}/resources/todo-files/{sessionId}/{file}" 或 "{ProjectRoot}/{tenantId}/sessions/{sessionId}/{category}/{file}"。</param>
     /// <param name="content">文件内容流。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>存储路径（不透明 key），可用于后续操作。</returns>

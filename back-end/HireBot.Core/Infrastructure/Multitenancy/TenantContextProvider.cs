@@ -29,7 +29,7 @@ public class TenantContextProvider : ITenantContextProvider
 
     /// <summary>
     /// 获取当前租户ID
-    /// 三级优先级：1) 手动设置 2) JWT Claims 3) 默认值
+    /// 三级优先级：1) 手动设置 2) 用户身份 3) JWT Claims
     /// </summary>
     public string? GetTenantId()
     {
@@ -41,7 +41,7 @@ public class TenantContextProvider : ITenantContextProvider
             return manualTenantId;
         }
 
-        // 2. 尝试从 HTTP 上下文的 JWT Claims 获取
+        // 2. 尝试从用户身份上下文获取
         try
         {
             if (!string.IsNullOrWhiteSpace(_userIdentity.TenantId))
@@ -53,20 +53,14 @@ public class TenantContextProvider : ITenantContextProvider
             var httpContext = _httpContextAccessor.HttpContext;
             if (httpContext?.User?.Identity?.IsAuthenticated == true)
             {
-                // 从 JWT Claims 中获取 tenant_id
-                var tenantClaim = httpContext.User.FindFirst("tenant_id") 
-                    ?? httpContext.User.FindFirst("tid")  // 备用 claim 名称
-                    ?? httpContext.User.FindFirst(ClaimTypes.GroupSid);  // 另一个备用
+                var tenantId = GetTenantIdFromClaims(httpContext.User);
+                if (!string.IsNullOrWhiteSpace(tenantId))
+                {
+                    _logger.LogDebug("从 JWT Claims 获取租户ID: {TenantId}", tenantId);
+                    return tenantId;
+                }
 
-                if (tenantClaim != null && !string.IsNullOrWhiteSpace(tenantClaim.Value))
-                {
-                    _logger.LogDebug("从 JWT Claims 获取租户ID: {TenantId}", tenantClaim.Value);
-                    return tenantClaim.Value;
-                }
-                else
-                {
-                    _logger.LogWarning("用户已认证但无法从 JWT Claims 获取租户ID");
-                }
+                _logger.LogWarning("用户已认证但无法从 JWT Claims 获取租户ID");
             }
         }
         catch (Exception ex)
@@ -75,9 +69,8 @@ public class TenantContextProvider : ITenantContextProvider
             _logger.LogWarning(ex, "从 HTTP 上下文获取租户ID时发生异常");
         }
 
-        // 3. 返回默认值（null 或 "default"）
-        _logger.LogDebug("使用默认租户ID: default");
-        return "default";  // 可以根据需求改为 null
+        _logger.LogDebug("当前上下文没有可用租户ID");
+        return null;
     }
 
     /// <summary>
@@ -120,11 +113,7 @@ public class TenantContextProvider : ITenantContextProvider
             var httpContext = _httpContextAccessor.HttpContext;
             if (httpContext?.User?.Identity?.IsAuthenticated == true)
             {
-                var tenantClaim = httpContext.User.FindFirst("tenant_id") 
-                    ?? httpContext.User.FindFirst("tid")
-                    ?? httpContext.User.FindFirst(ClaimTypes.GroupSid);
-
-                if (tenantClaim != null && !string.IsNullOrWhiteSpace(tenantClaim.Value))
+                if (!string.IsNullOrWhiteSpace(GetTenantIdFromClaims(httpContext.User)))
                 {
                     return TenantIdSource.JwtClaims;
                 }
@@ -137,5 +126,15 @@ public class TenantContextProvider : ITenantContextProvider
 
         // 默认值
         return TenantIdSource.Default;
+    }
+
+    private static string? GetTenantIdFromClaims(ClaimsPrincipal user)
+    {
+        var tenantId = user.FindFirst("tenant_id")?.Value
+            ?? user.FindFirst("tid")?.Value
+            ?? user.FindFirst("tenant")?.Value
+            ?? user.FindFirst(ClaimTypes.GroupSid)?.Value;
+
+        return string.IsNullOrWhiteSpace(tenantId) ? null : tenantId.Trim();
     }
 }

@@ -15,6 +15,59 @@ describe('normalizeAssistantReply', () => {
     expect(normalizeAssistantReply(content)).toBe('')
   })
 
+  it('hides a leaked downstream trigger prompt that starts from the skill switch line', () => {
+    const content = [
+      'Switch to skill `skill-generation` now. source_skill: employment-coach-conversation trigger_reason: user_confirmed_skill_generation',
+      'Use the payload below exactly as the trigger input for this run. Follow `skill-generation/SKILL.md` exactly.',
+    ].join('\n')
+
+    expect(normalizeAssistantReply(content)).toBe('')
+  })
+
+  it('hides a leaked downstream trigger payload when Markdown code markers are stripped', () => {
+    const content = [
+      'Switch to skill skill-generation now. source_skill: employment-coach-conversation trigger_reason: user_confirmed_skill_generation',
+      'Use the payload below exactly as the trigger input for this run. Follow skill-generation/SKILL.md exactly.',
+      'required_artifacts:',
+      'skill_generation_progress',
+      'skill_generation_done return_to: employment-coach-conversation',
+      'artifact_payload:',
+      '{',
+      '  "trigger_mode": "skill_generation",',
+      '  "workspace_root": "/workspace/template-20260625153339"',
+      '}',
+    ].join('\n')
+
+    expect(normalizeAssistantReply(content)).toBe('')
+  })
+
+  it('removes leaked downstream payload markers when the skill switch line is missing', () => {
+    const content = [
+      '技能实现生成已启动。',
+      'required_artifacts:',
+      'skill_generation_progress',
+      'skill_generation_done return_to: employment-coach-conversation',
+      'artifact_payload:',
+      '{',
+      '  "trigger_mode": "skill_generation"',
+      '}',
+    ].join('\n')
+
+    expect(normalizeAssistantReply(content)).toBe('技能实现生成已启动。')
+  })
+
+  it('hides a leaked artifact payload that starts at the payload marker', () => {
+    const content = [
+      'artifact_payload:',
+      '{',
+      '  "trigger_mode": "skill_generation",',
+      '  "workspace_root": "/workspace/template-20260625153339"',
+      '}',
+    ].join('\n')
+
+    expect(normalizeAssistantReply(content)).toBe('')
+  })
+
   it('移除 dispatch_callback 技术标签并保留用户可见摘要', () => {
     const content = [
       '评估测试用例已生成',
@@ -65,6 +118,38 @@ describe('normalizeAssistantStreamingPreview', () => {
       workspace_root: '/workspace/template-20260611202657',
       skills: [{ skill_slug: 'live-insertion-feasibility-assessment' }],
     })
+
+    expect(normalizeAssistantStreamingPreview(content)).toBe('')
+  })
+
+  it('hides a streaming preview that starts from the skill switch line', () => {
+    const content = [
+      'Switch to skill `skill-generation` now.',
+      'source_skill: employment-coach-conversation',
+      'trigger_reason: user_confirmed_skill_generation',
+    ].join('\n')
+
+    expect(normalizeAssistantStreamingPreview(content)).toBe('')
+  })
+
+  it('hides a streaming preview without Markdown code markers around the skill name', () => {
+    const content = [
+      'Switch to skill skill-generation now.',
+      'source_skill: employment-coach-conversation',
+      'trigger_reason: user_confirmed_skill_generation',
+      'artifact_payload:',
+    ].join('\n')
+
+    expect(normalizeAssistantStreamingPreview(content)).toBe('')
+  })
+
+  it('hides a streaming preview that starts from downstream payload markers', () => {
+    const content = [
+      'required_artifacts:',
+      'skill_generation_progress',
+      'skill_generation_done return_to: employment-coach-conversation',
+      'artifact_payload:',
+    ].join('\n')
 
     expect(normalizeAssistantStreamingPreview(content)).toBe('')
   })

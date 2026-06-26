@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using HireBot.Abstraction;
+using HireBot.Abstraction.Infrastructure.Multitenancy;
+using HireBot.Core.Services.Internal;
 using HireBot.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -15,6 +17,7 @@ namespace HireBot.ApiService.McpTools;
 internal sealed class HiringTodoMcpTools(
     IFileStore fileStore,
     HireBotDbContext dbContext,
+    ITenantContextProvider tenantContextProvider,
     ILogger<HiringTodoMcpTools> logger)
 {
     public const string TodoFilesSubdir = "todo-files";
@@ -45,8 +48,10 @@ internal sealed class HiringTodoMcpTools(
         int maxBytes = 200_000,
         CancellationToken cancellationToken = default)
     {
-        var directoryPrefix = $"resources/todo-files/{SanitizeSegment(sessionId)}";
+        var tenantId = tenantContextProvider.GetTenantId() ?? dbContext.TenantId;
+        var directoryPrefix = BuildTodoFilesDirectoryPrefix(tenantId, sessionId);
         var allEntries = await fileStore.ListAsync(directoryPrefix, cancellationToken);
+
         if (allEntries.Count == 0)
         {
             return JsonSerializer.Serialize(new
@@ -83,7 +88,7 @@ internal sealed class HiringTodoMcpTools(
                 continue;
             }
 
-            var relative = ExtractRelativePath(entry.Path, sessionId);
+            var relative = ExtractRelativePath(entry.Path, directoryPrefix);
             var metadata = fileMetadata.GetValueOrDefault(relative);
             var format = ext.TrimStart('.').ToLowerInvariant();
 
@@ -136,12 +141,18 @@ internal sealed class HiringTodoMcpTools(
         }, JsonSerializerOptions.Web);
     }
 
-    private static string ExtractRelativePath(string virtualPath, string sessionId)
+    private static string ExtractRelativePath(string virtualPath, string directoryPrefix)
     {
-        var prefix = $"resources/todo-files/{SanitizeSegment(sessionId)}/";
+        var prefix = directoryPrefix.TrimEnd('/') + "/";
         return virtualPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             ? virtualPath[prefix.Length..]
             : virtualPath;
+    }
+
+    private static string BuildTodoFilesDirectoryPrefix(string? tenantId, string sessionId)
+    {
+        var tenantSegment = string.IsNullOrWhiteSpace(tenantId) ? "tenant" : SanitizeSegment(tenantId);
+        return $"{ArtifactStoragePaths.ProjectRoot}/{tenantSegment}/resources/todo-files/{SanitizeSegment(sessionId)}";
     }
 
     private static string SanitizeSegment(string value)

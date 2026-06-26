@@ -7,6 +7,7 @@ type ExternalConfigCommittedPayload = {
   submissionMode: string
   updatedAtUtc: string | null
   cliTools: HiringExternalSystemConfig['cliTools']
+  mcpServers: NonNullable<HiringExternalSystemConfig['mcpServers']>
   mcpServer: HiringExternalSystemConfig['mcpServer'] | null
 }
 
@@ -23,6 +24,7 @@ export function buildExternalConfigCommittedPayload(
     submissionMode: config.submissionMode ?? 'pending',
     updatedAtUtc: config.updatedAtUtc ?? null,
     cliTools: config.cliTools,
+    mcpServers: config.mcpServers ?? [],
     mcpServer: config.mcpServer ?? null,
   }
 }
@@ -38,6 +40,9 @@ function normalizeExternalConfigCommittedPayload(data: unknown): ExternalConfigC
     updatedAtUtc: typeof record.updatedAtUtc === 'string' ? record.updatedAtUtc : null,
     cliTools: Array.isArray(record.cliTools)
       ? record.cliTools as HiringExternalSystemConfig['cliTools']
+      : [],
+    mcpServers: Array.isArray(record.mcpServers)
+      ? record.mcpServers as NonNullable<HiringExternalSystemConfig['mcpServers']>
       : [],
     mcpServer: asRecord(record.mcpServer) as HiringExternalSystemConfig['mcpServer'] | null,
   }

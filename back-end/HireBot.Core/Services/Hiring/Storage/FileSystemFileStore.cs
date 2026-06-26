@@ -1,4 +1,5 @@
 using HireBot.Abstraction;
+using HireBot.Core.Services.Internal;
 
 namespace HireBot.Core.Services.Hiring.Storage;
 
@@ -108,6 +109,11 @@ public sealed class FileSystemFileStore : IFileStore
     {
         // 本地文件系统返回 web 相对路径，由 PhysicalFileProvider 映射提供访问
         var normalized = path.Trim().Replace('\\', '/').TrimStart('/');
+        if (normalized.StartsWith(ArtifactStoragePaths.ProjectRoot + "/", StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.FromResult($"/resources/{normalized}");
+        }
+
         return Task.FromResult($"/{normalized}");
     }
 

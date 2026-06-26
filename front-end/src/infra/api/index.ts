@@ -67,6 +67,7 @@ export type {
   HiringCliToolConfig,
   HiringMcpServerConfig,
   HiringExternalSystemConfig,
+  HiringMcpConnectivityTestResult,
   HiringConversationMaterial,
   HiringMaterialFile,
   StartHiringConversationResult,
