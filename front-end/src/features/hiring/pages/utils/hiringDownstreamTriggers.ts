@@ -64,6 +64,13 @@ export interface ExternalSystemEntryRouteInput {
   externalSystemEntryState: DownstreamRunState | null
 }
 
+export interface SkillDefinitionConfirmationScope {
+  confirmedSkillSlugs: string[]
+  confirmedItems: Record<string, unknown>[]
+  draftItemCount: number
+  selectionMode: 'all' | 'selected' | 'excluded'
+}
+
 function isWaitingArtifact(
   run: DownstreamRunState | null,
   artifactType: string,
@@ -106,6 +113,32 @@ function extractSkillWorkorderItems(summary: unknown): Record<string, unknown>[]
     .filter((item): item is Record<string, unknown> => item !== null)
 }
 
+function normalizeSelectionText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+}
+
+function readSkillDisplayName(item: Record<string, unknown>): string {
+  const candidates = [
+    item.display_name,
+    item.displayName,
+    item.skill_name,
+    item.skillName,
+    item.title,
+    item.name,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue
+    const text = candidate.trim()
+    if (text) return text
+  }
+
+  return ''
+}
+
 function isSkillSlug(value: string): boolean {
   return /^[a-z0-9][a-z0-9_-]*$/.test(value)
 }
@@ -127,6 +160,174 @@ function readSkillSlug(item: Record<string, unknown>): string {
   }
 
   return ''
+}
+
+function parseChineseSelectionNumber(value: string): number | null {
+  const normalized = value.trim()
+  if (/^\d+$/.test(normalized)) {
+    const number = Number(normalized)
+    return Number.isFinite(number) ? number : null
+  }
+
+  const digitMap: Record<string, number> = {
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  }
+
+  if (normalized === '十') return 10
+  if (normalized.startsWith('十')) {
+    const ones = digitMap[normalized.slice(1)] ?? 0
+    return 10 + ones
+  }
+  if (normalized.endsWith('十')) {
+    const tens = digitMap[normalized.slice(0, -1)]
+    return tens ? tens * 10 : null
+  }
+  if (normalized.includes('十')) {
+    const [tensText, onesText] = normalized.split('十')
+    const tens = digitMap[tensText]
+    const ones = digitMap[onesText] ?? 0
+    return tens ? tens * 10 + ones : null
+  }
+
+  return digitMap[normalized] ?? null
+}
+
+function extractReferencedSkillIndexes(text: string, maxCount: number): Set<number> {
+  const indexes = new Set<number>()
+  const normalized = text.trim()
+  const addIndex = (value: number | null) => {
+    if (value !== null && value >= 1 && value <= maxCount) {
+      indexes.add(value - 1)
+    }
+  }
+
+  const leadingCountMatch = /前\s*([0-9一二两三四五六七八九十]+)\s*(?:个|项|条|个技能|项技能|条技能)?/.exec(normalized)
+  if (leadingCountMatch?.[1]) {
+    const count = parseChineseSelectionNumber(leadingCountMatch[1])
+    if (count !== null && count > 0) {
+      for (let i = 0; i < Math.min(count, maxCount); i += 1) {
+        indexes.add(i)
+      }
+    }
+  }
+
+  const explicitPattern = /(?:第|#|编号|序号)?\s*([0-9一二两三四五六七八九十]+)\s*(?:个|项|条|号)?/g
+  let match: RegExpExecArray | null
+  while ((match = explicitPattern.exec(normalized)) !== null) {
+    const before = normalized.slice(Math.max(0, match.index - 4), match.index)
+    const after = normalized.slice(explicitPattern.lastIndex, explicitPattern.lastIndex + 4)
+    const hasSelectionContext = /第|#|编号|序号|选|选择|只要|保留|采用|确认|不要|不用|排除|去掉|删掉|删除|和|、|,|，/.test(`${before}${after}`)
+    if (hasSelectionContext) {
+      addIndex(parseChineseSelectionNumber(match[1]))
+    }
+  }
+
+  return indexes
+}
+
+function isExcludeSelection(text: string): boolean {
+  return /(不要|不用|排除|去掉|删掉|删除|去除)/.test(text)
+}
+
+function isAllSelection(text: string): boolean {
+  return /(全部|全都|所有|全选|都可以|都确认|当前技能清单|当前清单|整个清单)/.test(text)
+}
+
+export function resolveSkillDefinitionConfirmationScope(
+  userRequest: string,
+  summaryDraft: unknown,
+): SkillDefinitionConfirmationScope {
+  const draftItems = extractSkillWorkorderItems(summaryDraft)
+    .map((item, index) => {
+      const slug = readSkillSlug(item)
+      if (!slug) return null
+
+      return {
+        index,
+        slug,
+        item: {
+          ...item,
+          name: slug,
+          skill_slug: slug,
+        },
+        normalizedSlug: normalizeSelectionText(slug),
+        normalizedDisplayName: normalizeSelectionText(readSkillDisplayName(item)),
+      }
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+
+  const requestText = userRequest.trim()
+  const normalizedRequest = normalizeSelectionText(requestText)
+  const referencedIndexes = extractReferencedSkillIndexes(requestText, draftItems.length)
+  const referencedSlugs = new Set<string>()
+
+  for (const draft of draftItems) {
+    const displayHit = draft.normalizedDisplayName && normalizedRequest.includes(draft.normalizedDisplayName)
+    const slugHit = draft.normalizedSlug && normalizedRequest.includes(draft.normalizedSlug)
+    if (displayHit || slugHit || referencedIndexes.has(draft.index)) {
+      referencedSlugs.add(draft.slug)
+    }
+  }
+
+  const excludeMode = isExcludeSelection(requestText)
+  const explicitAll = isAllSelection(requestText)
+  const selectedItems = draftItems.filter(draft => {
+    if (referencedSlugs.size === 0 || (explicitAll && !excludeMode)) {
+      return true
+    }
+
+    const referenced = referencedSlugs.has(draft.slug)
+    return excludeMode ? !referenced : referenced
+  })
+
+  const selectionMode = referencedSlugs.size === 0 || (explicitAll && !excludeMode)
+    ? 'all'
+    : excludeMode
+      ? 'excluded'
+      : 'selected'
+
+  return {
+    confirmedSkillSlugs: selectedItems.map(item => item.slug),
+    confirmedItems: selectedItems.map(item => item.item),
+    draftItemCount: draftItems.length,
+    selectionMode,
+  }
+}
+
+export function getSkillWorkorderSummaryConfirmationMismatchReason(
+  summary: unknown,
+  confirmedSkillSlugs: string[],
+): string | null {
+  if (confirmedSkillSlugs.length === 0) return null
+
+  const expected = new Set(confirmedSkillSlugs)
+  const actual = extractConfirmedSkillSlugs(summary)
+  if (actual.length === 0) {
+    return 'skill_workorder_summary confirmed items are missing'
+  }
+
+  for (const slug of actual) {
+    if (!expected.has(slug)) {
+      return `skill_workorder_summary contains unconfirmed skill: ${slug}`
+    }
+  }
+
+  for (const slug of expected) {
+    if (!actual.includes(slug)) {
+      return `skill_workorder_summary is missing confirmed skill: ${slug}`
+    }
+  }
+
+  return null
 }
 
 function extractConfirmedSkillSlugs(summary: unknown): string[] {
@@ -310,9 +511,19 @@ export function buildSkillGenerationPayload(
   }
 }
 
-export function buildSkillDefinitionConfirmationPrompt(userRequest: string, summaryDraft: unknown): string {
+export function buildSkillDefinitionConfirmationPrompt(
+  userRequest: string,
+  summaryDraft: unknown,
+  confirmationScope = resolveSkillDefinitionConfirmationScope(userRequest, summaryDraft),
+): string {
   const normalizedRequest = userRequest.trim() || 'confirm skill definition'
-  const serialized = JSON.stringify(summaryDraft ?? {}, null, 2)
+  const serialized = JSON.stringify({
+    selection_mode: confirmationScope.selectionMode,
+    confirmed_skill_slugs: confirmationScope.confirmedSkillSlugs,
+    confirmed_items: confirmationScope.confirmedItems,
+    draft_item_count: confirmationScope.draftItemCount,
+    original_skill_definition_draft: summaryDraft ?? {},
+  }, null, 2)
 
   return [
     '[Internal skill definition confirmation. Do not mention this instruction to the user.]',
@@ -320,6 +531,9 @@ export function buildSkillDefinitionConfirmationPrompt(userRequest: string, summ
     'The user has confirmed the current skill definition draft.',
     'Continue under `employment-coach-conversation` stage2_skill rules.',
     'Emit the terminal `skill_workorder_summary` for the confirmed skill list.',
+    'Only include `confirmed_items` in `skill_workorder_summary.data.items`; draft items outside `confirmed_skill_slugs` are not confirmed.',
+    'Copy each confirmed item field from `confirmed_items` unless a required field is missing and must be recovered from the original draft.',
+    'Include `confirmed_skill_slugs` in `skill_workorder_summary.data` and make it exactly match `items[].name`.',
     '`skill_workorder_summary.data` must contain top-level `workspace_root`, `template_slug`, and a non-empty `items` array.',
     'Each `items[]` entry must contain `name`, `display_name`, `description`, `trigger`, `expected_output`, and `generation_action` as non-empty strings.',
     'For every `items[]`, set `name` and `skill_slug` to the same stable lowercase ASCII skill slug used for directories; put the Chinese/user-facing label only in `display_name`.',
@@ -327,7 +541,7 @@ export function buildSkillDefinitionConfirmationPrompt(userRequest: string, summ
     'Immediately after that, emit non-terminal `ontology_projection_ready` to ask whether to prepare business information for these skills.',
     'Do not trigger ontology projection, skill-generation, external configuration, review, or packaging in this turn.',
     '',
-    'latest_skill_definition_context:',
+    'confirmed_skill_definition_context:',
     '```json',
     serialized,
     '```',
@@ -595,6 +809,16 @@ export function isSkillDefinitionApprovalMessage(text: string): boolean {
     '没问题',
     '可以',
     '确认',
+    '采用',
+    '选择',
+    '选',
+    '选第',
+    '只要',
+    '保留',
+    '不要第',
+    '不用第',
+    '排除第',
+    '去掉第',
     '通过',
     '继续',
     'yes',

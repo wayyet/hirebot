@@ -57,12 +57,32 @@ function getSkillDefinitionStatusMeta(status: StageStatus | null): { label: stri
   return { label: '异常', tone: 'is-error' }
 }
 
-function getSkillImplementationMeta(run: DownstreamRunState | null): {
+function getSkillImplementationMeta(
+  run: DownstreamRunState | null,
+  definitionStageStatus: StageStatus | null,
+  hasConfirmedDefinedSkills: boolean,
+): {
   label: string
   tone: string
   description: string
 } {
   if (!run || run.status === 'idle') {
+    if (hasConfirmedDefinedSkills) {
+      return {
+        label: '准备实现',
+        tone: 'is-waiting',
+        description: '技能定义已确认，等待进入匹配技能数据。',
+      }
+    }
+
+    if (definitionStageStatus === 'running') {
+      return {
+        label: '等待定义完成',
+        tone: 'is-neutral',
+        description: '等待技能清单确认后进入匹配技能数据。',
+      }
+    }
+
     return {
       label: '未启动',
       tone: 'is-neutral',
@@ -89,9 +109,17 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
 
     if (run.artifactType === 'ontology_projection_ready') {
       return {
-        label: '等待确认匹配数据',
+        label: '准备实现',
         tone: 'is-waiting',
         description: '技能定义已确认，请确认是否开始匹配技能数据。',
+      }
+    }
+
+    if (run.artifactType === 'skill_generation_ready') {
+      return {
+        label: '待生成实现',
+        tone: 'is-waiting',
+        description: '技能数据已匹配，请确认是否生成技能实现。',
       }
     }
 
@@ -105,17 +133,33 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
   }
 
   if (run.status === 'running') {
+    if (run.artifactType === 'skill_workorder_progress') {
+      return {
+        label: '定义收口中',
+        tone: 'is-running',
+        description: '正在固定确认后的技能范围。',
+      }
+    }
+
+    if (run.artifactType === 'ontology_projection_progress') {
+      return {
+        label: '匹配资料中',
+        tone: 'is-running',
+        description: '正在为已确认技能匹配业务资料。',
+      }
+    }
+
     const total = readArtifactNumber(run.data, 'total_skills')
     const completed = readArtifactNumber(run.data, 'completed_skills')
-    let msg = '正在生成技能定义。'
+    let msg = '正在生成技能实现。'
     if (total && completed != null) {
-      msg = `正在生成 (${completed}/${total})`
+      msg = `正在生成技能实现 (${completed}/${total})`
     } else if (total) {
-      msg = `将生成 ${total} 个技能。`
+      msg = `将生成 ${total} 个技能实现。`
     }
 
     return {
-      label: '实现中',
+      label: '正在实现',
       tone: 'is-running',
       description: msg,
     }
@@ -124,15 +168,15 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
   if (run.status === 'completed') {
     const total = readArtifactNumber(run.data, 'total_skills')
     const generated = readArtifactNumber(run.data, 'generated_count')
-    let msg = '技能定义已生成。'
+    let msg = '技能实现已生成。'
     if (total && generated != null) {
-      msg = `成功生成 ${generated}/${total} 个技能定义。`
+      msg = `成功生成 ${generated}/${total} 个技能实现。`
     } else if (total) {
-      msg = `共 ${total} 个技能定义已生成。`
+      msg = `共 ${total} 个技能实现已生成。`
     }
 
     return {
-      label: '已完成',
+      label: '已实现',
       tone: 'is-completed',
       description: msg,
     }
@@ -148,22 +192,6 @@ function getSkillImplementationMeta(run: DownstreamRunState | null): {
 function getSkillConfirmationAction(run: DownstreamRunState | null): { text: string; button: string } {
   const copy = getConfirmationActionCopy(run)
   return { text: copy.text, button: copy.button }
-}
-
-function getDefinedSkillGenerationMeta(
-  _skill: DefinedSkillItem,
-  skillGenerationState: DownstreamRunState | null,
-): { label: string; tone: string } {
-  if (!skillGenerationState || skillGenerationState.status === 'idle') {
-    return { label: '未启动', tone: 'is-neutral' }
-  }
-
-  if (skillGenerationState.status === 'waiting_confirm') return { label: '待确认', tone: 'is-waiting' }
-  if (skillGenerationState.status === 'running') return { label: '生成中', tone: 'is-running' }
-  if (skillGenerationState.status === 'completed') return { label: '已生成', tone: 'is-completed' }
-  if (skillGenerationState.status === 'failed') return { label: '生成失败', tone: 'is-error' }
-
-  return { label: '未知', tone: 'is-neutral' }
 }
 
 function isRecommendedSkill(skill: StoreSkillItem | RecommendedStoreSkillItem): skill is RecommendedStoreSkillItem {
@@ -336,14 +364,17 @@ export function SkillCardBody({
         : currentResults.length > 0
           ? t('hiring.todo.skill.statusResultCount', { count: currentResults.length })
           : t('hiring.todo.skill.statusPending')
+  const hasConfirmedDefinedSkills = definedSkills.length > 0
 
   const definitionMeta = useMemo(
-    () => getSkillDefinitionStatusMeta(definitionStageStatus),
-    [definitionStageStatus],
+    () => hasConfirmedDefinedSkills
+      ? getSkillDefinitionStatusMeta('completed')
+      : getSkillDefinitionStatusMeta(definitionStageStatus),
+    [definitionStageStatus, hasConfirmedDefinedSkills],
   )
   const implementationMeta = useMemo(
-    () => getSkillImplementationMeta(skillGenerationState),
-    [skillGenerationState],
+    () => getSkillImplementationMeta(skillGenerationState, definitionStageStatus, hasConfirmedDefinedSkills),
+    [definitionStageStatus, hasConfirmedDefinedSkills, skillGenerationState],
   )
   const skillConfirmationAction = getSkillConfirmationAction(skillGenerationState)
   const showSkillConfirmation =
@@ -395,25 +426,31 @@ export function SkillCardBody({
         <div className="hb-todo-skill-section-head">
           {t('hiring.todo.skill.currentStatus')}
         </div>
-        <div className="hb-todo-skill-linked-item">
-          <div className="hb-todo-skill-main">
-            <div className="hb-todo-skill-title-row">
-              {t('hiring.todo.skill.definitionStatus')}
-              <div className="hb-todo-skill-chips">
-                <span className={clsx('hb-todo-skill-chip', definitionMeta.tone)}>{definitionMeta.label}</span>
-              </div>
+        <div className="hb-todo-skill-status-stack">
+          <div className="hb-todo-skill-status-card is-definition">
+            <div className="hb-todo-skill-status-row">
+              <span className="hb-todo-skill-status-label">{t('hiring.todo.skill.definitionStatus')}</span>
+              <span className={clsx('hb-todo-skill-chip', definitionMeta.tone)}>{definitionMeta.label}</span>
             </div>
+            {hasConfirmedDefinedSkills ? (
+              <ul className="hb-todo-skill-confirmed-list" aria-label="已确认技能定义">
+                {definedSkills.map((skill, index) => (
+                  <li key={`${skill.skillName}-${index}`} className="hb-todo-skill-confirmed-item">
+                    <strong title={skill.skillName}>{skill.skillName}</strong>
+                    {skill.description ? <p title={skill.description}>{skill.description}</p> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="hb-todo-skill-status-desc">等待用户确认技能清单后展示已定义技能。</p>
+            )}
           </div>
-        </div>
-        <div className="hb-todo-skill-linked-item">
-          <div className="hb-todo-skill-main">
-            <div className="hb-todo-skill-title-row">
-              {t('hiring.todo.skill.implementationStatus')}
-              <div className="hb-todo-skill-chips">
-                <span className={clsx('hb-todo-skill-chip', implementationMeta.tone)}>{implementationMeta.label}</span>
-              </div>
+          <div className="hb-todo-skill-status-card">
+            <div className="hb-todo-skill-status-row">
+              <span className="hb-todo-skill-status-label">{t('hiring.todo.skill.implementationStatus')}</span>
+              <span className={clsx('hb-todo-skill-chip', implementationMeta.tone)}>{implementationMeta.label}</span>
             </div>
-            <p className="hb-todo-skill-desc">{implementationMeta.description}</p>
+            <p className="hb-todo-skill-status-desc">{implementationMeta.description}</p>
           </div>
         </div>
       </section>
@@ -462,40 +499,6 @@ export function SkillCardBody({
       </div>
 
       {persistError && <p className="hb-todo-error">{persistError}</p>}
-
-      {definedSkills.length > 0 && (
-        <section className="hb-todo-skill-section is-defined" aria-label="已定义技能">
-          <div className="hb-todo-skill-section-head">
-            {t('hiring.todo.skill.definedTitle')}
-            <span className="hb-todo-skill-section-pill">{t('hiring.todo.skill.countLabel', { count: definedSkills.length })}</span>
-          </div>
-          <ul className="hb-todo-skill-list is-template">
-            {definedSkills.map(skill => {
-              const generationMeta = getDefinedSkillGenerationMeta(skill, skillGenerationState)
-
-              return (
-                <li key={skill.skillName} className="hb-todo-skill-item is-static">
-                  <div className="hb-todo-skill-main">
-                    <div className="hb-todo-skill-title-row">
-                      <strong>{skill.skillName}</strong>
-                      <div className="hb-todo-skill-chips">
-                        <span className={clsx('hb-todo-skill-chip', generationMeta.tone)}>{generationMeta.label}</span>
-                      </div>
-                    </div>
-                    {skill.description && <p className="hb-todo-skill-desc">{skill.description}</p>}
-                    {skill.expectedOutput && (
-                      <p className="hb-todo-skill-inline-meta">{t('hiring.todo.skill.expectedOutput', { value: skill.expectedOutput })}</p>
-                    )}
-                    {skill.triggers.length > 0 && (
-                      <p className="hb-todo-skill-inline-meta">{t('hiring.todo.skill.triggers', { value: skill.triggers.join('、') })}</p>
-                    )}
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      )}
 
       <section className="hb-todo-skill-section is-search" aria-label="搜索与推荐技能">
         {currentSearching && <p className="hb-todo-hint-muted">{t('hiring.todo.skill.searchingHint')}</p>}

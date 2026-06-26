@@ -53,6 +53,7 @@ import {
   buildProjectionPassPayload,
   buildSkillGenerationPayload,
   buildSkillDefinitionConfirmationPrompt,
+  getSkillWorkorderSummaryConfirmationMismatchReason,
   buildDownstreamPrompt,
   buildPackageReviewPrompt,
   buildPackageReviewSkipPackagingPrompt,
@@ -65,6 +66,7 @@ import {
   resolveActiveSkillStageRun,
   resolvePackageReviewDecisionRoute,
   resolvePackagingRequestRoute,
+  resolveSkillDefinitionConfirmationScope,
   resolveSkillStageApprovalRoute,
 } from './utils/hiringDownstreamTriggers'
 import { getConfirmationActionCopy } from './utils/hiringConfirmationCopy'
@@ -99,6 +101,7 @@ import {
   extractArtifactFromToolCall,
   isBlockedOntologySliceExtractionResult,
   isCompletedOntologySliceExtractionResult,
+  mergeStageOverrides,
   normalizeArtifactDisplayData,
   normalizeMaterialHandoffReadyData,
   parseArtifactFromToolResultText,
@@ -319,6 +322,11 @@ export default function HiringPage() {
   const latestMaterialDraftRef = useRef<unknown>(null)
   const latestMaterialSummaryRef = useRef<unknown>(null)
   const latestSkillSummaryRef = useRef<unknown>(null)
+  const pendingSkillDefinitionConfirmationRef = useRef<{
+    confirmedSkillSlugs: string[]
+    draftData: unknown
+    label?: string
+  } | null>(null)
   const latestProjectionResultRef = useRef<unknown>(null)
   const latestSkillGenerationDoneRef = useRef<unknown>(null)
   const latestExternalSummaryRef = useRef<unknown>(null)
@@ -616,6 +624,7 @@ export default function HiringPage() {
   function syncArtifactStateFromMessages(
     sourceMessages: ChatMessage[],
     requestedCategories = extractLatestMaterialRequestedCategories(sourceMessages),
+    restoredHiddenState?: { latestSkillSummary?: unknown | null },
   ) {
     setMaterialRequestedCategories(requestedCategories)
     processedArtifactSignaturesRef.current = new Set(
@@ -633,7 +642,8 @@ export default function HiringPage() {
       ?? latestMaterialReady
       ?? latestMaterialProgress
     latestMaterialSummaryRef.current = extractLatestMessageArtifactData(sourceMessages, 'material_handoff_summary')
-    latestSkillSummaryRef.current = extractLatestMessageArtifactData(sourceMessages, 'skill_workorder_summary')
+    latestSkillSummaryRef.current = restoredHiddenState?.latestSkillSummary
+      ?? extractLatestMessageArtifactData(sourceMessages, 'skill_workorder_summary')
     setLatestSkillSummary(latestSkillSummaryRef.current)
     latestProjectionResultRef.current = extractLatestMessageArtifactData(sourceMessages, 'ontology_projection_done')
     latestSkillGenerationDoneRef.current = extractLatestMessageArtifactData(sourceMessages, 'skill_generation_done')
@@ -664,15 +674,6 @@ export default function HiringPage() {
     appendExternalConfigCommittedArtifact(latestExternalConfigRef.current)
   }
 
-  function applyRestoredMessages(
-    restoredMessages: ChatMessage[],
-    requestedCategories = extractLatestMaterialRequestedCategories(restoredMessages),
-  ) {
-    setMessages(restoredMessages)
-    messagesRef.current = restoredMessages
-    syncArtifactStateFromMessages(restoredMessages, requestedCategories)
-  }
-
   // 从后端恢复运行时状态（stageOverrides、downstreamRuns、uploadedFiles、packageStructure）
   async function restoreRuntimeState(hireId: string): Promise<boolean> {
     try {
@@ -691,7 +692,7 @@ export default function HiringPage() {
 
       // 恢复下游运行记录
         if (state.downstreamRuns && Object.keys(state.downstreamRuns).length > 0) {
-          restoredDownstreamRuns = { ...(restoredDownstreamRuns ?? downstreamRunsRef.current), ...state.downstreamRuns }
+          restoredDownstreamRuns = { ...state.downstreamRuns, ...(restoredDownstreamRuns ?? downstreamRunsRef.current) }
           restored = true
         }
 
@@ -725,11 +726,7 @@ export default function HiringPage() {
 
       if (restoredStageOverrides.length > 0) {
         setWsStageOverrides(prev => {
-          const next = new Map(prev)
-          for (const entry of restoredStageOverrides) {
-            next.set(entry[0], entry[1])
-          }
-          return next
+          return mergeStageOverrides(prev, new Map(restoredStageOverrides))
         })
       }
 
@@ -755,12 +752,17 @@ export default function HiringPage() {
     }
 
     const restored = buildHistoricalHiringConversationState(sandboxMessages, normalizeAssistantReply)
+    const restoredSkillSummarySignature = restored.latestSkillSummary
+      ? JSON.stringify(restored.latestSkillSummary)
+      : ''
+    const hasUnseenHiddenSkillSummary = Boolean(restoredSkillSummarySignature) &&
+      restoredSkillSummarySignature !== skillSummarySignatureRef.current
     const hasUnseenArtifact = restored.messages
       .map(message => message.artifact)
       .filter((artifact): artifact is ArtifactDisplayData => Boolean(artifact))
       .some(artifact => !processedArtifactSignaturesRef.current.has(buildArtifactEventSignature(artifact)))
     if (mode === 'merge-artifacts') {
-      if (!hasUnseenArtifact) {
+      if (!hasUnseenArtifact && !hasUnseenHiddenSkillSummary) {
         return false
       }
 
@@ -773,14 +775,18 @@ export default function HiringPage() {
           return !processedArtifactSignaturesRef.current.has(buildArtifactEventSignature(message.artifact))
         })
         .map(message => ({ ...message, id: mkId() }))
-      if (restoredArtifacts.length === 0) {
+      if (restoredArtifacts.length === 0 && !hasUnseenHiddenSkillSummary) {
         return false
       }
 
       const mergedMessages = [...messagesRef.current, ...restoredArtifacts]
       setMessages(mergedMessages)
       messagesRef.current = mergedMessages
-      syncArtifactStateFromMessages(mergedMessages, extractLatestMaterialRequestedCategories(mergedMessages))
+      syncArtifactStateFromMessages(
+        mergedMessages,
+        extractLatestMaterialRequestedCategories(mergedMessages),
+        { latestSkillSummary: restored.latestSkillSummary ?? latestSkillSummaryRef.current },
+      )
       setWsStageOverrides(prev => {
         const next = new Map(prev)
         for (const [stage, status] of restored.wsStageOverrides) {
@@ -800,7 +806,13 @@ export default function HiringPage() {
       return false
     }
 
-    applyRestoredMessages(restored.messages, restored.materialRequestedCategories)
+    setMessages(restored.messages)
+    messagesRef.current = restored.messages
+    syncArtifactStateFromMessages(
+      restored.messages,
+      restored.materialRequestedCategories,
+      { latestSkillSummary: restored.latestSkillSummary },
+    )
     setWsStageOverrides(restored.wsStageOverrides)
     downstreamRunsRef.current = restored.downstreamRuns
     setDownstreamRuns(restored.downstreamRuns)
@@ -1585,6 +1597,28 @@ export default function HiringPage() {
           if (!shouldAcceptConfirmationGateArtifact(messagesRef.current, downstreamRunsRef.current, artifactData)) {
             return
           }
+          if (artifactType === 'skill_workorder_summary' && kind === 'data' && isTerminal) {
+            const pendingConfirmation = pendingSkillDefinitionConfirmationRef.current
+            const mismatchReason = getSkillWorkorderSummaryConfirmationMismatchReason(
+              artifactData.data,
+              pendingConfirmation?.confirmedSkillSlugs ?? [],
+            )
+            if (mismatchReason) {
+              console.warn('[HiringPage] ignored skill_workorder_summary outside confirmed scope:', mismatchReason)
+              if (pendingConfirmation) {
+                setOptimisticDownstreamRun(
+                  'skill-generation',
+                  'waiting_confirm',
+                  pendingConfirmation.label ?? '等待确认技能清单。',
+                  'skill_definition_ready',
+                  pendingConfirmation.draftData,
+                )
+              }
+              pendingSkillDefinitionConfirmationRef.current = null
+              setWorkflowNotice('技能清单收口结果与确认范围不一致，请重新确认技能清单。')
+              return
+            }
+          }
           const artifactSignature = buildArtifactEventSignature(artifactData)
           if (processedArtifactSignaturesRef.current.has(artifactSignature)) {
             return
@@ -1650,6 +1684,7 @@ export default function HiringPage() {
           if (artifactType === 'skill_workorder_summary' && kind === 'data' && isTerminal) {
             latestSkillSummaryRef.current = artifactData.data ?? null
             setLatestSkillSummary(artifactData.data ?? null)
+            pendingSkillDefinitionConfirmationRef.current = null
             latestProjectionResultRef.current = null
             skillSummarySignatureRef.current = JSON.stringify(artifactData.data ?? {})
             projectionPassLaunchSignatureRef.current = ''
@@ -2313,8 +2348,15 @@ export default function HiringPage() {
       state.data,
     )
 
+    const confirmationScope = resolveSkillDefinitionConfirmationScope(userRequest, state.data ?? {})
+    pendingSkillDefinitionConfirmationRef.current = {
+      confirmedSkillSlugs: confirmationScope.confirmedSkillSlugs,
+      draftData: state.data,
+      label: state.label,
+    }
+
     const submitted = await submitWorkflowMessage(
-      buildSkillDefinitionConfirmationPrompt(userRequest, state.data ?? {}),
+      buildSkillDefinitionConfirmationPrompt(userRequest, state.data ?? {}, confirmationScope),
       undefined,
       true,
       false,
@@ -2327,6 +2369,7 @@ export default function HiringPage() {
       return true
     }
 
+    pendingSkillDefinitionConfirmationRef.current = null
     setOptimisticDownstreamRun('skill-generation', 'waiting_confirm', state.label ?? '等待确认技能清单。', 'skill_definition_ready', state.data)
     return false
   }
@@ -3405,6 +3448,7 @@ export default function HiringPage() {
         latestMaterialDraftRef.current = null
         latestMaterialSummaryRef.current = null
         latestSkillSummaryRef.current = null
+        pendingSkillDefinitionConfirmationRef.current = null
         latestProjectionResultRef.current = null
         latestExternalSummaryRef.current = null
         latestReviewReportRef.current = null

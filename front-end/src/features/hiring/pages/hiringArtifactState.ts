@@ -1304,11 +1304,10 @@ export function buildHistoricalHiringConversationState(
     }
   }
 
-  // skill_stage_gate 事件不存在于沙箱会话历史中，因此上方循环可能无法推断任何阶段状态。
-  // 兜底：从下游轨道运行状态反向推断阶段进度，避免刷新后阶段胶囊全部灰色。
-  const finalStageOverrides = wsStageOverrides.size > 0
-    ? wsStageOverrides
-    : deriveStageOverridesFromDownstreamRuns(downstreamRuns)
+  const finalStageOverrides = mergeStageOverrides(
+    wsStageOverrides,
+    deriveStageOverridesFromDownstreamRuns(downstreamRuns),
+  )
 
   return {
     messages,
@@ -1317,7 +1316,7 @@ export function buildHistoricalHiringConversationState(
     downstreamRuns,
     latestMaterialDraft,
     latestMaterialSummary: extractLatestArtifactData(messages, 'material_handoff_summary'),
-    latestSkillSummary: extractLatestArtifactData(messages, 'skill_workorder_summary'),
+    latestSkillSummary,
     latestExternalSummary: extractLatestArtifactData(messages, 'external_workorder_summary'),
   }
 }
@@ -1389,6 +1388,24 @@ export function deriveStageOverridesFromDownstreamRuns(
   // external config 在 External 阶段进行中时触发
 
   return overrides
+}
+
+export function mergeStageOverrides(
+  base: Map<HiringUiStage, 'running' | 'completed' | 'failed'>,
+  incoming: Map<HiringUiStage, 'running' | 'completed' | 'failed'>,
+): Map<HiringUiStage, 'running' | 'completed' | 'failed'> {
+  if (incoming.size === 0) return base
+
+  const next = new Map(base)
+  for (const [stage, status] of incoming) {
+    if (next.get(stage) === 'completed' && status !== 'completed') {
+      continue
+    }
+
+    next.set(stage, status)
+  }
+
+  return next
 }
 
 /**

@@ -14,6 +14,8 @@ import type {
 } from '../hiringPageTypes'
 import {
   buildUiStageOverrides,
+  deriveStageOverridesFromDownstreamRuns,
+  mergeStageOverrides,
   shouldHoldExternalStageUntilSkillImplementation,
 } from '../hiringArtifactState'
 import { extractConversationMaterialFiles } from '../materialUploadMatching'
@@ -180,9 +182,9 @@ export function buildDerivedWorkflowStateFromStageOverrides(
 }
 
 /**
- * 从消息列表提取已定义的技能列表
+ * 从已确认的技能定义 terminal artifact 提取技能列表。
  */
-function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[] {
+function extractConfirmedDefinedSkills(skillSummary: unknown): DefinedSkillItem[] {
   function asPlainObject(value: unknown): Record<string, unknown> | null {
     return value && typeof value === 'object' && !Array.isArray(value)
       ? value as Record<string, unknown>
@@ -203,85 +205,86 @@ function extractLatestDefinedSkills(messages: ChatMessage[]): DefinedSkillItem[]
     return []
   }
 
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const artifact = messages[i].artifact
-    if (!artifact) continue
-    if (artifact.artifactType !== 'skill_workorder_summary' && artifact.artifactType !== 'skill_workorder_progress' && artifact.artifactType !== 'skill_definition_ready') {
-      continue
-    }
-    const payload = asPlainObject(artifact.data)
-    const rawSkills = Array.isArray(payload?.skills)
+  const payload = asPlainObject(skillSummary)
+  const rawSkills = Array.isArray(payload?.items)
+    ? payload.items
+    : Array.isArray(payload?.skills)
       ? payload.skills
-      : Array.isArray(payload?.items)
-        ? payload.items
-        : null
-    if (!rawSkills) return []
+      : null
+  if (!rawSkills) return []
 
-    return rawSkills
-      .map(item => {
-        const record = asPlainObject(item)
-        if (!record) return null
+  return rawSkills
+    .map(item => {
+      const record = asPlainObject(item)
+      if (!record) return null
 
-        const skillName = typeof record.skill_name === 'string'
-          ? record.skill_name.trim()
-          : typeof record.skillName === 'string'
-            ? record.skillName.trim()
-            : typeof record.display_name === 'string'
-              ? record.display_name.trim()
-              : typeof record.displayName === 'string'
-                ? record.displayName.trim()
-                : typeof record.title === 'string'
-                  ? record.title.trim()
-                  : typeof record.skill_id === 'string'
-                    ? record.skill_id.trim()
-                    : typeof record.name === 'string'
-                      ? record.name.trim()
-                      : ''
-        if (!skillName) return null
+      const skillName = typeof record.display_name === 'string'
+        ? record.display_name.trim()
+        : typeof record.displayName === 'string'
+          ? record.displayName.trim()
+          : typeof record.name === 'string'
+            ? record.name.trim()
+            : typeof record.skill_name === 'string'
+              ? record.skill_name.trim()
+              : typeof record.skillName === 'string'
+                ? record.skillName.trim()
+                : ''
+      if (!skillName) return null
 
-        const capabilities = asStringArray(record.capabilities)
-        const capabilityText = typeof record.capability === 'string' && record.capability.trim().length > 0
-          ? record.capability.trim()
-          : ''
-        const description = typeof record.description === 'string' && record.description.trim().length > 0
-          ? record.description.trim()
-          : typeof record.purpose === 'string' && record.purpose.trim().length > 0
-            ? record.purpose.trim()
-            : typeof record.capability_description === 'string' && record.capability_description.trim().length > 0
-              ? record.capability_description.trim()
-              : (capabilityText || capabilities[0] || '')
+      const capabilities = asStringArray(record.capabilities)
+      const capabilityText = typeof record.capability === 'string' && record.capability.trim().length > 0
+        ? record.capability.trim()
+        : ''
+      const description = typeof record.description === 'string' && record.description.trim().length > 0
+        ? record.description.trim()
+        : typeof record.purpose === 'string' && record.purpose.trim().length > 0
+          ? record.purpose.trim()
+          : typeof record.capability_description === 'string' && record.capability_description.trim().length > 0
+            ? record.capability_description.trim()
+            : (capabilityText || capabilities[0] || '')
 
-        const skill: DefinedSkillItem = {
-          skillName,
-          generationAction: typeof record.generation_action === 'string'
-            ? record.generation_action
-            : typeof record.generationAction === 'string'
-              ? record.generationAction
-              : undefined,
-          description: description || undefined,
-          expectedOutput: typeof record.expected_output === 'string'
-            ? record.expected_output
-            : typeof record.expectedOutput === 'string'
-              ? record.expectedOutput
-              : typeof record.outputs === 'string'
-                ? record.outputs
-                : typeof record.output === 'string'
-                  ? record.output
-                  : undefined,
-          triggers: asStringArray(record.trigger ?? record.triggers),
-          capabilities: capabilities.length > 0
-            ? capabilities
-            : capabilityText
-              ? [capabilityText]
-              : [],
-        }
+      const skill: DefinedSkillItem = {
+        skillName,
+        generationAction: typeof record.generation_action === 'string'
+          ? record.generation_action
+          : typeof record.generationAction === 'string'
+            ? record.generationAction
+            : undefined,
+        description: description || undefined,
+        expectedOutput: typeof record.expected_output === 'string'
+          ? record.expected_output
+          : typeof record.expectedOutput === 'string'
+            ? record.expectedOutput
+            : typeof record.outputs === 'string'
+              ? record.outputs
+              : typeof record.output === 'string'
+                ? record.output
+                : undefined,
+        triggers: asStringArray(record.trigger ?? record.triggers),
+        capabilities: capabilities.length > 0
+          ? capabilities
+          : capabilityText
+            ? [capabilityText]
+            : [],
+      }
 
-        return skill
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null)
+      return skill
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+}
+
+function resolveConfirmedSkillSummary(
+  latestSkillSummary: unknown,
+  downstreamRuns: DownstreamRunsSnapshot,
+): unknown {
+  if (latestSkillSummary) return latestSkillSummary
+
+  const skillDefinitionEntry = downstreamRuns['skill-definition-entry']
+  if (skillDefinitionEntry?.artifactType === 'skill_workorder_summary') {
+    return skillDefinitionEntry.data ?? null
   }
 
-  return []
+  return null
 }
 
 function hasTerminalArtifact(messages: ChatMessage[], artifactType: string): boolean {
@@ -349,8 +352,12 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
 
   const skillGenerationState = downstreamRuns['skill-generation'] ?? null
   const ontologyExtractionState = downstreamRuns['ontology-slice-extraction'] ?? null
+  const confirmedSkillSummary = useMemo(
+    () => resolveConfirmedSkillSummary(latestSkillSummary, downstreamRuns),
+    [latestSkillSummary, downstreamRuns],
+  )
   const holdExternalStage = shouldHoldExternalStageUntilSkillImplementation(
-    latestSkillSummary,
+    confirmedSkillSummary,
     skillGenerationState,
   )
   const externalConfigCommitted = useMemo(
@@ -360,13 +367,13 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
 
   const uiStageOverrides = useMemo(
     () => buildUiStageOverrides(
-      wsStageOverrides,
+      mergeStageOverrides(wsStageOverrides, deriveStageOverridesFromDownstreamRuns(downstreamRuns)),
       ontologyExtractionState,
       skillGenerationState,
       holdExternalStage,
       externalConfigCommitted,
     ),
-    [wsStageOverrides, ontologyExtractionState, skillGenerationState, holdExternalStage, externalConfigCommitted],
+    [wsStageOverrides, downstreamRuns, ontologyExtractionState, skillGenerationState, holdExternalStage, externalConfigCommitted],
   )
 
   const derivedWorkflowState = useMemo(
@@ -375,8 +382,8 @@ export function useHiringComputed(props: HiringComputedProps): HiringComputedVal
   )
 
   const definedSkills = useMemo(
-    () => extractLatestDefinedSkills(messages),
-    [messages],
+    () => extractConfirmedDefinedSkills(confirmedSkillSummary),
+    [confirmedSkillSummary],
   )
 
   const viewModel = buildHiringWorkflowViewModel(derivedWorkflowState, focusedStage, t)
