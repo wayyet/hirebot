@@ -111,6 +111,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     retry: false,
     enabled: !isAuthBypassed,
   });
+  const resolvedAuthRole = useMemo<HirebotUserRole | null>(() => {
+    if (isAuthBypassed) return "manager";
+    if (!authUser) return null;
+    return resolveRoleFromJwtRoles(getResourceAccessRoles(authUser));
+  }, [authUser]);
+  const effectiveRole = resolvedAuthRole ?? role;
 
   // 响应式计算显示名：语言切换时自动更新
   const userDisplayName = useMemo(
@@ -162,7 +168,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       window.removeEventListener("resize", scheduleMeasure);
       resizeObserver?.disconnect();
     };
-  }, [role, t]);
+  }, [effectiveRole, t]);
 
   useEffect(() => {
     document.title = resolveSystemTitle(warmThemeEnabled, currentLang);
@@ -209,31 +215,24 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    if (role === "member" && location.pathname.startsWith("/template-pool")) {
+    if (resolvedAuthRole === "member" && location.pathname.startsWith("/template-pool")) {
       navigate("/department-employees", { replace: true });
     }
-  }, [location.pathname, navigate, role]);
+  }, [location.pathname, navigate, resolvedAuthRole]);
 
   useEffect(() => {
-    if (isAuthBypassed) {
-      setRole("manager");
-      return;
+    if (resolvedAuthRole) {
+      setRole(resolvedAuthRole);
     }
-
-    if (!authUser) {
-      return;
-    }
-
-    setRole(resolveRoleFromJwtRoles(getResourceAccessRoles(authUser)));
-  }, [authUser]);
+  }, [resolvedAuthRole]);
 
   const visibleNavItems = useMemo(() => {
     return navItems.filter((item) => {
       if (item.alwaysVisible) return true;
-      if (item.managerOnly) return role === "manager";
+      if (item.managerOnly) return effectiveRole === "manager";
       return true;
     });
-  }, [role]);
+  }, [effectiveRole]);
 
   async function handleLogout() {
     if (logoutLoading) return;
@@ -255,7 +254,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const userInitial = displayName.trim().charAt(0).toUpperCase();
 
   return (
-    <UserRoleContext.Provider value={{ role, setRole }}>
+    <UserRoleContext.Provider value={{ role: effectiveRole, setRole }}>
       <div className="hb-shell">
         <header className="hb-topnav">
           <div ref={layoutRef} className={`hb-topnav-inner${navStacked ? " is-stacked" : ""}`}>
