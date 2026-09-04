@@ -1,0 +1,42 @@
+{
+    "OpenSandbox": {
+        "Domain": "<OPENSANDBOX_DOMAIN>",
+        "Protocol": "Https",
+        "ApiKey": "<YOUR_OPENSANDBOX_API_KEY>",
+        "DefaultTimeoutSecondsByRole": {
+            "hiring": 5000,
+            "evaluation-target": 1800,
+            "evaluation-evaluator": 1800
+        },
+        "McpConfig": {
+            "Enabled": true,
+            "Servers": {
+                "streaming-vhk95z": {
+                    "Transport": "streamable-http",
+                    "Url": "http://ncrew-hire:8080/mcp",
+                    "Enabled": true,
+                    "ToolNamePrefix": "streaming_",
+                    "StartupTimeoutSeconds": 15,
+                    "RequestTimeoutSeconds": 60
+                }
+            }
+        }
+    },
+    "Storage": {
+        "Provider": "TencentCos",
+        "ProjectRoot": "goodcrew-hire",
+        "TencentCos": {
+            "AppId": "<YOUR_TENCENT_COS_APP_ID>",
+            "SecretId": "<YOUR_TENCENT_COS_SECRET_ID>",
+            "SecretKey": "<YOUR_TENCENT_COS_SECRET_KEY>",
+            "Region": "ap-guangzhou",
+            "BucketName": "goodcrew-hire-prod",
+            "KeyDurationSecond": 600,
+            "Endpoint": ""
+        }
+    },
+    "Evaluation": {
+        "ApiBaseUrl": "http://ncrew-hire:8080",
+        "GatewayUseTls": false
+    }
+}

@@ -437,3 +437,16 @@ docs/
 .tmp-e2e-msg.json
 .tmp-e2e-hire.json
 back-end/tests/HireBot.Core.Tests/
+
+# AI assistant local config & runtime scratch (not for VCS)
+.claude/
+debug-*.log
+
+# HireBot application config files with production secrets.
+# Tracked copies contain real keys (Tencent COS, DeepSeek LLM, OIDC client secrets).
+# Locally these files remain in the working tree, but they are NOT pushed to VCS.
+# Use the .example siblings as templates and create your own copy locally.
+back-end/HireBot.ApiService/appsettings.json
+back-end/HireBot.ApiService/appsettings.Production.json
+!back-end/HireBot.ApiService/appsettings.json.example
+!back-end/HireBot.ApiService/appsettings.Production.json.example
