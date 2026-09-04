@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 980" font-family="'Segoe UI','Microsoft YaHei',sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#eef2ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-4%" y="-6%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <rect width="1320" height="980" fill="url(#bg)"/>
+  <text x="660" y="36" text-anchor="middle" font-size="22" font-weight="700" fill="#0f172a">SKILL（SKILL.md 提示词编排） vs LangGraph vs LlamaIndex · 同层架构对比层次图</text>
+  <text x="660" y="58" text-anchor="middle" font-size="12.5" fill="#64748b">横向对齐同一职责层（L0~L7），对比三种方案“同一件事各自放在哪里、由谁保证确定性”</text>
+
+  <!-- 列标题 -->
+  <g filter="url(#shadow)">
+    <rect x="150" y="74" width="370" height="46" rx="8" fill="#ffedd5" stroke="#f97316" stroke-width="1.6"/>
+    <text x="335" y="95" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">方案A · SKILL（现状）</text>
+    <text x="335" y="112" text-anchor="middle" font-size="10" fill="#c2410c">hirebot 前端 TS + SKILL.md + 后端 C# + KingCrab Agent</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="535" y="74" width="370" height="46" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+    <text x="720" y="95" text-anchor="middle" font-size="14" font-weight="700" fill="#166534">方案B · LangGraph</text>
+    <text x="720" y="112" text-anchor="middle" font-size="10" fill="#15803d">显式状态图编排（StateGraph + 条件边 + 节点）</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="920" y="74" width="370" height="46" rx="8" fill="#fce7f3" stroke="#db2777" stroke-width="1.6"/>
+    <text x="1105" y="95" text-anchor="middle" font-size="14" font-weight="700" fill="#9d174d">方案C · LlamaIndex</text>
+    <text x="1105" y="112" text-anchor="middle" font-size="10" fill="#be185d">事件驱动 Workflows / Agent（强于 RAG 检索增强）</text>
+  </g>
+
+  <!-- 层级行 -->
+  <!-- 每行: 左侧层标签 + 三列单元格 -->
+  <!-- L0 入口/触发 -->
+  <g font-size="10.5" fill="#334155" font-weight="700">
+    <text x="20" y="156">L0</text><text x="20" y="170" font-size="9" font-weight="400" fill="#64748b">入口/触发</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="150" y="132" width="370" height="58" rx="7" fill="#fff7ed" stroke="#fb923c" stroke-width="1.2"/>
+    <text x="160" y="152" font-size="10.5" font-weight="700" fill="#9a3412">用户自然语言确认语</text>
+    <text x="160" y="168" font-size="9" fill="#7c2d12">isPackagingTestCasesApprovalMessage</text>
+    <text x="160" y="182" font-size="9" fill="#7c2d12">关键词/确认语义匹配 → 触发下游</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="535" y="132" width="370" height="58" rx="7" fill="#f0fdf4" stroke="#4ade80" stroke-width="1.2"/>
+    <text x="545" y="152" font-size="10.5" font-weight="700" fill="#166534">graph.invoke(state) 入口</text>
+    <text x="545" y="168" font-size="9" fill="#14532d">应用代码显式发起一次图执行</text>
+    <text x="545" y="182" font-size="9" fill="#14532d">入参即初始 State（TypedDict/Pydantic）</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="920" y="132" width="370" height="58" rx="7" fill="#fdf2f8" stroke="#f472b6" stroke-width="1.2"/>
+    <text x="930" y="152" font-size="10.5" font-weight="700" fill="#9d174d">workflow.run() / 触发事件</text>
+    <text x="930" y="168" font-size="9" fill="#831843">StartEvent 进入事件驱动流水线</text>
+    <text x="930" y="182" font-size="9" fill="#831843">或 Agent.chat() 单轮入口</text>
+  </g>
+
+  <!-- L1 编排/路由 -->
+  <g font-size="10.5" fill="#334155" font-weight="700">
+    <text x="20" y="220">L1</text><text x="20" y="234" font-size="9" font-weight="400" fill="#64748b">编排/路由</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="150" y="198" width="370" height="62" rx="7" fill="#fff7ed" stroke="#fb923c" stroke-width="1.2"/>
+    <text x="160" y="218" font-size="10.5" font-weight="700" fill="#9a3412">前端确定性门禁状态机（TS 条件分支）</text>
+    <text x="160" y="234" font-size="9" fill="#7c2d12">resolvePackagingRequestRoute</text>
+    <text x="160" y="248" font-size="9" fill="#7c2d12">返回 none/import/wait/launch 等离散路由</text>
+    <text x="160" y="258" font-size="8.5" fill="#a16207">★ 编排逻辑“散落”在前端，无中心编排器</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="535" y="198" width="370" height="62" rx="7" fill="#f0fdf4" stroke="#4ade80" stroke-width="1.2"/>
+    <text x="545" y="218" font-size="10.5" font-weight="700" fill="#166534">StateGraph + add_conditional_edges</text>
+    <text x="545" y="234" font-size="9" fill="#14532d">图结构=显式编排，路由函数返回下一节点</text>
+    <text x="545" y="248" font-size="9" fill="#14532d">中心化、可视化、可静态检视</text>
+    <text x="545" y="258" font-size="8.5" fill="#15803d">★ 框架原生强项：确定性流程编排</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="920" y="198" width="370" height="62" rx="7" fill="#fdf2f8" stroke="#f472b6" stroke-width="1.2"/>
+    <text x="930" y="218" font-size="10.5" font-weight="700" fill="#9d174d">@step + Event 类型路由</text>
+    <text x="930" y="234" font-size="9" fill="#831843">步骤间用事件类型连边，隐式成图</text>
+    <text x="930" y="248" font-size="9" fill="#831843">编排能力有，但定位更偏数据/检索</text>
+    <text x="930" y="258" font-size="8.5" fill="#9d174d">○ 流程编排是补充能力，非核心卖点</text>
+  </g>
+
+  <!-- L2 节点/能力定义 -->
+  <g font-size="10.5" fill="#334155" font-weight="700">
+    <text x="20" y="290">L2</text><text x="20" y="304" font-size="9" font-weight="400" fill="#64748b">节点定义</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="150" y="268" width="370" height="64" rx="7" fill="#fff7ed" stroke="#fb923c" stroke-width="1.2"/>
+    <text x="160" y="288" font-size="10.5" font-weight="700" fill="#9a3412">SKILL.md = 自然语言“作业指导书”</text>
+    <text x="160" y="304" font-size="9" fill="#7c2d12">YAML frontmatter(name/trigger/input/output)</text>
+    <text x="160" y="318" font-size="9" fill="#7c2d12">+ 入口门禁/输入契约/生成要求/降级</text>
+    <text x="160" y="329" font-size="8.5" fill="#a16207">★ 业务专家可读写，零代码改节点</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="535" y="268" width="370" height="64" rx="7" fill="#f0fdf4" stroke="#4ade80" stroke-width="1.2"/>
+    <text x="545" y="288" font-size="10.5" font-weight="700" fill="#166534">Python/JS 节点函数 def node(state)</text>
+    <text x="545" y="304" font-size="9" fill="#14532d">每个节点是一段代码（可内嵌 LLM 调用）</text>
+    <text x="545" y="318" font-size="9" fill="#14532d">提示词、工具、解析都写在函数里</text>
+    <text x="545" y="329" font-size="8.5" fill="#15803d">★ 强类型、可单测、可断点</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="920" y="268" width="370" height="64" rx="7" fill="#fdf2f8" stroke="#f472b6" stroke-width="1.2"/>
+    <text x="930" y="288" font-size="10.5" font-weight="700" fill="#9d174d">@step 方法 / QueryEngine / Tool</text>
+    <text x="930" y="304" font-size="9" fill="#831843">节点=带 @step 的类方法</text>
+    <text x="930" y="318" font-size="9" fill="#831843">内置大量 RAG/索引/检索组件可直接拼</text>
+    <text x="930" y="329" font-size="8.5" fill="#9d174d">★ 检索增强类节点开箱即用</text>
+  </g>
+
+  <!-- L3 执行运行时 -->
+  <g font-size="10.5" fill="#334155" font-weight="700">
+    <text x="20" y="362">L3</text><text x="20" y="376" font-size="9" font-weight="400" fill="#64748b">执行运行时</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="150" y="340" width="370" height="58" rx="7" fill="#fff7ed" stroke="#fb923c" stroke-width="1.2"/>
+    <text x="160" y="360" font-size="10.5" font-weight="700" fill="#9a3412">KingCrab Agent 平台（独立服务）</text>
+    <text x="160" y="376" font-size="9" fill="#7c2d12">加载 SKILL.md→切换技能→沙箱写文件</text>
+    <text x="160" y="390" font-size="9" fill="#7c2d12">hirebot 经 HTTP/MCP 注入 prompt 驱动</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="535" y="340" width="370" height="58" rx="7" fill="#f0fdf4" stroke="#4ade80" stroke-width="1.2"/>
+    <text x="545" y="360" font-size="10.5" font-weight="700" fill="#166534">应用进程内的图运行时（库）</text>
+    <text x="545" y="376" font-size="9" fill="#14532d">需自建常驻编排服务承载 graph</text>
+    <text x="545" y="390" font-size="9" fill="#14532d">LLM/工具调用由你自己接入</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="920" y="340" width="370" height="58" rx="7" fill="#fdf2f8" stroke="#f472b6" stroke-width="1.2"/>
+    <text x="930" y="360" font-size="10.5" font-weight="700" fill="#9d174d">应用进程内 Workflow 运行时（库）</text>
+    <text x="930" y="376" font-size="9" fill="#831843">同样需自建常驻服务</text>
+    <text x="930" y="390" font-size="9" fill="#831843">擅长挂接向量库/文档源</text>
+  </g>
+
+  <!-- L4 状态/上下文 -->
+  <g font-size="10.5" fill="#334155" font-weight="700">
+    <text x="20" y="426">L4</text><text x="20" y="440" font-size="9" font-weight="400" fill="#64748b">状态/上下文</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="150" y="404" width="370" height="58" rx="7" fill="#fff7ed" stroke="#fb923c" stroke-width="1.2"/>
+    <text x="160" y="424" font-size="10.5" font-weight="700" fill="#9a3412">会话历史 + 沙箱工作区 + payload</text>
+    <text x="160" y="440" font-size="9" fill="#7c2d12">状态“隐含”在多轮对话与文件系统里</text>
+    <text x="160" y="454" font-size="9" fill="#7c2d12">PackagingTestCaseMaterialLoader 拼 payload</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="535" y="404" width="370" height="58" rx="7" fill="#f0fdf4" stroke="#4ade80" stroke-width="1.2"/>
+    <text x="545" y="424" font-size="10.5" font-weight="700" fill="#166534">显式 State 对象 + Checkpointer</text>
+    <text x="545" y="440" font-size="9" fill="#14532d">状态是一等公民，可持久化/断点续跑</text>
+    <text x="545" y="454" font-size="9" fill="#14532d">原生 human-in-the-loop / 回放</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="920" y="404" width="370" height="58" rx="7" fill="#fdf2f8" stroke="#f472b6" stroke-width="1.2"/>
+    <text x="930" y="424" font-size="10.5" font-weight="700" fill="#9d174d">Context 对象 + 事件传参</text>
+    <text x="930" y="440" font-size="9" fill="#831843">ctx.set/get 共享状态</text>
+    <text x="930" y="454" font-size="9" fill="#831843">叠加 Index/Memory 管理检索上下文</text>
+  </g>
+
+  <!-- L5 输出契约/校验 -->
+  <g font-size="10.5" fill="#334155" font-weight="700">
+    <text x="20" y="490">L5</text><text x="20" y="504" font-size="9" font-weight="400" fill="#64748b">输出契约/校验</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="150" y="468" width="370" height="66" rx="7" fill="#fff7ed" stroke="#fb923c" stroke-width="1.2"/>
+    <text x="160" y="488" font-size="10.5" font-weight="700" fill="#9a3412">提示词强约束 + 后端硬校验（双保险）</text>
+    <text x="160" y="504" font-size="9" fill="#7c2d12">OUTPUT_CONTRACT.md + dispatch_callback 协议</text>
+    <text x="160" y="518" font-size="9" fill="#7c2d12">IsAllowedArtifactPath 路径白名单</text>
+    <text x="160" y="530" font-size="8.5" fill="#a16207">ComputeSha256 完整性 + 敏感值拦截 + 降级</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="535" y="468" width="370" height="66" rx="7" fill="#f0fdf4" stroke="#4ade80" stroke-width="1.2"/>
+    <text x="545" y="488" font-size="10.5" font-weight="700" fill="#166534">代码级结构化校验</text>
+    <text x="545" y="504" font-size="9" fill="#14532d">Pydantic schema / with_structured_output</text>
+    <text x="545" y="518" font-size="9" fill="#14532d">节点内 try/except + 重试边显式建模</text>
+    <text x="545" y="530" font-size="8.5" fill="#15803d">★ 校验天然落在代码里，强类型保障</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="920" y="468" width="370" height="66" rx="7" fill="#fdf2f8" stroke="#f472b6" stroke-width="1.2"/>
+    <text x="930" y="488" font-size="10.5" font-weight="700" fill="#9d174d">Pydantic 输出 / Output Parser</text>
+    <text x="930" y="504" font-size="9" fill="#831843">结构化输出 + 评估模块（faithfulness 等）</text>
+    <text x="930" y="518" font-size="9" fill="#831843">校验也写在代码里</text>
+    <text x="930" y="530" font-size="8.5" fill="#9d174d">○ 偏检索质量评估，非流程门禁</text>
+  </g>
+
+  <!-- L6 产物落地 -->
+  <g font-size="10.5" fill="#334155" font-weight="700">
+    <text x="20" y="562">L6</text><text x="20" y="576" font-size="9" font-weight="400" fill="#64748b">产物落地</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="150" y="540" width="370" height="56" rx="7" fill="#fff7ed" stroke="#fb923c" stroke-width="1.2"/>
+    <text x="160" y="560" font-size="10.5" font-weight="700" fill="#9a3412">后端解析回调→落地存储</text>
+    <text x="160" y="576" font-size="9" fill="#7c2d12">ParseAssistantReply 提取 dispatch_callback</text>
+    <text x="160" y="589" font-size="9" fill="#7c2d12">写 testcases/ 入库 HiringArtifacts</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="535" y="540" width="370" height="56" rx="7" fill="#f0fdf4" stroke="#4ade80" stroke-width="1.2"/>
+    <text x="545" y="560" font-size="10.5" font-weight="700" fill="#166534">由你的应用代码自行落地</text>
+    <text x="545" y="576" font-size="9" fill="#14532d">图输出 State→你写库/写文件</text>
+    <text x="545" y="589" font-size="9" fill="#14532d">无内置“沙箱产物→存储”链路</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="920" y="540" width="370" height="56" rx="7" fill="#fdf2f8" stroke="#f472b6" stroke-width="1.2"/>
+    <text x="930" y="560" font-size="10.5" font-weight="700" fill="#9d174d">由你的应用代码自行落地</text>
+    <text x="930" y="576" font-size="9" fill="#831843">擅长把结果写回索引/向量库</text>
+    <text x="930" y="589" font-size="9" fill="#831843">业务产物存储仍需自建</text>
+  </g>
+
+  <!-- L7 改一个节点的成本 -->
+  <g font-size="10.5" fill="#334155" font-weight="700">
+    <text x="20" y="624">L7</text><text x="20" y="638" font-size="9" font-weight="400" fill="#64748b">改节点成本</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="150" y="602" width="370" height="50" rx="7" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.3"/>
+    <text x="160" y="622" font-size="10.5" font-weight="700" fill="#92400e">改 SKILL.md 文本即可，不重新部署</text>
+    <text x="160" y="638" font-size="9" fill="#b45309">业务/运营可改；但行为靠模型“遵守”，非强保证</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="535" y="602" width="370" height="50" rx="7" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.3"/>
+    <text x="545" y="622" font-size="10.5" font-weight="700" fill="#1e40af">改代码 + 测试 + 部署</text>
+    <text x="545" y="638" font-size="9" fill="#1d4ed8">需工程师；但行为强确定、可回归</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="920" y="602" width="370" height="50" rx="7" fill="#fae8ff" stroke="#a855f7" stroke-width="1.3"/>
+    <text x="930" y="622" font-size="10.5" font-weight="700" fill="#7e22ce">改代码 + 测试 + 部署</text>
+    <text x="930" y="638" font-size="9" fill="#9333ea">需工程师；侧重检索管线的调优</text>
+  </g>
+
+  <!-- 底部结论条 -->
+  <g filter="url(#shadow)">
+    <rect x="150" y="676" width="1140" height="84" rx="10" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.6"/>
+    <text x="720" y="700" text-anchor="middle" font-size="13.5" font-weight="700" fill="#3730a3">核心判断：三者“确定性”落点不同</text>
+    <text x="170" y="722" font-size="10.5" fill="#3730a3">· SKILL：用“前端门禁状态机 + 强约束提示词 + 后端硬校验”把流程做成确定的；节点内容生成仍是 LLM 概率行为，靠契约/自校验/降级收敛。编排逻辑分散、跨三处。</text>
+    <text x="170" y="740" font-size="10.5" fill="#166534">· LangGraph：把“确定性流程编排 + 概率性节点”作为框架第一性问题，状态/路由/断点/人审都是一等公民——最贴合“确定的、文档化工作流编排”。</text>
+    <text x="170" y="758" font-size="10.5" fill="#9d174d">· LlamaIndex：Workflows 能编排，但护城河在 RAG/检索增强；若本场景重在“按文档约束生成产物 + 检索资料”，可作节点能力补充，不必整体替换编排层。</text>
+  </g>
+
+  <!-- 图例 -->
+  <g font-size="10" fill="#475569">
+    <rect x="150" y="790" width="14" height="12" rx="2" fill="#fff7ed" stroke="#fb923c"/>
+    <text x="170" y="800">方案A SKILL（hirebot+KingCrab 现状）</text>
+    <rect x="430" y="790" width="14" height="12" rx="2" fill="#f0fdf4" stroke="#4ade80"/>
+    <text x="450" y="800">方案B LangGraph（显式状态图）</text>
+    <rect x="700" y="790" width="14" height="12" rx="2" fill="#fdf2f8" stroke="#f472b6"/>
+    <text x="720" y="800">方案C LlamaIndex（事件流/检索增强）</text>
+    <text x="960" y="800" font-size="10" fill="#64748b">★=该方案在此层的相对优势　○=能做但非强项</text>
+  </g>
+  <text x="150" y="828" font-size="9.5" fill="#94a3b8">说明：本图为同层职责对比，非单一调用时序；SKILL 链路的逐层调用堆栈另见同目录《测试用例生成与下载包调用堆栈.svg》。</text>
+</svg>

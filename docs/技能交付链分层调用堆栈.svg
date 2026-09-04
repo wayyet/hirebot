@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1150" height="965" viewBox="0 0 1150 965" font-family="'Microsoft YaHei','PingFang SC','Segoe UI',sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#475569"/>
+    </marker>
+    <marker id="arrowO" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#ea580c"/>
+    </marker>
+    <marker id="arrowP" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#7c3aed"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1150" height="965" fill="#ffffff"/>
+
+  <!-- 标题 -->
+  <text x="40" y="34" font-size="21" font-weight="bold" fill="#0f172a">hirebot 技能交付链 · 分层调用堆栈</text>
+  <text x="40" y="55" font-size="12" fill="#64748b">从"系统技能注册"到"沙箱 Agent 加载 SKILL.md"的端到端交付链;实线=进程内调用/数据流,橙虚线=跨系统 HTTP,紫虚线=阶段驱动旁路</text>
+
+  <!-- 图例 -->
+  <g font-size="11" fill="#475569">
+    <line x1="760" y1="30" x2="788" y2="30" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="794" y="34">进程内调用</text>
+    <line x1="890" y1="30" x2="918" y2="30" stroke="#ea580c" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrowO)"/>
+    <text x="924" y="34" fill="#ea580c">跨系统 HTTP</text>
+    <line x1="1020" y1="30" x2="1048" y2="30" stroke="#7c3aed" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrowP)"/>
+    <text x="1054" y="34" fill="#7c3aed">旁路</text>
+  </g>
+
+  <!-- ===== 泳道背景带 ===== -->
+  <rect x="10" y="72"  width="1130" height="92"  rx="8" fill="#eef2ff"/>
+  <rect x="10" y="172" width="1130" height="140" rx="8" fill="#ecfdf5"/>
+  <rect x="10" y="320" width="1130" height="104" rx="8" fill="#fef9c3"/>
+  <rect x="10" y="432" width="1130" height="250" rx="8" fill="#ffe4e6"/>
+  <rect x="10" y="690" width="1130" height="92"  rx="8" fill="#e0f2fe"/>
+  <rect x="10" y="790" width="1130" height="150" rx="8" fill="#f5f3ff"/>
+
+  <!-- 泳道层标签 -->
+  <g font-size="13" font-weight="bold">
+    <text x="24" y="96"  fill="#4338ca">① 注册底座</text>
+    <text x="24" y="196" fill="#047857">② 浏览 / 推荐</text>
+    <text x="24" y="344" fill="#a16207">③ 雇佣绑定</text>
+    <text x="24" y="456" fill="#be123c">④ 下发成包</text>
+    <text x="24" y="714" fill="#0369a1">⑤ 交付执行</text>
+    <text x="24" y="814" fill="#6d28d9">⑥ 阶段驱动(旁路)</text>
+  </g>
+
+  <!-- ===== 外部系统 BuildService(跨 ②③④) ===== -->
+  <rect x="900" y="200" width="230" height="408" rx="8" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+  <text x="1015" y="226" font-size="13" font-weight="bold" fill="#c2410c" text-anchor="middle">外部系统</text>
+  <text x="1015" y="248" font-size="12" fill="#9a3412" text-anchor="middle">ncrew-builder 技能商店</text>
+  <text x="1015" y="266" font-size="11" fill="#9a3412" text-anchor="middle">(BuildService)</text>
+  <line x1="920" y1="282" x2="1110" y2="282" stroke="#fdba74" stroke-width="1"/>
+  <text x="1015" y="306" font-size="10.5" fill="#7c2d12" text-anchor="middle">GET /api/store/skills</text>
+  <text x="1015" y="326" font-size="10.5" fill="#7c2d12" text-anchor="middle">/skills/{id}/versions</text>
+  <text x="1015" y="346" font-size="10.5" fill="#7c2d12" text-anchor="middle">/{ver}/download</text>
+  <text x="1015" y="380" font-size="10.5" fill="#9a3412" text-anchor="middle">②推荐拉候选</text>
+  <text x="1015" y="398" font-size="10.5" fill="#9a3412" text-anchor="middle">④下发下载 zip</text>
+
+  <!-- ===== ① 注册底座 ===== -->
+  <g>
+    <rect x="330" y="92" width="470" height="50" rx="6" fill="#ffffff" stroke="#6366f1" stroke-width="1.5"/>
+    <text x="565" y="114" font-size="13" font-weight="bold" fill="#312e81" text-anchor="middle">系统技能注册表 · FileSystemSystemSkillRegistry</text>
+    <text x="565" y="132" font-size="11" fill="#64748b" text-anchor="middle">扫描 Assets/DigitalEmployeeTemplates,识别 SKILL.md + manifest.json</text>
+  </g>
+
+  <!-- ===== ② 浏览 / 推荐 ===== -->
+  <g>
+    <rect x="170" y="200" width="300" height="88" rx="6" fill="#ffffff" stroke="#10b981" stroke-width="1.5"/>
+    <text x="320" y="226" font-size="13" font-weight="bold" fill="#065f46" text-anchor="middle">技能目录浏览</text>
+    <text x="320" y="248" font-size="11" fill="#334155" text-anchor="middle">ISkillCatalogProvider</text>
+    <text x="320" y="268" font-size="11" fill="#64748b" text-anchor="middle">SkillSummaryDto / SkillDetailDto</text>
+    <text x="320" y="284" font-size="10.5" fill="#94a3b8" text-anchor="middle">(数据源:本地注册表)</text>
+  </g>
+  <g>
+    <rect x="510" y="200" width="330" height="88" rx="6" fill="#ffffff" stroke="#10b981" stroke-width="1.5"/>
+    <text x="675" y="226" font-size="13" font-weight="bold" fill="#065f46" text-anchor="middle">模板技能推荐</text>
+    <text x="675" y="248" font-size="11" fill="#334155" text-anchor="middle">TemplateSkillRecommendationService</text>
+    <text x="675" y="268" font-size="11" fill="#64748b" text-anchor="middle">加权打分 + 中英文分词 + 同义词归一</text>
+    <text x="675" y="284" font-size="10.5" fill="#94a3b8" text-anchor="middle">(数据源:外部商店,2 分钟缓存)</text>
+  </g>
+
+  <!-- ===== ③ 雇佣绑定 ===== -->
+  <g>
+    <rect x="170" y="346" width="200" height="54" rx="6" fill="#ffffff" stroke="#eab308" stroke-width="1.5"/>
+    <text x="270" y="370" font-size="12.5" font-weight="bold" fill="#854d0e" text-anchor="middle">HiringsController</text>
+    <text x="270" y="388" font-size="11" fill="#64748b" text-anchor="middle">POST 保存技能绑定</text>
+  </g>
+  <g>
+    <rect x="400" y="346" width="240" height="54" rx="6" fill="#ffffff" stroke="#eab308" stroke-width="1.5"/>
+    <text x="520" y="370" font-size="12.5" font-weight="bold" fill="#854d0e" text-anchor="middle">EmployeeHiringService</text>
+    <text x="520" y="388" font-size="11" fill="#64748b" text-anchor="middle">SaveSkillLinkConfigAsync</text>
+  </g>
+  <g>
+    <rect x="660" y="346" width="210" height="54" rx="6" fill="#ffffff" stroke="#eab308" stroke-width="1.5"/>
+    <text x="765" y="370" font-size="12.5" font-weight="bold" fill="#854d0e" text-anchor="middle">HiringStageService → DB</text>
+    <text x="765" y="388" font-size="11" fill="#64748b" text-anchor="middle">表 HiringSkillLinkConfigs</text>
+  </g>
+
+  <!-- ===== ④ 下发成包 ===== -->
+  <g>
+    <rect x="300" y="448" width="470" height="42" rx="6" fill="#ffffff" stroke="#f43f5e" stroke-width="1.5"/>
+    <text x="535" y="474" font-size="12.5" font-weight="bold" fill="#9f1239" text-anchor="middle">EmployeeHiringService:导入最终实例包(成包)流程</text>
+  </g>
+  <g>
+    <rect x="300" y="500" width="470" height="42" rx="6" fill="#ffffff" stroke="#f43f5e" stroke-width="1.5"/>
+    <text x="535" y="526" font-size="12" fill="#9f1239" text-anchor="middle">ResolveEffectiveSkillLinkConfig(读回 DB) + BuildStoreSkillDownloadRequests</text>
+  </g>
+  <g>
+    <rect x="300" y="552" width="470" height="42" rx="6" fill="#ffffff" stroke="#f43f5e" stroke-width="1.5"/>
+    <text x="535" y="578" font-size="12" fill="#9f1239" text-anchor="middle">StoreSkillPackageDownloader.DownloadSkillsAsync(下载 / 解压)</text>
+  </g>
+  <g>
+    <rect x="300" y="604" width="470" height="58" rx="6" fill="#ffffff" stroke="#f43f5e" stroke-width="1.5"/>
+    <text x="535" y="626" font-size="12" fill="#9f1239" text-anchor="middle">MergeSkillPackageEntries → 规范化 skills/&lt;slug&gt;/...</text>
+    <text x="535" y="646" font-size="11" fill="#64748b" text-anchor="middle">BuildSkillLinkIndexFile(linked-store-skills.index.json) → PersistFinalPackageAsync</text>
+  </g>
+
+  <!-- ===== ⑤ 交付执行 ===== -->
+  <g>
+    <rect x="250" y="712" width="300" height="48" rx="6" fill="#ffffff" stroke="#0ea5e9" stroke-width="1.5"/>
+    <text x="400" y="741" font-size="12.5" font-weight="bold" fill="#075985" text-anchor="middle">最终交付包 → 上传 kingcrab 沙箱</text>
+  </g>
+  <g>
+    <rect x="590" y="712" width="360" height="48" rx="6" fill="#ffffff" stroke="#0ea5e9" stroke-width="1.5"/>
+    <text x="770" y="741" font-size="12.5" font-weight="bold" fill="#075985" text-anchor="middle">数字员工 Agent 加载 skills/*/SKILL.md</text>
+  </g>
+
+  <!-- ===== ⑥ 阶段驱动旁路 ===== -->
+  <g>
+    <rect x="160" y="836" width="190" height="54" rx="6" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="255" y="860" font-size="12" font-weight="bold" fill="#5b21b6" text-anchor="middle">stage_rules / required_fields</text>
+    <text x="255" y="878" font-size="10.5" fill="#64748b" text-anchor="middle">(manifest.json 定义)</text>
+  </g>
+  <g>
+    <rect x="380" y="836" width="200" height="54" rx="6" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="480" y="867" font-size="12" font-weight="bold" fill="#5b21b6" text-anchor="middle">FileSystemDiscoveryRuleProvider</text>
+  </g>
+  <g>
+    <rect x="610" y="836" width="250" height="54" rx="6" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="735" y="860" font-size="12" font-weight="bold" fill="#5b21b6" text-anchor="middle">HiringStageCompletionEvaluator</text>
+    <text x="735" y="878" font-size="10.5" fill="#64748b" text-anchor="middle">必填齐 → ReadyForNextStage</text>
+  </g>
+  <g>
+    <rect x="890" y="836" width="240" height="54" rx="6" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="1010" y="860" font-size="12" font-weight="bold" fill="#5b21b6" text-anchor="middle">阶段状态机推进</text>
+    <text x="1010" y="878" font-size="10.5" fill="#64748b" text-anchor="middle">material → … → distribution</text>
+  </g>
+
+  <!-- ===== 连线 ===== -->
+  <!-- ① → ② -->
+  <line x1="520" y1="142" x2="340" y2="200" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="610" y1="142" x2="660" y2="200" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- ② → ③ (用户选定后提交绑定) -->
+  <line x1="300" y1="288" x2="272" y2="346" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="640" y1="288" x2="540" y2="346" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- ③ 链 -->
+  <line x1="370" y1="373" x2="400" y2="373" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="640" y1="373" x2="660" y2="373" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- ③DB → ④读回绑定 (虚线) -->
+  <path d="M765,400 L765,475 L770,475" fill="none" stroke="#475569" stroke-width="1.3" stroke-dasharray="5,3" marker-end="url(#arrow)"/>
+  <text x="785" y="468" font-size="10.5" fill="#475569">读回绑定</text>
+  <!-- ④ 纵向链 -->
+  <line x1="535" y1="490" x2="535" y2="500" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="535" y1="542" x2="535" y2="552" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="535" y1="594" x2="535" y2="604" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- ② 推荐 → 外部商店 (橙虚线) -->
+  <line x1="840" y1="232" x2="900" y2="250" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowO)"/>
+  <!-- ④ 下载 → 外部商店 (橙虚线) -->
+  <path d="M770,573 L860,573 L860,420 L900,400" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowO)"/>
+  <!-- ④ → ⑤ -->
+  <line x1="535" y1="662" x2="400" y2="712" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- ⑤ 链 -->
+  <line x1="550" y1="736" x2="590" y2="736" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- ⑥ 旁路: ① → stage_rules (紫虚线,沿左边界) -->
+  <path d="M330,128 L120,128 L120,863 L160,863" fill="none" stroke="#7c3aed" stroke-width="1.3" stroke-dasharray="5,3" marker-end="url(#arrowP)"/>
+  <!-- ⑥ 链 -->
+  <line x1="350" y1="863" x2="380" y2="863" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowP)"/>
+  <line x1="580" y1="863" x2="610" y2="863" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowP)"/>
+  <line x1="860" y1="863" x2="890" y2="863" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowP)"/>
+</svg>

@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" font-family="'Segoe UI','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="arw" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arwd" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#b45309"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="760" fill="#f8fafc"/>
+  <text x="600" y="28" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">雇佣教练模板 employment-coach-conversation · 调用堆栈层次图（生产链）</text>
+
+  <!-- Bands -->
+  <rect x="30" y="42" width="1140" height="96"  rx="8" fill="#eef2ff" stroke="#c7d2fe"/>
+  <rect x="30" y="146" width="1140" height="104" rx="8" fill="#ecfeff" stroke="#a5f3fc"/>
+  <rect x="30" y="258" width="1140" height="118" rx="8" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <rect x="30" y="384" width="1140" height="78"  rx="8" fill="#fef9c3" stroke="#fde68a"/>
+  <rect x="30" y="470" width="1140" height="106" rx="8" fill="#faf5ff" stroke="#e9d5ff"/>
+  <rect x="30" y="584" width="1140" height="106" rx="8" fill="#fff1f2" stroke="#fecdd3"/>
+
+  <text x="42" y="60"  font-size="12" font-weight="700" fill="#4338ca">L1 前端 / 用户层</text>
+  <text x="42" y="164" font-size="12" font-weight="700" fill="#0e7490">L2 HireBot 后端编排层（确定性 C#）</text>
+  <text x="42" y="276" font-size="12" font-weight="700" fill="#15803d">L3 KingCrab 网关确定性工具层</text>
+  <text x="42" y="402" font-size="12" font-weight="700" fill="#a16207">L4 Agent Runtime（LLM）</text>
+  <text x="42" y="488" font-size="12" font-weight="700" fill="#7e22ce">L5 下游 skill（渐进披露 · 同一 LLM）</text>
+  <text x="42" y="602" font-size="12" font-weight="700" fill="#be123c">L6 沙箱文件系统 /workspace/&lt;slug&gt;-&lt;ts&gt;/</text>
+
+  <!-- L1 -->
+  <g font-size="12.5" fill="#1e293b">
+    <rect x="70" y="74" width="380" height="50" rx="6" fill="#fff" stroke="#818cf8"/>
+    <text x="260" y="94"  text-anchor="middle">前端 WebChat</text>
+    <text x="260" y="112" text-anchor="middle" font-size="11" fill="#64748b">WebSocket 直连 GatewayEndpoint</text>
+    <rect x="490" y="74" width="420" height="50" rx="6" fill="#fff" stroke="#818cf8"/>
+    <text x="700" y="94"  text-anchor="middle">阶段胶囊 / 阶段卡片</text>
+    <text x="700" y="112" text-anchor="middle" font-size="11" fill="#64748b">完全由 emit_artifact 事件驱动</text>
+  </g>
+
+  <!-- L2 -->
+  <g font-size="12" fill="#1e293b">
+    <rect x="60"  y="180" width="250" height="56" rx="6" fill="#fff" stroke="#22d3ee"/>
+    <text x="185" y="203" text-anchor="middle">EmployeeHiringService</text>
+    <text x="185" y="221" text-anchor="middle" font-size="11" fill="#64748b">HireTemplateAsync</text>
+    <rect x="330" y="180" width="250" height="56" rx="6" fill="#fff" stroke="#22d3ee"/>
+    <text x="455" y="203" text-anchor="middle">SandboxService</text>
+    <text x="455" y="221" text-anchor="middle" font-size="11" fill="#64748b">创建 / 等待沙箱 Running</text>
+    <rect x="600" y="180" width="280" height="56" rx="6" fill="#fff" stroke="#22d3ee"/>
+    <text x="740" y="203" text-anchor="middle">KingCrabGateway / HttpClient</text>
+    <text x="740" y="221" text-anchor="middle" font-size="11" fill="#64748b">HTTP 上传模板 zip → 安装 skill</text>
+    <rect x="900" y="180" width="240" height="56" rx="6" fill="#fff" stroke="#22d3ee"/>
+    <text x="1020" y="203" text-anchor="middle">ImportPackageAsync</text>
+    <text x="1020" y="221" text-anchor="middle" font-size="11" fill="#64748b">数字员工包入库</text>
+  </g>
+
+  <!-- L3 -->
+  <g font-size="11.5" fill="#1e293b">
+    <rect x="50"  y="292" width="176" height="70" rx="6" fill="#fff" stroke="#4ade80"/>
+    <text x="138" y="318" text-anchor="middle">SkillLoader /</text>
+    <text x="138" y="334" text-anchor="middle">SkillWatcherService</text>
+    <text x="138" y="351" text-anchor="middle" font-size="10.5" fill="#64748b">发现 + 注册 skill</text>
+    <rect x="236" y="292" width="176" height="70" rx="6" fill="#fff" stroke="#4ade80"/>
+    <text x="324" y="322" text-anchor="middle">SkillPromptBuilder</text>
+    <text x="324" y="343" text-anchor="middle" font-size="10.5" fill="#64748b">仅注入 skill 索引</text>
+    <rect x="422" y="292" width="176" height="70" rx="6" fill="#fff" stroke="#4ade80"/>
+    <text x="510" y="322" text-anchor="middle">LoadSkillTool</text>
+    <text x="510" y="343" text-anchor="middle" font-size="10.5" fill="#64748b">load_skill 渐进披露</text>
+    <rect x="608" y="292" width="176" height="70" rx="6" fill="#fff" stroke="#4ade80"/>
+    <text x="696" y="322" text-anchor="middle">EmitArtifactTool</text>
+    <text x="696" y="343" text-anchor="middle" font-size="10.5" fill="#64748b">emit_artifact 推送</text>
+    <rect x="794" y="292" width="176" height="70" rx="6" fill="#fff" stroke="#16a34a" stroke-width="2"/>
+    <text x="882" y="318" text-anchor="middle">SkillArtifactRuntime</text>
+    <text x="882" y="334" text-anchor="middle" font-size="10.5" fill="#64748b">契约校验 + 阶段门</text>
+    <text x="882" y="351" text-anchor="middle" font-size="10.5" fill="#64748b">SkillStageGateEvent</text>
+    <rect x="980" y="292" width="170" height="70" rx="6" fill="#fff" stroke="#4ade80"/>
+    <text x="1065" y="322" text-anchor="middle">WebSocketChannel</text>
+    <text x="1065" y="343" text-anchor="middle" font-size="10.5" fill="#64748b">envelope 推前端</text>
+  </g>
+
+  <!-- L4 -->
+  <rect x="290" y="404" width="620" height="46" rx="8" fill="#fff" stroke="#d97706" stroke-width="2"/>
+  <text x="600" y="426" text-anchor="middle" font-size="13.5" font-weight="600" fill="#78350f">MafAgentRuntime · 教练 LLM</text>
+  <text x="600" y="443" text-anchor="middle" font-size="11" fill="#92400e">entry / 主 skill: employment-coach-conversation（常驻上下文）</text>
+
+  <!-- L5 -->
+  <g font-size="11" fill="#1e293b">
+    <rect x="50"  y="500" width="176" height="60" rx="6" fill="#fff" stroke="#c084fc"/>
+    <text x="138" y="524" text-anchor="middle">ontology-slice-</text>
+    <text x="138" y="539" text-anchor="middle">extraction</text>
+    <text x="138" y="554" text-anchor="middle" font-size="10.5" fill="#7e22ce" font-weight="700">R1</text>
+    <rect x="236" y="500" width="176" height="60" rx="6" fill="#fff" stroke="#c084fc"/>
+    <text x="324" y="524" text-anchor="middle">ontology-projection</text>
+    <text x="324" y="547" text-anchor="middle" font-size="10.5" fill="#7e22ce" font-weight="700">R2</text>
+    <rect x="422" y="500" width="176" height="60" rx="6" fill="#fff" stroke="#c084fc"/>
+    <text x="510" y="524" text-anchor="middle">skill-generation</text>
+    <text x="510" y="547" text-anchor="middle" font-size="10.5" fill="#7e22ce" font-weight="700">R3</text>
+    <rect x="608" y="500" width="176" height="60" rx="6" fill="#fff" stroke="#c084fc"/>
+    <text x="696" y="533" text-anchor="middle">external-config</text>
+    <rect x="794" y="500" width="176" height="60" rx="6" fill="#fff" stroke="#c084fc"/>
+    <text x="882" y="524" text-anchor="middle">packaging-test-cases</text>
+    <text x="882" y="547" text-anchor="middle" font-size="10.5" fill="#7e22ce" font-weight="700">R4</text>
+    <rect x="980" y="500" width="170" height="60" rx="6" fill="#fff" stroke="#c084fc"/>
+    <text x="1065" y="524" text-anchor="middle">completeness-review</text>
+    <text x="1065" y="547" text-anchor="middle" font-size="10.5" fill="#7e22ce" font-weight="700">R5 → R6 打包</text>
+  </g>
+
+  <!-- L6 -->
+  <g font-size="11" fill="#1e293b">
+    <rect x="50"  y="614" width="176" height="60" rx="6" fill="#fff" stroke="#fb7185"/>
+    <text x="138" y="640" text-anchor="middle">uploads/</text>
+    <text x="138" y="657" text-anchor="middle" font-size="10.5" fill="#64748b">目标模板解压</text>
+    <rect x="236" y="614" width="176" height="60" rx="6" fill="#fff" stroke="#fb7185"/>
+    <text x="324" y="640" text-anchor="middle">ontology/</text>
+    <text x="324" y="657" text-anchor="middle" font-size="10.5" fill="#64748b">*.slice.json</text>
+    <rect x="422" y="614" width="176" height="60" rx="6" fill="#fff" stroke="#fb7185"/>
+    <text x="510" y="640" text-anchor="middle">ontology/projections/</text>
+    <text x="510" y="657" text-anchor="middle" font-size="10.5" fill="#64748b">*.projection.json</text>
+    <rect x="608" y="614" width="176" height="60" rx="6" fill="#fff" stroke="#fb7185"/>
+    <text x="696" y="640" text-anchor="middle">skills/&lt;slug&gt;/</text>
+    <text x="696" y="657" text-anchor="middle" font-size="10.5" fill="#64748b">SKILL.md + 4视图契约</text>
+    <rect x="794" y="614" width="176" height="60" rx="6" fill="#fff" stroke="#fb7185"/>
+    <text x="882" y="647" text-anchor="middle">external/</text>
+    <rect x="980" y="614" width="170" height="60" rx="6" fill="#fff" stroke="#fb7185"/>
+    <text x="1065" y="647" text-anchor="middle">testcases/</text>
+  </g>
+
+  <!-- Arrows -->
+  <!-- L1 user -> L2 -->
+  <line x1="185" y1="124" x2="185" y2="180" stroke="#334155" stroke-width="1.6" marker-end="url(#arw)"/>
+  <text x="192" y="160" font-size="10.5" fill="#334155">发起雇佣</text>
+  <!-- L2 gateway -> L3 install -->
+  <line x1="740" y1="236" x2="300" y2="292" stroke="#334155" stroke-width="1.6" marker-end="url(#arw)"/>
+  <text x="470" y="262" font-size="10.5" fill="#334155">上传 zip → 安装/注册 skill</text>
+  <!-- L1 front -> L3 websocket (dashed grey) -->
+  <line x1="700" y1="124" x2="1065" y2="292" stroke="#0e7490" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arw)"/>
+  <text x="905" y="200" font-size="10.5" fill="#0e7490">WebSocket 会话</text>
+  <!-- L3 <-> L4 tool call -->
+  <line x1="600" y1="376" x2="600" y2="404" stroke="#334155" stroke-width="1.6" marker-end="url(#arw)"/>
+  <line x1="640" y1="404" x2="640" y2="376" stroke="#334155" stroke-width="1.6" marker-end="url(#arw)"/>
+  <text x="655" y="392" font-size="10.5" fill="#334155">load_skill / emit_artifact 工具调用</text>
+  <!-- L4 -> L5 dashed orange (prompt orchestration) -->
+  <line x1="470" y1="450" x2="300" y2="500" stroke="#b45309" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#arwd)"/>
+  <text x="300" y="484" font-size="10.5" fill="#b45309" font-weight="600">[use skill] 触发块 · prompt 编排（非确定性）</text>
+  <!-- L5 -> L6 write -->
+  <line x1="138" y1="560" x2="138" y2="614" stroke="#334155" stroke-width="1.5" marker-end="url(#arw)"/>
+  <line x1="510" y1="560" x2="510" y2="614" stroke="#334155" stroke-width="1.5" marker-end="url(#arw)"/>
+  <line x1="696" y1="560" x2="696" y2="614" stroke="#334155" stroke-width="1.5" marker-end="url(#arw)"/>
+  <text x="720" y="600" font-size="10.5" fill="#334155">下游 skill 写盘产物</text>
+
+  <!-- Legend -->
+  <g font-size="11.5">
+    <text x="30" y="720" font-weight="700" fill="#0f172a">图例：</text>
+    <line x1="90" y1="716" x2="140" y2="716" stroke="#334155" stroke-width="1.8" marker-end="url(#arw)"/>
+    <text x="148" y="720" fill="#334155">确定性调用 / 数据流（C# 代码保证）</text>
+    <line x1="470" y1="716" x2="520" y2="716" stroke="#b45309" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#arwd)"/>
+    <text x="528" y="720" fill="#b45309">LLM 按 SKILL.md prompt 自行编排（无代码保证顺序）</text>
+    <text x="30" y="742" font-size="11" fill="#7f1d1d">⚠ R1/R2/R3 触发块在 kingcrab C# 代码中无实现，全靠主 skill 的 prompt 约束——这是本设计最大的确定性缺口。</text>
+  </g>
+</svg>

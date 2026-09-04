@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 910" font-family="'Segoe UI', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#eef2ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-4%" y="-6%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="910" fill="url(#bg)"/>
+  <text x="640" y="34" text-anchor="middle" font-size="21" font-weight="700" fill="#0f172a">测试用例文档生成 与 下载包：skill 技能调用堆栈层次图</text>
+  <text x="640" y="56" text-anchor="middle" font-size="12" fill="#64748b">hirebot 编排(前端门禁 + 提示词注入 + 落地存储) · KingCrab 执行 SKILL.md · 智能封装在各 skill 里</text>
+
+  <text x="340" y="82" text-anchor="middle" font-size="14" font-weight="700" fill="#3730a3">链路一 · 生成测试用例文档</text>
+  <text x="940" y="82" text-anchor="middle" font-size="14" font-weight="700" fill="#9d174d">链路二 · 下载数字员工包</text>
+
+  <!-- 层级标签 -->
+  <g font-size="11" fill="#475569" font-weight="600">
+    <text x="20" y="129">L0</text>
+    <text x="20" y="207">L1</text>
+    <text x="20" y="285">L2</text>
+    <text x="20" y="363">L3</text>
+    <text x="20" y="441">L4</text>
+    <text x="20" y="519">L5</text>
+    <text x="20" y="597">L6</text>
+    <text x="20" y="675">L7</text>
+  </g>
+
+  <!-- ================= 左栏：测试用例链路 ================= -->
+  <g filter="url(#shadow)">
+    <rect x="100" y="98" width="480" height="54" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="340" y="120" text-anchor="middle" font-size="12.5" font-weight="700" fill="#92400e">用户：「生成测试用例」</text>
+    <text x="340" y="139" text-anchor="middle" font-size="9.5" fill="#b45309">前置门禁：外部配置已保存 / 跳过 (external_config_committed)</text>
+  </g>
+  <line x1="340" y1="152" x2="340" y2="174" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="100" y="176" width="480" height="54" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+    <text x="340" y="198" text-anchor="middle" font-size="12.5" font-weight="700" fill="#3730a3">前端确认门 (FE)</text>
+    <text x="340" y="217" text-anchor="middle" font-size="9.5" fill="#4338ca">isPackagingTestCasesApprovalMessage · hiringDownstreamTriggers.ts</text>
+  </g>
+  <line x1="340" y1="230" x2="340" y2="252" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="100" y="254" width="480" height="54" rx="8" fill="#fce7f3" stroke="#ec4899" stroke-width="1.5"/>
+    <text x="340" y="276" text-anchor="middle" font-size="12.5" font-weight="700" fill="#9d174d">后端准备 payload 数据 (BE)</text>
+    <text x="340" y="295" text-anchor="middle" font-size="9.5" fill="#be185d">PackagingTestCaseMaterialLoader + TemplateSnapshotBuilder</text>
+  </g>
+  <line x1="340" y1="308" x2="340" y2="330" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="100" y="332" width="480" height="54" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+    <text x="340" y="354" text-anchor="middle" font-size="12.5" font-weight="700" fill="#3730a3">前端注入触发提示词 (FE)</text>
+    <text x="340" y="373" text-anchor="middle" font-size="9.5" fill="#4338ca">buildDownstreamPrompt('packaging-test-cases', payload)</text>
+  </g>
+  <line x1="340" y1="386" x2="340" y2="408" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="100" y="410" width="480" height="54" rx="8" fill="#ffedd5" stroke="#f97316" stroke-width="1.5"/>
+    <text x="340" y="432" text-anchor="middle" font-size="12.5" font-weight="700" fill="#9a3412">KingCrab 切换技能执行</text>
+    <text x="340" y="451" text-anchor="middle" font-size="9.5" fill="#c2410c">skill packaging-test-cases · 严格遵循 SKILL.md</text>
+  </g>
+  <line x1="340" y1="464" x2="340" y2="486" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="100" y="488" width="480" height="54" rx="8" fill="#fff7ed" stroke="#fb923c" stroke-width="1.5"/>
+    <text x="340" y="510" text-anchor="middle" font-size="12.5" font-weight="700" fill="#9a3412">写入沙箱工作区</text>
+    <text x="340" y="529" text-anchor="middle" font-size="9.5" fill="#c2410c">testcases/ 与 ontology/ 下共 5 个 JSON 文件</text>
+  </g>
+  <line x1="340" y1="542" x2="340" y2="564" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="100" y="566" width="480" height="54" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+    <text x="340" y="588" text-anchor="middle" font-size="12.5" font-weight="700" fill="#3730a3">回传整轮对话 (FE→BE)</text>
+    <text x="340" y="607" text-anchor="middle" font-size="9.5" fill="#4338ca">emit dispatch_callback → POST /conversation/sync</text>
+  </g>
+  <line x1="340" y1="620" x2="340" y2="642" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="100" y="644" width="480" height="54" rx="8" fill="#fce7f3" stroke="#ec4899" stroke-width="1.5"/>
+    <text x="340" y="666" text-anchor="middle" font-size="12.5" font-weight="700" fill="#9d174d">后端解析并落地 (BE)</text>
+    <text x="340" y="685" text-anchor="middle" font-size="9.5" fill="#be185d">ParseAssistantReply · 白名单 + base64 + SHA256 校验</text>
+  </g>
+
+  <!-- ================= 右栏：下载包链路 ================= -->
+  <g filter="url(#shadow)">
+    <rect x="700" y="98" width="480" height="54" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="940" y="120" text-anchor="middle" font-size="12.5" font-weight="700" fill="#92400e">用户：「生成数字员工包」</text>
+    <text x="940" y="139" text-anchor="middle" font-size="9.5" fill="#b45309">进入 stage4_packaging 打包阶段</text>
+  </g>
+  <line x1="940" y1="152" x2="940" y2="174" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="700" y="176" width="480" height="54" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+    <text x="940" y="198" text-anchor="middle" font-size="12.5" font-weight="700" fill="#3730a3">前端门禁 · 审查/跳过 (FE)</text>
+    <text x="940" y="217" text-anchor="middle" font-size="9.5" fill="#4338ca">resolvePackagingRequestRoute · PackagingIntentSupport(BE 正则)</text>
+  </g>
+  <line x1="940" y1="230" x2="940" y2="252" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="700" y="254" width="480" height="54" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+    <text x="940" y="276" text-anchor="middle" font-size="12.5" font-weight="700" fill="#3730a3">前端注入打包提示词 (FE)</text>
+    <text x="940" y="295" text-anchor="middle" font-size="9.5" fill="#4338ca">buildPackagingRequestPrompt（同步 manifest + 打 ZIP 指令）</text>
+  </g>
+  <line x1="940" y1="308" x2="940" y2="330" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="700" y="332" width="480" height="54" rx="8" fill="#ffedd5" stroke="#f97316" stroke-width="1.5"/>
+    <text x="940" y="354" text-anchor="middle" font-size="12.5" font-weight="700" fill="#9a3412">KingCrab 同步 manifest 并打 ZIP</text>
+    <text x="940" y="373" text-anchor="middle" font-size="9.5" fill="#c2410c">(可选)review 技能 → emit template_package (kind=file)</text>
+  </g>
+  <line x1="940" y1="386" x2="940" y2="408" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="700" y="410" width="480" height="54" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+    <text x="940" y="432" text-anchor="middle" font-size="12.5" font-weight="700" fill="#3730a3">前端自动触发导入 (FE)</text>
+    <text x="940" y="451" text-anchor="middle" font-size="9.5" fill="#4338ca">HiringPage.tsx → POST /import-package（携带 skillIds）</text>
+  </g>
+  <line x1="940" y1="464" x2="940" y2="486" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="700" y="488" width="480" height="54" rx="8" fill="#fce7f3" stroke="#ec4899" stroke-width="1.5"/>
+    <text x="940" y="510" text-anchor="middle" font-size="12.5" font-weight="700" fill="#9d174d">后端导入解压 (BE)</text>
+    <text x="940" y="529" text-anchor="middle" font-size="9.5" fill="#be185d">ImportPackageAsync · ExtractZipEntries 提取文件条目</text>
+  </g>
+  <line x1="940" y1="542" x2="940" y2="564" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="700" y="566" width="480" height="54" rx="8" fill="#e2e8f0" stroke="#64748b" stroke-width="1.5"/>
+    <text x="940" y="588" text-anchor="middle" font-size="12.5" font-weight="700" fill="#334155">合并技能商城 store skill</text>
+    <text x="940" y="607" text-anchor="middle" font-size="9.5" fill="#475569">StoreSkillPackageDownloader → BuildService → skills/&lt;slug&gt;/...</text>
+  </g>
+  <line x1="940" y1="620" x2="940" y2="642" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="700" y="644" width="480" height="54" rx="8" fill="#fce7f3" stroke="#ec4899" stroke-width="1.5"/>
+    <text x="940" y="666" text-anchor="middle" font-size="12.5" font-weight="700" fill="#9d174d">持久化最终包 (BE)</text>
+    <text x="940" y="685" text-anchor="middle" font-size="9.5" fill="#be185d">PersistFinalPackageAsync + FinalPackageManifestUpdater</text>
+  </g>
+
+  <!-- ================= 底部汇合：工作区 / 最终包 ================= -->
+  <line x1="340" y1="698" x2="430" y2="746" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="940" y1="698" x2="850" y2="746" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="240" y="748" width="800" height="56" rx="10" fill="#dcfce7" stroke="#22c55e" stroke-width="1.6"/>
+    <text x="640" y="772" text-anchor="middle" font-size="13" font-weight="700" fill="#166534">沙箱工作区 / 最终产物包 ZIP（HiringArtifacts 入库）</text>
+    <text x="640" y="791" text-anchor="middle" font-size="9.5" fill="#15803d">manifest.json · config/ · skills/ · ontology/ · testcases/（含链路一生成的用例）</text>
+  </g>
+  <line x1="640" y1="804" x2="640" y2="826" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="400" y="828" width="480" height="48" rx="8" fill="#bbf7d0" stroke="#16a34a" stroke-width="1.6"/>
+    <text x="640" y="851" text-anchor="middle" font-size="12.5" font-weight="700" fill="#14532d">下载：GET /artifacts/download</text>
+    <text x="640" y="868" text-anchor="middle" font-size="9.5" fill="#166534">BuildArtifactDownloadAsync → 流式返回 package.zip</text>
+  </g>
+
+  <!-- 图例 -->
+  <g font-size="10" fill="#475569">
+    <rect x="100" y="884" width="14" height="12" rx="2" fill="#e0e7ff" stroke="#6366f1"/>
+    <text x="120" y="894">前端 / hirebot 编排</text>
+    <rect x="250" y="884" width="14" height="12" rx="2" fill="#fce7f3" stroke="#ec4899"/>
+    <text x="270" y="894">后端服务</text>
+    <rect x="360" y="884" width="14" height="12" rx="2" fill="#ffedd5" stroke="#f97316"/>
+    <text x="380" y="894">KingCrab / skill 执行</text>
+    <rect x="520" y="884" width="14" height="12" rx="2" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="540" y="894">外部商城 BuildService</text>
+    <rect x="700" y="884" width="14" height="12" rx="2" fill="#dcfce7" stroke="#22c55e"/>
+    <text x="720" y="894">产物 / 存储 / 下载</text>
+  </g>
+</svg>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="980" viewBox="0 0 1200 980">
+  <rect width="1200" height="980" fill="#f8fafc"/>
+  <text x="600" y="40" text-anchor="middle" font-size="24" font-family="Segoe UI, Microsoft YaHei, sans-serif">执行链路调用堆栈</text>
+  <rect x="140" y="100" width="920" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="170" y="145" font-size="16" font-family="Segoe UI, Microsoft YaHei, sans-serif">L0 用户: upload materials, confirm stage, request packaging</text>
+  <rect x="140" y="230" width="920" height="110" rx="8" fill="#dbeafe" stroke="#60a5fa"/>
+  <text x="170" y="275" font-size="16" font-family="Segoe UI, Microsoft YaHei, sans-serif">L1-L3 Frontend: consume artifact, map stage/downstream, branch orchestration</text>
+  <rect x="140" y="390" width="440" height="140" rx="8" fill="#ede9fe" stroke="#8b5cf6"/>
+  <text x="170" y="435" font-size="16" font-family="Segoe UI, Microsoft YaHei, sans-serif">L4 Branch A: ontology-extraction</text>
+  <text x="170" y="465" font-size="14" font-family="Segoe UI, Microsoft YaHei, sans-serif">material_handoff_summary -&gt; ontology_extraction_done</text>
+  <rect x="620" y="390" width="440" height="140" rx="8" fill="#ede9fe" stroke="#8b5cf6"/>
+  <text x="650" y="435" font-size="16" font-family="Segoe UI, Microsoft YaHei, sans-serif">L4 Branch B: skill-generation / external-config</text>
+  <text x="650" y="465" font-size="14" font-family="Segoe UI, Microsoft YaHei, sans-serif">skill_generation_ready -&gt; skill_generation_done -&gt; external_config_committed</text>
+  <rect x="140" y="590" width="920" height="130" rx="8" fill="#dcfce7" stroke="#22c55e"/>
+  <text x="170" y="635" font-size="16" font-family="Segoe UI, Microsoft YaHei, sans-serif">L5 API: conversation sync, import-package, artifacts download</text>
+  <text x="170" y="665" font-size="14" font-family="Segoe UI, Microsoft YaHei, sans-serif">Endpoints: /conversation/*, /import-package, /artifacts/download</text>
+  <rect x="140" y="770" width="920" height="150" rx="8" fill="#fee2e2" stroke="#ef4444"/>
+  <text x="170" y="815" font-size="16" font-family="Segoe UI, Microsoft YaHei, sans-serif">L6 Domain: EmployeeHiringService + HiringArtifactPackageService</text>
+  <text x="170" y="845" font-size="14" font-family="Segoe UI, Microsoft YaHei, sans-serif">PersistIntermediatePackageAsync / PersistFinalPackageAsync</text>
+  <text x="170" y="875" font-size="14" font-family="Segoe UI, Microsoft YaHei, sans-serif">生成可交付 final zip</text>
+</svg>

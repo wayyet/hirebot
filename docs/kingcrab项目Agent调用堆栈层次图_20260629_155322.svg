@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" font-family="Microsoft YaHei, SimHei, PingFang SC, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#5b6470"/>
+    </marker>
+    <marker id="arrowB" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#1565c0"/>
+    </marker>
+    <marker id="arrowO" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#e65100"/>
+    </marker>
+    <style>
+      .layer { fill-opacity: 0.22; stroke-width: 1; }
+      .lname { font-size: 13px; fill: #444; font-weight: bold; }
+      .box { stroke-width: 1.5; }
+      .bt { font-size: 12.5px; fill: #1a1a1a; font-weight: bold; text-anchor: middle; }
+      .bs { font-size: 10.5px; fill: #555; text-anchor: middle; }
+      .flow { stroke: #5b6470; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .flowB { stroke: #1565c0; stroke-width: 1.7; fill: none; marker-end: url(#arrowB); }
+      .flowO { stroke: #e65100; stroke-width: 1.7; fill: none; marker-end: url(#arrowO); }
+      .title { font-size: 22px; fill: #1a1a1a; font-weight: bold; text-anchor: middle; }
+      .sub { font-size: 13px; fill: #666; text-anchor: middle; }
+      .tag { font-size: 12px; font-weight: bold; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="900" fill="#fbfcfd"/>
+  <text x="600" y="36" class="title">kingcrab(OpenClaw) 项目 — Agent 调用堆栈层次图</text>
+  <text x="600" y="58" class="sub">自上而下 = 调用深度。L3 起分两条支线:蓝=LLM 执行链,橙=工具执行链</text>
+
+  <!-- L0 接入层 -->
+  <rect x="20" y="74" width="1160" height="96" rx="8" class="layer" fill="#e3f2fd" stroke="#2196f3"/>
+  <text x="32" y="92" class="lname">L0 接入层(客户端 / 多渠道)</text>
+  <rect x="70" y="100" width="180" height="56" rx="8" class="box" fill="#fff" stroke="#2196f3"/>
+  <text x="160" y="122" class="bt">OpenClaw.Channels</text>
+  <text x="160" y="140" class="bs">钉钉/Slack/飞书/Teams…11+</text>
+  <rect x="290" y="100" width="180" height="56" rx="8" class="box" fill="#fff" stroke="#2196f3"/>
+  <text x="380" y="125" class="bt">Companion</text>
+  <text x="380" y="143" class="bs">桌面(Avalonia)</text>
+  <rect x="510" y="100" width="180" height="56" rx="8" class="box" fill="#fff" stroke="#2196f3"/>
+  <text x="600" y="125" class="bt">Dashboard</text>
+  <text x="600" y="143" class="bs">Web(Blazor)</text>
+  <rect x="730" y="100" width="180" height="56" rx="8" class="box" fill="#fff" stroke="#2196f3"/>
+  <text x="820" y="125" class="bt">Cli</text>
+  <text x="820" y="143" class="bs">命令行</text>
+  <rect x="950" y="100" width="180" height="56" rx="8" class="box" fill="#fff" stroke="#2196f3"/>
+  <text x="1040" y="125" class="bt">Tui</text>
+  <text x="1040" y="143" class="bs">终端界面</text>
+
+  <!-- L1 网关层 -->
+  <rect x="20" y="190" width="1160" height="96" rx="8" class="layer" fill="#e8f5e9" stroke="#43a047"/>
+  <text x="32" y="208" class="lname">L1 网关层(OpenClaw.Gateway)</text>
+  <rect x="150" y="216" width="260" height="56" rx="8" class="box" fill="#fff" stroke="#43a047"/>
+  <text x="280" y="238" class="bt">MessagePipeline</text>
+  <text x="280" y="256" class="bs">有界通道(1024)+ 背压</text>
+  <rect x="470" y="216" width="260" height="56" rx="8" class="box" fill="#fff" stroke="#43a047"/>
+  <text x="600" y="238" class="bt">AgentRouteResolver</text>
+  <text x="600" y="256" class="bs">channel:sender → channel → *</text>
+  <rect x="790" y="216" width="260" height="56" rx="8" class="box" fill="#fff" stroke="#43a047"/>
+  <text x="920" y="238" class="bt">Composition + RuntimeInit</text>
+  <text x="920" y="256" class="bs">组装工具/技能/Hook → Runtime</text>
+
+  <!-- L2 Agent 运行时 -->
+  <rect x="20" y="306" width="1160" height="92" rx="8" class="layer" fill="#fff3e0" stroke="#fb8c00"/>
+  <text x="32" y="324" class="lname">L2 Agent 运行时(OpenClaw.Agent)</text>
+  <rect x="390" y="330" width="420" height="56" rx="8" class="box" fill="#fff" stroke="#fb8c00"/>
+  <text x="600" y="352" class="bt">MafAgentRuntime → ChatClientAgent(MAF)</text>
+  <text x="600" y="370" class="bs">推理-工具循环:想 → 调工具 → 回喂 → 再想</text>
+
+  <!-- L3 双支线 -->
+  <rect x="20" y="418" width="1160" height="130" rx="8" class="layer" fill="#ede7f6" stroke="#7e57c2"/>
+  <text x="32" y="436" class="lname">L3 执行支线</text>
+  <text x="300" y="436" class="tag" fill="#1565c0">蓝:LLM 执行链</text>
+  <text x="860" y="436" class="tag" fill="#e65100">橙:工具执行链</text>
+  <!-- 左 蓝链 -->
+  <rect x="50" y="446" width="175" height="84" rx="8" class="box" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="137" y="478" class="bt">MafExecutionService</text>
+  <text x="137" y="494" class="bt">ChatClient</text>
+  <text x="137" y="512" class="bs">IChatClient + 记 token</text>
+  <rect x="245" y="446" width="175" height="84" rx="8" class="box" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="332" y="482" class="bt">GatewayLlm</text>
+  <text x="332" y="498" class="bt">ExecutionService</text>
+  <text x="332" y="516" class="bs">模型选择/缓存</text>
+  <rect x="440" y="446" width="160" height="84" rx="8" class="box" fill="#e3f2fd" stroke="#1565c0"/>
+  <text x="520" y="486" class="bt">LlmClientFactory</text>
+  <text x="520" y="504" class="bs">10+ Provider 工厂</text>
+  <!-- 右 橙链 -->
+  <rect x="660" y="446" width="220" height="84" rx="8" class="box" fill="#fff3e0" stroke="#e65100"/>
+  <text x="770" y="482" class="bt">MafToolAdapter</text>
+  <text x="770" y="500" class="bs">ITool → AIFunction</text>
+  <text x="770" y="518" class="bs">(适配进 MAF)</text>
+  <rect x="900" y="446" width="250" height="84" rx="8" class="box" fill="#fff3e0" stroke="#e65100"/>
+  <text x="1025" y="478" class="bt">OpenClawToolExecutor</text>
+  <text x="1025" y="496" class="bs">治理授权 + 前/后置 Hook</text>
+  <text x="1025" y="514" class="bs">→ 路由执行后端</text>
+
+  <!-- L4 能力 / 后端层 -->
+  <rect x="20" y="568" width="1160" height="100" rx="8" class="layer" fill="#e0f7fa" stroke="#00acc1"/>
+  <text x="32" y="586" class="lname">L4 能力 / 执行后端层</text>
+  <rect x="60" y="594" width="230" height="56" rx="8" class="box" fill="#fff" stroke="#00acc1"/>
+  <text x="175" y="616" class="bt">LLM Providers</text>
+  <text x="175" y="634" class="bs">Anthropic/OpenAI/Gemini…</text>
+  <rect x="330" y="594" width="230" height="56" rx="8" class="box" fill="#fff" stroke="#00acc1"/>
+  <text x="445" y="616" class="bt">执行后端</text>
+  <text x="445" y="634" class="bs">Local/Docker/SSH/Sandbox</text>
+  <rect x="600" y="594" width="250" height="56" rx="8" class="box" fill="#fff" stroke="#00acc1"/>
+  <text x="725" y="616" class="bt">SkillKit + PluginKit</text>
+  <text x="725" y="634" class="bs">技能加载 / 插件热插拔</text>
+  <rect x="890" y="594" width="240" height="56" rx="8" class="box" fill="#fff" stroke="#00acc1"/>
+  <text x="1010" y="616" class="bt">Memory Store</text>
+  <text x="1010" y="634" class="bs">File / SQLite + 回召</text>
+
+  <!-- L5 外部依赖 -->
+  <rect x="20" y="688" width="1160" height="100" rx="8" class="layer" fill="#ffebee" stroke="#e53935"/>
+  <text x="32" y="706" class="lname">L5 外部依赖(进程外)</text>
+  <rect x="120" y="714" width="280" height="56" rx="8" class="box" fill="#fff" stroke="#e53935"/>
+  <text x="260" y="736" class="bt">Claude / 各 LLM API</text>
+  <text x="260" y="754" class="bs">大模型推理服务</text>
+  <rect x="460" y="714" width="280" height="56" rx="8" class="box" fill="#fff" stroke="#e53935"/>
+  <text x="600" y="736" class="bt">TokenHub(Kafka / Doris)</text>
+  <text x="600" y="754" class="bs">Token 用量计费上报</text>
+  <rect x="800" y="714" width="280" height="56" rx="8" class="box" fill="#fff" stroke="#e53935"/>
+  <text x="940" y="736" class="bt">沙箱 / Docker 容器</text>
+  <text x="940" y="754" class="bs">隔离的工具执行环境</text>
+
+  <!-- flows L0->L1 -->
+  <path class="flow" d="M160,156 L260,210"/>
+  <path class="flow" d="M380,156 L560,210"/>
+  <path class="flow" d="M600,156 L600,190"/>
+  <path class="flow" d="M820,156 L900,210"/>
+  <!-- L1 内部 + ->L2 -->
+  <path class="flow" d="M410,244 L470,244"/>
+  <path class="flow" d="M600,272 L600,326"/>
+  <path class="flow" d="M790,244 L730,250"/>
+  <!-- L2 -> L3 分叉 -->
+  <path class="flowB" d="M470,386 L300,442"/>
+  <path class="flowO" d="M730,386 L820,442"/>
+  <!-- L3 蓝链内部 -->
+  <path class="flowB" d="M225,488 L245,488"/>
+  <path class="flowB" d="M420,488 L440,488"/>
+  <!-- L3 橙链内部 -->
+  <path class="flowO" d="M880,488 L900,488"/>
+  <!-- L3 -> L4 -->
+  <path class="flowB" d="M520,530 L210,590"/>
+  <path class="flowO" d="M1025,530 L470,590"/>
+  <path class="flow" d="M600,386 L725,590"/>
+  <path class="flow" d="M810,360 L1010,590"/>
+  <!-- L4 -> L5 -->
+  <path class="flowB" d="M175,650 L260,710"/>
+  <path class="flow" d="M445,650 L900,710"/>
+  <!-- token 计费链路 L3蓝 -> L5 TokenHub -->
+  <path class="flowB" d="M137,530 L120,690 L560,718" stroke-dasharray="5,4"/>
+  <text x="90" y="640" class="bs" text-anchor="start" fill="#1565c0">token 计费(虚线)</text>
+
+  <!-- legend -->
+  <rect x="930" y="300" width="250" height="92" rx="6" fill="#fff" stroke="#cfd8dc"/>
+  <text x="942" y="320" class="lname">读图说明</text>
+  <text x="942" y="340" class="bs" text-anchor="start">• 实线=调用,虚线=token 上报</text>
+  <text x="942" y="358" class="bs" text-anchor="start">• 蓝链负责"找大模型思考"</text>
+  <text x="942" y="376" class="bs" text-anchor="start">• 橙链负责"安全地执行工具"</text>
+</svg>

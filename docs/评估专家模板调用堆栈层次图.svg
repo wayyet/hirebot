@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="790" viewBox="0 0 1200 790" font-family="'Segoe UI','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="arw" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arwb" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#1d4ed8"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="790" fill="#f8fafc"/>
+  <text x="600" y="28" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">评估专家模板 evaluation-expert · 调用堆栈层次图（评估链）</text>
+
+  <!-- Bands -->
+  <rect x="30" y="42"  width="1140" height="76"  rx="8" fill="#ecfeff" stroke="#a5f3fc"/>
+  <rect x="30" y="126" width="1140" height="86"  rx="8" fill="#fff1f2" stroke="#fecdd3"/>
+  <rect x="30" y="220" width="1140" height="80"  rx="8" fill="#fef9c3" stroke="#fde68a"/>
+  <rect x="30" y="308" width="1140" height="58"  rx="8" fill="#eef2ff" stroke="#c7d2fe"/>
+  <rect x="30" y="374" width="1140" height="72"  rx="8" fill="#faf5ff" stroke="#e9d5ff"/>
+  <rect x="30" y="454" width="1140" height="196" rx="8" fill="#f0fdf4" stroke="#bbf7d0"/>
+
+  <text x="42" y="60"  font-size="12" font-weight="700" fill="#0e7490">L1 HireBot 后端编排层（确定性 C#）</text>
+  <text x="42" y="144" font-size="12" font-weight="700" fill="#be123c">L2 沙箱注入物 /workspace/</text>
+  <text x="42" y="238" font-size="12" font-weight="700" fill="#a16207">L3 Agent Runtime · entry skill</text>
+  <text x="42" y="326" font-size="12" font-weight="700" fill="#4338ca">L4 Orchestrator（轻量状态机 · 只经文件系统通信）</text>
+  <text x="42" y="392" font-size="12" font-weight="700" fill="#7e22ce">L5 三段 multi-agent</text>
+  <text x="42" y="472" font-size="12" font-weight="700" fill="#15803d">L6 步骤执行 + 外部交互</text>
+
+  <!-- L1 -->
+  <g font-size="12" fill="#1e293b">
+    <rect x="70"  y="72" width="300" height="38" rx="6" fill="#fff" stroke="#22d3ee"/>
+    <text x="220" y="96" text-anchor="middle">创建评估沙箱（evaluator）</text>
+    <rect x="450" y="72" width="330" height="38" rx="6" fill="#fff" stroke="#22d3ee"/>
+    <text x="615" y="96" text-anchor="middle">UploadEvaluationTemplate / UploadArtifact</text>
+    <rect x="860" y="72" width="280" height="38" rx="6" fill="#fff" stroke="#22d3ee"/>
+    <text x="1000" y="96" text-anchor="middle">写 evaluation-context.json</text>
+  </g>
+
+  <!-- L2 -->
+  <g font-size="11.5" fill="#1e293b">
+    <rect x="70"  y="152" width="320" height="50" rx="6" fill="#fff" stroke="#fb7185"/>
+    <text x="230" y="173" text-anchor="middle">skills/evaluation-expert-consumer</text>
+    <text x="230" y="191" text-anchor="middle" font-size="10.5" fill="#64748b">已安装的评估 skill</text>
+    <rect x="440" y="152" width="330" height="50" rx="6" fill="#fff" stroke="#fb7185"/>
+    <text x="605" y="173" text-anchor="middle">uploads/artifact/&lt;template&gt;/</text>
+    <text x="605" y="191" text-anchor="middle" font-size="10.5" fill="#64748b">被评估员工模板（IDENTITY/SOUL/AGENTS/SKILL/ontology）</text>
+    <rect x="820" y="152" width="320" height="50" rx="6" fill="#fff" stroke="#fb7185"/>
+    <text x="980" y="173" text-anchor="middle">runtime/evaluation-context.json</text>
+    <text x="980" y="191" text-anchor="middle" font-size="10.5" fill="#64748b">client_secret · 目标沙箱 · hirebot_api</text>
+  </g>
+
+  <!-- L3 -->
+  <rect x="70" y="248" width="720" height="44" rx="6" fill="#fff" stroke="#d97706" stroke-width="2"/>
+  <text x="430" y="268" text-anchor="middle" font-size="13" font-weight="600" fill="#78350f">evaluation-expert-consumer（entry skill · 与模板无关的 13 步确定性工作流）</text>
+  <text x="430" y="285" text-anchor="middle" font-size="10.5" fill="#92400e">角色差异全部由数据层承载，不改 skill 文件</text>
+  <rect x="810" y="248" width="330" height="44" rx="6" fill="#fff" stroke="#f59e0b"/>
+  <text x="975" y="264" text-anchor="middle" font-size="11" fill="#78350f">6 热插拔数据层</text>
+  <text x="975" y="281" text-anchor="middle" font-size="10" fill="#92400e">metrics/ test-cases/ runtime-drivers/ simulators/ role-catalog/ employees/</text>
+
+  <!-- L4 -->
+  <rect x="330" y="320" width="540" height="38" rx="6" fill="#fff" stroke="#818cf8" stroke-width="2"/>
+  <text x="600" y="344" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3730a3">Orchestrator：持有 eval_id / phase / tc_list / completed_tcs（不传业务数据）</text>
+
+  <!-- L5 -->
+  <g font-size="12.5" fill="#1e293b" font-weight="600">
+    <rect x="70"  y="386" width="320" height="50" rx="6" fill="#fff" stroke="#c084fc" stroke-width="1.6"/>
+    <text x="230" y="409" text-anchor="middle">Prep Agent</text>
+    <text x="230" y="426" text-anchor="middle" font-size="10.5" font-weight="400" fill="#64748b">一次性 · 员工模板全文 · 做完释放</text>
+    <rect x="440" y="386" width="320" height="50" rx="6" fill="#fff" stroke="#c084fc" stroke-width="1.6"/>
+    <text x="600" y="409" text-anchor="middle">Run Agent × N</text>
+    <text x="600" y="426" text-anchor="middle" font-size="10.5" font-weight="400" fill="#64748b">per TC · 单用例极小上下文 · 可并行</text>
+    <rect x="810" y="386" width="330" height="50" rx="6" fill="#fff" stroke="#c084fc" stroke-width="1.6"/>
+    <text x="975" y="409" text-anchor="middle">Report Agent</text>
+    <text x="975" y="426" text-anchor="middle" font-size="10.5" font-weight="400" fill="#64748b">全部完成后 · 只读汇总 JSON</text>
+  </g>
+
+  <!-- L6 step columns -->
+  <g font-size="11" fill="#1e293b">
+    <rect x="70"  y="466" width="320" height="150" rx="6" fill="#fff" stroke="#4ade80"/>
+    <text x="230" y="486" text-anchor="middle" font-weight="700" fill="#166534">Prep 步骤（确定性为主）</text>
+    <text x="85" y="506">PRE.A loadRoleCatalog</text>
+    <text x="85" y="524">STEP 0 resolveEmployee（LLM+确认）</text>
+    <text x="85" y="542">PRE loadMetricRegistry</text>
+    <text x="85" y="560">STEP 1 / 1.2 角色过滤 + 指标精选</text>
+    <text x="85" y="578">STEP 1.5 合成测试用例（条件触发）</text>
+    <text x="85" y="596">STEP 2 enrich · STEP 2.5 planRun</text>
+    <text x="85" y="612" font-size="10" fill="#64748b">→ 写 enriched-cases/ + run_plan.json</text>
+
+    <rect x="440" y="466" width="320" height="150" rx="6" fill="#fff" stroke="#4ade80"/>
+    <text x="600" y="486" text-anchor="middle" font-weight="700" fill="#166534">Run 步骤（per TC）</text>
+    <text x="455" y="508">STEP 3 driveEmployeeOnScenario</text>
+    <text x="455" y="526" font-size="10.5" fill="#64748b">ws_jwt driver run.py 子进程</text>
+    <text x="455" y="544" font-size="10.5" fill="#64748b">WebSocket + JWT 驱动被评估员工</text>
+    <text x="455" y="566">STEP 4 并行 fan-out 评分（LLM）</text>
+    <text x="455" y="584" font-size="10.5" fill="#64748b">每 (用例,指标) 一次调用（K3/K16）</text>
+    <text x="455" y="608" font-size="10" fill="#64748b">→ 写 traces/ + scores/ + summary.json</text>
+
+    <rect x="810" y="466" width="330" height="150" rx="6" fill="#fff" stroke="#4ade80"/>
+    <text x="975" y="486" text-anchor="middle" font-weight="700" fill="#166534">Report 步骤</text>
+    <text x="825" y="508">STEP 5/6/7 确定性汇总 + 红线检查</text>
+    <text x="825" y="526" font-size="10.5" fill="#64748b">禁止 LLM · 字节拷贝（K4/K7）</text>
+    <text x="825" y="548">STEP 8/9 场景 + 整体报告（JSON/HTML）</text>
+    <text x="825" y="572">STEP 10 uploadToHireBot</text>
+    <text x="825" y="596" font-size="10.5" fill="#64748b">sync-verdict / sync-trace / report-content</text>
+  </g>
+
+  <!-- External entities -->
+  <rect x="440" y="662" width="320" height="44" rx="6" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.6"/>
+  <text x="600" y="680" text-anchor="middle" font-size="12" font-weight="600" fill="#1e3a8a">被评估员工沙箱（另一 kingcrab 会话）</text>
+  <text x="600" y="697" text-anchor="middle" font-size="10.5" fill="#1e40af">STEP 3 driver 通过 WebSocket+JWT 连入</text>
+  <rect x="810" y="662" width="330" height="44" rx="6" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.6"/>
+  <text x="975" y="680" text-anchor="middle" font-size="12" font-weight="600" fill="#1e3a8a">HireBot API</text>
+  <text x="975" y="697" text-anchor="middle" font-size="10.5" fill="#1e40af">STEP 10 HTTP 回传评分结论 / 轨迹 / 报告</text>
+
+  <!-- vertical flow arrows -->
+  <line x1="220" y1="110" x2="230" y2="152" stroke="#334155" stroke-width="1.5" marker-end="url(#arw)"/>
+  <line x1="605" y1="110" x2="605" y2="152" stroke="#334155" stroke-width="1.5" marker-end="url(#arw)"/>
+  <line x1="1000" y1="110" x2="980" y2="152" stroke="#334155" stroke-width="1.5" marker-end="url(#arw)"/>
+  <text x="1010" y="140" font-size="10" fill="#334155">注入</text>
+
+  <line x1="430" y1="202" x2="430" y2="248" stroke="#334155" stroke-width="1.5" marker-end="url(#arw)"/>
+  <text x="438" y="228" font-size="10.5" fill="#334155">加载 / 读取</text>
+  <line x1="600" y1="292" x2="600" y2="320" stroke="#334155" stroke-width="1.5" marker-end="url(#arw)"/>
+  <line x1="600" y1="358" x2="600" y2="386" stroke="#334155" stroke-width="1.5" marker-end="url(#arw)"/>
+  <text x="608" y="376" font-size="10.5" fill="#334155">派发</text>
+
+  <!-- inter-agent file arrows -->
+  <line x1="390" y1="411" x2="440" y2="411" stroke="#334155" stroke-width="1.6" marker-end="url(#arw)"/>
+  <line x1="760" y1="411" x2="810" y2="411" stroke="#334155" stroke-width="1.6" marker-end="url(#arw)"/>
+  <text x="600" y="455" text-anchor="middle" font-size="10" fill="#64748b">Agent 间只经文件系统通信（run_plan.json → scores/ → 汇总 JSON）</text>
+
+  <!-- agent -> step col -->
+  <line x1="230" y1="436" x2="230" y2="466" stroke="#334155" stroke-width="1.3" marker-end="url(#arw)"/>
+  <line x1="600" y1="436" x2="600" y2="466" stroke="#334155" stroke-width="1.3" marker-end="url(#arw)"/>
+  <line x1="975" y1="436" x2="975" y2="466" stroke="#334155" stroke-width="1.3" marker-end="url(#arw)"/>
+
+  <!-- step -> external -->
+  <line x1="600" y1="616" x2="600" y2="662" stroke="#1d4ed8" stroke-width="1.8" marker-end="url(#arwb)"/>
+  <line x1="975" y1="616" x2="975" y2="662" stroke="#1d4ed8" stroke-width="1.8" marker-end="url(#arwb)"/>
+
+  <!-- Legend -->
+  <g font-size="11.5">
+    <text x="30" y="740" font-weight="700" fill="#0f172a">图例：</text>
+    <line x1="90" y1="736" x2="140" y2="736" stroke="#334155" stroke-width="1.8" marker-end="url(#arw)"/>
+    <text x="148" y="740" fill="#334155">内部调用 / 文件系统数据流</text>
+    <line x1="420" y1="736" x2="470" y2="736" stroke="#1d4ed8" stroke-width="1.8" marker-end="url(#arwb)"/>
+    <text x="478" y="740" fill="#1d4ed8">跨会话 / 跨进程网络交互（WebSocket+JWT / HTTP）</text>
+    <text x="30" y="762" font-size="11" fill="#166534">✓ 相比生产链，评估链把编排拆成 Orchestrator + Prep/Run/Report，靠 13 步 + K 规则 + 文件系统通信提高确定性与可审计性。</text>
+  </g>
+</svg>

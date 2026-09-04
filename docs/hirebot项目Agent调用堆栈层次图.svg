@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="900" viewBox="0 0 1120 900" font-family="Microsoft YaHei, SimHei, PingFang SC, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#5b6470"/>
+    </marker>
+    <style>
+      .layer { fill-opacity: 0.25; stroke-width: 1; rx: 8; }
+      .lname { font-size: 13px; fill: #444; font-weight: bold; }
+      .box { rx: 8; stroke-width: 1.5; }
+      .bt { font-size: 13px; fill: #1a1a1a; font-weight: bold; text-anchor: middle; }
+      .bs { font-size: 11px; fill: #555; text-anchor: middle; }
+      .flow { stroke: #5b6470; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .title { font-size: 22px; fill: #1a1a1a; font-weight: bold; text-anchor: middle; }
+      .sub { font-size: 13px; fill: #666; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1120" height="900" fill="#fbfcfd"/>
+  <text x="560" y="38" class="title">hirebot 项目 — Agent 调用堆栈层次图</text>
+  <text x="560" y="60" class="sub">自上而下 = 调用深度;箭头 = 调用方向。hirebot 是"业务编排层",底层把真正的 Agent 执行托管给 kingcrab</text>
+
+  <!-- Layer 0 入口 -->
+  <rect x="20" y="80" width="1080" height="100" class="layer" fill="#e3f2fd" stroke="#2196f3"/>
+  <text x="32" y="98" class="lname">L0 入口层(用户 / 前端)</text>
+  <rect x="380" y="108" width="160" height="56" class="box" fill="#ffffff" stroke="#2196f3"/>
+  <text x="460" y="132" class="bt">用户(HR)</text>
+  <text x="460" y="150" class="bs">浏览器操作</text>
+  <rect x="580" y="108" width="160" height="56" class="box" fill="#ffffff" stroke="#2196f3"/>
+  <text x="660" y="132" class="bt">front-end</text>
+  <text x="660" y="150" class="bs">React 19 + Vite,REST 调用</text>
+
+  <!-- Layer 1 接入 -->
+  <rect x="20" y="200" width="1080" height="100" class="layer" fill="#e8f5e9" stroke="#43a047"/>
+  <text x="32" y="218" class="lname">L1 接入层(HireBot.ApiService)</text>
+  <rect x="300" y="228" width="220" height="56" class="box" fill="#ffffff" stroke="#43a047"/>
+  <text x="410" y="252" class="bt">Controller (REST API)</text>
+  <text x="410" y="270" class="bs">接收雇佣 / 对话 / 评估请求</text>
+  <rect x="600" y="228" width="220" height="56" class="box" fill="#ffffff" stroke="#43a047"/>
+  <text x="710" y="248" class="bt">MCP Server</text>
+  <text x="710" y="266" class="bs">HiringTodoMcpTools(反向暴露工具)</text>
+
+  <!-- Layer 2 业务编排 -->
+  <rect x="20" y="320" width="1080" height="100" class="layer" fill="#fff3e0" stroke="#fb8c00"/>
+  <text x="32" y="338" class="lname">L2 业务编排层(HireBot.Core/Services)</text>
+  <rect x="120" y="348" width="240" height="56" class="box" fill="#ffffff" stroke="#fb8c00"/>
+  <text x="240" y="372" class="bt">EmployeeHiringService</text>
+  <text x="240" y="390" class="bs">HireAsync() 雇佣主编排(10 步)</text>
+  <rect x="440" y="348" width="220" height="56" class="box" fill="#ffffff" stroke="#fb8c00"/>
+  <text x="550" y="372" class="bt">EvaluationService</text>
+  <text x="550" y="390" class="bs">评估工作流(1700+ 行)</text>
+  <rect x="740" y="348" width="240" height="56" class="box" fill="#ffffff" stroke="#fb8c00"/>
+  <text x="860" y="372" class="bt">InstanceChatService</text>
+  <text x="860" y="390" class="bs">IM 通道(钉钉/飞书)配置</text>
+
+  <!-- Layer 3 流程支撑 -->
+  <rect x="20" y="440" width="1080" height="100" class="layer" fill="#f3e5f5" stroke="#8e24aa"/>
+  <text x="32" y="458" class="lname">L3 流程支撑层(状态机 / 解析)</text>
+  <rect x="120" y="468" width="220" height="56" class="box" fill="#ffffff" stroke="#8e24aa"/>
+  <text x="230" y="492" class="bt">SandboxService</text>
+  <text x="230" y="510" class="bs">沙箱生命周期状态机</text>
+  <rect x="420" y="468" width="200" height="56" class="box" fill="#ffffff" stroke="#8e24aa"/>
+  <text x="520" y="492" class="bt">HiringStageService</text>
+  <text x="520" y="510" class="bs">阶段状态机 material→…</text>
+  <rect x="700" y="468" width="280" height="56" class="box" fill="#ffffff" stroke="#8e24aa"/>
+  <text x="840" y="488" class="bt">HiringWorkflowSupport</text>
+  <text x="840" y="506" class="bs">ParseAssistantReply:解析 dispatch/callback</text>
+
+  <!-- Layer 4 基础设施客户端 -->
+  <rect x="20" y="560" width="1080" height="100" class="layer" fill="#e0f7fa" stroke="#00acc1"/>
+  <text x="32" y="578" class="lname">L4 基础设施 / 客户端层</text>
+  <rect x="60" y="588" width="200" height="56" class="box" fill="#ffffff" stroke="#00acc1"/>
+  <text x="160" y="608" class="bt">OpenSandboxProvisioner</text>
+  <text x="160" y="626" class="bs">创建/刷新/删除沙箱</text>
+  <rect x="280" y="588" width="200" height="56" class="box" fill="#ffffff" stroke="#00acc1"/>
+  <text x="380" y="612" class="bt">KingCrabHttpClient</text>
+  <text x="380" y="630" class="bs">网关 HTTP 客户端</text>
+  <rect x="500" y="588" width="220" height="56" class="box" fill="#ffffff" stroke="#00acc1"/>
+  <text x="610" y="608" class="bt">KingCrabGatewayClient</text>
+  <text x="610" y="626" class="bs">媒体 / 工作区上传</text>
+  <rect x="760" y="588" width="220" height="56" class="box" fill="#ffffff" stroke="#00acc1"/>
+  <text x="870" y="612" class="bt">HireBotDbContext</text>
+  <text x="870" y="630" class="bs">EF Core 多表持久化</text>
+
+  <!-- Layer 5 外部依赖 -->
+  <rect x="20" y="680" width="1080" height="110" class="layer" fill="#ffebee" stroke="#e53935"/>
+  <text x="32" y="698" class="lname">L5 外部依赖(进程外)</text>
+  <rect x="260" y="712" width="320" height="60" class="box" fill="#ffffff" stroke="#e53935"/>
+  <text x="420" y="736" class="bt">kingcrab / OpenClaw 网关</text>
+  <text x="420" y="756" class="bs">真正的 Agent 运行时:沙箱 + 推理-工具循环</text>
+  <rect x="640" y="712" width="220" height="60" class="box" fill="#ffffff" stroke="#e53935"/>
+  <text x="750" y="742" class="bt">SQLite 数据库</text>
+  <text x="750" y="760" class="bs">雇佣 / 阶段 / 评估 表</text>
+
+  <!-- flows -->
+  <path class="flow" d="M460,164 L460,224 L410,224"/>
+  <path class="flow" d="M660,164 L660,200"/>
+  <path class="flow" d="M410,284 L300,344"/>
+  <path class="flow" d="M460,284 L550,344"/>
+  <path class="flow" d="M710,284 L840,344"/>
+  <path class="flow" d="M240,404 L230,464"/>
+  <path class="flow" d="M300,404 L500,464"/>
+  <path class="flow" d="M300,404 L800,464"/>
+  <path class="flow" d="M230,524 L160,584"/>
+  <path class="flow" d="M230,524 L380,584"/>
+  <path class="flow" d="M550,404 L610,584"/>
+  <path class="flow" d="M520,524 L860,584"/>
+  <path class="flow" d="M160,644 L400,708"/>
+  <path class="flow" d="M380,644 L420,708"/>
+  <path class="flow" d="M610,644 L450,708"/>
+  <path class="flow" d="M870,644 L760,708"/>
+
+  <!-- legend -->
+  <rect x="820" y="92" width="270" height="78" rx="6" fill="#ffffff" stroke="#cfd8dc"/>
+  <text x="832" y="112" class="lname">读图说明</text>
+  <text x="832" y="132" class="bs" text-anchor="start">• 越往下 = 调用栈越深</text>
+  <text x="832" y="150" class="bs" text-anchor="start">• L2 编排层是核心,L5 把 Agent 执行</text>
+  <text x="832" y="166" class="bs" text-anchor="start">  托管给 kingcrab(进程外协作)</text>
+</svg>

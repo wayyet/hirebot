@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1560" viewBox="0 0 1400 1560">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#4b5563"/>
+    </marker>
+    <style>
+      text { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; fill: #111827; }
+      .title { font-size: 30px; font-weight: 700; }
+      .layer-tag { font-size: 18px; font-weight: 700; fill: #374151; }
+      .node-title { font-size: 18px; font-weight: 700; }
+      .node-desc { font-size: 14px; fill: #4b5563; }
+      .legend { font-size: 14px; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="1560" fill="#f8fafc"/>
+  <text x="700" y="54" text-anchor="middle" class="title">&#x300C;&#x53D1;&#x8D77;&#x96C7;&#x4F63;&#x300D;&#x6309;&#x94AE;&#x8C03;&#x7528;&#x5806;&#x6808;</text>
+
+  <line x1="700" y1="170" x2="700" y2="230" stroke="#4b5563" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <line x1="700" y1="350" x2="700" y2="410" stroke="#4b5563" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <line x1="700" y1="530" x2="700" y2="590" stroke="#4b5563" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <line x1="700" y1="710" x2="700" y2="770" stroke="#4b5563" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <line x1="700" y1="890" x2="700" y2="950" stroke="#4b5563" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <line x1="700" y1="1070" x2="700" y2="1130" stroke="#4b5563" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <line x1="700" y1="1250" x2="700" y2="1310" stroke="#4b5563" stroke-width="2.2" marker-end="url(#arrow)"/>
+
+  <text x="120" y="140" class="layer-tag">L0</text>
+  <rect x="320" y="80" rx="16" ry="16" width="760" height="90" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+  <text x="700" y="118" text-anchor="middle" class="node-title">&#x7528;&#x6237;&#x64CD;&#x4F5C;</text>
+  <text x="700" y="145" text-anchor="middle" class="node-desc">&#x70B9;&#x51FB; TemplateDetailPage &#x7684;&#x300C;&#x53D1;&#x8D77;&#x96C7;&#x4F63;&#x300D;&#x6309;&#x94AE;</text>
+
+  <text x="120" y="320" class="layer-tag">L1</text>
+  <rect x="320" y="260" rx="16" ry="16" width="760" height="90" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+  <text x="700" y="298" text-anchor="middle" class="node-title">UI &#x7EC4;&#x4EF6;&#x4E8B;&#x4EF6;</text>
+  <text x="700" y="325" text-anchor="middle" class="node-desc">TemplateDetailPage: navigate(/template-pool/hiring/:templateId)</text>
+
+  <text x="120" y="500" class="layer-tag">L2</text>
+  <rect x="320" y="440" rx="16" ry="16" width="760" height="90" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="700" y="478" text-anchor="middle" class="node-title">&#x9875;&#x9762;&#x7F16;&#x6392;</text>
+  <text x="700" y="505" text-anchor="middle" class="node-desc">HiringPage.ensureWorkflowReady &#x521D;&#x59CB;&#x5316;&#x96C7;&#x4F63;&#x4E0A;&#x4E0B;&#x6587;</text>
+
+  <text x="120" y="680" class="layer-tag">L3</text>
+  <rect x="320" y="620" rx="16" ry="16" width="760" height="90" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="700" y="658" text-anchor="middle" class="node-title">&#x524D;&#x7AEF; API &#x8C03;&#x7528;&#x5206;&#x652F;</text>
+  <text x="700" y="685" text-anchor="middle" class="node-desc">hire -&gt; &#x8F6E;&#x8BE2; getHiringStatus -&gt; startConversation(&#x6309;&#x9700;)</text>
+
+  <text x="120" y="860" class="layer-tag">L4</text>
+  <rect x="320" y="800" rx="16" ry="16" width="760" height="90" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="700" y="838" text-anchor="middle" class="node-title">&#x540E;&#x7AEF; API Controller</text>
+  <text x="700" y="865" text-anchor="middle" class="node-desc">EmployeeTemplatesController / HiringsController &#x63A5;&#x53E3;&#x5206;&#x53D1;</text>
+
+  <text x="120" y="1040" class="layer-tag">L5</text>
+  <rect x="320" y="980" rx="16" ry="16" width="760" height="90" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="700" y="1018" text-anchor="middle" class="node-title">&#x9886;&#x57DF;&#x670D;&#x52A1;&#x7F16;&#x6392;</text>
+  <text x="700" y="1045" text-anchor="middle" class="node-desc">EmployeeHiringService: &#x590D;&#x7528;/&#x521B;&#x5EFA;&#x6C99;&#x7BB1;&#xFF0C;EnsureSession&#xFF0C;&#x72B6;&#x6001;&#x6620;&#x5C04; READY</text>
+
+  <text x="120" y="1220" class="layer-tag">L6</text>
+  <rect x="320" y="1160" rx="16" ry="16" width="760" height="90" fill="#e9d5ff" stroke="#9333ea" stroke-width="2"/>
+  <text x="700" y="1198" text-anchor="middle" class="node-title">&#x6C99;&#x7BB1;&#x4E0E;&#x7F51;&#x5173;</text>
+  <text x="700" y="1225" text-anchor="middle" class="node-desc">SandboxService/OpenSandbox: Create/Refresh/EnsureSession + GatewayEndpoint</text>
+
+  <text x="120" y="1400" class="layer-tag">L7</text>
+  <rect x="320" y="1340" rx="16" ry="16" width="760" height="90" fill="#e9d5ff" stroke="#9333ea" stroke-width="2"/>
+  <text x="700" y="1378" text-anchor="middle" class="node-title">&#x9996;&#x6B21;&#x4F1A;&#x8BDD;&#x81EA;&#x52A8;&#x5F15;&#x5BFC;</text>
+  <text x="700" y="1405" text-anchor="middle" class="node-desc">&#x524D;&#x7AEF;&#x76F4;&#x4F20;&#x6A21;&#x677F;&#x5305;&#x5230;&#x5DE5;&#x4F5C;&#x533A;&#xFF0C;WebSocket &#x53D1;&#x9001;&#x5F15;&#x5BFC; prompt&#xFF0C;&#x8FDB;&#x5165;&#x8D44;&#x6599;&#x6536;&#x96C6;</text>
+
+  <rect x="1140" y="120" width="220" height="170" rx="10" ry="10" fill="#ffffff" stroke="#d1d5db"/>
+  <text x="1160" y="148" class="legend" font-weight="700">&#x56FE;&#x4F8B;</text>
+  <rect x="1160" y="162" width="18" height="18" fill="#e0f2fe" stroke="#0284c7"/>
+  <text x="1188" y="176" class="legend">&#x524D;&#x7AEF; UI/&#x8DEF;&#x7531;</text>
+  <rect x="1160" y="188" width="18" height="18" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="1188" y="202" class="legend">&#x524D;&#x7AEF;&#x4E1A;&#x52A1;&#x7F16;&#x6392;</text>
+  <rect x="1160" y="214" width="18" height="18" fill="#fef3c7" stroke="#d97706"/>
+  <text x="1188" y="228" class="legend">&#x540E;&#x7AEF; API/&#x670D;&#x52A1;</text>
+  <rect x="1160" y="240" width="18" height="18" fill="#e9d5ff" stroke="#9333ea"/>
+  <text x="1188" y="254" class="legend">&#x6C99;&#x7BB1; / WS / AI</text>
+</svg>
